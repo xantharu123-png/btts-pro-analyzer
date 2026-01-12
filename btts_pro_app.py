@@ -190,9 +190,10 @@ with st.sidebar:
                 status_text = st.empty()
                 
                 # Load all leagues with progress
-                leagues = ['BL1', 'PL', 'PD', 'SA', 'FL1', 'DED', 'ELC', 'PPL', 'BSA']
+                leagues = ['BL1', 'PL', 'PD', 'SA', 'FL1', 'DED', 'ELC', 'PPL', 'BSA', 'BEL', 'SWE', 'NOR']
                 league_names = ['Bundesliga', 'Premier League', 'La Liga', 'Serie A', 
-                               'Ligue 1', 'Eredivisie', 'Championship', 'Primeira Liga', 'Brasileirão']
+                               'Ligue 1', 'Eredivisie', 'Championship', 'Primeira Liga', 'Brasileirão',
+                               'Belgian Pro League', 'Allsvenskan', 'Eliteserien']
                 total = len(leagues)
                 
                 status_text.text("📥 Loading latest matches from all leagues...")
@@ -208,9 +209,12 @@ with st.sidebar:
                 progress_bar.progress(1.0)
                 
                 # Get stats
-                total_matches = sum(1 for _ in analyzer.engine.conn.execute(
-                    "SELECT COUNT(*) FROM matches WHERE status='FINISHED'"
-                ).fetchone())
+                import sqlite3
+                conn = sqlite3.connect('btts_data.db')
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM matches WHERE status='FINISHED'")
+                total_matches = cursor.fetchone()[0]
+                conn.close()
                 
                 status_text.empty()
                 progress_bar.empty()
