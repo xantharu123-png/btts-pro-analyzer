@@ -321,43 +321,82 @@ class DataEngine:
         return None
     
     def calculate_head_to_head(self, team1_id: int, team2_id: int) -> Dict:
-        """Calculate head-to-head statistics"""
+        """
+        Calculate head-to-head statistics with TIME WEIGHTING
+        Recent matches are MORE IMPORTANT than old matches!
+        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Get all matches between these teams
+        # Get all H2H matches with dates (for weighting)
         cursor.execute('''
-            SELECT COUNT(*) as matches,
-                   SUM(btts) as btts_count,
-                   AVG(total_goals) as avg_goals
+            SELECT home_score, away_score, btts, total_goals, match_date
             FROM matches
             WHERE ((home_team_id = ? AND away_team_id = ?)
                    OR (home_team_id = ? AND away_team_id = ?))
                   AND status = 'FINISHED'
+            ORDER BY match_date DESC
+            LIMIT 20
         ''', (team1_id, team2_id, team2_id, team1_id))
         
-        result = cursor.fetchone()
+        results = cursor.fetchall()
         
-        if result and result[0] > 0:
-            matches, btts_count, avg_goals = result
-            btts_rate = (btts_count / matches * 100) if matches > 0 else 0
-            
-            # Cache the result
-            cursor.execute('''
-                INSERT OR REPLACE INTO head_to_head
-                (team1_id, team2_id, matches_played, btts_count, btts_rate, avg_total_goals, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (team1_id, team2_id, matches, btts_count, btts_rate, avg_goals or 0, datetime.now()))
-            
-            conn.commit()
+        if not results or len(results) == 0:
             conn.close()
-            
             return {
-                'matches_played': matches,
-                'btts_count': btts_count,
-                'btts_rate': btts_rate,
-                'avg_total_goals': avg_goals or 0
+                'matches_played': 0,
+                'btts_count': 0,
+                'btts_rate': 0,
+                'weighted_btts_rate': 0,
+                'avg_total_goals': 0
             }
+        
+        matches = len(results)
+        
+        # Standard BTTS (unweighted - old method)
+        btts_count = sum(r[2] for r in results if r[2])
+        standard_btts_rate = (btts_count / matches * 100) if matches > 0 else 0
+        
+        # TIME-WEIGHTED BTTS (NEW! Recent matches more important!)
+        # Weight formula: 1.0 / (1 + 0.3 * position)
+        # Match 0 (newest): weight = 1.00
+        # Match 1: weight = 0.77
+        # Match 2: weight = 0.63
+        # Match 3: weight = 0.53
+        # Match 4: weight = 0.45
+        # etc. (exponential decay)
+        
+        weighted_btts_sum = 0
+        total_weight = 0
+        
+        for idx, match in enumerate(results):
+            btts = match[2]  # 1 or 0
+            weight = 1.0 / (1 + 0.3 * idx)  # Recent = higher weight
+            weighted_btts_sum += btts * weight
+            total_weight += weight
+        
+        weighted_btts_rate = (weighted_btts_sum / total_weight * 100) if total_weight > 0 else 0
+        
+        # Average goals
+        avg_goals = sum(r[3] for r in results) / matches if matches > 0 else 0
+        
+        # Cache the result
+        cursor.execute('''
+            INSERT OR REPLACE INTO head_to_head
+            (team1_id, team2_id, matches_played, btts_count, btts_rate, avg_total_goals, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (team1_id, team2_id, matches, btts_count, weighted_btts_rate, avg_goals, datetime.now()))
+        
+        conn.commit()
+        conn.close()
+        
+        return {
+            'matches_played': matches,
+            'btts_count': btts_count,
+            'btts_rate': standard_btts_rate,  # Keep for comparison
+            'weighted_btts_rate': weighted_btts_rate,  # NEW: Use this!
+            'avg_total_goals': avg_goals
+        }
         
         conn.close()
         return {'matches_played': 0, 'btts_count': 0, 'btts_rate': 0, 'avg_total_goals': 0}

@@ -315,7 +315,8 @@ class AdvancedBTTSAnalyzer:
         form_prob = (home_form['btts_rate'] + away_form['btts_rate']) / 2
         
         # H2H-based adjustment
-        h2h_prob = h2h['btts_rate'] if h2h['matches_played'] >= 3 else stat_prob
+        # H2H-based adjustment with TIME WEIGHTING (recent matches more important!)
+        h2h_prob = h2h.get('weighted_btts_rate', h2h.get('btts_rate', stat_prob)) if h2h['matches_played'] >= 3 else stat_prob
         
         # NEW: Apply rest days factor
         rest_factor = (home_rest['fatigue_factor'] + away_rest['fatigue_factor']) / 2
