@@ -67,6 +67,7 @@ def get_analyzer():
         if hasattr(st, 'secrets') and 'api' in st.secrets:
             api_key = st.secrets['api']['api_key']
             weather_key = st.secrets['api'].get('weather_key', None)
+            api_football_key = st.secrets['api'].get('api_football_key', None)
             st.session_state['api_source'] = 'Streamlit Secrets'
         else:
             # Fallback to config.ini (for local development)
@@ -76,10 +77,14 @@ def get_analyzer():
             
             api_key = None
             weather_key = None
+            api_football_key = None
+            
             if config.has_option('api', 'api_key'):
                 api_key = config.get('api', 'api_key').strip()
             if config.has_option('api', 'weather_key'):
                 weather_key = config.get('api', 'weather_key').strip()
+            if config.has_option('api', 'api_football_key'):
+                api_football_key = config.get('api', 'api_football_key').strip()
             
             st.session_state['api_source'] = 'config.ini'
         
@@ -90,9 +95,17 @@ def get_analyzer():
         if not weather_key:
             weather_key = 'de6b12b5cd22b2a20761927a3bf39f34'  # Your OpenWeatherMap key
         
-        analyzer = AdvancedBTTSAnalyzer(api_key=api_key, weather_api_key=weather_key)
+        if not api_football_key:
+            api_football_key = '1a1c70f5c48bfdce946b71680e47e92e'  # Your API-Football key
+        
+        analyzer = AdvancedBTTSAnalyzer(
+            api_key=api_key, 
+            weather_api_key=weather_key,
+            api_football_key=api_football_key
+        )
         st.session_state['analyzer_ready'] = True
         st.session_state['weather_enabled'] = (weather_key is not None)
+        st.session_state['xg_enabled'] = (api_football_key is not None)
         return analyzer
     except Exception as e:
         st.error(f"Failed to initialize analyzer: {e}")

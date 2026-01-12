@@ -22,11 +22,25 @@ class DataEngine:
     - Head-to-head history
     """
     
-    def __init__(self, api_key: Optional[str] = None, db_path: str = "btts_data.db"):
+    def __init__(self, api_key: Optional[str] = None, db_path: str = "btts_data.db",
+                 api_football_key: Optional[str] = None):
         self.api_key = api_key
         self.base_url = "https://api.football-data.org/v4"
         self.db_path = db_path
         self.init_database()
+        
+        # API-Football for xG data
+        self.api_football_key = api_football_key
+        if api_football_key:
+            try:
+                from api_football import APIFootball
+                self.api_football = APIFootball(api_football_key)
+                print("✅ API-Football initialized for xG data!")
+            except ImportError:
+                self.api_football = None
+                print("⚠️ api_football.py not found - xG disabled")
+        else:
+            self.api_football = None
         
         # Rate limiting
         self.last_request_time = 0
@@ -41,7 +55,11 @@ class DataEngine:
             'Ligue 1': 'FL1',
             'Eredivisie': 'DED',
             'Championship': 'ELC',
-            'Primeira Liga': 'PPL'
+            'Primeira Liga': 'PPL',
+            'Brasileirão': 'BSA',
+            'Belgian Pro League': 'BEL',
+            'Allsvenskan': 'SWE',
+            'Eliteserien': 'NOR'
         }
     
     def init_database(self):
@@ -73,6 +91,12 @@ class DataEngine:
                 status TEXT,
                 btts INTEGER,
                 total_goals INTEGER,
+                xg_home REAL,
+                xg_away REAL,
+                shots_home INTEGER,
+                shots_away INTEGER,
+                shots_on_target_home INTEGER,
+                shots_on_target_away INTEGER,
                 last_updated TIMESTAMP,
                 FOREIGN KEY (home_team_id) REFERENCES teams(team_id),
                 FOREIGN KEY (away_team_id) REFERENCES teams(team_id)
@@ -705,6 +729,80 @@ class DataEngine:
             self.calculate_team_stats(team_id, league_code, season)
         
         print(f"✅ Data refresh complete for {league_code}")
+    
+    def load_xg_for_league(self, league_code: str, season: int = 2024, limit: int = None):
+        """
+        Load xG data for all matches in a league from API-Football
+        This enriches existing matches with xG statistics
+        """
+        if not self.api_football:
+            print("⚠️ API-Football not initialized - cannot load xG")
+            return
+        
+        print(f"\n📊 Loading xG data for {league_code}...")
+        
+        try:
+            # Get matches from API-Football
+            matches = self.api_football.get_league_matches(league_code, season=season)
+            
+            if not matches:
+                print(f"⚠️ No matches found for {league_code}")
+                return
+            
+            if limit:
+                matches = matches[:limit]
+            
+            print(f"✅ Found {len(matches)} matches")
+            
+            # Load xG for each match (sample first 50 to avoid rate limits)
+            updated_count = 0
+            matches_to_process = matches[:50]  # Start with 50 matches
+            
+            for idx, match in enumerate(matches_to_process):
+                try:
+                    # Get detailed statistics including xG
+                    stats = self.api_football.get_match_statistics(match['match_id'])
+                    
+                    if stats and stats.get('xg_home') and stats.get('xg_away'):
+                        # Update match in database
+                        conn = sqlite3.connect(self.db_path)
+                        cursor = conn.cursor()
+                        
+                        cursor.execute('''
+                            UPDATE matches 
+                            SET xg_home = ?,
+                                xg_away = ?,
+                                shots_home = ?,
+                                shots_away = ?,
+                                shots_on_target_home = ?,
+                                shots_on_target_away = ?
+                            WHERE match_id = ?
+                        ''', (
+                            stats['xg_home'],
+                            stats['xg_away'],
+                            stats['shots_home'],
+                            stats['shots_away'],
+                            stats['shots_on_target_home'],
+                            stats['shots_on_target_away'],
+                            match['match_id']
+                        ))
+                        
+                        conn.commit()
+                        conn.close()
+                        
+                        updated_count += 1
+                        
+                        if (idx + 1) % 10 == 0:
+                            print(f"  Progress: {idx + 1}/{len(matches_to_process)} matches processed...")
+                
+                except Exception as e:
+                    # Continue on error
+                    continue
+            
+            print(f"✅ Updated {updated_count} matches with xG data!")
+            
+        except Exception as e:
+            print(f"❌ Error loading xG: {e}")
 
 
 if __name__ == "__main__":

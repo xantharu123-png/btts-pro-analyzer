@@ -35,8 +35,8 @@ class AdvancedBTTSAnalyzer:
     """
     
     def __init__(self, api_key: Optional[str] = None, db_path: str = "btts_data.db", 
-                 weather_api_key: Optional[str] = None):
-        self.engine = DataEngine(api_key, db_path)
+                 weather_api_key: Optional[str] = None, api_football_key: Optional[str] = None):
+        self.engine = DataEngine(api_key, db_path, api_football_key=api_football_key)
         self.db_path = db_path
         
         # Weather Analyzer
