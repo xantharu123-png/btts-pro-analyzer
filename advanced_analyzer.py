@@ -16,6 +16,13 @@ from pathlib import Path
 
 from data_engine import DataEngine
 
+try:
+    from weather_analyzer import WeatherAnalyzer
+    WEATHER_AVAILABLE = True
+except ImportError:
+    WEATHER_AVAILABLE = False
+    print("⚠️ Weather module not available - install if you want weather analysis")
+
 
 class AdvancedBTTSAnalyzer:
     """
@@ -27,9 +34,21 @@ class AdvancedBTTSAnalyzer:
     - Confidence scoring
     """
     
-    def __init__(self, api_key: Optional[str] = None, db_path: str = "btts_data.db"):
+    def __init__(self, api_key: Optional[str] = None, db_path: str = "btts_data.db", 
+                 weather_api_key: Optional[str] = None):
         self.engine = DataEngine(api_key, db_path)
         self.db_path = db_path
+        
+        # Weather Analyzer
+        if WEATHER_AVAILABLE and weather_api_key:
+            self.weather = WeatherAnalyzer(weather_api_key)
+            print("✅ Weather analysis enabled!")
+        else:
+            self.weather = None
+            if not WEATHER_AVAILABLE:
+                print("⚠️ Weather module not available")
+            elif not weather_api_key:
+                print("⚠️ Weather API key not provided")
         
         # ML Models
         self.ml_model = None
@@ -327,6 +346,18 @@ class AdvancedBTTSAnalyzer:
         # NEW: Apply motivation factor
         motivation_adjustment = (home_motivation['btts_adjustment'] + away_motivation['btts_adjustment']) / 2
         
+        # NEW: Weather analysis
+        weather_adjustment = 0
+        weather_data = None
+        if self.weather:
+            try:
+                home_weather = self.weather.get_weather(home_stats['team_name'])
+                if home_weather:
+                    weather_adjustment = home_weather['btts_adjustment']
+                    weather_data = home_weather
+            except Exception as e:
+                print(f"⚠️ Weather API error: {e}")
+        
         # Ensemble prediction with new factors
         base_ensemble = (
             self.weights['ml_model'] * ml_prob * 100 +
@@ -339,6 +370,7 @@ class AdvancedBTTSAnalyzer:
         enhanced_prob = base_ensemble * rest_factor  # Multiply by fatigue
         enhanced_prob += momentum_bonus  # Add momentum
         enhanced_prob += motivation_adjustment  # Add motivation
+        enhanced_prob += weather_adjustment  # Add weather
         
         # Ensure reasonable bounds
         ensemble_prob = max(20, min(enhanced_prob, 95))
@@ -430,6 +462,10 @@ class AdvancedBTTSAnalyzer:
                     'home': home_motivation,
                     'away': away_motivation,
                     'adjustment': round(motivation_adjustment, 1)
+                },
+                'weather': weather_data if weather_data else {
+                    'enabled': False,
+                    'message': 'Weather analysis not enabled'
                 }
             },
             'details': {
