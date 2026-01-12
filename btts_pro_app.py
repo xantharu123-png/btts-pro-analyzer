@@ -127,11 +127,18 @@ with st.sidebar:
         step=5
     )
     
-    selected_leagues = st.multiselect(
-        "Select Leagues",
-        options=list(analyzer.engine.leagues.keys()) if analyzer else [],
-        default=['Bundesliga']
-    )
+    # Select all checkbox
+    select_all = st.checkbox("Alle Ligen auswählen", value=False)
+    
+    if select_all:
+        selected_leagues = list(analyzer.engine.leagues.keys()) if analyzer else []
+        st.info(f"✅ Alle {len(selected_leagues)} Ligen ausgewählt")
+    else:
+        selected_leagues = st.multiselect(
+            "Select Leagues",
+            options=list(analyzer.engine.leagues.keys()) if analyzer else [],
+            default=['Bundesliga']
+        )
     
     days_ahead = st.slider(
         "Days Ahead",
