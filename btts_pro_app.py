@@ -161,10 +161,61 @@ with st.sidebar:
             st.success("Data refreshed!")
             st.cache_resource.clear()
     
-    if st.button("Retrain ML Model"):
-        with st.spinner("Retraining model..."):
-            analyzer.train_model()
-            st.success("Model retrained!")
+    if st.button("🔄 Retrain ML Model with Latest Data"):
+        with st.spinner("🤖 Retraining model with all latest matches..."):
+            try:
+                # Show progress
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                # Load all leagues with progress
+                leagues = ['BL1', 'PL', 'PD', 'SA', 'FL1', 'DED', 'ELC', 'PPL', 'BSA']
+                league_names = ['Bundesliga', 'Premier League', 'La Liga', 'Serie A', 
+                               'Ligue 1', 'Eredivisie', 'Championship', 'Primeira Liga', 'Brasileirão']
+                total = len(leagues)
+                
+                status_text.text("📥 Loading latest matches from all leagues...")
+                
+                for idx, (code, name) in enumerate(zip(leagues, league_names)):
+                    status_text.text(f"📥 Loading {name}... ({idx+1}/{total})")
+                    analyzer.engine.refresh_league_data(code, season='2024')
+                    progress_bar.progress((idx + 1) / (total + 1))
+                
+                # Retrain
+                status_text.text("🤖 Training ML model with all data...")
+                analyzer.train_model()
+                progress_bar.progress(1.0)
+                
+                # Get stats
+                total_matches = sum(1 for _ in analyzer.engine.conn.execute(
+                    "SELECT COUNT(*) FROM matches WHERE status='FINISHED'"
+                ).fetchone())
+                
+                status_text.empty()
+                progress_bar.empty()
+                
+                st.success(f"✅ Model retrained successfully with {total_matches} matches!")
+                st.info("📊 The model is now up-to-date with the latest data. Refresh the page to use the new model.")
+                
+                # Clear cache to reload
+                st.cache_resource.clear()
+                
+            except Exception as e:
+                st.error(f"❌ Retraining failed: {e}")
+                st.warning("💡 Try refreshing league data first, then retrain.")
+    
+    # Show last training date
+    try:
+        import os
+        from datetime import datetime
+        if os.path.exists('ml_model.pkl'):
+            mod_time = os.path.getmtime('ml_model.pkl')
+            last_trained = datetime.fromtimestamp(mod_time).strftime('%d.%m.%Y %H:%M')
+            st.caption(f"🕐 Last trained: {last_trained}")
+        else:
+            st.caption("⚠️ Model not found - please retrain!")
+    except:
+        pass
     
     st.markdown("---")
     st.markdown("""
