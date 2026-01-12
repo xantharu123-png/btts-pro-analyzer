@@ -42,6 +42,18 @@ class DataEngine:
         else:
             self.api_football = None
         
+        # Advanced Stats for injuries, referee, etc.
+        if api_football_key:
+            try:
+                from advanced_stats import AdvancedStats
+                self.advanced_stats = AdvancedStats(api_football_key)
+                print("✅ Advanced Stats initialized!")
+            except ImportError:
+                self.advanced_stats = None
+                print("⚠️ advanced_stats.py not found")
+        else:
+            self.advanced_stats = None
+        
         # Rate limiting
         self.last_request_time = 0
         self.min_request_interval = 6  # 10 requests per minute = 6 seconds between requests
@@ -803,6 +815,77 @@ class DataEngine:
             
         except Exception as e:
             print(f"❌ Error loading xG: {e}")
+    
+    def get_advanced_match_stats(self, home_team_id: int, away_team_id: int, 
+                                 fixture_id: Optional[int] = None) -> Dict:
+        """
+        Get all advanced statistics for a match
+        Returns injuries, referee, form breakdown, etc.
+        """
+        if not self.advanced_stats:
+            return {
+                'injuries_available': False,
+                'referee_available': False,
+                'advanced_available': False
+            }
+        
+        stats = {
+            'injuries_available': True,
+            'referee_available': True,
+            'advanced_available': True
+        }
+        
+        try:
+            # Get injuries for both teams
+            home_injuries = self.advanced_stats.get_team_injuries(home_team_id)
+            away_injuries = self.advanced_stats.get_team_injuries(away_team_id)
+            
+            stats['home_injuries'] = home_injuries if home_injuries else {
+                'total_injuries': 0, 'key_players_out': 0, 'btts_adjustment': 0
+            }
+            stats['away_injuries'] = away_injuries if away_injuries else {
+                'total_injuries': 0, 'key_players_out': 0, 'btts_adjustment': 0
+            }
+            
+            # Combined injury impact
+            injury_impact = (
+                stats['home_injuries']['btts_adjustment'] + 
+                stats['away_injuries']['btts_adjustment']
+            ) / 2
+            stats['injury_impact'] = injury_impact
+            
+        except Exception as e:
+            print(f"⚠️ Error getting injuries: {e}")
+            stats['injuries_available'] = False
+        
+        # Get H2H deep analysis
+        try:
+            h2h_deep = self.advanced_stats.get_h2h_deep(home_team_id, away_team_id)
+            stats['h2h_deep'] = h2h_deep if h2h_deep else {
+                'btts_adjustment': 0
+            }
+        except Exception as e:
+            stats['h2h_deep'] = {'btts_adjustment': 0}
+        
+        # If we have a fixture_id, get match-specific stats
+        if fixture_id:
+            try:
+                # Corners
+                corners = self.advanced_stats.get_corners_stats(fixture_id)
+                stats['corners'] = corners if corners else {}
+                
+                # Cards
+                cards = self.advanced_stats.get_cards_stats(fixture_id)
+                stats['cards'] = cards if cards else {}
+                
+                # Possession
+                possession = self.advanced_stats.get_possession_stats(fixture_id)
+                stats['possession'] = possession if possession else {}
+                
+            except Exception as e:
+                pass
+        
+        return stats
 
 
 if __name__ == "__main__":

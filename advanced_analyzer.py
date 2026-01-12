@@ -358,6 +358,27 @@ class AdvancedBTTSAnalyzer:
             except Exception as e:
                 print(f"⚠️ Weather API error: {e}")
         
+        # NEW: Advanced Stats (Injuries, H2H Deep, etc.)
+        advanced_adjustment = 0
+        advanced_data = None
+        if hasattr(self.engine, 'advanced_stats') and self.engine.advanced_stats:
+            try:
+                advanced_data = self.engine.get_advanced_match_stats(
+                    home_team_id, 
+                    away_team_id
+                )
+                
+                # Apply injury impact
+                if advanced_data.get('injuries_available'):
+                    advanced_adjustment += advanced_data.get('injury_impact', 0)
+                
+                # Apply H2H deep adjustment
+                if advanced_data.get('h2h_deep'):
+                    advanced_adjustment += advanced_data['h2h_deep'].get('btts_adjustment', 0)
+                
+            except Exception as e:
+                print(f"⚠️ Advanced Stats error: {e}")
+        
         # Ensemble prediction with new factors
         base_ensemble = (
             self.weights['ml_model'] * ml_prob * 100 +
@@ -371,6 +392,7 @@ class AdvancedBTTSAnalyzer:
         enhanced_prob += momentum_bonus  # Add momentum
         enhanced_prob += motivation_adjustment  # Add motivation
         enhanced_prob += weather_adjustment  # Add weather
+        enhanced_prob += advanced_adjustment  # Add injuries, h2h deep, etc.
         
         # Ensure reasonable bounds
         ensemble_prob = max(20, min(enhanced_prob, 95))
@@ -466,6 +488,10 @@ class AdvancedBTTSAnalyzer:
                 'weather': weather_data if weather_data else {
                     'enabled': False,
                     'message': 'Weather analysis not enabled'
+                },
+                'advanced': advanced_data if advanced_data else {
+                    'enabled': False,
+                    'message': 'Advanced stats not available'
                 }
             },
             'details': {
