@@ -91,13 +91,9 @@ class UltraLiveScanner:
                 print(f"⚠️ No stats available yet!")
             
             # SYSTEM 1: Pre-Match Base Prediction
-            try:
-                pre_match = self.analyzer.analyze_match(home_team_id, away_team_id)
-                base_btts = pre_match['ensemble_prediction']
-                print(f"📈 Base BTTS: {base_btts:.1f}%")
-            except Exception as e:
-                print(f"⚠️ Pre-match analysis failed: {e}")
-                base_btts = 70  # Fallback
+            # NOTE: Skipping pre-match analysis - not needed for live predictions
+            # Live predictions are based on in-game stats which are more accurate
+            base_btts = 70  # Neutral starting point
             
             # SYSTEM 2: Momentum Tracking
             momentum_result = self._update_momentum(fixture_id, stats, minute)
