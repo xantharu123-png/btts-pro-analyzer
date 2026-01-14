@@ -280,43 +280,6 @@ class APIFootball:
             return None
 
 
-# Test function
-if __name__ == "__main__":
-    API_KEY = "1a1c70f5c48bfdce946b71680e47e92e"
-    
-    print("🧪 Testing API-Football Integration...\n")
-    
-    api = APIFootball(API_KEY)
-    
-    # Test connection
-    if api.test_connection():
-        print("\n✅ Connection successful!\n")
-        
-        # Test getting Bundesliga matches
-        print("📊 Testing Bundesliga data...")
-        matches = api.get_league_matches('BL1', season=2024)
-        
-        if matches:
-            print(f"✅ Found {len(matches)} Bundesliga matches")
-            print(f"\nSample match:")
-            print(f"  {matches[0]['home_team']} vs {matches[0]['away_team']}")
-            print(f"  Score: {matches[0]['home_score']}-{matches[0]['away_score']}")
-            print(f"  BTTS: {matches[0]['btts']}")
-        
-        # Test getting match statistics (xG)
-        if matches:
-            print(f"\n📈 Testing xG data for first match...")
-            stats = api.get_match_statistics(matches[0]['match_id'])
-            if stats:
-                print(f"✅ xG data available!")
-                print(f"  Home xG: {stats.get('xg_home', 'N/A')}")
-                print(f"  Away xG: {stats.get('xg_away', 'N/A')}")
-                print(f"  Shots: {stats.get('shots_home', 'N/A')} - {stats.get('shots_away', 'N/A')}")
-            else:
-                print("⚠️ No xG data for this match")
-    else:
-        print("❌ Connection failed!")
-    
     def get_upcoming_fixtures(self, league_code: str, days_ahead: int = 7) -> List[Dict]:
         """
         Get upcoming fixtures for a league
@@ -384,4 +347,36 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"❌ Error fetching fixtures: {e}")
             return []
+
+
+# Test function
+if __name__ == "__main__":
+    API_KEY = "1a1c70f5c48bfdce946b71680e47e92e"
+    
+    print("🧪 Testing API-Football Integration...\n")
+    
+    api = APIFootball(API_KEY)
+    
+    # Test connection
+    if api.test_connection():
+        print("\n✅ Connection successful!\n")
+        
+        # Test getting Bundesliga matches
+        print("📊 Testing Bundesliga data...")
+        matches = api.get_league_matches('BL1', season=2024)
+        
+        if matches:
+            print(f"✅ Found {len(matches)} Bundesliga matches")
+            print(f"\nSample match:")
+            print(f"  {matches[0]['home_team']} vs {matches[0]['away_team']}")
+            print(f"  Score: {matches[0]['home_score']}-{matches[0]['away_score']}")
+            print(f"  BTTS: {matches[0]['btts']}")
+        
+        # Test upcoming fixtures
+        print(f"\n📅 Testing upcoming fixtures...")
+        upcoming = api.get_upcoming_fixtures('BL1', days_ahead=7)
+        if upcoming:
+            print(f"✅ Found {len(upcoming)} upcoming matches")
+    else:
+        print("❌ Connection failed!")
 

@@ -577,8 +577,19 @@ class AdvancedBTTSAnalyzer:
                 continue
             
             if analysis['ensemble_probability'] >= min_probability:
+                # Parse date - handle different formats
+                try:
+                    date_str = match.get('date', match.get('utcDate', ''))
+                    if 'T' in date_str:
+                        date_obj = datetime.strptime(date_str[:19], '%Y-%m-%dT%H:%M:%S')
+                        formatted_date = date_obj.strftime('%d.%m.%Y %H:%M')
+                    else:
+                        formatted_date = date_str
+                except:
+                    formatted_date = str(match.get('date', 'Unknown'))
+                
                 results.append({
-                    'Date': datetime.strptime(match['utcDate'], '%Y-%m-%dT%H:%M:%SZ').strftime('%d.%m.%Y %H:%M'),
+                    'Date': formatted_date,
                     'Home': home_team['name'],
                     'Away': away_team['name'],
                     'BTTS %': f"{analysis['ensemble_probability']:.1f}%",
