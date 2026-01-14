@@ -21,27 +21,43 @@ class APIFootball:
             'x-rapidapi-key': api_key
         }
         
-        # League ID mappings (API-Football league IDs)
+        # League ID mappings (API-Football league IDs) - ALL 28 LEAGUES
         self.league_ids = {
-            'BL1': 78,    # Bundesliga
-            'PL': 39,     # Premier League
-            'PD': 140,    # La Liga
-            'SA': 135,    # Serie A
-            'FL1': 61,    # Ligue 1
-            'DED': 88,    # Eredivisie
-            'ELC': 40,    # Championship
-            'PPL': 94,    # Primeira Liga
-            'BSA': 71,    # Brasileirão
-            'BEL': 144,   # Belgian Pro League (NEW!)
-            'SWE': 113,   # Allsvenskan (NEW!)
-            'NOR': 103,   # Eliteserien (NEW!)
-        }
-        
-        # League names
-        self.league_names = {
-            'BEL': 'Belgian Pro League',
-            'SWE': 'Allsvenskan',
-            'NOR': 'Eliteserien'
+            # TIER 1: TOP LEAGUES (12)
+            'BL1': 78,    # 🇩🇪 Bundesliga
+            'PL': 39,     # 🇬🇧 Premier League
+            'PD': 140,    # 🇪🇸 La Liga
+            'SA': 135,    # 🇮🇹 Serie A
+            'FL1': 61,    # 🇫🇷 Ligue 1
+            'DED': 88,    # 🇳🇱 Eredivisie
+            'PPL': 94,    # 🇵🇹 Primeira Liga
+            'TSL': 203,   # 🇹🇷 Süper Lig
+            'ELC': 40,    # 🇬🇧 Championship
+            'BL2': 79,    # 🇩🇪 Bundesliga 2
+            'MX1': 262,   # 🇲🇽 Liga MX
+            'BSA': 71,    # 🇧🇷 Brasileirão
+            
+            # TIER 1: EUROPEAN CUPS (3)
+            'CL': 2,      # 🏆 Champions League
+            'EL': 3,      # 🏆 Europa League
+            'ECL': 848,   # 🏆 Conference League
+            
+            # TIER 2: EU EXPANSION (4)
+            'SC1': 179,   # 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scottish Premiership
+            'BE1': 144,   # 🇧🇪 Belgian Pro League
+            'SL1': 207,   # 🇨🇭 Swiss Super League
+            'AL1': 218,   # 🇦🇹 Austrian Bundesliga
+            
+            # TIER 3: GOAL FESTIVALS! (9)
+            'SPL': 265,   # 🇸🇬 Singapore Premier
+            'ESI': 330,   # 🇪🇪 Esiliiga (Estonia 2)
+            'IS2': 165,   # 🇮🇸 1. Deild (Iceland 2)
+            'ALE': 188,   # 🇦🇺 A-League
+            'ED1': 89,    # 🇳🇱 Eerste Divisie (NL 2)
+            'CHL': 209,   # 🇨🇭 Challenge League (CH 2)
+            'ALL': 113,   # 🇸🇪 Allsvenskan
+            'QSL': 292,   # 🇶🇦 Qatar Stars League
+            'UAE': 301,   # 🇦🇪 UAE Pro League
         }
         
         # Rate limiting
@@ -306,7 +322,7 @@ class APIFootball:
         
         params = {
             'league': league_id,
-            'season': 2024,
+            'season': 2025,  # Current season 2025/2026
             'from': today.strftime('%Y-%m-%d'),
             'to': end_date.strftime('%Y-%m-%d'),
             'status': 'NS'  # Not Started
