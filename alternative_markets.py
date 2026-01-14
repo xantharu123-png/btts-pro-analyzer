@@ -385,8 +385,13 @@ class CornerPredictor:
         score_diff = abs(match_data.get('home_score', 0) - match_data.get('away_score', 0))
         
         # FACTOR 1: Current corners
-        corners_home = stats.get('corners_home', 0)
-        corners_away = stats.get('corners_away', 0)
+        corners_home = stats.get('corners_home') or 0
+        corners_away = stats.get('corners_away') or 0
+        
+        # Ensure they're integers
+        corners_home = int(corners_home) if corners_home is not None else 0
+        corners_away = int(corners_away) if corners_away is not None else 0
+        
         current_corners = corners_home + corners_away
         
         # FACTOR 2: Base rate projection
@@ -409,8 +414,13 @@ class CornerPredictor:
         possession_bonus = (possession_imbalance / 10.0) * 0.4
         
         # FACTOR 4: Attack pressure
-        shots_home = stats.get('shots_home', 0)
-        shots_away = stats.get('shots_away', 0)
+        shots_home = stats.get('shots_home') or 0
+        shots_away = stats.get('shots_away') or 0
+        
+        # Ensure they're integers
+        shots_home = int(shots_home) if shots_home is not None else 0
+        shots_away = int(shots_away) if shots_away is not None else 0
+        
         total_shots = shots_home + shots_away
         
         if minute > 0:

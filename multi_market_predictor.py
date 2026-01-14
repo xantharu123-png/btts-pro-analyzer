@@ -647,9 +647,13 @@ class NextGoalPredictor:
         if not stats:
             return {'home': 50, 'away': 50}
         
-        # Use shots as proxy for pressure
-        home_shots = stats.get('shots_home', 0)
-        away_shots = stats.get('shots_away', 0)
+        # Use shots as proxy for pressure - handle None values
+        home_shots = stats.get('shots_home') or 0
+        away_shots = stats.get('shots_away') or 0
+        
+        # Ensure they're integers
+        home_shots = int(home_shots) if home_shots is not None else 0
+        away_shots = int(away_shots) if away_shots is not None else 0
         
         total_shots = home_shots + away_shots
         
