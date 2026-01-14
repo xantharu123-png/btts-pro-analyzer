@@ -771,8 +771,8 @@ with tab6:
     ✅ Real-time Analysis
     ✅ Multi-Factor Confidence
     
-    **🌍 19 LEAGUES:**
-    🇩🇪🇬🇧🇪🇸🇮🇹🇫🇷🇳🇱🇵🇹🇹🇷🇲🇽🇧🇷 + 🏆 CL/EL/ECL + 🇪🇺 Scotland/Belgium/Switzerland/Austria
+    **🌍 28 LEAGUES:**
+    🇩🇪🇬🇧🇪🇸🇮🇹🇫🇷🇳🇱🇵🇹🇹🇷🇲🇽🇧🇷 + 🏆 CL/EL/ECL + 🇪🇺 Scotland/Belgium/Switzerland/Austria + 🎊 Singapore/Estonia/Iceland/Australia/Sweden/Qatar/UAE
     """)
     
     # Auto-refresh enabled for cloud!
@@ -812,7 +812,7 @@ with tab6:
                 # Get live matches directly
                 live_matches = []
                 
-                # TIER 1 + 2 LEAGUES (19 Total!) 🔥
+                # TIER 1 + 2 + 3 LEAGUES (28 Total!) 🔥🎊
                 league_ids = [
                     # Original Top Leagues (12)
                     78,   # Bundesliga (Germany)
@@ -837,7 +837,18 @@ with tab6:
                     179,  # Scottish Premiership ⭐⭐⭐⭐
                     144,  # Belgian Pro League ⭐⭐⭐⭐
                     207,  # Swiss Super League ⭐⭐⭐⭐
-                    218   # Austrian Bundesliga ⭐⭐⭐⭐
+                    218,  # Austrian Bundesliga ⭐⭐⭐⭐
+                    
+                    # TIER 3: GOAL FESTIVALS! 🎊⚽ (9 verified)
+                    265,  # 🇸🇬 Singapore Premier League (4.0+ Goals!) ⚽⚽⚽⚽⚽
+                    330,  # 🇪🇪 Esiliiga (Estonia 2) (3.8-4.0 Goals!) ⚽⚽⚽⚽⚽
+                    165,  # 🇮🇸 1. Deild (Iceland 2) (Sommer Goals!) ⚽⚽⚽⚽
+                    188,  # 🇦🇺 A-League (No Defense, Just Vibes!) ⚽⚽⚽⚽
+                    89,   # 🇳🇱 Eerste Divisie (NL 2) (Talent Show!) ⚽⚽⚽⚽
+                    209,  # 🇨🇭 Challenge League (CH 2) (BTTS Kings!) ⚽⚽⚽⚽
+                    113,  # 🇸🇪 Allsvenskan (Sommer Fest!) ⚽⚽⚽⚽
+                    292,  # 🇶🇦 Qatar Stars League (Star Power!) ⚽⚽⚽⚽
+                    301   # 🇦🇪 UAE Pro League (Offensive Chaos!) ⚽⚽⚽⚽
                 ]
                 
                 # 🔥 NEW APPROACH: Get ALL live matches first, then filter!
@@ -1086,9 +1097,14 @@ with tab8:
                 
                 # Same leagues as Ultra
                 league_ids = [
+                    # Top Leagues (12)
                     78, 39, 140, 135, 61, 88, 94, 203, 40, 78, 262, 71,
+                    # European Cups (3)
                     2, 3, 848,
-                    179, 144, 207, 218
+                    # EU Expansion (4)
+                    179, 144, 207, 218,
+                    # GOAL FESTIVALS! 🎊 (9)
+                    265, 330, 165, 188, 89, 209, 113, 292, 301
                 ]
                 
                 try:
