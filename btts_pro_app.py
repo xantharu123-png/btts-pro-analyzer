@@ -183,7 +183,7 @@ with st.sidebar:
         with st.spinner("Refreshing data..."):
             for league_code in selected_leagues:
                 # Use fetch_league_matches with force_refresh
-                analyzer.engine.fetch_league_matches(league_code, season=2024, force_refresh=True)
+                analyzer.engine.fetch_league_matches(league_code, season=2025, force_refresh=True)
             st.success("Data refreshed!")
             st.cache_resource.clear()
     
@@ -202,7 +202,7 @@ with st.sidebar:
                 
                 for idx, code in enumerate(leagues):
                     status_text.text(f"📥 Loading {code}... ({idx+1}/{total})")
-                    analyzer.engine.fetch_league_matches(code, season=2024, force_refresh=True)
+                    analyzer.engine.fetch_league_matches(code, season=2025, force_refresh=True)
                     progress_bar.progress((idx + 1) / (total + 1))
                 
                 # Retrain

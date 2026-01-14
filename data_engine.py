@@ -421,7 +421,7 @@ class DataEngine:
             'motivation_level': 'NORMAL'
         }
     
-    def fetch_league_matches(self, league_code, season=2024, force_refresh=False):
+    def fetch_league_matches(self, league_code, season=2025, force_refresh=False):
         """Fetch matches for a specific league"""
         league_id = self.LEAGUES_CONFIG.get(league_code)
         if not league_id:
@@ -464,7 +464,7 @@ class DataEngine:
             print(f"❌ Error fetching {league_code}: {e}")
             return []
     
-    def fetch_all_leagues(self, season=2024):
+    def fetch_all_leagues(self, season=2025):
         """Fetch ALL 28 leagues"""
         print(f"\n{'='*60}")
         print(f"🔥 FETCHING ALL 28 LEAGUES...")
