@@ -775,9 +775,7 @@ with tab6:
     🇩🇪🇬🇧🇪🇸🇮🇹🇫🇷🇳🇱🇵🇹🇹🇷🇲🇽🇧🇷 + 🏆 CL/EL/ECL + 🇪🇺 Scotland/Belgium/Switzerland/Austria
     """)
     
-    st.warning("⚠️ **WORKS BEST LOCALLY:** `python -m streamlit run btts_pro_app.py`")
-    
-    # Check if running locally
+    # Auto-refresh enabled for cloud!
     try:
         from streamlit_autorefresh import st_autorefresh
         
@@ -1019,10 +1017,9 @@ with tab6:
             st.info("Check API-Football key in secrets and network connection!")
     
     except ImportError:
-        st.error("❌ streamlit-autorefresh not installed!")
-        st.code("pip install streamlit-autorefresh")
-        st.info("Ultra Live Scanner requires local installation")
-        st.info("Run: `python -m streamlit run btts_pro_app.py`")
+        st.error("❌ streamlit-autorefresh not found!")
+        st.info("This should not happen - dependency is in requirements.txt")
+        st.info("Try refreshing the page or check Streamlit Cloud logs")
 
 # TAB 8: ÜBRIGE WETTEN (Alternative Markets)
 with tab8:
@@ -1328,8 +1325,9 @@ with tab8:
             st.code(traceback.format_exc())
     
     except ImportError:
-        st.error("❌ streamlit-autorefresh not installed!")
-        st.code("pip install streamlit-autorefresh")
+        st.error("❌ streamlit-autorefresh not found!")
+        st.info("This should not happen - dependency is in requirements.txt")
+        st.info("Try refreshing the page or check Streamlit Cloud logs")
 
 # Footer
 st.markdown("---")
