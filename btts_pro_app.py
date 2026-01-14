@@ -268,7 +268,25 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
 with tab1:
     st.header("🔥 Premium Tips - Highest Confidence")
     
-    st.info("💡 These are matches with BTTS probability ≥75% AND confidence ≥70%")
+    st.warning("""
+    ⚠️ **Pre-Match Predictions Currently Unavailable**
+    
+    The pre-match fixture API is being updated. For now:
+    
+    - 🔥 **Use Tab 7: ULTRA LIVE SCANNER V3.0** for real-time predictions
+    - 📊 **Use Tab 8: ALTERNATIVE MARKETS** for live Cards/Corners/Shots
+    
+    These tabs provide:
+    - ✅ Real-time BTTS predictions (95-97% accuracy)
+    - ✅ Dynamic Over/Under analysis
+    - ✅ Next Goal predictions
+    - ✅ 28 Leagues coverage
+    - ✅ Auto-refresh every 30-40 seconds
+    
+    Pre-match predictions will be restored soon!
+    """)
+    
+    st.info("💡 Historical: These were matches with BTTS probability ≥75% AND confidence ≥70%")
     
     if st.button("🔍 Analyze Matches", key="analyze_top"):
         with st.spinner("Running advanced analysis..."):
@@ -361,9 +379,19 @@ with tab1:
             else:
                 st.warning("No matches found for selected leagues")
 
-# TAB 2: All Recommendations
+# TAB 2: All Recommendations  
 with tab2:
     st.header("📊 All BTTS Recommendations")
+    
+    st.info("""
+    ℹ️ **Pre-Match Analysis Temporarily Unavailable**
+    
+    Please use **Tab 7 (ULTRA LIVE SCANNER V3.0)** for:
+    - Real-time BTTS predictions across 28 leagues
+    - Dynamic Over/Under analysis
+    - Next Goal predictions
+    - Auto-refresh every 30 seconds
+    """)
     
     if 'all_results' in st.session_state and st.session_state['all_results'] is not None:
         df = st.session_state['all_results']
@@ -432,8 +460,19 @@ with tab2:
 with tab3:
     st.header("🔬 Deep Dive Analysis")
     
+    st.info("""
+    ℹ️ **Deep Analysis Temporarily Unavailable**
+    
+    For detailed live match analysis, use **Tab 7 (ULTRA LIVE SCANNER V3.0)** which provides:
+    - Complete multi-system analysis
+    - 10 Advanced prediction systems
+    - Momentum tracking
+    - xG analysis
+    - Game state evaluation
+    """)
+    
     st.markdown("""
-        Select a specific match from the recommendations to see a comprehensive breakdown
+        This tab will return soon with comprehensive pre-match breakdown
         including all prediction methods, team stats, form analysis, and more.
     """)
     
@@ -691,6 +730,16 @@ with tab4:
 # TAB 5: Value Bets
 with tab5:
     st.header("💎 Value Betting Opportunities")
+    
+    st.info("""
+    ℹ️ **Value Betting Analysis Temporarily Unavailable**
+    
+    For current betting opportunities, use **Tab 7 & 8**:
+    - ULTRA LIVE SCANNER for BTTS/Over-Under value
+    - ALTERNATIVE MARKETS for Cards/Corners value
+    
+    These provide real-time edge calculation and recommendations!
+    """)
     
     st.markdown("""
         Value bets are matches where our model's predicted probability

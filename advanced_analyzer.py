@@ -508,16 +508,17 @@ class AdvancedBTTSAnalyzer:
         }
     
     def get_upcoming_matches(self, league_code: str, days_ahead: int = 7) -> List[Dict]:
-        """Get upcoming matches from API"""
-        data = self.engine._api_request(f"competitions/{league_code}/matches", {
-            'dateFrom': datetime.now().strftime('%Y-%m-%d'),
-            'dateTo': (datetime.now() + timedelta(days=days_ahead)).strftime('%Y-%m-%d')
-        })
+        """Get upcoming matches - simplified version using historical data
         
-        if not data or 'matches' not in data:
-            return []
-        
-        return data['matches']
+        Note: For now, we focus on analyzing historical match data.
+        Live predictions use the Ultra Live Scanner in Tab 7.
+        Pre-match predictions can be added by implementing fixture fetching from API-Football.
+        """
+        # For now, return empty - upcoming matches are handled by Live Scanner
+        # Historical analysis is done through analyze_match() with team names
+        print(f"⚠️ Upcoming matches fetching not implemented in current DataEngine")
+        print(f"💡 Use Live Scanner (Tab 7) for real-time match analysis")
+        return []
     
     def analyze_upcoming_matches(self, league_code: str, days_ahead: int = 7,
                                 min_probability: float = 60.0) -> pd.DataFrame:
