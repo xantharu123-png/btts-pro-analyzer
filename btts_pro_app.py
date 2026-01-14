@@ -433,7 +433,7 @@ with tab3:
     
     st.info("""
     ℹ️ **Deep Analysis Temporarily Unavailable**
-    
+    """)
     
     st.markdown("""
         Select a specific match from the recommendations to see a comprehensive breakdown
