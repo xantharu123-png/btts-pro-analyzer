@@ -16,7 +16,7 @@ from pathlib import Path
 import pickle
 
 
-class AdvancedAnalyzer:
+class AdvancedBTTSAnalyzer:
     """
     Korrigierte Pre-Match BTTS-Analyse
     ORIGINAL KLASSENNAME für Kompatibilität
@@ -359,4 +359,4 @@ class AdvancedAnalyzer:
 
 
 # Export
-__all__ = ['AdvancedAnalyzer']
+__all__ = ['AdvancedBTTSAnalyzer']
