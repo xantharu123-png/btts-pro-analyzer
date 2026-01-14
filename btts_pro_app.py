@@ -182,8 +182,8 @@ with st.sidebar:
     if st.button("Refresh League Data"):
         with st.spinner("Refreshing data..."):
             for league_code in selected_leagues:
-                # league_code is already the code (e.g., 'BL1'), not the name
-                analyzer.engine.refresh_league_data(league_code)
+                # Use fetch_league_matches with force_refresh
+                analyzer.engine.fetch_league_matches(league_code, season=2024, force_refresh=True)
             st.success("Data refreshed!")
             st.cache_resource.clear()
     
@@ -194,18 +194,15 @@ with st.sidebar:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
-                # Load all leagues with progress
-                leagues = ['BL1', 'PL', 'PD', 'SA', 'FL1', 'DED', 'ELC', 'PPL', 'BSA', 'BEL', 'SWE', 'NOR']
-                league_names = ['Bundesliga', 'Premier League', 'La Liga', 'Serie A', 
-                               'Ligue 1', 'Eredivisie', 'Championship', 'Primeira Liga', 'Brasileirão',
-                               'Belgian Pro League', 'Allsvenskan', 'Eliteserien']
+                # Load ALL 28 leagues from LEAGUES_CONFIG
+                leagues = list(analyzer.engine.LEAGUES_CONFIG.keys())
                 total = len(leagues)
                 
-                status_text.text("📥 Loading latest matches from all leagues...")
+                status_text.text(f"📥 Loading latest matches from all {total} leagues...")
                 
-                for idx, (code, name) in enumerate(zip(leagues, league_names)):
-                    status_text.text(f"📥 Loading {name}... ({idx+1}/{total})")
-                    analyzer.engine.refresh_league_data(code, season='2024')
+                for idx, code in enumerate(leagues):
+                    status_text.text(f"📥 Loading {code}... ({idx+1}/{total})")
+                    analyzer.engine.fetch_league_matches(code, season=2024, force_refresh=True)
                     progress_bar.progress((idx + 1) / (total + 1))
                 
                 # Retrain
