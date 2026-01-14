@@ -151,20 +151,20 @@ with st.sidebar:
     # Select all checkbox
     select_all = st.checkbox("Alle Ligen auswählen", value=False)
     
-    # Get available leagues
-    available_leagues = list(analyzer.engine.leagues.keys()) if analyzer else []
+    # Get available leagues from LEAGUES_CONFIG
+    available_leagues = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else []
     
     if select_all and available_leagues:
         selected_leagues = available_leagues
         st.info(f"✅ Alle {len(selected_leagues)} Ligen ausgewählt")
     else:
         # Set default only if available
-        default_league = ['Bundesliga'] if 'Bundesliga' in available_leagues else []
+        default_leagues = ['BL1'] if 'BL1' in available_leagues else []
         
         selected_leagues = st.multiselect(
             "Select Leagues",
             options=available_leagues,
-            default=default_league
+            default=default_leagues
         )
     
     days_ahead = st.slider(
@@ -181,10 +181,9 @@ with st.sidebar:
     
     if st.button("Refresh League Data"):
         with st.spinner("Refreshing data..."):
-            for league_name in selected_leagues:
-                league_code = analyzer.engine.leagues.get(league_name)
-                if league_code:
-                    analyzer.engine.refresh_league_data(league_code)
+            for league_code in selected_leagues:
+                # league_code is already the code (e.g., 'BL1'), not the name
+                analyzer.engine.refresh_league_data(league_code)
             st.success("Data refreshed!")
             st.cache_resource.clear()
     
@@ -278,19 +277,18 @@ with tab1:
         with st.spinner("Running advanced analysis..."):
             all_results = []
             
-            for league_name in selected_leagues:
-                league_code = analyzer.engine.leagues.get(league_name)
-                if league_code:
-                    st.write(f"Analyzing {league_name}...")
-                    results = analyzer.analyze_upcoming_matches(
-                        league_code, 
-                        days_ahead=days_ahead,
-                        min_probability=min_probability
-                    )
-                    
-                    if not results.empty:
-                        results['League'] = league_name
-                        all_results.append(results)
+            for league_code in selected_leagues:
+                # league_code is already the code (e.g., 'BL1')
+                st.write(f"Analyzing {league_code}...")
+                results = analyzer.analyze_upcoming_matches(
+                    league_code, 
+                    days_ahead=days_ahead,
+                    min_probability=min_probability
+                )
+                
+                if not results.empty:
+                    results['League'] = league_code
+                    all_results.append(results)
             
             if all_results:
                 combined = pd.concat(all_results, ignore_index=True)
