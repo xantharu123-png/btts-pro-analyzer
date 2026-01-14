@@ -7,8 +7,9 @@ API-Football: https://www.api-football.com
 
 import requests
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
+
 
 class APIFootball:
     """Interface to API-Football for xG and advanced stats"""
@@ -23,25 +24,41 @@ class APIFootball:
         
         # League ID mappings (API-Football league IDs)
         self.league_ids = {
-            'BL1': 78,    # Bundesliga
-            'PL': 39,     # Premier League
-            'PD': 140,    # La Liga
-            'SA': 135,    # Serie A
-            'FL1': 61,    # Ligue 1
-            'DED': 88,    # Eredivisie
-            'ELC': 40,    # Championship
-            'PPL': 94,    # Primeira Liga
-            'BSA': 71,    # Brasileirão
-            'BEL': 144,   # Belgian Pro League (NEW!)
-            'SWE': 113,   # Allsvenskan (NEW!)
-            'NOR': 103,   # Eliteserien (NEW!)
-        }
-        
-        # League names
-        self.league_names = {
-            'BEL': 'Belgian Pro League',
-            'SWE': 'Allsvenskan',
-            'NOR': 'Eliteserien'
+            # TIER 1: TOP LEAGUES (12)
+            'BL1': 78,    # 🇩🇪 Bundesliga
+            'PL': 39,     # 🇬🇧 Premier League  
+            'PD': 140,    # 🇪🇸 La Liga
+            'SA': 135,    # 🇮🇹 Serie A
+            'FL1': 61,    # 🇫🇷 Ligue 1
+            'DED': 88,    # 🇳🇱 Eredivisie
+            'PPL': 94,    # 🇵🇹 Primeira Liga
+            'TSL': 203,   # 🇹🇷 Süper Lig
+            'ELC': 40,    # 🇬🇧 Championship
+            'BL2': 79,    # 🇩🇪 Bundesliga 2
+            'MX1': 262,   # 🇲🇽 Liga MX
+            'BSA': 71,    # 🇧🇷 Brasileirão
+            
+            # TIER 1: EUROPEAN CUPS (3)
+            'CL': 2,      # 🏆 Champions League
+            'EL': 3,      # 🏆 Europa League
+            'ECL': 848,   # 🏆 Conference League
+            
+            # TIER 2: EU EXPANSION (4)
+            'SC1': 179,   # 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scottish Premiership
+            'BE1': 144,   # 🇧🇪 Belgian Pro League
+            'SL1': 207,   # 🇨🇭 Swiss Super League
+            'AL1': 218,   # 🇦🇹 Austrian Bundesliga
+            
+            # TIER 3: GOAL FESTIVALS! 🎊 (9)
+            'SPL': 265,   # 🇸🇬 Singapore Premier
+            'ESI': 330,   # 🇪🇪 Esiliiga
+            'IS2': 165,   # 🇮🇸 1. Deild
+            'ALE': 188,   # 🇦🇺 A-League
+            'ED1': 89,    # 🇳🇱 Eerste Divisie
+            'CHL': 209,   # 🇨🇭 Challenge League
+            'ALL': 113,   # 🇸🇪 Allsvenskan
+            'QSL': 292,   # 🇶🇦 Qatar Stars League
+            'UAE': 301,   # 🇦🇪 UAE Pro League
         }
         
         # Rate limiting
@@ -80,6 +97,135 @@ class APIFootball:
             print(f"❌ Connection error: {e}")
             return False
     
+    def get_upcoming_fixtures(self, league_code: str, days_ahead: int = 7) -> List[Dict]:
+        """
+        Get upcoming fixtures for a league
+        
+        Args:
+            league_code: League code (e.g., 'BL1', 'PL')
+            days_ahead: Number of days ahead to fetch (default 7)
+            
+        Returns:
+            List of upcoming fixtures with team info
+        """
+        league_id = self.league_ids.get(league_code)
+        if not league_id:
+            print(f"⚠️ Unknown league code: {league_code}")
+            return []
+        
+        self._rate_limit()
+        
+        # Calculate date range
+        today = datetime.now()
+        end_date = today + timedelta(days=days_ahead)
+        
+        params = {
+            'league': league_id,
+            'season': 2024,
+            'from': today.strftime('%Y-%m-%d'),
+            'to': end_date.strftime('%Y-%m-%d'),
+        }
+        
+        try:
+            print(f"📡 Fetching fixtures for {league_code} (ID: {league_id})...")
+            
+            response = requests.get(
+                f"{self.base_url}/fixtures",
+                headers=self.headers,
+                params=params,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if data.get('response'):
+                    fixtures = []
+                    for fixture in data['response']:
+                        status = fixture['fixture']['status']['short']
+                        # Nur nicht-gestartete Spiele
+                        if status in ['NS', 'TBD', 'SUSP', 'PST']:
+                            fixtures.append({
+                                'fixture_id': fixture['fixture']['id'],
+                                'date': fixture['fixture']['date'],
+                                'home_team': fixture['teams']['home']['name'],
+                                'home_team_id': fixture['teams']['home']['id'],
+                                'away_team': fixture['teams']['away']['name'],
+                                'away_team_id': fixture['teams']['away']['id'],
+                                'league_id': league_id,
+                                'league_code': league_code
+                            })
+                    print(f"✅ Found {len(fixtures)} upcoming fixtures for {league_code}")
+                    return fixtures
+                else:
+                    print(f"⚠️ No fixtures found for {league_code}")
+                    return []
+            else:
+                print(f"❌ API error: {response.status_code}")
+                return []
+                
+        except Exception as e:
+            print(f"❌ Error fetching fixtures: {e}")
+            return []
+    
+    def get_live_matches(self) -> List[Dict]:
+        """
+        Get all currently live matches
+        """
+        self._rate_limit()
+        
+        try:
+            print(f"\n{'='*60}")
+            print(f"🔍 FETCHING ALL LIVE MATCHES...")
+            print(f"{'='*60}")
+            
+            print(f"\n📡 Making API request to: {self.base_url}/fixtures")
+            print(f"   Params: live=all")
+            
+            response = requests.get(
+                f"{self.base_url}/fixtures",
+                headers=self.headers,
+                params={'live': 'all'},
+                timeout=15
+            )
+            
+            print(f"📨 Response Status: {response.status_code}")
+            
+            if response.status_code != 200:
+                print(f"❌ API Error: {response.status_code}")
+                return []
+            
+            data = response.json()
+            all_matches = data.get('response', [])
+            
+            print(f"✅ Found {len(all_matches)} total live matches!")
+            
+            # Filter für unsere Ligen
+            print(f"\n🔍 Filtering for our 28 leagues...")
+            our_league_ids = set(self.league_ids.values())
+            
+            our_matches = []
+            for match in all_matches:
+                league_id = match.get('league', {}).get('id')
+                home = match.get('teams', {}).get('home', {}).get('name', 'Unknown')
+                away = match.get('teams', {}).get('away', {}).get('name', 'Unknown')
+                league_name = match.get('league', {}).get('name', 'Unknown')
+                
+                print(f"   Found: {home} vs {away} ({league_name}, ID: {league_id})")
+                
+                if league_id in our_league_ids:
+                    print(f"      ✅ ADDED to analysis!")
+                    our_matches.append(match)
+                else:
+                    print(f"      ⏭️ Skipped (league not in our 28)")
+            
+            print(f"\n✅ TOTAL IN OUR LEAGUES: {len(our_matches)}")
+            return our_matches
+        
+        except Exception as e:
+            print(f"❌ Error fetching live matches: {e}")
+            return []
+    
     def get_league_matches(self, league_code: str, season: int = 2024) -> List[Dict]:
         """
         Get all finished matches for a league with xG data
@@ -92,14 +238,13 @@ class APIFootball:
         try:
             self._rate_limit()
             
-            # Get fixtures with statistics
             response = requests.get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
                 params={
                     'league': league_id,
                     'season': season,
-                    'status': 'FT'  # Finished matches only
+                    'status': 'FT'
                 },
                 timeout=15
             )
@@ -135,7 +280,6 @@ class APIFootball:
     def _parse_fixture(self, fixture: Dict) -> Optional[Dict]:
         """Parse a fixture and extract relevant data"""
         try:
-            # Basic match info
             match_id = fixture['fixture']['id']
             match_date = fixture['fixture']['date']
             
@@ -144,16 +288,11 @@ class APIFootball:
             home_id = fixture['teams']['home']['id']
             away_id = fixture['teams']['away']['id']
             
-            # Scores
             home_score = fixture['goals']['home']
             away_score = fixture['goals']['away']
             
             if home_score is None or away_score is None:
                 return None
-            
-            # Check if match has statistics
-            # Note: We need to make separate call for xG
-            # For now, we'll mark it for later xG fetch
             
             return {
                 'match_id': match_id,
@@ -193,20 +332,32 @@ class APIFootball:
             if 'response' not in data or len(data['response']) < 2:
                 return None
             
-            # Extract statistics for home and away
             home_stats = data['response'][0]['statistics']
             away_stats = data['response'][1]['statistics']
             
-            # Find xG values
             home_xg = self._find_stat(home_stats, 'expected_goals')
             away_xg = self._find_stat(away_stats, 'expected_goals')
             
-            # Other useful stats
             home_shots = self._find_stat(home_stats, 'Total Shots')
             away_shots = self._find_stat(away_stats, 'Total Shots')
             
             home_shots_target = self._find_stat(home_stats, 'Shots on Goal')
             away_shots_target = self._find_stat(away_stats, 'Shots on Goal')
+            
+            home_corners = self._find_stat(home_stats, 'Corner Kicks')
+            away_corners = self._find_stat(away_stats, 'Corner Kicks')
+            
+            home_fouls = self._find_stat(home_stats, 'Fouls')
+            away_fouls = self._find_stat(away_stats, 'Fouls')
+            
+            home_yellow = self._find_stat(home_stats, 'Yellow Cards')
+            away_yellow = self._find_stat(away_stats, 'Yellow Cards')
+            
+            home_red = self._find_stat(home_stats, 'Red Cards')
+            away_red = self._find_stat(away_stats, 'Red Cards')
+            
+            home_possession = self._find_stat(home_stats, 'Ball Possession')
+            away_possession = self._find_stat(away_stats, 'Ball Possession')
             
             return {
                 'xg_home': float(home_xg) if home_xg else None,
@@ -214,7 +365,17 @@ class APIFootball:
                 'shots_home': int(home_shots) if home_shots else None,
                 'shots_away': int(away_shots) if away_shots else None,
                 'shots_on_target_home': int(home_shots_target) if home_shots_target else None,
-                'shots_on_target_away': int(away_shots_target) if away_shots_target else None
+                'shots_on_target_away': int(away_shots_target) if away_shots_target else None,
+                'corners_home': int(home_corners) if home_corners else None,
+                'corners_away': int(away_corners) if away_corners else None,
+                'fouls_home': int(home_fouls) if home_fouls else None,
+                'fouls_away': int(away_fouls) if away_fouls else None,
+                'yellow_home': int(home_yellow) if home_yellow else None,
+                'yellow_away': int(away_yellow) if away_yellow else None,
+                'red_home': int(home_red) if home_red else None,
+                'red_away': int(away_red) if away_red else None,
+                'possession_home': home_possession,
+                'possession_away': away_possession
             }
         
         except Exception as e:
@@ -224,7 +385,12 @@ class APIFootball:
         """Find a specific statistic from stats list"""
         for stat in stats:
             if stat.get('type') == stat_name:
-                return stat.get('value')
+                value = stat.get('value')
+                if value is not None:
+                    # Handle percentage strings like "55%"
+                    if isinstance(value, str) and '%' in value:
+                        return value.replace('%', '')
+                    return value
         return None
     
     def get_team_xg_average(self, team_id: int, league_id: int, season: int = 2024) -> Optional[Dict]:
@@ -232,7 +398,6 @@ class APIFootball:
         Get average xG for/against for a team
         """
         try:
-            # Get team's fixtures
             self._rate_limit()
             response = requests.get(
                 f"{self.base_url}/fixtures",
@@ -282,106 +447,19 @@ class APIFootball:
 
 # Test function
 if __name__ == "__main__":
-    API_KEY = "1a1c70f5c48bfdce946b71680e47e92e"
+    API_KEY = "YOUR_API_KEY"
     
     print("🧪 Testing API-Football Integration...\n")
     
     api = APIFootball(API_KEY)
     
-    # Test connection
     if api.test_connection():
         print("\n✅ Connection successful!\n")
         
-        # Test getting Bundesliga matches
-        print("📊 Testing Bundesliga data...")
-        matches = api.get_league_matches('BL1', season=2024)
-        
-        if matches:
-            print(f"✅ Found {len(matches)} Bundesliga matches")
-            print(f"\nSample match:")
-            print(f"  {matches[0]['home_team']} vs {matches[0]['away_team']}")
-            print(f"  Score: {matches[0]['home_score']}-{matches[0]['away_score']}")
-            print(f"  BTTS: {matches[0]['btts']}")
-        
-        # Test getting match statistics (xG)
-        if matches:
-            print(f"\n📈 Testing xG data for first match...")
-            stats = api.get_match_statistics(matches[0]['match_id'])
-            if stats:
-                print(f"✅ xG data available!")
-                print(f"  Home xG: {stats.get('xg_home', 'N/A')}")
-                print(f"  Away xG: {stats.get('xg_away', 'N/A')}")
-                print(f"  Shots: {stats.get('shots_home', 'N/A')} - {stats.get('shots_away', 'N/A')}")
-            else:
-                print("⚠️ No xG data for this match")
-    else:
-        print("❌ Connection failed!")
-    
-    def get_upcoming_fixtures(self, league_code: str, days_ahead: int = 7) -> List[Dict]:
-        """
-        Get upcoming fixtures for a league
-        
-        Args:
-            league_code: League code (e.g., 'BL1', 'PL')
-            days_ahead: Number of days ahead to fetch (default 7)
-            
-        Returns:
-            List of upcoming fixtures with team info
-        """
-        from datetime import datetime, timedelta
-        
-        league_id = self.league_ids.get(league_code)
-        if not league_id:
-            print(f"⚠️ Unknown league code: {league_code}")
-            return []
-        
-        self._rate_limit()
-        
-        # Calculate date range
-        today = datetime.now()
-        end_date = today + timedelta(days=days_ahead)
-        
-        params = {
-            'league': league_id,
-            'season': 2024,
-            'from': today.strftime('%Y-%m-%d'),
-            'to': end_date.strftime('%Y-%m-%d'),
-            'status': 'NS'  # Not Started
-        }
-        
-        try:
-            response = requests.get(
-                f"{self.base_url}/fixtures",
-                headers=self.headers,
-                params=params,
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                if data.get('response'):
-                    fixtures = []
-                    for fixture in data['response']:
-                        fixtures.append({
-                            'fixture_id': fixture['fixture']['id'],
-                            'date': fixture['fixture']['date'],
-                            'home_team': fixture['teams']['home']['name'],
-                            'home_team_id': fixture['teams']['home']['id'],
-                            'away_team': fixture['teams']['away']['name'],
-                            'away_team_id': fixture['teams']['away']['id'],
-                            'league_id': league_id,
-                            'league_code': league_code
-                        })
-                    return fixtures
-                else:
-                    print(f"⚠️ No upcoming fixtures found for {league_code}")
-                    return []
-            else:
-                print(f"❌ API error: {response.status_code}")
-                return []
-                
-        except Exception as e:
-            print(f"❌ Error fetching fixtures: {e}")
-            return []
-
+        # Test upcoming fixtures
+        print("📅 Testing upcoming fixtures...")
+        fixtures = api.get_upcoming_fixtures('BL1', days_ahead=7)
+        if fixtures:
+            print(f"✅ Found {len(fixtures)} upcoming Bundesliga matches")
+            for f in fixtures[:3]:
+                print(f"   {f['home_team']} vs {f['away_team']} - {f['date']}")
