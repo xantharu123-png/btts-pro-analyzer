@@ -540,11 +540,23 @@ class XGAccumulationEngine:
         minutes = [r['minute'] for r in recent]
         xg_vals = [r['xg'] for r in recent]
         
+        # Check if we have enough variation in data
+        if len(set(minutes)) < 2:  # All same minute
+            return 0.0
+        
         x = np.array(minutes)
         y = np.array(xg_vals)
         
-        slope = np.polyfit(x, y, 1)[0]
-        return max(0.0, slope)
+        # Suppress polyfit warnings for poorly conditioned data
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', np.RankWarning)
+                slope = np.polyfit(x, y, 1)[0]
+            return max(0.0, slope)
+        except:
+            # Fallback if polyfit fails
+            return 0.0
 
 
 class GameStateMachine:
