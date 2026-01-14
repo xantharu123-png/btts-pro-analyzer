@@ -508,17 +508,46 @@ class AdvancedBTTSAnalyzer:
         }
     
     def get_upcoming_matches(self, league_code: str, days_ahead: int = 7) -> List[Dict]:
-        """Get upcoming matches - simplified version using historical data
+        """Get upcoming matches using API-Football
         
-        Note: For now, we focus on analyzing historical match data.
-        Live predictions use the Ultra Live Scanner in Tab 7.
-        Pre-match predictions can be added by implementing fixture fetching from API-Football.
+        Returns list of upcoming fixtures for the specified league
         """
-        # For now, return empty - upcoming matches are handled by Live Scanner
-        # Historical analysis is done through analyze_match() with team names
-        print(f"⚠️ Upcoming matches fetching not implemented in current DataEngine")
-        print(f"💡 Use Live Scanner (Tab 7) for real-time match analysis")
-        return []
+        if not self.api_football_key:
+            print(f"⚠️ API-Football key not available")
+            return []
+        
+        try:
+            from api_football import APIFootball
+            api = APIFootball(self.api_football_key)
+            
+            print(f"📡 Fetching upcoming fixtures for {league_code}...")
+            fixtures = api.get_upcoming_fixtures(league_code, days_ahead)
+            
+            if fixtures:
+                print(f"✅ Found {len(fixtures)} upcoming matches")
+                # Convert to old format for compatibility
+                matches = []
+                for fixture in fixtures:
+                    matches.append({
+                        'fixture_id': fixture['fixture_id'],
+                        'date': fixture['date'],
+                        'homeTeam': {
+                            'id': fixture['home_team_id'],
+                            'name': fixture['home_team']
+                        },
+                        'awayTeam': {
+                            'id': fixture['away_team_id'],
+                            'name': fixture['away_team']
+                        }
+                    })
+                return matches
+            else:
+                print(f"⚠️ No upcoming matches found for {league_code}")
+                return []
+                
+        except Exception as e:
+            print(f"❌ Error fetching fixtures: {e}")
+            return []
     
     def analyze_upcoming_matches(self, league_code: str, days_ahead: int = 7,
                                 min_probability: float = 60.0) -> pd.DataFrame:

@@ -316,3 +316,72 @@ if __name__ == "__main__":
                 print("⚠️ No xG data for this match")
     else:
         print("❌ Connection failed!")
+    
+    def get_upcoming_fixtures(self, league_code: str, days_ahead: int = 7) -> List[Dict]:
+        """
+        Get upcoming fixtures for a league
+        
+        Args:
+            league_code: League code (e.g., 'BL1', 'PL')
+            days_ahead: Number of days ahead to fetch (default 7)
+            
+        Returns:
+            List of upcoming fixtures with team info
+        """
+        from datetime import datetime, timedelta
+        
+        league_id = self.league_ids.get(league_code)
+        if not league_id:
+            print(f"⚠️ Unknown league code: {league_code}")
+            return []
+        
+        self._rate_limit()
+        
+        # Calculate date range
+        today = datetime.now()
+        end_date = today + timedelta(days=days_ahead)
+        
+        params = {
+            'league': league_id,
+            'season': 2024,
+            'from': today.strftime('%Y-%m-%d'),
+            'to': end_date.strftime('%Y-%m-%d'),
+            'status': 'NS'  # Not Started
+        }
+        
+        try:
+            response = requests.get(
+                f"{self.base_url}/fixtures",
+                headers=self.headers,
+                params=params,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if data.get('response'):
+                    fixtures = []
+                    for fixture in data['response']:
+                        fixtures.append({
+                            'fixture_id': fixture['fixture']['id'],
+                            'date': fixture['fixture']['date'],
+                            'home_team': fixture['teams']['home']['name'],
+                            'home_team_id': fixture['teams']['home']['id'],
+                            'away_team': fixture['teams']['away']['name'],
+                            'away_team_id': fixture['teams']['away']['id'],
+                            'league_id': league_id,
+                            'league_code': league_code
+                        })
+                    return fixtures
+                else:
+                    print(f"⚠️ No upcoming fixtures found for {league_code}")
+                    return []
+            else:
+                print(f"❌ API error: {response.status_code}")
+                return []
+                
+        except Exception as e:
+            print(f"❌ Error fetching fixtures: {e}")
+            return []
+

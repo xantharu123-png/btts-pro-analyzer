@@ -253,40 +253,21 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # Main content tabs
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🔥 Top Tips", 
     "📊 All Recommendations", 
     "🔬 Deep Analysis",
     "📈 Model Performance",
     "💎 Value Bets",
-    "🔴 LIVE SCANNER",
     "🔥 ULTRA LIVE SCANNER V3.0",
-    "📊 ÜBRIGE WETTEN"
+    "📊 ALTERNATIVE MARKETS"
 ])
 
 # TAB 1: Top Tips
 with tab1:
     st.header("🔥 Premium Tips - Highest Confidence")
     
-    st.warning("""
-    ⚠️ **Pre-Match Predictions Currently Unavailable**
-    
-    The pre-match fixture API is being updated. For now:
-    
-    - 🔥 **Use Tab 7: ULTRA LIVE SCANNER V3.0** for real-time predictions
-    - 📊 **Use Tab 8: ALTERNATIVE MARKETS** for live Cards/Corners/Shots
-    
-    These tabs provide:
-    - ✅ Real-time BTTS predictions (95-97% accuracy)
-    - ✅ Dynamic Over/Under analysis
-    - ✅ Next Goal predictions
-    - ✅ 28 Leagues coverage
-    - ✅ Auto-refresh every 30-40 seconds
-    
-    Pre-match predictions will be restored soon!
-    """)
-    
-    st.info("💡 Historical: These were matches with BTTS probability ≥75% AND confidence ≥70%")
+    st.info("💡 These are matches with BTTS probability ≥75% AND confidence ≥70%")
     
     if st.button("🔍 Analyze Matches", key="analyze_top"):
         with st.spinner("Running advanced analysis..."):
@@ -383,16 +364,6 @@ with tab1:
 with tab2:
     st.header("📊 All BTTS Recommendations")
     
-    st.info("""
-    ℹ️ **Pre-Match Analysis Temporarily Unavailable**
-    
-    Please use **Tab 7 (ULTRA LIVE SCANNER V3.0)** for:
-    - Real-time BTTS predictions across 28 leagues
-    - Dynamic Over/Under analysis
-    - Next Goal predictions
-    - Auto-refresh every 30 seconds
-    """)
-    
     if 'all_results' in st.session_state and st.session_state['all_results'] is not None:
         df = st.session_state['all_results']
         
@@ -463,16 +434,9 @@ with tab3:
     st.info("""
     ℹ️ **Deep Analysis Temporarily Unavailable**
     
-    For detailed live match analysis, use **Tab 7 (ULTRA LIVE SCANNER V3.0)** which provides:
-    - Complete multi-system analysis
-    - 10 Advanced prediction systems
-    - Momentum tracking
-    - xG analysis
-    - Game state evaluation
-    """)
     
     st.markdown("""
-        This tab will return soon with comprehensive pre-match breakdown
+        Select a specific match from the recommendations to see a comprehensive breakdown
         including all prediction methods, team stats, form analysis, and more.
     """)
     
@@ -734,7 +698,7 @@ with tab5:
     st.info("""
     ℹ️ **Value Betting Analysis Temporarily Unavailable**
     
-    For current betting opportunities, use **Tab 7 & 8**:
+    For current betting opportunities, use **Tab 6 & 7**:
     - ULTRA LIVE SCANNER for BTTS/Over-Under value
     - ALTERNATIVE MARKETS for Cards/Corners value
     
@@ -832,7 +796,7 @@ with tab6:
         # Settings
         col1, col2, col3 = st.columns(3)
         with col1:
-            min_btts_ultra = st.slider("Min BTTS %", 70, 95, 80, key="ultra_btts")
+            min_btts_ultra = st.slider("Min BTTS %", 60, 95, 70, key="ultra_btts")
         with col2:
             min_conf_ultra = st.selectbox("Min Confidence", 
                                          ["ALL", "MEDIUM", "HIGH", "VERY_HIGH"], 
@@ -1056,11 +1020,24 @@ with tab6:
                     for opp in opportunities:
                         display_ultra_opportunity(opp)
                 else:
-                    st.warning("⚠️ No ultra opportunities matching your criteria right now")
-                    st.info("💡 Try lowering Min BTTS % or wait for auto-refresh in 30 seconds!")
+                    st.warning(f"⚠️ {len(live_matches)} matches analyzed, but none meeting current filter criteria")
+                    st.info("💡 **Lower the Min BTTS %** slider below to see more matches, or wait for auto-refresh!")
                     
-                    # Show active matches count
-                    st.caption(f"Currently tracking {len(live_matches)} live matches")
+                    # Show what was analyzed but didn't meet criteria
+                    if live_matches:
+                        st.markdown("---")
+                        st.subheader("📊 Analyzed Matches (Below Threshold)")
+                        st.caption("These matches were analyzed but didn't meet your filter settings")
+                        
+                        for match in live_matches:
+                            with st.expander(f"⚽ {match.get('home_team', 'Home')} vs {match.get('away_team', 'Away')} - {match.get('minute', 0)}' [{match.get('home_score', 0)}-{match.get('away_score', 0)}]"):
+                                st.write(f"**League:** {match.get('league_name', 'Unknown')}")
+                                st.write(f"**Status:** {match.get('status', 'Live')}")
+                                st.write(f"**Minute:** {match.get('minute', 0)}'")
+                                st.write(f"**Score:** {match.get('home_score', 0)}-{match.get('away_score', 0)}")
+                                st.info("💡 Lower Min BTTS % to 70% to see predictions for this match")
+                    else:
+                        st.caption(f"Currently tracking {len(live_matches)} live matches")
         
         except ImportError as e:
             st.error(f"⚠️ Missing ultra modules: {e}")
@@ -1077,7 +1054,7 @@ with tab6:
         st.info("Try refreshing the page or check Streamlit Cloud logs")
 
 # TAB 8: ÜBRIGE WETTEN (Alternative Markets)
-with tab8:
+with tab7:
     st.header("📊 ÜBRIGE WETTEN - Alternative High-Probability Markets")
     
     st.markdown("""
