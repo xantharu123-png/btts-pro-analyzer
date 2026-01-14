@@ -21,43 +21,27 @@ class APIFootball:
             'x-rapidapi-key': api_key
         }
         
-        # League ID mappings (API-Football league IDs) - ALL 28 LEAGUES
+        # League ID mappings (API-Football league IDs)
         self.league_ids = {
-            # TIER 1: TOP LEAGUES (12)
-            'BL1': 78,    # 🇩🇪 Bundesliga
-            'PL': 39,     # 🇬🇧 Premier League
-            'PD': 140,    # 🇪🇸 La Liga
-            'SA': 135,    # 🇮🇹 Serie A
-            'FL1': 61,    # 🇫🇷 Ligue 1
-            'DED': 88,    # 🇳🇱 Eredivisie
-            'PPL': 94,    # 🇵🇹 Primeira Liga
-            'TSL': 203,   # 🇹🇷 Süper Lig
-            'ELC': 40,    # 🇬🇧 Championship
-            'BL2': 79,    # 🇩🇪 Bundesliga 2
-            'MX1': 262,   # 🇲🇽 Liga MX
-            'BSA': 71,    # 🇧🇷 Brasileirão
-            
-            # TIER 1: EUROPEAN CUPS (3)
-            'CL': 2,      # 🏆 Champions League
-            'EL': 3,      # 🏆 Europa League
-            'ECL': 848,   # 🏆 Conference League
-            
-            # TIER 2: EU EXPANSION (4)
-            'SC1': 179,   # 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scottish Premiership
-            'BE1': 144,   # 🇧🇪 Belgian Pro League
-            'SL1': 207,   # 🇨🇭 Swiss Super League
-            'AL1': 218,   # 🇦🇹 Austrian Bundesliga
-            
-            # TIER 3: GOAL FESTIVALS! (9)
-            'SPL': 265,   # 🇸🇬 Singapore Premier
-            'ESI': 330,   # 🇪🇪 Esiliiga (Estonia 2)
-            'IS2': 165,   # 🇮🇸 1. Deild (Iceland 2)
-            'ALE': 188,   # 🇦🇺 A-League
-            'ED1': 89,    # 🇳🇱 Eerste Divisie (NL 2)
-            'CHL': 209,   # 🇨🇭 Challenge League (CH 2)
-            'ALL': 113,   # 🇸🇪 Allsvenskan
-            'QSL': 292,   # 🇶🇦 Qatar Stars League
-            'UAE': 301,   # 🇦🇪 UAE Pro League
+            'BL1': 78,    # Bundesliga
+            'PL': 39,     # Premier League
+            'PD': 140,    # La Liga
+            'SA': 135,    # Serie A
+            'FL1': 61,    # Ligue 1
+            'DED': 88,    # Eredivisie
+            'ELC': 40,    # Championship
+            'PPL': 94,    # Primeira Liga
+            'BSA': 71,    # Brasileirão
+            'BEL': 144,   # Belgian Pro League (NEW!)
+            'SWE': 113,   # Allsvenskan (NEW!)
+            'NOR': 103,   # Eliteserien (NEW!)
+        }
+        
+        # League names
+        self.league_names = {
+            'BEL': 'Belgian Pro League',
+            'SWE': 'Allsvenskan',
+            'NOR': 'Eliteserien'
         }
         
         # Rate limiting
@@ -296,6 +280,43 @@ class APIFootball:
             return None
 
 
+# Test function
+if __name__ == "__main__":
+    API_KEY = "1a1c70f5c48bfdce946b71680e47e92e"
+    
+    print("🧪 Testing API-Football Integration...\n")
+    
+    api = APIFootball(API_KEY)
+    
+    # Test connection
+    if api.test_connection():
+        print("\n✅ Connection successful!\n")
+        
+        # Test getting Bundesliga matches
+        print("📊 Testing Bundesliga data...")
+        matches = api.get_league_matches('BL1', season=2024)
+        
+        if matches:
+            print(f"✅ Found {len(matches)} Bundesliga matches")
+            print(f"\nSample match:")
+            print(f"  {matches[0]['home_team']} vs {matches[0]['away_team']}")
+            print(f"  Score: {matches[0]['home_score']}-{matches[0]['away_score']}")
+            print(f"  BTTS: {matches[0]['btts']}")
+        
+        # Test getting match statistics (xG)
+        if matches:
+            print(f"\n📈 Testing xG data for first match...")
+            stats = api.get_match_statistics(matches[0]['match_id'])
+            if stats:
+                print(f"✅ xG data available!")
+                print(f"  Home xG: {stats.get('xg_home', 'N/A')}")
+                print(f"  Away xG: {stats.get('xg_away', 'N/A')}")
+                print(f"  Shots: {stats.get('shots_home', 'N/A')} - {stats.get('shots_away', 'N/A')}")
+            else:
+                print("⚠️ No xG data for this match")
+    else:
+        print("❌ Connection failed!")
+    
     def get_upcoming_fixtures(self, league_code: str, days_ahead: int = 7) -> List[Dict]:
         """
         Get upcoming fixtures for a league
@@ -322,7 +343,7 @@ class APIFootball:
         
         params = {
             'league': league_id,
-            'season': 2025,  # Current season 2025/2026
+            'season': 2024,
             'from': today.strftime('%Y-%m-%d'),
             'to': end_date.strftime('%Y-%m-%d'),
             'status': 'NS'  # Not Started
@@ -363,36 +384,4 @@ class APIFootball:
         except Exception as e:
             print(f"❌ Error fetching fixtures: {e}")
             return []
-
-
-# Test function
-if __name__ == "__main__":
-    API_KEY = "1a1c70f5c48bfdce946b71680e47e92e"
-    
-    print("🧪 Testing API-Football Integration...\n")
-    
-    api = APIFootball(API_KEY)
-    
-    # Test connection
-    if api.test_connection():
-        print("\n✅ Connection successful!\n")
-        
-        # Test getting Bundesliga matches
-        print("📊 Testing Bundesliga data...")
-        matches = api.get_league_matches('BL1', season=2024)
-        
-        if matches:
-            print(f"✅ Found {len(matches)} Bundesliga matches")
-            print(f"\nSample match:")
-            print(f"  {matches[0]['home_team']} vs {matches[0]['away_team']}")
-            print(f"  Score: {matches[0]['home_score']}-{matches[0]['away_score']}")
-            print(f"  BTTS: {matches[0]['btts']}")
-        
-        # Test upcoming fixtures
-        print(f"\n📅 Testing upcoming fixtures...")
-        upcoming = api.get_upcoming_fixtures('BL1', days_ahead=7)
-        if upcoming:
-            print(f"✅ Found {len(upcoming)} upcoming matches")
-    else:
-        print("❌ Connection failed!")
 

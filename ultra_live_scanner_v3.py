@@ -1,10 +1,12 @@
 """
-ULTRA LIVE SCANNER V3.0 - CORRECTED
-Mathematisch korrekte BTTS/Over-Under Berechnung
+ULTRA LIVE SCANNER V3.0 - CORRECTED VERSION
+Mathematisch korrekte BTTS/Over-Under/Next Goal Berechnung
 
 KERNFORMEL (Poisson-basiert):
 - P(Team scores) = 1 - e^(-xG)
 - P(BTTS) = P(Home scores) × P(Away scores)
+
+KEIN base_btts = 70 mehr! Alles xG-basiert!
 """
 
 import streamlit as st
@@ -79,7 +81,7 @@ class UltraLiveScanner:
                 xg_away = shots_away * 0.08 + shots_target_away * 0.25
                 print(f"   xG (geschätzt): {xg_home:.2f} - {xg_away:.2f}")
             
-            # BTTS BERECHNUNG
+            # BTTS BERECHNUNG (Poisson!)
             btts_result = self._calculate_btts_probability(
                 home_score, away_score, xg_home, xg_away, minute
             )
@@ -88,7 +90,7 @@ class UltraLiveScanner:
             btts_confidence = btts_result['confidence']
             btts_recommendation = self._get_btts_recommendation(btts_prob, btts_confidence, minute, score)
             
-            print(f"\n📊 BTTS CALCULATION:")
+            print(f"\n📊 BTTS CALCULATION (Poisson):")
             print(f"   P(Home scores): {btts_result['p_home_scores']:.1f}%")
             print(f"   P(Away scores): {btts_result['p_away_scores']:.1f}%")
             print(f"   P(BTTS): {btts_prob:.1f}%")
@@ -173,7 +175,12 @@ class UltraLiveScanner:
     def _calculate_btts_probability(self, home_score: int, away_score: int,
                                     xg_home: float, xg_away: float, 
                                     minute: int) -> Dict:
-        """Mathematisch korrekte BTTS-Berechnung mit Poisson"""
+        """
+        MATHEMATISCH KORREKTE BTTS-Berechnung mit Poisson
+        
+        Formel: P(BTTS) = P(Home ≥ 1) × P(Away ≥ 1)
+        Wobei: P(X ≥ 1) = 1 - e^(-λ)
+        """
         
         # BTTS bereits eingetreten
         if home_score > 0 and away_score > 0:
@@ -190,35 +197,40 @@ class UltraLiveScanner:
         time_remaining = max(1, 90 - minute)
         time_factor = time_remaining / 90.0
         
-        # Projiziere xG
+        # Projiziere xG auf Restspielzeit
         if minute > 5:
             xg_rate_home = xg_home / minute * 90
             xg_rate_away = xg_away / minute * 90
         else:
+            # Frühe Phase: Konservative Schätzung
             xg_rate_home = max(xg_home, 1.2)
             xg_rate_away = max(xg_away, 1.0)
         
+        # Verbleibende erwartete Tore
         remaining_xg_home = xg_rate_home * time_factor
         remaining_xg_away = xg_rate_away * time_factor
         
-        # Berechnung je nach Spielstand
+        # Berechnung je nach aktuellem Spielstand
         if home_score == 0 and away_score == 0:
+            # 0-0: Beide müssen noch treffen
             p_home_scores = self._poisson_at_least_one(remaining_xg_home)
             p_away_scores = self._poisson_at_least_one(remaining_xg_away)
             base_prob = p_home_scores * p_away_scores / 100
+            
         elif home_score > 0:
+            # X-0: Nur Away muss noch treffen
             p_home_scores = 100.0
             p_away_scores = self._poisson_at_least_one(remaining_xg_away)
             base_prob = p_away_scores
+            
         else:
+            # 0-X: Nur Home muss noch treffen
             p_home_scores = self._poisson_at_least_one(remaining_xg_home)
             p_away_scores = 100.0
             base_prob = p_home_scores
         
-        # Phase-Boost
+        # Kleine Adjustments (nicht mehr dominierend!)
         phase_boost = 5 if minute >= 75 else (3 if minute >= 60 else 0)
-        
-        # Score-Pressure
         score_adj = 5 if (home_score != away_score and minute >= 60) else 0
         
         final_prob = max(5, min(95, base_prob + phase_boost + score_adj))
@@ -236,7 +248,9 @@ class UltraLiveScanner:
         }
     
     def _poisson_at_least_one(self, expected_goals: float) -> float:
-        """P(X ≥ 1) = 1 - e^(-λ)"""
+        """
+        POISSON: P(X ≥ 1) = 1 - e^(-λ)
+        """
         if expected_goals <= 0:
             return 5.0
         p_zero = math.exp(-expected_goals)
@@ -251,6 +265,7 @@ class UltraLiveScanner:
         time_remaining = max(1, 90 - minute)
         time_factor = time_remaining / 90.0
         
+        # Erwartete Gesamttore
         if minute > 5:
             goals_rate = current_goals / minute * 90
             xg_rate = current_xg / minute * 90
@@ -260,6 +275,7 @@ class UltraLiveScanner:
         
         expected_total = max(current_goals, min(8.0, expected_total))
         
+        # Thresholds berechnen
         thresholds = {}
         for threshold in [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]:
             if current_goals > threshold:
@@ -302,6 +318,7 @@ class UltraLiveScanner:
         over_25 = thresholds.get('over_2.5', {})
         over_25_prob = over_25.get('over_probability', 50)
         
+        # Beste Empfehlung finden
         best_rec = '⚠️ Keine starke Wette'
         for data in thresholds.values():
             if data.get('strength') in ['VERY_STRONG', 'STRONG']:
@@ -317,7 +334,7 @@ class UltraLiveScanner:
         }
     
     def _poisson_over_threshold(self, expected: float, goals_needed: int) -> float:
-        """P(X >= goals_needed)"""
+        """P(X >= goals_needed) mit Poisson"""
         if expected <= 0:
             return 10.0
         p_under = sum((expected ** k) * math.exp(-expected) / math.factorial(k) 
@@ -331,13 +348,14 @@ class UltraLiveScanner:
         time_remaining = max(1, 90 - minute)
         total_xg = xg_home + xg_away
         
+        # Anteile basierend auf xG
         if total_xg > 0:
             home_share = xg_home / total_xg
             away_share = xg_away / total_xg
         else:
-            home_share, away_share = 0.55, 0.45
+            home_share, away_share = 0.55, 0.45  # Leichter Heimvorteil
         
-        # No-Goal Wahrscheinlichkeit
+        # No-Goal Wahrscheinlichkeit basierend auf Zeit
         if time_remaining >= 60:
             no_goal_base = 15
         elif time_remaining >= 30:
@@ -347,6 +365,7 @@ class UltraLiveScanner:
         else:
             no_goal_base = 55
         
+        # xG-Adjustment
         if total_xg > 2:
             no_goal_base -= 10
         elif total_xg < 0.5:
@@ -357,13 +376,14 @@ class UltraLiveScanner:
         home_prob = goal_prob * home_share
         away_prob = goal_prob * away_share
         
-        # Desperation
+        # Desperation-Faktor
         if minute >= 70:
             if home_score < away_score:
                 home_prob += 5
             elif away_score < home_score:
                 away_prob += 5
         
+        # Normalisieren
         total = home_prob + away_prob + no_goal_prob
         home_prob = home_prob / total * 100
         away_prob = away_prob / total * 100
@@ -421,8 +441,6 @@ class UltraLiveScanner:
 
 def display_ultra_opportunity(match: Dict):
     """Display für Streamlit"""
-    import streamlit as st
-    
     phase = match.get('breakdown', {}).get('game_phase', 'UNKNOWN')
     
     st.markdown(f"### 🔴 LIVE - {match['minute']}' | {phase}")

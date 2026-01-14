@@ -1,7 +1,6 @@
 """
-MULTI-MARKET PREDICTOR - CORRECTED
+MULTI-MARKET PREDICTOR - CORRECTED VERSION
 Mathematisch korrekte Over/Under + Next Goal Berechnung
-Mit ORIGINALEN Klassennamen für Kompatibilität
 """
 
 import math
@@ -12,7 +11,6 @@ from datetime import datetime
 class OverUnderPredictor:
     """
     Korrigierte Over/Under Vorhersage mit Poisson
-    ORIGINAL KLASSENNAME für Kompatibilität
     """
     
     def __init__(self):
@@ -136,6 +134,7 @@ class OverUnderPredictor:
         }
     
     def _poisson_probability(self, expected: float, goals_needed: int) -> float:
+        """P(X >= goals_needed) mit Poisson"""
         if expected <= 0:
             return 10.0 if goals_needed <= 1 else 5.0
         
@@ -214,7 +213,6 @@ class OverUnderPredictor:
 class NextGoalPredictor:
     """
     Korrigierte Next Goal Vorhersage
-    ORIGINAL KLASSENNAME für Kompatibilität
     """
     
     def __init__(self):
