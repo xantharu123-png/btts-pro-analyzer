@@ -883,7 +883,7 @@ with tab6:
                         st.write(f"📊 Found {len(all_matches)} total live matches")
                         
                         # Filter for our leagues
-                        print(f"\n🔍 Filtering for our 19 leagues...")
+                        print(f"\n🔍 Filtering for our 28 leagues...")
                         for match in all_matches:
                             league_id = match.get('league', {}).get('id')
                             league_name = match.get('league', {}).get('name', 'Unknown')
@@ -896,10 +896,10 @@ with tab6:
                                 live_matches.append(match)
                                 print(f"      ✅ INCLUDED!")
                             else:
-                                print(f"      ⏭️ Skipped (league not in our 19)")
+                                print(f"      ⏭️ Skipped (league not in our 28)")
                         
                         print(f"\n✅ TOTAL IN OUR LEAGUES: {len(live_matches)}")
-                        st.write(f"✅ {len(live_matches)} matches in our 19 leagues")
+                        st.write(f"✅ {len(live_matches)} matches in our 28 leagues")
                     else:
                         error_msg = f"❌ API Error: Status {response.status_code}"
                         print(f"\n{error_msg}")

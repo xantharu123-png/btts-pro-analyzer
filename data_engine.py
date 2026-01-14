@@ -1,900 +1,265 @@
 """
-Advanced Data Engine for BTTS Analysis
-Handles data fetching, caching, and calculation of real BTTS statistics
+Data Engine with COMPLETE 28 LEAGUES Configuration
+Updated: January 2026
 """
 
-import sqlite3
 import requests
-import json
+import sqlite3
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional
 import time
-from pathlib import Path
-
 
 class DataEngine:
-    """
-    Enhanced data engine with:
-    - SQLite caching
-    - Real BTTS calculation from match results
-    - Home/Away differentiation
-    - Form analysis
-    - Head-to-head history
-    """
+    """Enhanced data engine with 28 leagues support"""
     
-    def __init__(self, api_key: Optional[str] = None, db_path: str = "btts_data.db",
-                 api_football_key: Optional[str] = None):
+    # 🔥 COMPLETE 28 LEAGUES CONFIGURATION
+    LEAGUES_CONFIG = {
+        # TIER 1: TOP LEAGUES (12)
+        'BL1': 78,    # 🇩🇪 Bundesliga
+        'PL': 39,     # 🇬🇧 Premier League  
+        'PD': 140,    # 🇪🇸 La Liga
+        'SA': 135,    # 🇮🇹 Serie A
+        'FL1': 61,    # 🇫🇷 Ligue 1
+        'DED': 88,    # 🇳🇱 Eredivisie
+        'PPL': 94,    # 🇵🇹 Primeira Liga
+        'TSL': 203,   # 🇹🇷 Süper Lig
+        'ELC': 40,    # 🇬🇧 Championship
+        'BL2': 79,    # 🇩🇪 Bundesliga 2
+        'MX1': 262,   # 🇲🇽 Liga MX
+        'BSA': 71,    # 🇧🇷 Brasileirão
+        
+        # TIER 1: EUROPEAN CUPS (3)
+        'CL': 2,      # 🏆 Champions League
+        'EL': 3,      # 🏆 Europa League
+        'ECL': 848,   # 🏆 Conference League
+        
+        # TIER 2: EU EXPANSION (4)
+        'SC1': 179,   # 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scottish Premiership
+        'BE1': 144,   # 🇧🇪 Belgian Pro League
+        'SL1': 207,   # 🇨🇭 Swiss Super League
+        'AL1': 218,   # 🇦🇹 Austrian Bundesliga
+        
+        # TIER 3: GOAL FESTIVALS! 🎊 (9)
+        'SPL': 265,   # 🇸🇬 Singapore Premier (4.0+ Goals!)
+        'ESI': 330,   # 🇪🇪 Esiliiga (Estonia 2)
+        'IS2': 165,   # 🇮🇸 1. Deild (Iceland 2)
+        'ALE': 188,   # 🇦🇺 A-League
+        'ED1': 89,    # 🇳🇱 Eerste Divisie (NL 2)
+        'CHL': 209,   # 🇨🇭 Challenge League (CH 2)
+        'ALL': 113,   # 🇸🇪 Allsvenskan
+        'QSL': 292,   # 🇶🇦 Qatar Stars League
+        'UAE': 301,   # 🇦🇪 UAE Pro League
+    }
+    
+    def __init__(self, api_key, db_path='btts_data.db'):
+        """Initialize with 28 leagues"""
         self.api_key = api_key
-        self.base_url = "https://api.football-data.org/v4"
+        self.base_url = 'https://v3.football.api-sports.io'
+        self.headers = {
+            'x-rapidapi-host': 'v3.football.api-sports.io',
+            'x-rapidapi-key': api_key
+        }
         self.db_path = db_path
         self.init_database()
         
-        # API-Football for xG data
-        self.api_football_key = api_football_key
-        if api_football_key:
-            try:
-                from api_football import APIFootball
-                self.api_football = APIFootball(api_football_key)
-                print("✅ API-Football initialized for xG data!")
-            except ImportError:
-                self.api_football = None
-                print("⚠️ api_football.py not found - xG disabled")
-        else:
-            self.api_football = None
+        # Start background loading for all 28 leagues
+        print(f"🔥 Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues!")
         
-        # Advanced Stats for injuries, referee, etc.
-        if api_football_key:
-            try:
-                from advanced_stats import AdvancedStats
-                self.advanced_stats = AdvancedStats(api_football_key)
-                print("✅ Advanced Stats initialized!")
-            except ImportError:
-                self.advanced_stats = None
-                print("⚠️ advanced_stats.py not found")
-        else:
-            self.advanced_stats = None
-        
-        # Rate limiting
-        self.last_request_time = 0
-        self.min_request_interval = 6  # 10 requests per minute = 6 seconds between requests
-        
-        # League mappings
-        self.leagues = {
-            'Bundesliga': 'BL1',
-            'Premier League': 'PL',
-            'La Liga': 'PD',
-            'Serie A': 'SA',
-            'Ligue 1': 'FL1',
-            'Eredivisie': 'DED',
-            'Championship': 'ELC',
-            'Primeira Liga': 'PPL',
-            'Brasileirão': 'BSA',
-            'Belgian Pro League': 'BEL',
-            'Allsvenskan': 'SWE',
-            'Eliteserien': 'NOR'
-        }
-    
     def init_database(self):
-        """Initialize SQLite database with all necessary tables"""
+        """Initialize SQLite database"""
         conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Teams table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS teams (
-                team_id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                short_name TEXT,
-                league_code TEXT,
-                last_updated TIMESTAMP
-            )
-        ''')
+        c = conn.cursor()
         
         # Matches table
-        cursor.execute('''
+        c.execute('''
             CREATE TABLE IF NOT EXISTS matches (
-                match_id INTEGER PRIMARY KEY,
-                home_team_id INTEGER,
-                away_team_id INTEGER,
+                id INTEGER PRIMARY KEY,
                 league_code TEXT,
-                match_date TIMESTAMP,
-                home_score INTEGER,
-                away_score INTEGER,
-                status TEXT,
+                league_id INTEGER,
+                date TEXT,
+                home_team TEXT,
+                away_team TEXT,
+                home_goals INTEGER,
+                away_goals INTEGER,
                 btts INTEGER,
                 total_goals INTEGER,
-                xg_home REAL,
-                xg_away REAL,
-                shots_home INTEGER,
-                shots_away INTEGER,
-                shots_on_target_home INTEGER,
-                shots_on_target_away INTEGER,
-                last_updated TIMESTAMP,
-                FOREIGN KEY (home_team_id) REFERENCES teams(team_id),
-                FOREIGN KEY (away_team_id) REFERENCES teams(team_id)
-            )
-        ''')
-        
-        # Team statistics cache
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS team_stats (
-                team_id INTEGER,
-                league_code TEXT,
-                season TEXT,
-                venue TEXT, -- 'home' or 'away'
-                matches_played INTEGER,
-                btts_count INTEGER,
-                btts_rate REAL,
-                goals_scored INTEGER,
-                goals_conceded INTEGER,
-                avg_goals_scored REAL,
-                avg_goals_conceded REAL,
-                wins INTEGER,
-                draws INTEGER,
-                losses INTEGER,
-                last_updated TIMESTAMP,
-                PRIMARY KEY (team_id, league_code, season, venue),
-                FOREIGN KEY (team_id) REFERENCES teams(team_id)
-            )
-        ''')
-        
-        # Head to head cache
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS head_to_head (
-                team1_id INTEGER,
-                team2_id INTEGER,
-                matches_played INTEGER,
-                btts_count INTEGER,
-                btts_rate REAL,
-                avg_total_goals REAL,
-                last_updated TIMESTAMP,
-                PRIMARY KEY (team1_id, team2_id)
-            )
-        ''')
-        
-        # Predictions tracking (for backtesting)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS predictions (
-                prediction_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                match_id INTEGER,
-                prediction_date TIMESTAMP,
-                btts_probability REAL,
-                confidence_level TEXT,
-                ml_prediction REAL,
-                actual_btts INTEGER,
-                was_correct INTEGER,
-                FOREIGN KEY (match_id) REFERENCES matches(match_id)
+                fetched_at TEXT
             )
         ''')
         
         conn.commit()
         conn.close()
-        
         print("✅ Database initialized successfully")
     
-    def _rate_limit(self):
-        """Ensure we don't exceed API rate limits"""
-        current_time = time.time()
-        time_since_last = current_time - self.last_request_time
+    def fetch_league_matches(self, league_code, season=2024, force_refresh=False):
+        """Fetch matches for a specific league"""
+        league_id = self.LEAGUES_CONFIG.get(league_code)
+        if not league_id:
+            print(f"❌ Unknown league: {league_code}")
+            return []
         
-        if time_since_last < self.min_request_interval:
-            sleep_time = self.min_request_interval - time_since_last
-            print(f"⏳ Rate limiting... waiting {sleep_time:.1f}s")
-            time.sleep(sleep_time)
+        # Check cache first
+        if not force_refresh:
+            cached = self._get_cached_matches(league_code, season)
+            if cached:
+                print(f"✅ Using cached data for {league_code} ({len(cached)} matches)")
+                return cached
         
-        self.last_request_time = time.time()
-    
-    def _api_request(self, endpoint: str, params: Dict = None) -> Optional[Dict]:
-        """Make API request with rate limiting and error handling"""
-        if not self.api_key:
-            return None
-        
-        self._rate_limit()
-        
-        headers = {'X-Auth-Token': self.api_key}
-        url = f"{self.base_url}/{endpoint}"
-        
+        # Fetch from API
         try:
-            response = requests.get(url, headers=headers, params=params, timeout=15)
+            self._rate_limit()
+            
+            response = requests.get(
+                f"{self.base_url}/fixtures",
+                headers=self.headers,
+                params={
+                    'league': league_id,
+                    'season': season,
+                    'status': 'FT'  # Finished matches only
+                },
+                timeout=15
+            )
             
             if response.status_code == 200:
-                return response.json()
-            elif response.status_code == 429:
-                print("⚠️ Rate limit reached. Waiting 60 seconds...")
-                time.sleep(60)
-                return self._api_request(endpoint, params)
+                data = response.json()
+                matches = data.get('response', [])
+                
+                # Save to database
+                self._save_matches(matches, league_code, league_id)
+                
+                print(f"✅ Fetched {len(matches)} matches for {league_code}")
+                return matches
             else:
-                print(f"⚠️ API error {response.status_code}: {response.text[:100]}")
-                return None
+                print(f"❌ API Error for {league_code}: {response.status_code}")
+                return []
                 
         except Exception as e:
-            print(f"❌ Request failed: {e}")
+            print(f"❌ Error fetching {league_code}: {e}")
+            return []
+    
+    def fetch_all_leagues(self, season=2024):
+        """Fetch ALL 28 leagues"""
+        print(f"\n{'='*60}")
+        print(f"🔥 FETCHING ALL 28 LEAGUES...")
+        print(f"{'='*60}\n")
+        
+        total_matches = 0
+        
+        for idx, league_code in enumerate(self.LEAGUES_CONFIG.keys(), 1):
+            print(f"[{idx}/{len(self.LEAGUES_CONFIG)}] Fetching {league_code}...")
+            
+            matches = self.fetch_league_matches(league_code, season)
+            total_matches += len(matches)
+            
+            # Rate limiting
+            time.sleep(0.5)
+        
+        print(f"\n{'='*60}")
+        print(f"✅ FETCHED {total_matches} TOTAL MATCHES FROM 28 LEAGUES!")
+        print(f"{'='*60}\n")
+        
+        return total_matches
+    
+    def _get_cached_matches(self, league_code, season):
+        """Get matches from cache"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            
+            c.execute('''
+                SELECT * FROM matches 
+                WHERE league_code = ? 
+                AND date LIKE ?
+                ORDER BY date DESC
+            ''', (league_code, f"{season}%"))
+            
+            rows = c.fetchall()
+            conn.close()
+            
+            return rows if rows else None
+            
+        except Exception as e:
+            print(f"❌ Cache error: {e}")
             return None
     
-    def fetch_and_store_matches(self, league_code: str, season: str = "2024") -> int:
-        """
-        Fetch all matches for a league and store in database
-        Returns: number of matches stored
-        """
-        print(f"📥 Fetching matches for {league_code} (Season {season})...")
-        
-        # Get all matches for the season
-        data = self._api_request(f"competitions/{league_code}/matches", {'season': season})
-        
-        if not data or 'matches' not in data:
-            print(f"⚠️ No data for {league_code}")
-            return 0
-        
-        matches = data['matches']
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        stored_count = 0
-        
-        for match in matches:
-            match_id = match['id']
-            home_team = match['homeTeam']
-            away_team = match['awayTeam']
-            score = match.get('score', {}).get('fullTime', {})
+    def _save_matches(self, matches, league_code, league_id):
+        """Save matches to database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
             
-            # Store teams
-            for team in [home_team, away_team]:
-                cursor.execute('''
-                    INSERT OR REPLACE INTO teams (team_id, name, short_name, league_code, last_updated)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (team['id'], team['name'], team.get('shortName'), league_code, datetime.now()))
-            
-            # Only store finished matches
-            if match['status'] == 'FINISHED' and score.get('home') is not None:
-                home_score = score['home']
-                away_score = score['away']
-                btts = 1 if (home_score > 0 and away_score > 0) else 0
-                total_goals = home_score + away_score
+            for match in matches:
+                fixture = match.get('fixture', {})
+                teams = match.get('teams', {})
+                goals = match.get('goals', {})
                 
-                cursor.execute('''
+                home_goals = goals.get('home', 0)
+                away_goals = goals.get('away', 0)
+                btts = 1 if (home_goals > 0 and away_goals > 0) else 0
+                
+                c.execute('''
                     INSERT OR REPLACE INTO matches 
-                    (match_id, home_team_id, away_team_id, league_code, match_date, 
-                     home_score, away_score, status, btts, total_goals, last_updated)
+                    (id, league_code, league_id, date, home_team, away_team, 
+                     home_goals, away_goals, btts, total_goals, fetched_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
-                    match_id, home_team['id'], away_team['id'], league_code,
-                    match['utcDate'], home_score, away_score, match['status'],
-                    btts, total_goals, datetime.now()
+                    fixture.get('id'),
+                    league_code,
+                    league_id,
+                    fixture.get('date'),
+                    teams.get('home', {}).get('name'),
+                    teams.get('away', {}).get('name'),
+                    home_goals,
+                    away_goals,
+                    btts,
+                    home_goals + away_goals,
+                    datetime.now().isoformat()
                 ))
-                
-                stored_count += 1
-        
-        conn.commit()
-        conn.close()
-        
-        print(f"✅ Stored {stored_count} finished matches for {league_code}")
-        return stored_count
-    
-    def calculate_team_stats(self, team_id: int, league_code: str, season: str = "2024"):
-        """Calculate and cache team statistics (home/away separate)"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        for venue in ['home', 'away']:
-            if venue == 'home':
-                query = '''
-                    SELECT COUNT(*) as matches, 
-                           SUM(btts) as btts_count,
-                           SUM(home_score) as goals_scored,
-                           SUM(away_score) as goals_conceded,
-                           SUM(CASE WHEN home_score > away_score THEN 1 ELSE 0 END) as wins,
-                           SUM(CASE WHEN home_score = away_score THEN 1 ELSE 0 END) as draws,
-                           SUM(CASE WHEN home_score < away_score THEN 1 ELSE 0 END) as losses
-                    FROM matches
-                    WHERE home_team_id = ? AND league_code = ? AND status = 'FINISHED'
-                '''
-            else:
-                query = '''
-                    SELECT COUNT(*) as matches,
-                           SUM(btts) as btts_count,
-                           SUM(away_score) as goals_scored,
-                           SUM(home_score) as goals_conceded,
-                           SUM(CASE WHEN away_score > home_score THEN 1 ELSE 0 END) as wins,
-                           SUM(CASE WHEN home_score = away_score THEN 1 ELSE 0 END) as draws,
-                           SUM(CASE WHEN away_score < home_score THEN 1 ELSE 0 END) as losses
-                    FROM matches
-                    WHERE away_team_id = ? AND league_code = ? AND status = 'FINISHED'
-                '''
             
-            cursor.execute(query, (team_id, league_code))
-            result = cursor.fetchone()
-            
-            if result and result[0] > 0:
-                matches, btts_count, goals_scored, goals_conceded, wins, draws, losses = result
-                
-                btts_rate = (btts_count / matches * 100) if matches > 0 else 0
-                avg_goals_scored = goals_scored / matches if matches > 0 else 0
-                avg_goals_conceded = goals_conceded / matches if matches > 0 else 0
-                
-                cursor.execute('''
-                    INSERT OR REPLACE INTO team_stats
-                    (team_id, league_code, season, venue, matches_played, btts_count, btts_rate,
-                     goals_scored, goals_conceded, avg_goals_scored, avg_goals_conceded,
-                     wins, draws, losses, last_updated)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    team_id, league_code, season, venue, matches, btts_count, btts_rate,
-                    goals_scored, goals_conceded, avg_goals_scored, avg_goals_conceded,
-                    wins, draws, losses, datetime.now()
-                ))
-        
-        conn.commit()
-        conn.close()
-    
-    def get_team_stats(self, team_id: int, league_code: str, venue: str) -> Optional[Dict]:
-        """Get cached team statistics"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT * FROM team_stats
-            WHERE team_id = ? AND league_code = ? AND venue = ?
-            ORDER BY last_updated DESC LIMIT 1
-        ''', (team_id, league_code, venue))
-        
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result:
-            return {
-                'team_id': result[0],
-                'matches_played': result[4],
-                'btts_count': result[5],
-                'btts_rate': result[6],
-                'goals_scored': result[7],
-                'goals_conceded': result[8],
-                'avg_goals_scored': result[9],
-                'avg_goals_conceded': result[10],
-                'wins': result[11],
-                'draws': result[12],
-                'losses': result[13]
-            }
-        return None
-    
-    def calculate_head_to_head(self, team1_id: int, team2_id: int) -> Dict:
-        """
-        Calculate head-to-head statistics with TIME WEIGHTING
-        Recent matches are MORE IMPORTANT than old matches!
-        """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Get all H2H matches with dates (for weighting)
-        cursor.execute('''
-            SELECT home_score, away_score, btts, total_goals, match_date
-            FROM matches
-            WHERE ((home_team_id = ? AND away_team_id = ?)
-                   OR (home_team_id = ? AND away_team_id = ?))
-                  AND status = 'FINISHED'
-            ORDER BY match_date DESC
-            LIMIT 20
-        ''', (team1_id, team2_id, team2_id, team1_id))
-        
-        results = cursor.fetchall()
-        
-        if not results or len(results) == 0:
+            conn.commit()
             conn.close()
-            return {
-                'matches_played': 0,
-                'btts_count': 0,
-                'btts_rate': 0,
-                'weighted_btts_rate': 0,
-                'avg_total_goals': 0
-            }
-        
-        matches = len(results)
-        
-        # Standard BTTS (unweighted - old method)
-        btts_count = sum(r[2] for r in results if r[2])
-        standard_btts_rate = (btts_count / matches * 100) if matches > 0 else 0
-        
-        # TIME-WEIGHTED BTTS (NEW! Recent matches more important!)
-        # Weight formula: 1.0 / (1 + 0.3 * position)
-        # Match 0 (newest): weight = 1.00
-        # Match 1: weight = 0.77
-        # Match 2: weight = 0.63
-        # Match 3: weight = 0.53
-        # Match 4: weight = 0.45
-        # etc. (exponential decay)
-        
-        weighted_btts_sum = 0
-        total_weight = 0
-        
-        for idx, match in enumerate(results):
-            btts = match[2]  # 1 or 0
-            weight = 1.0 / (1 + 0.3 * idx)  # Recent = higher weight
-            weighted_btts_sum += btts * weight
-            total_weight += weight
-        
-        weighted_btts_rate = (weighted_btts_sum / total_weight * 100) if total_weight > 0 else 0
-        
-        # Average goals
-        avg_goals = sum(r[3] for r in results) / matches if matches > 0 else 0
-        
-        # Cache the result
-        cursor.execute('''
-            INSERT OR REPLACE INTO head_to_head
-            (team1_id, team2_id, matches_played, btts_count, btts_rate, avg_total_goals, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (team1_id, team2_id, matches, btts_count, weighted_btts_rate, avg_goals, datetime.now()))
-        
-        conn.commit()
-        conn.close()
-        
-        return {
-            'matches_played': matches,
-            'btts_count': btts_count,
-            'btts_rate': standard_btts_rate,  # Keep for comparison
-            'weighted_btts_rate': weighted_btts_rate,  # NEW: Use this!
-            'avg_total_goals': avg_goals
-        }
-        
-        conn.close()
-        return {'matches_played': 0, 'btts_count': 0, 'btts_rate': 0, 'avg_total_goals': 0}
+            
+        except Exception as e:
+            print(f"❌ Save error: {e}")
     
-    def get_recent_form(self, team_id: int, league_code: str, venue: str = 'all', last_n: int = 5) -> Dict:
-        """Get recent form for a team"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        if venue == 'home':
-            query = '''
-                SELECT home_score, away_score, btts, total_goals, match_date
-                FROM matches
-                WHERE home_team_id = ? AND league_code = ? AND status = 'FINISHED'
-                ORDER BY match_date DESC LIMIT ?
-            '''
-        elif venue == 'away':
-            query = '''
-                SELECT away_score as home_score, home_score as away_score, btts, total_goals, match_date
-                FROM matches
-                WHERE away_team_id = ? AND league_code = ? AND status = 'FINISHED'
-                ORDER BY match_date DESC LIMIT ?
-            '''
-        else:  # all
-            query = '''
+    def _rate_limit(self):
+        """Basic rate limiting"""
+        time.sleep(0.1)
+    
+    def get_league_stats(self, league_code):
+        """Get statistics for a league"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            
+            c.execute('''
                 SELECT 
-                    CASE WHEN home_team_id = ? THEN home_score ELSE away_score END as team_score,
-                    CASE WHEN home_team_id = ? THEN away_score ELSE home_score END as opponent_score,
-                    btts, total_goals, match_date
+                    COUNT(*) as total_matches,
+                    AVG(btts) as btts_rate,
+                    AVG(total_goals) as avg_goals
                 FROM matches
-                WHERE (home_team_id = ? OR away_team_id = ?) 
-                      AND league_code = ? AND status = 'FINISHED'
-                ORDER BY match_date DESC LIMIT ?
-            '''
-            cursor.execute(query, (team_id, team_id, team_id, team_id, league_code, last_n))
-        
-        if venue != 'all':
-            cursor.execute(query, (team_id, league_code, last_n))
-        
-        results = cursor.fetchall()
-        conn.close()
-        
-        if not results:
-            return {
-                'matches': 0,
-                'btts_rate': 0,
-                'avg_goals_scored': 0,
-                'avg_goals_conceded': 0,
-                'avg_total_goals': 0,
-                'form_string': ''
-            }
-        
-        btts_count = sum(1 for r in results if r[2] == 1)
-        goals_scored = sum(r[0] for r in results)
-        goals_conceded = sum(r[1] for r in results)
-        total_goals = sum(r[3] for r in results)
-        
-        # Form string (W-D-L)
-        form_string = []
-        for r in results:
-            if r[0] > r[1]:
-                form_string.append('W')
-            elif r[0] == r[1]:
-                form_string.append('D')
-            else:
-                form_string.append('L')
-        
-        return {
-            'matches': len(results),
-            'btts_rate': (btts_count / len(results) * 100) if results else 0,
-            'avg_goals_scored': goals_scored / len(results) if results else 0,
-            'avg_goals_conceded': goals_conceded / len(results) if results else 0,
-            'avg_total_goals': total_goals / len(results) if results else 0,
-            'form_string': '-'.join(form_string)
-        }
-    
-    def get_rest_days(self, team_id: int, league_code: str) -> Dict:
-        """
-        Calculate days of rest since last match
-        FATIGUE FACTOR: Teams with less rest perform worse
-        """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Get last 2 matches to calculate rest days
-        cursor.execute('''
-            SELECT match_date
-            FROM matches
-            WHERE (home_team_id = ? OR away_team_id = ?)
-                  AND league_code = ?
-                  AND status = 'FINISHED'
-            ORDER BY match_date DESC
-            LIMIT 2
-        ''', (team_id, team_id, league_code))
-        
-        results = cursor.fetchall()
-        conn.close()
-        
-        if len(results) < 2:
-            return {
-                'days_rest': 7,  # Default if no data
-                'fatigue_factor': 1.0,
-                'freshness_bonus': 0
-            }
-        
-        # Calculate days between matches
-        from datetime import datetime
-        last_match = datetime.fromisoformat(results[0][0].replace('Z', '+00:00'))
-        prev_match = datetime.fromisoformat(results[1][0].replace('Z', '+00:00'))
-        
-        days_rest = (last_match - prev_match).days
-        
-        # Fatigue factor (less rest = more fatigue)
-        if days_rest < 3:
-            fatigue_factor = 0.88  # Very tired (e.g. midweek + weekend)
-            freshness_bonus = -8
-        elif days_rest < 4:
-            fatigue_factor = 0.93  # Tired
-            freshness_bonus = -4
-        elif days_rest >= 7:
-            fatigue_factor = 1.05  # Well rested
-            freshness_bonus = +5
-        elif days_rest >= 10:
-            fatigue_factor = 1.08  # Very fresh
-            freshness_bonus = +8
-        else:
-            fatigue_factor = 1.0   # Normal
-            freshness_bonus = 0
-        
-        return {
-            'days_rest': days_rest,
-            'fatigue_factor': fatigue_factor,
-            'freshness_bonus': freshness_bonus
-        }
-    
-    def get_momentum(self, team_id: int, league_code: str, venue: str) -> Dict:
-        """
-        Analyze scoring/conceding momentum (trend over last 5 games)
-        MOMENTUM MATTERS: Teams on upward trend perform better
-        """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        if venue == 'home':
-            query = '''
-                SELECT home_score, away_score, match_date
-                FROM matches
-                WHERE home_team_id = ? AND league_code = ? AND status = 'FINISHED'
-                ORDER BY match_date DESC LIMIT 5
-            '''
-        else:
-            query = '''
-                SELECT away_score as home_score, home_score as away_score, match_date
-                FROM matches
-                WHERE away_team_id = ? AND league_code = ? AND status = 'FINISHED'
-                ORDER BY match_date DESC LIMIT 5
-            '''
-        
-        cursor.execute(query, (team_id, league_code))
-        results = cursor.fetchall()
-        conn.close()
-        
-        if len(results) < 3:
-            return {
-                'scoring_trend': 'stable',
-                'conceding_trend': 'stable',
-                'momentum_bonus': 0
-            }
-        
-        # Analyze trends (recent 2 vs previous 3)
-        recent_goals = sum(r[0] for r in results[:2]) / 2
-        previous_goals = sum(r[0] for r in results[2:]) / 3
-        
-        recent_conceded = sum(r[1] for r in results[:2]) / 2
-        previous_conceded = sum(r[1] for r in results[2:]) / 3
-        
-        # Determine trends
-        scoring_trend = 'increasing' if recent_goals > previous_goals * 1.2 else \
-                       'decreasing' if recent_goals < previous_goals * 0.8 else \
-                       'stable'
-        
-        conceding_trend = 'increasing' if recent_conceded > previous_conceded * 1.2 else \
-                         'decreasing' if recent_conceded < previous_conceded * 0.8 else \
-                         'stable'
-        
-        # Calculate momentum bonus for BTTS
-        momentum_bonus = 0
-        
-        # Positive momentum for scoring
-        if scoring_trend == 'increasing':
-            momentum_bonus += 5
-        elif scoring_trend == 'decreasing':
-            momentum_bonus -= 3
-        
-        # Conceding more = higher BTTS (bad defense)
-        if conceding_trend == 'increasing':
-            momentum_bonus += 8  # Bad defense = opponent likely scores
-        elif conceding_trend == 'decreasing':
-            momentum_bonus -= 5  # Good defense = opponent less likely
-        
-        return {
-            'scoring_trend': scoring_trend,
-            'conceding_trend': conceding_trend,
-            'momentum_bonus': momentum_bonus,
-            'recent_goals_avg': round(recent_goals, 2),
-            'recent_conceded_avg': round(recent_conceded, 2)
-        }
-    
-    def get_motivation_factor(self, team_id: int, league_code: str) -> Dict:
-        """
-        Determine team motivation based on table position
-        MOTIVATION MATTERS: Teams fighting for something play differently
-        """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Get team's position in table
-        cursor.execute('''
-            SELECT 
-                SUM(CASE WHEN home_team_id = ? THEN 
-                    CASE WHEN home_score > away_score THEN 3
-                         WHEN home_score = away_score THEN 1
-                         ELSE 0 END
-                    WHEN away_team_id = ? THEN
-                    CASE WHEN away_score > home_score THEN 3
-                         WHEN away_score = home_score THEN 1
-                         ELSE 0 END
-                    END) as points,
-                COUNT(*) as matches
-            FROM matches
-            WHERE (home_team_id = ? OR away_team_id = ?)
-                  AND league_code = ?
-                  AND status = 'FINISHED'
-        ''', (team_id, team_id, team_id, team_id, league_code))
-        
-        result = cursor.fetchone()
-        
-        if not result or result[1] < 5:
+                WHERE league_code = ?
+            ''', (league_code,))
+            
+            row = c.fetchone()
             conn.close()
-            return {
-                'position_estimate': 'mid_table',
-                'motivation_level': 'normal',
-                'btts_adjustment': 0
-            }
-        
-        points = result[0] or 0
-        matches = result[1]
-        points_per_game = points / matches
-        
-        # Estimate position based on points per game
-        # Championship: ~90-95 pts for promotion, ~50 pts for relegation
-        # EPL/other big leagues: similar ratios
-        
-        if points_per_game >= 2.2:  # Top teams (>80 pts in 38 games)
-            position = 'top'
-            motivation = 'championship'
-            btts_adj = +5  # Fighting for title = more offensive
-        elif points_per_game >= 1.8:  # European spots
-            position = 'european'
-            motivation = 'high'
-            btts_adj = +3  # Want to win = offensive
-        elif points_per_game >= 1.3:  # Safe mid-table
-            position = 'mid_table'
-            motivation = 'normal'
-            btts_adj = 0  # Nothing to play for = unpredictable
-        elif points_per_game >= 1.0:  # Lower mid-table
-            position = 'lower_mid'
-            motivation = 'low'
-            btts_adj = -2  # Slightly cautious
-        else:  # Relegation battle
-            position = 'relegation'
-            motivation = 'desperate'
-            btts_adj = -8  # Very defensive, fighting for survival
-        
-        conn.close()
-        
-        return {
-            'position_estimate': position,
-            'motivation_level': motivation,
-            'btts_adjustment': btts_adj,
-            'points_per_game': round(points_per_game, 2)
-        }
-    
-    def refresh_league_data(self, league_code: str, season: str = "2024"):
-        """Refresh all data for a league"""
-        print(f"\n🔄 Refreshing data for {league_code}...")
-        
-        # Fetch and store matches
-        match_count = self.fetch_and_store_matches(league_code, season)
-        
-        if match_count == 0:
-            print(f"⚠️ No matches to process for {league_code}")
-            return
-        
-        # Get all teams in this league
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('SELECT DISTINCT team_id FROM teams WHERE league_code = ?', (league_code,))
-        teams = [row[0] for row in cursor.fetchall()]
-        conn.close()
-        
-        print(f"📊 Calculating stats for {len(teams)} teams...")
-        
-        # Calculate stats for each team
-        for team_id in teams:
-            self.calculate_team_stats(team_id, league_code, season)
-        
-        print(f"✅ Data refresh complete for {league_code}")
-    
-    def load_xg_for_league(self, league_code: str, season: int = 2024, limit: int = None):
-        """
-        Load xG data for all matches in a league from API-Football
-        This enriches existing matches with xG statistics
-        """
-        if not self.api_football:
-            print("⚠️ API-Football not initialized - cannot load xG")
-            return
-        
-        print(f"\n📊 Loading xG data for {league_code}...")
-        
-        try:
-            # Get matches from API-Football
-            matches = self.api_football.get_league_matches(league_code, season=season)
             
-            if not matches:
-                print(f"⚠️ No matches found for {league_code}")
-                return
-            
-            if limit:
-                matches = matches[:limit]
-            
-            print(f"✅ Found {len(matches)} matches")
-            
-            # Load xG for each match (sample first 50 to avoid rate limits)
-            updated_count = 0
-            matches_to_process = matches[:50]  # Start with 50 matches
-            
-            for idx, match in enumerate(matches_to_process):
-                try:
-                    # Get detailed statistics including xG
-                    stats = self.api_football.get_match_statistics(match['match_id'])
-                    
-                    if stats and stats.get('xg_home') and stats.get('xg_away'):
-                        # Update match in database
-                        conn = sqlite3.connect(self.db_path)
-                        cursor = conn.cursor()
-                        
-                        cursor.execute('''
-                            UPDATE matches 
-                            SET xg_home = ?,
-                                xg_away = ?,
-                                shots_home = ?,
-                                shots_away = ?,
-                                shots_on_target_home = ?,
-                                shots_on_target_away = ?
-                            WHERE match_id = ?
-                        ''', (
-                            stats['xg_home'],
-                            stats['xg_away'],
-                            stats['shots_home'],
-                            stats['shots_away'],
-                            stats['shots_on_target_home'],
-                            stats['shots_on_target_away'],
-                            match['match_id']
-                        ))
-                        
-                        conn.commit()
-                        conn.close()
-                        
-                        updated_count += 1
-                        
-                        if (idx + 1) % 10 == 0:
-                            print(f"  Progress: {idx + 1}/{len(matches_to_process)} matches processed...")
-                
-                except Exception as e:
-                    # Continue on error
-                    continue
-            
-            print(f"✅ Updated {updated_count} matches with xG data!")
+            if row:
+                return {
+                    'total_matches': row[0],
+                    'btts_rate': row[1] * 100 if row[1] else 0,
+                    'avg_goals': row[2] if row[2] else 0
+                }
+            return None
             
         except Exception as e:
-            print(f"❌ Error loading xG: {e}")
-    
-    def get_advanced_match_stats(self, home_team_id: int, away_team_id: int, 
-                                 fixture_id: Optional[int] = None) -> Dict:
-        """
-        Get all advanced statistics for a match
-        Returns injuries, referee, form breakdown, etc.
-        """
-        if not self.advanced_stats:
-            return {
-                'injuries_available': False,
-                'referee_available': False,
-                'advanced_available': False
-            }
-        
-        stats = {
-            'injuries_available': True,
-            'referee_available': True,
-            'advanced_available': True
-        }
-        
-        try:
-            # Get injuries for both teams
-            home_injuries = self.advanced_stats.get_team_injuries(home_team_id)
-            away_injuries = self.advanced_stats.get_team_injuries(away_team_id)
-            
-            stats['home_injuries'] = home_injuries if home_injuries else {
-                'total_injuries': 0, 'key_players_out': 0, 'btts_adjustment': 0
-            }
-            stats['away_injuries'] = away_injuries if away_injuries else {
-                'total_injuries': 0, 'key_players_out': 0, 'btts_adjustment': 0
-            }
-            
-            # Combined injury impact
-            injury_impact = (
-                stats['home_injuries']['btts_adjustment'] + 
-                stats['away_injuries']['btts_adjustment']
-            ) / 2
-            stats['injury_impact'] = injury_impact
-            
-        except Exception as e:
-            print(f"⚠️ Error getting injuries: {e}")
-            stats['injuries_available'] = False
-        
-        # Get H2H deep analysis
-        try:
-            h2h_deep = self.advanced_stats.get_h2h_deep(home_team_id, away_team_id)
-            stats['h2h_deep'] = h2h_deep if h2h_deep else {
-                'btts_adjustment': 0
-            }
-        except Exception as e:
-            stats['h2h_deep'] = {'btts_adjustment': 0}
-        
-        # If we have a fixture_id, get match-specific stats
-        if fixture_id:
-            try:
-                # Corners
-                corners = self.advanced_stats.get_corners_stats(fixture_id)
-                stats['corners'] = corners if corners else {}
-                
-                # Cards
-                cards = self.advanced_stats.get_cards_stats(fixture_id)
-                stats['cards'] = cards if cards else {}
-                
-                # Possession
-                possession = self.advanced_stats.get_possession_stats(fixture_id)
-                stats['possession'] = possession if possession else {}
-                
-            except Exception as e:
-                pass
-        
-        return stats
+            print(f"❌ Stats error: {e}")
+            return None
 
 
-if __name__ == "__main__":
-    # Test the data engine
-    print("=== Data Engine Test ===\n")
+# Quick test
+if __name__ == '__main__':
+    engine = DataEngine('YOUR_API_KEY')
+    print(f"\n✅ Data Engine ready with {len(engine.LEAGUES_CONFIG)} leagues!")
     
-    engine = DataEngine(api_key='ef8c2eb9be6b43fe8353c99f51904c0f')
-    
-    # Refresh Bundesliga data
-    engine.refresh_league_data('BL1', '2024')
-    
-    print("\n=== Test Complete ===")
+    for code, id in list(engine.LEAGUES_CONFIG.items())[:5]:
+        print(f"  {code}: League ID {id}")
