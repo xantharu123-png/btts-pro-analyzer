@@ -51,7 +51,7 @@ class DataEngine:
         'UAE': 301,   # 🇦🇪 UAE Pro League
     }
     
-    def __init__(self, api_key, db_path='btts_data.db'):
+    def __init__(self, api_key, db_path='btts_data_v3.db'):
         """Initialize with 28 leagues"""
         self.api_key = api_key
         self.base_url = 'https://v3.football.api-sports.io'
@@ -204,10 +204,10 @@ class DataEngine:
                     'clean_sheets': row[8] or 0,
                     'avg_goals_scored': scored / matches if matches > 0 else 1.2,
                     'avg_goals_conceded': conceded / matches if matches > 0 else 1.0,
-                    'btts_rate': (btts_count / matches * 100) if matches > 0 else 50.0
+                    'btts_rate': (btts_count / matches * 100) if matches > 0 else 52.0
                 }
             
-            # Return defaults if no data
+            # Return defaults if no data (realistic league averages)
             return {
                 'team_id': team_id,
                 'team_name': 'Unknown',
@@ -219,9 +219,9 @@ class DataEngine:
                 'goals_conceded': 0,
                 'btts_count': 0,
                 'clean_sheets': 0,
-                'avg_goals_scored': 1.2,
-                'avg_goals_conceded': 1.0,
-                'btts_rate': 50.0
+                'avg_goals_scored': 1.4,  # Realistic average
+                'avg_goals_conceded': 1.3,  # Realistic average
+                'btts_rate': 52.0  # League average BTTS rate
             }
             
         except Exception as e:
@@ -230,9 +230,9 @@ class DataEngine:
                 'team_id': team_id,
                 'team_name': 'Unknown',
                 'matches_played': 0,
-                'avg_goals_scored': 1.2,
-                'avg_goals_conceded': 1.0,
-                'btts_rate': 50.0,
+                'avg_goals_scored': 1.4,
+                'avg_goals_conceded': 1.3,
+                'btts_rate': 52.0,
                 'wins': 0,
                 'clean_sheets': 0
             }
@@ -267,9 +267,9 @@ class DataEngine:
             if not rows:
                 return {
                     'matches_played': 0,
-                    'btts_rate': 50.0,
-                    'avg_goals_scored': 1.2,
-                    'avg_goals_conceded': 1.0,
+                    'btts_rate': 52.0,
+                    'avg_goals_scored': 1.4,
+                    'avg_goals_conceded': 1.3,
                     'form_string': ''
                 }
             
@@ -290,7 +290,7 @@ class DataEngine:
             
             return {
                 'matches_played': matches,
-                'btts_rate': (btts_count / matches * 100) if matches > 0 else 50.0,
+                'btts_rate': (btts_count / matches * 100) if matches > 0 else 52.0,
                 'avg_goals_scored': goals_scored / matches if matches > 0 else 1.2,
                 'avg_goals_conceded': goals_conceded / matches if matches > 0 else 1.0,
                 'form_string': ''.join(form)
@@ -300,7 +300,7 @@ class DataEngine:
             print(f"❌ Error getting form: {e}")
             return {
                 'matches_played': 0,
-                'btts_rate': 50.0,
+                'btts_rate': 52.0,
                 'avg_goals_scored': 1.2,
                 'avg_goals_conceded': 1.0,
                 'form_string': ''
@@ -327,7 +327,7 @@ class DataEngine:
             if not rows:
                 return {
                     'matches_played': 0,
-                    'btts_rate': 50.0,
+                    'btts_rate': 52.0,
                     'avg_goals': 2.5,
                     'home_wins': 0,
                     'away_wins': 0,
@@ -340,7 +340,7 @@ class DataEngine:
             
             return {
                 'matches_played': matches,
-                'btts_rate': (btts_count / matches * 100) if matches > 0 else 50.0,
+                'btts_rate': (btts_count / matches * 100) if matches > 0 else 52.0,
                 'avg_goals': total_goals / matches if matches > 0 else 2.5,
                 'btts_count': btts_count,
                 'total_goals': total_goals
@@ -350,7 +350,7 @@ class DataEngine:
             print(f"❌ Error calculating H2H: {e}")
             return {
                 'matches_played': 0,
-                'btts_rate': 50.0,
+                'btts_rate': 52.0,
                 'avg_goals': 2.5
             }
     

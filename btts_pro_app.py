@@ -136,7 +136,7 @@ with st.sidebar:
         "Min BTTS Probability (%)",
         min_value=50,
         max_value=90,
-        value=60,
+        value=50,
         step=5
     )
     
