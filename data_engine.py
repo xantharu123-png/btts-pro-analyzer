@@ -65,13 +65,17 @@ class DataEngine:
         print(f"🔥 Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues!")
         
     def init_database(self):
-        """Initialize SQLite database - keep existing data!"""
+        """Initialize SQLite database - ALWAYS recreate for clean start"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         
-        # CREATE IF NOT EXISTS - don't delete existing data!
+        # ALWAYS drop and recreate to ensure correct schema
+        c.execute('DROP TABLE IF EXISTS matches')
+        c.execute('DROP TABLE IF EXISTS team_stats')
+        
+        # Create matches table with correct schema
         c.execute('''
-            CREATE TABLE IF NOT EXISTS matches (
+            CREATE TABLE matches (
                 id INTEGER PRIMARY KEY,
                 league_code TEXT,
                 league_id INTEGER,
@@ -86,14 +90,14 @@ class DataEngine:
             )
         ''')
         
-        # Create indexes for faster queries
-        c.execute('CREATE INDEX IF NOT EXISTS idx_league ON matches(league_code)')
-        c.execute('CREATE INDEX IF NOT EXISTS idx_home_team ON matches(home_team)')
-        c.execute('CREATE INDEX IF NOT EXISTS idx_away_team ON matches(away_team)')
+        # Create indexes
+        c.execute('CREATE INDEX idx_league ON matches(league_code)')
+        c.execute('CREATE INDEX idx_home_team ON matches(home_team)')
+        c.execute('CREATE INDEX idx_away_team ON matches(away_team)')
         
         conn.commit()
         conn.close()
-        print("✅ Database ready")
+        print("✅ Database initialized (fresh)")
     
     def fetch_league_matches(self, league_code, season=2025, force_refresh=False):
         """Fetch matches for a specific league"""
@@ -265,10 +269,19 @@ class DataEngine:
     # =============================================
     
     def get_team_stats(self, team_id, league_code, venue='home'):
-        """Get team statistics - returns defaults if no data"""
+        """Get team statistics - returns defaults if no data or error"""
         try:
             conn = sqlite3.connect(self.db_path)
             c = conn.cursor()
+            
+            # First check if table has correct schema
+            c.execute("PRAGMA table_info(matches)")
+            columns = [col[1] for col in c.fetchall()]
+            
+            if 'home_team' not in columns:
+                conn.close()
+                print(f"⚠️ Database schema mismatch - using defaults")
+                return self._get_default_stats(team_id)
             
             if venue == 'home':
                 c.execute('''
