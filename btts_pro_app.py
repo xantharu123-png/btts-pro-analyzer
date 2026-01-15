@@ -270,23 +270,37 @@ with tab1:
     st.info("💡 These are matches with BTTS probability ≥75% AND confidence ≥70%")
     
     if st.button("🔍 Analyze Matches", key="analyze_top"):
-        with st.spinner("Running advanced analysis..."):
-            all_results = []
+        all_results = []
+        
+        # Progress Bar Setup
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        results_placeholder = st.empty()
+        
+        total_leagues = len(selected_leagues)
+        
+        for idx, league_code in enumerate(selected_leagues):
+            # Update Progress
+            progress = (idx + 1) / total_leagues
+            progress_bar.progress(progress)
+            status_text.markdown(f"**🔍 Analyzing {league_code}...** ({idx + 1}/{total_leagues})")
             
-            for league_code in selected_leagues:
-                # league_code is already the code (e.g., 'BL1')
-                st.write(f"Analyzing {league_code}...")
-                results = analyzer.analyze_upcoming_matches(
-                    league_code, 
-                    days_ahead=days_ahead,
-                    min_probability=min_probability
-                )
-                
-                if not results.empty:
-                    results['League'] = league_code
-                    all_results.append(results)
+            results = analyzer.analyze_upcoming_matches(
+                league_code, 
+                days_ahead=days_ahead,
+                min_probability=min_probability
+            )
             
-            if all_results:
+            if not results.empty:
+                results['League'] = league_code
+                all_results.append(results)
+                results_placeholder.success(f"✅ {league_code}: Found {len(results)} matches")
+        
+        # Complete
+        progress_bar.progress(1.0)
+        status_text.markdown("**✅ Analysis Complete!**")
+        
+        if all_results:
                 combined = pd.concat(all_results, ignore_index=True)
                 
                 # Filter for top tips
