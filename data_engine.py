@@ -65,13 +65,16 @@ class DataEngine:
         print(f"🔥 Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues!")
         
     def init_database(self):
-        """Initialize SQLite database"""
+        """Initialize SQLite database - recreate to ensure correct schema"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         
-        # Matches table
+        # Drop and recreate to fix schema mismatch
+        c.execute('DROP TABLE IF EXISTS matches')
+        
+        # Matches table with correct schema
         c.execute('''
-            CREATE TABLE IF NOT EXISTS matches (
+            CREATE TABLE matches (
                 id INTEGER PRIMARY KEY,
                 league_code TEXT,
                 league_id INTEGER,
@@ -86,9 +89,13 @@ class DataEngine:
             )
         ''')
         
+        # Create index for faster queries
+        c.execute('CREATE INDEX IF NOT EXISTS idx_league ON matches(league_code)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_date ON matches(date)')
+        
         conn.commit()
         conn.close()
-        print("✅ Database initialized successfully")
+        print("✅ Database initialized with correct schema")
     
     def fetch_league_matches(self, league_code, season=2025, force_refresh=False):
         """Fetch matches for a specific league"""
