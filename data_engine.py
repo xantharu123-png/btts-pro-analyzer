@@ -65,13 +65,16 @@ class DataEngine:
         print(f"🔥 Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues!")
         
     def init_database(self):
-        """Initialize SQLite database"""
+        """Initialize SQLite database - recreate to fix schema"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         
-        # Matches table
+        # Drop old table to fix schema mismatch
+        c.execute('DROP TABLE IF EXISTS matches')
+        
+        # Create with correct schema
         c.execute('''
-            CREATE TABLE IF NOT EXISTS matches (
+            CREATE TABLE matches (
                 id INTEGER PRIMARY KEY,
                 league_code TEXT,
                 league_id INTEGER,
@@ -88,7 +91,7 @@ class DataEngine:
         
         conn.commit()
         conn.close()
-        print("✅ Database initialized successfully")
+        print("✅ Database initialized with correct schema")
     
     def fetch_league_matches(self, league_code, season=2025, force_refresh=False):
         """Fetch matches for a specific league"""
@@ -317,11 +320,11 @@ class DataEngine:
                     'btts_count': btts_count,
                     'clean_sheets': row[7] or 0,
                     'avg_goals_scored': scored / matches if matches > 0 else 1.4,
-                    'avg_goals_conceded': conceded / matches if matches > 0 else 1.5,
-                    'btts_rate': (btts_count / matches * 100) if matches > 0 else 65.0
+                    'avg_goals_conceded': conceded / matches if matches > 0 else 1.3,
+                    'btts_rate': (btts_count / matches * 100) if matches > 0 else 52.0
                 }
             
-            # Return realistic defaults for European leagues
+            # Return realistic defaults
             return {
                 'team_id': team_id,
                 'team_name': 'Unknown',
@@ -385,9 +388,9 @@ class DataEngine:
             
             return {
                 'matches_played': matches,
-                'btts_rate': (btts_count / matches * 100) if matches > 0 else 65.0,
-                'avg_goals_scored': total_scored / matches if matches > 0 else 1.6,
-                'avg_goals_conceded': total_conceded / matches if matches > 0 else 1.5,
+                'btts_rate': (btts_count / matches * 100) if matches > 0 else 52.0,
+                'avg_goals_scored': total_scored / matches if matches > 0 else 1.4,
+                'avg_goals_conceded': total_conceded / matches if matches > 0 else 1.3,
                 'form_string': ''.join(['W' if r[0] > r[1] else 'D' if r[0] == r[1] else 'L' for r in rows])
             }
             
@@ -433,8 +436,8 @@ class DataEngine:
             
             return {
                 'matches_played': matches,
-                'btts_rate': (btts_count / matches * 100) if matches > 0 else 65.0,
-                'avg_goals': total_goals / matches if matches > 0 else 2.8,
+                'btts_rate': (btts_count / matches * 100) if matches > 0 else 52.0,
+                'avg_goals': total_goals / matches if matches > 0 else 2.5,
                 'btts_count': btts_count,
                 'total_goals': total_goals
             }
