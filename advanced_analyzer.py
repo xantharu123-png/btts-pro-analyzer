@@ -101,12 +101,12 @@ class AdvancedBTTSAnalyzer:
         
         # Fill NaN with defaults
         df = df.fillna({
-            'home_btts_rate': 65,
-            'away_btts_rate': 65,
-            'home_goals_scored': 1.6,
-            'away_goals_scored': 1.5,
-            'home_goals_conceded': 1.5,
-            'away_goals_conceded': 1.5
+            'home_btts_rate': 50,
+            'away_btts_rate': 50,
+            'home_goals_scored': 1.2,
+            'away_goals_scored': 1.0,
+            'home_goals_conceded': 1.0,
+            'away_goals_conceded': 1.2
         })
         
         features = [
@@ -207,6 +207,116 @@ class AdvancedBTTSAnalyzer:
         except:
             return 0.5, 0.0
     
+    def _get_real_team_stats(self, team_id: int, league_id: int, league_code: str, venue: str) -> Dict:
+        """
+        Get REAL team statistics from API-Football with caching
+        Falls from API fails, use intelligent defaults based on league
+        """
+        cache_key = f"{team_id}_{league_id}_{venue}"
+        
+        # Check cache first
+        if cache_key in self._team_stats_cache:
+            return self._team_stats_cache[cache_key]
+        
+        # Try to get from API-Football
+        if self.api_football_key:
+            try:
+                from api_football import APIFootball
+                api = APIFootball(self.api_football_key)
+                
+                stats = api.get_team_statistics(team_id, league_id, 2025)
+                
+                if stats:
+                    # Format for our analyzer
+                    if venue == 'home':
+                        result = {
+                            'team_id': team_id,
+                            'team_name': stats.get('team_name', 'Unknown'),
+                            'matches_played': stats.get('matches_played_home', 0),
+                            'avg_goals_scored': stats.get('avg_goals_scored_home', 1.5),
+                            'avg_goals_conceded': stats.get('avg_goals_conceded_home', 1.2),
+                            'btts_rate': stats.get('btts_rate_home', 55),
+                            'clean_sheets': stats.get('clean_sheets_home', 0),
+                            'btts_count': 0,
+                            'wins': 0,
+                        }
+                    else:
+                        result = {
+                            'team_id': team_id,
+                            'team_name': stats.get('team_name', 'Unknown'),
+                            'matches_played': stats.get('matches_played_away', 0),
+                            'avg_goals_scored': stats.get('avg_goals_scored_away', 1.2),
+                            'avg_goals_conceded': stats.get('avg_goals_conceded_away', 1.4),
+                            'btts_rate': stats.get('btts_rate_away', 60),
+                            'clean_sheets': stats.get('clean_sheets_away', 0),
+                            'btts_count': 0,
+                            'wins': 0,
+                        }
+                    
+                    # Cache it
+                    self._team_stats_cache[cache_key] = result
+                    print(f"   📊 Got real stats for team {team_id}: {result['avg_goals_scored']:.2f} scored, {result['btts_rate']:.0f}% BTTS")
+                    return result
+                    
+            except Exception as e:
+                print(f"   ⚠️ API stats failed for team {team_id}: {e}")
+        
+        # Fallback: Use league-specific defaults (more realistic than generic)
+        league_defaults = {
+            # High-scoring leagues (BTTS ~65-75%)
+            'BL1': {'scored': 1.7, 'conceded': 1.5, 'btts': 68},
+            'PL': {'scored': 1.6, 'conceded': 1.4, 'btts': 62},
+            'DED': {'scored': 1.8, 'conceded': 1.6, 'btts': 70},
+            'ALL': {'scored': 1.9, 'conceded': 1.7, 'btts': 72},
+            'SPL': {'scored': 2.0, 'conceded': 1.8, 'btts': 75},
+            'ALE': {'scored': 1.8, 'conceded': 1.7, 'btts': 68},
+            
+            # Medium-scoring leagues (BTTS ~55-65%)
+            'PD': {'scored': 1.4, 'conceded': 1.2, 'btts': 58},
+            'SA': {'scored': 1.5, 'conceded': 1.3, 'btts': 60},
+            'FL1': {'scored': 1.5, 'conceded': 1.3, 'btts': 58},
+            'PPL': {'scored': 1.5, 'conceded': 1.4, 'btts': 62},
+            'TSL': {'scored': 1.6, 'conceded': 1.5, 'btts': 65},
+            
+            # Lower-scoring leagues (BTTS ~50-55%)
+            'ELC': {'scored': 1.4, 'conceded': 1.3, 'btts': 55},
+            'BL2': {'scored': 1.5, 'conceded': 1.4, 'btts': 58},
+            
+            # Default
+            'DEFAULT': {'scored': 1.5, 'conceded': 1.4, 'btts': 60},
+        }
+        
+        defaults = league_defaults.get(league_code, league_defaults['DEFAULT'])
+        
+        # Adjust for venue
+        if venue == 'home':
+            result = {
+                'team_id': team_id,
+                'team_name': 'Unknown',
+                'matches_played': 0,
+                'avg_goals_scored': defaults['scored'] * 1.1,  # Home advantage
+                'avg_goals_conceded': defaults['conceded'] * 0.9,
+                'btts_rate': defaults['btts'],
+                'clean_sheets': 0,
+                'btts_count': 0,
+                'wins': 0,
+            }
+        else:
+            result = {
+                'team_id': team_id,
+                'team_name': 'Unknown',
+                'matches_played': 0,
+                'avg_goals_scored': defaults['scored'] * 0.9,  # Away disadvantage
+                'avg_goals_conceded': defaults['conceded'] * 1.1,
+                'btts_rate': defaults['btts'],
+                'clean_sheets': 0,
+                'btts_count': 0,
+                'wins': 0,
+            }
+        
+        self._team_stats_cache[cache_key] = result
+        return result
+    
     def _poisson_at_least_one(self, expected_goals: float) -> float:
         """
         POISSON: P(X ≥ 1) = 1 - e^(-λ)
@@ -238,16 +348,23 @@ class AdvancedBTTSAnalyzer:
     def analyze_match(self, home_team_id: int, away_team_id: int, 
                      league_code: str) -> Dict:
         """
-        KORRIGIERTE Match-Analyse mit Poisson-basierter BTTS-Berechnung
+        KORRIGIERTE Match-Analyse mit ECHTEN Team-Statistiken von API-Football
         """
-        # Get team stats
-        home_stats = self.engine.get_team_stats(home_team_id, league_code, 'home')
-        away_stats = self.engine.get_team_stats(away_team_id, league_code, 'away')
+        # Initialize team stats cache if not exists
+        if not hasattr(self, '_team_stats_cache'):
+            self._team_stats_cache = {}
+        
+        # Get league_id
+        league_id = self.engine.LEAGUES_CONFIG.get(league_code, 0)
+        
+        # Try to get REAL team stats from API-Football
+        home_stats = self._get_real_team_stats(home_team_id, league_id, league_code, 'home')
+        away_stats = self._get_real_team_stats(away_team_id, league_id, league_code, 'away')
         
         if not home_stats or not away_stats:
             return {'error': 'Insufficient data for teams'}
         
-        # Get form
+        # Get form (use defaults for now)
         home_form = self.engine.get_recent_form(home_team_id, league_code, 'home', 5)
         away_form = self.engine.get_recent_form(away_team_id, league_code, 'away', 5)
         
@@ -265,12 +382,12 @@ class AdvancedBTTSAnalyzer:
         # =============================================
         
         # Expected Goals (korrekte Formel!)
-        home_scored = home_stats.get('avg_goals_scored', 1.6)
-        away_conceded = away_stats.get('avg_goals_conceded', 1.5)
+        home_scored = home_stats.get('avg_goals_scored', 1.2)
+        away_conceded = away_stats.get('avg_goals_conceded', 1.2)
         exp_home = (home_scored + away_conceded) / 2 * 1.08  # Heimvorteil
         
-        away_scored = away_stats.get('avg_goals_scored', 1.5)
-        home_conceded = home_stats.get('avg_goals_conceded', 1.5)
+        away_scored = away_stats.get('avg_goals_scored', 1.0)
+        home_conceded = home_stats.get('avg_goals_conceded', 1.0)
         exp_away = (away_scored + home_conceded) / 2 * 0.92
         
         # Poisson-Wahrscheinlichkeiten
@@ -281,24 +398,24 @@ class AdvancedBTTSAnalyzer:
         stat_btts = (p_home_scores * p_away_scores) / 100
         
         # Historical BTTS
-        home_btts = home_stats.get('btts_rate', 65)
-        away_btts = away_stats.get('btts_rate', 65)
+        home_btts = home_stats.get('btts_rate', 50)
+        away_btts = away_stats.get('btts_rate', 50)
         historical_btts = (home_btts + away_btts) / 2
         
         # Form BTTS
-        form_btts = (home_form.get('btts_rate', 65) + away_form.get('btts_rate', 65)) / 2
+        form_btts = (home_form.get('btts_rate', 50) + away_form.get('btts_rate', 50)) / 2
         
         # H2H BTTS
         h2h_btts = h2h.get('btts_rate', historical_btts) if h2h.get('matches_played', 0) >= 3 else historical_btts
         
         # ML Prediction
         ml_features = [
-            home_stats.get('btts_rate', 65),
-            away_stats.get('btts_rate', 65),
-            home_stats.get('avg_goals_scored', 1.6),
-            away_stats.get('avg_goals_scored', 1.5),
-            home_stats.get('avg_goals_conceded', 1.5),
-            away_stats.get('avg_goals_conceded', 1.5),
+            home_stats.get('btts_rate', 50),
+            away_stats.get('btts_rate', 50),
+            home_stats.get('avg_goals_scored', 1.2),
+            away_stats.get('avg_goals_scored', 1.0),
+            home_stats.get('avg_goals_conceded', 1.0),
+            away_stats.get('avg_goals_conceded', 1.2),
         ]
         ml_prob, ml_conf = self.ml_predict(ml_features)
         ml_probability = ml_prob * 100
@@ -405,18 +522,18 @@ class AdvancedBTTSAnalyzer:
             
             # Stats
             'home_stats': {
-                'btts_rate': home_stats.get('btts_rate', 65),
-                'avg_goals_scored': home_stats.get('avg_goals_scored', 1.6),
-                'avg_goals_conceded': home_stats.get('avg_goals_conceded', 1.5),
+                'btts_rate': home_stats.get('btts_rate', 50),
+                'avg_goals_scored': home_stats.get('avg_goals_scored', 1.2),
+                'avg_goals_conceded': home_stats.get('avg_goals_conceded', 1.0),
                 'matches_played': home_stats.get('matches_played', 0) or 1,  # Avoid division by zero
                 'clean_sheets': home_stats.get('clean_sheets', 0),
                 'wins': home_stats.get('wins', 0),
                 'btts_count': home_stats.get('btts_count', 0)
             },
             'away_stats': {
-                'btts_rate': away_stats.get('btts_rate', 65),
-                'avg_goals_scored': away_stats.get('avg_goals_scored', 1.5),
-                'avg_goals_conceded': away_stats.get('avg_goals_conceded', 1.5),
+                'btts_rate': away_stats.get('btts_rate', 50),
+                'avg_goals_scored': away_stats.get('avg_goals_scored', 1.0),
+                'avg_goals_conceded': away_stats.get('avg_goals_conceded', 1.2),
                 'matches_played': away_stats.get('matches_played', 0) or 1,  # Avoid division by zero
                 'clean_sheets': away_stats.get('clean_sheets', 0),
                 'wins': away_stats.get('wins', 0),
@@ -528,7 +645,6 @@ class AdvancedBTTSAnalyzer:
                                 min_probability: float = 60.0) -> pd.DataFrame:
         """Analyze all upcoming matches and return recommendations"""
         print(f"\n🔍 Analyzing upcoming matches for {league_code}...")
-        print(f"   Filter: min_probability={min_probability}%")
         
         matches = self.get_upcoming_matches(league_code, days_ahead)
         
@@ -549,9 +665,6 @@ class AdvancedBTTSAnalyzer:
             if 'error' in analysis:
                 print(f"   ⚠️ Skipped: {analysis['error']}")
                 continue
-            
-            # DEBUG: Zeige die berechneten Werte
-            print(f"      → BTTS: {analysis['ensemble_probability']:.1f}% | Conf: {analysis['confidence']:.1f}% | ML: {analysis['ml_probability']:.1f}% | Stat: {analysis['statistical_probability']:.1f}%")
             
             if analysis['ensemble_probability'] >= min_probability:
                 try:

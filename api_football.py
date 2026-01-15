@@ -256,6 +256,97 @@ class APIFootball:
     
     def get_team_xg_average(self, team_id: int, league_id: int, season: int = 2025) -> Optional[Dict]:
         return None  # Simplified
+    
+    def get_team_statistics(self, team_id: int, league_id: int, season: int = 2025) -> Optional[Dict]:
+        """
+        Get REAL team statistics from API-Football
+        Endpoint: /teams/statistics
+        """
+        try:
+            self._rate_limit()
+            
+            response = requests.get(
+                f"{self.base_url}/teams/statistics",
+                headers=self.headers,
+                params={
+                    'team': team_id,
+                    'league': league_id,
+                    'season': season
+                },
+                timeout=15
+            )
+            
+            if response.status_code != 200:
+                print(f"❌ Team stats API error: {response.status_code}")
+                return None
+            
+            data = response.json()
+            
+            if not data.get('response'):
+                return None
+            
+            stats = data['response']
+            
+            # Extract relevant statistics
+            fixtures = stats.get('fixtures', {})
+            goals = stats.get('goals', {})
+            
+            total_home = fixtures.get('played', {}).get('home', 0) or 0
+            total_away = fixtures.get('played', {}).get('away', 0) or 0
+            total_matches = total_home + total_away
+            
+            goals_home_scored = goals.get('for', {}).get('total', {}).get('home', 0) or 0
+            goals_away_scored = goals.get('for', {}).get('total', {}).get('away', 0) or 0
+            goals_home_conceded = goals.get('against', {}).get('total', {}).get('home', 0) or 0
+            goals_away_conceded = goals.get('against', {}).get('total', {}).get('away', 0) or 0
+            
+            # Calculate averages
+            avg_scored_home = goals_home_scored / total_home if total_home > 0 else 1.5
+            avg_scored_away = goals_away_scored / total_away if total_away > 0 else 1.2
+            avg_conceded_home = goals_home_conceded / total_home if total_home > 0 else 1.2
+            avg_conceded_away = goals_away_conceded / total_away if total_away > 0 else 1.4
+            
+            # BTTS calculation from clean sheets
+            clean_sheets = stats.get('clean_sheet', {})
+            cs_home = clean_sheets.get('home', 0) or 0
+            cs_away = clean_sheets.get('away', 0) or 0
+            
+            # Failed to score
+            failed_to_score = stats.get('failed_to_score', {})
+            fts_home = failed_to_score.get('home', 0) or 0
+            fts_away = failed_to_score.get('away', 0) or 0
+            
+            # BTTS rate = matches where both scored
+            # = matches - (clean sheets + failed to score - both)
+            # Approximate: (1 - CS%) * (1 - FTS%)
+            cs_rate_home = cs_home / total_home if total_home > 0 else 0.25
+            cs_rate_away = cs_away / total_away if total_away > 0 else 0.2
+            fts_rate_home = fts_home / total_home if total_home > 0 else 0.2
+            fts_rate_away = fts_away / total_away if total_away > 0 else 0.25
+            
+            btts_rate_home = (1 - cs_rate_home) * (1 - fts_rate_home) * 100
+            btts_rate_away = (1 - cs_rate_away) * (1 - fts_rate_away) * 100
+            
+            return {
+                'team_id': team_id,
+                'team_name': stats.get('team', {}).get('name', 'Unknown'),
+                'matches_played_home': total_home,
+                'matches_played_away': total_away,
+                'avg_goals_scored_home': round(avg_scored_home, 2),
+                'avg_goals_scored_away': round(avg_scored_away, 2),
+                'avg_goals_conceded_home': round(avg_conceded_home, 2),
+                'avg_goals_conceded_away': round(avg_conceded_away, 2),
+                'btts_rate_home': round(btts_rate_home, 1),
+                'btts_rate_away': round(btts_rate_away, 1),
+                'clean_sheets_home': cs_home,
+                'clean_sheets_away': cs_away,
+                'failed_to_score_home': fts_home,
+                'failed_to_score_away': fts_away,
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting team statistics: {e}")
+            return None
 
 
 if __name__ == "__main__":

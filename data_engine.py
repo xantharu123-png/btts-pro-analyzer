@@ -65,16 +65,13 @@ class DataEngine:
         print(f"🔥 Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues!")
         
     def init_database(self):
-        """Initialize SQLite database - recreate to fix schema"""
+        """Initialize SQLite database - keep existing data!"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         
-        # Drop old table to fix schema mismatch
-        c.execute('DROP TABLE IF EXISTS matches')
-        
-        # Create with correct schema
+        # CREATE IF NOT EXISTS - don't delete existing data!
         c.execute('''
-            CREATE TABLE matches (
+            CREATE TABLE IF NOT EXISTS matches (
                 id INTEGER PRIMARY KEY,
                 league_code TEXT,
                 league_id INTEGER,
@@ -89,9 +86,14 @@ class DataEngine:
             )
         ''')
         
+        # Create indexes for faster queries
+        c.execute('CREATE INDEX IF NOT EXISTS idx_league ON matches(league_code)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_home_team ON matches(home_team)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_away_team ON matches(away_team)')
+        
         conn.commit()
         conn.close()
-        print("✅ Database initialized with correct schema")
+        print("✅ Database ready")
     
     def fetch_league_matches(self, league_code, season=2025, force_refresh=False):
         """Fetch matches for a specific league"""
@@ -337,8 +339,8 @@ class DataEngine:
                 'btts_count': 0,
                 'clean_sheets': 0,
                 'avg_goals_scored': 1.6,
-                'avg_goals_conceded': 1.5,
-                'btts_rate': 65.0
+                'avg_goals_conceded': 1.4,
+                'btts_rate': 62.0
             }
             
         except Exception as e:
@@ -348,8 +350,8 @@ class DataEngine:
                 'team_name': 'Unknown',
                 'matches_played': 0,
                 'avg_goals_scored': 1.6,
-                'avg_goals_conceded': 1.5,
-                'btts_rate': 65.0,
+                'avg_goals_conceded': 1.4,
+                'btts_rate': 62.0,
                 'btts_count': 0,
                 'wins': 0,
                 'clean_sheets': 0
@@ -375,9 +377,9 @@ class DataEngine:
             if not rows:
                 return {
                     'matches_played': 0,
-                    'btts_rate': 65.0,
+                    'btts_rate': 62.0,
                     'avg_goals_scored': 1.6,
-                    'avg_goals_conceded': 1.5,
+                    'avg_goals_conceded': 1.4,
                     'form_string': ''
                 }
             
@@ -398,9 +400,9 @@ class DataEngine:
             print(f"❌ Error getting form: {e}")
             return {
                 'matches_played': 0,
-                'btts_rate': 65.0,
+                'btts_rate': 62.0,
                 'avg_goals_scored': 1.6,
-                'avg_goals_conceded': 1.5,
+                'avg_goals_conceded': 1.4,
                 'form_string': ''
             }
     
@@ -424,8 +426,8 @@ class DataEngine:
             if not rows:
                 return {
                     'matches_played': 0,
-                    'btts_rate': 65.0,
-                    'avg_goals': 2.8,
+                    'btts_rate': 62.0,
+                    'avg_goals': 2.5,
                     'btts_count': 0,
                     'total_goals': 0
                 }
@@ -446,8 +448,8 @@ class DataEngine:
             print(f"❌ Error calculating H2H: {e}")
             return {
                 'matches_played': 0,
-                'btts_rate': 65.0,
-                'avg_goals': 2.8,
+                'btts_rate': 62.0,
+                'avg_goals': 2.5,
                 'btts_count': 0,
                 'total_goals': 0
             }
