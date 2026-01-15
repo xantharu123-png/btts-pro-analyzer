@@ -58,24 +58,31 @@ class UltraLiveScanner:
             # Get live statistics
             stats = self.api_football.get_match_statistics(fixture_id)
             
-            # Extract xG
+            # Extract xG - ensure float conversion!
             xg_home = 0.0
             xg_away = 0.0
             
             if stats:
-                xg_home = stats.get('xg_home') or 0.0
-                xg_away = stats.get('xg_away') or 0.0
-                print(f"   xG: {xg_home:.2f} - {xg_away:.2f}")
+                try:
+                    xg_home = float(stats.get('xg_home') or 0)
+                    xg_away = float(stats.get('xg_away') or 0)
+                    print(f"   xG: {xg_home:.2f} - {xg_away:.2f}")
+                except (ValueError, TypeError):
+                    xg_home = 0.0
+                    xg_away = 0.0
                 
                 if stats.get('shots_home'):
                     print(f"   Shots: {stats['shots_home']}-{stats['shots_away']}")
             
             # Wenn keine xG, schätze aus Schüssen
             if xg_home == 0 and stats:
-                shots_home = stats.get('shots_home') or 0
-                shots_away = stats.get('shots_away') or 0
-                shots_target_home = stats.get('shots_on_target_home') or 0
-                shots_target_away = stats.get('shots_on_target_away') or 0
+                try:
+                    shots_home = int(stats.get('shots_home') or 0)
+                    shots_away = int(stats.get('shots_away') or 0)
+                    shots_target_home = int(stats.get('shots_on_target_home') or 0)
+                    shots_target_away = int(stats.get('shots_on_target_away') or 0)
+                except (ValueError, TypeError):
+                    shots_home = shots_away = shots_target_home = shots_target_away = 0
                 
                 xg_home = shots_home * 0.08 + shots_target_home * 0.25
                 xg_away = shots_away * 0.08 + shots_target_away * 0.25
