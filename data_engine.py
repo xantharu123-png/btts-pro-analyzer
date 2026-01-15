@@ -1,16 +1,15 @@
 """
 Data Engine with COMPLETE 28 LEAGUES Configuration
-Updated: January 2026 - FIXED VERSION with all required methods
+Updated: January 2026
 """
 
 import requests
 import sqlite3
 from datetime import datetime, timedelta
 import time
-from typing import Dict, List, Optional
 
 class DataEngine:
-    """Enhanced data engine with 28 leagues support and all required methods"""
+    """Enhanced data engine with 28 leagues support"""
     
     # 🔥 COMPLETE 28 LEAGUES CONFIGURATION
     LEAGUES_CONFIG = {
@@ -51,7 +50,7 @@ class DataEngine:
         'UAE': 301,   # 🇦🇪 UAE Pro League
     }
     
-    def __init__(self, api_key, db_path='btts_data_v3.db'):
+    def __init__(self, api_key, db_path='btts_data.db'):
         """Initialize with 28 leagues"""
         self.api_key = api_key
         self.base_url = 'https://v3.football.api-sports.io'
@@ -62,10 +61,11 @@ class DataEngine:
         self.db_path = db_path
         self.init_database()
         
+        # Start background loading for all 28 leagues
         print(f"🔥 Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues!")
         
     def init_database(self):
-        """Initialize SQLite database with all required tables"""
+        """Initialize SQLite database"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         
@@ -73,14 +73,11 @@ class DataEngine:
         c.execute('''
             CREATE TABLE IF NOT EXISTS matches (
                 id INTEGER PRIMARY KEY,
-                match_id INTEGER,
                 league_code TEXT,
                 league_id INTEGER,
                 date TEXT,
                 home_team TEXT,
                 away_team TEXT,
-                home_team_id INTEGER,
-                away_team_id INTEGER,
                 home_goals INTEGER,
                 away_goals INTEGER,
                 btts INTEGER,
@@ -89,341 +86,9 @@ class DataEngine:
             )
         ''')
         
-        # Team stats table
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS team_stats (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                team_id INTEGER,
-                team_name TEXT,
-                league_code TEXT,
-                venue TEXT,
-                matches_played INTEGER DEFAULT 0,
-                wins INTEGER DEFAULT 0,
-                draws INTEGER DEFAULT 0,
-                losses INTEGER DEFAULT 0,
-                goals_scored INTEGER DEFAULT 0,
-                goals_conceded INTEGER DEFAULT 0,
-                btts_count INTEGER DEFAULT 0,
-                clean_sheets INTEGER DEFAULT 0,
-                avg_goals_scored REAL DEFAULT 0,
-                avg_goals_conceded REAL DEFAULT 0,
-                btts_rate REAL DEFAULT 0,
-                updated_at TEXT,
-                UNIQUE(team_id, league_code, venue)
-            )
-        ''')
-        
         conn.commit()
         conn.close()
         print("✅ Database initialized successfully")
-    
-    def get_team_stats(self, team_id: int, league_code: str, venue: str = 'home') -> Optional[Dict]:
-        """Get team statistics from database or calculate from matches"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            c = conn.cursor()
-            
-            # Try to get from team_stats table first
-            c.execute('''
-                SELECT team_name, matches_played, wins, draws, losses,
-                       goals_scored, goals_conceded, btts_count, clean_sheets,
-                       avg_goals_scored, avg_goals_conceded, btts_rate
-                FROM team_stats
-                WHERE team_id = ? AND league_code = ? AND venue = ?
-            ''', (team_id, league_code, venue))
-            
-            row = c.fetchone()
-            
-            if row and row[1] >= 3:  # At least 3 matches
-                conn.close()
-                return {
-                    'team_id': team_id,
-                    'team_name': row[0],
-                    'matches_played': row[1],
-                    'wins': row[2],
-                    'draws': row[3],
-                    'losses': row[4],
-                    'goals_scored': row[5],
-                    'goals_conceded': row[6],
-                    'btts_count': row[7],
-                    'clean_sheets': row[8],
-                    'avg_goals_scored': row[9] or 1.2,
-                    'avg_goals_conceded': row[10] or 1.0,
-                    'btts_rate': row[11] or 50.0
-                }
-            
-            # Calculate from matches table
-            if venue == 'home':
-                c.execute('''
-                    SELECT home_team, 
-                           COUNT(*) as matches,
-                           SUM(CASE WHEN home_goals > away_goals THEN 1 ELSE 0 END) as wins,
-                           SUM(CASE WHEN home_goals = away_goals THEN 1 ELSE 0 END) as draws,
-                           SUM(CASE WHEN home_goals < away_goals THEN 1 ELSE 0 END) as losses,
-                           SUM(home_goals) as scored,
-                           SUM(away_goals) as conceded,
-                           SUM(btts) as btts_count,
-                           SUM(CASE WHEN away_goals = 0 THEN 1 ELSE 0 END) as clean_sheets
-                    FROM matches
-                    WHERE home_team_id = ? AND league_code = ?
-                ''', (team_id, league_code))
-            else:
-                c.execute('''
-                    SELECT away_team,
-                           COUNT(*) as matches,
-                           SUM(CASE WHEN away_goals > home_goals THEN 1 ELSE 0 END) as wins,
-                           SUM(CASE WHEN away_goals = home_goals THEN 1 ELSE 0 END) as draws,
-                           SUM(CASE WHEN away_goals < home_goals THEN 1 ELSE 0 END) as losses,
-                           SUM(away_goals) as scored,
-                           SUM(home_goals) as conceded,
-                           SUM(btts) as btts_count,
-                           SUM(CASE WHEN home_goals = 0 THEN 1 ELSE 0 END) as clean_sheets
-                    FROM matches
-                    WHERE away_team_id = ? AND league_code = ?
-                ''', (team_id, league_code))
-            
-            row = c.fetchone()
-            conn.close()
-            
-            if row and row[1] and row[1] >= 1:
-                matches = row[1]
-                scored = row[5] or 0
-                conceded = row[6] or 0
-                btts_count = row[7] or 0
-                
-                return {
-                    'team_id': team_id,
-                    'team_name': row[0] or 'Unknown',
-                    'matches_played': matches,
-                    'wins': row[2] or 0,
-                    'draws': row[3] or 0,
-                    'losses': row[4] or 0,
-                    'goals_scored': scored,
-                    'goals_conceded': conceded,
-                    'btts_count': btts_count,
-                    'clean_sheets': row[8] or 0,
-                    'avg_goals_scored': scored / matches if matches > 0 else 1.2,
-                    'avg_goals_conceded': conceded / matches if matches > 0 else 1.0,
-                    'btts_rate': (btts_count / matches * 100) if matches > 0 else 52.0
-                }
-            
-            # Return defaults if no data (realistic league averages)
-            return {
-                'team_id': team_id,
-                'team_name': 'Unknown',
-                'matches_played': 0,
-                'wins': 0,
-                'draws': 0,
-                'losses': 0,
-                'goals_scored': 0,
-                'goals_conceded': 0,
-                'btts_count': 0,
-                'clean_sheets': 0,
-                'avg_goals_scored': 1.4,  # Realistic average
-                'avg_goals_conceded': 1.3,  # Realistic average
-                'btts_rate': 52.0  # League average BTTS rate
-            }
-            
-        except Exception as e:
-            print(f"❌ Error getting team stats: {e}")
-            return {
-                'team_id': team_id,
-                'team_name': 'Unknown',
-                'matches_played': 0,
-                'avg_goals_scored': 1.4,
-                'avg_goals_conceded': 1.3,
-                'btts_rate': 52.0,
-                'wins': 0,
-                'clean_sheets': 0
-            }
-    
-    def get_recent_form(self, team_id: int, league_code: str, venue: str = 'home', 
-                       num_matches: int = 5) -> Dict:
-        """Get recent form for a team"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            c = conn.cursor()
-            
-            if venue == 'home':
-                c.execute('''
-                    SELECT home_goals, away_goals, btts
-                    FROM matches
-                    WHERE home_team_id = ? AND league_code = ?
-                    ORDER BY date DESC
-                    LIMIT ?
-                ''', (team_id, league_code, num_matches))
-            else:
-                c.execute('''
-                    SELECT away_goals, home_goals, btts
-                    FROM matches
-                    WHERE away_team_id = ? AND league_code = ?
-                    ORDER BY date DESC
-                    LIMIT ?
-                ''', (team_id, league_code, num_matches))
-            
-            rows = c.fetchall()
-            conn.close()
-            
-            if not rows:
-                return {
-                    'matches_played': 0,
-                    'btts_rate': 52.0,
-                    'avg_goals_scored': 1.4,
-                    'avg_goals_conceded': 1.3,
-                    'form_string': ''
-                }
-            
-            btts_count = sum(1 for r in rows if r[2] == 1)
-            goals_scored = sum(r[0] or 0 for r in rows)
-            goals_conceded = sum(r[1] or 0 for r in rows)
-            matches = len(rows)
-            
-            # Form string (W/D/L)
-            form = []
-            for r in rows:
-                if r[0] > r[1]:
-                    form.append('W')
-                elif r[0] < r[1]:
-                    form.append('L')
-                else:
-                    form.append('D')
-            
-            return {
-                'matches_played': matches,
-                'btts_rate': (btts_count / matches * 100) if matches > 0 else 52.0,
-                'avg_goals_scored': goals_scored / matches if matches > 0 else 1.2,
-                'avg_goals_conceded': goals_conceded / matches if matches > 0 else 1.0,
-                'form_string': ''.join(form)
-            }
-            
-        except Exception as e:
-            print(f"❌ Error getting form: {e}")
-            return {
-                'matches_played': 0,
-                'btts_rate': 52.0,
-                'avg_goals_scored': 1.2,
-                'avg_goals_conceded': 1.0,
-                'form_string': ''
-            }
-    
-    def calculate_head_to_head(self, home_team_id: int, away_team_id: int) -> Dict:
-        """Calculate head-to-head statistics"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            c = conn.cursor()
-            
-            c.execute('''
-                SELECT home_goals, away_goals, btts, date
-                FROM matches
-                WHERE (home_team_id = ? AND away_team_id = ?)
-                   OR (home_team_id = ? AND away_team_id = ?)
-                ORDER BY date DESC
-                LIMIT 10
-            ''', (home_team_id, away_team_id, away_team_id, home_team_id))
-            
-            rows = c.fetchall()
-            conn.close()
-            
-            if not rows:
-                return {
-                    'matches_played': 0,
-                    'btts_rate': 52.0,
-                    'avg_goals': 2.5,
-                    'btts_count': 0,
-                    'total_goals': 0,
-                    'home_wins': 0,
-                    'away_wins': 0,
-                    'draws': 0
-                }
-            
-            btts_count = sum(1 for r in rows if r[2] == 1)
-            total_goals = sum((r[0] or 0) + (r[1] or 0) for r in rows)
-            matches = len(rows)
-            
-            return {
-                'matches_played': matches,
-                'btts_rate': (btts_count / matches * 100) if matches > 0 else 52.0,
-                'avg_goals': total_goals / matches if matches > 0 else 2.5,
-                'btts_count': btts_count,
-                'total_goals': total_goals
-            }
-            
-        except Exception as e:
-            print(f"❌ Error calculating H2H: {e}")
-            return {
-                'matches_played': 0,
-                'btts_rate': 52.0,
-                'avg_goals': 2.5,
-                'btts_count': 0,
-                'total_goals': 0
-            }
-    
-    def get_rest_days(self, team_id: int, league_code: str) -> Dict:
-        """Get rest days analysis for a team"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            c = conn.cursor()
-            
-            c.execute('''
-                SELECT date FROM matches
-                WHERE (home_team_id = ? OR away_team_id = ?) AND league_code = ?
-                ORDER BY date DESC
-                LIMIT 2
-            ''', (team_id, team_id, league_code))
-            
-            rows = c.fetchall()
-            conn.close()
-            
-            if len(rows) < 2:
-                return {'rest_days': 7, 'fatigue_factor': 1.0}
-            
-            try:
-                date1 = datetime.fromisoformat(rows[0][0].replace('Z', '+00:00'))
-                date2 = datetime.fromisoformat(rows[1][0].replace('Z', '+00:00'))
-                rest_days = (date1 - date2).days
-            except:
-                rest_days = 7
-            
-            # Fatigue factor: <3 days = 0.95, 3-4 days = 0.98, 5+ days = 1.0
-            if rest_days < 3:
-                fatigue = 0.95
-            elif rest_days < 5:
-                fatigue = 0.98
-            else:
-                fatigue = 1.0
-            
-            return {'rest_days': rest_days, 'fatigue_factor': fatigue}
-            
-        except Exception as e:
-            return {'rest_days': 7, 'fatigue_factor': 1.0}
-    
-    def get_momentum(self, team_id: int, league_code: str, venue: str = 'home') -> Dict:
-        """Get momentum analysis based on recent results"""
-        form = self.get_recent_form(team_id, league_code, venue, 5)
-        form_str = form.get('form_string', '')
-        
-        # Calculate momentum bonus
-        bonus = 0
-        for i, result in enumerate(form_str):
-            weight = 5 - i  # Recent matches weighted more
-            if result == 'W':
-                bonus += weight * 0.5
-            elif result == 'L':
-                bonus -= weight * 0.3
-        
-        return {
-            'momentum_bonus': min(5, max(-5, bonus)),
-            'form_string': form_str,
-            'trend': 'UP' if bonus > 2 else ('DOWN' if bonus < -2 else 'STABLE')
-        }
-    
-    def get_motivation_factor(self, team_id: int, league_code: str) -> Dict:
-        """Get motivation factor (simplified)"""
-        # In a real implementation, this would check league position, cup games, etc.
-        return {
-            'btts_adjustment': 0,
-            'motivation_level': 'NORMAL'
-        }
     
     def fetch_league_matches(self, league_code, season=2025, force_refresh=False):
         """Fetch matches for a specific league"""
@@ -449,7 +114,7 @@ class DataEngine:
                 params={
                     'league': league_id,
                     'season': season,
-                    'status': 'FT'
+                    'status': 'FT'  # Finished matches only
                 },
                 timeout=15
             )
@@ -457,7 +122,10 @@ class DataEngine:
             if response.status_code == 200:
                 data = response.json()
                 matches = data.get('response', [])
+                
+                # Save to database
                 self._save_matches(matches, league_code, league_id)
+                
                 print(f"✅ Fetched {len(matches)} matches for {league_code}")
                 return matches
             else:
@@ -478,11 +146,17 @@ class DataEngine:
         
         for idx, league_code in enumerate(self.LEAGUES_CONFIG.keys(), 1):
             print(f"[{idx}/{len(self.LEAGUES_CONFIG)}] Fetching {league_code}...")
+            
             matches = self.fetch_league_matches(league_code, season)
             total_matches += len(matches)
+            
+            # Rate limiting
             time.sleep(0.5)
         
-        print(f"\n✅ FETCHED {total_matches} TOTAL MATCHES FROM 28 LEAGUES!")
+        print(f"\n{'='*60}")
+        print(f"✅ FETCHED {total_matches} TOTAL MATCHES FROM 28 LEAGUES!")
+        print(f"{'='*60}\n")
+        
         return total_matches
     
     def _get_cached_matches(self, league_code, season):
@@ -518,25 +192,22 @@ class DataEngine:
                 teams = match.get('teams', {})
                 goals = match.get('goals', {})
                 
-                home_goals = goals.get('home', 0) or 0
-                away_goals = goals.get('away', 0) or 0
+                home_goals = goals.get('home', 0)
+                away_goals = goals.get('away', 0)
                 btts = 1 if (home_goals > 0 and away_goals > 0) else 0
                 
                 c.execute('''
                     INSERT OR REPLACE INTO matches 
-                    (id, match_id, league_code, league_id, date, home_team, away_team,
-                     home_team_id, away_team_id, home_goals, away_goals, btts, total_goals, fetched_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, league_code, league_id, date, home_team, away_team, 
+                     home_goals, away_goals, btts, total_goals, fetched_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
-                    fixture.get('id'),
                     fixture.get('id'),
                     league_code,
                     league_id,
                     fixture.get('date'),
                     teams.get('home', {}).get('name'),
                     teams.get('away', {}).get('name'),
-                    teams.get('home', {}).get('id'),
-                    teams.get('away', {}).get('id'),
                     home_goals,
                     away_goals,
                     btts,
@@ -583,9 +254,214 @@ class DataEngine:
         except Exception as e:
             print(f"❌ Stats error: {e}")
             return None
+    
+    # =============================================
+    # METHODEN FÜR ADVANCED ANALYZER
+    # =============================================
+    
+    def get_team_stats(self, team_id, league_code, venue='home'):
+        """Get team statistics - returns defaults if no data"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            
+            if venue == 'home':
+                c.execute('''
+                    SELECT home_team,
+                           COUNT(*) as matches,
+                           SUM(CASE WHEN home_goals > away_goals THEN 1 ELSE 0 END) as wins,
+                           SUM(CASE WHEN home_goals = away_goals THEN 1 ELSE 0 END) as draws,
+                           SUM(home_goals) as scored,
+                           SUM(away_goals) as conceded,
+                           SUM(btts) as btts_count,
+                           SUM(CASE WHEN away_goals = 0 THEN 1 ELSE 0 END) as clean_sheets
+                    FROM matches
+                    WHERE league_code = ?
+                    GROUP BY home_team
+                    LIMIT 1
+                ''', (league_code,))
+            else:
+                c.execute('''
+                    SELECT away_team,
+                           COUNT(*) as matches,
+                           SUM(CASE WHEN away_goals > home_goals THEN 1 ELSE 0 END) as wins,
+                           SUM(CASE WHEN away_goals = home_goals THEN 1 ELSE 0 END) as draws,
+                           SUM(away_goals) as scored,
+                           SUM(home_goals) as conceded,
+                           SUM(btts) as btts_count,
+                           SUM(CASE WHEN home_goals = 0 THEN 1 ELSE 0 END) as clean_sheets
+                    FROM matches
+                    WHERE league_code = ?
+                    GROUP BY away_team
+                    LIMIT 1
+                ''', (league_code,))
+            
+            row = c.fetchone()
+            conn.close()
+            
+            if row and row[1] and row[1] >= 1:
+                matches = row[1]
+                scored = row[4] or 0
+                conceded = row[5] or 0
+                btts_count = row[6] or 0
+                
+                return {
+                    'team_id': team_id,
+                    'team_name': row[0] or 'Unknown',
+                    'matches_played': matches,
+                    'wins': row[2] or 0,
+                    'draws': row[3] or 0,
+                    'losses': matches - (row[2] or 0) - (row[3] or 0),
+                    'goals_scored': scored,
+                    'goals_conceded': conceded,
+                    'btts_count': btts_count,
+                    'clean_sheets': row[7] or 0,
+                    'avg_goals_scored': scored / matches if matches > 0 else 1.4,
+                    'avg_goals_conceded': conceded / matches if matches > 0 else 1.3,
+                    'btts_rate': (btts_count / matches * 100) if matches > 0 else 52.0
+                }
+            
+            # Return realistic defaults
+            return {
+                'team_id': team_id,
+                'team_name': 'Unknown',
+                'matches_played': 0,
+                'wins': 0,
+                'draws': 0,
+                'losses': 0,
+                'goals_scored': 0,
+                'goals_conceded': 0,
+                'btts_count': 0,
+                'clean_sheets': 0,
+                'avg_goals_scored': 1.4,
+                'avg_goals_conceded': 1.3,
+                'btts_rate': 52.0
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting team stats: {e}")
+            return {
+                'team_id': team_id,
+                'team_name': 'Unknown',
+                'matches_played': 0,
+                'avg_goals_scored': 1.4,
+                'avg_goals_conceded': 1.3,
+                'btts_rate': 52.0,
+                'btts_count': 0,
+                'wins': 0,
+                'clean_sheets': 0
+            }
+    
+    def get_recent_form(self, team_id, league_code, venue='home', num_matches=5):
+        """Get recent form - returns defaults if no data"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            
+            c.execute('''
+                SELECT home_goals, away_goals, btts
+                FROM matches
+                WHERE league_code = ?
+                ORDER BY date DESC
+                LIMIT ?
+            ''', (league_code, num_matches))
+            
+            rows = c.fetchall()
+            conn.close()
+            
+            if not rows:
+                return {
+                    'matches_played': 0,
+                    'btts_rate': 52.0,
+                    'avg_goals_scored': 1.4,
+                    'avg_goals_conceded': 1.3,
+                    'form_string': ''
+                }
+            
+            btts_count = sum(1 for r in rows if r[2] == 1)
+            total_scored = sum(r[0] or 0 for r in rows)
+            total_conceded = sum(r[1] or 0 for r in rows)
+            matches = len(rows)
+            
+            return {
+                'matches_played': matches,
+                'btts_rate': (btts_count / matches * 100) if matches > 0 else 52.0,
+                'avg_goals_scored': total_scored / matches if matches > 0 else 1.4,
+                'avg_goals_conceded': total_conceded / matches if matches > 0 else 1.3,
+                'form_string': ''.join(['W' if r[0] > r[1] else 'D' if r[0] == r[1] else 'L' for r in rows])
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting form: {e}")
+            return {
+                'matches_played': 0,
+                'btts_rate': 52.0,
+                'avg_goals_scored': 1.4,
+                'avg_goals_conceded': 1.3,
+                'form_string': ''
+            }
+    
+    def calculate_head_to_head(self, home_team_id, away_team_id):
+        """Calculate H2H - returns defaults if no data"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            
+            # Get recent matches from any league
+            c.execute('''
+                SELECT home_goals, away_goals, btts
+                FROM matches
+                ORDER BY date DESC
+                LIMIT 10
+            ''')
+            
+            rows = c.fetchall()
+            conn.close()
+            
+            if not rows:
+                return {
+                    'matches_played': 0,
+                    'btts_rate': 52.0,
+                    'avg_goals': 2.5,
+                    'btts_count': 0,
+                    'total_goals': 0
+                }
+            
+            btts_count = sum(1 for r in rows if r[2] == 1)
+            total_goals = sum((r[0] or 0) + (r[1] or 0) for r in rows)
+            matches = len(rows)
+            
+            return {
+                'matches_played': matches,
+                'btts_rate': (btts_count / matches * 100) if matches > 0 else 52.0,
+                'avg_goals': total_goals / matches if matches > 0 else 2.5,
+                'btts_count': btts_count,
+                'total_goals': total_goals
+            }
+            
+        except Exception as e:
+            print(f"❌ Error calculating H2H: {e}")
+            return {
+                'matches_played': 0,
+                'btts_rate': 52.0,
+                'avg_goals': 2.5,
+                'btts_count': 0,
+                'total_goals': 0
+            }
+    
+    def get_rest_days(self, team_id, league_code):
+        """Get rest days - returns defaults"""
+        return {'days': 5, 'is_good': True}
+    
+    def get_momentum(self, team_id, league_code, venue='home'):
+        """Get team momentum - returns defaults"""
+        return {'score': 0.5, 'trend': 'stable'}
 
 
 # Quick test
 if __name__ == '__main__':
     engine = DataEngine('YOUR_API_KEY')
     print(f"\n✅ Data Engine ready with {len(engine.LEAGUES_CONFIG)} leagues!")
+    
+    for code, id in list(engine.LEAGUES_CONFIG.items())[:5]:
+        print(f"  {code}: League ID {id}")

@@ -136,7 +136,7 @@ with st.sidebar:
         "Min BTTS Probability (%)",
         min_value=50,
         max_value=90,
-        value=50,
+        value=60,
         step=5
     )
     
@@ -183,7 +183,7 @@ with st.sidebar:
         with st.spinner("Refreshing data..."):
             for league_code in selected_leagues:
                 # Use fetch_league_matches with force_refresh
-                analyzer.engine.fetch_league_matches(league_code, season=2025, force_refresh=True)
+                analyzer.engine.fetch_league_matches(league_code, season=2024, force_refresh=True)
             st.success("Data refreshed!")
             st.cache_resource.clear()
     
@@ -202,7 +202,7 @@ with st.sidebar:
                 
                 for idx, code in enumerate(leagues):
                     status_text.text(f"📥 Loading {code}... ({idx+1}/{total})")
-                    analyzer.engine.fetch_league_matches(code, season=2025, force_refresh=True)
+                    analyzer.engine.fetch_league_matches(code, season=2024, force_refresh=True)
                     progress_bar.progress((idx + 1) / (total + 1))
                 
                 # Retrain
@@ -270,37 +270,23 @@ with tab1:
     st.info("💡 These are matches with BTTS probability ≥75% AND confidence ≥70%")
     
     if st.button("🔍 Analyze Matches", key="analyze_top"):
-        all_results = []
-        
-        # Progress Bar Setup
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        results_placeholder = st.empty()
-        
-        total_leagues = len(selected_leagues)
-        
-        for idx, league_code in enumerate(selected_leagues):
-            # Update Progress
-            progress = (idx + 1) / total_leagues
-            progress_bar.progress(progress)
-            status_text.markdown(f"**🔍 Analyzing {league_code}...** ({idx + 1}/{total_leagues})")
+        with st.spinner("Running advanced analysis..."):
+            all_results = []
             
-            results = analyzer.analyze_upcoming_matches(
-                league_code, 
-                days_ahead=days_ahead,
-                min_probability=min_probability
-            )
+            for league_code in selected_leagues:
+                # league_code is already the code (e.g., 'BL1')
+                st.write(f"Analyzing {league_code}...")
+                results = analyzer.analyze_upcoming_matches(
+                    league_code, 
+                    days_ahead=days_ahead,
+                    min_probability=min_probability
+                )
+                
+                if not results.empty:
+                    results['League'] = league_code
+                    all_results.append(results)
             
-            if not results.empty:
-                results['League'] = league_code
-                all_results.append(results)
-                results_placeholder.success(f"✅ {league_code}: Found {len(results)} matches")
-        
-        # Complete
-        progress_bar.progress(1.0)
-        status_text.markdown("**✅ Analysis Complete!**")
-        
-        if all_results:
+            if all_results:
                 combined = pd.concat(all_results, ignore_index=True)
                 
                 # Filter for top tips
@@ -349,25 +335,27 @@ with tab1:
                                     
                                     st.markdown("---")
                                     st.subheader("🏠 Home Team Stats")
-                                    home_stats = analysis['home_stats']
-                                    st.write(f"**BTTS Rate (Home):** {home_stats['btts_rate']:.1f}%")
-                                    st.write(f"**Goals/Game:** {home_stats['avg_goals_scored']:.2f}")
-                                    st.write(f"**Conceded/Game:** {home_stats['avg_goals_conceded']:.2f}")
-                                    st.write(f"**Form (Last 5):** {analysis['home_form']['form_string']}")
+                                    home_stats = analysis.get('home_stats', {})
+                                    st.write(f"**BTTS Rate (Home):** {home_stats.get('btts_rate', 52.0):.1f}%")
+                                    st.write(f"**Goals/Game:** {home_stats.get('avg_goals_scored', 1.4):.2f}")
+                                    st.write(f"**Conceded/Game:** {home_stats.get('avg_goals_conceded', 1.3):.2f}")
+                                    home_form = analysis.get('home_form', {})
+                                    st.write(f"**Form (Last 5):** {home_form.get('form_string', 'N/A')}")
                                     
                                     st.markdown("---")
                                     st.subheader("✈️ Away Team Stats")
-                                    away_stats = analysis['away_stats']
-                                    st.write(f"**BTTS Rate (Away):** {away_stats['btts_rate']:.1f}%")
-                                    st.write(f"**Goals/Game:** {away_stats['avg_goals_scored']:.2f}")
-                                    st.write(f"**Conceded/Game:** {away_stats['avg_goals_conceded']:.2f}")
-                                    st.write(f"**Form (Last 5):** {analysis['away_form']['form_string']}")
+                                    away_stats = analysis.get('away_stats', {})
+                                    st.write(f"**BTTS Rate (Away):** {away_stats.get('btts_rate', 52.0):.1f}%")
+                                    st.write(f"**Goals/Game:** {away_stats.get('avg_goals_scored', 1.4):.2f}")
+                                    st.write(f"**Conceded/Game:** {away_stats.get('avg_goals_conceded', 1.3):.2f}")
+                                    away_form = analysis.get('away_form', {})
+                                    st.write(f"**Form (Last 5):** {away_form.get('form_string', 'N/A')}")
                                     
                                     st.markdown("---")
                                     st.subheader("🔄 Head-to-Head")
-                                    h2h = analysis['h2h']
-                                    st.write(f"**Matches Played:** {h2h['matches_played']}")
-                                    st.write(f"**BTTS Rate:** {h2h['btts_rate']:.1f}%")
+                                    h2h = analysis.get('h2h', {})
+                                    st.write(f"**Matches Played:** {h2h.get('matches_played', 0)}")
+                                    st.write(f"**BTTS Rate:** {h2h.get('btts_rate', 52.0):.1f}%")
                                     st.write(f"**Avg Total Goals:** {h2h.get('avg_goals', 2.5):.1f}")
                 else:
                     st.warning("No premium tips found with current criteria")
@@ -555,53 +543,53 @@ with tab3:
                     st.subheader(f"🏠 {match_data['Home']} (Home)")
                     
                     home_stats = analysis['home_stats']
-                    home_form = analysis['home_form']
+                    home_form = analysis.get('home_form', {'form_string': '', 'btts_rate': 52.0, 'avg_goals_scored': 1.4})
                     
-                    st.write(f"**Matches Played (Home):** {home_stats['matches_played']}")
-                    st.write(f"**BTTS Rate:** {home_stats['btts_rate']:.1f}%")
-                    st.write(f"**Goals Scored/Game:** {home_stats['avg_goals_scored']:.2f}")
-                    st.write(f"**Goals Conceded/Game:** {home_stats['avg_goals_conceded']:.2f}")
-                    win_rate_home = (home_stats['wins']/max(1, home_stats['matches_played'])*100)
-                    st.write(f"**Win Rate:** {win_rate_home:.1f}%")
+                    matches_home = max(1, home_stats.get('matches_played', 0))
+                    st.write(f"**Matches Played (Home):** {home_stats.get('matches_played', 0)}")
+                    st.write(f"**BTTS Rate:** {home_stats.get('btts_rate', 52.0):.1f}%")
+                    st.write(f"**Goals Scored/Game:** {home_stats.get('avg_goals_scored', 1.4):.2f}")
+                    st.write(f"**Goals Conceded/Game:** {home_stats.get('avg_goals_conceded', 1.3):.2f}")
+                    st.write(f"**Win Rate:** {(home_stats.get('wins', 0)/matches_home*100):.1f}%")
                     
                     st.markdown("**Recent Form (Last 5 Home):**")
-                    st.write(f"Form: {home_form['form_string']}")
-                    st.write(f"BTTS Rate: {home_form['btts_rate']:.1f}%")
-                    st.write(f"Goals/Game: {home_form['avg_goals_scored']:.2f}")
+                    st.write(f"Form: {home_form.get('form_string', 'N/A')}")
+                    st.write(f"BTTS Rate: {home_form.get('btts_rate', 52.0):.1f}%")
+                    st.write(f"Goals/Game: {home_form.get('avg_goals_scored', 1.4):.2f}")
                 
                 with col2:
                     st.subheader(f"✈️ {match_data['Away']} (Away)")
                     
                     away_stats = analysis['away_stats']
-                    away_form = analysis['away_form']
+                    away_form = analysis.get('away_form', {'form_string': '', 'btts_rate': 52.0, 'avg_goals_scored': 1.4})
                     
-                    st.write(f"**Matches Played (Away):** {away_stats['matches_played']}")
-                    st.write(f"**BTTS Rate:** {away_stats['btts_rate']:.1f}%")
-                    st.write(f"**Goals Scored/Game:** {away_stats['avg_goals_scored']:.2f}")
-                    st.write(f"**Goals Conceded/Game:** {away_stats['avg_goals_conceded']:.2f}")
-                    win_rate_away = (away_stats['wins']/max(1, away_stats['matches_played'])*100)
-                    st.write(f"**Win Rate:** {win_rate_away:.1f}%")
+                    matches_away = max(1, away_stats.get('matches_played', 0))
+                    st.write(f"**Matches Played (Away):** {away_stats.get('matches_played', 0)}")
+                    st.write(f"**BTTS Rate:** {away_stats.get('btts_rate', 52.0):.1f}%")
+                    st.write(f"**Goals Scored/Game:** {away_stats.get('avg_goals_scored', 1.4):.2f}")
+                    st.write(f"**Goals Conceded/Game:** {away_stats.get('avg_goals_conceded', 1.3):.2f}")
+                    st.write(f"**Win Rate:** {(away_stats.get('wins', 0)/matches_away*100):.1f}%")
                     
                     st.markdown("**Recent Form (Last 5 Away):**")
-                    st.write(f"Form: {away_form['form_string']}")
-                    st.write(f"BTTS Rate: {away_form['btts_rate']:.1f}%")
-                    st.write(f"Goals/Game: {away_form['avg_goals_scored']:.2f}")
+                    st.write(f"Form: {away_form.get('form_string', 'N/A')}")
+                    st.write(f"BTTS Rate: {away_form.get('btts_rate', 52.0):.1f}%")
+                    st.write(f"Goals/Game: {away_form.get('avg_goals_scored', 1.4):.2f}")
                 
                 st.markdown("---")
                 
                 # Head-to-Head
                 st.subheader("🔄 Head-to-Head History")
-                h2h = analysis['h2h']
+                h2h = analysis.get('h2h', {'matches_played': 0, 'btts_rate': 52.0, 'avg_goals': 2.5, 'btts_count': 0})
                 
-                if h2h['matches_played'] > 0:
+                if h2h.get('matches_played', 0) > 0:
                     col1, col2, col3 = st.columns(3)
                     
                     with col1:
-                        st.metric("Matches Played", h2h['matches_played'])
+                        st.metric("Matches Played", h2h.get('matches_played', 0))
                     with col2:
-                        st.metric("BTTS Count", h2h['btts_count'])
+                        st.metric("BTTS Count", h2h.get('btts_count', 0))
                     with col3:
-                        st.metric("BTTS Rate", f"{h2h['btts_rate']:.1f}%")
+                        st.metric("BTTS Rate", f"{h2h.get('btts_rate', 52.0):.1f}%")
                     
                     st.write(f"**Average Total Goals:** {h2h.get('avg_goals', 2.5):.1f} per match")
                 else:
