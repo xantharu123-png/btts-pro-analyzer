@@ -329,6 +329,8 @@ class DataEngine:
                     'matches_played': 0,
                     'btts_rate': 52.0,
                     'avg_goals': 2.5,
+                    'btts_count': 0,
+                    'total_goals': 0,
                     'home_wins': 0,
                     'away_wins': 0,
                     'draws': 0
@@ -351,7 +353,9 @@ class DataEngine:
             return {
                 'matches_played': 0,
                 'btts_rate': 52.0,
-                'avg_goals': 2.5
+                'avg_goals': 2.5,
+                'btts_count': 0,
+                'total_goals': 0
             }
     
     def get_rest_days(self, team_id: int, league_code: str) -> Dict:

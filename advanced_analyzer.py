@@ -408,20 +408,24 @@ class AdvancedBTTSAnalyzer:
                 'btts_rate': home_stats.get('btts_rate', 50),
                 'avg_goals_scored': home_stats.get('avg_goals_scored', 1.2),
                 'avg_goals_conceded': home_stats.get('avg_goals_conceded', 1.0),
-                'matches_played': home_stats.get('matches_played', 0),
+                'matches_played': home_stats.get('matches_played', 0) or 1,  # Avoid division by zero
                 'clean_sheets': home_stats.get('clean_sheets', 0),
-                'wins': home_stats.get('wins', 0)
+                'wins': home_stats.get('wins', 0),
+                'btts_count': home_stats.get('btts_count', 0)
             },
             'away_stats': {
                 'btts_rate': away_stats.get('btts_rate', 50),
                 'avg_goals_scored': away_stats.get('avg_goals_scored', 1.0),
                 'avg_goals_conceded': away_stats.get('avg_goals_conceded', 1.2),
-                'matches_played': away_stats.get('matches_played', 0),
+                'matches_played': away_stats.get('matches_played', 0) or 1,  # Avoid division by zero
                 'clean_sheets': away_stats.get('clean_sheets', 0),
-                'wins': away_stats.get('wins', 0)
+                'wins': away_stats.get('wins', 0),
+                'btts_count': away_stats.get('btts_count', 0)
             },
             
             'h2h': h2h,
+            'home_form': home_form,
+            'away_form': away_form,
             'form': {
                 'home': home_form,
                 'away': away_form

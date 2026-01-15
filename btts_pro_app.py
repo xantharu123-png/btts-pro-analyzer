@@ -354,7 +354,7 @@ with tab1:
                                     h2h = analysis['h2h']
                                     st.write(f"**Matches Played:** {h2h['matches_played']}")
                                     st.write(f"**BTTS Rate:** {h2h['btts_rate']:.1f}%")
-                                    st.write(f"**Avg Total Goals:** {h2h['avg_total_goals']:.1f}")
+                                    st.write(f"**Avg Total Goals:** {h2h.get('avg_goals', 2.5):.1f}")
                 else:
                     st.warning("No premium tips found with current criteria")
             else:
@@ -544,10 +544,11 @@ with tab3:
                     home_form = analysis['home_form']
                     
                     st.write(f"**Matches Played (Home):** {home_stats['matches_played']}")
-                    st.write(f"**BTTS Rate:** {home_stats['btts_rate']:.1f}% ({home_stats['btts_count']}/{home_stats['matches_played']})")
+                    st.write(f"**BTTS Rate:** {home_stats['btts_rate']:.1f}%")
                     st.write(f"**Goals Scored/Game:** {home_stats['avg_goals_scored']:.2f}")
                     st.write(f"**Goals Conceded/Game:** {home_stats['avg_goals_conceded']:.2f}")
-                    st.write(f"**Win Rate:** {(home_stats['wins']/home_stats['matches_played']*100):.1f}%")
+                    win_rate_home = (home_stats['wins']/max(1, home_stats['matches_played'])*100)
+                    st.write(f"**Win Rate:** {win_rate_home:.1f}%")
                     
                     st.markdown("**Recent Form (Last 5 Home):**")
                     st.write(f"Form: {home_form['form_string']}")
@@ -561,10 +562,11 @@ with tab3:
                     away_form = analysis['away_form']
                     
                     st.write(f"**Matches Played (Away):** {away_stats['matches_played']}")
-                    st.write(f"**BTTS Rate:** {away_stats['btts_rate']:.1f}% ({away_stats['btts_count']}/{away_stats['matches_played']})")
+                    st.write(f"**BTTS Rate:** {away_stats['btts_rate']:.1f}%")
                     st.write(f"**Goals Scored/Game:** {away_stats['avg_goals_scored']:.2f}")
                     st.write(f"**Goals Conceded/Game:** {away_stats['avg_goals_conceded']:.2f}")
-                    st.write(f"**Win Rate:** {(away_stats['wins']/away_stats['matches_played']*100):.1f}%")
+                    win_rate_away = (away_stats['wins']/max(1, away_stats['matches_played'])*100)
+                    st.write(f"**Win Rate:** {win_rate_away:.1f}%")
                     
                     st.markdown("**Recent Form (Last 5 Away):**")
                     st.write(f"Form: {away_form['form_string']}")
@@ -587,7 +589,7 @@ with tab3:
                     with col3:
                         st.metric("BTTS Rate", f"{h2h['btts_rate']:.1f}%")
                     
-                    st.write(f"**Average Total Goals:** {h2h['avg_total_goals']:.1f} per match")
+                    st.write(f"**Average Total Goals:** {h2h.get('avg_goals', 2.5):.1f} per match")
                 else:
                     st.info("No recent head-to-head data available")
                 
