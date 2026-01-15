@@ -528,6 +528,7 @@ class AdvancedBTTSAnalyzer:
                                 min_probability: float = 60.0) -> pd.DataFrame:
         """Analyze all upcoming matches and return recommendations"""
         print(f"\n🔍 Analyzing upcoming matches for {league_code}...")
+        print(f"   Filter: min_probability={min_probability}%")
         
         matches = self.get_upcoming_matches(league_code, days_ahead)
         
@@ -548,6 +549,9 @@ class AdvancedBTTSAnalyzer:
             if 'error' in analysis:
                 print(f"   ⚠️ Skipped: {analysis['error']}")
                 continue
+            
+            # DEBUG: Zeige die berechneten Werte
+            print(f"      → BTTS: {analysis['ensemble_probability']:.1f}% | Conf: {analysis['confidence']:.1f}% | ML: {analysis['ml_probability']:.1f}% | Stat: {analysis['statistical_probability']:.1f}%")
             
             if analysis['ensemble_probability'] >= min_probability:
                 try:
