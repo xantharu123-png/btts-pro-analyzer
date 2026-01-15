@@ -189,17 +189,23 @@ class UltraLiveScanner:
         Wobei: P(X ≥ 1) = 1 - e^(-λ)
         """
         
-        # BTTS bereits eingetreten
+        # BTTS bereits eingetreten - KEINE WETTEMPFEHLUNG!
         if home_score > 0 and away_score > 0:
             return {
                 'probability': 100.0,
-                'confidence': 'COMPLETE',
+                'confidence': 'ALREADY_HIT',  # Markiere als "bereits eingetreten"
                 'p_home_scores': 100.0,
                 'p_away_scores': 100.0,
                 'base_prob': 100.0,
                 'time_factor': 1.0,
-                'score_adj': 0
+                'score_adj': 0,
+                'is_complete': True,  # Flag für UI
+                'message': '✅ BTTS bereits eingetreten - keine Wette mehr möglich!'
             }
+        
+        # Ein Team hat noch nicht getroffen - HIER ist die Wette interessant!
+        home_needs_goal = (home_score == 0)
+        away_needs_goal = (away_score == 0)
         
         time_remaining = max(1, 90 - minute)
         time_factor = time_remaining / 90.0

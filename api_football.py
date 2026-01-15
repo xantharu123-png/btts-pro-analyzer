@@ -65,7 +65,7 @@ class APIFootball:
         
         params = {
             'league': league_id,
-            'season': 2025,  # WICHTIG: Season 2025!
+            'season': 2024,  # Die Saison 2024/25 - API verwendet Startjahr!
             'from': today.strftime('%Y-%m-%d'),
             'to': end_date.strftime('%Y-%m-%d'),
         }
@@ -156,7 +156,7 @@ class APIFootball:
             print(f"❌ Error fetching live matches: {e}")
             return []
     
-    def get_league_matches(self, league_code: str, season: int = 2025) -> List[Dict]:
+    def get_league_matches(self, league_code: str, season: int = 2024) -> List[Dict]:
         """Get all finished matches for a league"""
         league_id = self.league_ids.get(league_code)
         if not league_id:
@@ -254,10 +254,10 @@ class APIFootball:
                 return stat.get('value')
         return None
     
-    def get_team_xg_average(self, team_id: int, league_id: int, season: int = 2025) -> Optional[Dict]:
+    def get_team_xg_average(self, team_id: int, league_id: int, season: int = 2024) -> Optional[Dict]:
         return None  # Simplified
     
-    def get_team_statistics(self, team_id: int, league_id: int, season: int = 2025) -> Optional[Dict]:
+    def get_team_statistics(self, team_id: int, league_id: int, season: int = 2024) -> Optional[Dict]:
         """
         Get REAL team statistics from API-Football
         Endpoint: /teams/statistics
