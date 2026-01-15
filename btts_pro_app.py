@@ -787,15 +787,21 @@ with tab6:
     🇩🇪🇬🇧🇪🇸🇮🇹🇫🇷🇳🇱🇵🇹🇹🇷🇲🇽🇧🇷 + 🏆 CL/EL/ECL + 🇪🇺 Scotland/Belgium/Switzerland/Austria + 🎊 Singapore/Estonia/Iceland/Australia/Sweden/Qatar/UAE
     """)
     
-    # Auto-refresh enabled for cloud!
+    # Auto-refresh DISABLED to prevent interference with other tabs
+    # Users can manually refresh with button below
     try:
         from streamlit_autorefresh import st_autorefresh
         
-        # Auto-refresh every 30 seconds
-        count = st_autorefresh(interval=30000, limit=None, key="ultra_live_refresh")
+        # DISABLED: Was causing page refresh every 30 seconds which broke other tabs
+        # count = st_autorefresh(interval=30000, limit=None, key="ultra_live_refresh")
         
-        st.success(f"✅ Ultra Auto-Refresh Active! (Update #{count})")
-        st.caption(f"Last update: {datetime.now().strftime('%H:%M:%S')}")
+        # Manual refresh option
+        col_r1, col_r2 = st.columns([1,3])
+        with col_r1:
+            if st.button("🔄 Refresh Now", key="manual_refresh_ultra"):
+                st.rerun()
+        with col_r2:
+            st.caption(f"Last update: {datetime.now().strftime('%H:%M:%S')} - Click button to refresh")
         
         # Settings
         col1, col2, col3 = st.columns(3)
@@ -1073,13 +1079,16 @@ with tab7:
     try:
         from streamlit_autorefresh import st_autorefresh
         
-        # Auto-refresh every 40 seconds
-        count = st_autorefresh(interval=40000, limit=None, key="alt_refresh")
+        # DISABLED: Was causing page refresh every 40 seconds which broke other tabs
+        # count = st_autorefresh(interval=40000, limit=None, key="alt_refresh")
         
-        if count == 0:
-            st.success("✅ Alternative Markets Scanner Active!")
-        else:
-            st.success(f"✅ Alternative Markets Auto-Refresh Active! (Update #{count})")
+        # Manual refresh option
+        col_r1, col_r2 = st.columns([1,3])
+        with col_r1:
+            if st.button("🔄 Refresh Now", key="manual_refresh_alt"):
+                st.rerun()
+        with col_r2:
+            st.caption(f"Last check: {datetime.now().strftime('%H:%M:%S')} - Click button to refresh")
         
         # Settings
         st.markdown("---")
