@@ -101,12 +101,12 @@ class AdvancedBTTSAnalyzer:
         
         # Fill NaN with defaults
         df = df.fillna({
-            'home_btts_rate': 50,
-            'away_btts_rate': 50,
-            'home_goals_scored': 1.2,
-            'away_goals_scored': 1.0,
-            'home_goals_conceded': 1.0,
-            'away_goals_conceded': 1.2
+            'home_btts_rate': 65,
+            'away_btts_rate': 65,
+            'home_goals_scored': 1.6,
+            'away_goals_scored': 1.5,
+            'home_goals_conceded': 1.5,
+            'away_goals_conceded': 1.5
         })
         
         features = [
@@ -265,12 +265,12 @@ class AdvancedBTTSAnalyzer:
         # =============================================
         
         # Expected Goals (korrekte Formel!)
-        home_scored = home_stats.get('avg_goals_scored', 1.2)
-        away_conceded = away_stats.get('avg_goals_conceded', 1.2)
+        home_scored = home_stats.get('avg_goals_scored', 1.6)
+        away_conceded = away_stats.get('avg_goals_conceded', 1.5)
         exp_home = (home_scored + away_conceded) / 2 * 1.08  # Heimvorteil
         
-        away_scored = away_stats.get('avg_goals_scored', 1.0)
-        home_conceded = home_stats.get('avg_goals_conceded', 1.0)
+        away_scored = away_stats.get('avg_goals_scored', 1.5)
+        home_conceded = home_stats.get('avg_goals_conceded', 1.5)
         exp_away = (away_scored + home_conceded) / 2 * 0.92
         
         # Poisson-Wahrscheinlichkeiten
@@ -281,24 +281,24 @@ class AdvancedBTTSAnalyzer:
         stat_btts = (p_home_scores * p_away_scores) / 100
         
         # Historical BTTS
-        home_btts = home_stats.get('btts_rate', 50)
-        away_btts = away_stats.get('btts_rate', 50)
+        home_btts = home_stats.get('btts_rate', 65)
+        away_btts = away_stats.get('btts_rate', 65)
         historical_btts = (home_btts + away_btts) / 2
         
         # Form BTTS
-        form_btts = (home_form.get('btts_rate', 50) + away_form.get('btts_rate', 50)) / 2
+        form_btts = (home_form.get('btts_rate', 65) + away_form.get('btts_rate', 65)) / 2
         
         # H2H BTTS
         h2h_btts = h2h.get('btts_rate', historical_btts) if h2h.get('matches_played', 0) >= 3 else historical_btts
         
         # ML Prediction
         ml_features = [
-            home_stats.get('btts_rate', 50),
-            away_stats.get('btts_rate', 50),
-            home_stats.get('avg_goals_scored', 1.2),
-            away_stats.get('avg_goals_scored', 1.0),
-            home_stats.get('avg_goals_conceded', 1.0),
-            away_stats.get('avg_goals_conceded', 1.2),
+            home_stats.get('btts_rate', 65),
+            away_stats.get('btts_rate', 65),
+            home_stats.get('avg_goals_scored', 1.6),
+            away_stats.get('avg_goals_scored', 1.5),
+            home_stats.get('avg_goals_conceded', 1.5),
+            away_stats.get('avg_goals_conceded', 1.5),
         ]
         ml_prob, ml_conf = self.ml_predict(ml_features)
         ml_probability = ml_prob * 100
@@ -405,18 +405,18 @@ class AdvancedBTTSAnalyzer:
             
             # Stats
             'home_stats': {
-                'btts_rate': home_stats.get('btts_rate', 50),
-                'avg_goals_scored': home_stats.get('avg_goals_scored', 1.2),
-                'avg_goals_conceded': home_stats.get('avg_goals_conceded', 1.0),
+                'btts_rate': home_stats.get('btts_rate', 65),
+                'avg_goals_scored': home_stats.get('avg_goals_scored', 1.6),
+                'avg_goals_conceded': home_stats.get('avg_goals_conceded', 1.5),
                 'matches_played': home_stats.get('matches_played', 0) or 1,  # Avoid division by zero
                 'clean_sheets': home_stats.get('clean_sheets', 0),
                 'wins': home_stats.get('wins', 0),
                 'btts_count': home_stats.get('btts_count', 0)
             },
             'away_stats': {
-                'btts_rate': away_stats.get('btts_rate', 50),
-                'avg_goals_scored': away_stats.get('avg_goals_scored', 1.0),
-                'avg_goals_conceded': away_stats.get('avg_goals_conceded', 1.2),
+                'btts_rate': away_stats.get('btts_rate', 65),
+                'avg_goals_scored': away_stats.get('avg_goals_scored', 1.5),
+                'avg_goals_conceded': away_stats.get('avg_goals_conceded', 1.5),
                 'matches_played': away_stats.get('matches_played', 0) or 1,  # Avoid division by zero
                 'clean_sheets': away_stats.get('clean_sheets', 0),
                 'wins': away_stats.get('wins', 0),
