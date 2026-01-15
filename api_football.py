@@ -306,46 +306,231 @@ class APIFootball:
             avg_conceded_home = goals_home_conceded / total_home if total_home > 0 else 1.2
             avg_conceded_away = goals_away_conceded / total_away if total_away > 0 else 1.4
             
-            # BTTS calculation from clean sheets
+            # BTTS calculation from clean sheets and failed to score
             clean_sheets = stats.get('clean_sheet', {})
             cs_home = clean_sheets.get('home', 0) or 0
             cs_away = clean_sheets.get('away', 0) or 0
+            cs_total = clean_sheets.get('total', 0) or 0
             
             # Failed to score
             failed_to_score = stats.get('failed_to_score', {})
             fts_home = failed_to_score.get('home', 0) or 0
             fts_away = failed_to_score.get('away', 0) or 0
+            fts_total = failed_to_score.get('total', 0) or 0
+            
+            # Calculate percentages
+            cs_pct = (cs_total / total_matches * 100) if total_matches > 0 else 25
+            fts_pct = (fts_total / total_matches * 100) if total_matches > 0 else 20
             
             # BTTS rate = matches where both scored
-            # = matches - (clean sheets + failed to score - both)
             # Approximate: (1 - CS%) * (1 - FTS%)
-            cs_rate_home = cs_home / total_home if total_home > 0 else 0.25
-            cs_rate_away = cs_away / total_away if total_away > 0 else 0.2
-            fts_rate_home = fts_home / total_home if total_home > 0 else 0.2
-            fts_rate_away = fts_away / total_away if total_away > 0 else 0.25
+            btts_rate_home = (1 - cs_home/total_home if total_home > 0 else 0.75) * (1 - fts_home/total_home if total_home > 0 else 0.8) * 100
+            btts_rate_away = (1 - cs_away/total_away if total_away > 0 else 0.8) * (1 - fts_away/total_away if total_away > 0 else 0.75) * 100
+            btts_rate_total = (1 - cs_pct/100) * (1 - fts_pct/100) * 100
             
-            btts_rate_home = (1 - cs_rate_home) * (1 - fts_rate_home) * 100
-            btts_rate_away = (1 - cs_rate_away) * (1 - fts_rate_away) * 100
+            # Wins for form
+            wins = fixtures.get('wins', {})
+            wins_home = wins.get('home', 0) or 0
+            wins_away = wins.get('away', 0) or 0
             
             return {
                 'team_id': team_id,
                 'team_name': stats.get('team', {}).get('name', 'Unknown'),
+                
+                # Matches
                 'matches_played_home': total_home,
                 'matches_played_away': total_away,
+                'matches_played_total': total_matches,
+                
+                # Goals
                 'avg_goals_scored_home': round(avg_scored_home, 2),
                 'avg_goals_scored_away': round(avg_scored_away, 2),
                 'avg_goals_conceded_home': round(avg_conceded_home, 2),
                 'avg_goals_conceded_away': round(avg_conceded_away, 2),
+                'goals_scored_total': goals_home_scored + goals_away_scored,
+                'goals_conceded_total': goals_home_conceded + goals_away_conceded,
+                
+                # BTTS rates
                 'btts_rate_home': round(btts_rate_home, 1),
                 'btts_rate_away': round(btts_rate_away, 1),
+                'btts_rate_total': round(btts_rate_total, 1),
+                
+                # Clean sheets & Failed to score
                 'clean_sheets_home': cs_home,
                 'clean_sheets_away': cs_away,
+                'clean_sheets_pct': round(cs_pct, 1),
                 'failed_to_score_home': fts_home,
                 'failed_to_score_away': fts_away,
+                'failed_to_score_pct': round(fts_pct, 1),
+                
+                # Wins
+                'wins_home': wins_home,
+                'wins_away': wins_away,
             }
             
         except Exception as e:
             print(f"❌ Error getting team statistics: {e}")
+            return None
+    
+    def get_head_to_head(self, team1_id: int, team2_id: int, last_n: int = 10) -> Optional[Dict]:
+        """
+        Get Head-to-Head statistics between two teams
+        Endpoint: /fixtures/headtohead
+        """
+        try:
+            self._rate_limit()
+            
+            response = requests.get(
+                f"{self.base_url}/fixtures/headtohead",
+                headers=self.headers,
+                params={
+                    'h2h': f"{team1_id}-{team2_id}",
+                    'last': last_n
+                },
+                timeout=15
+            )
+            
+            if response.status_code != 200:
+                return None
+            
+            data = response.json()
+            fixtures = data.get('response', [])
+            
+            if not fixtures:
+                return None
+            
+            # Analyze H2H matches
+            btts_count = 0
+            total_goals = 0
+            team1_wins = 0
+            team2_wins = 0
+            draws = 0
+            
+            for match in fixtures:
+                home_goals = match.get('goals', {}).get('home', 0) or 0
+                away_goals = match.get('goals', {}).get('away', 0) or 0
+                
+                total_goals += home_goals + away_goals
+                
+                if home_goals > 0 and away_goals > 0:
+                    btts_count += 1
+                
+                home_team_id = match.get('teams', {}).get('home', {}).get('id')
+                
+                if home_goals > away_goals:
+                    if home_team_id == team1_id:
+                        team1_wins += 1
+                    else:
+                        team2_wins += 1
+                elif away_goals > home_goals:
+                    if home_team_id == team1_id:
+                        team2_wins += 1
+                    else:
+                        team1_wins += 1
+                else:
+                    draws += 1
+            
+            matches_played = len(fixtures)
+            
+            return {
+                'matches_played': matches_played,
+                'btts_count': btts_count,
+                'btts_rate': round(btts_count / matches_played * 100, 1) if matches_played > 0 else 50,
+                'avg_goals': round(total_goals / matches_played, 2) if matches_played > 0 else 2.5,
+                'total_goals': total_goals,
+                'team1_wins': team1_wins,
+                'team2_wins': team2_wins,
+                'draws': draws,
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting H2H: {e}")
+            return None
+    
+    def get_team_last_matches(self, team_id: int, last_n: int = 5) -> Optional[Dict]:
+        """
+        Get last N matches for a team (for form analysis)
+        Endpoint: /fixtures
+        """
+        try:
+            self._rate_limit()
+            
+            response = requests.get(
+                f"{self.base_url}/fixtures",
+                headers=self.headers,
+                params={
+                    'team': team_id,
+                    'last': last_n,
+                    'status': 'FT'
+                },
+                timeout=15
+            )
+            
+            if response.status_code != 200:
+                return None
+            
+            data = response.json()
+            fixtures = data.get('response', [])
+            
+            if not fixtures:
+                return None
+            
+            # Analyze recent form
+            btts_count = 0
+            goals_scored = 0
+            goals_conceded = 0
+            wins = 0
+            draws = 0
+            losses = 0
+            form_string = ""
+            
+            for match in fixtures:
+                home_goals = match.get('goals', {}).get('home', 0) or 0
+                away_goals = match.get('goals', {}).get('away', 0) or 0
+                home_team_id = match.get('teams', {}).get('home', {}).get('id')
+                
+                is_home = (home_team_id == team_id)
+                
+                if is_home:
+                    team_goals = home_goals
+                    opponent_goals = away_goals
+                else:
+                    team_goals = away_goals
+                    opponent_goals = home_goals
+                
+                goals_scored += team_goals
+                goals_conceded += opponent_goals
+                
+                if home_goals > 0 and away_goals > 0:
+                    btts_count += 1
+                
+                if team_goals > opponent_goals:
+                    wins += 1
+                    form_string += "W"
+                elif team_goals < opponent_goals:
+                    losses += 1
+                    form_string += "L"
+                else:
+                    draws += 1
+                    form_string += "D"
+            
+            matches = len(fixtures)
+            
+            return {
+                'matches_played': matches,
+                'btts_count': btts_count,
+                'btts_rate': round(btts_count / matches * 100, 1) if matches > 0 else 50,
+                'avg_goals_scored': round(goals_scored / matches, 2) if matches > 0 else 1.3,
+                'avg_goals_conceded': round(goals_conceded / matches, 2) if matches > 0 else 1.3,
+                'wins': wins,
+                'draws': draws,
+                'losses': losses,
+                'form_string': form_string,
+                'points': wins * 3 + draws,
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting last matches: {e}")
             return None
 
 

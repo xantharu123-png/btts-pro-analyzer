@@ -348,34 +348,331 @@ class AdvancedBTTSAnalyzer:
     def analyze_match(self, home_team_id: int, away_team_id: int, 
                      league_code: str) -> Dict:
         """
-        KORRIGIERTE Match-Analyse mit ECHTEN Team-Statistiken von API-Football
+        VOLLSTÄNDIGE Match-Analyse nach Spezifikation:
+        
+        BTTS % = (Saison BTTS% × 0.3) + (Form letzte 5 × 0.3) + (H2H × 0.2) + (Heim/Auswärts × 0.2)
+        
+        Plus Poisson-Verteilung für Torwahrscheinlichkeit
         """
-        # Initialize team stats cache if not exists
+        # Initialize caches
         if not hasattr(self, '_team_stats_cache'):
             self._team_stats_cache = {}
+        if not hasattr(self, '_h2h_cache'):
+            self._h2h_cache = {}
+        if not hasattr(self, '_form_cache'):
+            self._form_cache = {}
         
         # Get league_id
         league_id = self.engine.LEAGUES_CONFIG.get(league_code, 0)
         
-        # Try to get REAL team stats from API-Football
-        home_stats = self._get_real_team_stats(home_team_id, league_id, league_code, 'home')
-        away_stats = self._get_real_team_stats(away_team_id, league_id, league_code, 'away')
+        # =============================================
+        # 1. SAISON-STATISTIKEN (30% Gewichtung)
+        # =============================================
+        home_season = self._get_season_stats(home_team_id, league_id, 'home')
+        away_season = self._get_season_stats(away_team_id, league_id, 'away')
         
-        if not home_stats or not away_stats:
-            return {'error': 'Insufficient data for teams'}
+        if not home_season or not away_season:
+            return {'error': 'Could not get team statistics'}
         
-        # Get form (use defaults for now)
-        home_form = self.engine.get_recent_form(home_team_id, league_code, 'home', 5)
-        away_form = self.engine.get_recent_form(away_team_id, league_code, 'away', 5)
+        # Saison BTTS% = Durchschnitt beider Teams
+        season_btts = (home_season['btts_rate'] + away_season['btts_rate']) / 2
         
-        # Get H2H
-        h2h = self.engine.calculate_head_to_head(home_team_id, away_team_id)
+        # =============================================
+        # 2. FORM LETZTE 5 SPIELE (30% Gewichtung)
+        # =============================================
+        home_form = self._get_form_stats(home_team_id)
+        away_form = self._get_form_stats(away_team_id)
         
-        # Get rest days and momentum
-        home_rest = self.engine.get_rest_days(home_team_id, league_code)
-        away_rest = self.engine.get_rest_days(away_team_id, league_code)
-        home_momentum = self.engine.get_momentum(home_team_id, league_code, 'home')
-        away_momentum = self.engine.get_momentum(away_team_id, league_code, 'away')
+        form_btts = (home_form['btts_rate'] + away_form['btts_rate']) / 2
+        
+        # =============================================
+        # 3. HEAD-TO-HEAD (20% Gewichtung)
+        # =============================================
+        h2h = self._get_h2h_stats(home_team_id, away_team_id)
+        h2h_btts = h2h['btts_rate']
+        
+        # =============================================
+        # 4. HEIM/AUSWÄRTS FAKTOR (20% Gewichtung)
+        # =============================================
+        # Home team's HOME btts rate + Away team's AWAY btts rate
+        venue_btts = (home_season['btts_rate_venue'] + away_season['btts_rate_venue']) / 2
+        
+        # =============================================
+        # ERWEITERTE BTTS-BERECHNUNG (gewichtet)
+        # =============================================
+        weighted_btts = (
+            0.30 * season_btts +      # Saison BTTS%
+            0.30 * form_btts +        # Form letzte 5
+            0.20 * h2h_btts +         # H2H
+            0.20 * venue_btts         # Heim/Auswärts
+        )
+        
+        # =============================================
+        # POISSON-VERTEILUNG für Torwahrscheinlichkeit
+        # =============================================
+        # λ = erwartete Tore
+        lambda_home = (home_season['avg_scored'] + away_season['avg_conceded']) / 2 * 1.08  # Heimvorteil
+        lambda_away = (away_season['avg_scored'] + home_season['avg_conceded']) / 2 * 0.92  # Auswärtsnachteil
+        
+        # P(Team ≥ 1 Tor) = 1 - e^(-λ)
+        p_home_scores = (1 - math.exp(-lambda_home)) * 100
+        p_away_scores = (1 - math.exp(-lambda_away)) * 100
+        
+        # P(BTTS) = P(Home ≥ 1) × P(Away ≥ 1)
+        poisson_btts = (p_home_scores * p_away_scores) / 100
+        
+        # =============================================
+        # FINALE KOMBINATION
+        # =============================================
+        # 60% gewichtete Statistik + 40% Poisson
+        final_btts = 0.60 * weighted_btts + 0.40 * poisson_btts
+        
+        # Clamp zwischen 25% und 90%
+        final_btts = max(25, min(90, final_btts))
+        
+        # =============================================
+        # CONFIDENCE SCORE
+        # =============================================
+        # Basiert auf Datenverfügbarkeit
+        data_points = 0
+        if home_season['matches_played'] >= 5: data_points += 25
+        if away_season['matches_played'] >= 5: data_points += 25
+        if home_form['matches_played'] >= 3: data_points += 15
+        if away_form['matches_played'] >= 3: data_points += 15
+        if h2h['matches_played'] >= 3: data_points += 20
+        
+        confidence = min(95, max(40, data_points))
+        
+        # Confidence Level
+        if confidence >= 80:
+            confidence_level = "VERY_HIGH"
+        elif confidence >= 65:
+            confidence_level = "HIGH"
+        elif confidence >= 50:
+            confidence_level = "MEDIUM"
+        else:
+            confidence_level = "LOW"
+        
+        # Recommendation
+        if final_btts >= 70 and confidence >= 65:
+            recommendation = "🔥 STRONG BET"
+        elif final_btts >= 60 and confidence >= 55:
+            recommendation = "✅ GOOD VALUE"
+        elif final_btts >= 50:
+            recommendation = "⚠️ RISKY"
+        else:
+            recommendation = "❌ AVOID"
+        
+        # Expected total goals
+        expected_total = lambda_home + lambda_away
+        
+        # =============================================
+        # RETURN FULL ANALYSIS
+        # =============================================
+        return {
+            'home_team': home_season.get('team_name', 'Home'),
+            'away_team': away_season.get('team_name', 'Away'),
+            'home_team_id': home_team_id,
+            'away_team_id': away_team_id,
+            
+            # Main predictions
+            'btts_probability': round(final_btts, 1),
+            'ensemble_probability': round(final_btts, 1),
+            'confidence': round(confidence, 1),
+            'confidence_level': confidence_level,
+            'recommendation': recommendation,
+            
+            # Individual components
+            'season_btts': round(season_btts, 1),
+            'form_btts': round(form_btts, 1),
+            'h2h_btts': round(h2h_btts, 1),
+            'venue_btts': round(venue_btts, 1),
+            'poisson_btts': round(poisson_btts, 1),
+            
+            # For display compatibility
+            'ml_probability': round(poisson_btts, 1),
+            'statistical_probability': round(weighted_btts, 1),
+            'form_probability': round(form_btts, 1),
+            'h2h_probability': round(h2h_btts, 1),
+            
+            # Details
+            'details': {
+                'expected_home_goals': round(lambda_home, 2),
+                'expected_away_goals': round(lambda_away, 2),
+                'expected_total_goals': round(expected_total, 2),
+                'p_home_scores': round(p_home_scores, 1),
+                'p_away_scores': round(p_away_scores, 1),
+            },
+            
+            # Full stats for breakdown
+            'home_stats': {
+                'team_name': home_season.get('team_name', 'Home'),
+                'btts_rate': home_season['btts_rate'],
+                'avg_goals_scored': home_season['avg_scored'],
+                'avg_goals_conceded': home_season['avg_conceded'],
+                'matches_played': home_season['matches_played'],
+                'clean_sheets': home_season.get('clean_sheets', 0),
+                'failed_to_score': home_season.get('failed_to_score', 0),
+            },
+            'away_stats': {
+                'team_name': away_season.get('team_name', 'Away'),
+                'btts_rate': away_season['btts_rate'],
+                'avg_goals_scored': away_season['avg_scored'],
+                'avg_goals_conceded': away_season['avg_conceded'],
+                'matches_played': away_season['matches_played'],
+                'clean_sheets': away_season.get('clean_sheets', 0),
+                'failed_to_score': away_season.get('failed_to_score', 0),
+            },
+            
+            'h2h': h2h,
+            'home_form': home_form,
+            'away_form': away_form,
+            'form': {
+                'home': home_form,
+                'away': away_form
+            },
+            'weather': None
+        }
+    
+    def _get_season_stats(self, team_id: int, league_id: int, venue: str) -> Dict:
+        """Get season statistics from API or cache"""
+        cache_key = f"season_{team_id}_{league_id}"
+        
+        if cache_key in self._team_stats_cache:
+            cached = self._team_stats_cache[cache_key]
+            if venue == 'home':
+                return {
+                    'team_name': cached.get('team_name', 'Unknown'),
+                    'btts_rate': cached.get('btts_rate_home', 60),
+                    'btts_rate_venue': cached.get('btts_rate_home', 60),
+                    'avg_scored': cached.get('avg_goals_scored_home', 1.5),
+                    'avg_conceded': cached.get('avg_goals_conceded_home', 1.2),
+                    'matches_played': cached.get('matches_played_home', 0),
+                    'clean_sheets': cached.get('clean_sheets_home', 0),
+                    'failed_to_score': cached.get('failed_to_score_home', 0),
+                }
+            else:
+                return {
+                    'team_name': cached.get('team_name', 'Unknown'),
+                    'btts_rate': cached.get('btts_rate_away', 60),
+                    'btts_rate_venue': cached.get('btts_rate_away', 60),
+                    'avg_scored': cached.get('avg_goals_scored_away', 1.2),
+                    'avg_conceded': cached.get('avg_goals_conceded_away', 1.4),
+                    'matches_played': cached.get('matches_played_away', 0),
+                    'clean_sheets': cached.get('clean_sheets_away', 0),
+                    'failed_to_score': cached.get('failed_to_score_away', 0),
+                }
+        
+        # Try API
+        if self.api_football_key:
+            try:
+                from api_football import APIFootball
+                api = APIFootball(self.api_football_key)
+                stats = api.get_team_statistics(team_id, league_id, 2025)
+                
+                if stats:
+                    self._team_stats_cache[cache_key] = stats
+                    print(f"   📊 Loaded stats for {stats.get('team_name')}: {stats.get('btts_rate_total', 60):.0f}% BTTS")
+                    
+                    if venue == 'home':
+                        return {
+                            'team_name': stats.get('team_name', 'Unknown'),
+                            'btts_rate': stats.get('btts_rate_total', 60),
+                            'btts_rate_venue': stats.get('btts_rate_home', 60),
+                            'avg_scored': stats.get('avg_goals_scored_home', 1.5),
+                            'avg_conceded': stats.get('avg_goals_conceded_home', 1.2),
+                            'matches_played': stats.get('matches_played_home', 0),
+                            'clean_sheets': stats.get('clean_sheets_home', 0),
+                            'failed_to_score': stats.get('failed_to_score_home', 0),
+                        }
+                    else:
+                        return {
+                            'team_name': stats.get('team_name', 'Unknown'),
+                            'btts_rate': stats.get('btts_rate_total', 60),
+                            'btts_rate_venue': stats.get('btts_rate_away', 60),
+                            'avg_scored': stats.get('avg_goals_scored_away', 1.2),
+                            'avg_conceded': stats.get('avg_goals_conceded_away', 1.4),
+                            'matches_played': stats.get('matches_played_away', 0),
+                            'clean_sheets': stats.get('clean_sheets_away', 0),
+                            'failed_to_score': stats.get('failed_to_score_away', 0),
+                        }
+            except Exception as e:
+                print(f"   ⚠️ API error: {e}")
+        
+        # Default fallback
+        return {
+            'team_name': 'Unknown',
+            'btts_rate': 58,
+            'btts_rate_venue': 58,
+            'avg_scored': 1.4 if venue == 'home' else 1.2,
+            'avg_conceded': 1.2 if venue == 'home' else 1.4,
+            'matches_played': 0,
+            'clean_sheets': 0,
+            'failed_to_score': 0,
+        }
+    
+    def _get_form_stats(self, team_id: int) -> Dict:
+        """Get last 5 matches form from API or cache"""
+        cache_key = f"form_{team_id}"
+        
+        if cache_key in self._form_cache:
+            return self._form_cache[cache_key]
+        
+        # Try API
+        if self.api_football_key:
+            try:
+                from api_football import APIFootball
+                api = APIFootball(self.api_football_key)
+                form = api.get_team_last_matches(team_id, 5)
+                
+                if form:
+                    self._form_cache[cache_key] = form
+                    print(f"   📈 Form: {form.get('form_string', '?')} ({form.get('btts_rate', 50):.0f}% BTTS)")
+                    return form
+            except Exception as e:
+                print(f"   ⚠️ Form API error: {e}")
+        
+        # Default
+        return {
+            'matches_played': 0,
+            'btts_rate': 55,
+            'avg_goals_scored': 1.3,
+            'avg_goals_conceded': 1.3,
+            'form_string': '',
+            'wins': 0,
+            'draws': 0,
+            'losses': 0,
+        }
+    
+    def _get_h2h_stats(self, team1_id: int, team2_id: int) -> Dict:
+        """Get H2H stats from API or cache"""
+        cache_key = f"h2h_{min(team1_id, team2_id)}_{max(team1_id, team2_id)}"
+        
+        if cache_key in self._h2h_cache:
+            return self._h2h_cache[cache_key]
+        
+        # Try API
+        if self.api_football_key:
+            try:
+                from api_football import APIFootball
+                api = APIFootball(self.api_football_key)
+                h2h = api.get_head_to_head(team1_id, team2_id, 10)
+                
+                if h2h:
+                    self._h2h_cache[cache_key] = h2h
+                    print(f"   🤝 H2H: {h2h.get('matches_played', 0)} matches, {h2h.get('btts_rate', 50):.0f}% BTTS")
+                    return h2h
+            except Exception as e:
+                print(f"   ⚠️ H2H API error: {e}")
+        
+        # Default
+        return {
+            'matches_played': 0,
+            'btts_rate': 55,
+            'btts_count': 0,
+            'avg_goals': 2.5,
+            'total_goals': 0,
+        }
         
         # =============================================
         # POISSON-BASIERTE BTTS BERECHNUNG
