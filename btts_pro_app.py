@@ -267,7 +267,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 with tab1:
     st.header("🔥 Premium Tips - Highest Confidence")
     
-    st.info("💡 These are matches with BTTS probability ≥75% AND confidence ≥70%")
+    st.info(f"💡 Filtering for BTTS ≥ {min_probability}% AND Confidence ≥ {min_confidence}% (adjust in sidebar)")
     
     if st.button("🔍 Analyze Matches", key="analyze_top"):
         with st.spinner("Running advanced analysis..."):
@@ -289,13 +289,13 @@ with tab1:
             if all_results:
                 combined = pd.concat(all_results, ignore_index=True)
                 
-                # Filter for top tips
+                # Filter for top tips - USE SLIDER VALUES!
                 combined['BTTS_num'] = combined['BTTS %'].str.rstrip('%').astype(float)
                 combined['Conf_num'] = combined['Confidence'].str.rstrip('%').astype(float)
                 
                 top_tips = combined[
-                    (combined['BTTS_num'] >= 75) & 
-                    (combined['Conf_num'] >= 70)
+                    (combined['BTTS_num'] >= min_probability) & 
+                    (combined['Conf_num'] >= min_confidence)
                 ].copy()
                 
                 st.session_state['all_results'] = combined
@@ -787,21 +787,17 @@ with tab6:
     🇩🇪🇬🇧🇪🇸🇮🇹🇫🇷🇳🇱🇵🇹🇹🇷🇲🇽🇧🇷 + 🏆 CL/EL/ECL + 🇪🇺 Scotland/Belgium/Switzerland/Austria + 🎊 Singapore/Estonia/Iceland/Australia/Sweden/Qatar/UAE
     """)
     
-    # Auto-refresh DISABLED to prevent interference with other tabs
-    # Users can manually refresh with button below
+    # Auto-refresh DISABLED - was breaking other tabs
     try:
         from streamlit_autorefresh import st_autorefresh
         
-        # DISABLED: Was causing page refresh every 30 seconds which broke other tabs
-        # count = st_autorefresh(interval=30000, limit=None, key="ultra_live_refresh")
-        
-        # Manual refresh option
+        # Manual refresh instead
         col_r1, col_r2 = st.columns([1,3])
         with col_r1:
-            if st.button("🔄 Refresh Now", key="manual_refresh_ultra"):
+            if st.button("🔄 Refresh", key="refresh_ultra"):
                 st.rerun()
         with col_r2:
-            st.caption(f"Last update: {datetime.now().strftime('%H:%M:%S')} - Click button to refresh")
+            st.caption(f"Last: {datetime.now().strftime('%H:%M:%S')}")
         
         # Settings
         col1, col2, col3 = st.columns(3)
@@ -1079,16 +1075,13 @@ with tab7:
     try:
         from streamlit_autorefresh import st_autorefresh
         
-        # DISABLED: Was causing page refresh every 40 seconds which broke other tabs
-        # count = st_autorefresh(interval=40000, limit=None, key="alt_refresh")
-        
-        # Manual refresh option
+        # Manual refresh instead
         col_r1, col_r2 = st.columns([1,3])
         with col_r1:
-            if st.button("🔄 Refresh Now", key="manual_refresh_alt"):
+            if st.button("🔄 Refresh", key="refresh_alt"):
                 st.rerun()
         with col_r2:
-            st.caption(f"Last check: {datetime.now().strftime('%H:%M:%S')} - Click button to refresh")
+            st.caption(f"Last: {datetime.now().strftime('%H:%M:%S')}")
         
         # Settings
         st.markdown("---")
