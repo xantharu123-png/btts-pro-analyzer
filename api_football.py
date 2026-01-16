@@ -1,7 +1,7 @@
 """
 API-Football Integration - CORRECTED VERSION
 get_upcoming_fixtures() is NOW INSIDE the APIFootball class!
-Season parameter: 2024 (for 2024/25 season)
+Season parameter: 2025 (for 2025/26 season)
 """
 
 import requests
@@ -99,7 +99,7 @@ class APIFootball:
                 headers=self.headers,
                 params={
                     'league': league_id,
-                    'season': 2024,  # CORRECT: 2024/25 season = 2024
+                    'season': 2025,  # UPDATED: 2025/26 season = 2025
                     'from': today.strftime('%Y-%m-%d'),
                     'to': end_date.strftime('%Y-%m-%d'),
                     'status': 'NS'  # Not Started
@@ -213,7 +213,7 @@ class APIFootball:
             print(f"⚠️ Stats error: {e}")
             return None
     
-    def get_team_statistics(self, team_id: int, league_id: int, season: int = 2024) -> Optional[Dict]:
+    def get_team_statistics(self, team_id: int, league_id: int, season: int = 2025) -> Optional[Dict]:
         """Get team statistics from API-Football"""
         self._rate_limit()
         
@@ -296,7 +296,7 @@ class APIFootball:
                 params={
                     'team': team_id,
                     'league': league_id,
-                    'season': 2024,
+                    'season': 2025,
                     'last': n
                 },
                 timeout=15
