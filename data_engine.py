@@ -73,11 +73,19 @@ class DataEngine:
         print(f"✅ Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues!")
     
     def _init_database(self):
-        """Create database tables if they don't exist"""
+        """Create database tables - DROP and recreate to fix schema issues"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         
-        # Matches table
+        # Check if old schema exists (with wrong column names)
+        try:
+            c.execute("SELECT date FROM matches LIMIT 1")
+        except sqlite3.OperationalError:
+            # Old schema or no table - drop and recreate
+            print("🔄 Recreating database with correct schema...")
+            c.execute('DROP TABLE IF EXISTS matches')
+        
+        # Matches table with correct schema
         c.execute('''
             CREATE TABLE IF NOT EXISTS matches (
                 id INTEGER PRIMARY KEY,
@@ -103,6 +111,7 @@ class DataEngine:
         
         conn.commit()
         conn.close()
+        print("✅ Database initialized with correct schema")
     
     def _rate_limit(self):
         """Respect API rate limits"""
