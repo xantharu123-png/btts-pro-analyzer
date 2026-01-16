@@ -596,6 +596,8 @@ class AdvancedBTTSAnalyzer:
                 if stats:
                     self._team_stats_cache[cache_key] = stats
                     print(f"   📊 Loaded stats for {stats.get('team_name')}: {stats.get('btts_rate_total', 60):.0f}% BTTS")
+                    print(f"   🔍 DEBUG matches_played_home: {stats.get('matches_played_home')}")
+                    print(f"   🔍 DEBUG matches_played_away: {stats.get('matches_played_away')}")
                     
                     if venue == 'home':
                         return {
