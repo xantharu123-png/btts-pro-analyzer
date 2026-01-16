@@ -197,14 +197,51 @@ class APIFootball:
                         return 0
                     
                     return {
+                        # Shots
                         'shots_home': get_stat(home_stats, 'Total Shots'),
                         'shots_away': get_stat(away_stats, 'Total Shots'),
                         'shots_on_target_home': get_stat(home_stats, 'Shots on Goal'),
                         'shots_on_target_away': get_stat(away_stats, 'Shots on Goal'),
+                        'shots_off_target_home': get_stat(home_stats, 'Shots off Goal'),
+                        'shots_off_target_away': get_stat(away_stats, 'Shots off Goal'),
+                        'shots_blocked_home': get_stat(home_stats, 'Blocked Shots'),
+                        'shots_blocked_away': get_stat(away_stats, 'Blocked Shots'),
+                        'shots_inside_box_home': get_stat(home_stats, 'Shots insidebox'),
+                        'shots_inside_box_away': get_stat(away_stats, 'Shots insidebox'),
+                        
+                        # Cards (CRITICAL FOR ALTERNATIVE MARKETS!)
+                        'yellow_cards_home': get_stat(home_stats, 'Yellow Cards'),
+                        'yellow_cards_away': get_stat(away_stats, 'Yellow Cards'),
+                        'red_cards_home': get_stat(home_stats, 'Red Cards'),
+                        'red_cards_away': get_stat(away_stats, 'Red Cards'),
+                        
+                        # Fouls (CRITICAL FOR CARD PREDICTIONS!)
+                        'fouls_home': get_stat(home_stats, 'Fouls'),
+                        'fouls_away': get_stat(away_stats, 'Fouls'),
+                        
+                        # Corners (CRITICAL FOR CORNER MARKET!)
+                        'corners_home': get_stat(home_stats, 'Corner Kicks'),
+                        'corners_away': get_stat(away_stats, 'Corner Kicks'),
+                        
+                        # Possession & xG
                         'possession_home': get_stat(home_stats, 'Ball Possession'),
                         'possession_away': get_stat(away_stats, 'Ball Possession'),
                         'xg_home': get_stat(home_stats, 'expected_goals'),
-                        'xg_away': get_stat(away_stats, 'expected_goals')
+                        'xg_away': get_stat(away_stats, 'expected_goals'),
+                        
+                        # Additional useful stats
+                        'attacks_home': get_stat(home_stats, 'Total attacks'),
+                        'attacks_away': get_stat(away_stats, 'Total attacks'),
+                        'dangerous_attacks_home': get_stat(home_stats, 'Dangerous attacks'),
+                        'dangerous_attacks_away': get_stat(away_stats, 'Dangerous attacks'),
+                        'offsides_home': get_stat(home_stats, 'Offsides'),
+                        'offsides_away': get_stat(away_stats, 'Offsides'),
+                        'saves_home': get_stat(home_stats, 'Goalkeeper Saves'),
+                        'saves_away': get_stat(away_stats, 'Goalkeeper Saves'),
+                        'passes_home': get_stat(home_stats, 'Total passes'),
+                        'passes_away': get_stat(away_stats, 'Total passes'),
+                        'passes_accurate_home': get_stat(home_stats, 'Passes accurate'),
+                        'passes_accurate_away': get_stat(away_stats, 'Passes accurate')
                     }
             
             return None
