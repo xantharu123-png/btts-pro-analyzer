@@ -431,24 +431,18 @@ class DataEngine:
         
         print(f"📡 Fetching matches for {league_code} (season {season})...")
         
-        # Calculate date range
-        today = datetime.now()
-        start_date = today - timedelta(days=days_back)
-        
         try:
             # Rate limit
             time.sleep(1)
             
-            # Fetch finished matches
+            # Fetch ALL finished matches for this season
             response = requests.get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
                 params={
                     'league': league_id,
                     'season': season,
-                    'from': start_date.strftime('%Y-%m-%d'),
-                    'to': today.strftime('%Y-%m-%d'),
-                    'status': 'FT'  # Full Time only
+                    'status': 'FT'  # Full Time only - gets ALL finished matches
                 },
                 timeout=15
             )
