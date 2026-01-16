@@ -681,12 +681,41 @@ class AdvancedBTTSAnalyzer:
             try:
                 from api_football import APIFootball
                 api = APIFootball(self.api_football_key)
-                h2h = api.get_head_to_head(team1_id, team2_id, 10)
+                h2h_matches = api.get_head_to_head(team1_id, team2_id, 10)
                 
-                if h2h:
-                    self._h2h_cache[cache_key] = h2h
-                    print(f"   🤝 H2H: {h2h.get('matches_played', 0)} matches, {h2h.get('btts_rate', 50):.0f}% BTTS")
-                    return h2h
+                if h2h_matches and isinstance(h2h_matches, list):
+                    # Calculate stats from match list
+                    matches_played = len(h2h_matches)
+                    btts_count = 0
+                    total_goals = 0
+                    
+                    for match in h2h_matches:
+                        try:
+                            home_goals = match.get('goals', {}).get('home')
+                            away_goals = match.get('goals', {}).get('away')
+                            
+                            if home_goals is not None and away_goals is not None:
+                                total_goals += home_goals + away_goals
+                                if home_goals > 0 and away_goals > 0:
+                                    btts_count += 1
+                        except:
+                            continue
+                    
+                    btts_rate = (btts_count / matches_played * 100) if matches_played > 0 else 55
+                    avg_goals = (total_goals / matches_played) if matches_played > 0 else 2.5
+                    
+                    h2h_stats = {
+                        'matches_played': matches_played,
+                        'btts_rate': round(btts_rate, 1),
+                        'btts_count': btts_count,
+                        'avg_goals': round(avg_goals, 2),
+                        'total_goals': total_goals,
+                    }
+                    
+                    self._h2h_cache[cache_key] = h2h_stats
+                    print(f"   🤝 H2H: {matches_played} matches, {btts_rate:.0f}% BTTS")
+                    return h2h_stats
+                    
             except Exception as e:
                 print(f"   ⚠️ H2H API error: {e}")
         
