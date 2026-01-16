@@ -214,7 +214,7 @@ with st.sidebar:
                 import sqlite3
                 conn = sqlite3.connect('btts_data.db')
                 cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM matches WHERE status='FINISHED'")
+                cursor.execute("SELECT COUNT(*) FROM matches WHERE btts IS NOT NULL")
                 total_matches = cursor.fetchone()[0]
                 conn.close()
                 
