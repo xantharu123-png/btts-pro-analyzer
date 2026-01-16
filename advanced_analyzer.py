@@ -600,24 +600,24 @@ class AdvancedBTTSAnalyzer:
                     if venue == 'home':
                         return {
                             'team_name': stats.get('team_name', 'Unknown'),
-                            'btts_rate': stats.get('btts_rate_total', 60),
-                            'btts_rate_venue': stats.get('btts_rate_home', 60),
-                            'avg_scored': stats.get('avg_goals_scored_home', 1.5),
-                            'avg_conceded': stats.get('avg_goals_conceded_home', 1.2),
-                            'matches_played': stats.get('matches_played_home', 0),
-                            'clean_sheets': stats.get('clean_sheets_home', 0),
-                            'failed_to_score': stats.get('failed_to_score_home', 0),
+                            'btts_rate': float(stats.get('btts_rate_total', 60)),
+                            'btts_rate_venue': float(stats.get('btts_rate_home', 60)),
+                            'avg_scored': float(stats.get('avg_goals_scored_home', 1.5)),
+                            'avg_conceded': float(stats.get('avg_goals_conceded_home', 1.2)),
+                            'matches_played': int(stats.get('matches_played_home', 0)),
+                            'clean_sheets': int(stats.get('clean_sheets_home', 0)),
+                            'failed_to_score': int(stats.get('failed_to_score_home', 0)),
                         }
                     else:
                         return {
                             'team_name': stats.get('team_name', 'Unknown'),
-                            'btts_rate': stats.get('btts_rate_total', 60),
-                            'btts_rate_venue': stats.get('btts_rate_away', 60),
-                            'avg_scored': stats.get('avg_goals_scored_away', 1.2),
-                            'avg_conceded': stats.get('avg_goals_conceded_away', 1.4),
-                            'matches_played': stats.get('matches_played_away', 0),
-                            'clean_sheets': stats.get('clean_sheets_away', 0),
-                            'failed_to_score': stats.get('failed_to_score_away', 0),
+                            'btts_rate': float(stats.get('btts_rate_total', 60)),
+                            'btts_rate_venue': float(stats.get('btts_rate_away', 60)),
+                            'avg_scored': float(stats.get('avg_goals_scored_away', 1.2)),
+                            'avg_conceded': float(stats.get('avg_goals_conceded_away', 1.4)),
+                            'matches_played': int(stats.get('matches_played_away', 0)),
+                            'clean_sheets': int(stats.get('clean_sheets_away', 0)),
+                            'failed_to_score': int(stats.get('failed_to_score_away', 0)),
                         }
             except Exception as e:
                 print(f"   ⚠️ API error: {e}")
