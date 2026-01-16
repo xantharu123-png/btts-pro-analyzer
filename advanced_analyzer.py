@@ -62,35 +62,25 @@ class AdvancedBTTSAnalyzer:
         """Prepare training data from historical matches"""
         conn = sqlite3.connect(self.db_path)
         
+        # Simplified query - just use matches table
         query = '''
             SELECT 
-                m.match_id,
-                m.home_team_id,
-                m.away_team_id,
-                m.btts,
-                hs.btts_rate as home_btts_rate,
-                hs.avg_goals_scored as home_goals_scored,
-                hs.avg_goals_conceded as home_goals_conceded,
-                hs.wins as home_wins,
-                hs.matches_played as home_matches,
-                aws.btts_rate as away_btts_rate,
-                aws.avg_goals_scored as away_goals_scored,
-                aws.avg_goals_conceded as away_goals_conceded,
-                aws.wins as away_wins,
-                aws.matches_played as away_matches
-            FROM matches m
-            LEFT JOIN team_stats hs ON m.home_team_id = hs.team_id 
-                AND m.league_code = hs.league_code 
-                AND hs.venue = 'home'
-            LEFT JOIN team_stats aws ON m.away_team_id = aws.team_id 
-                AND m.league_code = aws.league_code 
-                AND aws.venue = 'away'
-            WHERE m.btts IS NOT NULL
+                home_team,
+                away_team,
+                home_goals,
+                away_goals,
+                btts,
+                league_code
+            FROM matches
+            WHERE btts IS NOT NULL
+                AND home_goals IS NOT NULL
+                AND away_goals IS NOT NULL
         '''
         
         try:
             df = pd.read_sql_query(query, conn)
-        except:
+        except Exception as e:
+            print(f"⚠️ SQL error: {e}")
             df = pd.DataFrame()
         finally:
             conn.close()
@@ -99,28 +89,36 @@ class AdvancedBTTSAnalyzer:
             print(f"⚠️ Not enough training data ({len(df) if not df.empty else 0} matches)")
             return np.array([]), np.array([])
         
-        # Fill NaN with defaults
-        df = df.fillna({
-            'home_btts_rate': 50,
-            'away_btts_rate': 50,
-            'home_goals_scored': 1.2,
-            'away_goals_scored': 1.0,
-            'home_goals_conceded': 1.0,
-            'away_goals_conceded': 1.2
-        })
+        # Calculate basic features from available data
+        features_list = []
+        labels = []
         
-        features = [
-            'home_btts_rate', 'away_btts_rate',
-            'home_goals_scored', 'away_goals_scored',
-            'home_goals_conceded', 'away_goals_conceded',
-        ]
+        for idx, row in df.iterrows():
+            try:
+                # Simple features based on goals
+                home_goals = float(row['home_goals'])
+                away_goals = float(row['away_goals'])
+                
+                features = [
+                    home_goals,  # Historical home goals
+                    away_goals,  # Historical away goals
+                    home_goals + away_goals,  # Total goals
+                    1 if home_goals > away_goals else 0,  # Home win
+                    1 if away_goals > home_goals else 0,  # Away win
+                    1 if home_goals == away_goals else 0,  # Draw
+                ]
+                
+                features_list.append(features)
+                labels.append(int(row['btts']))
+            except:
+                continue
         
-        X = df[features].values
-        y = df['btts'].values
+        if len(features_list) < 50:
+            print(f"⚠️ Not enough valid training data ({len(features_list)} matches)")
+            return np.array([]), np.array([])
         
-        mask = ~np.isnan(X).any(axis=1)
-        X = X[mask]
-        y = y[mask]
+        X = np.array(features_list)
+        y = np.array(labels)
         
         return X, y
     
@@ -224,7 +222,7 @@ class AdvancedBTTSAnalyzer:
                 from api_football import APIFootball
                 api = APIFootball(self.api_football_key)
                 
-                stats = api.get_team_statistics(team_id, league_id, season=2025)  # Use 2024 for historical stats
+                stats = api.get_team_statistics(team_id, league_id, 2024)
                 
                 if stats:
                     # Format for our analyzer
@@ -374,21 +372,6 @@ class AdvancedBTTSAnalyzer:
         if not home_season or not away_season:
             return {'error': 'Could not get team statistics'}
         
-        # Defensive: Ensure all required keys exist with defaults
-        required_keys = {
-            'btts_rate': 58,
-            'avg_scored': 1.4,
-            'avg_conceded': 1.3,
-            'matches_played': 0,
-            'team_name': 'Unknown'
-        }
-        
-        for key, default in required_keys.items():
-            if key not in home_season or home_season[key] is None:
-                home_season[key] = default
-            if key not in away_season or away_season[key] is None:
-                away_season[key] = default
-        
         # Saison BTTS% = Durchschnitt beider Teams
         season_btts = (home_season['btts_rate'] + away_season['btts_rate']) / 2
         
@@ -426,16 +409,8 @@ class AdvancedBTTSAnalyzer:
         # POISSON-VERTEILUNG für Torwahrscheinlichkeit
         # =============================================
         # λ = erwartete Tore
-        try:
-            lambda_home = (home_season['avg_scored'] + away_season['avg_conceded']) / 2 * 1.08  # Heimvorteil
-            lambda_away = (away_season['avg_scored'] + home_season['avg_conceded']) / 2 * 0.92  # Auswärtsnachteil
-        except (TypeError, KeyError) as e:
-            print(f"   ⚠️ Lambda calculation error: {e}")
-            print(f"   home_season keys: {home_season.keys() if isinstance(home_season, dict) else 'NOT A DICT'}")
-            print(f"   away_season keys: {away_season.keys() if isinstance(away_season, dict) else 'NOT A DICT'}")
-            # Safe fallback values
-            lambda_home = 1.5
-            lambda_away = 1.3
+        lambda_home = (home_season['avg_scored'] + away_season['avg_conceded']) / 2 * 1.08  # Heimvorteil
+        lambda_away = (away_season['avg_scored'] + home_season['avg_conceded']) / 2 * 0.92  # Auswärtsnachteil
         
         # P(Team ≥ 1 Tor) = 1 - e^(-λ)
         p_home_scores = (1 - math.exp(-lambda_home)) * 100
@@ -591,35 +566,33 @@ class AdvancedBTTSAnalyzer:
             try:
                 from api_football import APIFootball
                 api = APIFootball(self.api_football_key)
-                stats = api.get_team_statistics(team_id, league_id, season=2025)  # Use 2024 for historical stats
+                stats = api.get_team_statistics(team_id, league_id, 2024)
                 
                 if stats:
                     self._team_stats_cache[cache_key] = stats
                     print(f"   📊 Loaded stats for {stats.get('team_name')}: {stats.get('btts_rate_total', 60):.0f}% BTTS")
-                    print(f"   🔍 DEBUG matches_played_home: {stats.get('matches_played_home')}")
-                    print(f"   🔍 DEBUG matches_played_away: {stats.get('matches_played_away')}")
                     
                     if venue == 'home':
                         return {
                             'team_name': stats.get('team_name', 'Unknown'),
-                            'btts_rate': float(stats.get('btts_rate_total', 60)),
-                            'btts_rate_venue': float(stats.get('btts_rate_home', 60)),
-                            'avg_scored': float(stats.get('avg_goals_scored_home', 1.5)),
-                            'avg_conceded': float(stats.get('avg_goals_conceded_home', 1.2)),
-                            'matches_played': int(stats.get('matches_played_home', 0)),
-                            'clean_sheets': int(stats.get('clean_sheets_home', 0)),
-                            'failed_to_score': int(stats.get('failed_to_score_home', 0)),
+                            'btts_rate': stats.get('btts_rate_total', 60),
+                            'btts_rate_venue': stats.get('btts_rate_home', 60),
+                            'avg_scored': stats.get('avg_goals_scored_home', 1.5),
+                            'avg_conceded': stats.get('avg_goals_conceded_home', 1.2),
+                            'matches_played': stats.get('matches_played_home', 0),
+                            'clean_sheets': stats.get('clean_sheets_home', 0),
+                            'failed_to_score': stats.get('failed_to_score_home', 0),
                         }
                     else:
                         return {
                             'team_name': stats.get('team_name', 'Unknown'),
-                            'btts_rate': float(stats.get('btts_rate_total', 60)),
-                            'btts_rate_venue': float(stats.get('btts_rate_away', 60)),
-                            'avg_scored': float(stats.get('avg_goals_scored_away', 1.2)),
-                            'avg_conceded': float(stats.get('avg_goals_conceded_away', 1.4)),
-                            'matches_played': int(stats.get('matches_played_away', 0)),
-                            'clean_sheets': int(stats.get('clean_sheets_away', 0)),
-                            'failed_to_score': int(stats.get('failed_to_score_away', 0)),
+                            'btts_rate': stats.get('btts_rate_total', 60),
+                            'btts_rate_venue': stats.get('btts_rate_away', 60),
+                            'avg_scored': stats.get('avg_goals_scored_away', 1.2),
+                            'avg_conceded': stats.get('avg_goals_conceded_away', 1.4),
+                            'matches_played': stats.get('matches_played_away', 0),
+                            'clean_sheets': stats.get('clean_sheets_away', 0),
+                            'failed_to_score': stats.get('failed_to_score_away', 0),
                         }
             except Exception as e:
                 print(f"   ⚠️ API error: {e}")
@@ -681,41 +654,12 @@ class AdvancedBTTSAnalyzer:
             try:
                 from api_football import APIFootball
                 api = APIFootball(self.api_football_key)
-                h2h_matches = api.get_head_to_head(team1_id, team2_id, 10)
+                h2h = api.get_head_to_head(team1_id, team2_id, 10)
                 
-                if h2h_matches and isinstance(h2h_matches, list):
-                    # Calculate stats from match list
-                    matches_played = len(h2h_matches)
-                    btts_count = 0
-                    total_goals = 0
-                    
-                    for match in h2h_matches:
-                        try:
-                            home_goals = match.get('goals', {}).get('home')
-                            away_goals = match.get('goals', {}).get('away')
-                            
-                            if home_goals is not None and away_goals is not None:
-                                total_goals += home_goals + away_goals
-                                if home_goals > 0 and away_goals > 0:
-                                    btts_count += 1
-                        except:
-                            continue
-                    
-                    btts_rate = (btts_count / matches_played * 100) if matches_played > 0 else 55
-                    avg_goals = (total_goals / matches_played) if matches_played > 0 else 2.5
-                    
-                    h2h_stats = {
-                        'matches_played': matches_played,
-                        'btts_rate': round(btts_rate, 1),
-                        'btts_count': btts_count,
-                        'avg_goals': round(avg_goals, 2),
-                        'total_goals': total_goals,
-                    }
-                    
-                    self._h2h_cache[cache_key] = h2h_stats
-                    print(f"   🤝 H2H: {matches_played} matches, {btts_rate:.0f}% BTTS")
-                    return h2h_stats
-                    
+                if h2h:
+                    self._h2h_cache[cache_key] = h2h
+                    print(f"   🤝 H2H: {h2h.get('matches_played', 0)} matches, {h2h.get('btts_rate', 50):.0f}% BTTS")
+                    return h2h
             except Exception as e:
                 print(f"   ⚠️ H2H API error: {e}")
         
