@@ -234,6 +234,8 @@ class APIFootball:
                 if data.get('response'):
                     stats = data['response']
                     
+                    print(f"   🔍 API returned team: {stats.get('team')}")
+                    
                     # Extract relevant statistics
                     fixtures = stats.get('fixtures', {})
                     goals = stats.get('goals', {})
@@ -249,6 +251,7 @@ class APIFootball:
                             return default
                     
                     return {
+                        'team_name': stats.get('team', {}).get('name', 'Unknown'),
                         'matches_played_home': int(home_stats) if home_stats else 0,
                         'matches_played_away': int(away_stats) if away_stats else 0,
                         'avg_goals_scored_home': safe_float(goals.get('for', {}).get('average', {}).get('home'), 1.5),
