@@ -57,8 +57,7 @@ class DataEngine:
         self.api_key = api_key
         self.base_url = 'https://v3.football.api-sports.io'
         self.headers = {
-            'x-rapidapi-host': 'v3.football.api-sports.io',
-            'x-rapidapi-key': api_key
+            'x-apisports-key': api_key  # CORRECTED: Use x-apisports-key
         }
         self.db_path = db_path
         self.init_database()
@@ -66,39 +65,11 @@ class DataEngine:
         print(f"🔥 Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues!")
     
     def init_database(self):
-        """Initialize SQLite database with automatic schema fix"""
-        # 🔥 STEP 1: Check if old database has wrong schema
-        try:
-            conn = sqlite3.connect(self.db_path)
-            c = conn.cursor()
-            
-            # Check if matches table exists
-            c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='matches'")
-            table_exists = c.fetchone()
-            
-            if table_exists:
-                # Check current schema
-                c.execute("PRAGMA table_info(matches)")
-                columns = [col[1] for col in c.fetchall()]
-                
-                # If home_team column doesn't exist, we have old schema - DROP IT!
-                if columns and 'home_team' not in columns:
-                    print("⚠️ OLD DATABASE SCHEMA DETECTED!")
-                    print(f"   Found columns: {columns}")
-                    print("   Expected: home_team, away_team")
-                    print("🔥 DROPPING OLD TABLE AND RECREATING...")
-                    c.execute("DROP TABLE IF EXISTS matches")
-                    conn.commit()
-                    print("✅ Old table dropped successfully")
-            
-            conn.close()
-        except Exception as e:
-            print(f"⚠️ Schema check error (will create new): {e}")
-        
-        # 🔥 STEP 2: Create table with correct schema
+        """Initialize SQLite database - CREATE IF NOT EXISTS (preserve data)"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         
+        # CREATE IF NOT EXISTS - don't delete existing data!
         c.execute('''
             CREATE TABLE IF NOT EXISTS matches (
                 id INTEGER PRIMARY KEY,
@@ -122,7 +93,7 @@ class DataEngine:
         
         conn.commit()
         conn.close()
-        print("✅ Database ready with correct schema")
+        print("✅ Database ready")
     
     def get_team_stats(self, team_id, league_code, venue='home'):
         """
@@ -410,6 +381,104 @@ class DataEngine:
         except Exception as e:
             print(f"❌ Stats error: {e}")
             return None
+    
+    def fetch_league_matches(self, league_code: str, season: int = 2025, 
+                            force_refresh: bool = False, days_back: int = 90) -> int:
+        """
+        Fetch and store historical matches for a league
+        
+        Args:
+            league_code: League code (e.g., 'BL1', 'PL')
+            season: Season year (default 2025)
+            force_refresh: If True, refetch even if data exists
+            days_back: How many days back to fetch (default 90)
+            
+        Returns:
+            Number of matches fetched and stored
+        """
+        league_id = self.LEAGUES_CONFIG.get(league_code)
+        if not league_id:
+            print(f"❌ Unknown league code: {league_code}")
+            return 0
+        
+        print(f"📡 Fetching matches for {league_code} (season {season})...")
+        
+        # Calculate date range
+        today = datetime.now()
+        start_date = today - timedelta(days=days_back)
+        
+        try:
+            # Rate limit
+            time.sleep(1)
+            
+            # Fetch finished matches
+            response = requests.get(
+                f"{self.base_url}/fixtures",
+                headers=self.headers,
+                params={
+                    'league': league_id,
+                    'season': season,
+                    'from': start_date.strftime('%Y-%m-%d'),
+                    'to': today.strftime('%Y-%m-%d'),
+                    'status': 'FT'  # Full Time only
+                },
+                timeout=15
+            )
+            
+            if response.status_code != 200:
+                print(f"❌ API error {response.status_code}")
+                return 0
+            
+            data = response.json()
+            fixtures = data.get('response', [])
+            
+            if not fixtures:
+                print(f"⚠️ No finished matches found for {league_code}")
+                return 0
+            
+            # Store in database
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            
+            stored = 0
+            for fixture in fixtures:
+                try:
+                    fixture_id = fixture['fixture']['id']
+                    home_team = fixture['teams']['home']['name']
+                    away_team = fixture['teams']['away']['name']
+                    home_goals = fixture['goals']['home'] or 0
+                    away_goals = fixture['goals']['away'] or 0
+                    match_date = fixture['fixture']['date']
+                    
+                    btts = 1 if (home_goals > 0 and away_goals > 0) else 0
+                    total_goals = home_goals + away_goals
+                    
+                    # Insert or replace
+                    c.execute('''
+                        INSERT OR REPLACE INTO matches 
+                        (id, league_code, league_id, date, home_team, away_team,
+                         home_goals, away_goals, btts, total_goals, fetched_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        fixture_id, league_code, league_id, match_date,
+                        home_team, away_team, home_goals, away_goals,
+                        btts, total_goals, datetime.now().isoformat()
+                    ))
+                    stored += 1
+                    
+                except KeyError as e:
+                    print(f"⚠️ Missing data in fixture: {e}")
+                    continue
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"✅ Stored {stored} matches for {league_code}")
+            return stored
+            
+        except Exception as e:
+            print(f"❌ Error fetching matches: {e}")
+            return 0
 
 
 # Quick test
