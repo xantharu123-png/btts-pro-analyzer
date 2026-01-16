@@ -374,6 +374,21 @@ class AdvancedBTTSAnalyzer:
         if not home_season or not away_season:
             return {'error': 'Could not get team statistics'}
         
+        # Defensive: Ensure all required keys exist with defaults
+        required_keys = {
+            'btts_rate': 58,
+            'avg_scored': 1.4,
+            'avg_conceded': 1.3,
+            'matches_played': 0,
+            'team_name': 'Unknown'
+        }
+        
+        for key, default in required_keys.items():
+            if key not in home_season or home_season[key] is None:
+                home_season[key] = default
+            if key not in away_season or away_season[key] is None:
+                away_season[key] = default
+        
         # Saison BTTS% = Durchschnitt beider Teams
         season_btts = (home_season['btts_rate'] + away_season['btts_rate']) / 2
         
