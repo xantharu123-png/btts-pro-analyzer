@@ -426,8 +426,16 @@ class AdvancedBTTSAnalyzer:
         # POISSON-VERTEILUNG für Torwahrscheinlichkeit
         # =============================================
         # λ = erwartete Tore
-        lambda_home = (home_season['avg_scored'] + away_season['avg_conceded']) / 2 * 1.08  # Heimvorteil
-        lambda_away = (away_season['avg_scored'] + home_season['avg_conceded']) / 2 * 0.92  # Auswärtsnachteil
+        try:
+            lambda_home = (home_season['avg_scored'] + away_season['avg_conceded']) / 2 * 1.08  # Heimvorteil
+            lambda_away = (away_season['avg_scored'] + home_season['avg_conceded']) / 2 * 0.92  # Auswärtsnachteil
+        except (TypeError, KeyError) as e:
+            print(f"   ⚠️ Lambda calculation error: {e}")
+            print(f"   home_season keys: {home_season.keys() if isinstance(home_season, dict) else 'NOT A DICT'}")
+            print(f"   away_season keys: {away_season.keys() if isinstance(away_season, dict) else 'NOT A DICT'}")
+            # Safe fallback values
+            lambda_home = 1.5
+            lambda_away = 1.3
         
         # P(Team ≥ 1 Tor) = 1 - e^(-λ)
         p_home_scores = (1 - math.exp(-lambda_home)) * 100
