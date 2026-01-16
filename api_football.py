@@ -348,21 +348,133 @@ class APIFootball:
     
     def get_team_last_matches(self, team_id: int, n: int = 5) -> Dict:
         """
-        Get last N matches for a team and calculate stats
+        Get last N matches for a team and calculate form stats
         Used by advanced_analyzer for form calculation
         """
-        # We need league_id but don't have it here
-        # Return default form data
-        return {
-            'matches_played': 0,
-            'btts_rate': 55,
-            'avg_goals_scored': 1.3,
-            'avg_goals_conceded': 1.3,
-            'form_string': '',
-            'wins': 0,
-            'draws': 0,
-            'losses': 0
-        }
+        self._rate_limit()
+        
+        try:
+            # Get last N finished matches for this team (any league)
+            response = requests.get(
+                f"{self.base_url}/fixtures",
+                headers=self.headers,
+                params={
+                    'team': team_id,
+                    'last': n,
+                    'status': 'FT'  # Only finished matches
+                },
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                matches = data.get('response', [])
+                
+                if not matches:
+                    # Return defaults if no matches found
+                    return {
+                        'matches_played': 0,
+                        'btts_rate': 55,
+                        'avg_goals_scored': 1.3,
+                        'avg_goals_conceded': 1.3,
+                        'form_string': '',
+                        'wins': 0,
+                        'draws': 0,
+                        'losses': 0
+                    }
+                
+                # Calculate stats from matches
+                btts_count = 0
+                total_scored = 0
+                total_conceded = 0
+                wins = 0
+                draws = 0
+                losses = 0
+                form_string = ""
+                
+                for match in matches:
+                    try:
+                        home_id = match['teams']['home']['id']
+                        away_id = match['teams']['away']['id']
+                        home_goals = match['goals']['home'] or 0
+                        away_goals = match['goals']['away'] or 0
+                        
+                        # Determine if this team was home or away
+                        if home_id == team_id:
+                            scored = home_goals
+                            conceded = away_goals
+                            if home_goals > away_goals:
+                                wins += 1
+                                form_string += "W"
+                            elif home_goals < away_goals:
+                                losses += 1
+                                form_string += "L"
+                            else:
+                                draws += 1
+                                form_string += "D"
+                        else:
+                            scored = away_goals
+                            conceded = home_goals
+                            if away_goals > home_goals:
+                                wins += 1
+                                form_string += "W"
+                            elif away_goals < home_goals:
+                                losses += 1
+                                form_string += "L"
+                            else:
+                                draws += 1
+                                form_string += "D"
+                        
+                        total_scored += scored
+                        total_conceded += conceded
+                        
+                        # BTTS if both teams scored
+                        if home_goals > 0 and away_goals > 0:
+                            btts_count += 1
+                            
+                    except (KeyError, TypeError):
+                        continue
+                
+                matches_played = len(matches)
+                btts_rate = (btts_count / matches_played * 100) if matches_played > 0 else 55
+                avg_scored = (total_scored / matches_played) if matches_played > 0 else 1.3
+                avg_conceded = (total_conceded / matches_played) if matches_played > 0 else 1.3
+                
+                return {
+                    'matches_played': matches_played,
+                    'btts_rate': round(btts_rate, 1),
+                    'avg_goals_scored': round(avg_scored, 2),
+                    'avg_goals_conceded': round(avg_conceded, 2),
+                    'form_string': form_string,
+                    'wins': wins,
+                    'draws': draws,
+                    'losses': losses
+                }
+            
+            # Return defaults if API call failed
+            return {
+                'matches_played': 0,
+                'btts_rate': 55,
+                'avg_goals_scored': 1.3,
+                'avg_goals_conceded': 1.3,
+                'form_string': '',
+                'wins': 0,
+                'draws': 0,
+                'losses': 0
+            }
+            
+        except Exception as e:
+            print(f"⚠️ Form error: {e}")
+            return {
+                'matches_played': 0,
+                'btts_rate': 55,
+                'avg_goals_scored': 1.3,
+                'avg_goals_conceded': 1.3,
+                'form_string': '',
+                'wins': 0,
+                'draws': 0,
+                'losses': 0
+            }
 
 
 # Test
