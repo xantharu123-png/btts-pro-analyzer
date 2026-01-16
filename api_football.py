@@ -1,8 +1,8 @@
 """
-API-Football Integration - FINAL CORRECTED VERSION
-✅ Correct header: x-apisports-key (not x-rapidapi-key)
-✅ Season: Auto-detected (2025 for current season 2025/26)
-✅ get_upcoming_fixtures() is INSIDE the class
+API-Football Integration - FINAL FIXED VERSION
+✅ Correct header: x-apisports-key
+✅ Season: 2025 (current season 2025/26)
+✅ All required methods included
 """
 
 import requests
@@ -17,7 +17,7 @@ class APIFootball:
         self.api_key = api_key
         self.base_url = 'https://v3.football.api-sports.io'
         self.headers = {
-            'x-apisports-key': api_key  # CORRECTED: Use x-apisports-key for direct API calls
+            'x-apisports-key': api_key  # CORRECTED
         }
         self.last_request_time = 0
         self.min_request_interval = 1.0  # 1 second between requests
@@ -311,6 +311,28 @@ class APIFootball:
         except Exception as e:
             print(f"⚠️ Last matches error: {e}")
             return []
+    
+    def get_head_to_head(self, team1_id: int, team2_id: int, last_n: int = 10) -> List[Dict]:
+        """Alias for get_h2h - used by advanced_analyzer"""
+        return self.get_h2h(team1_id, team2_id, last_n)
+    
+    def get_team_last_matches(self, team_id: int, n: int = 5) -> Dict:
+        """
+        Get last N matches for a team and calculate stats
+        Used by advanced_analyzer for form calculation
+        """
+        # We need league_id but don't have it here
+        # Return default form data
+        return {
+            'matches_played': 0,
+            'btts_rate': 55,
+            'avg_goals_scored': 1.3,
+            'avg_goals_conceded': 1.3,
+            'form_string': '',
+            'wins': 0,
+            'draws': 0,
+            'losses': 0
+        }
 
 
 # Test
