@@ -242,6 +242,23 @@ class APIFootball:
                     
                     home_stats = fixtures.get('played', {}).get('home', 0)
                     away_stats = fixtures.get('played', {}).get('away', 0)
+                    total_stats = fixtures.get('played', {}).get('total', 0)
+                    
+                    # Calculate BTTS rates
+                    clean_sheets_home = int(stats.get('clean_sheet', {}).get('home', 0))
+                    clean_sheets_away = int(stats.get('clean_sheet', {}).get('away', 0))
+                    failed_to_score_home = int(stats.get('failed_to_score', {}).get('home', 0))
+                    failed_to_score_away = int(stats.get('failed_to_score', {}).get('away', 0))
+                    
+                    # BTTS = Spiele wo Team UND Gegner scoren
+                    # = Total - (Clean Sheets + Failed to Score)
+                    btts_home = max(0, home_stats - clean_sheets_home - failed_to_score_home) if home_stats > 0 else 0
+                    btts_away = max(0, away_stats - clean_sheets_away - failed_to_score_away) if away_stats > 0 else 0
+                    btts_total = max(0, total_stats - (clean_sheets_home + clean_sheets_away) - (failed_to_score_home + failed_to_score_away)) if total_stats > 0 else 0
+                    
+                    btts_rate_home = (btts_home / home_stats * 100) if home_stats > 0 else 60
+                    btts_rate_away = (btts_away / away_stats * 100) if away_stats > 0 else 60
+                    btts_rate_total = (btts_total / total_stats * 100) if total_stats > 0 else 60
                     
                     # Convert string values to float
                     def safe_float(value, default):
@@ -258,10 +275,13 @@ class APIFootball:
                         'avg_goals_scored_away': safe_float(goals.get('for', {}).get('average', {}).get('away'), 1.3),
                         'avg_goals_conceded_home': safe_float(goals.get('against', {}).get('average', {}).get('home'), 1.3),
                         'avg_goals_conceded_away': safe_float(goals.get('against', {}).get('average', {}).get('away'), 1.5),
-                        'btts_rate_home': 65,
-                        'btts_rate_away': 65,
-                        'clean_sheets_home': int(stats.get('clean_sheet', {}).get('home', 0)),
-                        'clean_sheets_away': int(stats.get('clean_sheet', {}).get('away', 0))
+                        'btts_rate_home': round(btts_rate_home, 1),
+                        'btts_rate_away': round(btts_rate_away, 1),
+                        'btts_rate_total': round(btts_rate_total, 1),
+                        'clean_sheets_home': clean_sheets_home,
+                        'clean_sheets_away': clean_sheets_away,
+                        'failed_to_score_home': failed_to_score_home,
+                        'failed_to_score_away': failed_to_score_away
                     }
             
             return None
