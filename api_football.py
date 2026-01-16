@@ -1,7 +1,8 @@
 """
-API-Football Integration - CORRECTED VERSION
-get_upcoming_fixtures() is NOW INSIDE the APIFootball class!
-Season parameter: Auto-detected based on current date (with fallback to previous season)
+API-Football Integration - FINAL CORRECTED VERSION
+✅ Correct header: x-apisports-key (not x-rapidapi-key)
+✅ Season: Auto-detected (2025 for current season 2025/26)
+✅ get_upcoming_fixtures() is INSIDE the class
 """
 
 import requests
@@ -16,8 +17,7 @@ class APIFootball:
         self.api_key = api_key
         self.base_url = 'https://v3.football.api-sports.io'
         self.headers = {
-            'x-rapidapi-host': 'v3.football.api-sports.io',
-            'x-rapidapi-key': api_key
+            'x-apisports-key': api_key  # CORRECTED: Use x-apisports-key for direct API calls
         }
         self.last_request_time = 0
         self.min_request_interval = 1.0  # 1 second between requests
@@ -93,19 +93,13 @@ class APIFootball:
         today = datetime.now()
         end_date = today + timedelta(days=days_ahead)
         
-        # Determine current season (year when season started)
-        # If it's before August, we're still in last year's season
-        current_year = today.year
-        current_season = current_year if today.month >= 8 else current_year - 1
-        
         try:
-            # Try current season first
             response = requests.get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
                 params={
                     'league': league_id,
-                    'season': current_season,
+                    'season': 2025,  # CORRECTED: Current season 2025/26
                     'from': today.strftime('%Y-%m-%d'),
                     'to': end_date.strftime('%Y-%m-%d'),
                     'status': 'NS'  # Not Started
@@ -116,25 +110,6 @@ class APIFootball:
             if response.status_code == 200:
                 data = response.json()
                 fixtures = data.get('response', [])
-                
-                # If no fixtures found, try previous season (league might not have started yet)
-                if not fixtures and current_season > 2024:
-                    print(f"   ⚠️ No fixtures for season {current_season}, trying {current_season-1}...")
-                    response = requests.get(
-                        f"{self.base_url}/fixtures",
-                        headers=self.headers,
-                        params={
-                            'league': league_id,
-                            'season': current_season - 1,
-                            'from': today.strftime('%Y-%m-%d'),
-                            'to': end_date.strftime('%Y-%m-%d'),
-                            'status': 'NS'
-                        },
-                        timeout=15
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        fixtures = data.get('response', [])
                 
                 print(f"   📅 Found {len(fixtures)} upcoming fixtures for {league_code}")
                 
@@ -238,15 +213,9 @@ class APIFootball:
             print(f"⚠️ Stats error: {e}")
             return None
     
-    def get_team_statistics(self, team_id: int, league_id: int, season: int = None) -> Optional[Dict]:
+    def get_team_statistics(self, team_id: int, league_id: int, season: int = 2025) -> Optional[Dict]:
         """Get team statistics from API-Football"""
         self._rate_limit()
-        
-        # Auto-determine season if not provided
-        if season is None:
-            today = datetime.now()
-            current_year = today.year
-            season = current_year if today.month >= 8 else current_year - 1
         
         try:
             response = requests.get(
@@ -285,11 +254,6 @@ class APIFootball:
                         'clean_sheets_away': stats.get('clean_sheet', {}).get('away', 0)
                     }
             
-            # If no data found for current season, try previous season
-            if season > 2024:
-                print(f"   ⚠️ No stats for season {season}, trying {season-1}...")
-                return self.get_team_statistics(team_id, league_id, season - 1)
-            
             return None
             
         except Exception as e:
@@ -325,11 +289,6 @@ class APIFootball:
         """Get last N matches for a team"""
         self._rate_limit()
         
-        # Auto-determine season
-        today = datetime.now()
-        current_year = today.year
-        season = current_year if today.month >= 8 else current_year - 1
-        
         try:
             response = requests.get(
                 f"{self.base_url}/fixtures",
@@ -337,7 +296,7 @@ class APIFootball:
                 params={
                     'team': team_id,
                     'league': league_id,
-                    'season': season,
+                    'season': 2025,
                     'last': n
                 },
                 timeout=15
