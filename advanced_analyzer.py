@@ -224,7 +224,7 @@ class AdvancedBTTSAnalyzer:
                 from api_football import APIFootball
                 api = APIFootball(self.api_football_key)
                 
-                stats = api.get_team_statistics(team_id, league_id)  # Season auto-detected
+                stats = api.get_team_statistics(team_id, league_id, season=2025)  # Use 2024 for historical stats
                 
                 if stats:
                     # Format for our analyzer
@@ -591,7 +591,7 @@ class AdvancedBTTSAnalyzer:
             try:
                 from api_football import APIFootball
                 api = APIFootball(self.api_football_key)
-                stats = api.get_team_statistics(team_id, league_id)  # Season auto-detected
+                stats = api.get_team_statistics(team_id, league_id, season=2025)  # Use 2024 for historical stats
                 
                 if stats:
                     self._team_stats_cache[cache_key] = stats

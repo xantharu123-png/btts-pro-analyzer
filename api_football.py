@@ -241,17 +241,24 @@ class APIFootball:
                     home_stats = fixtures.get('played', {}).get('home', 0)
                     away_stats = fixtures.get('played', {}).get('away', 0)
                     
+                    # Convert string values to float
+                    def safe_float(value, default):
+                        try:
+                            return float(value) if value else default
+                        except:
+                            return default
+                    
                     return {
-                        'matches_played_home': home_stats,
-                        'matches_played_away': away_stats,
-                        'avg_goals_scored_home': goals.get('for', {}).get('average', {}).get('home', 1.5),
-                        'avg_goals_scored_away': goals.get('for', {}).get('average', {}).get('away', 1.3),
-                        'avg_goals_conceded_home': goals.get('against', {}).get('average', {}).get('home', 1.3),
-                        'avg_goals_conceded_away': goals.get('against', {}).get('average', {}).get('away', 1.5),
-                        'btts_rate_home': 65,  # Default - calculate separately if needed
+                        'matches_played_home': int(home_stats) if home_stats else 0,
+                        'matches_played_away': int(away_stats) if away_stats else 0,
+                        'avg_goals_scored_home': safe_float(goals.get('for', {}).get('average', {}).get('home'), 1.5),
+                        'avg_goals_scored_away': safe_float(goals.get('for', {}).get('average', {}).get('away'), 1.3),
+                        'avg_goals_conceded_home': safe_float(goals.get('against', {}).get('average', {}).get('home'), 1.3),
+                        'avg_goals_conceded_away': safe_float(goals.get('against', {}).get('average', {}).get('away'), 1.5),
+                        'btts_rate_home': 65,
                         'btts_rate_away': 65,
-                        'clean_sheets_home': stats.get('clean_sheet', {}).get('home', 0),
-                        'clean_sheets_away': stats.get('clean_sheet', {}).get('away', 0)
+                        'clean_sheets_home': int(stats.get('clean_sheet', {}).get('home', 0)),
+                        'clean_sheets_away': int(stats.get('clean_sheet', {}).get('away', 0))
                     }
             
             return None
