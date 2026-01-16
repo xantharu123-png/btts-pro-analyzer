@@ -65,11 +65,39 @@ class DataEngine:
         print(f"🔥 Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues!")
     
     def init_database(self):
-        """Initialize SQLite database - CREATE IF NOT EXISTS (preserve data)"""
+        """Initialize SQLite database with automatic schema fix"""
+        # 🔥 STEP 1: Check if old database has wrong schema
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            
+            # Check if matches table exists
+            c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='matches'")
+            table_exists = c.fetchone()
+            
+            if table_exists:
+                # Check current schema
+                c.execute("PRAGMA table_info(matches)")
+                columns = [col[1] for col in c.fetchall()]
+                
+                # If home_team column doesn't exist, we have old schema - DROP IT!
+                if columns and 'home_team' not in columns:
+                    print("⚠️ OLD DATABASE SCHEMA DETECTED!")
+                    print(f"   Found columns: {columns}")
+                    print("   Expected: home_team, away_team")
+                    print("🔥 DROPPING OLD TABLE AND RECREATING...")
+                    c.execute("DROP TABLE IF EXISTS matches")
+                    conn.commit()
+                    print("✅ Old table dropped successfully")
+            
+            conn.close()
+        except Exception as e:
+            print(f"⚠️ Schema check error (will create new): {e}")
+        
+        # 🔥 STEP 2: Create table with correct schema
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         
-        # CREATE IF NOT EXISTS - don't delete existing data!
         c.execute('''
             CREATE TABLE IF NOT EXISTS matches (
                 id INTEGER PRIMARY KEY,
@@ -93,7 +121,7 @@ class DataEngine:
         
         conn.commit()
         conn.close()
-        print("✅ Database ready")
+        print("✅ Database ready with correct schema")
     
     def get_team_stats(self, team_id, league_code, venue='home'):
         """
