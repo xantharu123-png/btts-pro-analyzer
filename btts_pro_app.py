@@ -300,80 +300,80 @@ with tab1:
         )
         
         if all_results:
-                combined = pd.concat(all_results, ignore_index=True)
+            combined = pd.concat(all_results, ignore_index=True)
+            
+            # Filter for top tips - USE SLIDER VALUES!
+            combined['BTTS_num'] = combined['BTTS %'].str.rstrip('%').astype(float)
+            combined['Conf_num'] = combined['Confidence'].str.rstrip('%').astype(float)
+            
+            top_tips = combined[
+                (combined['BTTS_num'] >= min_probability) & 
+                (combined['Conf_num'] >= min_confidence)
+            ].copy()
+            
+            st.session_state['all_results'] = combined
+            st.session_state['top_tips'] = top_tips
+            
+            if not top_tips.empty:
+                st.success(f"🔥 Found {len(top_tips)} Premium Tips!")
                 
-                # Filter for top tips - USE SLIDER VALUES!
-                combined['BTTS_num'] = combined['BTTS %'].str.rstrip('%').astype(float)
-                combined['Conf_num'] = combined['Confidence'].str.rstrip('%').astype(float)
-                
-                top_tips = combined[
-                    (combined['BTTS_num'] >= min_probability) & 
-                    (combined['Conf_num'] >= min_confidence)
-                ].copy()
-                
-                st.session_state['all_results'] = combined
-                st.session_state['top_tips'] = top_tips
-                
-                if not top_tips.empty:
-                    st.success(f"🔥 Found {len(top_tips)} Premium Tips!")
-                    
-                    # Display premium tips
-                    for idx, row in top_tips.iterrows():
-                        with st.container():
-                            st.markdown(f"""
-                                <div class='top-tip'>
-                                    <h3>🔥 {row['Home']} vs {row['Away']}</h3>
-                                    <p><strong>League:</strong> {row['League']} | <strong>Date:</strong> {row['Date']}</p>
-                                    <p><strong>BTTS Probability:</strong> {row['BTTS %']} | <strong>Confidence:</strong> {row['Confidence']}</p>
-                                    <p><strong>Expected Total Goals:</strong> {row['xG Total']}</p>
-                                </div>
-                            """, unsafe_allow_html=True)
+                # Display premium tips
+                for idx, row in top_tips.iterrows():
+                    with st.container():
+                        st.markdown(f"""
+                            <div class='top-tip'>
+                                <h3>🔥 {row['Home']} vs {row['Away']}</h3>
+                                <p><strong>League:</strong> {row['League']} | <strong>Date:</strong> {row['Date']}</p>
+                                <p><strong>BTTS Probability:</strong> {row['BTTS %']} | <strong>Confidence:</strong> {row['Confidence']}</p>
+                                <p><strong>Expected Total Goals:</strong> {row['xG Total']}</p>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Show detailed breakdown
+                        with st.expander("📊 Detailed Breakdown"):
+                            col1, col2, col3, col4 = st.columns(4)
                             
-                            # Show detailed breakdown
-                            with st.expander("📊 Detailed Breakdown"):
-                                col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("ML Prediction", row['ML'])
+                            with col2:
+                                st.metric("Statistical", row['Stat'])
+                            with col3:
+                                st.metric("Form-Based", row['Form'])
+                            with col4:
+                                st.metric("Head-to-Head", row['H2H'])
+                            
+                            # Get full analysis
+                            if '_analysis' in row:
+                                analysis = row['_analysis']
                                 
-                                with col1:
-                                    st.metric("ML Prediction", row['ML'])
-                                with col2:
-                                    st.metric("Statistical", row['Stat'])
-                                with col3:
-                                    st.metric("Form-Based", row['Form'])
-                                with col4:
-                                    st.metric("Head-to-Head", row['H2H'])
+                                st.markdown("---")
+                                st.subheader("🏠 Home Team Stats")
+                                home_stats = analysis.get('home_stats', {})
+                                st.write(f"**BTTS Rate (Home):** {home_stats.get('btts_rate', 52.0):.1f}%")
+                                st.write(f"**Goals/Game:** {home_stats.get('avg_goals_scored', 1.4):.2f}")
+                                st.write(f"**Conceded/Game:** {home_stats.get('avg_goals_conceded', 1.3):.2f}")
+                                home_form = analysis.get('home_form', {})
+                                st.write(f"**Form (Last 5):** {home_form.get('form_string', 'N/A')}")
                                 
-                                # Get full analysis
-                                if '_analysis' in row:
-                                    analysis = row['_analysis']
-                                    
-                                    st.markdown("---")
-                                    st.subheader("🏠 Home Team Stats")
-                                    home_stats = analysis.get('home_stats', {})
-                                    st.write(f"**BTTS Rate (Home):** {home_stats.get('btts_rate', 52.0):.1f}%")
-                                    st.write(f"**Goals/Game:** {home_stats.get('avg_goals_scored', 1.4):.2f}")
-                                    st.write(f"**Conceded/Game:** {home_stats.get('avg_goals_conceded', 1.3):.2f}")
-                                    home_form = analysis.get('home_form', {})
-                                    st.write(f"**Form (Last 5):** {home_form.get('form_string', 'N/A')}")
-                                    
-                                    st.markdown("---")
-                                    st.subheader("✈️ Away Team Stats")
-                                    away_stats = analysis.get('away_stats', {})
-                                    st.write(f"**BTTS Rate (Away):** {away_stats.get('btts_rate', 52.0):.1f}%")
-                                    st.write(f"**Goals/Game:** {away_stats.get('avg_goals_scored', 1.4):.2f}")
-                                    st.write(f"**Conceded/Game:** {away_stats.get('avg_goals_conceded', 1.3):.2f}")
-                                    away_form = analysis.get('away_form', {})
-                                    st.write(f"**Form (Last 5):** {away_form.get('form_string', 'N/A')}")
-                                    
-                                    st.markdown("---")
-                                    st.subheader("🔄 Head-to-Head")
-                                    h2h = analysis.get('h2h', {})
-                                    st.write(f"**Matches Played:** {h2h.get('matches_played', 0)}")
-                                    st.write(f"**BTTS Rate:** {h2h.get('btts_rate', 52.0):.1f}%")
-                                    st.write(f"**Avg Total Goals:** {h2h.get('avg_goals', 2.5):.1f}")
-                else:
-                    st.warning("No premium tips found with current criteria")
+                                st.markdown("---")
+                                st.subheader("✈️ Away Team Stats")
+                                away_stats = analysis.get('away_stats', {})
+                                st.write(f"**BTTS Rate (Away):** {away_stats.get('btts_rate', 52.0):.1f}%")
+                                st.write(f"**Goals/Game:** {away_stats.get('avg_goals_scored', 1.4):.2f}")
+                                st.write(f"**Conceded/Game:** {away_stats.get('avg_goals_conceded', 1.3):.2f}")
+                                away_form = analysis.get('away_form', {})
+                                st.write(f"**Form (Last 5):** {away_form.get('form_string', 'N/A')}")
+                                
+                                st.markdown("---")
+                                st.subheader("🔄 Head-to-Head")
+                                h2h = analysis.get('h2h', {})
+                                st.write(f"**Matches Played:** {h2h.get('matches_played', 0)}")
+                                st.write(f"**BTTS Rate:** {h2h.get('btts_rate', 52.0):.1f}%")
+                                st.write(f"**Avg Total Goals:** {h2h.get('avg_goals', 2.5):.1f}")
             else:
-                st.warning("No matches found for selected leagues")
+                st.warning("No premium tips found with current criteria")
+        else:
+            st.warning("No matches found for selected leagues")
 
 # TAB 2: All Recommendations  
 with tab2:
