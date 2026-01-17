@@ -498,17 +498,48 @@ class AdvancedBTTSAnalyzer:
         final_btts = max(25, min(90, final_btts))
         
         # =============================================
-        # CONFIDENCE SCORE
+        # CONFIDENCE SCORE (Varianz-basiert)
         # =============================================
-        # Basiert auf Datenverfügbarkeit
-        data_points = 0
-        if home_season['matches_played'] >= 5: data_points += 25
-        if away_season['matches_played'] >= 5: data_points += 25
-        if home_form['matches_played'] >= 3: data_points += 15
-        if away_form['matches_played'] >= 3: data_points += 15
-        if h2h['matches_played'] >= 3: data_points += 20
+        # Sammle alle Predictions
+        predictions = [season_btts, form_btts, venue_btts, poisson_btts]
+        if has_h2h_data:
+            predictions.append(h2h_btts)
         
-        confidence = min(95, max(40, data_points))
+        # Berechne Varianz (Standardabweichung)
+        import statistics
+        if len(predictions) >= 2:
+            std_dev = statistics.stdev(predictions)
+            mean_pred = statistics.mean(predictions)
+            
+            # Coefficient of Variation (CV) = std_dev / mean
+            cv = (std_dev / mean_pred) if mean_pred > 0 else 1.0
+            
+            # Niedrige Varianz = Hohe Confidence
+            # CV < 0.15 (15%) → 90-95% Confidence
+            # CV 0.15-0.25 → 80-90% Confidence
+            # CV 0.25-0.35 → 70-80% Confidence
+            # CV > 0.35 → 60-70% Confidence
+            if cv < 0.15:
+                confidence = 92
+            elif cv < 0.25:
+                confidence = 85
+            elif cv < 0.35:
+                confidence = 75
+            elif cv < 0.45:
+                confidence = 68
+            else:
+                confidence = 60
+            
+            # Bonus für mehr Daten
+            data_bonus = 0
+            if home_season['matches_played'] >= 10: data_bonus += 2
+            if away_season['matches_played'] >= 10: data_bonus += 2
+            if h2h['matches_played'] >= 5: data_bonus += 2
+            
+            confidence = min(95, confidence + data_bonus)
+        else:
+            # Fallback
+            confidence = 70
         
         # Confidence Level
         if confidence >= 80:
