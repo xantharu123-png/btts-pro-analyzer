@@ -13,6 +13,7 @@ from pathlib import Path
 
 from advanced_analyzer import AdvancedBTTSAnalyzer
 from data_engine import DataEngine
+from modern_progress_bar import ModernProgressBar
 
 # Page config
 st.set_page_config(
@@ -270,23 +271,35 @@ with tab1:
     st.info(f"💡 Filtering for BTTS ≥ {min_probability}% AND Confidence ≥ {min_confidence}% (adjust in sidebar)")
     
     if st.button("🔍 Analyze Matches", key="analyze_top"):
-        with st.spinner("Running advanced analysis..."):
-            all_results = []
+        # Create Progress Bar
+        progress = ModernProgressBar(
+            total_items=len(selected_leagues),
+            title="Analyzing Leagues for Premium Tips"
+        )
+        
+        all_results = []
+        
+        for idx, league_code in enumerate(selected_leagues):
+            # Update Progress Bar
+            progress.update(league_code, idx)
             
-            for league_code in selected_leagues:
-                # league_code is already the code (e.g., 'BL1')
-                st.write(f"Analyzing {league_code}...")
-                results = analyzer.analyze_upcoming_matches(
-                    league_code, 
-                    days_ahead=days_ahead,
-                    min_probability=min_probability
-                )
-                
-                if not results.empty:
-                    results['League'] = league_code
-                    all_results.append(results)
+            # Analyze
+            results = analyzer.analyze_upcoming_matches(
+                league_code, 
+                days_ahead=days_ahead,
+                min_probability=min_probability
+            )
             
-            if all_results:
+            if not results.empty:
+                results['League'] = league_code
+                all_results.append(results)
+        
+        # Complete Progress Bar
+        progress.complete(
+            success_message=f"✅ Analysis complete! Processed {len(selected_leagues)} leagues"
+        )
+        
+        if all_results:
                 combined = pd.concat(all_results, ignore_index=True)
                 
                 # Filter for top tips - USE SLIDER VALUES!
