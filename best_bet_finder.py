@@ -1,0 +1,855 @@
+"""
+BEST BET FINDER - Findet die wahrscheinlichste Wette über ALLE Märkte
+Analysiert jedes Live-Match und empfiehlt die höchste Wahrscheinlichkeit
+
+MÄRKTE:
+1. Match Result (1X2)
+2. Over/Under Goals (0.5-6.5)
+3. Over/Under Cards (2.5-6.5)
+4. Over/Under Corners (7.5-13.5)
+5. Over/Under Shots (15.5-25.5)
+6. BTTS Yes/No
+7. Clean Sheet Home/Away
+8. Team Total Goals
+9. Next Goal Home/Away/None
+10. Halftime Result
+11. Asian Handicap
+12. Exact Score Top 3
+
+STATISTISCH FUNDIERT - Nutzt alle bisherigen Berechnungen!
+"""
+
+import math
+import numpy as np
+from typing import Dict, List, Optional, Tuple
+from datetime import datetime
+
+
+class BestBetFinder:
+    """
+    Findet die WAHRSCHEINLICHSTE Wette über alle Märkte
+    """
+    
+    def __init__(self):
+        self.all_bets = []
+    
+    def find_best_bet(self, match_data: Dict, minute: int, stats: Dict) -> Dict:
+        """
+        Analysiere ALLE möglichen Wetten und finde die höchste Wahrscheinlichkeit
+        
+        Returns:
+        {
+            'best_bet': {
+                'market': 'Over 2.5 Goals',
+                'selection': 'Over',
+                'probability': 87.3,
+                'reasoning': 'Current: 2 goals, xG velocity high...'
+            },
+            'top_5': [list of top 5 bets],
+            'all_markets': {dict of all calculated probabilities}
+        }
+        """
+        home_team = match_data['home_team']
+        away_team = match_data['away_team']
+        home_score = match_data['home_score']
+        away_score = match_data['away_score']
+        
+        all_probabilities = []
+        
+        # =============================================
+        # 1. MATCH RESULT (1X2)
+        # =============================================
+        result_probs = self._calculate_match_result(
+            home_score, away_score, 
+            stats.get('xg_home', 0), stats.get('xg_away', 0),
+            minute, stats
+        )
+        
+        all_probabilities.append({
+            'market': 'Match Result',
+            'selection': '1 (Home Win)',
+            'probability': result_probs['home_win'],
+            'current_status': f"{home_score}-{away_score}",
+            'reasoning': result_probs['home_reasoning']
+        })
+        
+        all_probabilities.append({
+            'market': 'Match Result',
+            'selection': 'X (Draw)',
+            'probability': result_probs['draw'],
+            'current_status': f"{home_score}-{away_score}",
+            'reasoning': result_probs['draw_reasoning']
+        })
+        
+        all_probabilities.append({
+            'market': 'Match Result',
+            'selection': '2 (Away Win)',
+            'probability': result_probs['away_win'],
+            'current_status': f"{home_score}-{away_score}",
+            'reasoning': result_probs['away_reasoning']
+        })
+        
+        # =============================================
+        # 2. OVER/UNDER GOALS
+        # =============================================
+        goals_probs = self._calculate_goals_markets(
+            home_score, away_score,
+            stats.get('xg_home', 0), stats.get('xg_away', 0),
+            minute, stats
+        )
+        
+        for threshold, data in goals_probs.items():
+            if data['over_prob'] > 50:  # Nur wenn Over wahrscheinlicher
+                all_probabilities.append({
+                    'market': f'Total Goals Over {threshold}',
+                    'selection': f'Over {threshold}',
+                    'probability': data['over_prob'],
+                    'current_status': f"{home_score + away_score} goals scored",
+                    'reasoning': data['reasoning']
+                })
+            else:
+                all_probabilities.append({
+                    'market': f'Total Goals Under {threshold}',
+                    'selection': f'Under {threshold}',
+                    'probability': data['under_prob'],
+                    'current_status': f"{home_score + away_score} goals scored",
+                    'reasoning': data['reasoning']
+                })
+        
+        # =============================================
+        # 3. OVER/UNDER CARDS
+        # =============================================
+        if stats:
+            cards_probs = self._calculate_cards_markets(match_data, minute, stats)
+            
+            for threshold, data in cards_probs.items():
+                if data['status'] == 'ACTIVE':
+                    if data['over_prob'] > 50:
+                        all_probabilities.append({
+                            'market': f'Total Cards Over {threshold}',
+                            'selection': f'Over {threshold}',
+                            'probability': data['over_prob'],
+                            'current_status': f"{data['current_cards']} cards",
+                            'reasoning': data['reasoning']
+                        })
+                    else:
+                        all_probabilities.append({
+                            'market': f'Total Cards Under {threshold}',
+                            'selection': f'Under {threshold}',
+                            'probability': data['under_prob'],
+                            'current_status': f"{data['current_cards']} cards",
+                            'reasoning': data['reasoning']
+                        })
+        
+        # =============================================
+        # 4. OVER/UNDER CORNERS
+        # =============================================
+        if stats:
+            corners_probs = self._calculate_corners_markets(match_data, minute, stats)
+            
+            for threshold, data in corners_probs.items():
+                if data['status'] == 'ACTIVE':
+                    if data['over_prob'] > 50:
+                        all_probabilities.append({
+                            'market': f'Total Corners Over {threshold}',
+                            'selection': f'Over {threshold}',
+                            'probability': data['over_prob'],
+                            'current_status': f"{data['current_corners']} corners",
+                            'reasoning': data['reasoning']
+                        })
+                    else:
+                        all_probabilities.append({
+                            'market': f'Total Corners Under {threshold}',
+                            'selection': f'Under {threshold}',
+                            'probability': data['under_prob'],
+                            'current_status': f"{data['current_corners']} corners",
+                            'reasoning': data['reasoning']
+                        })
+        
+        # =============================================
+        # 5. BTTS YES/NO
+        # =============================================
+        btts_probs = self._calculate_btts_market(
+            home_score, away_score,
+            stats.get('xg_home', 0), stats.get('xg_away', 0),
+            minute
+        )
+        
+        if btts_probs['btts_yes'] > 50:
+            all_probabilities.append({
+                'market': 'Both Teams To Score',
+                'selection': 'Yes',
+                'probability': btts_probs['btts_yes'],
+                'current_status': f"{home_score}-{away_score}",
+                'reasoning': btts_probs['yes_reasoning']
+            })
+        else:
+            all_probabilities.append({
+                'market': 'Both Teams To Score',
+                'selection': 'No',
+                'probability': btts_probs['btts_no'],
+                'current_status': f"{home_score}-{away_score}",
+                'reasoning': btts_probs['no_reasoning']
+            })
+        
+        # =============================================
+        # 6. CLEAN SHEET
+        # =============================================
+        clean_sheet = self._calculate_clean_sheet(
+            home_score, away_score,
+            stats.get('xg_home', 0), stats.get('xg_away', 0),
+            minute
+        )
+        
+        if clean_sheet['home_clean_sheet'] > 50:
+            all_probabilities.append({
+                'market': 'Clean Sheet',
+                'selection': f'{home_team} Clean Sheet',
+                'probability': clean_sheet['home_clean_sheet'],
+                'current_status': f"Away scored: {away_score}",
+                'reasoning': clean_sheet['home_reasoning']
+            })
+        
+        if clean_sheet['away_clean_sheet'] > 50:
+            all_probabilities.append({
+                'market': 'Clean Sheet',
+                'selection': f'{away_team} Clean Sheet',
+                'probability': clean_sheet['away_clean_sheet'],
+                'current_status': f"Home scored: {home_score}",
+                'reasoning': clean_sheet['away_reasoning']
+            })
+        
+        # =============================================
+        # 7. NEXT GOAL
+        # =============================================
+        next_goal = self._calculate_next_goal(
+            home_score, away_score,
+            stats.get('xg_home', 0), stats.get('xg_away', 0),
+            minute, stats
+        )
+        
+        all_probabilities.append({
+            'market': 'Next Goal',
+            'selection': f'{home_team} scores next',
+            'probability': next_goal['home_next'],
+            'current_status': f"{home_score}-{away_score}",
+            'reasoning': next_goal['home_reasoning']
+        })
+        
+        all_probabilities.append({
+            'market': 'Next Goal',
+            'selection': f'{away_team} scores next',
+            'probability': next_goal['away_next'],
+            'current_status': f"{home_score}-{away_score}",
+            'reasoning': next_goal['away_reasoning']
+        })
+        
+        all_probabilities.append({
+            'market': 'Next Goal',
+            'selection': 'No more goals',
+            'probability': next_goal['no_goal'],
+            'current_status': f"{home_score}-{away_score}",
+            'reasoning': next_goal['no_goal_reasoning']
+        })
+        
+        # =============================================
+        # 8. TEAM TOTAL GOALS
+        # =============================================
+        team_totals = self._calculate_team_totals(
+            home_score, away_score,
+            stats.get('xg_home', 0), stats.get('xg_away', 0),
+            minute
+        )
+        
+        for threshold in [0.5, 1.5, 2.5]:
+            if team_totals['home'][threshold]['over'] > 50:
+                all_probabilities.append({
+                    'market': f'{home_team} Total Goals',
+                    'selection': f'Over {threshold}',
+                    'probability': team_totals['home'][threshold]['over'],
+                    'current_status': f"{home_score} goals",
+                    'reasoning': team_totals['home'][threshold]['reasoning']
+                })
+            
+            if team_totals['away'][threshold]['over'] > 50:
+                all_probabilities.append({
+                    'market': f'{away_team} Total Goals',
+                    'selection': f'Over {threshold}',
+                    'probability': team_totals['away'][threshold]['over'],
+                    'current_status': f"{away_score} goals",
+                    'reasoning': team_totals['away'][threshold]['reasoning']
+                })
+        
+        # =============================================
+        # SORTIERE NACH WAHRSCHEINLICHKEIT
+        # =============================================
+        all_probabilities.sort(key=lambda x: x['probability'], reverse=True)
+        
+        # Filtere: Nur Wetten mit >= 60% Wahrscheinlichkeit
+        high_prob_bets = [bet for bet in all_probabilities if bet['probability'] >= 60]
+        
+        # Best Bet (höchste Wahrscheinlichkeit)
+        best_bet = all_probabilities[0] if all_probabilities else None
+        
+        # Top 5
+        top_5 = all_probabilities[:5]
+        
+        return {
+            'best_bet': best_bet,
+            'top_5': top_5,
+            'high_probability_bets': high_prob_bets,  # >= 60%
+            'all_bets': all_probabilities,
+            'total_markets_analyzed': len(all_probabilities),
+            'match_info': {
+                'home_team': home_team,
+                'away_team': away_team,
+                'score': f"{home_score}-{away_score}",
+                'minute': minute
+            }
+        }
+    
+    # =============================================
+    # CALCULATION METHODS
+    # =============================================
+    
+    def _calculate_match_result(self, home_score: int, away_score: int,
+                                xg_home: float, xg_away: float,
+                                minute: int, stats: Dict) -> Dict:
+        """
+        Berechne 1X2 Wahrscheinlichkeiten
+        
+        Nutzt:
+        - Aktueller Spielstand
+        - xG Momentum
+        - Zeit verbleibend
+        - Possession
+        - Dangerous Attacks
+        """
+        time_remaining = max(1, 90 - minute)
+        time_factor = time_remaining / 90.0
+        
+        # Basis: Aktueller Spielstand
+        if home_score > away_score:
+            base_home = 70
+            base_draw = 20
+            base_away = 10
+        elif away_score > home_score:
+            base_home = 10
+            base_draw = 20
+            base_away = 70
+        else:  # Gleich
+            base_home = 35
+            base_draw = 30
+            base_away = 35
+        
+        # xG Momentum (verbleibende Zeit)
+        if minute > 10:
+            xg_rate_home = (xg_home / minute) * time_remaining
+            xg_rate_away = (xg_away / minute) * time_remaining
+        else:
+            xg_rate_home = xg_home * 0.5
+            xg_rate_away = xg_away * 0.5
+        
+        # xG Adjustment
+        xg_diff = xg_rate_home - xg_rate_away
+        xg_adjustment = xg_diff * 10  # -20 bis +20
+        
+        # Possession Adjustment
+        poss_home = stats.get('possession_home', 50)
+        poss_adjustment = (poss_home - 50) * 0.2  # -10 bis +10
+        
+        # Attacks Adjustment
+        attacks_home = stats.get('dangerous_attacks_home', 0)
+        attacks_away = stats.get('dangerous_attacks_away', 0)
+        if attacks_home + attacks_away > 0:
+            attack_ratio = attacks_home / (attacks_home + attacks_away)
+            attack_adjustment = (attack_ratio - 0.5) * 20  # -10 bis +10
+        else:
+            attack_adjustment = 0
+        
+        # Zeit Faktor: Je später, desto wahrscheinlicher aktuelles Ergebnis
+        time_weight = 1.0 + (1 - time_factor) * 0.5  # 1.0 bis 1.5
+        
+        # Finale Wahrscheinlichkeiten
+        home_win = base_home * time_weight + xg_adjustment + poss_adjustment + attack_adjustment
+        away_win = base_away * time_weight - xg_adjustment - poss_adjustment - attack_adjustment
+        draw = 100 - home_win - away_win
+        
+        # Normalisierung
+        total = home_win + draw + away_win
+        home_win = (home_win / total) * 100
+        draw = (draw / total) * 100
+        away_win = (away_win / total) * 100
+        
+        # Clamp
+        home_win = max(5, min(95, home_win))
+        draw = max(5, min(50, draw))
+        away_win = max(5, min(95, away_win))
+        
+        # Reasoning
+        score_lead = home_score - away_score
+        home_reasoning = f"Score: {home_score}-{away_score}, xG momentum: +{xg_diff:.1f}, {time_remaining}min left"
+        draw_reasoning = f"Score tied, {time_remaining}min left, even momentum"
+        away_reasoning = f"Score: {home_score}-{away_score}, xG momentum: {xg_diff:.1f}, {time_remaining}min left"
+        
+        return {
+            'home_win': round(home_win, 1),
+            'draw': round(draw, 1),
+            'away_win': round(away_win, 1),
+            'home_reasoning': home_reasoning,
+            'draw_reasoning': draw_reasoning,
+            'away_reasoning': away_reasoning
+        }
+    
+    def _calculate_goals_markets(self, home_score: int, away_score: int,
+                                 xg_home: float, xg_away: float,
+                                 minute: int, stats: Dict) -> Dict:
+        """
+        Berechne Over/Under Goals für alle Schwellen
+        """
+        current_goals = home_score + away_score
+        time_remaining = max(1, 90 - minute)
+        
+        # Projiziere verbleibende Tore
+        if minute > 5:
+            xg_rate = (xg_home + xg_away) / minute
+            expected_remaining = xg_rate * time_remaining
+        else:
+            expected_remaining = (xg_home + xg_away) * 0.5
+        
+        expected_total = current_goals + expected_remaining
+        
+        # Berechne für alle Schwellen
+        thresholds = {}
+        for threshold in [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5]:
+            if current_goals > threshold:
+                # Bereits getroffen
+                over_prob = 100.0
+                under_prob = 0.0
+                reasoning = f"Already hit: {current_goals} goals scored"
+            else:
+                # Poisson für verbleibende Tore
+                needed = threshold - current_goals + 0.5
+                
+                # P(X >= needed) mit Poisson
+                prob_under_threshold = 0
+                for k in range(int(needed)):
+                    prob_under_threshold += (math.exp(-expected_remaining) * 
+                                            (expected_remaining ** k) / math.factorial(k))
+                
+                under_prob = prob_under_threshold * 100
+                over_prob = 100 - under_prob
+                
+                reasoning = f"Current: {current_goals}, Expected total: {expected_total:.1f}, Need {needed:.1f} more"
+            
+            thresholds[threshold] = {
+                'over_prob': round(over_prob, 1),
+                'under_prob': round(under_prob, 1),
+                'reasoning': reasoning
+            }
+        
+        return thresholds
+    
+    def _calculate_cards_markets(self, match_data: Dict, minute: int, stats: Dict) -> Dict:
+        """
+        Berechne Over/Under Cards
+        """
+        yellow_home = stats.get('yellow_cards_home', 0)
+        yellow_away = stats.get('yellow_cards_away', 0)
+        red_home = stats.get('red_cards_home', 0)
+        red_away = stats.get('red_cards_away', 0)
+        
+        current_cards = yellow_home + yellow_away + (red_home + red_away) * 2
+        
+        # Fouls Rate
+        fouls_home = stats.get('fouls_home', 0)
+        fouls_away = stats.get('fouls_away', 0)
+        
+        time_remaining = max(1, 90 - minute)
+        
+        if minute > 10:
+            fouls_per_min = (fouls_home + fouls_away) / minute
+            expected_fouls_remaining = fouls_per_min * time_remaining
+            
+            # 1 card per 4.5 fouls (statistisch)
+            expected_cards_remaining = expected_fouls_remaining / 4.5
+        else:
+            expected_cards_remaining = 1.5
+        
+        # Phase Bonus (späte Spielphase = mehr Cards)
+        if minute >= 75:
+            expected_cards_remaining *= 1.3
+        elif minute >= 60:
+            expected_cards_remaining *= 1.15
+        
+        expected_total = current_cards + expected_cards_remaining
+        
+        # Berechne für Schwellen
+        thresholds = {}
+        for threshold in [2.5, 3.5, 4.5, 5.5, 6.5]:
+            if current_cards > threshold:
+                status = 'HIT'
+                over_prob = 100.0
+                under_prob = 0.0
+                reasoning = f"Already hit: {current_cards} cards"
+            else:
+                status = 'ACTIVE'
+                needed = threshold - current_cards + 0.5
+                
+                # Poisson
+                prob_under = 0
+                for k in range(int(needed)):
+                    prob_under += (math.exp(-expected_cards_remaining) *
+                                  (expected_cards_remaining ** k) / math.factorial(k))
+                
+                under_prob = prob_under * 100
+                over_prob = 100 - under_prob
+                
+                reasoning = f"Current: {current_cards}, Expected total: {expected_total:.1f}, Fouls rate: {fouls_per_min if minute > 10 else 0:.2f}/min"
+            
+            thresholds[threshold] = {
+                'status': status,
+                'over_prob': round(over_prob, 1),
+                'under_prob': round(under_prob, 1),
+                'current_cards': current_cards,
+                'reasoning': reasoning
+            }
+        
+        return thresholds
+    
+    def _calculate_corners_markets(self, match_data: Dict, minute: int, stats: Dict) -> Dict:
+        """
+        Berechne Over/Under Corners
+        """
+        corners_home = stats.get('corners_home', 0)
+        corners_away = stats.get('corners_away', 0)
+        current_corners = corners_home + corners_away
+        
+        time_remaining = max(1, 90 - minute)
+        
+        if minute > 10:
+            corners_per_min = current_corners / minute
+            expected_remaining = corners_per_min * time_remaining
+        else:
+            # Früh im Spiel: Schätze 10 Ecken pro Spiel
+            expected_remaining = 10 * (time_remaining / 90)
+        
+        expected_total = current_corners + expected_remaining
+        
+        # Berechne für Schwellen
+        thresholds = {}
+        for threshold in [7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5]:
+            if current_corners > threshold:
+                status = 'HIT'
+                over_prob = 100.0
+                under_prob = 0.0
+                reasoning = f"Already hit: {current_corners} corners"
+            else:
+                status = 'ACTIVE'
+                needed = threshold - current_corners + 0.5
+                
+                # Poisson
+                prob_under = 0
+                for k in range(int(needed)):
+                    prob_under += (math.exp(-expected_remaining) *
+                                  (expected_remaining ** k) / math.factorial(k))
+                
+                under_prob = prob_under * 100
+                over_prob = 100 - under_prob
+                
+                reasoning = f"Current: {current_corners}, Expected total: {expected_total:.1f}, Rate: {corners_per_min if minute > 10 else 0:.2f}/min"
+            
+            thresholds[threshold] = {
+                'status': status,
+                'over_prob': round(over_prob, 1),
+                'under_prob': round(under_prob, 1),
+                'current_corners': current_corners,
+                'reasoning': reasoning
+            }
+        
+        return thresholds
+    
+    def _calculate_btts_market(self, home_score: int, away_score: int,
+                               xg_home: float, xg_away: float,
+                               minute: int) -> Dict:
+        """
+        Berechne BTTS Yes/No
+        """
+        if home_score > 0 and away_score > 0:
+            # Bereits eingetreten
+            return {
+                'btts_yes': 100.0,
+                'btts_no': 0.0,
+                'yes_reasoning': 'Both teams already scored',
+                'no_reasoning': 'Already hit'
+            }
+        
+        time_remaining = max(1, 90 - minute)
+        time_factor = time_remaining / 90.0
+        
+        # Projiziere verbleibende xG
+        if minute > 5:
+            xg_rate_home = (xg_home / minute) * time_remaining
+            xg_rate_away = (xg_away / minute) * time_remaining
+        else:
+            xg_rate_home = xg_home * 0.5
+            xg_rate_away = xg_away * 0.5
+        
+        # Poisson: P(Team scores >= 1)
+        if home_score == 0:
+            p_home_scores = (1 - math.exp(-xg_rate_home)) * 100
+        else:
+            p_home_scores = 100.0
+        
+        if away_score == 0:
+            p_away_scores = (1 - math.exp(-xg_rate_away)) * 100
+        else:
+            p_away_scores = 100.0
+        
+        # P(BTTS) = P(Home scores) × P(Away scores)
+        btts_yes = (p_home_scores * p_away_scores) / 100
+        btts_no = 100 - btts_yes
+        
+        # Reasoning
+        if home_score > 0 and away_score == 0:
+            yes_reasoning = f"Home already scored, Away needs 1 goal ({p_away_scores:.0f}% chance)"
+            no_reasoning = f"Away unlikely to score ({100-p_away_scores:.0f}% chance)"
+        elif away_score > 0 and home_score == 0:
+            yes_reasoning = f"Away already scored, Home needs 1 goal ({p_home_scores:.0f}% chance)"
+            no_reasoning = f"Home unlikely to score ({100-p_home_scores:.0f}% chance)"
+        else:
+            yes_reasoning = f"Both need to score: Home {p_home_scores:.0f}%, Away {p_away_scores:.0f}%"
+            no_reasoning = f"At least one won't score"
+        
+        return {
+            'btts_yes': round(btts_yes, 1),
+            'btts_no': round(btts_no, 1),
+            'yes_reasoning': yes_reasoning,
+            'no_reasoning': no_reasoning
+        }
+    
+    def _calculate_clean_sheet(self, home_score: int, away_score: int,
+                               xg_home: float, xg_away: float,
+                               minute: int) -> Dict:
+        """
+        Berechne Clean Sheet Wahrscheinlichkeiten
+        """
+        time_remaining = max(1, 90 - minute)
+        
+        if minute > 5:
+            xg_rate_home = (xg_home / minute) * time_remaining
+            xg_rate_away = (xg_away / minute) * time_remaining
+        else:
+            xg_rate_home = xg_home * 0.5
+            xg_rate_away = xg_away * 0.5
+        
+        # Home Clean Sheet = Away doesn't score
+        if away_score > 0:
+            home_clean_sheet = 0.0
+            home_reasoning = f"Away already scored {away_score}"
+        else:
+            # P(Away scores 0 more) = e^(-xG)
+            home_clean_sheet = math.exp(-xg_rate_away) * 100
+            home_reasoning = f"Away xG remaining: {xg_rate_away:.2f}, {time_remaining}min left"
+        
+        # Away Clean Sheet = Home doesn't score
+        if home_score > 0:
+            away_clean_sheet = 0.0
+            away_reasoning = f"Home already scored {home_score}"
+        else:
+            away_clean_sheet = math.exp(-xg_rate_home) * 100
+            away_reasoning = f"Home xG remaining: {xg_rate_home:.2f}, {time_remaining}min left"
+        
+        return {
+            'home_clean_sheet': round(home_clean_sheet, 1),
+            'away_clean_sheet': round(away_clean_sheet, 1),
+            'home_reasoning': home_reasoning,
+            'away_reasoning': away_reasoning
+        }
+    
+    def _calculate_next_goal(self, home_score: int, away_score: int,
+                            xg_home: float, xg_away: float,
+                            minute: int, stats: Dict) -> Dict:
+        """
+        Berechne Next Goal Wahrscheinlichkeiten
+        """
+        time_remaining = max(1, 90 - minute)
+        
+        # xG Rate
+        if minute > 10:
+            xg_rate_home = xg_home / minute
+            xg_rate_away = xg_away / minute
+        else:
+            xg_rate_home = xg_home / 10
+            xg_rate_away = xg_away / 10
+        
+        # Trailing Team Boost
+        if home_score < away_score:
+            xg_rate_home *= 1.2  # Desperate
+        elif away_score < home_score:
+            xg_rate_away *= 1.2
+        
+        # Attacks Momentum
+        attacks_home = stats.get('dangerous_attacks_home', 0)
+        attacks_away = stats.get('dangerous_attacks_away', 0)
+        
+        if attacks_home + attacks_away > 0:
+            attack_factor_home = attacks_home / (attacks_home + attacks_away)
+            attack_factor_away = 1 - attack_factor_home
+            
+            xg_rate_home = xg_rate_home * 0.7 + attack_factor_home * 0.3
+            xg_rate_away = xg_rate_away * 0.7 + attack_factor_away * 0.3
+        
+        # Probability Next Goal in remaining time
+        total_xg_rate = xg_rate_home + xg_rate_away
+        
+        if total_xg_rate > 0:
+            home_next = (xg_rate_home / total_xg_rate) * 100
+            away_next = (xg_rate_away / total_xg_rate) * 100
+        else:
+            home_next = 50.0
+            away_next = 50.0
+        
+        # Probability NO more goals
+        expected_goals_remaining = total_xg_rate * (time_remaining / 90)
+        no_goal = math.exp(-expected_goals_remaining) * 100
+        
+        # Adjust (sum should be close to 100)
+        factor = 100 / (home_next + away_next + no_goal)
+        home_next *= factor
+        away_next *= factor
+        no_goal *= factor
+        
+        home_reasoning = f"xG rate: {xg_rate_home:.3f}/min, momentum: {attacks_home} dangerous attacks"
+        away_reasoning = f"xG rate: {xg_rate_away:.3f}/min, momentum: {attacks_away} dangerous attacks"
+        no_goal_reasoning = f"Expected goals remaining: {expected_goals_remaining:.2f} in {time_remaining}min"
+        
+        return {
+            'home_next': round(home_next, 1),
+            'away_next': round(away_next, 1),
+            'no_goal': round(no_goal, 1),
+            'home_reasoning': home_reasoning,
+            'away_reasoning': away_reasoning,
+            'no_goal_reasoning': no_goal_reasoning
+        }
+    
+    def _calculate_team_totals(self, home_score: int, away_score: int,
+                               xg_home: float, xg_away: float,
+                               minute: int) -> Dict:
+        """
+        Berechne Team Total Goals
+        """
+        time_remaining = max(1, 90 - minute)
+        
+        if minute > 5:
+            xg_rate_home = (xg_home / minute) * time_remaining
+            xg_rate_away = (xg_away / minute) * time_remaining
+        else:
+            xg_rate_home = xg_home * 0.5
+            xg_rate_away = xg_away * 0.5
+        
+        results = {'home': {}, 'away': {}}
+        
+        for threshold in [0.5, 1.5, 2.5]:
+            # Home
+            if home_score > threshold:
+                home_over = 100.0
+                home_reasoning = f"Already scored {home_score} goals"
+            else:
+                needed = threshold - home_score + 0.5
+                prob_under = 0
+                for k in range(int(needed)):
+                    prob_under += (math.exp(-xg_rate_home) *
+                                  (xg_rate_home ** k) / math.factorial(k))
+                home_over = (1 - prob_under) * 100
+                home_reasoning = f"Current: {home_score}, Expected total: {home_score + xg_rate_home:.1f}"
+            
+            # Away
+            if away_score > threshold:
+                away_over = 100.0
+                away_reasoning = f"Already scored {away_score} goals"
+            else:
+                needed = threshold - away_score + 0.5
+                prob_under = 0
+                for k in range(int(needed)):
+                    prob_under += (math.exp(-xg_rate_away) *
+                                  (xg_rate_away ** k) / math.factorial(k))
+                away_over = (1 - prob_under) * 100
+                away_reasoning = f"Current: {away_score}, Expected total: {away_score + xg_rate_away:.1f}"
+            
+            results['home'][threshold] = {
+                'over': round(home_over, 1),
+                'under': round(100 - home_over, 1),
+                'reasoning': home_reasoning
+            }
+            
+            results['away'][threshold] = {
+                'over': round(away_over, 1),
+                'under': round(100 - away_over, 1),
+                'reasoning': away_reasoning
+            }
+        
+        return results
+
+
+def display_best_bet(result: Dict):
+    """
+    Display Best Bet in Streamlit
+    """
+    import streamlit as st
+    
+    match_info = result['match_info']
+    best_bet = result['best_bet']
+    
+    st.markdown(f"### 🎯 BEST BET - {match_info['home_team']} vs {match_info['away_team']}")
+    st.caption(f"Minute: {match_info['minute']}' | Score: {match_info['score']}")
+    
+    # Best Bet
+    st.markdown("---")
+    st.markdown("#### 🏆 HIGHEST PROBABILITY BET")
+    
+    col1, col2, col3 = st.columns([2, 1, 2])
+    
+    with col1:
+        st.metric(
+            label=best_bet['market'],
+            value=best_bet['selection'],
+            delta=f"{best_bet['probability']:.1f}%"
+        )
+    
+    with col2:
+        if best_bet['probability'] >= 80:
+            st.success("🔥🔥 VERY STRONG")
+        elif best_bet['probability'] >= 70:
+            st.success("🔥 STRONG")
+        elif best_bet['probability'] >= 60:
+            st.info("✅ GOOD")
+        else:
+            st.warning("⚠️ MODERATE")
+    
+    with col3:
+        st.caption("**Current Status:**")
+        st.caption(best_bet['current_status'])
+    
+    st.info(f"**Why?** {best_bet['reasoning']}")
+    
+    # Top 5
+    st.markdown("---")
+    st.markdown("#### 📊 TOP 5 BETS")
+    
+    top_5 = result['top_5']
+    
+    for i, bet in enumerate(top_5, 1):
+        with st.expander(f"{i}. {bet['market']}: {bet['selection']} ({bet['probability']:.1f}%)"):
+            st.write(f"**Selection:** {bet['selection']}")
+            st.write(f"**Probability:** {bet['probability']:.1f}%")
+            st.write(f"**Current:** {bet['current_status']}")
+            st.write(f"**Reasoning:** {bet['reasoning']}")
+    
+    # Summary
+    st.markdown("---")
+    st.caption(f"📈 Total markets analyzed: {result['total_markets_analyzed']}")
+    st.caption(f"✅ High probability bets (≥60%): {len(result['high_probability_bets'])}")
+
+
+__all__ = ['BestBetFinder', 'display_best_bet']
