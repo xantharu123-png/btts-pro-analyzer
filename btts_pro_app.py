@@ -15,6 +15,16 @@ from advanced_analyzer import AdvancedBTTSAnalyzer
 from data_engine import DataEngine
 from modern_progress_bar import ModernProgressBar
 
+# 🔥 DATABASE RESET - Force fresh data with season=2025
+import os
+db_path = Path("btts_analyzer.db")
+if db_path.exists():
+    try:
+        os.remove(db_path)
+        print("🗑️ Old database deleted - will fetch fresh 2025 data!")
+    except Exception as e:
+        print(f"⚠️ Could not delete database: {e}")
+
 # Page config
 st.set_page_config(
     page_title="BTTS Pro Analyzer",
