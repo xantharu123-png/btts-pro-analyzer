@@ -193,7 +193,7 @@ class UltraLiveScanner:
         if home_score > 0 and away_score > 0:
             return {
                 'probability': 100.0,
-                'confidence': 'ALREADY_HIT',  # Markiere als "bereits eingetreten"
+                'confidence': 'COMPLETE',  # GEÄNDERT: COMPLETE statt ALREADY_HIT
                 'p_home_scores': 100.0,
                 'p_away_scores': 100.0,
                 'base_prob': 100.0,
@@ -464,8 +464,14 @@ def display_ultra_opportunity(match: Dict):
     
     with col1:
         btts = match['btts_prob']
-        delta = "🔥" if btts >= 70 else ("✅" if btts >= 50 else "⚠️")
-        st.metric("BTTS", f"{btts}%", delta=delta)
+        btts_confidence = match.get('btts_confidence', '')
+        
+        # Check ob BTTS bereits eingetreten ist
+        if btts_confidence == 'COMPLETE':
+            st.metric("BTTS", "✅ HIT", delta="Bereits eingetreten")
+        else:
+            delta = "🔥" if btts >= 70 else ("✅" if btts >= 50 else "⚠️")
+            st.metric("BTTS", f"{btts}%", delta=delta)
     
     with col2:
         ou = match.get('over_under', {})
@@ -483,7 +489,13 @@ def display_ultra_opportunity(match: Dict):
     col1, col2, col3 = st.columns(3)
     with col1:
         rec = match['btts_recommendation']
-        (st.success if '🔥' in rec else st.info)(f"⚽ {rec}")
+        # Unterschiedliche Farbe für COMPLETE vs echte Wette
+        if 'COMPLETE' in rec:
+            st.info(f"⚽ {rec}")  # Blau für "bereits eingetreten"
+        elif '🔥' in rec:
+            st.success(f"⚽ {rec}")  # Grün für gute Wette
+        else:
+            st.info(f"⚽ {rec}")  # Blau für andere
     with col2:
         ou_rec = ou.get('recommendation', 'N/A')
         (st.success if '🔥' in ou_rec else st.info)(f"🎲 {ou_rec}")
