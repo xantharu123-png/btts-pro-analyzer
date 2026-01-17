@@ -350,47 +350,60 @@ class BestBetFinder:
             xg_rate_home = xg_home * 0.5
             xg_rate_away = xg_away * 0.5
         
-        # xG Adjustment
+        # xG Adjustment (MIT BOUNDS!)
         xg_diff = xg_rate_home - xg_rate_away
-        xg_adjustment = xg_diff * 10  # -20 bis +20
+        xg_adjustment = max(-20, min(20, xg_diff * 10))  # -20 bis +20
         
-        # Possession Adjustment
+        # Possession Adjustment (MIT BOUNDS!)
         poss_home = stats.get('possession_home', 50)
-        poss_adjustment = (poss_home - 50) * 0.2  # -10 bis +10
+        poss_adjustment = max(-10, min(10, (poss_home - 50) * 0.2))  # -10 bis +10
         
-        # Attacks Adjustment
+        # Attacks Adjustment (MIT BOUNDS!)
         attacks_home = stats.get('dangerous_attacks_home', 0)
         attacks_away = stats.get('dangerous_attacks_away', 0)
         if attacks_home + attacks_away > 0:
             attack_ratio = attacks_home / (attacks_home + attacks_away)
-            attack_adjustment = (attack_ratio - 0.5) * 20  # -10 bis +10
+            attack_adjustment = max(-10, min(10, (attack_ratio - 0.5) * 20))  # -10 bis +10
         else:
             attack_adjustment = 0
         
-        # Zeit Faktor: Je später, desto wahrscheinlicher aktuelles Ergebnis
-        time_weight = 1.0 + (1 - time_factor) * 0.5  # 1.0 bis 1.5
+        # Zeit Faktor: Je später, desto stabiler aktuelles Ergebnis
+        # NICHT als Multiplikator, sondern als Boost für führendes Team
+        time_boost = (1 - time_factor) * 30  # 0 bis 30
         
         # Finale Wahrscheinlichkeiten
-        home_win = base_home * time_weight + xg_adjustment + poss_adjustment + attack_adjustment
-        away_win = base_away * time_weight - xg_adjustment - poss_adjustment - attack_adjustment
-        draw = 100 - home_win - away_win
+        # Home: Basis + Adjustments + (Time Boost wenn führend)
+        home_win = base_home + xg_adjustment + poss_adjustment + attack_adjustment
+        if home_score > away_score:
+            home_win += time_boost
         
-        # Normalisierung
+        # Away: Basis - Adjustments + (Time Boost wenn führend)
+        away_win = base_away - xg_adjustment - poss_adjustment - attack_adjustment
+        if away_score > home_score:
+            away_win += time_boost
+        
+        # Draw: Basis bleibt relativ stabil, nur leichte xG-Anpassung
+        draw = base_draw - abs(xg_adjustment) * 0.3  # Draw weniger wahrscheinlich bei xG-Unterschied
+        
+        # Ensure all positive ZUERST
+        home_win = max(5, home_win)
+        away_win = max(5, away_win)
+        draw = max(5, draw)
+        
+        # DANN Normalisierung (damit Summe = 100%)
         total = home_win + draw + away_win
         home_win = (home_win / total) * 100
         draw = (draw / total) * 100
         away_win = (away_win / total) * 100
         
-        # Clamp
-        home_win = max(5, min(95, home_win))
-        draw = max(5, min(50, draw))
-        away_win = max(5, min(95, away_win))
+        # Keine weiteren Clamps - Normalisierung garantiert schon sinnvolle Werte!
         
         # Reasoning
         score_lead = home_score - away_score
-        home_reasoning = f"Score: {home_score}-{away_score}, xG momentum: +{xg_diff:.1f}, {time_remaining}min left"
+        xg_sign = "+" if xg_diff >= 0 else ""  # Kein + bei negativen Werten
+        home_reasoning = f"Score: {home_score}-{away_score}, xG momentum: {xg_sign}{xg_diff:.1f}, {time_remaining}min left"
         draw_reasoning = f"Score tied, {time_remaining}min left, even momentum"
-        away_reasoning = f"Score: {home_score}-{away_score}, xG momentum: {xg_diff:.1f}, {time_remaining}min left"
+        away_reasoning = f"Score: {home_score}-{away_score}, xG momentum: {xg_sign}{xg_diff:.1f}, {time_remaining}min left"
         
         return {
             'home_win': round(home_win, 1),
@@ -411,11 +424,12 @@ class BestBetFinder:
         time_remaining = max(1, 90 - minute)
         
         # Projiziere verbleibende Tore
-        if minute > 5:
+        if minute > 20:  # Mindestens 20 Minuten für reliable rates
             xg_rate = (xg_home + xg_away) / minute
             expected_remaining = xg_rate * time_remaining
         else:
-            expected_remaining = (xg_home + xg_away) * 0.5
+            # Früh im Spiel: Conservative defaults
+            expected_remaining = 1.4 * (time_remaining / 90)  # ~1.4 goals remaining average
         
         expected_total = current_goals + expected_remaining
         
@@ -588,12 +602,13 @@ class BestBetFinder:
         time_factor = time_remaining / 90.0
         
         # Projiziere verbleibende xG
-        if minute > 5:
+        if minute > 20:  # Mindestens 20 Minuten für reliable rates
             xg_rate_home = (xg_home / minute) * time_remaining
             xg_rate_away = (xg_away / minute) * time_remaining
         else:
-            xg_rate_home = xg_home * 0.5
-            xg_rate_away = xg_away * 0.5
+            # Früh im Spiel: Conservative defaults
+            xg_rate_home = 0.8 * (time_remaining / 90)
+            xg_rate_away = 0.6 * (time_remaining / 90)
         
         # Poisson: P(Team scores >= 1)
         if home_score == 0:
@@ -636,12 +651,13 @@ class BestBetFinder:
         """
         time_remaining = max(1, 90 - minute)
         
-        if minute > 5:
+        if minute > 20:  # Mindestens 20 Minuten für reliable rates
             xg_rate_home = (xg_home / minute) * time_remaining
             xg_rate_away = (xg_away / minute) * time_remaining
         else:
-            xg_rate_home = xg_home * 0.5
-            xg_rate_away = xg_away * 0.5
+            # Früh im Spiel: Conservative defaults
+            xg_rate_home = 0.8 * (time_remaining / 90)
+            xg_rate_away = 0.6 * (time_remaining / 90)
         
         # Home Clean Sheet = Away doesn't score
         if away_score > 0:
@@ -683,42 +699,57 @@ class BestBetFinder:
             xg_rate_home = xg_home / 10
             xg_rate_away = xg_away / 10
         
-        # Trailing Team Boost
+        # Trailing Team Boost (10%, statistisch realistischer als 20%)
         if home_score < away_score:
-            xg_rate_home *= 1.2  # Desperate
+            xg_rate_home *= 1.10  # Desperate
         elif away_score < home_score:
-            xg_rate_away *= 1.2
+            xg_rate_away *= 1.10
         
-        # Attacks Momentum
+        # Attacks Momentum (MULTIPLIKATIV!)
         attacks_home = stats.get('dangerous_attacks_home', 0)
         attacks_away = stats.get('dangerous_attacks_away', 0)
         
         if attacks_home + attacks_away > 0:
-            attack_factor_home = attacks_home / (attacks_home + attacks_away)
-            attack_factor_away = 1 - attack_factor_home
+            attack_ratio = attacks_home / (attacks_home + attacks_away)
             
-            xg_rate_home = xg_rate_home * 0.7 + attack_factor_home * 0.3
-            xg_rate_away = xg_rate_away * 0.7 + attack_factor_away * 0.3
+            # Multiplikative Adjustments: 0.6 bis 1.0
+            # attack_ratio = 0.7 → home gets 1.16x, away gets 0.84x
+            home_attack_mult = 0.6 + (attack_ratio - 0.5) * 0.8
+            away_attack_mult = 0.6 + (0.5 - attack_ratio) * 0.8
+            
+            xg_rate_home *= home_attack_mult
+            xg_rate_away *= away_attack_mult
         
-        # Probability Next Goal in remaining time
+        # Total xG rate
         total_xg_rate = xg_rate_home + xg_rate_away
         
-        if total_xg_rate > 0:
-            home_next = (xg_rate_home / total_xg_rate) * 100
-            away_next = (xg_rate_away / total_xg_rate) * 100
-        else:
-            home_next = 50.0
-            away_next = 50.0
-        
-        # Probability NO more goals
+        # Expected goals in remaining time
         expected_goals_remaining = total_xg_rate * (time_remaining / 90)
-        no_goal = math.exp(-expected_goals_remaining) * 100
         
-        # Adjust (sum should be close to 100)
-        factor = 100 / (home_next + away_next + no_goal)
-        home_next *= factor
-        away_next *= factor
-        no_goal *= factor
+        # P(at least 1 goal happens) = 1 - e^(-λ)
+        p_goal_happens = 1 - math.exp(-expected_goals_remaining)
+        
+        # P(Home scores | goal happens) = xG_home / (xG_home + xG_away)
+        if total_xg_rate > 0:
+            p_home_given_goal = xg_rate_home / total_xg_rate
+            p_away_given_goal = xg_rate_away / total_xg_rate
+        else:
+            p_home_given_goal = 0.5
+            p_away_given_goal = 0.5
+        
+        # P(Home scores next) = P(goal) × P(Home | goal)
+        home_next = p_goal_happens * p_home_given_goal * 100
+        away_next = p_goal_happens * p_away_given_goal * 100
+        no_goal = (1 - p_goal_happens) * 100
+        
+        # Verify sum (should be ~100)
+        total_prob = home_next + away_next + no_goal
+        if abs(total_prob - 100) > 0.1:
+            # Re-normalize if needed
+            factor = 100 / total_prob
+            home_next *= factor
+            away_next *= factor
+            no_goal *= factor
         
         home_reasoning = f"xG rate: {xg_rate_home:.3f}/min, momentum: {attacks_home} dangerous attacks"
         away_reasoning = f"xG rate: {xg_rate_away:.3f}/min, momentum: {attacks_away} dangerous attacks"
@@ -741,12 +772,13 @@ class BestBetFinder:
         """
         time_remaining = max(1, 90 - minute)
         
-        if minute > 5:
+        if minute > 20:  # Mindestens 20 Minuten für reliable rates
             xg_rate_home = (xg_home / minute) * time_remaining
             xg_rate_away = (xg_away / minute) * time_remaining
         else:
-            xg_rate_home = xg_home * 0.5
-            xg_rate_away = xg_away * 0.5
+            # Früh im Spiel: Conservative defaults
+            xg_rate_home = 0.8 * (time_remaining / 90)
+            xg_rate_away = 0.6 * (time_remaining / 90)
         
         results = {'home': {}, 'away': {}}
         
