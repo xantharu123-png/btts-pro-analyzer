@@ -15,16 +15,6 @@ from advanced_analyzer import AdvancedBTTSAnalyzer
 from data_engine import DataEngine
 from modern_progress_bar import ModernProgressBar
 
-# 🔥 DATABASE RESET - Force fresh data with season=2025
-import os
-db_path = Path("btts_analyzer.db")
-if db_path.exists():
-    try:
-        os.remove(db_path)
-        print("🗑️ Old database deleted - will fetch fresh 2025 data!")
-    except Exception as e:
-        print(f"⚠️ Could not delete database: {e}")
-
 # Page config
 st.set_page_config(
     page_title="BTTS Pro Analyzer",
@@ -264,14 +254,15 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # Main content tabs
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🔥 Top Tips", 
     "📊 All Recommendations", 
     "🔬 Deep Analysis",
     "📈 Model Performance",
     "💎 Value Bets",
     "🔥 ULTRA LIVE SCANNER V3.0",
-    "📊 ALTERNATIVE MARKETS"
+    "📊 ALTERNATIVE MARKETS",
+    "🔴 RED CARD ALERTS"
 ])
 
 # TAB 1: Top Tips
@@ -1394,6 +1385,173 @@ with tab7:
         st.error("❌ streamlit-autorefresh not found!")
         st.info("This should not happen - dependency is in requirements.txt")
         st.info("Try refreshing the page or check Streamlit Cloud logs")
+
+# TAB 8: Red Card Alerts
+with tab8:
+    st.header("🔴 Red Card Alert System")
+    
+    st.markdown("""
+    Get **instant notifications** when a red card happens in live matches!
+    
+    💡 **Why this matters for betting:**
+    - Team down to 10 men changes everything
+    - BTTS becomes more likely (desperate attack)
+    - Over 2.5 becomes less likely (defensive focus)
+    - Opponent win becomes more likely
+    
+    ⚡ **Quick reaction = Better odds!**
+    """)
+    
+    st.markdown("---")
+    
+    # Settings
+    st.subheader("⚙️ Notification Settings")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        enable_browser = st.checkbox("🔔 Browser Alerts", value=True,
+                                     help="Show alerts in this browser window")
+    
+    with col2:
+        enable_telegram = st.checkbox("📱 Telegram Alerts", value=False,
+                                      help="Send alerts to your Telegram")
+    
+    # Telegram setup
+    if enable_telegram:
+        with st.expander("📱 Setup Telegram"):
+            st.markdown("""
+            **How to setup:**
+            1. Message @BotFather on Telegram
+            2. Create new bot: `/newbot`
+            3. Copy your Bot Token
+            4. Message your bot to get Chat ID
+            5. Use @userinfobot to get your Chat ID
+            """)
+            
+            telegram_token = st.text_input("Bot Token", type="password", key="tg_token")
+            telegram_chat_id = st.text_input("Chat ID", key="tg_chat")
+    
+    st.markdown("---")
+    
+    # Start monitoring
+    if st.button("🚀 Scan for Red Cards NOW", type="primary", key="red_card_scan"):
+        with st.spinner("🔍 Scanning live matches for red cards..."):
+            try:
+                from red_card_alerts import RedCardAlertSystem
+                from api_football import APIFootball
+                
+                # Get API key
+                if 'api' in st.secrets and 'api_football_key' in st.secrets['api']:
+                    api_key = st.secrets['api']['api_football_key']
+                else:
+                    api_key = '1a1c70f5c48bfdce946b71680e47e92e'
+                
+                # Initialize alert system
+                alert_system = RedCardAlertSystem(api_key)
+                
+                # Setup Telegram if enabled
+                if enable_telegram and 'tg_token' in st.session_state and 'tg_chat' in st.session_state:
+                    if st.session_state.tg_token and st.session_state.tg_chat:
+                        alert_system.setup_telegram(st.session_state.tg_token, st.session_state.tg_chat)
+                
+                # Get league IDs
+                league_ids = [
+                    78, 39, 140, 135, 61, 88, 94, 203, 40, 79, 262, 71,  # Top leagues
+                    2, 3, 848,  # European cups
+                    179, 144, 207, 218,  # EU Expansion
+                    265, 330, 165, 188, 89, 209, 113, 292, 301  # Goal festivals
+                ]
+                
+                # Get live matches
+                live_matches = alert_system.get_live_matches(league_ids)
+                
+                if live_matches:
+                    st.success(f"✅ Found {len(live_matches)} live matches in our leagues!")
+                    
+                    # Check each match for red cards
+                    red_cards_found = []
+                    
+                    for match in live_matches:
+                        home = match['teams']['home']['name']
+                        away = match['teams']['away']['name']
+                        score = f"{match['goals']['home']}-{match['goals']['away']}"
+                        minute = match['fixture']['status']['elapsed'] or 0
+                        
+                        st.write(f"🔍 Checking: **{home} vs {away}** ({score}) - {minute}'")
+                        
+                        # Check for red cards
+                        cards = alert_system.check_for_red_cards(match)
+                        if cards:
+                            red_cards_found.extend(cards)
+                    
+                    if red_cards_found:
+                        st.error(f"🔴 **{len(red_cards_found)} RED CARDS FOUND!**")
+                        
+                        for card in red_cards_found:
+                            match = card['match']
+                            home = match['teams']['home']['name']
+                            away = match['teams']['away']['name']
+                            score = f"{match['goals']['home']}-{match['goals']['away']}"
+                            
+                            st.markdown(f"""
+                            <div style='background: linear-gradient(135deg, #c92a2a 0%, #e03131 100%); padding: 1rem; border-radius: 10px; color: white; margin: 1rem 0;'>
+                                <h3>🔴 RED CARD!</h3>
+                                <p><strong>Player:</strong> {card['player']}</p>
+                                <p><strong>Team:</strong> {card['team']}</p>
+                                <p><strong>Match:</strong> {home} vs {away} ({score})</p>
+                                <p><strong>Minute:</strong> {card['minute']}'</p>
+                                <hr>
+                                <p>💡 <strong>Betting Impact:</strong></p>
+                                <ul>
+                                    <li>BTTS more likely (desperate play)</li>
+                                    <li>Over 2.5 less likely</li>
+                                    <li>Opponent win more likely</li>
+                                </ul>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Send alerts
+                            if enable_browser:
+                                st.toast(f"🔴 RED CARD: {card['player']} ({card['team']})", icon="🔴")
+                    else:
+                        st.info("✅ No red cards in current live matches")
+                else:
+                    st.warning("⚠️ No live matches at the moment in our leagues")
+                    st.info("Try again when there are live matches!")
+                    
+            except ImportError as e:
+                st.error(f"❌ Missing module: {e}")
+                st.info("Make sure `red_card_alerts.py` is in your repository!")
+                
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+    
+    st.markdown("---")
+    
+    # Info section
+    st.subheader("ℹ️ How Red Cards Affect Betting")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        **📈 More Likely After Red Card:**
+        - BTTS (desperate attacking)
+        - Cards/Fouls (frustration)
+        - Opponent Goals
+        - Opponent Win
+        """)
+    
+    with col2:
+        st.markdown("""
+        **📉 Less Likely After Red Card:**
+        - Over 2.5 Goals (defensive)
+        - Red Card Team Win
+        - Clean Sheet for 10-man team
+        """)
 
 # Footer
 st.markdown("---")
