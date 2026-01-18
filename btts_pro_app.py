@@ -1414,11 +1414,19 @@ with tab8:
                                      help="Show alerts in this browser window")
     
     with col2:
-        enable_telegram = st.checkbox("📱 Telegram Alerts", value=False,
+        # Auto-enable Telegram if secrets exist
+        telegram_configured = ('telegram' in st.secrets and 
+                               'bot_token' in st.secrets['telegram'] and 
+                               'chat_id' in st.secrets['telegram'])
+        
+        enable_telegram = st.checkbox("📱 Telegram Alerts", value=telegram_configured,
                                       help="Send alerts to your Telegram")
+        
+        if telegram_configured:
+            st.success("✅ Telegram konfiguriert!")
     
-    # Telegram setup
-    if enable_telegram:
+    # Telegram setup (nur anzeigen wenn NICHT in secrets)
+    if enable_telegram and not telegram_configured:
         with st.expander("📱 Setup Telegram"):
             st.markdown("""
             **How to setup:**
@@ -1427,6 +1435,13 @@ with tab8:
             3. Copy your Bot Token
             4. Message your bot to get Chat ID
             5. Use @userinfobot to get your Chat ID
+            
+            **Oder:** Füge die Daten zu Streamlit Secrets hinzu:
+            ```
+            [telegram]
+            bot_token = "DEIN_TOKEN"
+            chat_id = "DEINE_ID"
+            ```
             """)
             
             telegram_token = st.text_input("Bot Token", type="password", key="tg_token")
@@ -1450,10 +1465,20 @@ with tab8:
                 # Initialize alert system
                 alert_system = RedCardAlertSystem(api_key)
                 
-                # Setup Telegram if enabled
-                if enable_telegram and 'tg_token' in st.session_state and 'tg_chat' in st.session_state:
-                    if st.session_state.tg_token and st.session_state.tg_chat:
-                        alert_system.setup_telegram(st.session_state.tg_token, st.session_state.tg_chat)
+                # Setup Telegram - prioritize secrets
+                if enable_telegram:
+                    if telegram_configured:
+                        alert_system.setup_telegram(
+                            st.secrets['telegram']['bot_token'],
+                            st.secrets['telegram']['chat_id']
+                        )
+                        st.info("📱 Telegram Alerts aktiviert (aus Secrets)")
+                    elif 'tg_token' in st.session_state and 'tg_chat' in st.session_state:
+                        if st.session_state.tg_token and st.session_state.tg_chat:
+                            alert_system.setup_telegram(
+                                st.session_state.tg_token, 
+                                st.session_state.tg_chat
+                            )
                 
                 # Get league IDs
                 league_ids = [
