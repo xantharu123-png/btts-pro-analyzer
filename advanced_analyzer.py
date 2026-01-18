@@ -498,7 +498,7 @@ class AdvancedBTTSAnalyzer:
         final_btts = max(25, min(90, final_btts))
         
         # =============================================
-        # CONFIDENCE SCORE (Varianz-basiert)
+        # CONFIDENCE SCORE (Fließende Berechnung)
         # =============================================
         # Sammle alle Predictions
         predictions = [season_btts, form_btts, venue_btts, poisson_btts]
@@ -514,32 +514,64 @@ class AdvancedBTTSAnalyzer:
             # Coefficient of Variation (CV) = std_dev / mean
             cv = (std_dev / mean_pred) if mean_pred > 0 else 1.0
             
-            # Niedrige Varianz = Hohe Confidence
-            # CV < 0.15 (15%) → 90-95% Confidence
-            # CV 0.15-0.25 → 80-90% Confidence
-            # CV 0.25-0.35 → 70-80% Confidence
-            # CV > 0.35 → 60-70% Confidence
-            if cv < 0.15:
-                confidence = 92
-            elif cv < 0.25:
-                confidence = 85
-            elif cv < 0.35:
-                confidence = 75
-            elif cv < 0.45:
-                confidence = 68
+            # FLIESSENDE Confidence-Berechnung (keine Stufen mehr!)
+            # CV 0.0 → 95%, CV 0.5+ → 55%
+            # Formel: confidence = 95 - (cv * 80), begrenzt auf 55-95
+            base_confidence = 95 - (cv * 80)
+            base_confidence = max(55, min(95, base_confidence))
+            
+            # Daten-Qualität Bonus (fließend)
+            data_quality = 0
+            
+            # Home Team Daten
+            home_matches = home_season.get('matches_played', 0)
+            if home_matches >= 15:
+                data_quality += 3
+            elif home_matches >= 10:
+                data_quality += 2
+            elif home_matches >= 5:
+                data_quality += 1
+            
+            # Away Team Daten
+            away_matches = away_season.get('matches_played', 0)
+            if away_matches >= 15:
+                data_quality += 3
+            elif away_matches >= 10:
+                data_quality += 2
+            elif away_matches >= 5:
+                data_quality += 1
+            
+            # H2H Daten
+            h2h_matches = h2h.get('matches_played', 0)
+            if h2h_matches >= 8:
+                data_quality += 3
+            elif h2h_matches >= 5:
+                data_quality += 2
+            elif h2h_matches >= 3:
+                data_quality += 1
+            
+            # Prediction-Stärke Bonus (wenn alle Methoden ähnlich sind UND stark)
+            if mean_pred >= 70 and cv < 0.15:
+                strength_bonus = 2
+            elif mean_pred >= 65 and cv < 0.20:
+                strength_bonus = 1
+            elif mean_pred <= 35 and cv < 0.20:
+                strength_bonus = 1  # Auch "No BTTS" kann confident sein
             else:
-                confidence = 60
+                strength_bonus = 0
             
-            # Bonus für mehr Daten
-            data_bonus = 0
-            if home_season['matches_played'] >= 10: data_bonus += 2
-            if away_season['matches_played'] >= 10: data_bonus += 2
-            if h2h['matches_played'] >= 5: data_bonus += 2
+            # Finale Confidence
+            confidence = base_confidence + (data_quality * 0.5) + strength_bonus
             
-            confidence = min(95, confidence + data_bonus)
+            # Leichte Randomisierung für natürlichere Werte (+/- 1.5)
+            import random
+            random.seed(int(mean_pred * 100 + std_dev * 100))  # Reproduzierbar
+            confidence += random.uniform(-1.5, 1.5)
+            
+            confidence = max(55, min(95, confidence))
         else:
             # Fallback
-            confidence = 70
+            confidence = 65
         
         # Confidence Level
         if confidence >= 80:
