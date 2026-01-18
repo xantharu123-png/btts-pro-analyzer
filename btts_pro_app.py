@@ -1306,16 +1306,29 @@ with tab7:
         **Keine Buchmacher-Quoten** - Reine mathematische Analyse!
         """)
         
+        # ALL 28 LEAGUES
+        ALL_LEAGUES = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else [
+            'BL1', 'PL', 'PD', 'SA', 'FL1', 'DED', 'PPL', 'TSL', 'ELC', 'BL2', 'MX1', 'BSA',
+            'CL', 'EL', 'ECL', 'SC1', 'BE1', 'SL1', 'AL1', 'SPL', 'ESI', 'IS2', 'ALE',
+            'ED1', 'CHL', 'ALL', 'QSL', 'UAE'
+        ]
+        
         # Settings
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            pm_leagues = st.multiselect(
-                "Ligen",
-                options=['BL1', 'PL', 'PD', 'SA', 'FL1', 'DED', 'PPL', 'TSL'],
-                default=['BL1', 'PL', 'PD'],
-                key="pm_leagues"
-            )
+            pm_select_all = st.checkbox("Alle Ligen", value=False, key="pm_select_all")
+            
+            if pm_select_all:
+                pm_leagues = ALL_LEAGUES
+                st.info(f"✅ Alle {len(pm_leagues)} Ligen")
+            else:
+                pm_leagues = st.multiselect(
+                    "Ligen",
+                    options=ALL_LEAGUES,
+                    default=['BL1', 'PL', 'PD'],
+                    key="pm_leagues"
+                )
         
         with col2:
             pm_days = st.slider("Tage voraus", 1, 7, 3, key="pm_days")
@@ -1338,10 +1351,8 @@ with tab7:
                     api = APIFootball(st.secrets['api']['api_football_key'])
                     analyzer_pm = PreMatchAlternativeAnalyzer(st.secrets['api']['api_football_key'])
                     
-                    league_id_map = {
-                        'BL1': 78, 'PL': 39, 'PD': 140, 'SA': 135, 'FL1': 61,
-                        'DED': 88, 'PPL': 94, 'TSL': 203, 'ELC': 40, 'BL2': 79
-                    }
+                    # Use league IDs from api_football
+                    league_id_map = api.league_ids
                     
                     with st.spinner("Lade Fixtures..."):
                         all_fixtures = []
@@ -1429,15 +1440,28 @@ with tab7:
         🧮 **Methode:** Reine Statistik - **KEINE Buchmacher-Quoten!**
         """)
         
+        # ALL 28 LEAGUES
+        ALL_LEAGUES_HP = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else [
+            'BL1', 'PL', 'PD', 'SA', 'FL1', 'DED', 'PPL', 'TSL', 'ELC', 'BL2', 'MX1', 'BSA',
+            'CL', 'EL', 'ECL', 'SC1', 'BE1', 'SL1', 'AL1', 'SPL', 'ESI', 'IS2', 'ALE',
+            'ED1', 'CHL', 'ALL', 'QSL', 'UAE'
+        ]
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            hp_leagues = st.multiselect(
-                "Ligen",
-                options=['BL1', 'PL', 'PD', 'SA', 'FL1', 'DED', 'PPL', 'TSL'],
-                default=['BL1', 'PL', 'PD', 'SA', 'FL1'],
-                key="hp_leagues"
-            )
+            hp_select_all = st.checkbox("Alle Ligen", value=False, key="hp_select_all")
+            
+            if hp_select_all:
+                hp_leagues = ALL_LEAGUES_HP
+                st.info(f"✅ Alle {len(hp_leagues)} Ligen")
+            else:
+                hp_leagues = st.multiselect(
+                    "Ligen",
+                    options=ALL_LEAGUES_HP,
+                    default=['BL1', 'PL', 'PD', 'SA', 'FL1'],
+                    key="hp_leagues"
+                )
         
         with col2:
             hp_min_prob = st.slider("Min %", 65, 90, 75, key="hp_min_prob")
@@ -1454,10 +1478,8 @@ with tab7:
                     api = APIFootball(st.secrets['api']['api_football_key'])
                     finder = HighestProbabilityFinder(st.secrets['api']['api_football_key'])
                     
-                    league_id_map = {
-                        'BL1': 78, 'PL': 39, 'PD': 140, 'SA': 135, 'FL1': 61,
-                        'DED': 88, 'PPL': 94, 'TSL': 203, 'ELC': 40, 'BL2': 79
-                    }
+                    # Use league IDs from api_football
+                    league_id_map = api.league_ids
                     
                     with st.spinner("Scanne alle Märkte..."):
                         all_fixtures = []
