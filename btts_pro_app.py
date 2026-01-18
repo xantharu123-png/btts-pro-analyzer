@@ -1703,6 +1703,11 @@ with tab8:
                             # Send alerts
                             if enable_browser:
                                 st.toast(f"🔴 RED CARD: {card['player']} ({card['team']})", icon="🔴")
+                            
+                            # Send Telegram alert
+                            if enable_telegram:
+                                alert_system.send_telegram_alert(card)
+                                st.success(f"📱 Telegram Alert gesendet für {card['player']}!")
                     else:
                         st.info("✅ No red cards in current live matches")
                 else:
