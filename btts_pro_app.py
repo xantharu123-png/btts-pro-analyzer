@@ -1493,11 +1493,10 @@ with tab7:
                         
                         st.info(f"📋 {len(all_fixtures)} Fixtures gefunden. Analysiere...")
                         
-                        all_opportunities = finder.scan_all_fixtures(all_fixtures)
+                        all_opportunities = finder.scan_all_fixtures(all_fixtures, min_probability=hp_min_prob)
                         
-                        # Filter
-                        filtered = [o for o in all_opportunities 
-                                   if o['best_bet']['probability'] >= hp_min_prob]
+                        # Already filtered by min_probability
+                        filtered = all_opportunities
                     
                     if filtered:
                         st.success(f"🎯 {len(filtered)} Top-Gelegenheiten gefunden!")

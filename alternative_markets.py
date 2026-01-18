@@ -632,6 +632,21 @@ class HighestProbabilityFinder:
         # Sort by probability (highest first)
         all_bets.sort(key=lambda x: x['probability'], reverse=True)
         
+        # Add strength rating and edge based on probability
+        for bet in all_bets:
+            prob = bet['probability']
+            # Edge = how much better than 50/50
+            bet['edge'] = round(prob - 50, 1)
+            
+            if prob >= 85:
+                bet['strength'] = 'VERY_STRONG'
+            elif prob >= 75:
+                bet['strength'] = 'STRONG'
+            elif prob >= 65:
+                bet['strength'] = 'MODERATE'
+            else:
+                bet['strength'] = 'WEAK'
+        
         # Filter: only bets with >= 65% probability
         high_prob_bets = [b for b in all_bets if b['probability'] >= 65]
         
@@ -704,13 +719,14 @@ class HighestProbabilityFinder:
         
         return max(0.05, min(0.95, 1 - prob_under))
     
-    def scan_all_fixtures(self, fixtures: List[Dict], btts_results: Dict = None) -> List[Dict]:
+    def scan_all_fixtures(self, fixtures: List[Dict], btts_results: Dict = None, min_probability: float = 65) -> List[Dict]:
         """
         Scan all fixtures and find highest probability bets
         
         Args:
             fixtures: List of fixture dicts
             btts_results: Optional dict of {fixture_id: btts_probability}
+            min_probability: Minimum probability threshold (default 65%)
         
         Returns:
             Sorted list of all opportunities
@@ -725,7 +741,7 @@ class HighestProbabilityFinder:
             
             result = self.find_highest_probability(fixture, btts_prob)
             
-            if result['best_bet'] and result['best_bet']['probability'] >= 70:
+            if result['best_bet'] and result['best_bet']['probability'] >= min_probability:
                 all_opportunities.append({
                     'fixture': result['fixture'],
                     'fixture_id': fixture.get('fixture_id'),
