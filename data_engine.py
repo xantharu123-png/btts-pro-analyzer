@@ -12,8 +12,6 @@ import time
 import requests
 from datetime import datetime
 from typing import Dict, List, Optional
-
-# Database imports
 import sqlite3
 
 
@@ -32,42 +30,42 @@ class DataEngine:
     # ALL 28 LEAGUES
     LEAGUES_CONFIG = {
         # TIER 1: TOP LEAGUES
-        'BL1': 78,    # 🇩🇪 Bundesliga
-        'PL': 39,     # 🇬🇧 Premier League
-        'PD': 140,    # 🇪🇸 La Liga
-        'SA': 135,    # 🇮🇹 Serie A
-        'FL1': 61,    # 🇫🇷 Ligue 1
-        'DED': 88,    # 🇳🇱 Eredivisie
-        'PPL': 94,    # 🇵🇹 Primeira Liga
-        'TSL': 203,   # 🇹🇷 Süper Lig
-        'ELC': 40,    # 🇬🇧 Championship
-        'BL2': 79,    # 🇩🇪 Bundesliga 2
-        'MX1': 262,   # 🇲🇽 Liga MX
-        'BSA': 71,    # 🇧🇷 Brasileirão
+        'BL1': 78,    # Bundesliga
+        'PL': 39,     # Premier League
+        'PD': 140,    # La Liga
+        'SA': 135,    # Serie A
+        'FL1': 61,    # Ligue 1
+        'DED': 88,    # Eredivisie
+        'PPL': 94,    # Primeira Liga
+        'TSL': 203,   # Super Lig
+        'ELC': 40,    # Championship
+        'BL2': 79,    # Bundesliga 2
+        'MX1': 262,   # Liga MX
+        'BSA': 71,    # Brasileirao
         
         # TIER 1: EUROPEAN CUPS
-        'CL': 2,      # 🏆 Champions League
-        'EL': 3,      # 🏆 Europa League
-        'ECL': 848,   # 🏆 Conference League
+        'CL': 2,      # Champions League
+        'EL': 3,      # Europa League
+        'ECL': 848,   # Conference League
         
         # TIER 2: EU EXPANSION
-        'SC1': 179,   # 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scottish Premiership
-        'BE1': 144,   # 🇧🇪 Belgian Pro League
-        'SL1': 207,   # 🇨🇭 Swiss Super League
-        'AL1': 218,   # 🇦🇹 Austrian Bundesliga
+        'SC1': 179,   # Scottish Premiership
+        'BE1': 144,   # Belgian Pro League
+        'SL1': 207,   # Swiss Super League
+        'AL1': 218,   # Austrian Bundesliga
         
         # TIER 3: GOAL FESTIVALS
-        'SPL': 265,   # 🇸🇪 Allsvenskan
-        'ESI': 330,   # 🇵🇾 Paraguay
-        'IS2': 165,   # 🇮🇸 Iceland
-        'ALE': 188,   # 🇦🇱 Albania
+        'SPL': 265,   # Allsvenskan
+        'ESI': 330,   # Paraguay
+        'IS2': 165,   # Iceland
+        'ALE': 188,   # Albania
         
         # TIER 4: GLOBAL
-        'ED1': 89,    # 🇩🇰 Danish Superliga
-        'CHL': 209,   # 🇨🇱 Chile
-        'ALL': 113,   # 🇯🇵 J-League
-        'QSL': 292,   # 🇶🇦 Qatar
-        'UAE': 301,   # 🇦🇪 UAE
+        'ED1': 89,    # Danish Superliga
+        'CHL': 209,   # Chile
+        'ALL': 113,   # J-League
+        'QSL': 292,   # Qatar
+        'UAE': 301,   # UAE
     }
     
     def __init__(self, api_key: str, db_path: str = "btts_data.db"):
@@ -99,15 +97,12 @@ class DataEngine:
     
     def _get_supabase_url(self) -> Optional[str]:
         """Get Supabase URL from Streamlit secrets or environment"""
-        # Try Streamlit secrets first
         try:
             import streamlit as st
             if hasattr(st, 'secrets') and 'SUPABASE_DB_URL' in st.secrets:
                 return st.secrets['SUPABASE_DB_URL']
         except:
             pass
-        
-        # Try environment variable
         return os.environ.get('SUPABASE_DB_URL')
     
     def _get_connection(self):
@@ -187,10 +182,6 @@ class DataEngine:
             time.sleep(self.min_delay - elapsed)
         self.last_request = time.time()
     
-    # =========================================================
-    # FETCH METHODS
-    # =========================================================
-    
     def fetch_league_matches(self, league_code: str, season: int = 2025, 
                             force_refresh: bool = False) -> int:
         """Fetch and store ALL finished matches for a league"""
@@ -243,7 +234,6 @@ class DataEngine:
                     btts = 1 if (home_goals > 0 and away_goals > 0) else 0
                     
                     if self.use_postgres:
-                        # PostgreSQL: UPSERT
                         c.execute(f'''
                             INSERT INTO matches 
                             (id, league_code, league_id, date, home_team, away_team,
@@ -268,7 +258,6 @@ class DataEngine:
                             datetime.now().isoformat()
                         ))
                     else:
-                        # SQLite: INSERT OR REPLACE
                         c.execute(f'''
                             INSERT OR REPLACE INTO matches 
                             (id, league_code, league_id, date, home_team, away_team,
@@ -305,7 +294,7 @@ class DataEngine:
     def fetch_all_leagues(self, season: int = 2025) -> int:
         """Fetch ALL 28 leagues"""
         print(f"\n{'='*60}")
-        print(f"🔥 FETCHING ALL {len(self.LEAGUES_CONFIG)} LEAGUES (Season {season})")
+        print(f"FETCHING ALL {len(self.LEAGUES_CONFIG)} LEAGUES (Season {season})")
         print(f"{'='*60}\n")
         
         total_matches = 0
@@ -357,10 +346,6 @@ class DataEngine:
         except Exception as e:
             print(f"❌ Error getting matches: {e}")
             return []
-    
-    # =========================================================
-    # STATS METHODS
-    # =========================================================
     
     def get_team_stats(self, team_id: int, league_code: str, venue: str = 'all') -> Optional[Dict]:
         """Get team statistics from database"""
@@ -567,7 +552,6 @@ class DataEngine:
             return None
 
 
-# Quick test
 if __name__ == '__main__':
     print("=" * 60)
     print("DATA ENGINE TEST")
@@ -575,7 +559,5 @@ if __name__ == '__main__':
     
     engine = DataEngine(api_key="test_key")
     print(f"\n✅ Initialized with {len(engine.LEAGUES_CONFIG)} leagues")
-    print(f"📊 Database type: {'PostgreSQL (Supabase)' if engine.use_postgres else 'SQLite'}")
-    print(f"📊 Current matches in DB: {engine.get_match_count()}")
-#   S u p a b a s e   S u p p o r t  
- 
+    print(f"Database type: {'PostgreSQL (Supabase)' if engine.use_postgres else 'SQLite'}")
+    print(f"Current matches in DB: {engine.get_match_count()}")
