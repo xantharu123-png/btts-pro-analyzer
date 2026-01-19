@@ -326,7 +326,9 @@ class PreMatchAlternativeAnalyzer:
         total_expected = home_expected + away_expected
         
         # Adjust towards league average (regression to mean)
+        # But keep at least some team-based variance even without match data
         data_quality = min(home_corners['matches'], away_corners['matches']) / 10.0
+        data_quality = max(data_quality, 0.3)  # Minimum 30% team-based calculation
         total_expected = total_expected * data_quality + league_avg * (1 - data_quality)
         
         # Calculate probabilities for each threshold
@@ -392,6 +394,7 @@ class PreMatchAlternativeAnalyzer:
         # Adjust towards league average
         data_quality = min(home_stats['matches_played'], away_stats['matches_played']) / 15.0
         data_quality = min(data_quality, 1.0)
+        data_quality = max(data_quality, 0.3)  # Minimum 30% team-based calculation
         total_expected = total_expected * data_quality + league_avg * (1 - data_quality)
         
         # Calculate probabilities
@@ -438,7 +441,7 @@ class PreMatchAlternativeAnalyzer:
             prob_under = stats.norm.cdf(z_score)
             prob_over = 1 - prob_under
             
-            return max(0.05, min(0.95, prob_over))  # Clamp between 5% and 95%
+            return max(0.02, min(0.98, prob_over))  # Clamp between 2% and 98%
         except:
             # Fallback to simple calculation
             distance = expected - threshold
@@ -730,7 +733,7 @@ class HighestProbabilityFinder:
             prob_under += (expected ** k) * math.exp(-expected) / math.factorial(k)
         
         # Return actual probability without artificial caps
-        return max(0.05, min(0.98, 1 - prob_under))
+        return max(0.02, min(0.98, 1 - prob_under))
     
     def scan_all_fixtures(self, fixtures: List[Dict], btts_results: Dict = None, min_probability: float = 65) -> List[Dict]:
         """
