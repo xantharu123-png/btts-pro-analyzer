@@ -16,14 +16,14 @@ from typing import Dict, List, Optional
 # Database imports
 import sqlite3
 
-# Try PostgreSQL (for Supabase)
-try:
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
-    POSTGRES_AVAILABLE = True
-except ImportError:
-    POSTGRES_AVAILABLE = False
-    print("⚠️ psycopg2 nicht verfügbar - nutze SQLite")
+
+def _check_postgres():
+    """Check if psycopg2 is available (lazy import)"""
+    try:
+        import psycopg2
+        return True
+    except ImportError:
+        return False
 
 
 class DataEngine:
@@ -81,11 +81,16 @@ class DataEngine:
         
         # Check for Supabase URL
         self.supabase_url = self._get_supabase_url()
-        self.use_postgres = bool(self.supabase_url and POSTGRES_AVAILABLE)
+        
+        # Lazy check for PostgreSQL
+        postgres_available = _check_postgres()
+        self.use_postgres = bool(self.supabase_url and postgres_available)
         
         if self.use_postgres:
             print("✅ Using Supabase (PostgreSQL) - Data persists!")
         else:
+            if self.supabase_url and not postgres_available:
+                print("⚠️ SUPABASE_DB_URL found but psycopg2 not available!")
             print("⚠️ Using SQLite (local) - Data lost on restart!")
         
         # Initialize database
@@ -108,6 +113,7 @@ class DataEngine:
     def _get_connection(self):
         """Get database connection (PostgreSQL or SQLite)"""
         if self.use_postgres:
+            import psycopg2
             return psycopg2.connect(self.supabase_url)
         else:
             return sqlite3.connect(self.db_path)
