@@ -20,47 +20,31 @@ from modern_progress_bar import ModernProgressBar
 
 
 def _get_supabase_url() -> Optional[str]:
-    """Get Supabase URL from Streamlit secrets or environment - IMPROVED"""
-    # Method 1: Streamlit secrets (multiple approaches)
+    """Get Supabase URL from Streamlit secrets or environment"""
+    # Method 1: Streamlit secrets
     try:
-        if hasattr(st, 'secrets'):
-            # Direct access
-            if 'SUPABASE_DB_URL' in st.secrets:
-                print("✅ [btts_pro_app] Found SUPABASE_DB_URL in st.secrets")
-                return st.secrets['SUPABASE_DB_URL']
-            # Nested under [database]
-            if 'database' in st.secrets and 'SUPABASE_DB_URL' in st.secrets['database']:
-                print("✅ [btts_pro_app] Found SUPABASE_DB_URL in st.secrets.database")
-                return st.secrets['database']['SUPABASE_DB_URL']
-    except Exception as e:
-        print(f"⚠️ [btts_pro_app] st.secrets error: {e}")
+        if hasattr(st, 'secrets') and 'SUPABASE_DB_URL' in st.secrets:
+            return st.secrets['SUPABASE_DB_URL']
+    except:
+        pass
     
     # Method 2: Environment variable
-    env_url = os.environ.get('SUPABASE_DB_URL')
-    if env_url:
-        print("✅ [btts_pro_app] Found SUPABASE_DB_URL in environment")
-        return env_url
-    
-    print("⚠️ [btts_pro_app] No SUPABASE_DB_URL found")
-    return None
+    return os.environ.get('SUPABASE_DB_URL')
 
 
 def _get_db_connection(db_path: str = "btts_data.db"):
-    """Get database connection (PostgreSQL or SQLite) - IMPROVED"""
+    """Get database connection (PostgreSQL or SQLite)"""
     supabase_url = _get_supabase_url()
     
-    if supabase_url and supabase_url.startswith('postgresql://'):
+    if supabase_url:
         try:
             import psycopg2
-            conn = psycopg2.connect(supabase_url)
-            print("✅ [btts_pro_app] Connected to PostgreSQL")
-            return conn
+            return psycopg2.connect(supabase_url)
         except ImportError:
-            print("❌ [btts_pro_app] psycopg2 not installed!")
+            print("⚠️ psycopg2 not installed")
         except Exception as e:
-            print(f"❌ [btts_pro_app] PostgreSQL connection failed: {e}")
+            print(f"⚠️ PostgreSQL connection error: {e}")
     
-    print("⚠️ [btts_pro_app] Using SQLite fallback")
     return sqlite3.connect(db_path)
 
 # Page config

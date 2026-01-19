@@ -14,6 +14,61 @@ from datetime import datetime
 from typing import Dict, List, Optional
 import sqlite3
 
+# ========== SUPABASE DEBUG BEIM IMPORT ==========
+print("=" * 50)
+print("🔍 SUPABASE CONNECTION TEST")
+print("=" * 50)
+
+_SUPABASE_URL_CACHE = None
+
+try:
+    import streamlit as st
+    print("✅ streamlit importiert")
+    
+    if hasattr(st, 'secrets'):
+        print(f"   st.secrets vorhanden: True")
+        try:
+            keys = list(st.secrets.keys())
+            print(f"   Verfügbare Keys: {keys}")
+        except Exception as e:
+            print(f"   Keys auflisten fehlgeschlagen: {e}")
+        
+        if 'SUPABASE_DB_URL' in st.secrets:
+            _SUPABASE_URL_CACHE = st.secrets['SUPABASE_DB_URL']
+            print(f"✅ SUPABASE_DB_URL gefunden!")
+            print(f"   Länge: {len(_SUPABASE_URL_CACHE)}")
+            print(f"   Start: {_SUPABASE_URL_CACHE[:35]}...")
+        else:
+            print("❌ SUPABASE_DB_URL NICHT in st.secrets!")
+    else:
+        print("   st.secrets vorhanden: False")
+except Exception as e:
+    print(f"❌ Streamlit Import Fehler: {e}")
+
+# Fallback: Environment
+if not _SUPABASE_URL_CACHE:
+    _SUPABASE_URL_CACHE = os.environ.get('SUPABASE_DB_URL')
+    if _SUPABASE_URL_CACHE:
+        print(f"✅ SUPABASE_DB_URL aus Environment geladen")
+
+# Test PostgreSQL Connection
+try:
+    import psycopg2
+    print("✅ psycopg2 importiert")
+    
+    if _SUPABASE_URL_CACHE:
+        try:
+            test_conn = psycopg2.connect(_SUPABASE_URL_CACHE)
+            test_conn.close()
+            print("✅ POSTGRESQL VERBINDUNG ERFOLGREICH!")
+        except Exception as e:
+            print(f"❌ PostgreSQL Connection Error: {e}")
+except ImportError:
+    print("❌ psycopg2 NICHT installiert!")
+
+print("=" * 50)
+# ========== DEBUG ENDE ==========
+
 
 def _check_postgres():
     """Check if psycopg2 is available (lazy import)"""
@@ -77,17 +132,12 @@ class DataEngine:
         self.last_request = 0
         self.min_delay = 0.5
         
-        # Check for Supabase URL with DEBUG
-        print("=" * 50)
-        print("🔍 DATABASE CONNECTION DEBUG")
-        print("=" * 50)
+        # Use cached URL from module-level check
+        global _SUPABASE_URL_CACHE
+        self.supabase_url = _SUPABASE_URL_CACHE
         
-        self.supabase_url = self._get_supabase_url()
-        
-        # Lazy check for PostgreSQL
+        # Check PostgreSQL availability
         postgres_available = _check_postgres()
-        print(f"   psycopg2 available: {postgres_available}")
-        
         self.use_postgres = bool(self.supabase_url and postgres_available)
         
         if self.use_postgres:
@@ -97,66 +147,9 @@ class DataEngine:
                 print("⚠️ SUPABASE_DB_URL found but psycopg2 not available!")
             print("⚠️ Using SQLite (local) - Data lost on restart!")
         
-        print("=" * 50)
-        
         # Initialize database
         self._init_database()
         print(f"✅ Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues!")
-    
-    def _get_supabase_url(self) -> Optional[str]:
-        """Get Supabase URL from Streamlit secrets or environment - WITH DEBUG"""
-        
-        # Method 1: Try Streamlit secrets (multiple approaches)
-        print("\n1️⃣ Checking Streamlit secrets...")
-        try:
-            import streamlit as st
-            
-            # Approach A: Direct key access
-            if hasattr(st, 'secrets'):
-                print(f"   st.secrets exists: True")
-                print(f"   st.secrets type: {type(st.secrets)}")
-                
-                # Show all available keys
-                try:
-                    all_keys = list(st.secrets.keys()) if hasattr(st.secrets, 'keys') else []
-                    print(f"   Available keys: {all_keys}")
-                except Exception as e:
-                    print(f"   Could not list keys: {e}")
-                
-                # Try direct access
-                if 'SUPABASE_DB_URL' in st.secrets:
-                    url = st.secrets['SUPABASE_DB_URL']
-                    masked = url[:25] + "..." + url[-15:] if len(url) > 45 else url
-                    print(f"   ✅ Found SUPABASE_DB_URL: {masked}")
-                    return url
-                else:
-                    print("   ❌ 'SUPABASE_DB_URL' not in st.secrets")
-                
-                # Try nested access (if stored under [database])
-                if 'database' in st.secrets:
-                    print("   Found [database] section, checking for URL...")
-                    if 'SUPABASE_DB_URL' in st.secrets['database']:
-                        url = st.secrets['database']['SUPABASE_DB_URL']
-                        print(f"   ✅ Found in [database] section")
-                        return url
-            else:
-                print("   st.secrets does not exist")
-                
-        except Exception as e:
-            print(f"   ❌ Error reading st.secrets: {e}")
-        
-        # Method 2: Try environment variable
-        print("\n2️⃣ Checking environment variables...")
-        env_url = os.environ.get('SUPABASE_DB_URL')
-        if env_url:
-            masked = env_url[:25] + "..." + env_url[-15:] if len(env_url) > 45 else env_url
-            print(f"   ✅ Found in environment: {masked}")
-            return env_url
-        else:
-            print("   ❌ SUPABASE_DB_URL not in environment")
-        
-        print("\n❌ No Supabase URL found!")
-        return None
     
     def _get_connection(self):
         """Get database connection (PostgreSQL or SQLite)"""
@@ -196,10 +189,13 @@ class DataEngine:
             ''')
             
             # Indexes
-            c.execute('CREATE INDEX IF NOT EXISTS idx_league ON matches(league_code)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_date ON matches(date)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_home_team ON matches(home_team_id)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_away_team ON matches(away_team_id)')
+            try:
+                c.execute('CREATE INDEX IF NOT EXISTS idx_league ON matches(league_code)')
+                c.execute('CREATE INDEX IF NOT EXISTS idx_date ON matches(date)')
+                c.execute('CREATE INDEX IF NOT EXISTS idx_home_team ON matches(home_team_id)')
+                c.execute('CREATE INDEX IF NOT EXISTS idx_away_team ON matches(away_team_id)')
+            except:
+                pass
         else:
             # SQLite Schema
             c.execute('''
@@ -319,7 +315,6 @@ class DataEngine:
                     count += 1
                     
                 except Exception as e:
-                    print(f"⚠️ Error processing match: {e}")
                     continue
             
             conn.commit()
