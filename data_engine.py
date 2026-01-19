@@ -77,11 +77,17 @@ class DataEngine:
         self.last_request = 0
         self.min_delay = 0.5
         
-        # Check for Supabase URL
+        # Check for Supabase URL with DEBUG
+        print("=" * 50)
+        print("🔍 DATABASE CONNECTION DEBUG")
+        print("=" * 50)
+        
         self.supabase_url = self._get_supabase_url()
         
         # Lazy check for PostgreSQL
         postgres_available = _check_postgres()
+        print(f"   psycopg2 available: {postgres_available}")
+        
         self.use_postgres = bool(self.supabase_url and postgres_available)
         
         if self.use_postgres:
@@ -91,19 +97,66 @@ class DataEngine:
                 print("⚠️ SUPABASE_DB_URL found but psycopg2 not available!")
             print("⚠️ Using SQLite (local) - Data lost on restart!")
         
+        print("=" * 50)
+        
         # Initialize database
         self._init_database()
         print(f"✅ Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues!")
     
     def _get_supabase_url(self) -> Optional[str]:
-        """Get Supabase URL from Streamlit secrets or environment"""
+        """Get Supabase URL from Streamlit secrets or environment - WITH DEBUG"""
+        
+        # Method 1: Try Streamlit secrets (multiple approaches)
+        print("\n1️⃣ Checking Streamlit secrets...")
         try:
             import streamlit as st
-            if hasattr(st, 'secrets') and 'SUPABASE_DB_URL' in st.secrets:
-                return st.secrets['SUPABASE_DB_URL']
-        except:
-            pass
-        return os.environ.get('SUPABASE_DB_URL')
+            
+            # Approach A: Direct key access
+            if hasattr(st, 'secrets'):
+                print(f"   st.secrets exists: True")
+                print(f"   st.secrets type: {type(st.secrets)}")
+                
+                # Show all available keys
+                try:
+                    all_keys = list(st.secrets.keys()) if hasattr(st.secrets, 'keys') else []
+                    print(f"   Available keys: {all_keys}")
+                except Exception as e:
+                    print(f"   Could not list keys: {e}")
+                
+                # Try direct access
+                if 'SUPABASE_DB_URL' in st.secrets:
+                    url = st.secrets['SUPABASE_DB_URL']
+                    masked = url[:25] + "..." + url[-15:] if len(url) > 45 else url
+                    print(f"   ✅ Found SUPABASE_DB_URL: {masked}")
+                    return url
+                else:
+                    print("   ❌ 'SUPABASE_DB_URL' not in st.secrets")
+                
+                # Try nested access (if stored under [database])
+                if 'database' in st.secrets:
+                    print("   Found [database] section, checking for URL...")
+                    if 'SUPABASE_DB_URL' in st.secrets['database']:
+                        url = st.secrets['database']['SUPABASE_DB_URL']
+                        print(f"   ✅ Found in [database] section")
+                        return url
+            else:
+                print("   st.secrets does not exist")
+                
+        except Exception as e:
+            print(f"   ❌ Error reading st.secrets: {e}")
+        
+        # Method 2: Try environment variable
+        print("\n2️⃣ Checking environment variables...")
+        env_url = os.environ.get('SUPABASE_DB_URL')
+        if env_url:
+            masked = env_url[:25] + "..." + env_url[-15:] if len(env_url) > 45 else env_url
+            print(f"   ✅ Found in environment: {masked}")
+            return env_url
+        else:
+            print("   ❌ SUPABASE_DB_URL not in environment")
+        
+        print("\n❌ No Supabase URL found!")
+        return None
     
     def _get_connection(self):
         """Get database connection (PostgreSQL or SQLite)"""
@@ -214,31 +267,34 @@ class DataEngine:
             fixtures = data.get('response', [])
             
             if not fixtures:
-                print(f"⚠️ No matches found for {league_code} season {season}")
+                print(f"⚠️ No finished matches for {league_code}")
                 return 0
             
+            # Process matches
             conn = self._get_connection()
             c = conn.cursor()
             ph = self._get_placeholder()
             
-            saved = 0
-            for match in fixtures:
+            count = 0
+            for fixture in fixtures:
                 try:
-                    fixture = match.get('fixture', {})
-                    teams = match.get('teams', {})
-                    goals = match.get('goals', {})
-                    
-                    fixture_id = fixture.get('id')
-                    home_goals = goals.get('home') or 0
-                    away_goals = goals.get('away') or 0
+                    match_id = fixture['fixture']['id']
+                    match_date = fixture['fixture']['date'][:10]
+                    home_team = fixture['teams']['home']['name']
+                    away_team = fixture['teams']['away']['name']
+                    home_id = fixture['teams']['home']['id']
+                    away_id = fixture['teams']['away']['id']
+                    home_goals = fixture['goals']['home'] or 0
+                    away_goals = fixture['goals']['away'] or 0
                     btts = 1 if (home_goals > 0 and away_goals > 0) else 0
+                    total = home_goals + away_goals
                     
+                    # Upsert
                     if self.use_postgres:
                         c.execute(f'''
-                            INSERT INTO matches 
-                            (id, league_code, league_id, date, home_team, away_team,
-                             home_team_id, away_team_id, home_goals, away_goals, 
-                             btts, total_goals, fetched_at)
+                            INSERT INTO matches (id, league_code, league_id, date, home_team, away_team,
+                                               home_team_id, away_team_id, home_goals, away_goals,
+                                               btts, total_goals, fetched_at)
                             VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
                             ON CONFLICT (id) DO UPDATE SET
                                 home_goals = EXCLUDED.home_goals,
@@ -246,106 +302,53 @@ class DataEngine:
                                 btts = EXCLUDED.btts,
                                 total_goals = EXCLUDED.total_goals,
                                 fetched_at = EXCLUDED.fetched_at
-                        ''', (
-                            fixture_id, league_code, league_id,
-                            fixture.get('date'),
-                            teams.get('home', {}).get('name'),
-                            teams.get('away', {}).get('name'),
-                            teams.get('home', {}).get('id'),
-                            teams.get('away', {}).get('id'),
-                            home_goals, away_goals, btts,
-                            home_goals + away_goals,
-                            datetime.now().isoformat()
-                        ))
+                        ''', (match_id, league_code, league_id, match_date, home_team, away_team,
+                              home_id, away_id, home_goals, away_goals, btts, total, 
+                              datetime.now().isoformat()))
                     else:
                         c.execute(f'''
                             INSERT OR REPLACE INTO matches 
                             (id, league_code, league_id, date, home_team, away_team,
-                             home_team_id, away_team_id, home_goals, away_goals, 
+                             home_team_id, away_team_id, home_goals, away_goals,
                              btts, total_goals, fetched_at)
                             VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
-                        ''', (
-                            fixture_id, league_code, league_id,
-                            fixture.get('date'),
-                            teams.get('home', {}).get('name'),
-                            teams.get('away', {}).get('name'),
-                            teams.get('home', {}).get('id'),
-                            teams.get('away', {}).get('id'),
-                            home_goals, away_goals, btts,
-                            home_goals + away_goals,
-                            datetime.now().isoformat()
-                        ))
-                    saved += 1
+                        ''', (match_id, league_code, league_id, match_date, home_team, away_team,
+                              home_id, away_id, home_goals, away_goals, btts, total,
+                              datetime.now().isoformat()))
+                    
+                    count += 1
                     
                 except Exception as e:
-                    print(f"⚠️ Error saving match: {e}")
+                    print(f"⚠️ Error processing match: {e}")
                     continue
             
             conn.commit()
             conn.close()
             
-            print(f"✅ {league_code}: {saved} matches saved")
-            return saved
+            print(f"✅ {league_code}: {count} matches stored")
+            return count
             
         except Exception as e:
             print(f"❌ Error fetching {league_code}: {e}")
             return 0
     
-    def fetch_all_leagues(self, season: int = 2025) -> int:
-        """Fetch ALL 28 leagues"""
-        print(f"\n{'='*60}")
-        print(f"FETCHING ALL {len(self.LEAGUES_CONFIG)} LEAGUES (Season {season})")
-        print(f"{'='*60}\n")
-        
-        total_matches = 0
-        
-        for idx, league_code in enumerate(self.LEAGUES_CONFIG.keys(), 1):
-            print(f"[{idx}/{len(self.LEAGUES_CONFIG)}] ", end="")
-            matches = self.fetch_league_matches(league_code, season)
-            total_matches += matches
-            time.sleep(1)
-        
-        print(f"\n{'='*60}")
-        print(f"✅ TOTAL: {total_matches} MATCHES FROM {len(self.LEAGUES_CONFIG)} LEAGUES!")
-        print(f"{'='*60}\n")
-        
-        return total_matches
-    
-    def get_match_count(self) -> int:
-        """Get total number of matches in database"""
+    def get_match_count(self, league_code: str = None) -> int:
+        """Get total matches in database"""
         try:
             conn = self._get_connection()
             c = conn.cursor()
-            c.execute('SELECT COUNT(*) FROM matches')
+            ph = self._get_placeholder()
+            
+            if league_code:
+                c.execute(f'SELECT COUNT(*) FROM matches WHERE league_code = {ph}', (league_code,))
+            else:
+                c.execute('SELECT COUNT(*) FROM matches')
+            
             count = c.fetchone()[0]
             conn.close()
             return count
         except:
             return 0
-    
-    def get_matches_for_training(self) -> List[Dict]:
-        """Get all matches for ML training"""
-        try:
-            conn = self._get_connection()
-            c = conn.cursor()
-            
-            c.execute('''
-                SELECT id, league_code, home_team, away_team, 
-                       home_goals, away_goals, btts, total_goals, date
-                FROM matches
-                ORDER BY date DESC
-            ''')
-            
-            columns = ['id', 'league_code', 'home_team', 'away_team', 
-                      'home_goals', 'away_goals', 'btts', 'total_goals', 'date']
-            rows = c.fetchall()
-            conn.close()
-            
-            return [dict(zip(columns, row)) for row in rows]
-            
-        except Exception as e:
-            print(f"❌ Error getting matches: {e}")
-            return []
     
     def get_team_stats(self, team_id: int, league_code: str, venue: str = 'all') -> Optional[Dict]:
         """Get team statistics from database"""
