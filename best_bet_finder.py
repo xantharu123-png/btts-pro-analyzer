@@ -1,6 +1,11 @@
 """
-BEST BET FINDER - Findet die wahrscheinlichste Wette über ALLE Märkte
-Analysiert jedes Live-Match und empfiehlt die höchste Wahrscheinlichkeit
+BEST BET FINDER - Findet die WERTVOLLSTE Wette über ALLE Märkte
+Analysiert jedes Live-Match und empfiehlt den höchsten VALUE (nicht Wahrscheinlichkeit!)
+
+WICHTIG: 
+- Sortiert nach VALUE, nicht nach Wahrscheinlichkeit
+- Value = (Probability × Fair_Odds) - 1
+- Eine 70% Wette mit Quote 1.60 ist besser als 90% mit Quote 1.05
 
 MÄRKTE:
 1. Match Result (1X2)
@@ -27,7 +32,7 @@ from datetime import datetime
 
 class BestBetFinder:
     """
-    Findet die WAHRSCHEINLICHSTE Wette über alle Märkte
+    Findet die WERTVOLLSTE Wette über alle Märkte (Value-basiert, nicht Probability)
     """
     
     def __init__(self):
@@ -35,17 +40,24 @@ class BestBetFinder:
     
     def find_best_bet(self, match_data: Dict, minute: int, stats: Dict) -> Dict:
         """
-        Analysiere ALLE möglichen Wetten und finde die höchste Wahrscheinlichkeit
+        Analysiere ALLE möglichen Wetten und finde den HÖCHSTEN VALUE
+        
+        WICHTIG: Sortiert nach Value, nicht nach Wahrscheinlichkeit!
+        - Eine 70% Wette mit +8% Value schlägt eine 90% Wette mit +2% Value
         
         Returns:
         {
             'best_bet': {
                 'market': 'Over 2.5 Goals',
                 'selection': 'Over',
-                'probability': 87.3,
+                'probability': 72.3,
+                'value': 8.5,
+                'fair_odds': 1.38,
+                'est_market_odds': 1.29,
+                'strength': 'STRONG',
                 'reasoning': 'Current: 2 goals, xG velocity high...'
             },
-            'top_5': [list of top 5 bets],
+            'top_5': [list of top 5 VALUE bets],
             'all_markets': {dict of all calculated probabilities}
         }
         """
@@ -281,23 +293,64 @@ class BestBetFinder:
                 })
         
         # =============================================
-        # SORTIERE NACH WAHRSCHEINLICHKEIT
+        # VALUE-BERECHNUNG FÜR JEDEN BET
         # =============================================
-        all_probabilities.sort(key=lambda x: x['probability'], reverse=True)
+        # Value = (Probability × Fair_Odds) - 1
+        # Eine Wette ist nur gut wenn Value > 0
         
-        # Filtere: Nur Wetten mit >= 60% Wahrscheinlichkeit
-        high_prob_bets = [bet for bet in all_probabilities if bet['probability'] >= 60]
+        for bet in all_probabilities:
+            prob = bet['probability'] / 100
+            
+            # Faire Quote (ohne Marge)
+            fair_odds = 1 / prob if prob > 0.01 else 100
+            
+            # Geschätzte Markt-Quote (Buchmacher fügt 5-10% Marge hinzu)
+            if prob >= 0.80:
+                margin = 0.05  # 5% bei Favoriten
+            elif prob >= 0.60:
+                margin = 0.07  # 7% normal
+            else:
+                margin = 0.10  # 10% bei Außenseitern
+            
+            est_market_odds = fair_odds * (1 - margin)
+            
+            # Value = (unsere Prob - implizierte Markt-Prob) × 100
+            implied_market_prob = 1 / est_market_odds if est_market_odds > 0 else 0
+            value = (prob - implied_market_prob) * 100
+            
+            bet['fair_odds'] = round(fair_odds, 2)
+            bet['est_market_odds'] = round(est_market_odds, 2)
+            bet['value'] = round(value, 1)
+            
+            # Strength basiert auf VALUE, nicht nur Probability
+            if value >= 8:
+                bet['strength'] = 'VERY_STRONG'
+            elif value >= 5:
+                bet['strength'] = 'STRONG'
+            elif value >= 2:
+                bet['strength'] = 'GOOD'
+            else:
+                bet['strength'] = 'WEAK'
         
-        # Best Bet (höchste Wahrscheinlichkeit)
+        # =============================================
+        # SORTIERE NACH VALUE (nicht Wahrscheinlichkeit!)
+        # =============================================
+        # Eine 70% Wette mit +8% Value ist besser als 90% mit +2% Value
+        all_probabilities.sort(key=lambda x: x['value'], reverse=True)
+        
+        # Filtere: Nur Wetten mit positivem Value UND >= 55% Wahrscheinlichkeit
+        value_bets = [bet for bet in all_probabilities if bet['value'] >= 2 and bet['probability'] >= 55]
+        
+        # Best Bet (höchster Value)
         best_bet = all_probabilities[0] if all_probabilities else None
         
-        # Top 5
+        # Top 5 (nach Value)
         top_5 = all_probabilities[:5]
         
         return {
             'best_bet': best_bet,
             'top_5': top_5,
-            'high_probability_bets': high_prob_bets,  # >= 60%
+            'high_probability_bets': value_bets,  # Value >= 2% UND Prob >= 55%
             'all_bets': all_probabilities,
             'total_markets_analyzed': len(all_probabilities),
             'match_info': {
@@ -833,14 +886,14 @@ def display_best_bet(result: Dict):
     match_info = result['match_info']
     best_bet = result['best_bet']
     
-    st.markdown(f"### 🎯 BEST BET - {match_info['home_team']} vs {match_info['away_team']}")
+    st.markdown(f"### 🎯 BEST VALUE BET - {match_info['home_team']} vs {match_info['away_team']}")
     st.caption(f"Minute: {match_info['minute']}' | Score: {match_info['score']}")
     
     # Best Bet
     st.markdown("---")
-    st.markdown("#### 🏆 HIGHEST PROBABILITY BET")
+    st.markdown("#### 🏆 HIGHEST VALUE BET")
     
-    col1, col2, col3 = st.columns([2, 1, 2])
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
     
     with col1:
         st.metric(
@@ -850,38 +903,48 @@ def display_best_bet(result: Dict):
         )
     
     with col2:
-        if best_bet['probability'] >= 80:
+        strength = best_bet.get('strength', 'GOOD')
+        if strength == 'VERY_STRONG':
             st.success("🔥🔥 VERY STRONG")
-        elif best_bet['probability'] >= 70:
+        elif strength == 'STRONG':
             st.success("🔥 STRONG")
-        elif best_bet['probability'] >= 60:
+        elif strength == 'GOOD':
             st.info("✅ GOOD")
         else:
-            st.warning("⚠️ MODERATE")
+            st.warning("⚠️ WEAK")
     
     with col3:
-        st.caption("**Current Status:**")
-        st.caption(best_bet['current_status'])
+        st.metric("Value", f"+{best_bet.get('value', 0):.1f}%")
+    
+    with col4:
+        st.metric("Fair Odds", f"{best_bet.get('fair_odds', '-')}")
     
     st.info(f"**Why?** {best_bet['reasoning']}")
+    st.caption(f"Est. Market Odds: {best_bet.get('est_market_odds', '-')} | Current: {best_bet['current_status']}")
     
     # Top 5
     st.markdown("---")
-    st.markdown("#### 📊 TOP 5 BETS")
+    st.markdown("#### 📊 TOP 5 VALUE BETS")
     
     top_5 = result['top_5']
     
     for i, bet in enumerate(top_5, 1):
-        with st.expander(f"{i}. {bet['market']}: {bet['selection']} ({bet['probability']:.1f}%)"):
-            st.write(f"**Selection:** {bet['selection']}")
-            st.write(f"**Probability:** {bet['probability']:.1f}%")
+        value_str = f"+{bet.get('value', 0):.1f}%" if bet.get('value', 0) > 0 else f"{bet.get('value', 0):.1f}%"
+        with st.expander(f"{i}. {bet['market']}: {bet['selection']} | {bet['probability']:.1f}% | Value: {value_str}"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.write(f"**Probability:** {bet['probability']:.1f}%")
+            with col2:
+                st.write(f"**Value:** {value_str}")
+            with col3:
+                st.write(f"**Fair Odds:** {bet.get('fair_odds', '-')}")
             st.write(f"**Current:** {bet['current_status']}")
             st.write(f"**Reasoning:** {bet['reasoning']}")
     
     # Summary
     st.markdown("---")
     st.caption(f"📈 Total markets analyzed: {result['total_markets_analyzed']}")
-    st.caption(f"✅ High probability bets (≥60%): {len(result['high_probability_bets'])}")
+    st.caption(f"✅ Value bets (≥2% value, ≥55% prob): {len(result['high_probability_bets'])}")
 
 
 __all__ = ['BestBetFinder', 'display_best_bet']

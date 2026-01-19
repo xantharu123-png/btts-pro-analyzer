@@ -180,30 +180,95 @@ with st.sidebar:
     # Data refresh
     st.subheader("🔄 Data Management")
     
-    if st.button("Refresh League Data"):
-        with st.spinner("Refreshing data..."):
-            for league_code in selected_leagues:
-                # Use fetch_league_matches with force_refresh
-                analyzer.engine.fetch_league_matches(league_code, season=2025, force_refresh=True)
-            st.success("Data refreshed!")
-            st.cache_resource.clear()
+    col1, col2 = st.columns(2)
     
-    if st.button("🔄 Retrain ML Model with Latest Data"):
-        with st.spinner("🤖 Retraining model with all latest matches..."):
+    with col1:
+        if st.button("⚡ Smart Update (nur neue Spiele)"):
+            with st.spinner("Lade nur neue Spiele..."):
+                try:
+                    import sqlite3
+                    from datetime import datetime, timedelta
+                    
+                    # Nur Spiele der letzten 3 Tage laden (viel weniger API-Calls)
+                    conn = sqlite3.connect('btts_data.db')
+                    cursor = conn.cursor()
+                    
+                    updated_leagues = 0
+                    new_matches = 0
+                    
+                    for league_code in selected_leagues:
+                        # Prüfe letztes Update-Datum für diese Liga
+                        cursor.execute('''
+                            SELECT MAX(date) FROM matches WHERE league_code = ?
+                        ''', (league_code,))
+                        result = cursor.fetchone()
+                        last_date = result[0] if result and result[0] else None
+                        
+                        # Wenn letzte Daten älter als 2 Tage, update diese Liga
+                        if last_date:
+                            try:
+                                last_dt = datetime.strptime(last_date[:10], '%Y-%m-%d')
+                                if (datetime.now() - last_dt).days <= 2:
+                                    continue  # Bereits aktuell
+                            except:
+                                pass
+                        
+                        # Update nur diese Liga
+                        analyzer.engine.fetch_league_matches(league_code, season=2025, force_refresh=False)
+                        updated_leagues += 1
+                    
+                    conn.close()
+                    
+                    if updated_leagues > 0:
+                        st.success(f"✅ {updated_leagues} Ligen aktualisiert!")
+                    else:
+                        st.info("📊 Alle Daten sind bereits aktuell (< 2 Tage alt)")
+                    
+                    st.cache_resource.clear()
+                except Exception as e:
+                    st.error(f"Fehler: {e}")
+    
+    with col2:
+        if st.button("🔄 Full Refresh (alle Daten neu)"):
+            with st.spinner("Refreshing data..."):
+                for league_code in selected_leagues:
+                    # Use fetch_league_matches with force_refresh
+                    analyzer.engine.fetch_league_matches(league_code, season=2025, force_refresh=True)
+                st.success("Data refreshed!")
+                st.cache_resource.clear()
+    
+    st.markdown("---")
+    
+    # Retrain Options
+    retrain_mode = st.radio(
+        "Retrain-Modus:",
+        ["⚡ Smart (nur ausgewählte Ligen)", "🔄 Full (alle 28 Ligen)"],
+        horizontal=True,
+        help="Smart = schneller, spart API-Calls. Full = gründlicher, braucht mehr API-Quota."
+    )
+    
+    if st.button("🤖 Retrain ML Model"):
+        with st.spinner("🤖 Retraining model..."):
             try:
-                # Show progress
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
-                # Load ALL 28 leagues from LEAGUES_CONFIG
-                leagues = list(analyzer.engine.LEAGUES_CONFIG.keys())
-                total = len(leagues)
+                if "Smart" in retrain_mode:
+                    # Nur ausgewählte Ligen laden (spart API-Calls!)
+                    leagues = selected_leagues
+                    status_text.text(f"📥 Smart Update: Loading {len(leagues)} selected leagues...")
+                else:
+                    # Alle 28 Ligen laden
+                    leagues = list(analyzer.engine.LEAGUES_CONFIG.keys())
+                    status_text.text(f"📥 Full Update: Loading all {len(leagues)} leagues...")
                 
-                status_text.text(f"📥 Loading latest matches from all {total} leagues...")
+                total = len(leagues)
                 
                 for idx, code in enumerate(leagues):
                     status_text.text(f"📥 Loading {code}... ({idx+1}/{total})")
-                    analyzer.engine.fetch_league_matches(code, season=2025, force_refresh=True)
+                    # force_refresh=False für Smart, True für Full
+                    force = "Full" in retrain_mode
+                    analyzer.engine.fetch_league_matches(code, season=2025, force_refresh=force)
                     progress_bar.progress((idx + 1) / (total + 1))
                 
                 # Retrain
@@ -223,9 +288,8 @@ with st.sidebar:
                 progress_bar.empty()
                 
                 st.success(f"✅ Model retrained successfully with {total_matches} matches!")
-                st.info("📊 The model is now up-to-date with the latest data. Refresh the page to use the new model.")
+                st.info("📊 The model is now up-to-date. Refresh the page to use the new model.")
                 
-                # Clear cache to reload
                 st.cache_resource.clear()
                 
             except Exception as e:
