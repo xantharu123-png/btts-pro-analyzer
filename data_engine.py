@@ -577,3 +577,5 @@ if __name__ == '__main__':
     print(f"\n✅ Initialized with {len(engine.LEAGUES_CONFIG)} leagues")
     print(f"📊 Database type: {'PostgreSQL (Supabase)' if engine.use_postgres else 'SQLite'}")
     print(f"📊 Current matches in DB: {engine.get_match_count()}")
+#   S u p a b a s e   S u p p o r t  
+ 
