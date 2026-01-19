@@ -1,6 +1,7 @@
 """
 Advanced BTTS Analyzer with Machine Learning - CORRECTED VERSION
 Mathematisch korrekte Poisson-basierte BTTS-Berechnung
+Mit Supabase/PostgreSQL Support
 """
 
 import numpy as np
@@ -9,6 +10,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import StandardScaler
 import sqlite3
+import os
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timedelta
 import pickle
@@ -16,6 +18,32 @@ from pathlib import Path
 import math
 
 from data_engine import DataEngine
+
+
+def _get_supabase_url() -> Optional[str]:
+    """Get Supabase URL from Streamlit secrets or environment"""
+    try:
+        import streamlit as st
+        if hasattr(st, 'secrets') and 'SUPABASE_DB_URL' in st.secrets:
+            return st.secrets['SUPABASE_DB_URL']
+    except:
+        pass
+    return os.environ.get('SUPABASE_DB_URL')
+
+
+def _get_db_connection(db_path: str = "btts_data.db"):
+    """Get database connection (PostgreSQL or SQLite)"""
+    supabase_url = _get_supabase_url()
+    
+    if supabase_url:
+        try:
+            import psycopg2
+            return psycopg2.connect(supabase_url), True  # (connection, is_postgres)
+        except ImportError:
+            pass
+    
+    return sqlite3.connect(db_path), False  # (connection, is_postgres)
+
 
 try:
     from weather_analyzer import WeatherAnalyzer
@@ -217,7 +245,7 @@ class AdvancedBTTSAnalyzer:
     
     def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray]:
         """Prepare training data from historical matches"""
-        conn = sqlite3.connect(self.db_path)
+        conn, is_postgres = _get_db_connection(self.db_path)
         
         # Simplified query - just use matches table
         query = '''

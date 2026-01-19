@@ -1,6 +1,7 @@
 """
 Ultimate BTTS Analyzer - Pro Web Interface
 Complete with ML predictions, detailed analysis, and backtesting
+Mit Supabase/PostgreSQL Support
 """
 
 import streamlit as st
@@ -9,11 +10,37 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
 import sqlite3
+import os
 from pathlib import Path
+from typing import Optional
 
 from advanced_analyzer import AdvancedBTTSAnalyzer
 from data_engine import DataEngine
 from modern_progress_bar import ModernProgressBar
+
+
+def _get_supabase_url() -> Optional[str]:
+    """Get Supabase URL from Streamlit secrets or environment"""
+    try:
+        if hasattr(st, 'secrets') and 'SUPABASE_DB_URL' in st.secrets:
+            return st.secrets['SUPABASE_DB_URL']
+    except:
+        pass
+    return os.environ.get('SUPABASE_DB_URL')
+
+
+def _get_db_connection(db_path: str = "btts_data.db"):
+    """Get database connection (PostgreSQL or SQLite)"""
+    supabase_url = _get_supabase_url()
+    
+    if supabase_url:
+        try:
+            import psycopg2
+            return psycopg2.connect(supabase_url)
+        except ImportError:
+            pass
+    
+    return sqlite3.connect(db_path)
 
 # Page config
 st.set_page_config(
@@ -186,20 +213,23 @@ with st.sidebar:
         if st.button("⚡ Smart Update (nur neue Spiele)"):
             with st.spinner("Lade nur neue Spiele..."):
                 try:
-                    import sqlite3
                     from datetime import datetime, timedelta
                     
                     # Nur Spiele der letzten 3 Tage laden (viel weniger API-Calls)
-                    conn = sqlite3.connect('btts_data.db')
+                    conn = _get_db_connection('btts_data.db')
                     cursor = conn.cursor()
+                    
+                    # Check if PostgreSQL (for placeholder syntax)
+                    is_postgres = hasattr(conn, 'info')  # psycopg2 connections have .info
+                    ph = '%s' if is_postgres else '?'
                     
                     updated_leagues = 0
                     new_matches = 0
                     
                     for league_code in selected_leagues:
                         # Prüfe letztes Update-Datum für diese Liga
-                        cursor.execute('''
-                            SELECT MAX(date) FROM matches WHERE league_code = ?
+                        cursor.execute(f'''
+                            SELECT MAX(date) FROM matches WHERE league_code = {ph}
                         ''', (league_code,))
                         result = cursor.fetchone()
                         last_date = result[0] if result and result[0] else None
@@ -277,8 +307,7 @@ with st.sidebar:
                 progress_bar.progress(1.0)
                 
                 # Get stats
-                import sqlite3
-                conn = sqlite3.connect('btts_data.db')
+                conn = _get_db_connection('btts_data.db')
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM matches WHERE btts IS NOT NULL")
                 total_matches = cursor.fetchone()[0]
