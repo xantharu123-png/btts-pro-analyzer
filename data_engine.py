@@ -1,20 +1,33 @@
 """
-DATA ENGINE - KORRIGIERTE VERSION
-==================================
-Season: 2025 (für 2025/26 Saison - wir sind in Januar 2026!)
-Fixes: fetch_league_matches speichert jetzt korrekt in DB
+DATA ENGINE - SUPABASE/POSTGRESQL VERSION
+==========================================
+Nutzt Supabase (PostgreSQL) für persistente Daten auf Streamlit Cloud.
+Fallback auf SQLite für lokale Entwicklung.
+
+Season: 2025 (für 2024/25 Saison)
 """
 
-import sqlite3
-import requests
+import os
 import time
-from datetime import datetime, timedelta
+import requests
+from datetime import datetime
 from typing import Dict, List, Optional
-from pathlib import Path
+
+# Database imports
+import sqlite3
+
+# Try PostgreSQL (for Supabase)
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    POSTGRES_AVAILABLE = True
+except ImportError:
+    POSTGRES_AVAILABLE = False
+    print("⚠️ psycopg2 nicht verfügbar - nutze SQLite")
 
 
 class DataEngine:
-    """Data Engine for BTTS Pro Analyzer"""
+    """Data Engine for BTTS Pro Analyzer - Supabase/PostgreSQL Support"""
     
     # ALL 28 LEAGUES
     LEAGUES_CONFIG = {
@@ -58,60 +71,108 @@ class DataEngine:
     }
     
     def __init__(self, api_key: str, db_path: str = "btts_data.db"):
-        """Initialize Data Engine"""
+        """Initialize Data Engine with Supabase or SQLite"""
         self.api_key = api_key
         self.db_path = db_path
         self.base_url = "https://v3.football.api-sports.io"
-        self.headers = {
-            'x-apisports-key': api_key
-        }
+        self.headers = {'x-apisports-key': api_key}
         self.last_request = 0
         self.min_delay = 0.5
+        
+        # Check for Supabase URL
+        self.supabase_url = self._get_supabase_url()
+        self.use_postgres = bool(self.supabase_url and POSTGRES_AVAILABLE)
+        
+        if self.use_postgres:
+            print("✅ Using Supabase (PostgreSQL) - Data persists!")
+        else:
+            print("⚠️ Using SQLite (local) - Data lost on restart!")
         
         # Initialize database
         self._init_database()
         print(f"✅ Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues!")
     
+    def _get_supabase_url(self) -> Optional[str]:
+        """Get Supabase URL from Streamlit secrets or environment"""
+        # Try Streamlit secrets first
+        try:
+            import streamlit as st
+            if hasattr(st, 'secrets') and 'SUPABASE_DB_URL' in st.secrets:
+                return st.secrets['SUPABASE_DB_URL']
+        except:
+            pass
+        
+        # Try environment variable
+        return os.environ.get('SUPABASE_DB_URL')
+    
+    def _get_connection(self):
+        """Get database connection (PostgreSQL or SQLite)"""
+        if self.use_postgres:
+            return psycopg2.connect(self.supabase_url)
+        else:
+            return sqlite3.connect(self.db_path)
+    
+    def _get_placeholder(self) -> str:
+        """Get SQL placeholder (? for SQLite, %s for PostgreSQL)"""
+        return "%s" if self.use_postgres else "?"
+    
     def _init_database(self):
-        """Create database tables - DROP and recreate to fix schema issues"""
-        conn = sqlite3.connect(self.db_path)
+        """Create database tables"""
+        conn = self._get_connection()
         c = conn.cursor()
         
-        # Check if old schema exists (with wrong column names)
-        try:
-            c.execute("SELECT date FROM matches LIMIT 1")
-        except sqlite3.OperationalError:
-            # Old schema or no table - drop and recreate
-            print("🔄 Recreating database with correct schema...")
-            c.execute('DROP TABLE IF EXISTS matches')
-        
-        # Matches table with correct schema
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS matches (
-                id INTEGER PRIMARY KEY,
-                league_code TEXT,
-                league_id INTEGER,
-                date TEXT,
-                home_team TEXT,
-                away_team TEXT,
-                home_team_id INTEGER,
-                away_team_id INTEGER,
-                home_goals INTEGER,
-                away_goals INTEGER,
-                btts INTEGER,
-                total_goals INTEGER,
-                fetched_at TEXT
-            )
-        ''')
-        
-        # Index for faster queries
-        c.execute('CREATE INDEX IF NOT EXISTS idx_league ON matches(league_code)')
-        c.execute('CREATE INDEX IF NOT EXISTS idx_date ON matches(date)')
-        c.execute('CREATE INDEX IF NOT EXISTS idx_teams ON matches(home_team_id, away_team_id)')
+        if self.use_postgres:
+            # PostgreSQL Schema
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS matches (
+                    id INTEGER PRIMARY KEY,
+                    league_code TEXT,
+                    league_id INTEGER,
+                    date TEXT,
+                    home_team TEXT,
+                    away_team TEXT,
+                    home_team_id INTEGER,
+                    away_team_id INTEGER,
+                    home_goals INTEGER,
+                    away_goals INTEGER,
+                    btts INTEGER,
+                    total_goals INTEGER,
+                    fetched_at TEXT
+                )
+            ''')
+            
+            # Indexes
+            c.execute('CREATE INDEX IF NOT EXISTS idx_league ON matches(league_code)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_date ON matches(date)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_home_team ON matches(home_team_id)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_away_team ON matches(away_team_id)')
+        else:
+            # SQLite Schema
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS matches (
+                    id INTEGER PRIMARY KEY,
+                    league_code TEXT,
+                    league_id INTEGER,
+                    date TEXT,
+                    home_team TEXT,
+                    away_team TEXT,
+                    home_team_id INTEGER,
+                    away_team_id INTEGER,
+                    home_goals INTEGER,
+                    away_goals INTEGER,
+                    btts INTEGER,
+                    total_goals INTEGER,
+                    fetched_at TEXT
+                )
+            ''')
+            
+            c.execute('CREATE INDEX IF NOT EXISTS idx_league ON matches(league_code)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_date ON matches(date)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_teams ON matches(home_team_id, away_team_id)')
         
         conn.commit()
         conn.close()
-        print("✅ Database initialized with correct schema")
+        print(f"✅ Database initialized ({'PostgreSQL' if self.use_postgres else 'SQLite'})")
     
     def _rate_limit(self):
         """Respect API rate limits"""
@@ -121,24 +182,12 @@ class DataEngine:
         self.last_request = time.time()
     
     # =========================================================
-    # FETCH METHODS - KORRIGIERT MIT SEASON 2025
+    # FETCH METHODS
     # =========================================================
     
     def fetch_league_matches(self, league_code: str, season: int = 2025, 
                             force_refresh: bool = False) -> int:
-        """
-        Fetch and store ALL finished matches for a league
-        
-        WICHTIG: season=2025 für die aktuelle Saison 2025/26!
-        
-        Args:
-            league_code: Liga-Code (z.B. 'BL1')
-            season: Season Jahr (2025 = Saison 2025/26)
-            force_refresh: Erzwinge Neuladen
-        
-        Returns:
-            Anzahl der gespeicherten Spiele
-        """
+        """Fetch and store ALL finished matches for a league"""
         league_id = self.LEAGUES_CONFIG.get(league_code)
         if not league_id:
             print(f"❌ Unknown league: {league_code}")
@@ -149,14 +198,13 @@ class DataEngine:
         try:
             self._rate_limit()
             
-            # Fetch ALL finished matches for this season
             response = requests.get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
                 params={
                     'league': league_id,
                     'season': season,
-                    'status': 'FT'  # Full Time - gets ALL finished matches
+                    'status': 'FT'
                 },
                 timeout=30
             )
@@ -172,9 +220,9 @@ class DataEngine:
                 print(f"⚠️ No matches found for {league_code} season {season}")
                 return 0
             
-            # Save to database
-            conn = sqlite3.connect(self.db_path)
+            conn = self._get_connection()
             c = conn.cursor()
+            ph = self._get_placeholder()
             
             saved = 0
             for match in fixtures:
@@ -188,27 +236,50 @@ class DataEngine:
                     away_goals = goals.get('away') or 0
                     btts = 1 if (home_goals > 0 and away_goals > 0) else 0
                     
-                    c.execute('''
-                        INSERT OR REPLACE INTO matches 
-                        (id, league_code, league_id, date, home_team, away_team,
-                         home_team_id, away_team_id, home_goals, away_goals, 
-                         btts, total_goals, fetched_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        fixture_id,
-                        league_code,
-                        league_id,
-                        fixture.get('date'),
-                        teams.get('home', {}).get('name'),
-                        teams.get('away', {}).get('name'),
-                        teams.get('home', {}).get('id'),
-                        teams.get('away', {}).get('id'),
-                        home_goals,
-                        away_goals,
-                        btts,
-                        home_goals + away_goals,
-                        datetime.now().isoformat()
-                    ))
+                    if self.use_postgres:
+                        # PostgreSQL: UPSERT
+                        c.execute(f'''
+                            INSERT INTO matches 
+                            (id, league_code, league_id, date, home_team, away_team,
+                             home_team_id, away_team_id, home_goals, away_goals, 
+                             btts, total_goals, fetched_at)
+                            VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+                            ON CONFLICT (id) DO UPDATE SET
+                                home_goals = EXCLUDED.home_goals,
+                                away_goals = EXCLUDED.away_goals,
+                                btts = EXCLUDED.btts,
+                                total_goals = EXCLUDED.total_goals,
+                                fetched_at = EXCLUDED.fetched_at
+                        ''', (
+                            fixture_id, league_code, league_id,
+                            fixture.get('date'),
+                            teams.get('home', {}).get('name'),
+                            teams.get('away', {}).get('name'),
+                            teams.get('home', {}).get('id'),
+                            teams.get('away', {}).get('id'),
+                            home_goals, away_goals, btts,
+                            home_goals + away_goals,
+                            datetime.now().isoformat()
+                        ))
+                    else:
+                        # SQLite: INSERT OR REPLACE
+                        c.execute(f'''
+                            INSERT OR REPLACE INTO matches 
+                            (id, league_code, league_id, date, home_team, away_team,
+                             home_team_id, away_team_id, home_goals, away_goals, 
+                             btts, total_goals, fetched_at)
+                            VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+                        ''', (
+                            fixture_id, league_code, league_id,
+                            fixture.get('date'),
+                            teams.get('home', {}).get('name'),
+                            teams.get('away', {}).get('name'),
+                            teams.get('home', {}).get('id'),
+                            teams.get('away', {}).get('id'),
+                            home_goals, away_goals, btts,
+                            home_goals + away_goals,
+                            datetime.now().isoformat()
+                        ))
                     saved += 1
                     
                 except Exception as e:
@@ -226,15 +297,7 @@ class DataEngine:
             return 0
     
     def fetch_all_leagues(self, season: int = 2025) -> int:
-        """
-        Fetch ALL 28 leagues
-        
-        Args:
-            season: 2025 für aktuelle Saison!
-        
-        Returns:
-            Total number of matches fetched
-        """
+        """Fetch ALL 28 leagues"""
         print(f"\n{'='*60}")
         print(f"🔥 FETCHING ALL {len(self.LEAGUES_CONFIG)} LEAGUES (Season {season})")
         print(f"{'='*60}\n")
@@ -245,7 +308,7 @@ class DataEngine:
             print(f"[{idx}/{len(self.LEAGUES_CONFIG)}] ", end="")
             matches = self.fetch_league_matches(league_code, season)
             total_matches += matches
-            time.sleep(1)  # Rate limit between leagues
+            time.sleep(1)
         
         print(f"\n{'='*60}")
         print(f"✅ TOTAL: {total_matches} MATCHES FROM {len(self.LEAGUES_CONFIG)} LEAGUES!")
@@ -256,7 +319,7 @@ class DataEngine:
     def get_match_count(self) -> int:
         """Get total number of matches in database"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self._get_connection()
             c = conn.cursor()
             c.execute('SELECT COUNT(*) FROM matches')
             count = c.fetchone()[0]
@@ -268,7 +331,7 @@ class DataEngine:
     def get_matches_for_training(self) -> List[Dict]:
         """Get all matches for ML training"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self._get_connection()
             c = conn.cursor()
             
             c.execute('''
@@ -296,38 +359,39 @@ class DataEngine:
     def get_team_stats(self, team_id: int, league_code: str, venue: str = 'all') -> Optional[Dict]:
         """Get team statistics from database"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self._get_connection()
             c = conn.cursor()
+            ph = self._get_placeholder()
             
             if venue == 'home':
-                c.execute('''
+                c.execute(f'''
                     SELECT 
                         COUNT(*) as matches,
                         AVG(home_goals) as avg_scored,
                         AVG(away_goals) as avg_conceded,
                         SUM(btts) * 100.0 / COUNT(*) as btts_rate
                     FROM matches
-                    WHERE home_team_id = ? AND league_code = ?
+                    WHERE home_team_id = {ph} AND league_code = {ph}
                 ''', (team_id, league_code))
             elif venue == 'away':
-                c.execute('''
+                c.execute(f'''
                     SELECT 
                         COUNT(*) as matches,
                         AVG(away_goals) as avg_scored,
                         AVG(home_goals) as avg_conceded,
                         SUM(btts) * 100.0 / COUNT(*) as btts_rate
                     FROM matches
-                    WHERE away_team_id = ? AND league_code = ?
+                    WHERE away_team_id = {ph} AND league_code = {ph}
                 ''', (team_id, league_code))
             else:
-                c.execute('''
+                c.execute(f'''
                     SELECT 
                         COUNT(*) as matches,
-                        AVG(CASE WHEN home_team_id = ? THEN home_goals ELSE away_goals END) as avg_scored,
-                        AVG(CASE WHEN home_team_id = ? THEN away_goals ELSE home_goals END) as avg_conceded,
+                        AVG(CASE WHEN home_team_id = {ph} THEN home_goals ELSE away_goals END) as avg_scored,
+                        AVG(CASE WHEN home_team_id = {ph} THEN away_goals ELSE home_goals END) as avg_conceded,
                         SUM(btts) * 100.0 / COUNT(*) as btts_rate
                     FROM matches
-                    WHERE (home_team_id = ? OR away_team_id = ?) AND league_code = ?
+                    WHERE (home_team_id = {ph} OR away_team_id = {ph}) AND league_code = {ph}
                 ''', (team_id, team_id, team_id, team_id, league_code))
             
             row = c.fetchone()
@@ -341,7 +405,6 @@ class DataEngine:
                     'btts_rate': round(row[3] or 50, 1)
                 }
             
-            # Default values
             return {
                 'matches_played': 0,
                 'avg_scored': 1.3,
@@ -362,35 +425,36 @@ class DataEngine:
                        venue: str = 'all', last_n: int = 5) -> Optional[Dict]:
         """Get recent form for a team"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self._get_connection()
             c = conn.cursor()
+            ph = self._get_placeholder()
             
             if venue == 'home':
-                c.execute('''
+                c.execute(f'''
                     SELECT home_goals, away_goals, btts
                     FROM matches
-                    WHERE home_team_id = ? AND league_code = ?
+                    WHERE home_team_id = {ph} AND league_code = {ph}
                     ORDER BY date DESC
-                    LIMIT ?
+                    LIMIT {ph}
                 ''', (team_id, league_code, last_n))
             elif venue == 'away':
-                c.execute('''
+                c.execute(f'''
                     SELECT away_goals, home_goals, btts
                     FROM matches
-                    WHERE away_team_id = ? AND league_code = ?
+                    WHERE away_team_id = {ph} AND league_code = {ph}
                     ORDER BY date DESC
-                    LIMIT ?
+                    LIMIT {ph}
                 ''', (team_id, league_code, last_n))
             else:
-                c.execute('''
+                c.execute(f'''
                     SELECT 
-                        CASE WHEN home_team_id = ? THEN home_goals ELSE away_goals END,
-                        CASE WHEN home_team_id = ? THEN away_goals ELSE home_goals END,
+                        CASE WHEN home_team_id = {ph} THEN home_goals ELSE away_goals END,
+                        CASE WHEN home_team_id = {ph} THEN away_goals ELSE home_goals END,
                         btts
                     FROM matches
-                    WHERE (home_team_id = ? OR away_team_id = ?) AND league_code = ?
+                    WHERE (home_team_id = {ph} OR away_team_id = {ph}) AND league_code = {ph}
                     ORDER BY date DESC
-                    LIMIT ?
+                    LIMIT {ph}
                 ''', (team_id, team_id, team_id, team_id, league_code, last_n))
             
             rows = c.fetchall()
@@ -418,16 +482,17 @@ class DataEngine:
                                last_n: int = 10) -> Optional[Dict]:
         """Calculate H2H statistics"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self._get_connection()
             c = conn.cursor()
+            ph = self._get_placeholder()
             
-            c.execute('''
+            c.execute(f'''
                 SELECT home_goals, away_goals, btts, home_team_id
                 FROM matches
-                WHERE (home_team_id = ? AND away_team_id = ?)
-                   OR (home_team_id = ? AND away_team_id = ?)
+                WHERE (home_team_id = {ph} AND away_team_id = {ph})
+                   OR (home_team_id = {ph} AND away_team_id = {ph})
                 ORDER BY date DESC
-                LIMIT ?
+                LIMIT {ph}
             ''', (team1_id, team2_id, team2_id, team1_id, last_n))
             
             rows = c.fetchall()
@@ -452,10 +517,11 @@ class DataEngine:
     def get_league_stats(self, league_code: str) -> Optional[Dict]:
         """Get league-wide statistics"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = self._get_connection()
             c = conn.cursor()
+            ph = self._get_placeholder()
             
-            c.execute('''
+            c.execute(f'''
                 SELECT 
                     COUNT(*) as total_matches,
                     AVG(home_goals) as avg_home_scored,
@@ -463,7 +529,7 @@ class DataEngine:
                     AVG(total_goals) as avg_total,
                     SUM(btts) * 100.0 / COUNT(*) as btts_rate
                 FROM matches
-                WHERE league_code = ?
+                WHERE league_code = {ph}
             ''', (league_code,))
             
             row = c.fetchone()
@@ -501,8 +567,7 @@ if __name__ == '__main__':
     print("DATA ENGINE TEST")
     print("=" * 60)
     
-    # Test ohne echten API Key
     engine = DataEngine(api_key="test_key")
     print(f"\n✅ Initialized with {len(engine.LEAGUES_CONFIG)} leagues")
+    print(f"📊 Database type: {'PostgreSQL (Supabase)' if engine.use_postgres else 'SQLite'}")
     print(f"📊 Current matches in DB: {engine.get_match_count()}")
-    print(f"\n⚠️ Run fetch_all_leagues(season=2025) to populate database!")
