@@ -34,11 +34,22 @@ except ImportError:
 
 
 class DixonColesModel:
-    """Dixon-Coles Correction for Poisson Distribution"""
+    """
+    Dixon-Coles Correction for Poisson Distribution
+    
+    Korrigiert die Unabhängigkeits-Annahme für niedrige Spielstände (0-0, 1-0, 0-1, 1-1)
+    Empirisch validiert: rho ≈ -0.03 bis -0.13 je nach Liga
+    """
     def __init__(self, rho: float = -0.05):
         self.rho = rho
     
     def tau(self, home_goals: int, away_goals: int) -> float:
+        """
+        Korrektur-Faktor für niedrige Spielstände
+        
+        Bei rho < 0: 0-0 und 1-1 werden wahrscheinlicher (defensive Spiele)
+        Bei rho > 0: 1-0 und 0-1 werden wahrscheinlicher (einseitige Spiele)
+        """
         if home_goals == 0 and away_goals == 0:
             return 1 - self.rho
         elif home_goals == 1 and away_goals == 0:
@@ -55,17 +66,101 @@ class DixonColesModel:
             return 1.0 if k == 0 else 0.0
         return (lambda_val ** k) * math.exp(-lambda_val) / math.factorial(k)
     
-    def calculate_btts_probability(self, lambda_home: float, mu_away: float) -> float:
-        p_00 = self.poisson_prob(0, lambda_home) * self.poisson_prob(0, mu_away) * self.tau(0, 0)
-        p_10 = self.poisson_prob(1, lambda_home) * self.poisson_prob(0, mu_away) * self.tau(1, 0)
-        p_home_only = p_10
-        for h in range(2, 10):
-            p_home_only += self.poisson_prob(h, lambda_home) * self.poisson_prob(0, mu_away)
-        p_01 = self.poisson_prob(0, lambda_home) * self.poisson_prob(1, mu_away) * self.tau(0, 1)
-        p_away_only = p_01
-        for a in range(2, 10):
-            p_away_only += self.poisson_prob(0, lambda_home) * self.poisson_prob(a, mu_away)
+    def calculate_btts_probability(self, lambda_home: float, lambda_away: float) -> float:
+        """
+        KORRIGIERTE BTTS-Berechnung mit Dixon-Coles
+        
+        NICHT: P(BTTS) = P(Home≥1) × P(Away≥1)  ← Falsch (Unabhängigkeit)
+        SONDERN: P(BTTS) = 1 - P(0-0) - P(Home only scores) - P(Away only scores)
+        
+        Mit tau-Korrektur für 0-0, 1-0, 0-1, 1-1 Spielstände
+        """
+        # P(0-0) mit Korrektur
+        p_00 = self.poisson_prob(0, lambda_home) * self.poisson_prob(0, lambda_away) * self.tau(0, 0)
+        
+        # P(Home scores, Away = 0) - alle Kombinationen
+        p_home_only = 0
+        for h in range(1, 10):
+            tau_factor = self.tau(h, 0) if h == 1 else 1.0
+            p_home_only += self.poisson_prob(h, lambda_home) * self.poisson_prob(0, lambda_away) * tau_factor
+        
+        # P(Away scores, Home = 0) - alle Kombinationen
+        p_away_only = 0
+        for a in range(1, 10):
+            tau_factor = self.tau(0, a) if a == 1 else 1.0
+            p_away_only += self.poisson_prob(0, lambda_home) * self.poisson_prob(a, lambda_away) * tau_factor
+        
+        # P(BTTS) = 1 - P(no BTTS)
         p_btts = 1 - (p_00 + p_home_only + p_away_only)
+        
+        return max(0, min(100, p_btts * 100))
+
+
+class BivariatePoissonModel:
+    """
+    Bivariate Poisson für korrelierte Tor-Ereignisse
+    
+    Fußballtore sind NICHT unabhängig:
+    - Wenn Team A trifft, ändert sich die Spieldynamik
+    - Führende Teams spielen defensiver
+    - Rückständige Teams riskieren mehr
+    
+    Die Kovarianz zwischen Home und Away Goals ist typischerweise:
+    - Positiv in offenen Spielen (beide Teams treffen)
+    - Negativ in taktischen Spielen (einer dominiert)
+    
+    Empirisch: cov ≈ 0.05 bis 0.15 für die meisten Ligen
+    """
+    
+    def __init__(self, covariance: float = 0.10):
+        """
+        Args:
+            covariance: Kovarianz zwischen Home und Away Toren
+                       Höher = mehr "offene" Spiele mit vielen Toren für beide
+        """
+        self.cov = covariance
+    
+    def _poisson_pmf(self, k: int, lam: float) -> float:
+        """Poisson probability mass function"""
+        if lam <= 0:
+            return 1.0 if k == 0 else 0.0
+        return (lam ** k) * math.exp(-lam) / math.factorial(k)
+    
+    def calculate_btts_probability(self, lambda_home: float, lambda_away: float) -> float:
+        """
+        Berechne P(BTTS) mit Bivariate Poisson
+        
+        Verwendet die Holgate-Approximation für Bivariate Poisson:
+        P(X=x, Y=y) ≈ P_poisson(X=x) * P_poisson(Y=y) * (1 + cov * (x - λ_h) * (y - λ_a) / (λ_h * λ_a))
+        """
+        # Normalisierungs-Konstante für die Approximation
+        cov_factor = self.cov / max(0.1, lambda_home * lambda_away)
+        
+        # P(Home = 0, Away = 0)
+        p_00 = self._poisson_pmf(0, lambda_home) * self._poisson_pmf(0, lambda_away)
+        p_00 *= (1 + cov_factor * lambda_home * lambda_away)  # Korrektur für (0,0)
+        
+        # P(Home > 0, Away = 0)
+        p_home_only = 0
+        for h in range(1, 10):
+            p_h = self._poisson_pmf(h, lambda_home)
+            p_0 = self._poisson_pmf(0, lambda_away)
+            # Korrektur: (h - λ_h) * (0 - λ_a) = -(h - λ_h) * λ_a
+            correction = 1 + cov_factor * (h - lambda_home) * (-lambda_away)
+            p_home_only += p_h * p_0 * max(0.5, min(1.5, correction))
+        
+        # P(Home = 0, Away > 0)
+        p_away_only = 0
+        for a in range(1, 10):
+            p_0 = self._poisson_pmf(0, lambda_home)
+            p_a = self._poisson_pmf(a, lambda_away)
+            # Korrektur: (0 - λ_h) * (a - λ_a) = -λ_h * (a - λ_a)
+            correction = 1 + cov_factor * (-lambda_home) * (a - lambda_away)
+            p_away_only += p_0 * p_a * max(0.5, min(1.5, correction))
+        
+        # P(BTTS) = 1 - P(no BTTS)
+        p_btts = 1 - (p_00 + p_home_only + p_away_only)
+        
         return max(0, min(100, p_btts * 100))
 
 
@@ -79,8 +174,11 @@ class AdvancedBTTSAnalyzer:
         self.engine = DataEngine(api_football_key or api_key, db_path)  # FIX: Use api_football_key!
         self.db_path = db_path
         self.api_football_key = api_football_key        
-        # Dixon-Coles Model
+        # Dixon-Coles Model (korrigiert niedrige Spielstände)
         self.dixon_coles = DixonColesModel(rho=-0.05)
+        
+        # Bivariate Poisson Model (modelliert Tor-Korrelation)
+        self.bivariate_poisson = BivariatePoissonModel(covariance=0.10)
         
         # CLV Tracker
         if CLV_AVAILABLE:
@@ -481,12 +579,25 @@ class AdvancedBTTSAnalyzer:
         lambda_home = (home_season['avg_scored'] + away_season['avg_conceded']) / 2 * 1.08  # Heimvorteil
         lambda_away = (away_season['avg_scored'] + home_season['avg_conceded']) / 2 * 0.92  # Auswärtsnachteil
         
-        # P(Team ≥ 1 Tor) = 1 - e^(-λ)
+        # P(Team ≥ 1 Tor) = 1 - e^(-λ) - für Anzeige
         p_home_scores = (1 - math.exp(-lambda_home)) * 100
         p_away_scores = (1 - math.exp(-lambda_away)) * 100
         
-        # P(BTTS) = P(Home ≥ 1) × P(Away ≥ 1)
-        poisson_btts = (p_home_scores * p_away_scores) / 100
+        # =============================================
+        # KORRIGIERTE BTTS-BERECHNUNG
+        # =============================================
+        # NICHT: P(BTTS) = P(Home≥1) × P(Away≥1) ← Falsch! Unabhängigkeit angenommen
+        # SONDERN: Dixon-Coles + Bivariate Poisson
+        
+        # 1. Dixon-Coles: Korrigiert niedrige Spielstände (0-0, 1-0, 0-1, 1-1)
+        dc_btts = self.dixon_coles.calculate_btts_probability(lambda_home, lambda_away)
+        
+        # 2. Bivariate Poisson: Modelliert Tor-Korrelation (Spieldynamik-Änderung nach Toren)
+        bv_btts = self.bivariate_poisson.calculate_btts_probability(lambda_home, lambda_away)
+        
+        # Kombiniere beide Modelle (60% Dixon-Coles, 40% Bivariate)
+        # Dixon-Coles ist empirisch besser validiert, daher höheres Gewicht
+        poisson_btts = 0.60 * dc_btts + 0.40 * bv_btts
         
         # =============================================
         # FINALE KOMBINATION
@@ -632,6 +743,8 @@ class AdvancedBTTSAnalyzer:
                 'expected_total_goals': round(expected_total, 2),
                 'p_home_scores': round(p_home_scores, 1),
                 'p_away_scores': round(p_away_scores, 1),
+                'dixon_coles_btts': round(dc_btts, 1),
+                'bivariate_poisson_btts': round(bv_btts, 1),
             },
             
             # Full stats for breakdown

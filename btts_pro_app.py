@@ -1511,17 +1511,21 @@ with tab7:
                             else:
                                 emoji = "✅"
                             
-                            with st.expander(f"{emoji} {opp['fixture']} | {best['probability']}%"):
-                                col1, col2, col3 = st.columns(3)
+                            # Show Value in header if available
+                            value_str = f" | Value: +{best.get('value', 0):.1f}%" if 'value' in best else ""
+                            with st.expander(f"{emoji} {opp['fixture']} | {best['probability']}%{value_str}"):
+                                col1, col2, col3, col4 = st.columns(4)
                                 
                                 with col1:
                                     st.metric("Wette", best['bet'])
                                 with col2:
                                     st.metric("Wahrscheinlichkeit", f"{best['probability']}%")
                                 with col3:
-                                    st.metric("Edge", f"+{best['edge']}%")
+                                    st.metric("Value", f"+{best.get('value', 0):.1f}%")
+                                with col4:
+                                    st.metric("Fair Odds", f"{best.get('fair_odds', '-')}")
                                 
-                                st.caption(f"Liga: {opp['league']} | Markt: {best['market']}")
+                                st.caption(f"Liga: {opp['league']} | Markt: {best['market']} | Est. Market Odds: {best.get('est_market_odds', '-')}")
                         
                         # Export button
                         export_data = [{
@@ -1529,6 +1533,8 @@ with tab7:
                             'Liga': o['league'],
                             'Wette': o['best_bet']['bet'],
                             'Wahrscheinlichkeit': f"{o['best_bet']['probability']}%",
+                            'Value': f"+{o['best_bet'].get('value', 0):.1f}%",
+                            'Fair Odds': o['best_bet'].get('fair_odds', '-'),
                             'Markt': o['best_bet']['market'],
                             'Stärke': o['best_bet']['strength']
                         } for o in filtered]

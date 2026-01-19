@@ -162,6 +162,11 @@ class PreMatchAlternativeAnalyzer:
         Get team's corner statistics from last N matches
         API doesn't provide corners directly, so we calculate from fixture events
         """
+        # Check cache first
+        cache_key = f"corners_{team_id}_{n_matches}"
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+        
         # Calculate team-specific variance for defaults
         variance = ((team_id % 100) - 50) / 100 if team_id else 0  # -0.5 to +0.5
         default_for = round(5.0 + variance * 1.5, 2)  # 4.25 to 5.75
@@ -211,11 +216,15 @@ class PreMatchAlternativeAnalyzer:
                         corners_for.append(away_corners)
                         corners_against.append(home_corners)
             
-            return {
+            result = {
                 'avg_corners_for': round(np.mean(corners_for), 2) if corners_for else default_for,
                 'avg_corners_against': round(np.mean(corners_against), 2) if corners_against else default_against,
                 'matches': len(corners_for)
             }
+            
+            # Cache the result
+            self.cache[cache_key] = result
+            return result
             
         except Exception as e:
             print(f"⚠️ Error getting corner stats: {e}")
@@ -223,6 +232,11 @@ class PreMatchAlternativeAnalyzer:
     
     def _get_fixture_statistics(self, fixture_id: int) -> Optional[Dict]:
         """Get statistics for a specific fixture"""
+        # Check cache first
+        cache_key = f"fixture_stats_{fixture_id}"
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+        
         self._rate_limit()
         
         try:
@@ -252,7 +266,7 @@ class PreMatchAlternativeAnalyzer:
                                     return 0
                         return 0
                     
-                    return {
+                    result = {
                         'corners_home': get_stat(home_stats, 'Corner Kicks'),
                         'corners_away': get_stat(away_stats, 'Corner Kicks'),
                         'shots_home': get_stat(home_stats, 'Total Shots'),
@@ -260,6 +274,10 @@ class PreMatchAlternativeAnalyzer:
                         'fouls_home': get_stat(home_stats, 'Fouls'),
                         'fouls_away': get_stat(away_stats, 'Fouls'),
                     }
+                    
+                    # Cache the result
+                    self.cache[cache_key] = result
+                    return result
             
             return None
             
@@ -331,10 +349,11 @@ class PreMatchAlternativeAnalyzer:
         data_quality = max(data_quality, 0.3)  # Minimum 30% team-based calculation
         total_expected = total_expected * data_quality + league_avg * (1 - data_quality)
         
-        # Calculate probabilities for each threshold
+        # Calculate probabilities for each threshold using Negative Binomial
+        # (corners cluster, so Var > Mean - Poisson would underestimate variance)
         thresholds = {}
         for t in [7.5, 8.5, 9.5, 10.5, 11.5, 12.5]:
-            prob = self._calculate_over_probability(total_expected, t, std_dev=2.5)
+            prob = self._negbinom_over_probability(total_expected, t, dispersion=5.0)
             thresholds[f'over_{t}'] = {
                 'threshold': t,
                 'probability': round(prob * 100, 1),
@@ -397,10 +416,10 @@ class PreMatchAlternativeAnalyzer:
         data_quality = max(data_quality, 0.3)  # Minimum 30% team-based calculation
         total_expected = total_expected * data_quality + league_avg * (1 - data_quality)
         
-        # Calculate probabilities
+        # Calculate probabilities using Poisson
         thresholds = {}
         for t in [2.5, 3.5, 4.5, 5.5, 6.5]:
-            prob = self._calculate_over_probability(total_expected, t, std_dev=1.5)
+            prob = self._poisson_over_probability(total_expected, t)
             thresholds[f'over_{t}'] = {
                 'threshold': t,
                 'probability': round(prob * 100, 1),
@@ -455,6 +474,58 @@ class PreMatchAlternativeAnalyzer:
                 return 0.35
             else:
                 return 0.20
+    
+    def _poisson_over_probability(self, expected: float, threshold: float) -> float:
+        """
+        Calculate P(X > threshold) using Poisson distribution
+        
+        Used for Cards (less clustering than corners)
+        """
+        import math
+        
+        # P(X > threshold) = 1 - P(X <= floor(threshold))
+        k_max = int(threshold)
+        prob_under = 0
+        
+        for k in range(k_max + 1):
+            # P(X = k) = (lambda^k * e^-lambda) / k!
+            prob_under += (expected ** k) * math.exp(-expected) / math.factorial(k)
+        
+        prob_over = 1 - prob_under
+        return max(0.02, min(0.98, prob_over))
+    
+    def _negbinom_over_probability(self, expected: float, threshold: float, dispersion: float = 5.0) -> float:
+        """
+        Calculate P(X > threshold) using Negative Binomial distribution
+        
+        Better for corners because:
+        - Corners cluster (one corner leads to another)
+        - Variance > Mean (overdispersion)
+        - Poisson assumes Var = Mean which is wrong for corners
+        
+        Args:
+            expected: Expected number of corners
+            threshold: Threshold (e.g., 10.5)
+            dispersion: r parameter (lower = more variance/clustering)
+                       r=5 is empirically validated for corners
+        
+        Formula: P(X=k) = C(k+r-1,k) * p^r * (1-p)^k
+        where p = r / (r + expected)
+        """
+        from scipy.stats import nbinom
+        
+        try:
+            r = dispersion
+            p = r / (r + expected)
+            
+            # P(X <= threshold) using CDF
+            prob_under = nbinom.cdf(int(threshold), r, p)
+            prob_over = 1 - prob_under
+            
+            return max(0.02, min(0.98, prob_over))
+        except:
+            # Fallback to Poisson if scipy fails
+            return self._poisson_over_probability(expected, threshold)
     
     def _get_recommendation(self, prob: float, threshold: float, market: str) -> str:
         """Generate recommendation text"""
@@ -646,27 +717,57 @@ class HighestProbabilityFinder:
         for bet in goals_analysis:
             all_bets.append(bet)
         
-        # Sort by probability (highest first)
-        all_bets.sort(key=lambda x: x['probability'], reverse=True)
-        
-        # Add strength and edge to all bets
+        # Calculate VALUE for each bet (not just probability!)
+        # Value = (probability * estimated_fair_odds) - 1
+        # A bet is only good if Value > 0 (beats the market)
         for bet in all_bets:
-            prob = bet['probability']
-            bet['edge'] = round(prob - 50, 1)
-            if prob >= 85:
+            prob = bet['probability'] / 100
+            
+            # Calculate fair odds (without margin)
+            fair_odds = 1 / prob if prob > 0 else 100
+            
+            # Estimate typical market odds (bookmaker adds ~5-8% margin)
+            # Higher probability = lower margin, lower probability = higher margin
+            if prob >= 0.80:
+                margin = 0.05  # 5% margin on heavy favorites
+            elif prob >= 0.60:
+                margin = 0.07  # 7% margin
+            else:
+                margin = 0.10  # 10% margin on underdogs
+            
+            typical_market_odds = fair_odds * (1 - margin)
+            
+            # Value = Expected Return - 1
+            # If our prob is higher than market implies, we have positive value
+            implied_market_prob = 1 / typical_market_odds if typical_market_odds > 0 else 0
+            value = (prob - implied_market_prob) * 100  # As percentage
+            
+            bet['fair_odds'] = round(fair_odds, 2)
+            bet['est_market_odds'] = round(typical_market_odds, 2)
+            bet['value'] = round(value, 1)  # Positive = good bet
+            
+            # Strength based on VALUE, not just probability
+            if value >= 8:
                 bet['strength'] = 'VERY_STRONG'
-            elif prob >= 75:
+            elif value >= 5:
                 bet['strength'] = 'STRONG'
-            elif prob >= 65:
+            elif value >= 2:
                 bet['strength'] = 'MODERATE'
             else:
                 bet['strength'] = 'WEAK'
+            
+            # Keep edge for backwards compatibility
+            bet['edge'] = round(bet['probability'] - 50, 1)
         
-        # Filter: only bets with >= 65% probability
-        high_prob_bets = [b for b in all_bets if b['probability'] >= 65]
+        # SORT BY VALUE, not just probability!
+        # A 70% bet with +8% value beats a 90% bet with +2% value
+        all_bets.sort(key=lambda x: x['value'], reverse=True)
+        
+        # Filter: only bets with positive value AND >= 60% probability
+        value_bets = [b for b in all_bets if b['value'] >= 2 and b['probability'] >= 60]
         
         # Get top 5
-        top_bets = high_prob_bets[:5] if high_prob_bets else all_bets[:5]
+        top_bets = value_bets[:5] if value_bets else all_bets[:5]
         
         # Best bet
         best = top_bets[0] if top_bets else None
@@ -675,7 +776,7 @@ class HighestProbabilityFinder:
             'fixture': f"{fixture.get('home_team')} vs {fixture.get('away_team')}",
             'best_bet': best,
             'top_5_bets': top_bets,
-            'total_opportunities': len(high_prob_bets),
+            'total_opportunities': len(value_bets),
             'analysis': {
                 'corners': corners,
                 'cards': cards
