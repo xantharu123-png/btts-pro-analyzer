@@ -284,7 +284,7 @@ def create_alternative_markets_tab_extended():
                                         if st.button("Analysieren", key=f"analyze_{match_id}"):
                                             st.session_state['selected_match'] = match
                                             st.session_state['match_selected'] = True
-                                            # Note: st.rerun() not needed - state persists automatically
+                                            st.rerun()  # NEEDED! Without this, nothing happens!
                                     
                                     st.markdown("---")
                     else:
