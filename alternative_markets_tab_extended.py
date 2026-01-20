@@ -279,49 +279,61 @@ def create_alternative_markets_tab_extended():
                     if all_fixtures:
                         st.success(f"✅ {len(all_fixtures)} Matches aus {len(selected_league_ids)} Liga(en) gefunden!")
                         
-                        # Store in session state
-                        st.session_state['fixtures'] = all_fixtures
-                        st.session_state['selected_league_ids'] = selected_league_ids
-                        
-                        # Display matches grouped by league
-                        st.markdown("### 📋 Verfügbare Matches:")
-                        
-                        # Group by league
-                        by_league = defaultdict(list)
-                        for match in all_fixtures:
-                            league_name = match['league']['name']
-                            by_league[league_name].append(match)
-                        
-                        # Display each league
-                        for league_name, matches in sorted(by_league.items()):
-                            with st.expander(f"🏆 {league_name} ({len(matches)} Matches)", expanded=True):
-                                for idx, match in enumerate(matches):
-                                    home = match['teams']['home']['name']
-                                    away = match['teams']['away']['name']
-                                    match_time = match['fixture']['date']
-                                    match_id = match['fixture']['id']
-                                    
-                                    col1, col2 = st.columns([3, 1])
-                                    
-                                    with col1:
-                                        st.markdown(f"**{home}** vs **{away}**")
-                                        st.caption(f"🕐 {match_time}")
-                                    
-                                    with col2:
-                                        # Use functools.partial to properly bind match
-                                        st.button(
-                                            "Analysieren",
-                                            key=f"analyze_{match_id}",
-                                            on_click=partial(_set_selected_match, match),
-                                            use_container_width=True
-                                        )
-                                    
-                                    st.markdown("---")
+                        # Store in UNIQUE session state key for Tab 7
+                        st.session_state['tab7_fixtures'] = all_fixtures
+                        st.session_state['tab7_search_date'] = search_date.strftime('%d.%m.%Y')
+                        st.session_state['tab7_selected_leagues'] = selected_league_ids
                     else:
                         st.warning(f"⚠️ Keine Matches am {search_date.strftime('%d.%m.%Y')} in den gewählten Ligen")
+                        st.session_state['tab7_fixtures'] = []
                 
                 except Exception as e:
                     st.error(f"❌ Fehler: {e}")
+                    st.session_state['tab7_fixtures'] = []
+        
+        # Display fixtures if they exist in session state (OUTSIDE button block!)
+        if 'tab7_fixtures' in st.session_state and st.session_state['tab7_fixtures']:
+            fixtures_to_display = st.session_state['tab7_fixtures']
+            search_date_display = st.session_state.get('tab7_search_date', 'N/A')
+            
+            st.markdown(f"### 📋 Verfügbare Matches ({search_date_display}):")
+            
+            # Add clear button
+            if st.button("🗑️ Matches löschen", key="clear_tab7_fixtures"):
+                st.session_state['tab7_fixtures'] = []
+                st.rerun()
+            
+            # Group by league
+            by_league = defaultdict(list)
+            for match in fixtures_to_display:
+                league_name = match['league']['name']
+                by_league[league_name].append(match)
+            
+            # Display each league
+            for league_name, matches in sorted(by_league.items()):
+                with st.expander(f"🏆 {league_name} ({len(matches)} Matches)", expanded=True):
+                    for idx, match in enumerate(matches):
+                        home = match['teams']['home']['name']
+                        away = match['teams']['away']['name']
+                        match_time = match['fixture']['date']
+                        match_id = match['fixture']['id']
+                        
+                        col1, col2 = st.columns([3, 1])
+                        
+                        with col1:
+                            st.markdown(f"**{home}** vs **{away}**")
+                            st.caption(f"🕐 {match_time}")
+                        
+                        with col2:
+                            # Use functools.partial to properly bind match
+                            st.button(
+                                "Analysieren",
+                                key=f"analyze_{match_id}",
+                                on_click=partial(_set_selected_match, match),
+                                use_container_width=True
+                            )
+                        
+                        st.markdown("---")
     
     # ========================================================================
     # TAB 2: CORNERS & CARDS
