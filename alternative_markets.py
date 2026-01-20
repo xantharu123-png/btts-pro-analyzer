@@ -180,13 +180,18 @@ class PreMatchAlternativeAnalyzer:
             print(f"⚠️ Error getting team stats: {e}")
             return self._get_defaults(league_id, team_id)
     
-    def get_team_corner_stats(self, team_id: int, n_matches: int = 10) -> Dict:
+    def get_team_corner_stats(self, team_id: int, league_id: Optional[int] = None, n_matches: int = 10) -> Dict:
         """
         Get team's corner statistics from last N matches
         API doesn't provide corners directly, so we calculate from fixture events
+        
+        Args:
+            team_id: Team ID
+            league_id: Optional league ID for league-specific stats
+            n_matches: Number of matches to analyze
         """
         # Check cache first
-        cache_key = f"corners_{team_id}_{n_matches}"
+        cache_key = f"corners_{team_id}_{league_id}_{n_matches}"
         if cache_key in self.cache:
             return self.cache[cache_key]
         
@@ -198,15 +203,22 @@ class PreMatchAlternativeAnalyzer:
         self._rate_limit()
         
         try:
+            # Build params - include league if specified for league-specific stats
+            params = {
+                'team': team_id,
+                'last': n_matches,
+                'status': 'FT'
+            }
+            
+            # Add league filter if specified (for league-specific analysis)
+            if league_id:
+                params['league'] = league_id
+            
             # Get last N finished matches
             response = requests.get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
-                params={
-                    'team': team_id,
-                    'last': n_matches,
-                    'status': 'FT'
-                },
+                params=params,
                 timeout=15
             )
             
@@ -344,9 +356,9 @@ class PreMatchAlternativeAnalyzer:
         away_id = fixture.get('away_team_id')
         league_id = fixture.get('league_id', 39)
         
-        # Get corner stats for both teams
-        home_corners = self.get_team_corner_stats(home_id)
-        away_corners = self.get_team_corner_stats(away_id)
+        # Get corner stats for both teams (league-specific if possible)
+        home_corners = self.get_team_corner_stats(home_id, league_id=league_id)
+        away_corners = self.get_team_corner_stats(away_id, league_id=league_id)
         
         # League average
         league_avg = self.LEAGUE_AVERAGES.get(league_id, {'corners': 10.5})['corners']
