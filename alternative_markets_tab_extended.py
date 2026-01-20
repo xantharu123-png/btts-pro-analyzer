@@ -147,6 +147,14 @@ def create_alternative_markets_tab_extended():
             )
         
         if st.button("🔍 Matches laden", type="primary"):
+            # Calculate season before spinner
+            current_year = search_date.year
+            current_month = search_date.month
+            current_season = current_year if current_month >= 8 else current_year - 1
+            
+            # Show which season we're searching
+            st.info(f"🔍 Suche in Season {current_season}/{current_season+1} am {search_date.strftime('%d.%m.%Y')}")
+            
             with st.spinner(f"Lade Matches aus {len(selected_league_ids)} Liga(en)..."):
                 try:
                     all_fixtures = []
@@ -158,7 +166,7 @@ def create_alternative_markets_tab_extended():
                             headers={'x-apisports-key': api_key},
                             params={
                                 'league': league_id,
-                                'season': 2024,
+                                'season': current_season,  # Dynamic season!
                                 'date': search_date.strftime('%Y-%m-%d')
                             },
                             timeout=15
