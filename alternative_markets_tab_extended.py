@@ -298,16 +298,21 @@ def create_alternative_markets_tab_extended():
                                         st.caption(f"🕐 {match_time}")
                                     
                                     with col2:
-                                        if st.button("Analysieren", key=f"analyze_{match_id}"):
-                                            # Set session state
-                                            st.session_state['selected_match'] = match
-                                            st.session_state['match_selected'] = True
-                                            
-                                            # DEBUG: Show what we're saving
-                                            st.toast(f"✅ Gespeichert: {match['teams']['home']['name']} vs {match['teams']['away']['name']}", icon="✅")
-                                            
-                                            # Force rerun
-                                            st.rerun()
+                                        # Use lambda to properly capture match variable
+                                        st.button(
+                                            "Analysieren",
+                                            key=f"analyze_{match_id}",
+                                            on_click=lambda m=match: (
+                                                st.session_state.update({
+                                                    'selected_match': m,
+                                                    'match_selected': True,
+                                                    'selected_match_home': m['teams']['home']['name'],
+                                                    'selected_match_away': m['teams']['away']['name'],
+                                                    'selected_match_id': m['fixture']['id']
+                                                })
+                                            ),
+                                            use_container_width=True
+                                        )
                                     
                                     st.markdown("---")
                     else:
@@ -383,29 +388,48 @@ def create_alternative_markets_tab_extended():
     with tab3:
         st.subheader("⚽ Match Result & Goals Prediction")
         
-        # DEBUG: Show what we're checking
+        # Check for match - use separate fields as fallback
         match_in_state = st.session_state.get('selected_match')
+        match_home = st.session_state.get('selected_match_home')
+        match_away = st.session_state.get('selected_match_away')
         
         # More explicit check
         if match_in_state is None or not match_in_state:
-            st.info("👈 Bitte wähle zuerst ein Match in Tab 1")
-            
-            # DEBUG
-            with st.expander("🔧 DEBUG: Why is this showing?"):
-                st.write(f"match_in_state: {match_in_state}")
-                st.write(f"match_in_state is None: {match_in_state is None}")
-                st.write(f"Type: {type(match_in_state)}")
-                st.write("Full session state:")
-                st.json(dict(st.session_state))
-            
-            st.markdown("---")
-            st.markdown("""
-            **So geht's:**
-            1. Wechsle zu Tab 1 "🔍 Match Suche"
-            2. Wähle Ligen und Datum
-            3. Klicke "Matches laden"
-            4. Klicke "Analysieren" bei einem Match
-            5. Komm zurück zu diesem Tab
+            # Try fallback fields
+            if match_home and match_away:
+                st.success(f"🎯 Analysiere: **{match_home} vs {match_away}**")
+                st.warning("⚠️ Match Daten teilweise verfügbar - zeige Demo Predictions")
+                
+                # Show demo predictions
+                st.markdown("### 🎯 Match Result (Demo)")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Home Win", "52.3%")
+                with col2:
+                    st.metric("Draw", "26.1%") 
+                with col3:
+                    st.metric("Away Win", "21.6%")
+            else:
+                st.info("👈 Bitte wähle zuerst ein Match in Tab 1")
+                
+                # DEBUG
+                with st.expander("🔧 DEBUG: Why is this showing?"):
+                    st.write(f"match_in_state: {match_in_state}")
+                    st.write(f"match_in_state is None: {match_in_state is None}")
+                    st.write(f"Type: {type(match_in_state)}")
+                    st.write(f"match_home: {match_home}")
+                    st.write(f"match_away: {match_away}")
+                    st.write("Full session state:")
+                    st.json(dict(st.session_state))
+                
+                st.markdown("---")
+                st.markdown("""
+                **So geht's:**
+                1. Wechsle zu Tab 1 "🔍 Match Suche"
+                2. Wähle Ligen und Datum
+                3. Klicke "Matches laden"
+                4. Klicke "Analysieren" bei einem Match
+                5. Komm zurück zu diesem Tab
             
             **Dann siehst du hier:**
             - Expected Goals
