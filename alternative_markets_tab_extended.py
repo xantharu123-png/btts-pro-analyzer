@@ -477,15 +477,21 @@ def create_alternative_markets_tab_extended():
             home_team_id = match['teams']['home']['id']
             away_team_id = match['teams']['away']['id']
             season = match['league']['season']
+            league_id = match['league']['id']  # WICHTIG: Welche Liga?
+            
+            # Info über welche Liga
+            league_name = match['league']['name']
+            st.info(f"📊 Lade Statistiken aus **{league_name}** (Season {season}/{season+1})")
             
             with st.spinner("🔄 Lade Team-Statistiken..."):
                 try:
-                    # Get last 10 matches for home team
+                    # Get last 10 matches for home team IN THIS LEAGUE
                     home_response = requests.get(
                         "https://v3.football.api-sports.io/fixtures",
                         headers={'x-apisports-key': api_key},
                         params={
                             'team': home_team_id,
+                            'league': league_id,  # ✅ NUR aus dieser Liga!
                             'season': season,
                             'last': 10,
                             'status': 'FT'  # Only finished matches
@@ -493,12 +499,13 @@ def create_alternative_markets_tab_extended():
                         timeout=15
                     )
                     
-                    # Get last 10 matches for away team
+                    # Get last 10 matches for away team IN THIS LEAGUE
                     away_response = requests.get(
                         "https://v3.football.api-sports.io/fixtures",
                         headers={'x-apisports-key': api_key},
                         params={
                             'team': away_team_id,
+                            'league': league_id,  # ✅ NUR aus dieser Liga!
                             'season': season,
                             'last': 10,
                             'status': 'FT'
@@ -543,17 +550,83 @@ def create_alternative_markets_tab_extended():
                                     away_data['goals_conceded'].append(goals_away)
                         
                         # Check if we have enough data
-                        if len(home_data['goals_scored']) < 3 or len(away_data['goals_scored']) < 3:
-                            st.warning(f"⚠️ Nicht genug Daten: {home_team}: {len(home_data['goals_scored'])} Spiele, {away_team}: {len(away_data['goals_scored'])} Spiele")
-                            st.info("💡 Nutze Mindest-Daten für Berechnung")
+                        min_required = 5  # Need at least 5 matches for reliable prediction
+                        
+                        if len(home_data['goals_scored']) < min_required or len(away_data['goals_scored']) < min_required:
+                            st.warning(f"⚠️ Nicht genug {league_name} Daten: {home_team}: {len(home_data['goals_scored'])}, {away_team}: {len(away_data['goals_scored'])} Spiele")
+                            st.info(f"💡 Erweitere auf ALLE Wettbewerbe (Saison {season}/{season+1})")
                             
-                            # Fallback to minimal data
-                            if not home_data['goals_scored']:
-                                home_data = {'goals_scored': [1, 1, 1], 'goals_conceded': [1, 1, 1]}
-                            if not away_data['goals_scored']:
-                                away_data = {'goals_scored': [1, 1, 1], 'goals_conceded': [1, 1, 1]}
+                            # FALLBACK: Get matches from ALL leagues
+                            try:
+                                home_response_all = requests.get(
+                                    "https://v3.football.api-sports.io/fixtures",
+                                    headers={'x-apisports-key': api_key},
+                                    params={
+                                        'team': home_team_id,
+                                        'season': season,
+                                        'last': 10,
+                                        'status': 'FT'
+                                    },
+                                    timeout=15
+                                )
+                                
+                                away_response_all = requests.get(
+                                    "https://v3.football.api-sports.io/fixtures",
+                                    headers={'x-apisports-key': api_key},
+                                    params={
+                                        'team': away_team_id,
+                                        'season': season,
+                                        'last': 10,
+                                        'status': 'FT'
+                                    },
+                                    timeout=15
+                                )
+                                
+                                if home_response_all.status_code == 200 and away_response_all.status_code == 200:
+                                    home_fixtures_all = home_response_all.json().get('response', [])
+                                    away_fixtures_all = away_response_all.json().get('response', [])
+                                    
+                                    # Re-process with all leagues
+                                    home_data = {'goals_scored': [], 'goals_conceded': []}
+                                    away_data = {'goals_scored': [], 'goals_conceded': []}
+                                    
+                                    for fixture in home_fixtures_all[:5]:
+                                        home_id = fixture['teams']['home']['id']
+                                        goals_home = fixture['goals']['home']
+                                        goals_away = fixture['goals']['away']
+                                        
+                                        if goals_home is not None and goals_away is not None:
+                                            if home_id == home_team_id:
+                                                home_data['goals_scored'].append(goals_home)
+                                                home_data['goals_conceded'].append(goals_away)
+                                            else:
+                                                home_data['goals_scored'].append(goals_away)
+                                                home_data['goals_conceded'].append(goals_home)
+                                    
+                                    for fixture in away_fixtures_all[:5]:
+                                        away_id = fixture['teams']['away']['id']
+                                        goals_home = fixture['goals']['home']
+                                        goals_away = fixture['goals']['away']
+                                        
+                                        if goals_home is not None and goals_away is not None:
+                                            if away_id == away_team_id:
+                                                away_data['goals_scored'].append(goals_away)
+                                                away_data['goals_conceded'].append(goals_home)
+                                            else:
+                                                away_data['goals_scored'].append(goals_home)
+                                                away_data['goals_conceded'].append(goals_away)
+                                    
+                                    st.success(f"✅ Erweiterte Daten: {len(home_data['goals_scored'])} + {len(away_data['goals_scored'])} Spiele (alle Wettbewerbe)")
+                            
+                            except Exception as e:
+                                st.warning(f"Fallback error: {e}")
+                                # Final fallback to minimal data
+                                if not home_data['goals_scored']:
+                                    home_data = {'goals_scored': [1, 1, 1], 'goals_conceded': [1, 1, 1]}
+                                if not away_data['goals_scored']:
+                                    away_data = {'goals_scored': [1, 1, 1], 'goals_conceded': [1, 1, 1]}
                         else:
-                            st.success(f"✅ Team-Statistiken geladen: {len(home_data['goals_scored'])} + {len(away_data['goals_scored'])} Spiele")
+                            st.success(f"✅ {league_name} Statistiken: {len(home_data['goals_scored'])} + {len(away_data['goals_scored'])} Spiele")
                     
                     else:
                         st.error(f"❌ API Error: {home_response.status_code}")
