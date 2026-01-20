@@ -15,6 +15,7 @@ from alternative_markets import (
     MatchResultPredictor
 )
 from datetime import datetime, timedelta
+from collections import defaultdict
 import requests
 
 
@@ -67,22 +68,39 @@ def create_alternative_markets_tab_extended():
     with tab1:
         st.subheader("🔍 Match auswählen")
         
-        # League selection
+        # League selection - ALLE Ligen sichtbar
         leagues = {
             "🇩🇪 Bundesliga": 78,
-            "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": 39,
+            "🏴 Premier League": 39,
             "🇪🇸 La Liga": 140,
             "🇮🇹 Serie A": 135,
             "🇫🇷 Ligue 1": 61,
             "🇳🇱 Eredivisie": 88,
             "🇵🇹 Primeira Liga": 94,
             "🇹🇷 Süper Lig": 203,
-            "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship": 40,
+            "🏴 Championship": 40,
             "🇩🇪 Bundesliga 2": 79,
         }
         
-        selected_league_name = st.selectbox("Liga wählen", list(leagues.keys()))
-        selected_league_id = leagues[selected_league_name]
+        # Option to select all or specific leagues
+        select_all = st.checkbox("✅ Alle Ligen durchsuchen", value=False)
+        
+        if select_all:
+            st.info("📊 Alle 10 Top-Ligen werden durchsucht")
+            selected_league_ids = list(leagues.values())
+        else:
+            selected_league_names = st.multiselect(
+                "Ligen auswählen (mehrere möglich)",
+                options=list(leagues.keys()),
+                default=["🇩🇪 Bundesliga"],
+                help="Wähle eine oder mehrere Ligen aus"
+            )
+            
+            if selected_league_names:
+                selected_league_ids = [leagues[name] for name in selected_league_names]
+            else:
+                st.warning("⚠️ Bitte mindestens eine Liga auswählen!")
+                selected_league_ids = [78]  # Default Bundesliga
         
         # Date selection
         date_option = st.radio(
@@ -104,54 +122,66 @@ def create_alternative_markets_tab_extended():
             )
         
         if st.button("🔍 Matches laden", type="primary"):
-            with st.spinner("Lade Matches..."):
+            with st.spinner(f"Lade Matches aus {len(selected_league_ids)} Liga(en)..."):
                 try:
-                    # Get fixtures from API
-                    response = requests.get(
-                        "https://v3.football.api-sports.io/fixtures",
-                        headers={'x-apisports-key': api_key},
-                        params={
-                            'league': selected_league_id,
-                            'season': 2024,  # Adjust as needed
-                            'date': search_date.strftime('%Y-%m-%d')
-                        },
-                        timeout=15
-                    )
+                    all_fixtures = []
                     
-                    if response.status_code == 200:
-                        fixtures = response.json().get('response', [])
+                    # Get fixtures for each league
+                    for league_id in selected_league_ids:
+                        response = requests.get(
+                            "https://v3.football.api-sports.io/fixtures",
+                            headers={'x-apisports-key': api_key},
+                            params={
+                                'league': league_id,
+                                'season': 2024,
+                                'date': search_date.strftime('%Y-%m-%d')
+                            },
+                            timeout=15
+                        )
                         
-                        if fixtures:
-                            st.success(f"✅ {len(fixtures)} Matches gefunden!")
-                            
-                            # Store in session state
-                            st.session_state['fixtures'] = fixtures
-                            st.session_state['selected_league_id'] = selected_league_id
-                            
-                            # Display matches
-                            st.markdown("### 📋 Verfügbare Matches:")
-                            
-                            for idx, match in enumerate(fixtures):
-                                home = match['teams']['home']['name']
-                                away = match['teams']['away']['name']
-                                match_time = match['fixture']['date']
-                                
-                                col1, col2 = st.columns([3, 1])
-                                
-                                with col1:
-                                    st.markdown(f"**{home}** vs **{away}**")
-                                    st.caption(f"🕐 {match_time}")
-                                
-                                with col2:
-                                    if st.button("Analysieren", key=f"analyze_{idx}"):
-                                        st.session_state['selected_match'] = match
-                                        st.rerun()
-                                
-                                st.markdown("---")
-                        else:
-                            st.warning(f"⚠️ Keine Matches am {search_date.strftime('%d.%m.%Y')}")
+                        if response.status_code == 200:
+                            fixtures = response.json().get('response', [])
+                            all_fixtures.extend(fixtures)
+                    
+                    if all_fixtures:
+                        st.success(f"✅ {len(all_fixtures)} Matches aus {len(selected_league_ids)} Liga(en) gefunden!")
+                        
+                        # Store in session state
+                        st.session_state['fixtures'] = all_fixtures
+                        st.session_state['selected_league_ids'] = selected_league_ids
+                        
+                        # Display matches grouped by league
+                        st.markdown("### 📋 Verfügbare Matches:")
+                        
+                        # Group by league
+                        by_league = defaultdict(list)
+                        for match in all_fixtures:
+                            league_name = match['league']['name']
+                            by_league[league_name].append(match)
+                        
+                        # Display each league
+                        for league_name, matches in sorted(by_league.items()):
+                            with st.expander(f"🏆 {league_name} ({len(matches)} Matches)", expanded=True):
+                                for idx, match in enumerate(matches):
+                                    home = match['teams']['home']['name']
+                                    away = match['teams']['away']['name']
+                                    match_time = match['fixture']['date']
+                                    match_id = match['fixture']['id']
+                                    
+                                    col1, col2 = st.columns([3, 1])
+                                    
+                                    with col1:
+                                        st.markdown(f"**{home}** vs **{away}**")
+                                        st.caption(f"🕐 {match_time}")
+                                    
+                                    with col2:
+                                        if st.button("Analysieren", key=f"analyze_{match_id}"):
+                                            st.session_state['selected_match'] = match
+                                            st.rerun()
+                                    
+                                    st.markdown("---")
                     else:
-                        st.error(f"❌ API Error: {response.status_code}")
+                        st.warning(f"⚠️ Keine Matches am {search_date.strftime('%d.%m.%Y')} in den gewählten Ligen")
                 
                 except Exception as e:
                     st.error(f"❌ Fehler: {e}")
@@ -217,7 +247,7 @@ def create_alternative_markets_tab_extended():
             match = st.session_state['selected_match']
             home_team = match['teams']['home']['name']
             away_team = match['teams']['away']['name']
-            league_id = st.session_state.get('selected_league_id', 78)
+            league_id = match['league']['id']  # Get from match directly
             
             st.markdown(f"### 🏟️ {home_team} vs {away_team}")
             
