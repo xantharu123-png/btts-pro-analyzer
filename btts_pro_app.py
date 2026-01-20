@@ -17,7 +17,6 @@ from typing import Optional
 from advanced_analyzer import AdvancedBTTSAnalyzer
 from data_engine import DataEngine
 from modern_progress_bar import ModernProgressBar
-from red_card_bot import create_red_card_monitor_tab
 from alternative_markets_tab_extended import create_alternative_markets_tab_extended
 
 
@@ -1175,10 +1174,10 @@ with tab6:
 
 
 # TAB 7: ALTERNATIVE MARKETS - EXTENDED VERSION
+# TAB 7: ALTERNATIVE MARKETS
 with tab7:
     create_alternative_markets_tab_extended()
 
-# TAB 8: Red Card Alerts
 with tab8:
     st.header("🔴 Red Card Alert System")
     
