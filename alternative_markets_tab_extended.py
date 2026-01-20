@@ -68,31 +68,56 @@ def create_alternative_markets_tab_extended():
     with tab1:
         st.subheader("🔍 Match auswählen")
         
-        # League selection - ALLE Ligen sichtbar
+        # League selection - ALLE 28 Ligen
         leagues = {
+            # Top 5 European Leagues
             "🇩🇪 Bundesliga": 78,
             "🏴 Premier League": 39,
             "🇪🇸 La Liga": 140,
             "🇮🇹 Serie A": 135,
             "🇫🇷 Ligue 1": 61,
+            
+            # Champions League & Europa League
+            "🏆 Champions League": 2,
+            "🏆 Europa League": 3,
+            
+            # Other Top European Leagues
             "🇳🇱 Eredivisie": 88,
             "🇵🇹 Primeira Liga": 94,
             "🇹🇷 Süper Lig": 203,
             "🏴 Championship": 40,
             "🇩🇪 Bundesliga 2": 79,
+            "🏴 League One": 41,
+            "🏴 League Two": 42,
+            "🇧🇪 Pro League": 144,
+            "🇦🇹 Bundesliga": 218,
+            "🇨🇭 Super League": 207,
+            "🇩🇰 Superliga": 119,
+            "🇸🇪 Allsvenskan": 113,
+            "🇳🇴 Eliteserien": 103,
+            "🇬🇷 Super League": 197,
+            "🇨🇿 Czech Liga": 345,
+            "🇷🇴 Liga 1": 283,
+            "🇷🇸 SuperLiga": 286,
+            "🇭🇷 HNL": 210,
+            "🇺🇦 Premier League": 333,
+            "🇵🇱 Ekstraklasa": 106,
+            "🇸🇰 Fortuna Liga": 332,
         }
+        
+        st.info(f"📊 {len(leagues)} Ligen verfügbar")
         
         # Option to select all or specific leagues
         select_all = st.checkbox("✅ Alle Ligen durchsuchen", value=False)
         
         if select_all:
-            st.info("📊 Alle 10 Top-Ligen werden durchsucht")
+            st.success(f"✅ Alle {len(leagues)} Ligen werden durchsucht")
             selected_league_ids = list(leagues.values())
         else:
             selected_league_names = st.multiselect(
                 "Ligen auswählen (mehrere möglich)",
                 options=list(leagues.keys()),
-                default=["🇩🇪 Bundesliga"],
+                default=["🇩🇪 Bundesliga", "🏴 Premier League", "🇪🇸 La Liga"],
                 help="Wähle eine oder mehrere Ligen aus"
             )
             
