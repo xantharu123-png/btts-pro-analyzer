@@ -68,6 +68,17 @@ def create_alternative_markets_tab_extended():
     with tab1:
         st.subheader("🔍 Match auswählen")
         
+        # Show success message if match was just selected
+        if st.session_state.get('match_selected', False):
+            match = st.session_state.get('selected_match')
+            if match:
+                home = match['teams']['home']['name']
+                away = match['teams']['away']['name']
+                st.success(f"✅ Match ausgewählt: **{home} vs {away}**")
+                st.info("👉 **Wechsle zu Tab 2 (Corners & Cards) oder Tab 3 (Match Result & Goals)** um die Analyse zu sehen!")
+                # Reset flag
+                st.session_state['match_selected'] = False
+        
         # League selection - ALLE 28 Ligen
         leagues = {
             # Top 5 European Leagues
@@ -210,6 +221,7 @@ def create_alternative_markets_tab_extended():
                                     with col2:
                                         if st.button("Analysieren", key=f"analyze_{match_id}"):
                                             st.session_state['selected_match'] = match
+                                            st.session_state['match_selected'] = True
                                             st.rerun()
                                     
                                     st.markdown("---")
@@ -228,10 +240,22 @@ def create_alternative_markets_tab_extended():
         
         if 'selected_match' not in st.session_state:
             st.info("👈 Bitte wähle zuerst ein Match in Tab 1")
+            st.markdown("---")
+            st.markdown("""
+            **So geht's:**
+            1. Wechsle zu Tab 1 "🔍 Match Suche"
+            2. Wähle Ligen und Datum
+            3. Klicke "Matches laden"
+            4. Klicke "Analysieren" bei einem Match
+            5. Komm zurück zu diesem Tab
+            """)
         else:
             match = st.session_state['selected_match']
             home_team = match['teams']['home']['name']
             away_team = match['teams']['away']['name']
+            
+            # Show which match is being analyzed
+            st.success(f"🎯 Analysiere: **{home_team} vs {away_team}**")
             
             st.markdown(f"### 🏟️ {home_team} vs {away_team}")
             
@@ -276,11 +300,31 @@ def create_alternative_markets_tab_extended():
         
         if 'selected_match' not in st.session_state:
             st.info("👈 Bitte wähle zuerst ein Match in Tab 1")
+            st.markdown("---")
+            st.markdown("""
+            **So geht's:**
+            1. Wechsle zu Tab 1 "🔍 Match Suche"
+            2. Wähle Ligen und Datum
+            3. Klicke "Matches laden"
+            4. Klicke "Analysieren" bei einem Match
+            5. Komm zurück zu diesem Tab
+            
+            **Dann siehst du hier:**
+            - Expected Goals
+            - Match Result (1X2)
+            - Double Chance
+            - Over/Under
+            - BTTS
+            - Best Value Bets
+            """)
         else:
             match = st.session_state['selected_match']
             home_team = match['teams']['home']['name']
             away_team = match['teams']['away']['name']
             league_id = match['league']['id']  # Get from match directly
+            
+            # Show which match is being analyzed
+            st.success(f"🎯 Analysiere: **{home_team} vs {away_team}**")
             
             st.markdown(f"### 🏟️ {home_team} vs {away_team}")
             
