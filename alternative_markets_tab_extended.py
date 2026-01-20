@@ -16,7 +16,17 @@ from alternative_markets import (
 )
 from datetime import datetime, timedelta
 from collections import defaultdict
+from functools import partial
 import requests
+
+
+def _set_selected_match(match_data):
+    """Callback to set selected match in session state"""
+    st.session_state['selected_match'] = match_data
+    st.session_state['match_selected'] = True
+    st.session_state['selected_match_home'] = match_data['teams']['home']['name']
+    st.session_state['selected_match_away'] = match_data['teams']['away']['name']
+    st.session_state['selected_match_id'] = match_data['fixture']['id']
 
 
 def create_alternative_markets_tab_extended():
@@ -298,19 +308,11 @@ def create_alternative_markets_tab_extended():
                                         st.caption(f"🕐 {match_time}")
                                     
                                     with col2:
-                                        # Use lambda to properly capture match variable
+                                        # Use functools.partial to properly bind match
                                         st.button(
                                             "Analysieren",
                                             key=f"analyze_{match_id}",
-                                            on_click=lambda m=match: (
-                                                st.session_state.update({
-                                                    'selected_match': m,
-                                                    'match_selected': True,
-                                                    'selected_match_home': m['teams']['home']['name'],
-                                                    'selected_match_away': m['teams']['away']['name'],
-                                                    'selected_match_id': m['fixture']['id']
-                                                })
-                                            ),
+                                            on_click=partial(_set_selected_match, match),
                                             use_container_width=True
                                         )
                                     
@@ -459,19 +461,99 @@ def create_alternative_markets_tab_extended():
             - Form Weighting (letzte Spiele wichtiger)
             """)
             
-            # DEMO DATA (you would get real data from API)
-            st.warning("⚠️ Demo-Daten - Für echte Analyse müssen Team-Statistiken geladen werden")
+            # Get real team statistics from API
+            home_team_id = match['teams']['home']['id']
+            away_team_id = match['teams']['away']['id']
+            season = match['league']['season']
             
-            # Example home/away data
-            home_data = {
-                'goals_scored': [3, 2, 4, 1, 3],
-                'goals_conceded': [1, 0, 1, 1, 0]
-            }
-            
-            away_data = {
-                'goals_scored': [2, 1, 2, 0, 1],
-                'goals_conceded': [2, 1, 1, 2, 1]
-            }
+            with st.spinner("🔄 Lade Team-Statistiken..."):
+                try:
+                    # Get last 10 matches for home team
+                    home_response = requests.get(
+                        "https://v3.football.api-sports.io/fixtures",
+                        headers={'x-apisports-key': api_key},
+                        params={
+                            'team': home_team_id,
+                            'season': season,
+                            'last': 10,
+                            'status': 'FT'  # Only finished matches
+                        },
+                        timeout=15
+                    )
+                    
+                    # Get last 10 matches for away team
+                    away_response = requests.get(
+                        "https://v3.football.api-sports.io/fixtures",
+                        headers={'x-apisports-key': api_key},
+                        params={
+                            'team': away_team_id,
+                            'season': season,
+                            'last': 10,
+                            'status': 'FT'
+                        },
+                        timeout=15
+                    )
+                    
+                    if home_response.status_code == 200 and away_response.status_code == 200:
+                        home_fixtures = home_response.json().get('response', [])
+                        away_fixtures = away_response.json().get('response', [])
+                        
+                        # Extract goals scored and conceded
+                        home_data = {'goals_scored': [], 'goals_conceded': []}
+                        away_data = {'goals_scored': [], 'goals_conceded': []}
+                        
+                        # Process home team matches
+                        for fixture in home_fixtures[:5]:  # Last 5 matches
+                            home_id = fixture['teams']['home']['id']
+                            goals_home = fixture['goals']['home']
+                            goals_away = fixture['goals']['away']
+                            
+                            if goals_home is not None and goals_away is not None:
+                                if home_id == home_team_id:  # Playing at home
+                                    home_data['goals_scored'].append(goals_home)
+                                    home_data['goals_conceded'].append(goals_away)
+                                else:  # Playing away
+                                    home_data['goals_scored'].append(goals_away)
+                                    home_data['goals_conceded'].append(goals_home)
+                        
+                        # Process away team matches
+                        for fixture in away_fixtures[:5]:  # Last 5 matches
+                            away_id = fixture['teams']['away']['id']
+                            goals_home = fixture['goals']['home']
+                            goals_away = fixture['goals']['away']
+                            
+                            if goals_home is not None and goals_away is not None:
+                                if away_id == away_team_id:  # Playing away
+                                    away_data['goals_scored'].append(goals_away)
+                                    away_data['goals_conceded'].append(goals_home)
+                                else:  # Playing at home
+                                    away_data['goals_scored'].append(goals_home)
+                                    away_data['goals_conceded'].append(goals_away)
+                        
+                        # Check if we have enough data
+                        if len(home_data['goals_scored']) < 3 or len(away_data['goals_scored']) < 3:
+                            st.warning(f"⚠️ Nicht genug Daten: {home_team}: {len(home_data['goals_scored'])} Spiele, {away_team}: {len(away_data['goals_scored'])} Spiele")
+                            st.info("💡 Nutze Mindest-Daten für Berechnung")
+                            
+                            # Fallback to minimal data
+                            if not home_data['goals_scored']:
+                                home_data = {'goals_scored': [1, 1, 1], 'goals_conceded': [1, 1, 1]}
+                            if not away_data['goals_scored']:
+                                away_data = {'goals_scored': [1, 1, 1], 'goals_conceded': [1, 1, 1]}
+                        else:
+                            st.success(f"✅ Team-Statistiken geladen: {len(home_data['goals_scored'])} + {len(away_data['goals_scored'])} Spiele")
+                    
+                    else:
+                        st.error(f"❌ API Error: {home_response.status_code}")
+                        # Use fallback data
+                        home_data = {'goals_scored': [2, 1, 2], 'goals_conceded': [1, 1, 1]}
+                        away_data = {'goals_scored': [1, 1, 1], 'goals_conceded': [2, 1, 1]}
+                
+                except Exception as e:
+                    st.error(f"❌ Fehler beim Laden: {e}")
+                    # Use fallback data
+                    home_data = {'goals_scored': [2, 1, 2], 'goals_conceded': [1, 1, 1]}
+                    away_data = {'goals_scored': [1, 1, 1], 'goals_conceded': [2, 1, 1]}
             
             # Initialize predictor
             predictor = MatchResultPredictor(league_id=league_id)
@@ -479,6 +561,26 @@ def create_alternative_markets_tab_extended():
             # Get prediction
             try:
                 prediction = predictor.predict_match(home_data, away_data)
+                
+                # Show data used (debug info)
+                with st.expander("📊 Genutzte Team-Statistiken", expanded=False):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown(f"**{home_team} (letzte {len(home_data['goals_scored'])} Spiele)**")
+                        st.write(f"Tore erzielt: {home_data['goals_scored']}")
+                        st.write(f"Tore kassiert: {home_data['goals_conceded']}")
+                        st.write(f"Ø Tore erzielt: {sum(home_data['goals_scored'])/len(home_data['goals_scored']):.2f}")
+                        st.write(f"Ø Tore kassiert: {sum(home_data['goals_conceded'])/len(home_data['goals_conceded']):.2f}")
+                    
+                    with col2:
+                        st.markdown(f"**{away_team} (letzte {len(away_data['goals_scored'])} Spiele)**")
+                        st.write(f"Tore erzielt: {away_data['goals_scored']}")
+                        st.write(f"Tore kassiert: {away_data['goals_conceded']}")
+                        st.write(f"Ø Tore erzielt: {sum(away_data['goals_scored'])/len(away_data['goals_scored']):.2f}")
+                        st.write(f"Ø Tore kassiert: {sum(away_data['goals_conceded'])/len(away_data['goals_conceded']):.2f}")
+                
+                st.markdown("---")
                 
                 # Expected Goals
                 st.markdown("### 📊 Expected Goals")
