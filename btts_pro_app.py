@@ -18,6 +18,7 @@ from advanced_analyzer import AdvancedBTTSAnalyzer
 from data_engine import DataEngine
 from modern_progress_bar import ModernProgressBar
 from red_card_bot import create_red_card_monitor_tab
+from alternative_markets_tab_extended import create_alternative_markets_tab_extended
 
 
 def _get_supabase_url() -> Optional[str]:
@@ -1175,489 +1176,204 @@ with tab6:
 
 # TAB 7: ALTERNATIVE MARKETS - EXTENDED VERSION
 with tab7:
-    st.header("📊 ALTERNATIVE MARKETS - Extended")
-    
-    st.markdown("""
-    **Mathematische Analyse für Corners, Cards & mehr!**
-    
-    ✨ **NEU:** Pre-Match Analyse + "Höchste Wahrscheinlichkeit" Scanner
-    """)
-    
-    # Sub-Tabs für verschiedene Modi
-    alt_tab1, alt_tab2, alt_tab3 = st.tabs([
-        "📺 Live Markets",
-        "🔮 Pre-Match Analyse", 
-        "🏆 Höchste Wahrscheinlichkeit"
-    ])
-    
-    # ============================================
-    # ALT TAB 1: LIVE MARKETS
-    # ============================================
-    with alt_tab1:
-        st.subheader("📺 Live Alternative Markets")
-        
-        try:
-            from streamlit_autorefresh import st_autorefresh
-            
-            # Manual refresh
-            col_r1, col_r2 = st.columns([1,3])
-            with col_r1:
-                if st.button("🔄 Refresh", key="refresh_alt_live"):
-                    st.rerun()
-            with col_r2:
-                st.caption(f"Last: {datetime.now().strftime('%H:%M:%S')}")
-            
-            # Settings
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                min_prob_alt = st.slider(
-                    "Min Probability %",
-                    min_value=60,
-                    max_value=95,
-                    value=75,
-                    step=5,
-                    key="min_prob_alt_live"
-                )
-            
-            with col2:
-                market_types = st.multiselect(
-                    "Select Markets",
-                    options=['Cards', 'Corners', 'Shots', 'Team Specials'],
-                    default=['Cards', 'Corners'],
-                    key="market_types_live"
-                )
-            
-            st.markdown("---")
-            
-            try:
-                from alternative_markets import CardPredictor, CornerPredictor, ShotPredictor, TeamSpecialPredictor
-                from api_football import APIFootball
-                import requests
-                
-                # Initialize
-                api_football = APIFootball(st.secrets['api']['api_football_key'])
-                
-                # Get live matches
-                with st.spinner("🔍 Scanning live matches..."):
-                    
-                    league_ids = [
-                        78, 39, 140, 135, 61, 88, 94, 203, 40, 79, 262, 71,
-                        2, 3, 848, 179, 144, 207, 218,
-                        265, 330, 165, 188, 89, 209, 113, 292, 301
-                    ]
-                    
-                    try:
-                        api_football._rate_limit()
-                        
-                        response = requests.get(
-                            f"{api_football.base_url}/fixtures",
-                            headers=api_football.headers,
-                            params={'live': 'all'},
-                            timeout=15
-                        )
-                        
-                        live_matches = []
-                        
-                        if response.status_code == 200:
-                            data = response.json()
-                            all_matches = data.get('response', [])
-                            
-                            for match in all_matches:
-                                league_id = match.get('league', {}).get('id')
-                                if league_id in league_ids:
-                                    live_matches.append(match)
-                            
-                            st.write(f"📊 {len(all_matches)} total | ✅ {len(live_matches)} in our leagues")
-                        else:
-                            st.error(f"❌ API Error: {response.status_code}")
-                    
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-                        live_matches = []
-                
-                if not live_matches:
-                    st.info("⚽ No live matches in our leagues currently")
-                else:
-                    # Initialize predictors
-                    card_pred = CardPredictor() if 'Cards' in market_types else None
-                    corner_pred = CornerPredictor() if 'Corners' in market_types else None
-                    shot_pred = ShotPredictor() if 'Shots' in market_types else None
-                    team_pred = TeamSpecialPredictor() if 'Team Specials' in market_types else None
-                    
-                    all_opportunities = []
-                    progress = st.progress(0)
-                    
-                    for idx, match in enumerate(live_matches):
-                        fixture = match['fixture']
-                        teams = match['teams']
-                        goals = match['goals']
-                        league = match['league']
-                        
-                        fixture_id = fixture['id']
-                        home_team = teams['home']['name']
-                        away_team = teams['away']['name']
-                        minute = fixture['status']['elapsed'] or 0
-                        home_score = goals['home'] if goals['home'] is not None else 0
-                        away_score = goals['away'] if goals['away'] is not None else 0
-                        
-                        stats = api_football.get_match_statistics(fixture_id)
-                        
-                        match_data = {
-                            'home_team': home_team,
-                            'away_team': away_team,
-                            'home_score': home_score,
-                            'away_score': away_score,
-                            'minute': minute,
-                            'league': league['name'],
-                            'league_id': league['id'],
-                            'stats': stats or {},
-                            'phase_data': {'phase': 'DESPERATE' if minute >= 75 else 'NORMAL'}
-                        }
-                        
-                        # Cards
-                        if card_pred and stats:
-                            try:
-                                card_result = card_pred.predict_cards(match_data, minute)
-                                for key, data in card_result.get('thresholds', {}).items():
-                                    if (data['status'] == 'ACTIVE' and 
-                                        data['probability'] >= min_prob_alt and
-                                        data['strength'] in ['VERY_STRONG', 'STRONG']):
-                                        all_opportunities.append({
-                                            'type': 'CARDS',
-                                            'match': match_data,
-                                            'prediction': card_result,
-                                            'threshold_data': data
-                                        })
-                                        break
-                            except:
-                                pass
-                        
-                        # Corners
-                        if corner_pred and stats:
-                            try:
-                                corner_result = corner_pred.predict_corners(match_data, minute)
-                                for key, data in corner_result.get('thresholds', {}).items():
-                                    if (data['status'] == 'ACTIVE' and 
-                                        data['probability'] >= min_prob_alt and
-                                        data['strength'] in ['VERY_STRONG', 'STRONG']):
-                                        all_opportunities.append({
-                                            'type': 'CORNERS',
-                                            'match': match_data,
-                                            'prediction': corner_result,
-                                            'threshold_data': data
-                                        })
-                                        break
-                            except:
-                                pass
-                        
-                        progress.progress((idx + 1) / len(live_matches))
-                    
-                    progress.empty()
-                    
-                    # Display
-                    if not all_opportunities:
-                        st.warning("⚠️ No opportunities meeting criteria")
-                    else:
-                        st.success(f"🔥 Found {len(all_opportunities)} opportunities!")
-                        
-                        for opp in all_opportunities:
-                            m = opp['match']
-                            p = opp['prediction']
-                            t = opp['threshold_data']
-                            
-                            with st.expander(f"🔴 {m['minute']}' | {m['home_team']} vs {m['away_team']} | {opp['type']}"):
-                                col1, col2, col3 = st.columns(3)
-                                
-                                if opp['type'] == 'CARDS':
-                                    with col1:
-                                        st.metric("Current", f"{p['current_cards']} cards")
-                                    with col2:
-                                        st.metric("Expected", f"{p['expected_total']:.1f}")
-                                    with col3:
-                                        st.metric("Probability", f"{t['probability']}%")
-                                    st.info(f"**{p['recommendation']}**")
-                                
-                                elif opp['type'] == 'CORNERS':
-                                    with col1:
-                                        st.metric("Current", f"{p['current_corners']} corners")
-                                    with col2:
-                                        st.metric("Expected", f"{p['expected_total']:.1f}")
-                                    with col3:
-                                        st.metric("Probability", f"{t['probability']}%")
-                                    st.info(f"**{p['recommendation']}**")
-            
-            except ImportError as e:
-                st.error(f"❌ Import error: {e}")
-        
-        except ImportError:
-            st.error("❌ streamlit-autorefresh not found!")
-    
-    # ============================================
-    # ALT TAB 2: PRE-MATCH ANALYSE (NEU!)
-    # ============================================
-    with alt_tab2:
-        st.subheader("🔮 Pre-Match Corners & Cards Analyse")
-        
-        st.markdown("""
-        Analysiert **kommende Spiele** basierend auf Team-Statistiken.
-        
-        **Keine Buchmacher-Quoten** - Reine mathematische Analyse!
-        """)
-        
-        # ALL 28 LEAGUES
-        ALL_LEAGUES = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else [
-            'BL1', 'PL', 'PD', 'SA', 'FL1', 'DED', 'PPL', 'TSL', 'ELC', 'BL2', 'MX1', 'BSA',
-            'CL', 'EL', 'ECL', 'SC1', 'BE1', 'SL1', 'AL1', 'SPL', 'ESI', 'IS2', 'ALE',
-            'ED1', 'CHL', 'ALL', 'QSL', 'UAE'
-        ]
-        
-        # Settings
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            pm_select_all = st.checkbox("Alle Ligen", value=False, key="pm_select_all")
-            
-            if pm_select_all:
-                pm_leagues = ALL_LEAGUES
-                st.info(f"✅ Alle {len(pm_leagues)} Ligen")
-            else:
-                pm_leagues = st.multiselect(
-                    "Ligen",
-                    options=ALL_LEAGUES,
-                    default=['BL1', 'PL', 'PD'],
-                    key="pm_leagues"
-                )
-        
-        with col2:
-            pm_days = st.slider("Tage voraus", 1, 7, 3, key="pm_days")
-        
-        with col3:
-            pm_market = st.selectbox("Markt", ['Corners', 'Cards', 'Beide'], key="pm_market")
-        
-        pm_min_prob = st.slider("Min Wahrscheinlichkeit %", 60, 90, 70, key="pm_min_prob")
-        
-        if st.button("🔍 Pre-Match Analyse starten", type="primary", key="pm_start"):
-            
-            if not pm_leagues:
-                st.warning("Bitte wähle mindestens eine Liga!")
-            else:
-                try:
-                    from alternative_markets import PreMatchAlternativeAnalyzer
-                    from api_football import APIFootball
-                    import time
-                    
-                    api = APIFootball(st.secrets['api']['api_football_key'])
-                    analyzer_pm = PreMatchAlternativeAnalyzer(st.secrets['api']['api_football_key'])
-                    
-                    # Use league IDs from api_football
-                    league_id_map = api.league_ids
-                    
-                    with st.spinner("Lade Fixtures..."):
-                        all_fixtures = []
-                        
-                        for league_code in pm_leagues:
-                            fixtures = api.get_upcoming_fixtures(league_code, pm_days)
-                            for f in fixtures:
-                                f['league_id'] = league_id_map.get(league_code, 39)
-                                f['league_code'] = league_code
-                            all_fixtures.extend(fixtures)
-                        
-                        st.info(f"📋 {len(all_fixtures)} Fixtures gefunden")
-                    
-                    if all_fixtures:
-                        results = []
-                        progress = st.progress(0)
-                        
-                        for idx, fixture in enumerate(all_fixtures):
-                            try:
-                                if pm_market in ['Corners', 'Beide']:
-                                    corners = analyzer_pm.analyze_prematch_corners(fixture)
-                                    if corners['best_bet'] and corners['best_bet'].get('probability', 0) >= pm_min_prob:
-                                        results.append({
-                                            'Fixture': corners['fixture'],
-                                            'Liga': fixture.get('league_code', ''),
-                                            'Datum': fixture.get('date', '')[:10],
-                                            'Markt': 'CORNERS',
-                                            'Wette': corners['best_bet']['bet'],
-                                            'Wahrsch.': f"{corners['best_bet']['probability']}%",
-                                            'Erwartet': corners['expected_total'],
-                                            'Stärke': corners['best_bet']['strength']
-                                        })
-                                
-                                if pm_market in ['Cards', 'Beide']:
-                                    cards = analyzer_pm.analyze_prematch_cards(fixture)
-                                    if cards['best_bet'] and cards['best_bet'].get('probability', 0) >= pm_min_prob:
-                                        results.append({
-                                            'Fixture': cards['fixture'],
-                                            'Liga': fixture.get('league_code', ''),
-                                            'Datum': fixture.get('date', '')[:10],
-                                            'Markt': 'CARDS',
-                                            'Wette': cards['best_bet']['bet'],
-                                            'Wahrsch.': f"{cards['best_bet']['probability']}%",
-                                            'Erwartet': cards['expected_total'],
-                                            'Stärke': cards['best_bet']['strength'],
-                                            'Derby': '🔥' if cards.get('is_derby') else ''
-                                        })
-                                
-                                time.sleep(0.5)  # Rate limit
-                                
-                            except Exception as e:
-                                continue
-                            
-                            progress.progress((idx + 1) / len(all_fixtures))
-                        
-                        progress.empty()
-                        
-                        if results:
-                            st.success(f"✅ {len(results)} Empfehlungen gefunden!")
-                            
-                            df = pd.DataFrame(results)
-                            df['Prob_Num'] = df['Wahrsch.'].str.replace('%', '').astype(float)
-                            df = df.sort_values('Prob_Num', ascending=False)
-                            df = df.drop(columns=['Prob_Num'])
-                            
-                            st.dataframe(df, use_container_width=True, hide_index=True)
-                        else:
-                            st.info("Keine Empfehlungen gefunden.")
-                    
-                except ImportError as e:
-                    st.error(f"Import error: {e}")
-                except Exception as e:
-                    st.error(f"Fehler: {e}")
-    
-    # ============================================
-    # ALT TAB 3: HÖCHSTE WAHRSCHEINLICHKEIT (NEU!)
-    # ============================================
-    with alt_tab3:
-        st.subheader("🏆 Höchste Wahrscheinlichkeit Scanner")
-        
-        st.markdown("""
-        Scannt **ALLE Märkte** und findet automatisch die beste Wette.
-        
-        📊 **Märkte:** BTTS, Goals, Corners, Cards  
-        🧮 **Methode:** Reine Statistik - **KEINE Buchmacher-Quoten!**
-        """)
-        
-        # ALL 28 LEAGUES
-        ALL_LEAGUES_HP = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else [
-            'BL1', 'PL', 'PD', 'SA', 'FL1', 'DED', 'PPL', 'TSL', 'ELC', 'BL2', 'MX1', 'BSA',
-            'CL', 'EL', 'ECL', 'SC1', 'BE1', 'SL1', 'AL1', 'SPL', 'ESI', 'IS2', 'ALE',
-            'ED1', 'CHL', 'ALL', 'QSL', 'UAE'
-        ]
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            hp_select_all = st.checkbox("Alle Ligen", value=False, key="hp_select_all")
-            
-            if hp_select_all:
-                hp_leagues = ALL_LEAGUES_HP
-                st.info(f"✅ Alle {len(hp_leagues)} Ligen")
-            else:
-                hp_leagues = st.multiselect(
-                    "Ligen",
-                    options=ALL_LEAGUES_HP,
-                    default=['BL1', 'PL', 'PD', 'SA', 'FL1'],
-                    key="hp_leagues"
-                )
-        
-        with col2:
-            hp_min_prob = st.slider("Min %", 65, 90, 75, key="hp_min_prob")
-        
-        if st.button("🚀 Scanner starten", type="primary", key="hp_start"):
-            
-            if not hp_leagues:
-                st.warning("Bitte wähle mindestens eine Liga!")
-            else:
-                try:
-                    from alternative_markets import HighestProbabilityFinder
-                    from api_football import APIFootball
-                    
-                    api = APIFootball(st.secrets['api']['api_football_key'])
-                    finder = HighestProbabilityFinder(st.secrets['api']['api_football_key'])
-                    
-                    # Use league IDs from api_football
-                    league_id_map = api.league_ids
-                    
-                    with st.spinner("Scanne alle Märkte..."):
-                        all_fixtures = []
-                        
-                        for league_code in hp_leagues:
-                            fixtures = api.get_upcoming_fixtures(league_code, days_ahead=3)
-                            for f in fixtures:
-                                f['league_id'] = league_id_map.get(league_code, 39)
-                                f['league_code'] = league_code
-                            all_fixtures.extend(fixtures)
-                        
-                        st.info(f"📋 {len(all_fixtures)} Fixtures gefunden. Analysiere...")
-                        
-                        all_opportunities = finder.scan_all_fixtures(all_fixtures, min_probability=hp_min_prob)
-                        
-                        # Already filtered by min_probability
-                        filtered = all_opportunities
-                    
-                    if filtered:
-                        st.success(f"🎯 {len(filtered)} Top-Gelegenheiten gefunden!")
-                        
-                        for opp in filtered[:10]:
-                            best = opp['best_bet']
-                            
-                            if best['strength'] == 'VERY_STRONG':
-                                emoji = "🔥🔥"
-                            elif best['strength'] == 'STRONG':
-                                emoji = "🔥"
-                            else:
-                                emoji = "✅"
-                            
-                            # Show Value in header if available
-                            value_str = f" | Value: +{best.get('value', 0):.1f}%" if 'value' in best else ""
-                            with st.expander(f"{emoji} {opp['fixture']} | {best['probability']}%{value_str}"):
-                                col1, col2, col3, col4 = st.columns(4)
-                                
-                                with col1:
-                                    st.metric("Wette", best['bet'])
-                                with col2:
-                                    st.metric("Wahrscheinlichkeit", f"{best['probability']}%")
-                                with col3:
-                                    st.metric("Value", f"+{best.get('value', 0):.1f}%")
-                                with col4:
-                                    st.metric("Fair Odds", f"{best.get('fair_odds', '-')}")
-                                
-                                st.caption(f"Liga: {opp['league']} | Markt: {best['market']} | Est. Market Odds: {best.get('est_market_odds', '-')}")
-                        
-                        # Export button
-                        export_data = [{
-                            'Fixture': o['fixture'],
-                            'Liga': o['league'],
-                            'Wette': o['best_bet']['bet'],
-                            'Wahrscheinlichkeit': f"{o['best_bet']['probability']}%",
-                            'Value': f"+{o['best_bet'].get('value', 0):.1f}%",
-                            'Fair Odds': o['best_bet'].get('fair_odds', '-'),
-                            'Markt': o['best_bet']['market'],
-                            'Stärke': o['best_bet']['strength']
-                        } for o in filtered]
-                        
-                        df = pd.DataFrame(export_data)
-                        
-                        st.download_button(
-                            "📥 Als CSV exportieren",
-                            df.to_csv(index=False),
-                            "highest_probability_bets.csv",
-                            "text/csv",
-                            key="hp_export"
-                        )
-                    else:
-                        st.info(f"Keine Wetten mit ≥{hp_min_prob}% gefunden.")
-                
-                except ImportError as e:
-                    st.error(f"Import error: {e}")
-                except Exception as e:
-                    st.error(f"Fehler: {e}")
+    create_alternative_markets_tab_extended()
 
 # TAB 8: Red Card Alerts
 with tab8:
-    create_red_card_monitor_tab()
+    st.header("🔴 Red Card Alert System")
+    
+    st.markdown("""
+    Get **instant notifications** when a red card happens in live matches!
+    
+    💡 **Why this matters for betting:**
+    - Team down to 10 men changes everything
+    - BTTS becomes more likely (desperate attack)
+    - Over 2.5 becomes less likely (defensive focus)
+    - Opponent win becomes more likely
+    
+    ⚡ **Quick reaction = Better odds!**
+    """)
+    
+    st.markdown("---")
+    
+    # Settings
+    st.subheader("⚙️ Notification Settings")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        enable_browser = st.checkbox("🔔 Browser Alerts", value=True,
+                                     help="Show alerts in this browser window")
+    
+    with col2:
+        # Auto-enable Telegram if secrets exist
+        telegram_configured = ('telegram' in st.secrets and 
+                               'bot_token' in st.secrets['telegram'] and 
+                               'chat_id' in st.secrets['telegram'])
+        
+        enable_telegram = st.checkbox("📱 Telegram Alerts", value=telegram_configured,
+                                      help="Send alerts to your Telegram")
+        
+        if telegram_configured:
+            st.success("✅ Telegram konfiguriert!")
+    
+    # Telegram setup (nur anzeigen wenn NICHT in secrets)
+    if enable_telegram and not telegram_configured:
+        with st.expander("📱 Setup Telegram"):
+            st.markdown("""
+            **How to setup:**
+            1. Message @BotFather on Telegram
+            2. Create new bot: `/newbot`
+            3. Copy your Bot Token
+            4. Message your bot to get Chat ID
+            5. Use @userinfobot to get your Chat ID
+            
+            **Oder:** Füge die Daten zu Streamlit Secrets hinzu:
+            ```
+            [telegram]
+            bot_token = "DEIN_TOKEN"
+            chat_id = "DEINE_ID"
+            ```
+            """)
+            
+            telegram_token = st.text_input("Bot Token", type="password", key="tg_token")
+            telegram_chat_id = st.text_input("Chat ID", key="tg_chat")
+    
+    st.markdown("---")
+    
+    # Start monitoring
+    if st.button("🚀 Scan for Red Cards NOW", type="primary", key="red_card_scan"):
+        with st.spinner("🔍 Scanning live matches for red cards..."):
+            try:
+                from red_card_alerts import RedCardAlertSystem
+                from api_football import APIFootball
+                
+                # Get API key
+                if 'api' in st.secrets and 'api_football_key' in st.secrets['api']:
+                    api_key = st.secrets['api']['api_football_key']
+                else:
+                    api_key = '1a1c70f5c48bfdce946b71680e47e92e'
+                
+                # Initialize alert system
+                alert_system = RedCardAlertSystem(api_key)
+                
+                # Setup Telegram - prioritize secrets
+                if enable_telegram:
+                    if telegram_configured:
+                        alert_system.setup_telegram(
+                            st.secrets['telegram']['bot_token'],
+                            st.secrets['telegram']['chat_id']
+                        )
+                        st.info("📱 Telegram Alerts aktiviert (aus Secrets)")
+                    elif 'tg_token' in st.session_state and 'tg_chat' in st.session_state:
+                        if st.session_state.tg_token and st.session_state.tg_chat:
+                            alert_system.setup_telegram(
+                                st.session_state.tg_token, 
+                                st.session_state.tg_chat
+                            )
+                
+                # Get league IDs
+                league_ids = [
+                    78, 39, 140, 135, 61, 88, 94, 203, 40, 79, 262, 71,  # Top leagues
+                    2, 3, 848,  # European cups
+                    179, 144, 207, 218,  # EU Expansion
+                    265, 330, 165, 188, 89, 209, 113, 292, 301  # Goal festivals
+                ]
+                
+                # Get live matches
+                live_matches = alert_system.get_live_matches(league_ids)
+                
+                if live_matches:
+                    st.success(f"✅ Found {len(live_matches)} live matches in our leagues!")
+                    
+                    # Check each match for red cards
+                    red_cards_found = []
+                    
+                    for match in live_matches:
+                        home = match['teams']['home']['name']
+                        away = match['teams']['away']['name']
+                        score = f"{match['goals']['home']}-{match['goals']['away']}"
+                        minute = match['fixture']['status']['elapsed'] or 0
+                        
+                        st.write(f"🔍 Checking: **{home} vs {away}** ({score}) - {minute}'")
+                        
+                        # Check for red cards
+                        cards = alert_system.check_for_red_cards(match)
+                        if cards:
+                            red_cards_found.extend(cards)
+                    
+                    if red_cards_found:
+                        st.error(f"🔴 **{len(red_cards_found)} RED CARDS FOUND!**")
+                        
+                        for card in red_cards_found:
+                            match = card['match']
+                            home = match['teams']['home']['name']
+                            away = match['teams']['away']['name']
+                            score = f"{match['goals']['home']}-{match['goals']['away']}"
+                            
+                            st.markdown(f"""
+                            <div style='background: linear-gradient(135deg, #c92a2a 0%, #e03131 100%); padding: 1rem; border-radius: 10px; color: white; margin: 1rem 0;'>
+                                <h3>🔴 RED CARD!</h3>
+                                <p><strong>Player:</strong> {card['player']}</p>
+                                <p><strong>Team:</strong> {card['team']}</p>
+                                <p><strong>Match:</strong> {home} vs {away} ({score})</p>
+                                <p><strong>Minute:</strong> {card['minute']}'</p>
+                                <hr>
+                                <p>💡 <strong>Betting Impact:</strong></p>
+                                <ul>
+                                    <li>BTTS more likely (desperate play)</li>
+                                    <li>Over 2.5 less likely</li>
+                                    <li>Opponent win more likely</li>
+                                </ul>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Send alerts
+                            if enable_browser:
+                                st.toast(f"🔴 RED CARD: {card['player']} ({card['team']})", icon="🔴")
+                            
+                            # Send Telegram alert
+                            if enable_telegram:
+                                alert_system.send_telegram_alert(card)
+                                st.success(f"📱 Telegram Alert gesendet für {card['player']}!")
+                    else:
+                        st.info("✅ No red cards in current live matches")
+                else:
+                    st.warning("⚠️ No live matches at the moment in our leagues")
+                    st.info("Try again when there are live matches!")
+                    
+            except ImportError as e:
+                st.error(f"❌ Missing module: {e}")
+                st.info("Make sure `red_card_alerts.py` is in your repository!")
+                
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+    
+    st.markdown("---")
+    
+    # Info section
+    st.subheader("ℹ️ How Red Cards Affect Betting")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        **📈 More Likely After Red Card:**
+        - BTTS (desperate attacking)
+        - Cards/Fouls (frustration)
+        - Opponent Goals
+        - Opponent Win
+        """)
+    
+    with col2:
+        st.markdown("""
+        **📉 Less Likely After Red Card:**
+        - Over 2.5 Goals (defensive)
+        - Red Card Team Win
+        - Clean Sheet for 10-man team
+        """)
 
 # Footer
 st.markdown("---")
