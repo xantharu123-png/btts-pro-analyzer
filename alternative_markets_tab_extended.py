@@ -24,6 +24,12 @@ def create_alternative_markets_tab_extended():
     Complete Alternative Markets Tab with Match Result Predictions
     """
     
+    # Initialize session state
+    if 'selected_match' not in st.session_state:
+        st.session_state['selected_match'] = None
+    if 'match_selected' not in st.session_state:
+        st.session_state['match_selected'] = False
+    
     st.header("📊 ALTERNATIVE MARKETS - Extended")
     
     st.markdown("""
@@ -36,6 +42,29 @@ def create_alternative_markets_tab_extended():
     
     **Keine Buchmacher-Quoten - Pure Mathematik!**
     """)
+    
+    # Quick start guide
+    with st.expander("ℹ️ Wie funktioniert es?", expanded=False):
+        st.markdown("""
+        ### 🎯 3 Schritte zur Analyse:
+        
+        **1️⃣ Match Suche (Tab 1)**
+        - Wähle Ligen und Datum
+        - Klicke "Matches laden"
+        - Klicke "Analysieren" bei einem Match
+        
+        **2️⃣ Corners & Cards (Tab 2)**
+        - Sieh Expected Corners & Cards
+        - VALUE SCORE Predictions
+        
+        **3️⃣ Match Result & Goals (Tab 3)** ⭐ NEU!
+        - Expected Goals
+        - Match Result (1X2)
+        - Over/Under, BTTS, Double Chance
+        - Best Value Bets
+        
+        💡 **Tipp:** Nach "Analysieren" in Tab 1 → Wechsle zu Tab 2 oder Tab 3!
+        """)
     
     st.markdown("---")
     
@@ -68,14 +97,47 @@ def create_alternative_markets_tab_extended():
     with tab1:
         st.subheader("🔍 Match auswählen")
         
+        # DEBUG: Show current state
+        if st.session_state.get('selected_match'):
+            debug_match = st.session_state['selected_match']
+            st.success(f"✅ Aktuell ausgewählt: **{debug_match['teams']['home']['name']} vs {debug_match['teams']['away']['name']}**")
+        
         # Show success message if match was just selected
         if st.session_state.get('match_selected', False):
             match = st.session_state.get('selected_match')
             if match:
                 home = match['teams']['home']['name']
                 away = match['teams']['away']['name']
+                
                 st.success(f"✅ Match ausgewählt: **{home} vs {away}**")
-                st.info("👉 **Wechsle zu Tab 2 (Corners & Cards) oder Tab 3 (Match Result & Goals)** um die Analyse zu sehen!")
+                
+                # Big prominent message
+                st.markdown("---")
+                st.markdown("### 👇 NÄCHSTER SCHRITT:")
+                
+                col1, col2, col3 = st.columns([1, 2, 1])
+                with col2:
+                    st.info("""
+                    ### 📊 Wechsle jetzt zu einem dieser Tabs:
+                    
+                    **Tab 2: Corners & Cards**
+                    - Expected Corners
+                    - Expected Cards
+                    - VALUE SCORE System
+                    
+                    **Tab 3: Match Result & Goals** ⭐
+                    - Expected Goals
+                    - Match Result (1X2)
+                    - Double Chance
+                    - Over/Under
+                    - BTTS
+                    - Best Value Bets
+                    
+                    👆 Klicke auf die Tabs oben!
+                    """)
+                
+                st.markdown("---")
+                
                 # Reset flag
                 st.session_state['match_selected'] = False
         
@@ -222,7 +284,7 @@ def create_alternative_markets_tab_extended():
                                         if st.button("Analysieren", key=f"analyze_{match_id}"):
                                             st.session_state['selected_match'] = match
                                             st.session_state['match_selected'] = True
-                                            st.rerun()
+                                            # Note: st.rerun() not needed - state persists automatically
                                     
                                     st.markdown("---")
                     else:
@@ -238,7 +300,7 @@ def create_alternative_markets_tab_extended():
     with tab2:
         st.subheader("⚽ Corners & Cards Analyse")
         
-        if 'selected_match' not in st.session_state:
+        if not st.session_state['selected_match']:
             st.info("👈 Bitte wähle zuerst ein Match in Tab 1")
             st.markdown("---")
             st.markdown("""
@@ -298,7 +360,7 @@ def create_alternative_markets_tab_extended():
     with tab3:
         st.subheader("⚽ Match Result & Goals Prediction")
         
-        if 'selected_match' not in st.session_state:
+        if not st.session_state['selected_match']:
             st.info("👈 Bitte wähle zuerst ein Match in Tab 1")
             st.markdown("---")
             st.markdown("""
