@@ -30,6 +30,23 @@ def create_alternative_markets_tab_extended():
     if 'match_selected' not in st.session_state:
         st.session_state['match_selected'] = False
     
+    # DEBUG MODE - Shows session state
+    with st.expander("🔧 DEBUG INFO", expanded=False):
+        st.write("**Session State:**")
+        st.write(f"selected_match: {st.session_state.get('selected_match', 'NOT SET')}")
+        st.write(f"match_selected: {st.session_state.get('match_selected', 'NOT SET')}")
+        
+        if st.session_state.get('selected_match'):
+            st.success("✅ Match IS set in session state!")
+            match = st.session_state['selected_match']
+            st.json({
+                'home': match.get('teams', {}).get('home', {}).get('name', 'N/A'),
+                'away': match.get('teams', {}).get('away', {}).get('name', 'N/A'),
+                'fixture_id': match.get('fixture', {}).get('id', 'N/A')
+            })
+        else:
+            st.warning("⚠️ Match NOT set in session state")
+    
     st.header("📊 ALTERNATIVE MARKETS - Extended")
     
     st.markdown("""
@@ -282,9 +299,15 @@ def create_alternative_markets_tab_extended():
                                     
                                     with col2:
                                         if st.button("Analysieren", key=f"analyze_{match_id}"):
+                                            # Set session state
                                             st.session_state['selected_match'] = match
                                             st.session_state['match_selected'] = True
-                                            st.rerun()  # NEEDED! Without this, nothing happens!
+                                            
+                                            # DEBUG: Show what we're saving
+                                            st.toast(f"✅ Gespeichert: {match['teams']['home']['name']} vs {match['teams']['away']['name']}", icon="✅")
+                                            
+                                            # Force rerun
+                                            st.rerun()
                                     
                                     st.markdown("---")
                     else:
@@ -360,8 +383,21 @@ def create_alternative_markets_tab_extended():
     with tab3:
         st.subheader("⚽ Match Result & Goals Prediction")
         
-        if not st.session_state['selected_match']:
+        # DEBUG: Show what we're checking
+        match_in_state = st.session_state.get('selected_match')
+        
+        # More explicit check
+        if match_in_state is None or not match_in_state:
             st.info("👈 Bitte wähle zuerst ein Match in Tab 1")
+            
+            # DEBUG
+            with st.expander("🔧 DEBUG: Why is this showing?"):
+                st.write(f"match_in_state: {match_in_state}")
+                st.write(f"match_in_state is None: {match_in_state is None}")
+                st.write(f"Type: {type(match_in_state)}")
+                st.write("Full session state:")
+                st.json(dict(st.session_state))
+            
             st.markdown("---")
             st.markdown("""
             **So geht's:**
