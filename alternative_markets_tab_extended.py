@@ -446,15 +446,35 @@ def create_alternative_markets_tab_extended():
     
     st.markdown("### 🔍 Matches Suchen")
     
+    # Select All / Clear All buttons
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 4])
+    
+    with col_btn1:
+        if st.button("✅ Alle auswählen", use_container_width=True):
+            st.session_state['selected_leagues'] = list(AVAILABLE_LEAGUES.keys())
+            st.rerun()
+    
+    with col_btn2:
+        if st.button("❌ Keine", use_container_width=True):
+            st.session_state['selected_leagues'] = []
+            st.rerun()
+    
     col1, col2 = st.columns([2, 1])
     
     with col1:
+        # Get default from session state or use preset
+        default_leagues = st.session_state.get('selected_leagues', 
+            ['Premier League (🇬🇧)', 'Bundesliga (🇩🇪)', 'Champions League'])
+        
         selected_leagues = st.multiselect(
             "Ligen auswählen",
             options=list(AVAILABLE_LEAGUES.keys()),
-            default=['Premier League (🇬🇧)', 'Bundesliga (🇩🇪)', 'Champions League'],
+            default=default_leagues,
             help="Wähle eine oder mehrere Ligen"
         )
+        
+        # Store in session state
+        st.session_state['selected_leagues'] = selected_leagues
         
         selected_league_ids = [AVAILABLE_LEAGUES[league] for league in selected_leagues]
     
