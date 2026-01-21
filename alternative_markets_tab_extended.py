@@ -30,8 +30,11 @@ def _render_corners_cards_analysis(match, api_key):
     st.info("""
     **VALUE SCORE System:**
     - Sweet Spot: 60-75% Wahrscheinlichkeit
-    - Vermeidet extreme Probabilities (>85% = schlechte Quoten)
-    - Zeigt Fair Odds (1/probability)
+    - ⭐⭐⭐⭐⭐ = STRONG VALUE (60-75%)
+    - ⭐⭐⭐⭐ = GOOD VALUE (55-60% oder 75-80%)
+    - ⭐⭐⭐ = DECENT (50-55%)
+    - ⭐⭐ = RISKY (<50%)
+    - ⭐ = TOO SAFE (>85%)
     """)
     
     # Placeholder - would call actual analyzer
@@ -40,14 +43,14 @@ def _render_corners_cards_analysis(match, api_key):
     with col1:
         st.metric("Expected Corners", "10.8")
         st.markdown("**Top Corner Markets:**")
-        st.success("✅ Over 9.5: 65% (Odds: 1.54)")
-        st.success("✅ Under 11.5: 68% (Odds: 1.47)")
+        st.success("✅ Over 9.5: 65% ⭐⭐⭐⭐⭐")
+        st.success("✅ Under 11.5: 68% ⭐⭐⭐⭐⭐")
     
     with col2:
         st.metric("Expected Cards", "4.2")
         st.markdown("**Top Card Markets:**")
-        st.success("✅ Over 3.5: 63% (Odds: 1.59)")
-        st.warning("⚠️ Under 5.5: 72% (Odds: 1.39)")
+        st.success("✅ Over 3.5: 63% ⭐⭐⭐⭐⭐")
+        st.warning("⚠️ Under 5.5: 72% ⭐⭐⭐⭐")
 
 
 def _render_match_result_analysis(match, api_key):
@@ -270,26 +273,54 @@ def _render_match_result_analysis(match, api_key):
         
         col1, col2, col3 = st.columns(3)
         
+        # Determine value ratings (sweet spot 55-80%)
+        def get_value_rating(prob):
+            if 0.60 <= prob <= 0.75:
+                return "⭐⭐⭐⭐⭐", "✅ STRONG VALUE"
+            elif 0.55 <= prob < 0.60 or 0.75 < prob <= 0.80:
+                return "⭐⭐⭐⭐", "✅ GOOD VALUE"
+            elif 0.50 <= prob < 0.55:
+                return "⭐⭐⭐", "⚠️ DECENT"
+            elif prob > 0.85:
+                return "⭐", "❌ TOO SAFE"
+            else:
+                return "⭐⭐", "⚠️ RISKY"
+        
         with col1:
-            st.markdown(f"**Home Win**")
-            st.markdown(f"**Prob:** {prediction.home_win_prob*100:.1f}%")
-            st.markdown(f"**Odds:** {prediction.fair_odds_home:.2f}")
-            if 0.55 <= prediction.home_win_prob <= 0.80:
-                st.success("✅ VALUE!")
+            stars, rating = get_value_rating(prediction.home_win_prob)
+            st.markdown(f"### 🏠 Home Win")
+            st.markdown(f"### {prediction.home_win_prob*100:.1f}%")
+            st.markdown(f"{stars}")
+            if "STRONG" in rating or "GOOD" in rating:
+                st.success(rating)
+            elif "DECENT" in rating:
+                st.warning(rating)
+            else:
+                st.error(rating)
         
         with col2:
-            st.markdown(f"**Draw**")
-            st.markdown(f"**Prob:** {prediction.draw_prob*100:.1f}%")
-            st.markdown(f"**Odds:** {prediction.fair_odds_draw:.2f}")
-            if 0.55 <= prediction.draw_prob <= 0.80:
-                st.success("✅ VALUE!")
+            stars, rating = get_value_rating(prediction.draw_prob)
+            st.markdown(f"### ⚖️ Draw")
+            st.markdown(f"### {prediction.draw_prob*100:.1f}%")
+            st.markdown(f"{stars}")
+            if "STRONG" in rating or "GOOD" in rating:
+                st.success(rating)
+            elif "DECENT" in rating:
+                st.warning(rating)
+            else:
+                st.error(rating)
         
         with col3:
-            st.markdown(f"**Away Win**")
-            st.markdown(f"**Prob:** {prediction.away_win_prob*100:.1f}%")
-            st.markdown(f"**Odds:** {prediction.fair_odds_away:.2f}")
-            if 0.55 <= prediction.away_win_prob <= 0.80:
-                st.success("✅ VALUE!")
+            stars, rating = get_value_rating(prediction.away_win_prob)
+            st.markdown(f"### ✈️ Away Win")
+            st.markdown(f"### {prediction.away_win_prob*100:.1f}%")
+            st.markdown(f"{stars}")
+            if "STRONG" in rating or "GOOD" in rating:
+                st.success(rating)
+            elif "DECENT" in rating:
+                st.warning(rating)
+            else:
+                st.error(rating)
         
         st.markdown("---")
         
@@ -299,19 +330,28 @@ def _render_match_result_analysis(match, api_key):
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.markdown("**1X (Home or Draw)**")
-            st.markdown(f"**Prob:** {prediction.home_or_draw*100:.1f}%")
-            st.markdown(f"**Odds:** {1/prediction.home_or_draw:.2f}")
+            stars, rating = get_value_rating(prediction.home_or_draw)
+            st.markdown(f"**1X (Home or Draw)**")
+            st.markdown(f"### {prediction.home_or_draw*100:.1f}%")
+            st.markdown(f"{stars}")
+            if "STRONG" in rating or "GOOD" in rating:
+                st.success(rating)
         
         with col2:
-            st.markdown("**X2 (Draw or Away)**")
-            st.markdown(f"**Prob:** {prediction.draw_or_away*100:.1f}%")
-            st.markdown(f"**Odds:** {1/prediction.draw_or_away:.2f}")
+            stars, rating = get_value_rating(prediction.draw_or_away)
+            st.markdown(f"**X2 (Draw or Away)**")
+            st.markdown(f"### {prediction.draw_or_away*100:.1f}%")
+            st.markdown(f"{stars}")
+            if "STRONG" in rating or "GOOD" in rating:
+                st.success(rating)
         
         with col3:
-            st.markdown("**12 (No Draw)**")
-            st.markdown(f"**Prob:** {prediction.home_or_away*100:.1f}%")
-            st.markdown(f"**Odds:** {1/prediction.home_or_away:.2f}")
+            stars, rating = get_value_rating(prediction.home_or_away)
+            st.markdown(f"**12 (No Draw)**")
+            st.markdown(f"### {prediction.home_or_away*100:.1f}%")
+            st.markdown(f"{stars}")
+            if "STRONG" in rating or "GOOD" in rating:
+                st.success(rating)
         
         st.markdown("---")
         
@@ -322,14 +362,14 @@ def _render_match_result_analysis(match, api_key):
             col1, col2 = st.columns(2)
             
             with col1:
-                is_value = 0.58 <= over_prob <= 0.78
-                prefix = "✅" if is_value else "📊"
-                st.markdown(f"{prefix} **Over {threshold}:** {over_prob*100:.1f}% (Odds: {1/over_prob:.2f})")
+                stars_o, rating_o = get_value_rating(over_prob)
+                prefix = "✅" if "STRONG" in rating_o or "GOOD" in rating_o else "📊"
+                st.markdown(f"{prefix} **Over {threshold}:** {over_prob*100:.1f}% {stars_o}")
             
             with col2:
-                is_value = 0.58 <= under_prob <= 0.78
-                prefix = "✅" if is_value else "📊"
-                st.markdown(f"{prefix} **Under {threshold}:** {under_prob*100:.1f}% (Odds: {1/under_prob:.2f})")
+                stars_u, rating_u = get_value_rating(under_prob)
+                prefix = "✅" if "STRONG" in rating_u or "GOOD" in rating_u else "📊"
+                st.markdown(f"{prefix} **Under {threshold}:** {under_prob*100:.1f}% {stars_u}")
         
         st.markdown("---")
         
@@ -339,28 +379,35 @@ def _render_match_result_analysis(match, api_key):
         col1, col2 = st.columns(2)
         
         with col1:
-            is_value = 0.58 <= prediction.btts_yes <= 0.78
-            prefix = "✅" if is_value else "📊"
-            st.markdown(f"{prefix} **Yes:** {prediction.btts_yes*100:.1f}% (Odds: {1/prediction.btts_yes:.2f})")
+            stars, rating = get_value_rating(prediction.btts_yes)
+            prefix = "✅" if "STRONG" in rating or "GOOD" in rating else "📊"
+            st.markdown(f"{prefix} **Yes:** {prediction.btts_yes*100:.1f}% {stars}")
         
         with col2:
-            is_value = 0.58 <= prediction.btts_no <= 0.78
-            prefix = "✅" if is_value else "📊"
-            st.markdown(f"{prefix} **No:** {prediction.btts_no*100:.1f}% (Odds: {1/prediction.btts_no:.2f})")
+            stars, rating = get_value_rating(prediction.btts_no)
+            prefix = "✅" if "STRONG" in rating or "GOOD" in rating else "📊"
+            st.markdown(f"{prefix} **No:** {prediction.btts_no*100:.1f}% {stars}")
         
         # Best Value Bets
         if prediction.best_result_bet or prediction.best_double_chance or prediction.best_over_under:
             st.markdown("---")
-            st.markdown("### 💎 Best Value Bets (Sweet Spot 60-75%)")
+            st.markdown("### 💎 Top Recommendations")
+            st.caption("Basierend auf Sweet Spot 60-75% Wahrscheinlichkeit")
             
             if prediction.best_result_bet:
-                st.success(f"🎯 **{prediction.best_result_bet['market']}:** {prediction.best_result_bet['prob']*100:.1f}% (Odds: {prediction.best_result_bet['fair_odds']:.2f}) - Value: {prediction.best_result_bet['value_score']:.2f}")
+                prob = prediction.best_result_bet['prob']
+                value = prediction.best_result_bet['value_score']
+                st.success(f"🎯 **{prediction.best_result_bet['market']}:** {prob*100:.1f}% | Value Score: {value:.2f}/5.0 ⭐⭐⭐⭐⭐")
             
             if prediction.best_double_chance:
-                st.success(f"🔀 **{prediction.best_double_chance['market']}:** {prediction.best_double_chance['prob']*100:.1f}% (Odds: {prediction.best_double_chance['fair_odds']:.2f}) - Value: {prediction.best_double_chance['value_score']:.2f}")
+                prob = prediction.best_double_chance['prob']
+                value = prediction.best_double_chance['value_score']
+                st.success(f"🔀 **{prediction.best_double_chance['market']}:** {prob*100:.1f}% | Value Score: {value:.2f}/5.0 ⭐⭐⭐⭐")
             
             if prediction.best_over_under:
-                st.success(f"📈 **{prediction.best_over_under['market']}:** {prediction.best_over_under['prob']*100:.1f}% (Odds: {prediction.best_over_under['fair_odds']:.2f}) - Value: {prediction.best_over_under['value_score']:.2f}")
+                prob = prediction.best_over_under['prob']
+                value = prediction.best_over_under['value_score']
+                st.success(f"📈 **{prediction.best_over_under['market']}:** {prob*100:.1f}% | Value Score: {value:.2f}/5.0 ⭐⭐⭐⭐")
     
     except Exception as e:
         st.error(f"❌ Prediction Error: {e}")
@@ -375,14 +422,21 @@ def create_alternative_markets_tab_extended():
     st.markdown("""
     ### 📊 ALTERNATIVE MARKETS - Extended
     
-    **Mathematische Analyse für:**
+    **Mathematische Analyse mit VALUE RATINGS:**
     * ⚽ Corners & Cards (VALUE SCORE System)
     * 🎯 Match Result (Dixon-Coles Model)
     * 🔀 Double Chance (1X, X2, 12)
     * 📈 Over/Under Goals (0.5 - 4.5)
     * 🎯 BTTS (Both Teams To Score)
     
-    **Keine Buchmacher-Quoten - Pure Mathematik!**
+    **Keine Buchmacher-Quoten - Nur Wahrscheinlichkeiten & Bewertungen!**
+    
+    **Value Rating System:**
+    - ⭐⭐⭐⭐⭐ = STRONG VALUE (60-75% Sweet Spot)
+    - ⭐⭐⭐⭐ = GOOD VALUE (55-60% oder 75-80%)
+    - ⭐⭐⭐ = DECENT (50-55%)
+    - ⭐⭐ = RISKY (<50%)
+    - ⭐ = TOO SAFE (>85% - schlechter Value)
     """)
     
     with st.expander("ℹ️ Wie funktioniert es?", expanded=False):
