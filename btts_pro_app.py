@@ -1323,114 +1323,138 @@ with tab8:
                             # GET LIVE STATS & PREDICTIONS!
                             # =============================================
                             
-                            with st.spinner(f"📊 Analyzing impact for {card['player']}..."):
-                                # Get live stats
-                                live_stats = alert_system.get_live_stats(fixture_id)
-                                
-                                # Get prediction
-                                if alert_system.predictor and live_stats:
-                                    prediction = alert_system.predictor.predict(
-                                        minute=minute,
-                                        home_goals=home_goals,
-                                        away_goals=away_goals,
-                                        red_card_team=red_card_team,
-                                        live_stats=live_stats
-                                    )
-                                    
-                                    # Display enhanced analysis
-                                    col1, col2 = st.columns([2, 1])
-                                    
-                                    with col1:
-                                        st.markdown(f"""
-                                        <div style='background: linear-gradient(135deg, #c92a2a 0%, #e03131 100%); padding: 1.5rem; border-radius: 10px; color: white; margin: 1rem 0;'>
-                                            <h3>🔴 RED CARD - ENHANCED ANALYSIS</h3>
-                                            <p><strong>Player:</strong> {card['player']}</p>
-                                            <p><strong>Team:</strong> {red_team_name} (10 Mann)</p>
-                                            <p><strong>Match:</strong> {home} vs {away} ({score})</p>
-                                            <p><strong>Minute:</strong> {minute}' | ~{prediction.remaining_minutes} Min verbleibend</p>
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                                        
-                                        # Live Stats
+                            try:
+                                with st.spinner(f"📊 Analyzing impact for {card['player']}..."):
+                                    # Get live stats (optional)
+                                    try:
+                                        live_stats = alert_system.get_live_stats(fixture_id)
                                         if live_stats:
-                                            st.subheader("📊 Live Statistiken")
-                                            
-                                            stats_col1, stats_col2 = st.columns(2)
-                                            
-                                            with stats_col1:
-                                                st.metric("Ballbesitz " + home, f"{live_stats['possession_home']:.0f}%")
-                                                st.metric("Schüsse " + home, f"{live_stats['shots_on_goal_home']:.0f}")
-                                                st.metric("Angriffe " + home, f"{live_stats['total_attacks_home']:.0f}")
-                                            
-                                            with stats_col2:
-                                                st.metric("Ballbesitz " + away, f"{live_stats['possession_away']:.0f}%")
-                                                st.metric("Schüsse " + away, f"{live_stats['shots_on_goal_away']:.0f}")
-                                                st.metric("Angriffe " + away, f"{live_stats['total_attacks_away']:.0f}")
-                                        
-                                        # Predictions
-                                        st.subheader("🎯 Was passiert als nächstes?")
-                                        
-                                        pred_col1, pred_col2, pred_col3 = st.columns(3)
-                                        
-                                        with pred_col1:
-                                            st.metric(
-                                                f"{opponent_name} trifft", 
-                                                f"{prediction.next_goal_by_opponent*100:.0f}%",
-                                                help="Wahrscheinlichkeit dass 11-Mann-Team als nächstes trifft"
-                                            )
-                                        
-                                        with pred_col2:
-                                            st.metric(
-                                                f"{red_team_name} trifft",
-                                                f"{prediction.next_goal_by_red_team*100:.0f}%",
-                                                help="Wahrscheinlichkeit dass 10-Mann-Team als nächstes trifft"
-                                            )
-                                        
-                                        with pred_col3:
-                                            st.metric(
-                                                "Kein Tor mehr",
-                                                f"{prediction.no_more_goals*100:.0f}%",
-                                                help="Wahrscheinlichkeit dass kein weiteres Tor fällt"
-                                            )
-                                        
-                                        st.info(f"⏱️ Erwartete Zeit bis zum nächsten Tor: ~{prediction.expected_minutes_to_goal:.0f} Minuten")
-                                    
-                                    with col2:
-                                        # Endstand Prognose
-                                        st.subheader("🏆 Endstand-Prognose")
-                                        
-                                        st.metric(f"{opponent_name} gewinnt", f"{prediction.opponent_wins*100:.0f}%")
-                                        st.metric("Unentschieden", f"{prediction.draw*100:.0f}%")
-                                        st.metric(f"{red_team_name} gewinnt", f"{prediction.red_team_wins*100:.0f}%")
-                                        
-                                        st.caption(f"📊 Confidence: **{prediction.confidence}**")
-                                        
-                                        # Recommendations
-                                        if not prediction.too_late_to_bet:
-                                            if prediction.recommended_bets:
-                                                st.success("✅ **Empfehlungen:**")
-                                                for bet in prediction.recommended_bets:
-                                                    st.write(bet)
-                                            
-                                            if prediction.avoid_bets:
-                                                st.error("🚫 **Vermeiden:**")
-                                                for bet in prediction.avoid_bets:
-                                                    st.write(bet)
+                                            st.write("✅ Live-Stats erfolgreich geladen!")
                                         else:
-                                            st.warning("⚠️ Zu spät für Wetten!")
-                                
-                                else:
-                                    # Fallback: Simple display without predictor
-                                    st.markdown(f"""
-                                    <div style='background: linear-gradient(135deg, #c92a2a 0%, #e03131 100%); padding: 1rem; border-radius: 10px; color: white; margin: 1rem 0;'>
-                                        <h3>🔴 RED CARD!</h3>
-                                        <p><strong>Player:</strong> {card['player']}</p>
-                                        <p><strong>Team:</strong> {card['team']}</p>
-                                        <p><strong>Match:</strong> {home} vs {away} ({score})</p>
-                                        <p><strong>Minute:</strong> {card['minute']}'</p>
-                                    </div>
-                                    """, unsafe_allow_html=True)
+                                            st.write("ℹ️ Keine erweiterten Stats verfügbar (verwende Basis-Berechnung)")
+                                    except Exception as e:
+                                        st.warning(f"⚠️ Live-Stats Fehler: {e}")
+                                        live_stats = None
+                                    
+                                    # Get prediction (with or without live stats!)
+                                    if alert_system.predictor:
+                                        try:
+                                            prediction = alert_system.predictor.predict(
+                                                minute=minute,
+                                                home_goals=home_goals,
+                                                away_goals=away_goals,
+                                                red_card_team=red_card_team,
+                                                live_stats=live_stats  # Can be None!
+                                            )
+                                            
+                                            # Display enhanced analysis
+                                            col1, col2 = st.columns([2, 1])
+                                            
+                                            with col1:
+                                                st.markdown(f"""
+                                                <div style='background: linear-gradient(135deg, #c92a2a 0%, #e03131 100%); padding: 1.5rem; border-radius: 10px; color: white; margin: 1rem 0;'>
+                                                    <h3>🔴 RED CARD - ENHANCED ANALYSIS</h3>
+                                                    <p><strong>Player:</strong> {card['player']}</p>
+                                                    <p><strong>Team:</strong> {red_team_name} (10 Mann)</p>
+                                                    <p><strong>Match:</strong> {home} vs {away} ({score})</p>
+                                                    <p><strong>Minute:</strong> {minute}' | ~{prediction.remaining_minutes} Min verbleibend</p>
+                                                </div>
+                                                """, unsafe_allow_html=True)
+                                                
+                                                # Live Stats (if available)
+                                                if live_stats:
+                                                    st.subheader("📊 Live Statistiken")
+                                                    
+                                                    stats_col1, stats_col2 = st.columns(2)
+                                                    
+                                                    with stats_col1:
+                                                        st.metric("Ballbesitz " + home, f"{live_stats.get('possession_home', 0):.0f}%")
+                                                        st.metric("Schüsse " + home, f"{live_stats.get('shots_on_goal_home', 0):.0f}")
+                                                        st.metric("Angriffe " + home, f"{live_stats.get('total_attacks_home', 0):.0f}")
+                                                    
+                                                    with stats_col2:
+                                                        st.metric("Ballbesitz " + away, f"{live_stats.get('possession_away', 0):.0f}%")
+                                                        st.metric("Schüsse " + away, f"{live_stats.get('shots_on_goal_away', 0):.0f}")
+                                                        st.metric("Angriffe " + away, f"{live_stats.get('total_attacks_away', 0):.0f}")
+                                                
+                                                # Predictions (ALWAYS show!)
+                                                st.subheader("🎯 Was passiert als nächstes?")
+                                                
+                                                pred_col1, pred_col2, pred_col3 = st.columns(3)
+                                                
+                                                with pred_col1:
+                                                    st.metric(
+                                                        f"{opponent_name} trifft", 
+                                                        f"{prediction.next_goal_by_opponent*100:.0f}%",
+                                                        help="Wahrscheinlichkeit dass 11-Mann-Team als nächstes trifft"
+                                                    )
+                                                
+                                                with pred_col2:
+                                                    st.metric(
+                                                        f"{red_team_name} trifft",
+                                                        f"{prediction.next_goal_by_red_team*100:.0f}%",
+                                                        help="Wahrscheinlichkeit dass 10-Mann-Team als nächstes trifft"
+                                                    )
+                                                
+                                                with pred_col3:
+                                                    st.metric(
+                                                        "Kein Tor mehr",
+                                                        f"{prediction.no_more_goals*100:.0f}%",
+                                                        help="Wahrscheinlichkeit dass kein weiteres Tor fällt"
+                                                    )
+                                                
+                                                st.info(f"⏱️ Erwartete Zeit bis zum nächsten Tor: ~{prediction.expected_minutes_to_goal:.0f} Minuten")
+                                            
+                                            with col2:
+                                                # Endstand Prognose
+                                                st.subheader("🏆 Endstand-Prognose")
+                                                
+                                                st.metric(f"{opponent_name} gewinnt", f"{prediction.opponent_wins*100:.0f}%")
+                                                st.metric("Unentschieden", f"{prediction.draw*100:.0f}%")
+                                                st.metric(f"{red_team_name} gewinnt", f"{prediction.red_team_wins*100:.0f}%")
+                                                
+                                                st.caption(f"📊 Confidence: **{prediction.confidence}**")
+                                                
+                                                # Recommendations
+                                                if not prediction.too_late_to_bet:
+                                                    if prediction.recommended_bets:
+                                                        st.success("✅ **Empfehlungen:**")
+                                                        for bet in prediction.recommended_bets:
+                                                            st.write(bet)
+                                                    
+                                                    if prediction.avoid_bets:
+                                                        st.error("🚫 **Vermeiden:**")
+                                                        for bet in prediction.avoid_bets:
+                                                            st.write(bet)
+                                                else:
+                                                    st.warning("⚠️ Zu spät für Wetten!")
+                                        
+                                        except Exception as pred_error:
+                                            st.error(f"❌ Prediction Fehler: {pred_error}")
+                                            import traceback
+                                            st.code(traceback.format_exc())
+                                    
+                                    else:
+                                        st.error("❌ RedCardImpactPredictor nicht geladen!")
+                                        st.info("Stelle sicher dass `red_card_impact_predictor.py` im Repository ist!")
                             
+                            except Exception as main_error:
+                                st.error(f"❌ Hauptfehler: {main_error}")
+                                import traceback
+                                st.code(traceback.format_exc())
+                                
+                                # Fallback: Simple display
+                                st.markdown(f"""
+                                <div style='background: linear-gradient(135deg, #c92a2a 0%, #e03131 100%); padding: 1rem; border-radius: 10px; color: white; margin: 1rem 0;'>
+                                    <h3>🔴 RED CARD!</h3>
+                                    <p><strong>Player:</strong> {card['player']}</p>
+                                    <p><strong>Team:</strong> {card['team']}</p>
+                                    <p><strong>Match:</strong> {home} vs {away} ({score})</p>
+                                    <p><strong>Minute:</strong> {minute}'</p>
+                                    <hr>
+                                    <p>⚠️ Erweiterte Analyse fehlgeschlagen - siehe Fehler oben</p>
+                                </div>
+                                """, unsafe_allow_html=True)
                             # Send alerts
                             if enable_browser:
                                 st.toast(f"🔴 RED CARD: {card['player']} ({card['team']})", icon="🔴")
