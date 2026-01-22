@@ -1293,7 +1293,7 @@ with tab8:
                         st.write(f"🔍 Checking: **{home} vs {away}** ({score}) - {minute}'")
                         
                         # Check for red cards
-                        cards = alert_system.check_for_red_cards(match)
+                        cards = alert_system.check_match_for_red_cards(match)
                         if cards:
                             red_cards_found.extend(cards)
                     
