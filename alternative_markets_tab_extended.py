@@ -1,10 +1,14 @@
 """
-ALTERNATIVE MARKETS TAB - EXTENDED V2
+ALTERNATIVE MARKETS TAB - EXTENDED V3
 ======================================
-Inline Analysis - No Tab Switching!
-- Match list with analysis buttons
-- Analysis opens directly below match
-- Can analyze multiple matches simultaneously
+100% ECHTE DATEN - KEINE PLACEHOLDERS!
+
+Features:
+- Inline Analysis (kein Tab-Wechsel)
+- ECHTE Corners & Cards Analyse (PreMatchAlternativeAnalyzer)
+- ECHTE Match Result Analyse (Dixon-Coles)
+- Liga-spezifische Statistiken
+- VALUE SCORE System (kein Odds-Display)
 """
 
 import streamlit as st
@@ -17,15 +21,41 @@ from collections import defaultdict
 import requests
 
 
+def _get_value_rating(probability: float) -> tuple:
+    """
+    Get star rating and label based on probability
+    
+    Sweet Spot: 60-75% = Best value (good odds + reasonable probability)
+    
+    Returns: (stars, label, color)
+    """
+    if 0.60 <= probability <= 0.75:
+        return ("⭐⭐⭐⭐⭐", "STRONG VALUE", "success")
+    elif (0.55 <= probability < 0.60) or (0.75 < probability <= 0.80):
+        return ("⭐⭐⭐⭐", "GOOD VALUE", "success")
+    elif 0.50 <= probability < 0.55:
+        return ("⭐⭐⭐", "DECENT", "warning")
+    elif probability > 0.85:
+        return ("⭐", "TOO SAFE", "warning")  # Bad odds!
+    else:
+        return ("⭐⭐", "RISKY", "error")
+
+
 def _render_corners_cards_analysis(match, api_key):
-    """Render Corners & Cards analysis for a match"""
+    """
+    Render ECHTE Corners & Cards analysis for a match
+    
+    Uses PreMatchAlternativeAnalyzer for real calculations!
+    """
     home_team = match['teams']['home']['name']
     away_team = match['teams']['away']['name']
+    home_team_id = match['teams']['home']['id']
+    away_team_id = match['teams']['away']['id']
     league_id = match['league']['id']
     league_name = match['league']['name']
     
     st.markdown(f"#### 📊 {home_team} vs {away_team} - Corners & Cards")
-    st.caption(f"🏆 {league_name}")
+    st.caption(f"🏆 {league_name} (Liga-spezifische Statistiken)")
     
     st.info("""
     **VALUE SCORE System:**
@@ -34,27 +64,185 @@ def _render_corners_cards_analysis(match, api_key):
     - ⭐⭐⭐⭐ = GOOD VALUE (55-60% oder 75-80%)
     - ⭐⭐⭐ = DECENT (50-55%)
     - ⭐⭐ = RISKY (<50%)
-    - ⭐ = TOO SAFE (>85%)
+    - ⭐ = TOO SAFE (>85%) - schlechte Quoten!
     """)
     
-    # Placeholder - would call actual analyzer
-    col1, col2 = st.columns(2)
+    # Initialize analyzer
+    analyzer = PreMatchAlternativeAnalyzer(api_key=api_key)
     
-    with col1:
-        st.metric("Expected Corners", "10.8")
-        st.markdown("**Top Corner Markets:**")
-        st.success("✅ Over 9.5: 65% ⭐⭐⭐⭐⭐")
-        st.success("✅ Under 11.5: 68% ⭐⭐⭐⭐⭐")
+    # Prepare fixture data
+    fixture = {
+        'home_team_id': home_team_id,
+        'away_team_id': away_team_id,
+        'league_id': league_id,
+        'home_team': home_team,
+        'away_team': away_team
+    }
     
-    with col2:
-        st.metric("Expected Cards", "4.2")
-        st.markdown("**Top Card Markets:**")
-        st.success("✅ Over 3.5: 63% ⭐⭐⭐⭐⭐")
-        st.warning("⚠️ Under 5.5: 72% ⭐⭐⭐⭐")
+    with st.spinner("🔄 Lade ECHTE Corner & Cards Statistiken..."):
+        try:
+            # ============================================
+            # CORNERS ANALYSIS - ECHTE DATEN!
+            # ============================================
+            corners_result = analyzer.analyze_prematch_corners(fixture)
+            
+            # ============================================
+            # CARDS ANALYSIS - ECHTE DATEN!
+            # ============================================
+            cards_result = analyzer.analyze_prematch_cards(fixture)
+            
+            # Show data quality
+            corners_quality = corners_result.get('data_quality', {})
+            cards_quality = cards_result.get('data_quality', {})
+            
+            st.success(f"""
+            ✅ **Daten geladen:**
+            - Corners: {corners_quality.get('home_matches', 0)} + {corners_quality.get('away_matches', 0)} Spiele analysiert
+            - Cards: {cards_quality.get('home_matches', 0)} + {cards_quality.get('away_matches', 0)} Spiele analysiert
+            """)
+            
+            # ============================================
+            # DISPLAY CORNERS
+            # ============================================
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("### ⚽ CORNERS")
+                
+                expected_corners = corners_result.get('expected_total', 10.5)
+                st.metric(
+                    "Expected Corners", 
+                    f"{expected_corners:.1f}",
+                    help=f"Home: {corners_result.get('home_expected', 0):.1f} | Away: {corners_result.get('away_expected', 0):.1f}"
+                )
+                
+                st.markdown("**Top Markets:**")
+                
+                # Get all thresholds and find best bets
+                thresholds = corners_result.get('thresholds', {})
+                best_bet = corners_result.get('best_bet', {})
+                
+                # Display thresholds sorted by value
+                displayed = 0
+                for key in sorted(thresholds.keys(), key=lambda k: float(k.split('_')[1])):
+                    data = thresholds[key]
+                    threshold = data['threshold']
+                    over_prob = data['probability'] / 100
+                    under_prob = 1 - over_prob
+                    
+                    # Check Over
+                    if 0.55 <= over_prob <= 0.85 and displayed < 3:
+                        stars, label, _ = _get_value_rating(over_prob)
+                        if over_prob >= 0.60:
+                            st.success(f"✅ Over {threshold}: {over_prob*100:.0f}% {stars}")
+                        else:
+                            st.warning(f"⚠️ Over {threshold}: {over_prob*100:.0f}% {stars}")
+                        displayed += 1
+                    
+                    # Check Under
+                    if 0.55 <= under_prob <= 0.85 and displayed < 3:
+                        stars, label, _ = _get_value_rating(under_prob)
+                        if under_prob >= 0.60:
+                            st.success(f"✅ Under {threshold}: {under_prob*100:.0f}% {stars}")
+                        else:
+                            st.warning(f"⚠️ Under {threshold}: {under_prob*100:.0f}% {stars}")
+                        displayed += 1
+                
+                # Show best bet if available
+                if best_bet:
+                    st.markdown("---")
+                    st.markdown(f"**💎 BEST BET:** {best_bet.get('bet', 'N/A')}")
+                    prob = best_bet.get('probability', 0)
+                    stars, label, _ = _get_value_rating(prob/100)
+                    st.markdown(f"**{prob}%** {stars} ({label})")
+            
+            # ============================================
+            # DISPLAY CARDS
+            # ============================================
+            with col2:
+                st.markdown("### 🟨 CARDS")
+                
+                expected_cards = cards_result.get('expected_total', 4.0)
+                is_derby = cards_result.get('is_derby', False)
+                
+                st.metric(
+                    "Expected Cards", 
+                    f"{expected_cards:.1f}",
+                    delta="🔥 DERBY!" if is_derby else None,
+                    help=f"Home: {cards_result.get('home_expected', 0):.1f} | Away: {cards_result.get('away_expected', 0):.1f}"
+                )
+                
+                st.markdown("**Top Markets:**")
+                
+                # Get thresholds
+                card_thresholds = cards_result.get('thresholds', {})
+                card_best_bet = cards_result.get('best_bet', {})
+                
+                displayed = 0
+                for key in sorted(card_thresholds.keys(), key=lambda k: float(k.split('_')[1])):
+                    data = card_thresholds[key]
+                    threshold = data['threshold']
+                    over_prob = data['probability'] / 100
+                    under_prob = 1 - over_prob
+                    
+                    # Check Over
+                    if 0.55 <= over_prob <= 0.85 and displayed < 3:
+                        stars, label, _ = _get_value_rating(over_prob)
+                        if over_prob >= 0.60:
+                            st.success(f"✅ Over {threshold}: {over_prob*100:.0f}% {stars}")
+                        else:
+                            st.warning(f"⚠️ Over {threshold}: {over_prob*100:.0f}% {stars}")
+                        displayed += 1
+                    
+                    # Check Under
+                    if 0.55 <= under_prob <= 0.85 and displayed < 3:
+                        stars, label, _ = _get_value_rating(under_prob)
+                        if under_prob >= 0.60:
+                            st.success(f"✅ Under {threshold}: {under_prob*100:.0f}% {stars}")
+                        else:
+                            st.warning(f"⚠️ Under {threshold}: {under_prob*100:.0f}% {stars}")
+                        displayed += 1
+                
+                # Show best bet
+                if card_best_bet:
+                    st.markdown("---")
+                    st.markdown(f"**💎 BEST BET:** {card_best_bet.get('bet', 'N/A')}")
+                    prob = card_best_bet.get('probability', 0)
+                    stars, label, _ = _get_value_rating(prob/100)
+                    st.markdown(f"**{prob}%** {stars} ({label})")
+            
+            # ============================================
+            # DETAILED THRESHOLDS TABLE
+            # ============================================
+            with st.expander("📊 Alle Thresholds anzeigen"):
+                st.markdown("**Corners:**")
+                for key in sorted(thresholds.keys(), key=lambda k: float(k.split('_')[1])):
+                    data = thresholds[key]
+                    t = data['threshold']
+                    over_p = data['probability']
+                    under_p = 100 - over_p
+                    st.write(f"**{t}:** Over {over_p:.0f}% | Under {under_p:.0f}%")
+                
+                st.markdown("---")
+                st.markdown("**Cards:**")
+                for key in sorted(card_thresholds.keys(), key=lambda k: float(k.split('_')[1])):
+                    data = card_thresholds[key]
+                    t = data['threshold']
+                    over_p = data['probability']
+                    under_p = 100 - over_p
+                    st.write(f"**{t}:** Over {over_p:.0f}% | Under {under_p:.0f}%")
+                    
+        except Exception as e:
+            st.error(f"❌ Fehler beim Laden der Daten: {str(e)}")
+            st.info("Bitte versuche es erneut oder wähle ein anderes Match.")
 
 
 def _render_match_result_analysis(match, api_key):
-    """Render Match Result analysis for a match"""
+    """
+    Render ECHTE Match Result analysis for a match
+    
+    Uses Dixon-Coles Model with liga-spezifischen Daten!
+    """
     home_team = match['teams']['home']['name']
     away_team = match['teams']['away']['name']
     home_team_id = match['teams']['home']['id']
@@ -86,7 +274,7 @@ def _render_match_result_analysis(match, api_key):
                 headers={'x-apisports-key': api_key},
                 params={
                     'team': home_team_id,
-                    'league': league_id,  # ✅ Liga-spezifisch!
+                    'league': league_id,  # Liga-spezifisch!
                     'season': season,
                     'last': 10,
                     'status': 'FT'
@@ -100,7 +288,7 @@ def _render_match_result_analysis(match, api_key):
                 headers={'x-apisports-key': api_key},
                 params={
                     'team': away_team_id,
-                    'league': league_id,  # ✅ Liga-spezifisch!
+                    'league': league_id,  # Liga-spezifisch!
                     'season': season,
                     'last': 10,
                     'status': 'FT'
@@ -108,542 +296,496 @@ def _render_match_result_analysis(match, api_key):
                 timeout=15
             )
             
-            if home_response.status_code == 200 and away_response.status_code == 200:
-                home_fixtures = home_response.json().get('response', [])
-                away_fixtures = away_response.json().get('response', [])
+            home_fixtures = home_response.json().get('response', []) if home_response.status_code == 200 else []
+            away_fixtures = away_response.json().get('response', []) if away_response.status_code == 200 else []
+            
+            # Fallback: If not enough league-specific matches, get ALL matches
+            if len(home_fixtures) < 3:
+                home_response = requests.get(
+                    "https://v3.football.api-sports.io/fixtures",
+                    headers={'x-apisports-key': api_key},
+                    params={
+                        'team': home_team_id,
+                        'season': season,
+                        'last': 10,
+                        'status': 'FT'
+                    },
+                    timeout=15
+                )
+                home_fixtures = home_response.json().get('response', []) if home_response.status_code == 200 else []
+                st.warning(f"⚠️ Wenig {league_name}-Spiele für {home_team}, nutze alle Wettbewerbe")
+            
+            if len(away_fixtures) < 3:
+                away_response = requests.get(
+                    "https://v3.football.api-sports.io/fixtures",
+                    headers={'x-apisports-key': api_key},
+                    params={
+                        'team': away_team_id,
+                        'season': season,
+                        'last': 10,
+                        'status': 'FT'
+                    },
+                    timeout=15
+                )
+                away_fixtures = away_response.json().get('response', []) if away_response.status_code == 200 else []
+                st.warning(f"⚠️ Wenig {league_name}-Spiele für {away_team}, nutze alle Wettbewerbe")
+            
+            # Extract goals data
+            home_data = {'goals_scored': [], 'goals_conceded': []}
+            away_data = {'goals_scored': [], 'goals_conceded': []}
+            
+            for fixture in home_fixtures[:5]:  # Last 5 for form
+                goals = fixture.get('goals', {})
+                teams = fixture.get('teams', {})
                 
-                # Extract goals data
-                home_data = {'goals_scored': [], 'goals_conceded': []}
-                away_data = {'goals_scored': [], 'goals_conceded': []}
-                
-                for fixture in home_fixtures[:5]:  # Last 5 matches
-                    home_id = fixture['teams']['home']['id']
-                    goals_home = fixture['goals']['home']
-                    goals_away = fixture['goals']['away']
-                    
-                    if goals_home is not None and goals_away is not None:
-                        if home_id == home_team_id:  # Playing at home
-                            home_data['goals_scored'].append(goals_home)
-                            home_data['goals_conceded'].append(goals_away)
-                        else:  # Playing away
-                            home_data['goals_scored'].append(goals_away)
-                            home_data['goals_conceded'].append(goals_home)
-                
-                for fixture in away_fixtures[:5]:  # Last 5 matches
-                    away_id = fixture['teams']['away']['id']
-                    goals_home = fixture['goals']['home']
-                    goals_away = fixture['goals']['away']
-                    
-                    if goals_home is not None and goals_away is not None:
-                        if away_id == away_team_id:  # Playing away
-                            away_data['goals_scored'].append(goals_away)
-                            away_data['goals_conceded'].append(goals_home)
-                        else:  # Playing at home
-                            away_data['goals_scored'].append(goals_home)
-                            away_data['goals_conceded'].append(goals_away)
-                
-                # Check if we have enough data
-                min_required = 5
-                
-                if len(home_data['goals_scored']) < min_required or len(away_data['goals_scored']) < min_required:
-                    st.warning(f"⚠️ Nicht genug {league_name} Daten: {home_team}: {len(home_data['goals_scored'])}, {away_team}: {len(away_data['goals_scored'])} Spiele")
-                    st.info(f"💡 Erweitere auf ALLE Wettbewerbe (Saison {season}/{season+1})")
-                    
-                    # FALLBACK: Get matches from ALL leagues
-                    try:
-                        home_response_all = requests.get(
-                            "https://v3.football.api-sports.io/fixtures",
-                            headers={'x-apisports-key': api_key},
-                            params={
-                                'team': home_team_id,
-                                'season': season,
-                                'last': 10,
-                                'status': 'FT'
-                            },
-                            timeout=15
-                        )
-                        
-                        away_response_all = requests.get(
-                            "https://v3.football.api-sports.io/fixtures",
-                            headers={'x-apisports-key': api_key},
-                            params={
-                                'team': away_team_id,
-                                'season': season,
-                                'last': 10,
-                                'status': 'FT'
-                            },
-                            timeout=15
-                        )
-                        
-                        if home_response_all.status_code == 200 and away_response_all.status_code == 200:
-                            home_fixtures_all = home_response_all.json().get('response', [])
-                            away_fixtures_all = away_response_all.json().get('response', [])
-                            
-                            # Re-process with all leagues
-                            home_data = {'goals_scored': [], 'goals_conceded': []}
-                            away_data = {'goals_scored': [], 'goals_conceded': []}
-                            
-                            for fixture in home_fixtures_all[:5]:
-                                home_id = fixture['teams']['home']['id']
-                                goals_home = fixture['goals']['home']
-                                goals_away = fixture['goals']['away']
-                                
-                                if goals_home is not None and goals_away is not None:
-                                    if home_id == home_team_id:
-                                        home_data['goals_scored'].append(goals_home)
-                                        home_data['goals_conceded'].append(goals_away)
-                                    else:
-                                        home_data['goals_scored'].append(goals_away)
-                                        home_data['goals_conceded'].append(goals_home)
-                            
-                            for fixture in away_fixtures_all[:5]:
-                                away_id = fixture['teams']['away']['id']
-                                goals_home = fixture['goals']['home']
-                                goals_away = fixture['goals']['away']
-                                
-                                if goals_home is not None and goals_away is not None:
-                                    if away_id == away_team_id:
-                                        away_data['goals_scored'].append(goals_away)
-                                        away_data['goals_conceded'].append(goals_home)
-                                    else:
-                                        away_data['goals_scored'].append(goals_home)
-                                        away_data['goals_conceded'].append(goals_away)
-                            
-                            st.success(f"✅ Erweiterte Daten: {len(home_data['goals_scored'])} + {len(away_data['goals_scored'])} Spiele (alle Wettbewerbe)")
-                    
-                    except Exception as e:
-                        st.warning(f"Fallback error: {e}")
-                        # Final fallback to minimal data
-                        if not home_data['goals_scored']:
-                            home_data = {'goals_scored': [1, 1, 1], 'goals_conceded': [1, 1, 1]}
-                        if not away_data['goals_scored']:
-                            away_data = {'goals_scored': [1, 1, 1], 'goals_conceded': [1, 1, 1]}
+                if teams.get('home', {}).get('id') == home_team_id:
+                    home_data['goals_scored'].append(goals.get('home', 0) or 0)
+                    home_data['goals_conceded'].append(goals.get('away', 0) or 0)
                 else:
-                    st.success(f"✅ {league_name} Statistiken: {len(home_data['goals_scored'])} + {len(away_data['goals_scored'])} Spiele")
+                    home_data['goals_scored'].append(goals.get('away', 0) or 0)
+                    home_data['goals_conceded'].append(goals.get('home', 0) or 0)
             
-            else:
-                st.error(f"❌ API Error: {home_response.status_code}")
-                # Use fallback data
-                home_data = {'goals_scored': [2, 1, 2], 'goals_conceded': [1, 1, 1]}
-                away_data = {'goals_scored': [1, 1, 1], 'goals_conceded': [2, 1, 1]}
-        
-        except Exception as e:
-            st.error(f"❌ Fehler beim Laden: {e}")
-            # Use fallback data
-            home_data = {'goals_scored': [2, 1, 2], 'goals_conceded': [1, 1, 1]}
-            away_data = {'goals_scored': [1, 1, 1], 'goals_conceded': [2, 1, 1]}
-    
-    # Initialize predictor
-    predictor = MatchResultPredictor(league_id=league_id)
-    
-    # Get prediction
-    try:
-        prediction = predictor.predict_match(home_data, away_data)
-        
-        # Show data used
-        with st.expander("📊 Genutzte Team-Statistiken", expanded=False):
-            col1, col2 = st.columns(2)
+            for fixture in away_fixtures[:5]:
+                goals = fixture.get('goals', {})
+                teams = fixture.get('teams', {})
+                
+                if teams.get('home', {}).get('id') == away_team_id:
+                    away_data['goals_scored'].append(goals.get('home', 0) or 0)
+                    away_data['goals_conceded'].append(goals.get('away', 0) or 0)
+                else:
+                    away_data['goals_scored'].append(goals.get('away', 0) or 0)
+                    away_data['goals_conceded'].append(goals.get('home', 0) or 0)
             
-            with col1:
-                st.markdown(f"**{home_team} (letzte {len(home_data['goals_scored'])} Spiele)**")
-                st.write(f"Tore erzielt: {home_data['goals_scored']}")
-                st.write(f"Tore kassiert: {home_data['goals_conceded']}")
+            if not home_data['goals_scored'] or not away_data['goals_scored']:
+                st.error("❌ Keine Spielstatistiken verfügbar")
+                return
             
-            with col2:
-                st.markdown(f"**{away_team} (letzte {len(away_data['goals_scored'])} Spiele)**")
-                st.write(f"Tore erzielt: {away_data['goals_scored']}")
-                st.write(f"Tore kassiert: {away_data['goals_conceded']}")
-        
-        # Display predictions
-        st.markdown("---")
-        
-        # Expected Goals
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("🏠 Home xG", f"{prediction.home_xg:.2f}")
-        with col2:
-            st.metric("✈️ Away xG", f"{prediction.away_xg:.2f}")
-        with col3:
-            st.metric("📊 Total xG", f"{prediction.total_xg:.2f}")
-        
-        st.markdown("---")
-        
-        # Match Result
-        st.markdown("### 🎯 Match Result (1X2)")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        # Determine value ratings (sweet spot 55-80%)
-        def get_value_rating(prob):
-            if 0.60 <= prob <= 0.75:
-                return "⭐⭐⭐⭐⭐", "✅ STRONG VALUE"
-            elif 0.55 <= prob < 0.60 or 0.75 < prob <= 0.80:
-                return "⭐⭐⭐⭐", "✅ GOOD VALUE"
-            elif 0.50 <= prob < 0.55:
-                return "⭐⭐⭐", "⚠️ DECENT"
-            elif prob > 0.85:
-                return "⭐", "❌ TOO SAFE"
-            else:
-                return "⭐⭐", "⚠️ RISKY"
-        
-        with col1:
-            stars, rating = get_value_rating(prediction.home_win_prob)
-            st.markdown(f"### 🏠 Home Win")
-            st.markdown(f"### {prediction.home_win_prob*100:.1f}%")
-            st.markdown(f"{stars}")
-            if "STRONG" in rating or "GOOD" in rating:
-                st.success(rating)
-            elif "DECENT" in rating:
-                st.warning(rating)
-            else:
-                st.error(rating)
-        
-        with col2:
-            stars, rating = get_value_rating(prediction.draw_prob)
-            st.markdown(f"### ⚖️ Draw")
-            st.markdown(f"### {prediction.draw_prob*100:.1f}%")
-            st.markdown(f"{stars}")
-            if "STRONG" in rating or "GOOD" in rating:
-                st.success(rating)
-            elif "DECENT" in rating:
-                st.warning(rating)
-            else:
-                st.error(rating)
-        
-        with col3:
-            stars, rating = get_value_rating(prediction.away_win_prob)
-            st.markdown(f"### ✈️ Away Win")
-            st.markdown(f"### {prediction.away_win_prob*100:.1f}%")
-            st.markdown(f"{stars}")
-            if "STRONG" in rating or "GOOD" in rating:
-                st.success(rating)
-            elif "DECENT" in rating:
-                st.warning(rating)
-            else:
-                st.error(rating)
-        
-        st.markdown("---")
-        
-        # Double Chance
-        st.markdown("### 🔀 Double Chance")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            stars, rating = get_value_rating(prediction.home_or_draw)
-            st.markdown(f"**1X (Home or Draw)**")
-            st.markdown(f"### {prediction.home_or_draw*100:.1f}%")
-            st.markdown(f"{stars}")
-            if "STRONG" in rating or "GOOD" in rating:
-                st.success(rating)
-        
-        with col2:
-            stars, rating = get_value_rating(prediction.draw_or_away)
-            st.markdown(f"**X2 (Draw or Away)**")
-            st.markdown(f"### {prediction.draw_or_away*100:.1f}%")
-            st.markdown(f"{stars}")
-            if "STRONG" in rating or "GOOD" in rating:
-                st.success(rating)
-        
-        with col3:
-            stars, rating = get_value_rating(prediction.home_or_away)
-            st.markdown(f"**12 (No Draw)**")
-            st.markdown(f"### {prediction.home_or_away*100:.1f}%")
-            st.markdown(f"{stars}")
-            if "STRONG" in rating or "GOOD" in rating:
-                st.success(rating)
-        
-        st.markdown("---")
-        
-        # Over/Under
-        st.markdown("### 📈 Over/Under Goals")
-        
-        for threshold, (over_prob, under_prob) in prediction.over_under.items():
-            col1, col2 = st.columns(2)
+            st.success(f"✅ Team-Statistiken geladen: {len(home_data['goals_scored'])} + {len(away_data['goals_scored'])} Spiele")
             
-            with col1:
-                stars_o, rating_o = get_value_rating(over_prob)
-                prefix = "✅" if "STRONG" in rating_o or "GOOD" in rating_o else "📊"
-                st.markdown(f"{prefix} **Over {threshold}:** {over_prob*100:.1f}% {stars_o}")
+            # Use Dixon-Coles Predictor
+            predictor = MatchResultPredictor(league_id=league_id)
+            prediction = predictor.predict_match(home_data, away_data)
             
-            with col2:
-                stars_u, rating_u = get_value_rating(under_prob)
-                prefix = "✅" if "STRONG" in rating_u or "GOOD" in rating_u else "📊"
-                st.markdown(f"{prefix} **Under {threshold}:** {under_prob*100:.1f}% {stars_u}")
-        
-        st.markdown("---")
-        
-        # BTTS
-        st.markdown("### 🎯 Both Teams To Score (BTTS)")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            stars, rating = get_value_rating(prediction.btts_yes)
-            prefix = "✅" if "STRONG" in rating or "GOOD" in rating else "📊"
-            st.markdown(f"{prefix} **Yes:** {prediction.btts_yes*100:.1f}% {stars}")
-        
-        with col2:
-            stars, rating = get_value_rating(prediction.btts_no)
-            prefix = "✅" if "STRONG" in rating or "GOOD" in rating else "📊"
-            st.markdown(f"{prefix} **No:** {prediction.btts_no*100:.1f}% {stars}")
-        
-        # Best Value Bets
-        if prediction.best_result_bet or prediction.best_double_chance or prediction.best_over_under:
+            # ============================================
+            # DISPLAY EXPECTED GOALS
+            # ============================================
             st.markdown("---")
-            st.markdown("### 💎 Top Recommendations")
-            st.caption("Basierend auf Sweet Spot 60-75% Wahrscheinlichkeit")
+            st.markdown("### 📊 Expected Goals")
             
-            if prediction.best_result_bet:
-                prob = prediction.best_result_bet['prob']
-                value = prediction.best_result_bet['value_score']
-                st.success(f"🎯 **{prediction.best_result_bet['market']}:** {prob*100:.1f}% | Value Score: {value:.2f}/5.0 ⭐⭐⭐⭐⭐")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(home_team, f"{prediction.home_xg:.2f}")
+            with col2:
+                st.metric("Total", f"{prediction.total_xg:.2f}")
+            with col3:
+                st.metric(away_team, f"{prediction.away_xg:.2f}")
             
-            if prediction.best_double_chance:
-                prob = prediction.best_double_chance['prob']
-                value = prediction.best_double_chance['value_score']
-                st.success(f"🔀 **{prediction.best_double_chance['market']}:** {prob*100:.1f}% | Value Score: {value:.2f}/5.0 ⭐⭐⭐⭐")
+            # ============================================
+            # MATCH RESULT (1X2) - NO ODDS!
+            # ============================================
+            st.markdown("---")
+            st.markdown("### 🎯 Match Result (1X2)")
             
-            if prediction.best_over_under:
-                prob = prediction.best_over_under['prob']
-                value = prediction.best_over_under['value_score']
-                st.success(f"📈 **{prediction.best_over_under['market']}:** {prob*100:.1f}% | Value Score: {value:.2f}/5.0 ⭐⭐⭐⭐")
-    
-    except Exception as e:
-        st.error(f"❌ Prediction Error: {e}")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                prob = prediction.home_win_prob
+                stars, label, _ = _get_value_rating(prob)
+                st.markdown("**🏠 Home Win**")
+                st.markdown(f"### {prob*100:.1f}%")
+                st.markdown(f"{stars}")
+                st.caption(label)
+            
+            with col2:
+                prob = prediction.draw_prob
+                stars, label, _ = _get_value_rating(prob)
+                st.markdown("**⚖️ Draw**")
+                st.markdown(f"### {prob*100:.1f}%")
+                st.markdown(f"{stars}")
+                st.caption(label)
+            
+            with col3:
+                prob = prediction.away_win_prob
+                stars, label, _ = _get_value_rating(prob)
+                st.markdown("**✈️ Away Win**")
+                st.markdown(f"### {prob*100:.1f}%")
+                st.markdown(f"{stars}")
+                st.caption(label)
+            
+            # ============================================
+            # DOUBLE CHANCE
+            # ============================================
+            st.markdown("---")
+            st.markdown("### 🔀 Double Chance")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            dc_1x = prediction.home_win_prob + prediction.draw_prob
+            dc_x2 = prediction.draw_prob + prediction.away_win_prob
+            dc_12 = prediction.home_win_prob + prediction.away_win_prob
+            
+            with col1:
+                stars, label, _ = _get_value_rating(dc_1x)
+                st.markdown("**1X (Home or Draw)**")
+                st.markdown(f"### {dc_1x*100:.1f}%")
+                st.markdown(f"{stars}")
+            
+            with col2:
+                stars, label, _ = _get_value_rating(dc_x2)
+                st.markdown("**X2 (Draw or Away)**")
+                st.markdown(f"### {dc_x2*100:.1f}%")
+                st.markdown(f"{stars}")
+            
+            with col3:
+                stars, label, _ = _get_value_rating(dc_12)
+                st.markdown("**12 (No Draw)**")
+                st.markdown(f"### {dc_12*100:.1f}%")
+                st.markdown(f"{stars}")
+            
+            # ============================================
+            # OVER/UNDER GOALS
+            # ============================================
+            st.markdown("---")
+            st.markdown("### 📈 Over/Under Goals")
+            
+            over_under = prediction.over_under
+            
+            for threshold in [1.5, 2.5, 3.5]:
+                if threshold in over_under:
+                    over_prob, under_prob = over_under[threshold]
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        stars, label, _ = _get_value_rating(over_prob)
+                        color = "success" if over_prob >= 0.60 else "warning" if over_prob >= 0.50 else "error"
+                        if color == "success":
+                            st.success(f"Over {threshold}: **{over_prob*100:.1f}%** {stars}")
+                        elif color == "warning":
+                            st.warning(f"Over {threshold}: **{over_prob*100:.1f}%** {stars}")
+                        else:
+                            st.error(f"Over {threshold}: **{over_prob*100:.1f}%** {stars}")
+                    
+                    with col2:
+                        stars, label, _ = _get_value_rating(under_prob)
+                        if under_prob >= 0.60:
+                            st.success(f"Under {threshold}: **{under_prob*100:.1f}%** {stars}")
+                        elif under_prob >= 0.50:
+                            st.warning(f"Under {threshold}: **{under_prob*100:.1f}%** {stars}")
+                        else:
+                            st.error(f"Under {threshold}: **{under_prob*100:.1f}%** {stars}")
+            
+            # ============================================
+            # BTTS
+            # ============================================
+            st.markdown("---")
+            st.markdown("### 🎯 BTTS (Both Teams To Score)")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                btts_yes = prediction.btts_yes
+                stars, label, _ = _get_value_rating(btts_yes)
+                st.markdown("**Yes**")
+                st.markdown(f"### {btts_yes*100:.1f}%")
+                st.markdown(f"{stars}")
+            
+            with col2:
+                btts_no = prediction.btts_no
+                stars, label, _ = _get_value_rating(btts_no)
+                st.markdown("**No**")
+                st.markdown(f"### {btts_no*100:.1f}%")
+                st.markdown(f"{stars}")
+            
+            # ============================================
+            # BEST VALUE BETS SUMMARY
+            # ============================================
+            st.markdown("---")
+            st.markdown("### 💎 Best Value Bets (60-75% Sweet Spot)")
+            
+            # Collect all bets with good value
+            value_bets = []
+            
+            # Check 1X2
+            if 0.60 <= prediction.home_win_prob <= 0.75:
+                value_bets.append(("Home Win", prediction.home_win_prob))
+            if 0.60 <= prediction.draw_prob <= 0.75:
+                value_bets.append(("Draw", prediction.draw_prob))
+            if 0.60 <= prediction.away_win_prob <= 0.75:
+                value_bets.append(("Away Win", prediction.away_win_prob))
+            
+            # Check Double Chance
+            if 0.60 <= dc_1x <= 0.75:
+                value_bets.append(("1X", dc_1x))
+            if 0.60 <= dc_x2 <= 0.75:
+                value_bets.append(("X2", dc_x2))
+            if 0.60 <= dc_12 <= 0.75:
+                value_bets.append(("12", dc_12))
+            
+            # Check Over/Under
+            for threshold in [1.5, 2.5, 3.5]:
+                if threshold in over_under:
+                    over_p, under_p = over_under[threshold]
+                    if 0.60 <= over_p <= 0.75:
+                        value_bets.append((f"Over {threshold}", over_p))
+                    if 0.60 <= under_p <= 0.75:
+                        value_bets.append((f"Under {threshold}", under_p))
+            
+            # Check BTTS
+            if 0.60 <= btts_yes <= 0.75:
+                value_bets.append(("BTTS Yes", btts_yes))
+            if 0.60 <= btts_no <= 0.75:
+                value_bets.append(("BTTS No", btts_no))
+            
+            if value_bets:
+                for bet, prob in sorted(value_bets, key=lambda x: x[1], reverse=True):
+                    st.success(f"✅ **{bet}**: {prob*100:.1f}% ⭐⭐⭐⭐⭐")
+            else:
+                st.warning("⚠️ Keine Wetten im Sweet Spot (60-75%) gefunden.")
+                st.info("Tipp: Wetten über 75% haben oft schlechte Quoten, unter 60% sind riskanter.")
+            
+        except Exception as e:
+            st.error(f"❌ Fehler beim Laden der Daten: {str(e)}")
+            st.info("Bitte versuche es erneut oder wähle ein anderes Match.")
 
 
 def create_alternative_markets_tab_extended():
     """
-    Alternative Markets Tab - INLINE ANALYSIS
-    No tab switching - analysis opens directly at each match!
+    Main function to create the Alternative Markets tab
+    
+    Features:
+    - Inline analysis (no tab switching!)
+    - Select All leagues button
+    - Persistent fixtures across tab switches
+    - Real data from API
     """
     
+    st.header("📊 ALTERNATIVE MARKETS - Extended")
+    
     st.markdown("""
-    ### 📊 ALTERNATIVE MARKETS - Extended
+    **Mathematische Analyse für:**
+    - ⚽ **Corners & Cards** (VALUE SCORE System)
+    - 🎯 **Match Result** (Dixon-Coles Model)
+    - 🔀 **Double Chance** (1X, X2, 12)
+    - 📈 **Over/Under Goals** (0.5 - 4.5)
+    - 🎯 **BTTS** (Both Teams To Score)
     
-    **Mathematische Analyse mit VALUE RATINGS:**
-    * ⚽ Corners & Cards (VALUE SCORE System)
-    * 🎯 Match Result (Dixon-Coles Model)
-    * 🔀 Double Chance (1X, X2, 12)
-    * 📈 Over/Under Goals (0.5 - 4.5)
-    * 🎯 BTTS (Both Teams To Score)
-    
-    **Keine Buchmacher-Quoten - Nur Wahrscheinlichkeiten & Bewertungen!**
-    
-    **Value Rating System:**
-    - ⭐⭐⭐⭐⭐ = STRONG VALUE (60-75% Sweet Spot)
-    - ⭐⭐⭐⭐ = GOOD VALUE (55-60% oder 75-80%)
-    - ⭐⭐⭐ = DECENT (50-55%)
-    - ⭐⭐ = RISKY (<50%)
-    - ⭐ = TOO SAFE (>85% - schlechter Value)
+    **Keine Buchmacher-Quoten - Pure Mathematik!**
     """)
     
-    with st.expander("ℹ️ Wie funktioniert es?", expanded=False):
-        st.markdown("""
-        1. **Ligen und Datum wählen**
-        2. **"Matches laden" klicken**
-        3. **Analyse-Button bei gewünschtem Match klicken**
-        4. **Analyse öffnet sich direkt!**
-        
-        ✨ **NEU:** Kein Tab-Wechsel mehr! Analyse direkt beim Match!
-        
-        💡 **Tipp:** Du kannst mehrere Matches gleichzeitig analysieren!
-        """)
-    
-    st.markdown("---")
+    # Initialize session states
+    if 'tab7_fixtures' not in st.session_state:
+        st.session_state['tab7_fixtures'] = []
+    if 'tab7_selected_leagues' not in st.session_state:
+        st.session_state['tab7_selected_leagues'] = [78, 39, 140]  # Default: BL, PL, LL
     
     # Get API key
     try:
         api_key = st.secrets['api']['api_football_key']
     except:
-        st.error("❌ API Key nicht gefunden! Bitte in Secrets konfigurieren.")
+        st.error("❌ API Key nicht gefunden!")
         return
     
-    # League selection
-    AVAILABLE_LEAGUES = {
-        # TOP 5 Leagues
-        'Bundesliga (🇩🇪)': 78,
-        'Premier League (🇬🇧)': 39,
-        'La Liga (🇪🇸)': 140,
-        'Serie A (🇮🇹)': 135,
-        'Ligue 1 (🇫🇷)': 61,
-        
-        # Other Top Leagues
-        'Eredivisie (🇳🇱)': 88,
-        'Primeira Liga (🇵🇹)': 94,
-        'Championship (🇬🇧)': 40,
-        'Bundesliga 2 (🇩🇪)': 79,
-        'La Liga 2 (🇪🇸)': 141,
-        'Serie B (🇮🇹)': 136,
-        'Ligue 2 (🇫🇷)': 62,
-        
-        # International
-        'Champions League': 2,
-        'Europa League': 3,
-        'Conference League': 848,
-        
-        # More Leagues
-        'Scottish Premiership': 179,
-        'Belgian Pro League': 144,
-        'Turkish Süper Lig': 203,
-        'Austrian Bundesliga': 218,
-        'Swiss Super League': 207,
-        'Danish Superliga': 119,
-        'Norwegian Eliteserien': 103,
-        'Swedish Allsvenskan': 113,
-        'MLS (🇺🇸)': 253,
-        'Liga MX (🇲🇽)': 262,
-        'Brasileirão (🇧🇷)': 71,
-        'Argentine Liga (🇦🇷)': 128
+    # ALL 28 LEAGUES
+    ALL_LEAGUES = {
+        78: "🇩🇪 Bundesliga",
+        39: "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League",
+        140: "🇪🇸 La Liga",
+        135: "🇮🇹 Serie A",
+        61: "🇫🇷 Ligue 1",
+        2: "🏆 Champions League",
+        3: "🏆 Europa League",
+        88: "🇳🇱 Eredivisie",
+        94: "🇵🇹 Primeira Liga",
+        203: "🇹🇷 Süper Lig",
+        40: "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship",
+        79: "🇩🇪 Bundesliga 2",
+        41: "🏴󠁧󠁢󠁥󠁮󠁧󠁿 League One",
+        42: "🏴󠁧󠁢󠁥󠁮󠁧󠁿 League Two",
+        144: "🇧🇪 Pro League",
+        218: "🇦🇹 Austrian Bundesliga",
+        207: "🇨🇭 Swiss Super League",
+        119: "🇩🇰 Danish Superliga",
+        113: "🇸🇪 Swedish Allsvenskan",
+        103: "🇳🇴 Norwegian Eliteserien",
+        197: "🇬🇷 Greek Super League",
+        345: "🇨🇿 Czech Liga",
+        283: "🇷🇴 Romanian Liga 1",
+        286: "🇷🇸 Serbian SuperLiga",
+        210: "🇭🇷 Croatian HNL",
+        333: "🇺🇦 Ukrainian Premier League",
+        106: "🇵🇱 Polish Ekstraklasa",
+        332: "🇸🇰 Slovak Fortuna Liga"
     }
     
-    st.markdown("### 🔍 Matches Suchen")
+    # ============================================
+    # SEARCH SECTION
+    # ============================================
+    st.markdown("---")
+    st.subheader("🔍 Matches Suchen")
     
-    # Select All / Clear All buttons
-    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 4])
+    # Select All / None buttons
+    st.markdown(f"**📊 {len(ALL_LEAGUES)} Ligen verfügbar**")
     
-    with col_btn1:
-        if st.button("✅ Alle auswählen", use_container_width=True):
-            st.session_state['selected_leagues'] = list(AVAILABLE_LEAGUES.keys())
-            st.rerun()
-    
-    with col_btn2:
-        if st.button("❌ Keine", use_container_width=True):
-            st.session_state['selected_leagues'] = []
-            st.rerun()
-    
-    col1, col2 = st.columns([2, 1])
+    col1, col2, col3 = st.columns([1, 1, 3])
     
     with col1:
-        # Get default from session state or use preset
-        default_leagues = st.session_state.get('selected_leagues', 
-            ['Premier League (🇬🇧)', 'Bundesliga (🇩🇪)', 'Champions League'])
-        
-        selected_leagues = st.multiselect(
-            "Ligen auswählen",
-            options=list(AVAILABLE_LEAGUES.keys()),
-            default=default_leagues,
-            help="Wähle eine oder mehrere Ligen"
-        )
-        
-        # Store in session state
-        st.session_state['selected_leagues'] = selected_leagues
-        
-        selected_league_ids = [AVAILABLE_LEAGUES[league] for league in selected_leagues]
+        if st.button("✅ Alle auswählen"):
+            st.session_state['tab7_selected_leagues'] = list(ALL_LEAGUES.keys())
+            st.rerun()
     
     with col2:
-        search_date = st.date_input(
-            "Datum",
-            value=datetime.now().date(),
-            min_value=datetime.now().date(),
-            max_value=datetime.now().date() + timedelta(days=14)
+        if st.button("❌ Keine"):
+            st.session_state['tab7_selected_leagues'] = []
+            st.rerun()
+    
+    # League multiselect
+    selected_leagues = st.multiselect(
+        "Ligen auswählen",
+        options=list(ALL_LEAGUES.keys()),
+        default=st.session_state.get('tab7_selected_leagues', [78, 39, 140]),
+        format_func=lambda x: ALL_LEAGUES.get(x, f"Liga {x}"),
+        key="league_multiselect"
+    )
+    
+    # Update session state
+    st.session_state['tab7_selected_leagues'] = selected_leagues
+    
+    # Date selection
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        date_option = st.radio(
+            "Zeitraum",
+            ["Heute", "Morgen", "Benutzerdefiniert"],
+            horizontal=True
         )
     
+    with col2:
+        if date_option == "Heute":
+            search_date = datetime.now().date()
+        elif date_option == "Morgen":
+            search_date = (datetime.now() + timedelta(days=1)).date()
+        else:
+            search_date = st.date_input("Datum", datetime.now().date())
+    
+    # Load matches button
     if st.button("🔍 Matches laden", type="primary"):
-        # Calculate season
-        current_year = search_date.year
-        current_month = search_date.month
-        current_season = current_year if current_month >= 8 else current_year - 1
-        
-        st.info(f"🔍 Suche in Season {current_season}/{current_season+1} am {search_date.strftime('%d.%m.%Y')}")
-        
-        with st.spinner(f"Lade Matches aus {len(selected_league_ids)} Liga(en)..."):
-            try:
+        if not selected_leagues:
+            st.warning("⚠️ Bitte wähle mindestens eine Liga aus!")
+        else:
+            with st.spinner(f"Lade Matches aus {len(selected_leagues)} Liga(en)..."):
                 all_fixtures = []
                 
-                # Get fixtures for each league
-                for league_id in selected_league_ids:
-                    response = requests.get(
-                        "https://v3.football.api-sports.io/fixtures",
-                        headers={'x-apisports-key': api_key},
-                        params={
-                            'league': league_id,
-                            'season': current_season,
-                            'date': search_date.strftime('%Y-%m-%d')
-                        },
-                        timeout=15
-                    )
-                    
-                    if response.status_code == 200:
-                        fixtures = response.json().get('response', [])
-                        all_fixtures.extend(fixtures)
+                # Dynamic season calculation
+                current_year = search_date.year
+                current_month = search_date.month
+                current_season = current_year if current_month >= 8 else current_year - 1
+                
+                st.info(f"🔍 Suche in Season {current_season}/{current_season+1} am {search_date}")
+                
+                for league_id in selected_leagues:
+                    try:
+                        response = requests.get(
+                            "https://v3.football.api-sports.io/fixtures",
+                            headers={'x-apisports-key': api_key},
+                            params={
+                                'league': league_id,
+                                'season': current_season,
+                                'date': search_date.strftime('%Y-%m-%d')
+                            },
+                            timeout=15
+                        )
+                        
+                        if response.status_code == 200:
+                            fixtures = response.json().get('response', [])
+                            all_fixtures.extend(fixtures)
+                    except Exception as e:
+                        st.warning(f"⚠️ Fehler beim Laden von {ALL_LEAGUES.get(league_id, league_id)}: {e}")
+                
+                st.session_state['tab7_fixtures'] = all_fixtures
                 
                 if all_fixtures:
-                    st.success(f"✅ {len(all_fixtures)} Matches aus {len(selected_league_ids)} Liga(en) gefunden!")
-                    
-                    # Store in UNIQUE session state key for Tab 7
-                    st.session_state['tab7_fixtures'] = all_fixtures
-                    st.session_state['tab7_search_date'] = search_date.strftime('%d.%m.%Y')
-                    st.session_state['tab7_selected_leagues'] = selected_league_ids
+                    st.success(f"✅ {len(all_fixtures)} Matches aus {len(selected_leagues)} Liga(en) gefunden!")
                 else:
-                    st.warning(f"⚠️ Keine Matches am {search_date.strftime('%d.%m.%Y')} in den gewählten Ligen")
-                    st.session_state['tab7_fixtures'] = []
-            
-            except Exception as e:
-                st.error(f"❌ Fehler: {e}")
-                st.session_state['tab7_fixtures'] = []
+                    st.warning(f"⚠️ Keine Matches am {search_date} in den gewählten Ligen")
     
-    # Display fixtures if they exist (OUTSIDE button block!)
-    if 'tab7_fixtures' in st.session_state and st.session_state['tab7_fixtures']:
-        fixtures_to_display = st.session_state['tab7_fixtures']
-        search_date_display = st.session_state.get('tab7_search_date', 'N/A')
-        
-        st.markdown("---")
-        st.markdown(f"### 📋 Matches ({search_date_display})")
-        
-        # Add clear button
-        if st.button("🗑️ Matches löschen", key="clear_tab7_fixtures"):
+    # Clear button
+    if st.session_state.get('tab7_fixtures'):
+        if st.button("🗑️ Matches löschen"):
             st.session_state['tab7_fixtures'] = []
             st.rerun()
+    
+    # ============================================
+    # DISPLAY MATCHES WITH INLINE ANALYSIS
+    # ============================================
+    fixtures = st.session_state.get('tab7_fixtures', [])
+    
+    if fixtures:
+        st.markdown("---")
+        st.subheader(f"⚽ {len(fixtures)} Matches gefunden")
         
         # Group by league
         by_league = defaultdict(list)
-        for match in fixtures_to_display:
+        for match in fixtures:
             league_name = match['league']['name']
             by_league[league_name].append(match)
         
-        # Display each league
+        # Display grouped
         for league_name, matches in sorted(by_league.items()):
-            st.markdown(f"### 🏆 {league_name} ({len(matches)} Matches)")
+            st.markdown(f"### 🏆 {league_name} ({len(matches)})")
             
             for match in matches:
-                home = match['teams']['home']['name']
-                away = match['teams']['away']['name']
-                match_time = match['fixture']['date']
                 match_id = match['fixture']['id']
+                home_team = match['teams']['home']['name']
+                away_team = match['teams']['away']['name']
+                match_time = match['fixture']['date']
                 
-                # Match header
-                col1, col2, col3 = st.columns([3, 1, 1])
+                # Format time
+                try:
+                    dt = datetime.fromisoformat(match_time.replace('Z', '+00:00'))
+                    time_str = dt.strftime('%H:%M')
+                except:
+                    time_str = match_time[:16]
                 
-                with col1:
-                    st.markdown(f"**{home}** vs **{away}**")
-                    st.caption(f"🕐 {match_time}")
-                
-                with col2:
-                    if st.button("📊 Corners & Cards", key=f"cc_{match_id}", use_container_width=True):
-                        # Toggle state
-                        key = f'show_cc_{match_id}'
-                        st.session_state[key] = not st.session_state.get(key, False)
-                
-                with col3:
-                    if st.button("⚽ Match Result", key=f"mr_{match_id}", use_container_width=True):
-                        # Toggle state
-                        key = f'show_mr_{match_id}'
-                        st.session_state[key] = not st.session_state.get(key, False)
-                
-                # Show Corners & Cards analysis if toggled
-                if st.session_state.get(f'show_cc_{match_id}', False):
-                    with st.container():
-                        st.markdown("---")
-                        _render_corners_cards_analysis(match, api_key)
-                        st.markdown("---")
-                
-                # Show Match Result analysis if toggled
-                if st.session_state.get(f'show_mr_{match_id}', False):
-                    with st.container():
-                        st.markdown("---")
-                        _render_match_result_analysis(match, api_key)
-                        st.markdown("---")
-                
-                st.markdown("---")
+                # Match container
+                with st.container():
+                    col1, col2, col3 = st.columns([3, 1, 1])
+                    
+                    with col1:
+                        st.markdown(f"**{home_team} vs {away_team}**")
+                        st.caption(f"🕐 {time_str}")
+                    
+                    with col2:
+                        # Corners & Cards button
+                        cc_key = f"show_cc_{match_id}"
+                        if cc_key not in st.session_state:
+                            st.session_state[cc_key] = False
+                        
+                        if st.button("📊 Corners", key=f"btn_cc_{match_id}"):
+                            st.session_state[cc_key] = not st.session_state[cc_key]
+                            st.rerun()
+                    
+                    with col3:
+                        # Match Result button
+                        mr_key = f"show_mr_{match_id}"
+                        if mr_key not in st.session_state:
+                            st.session_state[mr_key] = False
+                        
+                        if st.button("⚽ Result", key=f"btn_mr_{match_id}"):
+                            st.session_state[mr_key] = not st.session_state[mr_key]
+                            st.rerun()
+                    
+                    # INLINE ANALYSIS - Opens directly below the match!
+                    if st.session_state.get(f"show_cc_{match_id}", False):
+                        with st.expander("📊 Corners & Cards Analyse", expanded=True):
+                            _render_corners_cards_analysis(match, api_key)
+                    
+                    if st.session_state.get(f"show_mr_{match_id}", False):
+                        with st.expander("⚽ Match Result Analyse", expanded=True):
+                            _render_match_result_analysis(match, api_key)
+                    
+                    st.markdown("---")
+    
+    else:
+        st.info("👆 Wähle Ligen und klicke 'Matches laden' um zu beginnen!")
