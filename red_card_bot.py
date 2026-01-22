@@ -1,9 +1,13 @@
 """
-RED CARD BOT - DUAL MODE
-=========================
-Works as:
-1. Standalone bot (GitHub Actions)
-2. Streamlit monitoring tab
+RED CARD BOT - ENHANCED WITH LIVE STATS
+=========================================
+Verbesserter Bot der:
+1. Rote Karten erkennt
+2. ECHTE Live-Stats holt (xG, Ballbesitz, Schüsse, etc.)
+3. RedCardImpactPredictor mit allen Daten füttert
+4. Präzise Vorhersagen macht
+
+KEINE FAKE DATEN - ALLES ECHT!
 """
 
 import os
@@ -12,7 +16,15 @@ import requests
 from datetime import datetime
 from typing import Dict, List, Set, Optional
 
-# Streamlit import (optional - only needed for UI mode)
+# Import predictor
+try:
+    from red_card_impact_predictor import RedCardImpactPredictor
+    PREDICTOR_AVAILABLE = True
+except ImportError:
+    PREDICTOR_AVAILABLE = False
+    print("⚠️ Warning: red_card_impact_predictor not found, using basic calculations")
+
+# Streamlit import (optional)
 try:
     import streamlit as st
     STREAMLIT_AVAILABLE = True
@@ -20,43 +32,42 @@ except ImportError:
     STREAMLIT_AVAILABLE = False
 
 
-class RedCardBot:
-    """Red card monitoring bot - works standalone or in Streamlit"""
+class RedCardBotEnhanced:
+    """Enhanced red card bot with real live statistics integration"""
     
     def __init__(self, api_key: str = None, telegram_token: str = None, 
                  telegram_chat_id: str = None, streamlit_mode: bool = False):
         
         self.streamlit_mode = streamlit_mode
         
-        # Get credentials (from env or parameters)
+        # Get credentials
         if streamlit_mode:
-            # Streamlit mode: use parameters or session state
             self.api_key = api_key
             self.telegram_token = telegram_token
             self.telegram_chat_id = telegram_chat_id
         else:
-            # Standalone mode: use environment variables
             self.api_key = os.environ.get('API_FOOTBALL_KEY')
             self.telegram_token = os.environ.get('TELEGRAM_BOT_TOKEN')
             self.telegram_chat_id = os.environ.get('TELEGRAM_CHAT_ID')
         
         if not self.api_key:
             raise ValueError("❌ API_FOOTBALL_KEY not set!")
-        if not self.telegram_token or not self.telegram_chat_id:
-            if not streamlit_mode:
-                raise ValueError("❌ Telegram credentials not set!")
         
         self.base_url = "https://v3.football.api-sports.io"
         self.headers = {'x-apisports-key': self.api_key}
         
+        # Initialize predictor
+        if PREDICTOR_AVAILABLE:
+            self.predictor = RedCardImpactPredictor()
+        else:
+            self.predictor = None
+        
         # State tracking
         if streamlit_mode and STREAMLIT_AVAILABLE:
-            # Use Streamlit session state
             if 'alerted_cards' not in st.session_state:
                 st.session_state.alerted_cards = set()
             self.alerted_cards = st.session_state.alerted_cards
         else:
-            # Use file-based state
             self.state_file = 'alerted_cards.json'
             self.alerted_cards = self._load_state()
     
@@ -66,7 +77,6 @@ class RedCardBot:
             if os.path.exists(self.state_file):
                 with open(self.state_file, 'r') as f:
                     data = json.load(f)
-                    # Only keep cards from last 24 hours
                     cutoff = datetime.now().timestamp() - (24 * 60 * 60)
                     return {k for k, v in data.items() if v > cutoff}
             return set()
@@ -76,7 +86,6 @@ class RedCardBot:
     def _save_state(self):
         """Save alerted cards to file"""
         if self.streamlit_mode:
-            # Streamlit: state is already in session_state
             return
         
         try:
@@ -87,8 +96,94 @@ class RedCardBot:
         except Exception as e:
             print(f"⚠️ Could not save state: {e}")
     
+    def get_live_stats(self, fixture_id: int) -> Optional[Dict]:
+        """
+        Hole ECHTE Live-Statistiken für ein Spiel
+        
+        Returns dict with:
+        - xg_home, xg_away: Expected Goals
+        - shots_home, shots_away: Shots on goal
+        - possession_home, possession_away: Ball possession %
+        - attacks_home, attacks_away: Total attacks
+        - corners_home, corners_away: Corners
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/fixtures/statistics",
+                headers=self.headers,
+                params={'fixture': fixture_id},
+                timeout=15
+            )
+            
+            if response.status_code != 200:
+                return None
+            
+            stats_data = response.json().get('response', [])
+            if len(stats_data) < 2:
+                return None
+            
+            # Parse home stats (first team)
+            home_stats = stats_data[0].get('statistics', [])
+            # Parse away stats (second team)
+            away_stats = stats_data[1].get('statistics', [])
+            
+            def extract_stat(stats_list: list, stat_type: str) -> float:
+                """Extract specific stat from API response"""
+                for stat in stats_list:
+                    if stat.get('type') == stat_type:
+                        value = stat.get('value')
+                        if value is None:
+                            return 0.0
+                        # Remove % sign if present
+                        if isinstance(value, str):
+                            value = value.replace('%', '').strip()
+                        try:
+                            return float(value)
+                        except:
+                            return 0.0
+                return 0.0
+            
+            live_stats = {
+                # Expected Goals (xG) - möglicherweise nicht in allen APIs verfügbar
+                'xg_home': extract_stat(home_stats, 'expected_goals'),
+                'xg_away': extract_stat(away_stats, 'expected_goals'),
+                
+                # Schüsse aufs Tor
+                'shots_on_goal_home': extract_stat(home_stats, 'Shots on Goal'),
+                'shots_on_goal_away': extract_stat(away_stats, 'Shots on Goal'),
+                
+                # Ballbesitz
+                'possession_home': extract_stat(home_stats, 'Ball Possession'),
+                'possession_away': extract_stat(away_stats, 'Ball Possession'),
+                
+                # Angriffe
+                'total_attacks_home': extract_stat(home_stats, 'Total attacks'),
+                'total_attacks_away': extract_stat(away_stats, 'Total attacks'),
+                
+                # Gefährliche Angriffe
+                'dangerous_attacks_home': extract_stat(home_stats, 'Dangerous attacks'),
+                'dangerous_attacks_away': extract_stat(away_stats, 'Dangerous attacks'),
+                
+                # Ecken
+                'corners_home': extract_stat(home_stats, 'Corner Kicks'),
+                'corners_away': extract_stat(away_stats, 'Corner Kicks'),
+                
+                # Gesamtschüsse
+                'total_shots_home': extract_stat(home_stats, 'Total Shots'),
+                'total_shots_away': extract_stat(away_stats, 'Total Shots'),
+            }
+            
+            return live_stats
+            
+        except Exception as e:
+            if self.streamlit_mode and STREAMLIT_AVAILABLE:
+                st.warning(f"⚠️ Could not fetch live stats: {e}")
+            else:
+                print(f"⚠️ Could not fetch live stats: {e}")
+            return None
+    
     def get_live_matches(self, league_ids: List[int] = None) -> List[Dict]:
-        """Get all live matches (optionally filtered by leagues)"""
+        """Get all live matches"""
         try:
             if self.streamlit_mode and STREAMLIT_AVAILABLE:
                 st.write("📡 Fetching live matches...")
@@ -105,7 +200,6 @@ class RedCardBot:
             if response.status_code == 200:
                 matches = response.json().get('response', [])
                 
-                # Filter by leagues if specified
                 if league_ids:
                     matches = [m for m in matches 
                              if m.get('league', {}).get('id') in league_ids]
@@ -139,7 +233,6 @@ class RedCardBot:
         try:
             fixture_id = match['fixture']['id']
             
-            # Get match events
             response = requests.get(
                 f"{self.base_url}/fixtures/events",
                 headers=self.headers,
@@ -150,18 +243,15 @@ class RedCardBot:
             if response.status_code == 200:
                 events = response.json().get('response', [])
                 
-                # Look for red cards
                 for event in events:
                     event_type = event.get('type', '')
                     event_detail = event.get('detail', '')
                     
                     if event_type == 'Card' and event_detail == 'Red Card':
-                        # Create unique ID
                         player_id = event.get('player', {}).get('id', 'unknown')
                         minute = event.get('time', {}).get('elapsed', 0)
                         card_id = f"{fixture_id}_{player_id}_{minute}"
                         
-                        # Only process if new
                         if card_id not in self.alerted_cards:
                             red_cards.append({
                                 'card_id': card_id,
@@ -181,12 +271,15 @@ class RedCardBot:
                 print(msg)
             return []
     
-    def send_telegram_alert(self, card_info: Dict) -> bool:
-        """Send Telegram notification with REAL predictions"""
+    def send_telegram_alert_with_stats(self, card_info: Dict) -> bool:
+        """
+        Send enhanced Telegram alert with REAL live stats and predictions
+        """
         if not self.telegram_token or not self.telegram_chat_id:
             return False
         
         match = card_info['match']
+        fixture_id = match['fixture']['id']
         home = match['teams']['home']['name']
         away = match['teams']['away']['name']
         home_goals = match['goals']['home'] or 0
@@ -196,7 +289,7 @@ class RedCardBot:
         country = match['league']['country']
         minute = card_info['minute']
         
-        # Determine which team got the red card
+        # Determine red card team
         red_team_name = card_info['team']
         if red_team_name == home:
             red_card_team = 'home'
@@ -206,82 +299,114 @@ class RedCardBot:
             opponent_name = home
         
         # =====================================================
-        # ECHTE BERECHNUNGEN!
+        # HOLE ECHTE LIVE-STATS!
         # =====================================================
         
-        # Verbleibende Zeit
-        total_time = 93  # inkl. Nachspielzeit
-        remaining = max(0, total_time - minute)
-        
-        # Basis Tor-Wahrscheinlichkeiten
-        BASE_GOAL_RATE = 0.028  # pro Minute
-        OPPONENT_BOOST = 1.45   # 11-Mann +45%
-        RED_PENALTY = 0.40      # 10-Mann nur 40%
-        
-        opponent_rate = BASE_GOAL_RATE * OPPONENT_BOOST
-        red_team_rate = BASE_GOAL_RATE * RED_PENALTY
-        
-        # Wahrscheinlichkeiten berechnen
-        any_goal_prob = 1 - ((1 - opponent_rate) ** remaining * (1 - red_team_rate) ** remaining)
-        no_goal_prob = 1 - any_goal_prob
-        
-        total_rate = opponent_rate + red_team_rate
-        if total_rate > 0:
-            opponent_scores = (opponent_rate / total_rate) * any_goal_prob
-            red_team_scores = (red_team_rate / total_rate) * any_goal_prob
+        if self.streamlit_mode and STREAMLIT_AVAILABLE:
+            st.write(f"📊 Fetching live stats for fixture {fixture_id}...")
         else:
-            opponent_scores = 0
-            red_team_scores = 0
+            print(f"📊 Fetching live stats for fixture {fixture_id}...")
         
-        # Endstand-Prognose (vereinfacht)
-        if remaining >= 30:
-            opp_wins = 0.48
-            draw_prob = 0.32
-            red_wins = 0.20
-        elif remaining >= 15:
-            opp_wins = 0.38
-            draw_prob = 0.38
-            red_wins = 0.24
-        elif remaining >= 5:
-            opp_wins = 0.28
-            draw_prob = 0.48
-            red_wins = 0.24
-        else:
-            opp_wins = 0.15
-            draw_prob = 0.70
-            red_wins = 0.15
-        
-        # Spielstand-Anpassung
-        goal_diff = home_goals - away_goals
-        if red_card_team == 'home' and goal_diff < 0:
-            opp_wins *= 1.2
-            red_wins *= 0.6
-        elif red_card_team == 'away' and goal_diff > 0:
-            opp_wins *= 1.15
-            red_wins *= 0.65
-        
-        # Normalisieren
-        total = opp_wins + draw_prob + red_wins
-        opp_wins /= total
-        draw_prob /= total
-        red_wins /= total
-        
-        # Erwartete Zeit bis Tor
-        combined_rate = opponent_rate + red_team_rate
-        if combined_rate > 0:
-            exp_minutes = min(1 / combined_rate, remaining)
-        else:
-            exp_minutes = remaining
-        
-        # Zu spät für Wetten?
-        too_late = remaining <= 3
+        live_stats = self.get_live_stats(fixture_id)
         
         # =====================================================
-        # NACHRICHT FORMATIEREN
+        # BERECHNE MIT PREDICTOR (falls verfügbar)
         # =====================================================
+        
+        if self.predictor and live_stats:
+            # Use full predictor with live stats
+            prediction = self.predictor.predict(
+                minute=minute,
+                home_goals=home_goals,
+                away_goals=away_goals,
+                red_card_team=red_card_team,
+                live_stats=live_stats  # ← JETZT MIT ECHTEN STATS!
+            )
+            
+            # Format prediction
+            message = self.predictor.format_prediction(
+                prediction, home, away
+            )
+            
+            # Add live stats to message
+            if live_stats:
+                stats_text = f"""
+━━━━━━━━━━━━━━━━━━
+
+📊 *LIVE STATISTIKEN:*
+
+*Ballbesitz:*
+{home}: {live_stats['possession_home']:.0f}%
+{away}: {live_stats['possession_away']:.0f}%
+
+*Schüsse aufs Tor:*
+{home}: {live_stats['shots_on_goal_home']:.0f}
+{away}: {live_stats['shots_on_goal_away']:.0f}
+
+*Angriffe:*
+{home}: {live_stats['total_attacks_home']:.0f}
+{away}: {live_stats['total_attacks_away']:.0f}
+
+*Gefährliche Angriffe:*
+{home}: {live_stats['dangerous_attacks_home']:.0f}
+{away}: {live_stats['dangerous_attacks_away']:.0f}
+
+*Ecken:*
+{home}: {live_stats['corners_home']:.0f}
+{away}: {live_stats['corners_away']:.0f}
+"""
+                # Insert stats before recommendations
+                message = message.replace("💡 *WETT-EMPFEHLUNGEN:*", 
+                                        stats_text + "\n💡 *WETT-EMPFEHLUNGEN:*")
+        
+        else:
+            # Fallback: basic calculation without predictor
+            message = self._create_basic_alert(
+                card_info, home, away, home_goals, away_goals,
+                score, league, country, minute, red_card_team,
+                opponent_name, red_team_name, live_stats
+            )
+        
+        # Send to Telegram
+        try:
+            url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
+            response = requests.post(url, json={
+                'chat_id': self.telegram_chat_id,
+                'text': message,
+                'parse_mode': 'Markdown'
+            }, timeout=10)
+            
+            if response.status_code == 200:
+                msg = f"✅ Enhanced alert sent for {card_info['player']}"
+                if self.streamlit_mode and STREAMLIT_AVAILABLE:
+                    st.success(msg)
+                else:
+                    print(msg)
+                return True
+            else:
+                msg = f"❌ Telegram error: {response.status_code}"
+                if self.streamlit_mode and STREAMLIT_AVAILABLE:
+                    st.error(msg)
+                else:
+                    print(msg)
+                return False
+        except Exception as e:
+            msg = f"❌ Error sending alert: {e}"
+            if self.streamlit_mode and STREAMLIT_AVAILABLE:
+                st.error(msg)
+            else:
+                print(msg)
+            return False
+    
+    def _create_basic_alert(self, card_info, home, away, home_goals, away_goals,
+                           score, league, country, minute, red_card_team,
+                           opponent_name, red_team_name, live_stats):
+        """Fallback alert without predictor"""
+        
+        remaining = max(0, 93 - minute)
         
         message = f"""
-🔴 *ROTE KARTE - LIVE ANALYSE*
+🔴 *ROTE KARTE - ENHANCED*
 
 *Spieler:* {card_info['player']}
 *Team:* {red_team_name}
@@ -292,327 +417,215 @@ class RedCardBot:
 
 ━━━━━━━━━━━━━━━━━━
 
-📊 *WAS PASSIERT ALS NÄCHSTES?*
-(~{remaining} Minuten verbleibend)
-
-*Nächstes Tor:* {any_goal_prob*100:.0f}%
-├─ {opponent_name}: {opponent_scores*100:.0f}%
-├─ {red_team_name}: {red_team_scores*100:.0f}%
-└─ Kein Tor mehr: {no_goal_prob*100:.0f}%
-
-⏱️ *Zeit bis Tor:* ~{exp_minutes:.0f} Min
-
-━━━━━━━━━━━━━━━━━━
-
-🏆 *ENDSTAND-PROGNOSE:*
-{opponent_name} gewinnt: {opp_wins*100:.0f}%
-Unentschieden: {draw_prob*100:.0f}%
-{red_team_name} gewinnt: {red_wins*100:.0f}%
-
-━━━━━━━━━━━━━━━━━━
-
-💡 *WETT-EMPFEHLUNGEN:*
+⏱️ *~{remaining} Minuten verbleibend*
 """
         
-        if too_late:
-            message += "\n⚠️ ZU SPÄT - Spiel fast vorbei!"
-        else:
-            if opponent_scores >= 0.55:
-                message += f"\n✅ {opponent_name} nächstes Tor: {opponent_scores*100:.0f}%"
-            if opp_wins >= 0.45 and remaining >= 20:
-                message += f"\n✅ {opponent_name} gewinnt: {opp_wins*100:.0f}%"
-            if no_goal_prob >= 0.35 and remaining >= 15:
-                message += f"\n✅ Keine weiteren Tore: {no_goal_prob*100:.0f}%"
+        if live_stats:
+            message += f"""
+📊 *LIVE STATISTIKEN:*
+
+*Ballbesitz:*
+{home}: {live_stats['possession_home']:.0f}%
+{away}: {live_stats['possession_away']:.0f}%
+
+*Schüsse aufs Tor:*
+{home}: {live_stats['shots_on_goal_home']:.0f}
+{away}: {live_stats['shots_on_goal_away']:.0f}
+
+*Angriffe:*
+{home}: {live_stats['total_attacks_home']:.0f}
+{away}: {live_stats['total_attacks_away']:.0f}
+"""
         
-        message += "\n\n🚫 *VERMEIDEN:*"
-        if red_team_scores < 0.25:
-            message += f"\n❌ BTTS (10-Mann trifft nur {red_team_scores*100:.0f}%)"
-        if red_wins < 0.25:
-            message += f"\n❌ {red_team_name} gewinnt ({red_wins*100:.0f}%)"
+        message += f"\n🕒 {datetime.now().strftime('%H:%M:%S')}"
         
-        message += f"\n\n🕒 {datetime.now().strftime('%H:%M:%S')}"
-        
-        try:
-            url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
-            response = requests.post(url, json={
-                'chat_id': self.telegram_chat_id,
-                'text': message,
-                'parse_mode': 'Markdown'
-            }, timeout=10)
-            
-            if response.status_code == 200:
-                msg = f"✅ Telegram alert sent for {card_info['player']}"
-                if self.streamlit_mode and STREAMLIT_AVAILABLE:
-                    st.success(msg)
-                else:
-                    print(msg)
-                return True
-            else:
-                msg = f"❌ Telegram failed: {response.status_code}"
-                if self.streamlit_mode and STREAMLIT_AVAILABLE:
-                    st.warning(msg)
-                else:
-                    print(msg)
-                return False
-        except Exception as e:
-            msg = f"❌ Telegram error: {e}"
-            if self.streamlit_mode and STREAMLIT_AVAILABLE:
-                st.error(msg)
-            else:
-                print(msg)
-            return False
+        return message
     
-    def scan(self, league_ids: List[int] = None) -> Dict:
-        """Main scan function"""
-        if not self.streamlit_mode:
-            print("\n" + "="*60)
-            print(f"🔍 RED CARD SCAN - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            print("="*60)
+    def monitor_loop(self, league_ids: List[int] = None, 
+                    check_interval: int = 60):
+        """Main monitoring loop"""
         
-        # Get live matches
-        live_matches = self.get_live_matches(league_ids)
+        print("🚀 Enhanced Red Card Bot started!")
+        print(f"   Checking every {check_interval} seconds")
+        if league_ids:
+            print(f"   Monitoring leagues: {league_ids}")
+        print("")
         
-        results = {
-            'live_matches': len(live_matches),
-            'red_cards_found': 0,
-            'alerts_sent': 0,
-            'matches': []
-        }
-        
-        if not live_matches:
-            msg = "⚽ No live matches at the moment"
-            if self.streamlit_mode and STREAMLIT_AVAILABLE:
-                st.info(msg)
-            else:
-                print(msg)
-            return results
-        
-        # Check each match
-        for match in live_matches:
-            home = match['teams']['home']['name']
-            away = match['teams']['away']['name']
-            minute = match['fixture']['status']['elapsed'] or 0
-            status = match['fixture']['status']['short']
-            
-            # Only check matches that are actually playing
-            if status in ['1H', '2H', 'ET', 'P']:
-                results['matches'].append({
-                    'home': home,
-                    'away': away,
-                    'minute': minute,
-                    'score': f"{match['goals']['home']}-{match['goals']['away']}"
-                })
+        while True:
+            try:
+                matches = self.get_live_matches(league_ids)
                 
-                if not self.streamlit_mode:
-                    print(f"   Checking: {home} vs {away} ({minute}')")
-                
-                red_cards = self.check_match_for_red_cards(match)
-                
-                if red_cards:
+                for match in matches:
+                    red_cards = self.check_match_for_red_cards(match)
+                    
                     for card in red_cards:
-                        results['red_cards_found'] += 1
+                        print(f"\n🔴 RED CARD DETECTED!")
+                        print(f"   Player: {card['player']}")
+                        print(f"   Team: {card['team']}")
                         
-                        # Display alert
-                        alert_msg = f"""
-🔴 RED CARD DETECTED!
-   Player: {card['player']}
-   Team: {card['team']}
-   Match: {home} vs {away}
-   Minute: {card['minute']}'
-                        """
-                        
-                        if self.streamlit_mode and STREAMLIT_AVAILABLE:
-                            st.success(alert_msg)
-                        else:
-                            print(alert_msg)
-                        
-                        # Send Telegram
-                        if self.send_telegram_alert(card):
-                            results['alerts_sent'] += 1
-        
-        # Save state
-        self._save_state()
-        
-        if not self.streamlit_mode:
-            print(f"\n✅ Scan complete!")
-            print(f"   Live matches checked: {results['live_matches']}")
-            print(f"   New red cards found: {results['red_cards_found']}")
-            print(f"   Total tracked cards: {len(self.alerted_cards)}")
-            print("="*60 + "\n")
-        
-        return results
+                        self.send_telegram_alert_with_stats(card)
+                
+                self._save_state()
+                
+                import time
+                time.sleep(check_interval)
+                
+            except KeyboardInterrupt:
+                print("\n👋 Bot stopped by user")
+                break
+            except Exception as e:
+                print(f"❌ Error in monitoring loop: {e}")
+                import time
+                time.sleep(check_interval)
 
 
-# ============================================================================
-# STREAMLIT UI
-# ============================================================================
+# =====================================================
+# STREAMLIT TAB FUNCTION
+# =====================================================
 
-def create_red_card_monitor_tab():
-    """Create Streamlit monitoring tab"""
+def create_red_card_monitor_tab_enhanced():
+    """Streamlit tab with enhanced monitoring"""
     
     if not STREAMLIT_AVAILABLE:
-        st.error("❌ Streamlit not available!")
+        st.error("Streamlit not available!")
         return
     
-    st.header("🔴 Red Card Monitor")
+    st.title("🔴 Red Card Monitor - ENHANCED")
+    st.caption("Mit ECHTEN Live-Statistiken (xG, Ballbesitz, Schüsse, etc.)")
     
-    # Description
-    st.markdown("""
-    **Automatische Benachrichtigung bei roten Karten!**
+    # API Key
+    api_key = st.text_input(
+        "API-Football Key",
+        type="password",
+        help="Your API key from api-football.com"
+    )
     
-    💡 **Warum wichtig:**
-    - Team mit 10 Mann = Game-Changer
-    - BTTS wahrscheinlicher
-    - Over 2.5 unwahrscheinlicher
-    - Gegner-Sieg wahrscheinlicher
-    """)
+    if not api_key:
+        st.warning("⚠️ Bitte API Key eingeben!")
+        return
     
-    st.markdown("---")
-    
-    # Settings
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("⚙️ Einstellungen")
-        
-        # Check Telegram
-        telegram_configured = False
-        telegram_token = None
-        telegram_chat_id = None
-        
-        if 'telegram' in st.secrets:
-            telegram_token = st.secrets['telegram'].get('bot_token')
-            telegram_chat_id = st.secrets['telegram'].get('chat_id')
-            telegram_configured = telegram_token and telegram_chat_id
-        
-        if telegram_configured:
-            st.success("✅ Telegram konfiguriert")
-        else:
-            st.warning("⚠️ Telegram nicht konfiguriert")
-        
-        # Scan interval
-        scan_interval = st.slider(
-            "Scan Interval (Sekunden)",
-            min_value=30,
-            max_value=300,
-            value=60,
-            step=30
-        )
-    
-    with col2:
-        st.subheader("📊 Status")
-        status_placeholder = st.empty()
-        stats_placeholder = st.empty()
-    
-    st.markdown("---")
-    
-    # Initialize session state
-    if 'monitoring_active' not in st.session_state:
-        st.session_state.monitoring_active = False
-    
-    # Control buttons
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("▶️ Start", type="primary", disabled=st.session_state.monitoring_active):
-            st.session_state.monitoring_active = True
-            st.rerun()
-    
-    with col2:
-        if st.button("⏸️ Stop", disabled=not st.session_state.monitoring_active):
-            st.session_state.monitoring_active = False
-            st.rerun()
-    
-    with col3:
-        if st.button("🔄 Reset"):
-            st.session_state.alerted_cards = set()
-            st.success("✅ Zurückgesetzt!")
-    
-    st.markdown("---")
-    
-    # Matches display
-    matches_placeholder = st.empty()
-    
-    # Monitoring loop
-    if st.session_state.monitoring_active:
-        
-        # Get API key
-        api_key = None
-        if 'api' in st.secrets and 'api_football_key' in st.secrets['api']:
-            api_key = st.secrets['api']['api_football_key']
-        
-        if not api_key:
-            st.error("❌ API Key nicht gefunden!")
-            st.session_state.monitoring_active = False
-            st.stop()
-        
-        # Initialize bot
-        bot = RedCardBot(
+    # Initialize bot
+    try:
+        bot = RedCardBotEnhanced(
             api_key=api_key,
-            telegram_token=telegram_token,
-            telegram_chat_id=telegram_chat_id,
             streamlit_mode=True
         )
         
-        # League IDs
-        league_ids = [
-            78, 39, 140, 135, 61,  # Top 5
-            2, 3,  # CL, EL
-            88, 94, 203, 40, 79
-        ]
+        # League selection
+        st.subheader("Liga Auswahl")
         
-        # Status
-        with status_placeholder.container():
-            st.info(f"✅ Monitoring aktiv - Scan in {scan_interval}s")
+        top_leagues = {
+            'Premier League': 39,
+            'La Liga': 140,
+            'Bundesliga': 78,
+            'Serie A': 135,
+            'Ligue 1': 61,
+            'Champions League': 2,
+            'Europa League': 3
+        }
         
-        # Scan
-        import time
-        results = bot.scan(league_ids)
+        selected = st.multiselect(
+            "Zu überwachende Ligen",
+            options=list(top_leagues.keys()),
+            default=['Premier League', 'Bundesliga']
+        )
         
-        # Stats
-        with stats_placeholder.container():
-            c1, c2, c3, c4 = st.columns(4)
-            with c1:
-                st.metric("Live", results['live_matches'])
-            with c2:
-                st.metric("Rote Karten", results['red_cards_found'])
-            with c3:
-                st.metric("Alerts", results['alerts_sent'])
-            with c4:
-                st.metric("Getrackt", len(st.session_state.alerted_cards))
+        league_ids = [top_leagues[name] for name in selected] if selected else None
         
-        # Matches
-        if results['matches']:
-            with matches_placeholder.container():
-                st.subheader("⚽ Live Spiele")
-                for m in results['matches']:
-                    st.text(f"{m['home']} vs {m['away']} | {m['score']} | {m['minute']}'")
-        else:
-            with matches_placeholder.container():
-                st.info("Keine Live-Spiele")
+        # Manual check
+        if st.button("🔍 Jetzt nach Roten Karten suchen", type="primary"):
+            with st.spinner("Suche Live-Spiele..."):
+                matches = bot.get_live_matches(league_ids)
+                
+                if not matches:
+                    st.info("Keine Live-Spiele gefunden")
+                else:
+                    st.success(f"Gefunden: {len(matches)} Live-Spiele")
+                    
+                    for match in matches:
+                        with st.expander(
+                            f"⚽ {match['teams']['home']['name']} vs "
+                            f"{match['teams']['away']['name']} "
+                            f"({match['goals']['home']}-{match['goals']['away']})"
+                        ):
+                            red_cards = bot.check_match_for_red_cards(match)
+                            
+                            if red_cards:
+                                for card in red_cards:
+                                    st.error(f"🔴 ROTE KARTE: {card['player']} ({card['team']})")
+                                    
+                                    # Get and display live stats
+                                    fixture_id = match['fixture']['id']
+                                    live_stats = bot.get_live_stats(fixture_id)
+                                    
+                                    if live_stats:
+                                        col1, col2 = st.columns(2)
+                                        
+                                        with col1:
+                                            st.metric(
+                                                "Ballbesitz Home", 
+                                                f"{live_stats['possession_home']:.0f}%"
+                                            )
+                                            st.metric(
+                                                "Schüsse Home",
+                                                f"{live_stats['shots_on_goal_home']:.0f}"
+                                            )
+                                        
+                                        with col2:
+                                            st.metric(
+                                                "Ballbesitz Away",
+                                                f"{live_stats['possession_away']:.0f}%"
+                                            )
+                                            st.metric(
+                                                "Schüsse Away",
+                                                f"{live_stats['shots_on_goal_away']:.0f}"
+                                            )
+                            else:
+                                st.success("✅ Keine roten Karten in diesem Spiel")
         
-        # Auto-refresh
-        time.sleep(scan_interval)
-        st.rerun()
-    
-    else:
-        with status_placeholder.container():
-            st.warning("⏸️ Monitoring gestoppt")
+        # Auto-refresh option
+        st.divider()
+        st.subheader("Auto-Refresh")
+        
+        auto_refresh = st.checkbox("Auto-Refresh aktivieren (alle 60 Sek.)")
+        
+        if auto_refresh:
+            import time
+            
+            # Create placeholder
+            placeholder = st.empty()
+            
+            while True:
+                with placeholder.container():
+                    st.info(f"🔄 Letzter Check: {datetime.now().strftime('%H:%M:%S')}")
+                    
+                    matches = bot.get_live_matches(league_ids)
+                    
+                    if matches:
+                        for match in matches:
+                            red_cards = bot.check_match_for_red_cards(match)
+                            
+                            if red_cards:
+                                for card in red_cards:
+                                    st.error(
+                                        f"🔴 NEUE ROTE KARTE: {card['player']} "
+                                        f"({card['team']}) - Minute {card['minute']}'"
+                                    )
+                
+                time.sleep(60)
+                
+    except Exception as e:
+        st.error(f"❌ Fehler beim Initialisieren: {e}")
 
 
-# ============================================================================
-# MAIN - Dual mode support
-# ============================================================================
+# =====================================================
+# MAIN (für standalone Verwendung)
+# =====================================================
 
 if __name__ == "__main__":
-    if STREAMLIT_AVAILABLE:
-        # Streamlit mode
-        create_red_card_monitor_tab()
-    else:
-        # Standalone mode (GitHub Actions)
-        try:
-            bot = RedCardBot()
-            bot.scan()
-        except Exception as e:
-            print(f"❌ FATAL ERROR: {e}")
-            exit(1)
+    # Example: Monitor top leagues
+    bot = RedCardBotEnhanced()
+    
+    top_leagues = [39, 140, 78, 135, 61]  # EPL, LaLiga, Bundesliga, SerieA, Ligue1
+    
+    bot.monitor_loop(league_ids=top_leagues, check_interval=60)

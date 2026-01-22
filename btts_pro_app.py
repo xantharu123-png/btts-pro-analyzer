@@ -1244,7 +1244,7 @@ with tab8:
     if st.button("🚀 Scan for Red Cards NOW", type="primary", key="red_card_scan"):
         with st.spinner("🔍 Scanning live matches for red cards..."):
             try:
-                from red_card_alerts import RedCardAlertSystem
+                from red_card_bot import RedCardBotEnhanced
                 from api_football import APIFootball
                 
                 # Get API key
@@ -1254,22 +1254,18 @@ with tab8:
                     api_key = '1a1c70f5c48bfdce946b71680e47e92e'
                 
                 # Initialize alert system
-                alert_system = RedCardAlertSystem(api_key)
+                alert_system = RedCardBotEnhanced(api_key=api_key, streamlit_mode=True)
                 
                 # Setup Telegram - prioritize secrets
                 if enable_telegram:
                     if telegram_configured:
-                        alert_system.setup_telegram(
-                            st.secrets['telegram']['bot_token'],
-                            st.secrets['telegram']['chat_id']
-                        )
+                        alert_system.telegram_token = st.secrets['telegram']['bot_token']
+                        alert_system.telegram_chat_id = st.secrets['telegram']['chat_id']
                         st.info("📱 Telegram Alerts aktiviert (aus Secrets)")
                     elif 'tg_token' in st.session_state and 'tg_chat' in st.session_state:
                         if st.session_state.tg_token and st.session_state.tg_chat:
-                            alert_system.setup_telegram(
-                                st.session_state.tg_token, 
-                                st.session_state.tg_chat
-                            )
+                            alert_system.telegram_token = st.session_state.tg_token
+                            alert_system.telegram_chat_id = st.session_state.tg_chat
                 
                 # Get league IDs
                 league_ids = [
@@ -1333,7 +1329,7 @@ with tab8:
                             
                             # Send Telegram alert
                             if enable_telegram:
-                                alert_system.send_telegram_alert(card)
+                                alert_system.send_telegram_alert_with_stats(card)
                                 st.success(f"📱 Telegram Alert gesendet für {card['player']}!")
                     else:
                         st.info("✅ No red cards in current live matches")
@@ -1343,7 +1339,7 @@ with tab8:
                     
             except ImportError as e:
                 st.error(f"❌ Missing module: {e}")
-                st.info("Make sure `red_card_alerts.py` is in your repository!")
+                st.info("Make sure `red_card_bot.py` is in your repository!")
                 
             except Exception as e:
                 st.error(f"❌ Error: {e}")
