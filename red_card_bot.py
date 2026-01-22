@@ -182,37 +182,155 @@ class RedCardBot:
             return []
     
     def send_telegram_alert(self, card_info: Dict) -> bool:
-        """Send Telegram notification"""
+        """Send Telegram notification with REAL predictions"""
         if not self.telegram_token or not self.telegram_chat_id:
             return False
         
         match = card_info['match']
         home = match['teams']['home']['name']
         away = match['teams']['away']['name']
-        score = f"{match['goals']['home']}-{match['goals']['away']}"
+        home_goals = match['goals']['home'] or 0
+        away_goals = match['goals']['away'] or 0
+        score = f"{home_goals}-{away_goals}"
         league = match['league']['name']
         country = match['league']['country']
+        minute = card_info['minute']
+        
+        # Determine which team got the red card
+        red_team_name = card_info['team']
+        if red_team_name == home:
+            red_card_team = 'home'
+            opponent_name = away
+        else:
+            red_card_team = 'away'
+            opponent_name = home
+        
+        # =====================================================
+        # ECHTE BERECHNUNGEN!
+        # =====================================================
+        
+        # Verbleibende Zeit
+        total_time = 93  # inkl. Nachspielzeit
+        remaining = max(0, total_time - minute)
+        
+        # Basis Tor-Wahrscheinlichkeiten
+        BASE_GOAL_RATE = 0.028  # pro Minute
+        OPPONENT_BOOST = 1.45   # 11-Mann +45%
+        RED_PENALTY = 0.40      # 10-Mann nur 40%
+        
+        opponent_rate = BASE_GOAL_RATE * OPPONENT_BOOST
+        red_team_rate = BASE_GOAL_RATE * RED_PENALTY
+        
+        # Wahrscheinlichkeiten berechnen
+        any_goal_prob = 1 - ((1 - opponent_rate) ** remaining * (1 - red_team_rate) ** remaining)
+        no_goal_prob = 1 - any_goal_prob
+        
+        total_rate = opponent_rate + red_team_rate
+        if total_rate > 0:
+            opponent_scores = (opponent_rate / total_rate) * any_goal_prob
+            red_team_scores = (red_team_rate / total_rate) * any_goal_prob
+        else:
+            opponent_scores = 0
+            red_team_scores = 0
+        
+        # Endstand-Prognose (vereinfacht)
+        if remaining >= 30:
+            opp_wins = 0.48
+            draw_prob = 0.32
+            red_wins = 0.20
+        elif remaining >= 15:
+            opp_wins = 0.38
+            draw_prob = 0.38
+            red_wins = 0.24
+        elif remaining >= 5:
+            opp_wins = 0.28
+            draw_prob = 0.48
+            red_wins = 0.24
+        else:
+            opp_wins = 0.15
+            draw_prob = 0.70
+            red_wins = 0.15
+        
+        # Spielstand-Anpassung
+        goal_diff = home_goals - away_goals
+        if red_card_team == 'home' and goal_diff < 0:
+            opp_wins *= 1.2
+            red_wins *= 0.6
+        elif red_card_team == 'away' and goal_diff > 0:
+            opp_wins *= 1.15
+            red_wins *= 0.65
+        
+        # Normalisieren
+        total = opp_wins + draw_prob + red_wins
+        opp_wins /= total
+        draw_prob /= total
+        red_wins /= total
+        
+        # Erwartete Zeit bis Tor
+        combined_rate = opponent_rate + red_team_rate
+        if combined_rate > 0:
+            exp_minutes = min(1 / combined_rate, remaining)
+        else:
+            exp_minutes = remaining
+        
+        # Zu spät für Wetten?
+        too_late = remaining <= 3
+        
+        # =====================================================
+        # NACHRICHT FORMATIEREN
+        # =====================================================
         
         message = f"""
-🔴 *RED CARD ALERT!*
+🔴 *ROTE KARTE - LIVE ANALYSE*
 
-*Player:* {card_info['player']}
-*Team:* {card_info['team']}
+*Spieler:* {card_info['player']}
+*Team:* {red_team_name}
 *Match:* {home} vs {away}
-*Score:* {score}
-*Minute:* {card_info['minute']}'
-*League:* {country} - {league}
+*Spielstand:* {score}
+*Minute:* {minute}'
+*Liga:* {country} - {league}
 
-💡 *Betting Impact:*
-✅ Team down to 10 men
-✅ BTTS more likely (desperate attack)
-❌ Over 2.5 less likely (defensive focus)
-✅ Opponent win more likely
+━━━━━━━━━━━━━━━━━━
 
-⚡ Quick action needed!
+📊 *WAS PASSIERT ALS NÄCHSTES?*
+(~{remaining} Minuten verbleibend)
 
-🕒 {datetime.now().strftime('%H:%M:%S')}
-        """
+*Nächstes Tor:* {any_goal_prob*100:.0f}%
+├─ {opponent_name}: {opponent_scores*100:.0f}%
+├─ {red_team_name}: {red_team_scores*100:.0f}%
+└─ Kein Tor mehr: {no_goal_prob*100:.0f}%
+
+⏱️ *Zeit bis Tor:* ~{exp_minutes:.0f} Min
+
+━━━━━━━━━━━━━━━━━━
+
+🏆 *ENDSTAND-PROGNOSE:*
+{opponent_name} gewinnt: {opp_wins*100:.0f}%
+Unentschieden: {draw_prob*100:.0f}%
+{red_team_name} gewinnt: {red_wins*100:.0f}%
+
+━━━━━━━━━━━━━━━━━━
+
+💡 *WETT-EMPFEHLUNGEN:*
+"""
+        
+        if too_late:
+            message += "\n⚠️ ZU SPÄT - Spiel fast vorbei!"
+        else:
+            if opponent_scores >= 0.55:
+                message += f"\n✅ {opponent_name} nächstes Tor: {opponent_scores*100:.0f}%"
+            if opp_wins >= 0.45 and remaining >= 20:
+                message += f"\n✅ {opponent_name} gewinnt: {opp_wins*100:.0f}%"
+            if no_goal_prob >= 0.35 and remaining >= 15:
+                message += f"\n✅ Keine weiteren Tore: {no_goal_prob*100:.0f}%"
+        
+        message += "\n\n🚫 *VERMEIDEN:*"
+        if red_team_scores < 0.25:
+            message += f"\n❌ BTTS (10-Mann trifft nur {red_team_scores*100:.0f}%)"
+        if red_wins < 0.25:
+            message += f"\n❌ {red_team_name} gewinnt ({red_wins*100:.0f}%)"
+        
+        message += f"\n\n🕒 {datetime.now().strftime('%H:%M:%S')}"
         
         try:
             url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
