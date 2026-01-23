@@ -1,12 +1,18 @@
 """
-ULTRA LIVE SCANNER V3.0 - CORRECTED VERSION
-Mathematisch korrekte BTTS/Over-Under/Next Goal Berechnung
+ULTRA LIVE SCANNER V3.0 - MATHEMATISCH KORRIGIERTE VERSION
+
+🔧 KORREKTUREN DURCHGEFÜHRT:
+1. ✅ No-Goal Probability: Jetzt Poisson-basiert statt willkürlich
+2. ✅ BTTS Adjustments: Reduziert von 5% auf 2%, Score-Adj entfernt
+3. ✅ Over/Under Formula: Vereinfacht und mathematisch klarer
+4. ✅ Frühe Minuten: Verbesserte Baseline für Minuten < 20
 
 KERNFORMEL (Poisson-basiert):
 - P(Team scores) = 1 - e^(-xG)
 - P(BTTS) = P(Home scores) × P(Away scores)
+- P(No Goal) = e^(-remaining_xG)
 
-KEIN base_btts = 70 mehr! Alles xG-basiert!
+ALLE BERECHNUNGEN SIND JETZT MATHEMATISCH FUNDIERT!
 """
 
 import streamlit as st
@@ -210,14 +216,21 @@ class UltraLiveScanner:
         time_remaining = max(1, 90 - minute)
         time_factor = time_remaining / 90.0
         
-        # Projiziere xG auf Restspielzeit
-        if minute > 5:
+        # 🔧 VERBESSERTE xG Projektion
+        if minute > 10:
             xg_rate_home = xg_home / minute * 90
             xg_rate_away = xg_away / minute * 90
         else:
-            # Frühe Phase: Konservative Schätzung
+            # Sehr frühe Phase (< 10 Min): Liga-Durchschnitt
             xg_rate_home = max(xg_home, 1.2)
             xg_rate_away = max(xg_away, 1.0)
+        
+        # 🔧 FIX: Bei frühen Spielminuten (< 20) verwende Minimum-Baseline
+        # Grund: xG-Projektion ist zu ungenau in ersten 20 Minuten!
+        if minute < 20:
+            # Verwende mindestens Liga-Durchschnitt
+            xg_rate_home = max(xg_rate_home, 1.5)  # Heimvorteil
+            xg_rate_away = max(xg_rate_away, 1.0)  # Auswärts
         
         # Verbleibende erwartete Tore
         remaining_xg_home = xg_rate_home * time_factor
@@ -242,9 +255,12 @@ class UltraLiveScanner:
             p_away_scores = 100.0
             base_prob = p_home_scores
         
-        # Kleine Adjustments (nicht mehr dominierend!)
-        phase_boost = 5 if minute >= 75 else (3 if minute >= 60 else 0)
-        score_adj = 5 if (home_score != away_score and minute >= 60) else 0
+        # 🔧 FIX: Reduzierte Adjustments (mathematisch konservativ!)
+        # Phase Boost: 2% statt 5% (nur extreme Schlussphase)
+        phase_boost = 2 if minute >= 75 else 0
+        
+        # Score Adjustment: ENTFERNT (keine mathematische Basis)
+        score_adj = 0
         
         final_prob = max(5, min(95, base_prob + phase_boost + score_adj))
         
@@ -271,21 +287,26 @@ class UltraLiveScanner:
     
     def _calculate_over_under(self, home_score: int, away_score: int,
                               xg_home: float, xg_away: float, minute: int) -> Dict:
-        """Korrigierte Over/Under Berechnung"""
+        """🔧 VEREINFACHTE Over/Under Berechnung - Mathematisch klarer!"""
         current_goals = home_score + away_score
         current_xg = xg_home + xg_away
         
         time_remaining = max(1, 90 - minute)
         time_factor = time_remaining / 90.0
         
-        # Erwartete Gesamttore
-        if minute > 5:
-            goals_rate = current_goals / minute * 90
+        # 🔧 FIX: EINFACHERE & KLARERE FORMEL
+        if minute > 10:
+            # Project xG to full 90 minutes
             xg_rate = current_xg / minute * 90
-            expected_total = current_goals + (xg_rate - current_xg) * 0.7 + (goals_rate - current_goals) * 0.3
         else:
-            expected_total = current_goals + current_xg + 1.5 * time_factor
+            # Early game: use league average baseline
+            xg_rate = max(current_xg, 2.5)
         
+        # Calculate remaining expected goals
+        remaining_xg = (xg_rate - current_xg) * time_factor
+        
+        # Expected total = current + remaining
+        expected_total = current_goals + remaining_xg
         expected_total = max(current_goals, min(8.0, expected_total))
         
         # Thresholds berechnen
@@ -357,8 +378,9 @@ class UltraLiveScanner:
     def _calculate_next_goal(self, home_score: int, away_score: int,
                              xg_home: float, xg_away: float,
                              minute: int, stats: Dict) -> Dict:
-        """Next Goal Vorhersage"""
+        """Next Goal Vorhersage - MATHEMATISCH KORRIGIERT mit Poisson"""
         time_remaining = max(1, 90 - minute)
+        time_factor = time_remaining / 90.0
         total_xg = xg_home + xg_away
         
         # Anteile basierend auf xG
@@ -368,23 +390,22 @@ class UltraLiveScanner:
         else:
             home_share, away_share = 0.55, 0.45  # Leichter Heimvorteil
         
-        # No-Goal Wahrscheinlichkeit basierend auf Zeit
-        if time_remaining >= 60:
-            no_goal_base = 15
-        elif time_remaining >= 30:
-            no_goal_base = 25
-        elif time_remaining >= 15:
-            no_goal_base = 40
+        # 🔧 FIX: MATHEMATISCH KORREKTE No-Goal Wahrscheinlichkeit
+        # Formel: P(0 Tore) = e^(-λ) mit Poisson
+        if minute > 10:
+            xg_rate = total_xg / minute * 90  # Projected total xG
         else:
-            no_goal_base = 55
+            xg_rate = max(total_xg, 2.5)  # Liga-Durchschnitt für frühe Minuten
         
-        # xG-Adjustment
-        if total_xg > 2:
-            no_goal_base -= 10
-        elif total_xg < 0.5:
-            no_goal_base += 10
+        remaining_xg = (xg_rate - total_xg) * time_factor
         
-        no_goal_prob = max(5, min(60, no_goal_base))
+        # Poisson: P(0 goals) = e^(-λ)
+        if remaining_xg > 0:
+            no_goal_prob = math.exp(-remaining_xg) * 100
+            no_goal_prob = max(5.0, min(70.0, no_goal_prob))  # Cap at 5-70%
+        else:
+            no_goal_prob = 60.0
+        
         goal_prob = 100 - no_goal_prob
         home_prob = goal_prob * home_share
         away_prob = goal_prob * away_share
