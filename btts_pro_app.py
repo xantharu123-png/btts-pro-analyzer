@@ -1274,19 +1274,24 @@ with tab8:
                             alert_system.telegram_token = st.session_state.tg_token
                             alert_system.telegram_chat_id = st.session_state.tg_chat
                 
-                # Get league IDs
-                league_ids = [
-                    78, 39, 140, 135, 61, 88, 94, 203, 40, 79, 262, 71,  # Top leagues
-                    2, 3, 848,  # European cups
-                    179, 144, 207, 218,  # EU Expansion
-                    265, 330, 165, 188, 89, 209, 113, 292, 301  # Goal festivals
-                ]
+                # 🔥 GET ALL LIVE MATCHES (keine Liga-Begrenzung!)
+                st.info("🌍 **Scanning ALL live matches worldwide** - keine Liga-Begrenzung für Red Cards!")
                 
-                # Get live matches
-                live_matches = alert_system.get_live_matches(league_ids)
+                # Get ALL live matches (league_ids=None bedeutet ALLE)
+                live_matches = alert_system.get_live_matches(league_ids=None)
                 
                 if live_matches:
-                    st.success(f"✅ Found {len(live_matches)} live matches in our leagues!")
+                    st.success(f"✅ Found {len(live_matches)} live matches worldwide!")
+                    
+                    # Show league distribution
+                    leagues = {}
+                    for m in live_matches:
+                        league = m.get('league', {}).get('name', 'Unknown')
+                        leagues[league] = leagues.get(league, 0) + 1
+                    
+                    with st.expander(f"📊 {len(leagues)} Ligen aktiv"):
+                        for league, count in sorted(leagues.items(), key=lambda x: x[1], reverse=True)[:20]:
+                            st.write(f"- {league}: {count} matches")
                     
                     # Check each match for red cards
                     red_cards_found = []
