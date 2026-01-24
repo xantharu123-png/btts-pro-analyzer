@@ -20,6 +20,17 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import requests
 
+# Import Smart Bet Finder
+try:
+    from smart_bet_finder import (
+        SmartBetFinder,
+        display_smart_bet,
+        display_combo_bet
+    )
+    SMART_BET_AVAILABLE = True
+except ImportError:
+    SMART_BET_AVAILABLE = False
+
 
 def _get_value_rating(probability: float) -> tuple:
     """
@@ -39,6 +50,92 @@ def _get_value_rating(probability: float) -> tuple:
         return ("⭐", "TOO SAFE", "warning")  # Bad odds!
     else:
         return ("⭐⭐", "RISKY", "error")
+
+
+def _collect_match_analysis(match: dict, api_key: str) -> dict:
+    """
+    Collect all available analysis data for a match
+    
+    Returns comprehensive dict with all market probabilities
+    """
+    home_team_id = match['teams']['home']['id']
+    away_team_id = match['teams']['away']['id']
+    league_id = match['league']['id']
+    home_team = match['teams']['home']['name']
+    away_team = match['teams']['away']['name']
+    
+    analysis = {}
+    
+    try:
+        # Initialize analyzers
+        alt_analyzer = PreMatchAlternativeAnalyzer(api_key=api_key)
+        result_predictor = MatchResultPredictor(api_key=api_key)
+        
+        fixture = {
+            'home_team_id': home_team_id,
+            'away_team_id': away_team_id,
+            'league_id': league_id,
+            'home_team': home_team,
+            'away_team': away_team
+        }
+        
+        # Get Corners Analysis
+        corners_result = alt_analyzer.analyze_prematch_corners(fixture)
+        if corners_result:
+            analysis['corners'] = {}
+            for threshold_key, threshold_data in corners_result.get('thresholds', {}).items():
+                analysis['corners'][threshold_key] = {
+                    'probability': threshold_data.get('probability', 0),
+                    'threshold': threshold_data.get('threshold', 0)
+                }
+            analysis['corners']['expected_total'] = corners_result.get('expected_total_corners', 0)
+            analysis['corners']['confidence'] = corners_result.get('confidence', 'MEDIUM')
+        
+        # Get Cards Analysis
+        cards_result = alt_analyzer.analyze_prematch_cards(fixture)
+        if cards_result:
+            analysis['cards'] = {}
+            for threshold_key, threshold_data in cards_result.get('thresholds', {}).items():
+                analysis['cards'][threshold_key] = {
+                    'probability': threshold_data.get('probability', 0),
+                    'threshold': threshold_data.get('threshold', 0)
+                }
+            analysis['cards']['expected_total'] = cards_result.get('expected_total_cards', 0)
+            analysis['cards']['confidence'] = cards_result.get('confidence', 'MEDIUM')
+        
+        # Get Match Result Analysis
+        result_analysis = result_predictor.predict_match_outcome(
+            home_team_id=home_team_id,
+            away_team_id=away_team_id,
+            league_id=league_id
+        )
+        
+        if result_analysis:
+            # Match probabilities
+            analysis['home_win_probability'] = result_analysis.get('home_win_probability', 0)
+            analysis['draw_probability'] = result_analysis.get('draw_probability', 0)
+            analysis['away_win_probability'] = result_analysis.get('away_win_probability', 0)
+            
+            # BTTS
+            analysis['btts_probability'] = result_analysis.get('btts_probability', 0)
+            analysis['btts_confidence'] = result_analysis.get('confidence', 'MEDIUM')
+            
+            # Over/Under
+            for threshold in [0.5, 1.5, 2.5, 3.5, 4.5]:
+                over_key = f'over_{threshold}_probability'
+                if over_key in result_analysis:
+                    analysis[over_key] = result_analysis[over_key]
+            
+            # xG if available
+            analysis['xg_home'] = result_analysis.get('xg_home', 0)
+            analysis['xg_away'] = result_analysis.get('xg_away', 0)
+            analysis['expected_goals'] = result_analysis.get('expected_goals_total', 0)
+        
+        return analysis
+    
+    except Exception as e:
+        st.error(f"Error collecting match analysis: {e}")
+        return {}
 
 
 def _render_corners_cards_analysis(match, api_key):
@@ -573,6 +670,40 @@ def create_alternative_markets_tab_extended():
     **Keine Buchmacher-Quoten - Pure Mathematik!**
     """)
     
+    # ============================================
+    # 🎯 SMART BET FINDER BUTTONS
+    # ============================================
+    st.markdown("---")
+    st.markdown("## 🤖 KI-GESTÜTZTE WETTEMPFEHLUNGEN")
+    st.caption("Wähle ein Match und klicke dann auf einen der Buttons:")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        value_bet_btn = st.button("🎯 VALUE BET SCANNER", 
+                                   help="Findet Top 3 Wetten mit höchstem Edge vs. Bookmaker",
+                                   use_container_width=True)
+    
+    with col2:
+        combo_btn = st.button("🔥 MULTI-MARKET COMBOS", 
+                             help="Findet profitable 2-3 Wetten Kombinationen",
+                             use_container_width=True)
+    
+    with col3:
+        high_conf_btn = st.button("💎 HIGH CONFIDENCE FILTER", 
+                                  help="Nur Wetten mit >75% Wahrscheinlichkeit",
+                                  use_container_width=True)
+    
+    # Store button states in session
+    if value_bet_btn:
+        st.session_state['smart_bet_mode'] = 'value'
+    elif combo_btn:
+        st.session_state['smart_bet_mode'] = 'combo'
+    elif high_conf_btn:
+        st.session_state['smart_bet_mode'] = 'high_conf'
+    
+    st.markdown("---")
+    
     # Initialize session states
     if 'tab7_fixtures' not in st.session_state:
         st.session_state['tab7_fixtures'] = []
@@ -784,6 +915,72 @@ def create_alternative_markets_tab_extended():
                     if st.session_state.get(f"show_mr_{match_id}", False):
                         with st.expander("⚽ Match Result Analyse", expanded=True):
                             _render_match_result_analysis(match, api_key)
+                    
+                    # ============================================
+                    # 🤖 SMART BET FINDER DISPLAY
+                    # ============================================
+                    smart_bet_mode = st.session_state.get('smart_bet_mode', None)
+                    
+                    if smart_bet_mode and SMART_BET_AVAILABLE:
+                        # Only show for first match or selected match
+                        if match == matches[0]:  # Show for first match in league
+                            st.markdown("---")
+                            st.markdown("## 🤖 KI-EMPFEHLUNGEN")
+                            
+                            with st.spinner("🔍 Analysiere alle Märkte..."):
+                                try:
+                                    # Collect match analysis data
+                                    match_analysis = _collect_match_analysis(match, api_key)
+                                    
+                                    # Initialize Smart Bet Finder
+                                    finder = SmartBetFinder()
+                                    
+                                    if smart_bet_mode == 'value':
+                                        st.markdown("### 🎯 VALUE BET SCANNER")
+                                        st.caption("Top 3 Wetten mit höchstem Edge vs. Bookmaker")
+                                        
+                                        smart_bets = finder.find_value_bets(match_analysis)
+                                        
+                                        if smart_bets:
+                                            for i, bet in enumerate(smart_bets, 1):
+                                                display_smart_bet(bet, i)
+                                        else:
+                                            st.warning("⚠️ Keine Value Bets gefunden. Versuche es mit einem anderen Match!")
+                                    
+                                    elif smart_bet_mode == 'combo':
+                                        st.markdown("### 🔥 MULTI-MARKET COMBOS")
+                                        st.caption("Profitable 2-3 Wetten Kombinationen")
+                                        
+                                        combos = finder.find_combo_bets(match_analysis)
+                                        
+                                        if combos:
+                                            for i, combo in enumerate(combos, 1):
+                                                display_combo_bet(combo, i)
+                                        else:
+                                            st.warning("⚠️ Keine Combos gefunden. Märkte nicht stark genug!")
+                                    
+                                    elif smart_bet_mode == 'high_conf':
+                                        st.markdown("### 💎 HIGH CONFIDENCE BETS")
+                                        st.caption("Nur Wetten mit >75% Wahrscheinlichkeit")
+                                        
+                                        high_conf_bets = finder.find_high_confidence_bets(match_analysis)
+                                        
+                                        if high_conf_bets:
+                                            for i, bet in enumerate(high_conf_bets, 1):
+                                                display_smart_bet(bet, i)
+                                        else:
+                                            st.warning("⚠️ Keine High Confidence Bets gefunden!")
+                                    
+                                    # Clear mode after display
+                                    if st.button("✅ Fertig - Schließen"):
+                                        st.session_state['smart_bet_mode'] = None
+                                        st.rerun()
+                                
+                                except Exception as e:
+                                    st.error(f"❌ Fehler bei Smart Bet Analyse: {e}")
+                                    st.info("Stelle sicher dass das Match zuerst analysiert wurde (Corners oder Result Button klicken)")
+                            
+                            break  # Only show for first match
                     
                     st.markdown("---")
     
