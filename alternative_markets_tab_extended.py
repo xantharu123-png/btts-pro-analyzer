@@ -777,16 +777,16 @@ def create_alternative_markets_tab_extended():
             st.rerun()
     
     # League multiselect
-    # IMPORTANT: Use session state as the single source of truth!
+    # CRITICAL FIX: NO key parameter! This allows default to work properly
     if 'tab7_selected_leagues' not in st.session_state:
         st.session_state['tab7_selected_leagues'] = [78, 39, 140]
     
     selected_leagues = st.multiselect(
         "Ligen auswählen",
         options=list(ALL_LEAGUES.keys()),
-        default=st.session_state['tab7_selected_leagues'],  # Use session state!
-        format_func=lambda x: ALL_LEAGUES.get(x, f"Liga {x}"),
-        key="league_multiselect"
+        default=st.session_state['tab7_selected_leagues'],  # This NOW works!
+        format_func=lambda x: ALL_LEAGUES.get(x, f"Liga {x}")
+        # NO key= parameter! This was blocking the default update!
     )
     
     # Update session state with current selection
