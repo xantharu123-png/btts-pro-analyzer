@@ -939,7 +939,7 @@ with tab6:
                 # Get live matches directly
                 live_matches = []
                 
-                # TIER 1 + 2 + 3 LEAGUES (28 Total!) 🔥🎊
+                # TIER 1 + 2 + 3 + SÜDAMERIKA LEAGUES (35 Total!) 🔥🎊
                 league_ids = [
                     # Original Top Leagues (12)
                     78,   # Bundesliga (Germany)
@@ -951,9 +951,16 @@ with tab6:
                     94,   # Primeira Liga (Portugal)
                     203,  # Süper Lig (Turkey)
                     40,   # Championship (England 2)
-                    78,   # Bundesliga 2 (Germany 2)
-                    262,  # Liga MX (Mexico)
-                    71,   # Brasileirão (Brazil)
+                    79,   # Bundesliga 2 (Germany 2) ← FIXED!
+                    262,  # Liga MX (Mexico) - 0.27 Red/Game 🔴
+                    71,   # Brasileirão (Brazil) - 0.29 Red/Game 🔴
+                    
+                    # 🔥 SÜDAMERIKA RED CARD KINGS! (5 NEU)
+                    128,  # 🇦🇷 Argentina Primera - 0.31 Red/Game 🔴🔴🔴
+                    239,  # 🇨🇴 Colombia Primera A - 0.26 Red/Game 🔴
+                    265,  # 🇨🇱 Chile Primera - 0.25 Red/Game 🔴
+                    274,  # 🇺🇾 Uruguay Primera - 0.24 Red/Game 🔴
+                    242,  # 🇪🇨 Ecuador Serie A - 0.23 Red/Game 🔴
                     
                     # TIER 1: EUROPEAN CUPS (3) 🏆
                     2,    # Champions League ⭐⭐⭐⭐⭐

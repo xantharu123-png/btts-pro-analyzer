@@ -741,7 +741,18 @@ def create_alternative_markets_tab_extended():
         210: "🇭🇷 Croatian HNL",
         333: "🇺🇦 Ukrainian Premier League",
         106: "🇵🇱 Polish Ekstraklasa",
-        332: "🇸🇰 Slovak Fortuna Liga"
+        332: "🇸🇰 Slovak Fortuna Liga",
+        
+        # ============================================
+        # 🔥 NEU: SÜDAMERIKA (HÖCHSTE RED CARD RATE!)
+        # ============================================
+        128: "🇦🇷 Argentina Primera",      # 0.31 Rote/Spiel 🔥
+        71: "🇧🇷 Brasil Série A",          # 0.29 Rote/Spiel 🔥
+        262: "🇲🇽 Mexico Liga MX",         # 0.27 Rote/Spiel 🔥
+        239: "🇨🇴 Colombia Primera A",     # 0.26 Rote/Spiel 🔥
+        265: "🇨🇱 Chile Primera",          # 0.25 Rote/Spiel 🔥
+        274: "🇺🇾 Uruguay Primera",        # 0.24 Rote/Spiel ⚠️
+        242: "🇪🇨 Ecuador Serie A",        # 0.23 Rote/Spiel ⚠️
     }
     
     # ============================================
