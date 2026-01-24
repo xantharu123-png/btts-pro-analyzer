@@ -69,7 +69,7 @@ def _collect_match_analysis(match: dict, api_key: str) -> dict:
     try:
         # Initialize analyzers
         alt_analyzer = PreMatchAlternativeAnalyzer(api_key=api_key)
-        result_predictor = MatchResultPredictor(api_key=api_key)
+        result_predictor = MatchResultPredictor(league_id=league_id)  # ← FIX: league_id statt api_key!
         
         fixture = {
             'home_team_id': home_team_id,
