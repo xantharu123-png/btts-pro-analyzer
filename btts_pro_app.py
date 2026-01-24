@@ -1277,11 +1277,68 @@ with tab8:
                 # 🔥 GET ALL LIVE MATCHES (keine Liga-Begrenzung!)
                 st.info("🌍 **Scanning ALL live matches worldwide** - keine Liga-Begrenzung für Red Cards!")
                 
+                # Filter Options
+                with st.expander("⚙️ Filter-Optionen"):
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        min_minute = st.number_input("Min Spielminute", 0, 90, 10, 
+                                                     help="Filtere Spiele die mindestens X Minuten alt sind")
+                    
+                    with col2:
+                        exclude_friendlies = st.checkbox("Freundschaftsspiele ausschließen", value=True,
+                                                         help="Filtert Test-Matches und Friendlies")
+                    
+                    with col3:
+                        only_major = st.checkbox("Nur große Ligen", value=False,
+                                                help="Nur Top 50 Ligen weltweit")
+                
                 # Get ALL live matches (league_ids=None bedeutet ALLE)
-                live_matches = alert_system.get_live_matches(league_ids=None)
+                all_live_matches = alert_system.get_live_matches(league_ids=None)
+                
+                # Apply filters
+                live_matches = []
+                filtered_count = 0
+                
+                if all_live_matches:
+                    for match in all_live_matches:
+                        minute = match['fixture']['status']['elapsed'] or 0
+                        league_name = match.get('league', {}).get('name', '').lower()
+                        
+                        # Filter 1: Minimum minute
+                        if minute < min_minute:
+                            filtered_count += 1
+                            continue
+                        
+                        # Filter 2: Friendlies
+                        if exclude_friendlies:
+                            if any(word in league_name for word in ['friendly', 'friendlies', 'amistoso', 'test']):
+                                filtered_count += 1
+                                continue
+                        
+                        # Filter 3: Only major leagues
+                        if only_major:
+                            league_id = match.get('league', {}).get('id', 0)
+                            # Top 50 league IDs (can be expanded)
+                            major_leagues = [
+                                78, 39, 140, 135, 61, 88, 94, 203, 40, 79,  # EU Top
+                                2, 3, 848,  # EU Cups
+                                128, 71, 262, 239, 265, 274, 242,  # South America
+                                144, 218, 207, 179, 197, 283, 286,  # EU Tier 2
+                                98, 292, 233, 288, 307, 169, 188,  # Asia/Africa/Oceania
+                                253, 254, 271, 272, 268, 269  # More leagues
+                            ]
+                            if league_id not in major_leagues:
+                                filtered_count += 1
+                                continue
+                        
+                        live_matches.append(match)
+                    
+                    if filtered_count > 0:
+                        st.info(f"ℹ️ {filtered_count} Matches ausgefiltert (zu früh / Friendlies / kleine Liga)")
                 
                 if live_matches:
-                    st.success(f"✅ Found {len(live_matches)} live matches worldwide!")
+                    st.success(f"✅ Found {len(live_matches)} relevant live matches!")
                     
                     # Show league distribution
                     leagues = {}
