@@ -994,6 +994,10 @@ def create_alternative_markets_tab_extended():
                                         high_conf_bets = finder.find_high_confidence_bets(match_analysis)
                                         
                                         if high_conf_bets:
+                                            # Check if threshold was lowered (any bet < 75%)
+                                            if any(bet.probability < 75 for bet in high_conf_bets):
+                                                st.info("ℹ️ Nicht genug Wetten >75% gefunden. Threshold auf 72% gesenkt.")
+                                            
                                             for i, bet in enumerate(high_conf_bets, 1):
                                                 display_smart_bet(bet, i)
                                         else:

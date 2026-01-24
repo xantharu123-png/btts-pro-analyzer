@@ -357,7 +357,6 @@ class SmartBetFinder:
         Falls nicht genug gefunden: Threshold wird auf 72% gesenkt
         """
         high_conf_bets = []
-        threshold_lowered = False
         
         # Alle Value Bets durchsuchen
         all_bets = self.find_value_bets(match_analysis)
@@ -369,7 +368,6 @@ class SmartBetFinder:
         
         # Falls weniger als 3, senke Threshold auf 72%
         if len(high_conf_bets) < 3:
-            threshold_lowered = True
             for bet in all_bets:
                 if bet.probability >= 72 and bet.confidence in ['VERY_HIGH', 'HIGH']:
                     if bet not in high_conf_bets:
@@ -377,11 +375,6 @@ class SmartBetFinder:
         
         # Sort by probability
         high_conf_bets.sort(key=lambda x: x.probability, reverse=True)
-        
-        # Add warning if threshold was lowered
-        if threshold_lowered and high_conf_bets:
-            import streamlit as st
-            st.info("ℹ️ Nicht genug Wetten >75% gefunden. Threshold auf 72% gesenkt.")
         
         return high_conf_bets[:3]
     
