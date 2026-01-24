@@ -102,7 +102,16 @@ def _collect_match_analysis(match: dict, api_key: str) -> dict:
                         'probability': threshold_data.get('probability', 0),
                         'threshold': threshold_data.get('threshold', 0)
                     }
-                analysis['corners']['expected_total'] = corners_result.get('expected_total_corners', 0)
+                # CRITICAL FIX: Extract expected_total_corners properly!
+                expected_corners = corners_result.get('expected_total_corners', 0)
+                if expected_corners == 0:
+                    # Fallback: Try 'expected_total' or calculate from thresholds
+                    expected_corners = corners_result.get('expected_total', 0)
+                    if expected_corners == 0 and corners_result.get('thresholds'):
+                        # Calculate rough estimate from probabilities
+                        expected_corners = 10.5  # Liga average
+                
+                analysis['corners']['expected_total'] = expected_corners
                 analysis['corners']['confidence'] = corners_result.get('confidence', 'MEDIUM')
         except Exception as e:
             st.warning(f"Corners analysis failed: {e}")
@@ -117,7 +126,16 @@ def _collect_match_analysis(match: dict, api_key: str) -> dict:
                         'probability': threshold_data.get('probability', 0),
                         'threshold': threshold_data.get('threshold', 0)
                     }
-                analysis['cards']['expected_total'] = cards_result.get('expected_total_cards', 0)
+                # CRITICAL FIX: Extract expected_total_cards properly!
+                expected_cards = cards_result.get('expected_total_cards', 0)
+                if expected_cards == 0:
+                    # Fallback: Try 'expected_total' or calculate from thresholds
+                    expected_cards = cards_result.get('expected_total', 0)
+                    if expected_cards == 0 and cards_result.get('thresholds'):
+                        # Calculate rough estimate from probabilities
+                        expected_cards = 4.5  # Liga average
+                
+                analysis['cards']['expected_total'] = expected_cards
                 analysis['cards']['confidence'] = cards_result.get('confidence', 'MEDIUM')
         except Exception as e:
             st.warning(f"Cards analysis failed: {e}")

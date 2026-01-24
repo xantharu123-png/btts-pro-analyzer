@@ -354,26 +354,34 @@ class SmartBetFinder:
         💎 HIGH CONFIDENCE FILTER
         
         Nur Wetten mit Probability >75% und Confidence VERY_HIGH
+        Falls nicht genug gefunden: Threshold wird auf 72% gesenkt
         """
         high_conf_bets = []
+        threshold_lowered = False
         
         # Alle Value Bets durchsuchen
         all_bets = self.find_value_bets(match_analysis)
         
-        # Filter: Probability >75% UND (Confidence VERY_HIGH ODER Probability >80%)
+        # STRICT Filter: Probability >75% UND Confidence VERY_HIGH
         for bet in all_bets:
-            if bet.probability >= 75 and (bet.confidence == 'VERY_HIGH' or bet.probability >= 80):
+            if bet.probability >= 75 and bet.confidence == 'VERY_HIGH':
                 high_conf_bets.append(bet)
         
-        # Falls weniger als 3, senke Threshold
+        # Falls weniger als 3, senke Threshold auf 72%
         if len(high_conf_bets) < 3:
+            threshold_lowered = True
             for bet in all_bets:
-                if bet.probability >= 70 and bet.confidence in ['VERY_HIGH', 'HIGH']:
+                if bet.probability >= 72 and bet.confidence in ['VERY_HIGH', 'HIGH']:
                     if bet not in high_conf_bets:
                         high_conf_bets.append(bet)
         
         # Sort by probability
         high_conf_bets.sort(key=lambda x: x.probability, reverse=True)
+        
+        # Add warning if threshold was lowered
+        if threshold_lowered and high_conf_bets:
+            import streamlit as st
+            st.info("ℹ️ Nicht genug Wetten >75% gefunden. Threshold auf 72% gesenkt.")
         
         return high_conf_bets[:3]
     
