@@ -771,15 +771,19 @@ def create_alternative_markets_tab_extended():
             st.rerun()
     
     # League multiselect
+    # IMPORTANT: Use session state as the single source of truth!
+    if 'tab7_selected_leagues' not in st.session_state:
+        st.session_state['tab7_selected_leagues'] = [78, 39, 140]
+    
     selected_leagues = st.multiselect(
         "Ligen auswählen",
         options=list(ALL_LEAGUES.keys()),
-        default=st.session_state.get('tab7_selected_leagues', [78, 39, 140]),
+        default=st.session_state['tab7_selected_leagues'],  # Use session state!
         format_func=lambda x: ALL_LEAGUES.get(x, f"Liga {x}"),
         key="league_multiselect"
     )
     
-    # Update session state
+    # Update session state with current selection
     st.session_state['tab7_selected_leagues'] = selected_leagues
     
     # Date selection
