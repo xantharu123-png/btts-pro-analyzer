@@ -502,7 +502,10 @@ def display_ultra_opportunity(match: Dict):
     with col3:
         ng = match.get('next_goal', {})
         fav = ng.get('favorite', 'HOME')
-        prob = ng.get('home_next_goal_prob', 50) if fav == 'HOME' else ng.get('away_next_goal_prob', 50)
+        # FIX: Use correct keys 'home_prob' and 'away_prob'!
+        home_prob = ng.get('home_prob', 50)
+        away_prob = ng.get('away_prob', 50)
+        prob = home_prob if fav == 'HOME' else away_prob
         st.metric(f"Next: {fav}", f"{prob:.0f}%")
     
     st.markdown("---")
