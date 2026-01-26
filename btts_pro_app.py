@@ -939,7 +939,7 @@ with tab6:
                 # Get live matches directly
                 live_matches = []
                 
-                # TIER 1 + 2 + 3 + SÜDAMERIKA LEAGUES (35 Total!) 🔥🎊
+                # TIER 1 + 2 + 3 LEAGUES (28 Total!) 🔥🎊
                 league_ids = [
                     # Original Top Leagues (12)
                     78,   # Bundesliga (Germany)
@@ -951,16 +951,9 @@ with tab6:
                     94,   # Primeira Liga (Portugal)
                     203,  # Süper Lig (Turkey)
                     40,   # Championship (England 2)
-                    79,   # Bundesliga 2 (Germany 2) ← FIXED!
-                    262,  # Liga MX (Mexico) - 0.27 Red/Game 🔴
-                    71,   # Brasileirão (Brazil) - 0.29 Red/Game 🔴
-                    
-                    # 🔥 SÜDAMERIKA RED CARD KINGS! (5 NEU)
-                    128,  # 🇦🇷 Argentina Primera - 0.31 Red/Game 🔴🔴🔴
-                    239,  # 🇨🇴 Colombia Primera A - 0.26 Red/Game 🔴
-                    265,  # 🇨🇱 Chile Primera - 0.25 Red/Game 🔴
-                    274,  # 🇺🇾 Uruguay Primera - 0.24 Red/Game 🔴
-                    242,  # 🇪🇨 Ecuador Serie A - 0.23 Red/Game 🔴
+                    78,   # Bundesliga 2 (Germany 2)
+                    262,  # Liga MX (Mexico)
+                    71,   # Brasileirão (Brazil)
                     
                     # TIER 1: EUROPEAN CUPS (3) 🏆
                     2,    # Champions League ⭐⭐⭐⭐⭐
@@ -1274,81 +1267,19 @@ with tab8:
                             alert_system.telegram_token = st.session_state.tg_token
                             alert_system.telegram_chat_id = st.session_state.tg_chat
                 
-                # 🔥 GET ALL LIVE MATCHES (keine Liga-Begrenzung!)
-                st.info("🌍 **Scanning ALL live matches worldwide** - keine Liga-Begrenzung für Red Cards!")
+                # Get league IDs
+                league_ids = [
+                    78, 39, 140, 135, 61, 88, 94, 203, 40, 79, 262, 71,  # Top leagues
+                    2, 3, 848,  # European cups
+                    179, 144, 207, 218,  # EU Expansion
+                    265, 330, 165, 188, 89, 209, 113, 292, 301  # Goal festivals
+                ]
                 
-                # Filter Options
-                with st.expander("⚙️ Filter-Optionen"):
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        min_minute = st.number_input("Min Spielminute", 0, 90, 10, 
-                                                     help="Filtere Spiele die mindestens X Minuten alt sind")
-                    
-                    with col2:
-                        exclude_friendlies = st.checkbox("Freundschaftsspiele ausschließen", value=True,
-                                                         help="Filtert Test-Matches und Friendlies")
-                    
-                    with col3:
-                        only_major = st.checkbox("Nur große Ligen", value=False,
-                                                help="Nur Top 50 Ligen weltweit")
-                
-                # Get ALL live matches (league_ids=None bedeutet ALLE)
-                all_live_matches = alert_system.get_live_matches(league_ids=None)
-                
-                # Apply filters
-                live_matches = []
-                filtered_count = 0
-                
-                if all_live_matches:
-                    for match in all_live_matches:
-                        minute = match['fixture']['status']['elapsed'] or 0
-                        league_name = match.get('league', {}).get('name', '').lower()
-                        
-                        # Filter 1: Minimum minute
-                        if minute < min_minute:
-                            filtered_count += 1
-                            continue
-                        
-                        # Filter 2: Friendlies
-                        if exclude_friendlies:
-                            if any(word in league_name for word in ['friendly', 'friendlies', 'amistoso', 'test']):
-                                filtered_count += 1
-                                continue
-                        
-                        # Filter 3: Only major leagues
-                        if only_major:
-                            league_id = match.get('league', {}).get('id', 0)
-                            # Top 50 league IDs (can be expanded)
-                            major_leagues = [
-                                78, 39, 140, 135, 61, 88, 94, 203, 40, 79,  # EU Top
-                                2, 3, 848,  # EU Cups
-                                128, 71, 262, 239, 265, 274, 242,  # South America
-                                144, 218, 207, 179, 197, 283, 286,  # EU Tier 2
-                                98, 292, 233, 288, 307, 169, 188,  # Asia/Africa/Oceania
-                                253, 254, 271, 272, 268, 269  # More leagues
-                            ]
-                            if league_id not in major_leagues:
-                                filtered_count += 1
-                                continue
-                        
-                        live_matches.append(match)
-                    
-                    if filtered_count > 0:
-                        st.info(f"ℹ️ {filtered_count} Matches ausgefiltert (zu früh / Friendlies / kleine Liga)")
+                # Get live matches
+                live_matches = alert_system.get_live_matches(league_ids)
                 
                 if live_matches:
-                    st.success(f"✅ Found {len(live_matches)} relevant live matches!")
-                    
-                    # Show league distribution
-                    leagues = {}
-                    for m in live_matches:
-                        league = m.get('league', {}).get('name', 'Unknown')
-                        leagues[league] = leagues.get(league, 0) + 1
-                    
-                    with st.expander(f"📊 {len(leagues)} Ligen aktiv"):
-                        for league, count in sorted(leagues.items(), key=lambda x: x[1], reverse=True)[:20]:
-                            st.write(f"- {league}: {count} matches")
+                    st.success(f"✅ Found {len(live_matches)} live matches in our leagues!")
                     
                     # Check each match for red cards
                     red_cards_found = []
@@ -1583,3 +1514,174 @@ st.markdown("""
         <p><small>⚠️ For informational purposes only. Gambling involves risk.</small></p>
     </div>
 """, unsafe_allow_html=True)
+
+# ============================================================
+# 🎯 MULTI-SPORT SCANNER EXTENSION
+# Added: Basketball, Tennis, Cricket, ULTRA Scanner
+# ============================================================
+
+# Add scanners path
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent / 'scanners'))
+
+# Create new tabs for multi-sport
+st.markdown("---")
+st.markdown("---")
+st.markdown("## 🎯 MULTI-SPORT LIVE SCANNER")
+st.info("🔥 Basketball (NBA + Euroleague) • Tennis (ATP/WTA) • Cricket (IPL/T20) • ULTRA Scanner")
+
+new_tabs = st.tabs([
+    "🏀 BASKETBALL",
+    "🎾 TENNIS", 
+    "🏏 CRICKET",
+    "🔥 ULTRA SCANNER"
+])
+
+# Basketball Tab
+with new_tabs[0]:
+    st.header("🏀 BASKETBALL LIVE SCANNER")
+    st.markdown("### NBA + Euroleague Coverage")
+    
+    league = st.radio("Select League:", ["NBA", "Euroleague", "All"], horizontal=True, key="bball_league")
+    
+    try:
+        from basketball_scanner import BasketballScanner, analyze_and_display_game
+        scanner = BasketballScanner()
+        
+        with st.spinner(f"🔍 Scanning {league} live games..."):
+            games = scanner.scan_live_games(league)
+        
+        if games:
+            st.success(f"✅ Found {len(games)} live {league} game(s)!")
+            for game in games:
+                analyze_and_display_game(game, scanner)
+        else:
+            st.info(f"ℹ️ No live {league} games at the moment")
+            st.caption("NBA: 19:00-02:00 EST | Euroleague: 18:00-21:00 CET")
+    except Exception as e:
+        st.error(f"Error loading Basketball Scanner: {e}")
+        st.info("Make sure basketball_scanner.py is in scanners/ folder")
+
+# Tennis Tab
+with new_tabs[1]:
+    st.header("🎾 TENNIS LIVE SCANNER")
+    st.markdown("### ATP/WTA Real-Time Analysis")
+    
+    try:
+        from tennis_scanner import TennisScanner, analyze_and_display_match
+        scanner = TennisScanner()
+        
+        with st.spinner("🔍 Scanning live tennis matches..."):
+            matches = scanner.get_live_matches()
+        
+        if matches:
+            st.success(f"✅ Found {len(matches)} live match(es)!")
+            for match in matches:
+                analyze_and_display_match(match, scanner)
+        else:
+            st.info("ℹ️ No live tennis matches at the moment")
+            st.caption("Check during Grand Slams or ATP/WTA tournaments")
+    except Exception as e:
+        st.error(f"Error loading Tennis Scanner: {e}")
+        st.info("Make sure tennis_scanner.py is in scanners/ folder")
+
+# Cricket Tab
+with new_tabs[2]:
+    st.header("🏏 CRICKET LIVE SCANNER")
+    st.markdown("### IPL/T20/ODI Real-Time Analysis")
+    
+    try:
+        from cricket_scanner import CricketScanner, analyze_and_display_match
+        scanner = CricketScanner()
+        
+        with st.spinner("🔍 Scanning live cricket matches..."):
+            matches = scanner.get_live_matches()
+        
+        if matches:
+            st.success(f"✅ Found {len(matches)} live match(es)!")
+            for match in matches:
+                analyze_and_display_match(match, scanner)
+        else:
+            st.info("ℹ️ No live cricket matches at the moment")
+            st.caption("IPL Season: April-May | Check during international matches")
+            st.warning("⚠️ Cricket scanner requires API key")
+    except Exception as e:
+        st.error(f"Error loading Cricket Scanner: {e}")
+        st.info("Make sure cricket_scanner.py is in scanners/ folder")
+
+# ULTRA Scanner Tab
+with new_tabs[3]:
+    st.header("🔥 ULTRA SCANNER")
+    st.markdown("### Best Opportunities from ALL Sports")
+    
+    try:
+        from ultra_scanner import MultiSportRanker
+        ranker = MultiSportRanker()
+        
+        with st.spinner("🔍 Scanning ALL sports..."):
+            # Basketball
+            try:
+                from basketball_scanner import BasketballScanner
+                bball = BasketballScanner()
+                for game in bball.scan_live_games("All"):
+                    for opp in [bball.analyze_quarter_winner(game), bball.analyze_total_points(game)]:
+                        if opp: ranker.add_opportunity("Basketball", opp)
+            except: pass
+            
+            # Tennis  
+            try:
+                from tennis_scanner import TennisScanner
+                tennis = TennisScanner()
+                for match in tennis.get_live_matches():
+                    for opp in [tennis.analyze_next_game(match), tennis.analyze_set_winner(match)]:
+                        if opp: ranker.add_opportunity("Tennis", opp)
+            except: pass
+            
+            # Cricket
+            try:
+                from cricket_scanner import CricketScanner
+                cricket = CricketScanner()
+                for match in cricket.get_live_matches():
+                    for opp in [cricket.analyze_current_over(match), cricket.analyze_total_runs(match)]:
+                        if opp: ranker.add_opportunity("Cricket", opp)
+            except: pass
+        
+        stats = ranker.get_stats()
+        
+        if stats['total'] > 0:
+            st.success(f"✅ Found {stats['total']} opportunities across all sports!")
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Opps", stats['total'])
+            col2.metric("Avg Edge", f"{stats['avg_edge']}%")
+            col3.metric("Avg ROI", f"{stats['avg_roi']}%")
+            
+            st.markdown("### 📊 By Sport:")
+            for sport, count in stats['by_sport'].items():
+                st.write(f"{ranker._get_sport_emoji(sport)} **{sport}:** {count} opportunities")
+            
+            st.markdown("---")
+            st.markdown("### 🏆 Top 10 Opportunities")
+            
+            for i, opp in enumerate(ranker.get_top_opportunities(10), 1):
+                col1, col2, col3 = st.columns([0.5, 2, 2])
+                col1.markdown(f"**#{i}**")
+                col2.markdown(f"{opp['sport_emoji']} **{opp['sport']}**")
+                col3.markdown(f"Edge: +{opp['edge']}% | ROI: +{opp['roi']}%")
+                
+                with st.expander("📊 Details"):
+                    st.markdown(f"**Confidence:** {opp['confidence']}%")
+                    st.markdown(f"**Score:** {opp['score']}")
+                    st.markdown("**Analysis:**")
+                    for reason in opp.get('reasoning', []):
+                        st.markdown(f"- {reason}")
+                
+                st.markdown("---")
+        else:
+            st.info("ℹ️ No opportunities at the moment")
+            st.caption("Check back when there are live games")
+    except Exception as e:
+        st.error(f"Error loading ULTRA Scanner: {e}")
+        st.info("Make sure ultra_scanner.py is in scanners/ folder")
+
