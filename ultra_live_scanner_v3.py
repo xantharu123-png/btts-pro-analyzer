@@ -150,8 +150,8 @@ class UltraLiveScanner:
                     'confidence': ou_result['confidence']
                 },
                 'next_goal': {
-                    'home_next_goal_prob': ng_result['home_prob'],
-                    'away_next_goal_prob': ng_result['away_prob'],
+                    'home_prob': ng_result['home_prob'],  # ← FIXED!
+                    'away_prob': ng_result['away_prob'],  # ← FIXED!
                     'no_goal_prob': ng_result['no_goal_prob'],
                     'favorite': ng_result['favorite'],
                     'edge': ng_result['edge'],
