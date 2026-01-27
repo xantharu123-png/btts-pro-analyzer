@@ -1516,172 +1516,244 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================
-# 🎯 MULTI-SPORT SCANNER EXTENSION
-# Added: Basketball, Tennis, Cricket, ULTRA Scanner
+# 🎯 COMPACT MULTI-SPORT DASHBOARD
 # ============================================================
 
-# Add scanners path
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / 'scanners'))
 
-# Create new tabs for multi-sport
 st.markdown("---")
 st.markdown("---")
-st.markdown("## 🎯 MULTI-SPORT LIVE SCANNER")
-st.info("🔥 Basketball (NBA + Euroleague) • Tennis (ATP/WTA) • Cricket (IPL/T20) • ULTRA Scanner")
+st.markdown("## 🎯 LIVE SCANNER DASHBOARD")
+st.caption("Real-time opportunities across all sports • Compact & Clear")
 
-new_tabs = st.tabs([
-    "🏀 BASKETBALL",
-    "🎾 TENNIS", 
-    "🏏 CRICKET",
-    "🔥 ULTRA SCANNER"
-])
+# Refresh button
+col_ref1, col_ref2 = st.columns([3, 1])
+with col_ref2:
+    if st.button("🔄 Refresh Live Data", use_container_width=True, key="refresh_dashboard"):
+        st.rerun()
 
-# Basketball Tab
-with new_tabs[0]:
-    st.header("🏀 BASKETBALL LIVE SCANNER")
-    st.markdown("### NBA + Euroleague Coverage")
-    
-    league = st.radio("Select League:", ["NBA", "Euroleague", "All"], horizontal=True, key="bball_league")
-    
-    try:
-        from basketball_scanner import BasketballScanner, analyze_and_display_game
-        scanner = BasketballScanner()
-        
-        with st.spinner(f"🔍 Scanning {league} live games..."):
-            games = scanner.scan_live_games(league)
-        
-        if games:
-            st.success(f"✅ Found {len(games)} live {league} game(s)!")
-            for game in games:
-                analyze_and_display_game(game, scanner)
-        else:
-            st.info(f"ℹ️ No live {league} games at the moment")
-            st.caption("NBA: 19:00-02:00 EST | Euroleague: 18:00-21:00 CET")
-    except Exception as e:
-        st.error(f"Error loading Basketball Scanner: {e}")
-        st.info("Make sure basketball_scanner.py is in scanners/ folder")
+st.markdown("---")
 
-# Tennis Tab
-with new_tabs[1]:
-    st.header("🎾 TENNIS LIVE SCANNER")
-    st.markdown("### ATP/WTA Real-Time Analysis")
-    
-    try:
-        from tennis_scanner import TennisScanner, analyze_and_display_match
-        scanner = TennisScanner()
-        
-        with st.spinner("🔍 Scanning live tennis matches..."):
-            matches = scanner.get_live_matches()
-        
-        if matches:
-            st.success(f"✅ Found {len(matches)} live match(es)!")
-            for match in matches:
-                analyze_and_display_match(match, scanner)
-        else:
-            st.info("ℹ️ No live tennis matches at the moment")
-            st.caption("Check during Grand Slams or ATP/WTA tournaments")
-    except Exception as e:
-        st.error(f"Error loading Tennis Scanner: {e}")
-        st.info("Make sure tennis_scanner.py is in scanners/ folder")
+# Collect all opportunities
+all_opportunities = []
 
-# Cricket Tab
-with new_tabs[2]:
-    st.header("🏏 CRICKET LIVE SCANNER")
-    st.markdown("### IPL/T20/ODI Real-Time Analysis")
-    
-    try:
-        from cricket_scanner import CricketScanner, analyze_and_display_match
-        scanner = CricketScanner()
-        
-        with st.spinner("🔍 Scanning live cricket matches..."):
-            matches = scanner.get_live_matches()
-        
-        if matches:
-            st.success(f"✅ Found {len(matches)} live match(es)!")
-            for match in matches:
-                analyze_and_display_match(match, scanner)
-        else:
-            st.info("ℹ️ No live cricket matches at the moment")
-            st.caption("IPL Season: April-May | Check during international matches")
-            st.warning("⚠️ Cricket scanner requires API key")
-    except Exception as e:
-        st.error(f"Error loading Cricket Scanner: {e}")
-        st.info("Make sure cricket_scanner.py is in scanners/ folder")
+# ============================================
+# 🏀 BASKETBALL
+# ============================================
+st.markdown("### 🏀 BASKETBALL")
 
-# ULTRA Scanner Tab
-with new_tabs[3]:
-    st.header("🔥 ULTRA SCANNER")
-    st.markdown("### Best Opportunities from ALL Sports")
+try:
+    from basketball_scanner import BasketballScanner
+    scanner = BasketballScanner()
+    games = scanner.scan_live_games("All")
     
-    try:
-        from ultra_scanner import MultiSportRanker
-        ranker = MultiSportRanker()
+    if games:
+        st.success(f"✅ {len(games)} live games")
         
-        with st.spinner("🔍 Scanning ALL sports..."):
-            # Basketball
-            try:
-                from basketball_scanner import BasketballScanner
-                bball = BasketballScanner()
-                for game in bball.scan_live_games("All"):
-                    for opp in [bball.analyze_quarter_winner(game), bball.analyze_total_points(game)]:
-                        if opp: ranker.add_opportunity("Basketball", opp)
-            except: pass
+        for game in games:
+            quarter_opp = scanner.analyze_quarter_winner(game)
+            total_opp = scanner.analyze_total_points(game)
             
-            # Tennis  
-            try:
-                from tennis_scanner import TennisScanner
-                tennis = TennisScanner()
-                for match in tennis.get_live_matches():
-                    for opp in [tennis.analyze_next_game(match), tennis.analyze_set_winner(match)]:
-                        if opp: ranker.add_opportunity("Tennis", opp)
-            except: pass
-            
-            # Cricket
-            try:
-                from cricket_scanner import CricketScanner
-                cricket = CricketScanner()
-                for match in cricket.get_live_matches():
-                    for opp in [cricket.analyze_current_over(match), cricket.analyze_total_runs(match)]:
-                        if opp: ranker.add_opportunity("Cricket", opp)
-            except: pass
-        
-        stats = ranker.get_stats()
-        
-        if stats['total'] > 0:
-            st.success(f"✅ Found {stats['total']} opportunities across all sports!")
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Opps", stats['total'])
-            col2.metric("Avg Edge", f"{stats['avg_edge']}%")
-            col3.metric("Avg ROI", f"{stats['avg_roi']}%")
-            
-            st.markdown("### 📊 By Sport:")
-            for sport, count in stats['by_sport'].items():
-                st.write(f"{ranker._get_sport_emoji(sport)} **{sport}:** {count} opportunities")
-            
-            st.markdown("---")
-            st.markdown("### 🏆 Top 10 Opportunities")
-            
-            for i, opp in enumerate(ranker.get_top_opportunities(10), 1):
-                col1, col2, col3 = st.columns([0.5, 2, 2])
-                col1.markdown(f"**#{i}**")
-                col2.markdown(f"{opp['sport_emoji']} **{opp['sport']}**")
-                col3.markdown(f"Edge: +{opp['edge']}% | ROI: +{opp['roi']}%")
+            with st.container():
+                col1, col2, col3 = st.columns([2, 1, 1])
                 
-                with st.expander("📊 Details"):
-                    st.markdown(f"**Confidence:** {opp['confidence']}%")
-                    st.markdown(f"**Score:** {opp['score']}")
-                    st.markdown("**Analysis:**")
-                    for reason in opp.get('reasoning', []):
-                        st.markdown(f"- {reason}")
+                with col1:
+                    st.markdown(f"**{game['home_team']} vs {game['away_team']}**")
+                    st.caption(f"Q{game['period']} • {game['home_score']}-{game['away_score']}")
+                
+                with col2:
+                    if quarter_opp:
+                        st.metric("Edge", f"+{quarter_opp['edge']}%", delta=None)
+                
+                with col3:
+                    if quarter_opp:
+                        st.metric("ROI", f"+{quarter_opp['roi']}%", delta=None)
+                
+                if quarter_opp:
+                    strength = "🔥🔥" if quarter_opp['confidence'] >= 85 else "🔥" if quarter_opp['confidence'] >= 80 else "✅"
+                    st.markdown(f"{strength} **{quarter_opp['market']}** @ {quarter_opp['odds']} • Conf: {quarter_opp['confidence']}%")
+                    all_opportunities.append({**quarter_opp, 'sport': '🏀 Basketball', 'game': f"{game['home_team']} vs {game['away_team']}"})
+                
+                if total_opp:
+                    strength = "🔥🔥" if total_opp['confidence'] >= 85 else "🔥" if total_opp['confidence'] >= 80 else "✅"
+                    st.markdown(f"{strength} **{total_opp['market']}** @ {total_opp['odds']} • Conf: {total_opp['confidence']}%")
+                    all_opportunities.append({**total_opp, 'sport': '🏀 Basketball', 'game': f"{game['home_team']} vs {game['away_team']}"})
                 
                 st.markdown("---")
-        else:
-            st.info("ℹ️ No opportunities at the moment")
-            st.caption("Check back when there are live games")
-    except Exception as e:
-        st.error(f"Error loading ULTRA Scanner: {e}")
-        st.info("Make sure ultra_scanner.py is in scanners/ folder")
+    else:
+        st.info("No live games • NBA: 19:00-02:00 EST | Euroleague: 18:00-21:00 CET")
 
+except Exception as e:
+    st.error(f"Basketball Scanner: {str(e)[:100]}")
+
+st.markdown("")
+
+# ============================================
+# 🎾 TENNIS
+# ============================================
+st.markdown("### 🎾 TENNIS")
+
+try:
+    from tennis_scanner import TennisScanner
+    scanner = TennisScanner()
+    matches = scanner.get_live_matches()
+    
+    if matches:
+        st.success(f"✅ {len(matches)} live matches")
+        
+        for match in matches:
+            next_game = scanner.analyze_next_game(match)
+            set_winner = scanner.analyze_set_winner(match)
+            
+            with st.container():
+                col1, col2, col3 = st.columns([2, 1, 1])
+                
+                with col1:
+                    st.markdown(f"**{match['player1']} vs {match['player2']}**")
+                    st.caption(f"{match.get('tournament', 'ATP/WTA')} • {match['player1_score']}-{match['player2_score']}")
+                
+                with col2:
+                    if next_game:
+                        st.metric("Edge", f"+{next_game['edge']}%", delta=None)
+                
+                with col3:
+                    if next_game:
+                        st.metric("ROI", f"+{next_game['roi']}%", delta=None)
+                
+                if next_game:
+                    strength = "🔥🔥" if next_game['confidence'] >= 85 else "🔥" if next_game['confidence'] >= 80 else "✅"
+                    st.markdown(f"{strength} **{next_game['market']}** @ {next_game['odds']} • Conf: {next_game['confidence']}%")
+                    all_opportunities.append({**next_game, 'sport': '🎾 Tennis', 'game': f"{match['player1']} vs {match['player2']}"})
+                
+                if set_winner:
+                    strength = "🔥🔥" if set_winner['confidence'] >= 85 else "🔥" if set_winner['confidence'] >= 80 else "✅"
+                    st.markdown(f"{strength} **{set_winner['market']}** @ {set_winner['odds']} • Conf: {set_winner['confidence']}%")
+                    all_opportunities.append({**set_winner, 'sport': '🎾 Tennis', 'game': f"{match['player1']} vs {match['player2']}"})
+                
+                st.markdown("---")
+    else:
+        st.info("No live matches • Check during Grand Slams or ATP/WTA tournaments")
+
+except Exception as e:
+    st.error(f"Tennis Scanner: {str(e)[:100]}")
+
+st.markdown("")
+
+# ============================================
+# 🏏 CRICKET
+# ============================================
+st.markdown("### 🏏 CRICKET")
+
+try:
+    from cricket_scanner import CricketScanner
+    scanner = CricketScanner()
+    matches = scanner.get_live_matches()
+    
+    if matches:
+        st.success(f"✅ {len(matches)} live matches")
+        
+        for match in matches:
+            over_opp = scanner.analyze_current_over(match)
+            total_opp = scanner.analyze_total_runs(match)
+            
+            with st.container():
+                col1, col2, col3 = st.columns([2, 1, 1])
+                
+                with col1:
+                    st.markdown(f"**{match['team1']} vs {match['team2']}**")
+                    score = f"{match.get('team1_score', 0)}/{match.get('team1_wickets', 0)}"
+                    overs = match.get('team1_overs', 0)
+                    st.caption(f"{match.get('format', 'T20')} • {score} ({overs} ov)")
+                
+                with col2:
+                    if over_opp:
+                        st.metric("Edge", f"+{over_opp['edge']}%", delta=None)
+                
+                with col3:
+                    if over_opp:
+                        st.metric("ROI", f"+{over_opp['roi']}%", delta=None)
+                
+                if over_opp:
+                    strength = "🔥🔥" if over_opp['confidence'] >= 85 else "🔥" if over_opp['confidence'] >= 80 else "✅"
+                    st.markdown(f"{strength} **{over_opp['market']}** @ {over_opp['odds']} • Conf: {over_opp['confidence']}%")
+                    all_opportunities.append({**over_opp, 'sport': '🏏 Cricket', 'game': f"{match['team1']} vs {match['team2']}"})
+                
+                if total_opp:
+                    strength = "🔥🔥" if total_opp['confidence'] >= 85 else "🔥" if total_opp['confidence'] >= 80 else "✅"
+                    st.markdown(f"{strength} **{total_opp['market']}** @ {total_opp['odds']} • Conf: {total_opp['confidence']}%")
+                    all_opportunities.append({**total_opp, 'sport': '🏏 Cricket', 'game': f"{match['team1']} vs {match['team2']}"})
+                
+                st.markdown("---")
+    else:
+        st.info("No live matches • IPL Season: April-May")
+
+except Exception as e:
+    st.error(f"Cricket Scanner: {str(e)[:100]}")
+
+# ============================================
+# 🔥 TOP OPPORTUNITIES
+# ============================================
+
+if all_opportunities:
+    st.markdown("")
+    st.markdown("---")
+    st.markdown("## 🔥 TOP OPPORTUNITIES")
+    st.caption(f"Ranked by composite score • {len(all_opportunities)} total opportunities")
+    
+    # Calculate scores
+    for opp in all_opportunities:
+        opp['score'] = (opp['edge'] * 0.4) + (opp['roi'] * 0.3) + (opp['confidence'] / 100 * 30 * 0.3)
+    
+    all_opportunities.sort(key=lambda x: x['score'], reverse=True)
+    
+    # Show top 10
+    for i, opp in enumerate(all_opportunities[:10], 1):
+        col1, col2, col3, col4 = st.columns([0.3, 1.5, 2, 1])
+        
+        with col1:
+            st.markdown(f"**#{i}**")
+        
+        with col2:
+            st.markdown(f"**{opp['sport']}**")
+            st.caption(opp.get('game', ''))
+        
+        with col3:
+            market = opp.get('market', '')
+            team = opp.get('team', '')
+            player = opp.get('player', '')
+            bet = f"{team} {market}" if team else f"{player} {market}" if player else market
+            st.markdown(f"**{bet}**")
+            st.caption(f"@ {opp.get('odds', 'N/A')}")
+        
+        with col4:
+            st.metric("Score", f"{opp['score']:.1f}")
+            stars = "⭐⭐⭐⭐⭐" if opp['score'] >= 14 else "⭐⭐⭐⭐" if opp['score'] >= 12 else "⭐⭐⭐"
+            st.caption(stars)
+        
+        with st.expander("📊 Details", expanded=False):
+            col_a, col_b, col_c = st.columns(3)
+            col_a.metric("Edge", f"+{opp['edge']}%")
+            col_b.metric("ROI", f"+{opp['roi']}%")
+            col_c.metric("Confidence", f"{opp['confidence']}%")
+            
+            st.caption("**Key Points:**")
+            for reason in opp.get('reasoning', [])[:3]:
+                st.caption(f"• {reason}")
+        
+        st.markdown("---")
+else:
+    st.info("ℹ️ No opportunities at the moment • Check back during live games")
+
+
+# Footer
+st.markdown("---")
+st.markdown("""
+    <div style='text-align: center; color: gray; padding: 2rem 0;'>
+        <p><strong>⚽ BTTS Pro Analyzer v2.0 + Multi-Sport Scanner</strong></p>
+        <p>Powered by Machine Learning & Advanced Analytics</p>
+        <p>🏀 Basketball • 🎾 Tennis • 🏏 Cricket • 🔥 Live Dashboard</p>
+        <p><small>⚠️ For informational purposes only. Gambling involves risk.</small></p>
+    </div>
+""", unsafe_allow_html=True)
