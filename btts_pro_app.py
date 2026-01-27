@@ -1078,9 +1078,20 @@ with tab6:
                     api_match = match.get('_api_data', match)
                     analysis = ultra_scanner.analyze_live_match_ultra(api_match)
                     
+                    # DEBUG: Show what analysis returns
+                    if analysis:
+                        print(f"DEBUG {match.get('home_team')} vs {match.get('away_team')}: BTTS={analysis.get('btts_prob', 'N/A')}%")
+                    else:
+                        print(f"DEBUG {match.get('home_team')} vs {match.get('away_team')}: analysis=None")
+                        st.warning(f"⚠️ DEBUG: {match.get('home_team')} vs {match.get('away_team')} → Analyse fehlgeschlagen (None)")
+                    
                     if analysis:
                         # 🔥 MULTI-MARKET FILTER: Show if ANY market is strong!
                         show_match = False
+                        
+                        # DEBUG: Show actual BTTS prob vs threshold
+                        btts_val = analysis.get('btts_prob', 0)
+                        st.caption(f"🔍 DEBUG: {match.get('home_team')} vs {match.get('away_team')} → BTTS: {btts_val}% (threshold: {min_btts_ultra}%)")
                         
                         # Check BTTS
                         if analysis['btts_prob'] >= min_btts_ultra:
