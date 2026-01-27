@@ -1516,7 +1516,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================
-# 🎯 COMPACT MULTI-SPORT DASHBOARD
+# 🎯 MULTI-SPORT LIVE SCANNER DASHBOARD
+# Basketball, Tennis, Cricket, E-Sports
 # ============================================================
 
 import sys
@@ -1526,17 +1527,15 @@ sys.path.insert(0, str(Path(__file__).parent / 'scanners'))
 st.markdown("---")
 st.markdown("---")
 st.markdown("## 🎯 LIVE SCANNER DASHBOARD")
-st.caption("Real-time opportunities across all sports • Compact & Clear")
+st.caption("Real-time opportunities • Basketball • Tennis • Cricket • E-Sports")
 
-# Refresh button
 col_ref1, col_ref2 = st.columns([3, 1])
 with col_ref2:
-    if st.button("🔄 Refresh Live Data", use_container_width=True, key="refresh_dashboard"):
+    if st.button("🔄 Refresh Live", use_container_width=True, key="refresh_dash"):
         st.rerun()
 
 st.markdown("---")
 
-# Collect all opportunities
 all_opportunities = []
 
 # ============================================
@@ -1551,25 +1550,19 @@ try:
     
     if games:
         st.success(f"✅ {len(games)} live games")
-        
         for game in games:
             quarter_opp = scanner.analyze_quarter_winner(game)
             total_opp = scanner.analyze_total_points(game)
             
             with st.container():
                 col1, col2, col3 = st.columns([2, 1, 1])
-                
                 with col1:
                     st.markdown(f"**{game['home_team']} vs {game['away_team']}**")
                     st.caption(f"Q{game['period']} • {game['home_score']}-{game['away_score']}")
-                
                 with col2:
-                    if quarter_opp:
-                        st.metric("Edge", f"+{quarter_opp['edge']}%", delta=None)
-                
+                    if quarter_opp: st.metric("Edge", f"+{quarter_opp['edge']}%")
                 with col3:
-                    if quarter_opp:
-                        st.metric("ROI", f"+{quarter_opp['roi']}%", delta=None)
+                    if quarter_opp: st.metric("ROI", f"+{quarter_opp['roi']}%")
                 
                 if quarter_opp:
                     strength = "🔥🔥" if quarter_opp['confidence'] >= 85 else "🔥" if quarter_opp['confidence'] >= 80 else "✅"
@@ -1584,9 +1577,8 @@ try:
                 st.markdown("---")
     else:
         st.info("No live games • NBA: 19:00-02:00 EST | Euroleague: 18:00-21:00 CET")
-
 except Exception as e:
-    st.error(f"Basketball Scanner: {str(e)[:100]}")
+    st.error(f"Basketball: {str(e)[:100]}")
 
 st.markdown("")
 
@@ -1602,25 +1594,19 @@ try:
     
     if matches:
         st.success(f"✅ {len(matches)} live matches")
-        
         for match in matches:
             next_game = scanner.analyze_next_game(match)
             set_winner = scanner.analyze_set_winner(match)
             
             with st.container():
                 col1, col2, col3 = st.columns([2, 1, 1])
-                
                 with col1:
                     st.markdown(f"**{match['player1']} vs {match['player2']}**")
                     st.caption(f"{match.get('tournament', 'ATP/WTA')} • {match['player1_score']}-{match['player2_score']}")
-                
                 with col2:
-                    if next_game:
-                        st.metric("Edge", f"+{next_game['edge']}%", delta=None)
-                
+                    if next_game: st.metric("Edge", f"+{next_game['edge']}%")
                 with col3:
-                    if next_game:
-                        st.metric("ROI", f"+{next_game['roi']}%", delta=None)
+                    if next_game: st.metric("ROI", f"+{next_game['roi']}%")
                 
                 if next_game:
                     strength = "🔥🔥" if next_game['confidence'] >= 85 else "🔥" if next_game['confidence'] >= 80 else "✅"
@@ -1635,9 +1621,8 @@ try:
                 st.markdown("---")
     else:
         st.info("No live matches • Check during Grand Slams or ATP/WTA tournaments")
-
 except Exception as e:
-    st.error(f"Tennis Scanner: {str(e)[:100]}")
+    st.error(f"Tennis: {str(e)[:100]}")
 
 st.markdown("")
 
@@ -1653,27 +1638,21 @@ try:
     
     if matches:
         st.success(f"✅ {len(matches)} live matches")
-        
         for match in matches:
             over_opp = scanner.analyze_current_over(match)
             total_opp = scanner.analyze_total_runs(match)
             
             with st.container():
                 col1, col2, col3 = st.columns([2, 1, 1])
-                
                 with col1:
                     st.markdown(f"**{match['team1']} vs {match['team2']}**")
                     score = f"{match.get('team1_score', 0)}/{match.get('team1_wickets', 0)}"
                     overs = match.get('team1_overs', 0)
                     st.caption(f"{match.get('format', 'T20')} • {score} ({overs} ov)")
-                
                 with col2:
-                    if over_opp:
-                        st.metric("Edge", f"+{over_opp['edge']}%", delta=None)
-                
+                    if over_opp: st.metric("Edge", f"+{over_opp['edge']}%")
                 with col3:
-                    if over_opp:
-                        st.metric("ROI", f"+{over_opp['roi']}%", delta=None)
+                    if over_opp: st.metric("ROI", f"+{over_opp['roi']}%")
                 
                 if over_opp:
                     strength = "🔥🔥" if over_opp['confidence'] >= 85 else "🔥" if over_opp['confidence'] >= 80 else "✅"
@@ -1688,9 +1667,66 @@ try:
                 st.markdown("---")
     else:
         st.info("No live matches • IPL Season: April-May")
+except Exception as e:
+    st.error(f"Cricket: {str(e)[:100]}")
+
+st.markdown("")
+
+# ============================================
+# 🎮 E-SPORTS
+# ============================================
+st.markdown("### 🎮 E-SPORTS")
+
+try:
+    from esports_scanner import EsportsScanner
+    
+    game_filter = st.radio(
+        "Game:",
+        ["All", "CS2", "LoL", "Dota2", "Valorant"],
+        horizontal=True,
+        key="esports_filter"
+    )
+    
+    scanner = EsportsScanner()
+    
+    if not scanner.api_key:
+        st.warning("⚠️ Pandascore API key needed")
+        st.caption("Get free key at https://pandascore.co • 1000 calls/month free!")
+        st.caption("Add to Streamlit Secrets: [esports] pandascore_key = 'YOUR_KEY'")
+    else:
+        with st.spinner(f"🔍 Scanning {game_filter}..."):
+            matches = scanner.get_live_matches(game_filter.lower())
+        
+        if matches:
+            st.success(f"✅ {len(matches)} live {game_filter} matches")
+            
+            for match in matches:
+                opportunity = scanner.analyze_match(match)
+                
+                with st.container():
+                    col1, col2, col3 = st.columns([2, 1, 1])
+                    with col1:
+                        st.markdown(f"**{match['team1']} vs {match['team2']}**")
+                        st.caption(f"{match['game']} • {match.get('tournament', '')} • {match['team1_score']}-{match['team2_score']}")
+                    with col2:
+                        if opportunity: st.metric("Edge", f"+{opportunity['edge']}%")
+                    with col3:
+                        if opportunity: st.metric("ROI", f"+{opportunity['roi']}%")
+                    
+                    if opportunity:
+                        strength = "🔥🔥" if opportunity['confidence'] >= 85 else "🔥" if opportunity['confidence'] >= 80 else "✅"
+                        team = opportunity.get('team', '')
+                        market = opportunity.get('market', '')
+                        st.markdown(f"{strength} **{team} {market}** @ {opportunity['odds']} • Conf: {opportunity['confidence']}%")
+                        all_opportunities.append({**opportunity, 'sport': f"🎮 {match['game']}", 'game': f"{match['team1']} vs {match['team2']}"})
+                    
+                    st.markdown("---")
+        else:
+            st.info("No live matches • E-Sports runs 24/7!")
+            st.caption("🌏 Asia: 02:00-12:00 | 🌍 EU: 14:00-23:00 | 🌎 NA: 20:00-06:00 CET")
 
 except Exception as e:
-    st.error(f"Cricket Scanner: {str(e)[:100]}")
+    st.error(f"E-Sports: {str(e)[:100]}")
 
 # ============================================
 # 🔥 TOP OPPORTUNITIES
@@ -1700,25 +1736,21 @@ if all_opportunities:
     st.markdown("")
     st.markdown("---")
     st.markdown("## 🔥 TOP OPPORTUNITIES")
-    st.caption(f"Ranked by composite score • {len(all_opportunities)} total opportunities")
+    st.caption(f"Ranked by composite score • {len(all_opportunities)} total")
     
-    # Calculate scores
     for opp in all_opportunities:
         opp['score'] = (opp['edge'] * 0.4) + (opp['roi'] * 0.3) + (opp['confidence'] / 100 * 30 * 0.3)
     
     all_opportunities.sort(key=lambda x: x['score'], reverse=True)
     
-    # Show top 10
     for i, opp in enumerate(all_opportunities[:10], 1):
         col1, col2, col3, col4 = st.columns([0.3, 1.5, 2, 1])
         
         with col1:
             st.markdown(f"**#{i}**")
-        
         with col2:
             st.markdown(f"**{opp['sport']}**")
             st.caption(opp.get('game', ''))
-        
         with col3:
             market = opp.get('market', '')
             team = opp.get('team', '')
@@ -1726,7 +1758,6 @@ if all_opportunities:
             bet = f"{team} {market}" if team else f"{player} {market}" if player else market
             st.markdown(f"**{bet}**")
             st.caption(f"@ {opp.get('odds', 'N/A')}")
-        
         with col4:
             st.metric("Score", f"{opp['score']:.1f}")
             stars = "⭐⭐⭐⭐⭐" if opp['score'] >= 14 else "⭐⭐⭐⭐" if opp['score'] >= 12 else "⭐⭐⭐"
@@ -1753,7 +1784,7 @@ st.markdown("""
     <div style='text-align: center; color: gray; padding: 2rem 0;'>
         <p><strong>⚽ BTTS Pro Analyzer v2.0 + Multi-Sport Scanner</strong></p>
         <p>Powered by Machine Learning & Advanced Analytics</p>
-        <p>🏀 Basketball • 🎾 Tennis • 🏏 Cricket • 🔥 Live Dashboard</p>
+        <p>🏀 Basketball • 🎾 Tennis • 🏏 Cricket • 🎮 E-Sports • 🔥 Live Dashboard</p>
         <p><small>⚠️ For informational purposes only. Gambling involves risk.</small></p>
     </div>
 """, unsafe_allow_html=True)
