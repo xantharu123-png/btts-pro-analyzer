@@ -1021,7 +1021,23 @@ with tab6:
                             print(f"   Found: {home} vs {away} ({league_name}, ID: {league_id})")
                             
                             if league_id in league_ids:
-                                live_matches.append(match)
+                                # Transform to expected format for display
+                                transformed_match = {
+                                    'home_team': home,
+                                    'away_team': away,
+                                    'league_name': league_name,
+                                    'league_id': league_id,
+                                    'minute': match.get('fixture', {}).get('status', {}).get('elapsed', 0) or 0,
+                                    'home_score': match.get('goals', {}).get('home', 0) or 0,
+                                    'away_score': match.get('goals', {}).get('away', 0) or 0,
+                                    'status': match.get('fixture', {}).get('status', {}).get('long', 'Live'),
+                                    'fixture_id': match.get('fixture', {}).get('id'),
+                                    'home_id': match.get('teams', {}).get('home', {}).get('id'),
+                                    'away_id': match.get('teams', {}).get('away', {}).get('id'),
+                                    # Keep original API response for ultra analyzer
+                                    '_api_data': match
+                                }
+                                live_matches.append(transformed_match)
                                 print(f"      ✅ INCLUDED!")
                             else:
                                 print(f"      ⏭️ Skipped (league not in our 28)")
@@ -1058,7 +1074,9 @@ with tab6:
                 for idx, match in enumerate(live_matches):
                     status_text.text(f"Ultra analyzing match {idx+1}/{len(live_matches)}...")
                     
-                    analysis = ultra_scanner.analyze_live_match_ultra(match)
+                    # Pass original API format to analyzer (it expects API structure)
+                    api_match = match.get('_api_data', match)
+                    analysis = ultra_scanner.analyze_live_match_ultra(api_match)
                     
                     if analysis:
                         # 🔥 MULTI-MARKET FILTER: Show if ANY market is strong!
