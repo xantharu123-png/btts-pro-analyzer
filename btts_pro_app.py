@@ -353,7 +353,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # Main content tabs
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "🔥 Top Tips", 
     "📊 All Recommendations", 
     "🔬 Deep Analysis",
@@ -361,7 +361,8 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "💎 Value Bets",
     "🔥 ULTRA LIVE SCANNER V3.0",
     "📊 ALTERNATIVE MARKETS",
-    "🔴 RED CARD ALERTS"
+    "🔴 RED CARD ALERTS",
+    "🎯 MULTI-SPORT SCANNER"
 ])
 
 # TAB 1: Top Tips
@@ -1505,25 +1506,16 @@ with tab8:
         - Clean Sheet for 10-man team
         """)
 
-# Add Multi-Sport Tab
-st.markdown("---")
-st.markdown("---")
-
-# Create simple tabs - Football stays as is, Multi-Sport is new
-main_tab1, main_tab2 = st.tabs(["⚽ FOOTBALL (Current Page)", "🎯 MULTI-SPORT SCANNER"])
-
-with main_tab1:
-    st.info("👆 All your Football analysis is above (scroll up)")
-
-with main_tab2:
+# TAB 9: Multi-Sport Scanner
+with tab9:
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent / 'scanners'))
     
-    st.markdown("# 🎯 MULTI-SPORT LIVE SCANNER")
+    st.header("🎯 MULTI-SPORT LIVE SCANNER")
     st.caption("Basketball • Tennis • Cricket • E-Sports")
     
-    if st.button("🔄 Refresh", key="ref_multi"):
+    if st.button("🔄 Refresh", key="ref_ms", use_container_width=True):
         st.rerun()
     
     st.markdown("---")
@@ -1538,7 +1530,7 @@ with main_tab2:
         games = bball.scan_live_games("All")
         
         if games:
-            st.success(f"✅ {len(games)} live")
+            st.success(f"✅ {len(games)} live games")
             for g in games:
                 qo = bball.analyze_quarter_winner(g)
                 to = bball.analyze_total_points(g)
@@ -1560,7 +1552,7 @@ with main_tab2:
                     all_opps.append({**to, 'sport': '🏀', 'game': f"{g['home_team']} vs {g['away_team']}"})
                 st.markdown("---")
         else:
-            st.info("No live")
+            st.info("No live games")
     except Exception as e:
         st.error(f"Basketball: {str(e)[:60]}")
     
@@ -1572,7 +1564,7 @@ with main_tab2:
         matches = ten.get_live_matches()
         
         if matches:
-            st.success(f"✅ {len(matches)} live")
+            st.success(f"✅ {len(matches)} live matches")
             for m in matches:
                 ng = ten.analyze_next_game(m)
                 sw = ten.analyze_set_winner(m)
@@ -1594,7 +1586,7 @@ with main_tab2:
                     all_opps.append({**sw, 'sport': '🎾', 'game': f"{m['player1']} vs {m['player2']}"})
                 st.markdown("---")
         else:
-            st.info("No live")
+            st.info("No live matches")
     except Exception as e:
         st.error(f"Tennis: {str(e)[:60]}")
     
@@ -1606,7 +1598,7 @@ with main_tab2:
         matches = cri.get_live_matches()
         
         if matches:
-            st.success(f"✅ {len(matches)} live")
+            st.success(f"✅ {len(matches)} live matches")
             for m in matches:
                 ov = cri.analyze_current_over(m)
                 
@@ -1624,7 +1616,7 @@ with main_tab2:
                     all_opps.append({**ov, 'sport': '🏏', 'game': f"{m['team1']} vs {m['team2']}"})
                 st.markdown("---")
         else:
-            st.info("No live")
+            st.info("No live matches")
     except Exception as e:
         st.error(f"Cricket: {str(e)[:60]}")
     
@@ -1642,7 +1634,7 @@ with main_tab2:
             matches = esp.get_live_matches(game_sel.lower())
             
             if matches:
-                st.success(f"✅ {len(matches)} live")
+                st.success(f"✅ {len(matches)} live matches")
                 for m in matches:
                     opp = esp.analyze_match(m)
                     
@@ -1660,14 +1652,14 @@ with main_tab2:
                         all_opps.append({**opp, 'sport': f"🎮 {m['game']}", 'game': f"{m['team1']} vs {m['team2']}"})
                     st.markdown("---")
             else:
-                st.info("No live")
+                st.info("No live matches")
     except Exception as e:
         st.error(f"E-Sports: {str(e)[:60]}")
     
     # Top 10
     if all_opps:
         st.markdown("---")
-        st.markdown("## 🔥 TOP 10")
+        st.markdown("## 🔥 TOP 10 OPPORTUNITIES")
         
         for o in all_opps:
             o['score'] = (o['edge'] * 0.4) + (o['roi'] * 0.3) + (o['confidence'] / 100 * 30 * 0.3)
