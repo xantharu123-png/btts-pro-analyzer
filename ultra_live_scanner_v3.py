@@ -210,6 +210,7 @@ class UltraLiveScanner:
                 'home_team_id': home_team_id,
                 'away_team_id': away_team_id,
                 'league_id': league_id,
+                'league': league.get('name', 'Unknown'),  # FIX: Add league name
                 'minute': minute,
                 'score': score,
                 'home_score': home_score,
@@ -602,7 +603,8 @@ def display_ultra_opportunity(match: Dict):
     """Display für Streamlit"""
     import streamlit as st
     
-    phase = match.get('breakdown', {}).get('game_phase', 'UNKNOWN')
+    # FIX: Use correct phase key
+    phase = match.get('phase', match.get('breakdown', {}).get('game_phase', 'UNKNOWN'))
     
     st.markdown(f"### 🔴 LIVE - {match['minute']}' | {phase}")
     st.markdown(f"**{match['home_team']} vs {match['away_team']}**")
@@ -611,15 +613,17 @@ def display_ultra_opportunity(match: Dict):
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        btts = match['btts_prob']
-        btts_confidence = match.get('btts_confidence', '')
+        # FIX: Use correct nested structure
+        btts_data = match.get('btts', {})
+        btts = btts_data.get('probability', 50)
+        btts_confidence = btts_data.get('confidence', '')
         
         # Check ob BTTS bereits eingetreten ist
         if btts_confidence == 'COMPLETE':
             st.metric("BTTS", "✅ HIT", delta="Bereits eingetreten")
         else:
             delta = "🔥" if btts >= 70 else ("✅" if btts >= 50 else "⚠️")
-            st.metric("BTTS", f"{btts}%", delta=delta)
+            st.metric("BTTS", f"{btts:.0f}%", delta=delta)
     
     with col2:
         ou = match.get('over_under', {})
@@ -638,19 +642,20 @@ def display_ultra_opportunity(match: Dict):
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        rec = match['btts_recommendation']
-        if 'COMPLETE' in rec:
+        # FIX: Use correct nested structure
+        rec = btts_data.get('recommendation', 'N/A')
+        if 'COMPLETE' in str(rec):
             st.info(f"⚽ {rec}")
-        elif '🔥' in rec:
+        elif '🔥' in str(rec):
             st.success(f"⚽ {rec}")
         else:
             st.info(f"⚽ {rec}")
     with col2:
         ou_rec = ou.get('recommendation', 'N/A')
-        (st.success if '🔥' in ou_rec else st.info)(f"🎲 {ou_rec}")
+        (st.success if '🔥' in str(ou_rec) else st.info)(f"🎲 {ou_rec}")
     with col3:
         ng_rec = ng.get('recommendation', 'N/A')
-        (st.success if '🔥' in ng_rec else st.info)(f"🎯 {ng_rec}")
+        (st.success if '🔥' in str(ng_rec) else st.info)(f"🎯 {ng_rec}")
 
 
 __all__ = ['UltraLiveScanner', 'display_ultra_opportunity']
