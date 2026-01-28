@@ -1076,18 +1076,7 @@ with tab6:
                     
                     # Pass original API format to analyzer (it expects API structure)
                     api_match = match.get('_api_data', match)
-                    
-                    # 🔴 AGGRESSIVE DEBUG - CANNOT BE MISSED
-                    st.error(f"🔴 ANALYZING: {match.get('home_team')} vs {match.get('away_team')}")
-                    
                     analysis = ultra_scanner.analyze_live_match_ultra(api_match)
-                    
-                    # DEBUG: Show what analysis returns
-                    if analysis:
-                        btts_val = analysis.get('btts_prob', 0)
-                        st.success(f"✅ RESULT: BTTS = {btts_val}% (threshold: {min_btts_ultra}%)")
-                    else:
-                        st.error(f"❌ RESULT: analysis = None (FEHLER!)")
                     
                     if analysis:
                         # 🔥 MULTI-MARKET FILTER: Show if ANY market is strong!
@@ -1667,18 +1656,34 @@ with tab9:
                 for m in matches:
                     opp = esp.analyze_match(m)
                     
+                    if not opp:
+                        continue
+                    
+                    # Check if this is real value or estimate
+                    is_estimate = opp.get('is_estimate', True)
+                    has_value = opp.get('has_value', False)
+                    
                     c1, c2, c3 = st.columns([2, 1, 1])
                     with c1:
                         st.markdown(f"**{m['team1']} vs {m['team2']}**")
                         st.caption(f"{m['game']} • {m['team1_score']}-{m['team2_score']}")
                     with c2:
-                        if opp: st.metric("Edge", f"+{opp['edge']}%")
+                        if has_value:
+                            st.metric("Edge", f"+{opp['edge']}%")
+                        else:
+                            st.metric("Edge", "N/A" if is_estimate else f"{opp['edge']:+.1f}%")
                     with c3:
-                        if opp: st.metric("ROI", f"+{opp['roi']}%")
+                        st.metric("Win%", f"{opp['win_probability']}%")
                     
-                    if opp:
-                        st.markdown(f"{'🔥🔥' if opp['confidence'] >= 85 else '🔥'} **{opp.get('team', '')} {opp['market']}** @ {opp['odds']} • {opp['confidence']}%")
+                    # Display based on analysis quality
+                    if has_value:
+                        st.success(f"✅ **{opp['team']} {opp['market']}** @ {opp['odds']} • Edge: +{opp['edge']}%")
                         all_opps.append({**opp, 'sport': f"🎮 {m['game']}", 'game': f"{m['team1']} vs {m['team2']}"})
+                    elif is_estimate:
+                        st.warning(f"⚠️ **{opp['team']}** favored ({opp['win_probability']}%) - No real odds, cannot confirm value")
+                    else:
+                        st.info(f"📊 **{opp['team']}** @ {opp['odds']} - No edge ({opp['edge']:+.1f}%)")
+                    
                     st.markdown("---")
             else:
                 st.info("No live matches")

@@ -1,9 +1,12 @@
 """
-E-SPORTS SCANNER - FIXED VERSION
-Now ACTUALLY generates betting recommendations!
+E-SPORTS SCANNER - PROPER IMPLEMENTATION
+Uses REAL data, proper probability calculations, NO fake odds!
 
-Problem in old version: Analysis returned None too often
-Fix: Lower thresholds + always generate recommendations for live matches
+Key Principles:
+1. Use REAL odds from Pandascore API (when available)
+2. Calculate TRUE edge based on statistical analysis
+3. NO recommendations without proper data
+4. Clear disclaimer when using estimates
 
 Author: BetBoy
 Date: January 2026
@@ -11,15 +14,16 @@ Date: January 2026
 
 import streamlit as st
 import requests
-import json
 from datetime import datetime
 from typing import Dict, List, Optional
-import random
+import math
 
 class EsportsScanner:
     """
-    Real E-Sports Scanner - CS2, LoL, Dota2, Valorant
-    FIXED: Now generates actual betting recommendations
+    Professional E-Sports Scanner
+    - Real Pandascore API integration
+    - Proper statistical analysis
+    - No fake/invented odds
     """
     
     def __init__(self):
@@ -34,41 +38,13 @@ class EsportsScanner:
             'Authorization': f'Bearer {self.api_key}',
             'Accept': 'application/json'
         }
-        
-        # Game-specific analysis parameters
-        self.game_config = {
-            'CS2': {
-                'rounds_total': 24,
-                'overtime_rounds': 6,
-                'economy_threshold': 4000,
-                'momentum_weight': 0.3
-            },
-            'VALORANT': {
-                'rounds_total': 24,
-                'overtime_rounds': 2,
-                'economy_threshold': 3900,
-                'momentum_weight': 0.25
-            },
-            'LOL': {
-                'game_time_avg': 32,
-                'gold_diff_significant': 3000,
-                'objectives': ['dragon', 'baron', 'tower'],
-                'momentum_weight': 0.35
-            },
-            'DOTA2': {
-                'game_time_avg': 40,
-                'gold_diff_significant': 5000,
-                'objectives': ['roshan', 'tower', 'barracks'],
-                'momentum_weight': 0.3
-            }
-        }
     
     def get_live_matches(self, game: str = "all") -> List[Dict]:
         """Get live matches with REAL data from Pandascore"""
         all_matches = []
         
         games_map = {
-            'cs2': 'csgo',  # Pandascore still uses 'csgo'
+            'cs2': 'csgo',
             'lol': 'lol',
             'dota2': 'dota2',
             'valorant': 'valorant'
@@ -96,7 +72,7 @@ class EsportsScanner:
         return all_matches
     
     def _format_match(self, match: Dict, game: str) -> Optional[Dict]:
-        """Format Pandascore match data"""
+        """Format Pandascore match data with ALL available info"""
         try:
             opponents = match.get('opponents', [])
             if len(opponents) < 2:
@@ -109,157 +85,316 @@ class EsportsScanner:
             score1 = results[0].get('score', 0) if len(results) > 0 else 0
             score2 = results[1].get('score', 0) if len(results) > 1 else 0
             
+            # Get team statistics from API
+            team1_stats = self._get_team_stats(team1.get('id'), game)
+            team2_stats = self._get_team_stats(team2.get('id'), game)
+            
             return {
                 'id': match.get('id'),
                 'game': game if game != 'CSGO' else 'CS2',
                 'team1': team1.get('name', 'Team 1'),
                 'team2': team2.get('name', 'Team 2'),
+                'team1_id': team1.get('id'),
+                'team2_id': team2.get('id'),
                 'team1_score': score1,
                 'team2_score': score2,
                 'tournament': match.get('tournament', {}).get('name', 'Unknown'),
+                'league': match.get('league', {}).get('name', 'Unknown'),
                 'series_type': match.get('number_of_games', 1),
                 'status': match.get('status', 'running'),
-                'stream_url': match.get('streams_list', [{}])[0].get('raw_url') if match.get('streams_list') else None
+                'team1_stats': team1_stats,
+                'team2_stats': team2_stats,
+                # Store raw data for detailed analysis
+                '_raw': match
             }
-        except:
+        except Exception as e:
             return None
+    
+    def _get_team_stats(self, team_id: int, game: str) -> Dict:
+        """Get team statistics - win rate, recent form, etc."""
+        if not team_id:
+            return {}
+        
+        try:
+            # Get recent matches for this team
+            game_slug = 'csgo' if game == 'CS2' else game.lower()
+            url = f"{self.pandascore_base}/{game_slug}/matches/past"
+            params = {
+                'filter[opponent_id]': team_id,
+                'sort': '-begin_at',
+                'per_page': 10  # Last 10 matches
+            }
+            
+            response = requests.get(url, headers=self.headers, params=params, timeout=10)
+            
+            if response.status_code == 200:
+                matches = response.json()
+                
+                if not matches:
+                    return {}
+                
+                # Calculate stats
+                wins = 0
+                total = len(matches)
+                
+                for m in matches:
+                    winner = m.get('winner', {})
+                    if winner and winner.get('id') == team_id:
+                        wins += 1
+                
+                win_rate = (wins / total * 100) if total > 0 else 50
+                
+                return {
+                    'win_rate': round(win_rate, 1),
+                    'recent_matches': total,
+                    'recent_wins': wins,
+                    'form': 'Good' if win_rate >= 60 else ('Average' if win_rate >= 40 else 'Poor')
+                }
+        except:
+            pass
+        
+        return {}
+    
+    def get_match_odds(self, match_id: int) -> Optional[Dict]:
+        """
+        Get REAL betting odds from Pandascore
+        Returns None if no odds available
+        """
+        try:
+            url = f"{self.pandascore_base}/betting/matches/{match_id}/odds"
+            response = requests.get(url, headers=self.headers, timeout=10)
+            
+            if response.status_code == 200:
+                odds_data = response.json()
+                
+                if odds_data:
+                    # Parse the odds structure
+                    return self._parse_odds(odds_data)
+        except:
+            pass
+        
+        return None
+    
+    def _parse_odds(self, odds_data: List) -> Dict:
+        """Parse Pandascore odds response"""
+        result = {
+            'team1_odds': None,
+            'team2_odds': None,
+            'bookmakers': []
+        }
+        
+        for odd in odds_data:
+            market = odd.get('market_type', '')
+            
+            if market == 'winner':
+                outcomes = odd.get('outcomes', [])
+                bookmaker = odd.get('bookmaker', {}).get('name', 'Unknown')
+                
+                for outcome in outcomes:
+                    odds_val = outcome.get('odds')
+                    team_id = outcome.get('competitor_id')
+                    
+                    result['bookmakers'].append({
+                        'name': bookmaker,
+                        'team_id': team_id,
+                        'odds': odds_val
+                    })
+        
+        return result if result['bookmakers'] else None
     
     def analyze_match(self, match: Dict) -> Optional[Dict]:
         """
-        FIXED: Now ALWAYS generates a recommendation for live matches
-        Uses score differential, momentum, and game-specific factors
+        PROPER match analysis:
+        1. Try to get real odds
+        2. If no odds: use statistical analysis with disclaimer
+        3. Calculate TRUE edge
+        4. Only recommend if genuine edge exists
         """
         game = match.get('game', '').upper()
         team1 = match.get('team1', 'Team 1')
         team2 = match.get('team2', 'Team 2')
         score1 = match.get('team1_score', 0)
         score2 = match.get('team2_score', 0)
+        match_id = match.get('id')
         
-        # Calculate base probabilities from current score
-        total_score = score1 + score2
+        team1_stats = match.get('team1_stats', {})
+        team2_stats = match.get('team2_stats', {})
         
-        if total_score == 0:
-            # Match just started - slight favorite to higher seed (random for now)
-            base_prob1 = 0.52
-        else:
-            # Leader has advantage
-            if score1 > score2:
-                lead = score1 - score2
-                base_prob1 = 0.5 + (lead * 0.08)  # 8% per map/game lead
-            elif score2 > score1:
-                lead = score2 - score1
-                base_prob1 = 0.5 - (lead * 0.08)
-            else:
-                base_prob1 = 0.50
+        # Try to get REAL odds
+        real_odds = self.get_match_odds(match_id) if match_id else None
         
-        # Cap probabilities
-        base_prob1 = max(0.25, min(0.85, base_prob1))
-        base_prob2 = 1 - base_prob1
+        # Calculate probability based on REAL data
+        prob1, prob2, confidence, reasoning = self._calculate_probability(
+            team1, team2, 
+            score1, score2,
+            team1_stats, team2_stats,
+            game
+        )
         
-        # Determine which team to bet on
-        if base_prob1 > base_prob2:
+        # Determine recommendation
+        if prob1 > prob2:
             recommended_team = team1
-            win_prob = base_prob1
-            opponent = team2
-            team_score = score1
-            opp_score = score2
+            win_prob = prob1
+            opp_prob = prob2
         else:
             recommended_team = team2
-            win_prob = base_prob2
-            opponent = team1
-            team_score = score2
-            opp_score = score1
+            win_prob = prob2
+            opp_prob = prob1
         
-        # Generate realistic odds (with juice)
-        fair_odds = 1 / win_prob
-        market_odds = fair_odds * 0.95  # 5% juice
+        # If we have REAL odds
+        if real_odds and real_odds.get('bookmakers'):
+            # Find best odds for recommended team
+            best_odds = None
+            for bm in real_odds['bookmakers']:
+                # Match team to odds (simplified)
+                odds_val = bm.get('odds')
+                if odds_val and (best_odds is None or odds_val > best_odds):
+                    best_odds = odds_val
+            
+            if best_odds:
+                implied_prob = 1 / best_odds
+                edge = (win_prob / 100) - implied_prob
+                edge_pct = edge * 100
+                
+                has_value = edge_pct > 3  # At least 3% edge required
+                
+                return {
+                    'match_id': match_id,
+                    'game': game,
+                    'team1': team1,
+                    'team2': team2,
+                    'score': f"{score1}-{score2}",
+                    'tournament': match.get('tournament', 'Unknown'),
+                    'market': 'Match Winner',
+                    'team': recommended_team,
+                    'odds': round(best_odds, 2),
+                    'odds_source': 'Real Market',
+                    'win_probability': round(win_prob, 1),
+                    'implied_probability': round(implied_prob * 100, 1),
+                    'edge': round(edge_pct, 1),
+                    'roi': round(edge_pct * 0.8, 1),  # Conservative
+                    'confidence': confidence,
+                    'has_value': has_value,
+                    'reasoning': reasoning,
+                    'is_estimate': False
+                }
         
-        # Calculate edge
-        edge = (win_prob * market_odds - 1) * 100
-        
-        # Confidence based on score clarity
-        if abs(score1 - score2) >= 2:
-            confidence = 75 + (abs(score1 - score2) * 5)
-        elif abs(score1 - score2) == 1:
-            confidence = 65
-        else:
-            confidence = 55
-        
-        confidence = min(90, confidence)
-        
-        # Build reasoning
-        reasoning = []
-        
-        if team_score > opp_score:
-            reasoning.append(f"✅ {recommended_team} leads {team_score}-{opp_score}")
-            reasoning.append(f"📈 Series momentum advantage")
-        elif team_score == opp_score:
-            reasoning.append(f"⚖️ Series tied {team_score}-{opp_score}")
-            reasoning.append(f"📊 Slight edge based on form")
-        else:
-            reasoning.append(f"🔄 Comeback potential at good odds")
-        
-        # Game-specific reasoning
-        if game in ['CS2', 'VALORANT']:
-            reasoning.append(f"🎯 Round-based game favors momentum")
-            bet_type = "Match Winner"
-        elif game == 'LOL':
-            reasoning.append(f"⚔️ Objective control likely dominant")
-            bet_type = "Match Winner"
-        elif game == 'DOTA2':
-            reasoning.append(f"🏆 Late-game scaling factor")
-            bet_type = "Match Winner"
-        else:
-            bet_type = "Match Winner"
-        
-        # Calculate ROI
-        roi = edge * 0.8  # Conservative ROI estimate
+        # NO REAL ODDS - use statistical estimate with clear disclaimer
+        # Convert probability to fair odds
+        fair_odds = round(1 / (win_prob / 100), 2) if win_prob > 0 else 2.0
         
         return {
-            'match_id': match.get('id'),
+            'match_id': match_id,
             'game': game,
             'team1': team1,
             'team2': team2,
             'score': f"{score1}-{score2}",
             'tournament': match.get('tournament', 'Unknown'),
-            'market': bet_type,  # Changed from bet_type to market
-            'team': recommended_team,  # Changed from recommendation to team
-            'recommendation': recommended_team,  # Keep for backwards compatibility
-            'opponent': opponent,
-            'odds': round(market_odds, 2),
-            'win_probability': round(win_prob * 100, 1),
-            'edge': round(edge, 1),
-            'roi': round(roi, 1),
-            'confidence': round(confidence),
-            'stake': self._calculate_stake(confidence, edge),
-            'reasoning': reasoning
+            'market': 'Match Winner',
+            'team': recommended_team,
+            'odds': fair_odds,
+            'odds_source': '⚠️ Statistical Estimate',
+            'win_probability': round(win_prob, 1),
+            'implied_probability': round(win_prob, 1),  # Same as our estimate
+            'edge': 0,  # Cannot calculate real edge without market odds
+            'roi': 0,
+            'confidence': confidence,
+            'has_value': False,  # Cannot confirm value without real odds
+            'reasoning': reasoning,
+            'is_estimate': True
         }
     
-    def _calculate_stake(self, confidence: float, edge: float) -> str:
-        """Calculate recommended stake based on Kelly Criterion (fractional)"""
-        if confidence >= 75 and edge >= 5:
-            return "3-4% bankroll"
-        elif confidence >= 65 and edge >= 3:
-            return "2-3% bankroll"
-        elif confidence >= 55:
-            return "1-2% bankroll"
+    def _calculate_probability(self, team1: str, team2: str, 
+                                score1: int, score2: int,
+                                stats1: Dict, stats2: Dict,
+                                game: str) -> tuple:
+        """
+        Calculate win probability using REAL statistics
+        Returns: (prob1, prob2, confidence, reasoning)
+        """
+        reasoning = []
+        
+        # Base probability from team win rates
+        wr1 = stats1.get('win_rate', 50)
+        wr2 = stats2.get('win_rate', 50)
+        
+        # Normalize win rates to probabilities
+        total_wr = wr1 + wr2
+        if total_wr > 0:
+            base_prob1 = (wr1 / total_wr) * 100
+            base_prob2 = (wr2 / total_wr) * 100
         else:
-            return "0.5-1% bankroll"
+            base_prob1 = 50
+            base_prob2 = 50
+        
+        reasoning.append(f"📊 {team1} win rate: {wr1}% | {team2} win rate: {wr2}%")
+        
+        # Adjust for current series score
+        score_diff = score1 - score2
+        if score_diff != 0:
+            # Each map/game lead adds probability
+            adjustment = score_diff * 8  # 8% per map lead
+            base_prob1 += adjustment
+            base_prob2 -= adjustment
+            
+            if score_diff > 0:
+                reasoning.append(f"📈 {team1} leads {score1}-{score2}")
+            else:
+                reasoning.append(f"📈 {team2} leads {score2}-{score1}")
+        else:
+            reasoning.append(f"⚖️ Series tied {score1}-{score2}")
+        
+        # Calculate confidence based on data quality
+        confidence = 50  # Base confidence
+        
+        if stats1.get('recent_matches', 0) >= 5:
+            confidence += 10
+            reasoning.append(f"✅ {team1}: {stats1.get('recent_matches')} recent matches analyzed")
+        else:
+            reasoning.append(f"⚠️ {team1}: Limited data ({stats1.get('recent_matches', 0)} matches)")
+        
+        if stats2.get('recent_matches', 0) >= 5:
+            confidence += 10
+        else:
+            reasoning.append(f"⚠️ {team2}: Limited data ({stats2.get('recent_matches', 0)} matches)")
+        
+        # Form bonus
+        if stats1.get('form') == 'Good':
+            base_prob1 += 5
+            confidence += 5
+            reasoning.append(f"🔥 {team1} in good form")
+        if stats2.get('form') == 'Good':
+            base_prob2 += 5
+            confidence += 5
+            reasoning.append(f"🔥 {team2} in good form")
+        
+        # Cap probabilities
+        base_prob1 = max(10, min(90, base_prob1))
+        base_prob2 = max(10, min(90, base_prob2))
+        
+        # Normalize to 100%
+        total = base_prob1 + base_prob2
+        prob1 = (base_prob1 / total) * 100
+        prob2 = (base_prob2 / total) * 100
+        
+        # Cap confidence
+        confidence = min(85, confidence)
+        
+        return prob1, prob2, confidence, reasoning
 
 
 def create_esports_tab():
-    """
-    E-Sports Tab - FIXED VERSION
-    Now shows actual betting recommendations!
-    """
+    """E-Sports Tab with proper analysis"""
     st.header("🎮 E-SPORTS LIVE SCANNER")
     st.markdown("**CS2 • League of Legends • Dota 2 • Valorant**")
     
-    # Game filter
+    # Important disclaimer
+    st.info("📊 **Analysis based on team statistics and real market data when available**")
+    
     col1, col2 = st.columns([3, 1])
     with col1:
         game_filter = st.radio(
-            "Filter by Game:",
+            "Filter:",
             ["All", "CS2", "LoL", "Dota2", "Valorant"],
             horizontal=True,
             key="esports_game_filter"
@@ -269,126 +404,85 @@ def create_esports_tab():
         if st.button("🔄 Refresh", key="esports_refresh"):
             st.rerun()
     
-    game_map = {
-        "All": "all",
-        "CS2": "cs2",
-        "LoL": "lol",
-        "Dota2": "dota2",
-        "Valorant": "valorant"
-    }
-    
-    selected_game = game_map[game_filter]
-    
     scanner = EsportsScanner()
     
-    # Check API key
     if not scanner.api_key:
-        st.error("⚠️ **Pandascore API key not configured!**")
-        st.info("""
-        **Setup instructions:**
-        1. Get free API key: https://pandascore.co (1000 calls/month free!)
-        2. Add to Streamlit Secrets:
-        ```toml
-        [esports]
-        pandascore_key = "YOUR_KEY_HERE"
-        ```
-        """)
+        st.error("⚠️ **Pandascore API key required**")
+        st.info("Get free key at https://pandascore.co (1000 calls/month)")
         return
     
-    # Scan for live matches
     with st.spinner(f"🔍 Scanning {game_filter} matches..."):
-        matches = scanner.get_live_matches(selected_game)
+        matches = scanner.get_live_matches(game_filter.lower() if game_filter != "All" else "all")
     
     if not matches:
-        st.info(f"ℹ️ No live {game_filter} matches right now")
-        st.caption("""
-        **E-Sports runs 24/7:**
-        - 🌏 Asia: 02:00-12:00 CET
-        - 🌍 Europe: 14:00-23:00 CET  
-        - 🌎 NA: 20:00-06:00 CET
-        """)
+        st.info(f"ℹ️ No live {game_filter} matches")
         return
     
-    st.success(f"✅ {len(matches)} live matches found")
+    st.success(f"✅ {len(matches)} live matches")
     
-    # Analyze each match and show recommendations
-    recommendations = []
-    
+    # Analyze and display
     for match in matches:
         analysis = scanner.analyze_match(match)
-        if analysis:
-            recommendations.append(analysis)
-    
-    # Sort by confidence
-    recommendations.sort(key=lambda x: x['confidence'], reverse=True)
-    
-    # Display recommendations
-    if recommendations:
-        st.markdown("---")
-        st.subheader("🎯 BETTING RECOMMENDATIONS")
         
-        for i, rec in enumerate(recommendations):
-            # Color code by confidence
-            if rec['confidence'] >= 70:
-                border_color = "#00ff00"
-                badge = "🔥 HIGH CONFIDENCE"
-            elif rec['confidence'] >= 60:
-                border_color = "#ffaa00"
-                badge = "⚡ MEDIUM CONFIDENCE"
-            else:
-                border_color = "#888888"
-                badge = "📊 VALUE BET"
-            
-            # Game emoji
-            game_emoji = {
-                'CS2': '🔫',
-                'LOL': '⚔️',
-                'DOTA2': '🏆',
-                'VALORANT': '🎯'
-            }.get(rec['game'], '🎮')
-            
-            st.markdown(f"""
-            <div style="border-left: 4px solid {border_color}; padding: 15px; margin: 10px 0; background: #1a1a2e; border-radius: 8px;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-size: 1.2em; font-weight: bold;">{game_emoji} {rec['team1']} vs {rec['team2']}</span>
-                    <span style="background: {border_color}; color: black; padding: 3px 10px; border-radius: 4px; font-weight: bold;">{badge}</span>
-                </div>
-                <div style="color: #888; font-size: 0.9em; margin: 5px 0;">{rec['game']} • {rec['tournament']} • Score: {rec['score']}</div>
-                <hr style="border-color: #333; margin: 10px 0;">
-                <div style="font-size: 1.3em; color: #00ff00; font-weight: bold;">
-                    ✅ {rec['recommendation']} to WIN @ {rec['odds']}
-                </div>
-                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px;">
-                    <div><span style="color: #888;">Win Prob:</span><br><strong>{rec['win_probability']}%</strong></div>
-                    <div><span style="color: #888;">Edge:</span><br><strong style="color: #00ff00;">+{rec['edge']}%</strong></div>
-                    <div><span style="color: #888;">Confidence:</span><br><strong>{rec['confidence']}%</strong></div>
-                    <div><span style="color: #888;">Stake:</span><br><strong>{rec['stake']}</strong></div>
-                </div>
-                <div style="margin-top: 10px; padding: 10px; background: #0d0d1a; border-radius: 4px;">
-                    <strong>📝 Analysis:</strong><br>
-                    {"<br>".join(rec['reasoning'])}
-                </div>
+        if not analysis:
+            continue
+        
+        # Display match
+        is_estimate = analysis.get('is_estimate', True)
+        has_value = analysis.get('has_value', False)
+        
+        # Color based on recommendation quality
+        if has_value and not is_estimate:
+            border_color = "#00ff00"  # Green - real value found
+            badge = "✅ VALUE BET"
+        elif not is_estimate:
+            border_color = "#ffaa00"  # Orange - real odds but no edge
+            badge = "📊 NO EDGE"
+        else:
+            border_color = "#888888"  # Gray - estimate only
+            badge = "⚠️ ESTIMATE"
+        
+        st.markdown(f"""
+        <div style="border-left: 4px solid {border_color}; padding: 15px; margin: 10px 0; background: #1a1a2e; border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between;">
+                <span style="font-size: 1.2em; font-weight: bold;">🎮 {analysis['team1']} vs {analysis['team2']}</span>
+                <span style="background: {border_color}; color: black; padding: 3px 10px; border-radius: 4px;">{badge}</span>
             </div>
-            """, unsafe_allow_html=True)
-    
-    else:
-        st.warning("⚠️ Matches found but no strong recommendations at this time")
-    
-    # Summary stats
-    if recommendations:
+            <div style="color: #888;">{analysis['game']} • {analysis['tournament']} • Score: {analysis['score']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Stats columns
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Win Prob", f"{analysis['win_probability']}%")
+        c2.metric("Odds", f"{analysis['odds']}")
+        c3.metric("Edge", f"{analysis['edge']:+.1f}%" if analysis['edge'] else "N/A")
+        c4.metric("Confidence", f"{analysis['confidence']}%")
+        
+        # Recommendation
+        if has_value:
+            st.success(f"✅ **{analysis['team']}** to WIN @ **{analysis['odds']}** - Edge: **+{analysis['edge']}%**")
+        elif is_estimate:
+            st.warning(f"⚠️ **{analysis['team']}** favored ({analysis['win_probability']}%) - **No real odds available, cannot confirm value**")
+        else:
+            st.info(f"📊 **{analysis['team']}** @ {analysis['odds']} - No significant edge found")
+        
+        # Reasoning
+        with st.expander("📊 Analysis Details"):
+            for reason in analysis.get('reasoning', []):
+                st.write(reason)
+            
+            st.markdown(f"**Odds Source:** {analysis.get('odds_source', 'Unknown')}")
+            
+            if is_estimate:
+                st.warning("""
+                ⚠️ **DISCLAIMER**: These odds are statistical estimates, not real market prices.
+                Do NOT use for actual betting without checking real bookmaker odds!
+                """)
+        
         st.markdown("---")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        high_conf = len([r for r in recommendations if r['confidence'] >= 70])
-        avg_edge = sum(r['edge'] for r in recommendations) / len(recommendations)
-        
-        col1.metric("🎮 Live Matches", len(matches))
-        col2.metric("🎯 Recommendations", len(recommendations))
-        col3.metric("🔥 High Confidence", high_conf)
-        col4.metric("📈 Avg Edge", f"+{avg_edge:.1f}%")
 
 
-# For testing
 if __name__ == "__main__":
-    st.set_page_config(page_title="E-Sports Scanner Test", layout="wide")
+    st.set_page_config(page_title="E-Sports Scanner", layout="wide")
     create_esports_tab()
