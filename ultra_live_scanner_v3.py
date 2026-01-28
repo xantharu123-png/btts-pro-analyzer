@@ -210,13 +210,15 @@ class UltraLiveScanner:
                 'home_team_id': home_team_id,
                 'away_team_id': away_team_id,
                 'league_id': league_id,
-                'league': league.get('name', 'Unknown'),  # FIX: Add league name
+                'league': league.get('name', 'Unknown'),
                 'minute': minute,
                 'score': score,
                 'home_score': home_score,
                 'away_score': away_score,
                 'xg_home': xg_home,
                 'xg_away': xg_away,
+                
+                # Nested structure (V3.1)
                 'btts': {
                     'probability': btts_prob,
                     'confidence': btts_confidence,
@@ -225,6 +227,12 @@ class UltraLiveScanner:
                     'p_away_scores': btts_result['p_away_scores'],
                     'data_quality': btts_result.get('data_quality', 'UNKNOWN')
                 },
+                
+                # BACKWARDS COMPATIBILITY: Flat keys for btts_pro_app.py
+                'btts_prob': btts_prob,
+                'btts_confidence': btts_confidence,
+                'btts_recommendation': btts_recommendation,
+                
                 'over_under': ou_result,
                 'next_goal': ng_result,
                 'phase': self._get_phase(minute),
@@ -600,25 +608,28 @@ class UltraLiveScanner:
 # =============================================================================
 
 def display_ultra_opportunity(match: Dict):
-    """Display für Streamlit"""
+    """Display für Streamlit - handles both old and new data structure"""
     import streamlit as st
     
-    # FIX: Use correct phase key
+    # Handle both old and new phase format
     phase = match.get('phase', match.get('breakdown', {}).get('game_phase', 'UNKNOWN'))
     
     st.markdown(f"### 🔴 LIVE - {match['minute']}' | {phase}")
     st.markdown(f"**{match['home_team']} vs {match['away_team']}**")
-    st.caption(f"{match['league']} | Score: {match['score']}")
+    st.caption(f"{match.get('league', 'Unknown')} | Score: {match['score']}")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        # FIX: Use correct nested structure
-        btts_data = match.get('btts', {})
-        btts = btts_data.get('probability', 50)
-        btts_confidence = btts_data.get('confidence', '')
+        # Handle both flat and nested structure
+        if 'btts_prob' in match:
+            btts = match['btts_prob']
+            btts_confidence = match.get('btts_confidence', '')
+        else:
+            btts_data = match.get('btts', {})
+            btts = btts_data.get('probability', 50)
+            btts_confidence = btts_data.get('confidence', '')
         
-        # Check ob BTTS bereits eingetreten ist
         if btts_confidence == 'COMPLETE':
             st.metric("BTTS", "✅ HIT", delta="Bereits eingetreten")
         else:
@@ -642,8 +653,12 @@ def display_ultra_opportunity(match: Dict):
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        # FIX: Use correct nested structure
-        rec = btts_data.get('recommendation', 'N/A')
+        # Handle both flat and nested structure
+        if 'btts_recommendation' in match:
+            rec = match['btts_recommendation']
+        else:
+            rec = match.get('btts', {}).get('recommendation', 'N/A')
+        
         if 'COMPLETE' in str(rec):
             st.info(f"⚽ {rec}")
         elif '🔥' in str(rec):
