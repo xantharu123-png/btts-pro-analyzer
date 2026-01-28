@@ -222,8 +222,9 @@ class EsportsScanner:
             'team2': team2,
             'score': f"{score1}-{score2}",
             'tournament': match.get('tournament', 'Unknown'),
-            'bet_type': bet_type,
-            'recommendation': recommended_team,
+            'market': bet_type,  # Changed from bet_type to market
+            'team': recommended_team,  # Changed from recommendation to team
+            'recommendation': recommended_team,  # Keep for backwards compatibility
             'opponent': opponent,
             'odds': round(market_odds, 2),
             'win_probability': round(win_prob * 100, 1),
