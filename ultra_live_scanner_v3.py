@@ -424,8 +424,14 @@ class UltraLiveScanner:
                 break
         
         return {
+            # New keys
             'expected_total': round(expected_total, 2),
             'over_25_prob': over_25_prob,
+            
+            # BACKWARDS COMPATIBILITY: Keys expected by display
+            'expected_total_goals': round(expected_total, 2),
+            'over_25_probability': over_25_prob,
+            
             'thresholds': thresholds,
             'recommendation': best_rec,
             'confidence': 'HIGH' if minute >= 30 and current_xg > 0 else 'MEDIUM'
