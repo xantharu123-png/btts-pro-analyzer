@@ -73,8 +73,10 @@ class DixonColesModel:
     
     Korrigiert die Unabhängigkeits-Annahme für niedrige Spielstände (0-0, 1-0, 0-1, 1-1)
     Empirisch validiert: rho ≈ -0.03 bis -0.13 je nach Liga
+    
+    STANDARDISIERT: rho = -0.10 (Literatur-Mittelwert für Konsistenz)
     """
-    def __init__(self, rho: float = -0.05):
+    def __init__(self, rho: float = -0.10):
         self.rho = rho
     
     def tau(self, home_goals: int, away_goals: int) -> float:
@@ -209,7 +211,8 @@ class AdvancedBTTSAnalyzer:
         self.db_path = db_path
         self.api_football_key = api_football_key        
         # Dixon-Coles Model (korrigiert niedrige Spielstände)
-        self.dixon_coles = DixonColesModel(rho=-0.05)
+        # STANDARDISIERT: rho = -0.10 für Konsistenz mit alternative_markets.py
+        self.dixon_coles = DixonColesModel(rho=-0.10)
         
         # Bivariate Poisson Model (modelliert Tor-Korrelation)
         self.bivariate_poisson = BivariatePoissonModel(covariance=0.10)
