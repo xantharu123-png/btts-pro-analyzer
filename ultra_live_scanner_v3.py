@@ -592,3 +592,65 @@ class UltraLiveScanner:
             print(f"❌ Scan Error: {e}")
         
         return results
+
+
+# =============================================================================
+# STREAMLIT DISPLAY FUNCTION
+# =============================================================================
+
+def display_ultra_opportunity(match: Dict):
+    """Display für Streamlit"""
+    import streamlit as st
+    
+    phase = match.get('breakdown', {}).get('game_phase', 'UNKNOWN')
+    
+    st.markdown(f"### 🔴 LIVE - {match['minute']}' | {phase}")
+    st.markdown(f"**{match['home_team']} vs {match['away_team']}**")
+    st.caption(f"{match['league']} | Score: {match['score']}")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        btts = match['btts_prob']
+        btts_confidence = match.get('btts_confidence', '')
+        
+        # Check ob BTTS bereits eingetreten ist
+        if btts_confidence == 'COMPLETE':
+            st.metric("BTTS", "✅ HIT", delta="Bereits eingetreten")
+        else:
+            delta = "🔥" if btts >= 70 else ("✅" if btts >= 50 else "⚠️")
+            st.metric("BTTS", f"{btts}%", delta=delta)
+    
+    with col2:
+        ou = match.get('over_under', {})
+        st.metric("Expected Goals", f"{ou.get('expected_total_goals', 0):.1f}")
+        st.caption(f"Over 2.5: {ou.get('over_25_probability', 50):.0f}%")
+    
+    with col3:
+        ng = match.get('next_goal', {})
+        fav = ng.get('favorite', 'HOME')
+        home_prob = ng.get('home_prob', 50)
+        away_prob = ng.get('away_prob', 50)
+        prob = home_prob if fav == 'HOME' else away_prob
+        st.metric(f"Next: {fav}", f"{prob:.0f}%")
+    
+    st.markdown("---")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        rec = match['btts_recommendation']
+        if 'COMPLETE' in rec:
+            st.info(f"⚽ {rec}")
+        elif '🔥' in rec:
+            st.success(f"⚽ {rec}")
+        else:
+            st.info(f"⚽ {rec}")
+    with col2:
+        ou_rec = ou.get('recommendation', 'N/A')
+        (st.success if '🔥' in ou_rec else st.info)(f"🎲 {ou_rec}")
+    with col3:
+        ng_rec = ng.get('recommendation', 'N/A')
+        (st.success if '🔥' in ng_rec else st.info)(f"🎯 {ng_rec}")
+
+
+__all__ = ['UltraLiveScanner', 'display_ultra_opportunity']
