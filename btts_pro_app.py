@@ -1659,30 +1659,25 @@ with tab9:
                     if not opp:
                         continue
                     
-                    # Check if this is real value or estimate
-                    is_estimate = opp.get('is_estimate', True)
-                    has_value = opp.get('has_value', False)
+                    # Star rating
+                    stars = opp.get('stars', 1)
+                    stars_display = "⭐" * stars
                     
                     c1, c2, c3 = st.columns([2, 1, 1])
                     with c1:
-                        st.markdown(f"**{m['team1']} vs {m['team2']}**")
+                        st.markdown(f"**{m['team1']} vs {m['team2']}** {stars_display}")
                         st.caption(f"{m['game']} • {m['team1_score']}-{m['team2_score']}")
                     with c2:
-                        if has_value:
-                            st.metric("Edge", f"+{opp['edge']}%")
-                        else:
-                            st.metric("Edge", "N/A" if is_estimate else f"{opp['edge']:+.1f}%")
+                        st.metric("Edge", f"+{opp['edge']}%")
                     with c3:
                         st.metric("Win%", f"{opp['win_probability']}%")
                     
-                    # Display based on analysis quality
-                    if has_value:
-                        st.success(f"✅ **{opp['team']} {opp['market']}** @ {opp['odds']} • Edge: +{opp['edge']}%")
+                    # Recommendation based on stars
+                    if stars >= 3:
+                        st.success(f"✅ **{opp['team']} {opp['market']}** @ {opp['odds']} • Stake: {opp['stake']}")
                         all_opps.append({**opp, 'sport': f"🎮 {m['game']}", 'game': f"{m['team1']} vs {m['team2']}"})
-                    elif is_estimate:
-                        st.warning(f"⚠️ **{opp['team']}** favored ({opp['win_probability']}%) - No real odds, cannot confirm value")
                     else:
-                        st.info(f"📊 **{opp['team']}** @ {opp['odds']} - No edge ({opp['edge']:+.1f}%)")
+                        st.info(f"📊 {opp['team']} slight favorite ({opp['win_probability']}%)")
                     
                     st.markdown("---")
             else:
