@@ -425,9 +425,9 @@ def generate_sample_data(n_matches: int = 5000) -> pd.DataFrame:
     # Over 2.5: ~50%
     
     for i in range(n_matches):
-        # Generate realistic scores
-        home_strength = np.random.normal(1.3, 0.3)
-        away_strength = np.random.normal(1.1, 0.3)
+        # Generate realistic scores - FIXED: ensure positive values!
+        home_strength = max(0.5, np.random.normal(1.3, 0.3))
+        away_strength = max(0.4, np.random.normal(1.1, 0.3))
         
         home_goals = np.random.poisson(home_strength)
         away_goals = np.random.poisson(away_strength)
