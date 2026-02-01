@@ -149,113 +149,122 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 with tab1:
     st.header("🔥 Premium BTTS Tips")
     
-    # INLINE FILTERS - Clean single row
+    # Get available leagues
     available_leagues = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else []
     
-    col1, col2, col3, col4, col5, col6 = st.columns([0.5, 2.5, 1, 1, 1, 1])
+    # ROW 1: Liga Selection
+    col_check, col_leagues = st.columns([1, 5])
     
-    with col1:
-        select_all = st.checkbox("Alle", value=False, key="tab1_all", help="Alle Ligen auswählen")
+    with col_check:
+        select_all = st.checkbox("Alle Ligen", value=False, key="tab1_all")
     
-    with col2:
+    with col_leagues:
         if select_all:
             selected_leagues = available_leagues
-            st.multiselect(
-                "Ligen",
-                options=available_leagues,
-                default=available_leagues,
-                disabled=True,
-                key="tab1_leagues_disabled"
-            )
+            st.info(f"✅ Alle {len(available_leagues)} Ligen ausgewählt")
         else:
             default = ['BL1', 'PL', 'PD'] if all(l in available_leagues for l in ['BL1', 'PL', 'PD']) else available_leagues[:3]
             selected_leagues = st.multiselect(
-                "Ligen",
+                "Ligen auswählen",
                 options=available_leagues,
                 default=default,
-                key="tab1_leagues"
+                key="tab1_leagues",
+                label_visibility="collapsed"
             )
     
-    with col3:
+    # ROW 2: Filters + Button
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
+    
+    with col1:
         min_btts = st.number_input("Min BTTS %", 50, 90, 65, 5, key="tab1_btts")
     
-    with col4:
+    with col2:
         min_conf = st.number_input("Min Conf %", 50, 95, 60, 5, key="tab1_conf")
     
-    with col5:
-        days_ahead = st.number_input("Tage", 1, 14, 7, key="tab1_days")
+    with col3:
+        days_ahead = st.number_input("Tage voraus", 1, 14, 7, key="tab1_days")
     
-    with col6:
-        st.write("")  # Spacer for alignment
-        analyze_btn = st.button("🔍 Analysieren", key="analyze_top", type="primary", use_container_width=True)
+    with col4:
+        st.write("")  # Spacer
+        analyze_btn = st.button("🔍 ANALYSIEREN", key="analyze_top", type="primary", use_container_width=True)
     
     st.markdown("---")
     
-    if analyze_btn and selected_leagues:
-        all_results = []
-        
-        progress = st.progress(0)
-        status = st.empty()
-        
-        for idx, league_code in enumerate(selected_leagues):
-            status.text(f"Analysiere {league_code}... ({idx+1}/{len(selected_leagues)})")
-            
-            results = analyzer.analyze_upcoming_matches(
-                league_code, 
-                days_ahead=days_ahead,
-                min_probability=min_btts
-            )
-            
-            if not results.empty:
-                results['League'] = league_code
-                all_results.append(results)
-            
-            progress.progress((idx + 1) / len(selected_leagues))
-        
-        progress.empty()
-        status.empty()
-        
-        if all_results:
-            combined = pd.concat(all_results, ignore_index=True)
-            
-            combined['BTTS_num'] = combined['BTTS %'].str.rstrip('%').astype(float)
-            combined['Conf_num'] = combined['Confidence'].str.rstrip('%').astype(float)
-            
-            top_tips = combined[
-                (combined['BTTS_num'] >= min_btts) & 
-                (combined['Conf_num'] >= min_conf)
-            ].sort_values('BTTS_num', ascending=False)
-            
-            st.session_state['all_results'] = combined
-            st.session_state['top_tips'] = top_tips
-            
-            if not top_tips.empty:
-                st.success(f"🔥 {len(top_tips)} Premium Tips gefunden!")
-                
-                for idx, row in top_tips.head(20).iterrows():
-                    with st.container():
-                        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-                        
-                        with col1:
-                            st.markdown(f"**{row['Home']}** vs **{row['Away']}**")
-                            st.caption(f"{row['League']} | {row['Date']}")
-                        
-                        with col2:
-                            st.metric("BTTS", row['BTTS %'])
-                        
-                        with col3:
-                            st.metric("Confidence", row['Confidence'])
-                        
-                        with col4:
-                            st.metric("xG Total", row['xG Total'])
-                        
-                        st.markdown("---")
-            else:
-                st.warning("Keine Premium Tips mit diesen Kriterien gefunden")
+    # SEARCH LOGIC
+    if analyze_btn:
+        if not selected_leagues:
+            st.warning("⚠️ Bitte mindestens eine Liga auswählen!")
         else:
-            st.warning("Keine Spiele gefunden")
-    elif not selected_leagues:
-        st.info("👆 Wähle mindestens eine Liga aus")
+            all_results = []
+            
+            progress = st.progress(0)
+            status = st.empty()
+            
+            for idx, league_code in enumerate(selected_leagues):
+                status.text(f"🔍 Analysiere {league_code}... ({idx+1}/{len(selected_leagues)})")
+                
+                try:
+                    results = analyzer.analyze_upcoming_matches(
+                        league_code, 
+                        days_ahead=days_ahead,
+                        min_probability=min_btts
+                    )
+                    
+                    if results is not None and not results.empty:
+                        results['League'] = league_code
+                        all_results.append(results)
+                except Exception as e:
+                    st.warning(f"⚠️ {league_code}: {e}")
+                
+                progress.progress((idx + 1) / len(selected_leagues))
+            
+            progress.empty()
+            status.empty()
+            
+            if all_results:
+                combined = pd.concat(all_results, ignore_index=True)
+                
+                combined['BTTS_num'] = combined['BTTS %'].str.rstrip('%').astype(float)
+                combined['Conf_num'] = combined['Confidence'].str.rstrip('%').astype(float)
+                
+                top_tips = combined[
+                    (combined['BTTS_num'] >= min_btts) & 
+                    (combined['Conf_num'] >= min_conf)
+                ].sort_values('BTTS_num', ascending=False)
+                
+                st.session_state['all_results'] = combined
+                st.session_state['top_tips'] = top_tips
+                
+                if not top_tips.empty:
+                    st.success(f"🔥 {len(top_tips)} Premium Tips gefunden!")
+                    
+                    for idx, row in top_tips.head(20).iterrows():
+                        with st.container():
+                            c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+                            
+                            with c1:
+                                st.markdown(f"**{row['Home']}** vs **{row['Away']}**")
+                                st.caption(f"{row['League']} | {row['Date']}")
+                            
+                            with c2:
+                                st.metric("BTTS", row['BTTS %'])
+                            
+                            with c3:
+                                st.metric("Confidence", row['Confidence'])
+                            
+                            with c4:
+                                st.metric("xG Total", row['xG Total'])
+                            
+                            st.markdown("---")
+                else:
+                    st.warning(f"⚠️ Keine Tips mit BTTS ≥ {min_btts}% und Confidence ≥ {min_conf}% gefunden")
+                    st.info(f"📊 {len(combined)} Spiele analysiert, aber keines erfüllt die Kriterien. Versuche niedrigere Filter.")
+            else:
+                st.error("❌ Keine Spiele in den ausgewählten Ligen gefunden")
+                st.info("💡 Mögliche Gründe: API-Limit erreicht, keine geplanten Spiele, oder Datenbankfehler. Versuche 'Settings' → 'Smart Update'")
+    else:
+        # Initial state - no button clicked yet
+        st.info("👆 Wähle Ligen und klicke auf 'ANALYSIEREN' um Tips zu finden")
 
 # =============================================================================
 # TAB 2: ALL MATCHES
