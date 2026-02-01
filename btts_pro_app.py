@@ -117,23 +117,14 @@ def get_analyzer():
 analyzer, analyzer_ready = get_analyzer()
 
 # =============================================================================
-# HEADER
+# HEADER - Compact & Professional
 # =============================================================================
 
-col1, col2, col3 = st.columns([2, 1, 1])
+# Status badges as small inline indicators
+status_ml = "✅" if analyzer_ready else "❌"
+status_text = f"**⚽ BTTS Pro Analyzer** &nbsp;&nbsp; | &nbsp;&nbsp; V3.0 &nbsp;&nbsp; | &nbsp;&nbsp; {status_ml} ML &nbsp;&nbsp; | &nbsp;&nbsp; 🔄 Live"
 
-with col1:
-    st.markdown("# ⚽ BTTS Pro Analyzer")
-    st.caption("V3.0 | ML Ensemble | 20 Features")
-
-with col2:
-    if analyzer_ready:
-        st.success("✅ ML Ready")
-    else:
-        st.error("❌ Not Ready")
-
-with col3:
-    st.info("🔄 Live Data")
+st.markdown(f"## {status_text}", unsafe_allow_html=True)
 
 st.markdown("---")
 
@@ -158,39 +149,45 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 with tab1:
     st.header("🔥 Premium BTTS Tips")
     
-    # INLINE FILTERS
-    with st.container():
-        col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
-        
-        with col1:
-            available_leagues = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else []
-            
-            select_all = st.checkbox("Alle Ligen", value=False, key="tab1_all")
-            
-            if select_all:
-                selected_leagues = available_leagues
-            else:
-                default = ['BL1', 'PL', 'PD'] if all(l in available_leagues for l in ['BL1', 'PL', 'PD']) else available_leagues[:3]
-                selected_leagues = st.multiselect(
-                    "Ligen",
-                    options=available_leagues,
-                    default=default,
-                    key="tab1_leagues"
-                )
-        
-        with col2:
-            min_btts = st.number_input("Min BTTS %", 50, 90, 65, 5, key="tab1_btts")
-        
-        with col3:
-            min_conf = st.number_input("Min Conf %", 50, 95, 60, 5, key="tab1_conf")
-        
-        with col4:
-            days_ahead = st.number_input("Tage", 1, 14, 7, key="tab1_days")
-        
-        with col5:
-            st.write("")
-            st.write("")
-            analyze_btn = st.button("🔍 Analysieren", key="analyze_top", type="primary")
+    # INLINE FILTERS - Clean single row
+    available_leagues = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else []
+    
+    col1, col2, col3, col4, col5, col6 = st.columns([0.5, 2.5, 1, 1, 1, 1])
+    
+    with col1:
+        select_all = st.checkbox("Alle", value=False, key="tab1_all", help="Alle Ligen auswählen")
+    
+    with col2:
+        if select_all:
+            selected_leagues = available_leagues
+            st.multiselect(
+                "Ligen",
+                options=available_leagues,
+                default=available_leagues,
+                disabled=True,
+                key="tab1_leagues_disabled"
+            )
+        else:
+            default = ['BL1', 'PL', 'PD'] if all(l in available_leagues for l in ['BL1', 'PL', 'PD']) else available_leagues[:3]
+            selected_leagues = st.multiselect(
+                "Ligen",
+                options=available_leagues,
+                default=default,
+                key="tab1_leagues"
+            )
+    
+    with col3:
+        min_btts = st.number_input("Min BTTS %", 50, 90, 65, 5, key="tab1_btts")
+    
+    with col4:
+        min_conf = st.number_input("Min Conf %", 50, 95, 60, 5, key="tab1_conf")
+    
+    with col5:
+        days_ahead = st.number_input("Tage", 1, 14, 7, key="tab1_days")
+    
+    with col6:
+        st.write("")  # Spacer for alignment
+        analyze_btn = st.button("🔍 Analysieren", key="analyze_top", type="primary", use_container_width=True)
     
     st.markdown("---")
     
