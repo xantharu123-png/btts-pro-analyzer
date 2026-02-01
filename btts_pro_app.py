@@ -100,21 +100,27 @@ def _get_db_connection(db_path: str = "btts_data.db"):
 @st.cache_resource
 def get_analyzer():
     try:
-        api_key = st.secrets.get("FOOTBALL_DATA_API_KEY") if hasattr(st, 'secrets') else None
-        weather_key = st.secrets.get("OPENWEATHER_API_KEY") if hasattr(st, 'secrets') else None
-        api_football_key = st.secrets.get("API_FOOTBALL_KEY") if hasattr(st, 'secrets') else None
+        # Secrets are nested under 'api' section
+        api_key = None
+        weather_key = None
+        api_football_key = None
+        
+        if hasattr(st, 'secrets') and 'api' in st.secrets:
+            api_key = st.secrets['api'].get('api_key')
+            weather_key = st.secrets['api'].get('weather_key')
+            api_football_key = st.secrets['api'].get('api_football_key')
         
         analyzer = AdvancedBTTSAnalyzer(
             api_key=api_key, 
             weather_api_key=weather_key,
             api_football_key=api_football_key
         )
-        return analyzer, True
+        return analyzer, True, api_football_key is not None
     except Exception as e:
         st.error(f"Failed to initialize: {e}")
-        return None, False
+        return None, False, False
 
-analyzer, analyzer_ready = get_analyzer()
+analyzer, analyzer_ready, api_key_available = get_analyzer()
 
 # =============================================================================
 # HEADER - Compact & Professional
@@ -194,13 +200,14 @@ with tab1:
     if analyze_btn:
         if not selected_leagues:
             st.warning("⚠️ Bitte mindestens eine Liga auswählen!")
+        elif not api_key_available:
+            st.error("❌ API_FOOTBALL_KEY nicht konfiguriert!")
+            st.code("""
+# In Streamlit Secrets (secrets.toml):
+[api]
+api_football_key = "dein_key_hier"
+            """)
         else:
-            # Debug: Check API key
-            api_key_available = hasattr(analyzer, 'api_football_key') and analyzer.api_football_key
-            if not api_key_available:
-                st.error("❌ API_FOOTBALL_KEY nicht konfiguriert! Bitte in Streamlit Secrets hinzufügen.")
-                st.stop()
-            
             all_results = []
             errors = []
             
@@ -331,7 +338,10 @@ with tab3:
         from ultra_live_scanner_v3 import UltraLiveScanner, display_ultra_opportunity
         from api_football import APIFootball
         
-        api_key = st.secrets.get("API_FOOTBALL_KEY") if hasattr(st, 'secrets') else None
+        # Get API key from nested secrets structure
+        api_key = None
+        if hasattr(st, 'secrets') and 'api' in st.secrets:
+            api_key = st.secrets['api'].get('api_football_key')
         
         if not api_key:
             st.error("❌ API_FOOTBALL_KEY fehlt in secrets!")
@@ -406,7 +416,11 @@ with tab4:
     
     if ALTERNATIVE_MARKETS_AVAILABLE:
         try:
-            api_key = st.secrets.get("API_FOOTBALL_KEY") if hasattr(st, 'secrets') else None
+            # Get API key from nested secrets structure
+            api_key = None
+            if hasattr(st, 'secrets') and 'api' in st.secrets:
+                api_key = st.secrets['api'].get('api_football_key')
+            
             if api_key:
                 create_alternative_markets_tab_extended(api_key)
             else:
