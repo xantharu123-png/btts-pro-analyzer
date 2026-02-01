@@ -56,11 +56,11 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS - ONLY ADDED: Hide sidebar
+# Custom CSS - Hide sidebar completely
 st.markdown("""
     <style>
-    [data-testid="stSidebar"] {display: none;}
-    [data-testid="collapsedControl"] {display: none;}
+    [data-testid="stSidebar"] {display: none !important;}
+    [data-testid="collapsedControl"] {display: none !important;}
     .main {
         padding: 1rem;
     }
@@ -371,9 +371,43 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
 with tab1:
     st.header("🔥 Premium Tips - Highest Confidence")
     
-    st.info(f"💡 Filtering for BTTS ≥ {min_probability}% AND Confidence ≥ {min_confidence}% (adjust in sidebar)")
+    # ========== INLINE FILTERS (ersetzt Sidebar) ==========
+    available_leagues = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else []
     
-    if st.button("🔍 Analyze Matches", key="analyze_top"):
+    # Row 1: Liga-Auswahl
+    col_check, col_leagues = st.columns([1, 5])
+    with col_check:
+        select_all_tab1 = st.checkbox("Alle Ligen", value=False, key="tab1_select_all")
+    with col_leagues:
+        if select_all_tab1:
+            selected_leagues = available_leagues
+            st.success(f"✅ Alle {len(available_leagues)} Ligen")
+        else:
+            default_leagues = ['BL1', 'PL', 'PD'] if all(l in available_leagues for l in ['BL1', 'PL', 'PD']) else available_leagues[:3]
+            selected_leagues = st.multiselect(
+                "Ligen",
+                options=available_leagues,
+                default=default_leagues,
+                key="tab1_leagues",
+                label_visibility="collapsed"
+            )
+    
+    # Row 2: Filter + Button
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
+    with col1:
+        min_probability = st.number_input("Min BTTS %", 50, 90, 60, 5, key="tab1_btts")
+    with col2:
+        min_confidence = st.number_input("Min Conf %", 50, 95, 60, 5, key="tab1_conf")
+    with col3:
+        days_ahead = st.number_input("Tage", 1, 14, 7, key="tab1_days")
+    with col4:
+        st.write("")
+        analyze_btn = st.button("🔍 Analyze Matches", key="analyze_top", type="primary", use_container_width=True)
+    
+    st.markdown("---")
+    # ========== END INLINE FILTERS ==========
+    
+    if analyze_btn and selected_leagues:
         # Create Progress Bar
         progress = ModernProgressBar(
             total_items=len(selected_leagues),
@@ -1270,11 +1304,19 @@ with tab8:
                             alert_system.telegram_token = st.session_state.tg_token
                             alert_system.telegram_chat_id = st.session_state.tg_chat
                 
-                # Get ALL live matches (no league filter!)
-                live_matches = alert_system.get_live_matches(None)  # None = ALL leagues
+                # Get league IDs
+                league_ids = [
+                    78, 39, 140, 135, 61, 88, 94, 203, 40, 79, 262, 71,  # Top leagues
+                    2, 3, 848,  # European cups
+                    179, 144, 207, 218,  # EU Expansion
+                    265, 330, 165, 188, 89, 209, 113, 292, 301  # Goal festivals
+                ]
+                
+                # Get live matches
+                live_matches = alert_system.get_live_matches(league_ids)
                 
                 if live_matches:
-                    st.success(f"✅ Found {len(live_matches)} live matches worldwide!")
+                    st.success(f"✅ Found {len(live_matches)} live matches in our leagues!")
                     
                     # Check each match for red cards
                     red_cards_found = []
@@ -1464,7 +1506,7 @@ with tab8:
                     else:
                         st.info("✅ No red cards in current live matches")
                 else:
-                    st.warning("⚠️ No live matches at the moment")
+                    st.warning("⚠️ No live matches at the moment in our leagues")
                     st.info("Try again when there are live matches!")
                     
             except ImportError as e:
