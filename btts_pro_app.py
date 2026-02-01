@@ -53,10 +53,10 @@ st.set_page_config(
     page_title="BTTS Pro Analyzer",
     page_icon="⚽",
     layout="wide",
-    initial_sidebar_state="collapsed"  # Sidebar versteckt
+    initial_sidebar_state="collapsed"
 )
 
-# Custom CSS - Hide Sidebar completely
+# Custom CSS - ONLY ADDED: Hide sidebar
 st.markdown("""
     <style>
     [data-testid="stSidebar"] {display: none;}
@@ -153,22 +153,206 @@ analyzer = get_analyzer()
 st.title("⚽ BTTS Pro Analyzer")
 st.markdown("**Ultimate BTTS Analysis with Machine Learning** | Advanced Edition v2.0")
 
-# NO SIDEBAR - Clean Header
-st.markdown("## ⚽ BTTS Pro Analyzer V3.0")
-
-col1, col2, col3 = st.columns([2,1,1])
-with col1:
-    st.caption("ML Ensemble | 20 Features | Live Data")
-with col2:
+# Sidebar
+with st.sidebar:
+    st.header("⚙️ Settings")
+    
     if st.session_state.get('analyzer_ready'):
-        st.success("✅ ML Ready", icon="✅")
-with col3:
-    st.info("🔄 Live", icon="🔄")
-
-st.markdown("---")
-
-# Default values (will be overridden in tabs with inline filters)
-available_leagues = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else []
+        st.success("✅ ML Model Ready")
+        st.info("🔄 Live Data Active")
+    else:
+        st.error("❌ Analyzer not ready")
+    
+    st.markdown("---")
+    
+    # Filters
+    st.subheader("🎯 Filters")
+    
+    min_probability = st.slider(
+        "Min BTTS Probability (%)",
+        min_value=50,
+        max_value=90,
+        value=60,
+        step=5
+    )
+    
+    min_confidence = st.slider(
+        "Min Confidence (%)",
+        min_value=50,
+        max_value=95,
+        value=60,
+        step=5
+    )
+    
+    # Select all checkbox
+    select_all = st.checkbox("Alle Ligen auswählen", value=False)
+    
+    # Get available leagues from LEAGUES_CONFIG
+    available_leagues = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else []
+    
+    if select_all and available_leagues:
+        selected_leagues = available_leagues
+        st.info(f"✅ Alle {len(selected_leagues)} Ligen ausgewählt")
+    else:
+        # Set default only if available
+        default_leagues = ['BL1'] if 'BL1' in available_leagues else []
+        
+        selected_leagues = st.multiselect(
+            "Select Leagues",
+            options=available_leagues,
+            default=default_leagues
+        )
+    
+    days_ahead = st.slider(
+        "Days Ahead",
+        min_value=1,
+        max_value=14,
+        value=7
+    )
+    
+    st.markdown("---")
+    
+    # Data refresh
+    st.subheader("🔄 Data Management")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("⚡ Smart Update (nur neue Spiele)"):
+            with st.spinner("Lade nur neue Spiele..."):
+                try:
+                    from datetime import datetime, timedelta
+                    
+                    # Nur Spiele der letzten 3 Tage laden (viel weniger API-Calls)
+                    conn = _get_db_connection('btts_data.db')
+                    cursor = conn.cursor()
+                    
+                    # Check if PostgreSQL (for placeholder syntax)
+                    is_postgres = hasattr(conn, 'info')  # psycopg2 connections have .info
+                    ph = '%s' if is_postgres else '?'
+                    
+                    updated_leagues = 0
+                    new_matches = 0
+                    
+                    for league_code in selected_leagues:
+                        # Prüfe letztes Update-Datum für diese Liga
+                        cursor.execute(f'''
+                            SELECT MAX(date) FROM matches WHERE league_code = {ph}
+                        ''', (league_code,))
+                        result = cursor.fetchone()
+                        last_date = result[0] if result and result[0] else None
+                        
+                        # Wenn letzte Daten älter als 2 Tage, update diese Liga
+                        if last_date:
+                            try:
+                                last_dt = datetime.strptime(last_date[:10], '%Y-%m-%d')
+                                if (datetime.now() - last_dt).days <= 2:
+                                    continue  # Bereits aktuell
+                            except:
+                                pass
+                        
+                        # Update nur diese Liga
+                        analyzer.engine.fetch_league_matches(league_code, season=2025, force_refresh=False)
+                        updated_leagues += 1
+                    
+                    conn.close()
+                    
+                    if updated_leagues > 0:
+                        st.success(f"✅ {updated_leagues} Ligen aktualisiert!")
+                    else:
+                        st.info("📊 Alle Daten sind bereits aktuell (< 2 Tage alt)")
+                    
+                    st.cache_resource.clear()
+                except Exception as e:
+                    st.error(f"Fehler: {e}")
+    
+    with col2:
+        if st.button("🔄 Full Refresh (alle Daten neu)"):
+            with st.spinner("Refreshing data..."):
+                for league_code in selected_leagues:
+                    # Use fetch_league_matches with force_refresh
+                    analyzer.engine.fetch_league_matches(league_code, season=2025, force_refresh=True)
+                st.success("Data refreshed!")
+                st.cache_resource.clear()
+    
+    st.markdown("---")
+    
+    # Retrain Options
+    retrain_mode = st.radio(
+        "Retrain-Modus:",
+        ["⚡ Smart (nur ausgewählte Ligen)", "🔄 Full (alle 28 Ligen)"],
+        horizontal=True,
+        help="Smart = schneller, spart API-Calls. Full = gründlicher, braucht mehr API-Quota."
+    )
+    
+    if st.button("🤖 Retrain ML Model"):
+        with st.spinner("🤖 Retraining model..."):
+            try:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                if "Smart" in retrain_mode:
+                    # Nur ausgewählte Ligen laden (spart API-Calls!)
+                    leagues = selected_leagues
+                    status_text.text(f"📥 Smart Update: Loading {len(leagues)} selected leagues...")
+                else:
+                    # Alle 28 Ligen laden
+                    leagues = list(analyzer.engine.LEAGUES_CONFIG.keys())
+                    status_text.text(f"📥 Full Update: Loading all {len(leagues)} leagues...")
+                
+                total = len(leagues)
+                
+                for idx, code in enumerate(leagues):
+                    status_text.text(f"📥 Loading {code}... ({idx+1}/{total})")
+                    # force_refresh=False für Smart, True für Full
+                    force = "Full" in retrain_mode
+                    analyzer.engine.fetch_league_matches(code, season=2025, force_refresh=force)
+                    progress_bar.progress((idx + 1) / (total + 1))
+                
+                # Retrain
+                status_text.text("🤖 Training ML model with all data...")
+                analyzer.train_model()
+                progress_bar.progress(1.0)
+                
+                # Get stats
+                conn = _get_db_connection('btts_data.db')
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM matches WHERE btts IS NOT NULL")
+                total_matches = cursor.fetchone()[0]
+                conn.close()
+                
+                status_text.empty()
+                progress_bar.empty()
+                
+                st.success(f"✅ Model retrained successfully with {total_matches} matches!")
+                st.info("📊 The model is now up-to-date. Refresh the page to use the new model.")
+                
+                st.cache_resource.clear()
+                
+            except Exception as e:
+                st.error(f"❌ Retraining failed: {e}")
+                st.warning("💡 Try refreshing league data first, then retrain.")
+    
+    # Show last training date
+    try:
+        import os
+        from datetime import datetime
+        if os.path.exists('ml_model.pkl'):
+            mod_time = os.path.getmtime('ml_model.pkl')
+            last_trained = datetime.fromtimestamp(mod_time).strftime('%d.%m.%Y %H:%M')
+            st.caption(f"🕐 Last trained: {last_trained}")
+        else:
+            st.caption("⚠️ Model not found - please retrain!")
+    except:
+        pass
+    
+    st.markdown("---")
+    st.markdown("""
+        <div style='text-align: center; font-size: 0.8em; color: gray;'>
+            <p>BTTS Pro Analyzer v2.0</p>
+            <p>Powered by ML 🤖</p>
+        </div>
+    """, unsafe_allow_html=True)
 
 # Main content tabs
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
@@ -187,37 +371,9 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
 with tab1:
     st.header("🔥 Premium Tips - Highest Confidence")
     
-    # INLINE FILTERS (ersetzt Sidebar)
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        select_all = st.checkbox("Alle Ligen", value=False, key="tab1_all")
-    with col2:
-        if select_all:
-            selected_leagues = available_leagues
-            st.caption(f"✅ Alle {len(available_leagues)} Ligen")
-        else:
-            selected_leagues = st.multiselect(
-                "Ligen auswählen",
-                options=available_leagues,
-                default=['BL1', 'PL', 'PD'] if all(l in available_leagues for l in ['BL1', 'PL', 'PD']) else available_leagues[:3],
-                key="tab1_leagues",
-                label_visibility="collapsed"
-            )
+    st.info(f"💡 Filtering for BTTS ≥ {min_probability}% AND Confidence ≥ {min_confidence}% (adjust in sidebar)")
     
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
-    with col1:
-        min_probability = st.number_input("Min BTTS %", 50, 90, 60, 5, key="tab1_btts")
-    with col2:
-        min_confidence = st.number_input("Min Conf %", 50, 95, 60, 5, key="tab1_conf")
-    with col3:
-        days_ahead = st.number_input("Tage", 1, 14, 7, key="tab1_days")
-    with col4:
-        st.write("")
-        analyze_btn = st.button("🔍 Analyze Matches", key="analyze_top", type="primary", use_container_width=True)
-    
-    st.markdown("---")
-    
-    if analyze_btn and selected_leagues:
+    if st.button("🔍 Analyze Matches", key="analyze_top"):
         # Create Progress Bar
         progress = ModernProgressBar(
             total_items=len(selected_leagues),
@@ -329,14 +485,11 @@ with tab2:
     if 'all_results' in st.session_state and st.session_state['all_results'] is not None:
         df = st.session_state['all_results']
         
-        # Inline filter for this tab
-        min_conf_tab2 = st.slider("Min Confidence %", 50, 90, 55, 5, key="tab2_conf")
-        
         # Apply confidence filter
-        df_filtered = df[df['Conf_num'] >= min_conf_tab2].copy()
+        df_filtered = df[df['Conf_num'] >= min_confidence].copy()
         
         if not df_filtered.empty:
-            st.success(f"📋 Showing {len(df_filtered)} matches (filtered by confidence ≥{min_conf_tab2}%)")
+            st.success(f"📋 Showing {len(df_filtered)} matches (filtered by confidence ≥{min_confidence}%)")
             
             # Display as table
             display_df = df_filtered[[
@@ -388,7 +541,7 @@ with tab2:
             st.plotly_chart(fig, use_container_width=True)
             
         else:
-            st.warning(f"No matches meet confidence threshold of {min_conf_tab2}%")
+            st.warning(f"No matches meet confidence threshold of {min_confidence}%")
     else:
         st.info("👆 Click 'Analyze Matches' in the Top Tips tab to load recommendations")
 
@@ -1117,19 +1270,11 @@ with tab8:
                             alert_system.telegram_token = st.session_state.tg_token
                             alert_system.telegram_chat_id = st.session_state.tg_chat
                 
-                # Get league IDs
-                league_ids = [
-                    78, 39, 140, 135, 61, 88, 94, 203, 40, 79, 262, 71,  # Top leagues
-                    2, 3, 848,  # European cups
-                    179, 144, 207, 218,  # EU Expansion
-                    265, 330, 165, 188, 89, 209, 113, 292, 301  # Goal festivals
-                ]
-                
-                # Get live matches
-                live_matches = alert_system.get_live_matches(league_ids)
+                # Get ALL live matches (no league filter!)
+                live_matches = alert_system.get_live_matches(None)  # None = ALL leagues
                 
                 if live_matches:
-                    st.success(f"✅ Found {len(live_matches)} live matches in our leagues!")
+                    st.success(f"✅ Found {len(live_matches)} live matches worldwide!")
                     
                     # Check each match for red cards
                     red_cards_found = []
@@ -1319,7 +1464,7 @@ with tab8:
                     else:
                         st.info("✅ No red cards in current live matches")
                 else:
-                    st.warning("⚠️ No live matches at the moment in our leagues")
+                    st.warning("⚠️ No live matches at the moment")
                     st.info("Try again when there are live matches!")
                     
             except ImportError as e:
