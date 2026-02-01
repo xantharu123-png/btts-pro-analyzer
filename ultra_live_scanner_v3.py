@@ -1,21 +1,18 @@
 """
-ULTRA LIVE SCANNER V3.1 - VOLLSTÄNDIG VERBESSERTE VERSION
-==========================================================
+ULTRA LIVE SCANNER V3.0 - MATHEMATISCH KORRIGIERTE VERSION
 
-🔧 VERBESSERUNGEN V3.1:
-1. ✅ Liga-spezifische xG Baselines (statt fixer 1.5/1.0)
-2. ✅ Next Goal 50% Problem behoben (Fallback wenn xG=0)
-3. ✅ Team-spezifische historische xG-Raten
-4. ✅ Verbesserte Desperation-Faktoren
-5. ✅ Red Card Impact
-6. ✅ Bessere Data Quality Tracking
+🔧 KORREKTUREN DURCHGEFÜHRT:
+1. ✅ No-Goal Probability: Jetzt Poisson-basiert statt willkürlich
+2. ✅ BTTS Adjustments: Reduziert von 5% auf 2%, Score-Adj entfernt
+3. ✅ Over/Under Formula: Vereinfacht und mathematisch klarer
+4. ✅ Frühe Minuten: Verbesserte Baseline für Minuten < 20
 
 KERNFORMEL (Poisson-basiert):
 - P(Team scores) = 1 - e^(-xG)
 - P(BTTS) = P(Home scores) × P(Away scores)
 - P(No Goal) = e^(-remaining_xG)
 
-ALLE BERECHNUNGEN SIND MATHEMATISCH FUNDIERT!
+ALLE BERECHNUNGEN SIND JETZT MATHEMATISCH FUNDIERT!
 """
 
 import streamlit as st
@@ -32,90 +29,27 @@ class UltraLiveScanner:
     """
     Mathematisch korrekte BTTS-Vorhersage
     Basiert auf Poisson-Verteilung und xG
-    
-    VERBESSERUNGEN V3.1:
-    - Liga-spezifische xG Baselines
-    - Historische xG-Fallbacks wenn API keine Daten liefert
-    - Team-spezifische Scoring-Raten
     """
-    
-    # Liga-spezifische xG Baselines (pro 90 Min) - validiert aus 10,000+ Spielen
-    LEAGUE_XG_BASELINES = {
-        78: {'home': 1.70, 'away': 1.38},   # Bundesliga (torreich)
-        39: {'home': 1.55, 'away': 1.27},   # Premier League
-        140: {'home': 1.45, 'away': 1.23},  # La Liga (defensiver)
-        135: {'home': 1.48, 'away': 1.23},  # Serie A
-        61: {'home': 1.52, 'away': 1.25},   # Ligue 1
-        88: {'home': 1.72, 'away': 1.43},   # Eredivisie (sehr torreich)
-        94: {'home': 1.45, 'away': 1.20},   # Primeira Liga
-        203: {'home': 1.58, 'away': 1.30},  # Süper Lig
-        2: {'home': 1.50, 'away': 1.35},    # Champions League
-        3: {'home': 1.48, 'away': 1.30},    # Europa League
-        848: {'home': 1.52, 'away': 1.28},  # Conference League
-        40: {'home': 1.52, 'away': 1.23},   # Championship
-        79: {'home': 1.62, 'away': 1.33},   # Bundesliga 2
-        41: {'home': 1.48, 'away': 1.22},   # League One
-        42: {'home': 1.45, 'away': 1.20},   # League Two
-        141: {'home': 1.42, 'away': 1.18},  # La Liga 2
-        136: {'home': 1.45, 'away': 1.20},  # Serie B
-        62: {'home': 1.48, 'away': 1.22},   # Ligue 2
-        4: {'home': 1.35, 'away': 1.15},    # Euro Qualifiers
-        5: {'home': 1.40, 'away': 1.20},    # World Cup Qualifiers
-    }
-    
-    # Default Baseline
-    DEFAULT_XG_BASELINE = {'home': 1.50, 'away': 1.25}
     
     def __init__(self, analyzer, api_football):
         self.analyzer = analyzer
         self.api_football = api_football
         self.match_data_cache = defaultdict(dict)
-        self.team_xg_cache = {}  # Cache für Team-spezifische xG-Raten
-    
-    def _get_league_baseline(self, league_id: int) -> dict:
-        """Get league-specific xG baseline"""
-        return self.LEAGUE_XG_BASELINES.get(league_id, self.DEFAULT_XG_BASELINE)
-    
-    def _get_team_historical_xg(self, team_id: int, is_home: bool) -> float:
-        """Get historical xG rate for team (cached)"""
-        cache_key = f"{team_id}_{is_home}"
-        if cache_key in self.team_xg_cache:
-            return self.team_xg_cache[cache_key]
-        
-        # Try to get from API
-        try:
-            stats = self.api_football.get_team_statistics(team_id)
-            if stats:
-                if is_home:
-                    xg_rate = stats.get('goals_for_home_avg', 1.5)
-                else:
-                    xg_rate = stats.get('goals_for_away_avg', 1.2)
-                self.team_xg_cache[cache_key] = xg_rate
-                return xg_rate
-        except:
-            pass
-        
-        # Fallback to default
-        return 1.5 if is_home else 1.2
     
     def analyze_live_match_ultra(self, match: Dict) -> Optional[Dict]:
         """
-        VERBESSERTE Live-Analyse V3.1
-        - Liga-spezifische Baselines
-        - Team-spezifische Fallbacks
+        KORRIGIERTE Live-Analyse mit mathematisch fundierter BTTS-Berechnung
         """
         try:
             fixture = match['fixture']
             teams = match['teams']
             goals = match['goals']
-            league = match.get('league', {})
             
             fixture_id = fixture['id']
             home_team = teams['home']['name']
             away_team = teams['away']['name']
             home_team_id = teams['home']['id']
             away_team_id = teams['away']['id']
-            league_id = league.get('id')
             
             minute = fixture['status']['elapsed'] or 0
             home_score = goals['home'] if goals['home'] is not None else 0
@@ -124,14 +58,13 @@ class UltraLiveScanner:
             
             print(f"\n{'='*60}")
             print(f"🔍 ANALYZING: {home_team} vs {away_team}")
-            print(f"   League: {league.get('name', 'Unknown')} (ID: {league_id})")
             print(f"   Minute: {minute}' | Score: {score}")
             print(f"{'='*60}")
             
             # Get live statistics
             stats = self.api_football.get_match_statistics(fixture_id)
             
-            # Extract xG
+            # Extract xG - ensure float conversion!
             xg_home = 0.0
             xg_away = 0.0
             
@@ -161,10 +94,28 @@ class UltraLiveScanner:
                 xg_away = shots_away * 0.08 + shots_target_away * 0.25
                 print(f"   xG (geschätzt): {xg_home:.2f} - {xg_away:.2f}")
             
-            # BTTS BERECHNUNG
+            # 🔧 FIX: Wenn IMMER NOCH keine xG, verwende realistische Baseline!
+            # Durchschnittliches Spiel hat ~2.5 Tore = 1.4 Home, 1.1 Away xG über 90 Min
+            if xg_home == 0 and xg_away == 0 and minute > 0:
+                # Schätze xG basierend auf Spielminute und Ergebnis
+                xg_per_minute_home = 1.4 / 90  # ~0.0156 xG/min für Heim
+                xg_per_minute_away = 1.1 / 90  # ~0.0122 xG/min für Auswärts
+                
+                # Basis xG basierend auf Zeit
+                xg_home = xg_per_minute_home * minute
+                xg_away = xg_per_minute_away * minute
+                
+                # Wenn ein Team getroffen hat, hat es mindestens diese xG
+                if home_score > 0:
+                    xg_home = max(xg_home, home_score * 0.8)  # Min 0.8 xG pro Tor
+                if away_score > 0:
+                    xg_away = max(xg_away, away_score * 0.8)
+                
+                print(f"   xG (FALLBACK aus Zeit): {xg_home:.2f} - {xg_away:.2f}")
+            
+            # BTTS BERECHNUNG (Poisson!)
             btts_result = self._calculate_btts_probability(
-                home_score, away_score, xg_home, xg_away, minute,
-                league_id=league_id
+                home_score, away_score, xg_home, xg_away, minute
             )
             
             btts_prob = btts_result['probability']
@@ -175,12 +126,10 @@ class UltraLiveScanner:
             print(f"   P(Home scores): {btts_result['p_home_scores']:.1f}%")
             print(f"   P(Away scores): {btts_result['p_away_scores']:.1f}%")
             print(f"   P(BTTS): {btts_prob:.1f}%")
-            print(f"   Data Quality: {btts_result.get('data_quality', 'N/A')}")
             
             # OVER/UNDER BERECHNUNG
             ou_result = self._calculate_over_under(
-                home_score, away_score, xg_home, xg_away, minute,
-                league_id=league_id
+                home_score, away_score, xg_home, xg_away, minute
             )
             
             print(f"\n📊 OVER/UNDER:")
@@ -189,19 +138,15 @@ class UltraLiveScanner:
             
             # NEXT GOAL BERECHNUNG
             ng_result = self._calculate_next_goal(
-                home_score, away_score, xg_home, xg_away, minute, stats,
-                league_id=league_id,
-                home_team_id=home_team_id,
-                away_team_id=away_team_id
+                home_score, away_score, xg_home, xg_away, minute, stats
             )
             
             print(f"\n📊 NEXT GOAL:")
             print(f"   Home: {ng_result['home_prob']:.1f}%")
             print(f"   Away: {ng_result['away_prob']:.1f}%")
-            print(f"   No Goal: {ng_result['no_goal_prob']:.1f}%")
-            print(f"   Data Source: {ng_result.get('data_source', 'N/A')}")
             
             print(f"\n💰 FINAL: BTTS {btts_prob:.1f}% | O/U {ou_result['recommendation']}")
+            print(f"{'='*60}\n")
             
             return {
                 'fixture_id': fixture_id,
@@ -209,34 +154,48 @@ class UltraLiveScanner:
                 'away_team': away_team,
                 'home_team_id': home_team_id,
                 'away_team_id': away_team_id,
-                'league_id': league_id,
-                'league': league.get('name', 'Unknown'),
                 'minute': minute,
                 'score': score,
                 'home_score': home_score,
                 'away_score': away_score,
-                'xg_home': xg_home,
-                'xg_away': xg_away,
-                
-                # Nested structure (V3.1)
-                'btts': {
-                    'probability': btts_prob,
-                    'confidence': btts_confidence,
-                    'recommendation': btts_recommendation,
-                    'p_home_scores': btts_result['p_home_scores'],
-                    'p_away_scores': btts_result['p_away_scores'],
-                    'data_quality': btts_result.get('data_quality', 'UNKNOWN')
-                },
-                
-                # BACKWARDS COMPATIBILITY: Flat keys for btts_pro_app.py
-                'btts_prob': btts_prob,
+                'btts_prob': round(btts_prob, 1),
                 'btts_confidence': btts_confidence,
                 'btts_recommendation': btts_recommendation,
-                
-                'over_under': ou_result,
-                'next_goal': ng_result,
-                'phase': self._get_phase(minute),
-                'timestamp': datetime.now().isoformat()
+                'over_under': {
+                    'expected_total_goals': ou_result['expected_total'],
+                    'over_25_probability': ou_result['over_25_prob'],
+                    'thresholds': ou_result['thresholds'],
+                    'recommendation': ou_result['recommendation'],
+                    'confidence': ou_result['confidence']
+                },
+                'next_goal': {
+                    'home_prob': ng_result['home_prob'],  # ← FIXED!
+                    'away_prob': ng_result['away_prob'],  # ← FIXED!
+                    'no_goal_prob': ng_result['no_goal_prob'],
+                    'favorite': ng_result['favorite'],
+                    'edge': ng_result['edge'],
+                    'recommendation': ng_result['recommendation'],
+                    'confidence': ng_result['confidence']
+                },
+                'league': match['league']['name'],
+                'breakdown': {
+                    'base': btts_result['base_prob'],
+                    'xg_home': xg_home,
+                    'xg_away': xg_away,
+                    'time_factor': btts_result['time_factor'],
+                    'score': btts_result['score_adj'],
+                    'momentum': 0,
+                    'xg_velocity': 0,
+                    'game_phase': self._get_phase(minute),
+                    'dangerous_attacks': 0,
+                    'goalkeeper_saves': 0,
+                    'corners': 0,
+                    'cards': 0
+                },
+                'stats': stats,
+                'xg_data': {'home_xg': xg_home, 'away_xg': xg_away},
+                'momentum_data': {},
+                'phase_data': {'phase': self._get_phase(minute)}
             }
         
         except Exception as e:
@@ -247,88 +206,91 @@ class UltraLiveScanner:
     
     def _calculate_btts_probability(self, home_score: int, away_score: int,
                                     xg_home: float, xg_away: float, 
-                                    minute: int,
-                                    league_id: int = None) -> Dict:
+                                    minute: int) -> Dict:
         """
         MATHEMATISCH KORREKTE BTTS-Berechnung mit Poisson
-        
-        VERBESSERUNGEN V3.1:
-        - Liga-spezifische xG Baselines
-        - Bessere frühe-Minuten Handling
         
         Formel: P(BTTS) = P(Home ≥ 1) × P(Away ≥ 1)
         Wobei: P(X ≥ 1) = 1 - e^(-λ)
         """
         
-        # BTTS bereits eingetreten
+        # BTTS bereits eingetreten - KEINE WETTEMPFEHLUNG!
         if home_score > 0 and away_score > 0:
             return {
                 'probability': 100.0,
-                'confidence': 'COMPLETE',
+                'confidence': 'COMPLETE',  # GEÄNDERT: COMPLETE statt ALREADY_HIT
                 'p_home_scores': 100.0,
                 'p_away_scores': 100.0,
                 'base_prob': 100.0,
                 'time_factor': 1.0,
                 'score_adj': 0,
-                'is_complete': True,
-                'message': '✅ BTTS bereits eingetreten - keine Wette mehr möglich!',
-                'data_quality': 'COMPLETE'
+                'is_complete': True,  # Flag für UI
+                'message': '✅ BTTS bereits eingetreten - keine Wette mehr möglich!'
             }
+        
+        # Ein Team hat noch nicht getroffen - HIER ist die Wette interessant!
+        home_needs_goal = (home_score == 0)
+        away_needs_goal = (away_score == 0)
         
         time_remaining = max(1, 90 - minute)
         time_factor = time_remaining / 90.0
         
-        # Liga-spezifische Baselines
-        baseline = self._get_league_baseline(league_id) if league_id else self.DEFAULT_XG_BASELINE
+        # 🔧 FIX: Stelle sicher dass xG nie 0 ist (unrealistisch!)
+        # Minimum-Baseline: Durchschnittliches Team erzielt ~1.2 xG/90
+        if xg_home <= 0:
+            xg_home = (1.4 / 90) * minute  # Heim-Baseline
+        if xg_away <= 0:
+            xg_away = (1.1 / 90) * minute  # Auswärts-Baseline
         
-        # xG Projektion
+        # 🔧 VERBESSERTE xG Projektion
         if minute > 10:
             xg_rate_home = xg_home / minute * 90
             xg_rate_away = xg_away / minute * 90
         else:
-            xg_rate_home = max(xg_home, baseline['home'] * 0.8)
-            xg_rate_away = max(xg_away, baseline['away'] * 0.8)
+            # Sehr frühe Phase (< 10 Min): Liga-Durchschnitt
+            xg_rate_home = max(xg_home, 1.2)
+            xg_rate_away = max(xg_away, 1.0)
         
-        # Bei frühen Spielminuten (< 20) verwende Minimum-Baseline
-        if minute < 20:
-            xg_rate_home = max(xg_rate_home, baseline['home'])
-            xg_rate_away = max(xg_rate_away, baseline['away'])
+        # 🔧 MINIMUM BASELINE - nie unter Liga-Durchschnitt!
+        xg_rate_home = max(xg_rate_home, 1.2)  # Min 1.2 xG/90 für Heim
+        xg_rate_away = max(xg_rate_away, 0.9)  # Min 0.9 xG/90 für Auswärts
         
         # Verbleibende erwartete Tore
         remaining_xg_home = xg_rate_home * time_factor
         remaining_xg_away = xg_rate_away * time_factor
         
+        # Debug
+        print(f"   BTTS calc: xg_rate={xg_rate_home:.2f}/{xg_rate_away:.2f}, remaining={remaining_xg_home:.2f}/{remaining_xg_away:.2f}")
+        
         # Berechnung je nach aktuellem Spielstand
         if home_score == 0 and away_score == 0:
+            # 0-0: Beide müssen noch treffen
             p_home_scores = self._poisson_at_least_one(remaining_xg_home)
             p_away_scores = self._poisson_at_least_one(remaining_xg_away)
             base_prob = p_home_scores * p_away_scores / 100
             
         elif home_score > 0:
+            # X-0: Nur Away muss noch treffen
             p_home_scores = 100.0
             p_away_scores = self._poisson_at_least_one(remaining_xg_away)
             base_prob = p_away_scores
             
         else:
+            # 0-X: Nur Home muss noch treffen
             p_home_scores = self._poisson_at_least_one(remaining_xg_home)
             p_away_scores = 100.0
             base_prob = p_home_scores
         
-        # Phase Boost (nur 2% in Schlussphase)
+        # 🔧 FIX: Reduzierte Adjustments (mathematisch konservativ!)
+        # Phase Boost: 2% statt 5% (nur extreme Schlussphase)
         phase_boost = 2 if minute >= 75 else 0
         
-        final_prob = max(5, min(95, base_prob + phase_boost))
+        # Score Adjustment: ENTFERNT (keine mathematische Basis)
+        score_adj = 0
         
-        # Confidence basierend auf Datenqualität
-        if xg_home > 0 and xg_away > 0 and minute >= 30:
-            confidence = 'HIGH'
-            data_quality = 'LIVE_XG'
-        elif xg_home > 0 or xg_away > 0:
-            confidence = 'MEDIUM'
-            data_quality = 'PARTIAL_XG'
-        else:
-            confidence = 'LOW'
-            data_quality = 'BASELINE_ONLY'
+        final_prob = max(5, min(95, base_prob + phase_boost + score_adj))
+        
+        confidence = 'HIGH' if (xg_home > 0 and xg_away > 0 and minute >= 30) else 'MEDIUM'
         
         return {
             'probability': final_prob,
@@ -337,8 +299,7 @@ class UltraLiveScanner:
             'p_away_scores': p_away_scores,
             'base_prob': base_prob,
             'time_factor': time_factor,
-            'score_adj': phase_boost,
-            'data_quality': data_quality
+            'score_adj': score_adj + phase_boost
         }
     
     def _poisson_at_least_one(self, expected_goals: float) -> float:
@@ -351,25 +312,36 @@ class UltraLiveScanner:
         return max(5.0, min(95.0, (1 - p_zero) * 100))
     
     def _calculate_over_under(self, home_score: int, away_score: int,
-                              xg_home: float, xg_away: float, minute: int,
-                              league_id: int = None) -> Dict:
-        """VERBESSERTE Over/Under Berechnung mit Liga-Baselines"""
+                              xg_home: float, xg_away: float, minute: int) -> Dict:
+        """🔧 VEREINFACHTE Over/Under Berechnung - Mathematisch klarer!"""
         current_goals = home_score + away_score
+        
+        # 🔧 FIX: Stelle sicher dass xG nie 0 ist!
+        if xg_home <= 0:
+            xg_home = (1.4 / 90) * minute
+        if xg_away <= 0:
+            xg_away = (1.1 / 90) * minute
+        
         current_xg = xg_home + xg_away
         
         time_remaining = max(1, 90 - minute)
         time_factor = time_remaining / 90.0
         
-        # Liga-Baseline
-        baseline = self._get_league_baseline(league_id) if league_id else self.DEFAULT_XG_BASELINE
-        league_total = baseline['home'] + baseline['away']
-        
+        # 🔧 FIX: EINFACHERE & KLARERE FORMEL
         if minute > 10:
+            # Project xG to full 90 minutes
             xg_rate = current_xg / minute * 90
         else:
-            xg_rate = max(current_xg, league_total)
+            # Early game: use league average baseline
+            xg_rate = max(current_xg, 2.5)
         
-        remaining_xg = (xg_rate - current_xg) * time_factor
+        # 🔧 MINIMUM BASELINE - nie unter Liga-Durchschnitt!
+        xg_rate = max(xg_rate, 2.3)  # Min 2.3 Tore/Spiel
+        
+        # Calculate remaining expected goals
+        remaining_xg = xg_rate * time_factor
+        
+        # Expected total = current + remaining
         expected_total = current_goals + remaining_xg
         expected_total = max(current_goals, min(8.0, expected_total))
         
@@ -424,14 +396,8 @@ class UltraLiveScanner:
                 break
         
         return {
-            # New keys
             'expected_total': round(expected_total, 2),
             'over_25_prob': over_25_prob,
-            
-            # BACKWARDS COMPATIBILITY: Keys expected by display
-            'expected_total_goals': round(expected_total, 2),
-            'over_25_probability': over_25_prob,
-            
             'thresholds': thresholds,
             'recommendation': best_rec,
             'confidence': 'HIGH' if minute >= 30 and current_xg > 0 else 'MEDIUM'
@@ -447,83 +413,45 @@ class UltraLiveScanner:
     
     def _calculate_next_goal(self, home_score: int, away_score: int,
                              xg_home: float, xg_away: float,
-                             minute: int, stats: Dict,
-                             league_id: int = None,
-                             home_team_id: int = None,
-                             away_team_id: int = None) -> Dict:
-        """
-        Next Goal Vorhersage - VERBESSERT V3.1
-        
-        VERBESSERUNGEN:
-        - Liga-spezifische Fallbacks wenn xG = 0
-        - Team-spezifische historische xG-Raten
-        - Bessere Desperation-Faktoren
-        - Red Card Impact
-        """
+                             minute: int, stats: Dict) -> Dict:
+        """Next Goal Vorhersage - MATHEMATISCH KORRIGIERT mit Poisson"""
         time_remaining = max(1, 90 - minute)
         time_factor = time_remaining / 90.0
         total_xg = xg_home + xg_away
-        
-        # 🔧 FIX: Wenn xG = 0, nutze Liga-Baseline statt 50/50!
-        data_source = 'LIVE_XG'
-        if total_xg <= 0.1:
-            data_source = 'HISTORICAL_FALLBACK'
-            baseline = self._get_league_baseline(league_id) if league_id else self.DEFAULT_XG_BASELINE
-            
-            if home_team_id and away_team_id:
-                fallback_home = self._get_team_historical_xg(home_team_id, is_home=True)
-                fallback_away = self._get_team_historical_xg(away_team_id, is_home=False)
-            else:
-                fallback_home = baseline['home']
-                fallback_away = baseline['away']
-            
-            xg_home = fallback_home * time_factor
-            xg_away = fallback_away * time_factor
-            total_xg = xg_home + xg_away
         
         # Anteile basierend auf xG
         if total_xg > 0:
             home_share = xg_home / total_xg
             away_share = xg_away / total_xg
         else:
-            home_share, away_share = 0.55, 0.45
+            home_share, away_share = 0.55, 0.45  # Leichter Heimvorteil
         
-        # No-Goal Wahrscheinlichkeit
-        baseline = self._get_league_baseline(league_id) if league_id else self.DEFAULT_XG_BASELINE
-        
+        # 🔧 FIX: MATHEMATISCH KORREKTE No-Goal Wahrscheinlichkeit
+        # Formel: P(0 Tore) = e^(-λ) mit Poisson
         if minute > 10:
-            xg_rate = total_xg / minute * 90
+            xg_rate = total_xg / minute * 90  # Projected total xG
         else:
-            xg_rate = max(total_xg, baseline['home'] + baseline['away'])
+            xg_rate = max(total_xg, 2.5)  # Liga-Durchschnitt für frühe Minuten
         
         remaining_xg = (xg_rate - total_xg) * time_factor
-        remaining_xg = max(0.3, remaining_xg)
         
-        no_goal_prob = math.exp(-remaining_xg) * 100
-        no_goal_prob = max(5.0, min(60.0, no_goal_prob))
+        # Poisson: P(0 goals) = e^(-λ)
+        if remaining_xg > 0:
+            no_goal_prob = math.exp(-remaining_xg) * 100
+            no_goal_prob = max(5.0, min(70.0, no_goal_prob))  # Cap at 5-70%
+        else:
+            no_goal_prob = 60.0
         
         goal_prob = 100 - no_goal_prob
         home_prob = goal_prob * home_share
         away_prob = goal_prob * away_share
         
-        # Desperation-Faktoren
-        if minute >= 60:
-            score_diff = home_score - away_score
-            desperation_factor = min(10, (minute - 60) / 6)
-            
-            if score_diff < 0:
-                home_prob += desperation_factor
-            elif score_diff > 0:
-                away_prob += desperation_factor
-            
-            # Red card impact
-            if stats:
-                home_reds = stats.get('red_cards_home', 0) or 0
-                away_reds = stats.get('red_cards_away', 0) or 0
-                if home_reds > away_reds:
-                    away_prob += 5
-                elif away_reds > home_reds:
-                    home_prob += 5
+        # Desperation-Faktor
+        if minute >= 70:
+            if home_score < away_score:
+                home_prob += 5
+            elif away_score < home_score:
+                away_prob += 5
         
         # Normalisieren
         total = home_prob + away_prob + no_goal_prob
@@ -534,12 +462,10 @@ class UltraLiveScanner:
         favorite = 'HOME' if home_prob > away_prob else 'AWAY'
         edge = abs(home_prob - away_prob)
         
-        if max(home_prob, away_prob) >= 55 and edge >= 25:
-            rec = f'🔥🔥 {favorite} NEXT GOAL! ({edge:.0f}% Edge)'
-        elif max(home_prob, away_prob) >= 50 and edge >= 15:
+        if max(home_prob, away_prob) >= 50 and edge >= 20:
             rec = f'🔥 {favorite} NEXT GOAL!'
-        elif edge < 8:
-            rec = '⚠️ ZU KNAPP - Kein Vorteil'
+        elif edge < 10:
+            rec = '⚠️ ZU KNAPP'
         else:
             rec = f'✅ {favorite} leichter Vorteil'
         
@@ -550,8 +476,7 @@ class UltraLiveScanner:
             'favorite': favorite,
             'edge': round(edge, 1),
             'recommendation': rec,
-            'confidence': 'HIGH' if total_xg > 0.5 else 'MEDIUM',
-            'data_source': data_source
+            'confidence': 'HIGH' if total_xg > 0.5 else 'MEDIUM'
         }
     
     def _get_btts_recommendation(self, prob: float, confidence: str, 
@@ -579,68 +504,31 @@ class UltraLiveScanner:
         elif minute < 60:
             return 'POST_HT_RESET'
         elif minute < 75:
-            return 'PRESSURE'
+            return 'DECISION_TIME'
         else:
-            return 'FINALE'
-    
-    def scan_live_matches(self, min_btts_prob: float = 60.0) -> List[Dict]:
-        """Scan all live matches and return promising ones"""
-        results = []
-        
-        try:
-            live_matches = self.api_football.get_live_matches()
-            
-            if not live_matches:
-                print("⚠️ Keine Live-Spiele gefunden")
-                return []
-            
-            for match in live_matches:
-                analysis = self.analyze_live_match_ultra(match)
-                
-                if analysis and analysis['btts']['probability'] >= min_btts_prob:
-                    results.append(analysis)
-            
-            # Sort by probability
-            results.sort(key=lambda x: x['btts']['probability'], reverse=True)
-            
-        except Exception as e:
-            print(f"❌ Scan Error: {e}")
-        
-        return results
+            return 'DESPERATE'
 
-
-# =============================================================================
-# STREAMLIT DISPLAY FUNCTION
-# =============================================================================
 
 def display_ultra_opportunity(match: Dict):
-    """Display für Streamlit - handles both old and new data structure"""
-    import streamlit as st
-    
-    # Handle both old and new phase format
-    phase = match.get('phase', match.get('breakdown', {}).get('game_phase', 'UNKNOWN'))
+    """Display für Streamlit"""
+    phase = match.get('breakdown', {}).get('game_phase', 'UNKNOWN')
     
     st.markdown(f"### 🔴 LIVE - {match['minute']}' | {phase}")
     st.markdown(f"**{match['home_team']} vs {match['away_team']}**")
-    st.caption(f"{match.get('league', 'Unknown')} | Score: {match['score']}")
+    st.caption(f"{match['league']} | Score: {match['score']}")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        # Handle both flat and nested structure
-        if 'btts_prob' in match:
-            btts = match['btts_prob']
-            btts_confidence = match.get('btts_confidence', '')
-        else:
-            btts_data = match.get('btts', {})
-            btts = btts_data.get('probability', 50)
-            btts_confidence = btts_data.get('confidence', '')
+        btts = match['btts_prob']
+        btts_confidence = match.get('btts_confidence', '')
         
+        # Check ob BTTS bereits eingetreten ist
         if btts_confidence == 'COMPLETE':
             st.metric("BTTS", "✅ HIT", delta="Bereits eingetreten")
         else:
             delta = "🔥" if btts >= 70 else ("✅" if btts >= 50 else "⚠️")
-            st.metric("BTTS", f"{btts:.0f}%", delta=delta)
+            st.metric("BTTS", f"{btts}%", delta=delta)
     
     with col2:
         ou = match.get('over_under', {})
@@ -650,6 +538,7 @@ def display_ultra_opportunity(match: Dict):
     with col3:
         ng = match.get('next_goal', {})
         fav = ng.get('favorite', 'HOME')
+        # FIX: Use correct keys 'home_prob' and 'away_prob'!
         home_prob = ng.get('home_prob', 50)
         away_prob = ng.get('away_prob', 50)
         prob = home_prob if fav == 'HOME' else away_prob
@@ -659,24 +548,20 @@ def display_ultra_opportunity(match: Dict):
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        # Handle both flat and nested structure
-        if 'btts_recommendation' in match:
-            rec = match['btts_recommendation']
+        rec = match['btts_recommendation']
+        # Unterschiedliche Farbe für COMPLETE vs echte Wette
+        if 'COMPLETE' in rec:
+            st.info(f"⚽ {rec}")  # Blau für "bereits eingetreten"
+        elif '🔥' in rec:
+            st.success(f"⚽ {rec}")  # Grün für gute Wette
         else:
-            rec = match.get('btts', {}).get('recommendation', 'N/A')
-        
-        if 'COMPLETE' in str(rec):
-            st.info(f"⚽ {rec}")
-        elif '🔥' in str(rec):
-            st.success(f"⚽ {rec}")
-        else:
-            st.info(f"⚽ {rec}")
+            st.info(f"⚽ {rec}")  # Blau für andere
     with col2:
         ou_rec = ou.get('recommendation', 'N/A')
-        (st.success if '🔥' in str(ou_rec) else st.info)(f"🎲 {ou_rec}")
+        (st.success if '🔥' in ou_rec else st.info)(f"🎲 {ou_rec}")
     with col3:
         ng_rec = ng.get('recommendation', 'N/A')
-        (st.success if '🔥' in str(ng_rec) else st.info)(f"🎯 {ng_rec}")
+        (st.success if '🔥' in ng_rec else st.info)(f"🎯 {ng_rec}")
 
 
 __all__ = ['UltraLiveScanner', 'display_ultra_opportunity']
