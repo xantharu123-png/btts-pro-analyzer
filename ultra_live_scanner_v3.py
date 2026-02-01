@@ -80,8 +80,8 @@ class UltraLiveScanner:
                 if stats.get('shots_home'):
                     print(f"   Shots: {stats['shots_home']}-{stats['shots_away']}")
             
-            # Wenn keine xG, schätze aus Schüssen
-            if xg_home == 0 and stats:
+            # Wenn keine xG, schätze aus Schüssen - FIX: Prüfe JEDEN Wert einzeln!
+            if stats:
                 try:
                     shots_home = int(stats.get('shots_home') or 0)
                     shots_away = int(stats.get('shots_away') or 0)
@@ -90,28 +90,24 @@ class UltraLiveScanner:
                 except (ValueError, TypeError):
                     shots_home = shots_away = shots_target_home = shots_target_away = 0
                 
-                xg_home = shots_home * 0.08 + shots_target_home * 0.25
-                xg_away = shots_away * 0.08 + shots_target_away * 0.25
-                print(f"   xG (geschätzt): {xg_home:.2f} - {xg_away:.2f}")
+                # FIX: Schätze JEDEN xG einzeln wenn 0 (nicht nur wenn beide 0!)
+                if xg_home == 0 and (shots_home > 0 or shots_target_home > 0):
+                    xg_home = shots_home * 0.10 + shots_target_home * 0.33  # Erhöhte Koeffizienten!
+                    print(f"   xG Home (aus Schüssen): {xg_home:.2f}")
+                if xg_away == 0 and (shots_away > 0 or shots_target_away > 0):
+                    xg_away = shots_away * 0.10 + shots_target_away * 0.33  # Erhöhte Koeffizienten!
+                    print(f"   xG Away (aus Schüssen): {xg_away:.2f}")
             
             # 🔧 FIX: Wenn IMMER NOCH keine xG, verwende realistische Baseline!
-            # Durchschnittliches Spiel hat ~2.5 Tore = 1.4 Home, 1.1 Away xG über 90 Min
-            if xg_home == 0 and xg_away == 0 and minute > 0:
-                # Schätze xG basierend auf Spielminute und Ergebnis
-                xg_per_minute_home = 1.4 / 90  # ~0.0156 xG/min für Heim
-                xg_per_minute_away = 1.1 / 90  # ~0.0122 xG/min für Auswärts
-                
-                # Basis xG basierend auf Zeit
-                xg_home = xg_per_minute_home * minute
-                xg_away = xg_per_minute_away * minute
-                
-                # Wenn ein Team getroffen hat, hat es mindestens diese xG
-                if home_score > 0:
-                    xg_home = max(xg_home, home_score * 0.8)  # Min 0.8 xG pro Tor
-                if away_score > 0:
-                    xg_away = max(xg_away, away_score * 0.8)
-                
-                print(f"   xG (FALLBACK aus Zeit): {xg_home:.2f} - {xg_away:.2f}")
+            # Prüfe JEDEN Wert EINZELN (nicht nur wenn beide 0!)
+            if minute > 0:
+                if xg_home == 0:
+                    # Mindest-xG basierend auf Zeit oder Toren
+                    xg_home = max((1.4 / 90) * minute, home_score * 0.8 if home_score > 0 else 0.1)
+                    print(f"   xG Home (FALLBACK): {xg_home:.2f}")
+                if xg_away == 0:
+                    xg_away = max((1.1 / 90) * minute, away_score * 0.8 if away_score > 0 else 0.1)
+                    print(f"   xG Away (FALLBACK): {xg_away:.2f}")
             
             # BTTS BERECHNUNG (Poisson!)
             btts_result = self._calculate_btts_probability(
@@ -417,14 +413,18 @@ class UltraLiveScanner:
         """Next Goal Vorhersage - MATHEMATISCH KORRIGIERT mit Poisson"""
         time_remaining = max(1, 90 - minute)
         time_factor = time_remaining / 90.0
+        
+        # 🔧 FIX: Stelle sicher dass xG nie 0 ist!
+        if xg_home <= 0:
+            xg_home = max((1.4 / 90) * minute, 0.1)
+        if xg_away <= 0:
+            xg_away = max((1.1 / 90) * minute, 0.1)
+        
         total_xg = xg_home + xg_away
         
         # Anteile basierend auf xG
-        if total_xg > 0:
-            home_share = xg_home / total_xg
-            away_share = xg_away / total_xg
-        else:
-            home_share, away_share = 0.55, 0.45  # Leichter Heimvorteil
+        home_share = xg_home / total_xg
+        away_share = xg_away / total_xg
         
         # 🔧 FIX: MATHEMATISCH KORREKTE No-Goal Wahrscheinlichkeit
         # Formel: P(0 Tore) = e^(-λ) mit Poisson
@@ -433,7 +433,13 @@ class UltraLiveScanner:
         else:
             xg_rate = max(total_xg, 2.5)  # Liga-Durchschnitt für frühe Minuten
         
-        remaining_xg = (xg_rate - total_xg) * time_factor
+        # 🔧 FIX: Minimum Baseline auch für späte Minuten!
+        xg_rate = max(xg_rate, 2.3)  # Nie unter Liga-Durchschnitt
+        
+        # 🔧 FIX: Korrekte Formel! xg_rate * time_factor, NICHT (xg_rate - total_xg) * time_factor
+        remaining_xg = xg_rate * time_factor
+        
+        print(f"   Next Goal calc: xg_rate={xg_rate:.2f}, time_factor={time_factor:.2f}, remaining_xg={remaining_xg:.2f}")
         
         # Poisson: P(0 goals) = e^(-λ)
         if remaining_xg > 0:
