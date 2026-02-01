@@ -94,26 +94,39 @@ class BasketballScanner:
         """
         Get real-time Euroleague games
         """
-        try:
-            # Euroleague Live endpoint
-            url = f"{self.euroleague_api_base}/Games"
-            response = requests.get(url, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
+        # Try multiple endpoints
+        endpoints = [
+            f"{self.euroleague_api_base}/Games",
+            "https://api-live.euroleague.net/v1/games",
+            "https://feed.euroleague.net/v1/games"
+        ]
+        
+        for url in endpoints:
+            try:
+                response = requests.get(url, timeout=10, headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': 'application/json'
+                })
                 
-                live_games = []
-                for game in data:
-                    if game.get('Live', False):
-                        live_games.append(self._parse_euroleague_game(game))
-                
-                return live_games
-            else:
-                return []
-                
-        except Exception as e:
-            st.warning(f"Euroleague API currently unavailable: {e}")
-            return []
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    # Handle different response formats
+                    games_list = data if isinstance(data, list) else data.get('games', data.get('data', []))
+                    
+                    live_games = []
+                    for game in games_list:
+                        if game.get('Live', False) or game.get('live', False) or game.get('status') == 'live':
+                            live_games.append(self._parse_euroleague_game(game))
+                    
+                    return live_games
+                    
+            except Exception:
+                continue  # Try next endpoint
+        
+        # No endpoint worked
+        st.caption("ℹ️ Euroleague: No live games or API temporarily unavailable")
+        return []
     
     def _parse_euroleague_game(self, game: Dict) -> Dict:
         """Parse Euroleague game data"""

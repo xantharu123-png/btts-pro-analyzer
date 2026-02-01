@@ -20,9 +20,10 @@ class EsportsScanner:
     def __init__(self):
         self.pandascore_base = "https://api.pandascore.co"
         
+        # FIX: Correct Streamlit secrets syntax
         try:
-            self.api_key = st.secrets.get('esports', {}).get('pandascore_key', '')
-        except:
+            self.api_key = st.secrets['esports']['pandascore_key']
+        except Exception:
             self.api_key = ''
         
         self.headers = {

@@ -46,6 +46,7 @@ class TennisScanner:
     def get_live_matches(self) -> List[Dict]:
         """
         Get real-time tennis matches from Sofascore
+        Note: Sofascore may block cloud/server requests (403)
         """
         try:
             # Sofascore live tennis endpoint
@@ -65,12 +66,15 @@ class TennisScanner:
                             live_matches.append(match)
                 
                 return live_matches
+            elif response.status_code == 403:
+                st.caption("ℹ️ Tennis: Sofascore blocks cloud requests - try local deployment")
+                return []
             else:
-                st.error(f"Sofascore API Error: {response.status_code}")
+                st.caption(f"ℹ️ Tennis API: Status {response.status_code}")
                 return []
                 
         except Exception as e:
-            st.error(f"Error fetching tennis matches: {e}")
+            st.caption(f"ℹ️ Tennis: {str(e)[:40]}")
             return []
     
     def _parse_match(self, event: Dict) -> Optional[Dict]:
