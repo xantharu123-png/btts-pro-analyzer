@@ -1304,19 +1304,12 @@ with tab8:
                             alert_system.telegram_token = st.session_state.tg_token
                             alert_system.telegram_chat_id = st.session_state.tg_chat
                 
-                # Get league IDs
-                league_ids = [
-                    78, 39, 140, 135, 61, 88, 94, 203, 40, 79, 262, 71,  # Top leagues
-                    2, 3, 848,  # European cups
-                    179, 144, 207, 218,  # EU Expansion
-                    265, 330, 165, 188, 89, 209, 113, 292, 301  # Goal festivals
-                ]
-                
-                # Get live matches
-                live_matches = alert_system.get_live_matches(league_ids)
+                # 🔧 FIX: Scan ALL live matches worldwide, not just 28 leagues!
+                # Get live matches - None = ALL leagues
+                live_matches = alert_system.get_live_matches(None)
                 
                 if live_matches:
-                    st.success(f"✅ Found {len(live_matches)} live matches in our leagues!")
+                    st.success(f"✅ Found {len(live_matches)} live matches worldwide!")
                     
                     # Check each match for red cards
                     red_cards_found = []
@@ -1506,7 +1499,7 @@ with tab8:
                     else:
                         st.info("✅ No red cards in current live matches")
                 else:
-                    st.warning("⚠️ No live matches at the moment in our leagues")
+                    st.warning("⚠️ No live matches at the moment worldwide")
                     st.info("Try again when there are live matches!")
                     
             except ImportError as e:
