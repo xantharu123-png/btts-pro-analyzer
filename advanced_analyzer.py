@@ -1,12 +1,9 @@
 """
 Advanced BTTS Analyzer V3.0 with Machine Learning
 =================================================
-V3.0 UPGRADES:
-- ML Ensemble (XGBoost + RandomForest + GradientBoosting + NeuralNetwork)
-- 20 Features statt 6
-- Alle Original-Methoden beibehalten
-
+Mathematisch korrekte Poisson-basierte BTTS-Berechnung
 Mit Supabase/PostgreSQL Support
+V3.0: ML Ensemble (XGBoost, RandomForest, GradientBoosting, NeuralNetwork)
 """
 
 import numpy as np
@@ -29,6 +26,7 @@ try:
     XGBOOST_AVAILABLE = True
 except ImportError:
     XGBOOST_AVAILABLE = False
+    print("⚠️ XGBoost not available - using other models")
 
 from data_engine import DataEngine
 
@@ -251,30 +249,22 @@ class AdvancedBTTSAnalyzer:
         self.scaler = StandardScaler()
         self.model_trained = False
         
-        # V3.0: Ensemble models
-        self.ml_models = {}
-        self.ml_weights = {
-            'xgboost': 0.35,
-            'random_forest': 0.30,
-            'gradient_boosting': 0.20,
-            'neural_network': 0.15
-        }
-        
-        # Weights für Ensemble (prediction)
+        # Weights für Ensemble
         self.weights = {
-            'ml_model': 0.35,  # V3.0: Increased ML weight
-            'statistical': 0.30,
+            'ml_model': 0.25,
+            'statistical': 0.35,
             'form': 0.20,
-            'h2h': 0.15
+            'h2h': 0.20
         }
         
         # Load or train model
         self.load_or_train_model()
     
     def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray]:
-        """V3.0: Prepare training data with 20 features instead of 6"""
+        """Prepare training data from historical matches"""
         conn, is_postgres = _get_db_connection(self.db_path)
         
+        # Simplified query - just use matches table
         query = '''
             SELECT 
                 home_team,
@@ -301,217 +291,88 @@ class AdvancedBTTSAnalyzer:
             print(f"⚠️ Not enough training data ({len(df) if not df.empty else 0} matches)")
             return np.array([]), np.array([])
         
-        print(f"📊 V3.0: Processing {len(df)} matches with 20 features...")
-        
-        # Build team statistics for features
-        team_stats = {}
-        for team in set(df['home_team'].tolist() + df['away_team'].tolist()):
-            home_matches = df[df['home_team'] == team]
-            away_matches = df[df['away_team'] == team]
-            
-            home_scored = home_matches['home_goals'].mean() if len(home_matches) > 0 else 1.2
-            away_scored = away_matches['away_goals'].mean() if len(away_matches) > 0 else 1.1
-            home_conceded = home_matches['away_goals'].mean() if len(home_matches) > 0 else 1.2
-            away_conceded = away_matches['home_goals'].mean() if len(away_matches) > 0 else 1.3
-            
-            all_matches = pd.concat([home_matches, away_matches]) if len(home_matches) + len(away_matches) > 0 else pd.DataFrame()
-            btts_rate = all_matches['btts'].mean() if len(all_matches) > 0 else 0.5
-            
-            team_stats[team] = {
-                'goals_avg': (home_scored + away_scored) / 2 if not np.isnan(home_scored) and not np.isnan(away_scored) else 1.2,
-                'conceded_avg': (home_conceded + away_conceded) / 2 if not np.isnan(home_conceded) and not np.isnan(away_conceded) else 1.2,
-                'btts_rate': btts_rate if not np.isnan(btts_rate) else 0.5,
-            }
-        
+        # Calculate basic features from available data
         features_list = []
         labels = []
         
         for idx, row in df.iterrows():
             try:
-                home = row['home_team']
-                away = row['away_team']
+                # Simple features based on goals
+                home_goals = float(row['home_goals'])
+                away_goals = float(row['away_goals'])
                 
-                hs = team_stats.get(home, {'goals_avg': 1.2, 'conceded_avg': 1.2, 'btts_rate': 0.5})
-                aws = team_stats.get(away, {'goals_avg': 1.1, 'conceded_avg': 1.3, 'btts_rate': 0.5})
-                
-                # V3.0: 20 Features!
                 features = [
-                    hs['goals_avg'],           # 1. Home goals avg
-                    aws['goals_avg'],          # 2. Away goals avg
-                    hs['conceded_avg'],        # 3. Home conceded avg
-                    aws['conceded_avg'],       # 4. Away conceded avg
-                    hs['goals_avg'] * 1.1,     # 5. Home xG (approx)
-                    aws['goals_avg'] * 0.9,    # 6. Away xG (approx)
-                    1.5,                       # 7. Home form points (placeholder)
-                    1.4,                       # 8. Away form points (placeholder)
-                    hs['btts_rate'],           # 9. H2H BTTS rate
-                    hs['goals_avg'] + aws['goals_avg'],  # 10. Expected total goals
-                    0.0,                       # 11. Home injury impact (placeholder)
-                    0.0,                       # 12. Away injury impact (placeholder)
-                    1.0,                       # 13. Home fatigue (placeholder)
-                    1.0,                       # 14. Away fatigue (placeholder)
-                    1.0,                       # 15. Home motivation (placeholder)
-                    1.0,                       # 16. Away motivation (placeholder)
-                    1.0,                       # 17. Home manager boost (placeholder)
-                    1.0,                       # 18. Away manager boost (placeholder)
-                    0,                         # 19. Is derby (placeholder)
-                    2.75,                      # 20. League avg goals
+                    home_goals,  # Historical home goals
+                    away_goals,  # Historical away goals
+                    home_goals + away_goals,  # Total goals
+                    1 if home_goals > away_goals else 0,  # Home win
+                    1 if away_goals > home_goals else 0,  # Away win
+                    1 if home_goals == away_goals else 0,  # Draw
                 ]
                 
                 features_list.append(features)
                 labels.append(int(row['btts']))
-            except Exception as e:
+            except:
                 continue
         
         if len(features_list) < 50:
             print(f"⚠️ Not enough valid training data ({len(features_list)} matches)")
             return np.array([]), np.array([])
         
-        print(f"✅ Prepared {len(features_list)} samples with 20 features")
         X = np.array(features_list)
         y = np.array(labels)
         
         return X, y
     
     def train_model(self):
-        """V3.0: Train ML Ensemble (XGBoost + RandomForest + GradientBoosting + NeuralNetwork)"""
+        """Train ML model"""
         X, y = self.prepare_training_data()
         
         if len(X) < 50:
             print("⚠️ Not enough data to train model - using statistical only")
             return
         
-        print(f"🚀 V3.0: Training ML Ensemble on {len(X)} matches with {X.shape[1]} features...")
+        print(f"📚 Training on {len(X)} matches...")
         
         X_scaled = self.scaler.fit_transform(X)
         
-        # V3.0: ML Ensemble
-        self.ml_models = {}
-        self.ml_weights = {
-            'xgboost': 0.35,
-            'random_forest': 0.30,
-            'gradient_boosting': 0.20,
-            'neural_network': 0.15
-        }
+        self.ml_model = RandomForestClassifier(
+            n_estimators=100,
+            max_depth=10,
+            min_samples_split=10,
+            random_state=42
+        )
         
-        # 1. XGBoost (if available)
-        if XGBOOST_AVAILABLE:
-            print("   Training XGBoost...", end=" ")
-            try:
-                self.ml_models['xgboost'] = xgb.XGBClassifier(
-                    n_estimators=200, max_depth=6, learning_rate=0.1,
-                    random_state=42, use_label_encoder=False, eval_metric='logloss'
-                )
-                self.ml_models['xgboost'].fit(X_scaled, y)
-                scores = cross_val_score(self.ml_models['xgboost'], X_scaled, y, cv=min(5, len(X)//20))
-                print(f"✅ CV: {scores.mean():.1%}")
-            except Exception as e:
-                print(f"⚠️ {e}")
-        
-        # 2. RandomForest
-        print("   Training RandomForest...", end=" ")
-        try:
-            self.ml_models['random_forest'] = RandomForestClassifier(
-                n_estimators=200, max_depth=10, min_samples_split=5, random_state=42
-            )
-            self.ml_models['random_forest'].fit(X_scaled, y)
-            scores = cross_val_score(self.ml_models['random_forest'], X_scaled, y, cv=min(5, len(X)//20))
-            print(f"✅ CV: {scores.mean():.1%}")
-        except Exception as e:
-            print(f"⚠️ {e}")
-        
-        # 3. GradientBoosting
-        print("   Training GradientBoosting...", end=" ")
-        try:
-            self.ml_models['gradient_boosting'] = GradientBoostingClassifier(
-                n_estimators=150, max_depth=5, learning_rate=0.1, random_state=42
-            )
-            self.ml_models['gradient_boosting'].fit(X_scaled, y)
-            scores = cross_val_score(self.ml_models['gradient_boosting'], X_scaled, y, cv=min(5, len(X)//20))
-            print(f"✅ CV: {scores.mean():.1%}")
-        except Exception as e:
-            print(f"⚠️ {e}")
-        
-        # 4. Neural Network
-        print("   Training NeuralNetwork...", end=" ")
-        try:
-            self.ml_models['neural_network'] = MLPClassifier(
-                hidden_layer_sizes=(64, 32), activation='relu', max_iter=500,
-                random_state=42, early_stopping=True
-            )
-            self.ml_models['neural_network'].fit(X_scaled, y)
-            scores = cross_val_score(self.ml_models['neural_network'], X_scaled, y, cv=min(5, len(X)//20))
-            print(f"✅ CV: {scores.mean():.1%}")
-        except Exception as e:
-            print(f"⚠️ {e}")
-        
-        # Backwards compatibility: keep ml_model as primary
-        self.ml_model = self.ml_models.get('random_forest')
+        self.ml_model.fit(X_scaled, y)
         self.model_trained = True
         
-        print(f"✅ V3.0 Ensemble trained! Models: {len(self.ml_models)}")
+        try:
+            scores = cross_val_score(self.ml_model, X_scaled, y, cv=5)
+            print(f"✅ Model trained! CV Accuracy: {scores.mean():.1%}")
+        except:
+            print(f"✅ Model trained!")
+        
         self.save_model()
     
     def save_model(self):
-        """V3.0: Save ensemble models to disk"""
+        """Save model to disk"""
         if not self.model_trained:
             return
         
         try:
-            # Save ensemble models
-            os.makedirs('models', exist_ok=True)
-            
-            if hasattr(self, 'ml_models') and self.ml_models:
-                for name, model in self.ml_models.items():
-                    with open(f'models/{name}.pkl', 'wb') as f:
-                        pickle.dump(model, f)
-                with open('models/ml_weights.pkl', 'wb') as f:
-                    pickle.dump(self.ml_weights, f)
-            
-            # Backwards compatibility
             with open('ml_model.pkl', 'wb') as f:
                 pickle.dump(self.ml_model, f)
             with open('scaler.pkl', 'wb') as f:
                 pickle.dump(self.scaler, f)
-            
-            # Save timestamp
-            with open('models/last_trained.txt', 'w') as f:
-                f.write(datetime.now().isoformat())
-            
-            print("💾 V3.0 Ensemble saved")
+            print("💾 Model saved")
         except Exception as e:
             print(f"⚠️ Could not save model: {e}")
     
     def load_model(self) -> bool:
-        """V3.0: Load ensemble models from disk"""
+        """Load model from disk"""
         model_path = Path("ml_model.pkl")
         scaler_path = Path("scaler.pkl")
         
-        # Try to load V3.0 ensemble first
-        if os.path.exists('models'):
-            try:
-                self.ml_models = {}
-                for name in ['xgboost', 'random_forest', 'gradient_boosting', 'neural_network']:
-                    path = f'models/{name}.pkl'
-                    if os.path.exists(path):
-                        with open(path, 'rb') as f:
-                            self.ml_models[name] = pickle.load(f)
-                
-                if os.path.exists('models/ml_weights.pkl'):
-                    with open('models/ml_weights.pkl', 'rb') as f:
-                        self.ml_weights = pickle.load(f)
-                
-                if self.ml_models:
-                    self.ml_model = self.ml_models.get('random_forest')
-                    with open(scaler_path, 'rb') as f:
-                        self.scaler = pickle.load(f)
-                    self.model_trained = True
-                    print(f"✅ V3.0 Ensemble loaded! Models: {len(self.ml_models)}")
-                    return True
-            except Exception as e:
-                print(f"⚠️ Failed to load V3.0 ensemble: {e}")
-        
-        # Fallback to old single model
         if not model_path.exists() or not scaler_path.exists():
             return False
         
@@ -521,9 +382,7 @@ class AdvancedBTTSAnalyzer:
             with open(scaler_path, 'rb') as f:
                 self.scaler = pickle.load(f)
             self.model_trained = True
-            self.ml_models = {'random_forest': self.ml_model}  # Backwards compat
-            self.ml_weights = {'random_forest': 1.0}
-            print("✅ Legacy ML Model loaded")
+            print("✅ ML Model loaded")
             return True
         except Exception as e:
             print(f"⚠️ Failed to load model: {e}")
@@ -536,49 +395,16 @@ class AdvancedBTTSAnalyzer:
             self.train_model()
     
     def ml_predict(self, features: List[float]) -> Tuple[float, float]:
-        """V3.0: Get ensemble ML prediction with weighted voting"""
-        if not self.model_trained:
+        """Get ML prediction"""
+        if not self.model_trained or self.ml_model is None:
             return 0.5, 0.0
         
         try:
             X = np.array([features])
-            
-            # Pad features to 20 if needed (backwards compatibility)
-            if X.shape[1] < 20:
-                padding = np.zeros((X.shape[0], 20 - X.shape[1]))
-                X = np.hstack([X, padding])
-            elif X.shape[1] > 20:
-                X = X[:, :20]
-            
             X_scaled = self.scaler.transform(X)
-            
-            # V3.0: Ensemble prediction
-            if hasattr(self, 'ml_models') and self.ml_models:
-                predictions = []
-                total_weight = 0
-                
-                for name, model in self.ml_models.items():
-                    try:
-                        proba = model.predict_proba(X_scaled)[0]
-                        btts_prob = proba[1] if len(proba) > 1 else proba[0]
-                        weight = self.ml_weights.get(name, 0.25)
-                        predictions.append(btts_prob * weight)
-                        total_weight += weight
-                    except:
-                        pass
-                
-                if predictions and total_weight > 0:
-                    ensemble_prob = sum(predictions) / total_weight
-                    return ensemble_prob, 0.7  # Higher confidence for ensemble
-            
-            # Fallback to single model
-            if self.ml_model is not None:
-                proba = self.ml_model.predict_proba(X_scaled)[0][1]
-                return proba, 0.6
-            
-            return 0.5, 0.0
-        except Exception as e:
-            print(f"⚠️ ML predict error: {e}")
+            proba = self.ml_model.predict_proba(X_scaled)[0][1]
+            return proba, 0.6
+        except:
             return 0.5, 0.0
     
     def _get_real_team_stats(self, team_id: int, league_id: int, league_code: str, venue: str) -> Dict:

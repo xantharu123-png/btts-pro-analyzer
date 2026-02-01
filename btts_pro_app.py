@@ -195,7 +195,14 @@ with tab1:
         if not selected_leagues:
             st.warning("⚠️ Bitte mindestens eine Liga auswählen!")
         else:
+            # Debug: Check API key
+            api_key_available = hasattr(analyzer, 'api_football_key') and analyzer.api_football_key
+            if not api_key_available:
+                st.error("❌ API_FOOTBALL_KEY nicht konfiguriert! Bitte in Streamlit Secrets hinzufügen.")
+                st.stop()
+            
             all_results = []
+            errors = []
             
             progress = st.progress(0)
             status = st.empty()
@@ -213,13 +220,22 @@ with tab1:
                     if results is not None and not results.empty:
                         results['League'] = league_code
                         all_results.append(results)
+                        status.text(f"✅ {league_code}: {len(results)} Spiele")
+                    else:
+                        errors.append(f"{league_code}: Keine Spiele")
                 except Exception as e:
-                    st.warning(f"⚠️ {league_code}: {e}")
+                    errors.append(f"{league_code}: {str(e)[:50]}")
                 
                 progress.progress((idx + 1) / len(selected_leagues))
             
             progress.empty()
             status.empty()
+            
+            # Show errors if any
+            if errors and not all_results:
+                with st.expander("⚠️ Debug Info", expanded=True):
+                    for err in errors:
+                        st.text(err)
             
             if all_results:
                 combined = pd.concat(all_results, ignore_index=True)
