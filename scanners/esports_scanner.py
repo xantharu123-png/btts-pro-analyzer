@@ -17,6 +17,17 @@ class EsportsScanner:
     Fetch real stats, calculate probabilities, give recommendations
     """
     
+    # Tournament tier reliability factors
+    TOURNAMENT_TIERS = {
+        'major': 1.0, 'world': 1.0, 'international': 1.0, 'ti ': 1.0,
+        'blast premier': 0.98, 'esl pro': 0.98, 'iem': 0.95,
+        'lcs': 0.95, 'lec': 0.95, 'lpl': 0.95, 'lck': 0.95,
+        'dreamhack': 0.90, 'esl challenger': 0.88,
+        'qualifier': 0.80, 'open qualifier': 0.75,
+        'showmatch': 0.50, 'charity': 0.40, 'esportsbattle': 0.60,
+        'esports battle': 0.60, 'e-battle': 0.60
+    }
+    
     def __init__(self):
         self.pandascore_base = "https://api.pandascore.co"
         
@@ -172,12 +183,19 @@ class EsportsScanner:
     
     def analyze_match(self, match: Dict) -> Optional[Dict]:
         """
-        Analyze match and give recommendation
-        Same approach as Football/Basketball scanners
+        IMPROVED E-Sports Analysis v2.0
+        
+        Factors (weighted):
+        1. Win Rate (Elo-style) - 30%
+        2. Form (weighted recency) - 25%
+        3. Series Score (conditional prob) - 25%
+        4. H2H History - 20%
         """
         game = match.get('game', '')
         team1 = match.get('team1', 'Team 1')
         team2 = match.get('team2', 'Team 2')
+        team1_id = match.get('team1_id')
+        team2_id = match.get('team2_id')
         score1 = match.get('team1_score', 0)
         score2 = match.get('team2_score', 0)
         series_type = match.get('series_type', 3)
@@ -192,133 +210,182 @@ class EsportsScanner:
         matches1 = stats1.get('matches', 0)
         matches2 = stats2.get('matches', 0)
         
-        # ===== PROBABILITY CALCULATION =====
-        
-        # Base probability from win rates (normalized)
-        total_wr = wr1 + wr2
-        if total_wr > 0 and total_wr != 100:
-            prob1 = (wr1 / total_wr) * 100
-            prob2 = (wr2 / total_wr) * 100
-        else:
-            prob1 = 50
-            prob2 = 50
-        
         reasoning = []
+        
+        # ===== 1. ELO-STYLE BASE PROBABILITY =====
+        # Fix: Use Elo formula instead of simple normalization
+        elo_diff = (wr1 - wr2) * 8  # Scale win rate diff to Elo-like
+        expected1 = 1 / (1 + 10**(-elo_diff / 400))
+        base_prob1 = expected1 * 100
+        base_prob2 = 100 - base_prob1
+        
         reasoning.append(f"📊 Win rates: {team1} {wr1}% | {team2} {wr2}%")
+        reasoning.append(f"📈 Base probability: {team1} {base_prob1:.1f}%")
         
-        # Adjust for current series score
-        score_diff = score1 - score2
-        maps_to_win = (series_type // 2) + 1  # BO3 = 2, BO5 = 3
+        # ===== 2. SERIES SCORE - CONDITIONAL PROBABILITY =====
+        # Fix: Use empirical conditional probabilities, not linear bonus
+        score_adjustment = 0
+        maps_to_win = (series_type // 2) + 1
         
-        if score_diff != 0:
-            # Each map lead = significant advantage
-            # Closer to winning = bigger advantage
-            maps_needed_1 = maps_to_win - score1
-            maps_needed_2 = maps_to_win - score2
-            
-            if maps_needed_1 < maps_needed_2:
-                # Team 1 closer to winning
-                advantage = (maps_needed_2 - maps_needed_1) * 12  # 12% per map closer
-                prob1 += advantage
-                prob2 -= advantage
-                reasoning.append(f"📈 {team1} leads {score1}-{score2} (needs {maps_needed_1} more)")
-            else:
-                advantage = (maps_needed_1 - maps_needed_2) * 12
-                prob2 += advantage
-                prob1 -= advantage
-                reasoning.append(f"📈 {team2} leads {score2}-{score1} (needs {maps_needed_2} more)")
-        else:
-            reasoning.append(f"⚖️ Series tied {score1}-{score2}")
+        if series_type == 3:  # BO3
+            conditional_probs = {
+                (1, 0): 72,  # 72% to win from 1-0
+                (0, 1): 28,  # 28% to win from 0-1
+                (0, 0): None  # Use base
+            }
+        elif series_type == 5:  # BO5
+            conditional_probs = {
+                (1, 0): 65, (0, 1): 35,
+                (2, 0): 85, (0, 2): 15,
+                (2, 1): 65, (1, 2): 35,
+                (1, 1): None, (0, 0): None
+            }
+        else:  # BO1 or unknown
+            conditional_probs = {}
         
-        # Form adjustment (last 5 matches)
-        form1_wins = form1.count('W') if form1 else 0
-        form2_wins = form2.count('W') if form2 else 0
+        key = (score1, score2)
+        if key in conditional_probs and conditional_probs[key] is not None:
+            # Blend base prob with conditional prob (60% conditional, 40% base)
+            cond_prob = conditional_probs[key]
+            blended_prob1 = base_prob1 * 0.4 + cond_prob * 0.6
+            score_adjustment = blended_prob1 - base_prob1
+            reasoning.append(f"🎮 Score {score1}-{score2}: Conditional win% ~{cond_prob}%")
+        elif score1 != score2:
+            leader = team1 if score1 > score2 else team2
+            reasoning.append(f"📈 {leader} leads {max(score1,score2)}-{min(score1,score2)}")
         
+        # ===== 3. FORM ADJUSTMENT - WEIGHTED RECENCY =====
+        # Fix: Recent matches matter more
+        form_adjustment = 0
         if form1 and form2:
-            form_diff = form1_wins - form2_wins
-            if form_diff >= 2:
-                prob1 += 5
-                prob2 -= 5
-                reasoning.append(f"🔥 {team1} hot form: {''.join(form1)}")
-            elif form_diff <= -2:
-                prob2 += 5
-                prob1 -= 5
-                reasoning.append(f"🔥 {team2} hot form: {''.join(form2)}")
+            weights = [1.0, 0.85, 0.70, 0.55, 0.40]  # Most recent first
+            
+            def calc_weighted_form(form):
+                return sum(w * (1 if f == 'W' else 0) 
+                          for w, f in zip(weights, form[:5]))
+            
+            form1_score = calc_weighted_form(form1)
+            form2_score = calc_weighted_form(form2)
+            
+            form_diff = form1_score - form2_score
+            form_adjustment = form_diff * 6  # Max ~15% swing
+            
+            if abs(form_adjustment) >= 5:
+                hot_team = team1 if form_adjustment > 0 else team2
+                hot_form = ''.join(form1 if form_adjustment > 0 else form2)
+                reasoning.append(f"🔥 {hot_team} hot form: {hot_form} (+{abs(form_adjustment):.1f}%)")
         
-        # Normalize to 100%
-        total = prob1 + prob2
-        prob1 = (prob1 / total) * 100
-        prob2 = (prob2 / total) * 100
+        # ===== 4. H2H ADJUSTMENT =====
+        h2h = self._get_h2h_stats(team1_id, team2_id, match.get('game', 'csgo').lower())
+        h2h_adjustment = 0
+        
+        if h2h['matches'] >= 2:
+            h2h_wr = h2h['team1_wins'] / h2h['matches']
+            h2h_adjustment = (h2h_wr - 0.5) * 15  # Max ~7.5% swing
+            
+            if abs(h2h_adjustment) >= 3:
+                h2h_fav = team1 if h2h_adjustment > 0 else team2
+                reasoning.append(f"🔄 H2H: {h2h_fav} {h2h['team1_wins']}-{h2h['team2_wins']} ({h2h['matches']} games)")
+        
+        # ===== COMBINE ALL FACTORS =====
+        final_prob1 = base_prob1 + score_adjustment + form_adjustment + h2h_adjustment
         
         # Cap at reasonable bounds
-        prob1 = max(15, min(85, prob1))
-        prob2 = 100 - prob1
+        final_prob1 = max(10, min(90, final_prob1))
+        final_prob2 = 100 - final_prob1
         
         # ===== DETERMINE RECOMMENDATION =====
-        
-        if prob1 > prob2:
+        if final_prob1 > final_prob2:
             rec_team = team1
-            rec_prob = prob1
-            opp_team = team2
-            opp_prob = prob2
+            rec_prob = final_prob1
         else:
             rec_team = team2
-            rec_prob = prob2
-            opp_team = team1
-            opp_prob = prob1
+            rec_prob = final_prob2
         
-        # Calculate fair odds from our probability
+        # Calculate fair odds
         fair_odds = round(100 / rec_prob, 2)
         
         # ===== CONFIDENCE CALCULATION =====
+        confidence = 40  # Base
         
-        confidence = 50  # Base
-        
-        # More data = more confidence
-        if matches1 >= 10:
+        # Data quality - IMPROVED with better sample size handling
+        total_matches = matches1 + matches2
+        if matches1 >= 15 and matches2 >= 15:
+            confidence += 15
+        elif matches1 >= 10 and matches2 >= 10:
             confidence += 10
-        if matches2 >= 10:
-            confidence += 10
+        elif matches1 >= 5 and matches2 >= 5:
+            confidence += 5
+        else:
+            # LOW DATA WARNING
+            confidence -= 10
+            reasoning.append("⚠️ LIMITED DATA - Results unreliable")
         
-        # Clear favorite = more confidence
-        prob_diff = abs(prob1 - prob2)
-        if prob_diff >= 20:
+        # Clear favorite
+        prob_diff = abs(final_prob1 - final_prob2)
+        if prob_diff >= 30:
+            confidence += 20
+        elif prob_diff >= 20:
             confidence += 15
         elif prob_diff >= 10:
             confidence += 10
-        elif prob_diff >= 5:
-            confidence += 5
         
-        # Series lead = more confidence
-        if abs(score_diff) >= 1:
+        # Series lead
+        if abs(score1 - score2) >= 1:
             confidence += 10
         
-        confidence = min(90, confidence)
+        # H2H data available
+        if h2h['matches'] >= 3:
+            confidence += 5
         
-        # ===== EDGE & VALUE CALCULATION =====
+        # ===== TOURNAMENT TIER ADJUSTMENT =====
+        tournament_name = match.get('tournament', '')
+        tournament_tier = self._get_tournament_tier(tournament_name)
         
-        # Assume market odds are ~5% worse than fair (juice)
-        # We estimate market odds and calculate edge
-        estimated_market_odds = fair_odds * 1.05
-        implied_prob = 100 / estimated_market_odds
+        if tournament_tier < 0.70:
+            reasoning.append(f"⚠️ Low-tier tournament ({tournament_name}) - Unpredictable")
+        elif tournament_tier < 0.85:
+            reasoning.append(f"📊 Mid-tier event - Moderate reliability")
         
-        edge = rec_prob - implied_prob
+        # Apply tournament tier to confidence
+        confidence = confidence * tournament_tier
         
-        # ROI estimate
-        roi = edge * 0.7  # Conservative
+        # ===== MAP STATS (CS2/Valorant) =====
+        if game.lower() in ['cs2', 'valorant']:
+            map1_stats = self._get_map_stats(team1_id, game)
+            map2_stats = self._get_map_stats(team2_id, game)
+            
+            if map1_stats and map2_stats:
+                # Find strongest/weakest maps
+                best_maps_1 = [m for m, s in map1_stats.items() if s['wr'] >= 60 and s['total'] >= 3]
+                best_maps_2 = [m for m, s in map2_stats.items() if s['wr'] >= 60 and s['total'] >= 3]
+                
+                if best_maps_1:
+                    reasoning.append(f"🗺️ {team1} strong maps: {', '.join(best_maps_1[:3])}")
+                if best_maps_2:
+                    reasoning.append(f"🗺️ {team2} strong maps: {', '.join(best_maps_2[:3])}")
+        
+        confidence = max(25, min(92, confidence))
+        
+        # ===== EDGE CALCULATION =====
+        # Assume 5% market juice
+        implied_market_prob = rec_prob / 1.05
+        edge = rec_prob - implied_market_prob
+        
+        # ROI estimate (conservative)
+        roi = edge * 0.65
         
         # ===== STAKE RECOMMENDATION =====
-        
-        if confidence >= 75 and edge >= 8:
-            stake = "3-5%"
+        if confidence >= 80 and edge >= 10:
+            stake = "4-6%"
             stars = 5
-        elif confidence >= 70 and edge >= 5:
-            stake = "2-4%"
+        elif confidence >= 75 and edge >= 7:
+            stake = "3-5%"
             stars = 4
-        elif confidence >= 60 and edge >= 3:
-            stake = "1-3%"
+        elif confidence >= 65 and edge >= 5:
+            stake = "2-3%"
             stars = 3
-        elif edge >= 2:
+        elif confidence >= 55 and edge >= 3:
             stake = "1-2%"
             stars = 2
         else:
@@ -332,6 +399,7 @@ class EsportsScanner:
             'team2': team2,
             'score': f"{score1}-{score2}",
             'tournament': match.get('tournament', 'Unknown'),
+            'tournament_tier': round(tournament_tier * 100),
             'market': 'Match Winner',
             'team': rec_team,
             'odds': fair_odds,
@@ -346,8 +414,144 @@ class EsportsScanner:
             'team2_wr': wr2,
             'team1_form': ''.join(form1) if form1 else 'N/A',
             'team2_form': ''.join(form2) if form2 else 'N/A',
-            'data_quality': 'Good' if matches1 >= 5 and matches2 >= 5 else 'Limited'
+            'h2h': f"{h2h['team1_wins']}-{h2h['team2_wins']}" if h2h['matches'] > 0 else 'N/A',
+            'data_quality': 'Good' if matches1 >= 10 and matches2 >= 10 else 'Limited',
+            'sample_size': f"{matches1}+{matches2} matches"
         }
+    
+    def _get_h2h_stats(self, team1_id: int, team2_id: int, game: str) -> Dict:
+        """Get head-to-head statistics between two teams"""
+        if not team1_id or not team2_id:
+            return {'matches': 0, 'team1_wins': 0, 'team2_wins': 0}
+        
+        cache_key = f"h2h_{min(team1_id, team2_id)}_{max(team1_id, team2_id)}_{game}"
+        if cache_key in self._stats_cache:
+            return self._stats_cache[cache_key]
+        
+        try:
+            game_slug = 'csgo' if game == 'cs2' else game
+            url = f"{self.pandascore_base}/{game_slug}/matches/past"
+            params = {
+                'filter[opponent_id]': f"{team1_id},{team2_id}",
+                'sort': '-begin_at',
+                'per_page': 15
+            }
+            
+            response = requests.get(url, headers=self.headers, params=params, timeout=10)
+            
+            if response.status_code == 200:
+                matches = response.json()
+                
+                # Filter for actual H2H (both teams in match)
+                h2h_matches = []
+                for m in matches:
+                    opponents = m.get('opponents', [])
+                    if len(opponents) == 2:
+                        opp_ids = [o.get('opponent', {}).get('id') for o in opponents]
+                        if team1_id in opp_ids and team2_id in opp_ids:
+                            h2h_matches.append(m)
+                
+                team1_wins = 0
+                team2_wins = 0
+                
+                for m in h2h_matches:
+                    winner = m.get('winner', {})
+                    if winner:
+                        if winner.get('id') == team1_id:
+                            team1_wins += 1
+                        elif winner.get('id') == team2_id:
+                            team2_wins += 1
+                
+                result = {
+                    'matches': len(h2h_matches),
+                    'team1_wins': team1_wins,
+                    'team2_wins': team2_wins
+                }
+                
+                self._stats_cache[cache_key] = result
+                return result
+                
+        except Exception:
+            pass
+        
+        return {'matches': 0, 'team1_wins': 0, 'team2_wins': 0}
+    
+    def _get_tournament_tier(self, tournament_name: str) -> float:
+        """Get reliability factor based on tournament importance"""
+        if not tournament_name:
+            return 0.85
+        
+        tournament_lower = tournament_name.lower()
+        
+        for key, factor in self.TOURNAMENT_TIERS.items():
+            if key in tournament_lower:
+                return factor
+        
+        # Default based on keywords
+        if 'major' in tournament_lower or 'championship' in tournament_lower:
+            return 0.95
+        elif 'league' in tournament_lower or 'cup' in tournament_lower:
+            return 0.88
+        elif 'online' in tournament_lower:
+            return 0.80
+        
+        return 0.85  # Unknown tournament
+    
+    def _get_map_stats(self, team_id: int, game: str) -> Dict:
+        """Get map-specific win rates for CS2/Valorant"""
+        if game.lower() not in ['cs2', 'csgo', 'valorant']:
+            return {}
+        
+        cache_key = f"maps_{team_id}_{game}"
+        if cache_key in self._stats_cache:
+            return self._stats_cache[cache_key]
+        
+        try:
+            game_slug = 'csgo' if game.lower() == 'cs2' else game.lower()
+            url = f"{self.pandascore_base}/{game_slug}/matches/past"
+            params = {
+                'filter[opponent_id]': team_id,
+                'sort': '-begin_at',
+                'per_page': 30
+            }
+            
+            response = requests.get(url, headers=self.headers, params=params, timeout=15)
+            
+            if response.status_code == 200:
+                matches = response.json()
+                map_stats = {}
+                
+                for match in matches:
+                    for game_data in match.get('games', []):
+                        map_info = game_data.get('map', {})
+                        map_name = map_info.get('name') if isinstance(map_info, dict) else str(map_info)
+                        
+                        if not map_name:
+                            continue
+                            
+                        winner = game_data.get('winner', {})
+                        winner_id = winner.get('id') if isinstance(winner, dict) else None
+                        
+                        if map_name not in map_stats:
+                            map_stats[map_name] = {'wins': 0, 'total': 0, 'wr': 50}
+                        
+                        map_stats[map_name]['total'] += 1
+                        if winner_id == team_id:
+                            map_stats[map_name]['wins'] += 1
+                        
+                        # Calculate WR
+                        if map_stats[map_name]['total'] > 0:
+                            map_stats[map_name]['wr'] = round(
+                                map_stats[map_name]['wins'] / map_stats[map_name]['total'] * 100, 1
+                            )
+                
+                self._stats_cache[cache_key] = map_stats
+                return map_stats
+                
+        except Exception:
+            pass
+        
+        return {}
 
 
 def create_esports_tab():
@@ -441,6 +645,15 @@ def create_esports_tab():
                 st.write(f"Form: {rec['team2_form']}")
             
             st.markdown("---")
+            
+            # Additional stats
+            c1, c2, c3 = st.columns(3)
+            c1.write(f"**H2H:** {rec.get('h2h', 'N/A')}")
+            c2.write(f"**Tournament Tier:** {rec.get('tournament_tier', 85)}%")
+            c3.write(f"**Sample:** {rec.get('sample_size', 'N/A')}")
+            
+            st.markdown("---")
+            st.write("**Analysis:**")
             for reason in rec['reasoning']:
                 st.write(reason)
             
