@@ -53,14 +53,12 @@ st.set_page_config(
     page_title="BTTS Pro Analyzer",
     page_icon="⚽",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
-# Custom CSS - Hide sidebar completely
+# Custom CSS
 st.markdown("""
     <style>
-    [data-testid="stSidebar"] {display: none !important;}
-    [data-testid="collapsedControl"] {display: none !important;}
     .main {
         padding: 1rem;
     }
@@ -371,43 +369,9 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
 with tab1:
     st.header("🔥 Premium Tips - Highest Confidence")
     
-    # ========== INLINE FILTERS (ersetzt Sidebar) ==========
-    available_leagues = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else []
+    st.info(f"💡 Filtering for BTTS ≥ {min_probability}% AND Confidence ≥ {min_confidence}% (adjust in sidebar)")
     
-    # Row 1: Liga-Auswahl
-    col_check, col_leagues = st.columns([1, 5])
-    with col_check:
-        select_all_tab1 = st.checkbox("Alle Ligen", value=True, key="tab1_select_all")  # DEFAULT: TRUE
-    with col_leagues:
-        if select_all_tab1:
-            selected_leagues = available_leagues
-            st.success(f"✅ Alle {len(available_leagues)} Ligen")
-        else:
-            default_leagues = ['BL1', 'PL', 'PD'] if all(l in available_leagues for l in ['BL1', 'PL', 'PD']) else available_leagues[:3]
-            selected_leagues = st.multiselect(
-                "Ligen",
-                options=available_leagues,
-                default=default_leagues,
-                key="tab1_leagues",
-                label_visibility="collapsed"
-            )
-    
-    # Row 2: Filter + Button
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
-    with col1:
-        min_probability = st.number_input("Min BTTS %", 50, 90, 60, 5, key="tab1_btts")
-    with col2:
-        min_confidence = st.number_input("Min Conf %", 50, 95, 60, 5, key="tab1_conf")
-    with col3:
-        days_ahead = st.number_input("Tage", 1, 14, 7, key="tab1_days")
-    with col4:
-        st.write("")
-        analyze_btn = st.button("🔍 Analyze Matches", key="analyze_top", type="primary", use_container_width=True)
-    
-    st.markdown("---")
-    # ========== END INLINE FILTERS ==========
-    
-    if analyze_btn and selected_leagues:
+    if st.button("🔍 Analyze Matches", key="analyze_top"):
         # Create Progress Bar
         progress = ModernProgressBar(
             total_items=len(selected_leagues),
@@ -457,12 +421,37 @@ with tab1:
                 # Display premium tips
                 for idx, row in top_tips.iterrows():
                     with st.container():
+                        # Get edge info
+                        analysis = row.get('_analysis', {})
+                        est_edge = analysis.get('estimated_edge', 0)
+                        fair_odds = analysis.get('fair_odds', 0)
+                        tip_type = analysis.get('tip_type', 'UNKNOWN')
+                        
+                        # Color based on tip type
+                        if tip_type == 'TOP TIP':
+                            border_color = '#00ff00'
+                            emoji = '🔥🔥'
+                        elif tip_type == 'GOOD VALUE':
+                            border_color = '#4CAF50'
+                            emoji = '✅'
+                        elif tip_type == 'MODERATE':
+                            border_color = '#FFC107'
+                            emoji = '📊'
+                        elif tip_type == 'RISKY':
+                            border_color = '#FF9800'
+                            emoji = '⚠️'
+                        else:
+                            border_color = '#888888'
+                            emoji = '📋'
+                        
                         st.markdown(f"""
-                            <div class='top-tip'>
-                                <h3>🔥 {row['Home']} vs {row['Away']}</h3>
+                            <div style='border-left: 4px solid {border_color}; padding: 15px; margin: 10px 0; background: #1a1a2e; border-radius: 8px;'>
+                                <h3>{emoji} {row['Home']} vs {row['Away']}</h3>
                                 <p><strong>League:</strong> {row['League']} | <strong>Date:</strong> {row['Date']}</p>
                                 <p><strong>BTTS Probability:</strong> {row['BTTS %']} | <strong>Confidence:</strong> {row['Confidence']}</p>
+                                <p><strong>Fair Odds:</strong> {fair_odds:.2f} | <strong>Est. Edge:</strong> {est_edge:.1f}%</p>
                                 <p><strong>Expected Total Goals:</strong> {row['xG Total']}</p>
+                                <p><strong>Verdict:</strong> {analysis.get('recommendation', row.get('Tip', 'N/A'))}</p>
                             </div>
                         """, unsafe_allow_html=True)
                         
@@ -525,11 +514,16 @@ with tab2:
         if not df_filtered.empty:
             st.success(f"📋 Showing {len(df_filtered)} matches (filtered by confidence ≥{min_confidence}%)")
             
-            # Display as table
-            display_df = df_filtered[[
-                'Date', 'League', 'Home', 'Away', 'BTTS %', 
-                'Confidence', 'Level', 'Tip', 'xG Total'
-            ]].copy()
+            # Display as table - NEUE Spalten mit Edge
+            display_cols = ['Date', 'League', 'Home', 'Away', 'BTTS %', 
+                           'Confidence', 'Level', 'Tip', 'xG Total']
+            
+            # Add Est. Edge if available
+            if 'Est. Edge' in df_filtered.columns:
+                display_cols = ['Date', 'League', 'Home', 'Away', 'BTTS %', 
+                               'Confidence', 'Est. Edge', 'Tip', 'xG Total']
+            
+            display_df = df_filtered[[c for c in display_cols if c in df_filtered.columns]].copy()
             
             st.dataframe(
                 display_df,
@@ -552,12 +546,14 @@ with tab2:
                 st.metric("Avg Confidence", f"{avg_conf:.1f}%")
             
             with col3:
-                top_tips_count = len(df_filtered[df_filtered['Tip'] == '🔥 TOP TIP'])
-                st.metric("Top Tips", top_tips_count)
+                # Count strong tips (BTTS >= 65%)
+                strong_count = len(df_filtered[df_filtered['BTTS_num'] >= 65])
+                st.metric("Strong Tips (≥65%)", strong_count)
             
             with col4:
-                strong_tips_count = len(df_filtered[df_filtered['Tip'] == '✅ STRONG'])
-                st.metric("Strong Tips", strong_tips_count)
+                # Count risky tips (BTTS 50-55%)
+                risky_count = len(df_filtered[(df_filtered['BTTS_num'] >= 50) & (df_filtered['BTTS_num'] < 55)])
+                st.metric("Risky (50-55%)", risky_count)
             
             # Visualization
             st.markdown("---")
@@ -1304,12 +1300,19 @@ with tab8:
                             alert_system.telegram_token = st.session_state.tg_token
                             alert_system.telegram_chat_id = st.session_state.tg_chat
                 
-                # 🔧 FIX: Scan ALL live matches worldwide, not just 28 leagues!
-                # Get live matches - None = ALL leagues
-                live_matches = alert_system.get_live_matches(None)
+                # Get league IDs
+                league_ids = [
+                    78, 39, 140, 135, 61, 88, 94, 203, 40, 79, 262, 71,  # Top leagues
+                    2, 3, 848,  # European cups
+                    179, 144, 207, 218,  # EU Expansion
+                    265, 330, 165, 188, 89, 209, 113, 292, 301  # Goal festivals
+                ]
+                
+                # Get live matches
+                live_matches = alert_system.get_live_matches(league_ids)
                 
                 if live_matches:
-                    st.success(f"✅ Found {len(live_matches)} live matches worldwide!")
+                    st.success(f"✅ Found {len(live_matches)} live matches in our leagues!")
                     
                     # Check each match for red cards
                     red_cards_found = []
@@ -1499,7 +1502,7 @@ with tab8:
                     else:
                         st.info("✅ No red cards in current live matches")
                 else:
-                    st.warning("⚠️ No live matches at the moment worldwide")
+                    st.warning("⚠️ No live matches at the moment in our leagues")
                     st.info("Try again when there are live matches!")
                     
             except ImportError as e:
@@ -1654,11 +1657,8 @@ with tab9:
     try:
         from esports_scanner import EsportsScanner
         
-        game_sel = st.radio("Game", ["All", "CS2", "LoL", "Dota2", "Valorant", "FIFA", "RL"], horizontal=True, key="esp_g")
+        game_sel = st.radio("", ["All", "CS2", "LoL", "Dota2", "Valorant"], horizontal=True, key="esp_g")
         esp = EsportsScanner()
-        
-        # DEBUG: Show API key status
-        st.caption(f"🔑 API Key: {'✅ Loaded' if esp.api_key else '❌ Missing'}")
         
         if not esp.api_key:
             st.warning("⚠️ API key needed • pandascore.co")
