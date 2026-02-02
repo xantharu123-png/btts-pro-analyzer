@@ -1654,8 +1654,11 @@ with tab9:
     try:
         from esports_scanner import EsportsScanner
         
-        game_sel = st.radio("", ["All", "CS2", "LoL", "Dota2", "Valorant", "FIFA", "RL"], horizontal=True, key="esp_g")
+        game_sel = st.radio("Game", ["All", "CS2", "LoL", "Dota2", "Valorant", "FIFA", "RL"], horizontal=True, key="esp_g")
         esp = EsportsScanner()
+        
+        # DEBUG: Show API key status
+        st.caption(f"🔑 API Key: {'✅ Loaded' if esp.api_key else '❌ Missing'}")
         
         if not esp.api_key:
             st.warning("⚠️ API key needed • pandascore.co")

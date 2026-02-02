@@ -23,7 +23,12 @@ class EsportsScanner:
         # FIX: Correct Streamlit secrets syntax
         try:
             self.api_key = st.secrets['esports']['pandascore_key']
-        except Exception:
+            print(f"✅ E-Sports API Key loaded: {self.api_key[:10]}...")
+        except KeyError as e:
+            print(f"❌ KeyError loading esports API key: {e}")
+            self.api_key = ''
+        except Exception as e:
+            print(f"❌ Exception loading esports API key: {type(e).__name__}: {e}")
             self.api_key = ''
         
         self.headers = {
