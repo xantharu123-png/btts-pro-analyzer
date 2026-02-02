@@ -42,7 +42,12 @@ class EsportsScanner:
             'cs2': 'csgo',
             'lol': 'lol',
             'dota2': 'dota2',
-            'valorant': 'valorant'
+            'valorant': 'valorant',
+            'fifa': 'ea-sports-fc',      # FIFA / EA Sports FC
+            'rl': 'rl',                   # Rocket League
+            'cod': 'codmw',               # Call of Duty
+            'starcraft': 'starcraft-2',   # StarCraft 2
+            'overwatch': 'ow'             # Overwatch
         }
         
         games_to_scan = list(games_map.keys()) if game == 'all' else [game]

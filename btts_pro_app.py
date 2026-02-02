@@ -1654,7 +1654,7 @@ with tab9:
     try:
         from esports_scanner import EsportsScanner
         
-        game_sel = st.radio("", ["All", "CS2", "LoL", "Dota2", "Valorant"], horizontal=True, key="esp_g")
+        game_sel = st.radio("", ["All", "CS2", "LoL", "Dota2", "Valorant", "FIFA", "RL"], horizontal=True, key="esp_g")
         esp = EsportsScanner()
         
         if not esp.api_key:
