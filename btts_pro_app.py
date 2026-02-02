@@ -185,7 +185,7 @@ with st.sidebar:
     )
     
     # Select all checkbox
-    select_all = st.checkbox("Alle Ligen auswählen", value=False)
+    select_all = st.checkbox("Alle Ligen auswählen", value=True)  # DEFAULT: TRUE
     
     # Get available leagues from LEAGUES_CONFIG
     available_leagues = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else []
@@ -377,7 +377,7 @@ with tab1:
     # Row 1: Liga-Auswahl
     col_check, col_leagues = st.columns([1, 5])
     with col_check:
-        select_all_tab1 = st.checkbox("Alle Ligen", value=False, key="tab1_select_all")
+        select_all_tab1 = st.checkbox("Alle Ligen", value=True, key="tab1_select_all")  # DEFAULT: TRUE
     with col_leagues:
         if select_all_tab1:
             selected_leagues = available_leagues
