@@ -198,169 +198,16 @@ class BivariatePoissonModel:
         return max(0, min(100, p_btts * 100))
 
 
-class BookmakerOddsManager:
-    """
-    Holt echte Buchmacher-Quoten von API-Football
-    KRITISCH: Ohne echte Odds ist keine VALUE-Berechnung möglich!
-    """
-    
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.base_url = "https://v3.football.api-sports.io"
-        self.headers = {
-            'x-rapidapi-key': api_key,
-            'x-rapidapi-host': 'v3.football.api-sports.io'
-        }
-        self._odds_cache = {}
-    
-    def get_btts_odds(self, fixture_id: int) -> Optional[Dict]:
-        """
-        Holt BTTS Quoten für ein Spiel
-        
-        Returns:
-            {
-                'btts_yes': 1.85,
-                'btts_no': 1.90,
-                'btts_yes_implied': 54.0,  # 100/1.85
-                'btts_no_implied': 52.6,   # 100/1.90
-                'bookmaker': 'bet365',
-                'available': True
-            }
-        """
-        if fixture_id in self._odds_cache:
-            return self._odds_cache[fixture_id]
-        
-        try:
-            import requests
-            
-            # API-Football Odds Endpoint (bet=12 = BTTS)
-            url = f"{self.base_url}/odds"
-            params = {
-                'fixture': fixture_id,
-                'bet': 12  # BTTS market
-            }
-            
-            response = requests.get(url, headers=self.headers, params=params, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                if data.get('response') and len(data['response']) > 0:
-                    odds_data = data['response'][0]
-                    bookmakers = odds_data.get('bookmakers', [])
-                    
-                    if bookmakers:
-                        # Nimm ersten verfügbaren Bookmaker
-                        bookie = bookmakers[0]
-                        bets = bookie.get('bets', [])
-                        
-                        for bet in bets:
-                            if bet.get('name') == 'Both Teams Score':
-                                values = bet.get('values', [])
-                                
-                                btts_yes = None
-                                btts_no = None
-                                
-                                for v in values:
-                                    if v.get('value') == 'Yes':
-                                        btts_yes = float(v.get('odd', 0))
-                                    elif v.get('value') == 'No':
-                                        btts_no = float(v.get('odd', 0))
-                                
-                                if btts_yes and btts_no:
-                                    result = {
-                                        'btts_yes': btts_yes,
-                                        'btts_no': btts_no,
-                                        'btts_yes_implied': round(100 / btts_yes, 1),
-                                        'btts_no_implied': round(100 / btts_no, 1),
-                                        'bookmaker': bookie.get('name', 'Unknown'),
-                                        'available': True
-                                    }
-                                    self._odds_cache[fixture_id] = result
-                                    return result
-            
-            # Keine Odds gefunden
-            return {'available': False}
-            
-        except Exception as e:
-            print(f"⚠️ Odds fetch error: {e}")
-            return {'available': False}
-    
-    def get_over_under_odds(self, fixture_id: int, line: float = 2.5) -> Optional[Dict]:
-        """Holt Over/Under Quoten"""
-        try:
-            import requests
-            
-            # bet=5 = Over/Under
-            url = f"{self.base_url}/odds"
-            params = {
-                'fixture': fixture_id,
-                'bet': 5
-            }
-            
-            response = requests.get(url, headers=self.headers, params=params, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                if data.get('response') and len(data['response']) > 0:
-                    odds_data = data['response'][0]
-                    bookmakers = odds_data.get('bookmakers', [])
-                    
-                    if bookmakers:
-                        bookie = bookmakers[0]
-                        bets = bookie.get('bets', [])
-                        
-                        for bet in bets:
-                            if 'Over/Under' in bet.get('name', ''):
-                                values = bet.get('values', [])
-                                
-                                over_odds = None
-                                under_odds = None
-                                
-                                for v in values:
-                                    val = v.get('value', '')
-                                    if f'Over {line}' in val:
-                                        over_odds = float(v.get('odd', 0))
-                                    elif f'Under {line}' in val:
-                                        under_odds = float(v.get('odd', 0))
-                                
-                                if over_odds and under_odds:
-                                    return {
-                                        'over': over_odds,
-                                        'under': under_odds,
-                                        'over_implied': round(100 / over_odds, 1),
-                                        'under_implied': round(100 / under_odds, 1),
-                                        'line': line,
-                                        'available': True
-                                    }
-            
-            return {'available': False}
-            
-        except Exception:
-            return {'available': False}
-
-
 class AdvancedBTTSAnalyzer:
     """
     Pro-level BTTS Analyzer mit korrigierter Poisson-Logik
-    JETZT MIT ECHTEN BUCHMACHER-ODDS FÜR VALUE-BERECHNUNG!
     """
     
     def __init__(self, api_key: Optional[str] = None, db_path: str = "btts_data.db", 
                  weather_api_key: Optional[str] = None, api_football_key: Optional[str] = None):
         self.engine = DataEngine(api_football_key or api_key, db_path)  # FIX: Use api_football_key!
         self.db_path = db_path
-        self.api_football_key = api_football_key
-        
-        # NEUE: Bookmaker Odds Manager für echte Value-Berechnung
-        if api_football_key:
-            self.odds_manager = BookmakerOddsManager(api_football_key)
-            print("✅ Bookmaker odds integration enabled!")
-        else:
-            self.odds_manager = None
-            print("⚠️ No API key - odds not available, value calculations limited")
-        
+        self.api_football_key = api_football_key        
         # Dixon-Coles Model (korrigiert niedrige Spielstände)
         self.dixon_coles = DixonColesModel(rho=-0.05)
         
@@ -783,37 +630,17 @@ class AdvancedBTTSAnalyzer:
         bv_btts = self.bivariate_poisson.calculate_btts_probability(lambda_home, lambda_away)
         
         # Kombiniere beide Modelle (60% Dixon-Coles, 40% Bivariate)
+        # Dixon-Coles ist empirisch besser validiert, daher höheres Gewicht
         poisson_btts = 0.60 * dc_btts + 0.40 * bv_btts
         
         # =============================================
-        # VERBESSERTE FINALE KOMBINATION MIT DYNAMISCHER GEWICHTUNG
+        # FINALE KOMBINATION
         # =============================================
-        # Problem vorher: 60% historisch + 40% Poisson war zu statisch
-        # 
-        # NEUE Logik:
-        # - Wenn Poisson stark von historisch abweicht → mehr Gewicht auf Poisson (aktuelle Form wichtiger)
-        # - Wenn ähnlich → Balance
+        # 60% gewichtete Statistik + 40% Poisson
+        final_btts = 0.60 * weighted_btts + 0.40 * poisson_btts
         
-        poisson_vs_historic_diff = abs(poisson_btts - weighted_btts)
-        
-        if poisson_vs_historic_diff > 15:
-            # Große Differenz: Poisson (aktuelle xG) ist wahrscheinlich akkurater
-            # z.B. Team mit historisch 40% BTTS aber heute xG = 3.5 → Poisson wichtiger
-            poisson_weight = 0.65
-            historic_weight = 0.35
-        elif poisson_vs_historic_diff > 10:
-            # Moderate Differenz
-            poisson_weight = 0.55
-            historic_weight = 0.45
-        else:
-            # Ähnliche Werte: Balance
-            poisson_weight = 0.50
-            historic_weight = 0.50
-        
-        final_btts = (historic_weight * weighted_btts) + (poisson_weight * poisson_btts)
-        
-        # Clamp zwischen 20% und 85% (realistischer Range)
-        final_btts = max(20, min(85, final_btts))
+        # Clamp zwischen 25% und 90%
+        final_btts = max(25, min(90, final_btts))
         
         # =============================================
         # CONFIDENCE SCORE (Fließende Berechnung)
@@ -901,44 +728,15 @@ class AdvancedBTTSAnalyzer:
         else:
             confidence_level = "LOW"
         
-        # =============================================
-        # NEUE EDGE-BASIERTE RECOMMENDATION
-        # =============================================
-        # Wir müssen KEINE Buchmacher-Odds haben um eine sinnvolle Empfehlung zu geben
-        # Aber wir müssen ehrlich sein über den VALUE
-        
-        # Geschätzte Markt-Odds basierend auf BTTS% (mit typischem 5-8% Juice)
-        if final_btts > 5:
-            fair_odds_yes = round(100 / final_btts, 2)
-            estimated_market_odds = round(fair_odds_yes * 0.92, 2)  # Markt nimmt ~8% Juice
-            implied_market_prob = round(100 / estimated_market_odds, 1)
-            estimated_edge = round(final_btts - implied_market_prob, 1)
-        else:
-            fair_odds_yes = 20.0
-            estimated_market_odds = 18.4
-            implied_market_prob = 5.4
-            estimated_edge = 0
-        
-        # NEUE Recommendation Logik - basierend auf BTTS% UND Confidence
-        # NICHT mehr "GOOD VALUE" bei 50% - das ist ein Münzwurf!
-        if final_btts >= 65 and confidence >= 70:
+        # Recommendation
+        if final_btts >= 70 and confidence >= 65:
             recommendation = "🔥 STRONG BET"
-            tip_type = "TOP TIP"
-        elif final_btts >= 60 and confidence >= 60:
+        elif final_btts >= 60 and confidence >= 55:
             recommendation = "✅ GOOD VALUE"
-            tip_type = "GOOD VALUE"
-        elif final_btts >= 55 and confidence >= 55:
-            recommendation = "📊 MODERATE"
-            tip_type = "MODERATE"
         elif final_btts >= 50:
-            recommendation = "⚠️ RISKY (Coin Flip)"
-            tip_type = "RISKY"
-        elif final_btts >= 40:
-            recommendation = "⚠️ LEAN NO BTTS"
-            tip_type = "LEAN NO"
+            recommendation = "⚠️ RISKY"
         else:
-            recommendation = "❌ NO BTTS LIKELY"
-            tip_type = "NO BTTS"
+            recommendation = "❌ AVOID"
         
         # Expected total goals
         expected_total = lambda_home + lambda_away
@@ -958,13 +756,6 @@ class AdvancedBTTSAnalyzer:
             'confidence': round(confidence, 1),
             'confidence_level': confidence_level,
             'recommendation': recommendation,
-            'tip_type': tip_type,
-            
-            # NEUE Value/Edge Felder
-            'fair_odds': fair_odds_yes,
-            'estimated_market_odds': estimated_market_odds,
-            'implied_market_prob': implied_market_prob,
-            'estimated_edge': estimated_edge,
             
             # Individual components
             'season_btts': round(season_btts, 1),
@@ -1483,10 +1274,7 @@ class AdvancedBTTSAnalyzer:
                     'BTTS %': f"{analysis['ensemble_probability']:.1f}%",
                     'Confidence': f"{analysis['confidence']:.1f}%",
                     'Level': analysis['confidence_level'],
-                    'Tip': analysis.get('tip_type', analysis['recommendation']),
-                    'Recommendation': analysis['recommendation'],
-                    'Fair Odds': analysis.get('fair_odds', 0),
-                    'Est. Edge': f"{analysis.get('estimated_edge', 0):.1f}%",
+                    'Tip': analysis['recommendation'],
                     'ML': f"{analysis['ml_probability']:.1f}%",
                     'Stat': f"{analysis['statistical_probability']:.1f}%",
                     'Form': f"{analysis['form_probability']:.1f}%",
