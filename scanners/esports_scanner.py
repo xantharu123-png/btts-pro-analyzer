@@ -31,16 +31,44 @@ class EsportsScanner:
     def __init__(self):
         self.pandascore_base = "https://api.pandascore.co"
         
-        # FIX: Correct Streamlit secrets syntax
+        # Try multiple locations for API key
+        self.api_key = ''
+        
+        # Method 1: st.secrets['esports']['pandascore_key']
         try:
-            self.api_key = st.secrets['esports']['pandascore_key']
-            print(f"✅ E-Sports API Key loaded: {self.api_key[:10]}...")
-        except KeyError as e:
-            print(f"❌ KeyError loading esports API key: {e}")
-            self.api_key = ''
-        except Exception as e:
-            print(f"❌ Exception loading esports API key: {type(e).__name__}: {e}")
-            self.api_key = ''
+            if hasattr(st, 'secrets') and 'esports' in st.secrets:
+                self.api_key = st.secrets['esports']['pandascore_key']
+                print(f"✅ E-Sports API Key loaded from secrets.esports")
+        except:
+            pass
+        
+        # Method 2: st.secrets['PANDASCORE_KEY']
+        if not self.api_key:
+            try:
+                if hasattr(st, 'secrets') and 'PANDASCORE_KEY' in st.secrets:
+                    self.api_key = st.secrets['PANDASCORE_KEY']
+                    print(f"✅ E-Sports API Key loaded from secrets.PANDASCORE_KEY")
+            except:
+                pass
+        
+        # Method 3: st.secrets['pandascore_key']
+        if not self.api_key:
+            try:
+                if hasattr(st, 'secrets') and 'pandascore_key' in st.secrets:
+                    self.api_key = st.secrets['pandascore_key']
+                    print(f"✅ E-Sports API Key loaded from secrets.pandascore_key")
+            except:
+                pass
+        
+        # Method 4: Environment variable
+        if not self.api_key:
+            import os
+            self.api_key = os.environ.get('PANDASCORE_KEY', '')
+            if self.api_key:
+                print(f"✅ E-Sports API Key loaded from environment")
+        
+        if not self.api_key:
+            print("⚠️ No Pandascore API key found")
         
         self.headers = {
             'Authorization': f'Bearer {self.api_key}',
@@ -574,8 +602,33 @@ def create_esports_tab():
     scanner = EsportsScanner()
     
     if not scanner.api_key:
-        st.error("⚠️ Pandascore API key required")
-        st.info("Get free key: https://pandascore.co")
+        st.error("⚠️ Pandascore API key not found")
+        
+        # Show what was tried
+        with st.expander("🔧 Debug: Wo wird der Key gesucht?"):
+            st.write("Der Scanner sucht den API Key an diesen Stellen:")
+            st.code("""
+# In secrets.toml:
+[esports]
+pandascore_key = "DEIN_KEY"
+
+# ODER:
+PANDASCORE_KEY = "DEIN_KEY"
+
+# ODER:
+pandascore_key = "DEIN_KEY"
+            """)
+            
+            # Show what secrets exist
+            try:
+                if hasattr(st, 'secrets'):
+                    st.write("**Gefundene Secrets-Kategorien:**")
+                    for key in st.secrets.keys():
+                        st.write(f"- `{key}`")
+            except:
+                st.write("Keine secrets gefunden")
+        
+        st.info("🔗 Get free key: https://pandascore.co")
         return
     
     with st.spinner(f"🔍 Scanning {game_filter} matches..."):
@@ -601,23 +654,15 @@ def create_esports_tab():
         # Stars display
         stars = "⭐" * rec['stars']
         
-        # Color based on strength
-        if rec['stars'] >= 4:
-            color = "#00ff00"
-        elif rec['stars'] >= 3:
-            color = "#ffcc00"
-        else:
-            color = "#888888"
-        
-        st.markdown(f"""
-        <div style="border-left: 4px solid {color}; padding: 15px; margin: 10px 0; background: #1a1a2e; border-radius: 8px;">
-            <div style="display: flex; justify-content: space-between;">
-                <span style="font-size: 1.1em; font-weight: bold;">{rec['team1']} vs {rec['team2']}</span>
-                <span>{stars}</span>
-            </div>
-            <div style="color: #888; font-size: 0.9em;">{rec['game']} • {rec['tournament']} • {rec['score']}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        # Native Streamlit display (no custom colors!)
+        with st.container():
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.subheader(f"{rec['team1']} vs {rec['team2']}")
+            with col2:
+                st.write(stars)
+            
+            st.caption(f"{rec['game']} • {rec['tournament']} • Score: {rec['score']}")
         
         # Stats
         c1, c2, c3, c4 = st.columns(4)
