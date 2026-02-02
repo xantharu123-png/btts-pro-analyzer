@@ -274,35 +274,26 @@ with tab1:
                         analysis = row.get('_analysis', {})
                         est_edge = analysis.get('estimated_edge', 0)
                         fair_odds = analysis.get('fair_odds', 0)
-                        tip_type = analysis.get('tip_type', 'UNKNOWN')
+                        tip_type = analysis.get('tip_type', 'MODERATE')
+                        recommendation = analysis.get('recommendation', 'N/A')
                         
-                        # Color based on tip type
-                        if tip_type == 'TOP TIP':
-                            border_color = '#00ff00'
-                            emoji = '🔥🔥'
-                        elif tip_type == 'GOOD VALUE':
-                            border_color = '#4CAF50'
-                            emoji = '✅'
-                        elif tip_type == 'MODERATE':
-                            border_color = '#FFC107'
-                            emoji = '📊'
-                        elif tip_type == 'RISKY':
-                            border_color = '#FF9800'
-                            emoji = '⚠️'
-                        else:
-                            border_color = '#888888'
-                            emoji = '📋'
+                        # EINFACHE DARSTELLUNG - Streamlit native!
+                        st.subheader(f"🔥 {row['Home']} vs {row['Away']}")
+                        st.caption(f"**League:** {row['League']} | **Date:** {row['Date']}")
                         
-                        st.markdown(f"""
-                            <div style='border-left: 4px solid {border_color}; padding: 15px; margin: 10px 0; background: #1a1a2e; border-radius: 8px;'>
-                                <h3>{emoji} {row['Home']} vs {row['Away']}</h3>
-                                <p><strong>League:</strong> {row['League']} | <strong>Date:</strong> {row['Date']}</p>
-                                <p><strong>BTTS Probability:</strong> {row['BTTS %']} | <strong>Confidence:</strong> {row['Confidence']}</p>
-                                <p><strong>Fair Odds:</strong> {fair_odds:.2f} | <strong>Est. Edge:</strong> {est_edge:.1f}%</p>
-                                <p><strong>Expected Total Goals:</strong> {row['xG Total']}</p>
-                                <p><strong>Verdict:</strong> {analysis.get('recommendation', row.get('Tip', 'N/A'))}</p>
-                            </div>
-                        """, unsafe_allow_html=True)
+                        # Metrics in columns
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("BTTS %", row['BTTS %'])
+                        with col2:
+                            st.metric("Confidence", row['Confidence'])
+                        with col3:
+                            st.metric("Fair Odds", f"{fair_odds:.2f}")
+                        with col4:
+                            st.metric("Est. Edge", f"{est_edge:.1f}%")
+                        
+                        st.write(f"**xG Total:** {row['xG Total']} | **Verdict:** {recommendation}")
+                        st.markdown("---")
                         
                         # Show detailed breakdown
                         with st.expander("📊 Detailed Breakdown"):
