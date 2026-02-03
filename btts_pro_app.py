@@ -371,7 +371,24 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
 with tab1:
     st.header("🔥 Premium Tips - Highest Confidence")
     
-    st.info(f"💡 Filtering for BTTS ≥ {min_probability}% AND Confidence ≥ {min_confidence}% (adjust in sidebar)")
+    # INLINE FILTER
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        min_probability = st.slider("Min BTTS %", 50, 90, 60, 5, key="tab1_prob")
+    with col2:
+        min_confidence = st.slider("Min Confidence %", 50, 95, 60, 5, key="tab1_conf")
+    with col3:
+        days_ahead = st.slider("Tage voraus", 1, 14, 7, key="tab1_days")
+    
+    # Liga-Auswahl
+    available_leagues = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else []
+    select_all = st.checkbox("✅ Alle Ligen", value=True, key="tab1_all")
+    if select_all:
+        selected_leagues = available_leagues
+    else:
+        selected_leagues = st.multiselect("Ligen:", available_leagues, default=['BL1', 'PL'], key="tab1_leagues")
+    
+    st.markdown("---")
     
     if st.button("🔍 Analyze Matches", key="analyze_top"):
         # Create Progress Bar
@@ -482,14 +499,17 @@ with tab1:
 with tab2:
     st.header("📊 All BTTS Recommendations")
     
+    # Inline Filter für Tab 2
+    tab2_min_conf = st.slider("Min Confidence %", 40, 95, 50, 5, key="tab2_conf")
+    
     if 'all_results' in st.session_state and st.session_state['all_results'] is not None:
         df = st.session_state['all_results']
         
         # Apply confidence filter
-        df_filtered = df[df['Conf_num'] >= min_confidence].copy()
+        df_filtered = df[df['Conf_num'] >= tab2_min_conf].copy()
         
         if not df_filtered.empty:
-            st.success(f"📋 Showing {len(df_filtered)} matches (filtered by confidence ≥{min_confidence}%)")
+            st.success(f"📋 Showing {len(df_filtered)} matches (filtered by confidence ≥{tab2_min_conf}%)")
             
             # Display as table
             display_df = df_filtered[[
