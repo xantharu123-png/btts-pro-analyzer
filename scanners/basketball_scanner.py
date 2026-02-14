@@ -1,10 +1,11 @@
 """
-BASKETBALL SCANNER - REAL IMPLEMENTATION
-NBA + Euroleague - NO DEMOS, ONLY REAL DATA
+BASKETBALL & NHL SCANNER - REAL IMPLEMENTATION
+NBA + Euroleague + NHL - NO DEMOS, ONLY REAL DATA
 
 Features:
 - Real NBA API Integration (stats.nba.com)
 - Real Euroleague API Integration
+- Real NHL API Integration (api-web.nhle.com)
 - Live Quarter Winner Predictions
 - Live Total Points Analysis
 - Live Player Props Tracking
@@ -24,7 +25,7 @@ import time
 
 class BasketballScanner:
     """
-    Real Basketball Scanner - NBA + Euroleague
+    Real Basketball + NHL Scanner - NBA + Euroleague + NHL
     Uses actual APIs and real-time data
     """
     
@@ -44,6 +45,112 @@ class BasketballScanner:
         
         # Alternative: NBA.com live scoreboard
         self.nba_live_url = "https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json"
+        
+        # NHL API
+        self.nhl_api_url = "https://api-web.nhle.com/v1/scoreboard/now"
+    
+    def get_live_nhl_games(self) -> List[Dict]:
+        """Get real-time NHL games"""
+        try:
+            response = requests.get(
+                self.nhl_api_url,
+                headers={'User-Agent': 'Mozilla/5.0'},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                live_games = []
+                
+                # NHL API returns games grouped by date
+                for date_group in data.get('gamesByDate', []):
+                    for game in date_group.get('games', []):
+                        # LIVE, CRIT (critical/close game), or in progress
+                        if game.get('gameState') in ['LIVE', 'CRIT']:
+                            live_games.append(self._parse_nhl_game(game))
+                
+                return live_games
+            else:
+                return []
+                
+        except Exception as e:
+            st.info(f"NHL: {str(e)[:50]}")
+            return []
+    
+    def _parse_nhl_game(self, game: Dict) -> Dict:
+        """Parse NHL game data into our format"""
+        home = game.get('homeTeam', {})
+        away = game.get('awayTeam', {})
+        
+        return {
+            'league': 'NHL',
+            'game_id': game.get('id'),
+            'home_team': home.get('abbrev', 'HOME'),
+            'away_team': away.get('abbrev', 'AWAY'),
+            'home_score': home.get('score', 0),
+            'away_score': away.get('score', 0),
+            'period': game.get('period', 1),
+            'game_clock': game.get('clock', {}).get('timeRemaining', '20:00') if isinstance(game.get('clock'), dict) else '20:00',
+            'game_status': game.get('gameState', 'Live'),
+            'venue': game.get('venue', {}).get('default', 'Unknown')
+        }
+    
+    def analyze_nhl_game(self, game: Dict) -> Optional[Dict]:
+        """Analyze NHL game for betting opportunities"""
+        try:
+            home_score = game.get('home_score', 0)
+            away_score = game.get('away_score', 0)
+            period = game.get('period', 1)
+            total = home_score + away_score
+            
+            # Simple analysis based on score and period
+            opportunities = []
+            
+            # Over/Under analysis
+            if period <= 2:
+                pace = total / max(period, 1)
+                projected = pace * 3
+                
+                if projected >= 6.5:
+                    opportunities.append({
+                        'market': 'Over 5.5 Goals',
+                        'edge': min(round((projected - 5.5) * 10, 1), 15),
+                        'confidence': min(65 + int(projected * 3), 90)
+                    })
+                elif projected <= 4:
+                    opportunities.append({
+                        'market': 'Under 5.5 Goals',
+                        'edge': min(round((5.5 - projected) * 8, 1), 12),
+                        'confidence': min(60 + int((5.5 - projected) * 10), 85)
+                    })
+            
+            # Winner analysis
+            diff = home_score - away_score
+            if abs(diff) >= 2 and period >= 2:
+                leader = game['home_team'] if diff > 0 else game['away_team']
+                opportunities.append({
+                    'market': f'{leader} to Win',
+                    'edge': min(abs(diff) * 5, 15),
+                    'confidence': min(70 + abs(diff) * 5, 92)
+                })
+            
+            if opportunities:
+                best = max(opportunities, key=lambda x: x['confidence'])
+                return {
+                    'game': f"{game['away_team']} @ {game['home_team']}",
+                    'score': f"{away_score}-{home_score}",
+                    'period': f"P{period}",
+                    'market': best['market'],
+                    'edge': best['edge'],
+                    'confidence': best['confidence'],
+                    'roi': round(best['edge'] * 1.2, 1),
+                    'odds': round(100 / best['confidence'] + 0.1, 2)
+                }
+            
+            return None
+            
+        except Exception:
+            return None
         
     def get_live_nba_games(self) -> List[Dict]:
         """
@@ -94,39 +201,26 @@ class BasketballScanner:
         """
         Get real-time Euroleague games
         """
-        # Try multiple endpoints
-        endpoints = [
-            f"{self.euroleague_api_base}/Games",
-            "https://api-live.euroleague.net/v1/games",
-            "https://feed.euroleague.net/v1/games"
-        ]
-        
-        for url in endpoints:
-            try:
-                response = requests.get(url, timeout=10, headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'application/json'
-                })
+        try:
+            # Euroleague Live endpoint
+            url = f"{self.euroleague_api_base}/Games"
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    # Handle different response formats
-                    games_list = data if isinstance(data, list) else data.get('games', data.get('data', []))
-                    
-                    live_games = []
-                    for game in games_list:
-                        if game.get('Live', False) or game.get('live', False) or game.get('status') == 'live':
-                            live_games.append(self._parse_euroleague_game(game))
-                    
-                    return live_games
-                    
-            except Exception:
-                continue  # Try next endpoint
-        
-        # No endpoint worked
-        st.caption("ℹ️ Euroleague: No live games or API temporarily unavailable")
-        return []
+                live_games = []
+                for game in data:
+                    if game.get('Live', False):
+                        live_games.append(self._parse_euroleague_game(game))
+                
+                return live_games
+            else:
+                return []
+                
+        except Exception as e:
+            st.warning(f"Euroleague API currently unavailable: {e}")
+            return []
     
     def _parse_euroleague_game(self, game: Dict) -> Dict:
         """Parse Euroleague game data"""

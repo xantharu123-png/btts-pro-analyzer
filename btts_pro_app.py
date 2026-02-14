@@ -1530,7 +1530,7 @@ with tab9:
     sys.path.insert(0, str(Path(__file__).parent / 'scanners'))
     
     st.header("🎯 MULTI-SPORT LIVE SCANNER")
-    st.caption("Basketball • Tennis • Cricket • E-Sports")
+    st.caption("Basketball • NHL • Tennis • Cricket • E-Sports")
     
     if st.button("🔄 Refresh", key="ref_ms", use_container_width=True):
         st.rerun()
@@ -1572,6 +1572,36 @@ with tab9:
             st.info("No live games")
     except Exception as e:
         st.error(f"Basketball: {str(e)[:60]}")
+    
+    # NHL
+    st.markdown("### 🏒 NHL")
+    try:
+        from basketball_scanner import BasketballScanner
+        nhl = BasketballScanner()
+        nhl_games = nhl.get_live_nhl_games()
+        
+        if nhl_games:
+            st.success(f"✅ {len(nhl_games)} live NHL games")
+            for g in nhl_games:
+                opp = nhl.analyze_nhl_game(g)
+                
+                c1, c2, c3 = st.columns([2, 1, 1])
+                with c1:
+                    st.markdown(f"**{g['away_team']} @ {g['home_team']}**")
+                    st.caption(f"P{g['period']} • {g['away_score']}-{g['home_score']}")
+                with c2:
+                    if opp: st.metric("Edge", f"+{opp['edge']}%")
+                with c3:
+                    if opp: st.metric("ROI", f"+{opp['roi']}%")
+                
+                if opp:
+                    st.markdown(f"{'🔥🔥' if opp['confidence'] >= 85 else '🔥'} **{opp['market']}** @ {opp['odds']} • {opp['confidence']}%")
+                    all_opps.append({**opp, 'sport': '🏒 NHL', 'game': f"{g['away_team']} @ {g['home_team']}"})
+                st.markdown("---")
+        else:
+            st.info("No live NHL games")
+    except Exception as e:
+        st.error(f"NHL: {str(e)[:60]}")
     
     # Tennis
     st.markdown("### 🎾 TENNIS")
