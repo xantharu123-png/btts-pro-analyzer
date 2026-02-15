@@ -46,35 +46,54 @@ class TennisScanner:
     def get_live_matches(self) -> List[Dict]:
         """
         Get real-time tennis matches from Sofascore
-        Note: Sofascore may block cloud/server requests (403)
+        Note: Sofascore may block cloud server IPs (works locally)
         """
         try:
             # Sofascore live tennis endpoint
             url = f"{self.sofascore_base}/sport/tennis/events/live"
             
-            response = requests.get(url, headers=self.headers, timeout=10)
+            # Try with different headers
+            headers_options = [
+                self.headers,
+                {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                    'Accept': '*/*',
+                },
+                {
+                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+                    'Accept': 'application/json',
+                }
+            ]
             
-            if response.status_code == 200:
-                data = response.json()
-                events = data.get('events', [])
-                
-                live_matches = []
-                for event in events:
-                    if event.get('status', {}).get('type') == 'inprogress':
-                        match = self._parse_match(event)
-                        if match:
-                            live_matches.append(match)
-                
-                return live_matches
-            elif response.status_code == 403:
-                st.caption("ℹ️ Tennis: Sofascore blocks cloud requests - try local deployment")
-                return []
-            else:
-                st.caption(f"ℹ️ Tennis API: Status {response.status_code}")
-                return []
+            for headers in headers_options:
+                try:
+                    response = requests.get(url, headers=headers, timeout=10)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        events = data.get('events', [])
+                        
+                        live_matches = []
+                        for event in events:
+                            status = event.get('status', {})
+                            if status.get('type') == 'inprogress':
+                                match = self._parse_match(event)
+                                if match:
+                                    live_matches.append(match)
+                        
+                        if live_matches:
+                            return live_matches
+                    elif response.status_code == 403:
+                        continue  # Try next headers
+                except:
+                    continue
+            
+            # All attempts failed
+            st.info("Tennis: Sofascore blocks cloud requests - try local deployment")
+            return []
                 
         except Exception as e:
-            st.caption(f"ℹ️ Tennis: {str(e)[:40]}")
+            st.info(f"Tennis: {str(e)[:50]}")
             return []
     
     def _parse_match(self, event: Dict) -> Optional[Dict]:
