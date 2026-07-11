@@ -12,6 +12,7 @@ Features:
 """
 
 import streamlit as st
+from config_loader import load_app_config
 from alternative_markets import (
     PreMatchAlternativeAnalyzer,
     MatchResultPredictor
@@ -740,10 +741,9 @@ def create_alternative_markets_tab_extended():
         st.session_state['tab7_selected_leagues'] = [78, 39, 140]  # Default: BL, PL, LL
     
     # Get API key
-    try:
-        api_key = st.secrets['api']['api_football_key']
-    except:
-        st.error("❌ API Key nicht gefunden!")
+    api_key = load_app_config(st).api_football_key
+    if not api_key:
+        st.error("API-Football key nicht gefunden.")
         return
     
     # ALL 28 LEAGUES
@@ -977,13 +977,19 @@ def create_alternative_markets_tab_extended():
                                     match_analysis = _collect_match_analysis(match, api_key)
                                     
                                     # Initialize Smart Bet Finder
-                                    finder = SmartBetFinder()
+                                    app_config = load_app_config(st)
+                                    finder = SmartBetFinder(
+                                        odds_api_key=app_config.odds_api_key,
+                                        api_football_key=api_key,
+                                    )
+                                    home_name = match['teams']['home']['name']
+                                    away_name = match['teams']['away']['name']
                                     
                                     if smart_bet_mode == 'value':
                                         st.markdown("### 🎯 VALUE BET SCANNER")
                                         st.caption("Top 3 Wetten mit höchstem Edge vs. Bookmaker")
                                         
-                                        smart_bets = finder.find_value_bets(match_analysis)
+                                        smart_bets = finder.find_value_bets(match_analysis, home_name, away_name)
                                         
                                         if smart_bets:
                                             for i, bet in enumerate(smart_bets, 1):
@@ -995,7 +1001,7 @@ def create_alternative_markets_tab_extended():
                                         st.markdown("### 🔥 MULTI-MARKET COMBOS")
                                         st.caption("Profitable 2-3 Wetten Kombinationen")
                                         
-                                        combos = finder.find_combo_bets(match_analysis)
+                                        combos = finder.find_combo_bets(match_analysis, home_name, away_name)
                                         
                                         if combos:
                                             for i, combo in enumerate(combos, 1):
@@ -1007,7 +1013,7 @@ def create_alternative_markets_tab_extended():
                                         st.markdown("### 💎 HIGH CONFIDENCE BETS")
                                         st.caption("Nur Wetten mit >75% Wahrscheinlichkeit")
                                         
-                                        high_conf_bets = finder.find_high_confidence_bets(match_analysis)
+                                        high_conf_bets = finder.find_high_confidence_bets(match_analysis, home_name, away_name)
                                         
                                         if high_conf_bets:
                                             # Check if threshold was lowered (any bet < 75%)

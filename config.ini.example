@@ -1,0 +1,17 @@
+[api]
+api_key =
+api_football_key =
+weather_key =
+
+[database]
+supabase_db_url =
+
+[odds]
+api_key =
+
+[telegram]
+bot_token =
+chat_id =
+
+[esports]
+pandascore_key =

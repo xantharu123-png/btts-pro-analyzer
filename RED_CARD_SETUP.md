@@ -85,7 +85,7 @@ dein-repo/
 
    **Secret 1:**
    - Name: `API_FOOTBALL_KEY`
-   - Value: `1a1c70f5c48bfdce946b71680e47e92e`
+   - Value: `<DEIN_API_FOOTBALL_KEY>`
 
    **Secret 2:**
    - Name: `TELEGRAM_BOT_TOKEN`

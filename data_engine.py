@@ -14,69 +14,142 @@ from datetime import datetime
 from typing import Dict, List, Optional
 import sqlite3
 
-# ========== SUPABASE DEBUG BEIM IMPORT ==========
-print("=" * 50)
-print("🔍 SUPABASE CONNECTION TEST")
-print("=" * 50)
+from config_loader import load_app_config
 
-_SUPABASE_URL_CACHE = None
 
-try:
-    import streamlit as st
-    print("✅ streamlit importiert")
-    
-    if hasattr(st, 'secrets'):
-        print(f"   st.secrets vorhanden: True")
-        try:
-            keys = list(st.secrets.keys())
-            print(f"   Verfügbare Keys: {keys}")
-        except Exception as e:
-            print(f"   Keys auflisten fehlgeschlagen: {e}")
-        
-        if 'SUPABASE_DB_URL' in st.secrets:
-            _SUPABASE_URL_CACHE = st.secrets['SUPABASE_DB_URL']
-            print(f"✅ SUPABASE_DB_URL gefunden!")
-            print(f"   Länge: {len(_SUPABASE_URL_CACHE)}")
-            print(f"   Start: {_SUPABASE_URL_CACHE[:35]}...")
-        else:
-            print("❌ SUPABASE_DB_URL NICHT in st.secrets!")
-    else:
-        print("   st.secrets vorhanden: False")
-except Exception as e:
-    print(f"❌ Streamlit Import Fehler: {e}")
+def _load_supabase_url() -> Optional[str]:
+    """Load the Supabase URL without printing secret material."""
+    st_module = None
+    try:
+        import streamlit as st
+        st_module = st
+    except Exception:
+        pass
 
-# Fallback: Environment
-if not _SUPABASE_URL_CACHE:
-    _SUPABASE_URL_CACHE = os.environ.get('SUPABASE_DB_URL')
-    if _SUPABASE_URL_CACHE:
-        print(f"✅ SUPABASE_DB_URL aus Environment geladen")
+    return load_app_config(st_module).supabase_db_url
 
-# Test PostgreSQL Connection
-try:
-    import psycopg2
-    print("✅ psycopg2 importiert")
-    
-    if _SUPABASE_URL_CACHE:
-        try:
-            test_conn = psycopg2.connect(_SUPABASE_URL_CACHE)
-            test_conn.close()
-            print("✅ POSTGRESQL VERBINDUNG ERFOLGREICH!")
-        except Exception as e:
-            print(f"❌ PostgreSQL Connection Error: {e}")
-except ImportError:
-    print("❌ psycopg2 NICHT installiert!")
 
-print("=" * 50)
-# ========== DEBUG ENDE ==========
+_SUPABASE_URL_CACHE = _load_supabase_url()
 
 
 def _check_postgres():
-    """Check if psycopg2 is available (lazy import)"""
+    """Check if psycopg2 is available (lazy import)."""
     try:
         import psycopg2
         return True
     except ImportError:
         return False
+
+
+def _table_columns(cursor, table_name: str) -> set[str]:
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    return {row[1] for row in cursor.fetchall()}
+
+
+def _table_exists(cursor, table_name: str) -> bool:
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    )
+    return cursor.fetchone() is not None
+
+
+def _sqlite_legacy_table_name(cursor) -> str:
+    base_name = "matches_legacy"
+    table_name = base_name
+    suffix = 1
+    while _table_exists(cursor, table_name):
+        suffix += 1
+        table_name = f"{base_name}_{suffix}"
+    return table_name
+
+
+def _create_matches_table(cursor, use_postgres: bool):
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS matches (
+            id INTEGER PRIMARY KEY,
+            league_code TEXT,
+            league_id INTEGER,
+            date TEXT,
+            home_team TEXT,
+            away_team TEXT,
+            home_team_id INTEGER,
+            away_team_id INTEGER,
+            home_goals INTEGER,
+            away_goals INTEGER,
+            btts INTEGER,
+            total_goals INTEGER,
+            fetched_at TEXT
+        )
+    ''')
+
+
+def _create_matches_indexes(cursor, use_postgres: bool):
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_league ON matches(league_code)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_date ON matches(date)")
+    if use_postgres:
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_home_team ON matches(home_team_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_away_team ON matches(away_team_id)")
+    else:
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_teams ON matches(home_team_id, away_team_id)")
+
+
+def _migrate_sqlite_matches_if_needed(cursor):
+    """Migrate the old local SQLite schema to the canonical matches schema."""
+    if not _table_exists(cursor, "matches"):
+        return
+
+    columns = _table_columns(cursor, "matches")
+    canonical = {"id", "date", "home_goals", "away_goals", "home_team", "away_team"}
+    if canonical.issubset(columns):
+        return
+
+    legacy_required = {"match_id", "match_date", "home_score", "away_score"}
+    if not legacy_required.issubset(columns):
+        return
+
+    legacy_name = _sqlite_legacy_table_name(cursor)
+    cursor.execute(f"ALTER TABLE matches RENAME TO {legacy_name}")
+    _create_matches_table(cursor, use_postgres=False)
+
+    cursor.execute(f'''
+        INSERT OR IGNORE INTO matches (
+            id, league_code, league_id, date, home_team, away_team,
+            home_team_id, away_team_id, home_goals, away_goals,
+            btts, total_goals, fetched_at
+        )
+        SELECT
+            m.match_id,
+            m.league_code,
+            NULL,
+            m.match_date,
+            COALESCE(home_team.name, 'Team ' || m.home_team_id),
+            COALESCE(away_team.name, 'Team ' || m.away_team_id),
+            m.home_team_id,
+            m.away_team_id,
+            m.home_score,
+            m.away_score,
+            m.btts,
+            m.total_goals,
+            m.last_updated
+        FROM {legacy_name} m
+        LEFT JOIN teams home_team ON home_team.team_id = m.home_team_id
+        LEFT JOIN teams away_team ON away_team.team_id = m.away_team_id
+    ''')
+
+
+def _init_postgres_schema(cursor):
+    _create_matches_table(cursor, use_postgres=True)
+    try:
+        _create_matches_indexes(cursor, use_postgres=True)
+    except Exception:
+        pass
+
+
+def _init_sqlite_schema(cursor):
+    _migrate_sqlite_matches_if_needed(cursor)
+    _create_matches_table(cursor, use_postgres=False)
+    _create_matches_indexes(cursor, use_postgres=False)
 
 
 class DataEngine:
@@ -141,15 +214,15 @@ class DataEngine:
         self.use_postgres = bool(self.supabase_url and postgres_available)
         
         if self.use_postgres:
-            print("✅ Using Supabase (PostgreSQL) - Data persists!")
+            print("Using Supabase (PostgreSQL) - data persists.")
         else:
             if self.supabase_url and not postgres_available:
-                print("⚠️ SUPABASE_DB_URL found but psycopg2 not available!")
-            print("⚠️ Using SQLite (local) - Data lost on restart!")
+                print("SUPABASE_DB_URL found but psycopg2 is not available.")
+            print("Using SQLite (local).")
         
         # Initialize database
         self._init_database()
-        print(f"✅ Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues!")
+        print(f"Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues.")
     
     def _get_connection(self):
         """Get database connection (PostgreSQL or SQLite)"""
@@ -164,65 +237,18 @@ class DataEngine:
         return "%s" if self.use_postgres else "?"
     
     def _init_database(self):
-        """Create database tables"""
+        """Create or migrate database tables."""
         conn = self._get_connection()
         c = conn.cursor()
-        
+
         if self.use_postgres:
-            # PostgreSQL Schema
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS matches (
-                    id INTEGER PRIMARY KEY,
-                    league_code TEXT,
-                    league_id INTEGER,
-                    date TEXT,
-                    home_team TEXT,
-                    away_team TEXT,
-                    home_team_id INTEGER,
-                    away_team_id INTEGER,
-                    home_goals INTEGER,
-                    away_goals INTEGER,
-                    btts INTEGER,
-                    total_goals INTEGER,
-                    fetched_at TEXT
-                )
-            ''')
-            
-            # Indexes
-            try:
-                c.execute('CREATE INDEX IF NOT EXISTS idx_league ON matches(league_code)')
-                c.execute('CREATE INDEX IF NOT EXISTS idx_date ON matches(date)')
-                c.execute('CREATE INDEX IF NOT EXISTS idx_home_team ON matches(home_team_id)')
-                c.execute('CREATE INDEX IF NOT EXISTS idx_away_team ON matches(away_team_id)')
-            except:
-                pass
+            _init_postgres_schema(c)
         else:
-            # SQLite Schema
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS matches (
-                    id INTEGER PRIMARY KEY,
-                    league_code TEXT,
-                    league_id INTEGER,
-                    date TEXT,
-                    home_team TEXT,
-                    away_team TEXT,
-                    home_team_id INTEGER,
-                    away_team_id INTEGER,
-                    home_goals INTEGER,
-                    away_goals INTEGER,
-                    btts INTEGER,
-                    total_goals INTEGER,
-                    fetched_at TEXT
-                )
-            ''')
-            
-            c.execute('CREATE INDEX IF NOT EXISTS idx_league ON matches(league_code)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_date ON matches(date)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_teams ON matches(home_team_id, away_team_id)')
-        
+            _init_sqlite_schema(c)
+
         conn.commit()
         conn.close()
-        print(f"✅ Database initialized ({'PostgreSQL' if self.use_postgres else 'SQLite'})")
+        print(f"Database initialized ({'PostgreSQL' if self.use_postgres else 'SQLite'})")
     
     def _rate_limit(self):
         """Respect API rate limits"""

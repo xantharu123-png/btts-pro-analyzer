@@ -12,7 +12,7 @@ SMART BET FINDER V2.0 - VERBESSERTE VERSION
 3 intelligente Button-Modi:
 1. 🎯 Value Bet Scanner - Findet Wetten mit höchstem Edge
 2. 🔥 Multi-Market Combos - Findet profitable Kombinationen
-3. 💎 High Confidence Filter - Nur sehr sichere Wetten
+3. High Confidence Filter - hohe Modellwahrscheinlichkeit, kein Sicherheitsversprechen
 """
 
 import streamlit as st
@@ -319,9 +319,12 @@ class SmartBetFinder:
         # Track value bet history
         self.value_bet_history = []
     
-    def get_odds(self, market: str, home_team: str = None, away_team: str = None) -> Tuple[float, str, bool]:
+    def get_odds(self, market: str, home_team: str = None, away_team: str = None) -> Tuple[Optional[float], str, bool]:
         """
-        Get odds for market - tries real API first, falls back to estimates
+        Get odds for market.
+
+        Model probabilities are calculated independently. Odds are used only
+        afterwards as market price for edge, ROI, and Kelly staking.
         
         Returns: (odds, bookmaker, is_real_odds)
         """
@@ -335,33 +338,34 @@ class SmartBetFinder:
                     True
                 )
         
-        # Fallback to estimates
-        fallback = self.fallback_odds.get(market, 2.00)
-        return (fallback, 'ESTIMATED', False)
+        return (None, 'NO_MARKET_PRICE', False)
     
-    def _calculate_edge(self, probability: float, odds: float) -> float:
+    def _calculate_edge(self, probability: float, odds: Optional[float]) -> float:
         """
         Berechne Edge (Vorteil gegenüber Bookmaker)
         
         Edge = Model Probability - Implied Probability
         """
-        if odds <= 1.0:
+        if odds is None or odds <= 1.0:
             return 0.0
         
         implied_prob = (1.0 / odds) * 100
         return probability - implied_prob
     
-    def _calculate_expected_roi(self, probability: float, odds: float) -> float:
+    def _calculate_expected_roi(self, probability: float, odds: Optional[float]) -> float:
         """
         Berechne Expected ROI
         
         ROI = (Probability × (Odds - 1)) - (1 - Probability)
         """
+        if odds is None or odds <= 1.0:
+            return 0.0
+
         prob = probability / 100.0
         roi = (prob * (odds - 1)) - (1 - prob)
         return roi * 100
     
-    def _calculate_kelly_stake(self, probability: float, odds: float, 
+    def _calculate_kelly_stake(self, probability: float, odds: Optional[float],
                                 bankroll: float = 100, fraction: float = 0.25) -> float:
         """
         Kelly Criterion für optimale Stake-Größe
@@ -374,6 +378,9 @@ class SmartBetFinder:
         
         fraction: Use fractional Kelly (0.25 = quarter Kelly) for safety
         """
+        if odds is None or odds <= 1.0:
+            return 0.0
+
         prob = probability / 100.0
         b = odds - 1
         q = 1 - prob
@@ -400,7 +407,7 @@ class SmartBetFinder:
     def _get_stake_recommendation(self, probability: float, edge: float, 
                                    kelly_stake: float = None) -> str:
         """Stake Empfehlung basierend auf Kelly und Edge"""
-        if kelly_stake:
+        if kelly_stake is not None:
             if kelly_stake >= 5:
                 return f'💰 {kelly_stake:.1f}% (Kelly: STRONG)'
             elif kelly_stake >= 2:
@@ -435,6 +442,9 @@ class SmartBetFinder:
         
         for market, prob in markets.items():
             odds, bookmaker, is_real = self.get_odds(market, home_team, away_team)
+            if not is_real:
+                continue
+
             edge = self._calculate_edge(prob, odds)
             
             if edge >= min_edge:
@@ -556,6 +566,26 @@ class SmartBetFinder:
     def _extract_all_probabilities(self, results: Dict) -> Dict[str, float]:
         """Extrahiere alle Wahrscheinlichkeiten aus Analyse-Ergebnissen"""
         probs = {}
+
+        flat_market_map = {
+            'btts_probability': 'btts_yes',
+            'over_0.5_probability': 'over_0.5',
+            'over_1.5_probability': 'over_1.5',
+            'over_2.5_probability': 'over_2.5',
+            'over_3.5_probability': 'over_3.5',
+            'over_4.5_probability': 'over_4.5',
+            'home_win_probability': 'home_win',
+            'draw_probability': 'draw',
+            'away_win_probability': 'away_win',
+        }
+
+        for source_key, market_key in flat_market_map.items():
+            value = results.get(source_key)
+            if isinstance(value, (int, float)):
+                probs[market_key] = float(value)
+
+        if 'btts_yes' in probs and 'btts_no' not in probs:
+            probs['btts_no'] = 100 - probs['btts_yes']
         
         # BTTS
         if 'btts' in results:
@@ -628,7 +658,10 @@ class SmartBetFinder:
     
     def _generate_reasoning(self, market: str, prob: float, edge: float, is_real: bool) -> str:
         """Generate reasoning for bet"""
-        odds_note = "echte Odds" if is_real else "geschätzte Odds"
+        odds_note = "echte Odds" if is_real else "kein Marktpreis"
+
+        if not is_real:
+            return f"Modell-Signal: {prob:.0f}% Wahrscheinlichkeit. Kein Value-Bet ohne echten Marktpreis."
         
         if edge >= 15:
             return f"🔥 Starker Value! {edge:.1f}% Edge bei {prob:.0f}% Wahrscheinlichkeit ({odds_note})"
@@ -638,6 +671,35 @@ class SmartBetFinder:
             return f"💡 Leichter Value: {edge:.1f}% Edge ({odds_note})"
         else:
             return f"⚠️ Minimaler Edge: {edge:.1f}% ({odds_note})"
+
+
+def display_smart_bet(bet: SmartBet, rank: int = 1):
+    """Display a single SmartBet in Streamlit."""
+    odds_text = f"{bet.real_odds:.2f}" if bet.real_odds else "n/a"
+
+    with st.container():
+        st.markdown(f"#### #{rank} {bet.market}: {bet.sub_market}")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Probability", f"{bet.probability:.1f}%")
+        col2.metric("Edge", f"{bet.edge:.1f}%")
+        col3.metric("Odds", odds_text)
+        col4.metric("ROI", f"{bet.expected_roi:.1f}%")
+        st.caption(f"{bet.bookmaker or 'NO_MARKET_PRICE'} | Risk: {bet.risk_level}")
+        st.write(bet.reasoning)
+        st.write(f"**Stake:** {bet.stake_recommendation}")
+
+
+def display_combo_bet(combo: Dict, rank: int = 1):
+    """Display a combo recommendation in Streamlit."""
+    with st.container():
+        st.markdown(f"#### Combo #{rank}")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Probability", f"{combo['combined_probability']:.1f}%")
+        col2.metric("Odds", f"{combo['combined_odds']:.2f}")
+        col3.metric("Edge", f"{combo['combined_edge']:.1f}%")
+        for selection in combo["selections"]:
+            st.write(f"- {selection['sub_market']}: {selection['probability']:.1f}%")
+        st.write(combo["recommendation"])
 
 
 def render_smart_bet_finder(analysis_results: Dict, home_team: str = None, away_team: str = None):
@@ -664,7 +726,7 @@ def render_smart_bet_finder(analysis_results: Dict, home_team: str = None, away_
                             st.metric("Wahrscheinlichkeit", f"{bet.probability:.1f}%")
                             st.metric("Edge", f"{bet.edge:.1f}%")
                         with col_b:
-                            st.metric("Odds", f"{bet.real_odds:.2f}")
+                            st.metric("Odds", f"{bet.real_odds:.2f}" if bet.real_odds else "n/a")
                             st.metric("Bookmaker", bet.bookmaker)
                         st.write(bet.reasoning)
                         st.write(f"**Stake:** {bet.stake_recommendation}")

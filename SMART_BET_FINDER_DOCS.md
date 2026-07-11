@@ -5,7 +5,7 @@
 **3 intelligente KI-Modi:**
 1. 🎯 **Value Bet Scanner** - Findet Top 3 Wetten mit höchstem Edge
 2. 🔥 **Multi-Market Combos** - Findet profitable Kombinationen
-3. 💎 **High Confidence Filter** - Nur sehr sichere Wetten (>75%)
+3. **High Confidence Filter** - Hohe Modellwahrscheinlichkeit (>75%), kein Sicherheitsversprechen
 
 ---
 
@@ -131,7 +131,7 @@ Risk Level: MEDIUM
 - Zeigt NUR Wetten mit >75% Probability
 - Confidence muss VERY_HIGH oder HIGH sein
 - Sortiert nach Wahrscheinlichkeit
-- Konservativ & sicher!
+- Konservativ gefiltert, aber nie risikofrei.
 
 ### **Output Beispiel:**
 ```

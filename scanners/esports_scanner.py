@@ -11,6 +11,8 @@ import requests
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from config_loader import load_app_config
+
 class EsportsScanner:
     """
     E-Sports Scanner - Same approach as Football/Basketball
@@ -19,11 +21,7 @@ class EsportsScanner:
     
     def __init__(self):
         self.pandascore_base = "https://api.pandascore.co"
-        
-        try:
-            self.api_key = st.secrets['esports']['pandascore_key']
-        except:
-            self.api_key = ''
+        self.api_key = load_app_config(st).pandascore_key or ''
         
         self.headers = {
             'Authorization': f'Bearer {self.api_key}',

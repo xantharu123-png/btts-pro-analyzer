@@ -17,21 +17,20 @@ import pickle
 from pathlib import Path
 import math
 
+from config_loader import load_app_config
 from data_engine import DataEngine
 
 
 def _get_supabase_url() -> Optional[str]:
     """Get Supabase URL from Streamlit secrets or environment"""
-    # Method 1: Streamlit secrets
+    st_module = None
     try:
         import streamlit as st
-        if hasattr(st, 'secrets') and 'SUPABASE_DB_URL' in st.secrets:
-            return st.secrets['SUPABASE_DB_URL']
-    except:
+        st_module = st
+    except Exception:
         pass
-    
-    # Method 2: Environment variable
-    return os.environ.get('SUPABASE_DB_URL')
+
+    return load_app_config(st_module).supabase_db_url
 
 
 def _get_db_connection(db_path: str = "btts_data.db"):
@@ -207,7 +206,10 @@ class AdvancedBTTSAnalyzer:
                  weather_api_key: Optional[str] = None, api_football_key: Optional[str] = None):
         self.engine = DataEngine(api_football_key or api_key, db_path)  # FIX: Use api_football_key!
         self.db_path = db_path
-        self.api_football_key = api_football_key        
+        self.api_football_key = api_football_key
+        self._team_stats_cache = {}
+        self._form_cache = {}
+        self._h2h_cache = {}
         # Dixon-Coles Model (korrigiert niedrige Spielstände)
         self.dixon_coles = DixonColesModel(rho=-0.05)
         

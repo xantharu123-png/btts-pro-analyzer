@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from advanced_analyzer import AdvancedBTTSAnalyzer
+from config_loader import load_app_config
 from data_engine import DataEngine
 from modern_progress_bar import ModernProgressBar
 from alternative_markets_tab_extended import create_alternative_markets_tab_extended
@@ -22,15 +23,7 @@ from alternative_markets_tab_extended import create_alternative_markets_tab_exte
 
 def _get_supabase_url() -> Optional[str]:
     """Get Supabase URL from Streamlit secrets or environment"""
-    # Method 1: Streamlit secrets
-    try:
-        if hasattr(st, 'secrets') and 'SUPABASE_DB_URL' in st.secrets:
-            return st.secrets['SUPABASE_DB_URL']
-    except:
-        pass
-    
-    # Method 2: Environment variable
-    return os.environ.get('SUPABASE_DB_URL')
+    return load_app_config(st).supabase_db_url
 
 
 def _get_db_connection(db_path: str = "btts_data.db"):
@@ -99,41 +92,19 @@ st.markdown("""
 def get_analyzer():
     """Initialize analyzer with API key from config or Streamlit secrets"""
     try:
-        # Try Streamlit secrets first (for cloud deployment)
-        if hasattr(st, 'secrets') and 'api' in st.secrets:
-            api_key = st.secrets['api']['api_key']
-            weather_key = st.secrets['api'].get('weather_key', None)
-            api_football_key = st.secrets['api'].get('api_football_key', None)
-            st.session_state['api_source'] = 'Streamlit Secrets'
-        else:
-            # Fallback to config.ini (for local development)
-            import configparser
-            config = configparser.ConfigParser()
-            config.read('config.ini')
-            
-            api_key = None
-            weather_key = None
-            api_football_key = None
-            
-            if config.has_option('api', 'api_key'):
-                api_key = config.get('api', 'api_key').strip()
-            if config.has_option('api', 'weather_key'):
-                weather_key = config.get('api', 'weather_key').strip()
-            if config.has_option('api', 'api_football_key'):
-                api_football_key = config.get('api', 'api_football_key').strip()
-            
-            st.session_state['api_source'] = 'config.ini'
-        
-        if not api_key:
-            api_key = 'ef8c2eb9be6b43fe8353c99f51904c0f'  # Fallback
-            st.session_state['api_source'] = 'Fallback'
-        
-        if not weather_key:
-            weather_key = 'de6b12b5cd22b2a20761927a3bf39f34'  # Your OpenWeatherMap key
-        
-        if not api_football_key:
-            api_football_key = '1a1c70f5c48bfdce946b71680e47e92e'  # Your API-Football key
-        
+        config = load_app_config(st)
+        api_key = config.api_key or config.api_football_key
+        weather_key = config.weather_key
+        api_football_key = config.api_football_key
+        st.session_state['api_source'] = config.source
+
+        if not api_key and not api_football_key:
+            st.session_state['analyzer_ready'] = False
+            st.session_state['weather_enabled'] = False
+            st.session_state['xg_enabled'] = False
+            st.error("API-Football key fehlt. Lege ihn in Streamlit Secrets, Environment oder config.ini ab.")
+            return None
+
         analyzer = AdvancedBTTSAnalyzer(
             api_key=api_key, 
             weather_api_key=weather_key,
@@ -839,8 +810,8 @@ with tab5:
     ℹ️ **Value Betting Analysis Temporarily Unavailable**
     
     For current betting opportunities, use **Tab 6 & 7**:
-    - ULTRA LIVE SCANNER for BTTS/Over-Under value
-    - ALTERNATIVE MARKETS for Cards/Corners value
+    - ULTRA LIVE SCANNER for BTTS/Over-Under model signals
+    - ALTERNATIVE MARKETS for Cards/Corners model signals
     
     These provide real-time edge calculation and recommendations!
     """)
@@ -900,7 +871,7 @@ with tab5:
 # TAB 6: ULTRA LIVE SCANNER V3.0
 with tab6:
     st.header("🔥 ULTRA LIVE SCANNER V3.0")
-    st.caption("95-97% Accuracy with 10 Advanced Systems!")
+    st.caption("Independent model signals with multi-factor live checks")
     
     # Import at top
     import requests
@@ -954,7 +925,12 @@ with tab6:
             from api_football import APIFootball
             
             # Initialize
-            api_football = APIFootball(st.secrets['api']['api_football_key'])
+            app_config = load_app_config(st)
+            if not app_config.api_football_key:
+                st.error("API-Football key fehlt. Ultra Live Scanner kann ohne Live-Daten nicht starten.")
+                st.stop()
+
+            api_football = APIFootball(app_config.api_football_key)
             ultra_scanner = UltraLiveScanner(analyzer, api_football)
             
             # Get live matches
@@ -1202,6 +1178,7 @@ with tab7:
     create_alternative_markets_tab_extended()
 
 with tab8:
+    app_config = load_app_config(st)
     st.header("🔴 Red Card Alert System")
     
     st.markdown("""
@@ -1228,10 +1205,8 @@ with tab8:
                                      help="Show alerts in this browser window")
     
     with col2:
-        # Auto-enable Telegram if secrets exist
-        telegram_configured = ('telegram' in st.secrets and 
-                               'bot_token' in st.secrets['telegram'] and 
-                               'chat_id' in st.secrets['telegram'])
+        # Auto-enable Telegram if credentials are configured
+        telegram_configured = bool(app_config.telegram_bot_token and app_config.telegram_chat_id)
         
         enable_telegram = st.checkbox("📱 Telegram Alerts", value=telegram_configured,
                                       help="Send alerts to your Telegram")
@@ -1271,10 +1246,10 @@ with tab8:
                 from api_football import APIFootball
                 
                 # Get API key
-                if 'api' in st.secrets and 'api_football_key' in st.secrets['api']:
-                    api_key = st.secrets['api']['api_football_key']
-                else:
-                    api_key = '1a1c70f5c48bfdce946b71680e47e92e'
+                api_key = app_config.api_football_key
+                if not api_key:
+                    st.error("API-Football key fehlt. Red-Card-Scan kann ohne Live-Daten nicht starten.")
+                    st.stop()
                 
                 # Initialize alert system
                 alert_system = RedCardBotEnhanced(api_key=api_key, streamlit_mode=True)
@@ -1282,8 +1257,8 @@ with tab8:
                 # Setup Telegram - prioritize secrets
                 if enable_telegram:
                     if telegram_configured:
-                        alert_system.telegram_token = st.secrets['telegram']['bot_token']
-                        alert_system.telegram_chat_id = st.secrets['telegram']['chat_id']
+                        alert_system.telegram_token = app_config.telegram_bot_token
+                        alert_system.telegram_chat_id = app_config.telegram_chat_id
                         st.info("📱 Telegram Alerts aktiviert (aus Secrets)")
                     elif 'tg_token' in st.session_state and 'tg_chat' in st.session_state:
                         if st.session_state.tg_token and st.session_state.tg_chat:

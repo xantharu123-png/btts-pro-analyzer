@@ -4,12 +4,12 @@ ALTERNATIVE MARKETS PREDICTOR - V2.0 VOLLSTÄNDIG INTEGRIERT
 Now supports LIVE + PRE-MATCH analysis!
 
 Markets covered:
-1. Cards (Yellow/Red) - 88-92% Accuracy → NOW 92-95% with Referee!
-2. Corners - 85-90% Accuracy → NOW with Weather Impact!
-3. Shots/SoT - 87-91% Accuracy  
-4. Team Specials - 82-87% Accuracy
-5. Half-Time Markets - 80-85% Accuracy
-6. Exact Score - 78-83% Accuracy
+1. Cards (Yellow/Red) - model probability signals
+2. Corners - model probability signals
+3. Shots/SoT - model probability signals
+4. Team Specials - model probability signals
+5. Half-Time Markets - model probability signals
+6. Exact Score - experimental probability signals
 
 🚀 V2.0 FEATURES:
 - Referee-Daten Integration (+15-20% bei Cards!)
@@ -1147,12 +1147,12 @@ class HighestProbabilityFinder:
 
 
 # ============================================================================
-# CARD PREDICTOR - 88-92% ACCURACY (LIVE)
+# CARD PREDICTOR - LIVE MODEL SIGNALS
 # ============================================================================
 
 class CardPredictor:
     """
-    Predicts card markets with high accuracy
+    Predicts card-market probabilities from match context.
     
     STATISTICAL BASIS:
     - Average cards per match: 3.8 (Bundesliga), 4.2 (Premier League)
@@ -1161,9 +1161,9 @@ class CardPredictor:
     - Desperate phase (75+ min, tied/losing): +50% cards
     - Red card probability: ~3% per match (higher in derbies: 7%)
     
-    VALIDATION:
-    Tested on 10,000+ matches
-    Accuracy: 88-92% for O/U card markets
+    VALIDATION TARGET:
+    Track out-of-sample calibration, hit rate, ROI, and CLV before making accuracy claims.
+    
     """
     
     # League average cards (validated data)
@@ -1469,7 +1469,7 @@ class CardPredictor:
 
 
 # ============================================================================
-# CORNER PREDICTOR - 85-90% ACCURACY (LIVE)
+# CORNER PREDICTOR - LIVE MODEL SIGNALS
 # ============================================================================
 
 class CornerPredictor:
@@ -1483,9 +1483,9 @@ class CornerPredictor:
     - Corner rate correlates 0.78 with possession %
     - Desperate teams: +30% corner rate
     
-    VALIDATION:
-    Tested on 8,000+ matches
-    Accuracy: 85-90% for O/U corner markets
+    VALIDATION TARGET:
+    Track out-of-sample calibration, hit rate, ROI, and CLV before making accuracy claims.
+    
     """
     
     LEAGUE_CORNER_AVERAGES = {
