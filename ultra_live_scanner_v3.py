@@ -1,573 +1,478 @@
+"""Live football probability model with explicit data-quality gates.
+
+Observed xG is never synthesized from shots or score. When available, a
+data-gated pre-match goal prior is combined with accumulated live xG using a
+documented pseudo-exposure. Outputs are uncalibrated model signals and never a
+market-value statement.
 """
-ULTRA LIVE SCANNER V3.0 - MATHEMATISCH KORRIGIERTE VERSION
 
-🔧 KORREKTUREN DURCHGEFÜHRT:
-1. ✅ No-Goal Probability: Jetzt Poisson-basiert statt willkürlich
-2. ✅ BTTS Adjustments: Reduziert von 5% auf 2%, Score-Adj entfernt
-3. ✅ Over/Under Formula: Vereinfacht und mathematisch klarer
-4. ✅ Frühe Minuten: Verbesserte Baseline für Minuten < 20
-
-KERNFORMEL (Poisson-basiert):
-- P(Team scores) = 1 - e^(-xG)
-- P(BTTS) = P(Home scores) × P(Away scores)
-- P(No Goal) = e^(-remaining_xG)
-
-ALLE BERECHNUNGEN SIND JETZT MATHEMATISCH FUNDIERT!
-"""
+import math
+from typing import Dict, Optional, Tuple
 
 import streamlit as st
-import requests
-import numpy as np
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
-from collections import defaultdict
-import time
-import math
 
 
 class UltraLiveScanner:
-    """
-    Mathematisch korrekte BTTS-Vorhersage
-    Basiert auf Poisson-Verteilung und xG
-    """
-    
+    MATCH_END_MINUTE = 93
+    PRIOR_PSEUDO_MINUTES = 30
+
     def __init__(self, analyzer, api_football):
         self.analyzer = analyzer
         self.api_football = api_football
-        self.match_data_cache = defaultdict(dict)
-    
+
+    @staticmethod
+    def _optional_nonnegative(value) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(numeric) or numeric < 0:
+            return None
+        return numeric
+
+    def _get_prematch_goal_priors(
+        self,
+        home_team_id: int,
+        away_team_id: int,
+        league_id: int,
+    ) -> Tuple[Optional[float], Optional[float]]:
+        if self.analyzer is None or not hasattr(self.analyzer, 'engine'):
+            return None, None
+        league_code = next(
+            (
+                code
+                for code, configured_id in self.analyzer.engine.LEAGUES_CONFIG.items()
+                if configured_id == league_id
+            ),
+            None,
+        )
+        if league_code is None:
+            return None, None
+        analysis = self.analyzer.analyze_match(home_team_id, away_team_id, league_code)
+        if not analysis or analysis.get('error'):
+            return None, None
+        details = analysis.get('details', {})
+        return (
+            self._optional_nonnegative(details.get('expected_home_goals')),
+            self._optional_nonnegative(details.get('expected_away_goals')),
+        )
+
+    def _remaining_goal_means(
+        self,
+        xg_home: Optional[float],
+        xg_away: Optional[float],
+        minute: int,
+        prior_home: Optional[float] = None,
+        prior_away: Optional[float] = None,
+    ) -> Tuple[Optional[float], Optional[float], str]:
+        if not isinstance(minute, (int, float)) or minute < 0:
+            raise ValueError("minute must be non-negative")
+        remaining = max(0.0, self.MATCH_END_MINUTE - float(minute))
+        observed = [
+            self._optional_nonnegative(xg_home),
+            self._optional_nonnegative(xg_away),
+        ]
+        priors = [
+            self._optional_nonnegative(prior_home),
+            self._optional_nonnegative(prior_away),
+        ]
+
+        means = []
+        for observed_xg, prior_full_match in zip(observed, priors):
+            rate = None
+            if observed_xg is not None and minute > 0:
+                if prior_full_match is not None:
+                    prior_rate = prior_full_match / self.MATCH_END_MINUTE
+                    rate = (
+                        prior_rate * self.PRIOR_PSEUDO_MINUTES + observed_xg
+                    ) / (self.PRIOR_PSEUDO_MINUTES + float(minute))
+                elif minute >= 15:
+                    rate = observed_xg / float(minute)
+            elif prior_full_match is not None:
+                rate = prior_full_match / self.MATCH_END_MINUTE
+            means.append(rate * remaining if rate is not None else None)
+
+        if all(value is not None for value in observed) and all(
+            value is not None for value in priors
+        ):
+            quality = 'MEDIUM'
+        elif all(value is not None for value in means):
+            quality = 'LOW'
+        else:
+            quality = 'INSUFFICIENT'
+        return means[0], means[1], quality
+
     def analyze_live_match_ultra(self, match: Dict) -> Optional[Dict]:
-        """
-        KORRIGIERTE Live-Analyse mit mathematisch fundierter BTTS-Berechnung
-        """
         try:
             fixture = match['fixture']
             teams = match['teams']
             goals = match['goals']
-            
-            fixture_id = fixture['id']
-            home_team = teams['home']['name']
-            away_team = teams['away']['name']
-            home_team_id = teams['home']['id']
-            away_team_id = teams['away']['id']
-            
-            minute = fixture['status']['elapsed'] or 0
-            home_score = goals['home'] if goals['home'] is not None else 0
-            away_score = goals['away'] if goals['away'] is not None else 0
-            score = f"{home_score}-{away_score}"
-            
-            print(f"\n{'='*60}")
-            print(f"🔍 ANALYZING: {home_team} vs {away_team}")
-            print(f"   Minute: {minute}' | Score: {score}")
-            print(f"{'='*60}")
-            
-            # Get live statistics
-            stats = self.api_football.get_match_statistics(fixture_id)
-            
-            # Extract xG - ensure float conversion!
-            xg_home = 0.0
-            xg_away = 0.0
-            
-            if stats:
-                try:
-                    xg_home = float(stats.get('xg_home') or 0)
-                    xg_away = float(stats.get('xg_away') or 0)
-                    print(f"   xG: {xg_home:.2f} - {xg_away:.2f}")
-                except (ValueError, TypeError):
-                    xg_home = 0.0
-                    xg_away = 0.0
-                
-                if stats.get('shots_home'):
-                    print(f"   Shots: {stats['shots_home']}-{stats['shots_away']}")
-            
-            # Wenn keine xG, schätze aus Schüssen - FIX: Prüfe JEDEN Wert einzeln!
-            if stats:
-                try:
-                    shots_home = int(stats.get('shots_home') or 0)
-                    shots_away = int(stats.get('shots_away') or 0)
-                    shots_target_home = int(stats.get('shots_on_target_home') or 0)
-                    shots_target_away = int(stats.get('shots_on_target_away') or 0)
-                except (ValueError, TypeError):
-                    shots_home = shots_away = shots_target_home = shots_target_away = 0
-                
-                # FIX: Schätze JEDEN xG einzeln wenn 0 (nicht nur wenn beide 0!)
-                if xg_home == 0 and (shots_home > 0 or shots_target_home > 0):
-                    xg_home = shots_home * 0.10 + shots_target_home * 0.33  # Erhöhte Koeffizienten!
-                    print(f"   xG Home (aus Schüssen): {xg_home:.2f}")
-                if xg_away == 0 and (shots_away > 0 or shots_target_away > 0):
-                    xg_away = shots_away * 0.10 + shots_target_away * 0.33  # Erhöhte Koeffizienten!
-                    print(f"   xG Away (aus Schüssen): {xg_away:.2f}")
-            
-            # 🔧 FIX: Wenn IMMER NOCH keine xG, verwende realistische Baseline!
-            # Prüfe JEDEN Wert EINZELN (nicht nur wenn beide 0!)
-            if minute > 0:
-                if xg_home == 0:
-                    # Mindest-xG basierend auf Zeit oder Toren
-                    xg_home = max((1.4 / 90) * minute, home_score * 0.8 if home_score > 0 else 0.1)
-                    print(f"   xG Home (FALLBACK): {xg_home:.2f}")
-                if xg_away == 0:
-                    xg_away = max((1.1 / 90) * minute, away_score * 0.8 if away_score > 0 else 0.1)
-                    print(f"   xG Away (FALLBACK): {xg_away:.2f}")
-            
-            # BTTS BERECHNUNG (Poisson!)
-            btts_result = self._calculate_btts_probability(
-                home_score, away_score, xg_home, xg_away, minute
+            league = match['league']
+
+            fixture_id = int(fixture['id'])
+            home_team_id = int(teams['home']['id'])
+            away_team_id = int(teams['away']['id'])
+            minute = int(fixture.get('status', {}).get('elapsed') or 0)
+            if goals.get('home') is None or goals.get('away') is None:
+                return None
+            home_score = int(goals['home'])
+            away_score = int(goals['away'])
+
+            stats = self.api_football.get_match_statistics(
+                fixture_id,
+                home_team_id,
+                away_team_id,
+            ) if self.api_football is not None else None
+            xg_home = self._optional_nonnegative((stats or {}).get('xg_home'))
+            xg_away = self._optional_nonnegative((stats or {}).get('xg_away'))
+            prior_home, prior_away = self._get_prematch_goal_priors(
+                home_team_id,
+                away_team_id,
+                int(league['id']),
             )
-            
-            btts_prob = btts_result['probability']
-            btts_confidence = btts_result['confidence']
-            btts_recommendation = self._get_btts_recommendation(btts_prob, btts_confidence, minute, score)
-            
-            print(f"\n📊 BTTS CALCULATION (Poisson):")
-            print(f"   P(Home scores): {btts_result['p_home_scores']:.1f}%")
-            print(f"   P(Away scores): {btts_result['p_away_scores']:.1f}%")
-            print(f"   P(BTTS): {btts_prob:.1f}%")
-            
-            # OVER/UNDER BERECHNUNG
-            ou_result = self._calculate_over_under(
-                home_score, away_score, xg_home, xg_away, minute
+
+            btts = self._calculate_btts_probability(
+                home_score,
+                away_score,
+                xg_home,
+                xg_away,
+                minute,
+                prior_home,
+                prior_away,
             )
-            
-            print(f"\n📊 OVER/UNDER:")
-            print(f"   Expected Total: {ou_result['expected_total']:.2f}")
-            print(f"   Over 2.5: {ou_result['over_25_prob']:.1f}%")
-            
-            # NEXT GOAL BERECHNUNG
-            ng_result = self._calculate_next_goal(
-                home_score, away_score, xg_home, xg_away, minute, stats
+            totals = self._calculate_over_under(
+                home_score,
+                away_score,
+                xg_home,
+                xg_away,
+                minute,
+                prior_home,
+                prior_away,
             )
-            
-            print(f"\n📊 NEXT GOAL:")
-            print(f"   Home: {ng_result['home_prob']:.1f}%")
-            print(f"   Away: {ng_result['away_prob']:.1f}%")
-            
-            print(f"\n💰 FINAL: BTTS {btts_prob:.1f}% | O/U {ou_result['recommendation']}")
-            print(f"{'='*60}\n")
-            
+            next_goal = self._calculate_next_goal(
+                home_score,
+                away_score,
+                xg_home,
+                xg_away,
+                minute,
+                stats or {},
+                prior_home,
+                prior_away,
+            )
+
             return {
                 'fixture_id': fixture_id,
-                'home_team': home_team,
-                'away_team': away_team,
+                'home_team': teams['home']['name'],
+                'away_team': teams['away']['name'],
                 'home_team_id': home_team_id,
                 'away_team_id': away_team_id,
                 'minute': minute,
-                'score': score,
+                'score': f"{home_score}-{away_score}",
                 'home_score': home_score,
                 'away_score': away_score,
-                'btts_prob': round(btts_prob, 1),
-                'btts_confidence': btts_confidence,
-                'btts_recommendation': btts_recommendation,
+                'btts_prob': round(btts['probability'], 1) if btts['probability'] is not None else None,
+                'btts_confidence': btts['data_quality'],
+                'btts_recommendation': self._get_btts_recommendation(
+                    btts['probability'], btts['data_quality']
+                ),
                 'over_under': {
-                    'expected_total_goals': ou_result['expected_total'],
-                    'over_25_probability': ou_result['over_25_prob'],
-                    'thresholds': ou_result['thresholds'],
-                    'recommendation': ou_result['recommendation'],
-                    'confidence': ou_result['confidence']
+                    'expected_total_goals': totals['expected_total'],
+                    'over_25_probability': totals['over_25_prob'],
+                    'thresholds': totals['thresholds'],
+                    'recommendation': totals['recommendation'],
+                    'confidence': totals['data_quality'],
                 },
-                'next_goal': {
-                    'home_prob': ng_result['home_prob'],  # ← FIXED!
-                    'away_prob': ng_result['away_prob'],  # ← FIXED!
-                    'no_goal_prob': ng_result['no_goal_prob'],
-                    'favorite': ng_result['favorite'],
-                    'edge': ng_result['edge'],
-                    'recommendation': ng_result['recommendation'],
-                    'confidence': ng_result['confidence']
-                },
-                'league': match['league']['name'],
+                'next_goal': next_goal,
+                'league': league.get('name', 'Unknown'),
                 'breakdown': {
-                    'base': btts_result['base_prob'],
-                    'xg_home': xg_home,
-                    'xg_away': xg_away,
-                    'time_factor': btts_result['time_factor'],
-                    'score': btts_result['score_adj'],
-                    'momentum': 0,
-                    'xg_velocity': 0,
+                    'base': btts['base_prob'],
+                    'observed_xg_home': xg_home,
+                    'observed_xg_away': xg_away,
+                    'prematch_home_goal_prior': prior_home,
+                    'prematch_away_goal_prior': prior_away,
+                    'remaining_home_mean': btts['remaining_home_mean'],
+                    'remaining_away_mean': btts['remaining_away_mean'],
                     'game_phase': self._get_phase(minute),
-                    'dangerous_attacks': 0,
-                    'goalkeeper_saves': 0,
-                    'corners': 0,
-                    'cards': 0
                 },
                 'stats': stats,
-                'xg_data': {'home_xg': xg_home, 'away_xg': xg_away},
-                'momentum_data': {},
-                'phase_data': {'phase': self._get_phase(minute)}
+                'xg_data': {
+                    'home_xg': xg_home,
+                    'away_xg': xg_away,
+                    'home_prior': prior_home,
+                    'away_prior': prior_away,
+                },
+                'phase_data': {'phase': self._get_phase(minute)},
+                'recommendation_type': 'MODEL_SIGNAL',
             }
-        
-        except Exception as e:
-            print(f"\n❌ ERROR: {e}")
-            import traceback
-            traceback.print_exc()
+        except (KeyError, TypeError, ValueError, AttributeError):
             return None
-    
-    def _calculate_btts_probability(self, home_score: int, away_score: int,
-                                    xg_home: float, xg_away: float, 
-                                    minute: int) -> Dict:
-        """
-        MATHEMATISCH KORREKTE BTTS-Berechnung mit Poisson
-        
-        Formel: P(BTTS) = P(Home ≥ 1) × P(Away ≥ 1)
-        Wobei: P(X ≥ 1) = 1 - e^(-λ)
-        """
-        
-        # BTTS bereits eingetreten - KEINE WETTEMPFEHLUNG!
+
+    def _calculate_btts_probability(
+        self,
+        home_score: int,
+        away_score: int,
+        xg_home: Optional[float],
+        xg_away: Optional[float],
+        minute: int,
+        prior_home: Optional[float] = None,
+        prior_away: Optional[float] = None,
+    ) -> Dict:
         if home_score > 0 and away_score > 0:
             return {
                 'probability': 100.0,
-                'confidence': 'COMPLETE',  # GEÄNDERT: COMPLETE statt ALREADY_HIT
+                'data_quality': 'COMPLETE',
                 'p_home_scores': 100.0,
                 'p_away_scores': 100.0,
                 'base_prob': 100.0,
-                'time_factor': 1.0,
-                'score_adj': 0,
-                'is_complete': True,  # Flag für UI
-                'message': '✅ BTTS bereits eingetreten - keine Wette mehr möglich!'
+                'remaining_home_mean': 0.0,
+                'remaining_away_mean': 0.0,
+                'is_complete': True,
             }
-        
-        # Ein Team hat noch nicht getroffen - HIER ist die Wette interessant!
-        home_needs_goal = (home_score == 0)
-        away_needs_goal = (away_score == 0)
-        
-        time_remaining = max(1, 90 - minute)
-        time_factor = time_remaining / 90.0
-        
-        # 🔧 FIX: Stelle sicher dass xG nie 0 ist (unrealistisch!)
-        # Minimum-Baseline: Durchschnittliches Team erzielt ~1.2 xG/90
-        if xg_home <= 0:
-            xg_home = (1.4 / 90) * minute  # Heim-Baseline
-        if xg_away <= 0:
-            xg_away = (1.1 / 90) * minute  # Auswärts-Baseline
-        
-        # 🔧 VERBESSERTE xG Projektion
-        if minute > 10:
-            xg_rate_home = xg_home / minute * 90
-            xg_rate_away = xg_away / minute * 90
-        else:
-            # Sehr frühe Phase (< 10 Min): Liga-Durchschnitt
-            xg_rate_home = max(xg_home, 1.2)
-            xg_rate_away = max(xg_away, 1.0)
-        
-        # 🔧 MINIMUM BASELINE - nie unter Liga-Durchschnitt!
-        xg_rate_home = max(xg_rate_home, 1.2)  # Min 1.2 xG/90 für Heim
-        xg_rate_away = max(xg_rate_away, 0.9)  # Min 0.9 xG/90 für Auswärts
-        
-        # Verbleibende erwartete Tore
-        remaining_xg_home = xg_rate_home * time_factor
-        remaining_xg_away = xg_rate_away * time_factor
-        
-        # Debug
-        print(f"   BTTS calc: xg_rate={xg_rate_home:.2f}/{xg_rate_away:.2f}, remaining={remaining_xg_home:.2f}/{remaining_xg_away:.2f}")
-        
-        # Berechnung je nach aktuellem Spielstand
-        if home_score == 0 and away_score == 0:
-            # 0-0: Beide müssen noch treffen
-            p_home_scores = self._poisson_at_least_one(remaining_xg_home)
-            p_away_scores = self._poisson_at_least_one(remaining_xg_away)
-            base_prob = p_home_scores * p_away_scores / 100
-            
-        elif home_score > 0:
-            # X-0: Nur Away muss noch treffen
-            p_home_scores = 100.0
-            p_away_scores = self._poisson_at_least_one(remaining_xg_away)
-            base_prob = p_away_scores
-            
-        else:
-            # 0-X: Nur Home muss noch treffen
-            p_home_scores = self._poisson_at_least_one(remaining_xg_home)
-            p_away_scores = 100.0
-            base_prob = p_home_scores
-        
-        # 🔧 FIX: Reduzierte Adjustments (mathematisch konservativ!)
-        # Phase Boost: 2% statt 5% (nur extreme Schlussphase)
-        phase_boost = 2 if minute >= 75 else 0
-        
-        # Score Adjustment: ENTFERNT (keine mathematische Basis)
-        score_adj = 0
-        
-        final_prob = max(5, min(95, base_prob + phase_boost + score_adj))
-        
-        confidence = 'HIGH' if (xg_home > 0 and xg_away > 0 and minute >= 30) else 'MEDIUM'
-        
+
+        remaining_home, remaining_away, quality = self._remaining_goal_means(
+            xg_home,
+            xg_away,
+            minute,
+            prior_home,
+            prior_away,
+        )
+        if remaining_home is None or remaining_away is None:
+            return {
+                'probability': None,
+                'data_quality': 'INSUFFICIENT',
+                'p_home_scores': None,
+                'p_away_scores': None,
+                'base_prob': None,
+                'remaining_home_mean': remaining_home,
+                'remaining_away_mean': remaining_away,
+                'is_complete': False,
+            }
+
+        p_home_scores = 100.0 if home_score > 0 else self._poisson_at_least_one(remaining_home)
+        p_away_scores = 100.0 if away_score > 0 else self._poisson_at_least_one(remaining_away)
+        probability = p_home_scores * p_away_scores / 100.0
         return {
-            'probability': final_prob,
-            'confidence': confidence,
+            'probability': max(0.0, min(100.0, probability)),
+            'data_quality': quality,
             'p_home_scores': p_home_scores,
             'p_away_scores': p_away_scores,
-            'base_prob': base_prob,
-            'time_factor': time_factor,
-            'score_adj': score_adj + phase_boost
+            'base_prob': probability,
+            'remaining_home_mean': remaining_home,
+            'remaining_away_mean': remaining_away,
+            'is_complete': False,
         }
-    
-    def _poisson_at_least_one(self, expected_goals: float) -> float:
-        """
-        POISSON: P(X ≥ 1) = 1 - e^(-λ)
-        """
-        if expected_goals <= 0:
-            return 5.0
-        p_zero = math.exp(-expected_goals)
-        return max(5.0, min(95.0, (1 - p_zero) * 100))
-    
-    def _calculate_over_under(self, home_score: int, away_score: int,
-                              xg_home: float, xg_away: float, minute: int) -> Dict:
-        """🔧 VEREINFACHTE Over/Under Berechnung - Mathematisch klarer!"""
+
+    @staticmethod
+    def _poisson_at_least_one(expected_goals: float) -> float:
+        if expected_goals < 0:
+            raise ValueError("expected_goals cannot be negative")
+        return (1.0 - math.exp(-expected_goals)) * 100.0
+
+    @staticmethod
+    def _poisson_at_least_n(expected: float, goals_needed: int) -> float:
+        if expected < 0:
+            raise ValueError("expected cannot be negative")
+        if goals_needed <= 0:
+            return 100.0
+        probability_below = sum(
+            expected ** goals * math.exp(-expected) / math.factorial(goals)
+            for goals in range(goals_needed)
+        )
+        return max(0.0, min(100.0, (1.0 - probability_below) * 100.0))
+
+    def _calculate_over_under(
+        self,
+        home_score: int,
+        away_score: int,
+        xg_home: Optional[float],
+        xg_away: Optional[float],
+        minute: int,
+        prior_home: Optional[float] = None,
+        prior_away: Optional[float] = None,
+    ) -> Dict:
         current_goals = home_score + away_score
-        
-        # 🔧 FIX: Stelle sicher dass xG nie 0 ist!
-        if xg_home <= 0:
-            xg_home = (1.4 / 90) * minute
-        if xg_away <= 0:
-            xg_away = (1.1 / 90) * minute
-        
-        current_xg = xg_home + xg_away
-        
-        time_remaining = max(1, 90 - minute)
-        time_factor = time_remaining / 90.0
-        
-        # 🔧 FIX: EINFACHERE & KLARERE FORMEL
-        if minute > 10:
-            # Project xG to full 90 minutes
-            xg_rate = current_xg / minute * 90
-        else:
-            # Early game: use league average baseline
-            xg_rate = max(current_xg, 2.5)
-        
-        # 🔧 MINIMUM BASELINE - nie unter Liga-Durchschnitt!
-        xg_rate = max(xg_rate, 2.3)  # Min 2.3 Tore/Spiel
-        
-        # Calculate remaining expected goals
-        remaining_xg = xg_rate * time_factor
-        
-        # Expected total = current + remaining
-        expected_total = current_goals + remaining_xg
-        expected_total = max(current_goals, min(8.0, expected_total))
-        
-        # Thresholds berechnen
+        remaining_home, remaining_away, quality = self._remaining_goal_means(
+            xg_home,
+            xg_away,
+            minute,
+            prior_home,
+            prior_away,
+        )
+        if remaining_home is None or remaining_away is None:
+            return {
+                'expected_total': None,
+                'over_25_prob': None,
+                'thresholds': {},
+                'recommendation': 'INSUFFICIENT DATA',
+                'data_quality': 'INSUFFICIENT',
+            }
+
+        remaining_mean = remaining_home + remaining_away
+        expected_total = current_goals + remaining_mean
         thresholds = {}
         for threshold in [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]:
-            if current_goals > threshold:
-                thresholds[f'over_{threshold}'] = {
-                    'threshold': threshold,
-                    'status': 'HIT',
-                    'over_probability': 100.0,
-                    'under_probability': 0.0,
-                    'goals_needed': 0,
-                    'strength': 'HIT',
-                    'recommendation': f'✅ Over {threshold} HIT!'
-                }
-            else:
-                goals_needed = int(threshold + 0.5) - current_goals
-                remaining_expected = expected_total - current_goals
-                over_prob = self._poisson_over_threshold(remaining_expected, goals_needed)
-                under_prob = 100 - over_prob
-                
-                if over_prob >= 80:
-                    strength, rec = 'VERY_STRONG', f'🔥🔥 OVER {threshold}!'
-                elif over_prob >= 70:
-                    strength, rec = 'STRONG', f'🔥 OVER {threshold}!'
-                elif over_prob >= 60:
-                    strength, rec = 'GOOD', f'✅ Over {threshold}'
-                elif under_prob >= 70:
-                    strength, rec = 'UNDER_STRONG', f'🔥 UNDER {threshold}!'
-                else:
-                    strength, rec = 'NEUTRAL', f'⚠️ {threshold} Neutral'
-                
-                thresholds[f'over_{threshold}'] = {
-                    'threshold': threshold,
-                    'status': 'ACTIVE',
-                    'over_probability': round(over_prob, 1),
-                    'under_probability': round(under_prob, 1),
-                    'goals_needed': goals_needed,
-                    'strength': strength,
-                    'recommendation': rec
-                }
-        
-        over_25 = thresholds.get('over_2.5', {})
-        over_25_prob = over_25.get('over_probability', 50)
-        
-        # Beste Empfehlung finden
-        best_rec = '⚠️ Keine starke Wette'
-        for data in thresholds.values():
-            if data.get('strength') in ['VERY_STRONG', 'STRONG']:
-                best_rec = data['recommendation']
-                break
-        
+            goals_needed = math.floor(threshold) + 1 - current_goals
+            over_probability = self._poisson_at_least_n(remaining_mean, goals_needed)
+            thresholds[f'over_{threshold}'] = {
+                'threshold': threshold,
+                'status': 'HIT' if goals_needed <= 0 else 'ACTIVE',
+                'over_probability': round(over_probability, 1),
+                'under_probability': round(100.0 - over_probability, 1),
+                'goals_needed': max(0, goals_needed),
+            }
+
+        over_25_probability = thresholds['over_2.5']['over_probability']
+        if over_25_probability >= 70:
+            recommendation = 'OVER 2.5 MODEL SIGNAL'
+        elif over_25_probability <= 30:
+            recommendation = 'UNDER 2.5 MODEL SIGNAL'
+        else:
+            recommendation = 'NO CLEAR TOTALS SIGNAL'
         return {
             'expected_total': round(expected_total, 2),
-            'over_25_prob': over_25_prob,
+            'over_25_prob': over_25_probability,
             'thresholds': thresholds,
-            'recommendation': best_rec,
-            'confidence': 'HIGH' if minute >= 30 and current_xg > 0 else 'MEDIUM'
+            'recommendation': recommendation,
+            'data_quality': quality,
         }
-    
+
     def _poisson_over_threshold(self, expected: float, goals_needed: int) -> float:
-        """P(X >= goals_needed) mit Poisson"""
-        if expected <= 0:
-            return 10.0
-        p_under = sum((expected ** k) * math.exp(-expected) / math.factorial(k) 
-                      for k in range(goals_needed))
-        return max(5, min(95, (1 - p_under) * 100))
-    
-    def _calculate_next_goal(self, home_score: int, away_score: int,
-                             xg_home: float, xg_away: float,
-                             minute: int, stats: Dict) -> Dict:
-        """Next Goal Vorhersage - MATHEMATISCH KORRIGIERT mit Poisson"""
-        time_remaining = max(1, 90 - minute)
-        time_factor = time_remaining / 90.0
-        
-        # 🔧 FIX: Stelle sicher dass xG nie 0 ist!
-        if xg_home <= 0:
-            xg_home = max((1.4 / 90) * minute, 0.1)
-        if xg_away <= 0:
-            xg_away = max((1.1 / 90) * minute, 0.1)
-        
-        total_xg = xg_home + xg_away
-        
-        # Anteile basierend auf xG
-        home_share = xg_home / total_xg
-        away_share = xg_away / total_xg
-        
-        # 🔧 FIX: MATHEMATISCH KORREKTE No-Goal Wahrscheinlichkeit
-        # Formel: P(0 Tore) = e^(-λ) mit Poisson
-        if minute > 10:
-            xg_rate = total_xg / minute * 90  # Projected total xG
+        return self._poisson_at_least_n(expected, goals_needed)
+
+    def _calculate_next_goal(
+        self,
+        home_score: int,
+        away_score: int,
+        xg_home: Optional[float],
+        xg_away: Optional[float],
+        minute: int,
+        stats: Dict,
+        prior_home: Optional[float] = None,
+        prior_away: Optional[float] = None,
+    ) -> Dict:
+        remaining_home, remaining_away, quality = self._remaining_goal_means(
+            xg_home,
+            xg_away,
+            minute,
+            prior_home,
+            prior_away,
+        )
+        if remaining_home is None or remaining_away is None:
+            return {
+                'home_prob': None,
+                'away_prob': None,
+                'no_goal_prob': None,
+                'favorite': None,
+                'probability_gap': None,
+                'recommendation': 'INSUFFICIENT DATA',
+                'confidence': 'INSUFFICIENT',
+            }
+
+        total_mean = remaining_home + remaining_away
+        no_goal_probability = math.exp(-total_mean) * 100.0
+        any_goal_probability = 100.0 - no_goal_probability
+        if total_mean > 0:
+            home_probability = any_goal_probability * remaining_home / total_mean
+            away_probability = any_goal_probability * remaining_away / total_mean
         else:
-            xg_rate = max(total_xg, 2.5)  # Liga-Durchschnitt für frühe Minuten
-        
-        # 🔧 FIX: Minimum Baseline auch für späte Minuten!
-        xg_rate = max(xg_rate, 2.3)  # Nie unter Liga-Durchschnitt
-        
-        # 🔧 FIX: Korrekte Formel! xg_rate * time_factor, NICHT (xg_rate - total_xg) * time_factor
-        remaining_xg = xg_rate * time_factor
-        
-        print(f"   Next Goal calc: xg_rate={xg_rate:.2f}, time_factor={time_factor:.2f}, remaining_xg={remaining_xg:.2f}")
-        
-        # Poisson: P(0 goals) = e^(-λ)
-        if remaining_xg > 0:
-            no_goal_prob = math.exp(-remaining_xg) * 100
-            no_goal_prob = max(5.0, min(70.0, no_goal_prob))  # Cap at 5-70%
+            home_probability = away_probability = 0.0
+
+        favorite = None
+        if home_probability > away_probability:
+            favorite = 'HOME'
+        elif away_probability > home_probability:
+            favorite = 'AWAY'
+        gap = abs(home_probability - away_probability)
+        if favorite and gap >= 20:
+            recommendation = f'{favorite} NEXT GOAL MODEL SIGNAL'
+        elif favorite and gap >= 10:
+            recommendation = f'{favorite} SLIGHT MODEL ADVANTAGE'
         else:
-            no_goal_prob = 60.0
-        
-        goal_prob = 100 - no_goal_prob
-        home_prob = goal_prob * home_share
-        away_prob = goal_prob * away_share
-        
-        # Desperation-Faktor
-        if minute >= 70:
-            if home_score < away_score:
-                home_prob += 5
-            elif away_score < home_score:
-                away_prob += 5
-        
-        # Normalisieren
-        total = home_prob + away_prob + no_goal_prob
-        home_prob = home_prob / total * 100
-        away_prob = away_prob / total * 100
-        no_goal_prob = no_goal_prob / total * 100
-        
-        favorite = 'HOME' if home_prob > away_prob else 'AWAY'
-        edge = abs(home_prob - away_prob)
-        
-        if max(home_prob, away_prob) >= 50 and edge >= 20:
-            rec = f'🔥 {favorite} NEXT GOAL!'
-        elif edge < 10:
-            rec = '⚠️ ZU KNAPP'
-        else:
-            rec = f'✅ {favorite} leichter Vorteil'
-        
+            recommendation = 'NO CLEAR NEXT-GOAL SIGNAL'
+
         return {
-            'home_prob': round(home_prob, 1),
-            'away_prob': round(away_prob, 1),
-            'no_goal_prob': round(no_goal_prob, 1),
+            'home_prob': round(home_probability, 1),
+            'away_prob': round(away_probability, 1),
+            'no_goal_prob': round(no_goal_probability, 1),
             'favorite': favorite,
-            'edge': round(edge, 1),
-            'recommendation': rec,
-            'confidence': 'HIGH' if total_xg > 0.5 else 'MEDIUM'
+            'probability_gap': round(gap, 1),
+            'recommendation': recommendation,
+            'confidence': quality,
         }
-    
-    def _get_btts_recommendation(self, prob: float, confidence: str, 
-                                  minute: int, score: str) -> str:
-        if confidence == 'COMPLETE':
-            return '✅ BTTS COMPLETE!'
-        if prob >= 75 and confidence in ['HIGH', 'MEDIUM']:
-            return '🔥🔥 STRONG BET!'
-        elif prob >= 65:
-            return '🔥 GOOD BET'
-        elif prob >= 55:
-            return '✅ CONSIDER'
-        elif prob >= 45:
-            return '⚠️ RISKY'
-        else:
-            return '❌ SKIP'
-    
-    def _get_phase(self, minute: int) -> str:
+
+    @staticmethod
+    def _get_btts_recommendation(probability: Optional[float], data_quality: str) -> str:
+        if data_quality == 'COMPLETE':
+            return 'BTTS COMPLETE'
+        if probability is None:
+            return 'INSUFFICIENT DATA'
+        if probability >= 70:
+            return 'BTTS MODEL SIGNAL'
+        if probability >= 55:
+            return 'WEAK BTTS MODEL SIGNAL'
+        return 'NO BTTS SIGNAL'
+
+    @staticmethod
+    def _get_phase(minute: int) -> str:
         if minute < 15:
             return 'OPENING'
-        elif minute < 30:
+        if minute < 30:
             return 'PROBING'
-        elif minute < 45:
-            return 'PRE_HT_PUSH'
-        elif minute < 60:
-            return 'POST_HT_RESET'
-        elif minute < 75:
-            return 'DECISION_TIME'
-        else:
-            return 'DESPERATE'
+        if minute < 45:
+            return 'PRE_HT'
+        if minute < 60:
+            return 'POST_HT'
+        if minute < 75:
+            return 'LATE'
+        return 'CLOSING'
 
 
 def display_ultra_opportunity(match: Dict):
-    """Display für Streamlit"""
+    """Render one API-backed live model result."""
     phase = match.get('breakdown', {}).get('game_phase', 'UNKNOWN')
-    
-    st.markdown(f"### 🔴 LIVE - {match['minute']}' | {phase}")
-    st.markdown(f"**{match['home_team']} vs {match['away_team']}**")
+    quality = match.get('btts_confidence', 'INSUFFICIENT')
+    quality_label = {
+        'LOW': 'Berechenbar',
+        'MEDIUM': 'Live-xG + Prematch',
+        'INSUFFICIENT': 'Unzureichend',
+        'COMPLETE': 'BTTS bereits eingetreten',
+    }.get(quality, quality)
+    st.subheader(f"Live {match['minute']}' | {phase}")
+    st.write(f"**{match['home_team']} vs {match['away_team']}**")
     st.caption(f"{match['league']} | Score: {match['score']}")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        btts = match['btts_prob']
-        btts_confidence = match.get('btts_confidence', '')
-        
-        # Check ob BTTS bereits eingetreten ist
-        if btts_confidence == 'COMPLETE':
-            st.metric("BTTS", "✅ HIT", delta="Bereits eingetreten")
-        else:
-            delta = "🔥" if btts >= 70 else ("✅" if btts >= 50 else "⚠️")
-            st.metric("BTTS", f"{btts}%", delta=delta)
-    
-    with col2:
-        ou = match.get('over_under', {})
-        st.metric("Expected Goals", f"{ou.get('expected_total_goals', 0):.1f}")
-        st.caption(f"Over 2.5: {ou.get('over_25_probability', 50):.0f}%")
-    
-    with col3:
-        ng = match.get('next_goal', {})
-        fav = ng.get('favorite', 'HOME')
-        # FIX: Use correct keys 'home_prob' and 'away_prob'!
-        home_prob = ng.get('home_prob', 50)
-        away_prob = ng.get('away_prob', 50)
-        prob = home_prob if fav == 'HOME' else away_prob
-        st.metric(f"Next: {fav}", f"{prob:.0f}%")
-    
-    st.markdown("---")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        rec = match['btts_recommendation']
-        # Unterschiedliche Farbe für COMPLETE vs echte Wette
-        if 'COMPLETE' in rec:
-            st.info(f"⚽ {rec}")  # Blau für "bereits eingetreten"
-        elif '🔥' in rec:
-            st.success(f"⚽ {rec}")  # Grün für gute Wette
-        else:
-            st.info(f"⚽ {rec}")  # Blau für andere
-    with col2:
-        ou_rec = ou.get('recommendation', 'N/A')
-        (st.success if '🔥' in ou_rec else st.info)(f"🎲 {ou_rec}")
-    with col3:
-        ng_rec = ng.get('recommendation', 'N/A')
-        (st.success if '🔥' in ng_rec else st.info)(f"🎯 {ng_rec}")
+
+    btts = match.get('btts_prob')
+    totals = match.get('over_under', {})
+    next_goal = match.get('next_goal', {})
+    columns = st.columns(3)
+    columns[0].metric(
+        "BTTS",
+        "Complete" if quality == 'COMPLETE'
+        else f"{btts:.1f}%" if btts is not None else "n/a",
+    )
+    expected_total = totals.get('expected_total_goals')
+    columns[1].metric(
+        "Expected total",
+        f"{expected_total:.2f}" if expected_total is not None else "n/a",
+    )
+    favorite = next_goal.get('favorite')
+    favorite_probability = next_goal.get(
+        'home_prob' if favorite == 'HOME' else 'away_prob'
+    ) if favorite else None
+    columns[2].metric(
+        "Next-goal side",
+        f"{favorite} {favorite_probability:.1f}%"
+        if favorite_probability is not None else "n/a",
+    )
+    st.caption(
+        f"Datenbasis: {quality_label} | "
+        "Uncalibrated model signal; no market price checked"
+    )
+    st.write(match.get('btts_recommendation', 'INSUFFICIENT DATA'))
+    st.write(totals.get('recommendation', 'INSUFFICIENT DATA'))
+    st.write(next_goal.get('recommendation', 'INSUFFICIENT DATA'))
 
 
 __all__ = ['UltraLiveScanner', 'display_ultra_opportunity']

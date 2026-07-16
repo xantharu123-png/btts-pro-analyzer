@@ -1,272 +1,382 @@
-"""
-CLV (Closing Line Value) Tracker
-Tracks predictions and calculates CLV to validate model performance
-"""
+"""Closing-line and settled-return recorder with quote provenance."""
 
 import sqlite3
-from datetime import datetime, timedelta
+from contextlib import contextmanager
+import math
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
+
+from betting_math import validate_decimal_odds, validate_probability_percent
 
 
 class CLVTracker:
-    """Track predictions and calculate Closing Line Value"""
-    
+    """Store pre-event predictions, verified prices, closers, and settlement."""
+
+    OPENING_QUOTE_MAX_AGE = timedelta(minutes=10)
+    CLOSING_WINDOW = timedelta(minutes=15)
+
     def __init__(self, db_path: str = "btts_clv.db"):
         self.db_path = db_path
         self._init_database()
-    
+
+    @contextmanager
+    def _connect(self):
+        connection = sqlite3.connect(self.db_path)
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
     def _init_database(self):
-        """Initialize CLV database"""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS predictions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                fixture_id INTEGER NOT NULL,
-                home_team TEXT NOT NULL,
-                away_team TEXT NOT NULL,
-                market_type TEXT NOT NULL,
-                prediction TEXT NOT NULL,
-                odds REAL,
-                closing_odds REAL,
-                model_probability REAL,
-                confidence INTEGER,
-                result TEXT,
-                profit REAL,
-                home_score INTEGER,
-                away_score INTEGER,
-                created_at TEXT NOT NULL,
-                settled_at TEXT
+        with self._connect() as conn:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS predictions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fixture_id INTEGER NOT NULL,
+                    home_team TEXT NOT NULL,
+                    away_team TEXT NOT NULL,
+                    market_type TEXT NOT NULL,
+                    prediction TEXT NOT NULL,
+                    odds REAL,
+                    closing_odds REAL,
+                    model_probability REAL,
+                    confidence INTEGER,
+                    result TEXT,
+                    profit REAL,
+                    home_score INTEGER,
+                    away_score INTEGER,
+                    created_at TEXT NOT NULL,
+                    settled_at TEXT,
+                    fixture_kickoff TEXT
+                )
+            ''')
+            existing = {
+                row[1] for row in conn.execute('PRAGMA table_info(predictions)')
+            }
+            additions = {
+                'bookmaker': 'TEXT',
+                'quote_source': 'TEXT',
+                'quoted_at': 'TEXT',
+                'closing_bookmaker': 'TEXT',
+                'closing_source': 'TEXT',
+                'closing_quoted_at': 'TEXT',
+                'data_quality': 'TEXT',
+                'fixture_kickoff': 'TEXT',
+            }
+            for column, column_type in additions.items():
+                if column not in existing:
+                    conn.execute(
+                        f'ALTER TABLE predictions ADD COLUMN {column} {column_type}'
+                    )
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_fixture ON predictions(fixture_id)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_created ON predictions(created_at)')
+
+    @staticmethod
+    def _required_text(value, field: str) -> str:
+        text = str(value or '').strip()
+        if not text:
+            raise ValueError(f"{field} is required")
+        return text
+
+    @staticmethod
+    def _iso_timestamp(value=None) -> str:
+        if value is None:
+            return datetime.now(timezone.utc).isoformat()
+        if isinstance(value, datetime):
+            timestamp = value
+        elif isinstance(value, str):
+            timestamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        else:
+            raise ValueError("timestamp must be datetime or ISO-8601 text")
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        return timestamp.astimezone(timezone.utc).isoformat()
+
+    @classmethod
+    def _valid_closing_timing(cls, opening, closing, kickoff) -> bool:
+        if opening is None or closing is None or kickoff is None:
+            return False
+        try:
+            opening_time = datetime.fromisoformat(cls._iso_timestamp(opening))
+            closing_time = datetime.fromisoformat(cls._iso_timestamp(closing))
+            kickoff_time = datetime.fromisoformat(cls._iso_timestamp(kickoff))
+        except (TypeError, ValueError):
+            return False
+        return (
+            opening_time <= closing_time < kickoff_time
+            and kickoff_time - closing_time <= cls.CLOSING_WINDOW
+        )
+
+    def record_prediction(
+        self,
+        fixture_id: int,
+        home_team: str,
+        away_team: str,
+        market_type: str,
+        prediction: str,
+        odds: float,
+        model_probability: float,
+        confidence: Optional[int] = None,
+        *,
+        bookmaker: str,
+        quote_source: str,
+        fixture_kickoff,
+        quoted_at=None,
+        data_quality: Optional[str] = None,
+    ) -> int:
+        if (
+            not isinstance(fixture_id, int)
+            or isinstance(fixture_id, bool)
+            or fixture_id <= 0
+        ):
+            raise ValueError("fixture_id must be a positive integer")
+        price = validate_decimal_odds(odds)
+        probability = validate_probability_percent(model_probability)
+        values = {
+            'home_team': self._required_text(home_team, 'home_team'),
+            'away_team': self._required_text(away_team, 'away_team'),
+            'market_type': self._required_text(market_type, 'market_type'),
+            'prediction': self._required_text(prediction, 'prediction'),
+            'bookmaker': self._required_text(bookmaker, 'bookmaker'),
+            'quote_source': self._required_text(quote_source, 'quote_source'),
+        }
+        quote_time = self._iso_timestamp(quoted_at)
+        kickoff_time = self._iso_timestamp(fixture_kickoff)
+        now = datetime.now(timezone.utc)
+        quote_datetime = datetime.fromisoformat(quote_time)
+        kickoff_datetime = datetime.fromisoformat(kickoff_time)
+        if quote_datetime > now + timedelta(seconds=60):
+            raise ValueError("opening quote cannot be in the future")
+        if now - quote_datetime > self.OPENING_QUOTE_MAX_AGE:
+            raise ValueError("opening quote is stale")
+        if kickoff_datetime <= now or quote_datetime >= kickoff_datetime:
+            raise ValueError("prediction and opening quote must be pre-kickoff")
+        created_at = now.isoformat()
+
+        with self._connect() as conn:
+            cursor = conn.execute('''
+                INSERT INTO predictions (
+                    fixture_id, home_team, away_team, market_type, prediction,
+                    odds, model_probability, confidence, created_at, bookmaker,
+                    quote_source, quoted_at, data_quality, fixture_kickoff
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                fixture_id, values['home_team'], values['away_team'],
+                values['market_type'], values['prediction'], price, probability,
+                confidence, created_at, values['bookmaker'], values['quote_source'],
+                quote_time, str(data_quality or '').strip() or None, kickoff_time,
+            ))
+            return int(cursor.lastrowid)
+
+    def update_closing_odds(
+        self,
+        prediction_id: int,
+        closing_odds: float,
+        *,
+        bookmaker: str,
+        quote_source: str,
+        quoted_at=None,
+    ) -> None:
+        price = validate_decimal_odds(closing_odds)
+        bookmaker = self._required_text(bookmaker, 'bookmaker')
+        quote_source = self._required_text(quote_source, 'quote_source')
+        quote_time = self._iso_timestamp(quoted_at)
+        with self._connect() as conn:
+            row = conn.execute(
+                'SELECT result, quoted_at, fixture_kickoff FROM predictions WHERE id = ?',
+                (prediction_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"prediction {prediction_id} does not exist")
+            if row[0] is not None:
+                raise ValueError("closing price cannot be changed after settlement")
+            if row[1] is not None:
+                opening_time = self._iso_timestamp(row[1])
+                if datetime.fromisoformat(quote_time) < datetime.fromisoformat(opening_time):
+                    raise ValueError("closing quote cannot predate the opening quote")
+            if row[2] is None:
+                raise ValueError("fixture kickoff provenance is required for CLV")
+            kickoff_time = self._iso_timestamp(row[2])
+            closing_datetime = datetime.fromisoformat(quote_time)
+            kickoff_datetime = datetime.fromisoformat(kickoff_time)
+            if closing_datetime >= kickoff_datetime:
+                raise ValueError("closing quote must be captured before kickoff")
+            if kickoff_datetime - closing_datetime > self.CLOSING_WINDOW:
+                raise ValueError("closing quote is outside the 15-minute closing window")
+            conn.execute('''
+                UPDATE predictions
+                SET closing_odds = ?, closing_bookmaker = ?, closing_source = ?,
+                    closing_quoted_at = ?
+                WHERE id = ?
+            ''', (price, bookmaker, quote_source, quote_time, prediction_id))
+
+    def settle_prediction(
+        self,
+        prediction_id: int,
+        result: str,
+        home_score: int,
+        away_score: int,
+    ) -> None:
+        normalized_result = str(result or '').strip().title()
+        if normalized_result not in {'Won', 'Lost', 'Push'}:
+            raise ValueError("result must be Won, Lost, or Push")
+        if (
+            not isinstance(home_score, int)
+            or not isinstance(away_score, int)
+            or home_score < 0
+            or away_score < 0
+        ):
+            raise ValueError("final scores must be non-negative integers")
+
+        with self._connect() as conn:
+            row = conn.execute(
+                'SELECT odds, result FROM predictions WHERE id = ?',
+                (prediction_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"prediction {prediction_id} does not exist")
+            if row[1] is not None:
+                raise ValueError("prediction is already settled")
+            price = validate_decimal_odds(row[0])
+            profit = price - 1.0 if normalized_result == 'Won' else (
+                -1.0 if normalized_result == 'Lost' else 0.0
             )
-        ''')
-        
-        c.execute('CREATE INDEX IF NOT EXISTS idx_fixture ON predictions(fixture_id)')
-        c.execute('CREATE INDEX IF NOT EXISTS idx_created ON predictions(created_at)')
-        
-        conn.commit()
-        conn.close()
-    
-    def record_prediction(self, fixture_id: int, home_team: str, away_team: str,
-                         market_type: str, prediction: str, odds: float,
-                         model_probability: float, confidence: int) -> int:
-        """
-        Record a prediction
-        
-        Returns:
-            prediction_id
-        """
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        
-        c.execute('''
-            INSERT INTO predictions 
-            (fixture_id, home_team, away_team, market_type, prediction, odds,
-             model_probability, confidence, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (fixture_id, home_team, away_team, market_type, prediction, odds,
-              model_probability, confidence, datetime.now().isoformat()))
-        
-        pred_id = c.lastrowid
-        conn.commit()
-        conn.close()
-        
-        return pred_id
-    
-    def update_closing_odds(self, prediction_id: int, closing_odds: float):
-        """Update closing odds for a prediction"""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        
-        c.execute('''
-            UPDATE predictions 
-            SET closing_odds = ?
-            WHERE id = ?
-        ''', (closing_odds, prediction_id))
-        
-        conn.commit()
-        conn.close()
-    
-    def settle_prediction(self, prediction_id: int, result: str,
-                         home_score: int, away_score: int):
-        """
-        Settle a prediction
-        
-        Args:
-            result: 'Won', 'Lost', 'Push'
-            home_score: Final home score
-            away_score: Final away score
-        """
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        
-        # Get prediction details
-        c.execute('SELECT odds FROM predictions WHERE id = ?', (prediction_id,))
-        row = c.fetchone()
-        
-        if not row:
-            conn.close()
-            return
-        
-        odds = row[0]
-        
-        # Calculate profit
-        if result == 'Won':
-            profit = odds - 1
-        elif result == 'Lost':
-            profit = -1
-        else:  # Push
-            profit = 0
-        
-        c.execute('''
-            UPDATE predictions
-            SET result = ?, profit = ?, home_score = ?, away_score = ?,
-                settled_at = ?
-            WHERE id = ?
-        ''', (result, profit, home_score, away_score, 
-              datetime.now().isoformat(), prediction_id))
-        
-        conn.commit()
-        conn.close()
-    
+            conn.execute('''
+                UPDATE predictions
+                SET result = ?, profit = ?, home_score = ?, away_score = ?,
+                    settled_at = ?
+                WHERE id = ?
+            ''', (
+                normalized_result, profit, home_score, away_score,
+                datetime.now(timezone.utc).isoformat(), prediction_id,
+            ))
+
     def get_clv_statistics(self, days: int = 30) -> Dict:
-        """
-        Get CLV statistics for the last N days
-        
-        Returns:
-            Dict with CLV metrics
-        """
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        
-        # Date filter
-        date_filter = (datetime.now() - timedelta(days=days)).isoformat()
-        
-        # Get predictions with both opening and closing odds
-        c.execute('''
-            SELECT odds, closing_odds, result, profit, confidence
-            FROM predictions
-            WHERE created_at > ?
-            AND closing_odds IS NOT NULL
-            AND result IS NOT NULL
-        ''', (date_filter,))
-        
-        predictions = c.fetchall()
-        conn.close()
-        
-        if not predictions:
+        if not isinstance(days, int) or days <= 0:
+            raise ValueError("days must be a positive integer")
+        date_filter = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with self._connect() as conn:
+            rows = conn.execute('''
+                SELECT odds, closing_odds, result, profit, quoted_at,
+                       closing_quoted_at, fixture_kickoff
+                FROM predictions
+                WHERE created_at > ? AND result IS NOT NULL
+            ''', (date_filter,)).fetchall()
+
+        if not rows:
             return {
                 'total_bets': 0,
-                'avg_clv': 0,
-                'win_rate': 0,
-                'profit': 0,
-                'roi': 0
+                'clv_bets': 0,
+                'avg_clv': None,
+                'win_rate': None,
+                'profit': None,
+                'roi': None,
             }
-        
-        # Calculate metrics
-        total_bets = len(predictions)
+
+        valid_rows = []
         clv_values = []
-        wins = 0
-        total_profit = 0
-        
-        for odds, closing_odds, result, profit, confidence in predictions:
-            # CLV = (Opening Odds / Closing Odds - 1) * 100
-            if closing_odds > 0:
-                clv = (odds / closing_odds - 1) * 100
-                clv_values.append(clv)
-            
-            if result == 'Won':
-                wins += 1
-            
-            if profit is not None:
-                total_profit += profit
-        
-        avg_clv = sum(clv_values) / len(clv_values) if clv_values else 0
-        win_rate = (wins / total_bets) * 100 if total_bets > 0 else 0
-        roi = (total_profit / total_bets) * 100 if total_bets > 0 else 0
-        
+        for opening, closing, result, profit, opening_time, closing_time, kickoff in rows:
+            try:
+                opening_price = validate_decimal_odds(opening)
+                numeric_profit = float(profit)
+            except (TypeError, ValueError):
+                continue
+            if result not in {'Won', 'Lost', 'Push'} or not math.isfinite(numeric_profit):
+                continue
+            valid_rows.append((result, numeric_profit))
+            if (
+                closing is not None
+                and self._valid_closing_timing(
+                    opening_time, closing_time, kickoff
+                )
+            ):
+                try:
+                    closing_price = validate_decimal_odds(closing)
+                except (TypeError, ValueError):
+                    continue
+                clv_values.append(
+                    (opening_price / closing_price - 1.0) * 100.0
+                )
+
+        if not valid_rows:
+            return {
+                'total_bets': 0,
+                'clv_bets': 0,
+                'avg_clv': None,
+                'win_rate': None,
+                'profit': None,
+                'roi': None,
+            }
+
+        decisions = [result for result, _ in valid_rows if result != 'Push']
+        wins = sum(result == 'Won' for result in decisions)
+        total_profit = sum(profit for _, profit in valid_rows)
         return {
-            'total_bets': total_bets,
-            'avg_clv': round(avg_clv, 2),
-            'win_rate': round(win_rate, 1),
+            'total_bets': len(valid_rows),
+            'clv_bets': len(clv_values),
+            'avg_clv': round(sum(clv_values) / len(clv_values), 2) if clv_values else None,
+            'win_rate': round(wins / len(decisions) * 100.0, 1) if decisions else None,
             'profit': round(total_profit, 2),
-            'roi': round(roi, 1)
+            'roi': round(total_profit / len(valid_rows) * 100.0, 1),
         }
-    
+
     def get_recent_predictions(self, limit: int = 10) -> List[Dict]:
-        """Get recent predictions"""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        
-        c.execute('''
-            SELECT id, fixture_id, home_team, away_team, market_type, 
-                   prediction, odds, closing_odds, result, profit, created_at
-            FROM predictions
-            ORDER BY created_at DESC
-            LIMIT ?
-        ''', (limit,))
-        
-        rows = c.fetchall()
-        conn.close()
-        
+        if not isinstance(limit, int) or limit <= 0:
+            raise ValueError("limit must be a positive integer")
+        with self._connect() as conn:
+            rows = conn.execute('''
+                SELECT id, fixture_id, home_team, away_team, market_type,
+                       prediction, odds, closing_odds, result, profit, created_at,
+                       bookmaker, quote_source, quoted_at, closing_quoted_at,
+                       fixture_kickoff
+                FROM predictions
+                ORDER BY created_at DESC
+                LIMIT ?
+            ''', (limit,)).fetchall()
+
         predictions = []
         for row in rows:
-            pred = {
+            closing = row[7]
+            try:
+                opening_price = validate_decimal_odds(row[6])
+            except (TypeError, ValueError):
+                opening_price = None
+            try:
+                closing_price = (
+                    validate_decimal_odds(closing) if closing is not None else None
+                )
+            except (TypeError, ValueError):
+                closing_price = None
+            predictions.append({
                 'id': row[0],
                 'fixture_id': row[1],
                 'home_team': row[2],
                 'away_team': row[3],
                 'market_type': row[4],
                 'prediction': row[5],
-                'odds': row[6],
-                'closing_odds': row[7],
+                'odds': opening_price,
+                'closing_odds': closing_price,
                 'result': row[8],
                 'profit': row[9],
-                'created_at': row[10]
-            }
-            
-            # Calculate CLV if both odds available
-            if pred['odds'] and pred['closing_odds']:
-                pred['clv'] = round((pred['odds'] / pred['closing_odds'] - 1) * 100, 2)
-            else:
-                pred['clv'] = None
-            
-            predictions.append(pred)
-        
+                'created_at': row[10],
+                'bookmaker': row[11],
+                'quote_source': row[12],
+                'quoted_at': row[13],
+                'closing_quoted_at': row[14],
+                'fixture_kickoff': row[15],
+                'clv': round(
+                    (opening_price / closing_price - 1.0) * 100.0,
+                    2,
+                )
+                if (
+                    opening_price is not None
+                    and closing_price is not None
+                    and self._valid_closing_timing(row[13], row[14], row[15])
+                )
+                else None,
+            })
         return predictions
-
-
-if __name__ == "__main__":
-    # Test
-    from datetime import timedelta
-    
-    tracker = CLVTracker()
-    
-    # Record test prediction
-    pred_id = tracker.record_prediction(
-        fixture_id=12345,
-        home_team="Bayern",
-        away_team="Dortmund",
-        market_type="BTTS",
-        prediction="Yes",
-        odds=1.85,
-        model_probability=62.5,
-        confidence=75
-    )
-    print(f"Recorded prediction ID: {pred_id}")
-    
-    # Update closing odds
-    tracker.update_closing_odds(pred_id, 1.72)
-    clv = (1.85 / 1.72 - 1) * 100
-    print(f"CLV: {clv:.2f}%")
-    
-    # Settle
-    tracker.settle_prediction(pred_id, 'Won', 2, 1)
-    
-    # Stats
-    stats = tracker.get_clv_statistics(days=30)
-    print(f"\nCLV Statistics:")
-    print(f"  Total Bets: {stats['total_bets']}")
-    print(f"  Avg CLV: {stats['avg_clv']}%")
-    print(f"  Win Rate: {stats['win_rate']}%")
-    print(f"  ROI: {stats['roi']}%")

@@ -1,10 +1,4 @@
-"""
-E-SPORTS SCANNER - PROPER IMPLEMENTATION
-Like Football/Basketball: Stats-based analysis with clear recommendations
-
-Author: BetBoy
-Date: January 2026
-"""
+"""Uncalibrated e-sports model signals from observed match histories."""
 
 import streamlit as st
 import requests
@@ -58,8 +52,8 @@ class EsportsScanner:
                         if formatted:
                             all_matches.append(formatted)
                             
-            except Exception as e:
-                pass  # Silent fail, show what we can
+            except requests.RequestException:
+                continue
         
         return all_matches
     
@@ -75,10 +69,19 @@ class EsportsScanner:
             
             team1_id = team1.get('id')
             team2_id = team2.get('id')
+            if not team1_id or not team2_id:
+                return None
             
             results = match.get('results', [])
-            score1 = results[0].get('score', 0) if len(results) > 0 else 0
-            score2 = results[1].get('score', 0) if len(results) > 1 else 0
+            scores_by_team = {
+                result.get('team_id'): result.get('score')
+                for result in results
+                if result.get('team_id') is not None
+            }
+            score1 = scores_by_team.get(team1_id)
+            score2 = scores_by_team.get(team2_id)
+            if not isinstance(score1, (int, float)) or not isinstance(score2, (int, float)):
+                return None
             
             # Get REAL team statistics
             game_slug = 'csgo' if game == 'CS2' else game.lower()
@@ -99,13 +102,13 @@ class EsportsScanner:
                 'team1_stats': team1_stats,
                 'team2_stats': team2_stats
             }
-        except:
+        except (AttributeError, KeyError, TypeError, ValueError):
             return None
     
     def _get_team_stats(self, team_id: int, game: str) -> Dict:
         """Get REAL team statistics from last matches"""
         if not team_id:
-            return {'win_rate': 50, 'matches': 0, 'wins': 0, 'form': []}
+            return {'win_rate': None, 'matches': 0, 'wins': 0, 'form': []}
         
         # Check cache
         cache_key = f"{game}_{team_id}"
@@ -128,20 +131,26 @@ class EsportsScanner:
                 
                 if matches:
                     wins = 0
-                    total = len(matches)
+                    total = 0
                     form = []  # Last 5 results: W/L
                     
-                    for i, m in enumerate(matches):
+                    for m in matches:
                         winner = m.get('winner', {})
-                        won = winner and winner.get('id') == team_id
+                        winner_id = winner.get('id') if winner else None
+                        if winner_id is None:
+                            continue
+                        won = winner_id == team_id
+                        total += 1
                         
                         if won:
                             wins += 1
                         
-                        if i < 5:  # Last 5 for form
+                        if len(form) < 5:
                             form.append('W' if won else 'L')
                     
-                    win_rate = (wins / total * 100) if total > 0 else 50
+                    if total == 0:
+                        return {'win_rate': None, 'matches': 0, 'wins': 0, 'form': []}
+                    win_rate = wins / total * 100
                     
                     stats = {
                         'win_rate': round(win_rate, 1),
@@ -152,10 +161,34 @@ class EsportsScanner:
                     
                     self._stats_cache[cache_key] = stats
                     return stats
-        except:
+        except requests.RequestException:
             pass
         
-        return {'win_rate': 50, 'matches': 0, 'wins': 0, 'form': []}
+        return {'win_rate': None, 'matches': 0, 'wins': 0, 'form': []}
+
+    @staticmethod
+    def _series_win_probability(
+        map_probability: float,
+        team_maps: int,
+        opponent_maps: int,
+        maps_to_win: int,
+    ) -> float:
+        memo = {}
+
+        def solve(team_score: int, opponent_score: int) -> float:
+            if team_score >= maps_to_win:
+                return 1.0
+            if opponent_score >= maps_to_win:
+                return 0.0
+            key = (team_score, opponent_score)
+            if key not in memo:
+                memo[key] = (
+                    map_probability * solve(team_score + 1, opponent_score)
+                    + (1.0 - map_probability) * solve(team_score, opponent_score + 1)
+                )
+            return memo[key]
+
+        return solve(team_maps, opponent_maps)
     
     def analyze_match(self, match: Dict) -> Optional[Dict]:
         """
@@ -165,81 +198,67 @@ class EsportsScanner:
         game = match.get('game', '')
         team1 = match.get('team1', 'Team 1')
         team2 = match.get('team2', 'Team 2')
-        score1 = match.get('team1_score', 0)
-        score2 = match.get('team2_score', 0)
+        score1 = match.get('team1_score')
+        score2 = match.get('team2_score')
         series_type = match.get('series_type', 3)
         
         stats1 = match.get('team1_stats', {})
         stats2 = match.get('team2_stats', {})
         
-        wr1 = stats1.get('win_rate', 50)
-        wr2 = stats2.get('win_rate', 50)
+        wr1 = stats1.get('win_rate')
+        wr2 = stats2.get('win_rate')
         form1 = stats1.get('form', [])
         form2 = stats2.get('form', [])
         matches1 = stats1.get('matches', 0)
         matches2 = stats2.get('matches', 0)
+        if (
+            score1 is None
+            or score2 is None
+            or wr1 is None
+            or wr2 is None
+            or matches1 < 5
+            or matches2 < 5
+        ):
+            return None
         
         # ===== PROBABILITY CALCULATION =====
         
-        # Base probability from win rates (normalized)
-        total_wr = wr1 + wr2
-        if total_wr > 0 and total_wr != 100:
-            prob1 = (wr1 / total_wr) * 100
-            prob2 = (wr2 / total_wr) * 100
-        else:
-            prob1 = 50
-            prob2 = 50
+        # Beta(1,1) shrinkage avoids zero/one estimates. Relative odds form an
+        # uncalibrated map-strength matchup; opponent strength is not adjusted.
+        rate1 = (stats1['wins'] + 1) / (matches1 + 2)
+        rate2 = (stats2['wins'] + 1) / (matches2 + 2)
+        strength1 = rate1 / (1.0 - rate1)
+        strength2 = rate2 / (1.0 - rate2)
+        map_probability1 = strength1 / (strength1 + strength2)
         
         reasoning = []
         reasoning.append(f"📊 Win rates: {team1} {wr1}% | {team2} {wr2}%")
         
-        # Adjust for current series score
-        score_diff = score1 - score2
-        maps_to_win = (series_type // 2) + 1  # BO3 = 2, BO5 = 3
-        
-        if score_diff != 0:
-            # Each map lead = significant advantage
-            # Closer to winning = bigger advantage
-            maps_needed_1 = maps_to_win - score1
-            maps_needed_2 = maps_to_win - score2
-            
-            if maps_needed_1 < maps_needed_2:
-                # Team 1 closer to winning
-                advantage = (maps_needed_2 - maps_needed_1) * 12  # 12% per map closer
-                prob1 += advantage
-                prob2 -= advantage
-                reasoning.append(f"📈 {team1} leads {score1}-{score2} (needs {maps_needed_1} more)")
-            else:
-                advantage = (maps_needed_1 - maps_needed_2) * 12
-                prob2 += advantage
-                prob1 -= advantage
-                reasoning.append(f"📈 {team2} leads {score2}-{score1} (needs {maps_needed_2} more)")
-        else:
-            reasoning.append(f"⚖️ Series tied {score1}-{score2}")
-        
-        # Form adjustment (last 5 matches)
-        form1_wins = form1.count('W') if form1 else 0
-        form2_wins = form2.count('W') if form2 else 0
-        
-        if form1 and form2:
-            form_diff = form1_wins - form2_wins
-            if form_diff >= 2:
-                prob1 += 5
-                prob2 -= 5
-                reasoning.append(f"🔥 {team1} hot form: {''.join(form1)}")
-            elif form_diff <= -2:
-                prob2 += 5
-                prob1 -= 5
-                reasoning.append(f"🔥 {team2} hot form: {''.join(form2)}")
-        
-        # Normalize to 100%
-        total = prob1 + prob2
-        prob1 = (prob1 / total) * 100
-        prob2 = (prob2 / total) * 100
-        
-        # Cap at reasonable bounds
-        prob1 = max(15, min(85, prob1))
+        try:
+            series_maps = int(series_type)
+        except (TypeError, ValueError):
+            return None
+        if series_maps <= 0 or series_maps % 2 == 0:
+            return None
+        maps_to_win = (series_maps // 2) + 1
+        if (
+            score1 < 0
+            or score2 < 0
+            or float(score1).is_integer() is False
+            or float(score2).is_integer() is False
+        ):
+            return None
+        prob1 = self._series_win_probability(
+            map_probability1,
+            int(score1),
+            int(score2),
+            maps_to_win,
+        ) * 100
         prob2 = 100 - prob1
+        reasoning.append(
+            f"Series state {int(score1)}-{int(score2)} evaluated as a first-to-{maps_to_win} race"
+        )
+        reasoning.append("Opponent strength and map-specific lineups are not adjusted")
         
         # ===== DETERMINE RECOMMENDATION =====
         
@@ -254,62 +273,25 @@ class EsportsScanner:
             opp_team = team1
             opp_prob = prob1
         
-        # Calculate fair odds from our probability
-        fair_odds = round(100 / rec_prob, 2)
+        # Reciprocal model price; this is not a calibrated fair price.
+        model_price = round(100 / rec_prob, 2)
         
         # ===== CONFIDENCE CALCULATION =====
         
-        confidence = 50  # Base
-        
-        # More data = more confidence
-        if matches1 >= 10:
-            confidence += 10
-        if matches2 >= 10:
-            confidence += 10
-        
-        # Clear favorite = more confidence
         prob_diff = abs(prob1 - prob2)
-        if prob_diff >= 20:
-            confidence += 15
-        elif prob_diff >= 10:
-            confidence += 10
-        elif prob_diff >= 5:
-            confidence += 5
+        data_coverage = min(100.0, min(matches1, matches2) / 20.0 * 100.0)
         
-        # Series lead = more confidence
-        if abs(score_diff) >= 1:
-            confidence += 10
-        
-        confidence = min(90, confidence)
-        
-        # ===== EDGE & VALUE CALCULATION =====
-        
-        # Assume market odds are ~5% worse than fair (juice)
-        # We estimate market odds and calculate edge
-        estimated_market_odds = fair_odds * 1.05
-        implied_prob = 100 / estimated_market_odds
-        
-        edge = rec_prob - implied_prob
-        
-        # ROI estimate
-        roi = edge * 0.7  # Conservative
-        
-        # ===== STAKE RECOMMENDATION =====
-        
-        if confidence >= 75 and edge >= 8:
-            stake = "3-5%"
+        probability_gap = abs(rec_prob - opp_prob)
+
+        if data_coverage >= 75 and probability_gap >= 20:
             stars = 5
-        elif confidence >= 70 and edge >= 5:
-            stake = "2-4%"
+        elif data_coverage >= 60 and probability_gap >= 15:
             stars = 4
-        elif confidence >= 60 and edge >= 3:
-            stake = "1-3%"
+        elif data_coverage >= 50 and probability_gap >= 10:
             stars = 3
-        elif edge >= 2:
-            stake = "1-2%"
+        elif probability_gap >= 5:
             stars = 2
         else:
-            stake = "0.5-1%"
             stars = 1
         
         return {
@@ -321,19 +303,18 @@ class EsportsScanner:
             'tournament': match.get('tournament', 'Unknown'),
             'market': 'Match Winner',
             'team': rec_team,
-            'odds': fair_odds,
+            'model_price': model_price,
             'win_probability': round(rec_prob, 1),
-            'edge': round(edge, 1),
-            'roi': round(roi, 1),
-            'confidence': round(confidence),
-            'stake': stake,
+            'probability_gap': round(probability_gap, 1),
+            'data_coverage': round(data_coverage),
             'stars': stars,
+            'recommendation_type': 'MODEL_SIGNAL',
             'reasoning': reasoning,
             'team1_wr': wr1,
             'team2_wr': wr2,
             'team1_form': ''.join(form1) if form1 else 'N/A',
             'team2_form': ''.join(form2) if form2 else 'N/A',
-            'data_quality': 'Good' if matches1 >= 5 and matches2 >= 5 else 'Limited'
+            'data_quality': 'MEDIUM' if matches1 >= 10 and matches2 >= 10 else 'LIMITED'
         }
 
 
@@ -377,8 +358,10 @@ def create_esports_tab():
         if analysis:
             recommendations.append(analysis)
     
-    # Sort by confidence and edge
-    recommendations.sort(key=lambda x: (x['confidence'], x['edge']), reverse=True)
+    recommendations.sort(
+        key=lambda x: (x['data_coverage'], x['probability_gap']),
+        reverse=True,
+    )
     
     for rec in recommendations:
         # Stars display
@@ -405,15 +388,18 @@ def create_esports_tab():
         # Stats
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Win Prob", f"{rec['win_probability']}%")
-        c2.metric("Fair Odds", f"{rec['odds']}")
-        c3.metric("Edge", f"+{rec['edge']}%")
-        c4.metric("Confidence", f"{rec['confidence']}%")
+        c2.metric("Uncalibrated model price", f"{rec['model_price']}")
+        c3.metric("Probability gap", f"{rec['probability_gap']} pp")
+        c4.metric("Data coverage", f"{rec['data_coverage']}%")
         
         # Recommendation
         if rec['stars'] >= 3:
-            st.success(f"✅ **{rec['team']}** to WIN @ {rec['odds']} • Edge: +{rec['edge']}% • Stake: {rec['stake']}")
+            st.success(
+                f"**{rec['team']}** model signal: {rec['win_probability']}% "
+                "(no market price checked)"
+            )
         else:
-            st.info(f"📊 **{rec['team']}** slight favorite @ {rec['odds']} • Low confidence")
+            st.info(f"**{rec['team']}** slight model favorite; low signal quality")
         
         # Details expander
         with st.expander("📊 Analysis"):

@@ -1,20 +1,17 @@
 """
-TENNIS SCANNER - REAL IMPLEMENTATION
-ATP/WTA Live Matches - NO DEMOS
+TENNIS LIVE OBSERVATION SCANNER
+API observations are displayed without manufacturing betting probabilities.
 
 Features:
 - Real Sofascore API Integration
 - Live Match Scanning
-- Next Game Winner Predictions (Serve-stats based)
-- Set Winner Analysis
-- Break Point Analysis
-- Surface-specific stats
+- Live scores and available serve statistics
 
 APIs:
 - Sofascore API (primary)
 - Flashscore backup
 
-Expected ROI: 10-15%
+No ROI claim is made without historical market prices and settlement data.
 
 Author: Miroslav
 Date: January 2026
@@ -23,8 +20,11 @@ Date: January 2026
 import streamlit as st
 import requests
 import json
+import logging
 from datetime import datetime
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 class TennisScanner:
     """
@@ -85,15 +85,15 @@ class TennisScanner:
                             return live_matches
                     elif response.status_code == 403:
                         continue  # Try next headers
-                except:
+                except requests.RequestException:
                     continue
             
             # All attempts failed
-            st.info("Tennis: Sofascore blocks cloud requests - try local deployment")
+            logger.info("Tennis live provider did not return a usable response")
             return []
                 
         except Exception as e:
-            st.info(f"Tennis: {str(e)[:50]}")
+            logger.warning("Tennis live request failed: %s", type(e).__name__)
             return []
     
     def _parse_match(self, event: Dict) -> Optional[Dict]:
@@ -112,15 +112,15 @@ class TennisScanner:
                 'surface': event.get('groundType', 'Hard'),
                 'player1': home_team.get('name', 'Player 1'),
                 'player2': away_team.get('name', 'Player 2'),
-                'player1_score': home_team.get('score', 0),
-                'player2_score': away_team.get('score', 0),
+                'player1_score': event.get('homeScore', {}).get('current'),
+                'player2_score': event.get('awayScore', {}).get('current'),
                 'current_set': event.get('homeScore', {}).get('current', 0),
                 'server': self._determine_server(event),
                 'serve_stats': serve_stats,
                 'status': event.get('status', {}).get('description', 'Live')
             }
         except Exception as e:
-            st.warning(f"Error parsing match: {e}")
+            logger.warning("Tennis match payload rejected: %s", type(e).__name__)
             return None
     
     def _get_serve_stats(self, match_id: int) -> Dict:
@@ -150,159 +150,35 @@ class TennisScanner:
                 return serve_data
             
             return {}
-        except:
+        except requests.RequestException:
             return {}
     
-    def _determine_server(self, event: Dict) -> str:
-        """Determine who is currently serving"""
-        # This would need additional API call or data parsing
-        # For now, return based on game situation
-        home_score = event.get('homeScore', {})
-        away_score = event.get('awayScore', {})
-        
-        # Simple logic: assume player with odd total games is serving
-        total_games = home_score.get('current', 0) + away_score.get('current', 0)
-        
-        return 'player1' if total_games % 2 == 0 else 'player2'
+    def _determine_server(self, event: Dict) -> Optional[str]:
+        """Return a server only when the upstream event identifies one."""
+        serving = event.get('serving')
+        if serving == 1:
+            return 'player1'
+        if serving == 2:
+            return 'player2'
+        return None
     
     def analyze_next_game(self, match: Dict) -> Optional[Dict]:
-        """
-        Analyze next game winner probability
-        Based on serve statistics
-        """
-        server = match.get('server')
-        serve_stats = match.get('serve_stats', {})
-        
-        # Get first serve percentage
-        first_serve_pct = 0
-        if 'First serve percentage' in serve_stats:
-            if server == 'player1':
-                first_serve_pct = serve_stats['First serve percentage'].get('home', 0)
-            else:
-                first_serve_pct = serve_stats['First serve percentage'].get('away', 0)
-        
-        # Strong serve = high hold probability
-        if first_serve_pct >= 70:
-            
-            player = match['player1'] if server == 'player1' else match['player2']
-            
-            # Calculate edge based on serve quality
-            edge = min((first_serve_pct - 60) * 1.5, 20)
-            roi = edge + 2
-            confidence = 70 + min(int((first_serve_pct - 60) * 1.2), 20)
-            
-            # Estimated odds
-            prob = (confidence + edge) / 100
-            estimated_odds = round(1 / prob, 2)
-            
-            return {
-                'type': 'next_game',
-                'player': player,
-                'market': 'To Hold Serve',
-                'odds': estimated_odds,
-                'edge': round(edge, 1),
-                'roi': round(roi, 1),
-                'confidence': round(confidence, 0),
-                'stake': '3-4%' if confidence >= 85 else '2-3%',
-                'reasoning': [
-                    f'{player} serving',
-                    f'First Serve: {first_serve_pct}%',
-                    'Elite serve statistics',
-                    f'Surface: {match.get("surface", "Hard")}',
-                    'High hold probability'
-                ]
-            }
-        
+        """No game probability is emitted without point-level serve/return inputs."""
         return None
     
     def analyze_set_winner(self, match: Dict) -> Optional[Dict]:
-        """
-        Analyze current set winner probability
-        Based on momentum and game differential
-        """
-        player1_score = match.get('player1_score', 0)
-        player2_score = match.get('player2_score', 0)
-        
-        game_diff = abs(player1_score - player2_score)
-        
-        # If significant game differential in current set
-        if game_diff >= 2 and max(player1_score, player2_score) >= 3:
-            
-            leader = match['player1'] if player1_score > player2_score else match['player2']
-            
-            edge = min(game_diff * 3, 15)
-            roi = edge + 3
-            confidence = 75 + min(game_diff * 5, 15)
-            
-            prob = (confidence + edge) / 100
-            estimated_odds = round(1 / prob, 2)
-            
-            return {
-                'type': 'set_winner',
-                'player': leader,
-                'market': 'Current Set Winner',
-                'odds': estimated_odds,
-                'edge': round(edge, 1),
-                'roi': round(roi, 1),
-                'confidence': round(confidence, 0),
-                'stake': '2-3%',
-                'reasoning': [
-                    f'{leader} leads {max(player1_score, player2_score)}-{min(player1_score, player2_score)}',
-                    f'Game differential: {game_diff}',
-                    'Strong momentum',
-                    'Opponent struggling',
-                    'High probability to close set'
-                ]
-            }
-        
+        """No set probability is emitted from score differential alone."""
         return None
     
     def analyze_total_games(self, match: Dict) -> Optional[Dict]:
-        """
-        Analyze total games over/under for current set
-        """
-        player1_score = match.get('player1_score', 0)
-        player2_score = match.get('player2_score', 0)
-        current_games = player1_score + player2_score
-        
-        # If both players holding serve well
-        serve_stats = match.get('serve_stats', {})
-        
-        # Calculate if match is service-dominated
-        if current_games >= 6 and abs(player1_score - player2_score) <= 1:
-            
-            # Predict tiebreak scenario
-            edge = 8
-            roi = 11
-            confidence = 78
-            
-            prob = (confidence + edge) / 100
-            estimated_odds = round(1 / prob, 2)
-            
-            return {
-                'type': 'total_games',
-                'market': 'Total Games Over 12.5',
-                'odds': estimated_odds,
-                'edge': edge,
-                'roi': roi,
-                'confidence': confidence,
-                'stake': '2-3%',
-                'reasoning': [
-                    f'Current games: {current_games}',
-                    'Service-dominated match',
-                    'Both players holding',
-                    'Tiebreak likely',
-                    'Over has value'
-                ]
-            }
-        
+        """No totals signal is emitted without a validated point-level model."""
         return None
 
 
 def create_tennis_tab():
     """
     Main Tennis Tab Creator
-    NO DEMOS - ONLY REAL DATA
+    API-backed observations with explicitly heuristic model signals.
     """
     st.header("🎾 TENNIS LIVE SCANNER")
     st.markdown("### ATP/WTA - Real-Time Analysis")
@@ -315,19 +191,6 @@ def create_tennis_tab():
     
     if not matches:
         st.warning("⚠️ No live tennis matches at this moment")
-        st.info("""
-        **When are matches typically live?**
-        - **Grand Slams:** 
-          - Australian Open (January)
-          - French Open (May-June)
-          - Wimbledon (June-July)
-          - US Open (August-September)
-        - **ATP Masters 1000:** Throughout the year
-        - **ATP/WTA 250-500:** Year-round
-        - **Peak times:** 10:00-23:00 CET / 04:00-17:00 EST
-        
-        💡 Check back during tournament times!
-        """)
         return
     
     st.success(f"✅ Found {len(matches)} live tennis match(es)!")
@@ -363,78 +226,21 @@ def analyze_and_display_match(match: Dict, scanner: TennisScanner):
             st.metric("Current Score", f"{score1}-{score2}")
         
         with col4:
-            server = match.get('server', 'player1')
-            serving = player1 if server == 'player1' else player2
-            st.metric("Server", serving.split()[-1])  # Last name
+            server = match.get('server')
+            if server == 'player1':
+                serving = player1
+            elif server == 'player2':
+                serving = player2
+            else:
+                serving = None
+            st.metric("Server", serving.split()[-1] if serving else "n/a")
         
         st.markdown("---")
         
-        # Analyze opportunities
-        st.markdown("### 🎯 Opportunities")
-        
-        opportunities_found = False
-        
-        # Next Game
-        next_game_opp = scanner.analyze_next_game(match)
-        if next_game_opp:
-            display_opportunity(next_game_opp)
-            opportunities_found = True
-        
-        # Set Winner
-        set_opp = scanner.analyze_set_winner(match)
-        if set_opp:
-            display_opportunity(set_opp)
-            opportunities_found = True
-        
-        # Total Games
-        total_opp = scanner.analyze_total_games(match)
-        if total_opp:
-            display_opportunity(total_opp)
-            opportunities_found = True
-        
-        if not opportunities_found:
-            st.info("ℹ️ No high-value opportunities detected for this match at the moment")
-
-
-def display_opportunity(opp: Dict):
-    """Display a betting opportunity"""
-    
-    # Determine bet strength
-    if opp['confidence'] >= 85:
-        strength = "🔥🔥 ULTRA STRONG"
-        color = "#e74c3c"
-    elif opp['confidence'] >= 80:
-        strength = "🔥 STRONG"
-        color = "#e67e22"
-    elif opp['confidence'] >= 75:
-        strength = "✅ GOOD"
-        color = "#27ae60"
-    else:
-        strength = "⚠️ CONSIDER"
-        color = "#95a5a6"
-    
-    market = opp.get('market', '')
-    player = opp.get('player', '')
-    bet_text = f"{player} {market}" if player else market
-    
-    st.markdown(f"""
-    <div style='padding: 1.5rem; border-left: 5px solid {color}; background: #f8f9fa; 
-                margin: 1rem 0; border-radius: 8px;'>
-        <h4>{strength}: {bet_text} @ {opp.get('odds', 0)}</h4>
-        <p style='margin: 0.5rem 0;'>
-            <b>Edge:</b> +{opp['edge']}% | 
-            <b>Expected ROI:</b> +{opp['roi']}% | 
-            <b>Confidence:</b> {opp['confidence']}%
-        </p>
-        <p style='margin: 0.5rem 0;'>
-            <b>💰 Stake Recommendation:</b> {opp.get('stake', '2-3%')} of bankroll
-        </p>
-        <p style='margin: 0.5rem 0;'><b>Analysis:</b></p>
-        <ul style='margin: 0.5rem 0; padding-left: 1.5rem;'>
-            {''.join(f'<li>{reason}</li>' for reason in opp.get('reasoning', []))}
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
+        st.info(
+            "Live observation only. Point-level serve and return inputs plus "
+            "out-of-sample calibration are required before a model signal is emitted."
+        )
 
 
 # For standalone testing

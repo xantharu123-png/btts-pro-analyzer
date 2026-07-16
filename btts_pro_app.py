@@ -1,1723 +1,1771 @@
-"""
-Ultimate BTTS Analyzer - Pro Web Interface
-Complete with ML predictions, detailed analysis, and backtesting
-Mit Supabase/PostgreSQL Support
-"""
+"""Responsive BetBoy analysis workspace."""
 
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
+from dataclasses import asdict
 from datetime import datetime
-import sqlite3
-import os
 from pathlib import Path
 from typing import Optional
+import sqlite3
 
-from advanced_analyzer import AdvancedBTTSAnalyzer
-from config_loader import load_app_config
-from data_engine import DataEngine
-from modern_progress_bar import ModernProgressBar
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import requests
+import streamlit as st
+
+from advanced_analyzer import AdvancedBTTSAnalyzer, ML_FEATURE_NAMES, ML_MODEL_PATH
 from alternative_markets_tab_extended import create_alternative_markets_tab_extended
+from challenge_15k import render_challenge_15k
+from config_loader import load_app_config
+
+
+PAGE_INFO = {
+    "Spiele": (
+        "Spiele analysieren",
+        "Prematch-Signale filtern, vergleichen und im selben Ablauf prüfen.",
+    ),
+    "Märkte": (
+        "Märkte prüfen",
+        "Modellpreise und verifizierte externe Quoten strikt getrennt auswerten.",
+    ),
+    "Live": (
+        "Live-Lage",
+        "Live-Spiele und Platzverweise nur auf ausdrücklichen Abruf analysieren.",
+    ),
+    "Modell": (
+        "Modell und Daten",
+        "Validierung, Datenbestand und Training an einem Ort verwalten.",
+    ),
+    "15K Challenge": (
+        "15K Challenge",
+        "Bis zu drei streng geprüfte Spiele; N1Bet-Preise kommen erst nach der Modellfreigabe hinzu.",
+    ),
+    "Multi-Sport": (
+        "Multi-Sport",
+        "Provider-Snapshots sportweise ansehen, ohne Scores zu vermischen.",
+    ),
+}
+
+PREMATCH_SNAPSHOT_VERSION = 2
+LIVE_SNAPSHOT_VERSION = 2
+RED_CARD_SNAPSHOT_VERSION = 2
+DEFAULT_PREMATCH_LEAGUES = ("BL1", "PL", "PD")
+LIVE_QUALITY_LABELS = {
+    "LOW": "Berechenbar",
+    "MEDIUM": "Live-xG + Prematch",
+}
 
 
 def _get_supabase_url() -> Optional[str]:
-    """Get Supabase URL from Streamlit secrets or environment"""
+    """Return the configured PostgreSQL URL when available."""
     return load_app_config(st).supabase_db_url
 
 
 def _get_db_connection(db_path: str = "btts_data.db"):
-    """Get database connection (PostgreSQL or SQLite)"""
+    """Open the configured PostgreSQL database or the local SQLite fallback."""
     supabase_url = _get_supabase_url()
-    
     if supabase_url:
         try:
             import psycopg2
+
             return psycopg2.connect(supabase_url)
         except ImportError:
-            print("⚠️ psycopg2 not installed")
-        except Exception as e:
-            print(f"⚠️ PostgreSQL connection error: {e}")
-    
+            print("WARNING: psycopg2 is not installed")
+        except Exception as exc:
+            print(f"WARNING: PostgreSQL connection error: {exc}")
     return sqlite3.connect(db_path)
 
-# Page config
-st.set_page_config(
-    page_title="BTTS Pro Analyzer",
-    page_icon="⚽",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
 
-# Custom CSS - Sidebar verstecken
-st.markdown("""
-    <style>
-    [data-testid="stSidebar"] { display: none !important; }
-    [data-testid="collapsedControl"] { display: none !important; }
-    .main {
-        padding: 1rem;
-    }
-    .stAlert {
-        padding: 1rem;
-        margin: 0.5rem 0;
-    }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 10px;
-        color: white;
-        margin: 0.5rem 0;
-    }
-    .top-tip {
-        background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        margin: 1rem 0;
-        border-left: 5px solid #c92a2a;
-    }
-    .strong-tip {
-        background: linear-gradient(135deg, #51cf66 0%, #37b24d 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        margin: 1rem 0;
-        border-left: 5px solid #2b8a3e;
-    }
-    </style>
-""", unsafe_allow_html=True)
+def _format_optional(value, decimals: int = 1, suffix: str = "") -> str:
+    """Format observed or model values without inventing a fallback."""
+    if value is None:
+        return "n/a"
+    try:
+        return f"{float(value):.{decimals}f}{suffix}"
+    except (TypeError, ValueError):
+        return "n/a"
 
-# Initialize
+
+def _numeric_or_zero(value) -> float:
+    try:
+        return float(value) if value is not None else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _format_snapshot_time(value: Optional[str]) -> str:
+    if not value:
+        return "n/a"
+    try:
+        return datetime.fromisoformat(value).astimezone().strftime("%d.%m.%Y %H:%M:%S")
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _scope_signature(leagues: list[str], days_ahead: int) -> dict:
+    return {
+        "leagues": sorted(str(league) for league in leagues),
+        "days_ahead": int(days_ahead),
+    }
+
+
+def _percent_series(series: pd.Series) -> pd.Series:
+    """Normalize percentages that arrive as strings or zero-to-one values."""
+    cleaned = series.astype(str).str.rstrip("%").str.strip()
+    numeric = pd.to_numeric(cleaned, errors="coerce")
+    return numeric.map(lambda value: value * 100 if pd.notna(value) and abs(value) <= 1 else value)
+
+
+def _segmented(label: str, options: list[str], key: str, default: str) -> str:
+    """Use a segmented control with a radio fallback for older Streamlit builds."""
+    if hasattr(st, "segmented_control"):
+        value = st.segmented_control(
+            label,
+            options,
+            default=default,
+            key=key,
+            selection_mode="single",
+        )
+        return value or default
+    return st.radio(label, options, index=options.index(default), horizontal=True, key=key)
+
+
+def _apply_app_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --bb-ink: #202428;
+            --bb-muted: #66707a;
+            --bb-line: #dfe3e7;
+            --bb-surface: #ffffff;
+            --bb-canvas: #f6f7f8;
+            --bb-green: #16784b;
+            --bb-red: #b4232f;
+            --bb-amber: #a45f00;
+        }
+
+        html, body, [class*="css"] {
+            letter-spacing: 0 !important;
+        }
+
+        body, [data-testid="stAppViewContainer"] {
+            background: var(--bb-canvas);
+            color: var(--bb-ink);
+            overflow-x: hidden;
+        }
+
+        [data-testid="stMain"] .block-container {
+            max-width: 1380px;
+            padding: 3rem 1.5rem 3rem;
+        }
+
+        [data-testid="stSidebar"] {
+            border-right: 1px solid var(--bb-line);
+            background: var(--bb-surface);
+        }
+
+        [data-testid="stSidebarContent"] {
+            padding-top: 1rem;
+        }
+
+        h1 {
+            color: var(--bb-ink);
+            font-size: 2rem !important;
+            line-height: 1.15 !important;
+            margin-bottom: 0.25rem !important;
+        }
+
+        h2 {
+            color: var(--bb-ink);
+            font-size: 1.35rem !important;
+            line-height: 1.25 !important;
+        }
+
+        h3 {
+            color: var(--bb-ink);
+            font-size: 1.05rem !important;
+            line-height: 1.3 !important;
+        }
+
+        p, label, [data-testid="stMarkdownContainer"] {
+            overflow-wrap: anywhere;
+        }
+
+        .bb-context {
+            color: var(--bb-green);
+            font-size: 0.75rem;
+            font-weight: 750;
+            letter-spacing: 0 !important;
+            margin: 0 0 0.25rem;
+            text-transform: uppercase;
+        }
+
+        .bb-status {
+            align-items: center;
+            color: var(--bb-ink);
+            display: flex;
+            font-size: 0.88rem;
+            gap: 0.55rem;
+            margin: 0.35rem 0;
+        }
+
+        .bb-dot {
+            background: var(--bb-green);
+            border-radius: 50%;
+            flex: 0 0 0.55rem;
+            height: 0.55rem;
+            width: 0.55rem;
+        }
+
+        .bb-dot.warn { background: var(--bb-amber); }
+        .bb-dot.error { background: var(--bb-red); }
+
+        .bb-challenge-grid {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            margin-top: 0.35rem;
+        }
+
+        .bb-challenge-stat {
+            border-top: 2px solid var(--bb-line);
+            min-width: 0;
+            padding: 0.7rem 0 0.25rem;
+        }
+
+        .bb-challenge-label {
+            color: var(--bb-ink);
+            font-size: 0.88rem;
+            margin-bottom: 0.35rem;
+        }
+
+        .bb-challenge-value {
+            color: var(--bb-ink);
+            font-size: 1.55rem;
+            line-height: 1.2;
+            overflow-wrap: anywhere;
+        }
+
+        [data-testid="stMetric"] {
+            border-top: 2px solid var(--bb-line);
+            padding: 0.7rem 0 0.15rem;
+        }
+
+        [data-testid="stMetricValue"] {
+            color: var(--bb-ink);
+            font-size: 1.55rem;
+            line-height: 1.2;
+            overflow-wrap: anywhere;
+            white-space: normal;
+        }
+
+        [data-testid="stButton"] button,
+        [data-testid="stFormSubmitButton"] button,
+        [data-baseweb="button-group"] button {
+            border-radius: 6px !important;
+            min-height: 2.75rem;
+        }
+
+        [data-testid="stButton"] button p,
+        [data-testid="stFormSubmitButton"] button p {
+            white-space: normal;
+        }
+
+        [data-testid="stDataFrame"],
+        [data-testid="stTable"] {
+            border: 1px solid var(--bb-line);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        [data-testid="stAlert"] {
+            border-radius: 6px;
+        }
+
+        [data-baseweb="button-group"] {
+            flex-wrap: wrap;
+        }
+
+        div[data-baseweb="select"] > div,
+        [data-testid="stNumberInput"] input,
+        [data-testid="stTextInput"] input,
+        [data-testid="stDateInput"] input {
+            min-height: 2.75rem;
+        }
+
+        .stPlotlyChart,
+        [data-testid="stDataFrame"] {
+            max-width: 100%;
+            overflow-x: auto;
+        }
+
+        @media (max-width: 900px) {
+            [data-testid="stMain"] .block-container {
+                padding: 3rem 1rem 2.5rem;
+            }
+
+            [data-testid="stHorizontalBlock"] {
+                flex-wrap: wrap;
+                gap: 0.75rem;
+            }
+
+            [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+                flex: 1 1 calc(50% - 0.75rem) !important;
+                min-width: 220px !important;
+                width: auto !important;
+            }
+
+            .bb-challenge-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 640px) {
+            [data-testid="stMain"] .block-container {
+                padding: 3rem 0.75rem 2rem;
+            }
+
+            h1 { font-size: 1.65rem !important; }
+            h2 { font-size: 1.2rem !important; }
+
+            [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+                width: 100% !important;
+            }
+
+            [data-testid="stButton"] button,
+            [data-testid="stFormSubmitButton"] button {
+                min-height: 3rem;
+                width: 100%;
+            }
+
+            [data-testid="stMetricValue"] {
+                font-size: 1.35rem;
+            }
+
+            .bb-challenge-grid {
+                gap: 0.75rem;
+            }
+
+            .bb-challenge-value {
+                font-size: 1.35rem;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 @st.cache_resource
 def get_analyzer():
-    """Initialize analyzer with API key from config or Streamlit secrets"""
-    try:
-        config = load_app_config(st)
-        api_key = config.api_key or config.api_football_key
-        weather_key = config.weather_key
-        api_football_key = config.api_football_key
-        st.session_state['api_source'] = config.source
-
-        if not api_key and not api_football_key:
-            st.session_state['analyzer_ready'] = False
-            st.session_state['weather_enabled'] = False
-            st.session_state['xg_enabled'] = False
-            st.error("API-Football key fehlt. Lege ihn in Streamlit Secrets, Environment oder config.ini ab.")
-            return None
-
-        analyzer = AdvancedBTTSAnalyzer(
-            api_key=api_key, 
-            weather_api_key=weather_key,
-            api_football_key=api_football_key
-        )
-        st.session_state['analyzer_ready'] = True
-        st.session_state['weather_enabled'] = (weather_key is not None)
-        st.session_state['xg_enabled'] = (api_football_key is not None)
-        return analyzer
-    except Exception as e:
-        st.error(f"Failed to initialize analyzer: {e}")
+    """Initialize the analyzer from the central configuration."""
+    config = load_app_config(st)
+    api_key = config.api_key or config.api_football_key
+    if not api_key and not config.api_football_key:
         return None
+    return AdvancedBTTSAnalyzer(
+        api_key=api_key,
+        weather_api_key=config.weather_key,
+        api_football_key=config.api_football_key,
+    )
 
-analyzer = get_analyzer()
 
-# Header
-st.title("⚽ BTTS Pro Analyzer")
-st.markdown("**Ultimate BTTS Analysis with Machine Learning** | Advanced Edition v2.0")
-
-# Sidebar
-with st.sidebar:
-    st.header("⚙️ Settings")
-    
-    if st.session_state.get('analyzer_ready'):
-        st.success("✅ ML Model Ready")
-        st.info("🔄 Live Data Active")
-    else:
-        st.error("❌ Analyzer not ready")
-    
-    st.markdown("---")
-    
-    # Filters
-    st.subheader("🎯 Filters")
-    
-    min_probability = st.slider(
-        "Min BTTS Probability (%)",
-        min_value=50,
-        max_value=90,
-        value=60,
-        step=5
-    )
-    
-    min_confidence = st.slider(
-        "Min Confidence (%)",
-        min_value=50,
-        max_value=95,
-        value=60,
-        step=5
-    )
-    
-    # Select all checkbox
-    select_all = st.checkbox("Alle Ligen auswählen", value=True)
-    
-    # Get available leagues from LEAGUES_CONFIG
-    available_leagues = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else []
-    
-    if select_all and available_leagues:
-        selected_leagues = available_leagues
-        st.info(f"✅ Alle {len(selected_leagues)} Ligen ausgewählt")
-    else:
-        # Set default only if available
-        default_leagues = ['BL1'] if 'BL1' in available_leagues else []
-        
-        selected_leagues = st.multiselect(
-            "Select Leagues",
-            options=available_leagues,
-            default=default_leagues
-        )
-    
-    days_ahead = st.slider(
-        "Days Ahead",
-        min_value=1,
-        max_value=14,
-        value=7
-    )
-    
-    st.markdown("---")
-    
-    # Data refresh
-    st.subheader("🔄 Data Management")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("⚡ Smart Update (nur neue Spiele)"):
-            with st.spinner("Lade nur neue Spiele..."):
-                try:
-                    from datetime import datetime, timedelta
-                    
-                    # Nur Spiele der letzten 3 Tage laden (viel weniger API-Calls)
-                    conn = _get_db_connection('btts_data.db')
-                    cursor = conn.cursor()
-                    
-                    # Check if PostgreSQL (for placeholder syntax)
-                    is_postgres = hasattr(conn, 'info')  # psycopg2 connections have .info
-                    ph = '%s' if is_postgres else '?'
-                    
-                    updated_leagues = 0
-                    new_matches = 0
-                    
-                    for league_code in selected_leagues:
-                        # Prüfe letztes Update-Datum für diese Liga
-                        cursor.execute(f'''
-                            SELECT MAX(date) FROM matches WHERE league_code = {ph}
-                        ''', (league_code,))
-                        result = cursor.fetchone()
-                        last_date = result[0] if result and result[0] else None
-                        
-                        # Wenn letzte Daten älter als 2 Tage, update diese Liga
-                        if last_date:
-                            try:
-                                last_dt = datetime.strptime(last_date[:10], '%Y-%m-%d')
-                                if (datetime.now() - last_dt).days <= 2:
-                                    continue  # Bereits aktuell
-                            except:
-                                pass
-                        
-                        # Update nur diese Liga
-                        analyzer.engine.fetch_league_matches(league_code, season=2025, force_refresh=False)
-                        updated_leagues += 1
-                    
-                    conn.close()
-                    
-                    if updated_leagues > 0:
-                        st.success(f"✅ {updated_leagues} Ligen aktualisiert!")
-                    else:
-                        st.info("📊 Alle Daten sind bereits aktuell (< 2 Tage alt)")
-                    
-                    st.cache_resource.clear()
-                except Exception as e:
-                    st.error(f"Fehler: {e}")
-    
-    with col2:
-        if st.button("🔄 Full Refresh (alle Daten neu)"):
-            with st.spinner("Refreshing data..."):
-                for league_code in selected_leagues:
-                    # Use fetch_league_matches with force_refresh
-                    analyzer.engine.fetch_league_matches(league_code, season=2025, force_refresh=True)
-                st.success("Data refreshed!")
-                st.cache_resource.clear()
-    
-    st.markdown("---")
-    
-    # Retrain Options
-    retrain_mode = st.radio(
-        "Retrain-Modus:",
-        ["⚡ Smart (nur ausgewählte Ligen)", "🔄 Full (alle 28 Ligen)"],
-        horizontal=True,
-        help="Smart = schneller, spart API-Calls. Full = gründlicher, braucht mehr API-Quota."
-    )
-    
-    if st.button("🤖 Retrain ML Model"):
-        with st.spinner("🤖 Retraining model..."):
-            try:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                if "Smart" in retrain_mode:
-                    # Nur ausgewählte Ligen laden (spart API-Calls!)
-                    leagues = selected_leagues
-                    status_text.text(f"📥 Smart Update: Loading {len(leagues)} selected leagues...")
-                else:
-                    # Alle 28 Ligen laden
-                    leagues = list(analyzer.engine.LEAGUES_CONFIG.keys())
-                    status_text.text(f"📥 Full Update: Loading all {len(leagues)} leagues...")
-                
-                total = len(leagues)
-                
-                for idx, code in enumerate(leagues):
-                    status_text.text(f"📥 Loading {code}... ({idx+1}/{total})")
-                    # force_refresh=False für Smart, True für Full
-                    force = "Full" in retrain_mode
-                    analyzer.engine.fetch_league_matches(code, season=2025, force_refresh=force)
-                    progress_bar.progress((idx + 1) / (total + 1))
-                
-                # Retrain
-                status_text.text("🤖 Training ML model with all data...")
-                analyzer.train_model()
-                progress_bar.progress(1.0)
-                
-                # Get stats
-                conn = _get_db_connection('btts_data.db')
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM matches WHERE btts IS NOT NULL")
-                total_matches = cursor.fetchone()[0]
-                conn.close()
-                
-                status_text.empty()
-                progress_bar.empty()
-                
-                st.success(f"✅ Model retrained successfully with {total_matches} matches!")
-                st.info("📊 The model is now up-to-date. Refresh the page to use the new model.")
-                
-                st.cache_resource.clear()
-                
-            except Exception as e:
-                st.error(f"❌ Retraining failed: {e}")
-                st.warning("💡 Try refreshing league data first, then retrain.")
-    
-    # Show last training date
+@st.cache_data(ttl=300, show_spinner=False)
+def _api_football_health(api_key: str) -> dict:
+    """Return provider account state without exposing credential material."""
     try:
-        import os
-        from datetime import datetime
-        if os.path.exists('ml_model.pkl'):
-            mod_time = os.path.getmtime('ml_model.pkl')
-            last_trained = datetime.fromtimestamp(mod_time).strftime('%d.%m.%Y %H:%M')
-            st.caption(f"🕐 Last trained: {last_trained}")
-        else:
-            st.caption("⚠️ Model not found - please retrain!")
-    except:
-        pass
-    
-    st.markdown("---")
-    st.markdown("""
-        <div style='text-align: center; font-size: 0.8em; color: gray;'>
-            <p>BTTS Pro Analyzer v2.0</p>
-            <p>Powered by ML 🤖</p>
-        </div>
-    """, unsafe_allow_html=True)
-
-# Main content tabs
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
-    "🔥 Top Tips", 
-    "📊 All Recommendations", 
-    "🔬 Deep Analysis",
-    "📈 Model Performance",
-    "💎 Value Bets",
-    "🔥 ULTRA LIVE SCANNER V3.0",
-    "📊 ALTERNATIVE MARKETS",
-    "🔴 RED CARD ALERTS",
-    "🎯 MULTI-SPORT SCANNER"
-])
-
-# TAB 1: Top Tips
-with tab1:
-    st.header("🔥 Premium Tips - Highest Confidence")
-    
-    # INLINE FILTER
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        min_probability = st.slider("Min BTTS %", 50, 90, 60, 5, key="tab1_prob")
-    with col2:
-        min_confidence = st.slider("Min Confidence %", 50, 95, 60, 5, key="tab1_conf")
-    with col3:
-        days_ahead = st.slider("Tage voraus", 1, 14, 7, key="tab1_days")
-    
-    # Liga-Auswahl
-    available_leagues = list(analyzer.engine.LEAGUES_CONFIG.keys()) if analyzer else []
-    select_all = st.checkbox("✅ Alle Ligen", value=True, key="tab1_all")
-    if select_all:
-        selected_leagues = available_leagues
-    else:
-        selected_leagues = st.multiselect("Ligen:", available_leagues, default=['BL1', 'PL'], key="tab1_leagues")
-    
-    st.markdown("---")
-    
-    if st.button("🔍 Analyze Matches", key="analyze_top"):
-        # Create Progress Bar
-        progress = ModernProgressBar(
-            total_items=len(selected_leagues),
-            title="Analyzing Leagues for Premium Tips"
+        response = requests.get(
+            "https://v3.football.api-sports.io/status",
+            headers={"x-apisports-key": api_key},
+            timeout=8,
         )
-        
-        all_results = []
-        
-        for idx, league_code in enumerate(selected_leagues):
-            # Update Progress Bar
-            progress.update(league_code, idx)
-            
-            # Analyze
-            results = analyzer.analyze_upcoming_matches(
-                league_code, 
+        payload = response.json()
+    except Exception as exc:
+        return {
+            "state": "unreachable",
+            "label": "Live-API nicht erreichbar",
+            "detail": type(exc).__name__,
+        }
+
+    errors = payload.get("errors") if isinstance(payload, dict) else None
+    if errors:
+        detail = errors.get("access") if isinstance(errors, dict) else str(errors)
+        state = "suspended" if "suspend" in str(detail).lower() else "error"
+        return {
+            "state": state,
+            "label": "Live-API gesperrt" if state == "suspended" else "Live-API Fehler",
+            "detail": str(detail),
+        }
+
+    provider_response = payload.get("response") if isinstance(payload, dict) else None
+    if not isinstance(provider_response, dict):
+        return {
+            "state": "error",
+            "label": "Live-API Status unklar",
+            "detail": f"HTTP {response.status_code}",
+        }
+
+    subscription = provider_response.get("subscription") or {}
+    active = subscription.get("active")
+    plan = str(subscription.get("plan") or "aktiv")
+    if active is False:
+        return {
+            "state": "suspended",
+            "label": "Live-API inaktiv",
+            "detail": f"Tarif: {plan}",
+        }
+    return {
+        "state": "active",
+        "label": f"Live-API aktiv ({plan})",
+        "detail": "",
+    }
+
+
+def _render_sidebar(analyzer) -> str:
+    with st.sidebar:
+        st.markdown("## BetBoy")
+        st.caption("Analyse-Arbeitsplatz")
+        workspace = st.radio(
+            "Arbeitsbereich",
+            list(PAGE_INFO),
+            label_visibility="collapsed",
+            key="workspace",
+        )
+
+        st.divider()
+        st.caption("SYSTEMSTATUS")
+        if analyzer and analyzer.model_trained:
+            st.markdown(
+                '<div class="bb-status"><span class="bb-dot"></span>'
+                "Validiertes ML aktiv</div>",
+                unsafe_allow_html=True,
+            )
+        elif analyzer:
+            st.markdown(
+                '<div class="bb-status"><span class="bb-dot warn"></span>'
+                "Statistisches Modell aktiv</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="bb-status"><span class="bb-dot error"></span>'
+                "Analyzer nicht bereit</div>",
+                unsafe_allow_html=True,
+            )
+
+        config = load_app_config(st)
+        if config.api_football_key:
+            api_health = _api_football_health(config.api_football_key)
+            api_state = api_health["label"]
+            api_class = "bb-dot" if api_health["state"] == "active" else "bb-dot error"
+        else:
+            api_health = {"state": "missing", "detail": ""}
+            api_state = "Live-API fehlt"
+            api_class = "bb-dot warn"
+        st.markdown(
+            f'<div class="bb-status"><span class="{api_class}"></span>{api_state}</div>',
+            unsafe_allow_html=True,
+        )
+        if api_health.get("detail") and api_health["state"] in {"suspended", "error"}:
+            st.caption(api_health["detail"])
+
+        if analyzer and analyzer.engine.database_warning:
+            st.markdown(
+                '<div class="bb-status"><span class="bb-dot warn"></span>'
+                "Datenbank: lokaler Ersatz</div>",
+                unsafe_allow_html=True,
+            )
+
+        st.divider()
+        st.caption(
+            "Quoten sind nur Preise. Modellwahrscheinlichkeiten entstehen unabhängig davon."
+        )
+    return workspace
+
+
+def _prepare_results(results: list[pd.DataFrame]) -> pd.DataFrame:
+    if not results:
+        return pd.DataFrame()
+    combined = pd.concat(results, ignore_index=True)
+    required = {"BTTS %", "Data Quality"}
+    if not required.issubset(combined.columns):
+        raise ValueError("Analyzer result is missing probability or data-quality columns")
+    combined["BTTS_num"] = _percent_series(combined["BTTS %"])
+    combined["Quality_num"] = _percent_series(combined["Data Quality"])
+    return combined
+
+
+def _scan_prematch(analyzer, leagues: list[str], days_ahead: int) -> pd.DataFrame:
+    progress = st.progress(0)
+    status = st.empty()
+    collected = []
+    total = max(len(leagues), 1)
+    try:
+        for index, league_code in enumerate(leagues):
+            status.caption(f"Analysiere {league_code} ({index + 1}/{len(leagues)})")
+            league_results = analyzer.analyze_upcoming_matches(
+                league_code,
                 days_ahead=days_ahead,
-                min_probability=min_probability
+                min_probability=0,
             )
-            
-            if not results.empty:
-                results['League'] = league_code
-                all_results.append(results)
-        
-        # Complete Progress Bar
-        progress.complete(
-            success_message=f"✅ Analysis complete! Processed {len(selected_leagues)} leagues"
+            if league_results is not None and not league_results.empty:
+                league_results = league_results.copy()
+                league_results["League"] = league_code
+                collected.append(league_results)
+            progress.progress((index + 1) / total)
+    finally:
+        status.empty()
+        progress.empty()
+    return _prepare_results(collected)
+
+
+def _analysis_for_row(row: pd.Series) -> dict:
+    value = row.get("_analysis")
+    return value if isinstance(value, dict) else {}
+
+
+def _render_match_overview(row: pd.Series) -> None:
+    analysis = _analysis_for_row(row)
+    st.subheader(f"{row.get('Home', 'Home')} vs {row.get('Away', 'Away')}")
+    st.caption(f"{row.get('League', 'n/a')} | {row.get('Date', 'n/a')}")
+
+    metrics = st.columns(3)
+    metrics[0].metric("BTTS", row.get("BTTS %", "n/a"))
+    metrics[1].metric("Evidenzscore", row.get("Data Quality", "n/a"))
+    metrics[2].metric("Erwartete Tore", row.get("xG Total", "n/a"))
+
+    tip = row.get("Tip", "Kein Signal")
+    st.info(f"Modellsignal: {tip}. Ohne verifizierte Quote keine Value-Aussage.")
+
+    home_stats = analysis.get("home_stats", {})
+    away_stats = analysis.get("away_stats", {})
+    home_form = analysis.get("home_form", {})
+    away_form = analysis.get("away_form", {})
+    insights = []
+    if _numeric_or_zero(home_stats.get("btts_rate")) >= 70 and _numeric_or_zero(
+        away_stats.get("btts_rate")
+    ) >= 70:
+        insights.append("Beide Teams haben am jeweiligen Spielort eine hohe BTTS-Rate.")
+    if _numeric_or_zero(home_stats.get("avg_goals_scored")) >= 2 and _numeric_or_zero(
+        away_stats.get("avg_goals_scored")
+    ) >= 1.5:
+        insights.append("Beide Offensiven liegen über den aktiven Schwellen.")
+    if _numeric_or_zero(home_stats.get("avg_goals_conceded")) >= 1.3 and _numeric_or_zero(
+        away_stats.get("avg_goals_conceded")
+    ) >= 1.3:
+        insights.append("Beide Defensiven lassen im Mittel mindestens 1,3 Tore zu.")
+    if (
+        _numeric_or_zero(home_form.get("matches_played")) >= 3
+        and _numeric_or_zero(away_form.get("matches_played")) >= 3
+        and _numeric_or_zero(home_form.get("btts_rate")) >= 60
+        and _numeric_or_zero(away_form.get("btts_rate")) >= 60
+    ):
+        insights.append("Die jüngste Ligafrom unterstützt das BTTS-Signal.")
+
+    if insights:
+        st.markdown("**Einordnung**")
+        for insight in insights:
+            st.write(f"- {insight}")
+    else:
+        st.caption("Keine zusätzliche Auffälligkeit oberhalb der festen Signalschwellen.")
+
+
+def _render_match_models(row: pd.Series) -> None:
+    analysis = _analysis_for_row(row)
+    if not analysis:
+        st.info("Für dieses Match ist kein Methoden-Breakdown gespeichert.")
+        return
+
+    ml_active = bool(analysis.get("details", {}).get("ml_active"))
+    model_rows = [
+        {
+            "Methode": "Statistisches Aggregat",
+            "Wahrscheinlichkeit": analysis.get("statistical_probability"),
+            "Gewicht": 0 if ml_active else 60,
+        },
+        {
+            "Methode": "Poisson-Basis",
+            "Wahrscheinlichkeit": analysis.get("poisson_btts"),
+            "Gewicht": 0 if ml_active else 40,
+        },
+    ]
+    if ml_active and analysis.get("ml_probability") is not None:
+        model_rows.append(
+            {
+                "Methode": "Walk-forward ML",
+                "Wahrscheinlichkeit": analysis["ml_probability"],
+                "Gewicht": 100,
+            }
         )
-        
-        if all_results:
-            combined = pd.concat(all_results, ignore_index=True)
-            
-            # Filter for top tips - USE SLIDER VALUES!
-            combined['BTTS_num'] = combined['BTTS %'].str.rstrip('%').astype(float)
-            combined['Conf_num'] = combined['Confidence'].str.rstrip('%').astype(float)
-            
-            top_tips = combined[
-                (combined['BTTS_num'] >= min_probability) & 
-                (combined['Conf_num'] >= min_confidence)
-            ].copy()
-            
-            st.session_state['all_results'] = combined
-            st.session_state['top_tips'] = top_tips
-            
-            if not top_tips.empty:
-                st.success(f"🔥 Found {len(top_tips)} Premium Tips!")
-                
-                # Display premium tips
-                for idx, row in top_tips.iterrows():
-                    with st.container():
-                        st.markdown(f"""
-                            <div class='top-tip'>
-                                <h3>🔥 {row['Home']} vs {row['Away']}</h3>
-                                <p><strong>League:</strong> {row['League']} | <strong>Date:</strong> {row['Date']}</p>
-                                <p><strong>BTTS Probability:</strong> {row['BTTS %']} | <strong>Confidence:</strong> {row['Confidence']}</p>
-                                <p><strong>Expected Total Goals:</strong> {row['xG Total']}</p>
-                            </div>
-                        """, unsafe_allow_html=True)
-                        
-                        # Show detailed breakdown
-                        with st.expander("📊 Detailed Breakdown"):
-                            col1, col2, col3, col4 = st.columns(4)
-                            
-                            with col1:
-                                st.metric("ML Prediction", row['ML'])
-                            with col2:
-                                st.metric("Statistical", row['Stat'])
-                            with col3:
-                                st.metric("Form-Based", row['Form'])
-                            with col4:
-                                st.metric("Head-to-Head", row['H2H'])
-                            
-                            # Get full analysis
-                            if '_analysis' in row:
-                                analysis = row['_analysis']
-                                
-                                st.markdown("---")
-                                st.subheader("🏠 Home Team Stats")
-                                home_stats = analysis.get('home_stats', {})
-                                st.write(f"**BTTS Rate (Home):** {home_stats.get('btts_rate', 52.0):.1f}%")
-                                st.write(f"**Goals/Game:** {home_stats.get('avg_goals_scored', 1.4):.2f}")
-                                st.write(f"**Conceded/Game:** {home_stats.get('avg_goals_conceded', 1.3):.2f}")
-                                home_form = analysis.get('home_form', {})
-                                st.write(f"**Form (Last 5):** {home_form.get('form_string', 'N/A')}")
-                                
-                                st.markdown("---")
-                                st.subheader("✈️ Away Team Stats")
-                                away_stats = analysis.get('away_stats', {})
-                                st.write(f"**BTTS Rate (Away):** {away_stats.get('btts_rate', 52.0):.1f}%")
-                                st.write(f"**Goals/Game:** {away_stats.get('avg_goals_scored', 1.4):.2f}")
-                                st.write(f"**Conceded/Game:** {away_stats.get('avg_goals_conceded', 1.3):.2f}")
-                                away_form = analysis.get('away_form', {})
-                                st.write(f"**Form (Last 5):** {away_form.get('form_string', 'N/A')}")
-                                
-                                st.markdown("---")
-                                st.subheader("🔄 Head-to-Head")
-                                h2h = analysis.get('h2h', {})
-                                st.write(f"**Matches Played:** {h2h.get('matches_played', 0)}")
-                                st.write(f"**BTTS Rate:** {h2h.get('btts_rate', 52.0):.1f}%")
-                                st.write(f"**Avg Total Goals:** {h2h.get('avg_goals', 2.5):.1f}")
-            else:
-                st.warning("No premium tips found with current criteria")
-        else:
-            st.warning("No matches found for selected leagues")
 
-# TAB 2: All Recommendations  
-with tab2:
-    st.header("📊 All BTTS Recommendations")
-    
-    # Inline Filter für Tab 2
-    tab2_min_conf = st.slider("Min Confidence %", 40, 95, 50, 5, key="tab2_conf")
-    
-    if 'all_results' in st.session_state and st.session_state['all_results'] is not None:
-        df = st.session_state['all_results']
-        
-        # Apply confidence filter
-        df_filtered = df[df['Conf_num'] >= tab2_min_conf].copy()
-        
-        if not df_filtered.empty:
-            st.success(f"📋 Showing {len(df_filtered)} matches (filtered by confidence ≥{tab2_min_conf}%)")
-            
-            # Display as table
-            display_df = df_filtered[[
-                'Date', 'League', 'Home', 'Away', 'BTTS %', 
-                'Confidence', 'Level', 'Tip', 'xG Total'
-            ]].copy()
-            
-            st.dataframe(
-                display_df,
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            # Summary stats
-            st.markdown("---")
-            st.subheader("📈 Summary Statistics")
-            
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                avg_btts = df_filtered['BTTS_num'].mean()
-                st.metric("Avg BTTS Probability", f"{avg_btts:.1f}%")
-            
-            with col2:
-                avg_conf = df_filtered['Conf_num'].mean()
-                st.metric("Avg Confidence", f"{avg_conf:.1f}%")
-            
-            with col3:
-                top_tips_count = len(df_filtered[df_filtered['Tip'] == '🔥 TOP TIP'])
-                st.metric("Top Tips", top_tips_count)
-            
-            with col4:
-                strong_tips_count = len(df_filtered[df_filtered['Tip'] == '✅ STRONG'])
-                st.metric("Strong Tips", strong_tips_count)
-            
-            # Visualization
-            st.markdown("---")
-            st.subheader("📊 BTTS Probability Distribution")
-            
-            fig = px.histogram(
-                df_filtered,
-                x='BTTS_num',
-                nbins=20,
-                title='Distribution of BTTS Probabilities',
-                labels={'BTTS_num': 'BTTS Probability (%)'},
-                color_discrete_sequence=['#667eea']
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-        else:
-            st.warning(f"No matches meet confidence threshold of {min_confidence}%")
-    else:
-        st.info("👆 Click 'Analyze Matches' in the Top Tips tab to load recommendations")
+    methods = pd.DataFrame(model_rows).dropna(subset=["Wahrscheinlichkeit"])
+    if methods.empty:
+        st.info("Keine vergleichbaren Modellwerte vorhanden.")
+        return
 
-# TAB 3: Deep Analysis
-with tab3:
-    st.header("🔬 Deep Dive Analysis")
-    
-    st.info("""
-    ℹ️ **Deep Analysis Temporarily Unavailable**
-    """)
-    
-    st.markdown("""
-        Select a specific match from the recommendations to see a comprehensive breakdown
-        including all prediction methods, team stats, form analysis, and more.
-    """)
-    
-    if 'all_results' in st.session_state and not st.session_state['all_results'].empty:
-        df = st.session_state['all_results']
-        
-        # Create match selector
-        matches = df.apply(lambda x: f"{x['Home']} vs {x['Away']} ({x['Date']})", axis=1).tolist()
-        
-        selected_match = st.selectbox("Select Match", matches)
-        
-        if selected_match:
-            idx = matches.index(selected_match)
-            match_data = df.iloc[idx]
-            
-            if '_analysis' in match_data:
-                analysis = match_data['_analysis']
-                
-                # Match header
-                st.markdown(f"""
-                    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                                padding: 2rem; border-radius: 15px; color: white; margin-bottom: 2rem;'>
-                        <h2 style='margin:0;'>{match_data['Home']} vs {match_data['Away']}</h2>
-                        <p style='margin:0.5rem 0 0 0;'>
-                            {match_data['League']} | {match_data['Date']}
-                        </p>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                # Main metrics
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.metric(
-                        "🎯 BTTS Probability",
-                        match_data['BTTS %'],
-                        delta=None
-                    )
-                
-                with col2:
-                    st.metric(
-                        "🔒 Confidence",
-                        match_data['Confidence'],
-                        delta=None
-                    )
-                
-                with col3:
-                    st.metric(
-                        "⚽ Expected Goals",
-                        match_data['xG Total'],
-                        delta=None
-                    )
-                
-                with col4:
-                    st.metric(
-                        "💡 Recommendation",
-                        match_data['Tip'],
-                        delta=None
-                    )
-                
-                st.markdown("---")
-                
-                # Prediction Methods Comparison
-                st.subheader("🤖 Prediction Methods Breakdown")
-                
-                methods_data = pd.DataFrame({
-                    'Method': ['ML Model', 'Statistical', 'Form-Based', 'Head-to-Head'],
-                    'Probability': [
-                        float(match_data['ML'].rstrip('%')),
-                        float(match_data['Stat'].rstrip('%')),
-                        float(match_data['Form'].rstrip('%')),
-                        float(match_data['H2H'].rstrip('%'))
-                    ],
-                    'Weight': [40, 30, 20, 10]
-                })
-                
-                fig = go.Figure()
-                
-                fig.add_trace(go.Bar(
-                    x=methods_data['Method'],
-                    y=methods_data['Probability'],
-                    marker_color=['#667eea', '#51cf66', '#ffd43b', '#ff6b6b'],
-                    text=methods_data['Probability'].apply(lambda x: f"{x:.1f}%"),
-                    textposition='auto',
-                ))
-                
-                fig.update_layout(
-                    title='Comparison of Prediction Methods',
-                    xaxis_title='Method',
-                    yaxis_title='BTTS Probability (%)',
-                    height=400
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                st.markdown("---")
-                
-                # Team Analysis
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.subheader(f"🏠 {match_data['Home']} (Home)")
-                    
-                    home_stats = analysis['home_stats']
-                    home_form = analysis.get('home_form', {'form_string': '', 'btts_rate': 52.0, 'avg_goals_scored': 1.4})
-                    
-                    matches_home = max(1, home_stats.get('matches_played', 0))
-                    st.write(f"**Matches Played (Home):** {home_stats.get('matches_played', 0)}")
-                    st.write(f"**BTTS Rate:** {home_stats.get('btts_rate', 52.0):.1f}%")
-                    st.write(f"**Goals Scored/Game:** {home_stats.get('avg_goals_scored', 1.4):.2f}")
-                    st.write(f"**Goals Conceded/Game:** {home_stats.get('avg_goals_conceded', 1.3):.2f}")
-                    st.write(f"**Win Rate:** {(home_stats.get('wins', 0)/matches_home*100):.1f}%")
-                    
-                    st.markdown("**Recent Form (Last 5 Home):**")
-                    st.write(f"Form: {home_form.get('form_string', 'N/A')}")
-                    st.write(f"BTTS Rate: {home_form.get('btts_rate', 52.0):.1f}%")
-                    st.write(f"Goals/Game: {home_form.get('avg_goals_scored', 1.4):.2f}")
-                
-                with col2:
-                    st.subheader(f"✈️ {match_data['Away']} (Away)")
-                    
-                    away_stats = analysis['away_stats']
-                    away_form = analysis.get('away_form', {'form_string': '', 'btts_rate': 52.0, 'avg_goals_scored': 1.4})
-                    
-                    matches_away = max(1, away_stats.get('matches_played', 0))
-                    st.write(f"**Matches Played (Away):** {away_stats.get('matches_played', 0)}")
-                    st.write(f"**BTTS Rate:** {away_stats.get('btts_rate', 52.0):.1f}%")
-                    st.write(f"**Goals Scored/Game:** {away_stats.get('avg_goals_scored', 1.4):.2f}")
-                    st.write(f"**Goals Conceded/Game:** {away_stats.get('avg_goals_conceded', 1.3):.2f}")
-                    st.write(f"**Win Rate:** {(away_stats.get('wins', 0)/matches_away*100):.1f}%")
-                    
-                    st.markdown("**Recent Form (Last 5 Away):**")
-                    st.write(f"Form: {away_form.get('form_string', 'N/A')}")
-                    st.write(f"BTTS Rate: {away_form.get('btts_rate', 52.0):.1f}%")
-                    st.write(f"Goals/Game: {away_form.get('avg_goals_scored', 1.4):.2f}")
-                
-                st.markdown("---")
-                
-                # Head-to-Head
-                st.subheader("🔄 Head-to-Head History")
-                h2h = analysis.get('h2h', {'matches_played': 0, 'btts_rate': 52.0, 'avg_goals': 2.5, 'btts_count': 0})
-                
-                if h2h.get('matches_played', 0) > 0:
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        st.metric("Matches Played", h2h.get('matches_played', 0))
-                    with col2:
-                        st.metric("BTTS Count", h2h.get('btts_count', 0))
-                    with col3:
-                        st.metric("BTTS Rate", f"{h2h.get('btts_rate', 52.0):.1f}%")
-                    
-                    st.write(f"**Average Total Goals:** {h2h.get('avg_goals', 2.5):.1f} per match")
-                else:
-                    st.info("No recent head-to-head data available")
-                
-                st.markdown("---")
-                
-                # Key Insights
-                st.subheader("💡 Key Insights")
-                
-                insights = []
-                
-                # Check if both teams score regularly
-                if home_stats['btts_rate'] >= 70 and away_stats['btts_rate'] >= 70:
-                    insights.append("✅ Both teams have very high BTTS rates in their respective venues")
-                
-                # Check offensive strength
-                if home_stats['avg_goals_scored'] >= 2.0 and away_stats['avg_goals_scored'] >= 1.5:
-                    insights.append("⚡ Both teams are offensively strong")
-                
-                # Check defensive weaknesses
-                if home_stats['avg_goals_conceded'] >= 1.3 and away_stats['avg_goals_conceded'] >= 1.3:
-                    insights.append("🚨 Both teams have defensive vulnerabilities")
-                
-                # Check form
-                if home_form['btts_rate'] >= 60 and away_form['btts_rate'] >= 60:
-                    insights.append("📈 Recent form confirms BTTS trend")
-                
-                # Check H2H
-                if h2h['matches_played'] >= 3 and h2h['btts_rate'] >= 70:
-                    insights.append("🔄 Strong BTTS history in head-to-head matches")
-                
-                # Display insights
-                for insight in insights:
-                    st.success(insight)
-                
-                if not insights:
-                    st.info("Standard matchup - no exceptional patterns detected")
-
-# TAB 4: Model Performance
-with tab4:
-    st.header("📈 Machine Learning Model Performance")
-    
-    st.markdown("""
-        This section shows how well the ML model has been performing.
-        Data is based on cross-validation during training.
-    """)
-    
-    if analyzer and analyzer.model_trained:
-        st.success("✅ ML Model is trained and active")
-        
-        # Model info
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("🤖 Model Details")
-            st.write("**Algorithm:** Random Forest Classifier")
-            st.write("**Estimators:** 100 trees")
-            st.write("**Max Depth:** 10")
-            st.write("**Training Matches:** 305")
-        
-        with col2:
-            st.subheader("📊 Class Distribution")
-            st.write("**BTTS (Yes):** 57.0%")
-            st.write("**BTTS (No):** 43.0%")
-            st.write("**Accuracy:** ~59.0%")
-        
-        st.markdown("---")
-        
-        # Feature importance
-        st.subheader("🎯 Top Features by Importance")
-        
-        feature_importance = pd.DataFrame({
-            'Feature': [
-                'Combined BTTS%',
-                'Expected Home Goals',
-                'Expected Away Goals',
-                'Home Goals Avg',
-                'Away BTTS%'
-            ],
-            'Importance': [0.213, 0.156, 0.127, 0.092, 0.079]
-        })
-        
-        fig = px.bar(
-            feature_importance,
-            x='Importance',
-            y='Feature',
-            orientation='h',
-            title='Feature Importance in ML Model',
-            color='Importance',
-            color_continuous_scale='Viridis'
+    figure = go.Figure(
+        go.Bar(
+            x=methods["Wahrscheinlichkeit"],
+            y=methods["Methode"],
+            orientation="h",
+            marker_color=["#202428", "#1f8a70", "#d38b18"][: len(methods)],
+            text=methods["Wahrscheinlichkeit"].map(lambda value: f"{value:.1f}%"),
+            textposition="auto",
         )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        st.markdown("---")
-        
-        st.info("""
-            **Note:** Model performance metrics shown are from cross-validation during training.
-            For true backtesting results, the system would need to track predictions over time
-            and compare them to actual match outcomes.
-        """)
-    else:
-        st.warning("ML Model not trained yet")
+    )
+    figure.update_layout(
+        height=260,
+        margin=dict(l=0, r=12, t=12, b=30),
+        xaxis_title="BTTS-Wahrscheinlichkeit (%)",
+        yaxis_title=None,
+        showlegend=False,
+    )
+    st.plotly_chart(figure, use_container_width=True, config={"displayModeBar": False})
+    st.dataframe(methods, use_container_width=True, hide_index=True)
+    evidence = analysis.get("details", {}).get("evidence_breakdown", {})
+    contributions = evidence.get("contributions", {})
+    if contributions:
+        labels = {
+            "home_venue": ("Heim-Venue-Stichprobe", 30.0),
+            "away_venue": ("Auswärts-Venue-Stichprobe", 30.0),
+            "home_form": ("Heimform", 10.0),
+            "away_form": ("Auswärtsform", 10.0),
+            "model_agreement": ("Modellübereinstimmung", 20.0),
+        }
+        evidence_rows = [
+            {
+                "Evidenzkomponente": labels[key][0],
+                "Punkte": round(float(contributions.get(key, 0.0)), 1),
+                "Maximum": labels[key][1],
+            }
+            for key in labels
+        ]
+        st.markdown("### Evidenzscore")
+        st.dataframe(pd.DataFrame(evidence_rows), use_container_width=True, hide_index=True)
+        samples = evidence.get("samples", {})
+        st.caption(
+            "Stichproben Heim/Auswärts/Form: "
+            f"{samples.get('home_venue_matches', 0)}/"
+            f"{samples.get('away_venue_matches', 0)}/"
+            f"{samples.get('home_form_matches', 0)}/"
+            f"{samples.get('away_form_matches', 0)}. "
+            "Der Score ist kein kalibriertes Sicherheits- oder Gewinnmaß."
+        )
+    st.caption("H2H ist deskriptiv und besitzt im aktiven Modell kein Gewicht.")
 
-# TAB 5: Value Bets
-with tab5:
-    st.header("💎 Value Betting Opportunities")
-    
-    st.info("""
-    ℹ️ **Value Betting Analysis Temporarily Unavailable**
-    
-    For current betting opportunities, use **Tab 6 & 7**:
-    - ULTRA LIVE SCANNER for BTTS/Over-Under model signals
-    - ALTERNATIVE MARKETS for Cards/Corners model signals
-    
-    These provide real-time edge calculation and recommendations!
-    """)
-    
-    st.markdown("""
-        Value bets are matches where our model's predicted probability
-        is significantly higher than bookmaker odds suggest.
-        
-        **Formula:** Expected Value = (Model Probability × Odds) - 1
-        
-        A positive EV indicates potential value!
-    """)
-    
-    if 'all_results' in st.session_state and not st.session_state['all_results'].empty:
-        df = st.session_state['all_results']
-        
-        # Simulated odds (in real version, would fetch from odds API)
-        st.info("""
-            💡 **Note:** This is a demonstration. In a production version, 
-            we would integrate with odds APIs (Odds API, The Odds API) to get real bookmaker odds
-            and calculate true value betting opportunities.
-        """)
-        
-        # Simulate some odds based on probability
-        df_value = df.copy()
-        df_value['Implied_Odds'] = df_value['BTTS_num'].apply(lambda x: round(100 / x, 2))
-        df_value['Market_Odds'] = df_value['Implied_Odds'] * 1.1  # Simulate bookmaker margin
-        df_value['Expected_Value'] = ((df_value['BTTS_num'] / 100) * df_value['Market_Odds']) - 1
-        df_value['EV_Percent'] = df_value['Expected_Value'] * 100
-        
-        # Filter for positive EV
-        value_bets = df_value[df_value['Expected_Value'] > 0].copy()
-        value_bets = value_bets.sort_values('EV_Percent', ascending=False)
-        
-        if not value_bets.empty:
-            st.success(f"💎 Found {len(value_bets)} potential value bets!")
-            
-            display_value = value_bets[[
-                'Date', 'League', 'Home', 'Away', 'BTTS %',
-                'Market_Odds', 'EV_Percent', 'Confidence'
-            ]].copy()
-            
-            display_value['EV_Percent'] = display_value['EV_Percent'].apply(lambda x: f"{x:.1f}%")
-            display_value['Market_Odds'] = display_value['Market_Odds'].apply(lambda x: f"{x:.2f}")
-            
-            st.dataframe(
-                display_value,
-                use_container_width=True,
-                hide_index=True
-            )
-        else:
-            st.warning("No value bets found with current market conditions")
-            
-    else:
-        st.info("👆 Run analysis first to see value betting opportunities")
 
-# TAB 6: ULTRA LIVE SCANNER V3.0
-with tab6:
-    st.header("🔥 ULTRA LIVE SCANNER V3.0")
-    st.caption("Independent model signals with multi-factor live checks")
-    
-    # Import at top
-    import requests
-    import time
-    
-    st.info("""
-    **🚀 ULTRA FEATURES:**
-    ✅ Momentum Tracking (5-min windows)
-    ✅ xG Accumulation & Velocity  
-    ✅ Game State Machine (6 phases)
-    ✅ Substitution Analysis
-    ✅ Dangerous Attack Tracking
-    ✅ Goalkeeper Save Analysis
-    ✅ Corner Momentum
-    ✅ Card Impact System
-    ✅ Real-time Analysis
-    ✅ Multi-Factor Confidence
-    
-    **🌍 28 LEAGUES:**
-    🇩🇪🇬🇧🇪🇸🇮🇹🇫🇷🇳🇱🇵🇹🇹🇷🇲🇽🇧🇷 + 🏆 CL/EL/ECL + 🇪🇺 Scotland/Belgium/Switzerland/Austria + 🎊 Singapore/Estonia/Iceland/Australia/Sweden/Qatar/UAE
-    """)
-    
-    # Auto-refresh DISABLED - was breaking other tabs
-    try:
-        from streamlit_autorefresh import st_autorefresh
-        
-        # Manual refresh instead
-        col_r1, col_r2 = st.columns([1,3])
-        with col_r1:
-            if st.button("🔄 Refresh", key="refresh_ultra"):
-                st.rerun()
-        with col_r2:
-            st.caption(f"Last: {datetime.now().strftime('%H:%M:%S')}")
-        
-        # Settings
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            min_btts_ultra = st.slider("Min BTTS %", 60, 95, 70, key="ultra_btts")
-        with col2:
-            min_conf_ultra = st.selectbox("Min Confidence", 
-                                         ["ALL", "MEDIUM", "HIGH", "VERY_HIGH"], 
-                                         key="ultra_conf")
-        with col3:
-            show_breakdown = st.checkbox("Show Detailed Breakdown", value=True)
-        
-        st.markdown("---")
-        
-        # Load ultra scanner
+def _render_team_block(name: str, venue: str, stats: dict, form: dict) -> None:
+    st.markdown(f"### {name}")
+    st.caption(venue)
+    st.write(f"Spiele: **{stats.get('matches_played', 0)}**")
+    st.write(f"BTTS-Rate: **{_format_optional(stats.get('btts_rate'), 1, '%')}**")
+    st.write(f"Tore/Spiel: **{_format_optional(stats.get('avg_goals_scored'), 2)}**")
+    st.write(f"Gegentore/Spiel: **{_format_optional(stats.get('avg_goals_conceded'), 2)}**")
+    st.write(f"Form: **{form.get('form_string', 'n/a')}**")
+    st.write(f"Form-BTTS: **{_format_optional(form.get('btts_rate'), 1, '%')}**")
+
+
+def _render_match_teams(row: pd.Series) -> None:
+    analysis = _analysis_for_row(row)
+    if not analysis:
+        st.info("Für dieses Match sind keine Teamdetails gespeichert.")
+        return
+
+    columns = st.columns(2)
+    with columns[0]:
+        _render_team_block(
+            str(row.get("Home", "Home")),
+            "Heim",
+            analysis.get("home_stats", {}),
+            analysis.get("home_form", {}),
+        )
+    with columns[1]:
+        _render_team_block(
+            str(row.get("Away", "Away")),
+            "Auswärts",
+            analysis.get("away_stats", {}),
+            analysis.get("away_form", {}),
+        )
+
+    h2h = analysis.get("h2h", {})
+    st.divider()
+    st.markdown("### Direkter Vergleich")
+    st.caption("Nur deskriptiv; kein Eingang in Modell oder Konfidenz.")
+    h2h_columns = st.columns(3)
+    h2h_columns[0].metric("Spiele", h2h.get("matches_played", 0))
+    h2h_columns[1].metric("BTTS", h2h.get("btts_count", 0))
+    h2h_columns[2].metric("BTTS-Rate", _format_optional(h2h.get("btts_rate"), 1, "%"))
+
+
+def _render_prematch_results(results: pd.DataFrame, min_probability: int, min_quality: int) -> None:
+    eligible = results[
+        (results["BTTS_num"] >= min_probability)
+        & (results["Quality_num"] >= min_quality)
+    ].copy()
+    if eligible.empty:
+        st.warning("Kein gespeichertes Ergebnis erfüllt die aktuellen Filter.")
+        return
+
+    st.subheader("Ergebnisse")
+    summary = st.columns(4)
+    summary[0].metric("Matches", len(eligible))
+    summary[1].metric("BTTS im Mittel", f"{eligible['BTTS_num'].mean():.1f}%")
+    summary[2].metric("Qualität im Mittel", f"{eligible['Quality_num'].mean():.1f}%")
+    summary[3].metric("Ligen", eligible["League"].nunique())
+
+    preferred_columns = [
+        "Date",
+        "League",
+        "Home",
+        "Away",
+        "BTTS %",
+        "Data Quality",
+        "Tip",
+        "xG Total",
+    ]
+    display_columns = [column for column in preferred_columns if column in eligible.columns]
+    display_frame = eligible[display_columns].rename(
+        columns={"Data Quality": "Evidenzscore"}
+    )
+    st.dataframe(
+        display_frame,
+        use_container_width=True,
+        hide_index=True,
+        height=min(430, 72 + len(eligible) * 35),
+    )
+
+    options = list(range(len(eligible)))
+    detail_key = "prematch_detail_match"
+    if st.session_state.get(detail_key) not in options:
+        st.session_state[detail_key] = options[0]
+    selected_position = st.selectbox(
+        "Match im Detail",
+        options,
+        format_func=lambda position: (
+            f"{eligible.iloc[position].get('Home', 'Home')} vs "
+            f"{eligible.iloc[position].get('Away', 'Away')} | "
+            f"{eligible.iloc[position].get('Date', 'n/a')}"
+        ),
+        key=detail_key,
+    )
+    selected_row = eligible.iloc[selected_position]
+    detail_view = _segmented(
+        "Detailansicht",
+        ["Überblick", "Modelle", "Teams"],
+        "prematch_detail_view",
+        "Überblick",
+    )
+    if detail_view == "Überblick":
+        _render_match_overview(selected_row)
+    elif detail_view == "Modelle":
+        _render_match_models(selected_row)
+    else:
+        _render_match_teams(selected_row)
+
+
+def render_matches(analyzer) -> None:
+    if analyzer is None:
+        st.error("API-Football-Key fehlt. Konfiguration unter Modell prüfen.")
+        return
+
+    st.subheader("Filter")
+    filter_columns = st.columns(3)
+    min_probability = filter_columns[0].slider(
+        "Min. BTTS (%)",
+        50,
+        90,
+        60,
+        5,
+        key="prematch_min_probability",
+        help="Modellwahrscheinlichkeit ohne Buchmacherquote; wird lokal auf den Snapshot angewendet.",
+    )
+    min_quality = filter_columns[1].slider(
+        "Min. Evidenzscore (%)",
+        50,
+        95,
+        60,
+        5,
+        key="prematch_min_quality",
+        help=(
+            "Kein Gewinnmaß: 60 Punkte Venue-Stichproben, 20 Punkte Formstichproben "
+            "und 20 Punkte Modellübereinstimmung."
+        ),
+    )
+    days_ahead = filter_columns[2].slider(
+        "Tage voraus", 1, 14, 7, key="prematch_days_ahead"
+    )
+
+    available_leagues = list(analyzer.engine.LEAGUES_CONFIG)
+    league_scope = _segmented(
+        "Ligen",
+        ["Favoriten", "Auswahl", "Alle"],
+        "prematch_league_scope",
+        "Favoriten",
+    )
+    defaults = [code for code in DEFAULT_PREMATCH_LEAGUES if code in available_leagues]
+    if not defaults:
+        defaults = available_leagues[: min(3, len(available_leagues))]
+    if league_scope == "Favoriten":
+        selected_leagues = defaults
+        st.caption(", ".join(selected_leagues))
+    elif league_scope == "Alle":
+        selected_leagues = available_leagues
+        st.caption(f"{len(selected_leagues)} konfigurierte Ligen")
+    else:
+        selected_leagues = st.multiselect(
+            "Ligen auswählen",
+            available_leagues,
+            default=defaults,
+            key="prematch_leagues",
+        )
+
+    action_columns = st.columns([1, 2])
+    run_scan = action_columns[0].button(
+        "Spiele analysieren",
+        type="primary",
+        use_container_width=True,
+        key="run_prematch_scan",
+    )
+    if run_scan and not selected_leagues:
+        st.warning("Mindestens eine Liga auswählen.")
+    elif run_scan:
         try:
-            from ultra_live_scanner_v3 import UltraLiveScanner, display_ultra_opportunity
-            from api_football import APIFootball
-            
-            # Initialize
-            app_config = load_app_config(st)
-            if not app_config.api_football_key:
-                st.error("API-Football key fehlt. Ultra Live Scanner kann ohne Live-Daten nicht starten.")
-                st.stop()
-
-            api_football = APIFootball(app_config.api_football_key)
-            ultra_scanner = UltraLiveScanner(analyzer, api_football)
-            
-            # Get live matches
-            with st.spinner("🔍 Ultra Scanning live matches..."):
-                # Get live matches directly
-                live_matches = []
-                
-                # TIER 1 + 2 + 3 LEAGUES (28 Total!) 🔥🎊
-                league_ids = [
-                    # Original Top Leagues (12)
-                    78,   # Bundesliga (Germany)
-                    39,   # Premier League (England)
-                    140,  # La Liga (Spain)
-                    135,  # Serie A (Italy)
-                    61,   # Ligue 1 (France)
-                    88,   # Eredivisie (Netherlands)
-                    94,   # Primeira Liga (Portugal)
-                    203,  # Süper Lig (Turkey)
-                    40,   # Championship (England 2)
-                    78,   # Bundesliga 2 (Germany 2)
-                    262,  # Liga MX (Mexico)
-                    71,   # Brasileirão (Brazil)
-                    
-                    # TIER 1: EUROPEAN CUPS (3) 🏆
-                    2,    # Champions League ⭐⭐⭐⭐⭐
-                    3,    # Europa League ⭐⭐⭐⭐⭐
-                    848,  # Conference League ⭐⭐⭐⭐
-                    
-                    # TIER 2: EU EXPANSION (4) 🇪🇺
-                    179,  # Scottish Premiership ⭐⭐⭐⭐
-                    144,  # Belgian Pro League ⭐⭐⭐⭐
-                    207,  # Swiss Super League ⭐⭐⭐⭐
-                    218,  # Austrian Bundesliga ⭐⭐⭐⭐
-                    
-                    # TIER 3: GOAL FESTIVALS! 🎊⚽ (9 verified)
-                    265,  # 🇸🇬 Singapore Premier League (4.0+ Goals!) ⚽⚽⚽⚽⚽
-                    330,  # 🇪🇪 Esiliiga (Estonia 2) (3.8-4.0 Goals!) ⚽⚽⚽⚽⚽
-                    165,  # 🇮🇸 1. Deild (Iceland 2) (Sommer Goals!) ⚽⚽⚽⚽
-                    188,  # 🇦🇺 A-League (No Defense, Just Vibes!) ⚽⚽⚽⚽
-                    89,   # 🇳🇱 Eerste Divisie (NL 2) (Talent Show!) ⚽⚽⚽⚽
-                    209,  # 🇨🇭 Challenge League (CH 2) (BTTS Kings!) ⚽⚽⚽⚽
-                    113,  # 🇸🇪 Allsvenskan (Sommer Fest!) ⚽⚽⚽⚽
-                    292,  # 🇶🇦 Qatar Stars League (Star Power!) ⚽⚽⚽⚽
-                    301   # 🇦🇪 UAE Pro League (Offensive Chaos!) ⚽⚽⚽⚽
-                ]
-                
-                # 🔥 NEW APPROACH: Get ALL live matches first, then filter!
-                print(f"\n{'='*60}")
-                print(f"🔍 FETCHING ALL LIVE MATCHES...")
-                print(f"{'='*60}")
-                st.write("🔍 Fetching all live matches...")
-                
-                try:
-                    api_football._rate_limit()
-                    
-                    print(f"📡 Making API request to: {api_football.base_url}/fixtures")
-                    print(f"   Params: live=all")
-                    
-                    # Get ALL live matches (no league filter!)
-                    response = requests.get(
-                        f"{api_football.base_url}/fixtures",
-                        headers=api_football.headers,
-                        params={
-                            'live': 'all'
-                        },
-                        timeout=15
-                    )
-                    
-                    print(f"📨 Response Status: {response.status_code}")
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        all_matches = data.get('response', [])
-                        
-                        print(f"✅ Found {len(all_matches)} total live matches!")
-                        st.write(f"📊 Found {len(all_matches)} total live matches")
-                        
-                        # Filter for our leagues
-                        print(f"\n🔍 Filtering for our 28 leagues...")
-                        for match in all_matches:
-                            league_id = match.get('league', {}).get('id')
-                            league_name = match.get('league', {}).get('name', 'Unknown')
-                            home = match.get('teams', {}).get('home', {}).get('name', 'Unknown')
-                            away = match.get('teams', {}).get('away', {}).get('name', 'Unknown')
-                            
-                            print(f"   Found: {home} vs {away} ({league_name}, ID: {league_id})")
-                            
-                            if league_id in league_ids:
-                                live_matches.append(match)
-                                print(f"      ✅ INCLUDED!")
-                            else:
-                                print(f"      ⏭️ Skipped (league not in our 28)")
-                        
-                        print(f"\n✅ TOTAL IN OUR LEAGUES: {len(live_matches)}")
-                        st.write(f"✅ {len(live_matches)} matches in our 28 leagues")
-                    else:
-                        error_msg = f"❌ API Error: Status {response.status_code}"
-                        print(f"\n{error_msg}")
-                        print(f"Response: {response.text[:500]}")
-                        st.error(error_msg)
-                        st.write(f"Response: {response.text[:500]}")
-                        
-                except Exception as e:
-                    st.error(f"❌ Error fetching matches: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
-            
-            if not live_matches:
-                st.info("⚽ No live matches currently in supported leagues")
-                st.caption("Check back during match hours:")
-                st.caption("• Bundesliga: Sat 15:30, Sun 15:30/17:30")
-                st.caption("• Premier League: Weekend afternoons")
-                st.caption("• Champions League: Tue/Wed evenings")
+            results = _scan_prematch(
+                analyzer,
+                selected_leagues,
+                days_ahead,
+            )
+            snapshot = {
+                "version": PREMATCH_SNAPSHOT_VERSION,
+                "scanned_at": datetime.now().astimezone().isoformat(),
+                "scope": _scope_signature(selected_leagues, days_ahead),
+                "results": results,
+            }
+            st.session_state["prematch_snapshot"] = snapshot
+            st.session_state["prematch_results"] = results
+            st.session_state["all_results"] = results
+            if results.empty:
+                st.warning("Für diese Auswahl wurden keine kommenden Spiele gefunden.")
             else:
-                st.success(f"🔥 Found {len(live_matches)} live matches!")
-                
-                # Analyze each match with ULTRA system
-                opportunities = []
-                
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                for idx, match in enumerate(live_matches):
-                    status_text.text(f"Ultra analyzing match {idx+1}/{len(live_matches)}...")
-                    
-                    analysis = ultra_scanner.analyze_live_match_ultra(match)
-                    
-                    if analysis:
-                        # 🔥 MULTI-MARKET FILTER: Show if ANY market is strong!
-                        show_match = False
-                        
-                        # Check BTTS
-                        if analysis['btts_prob'] >= min_btts_ultra:
-                            conf_match = (
-                                min_conf_ultra == "ALL" or
-                                (min_conf_ultra == "VERY_HIGH" and analysis['btts_confidence'] == "VERY_HIGH") or
-                                (min_conf_ultra == "HIGH" and analysis['btts_confidence'] in ["VERY_HIGH", "HIGH"]) or
-                                (min_conf_ultra == "MEDIUM" and analysis['btts_confidence'] in ["VERY_HIGH", "HIGH", "MEDIUM"])
-                            )
-                            if conf_match:
-                                show_match = True
-                        
-                        # Check Over/Under 2.5
-                        ou = analysis.get('over_under', {})
-                        if ou:
-                            ou_rec = ou.get('recommendation', '')
-                            ou_prob = ou.get('over_25_probability', 0)
-                            ou_conf = ou.get('confidence', 'LOW')
-                            
-                            # Show if 🔥🔥 or 🔥 recommendation
-                            if '🔥' in ou_rec:
-                                show_match = True
-                            # OR if very high probability
-                            elif ou_prob >= 85:
-                                show_match = True
-                        
-                        # Check Next Goal
-                        ng = analysis.get('next_goal', {})
-                        if ng:
-                            ng_rec = ng.get('recommendation', '')
-                            ng_edge = ng.get('edge', 0)
-                            ng_conf = ng.get('confidence', 'LOW')
-                            
-                            # Show if 🔥🔥 or 🔥 recommendation
-                            if '🔥' in ng_rec:
-                                show_match = True
-                            # OR if very strong edge
-                            elif ng_edge >= 30 and ng_conf in ['HIGH', 'VERY_HIGH']:
-                                show_match = True
-                        
-                        # Add if any market is strong
-                        if show_match:
-                            opportunities.append(analysis)
-                    
-                    progress_bar.progress((idx + 1) / len(live_matches))
-                
-                status_text.empty()
-                progress_bar.empty()
-                
-                # Sort by BTTS probability
-                opportunities.sort(key=lambda x: x['btts_prob'], reverse=True)
-                
-                # Display results
-                if opportunities:
-                    st.header(f"🔥🔥🔥 {len(opportunities)} ULTRA OPPORTUNITIES!")
-                    
-                    # Summary stats
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        ultra_strong = sum(1 for o in opportunities if o['btts_prob'] >= 90)
-                        st.metric("Ultra Strong", ultra_strong, delta="🔥🔥🔥" if ultra_strong > 0 else "")
-                    with col2:
-                        very_strong = sum(1 for o in opportunities if 85 <= o['btts_prob'] < 90)
-                        st.metric("Very Strong", very_strong, delta="🔥🔥" if very_strong > 0 else "")
-                    with col3:
-                        strong = sum(1 for o in opportunities if 80 <= o['btts_prob'] < 85)
-                        st.metric("Strong", strong, delta="🔥" if strong > 0 else "")
-                    with col4:
-                        avg_btts = sum(o['btts_prob'] for o in opportunities) / len(opportunities)
-                        st.metric("Avg BTTS", f"{avg_btts:.1f}%")
-                    
-                    st.markdown("---")
-                    
-                    # Display each opportunity
-                    for opp in opportunities:
-                        display_ultra_opportunity(opp)
-                else:
-                    st.warning(f"⚠️ {len(live_matches)} matches analyzed, but none meeting current filter criteria")
-                    st.info("💡 **Lower the Min BTTS %** slider below to see more matches, or wait for auto-refresh!")
-                    
-                    # Show what was analyzed but didn't meet criteria
-                    if live_matches:
-                        st.markdown("---")
-                        st.subheader("📊 Analyzed Matches (Below Threshold)")
-                        st.caption("These matches were analyzed but didn't meet your filter settings")
-                        
-                        for match in live_matches:
-                            with st.expander(f"⚽ {match.get('home_team', 'Home')} vs {match.get('away_team', 'Away')} - {match.get('minute', 0)}' [{match.get('home_score', 0)}-{match.get('away_score', 0)}]"):
-                                st.write(f"**League:** {match.get('league_name', 'Unknown')}")
-                                st.write(f"**Status:** {match.get('status', 'Live')}")
-                                st.write(f"**Minute:** {match.get('minute', 0)}'")
-                                st.write(f"**Score:** {match.get('home_score', 0)}-{match.get('away_score', 0)}")
-                                st.info("💡 Lower Min BTTS % to 70% to see predictions for this match")
-                    else:
-                        st.caption(f"Currently tracking {len(live_matches)} live matches")
-        
-        except ImportError as e:
-            st.error(f"⚠️ Missing ultra modules: {e}")
-            st.info("Make sure `ultra_live_scanner_v3.py` is in the same directory!")
-            st.code("Files needed:\n- ultra_live_scanner_v3.py\n- api_football.py")
-        
-        except Exception as e:
-            st.error(f"❌ Ultra Error: {e}")
-            st.info("Check API-Football key in secrets and network connection!")
-    
-    except ImportError:
-        st.error("❌ streamlit-autorefresh not found!")
-        st.info("This should not happen - dependency is in requirements.txt")
-        st.info("Try refreshing the page or check Streamlit Cloud logs")
+                st.success(f"{len(results)} Matches geladen.")
+        except Exception as exc:
+            st.error(f"Analyse fehlgeschlagen: {exc}")
+
+    snapshot = st.session_state.get("prematch_snapshot")
+    if not isinstance(snapshot, dict):
+        st.info("Noch kein Prematch-Snapshot in dieser Sitzung.")
+        return
+    if snapshot.get("version") != PREMATCH_SNAPSHOT_VERSION:
+        st.warning("Dieser Prematch-Snapshot stammt aus einer älteren App-Version. Neu scannen.")
+        return
+    current_scope = _scope_signature(selected_leagues, days_ahead)
+    if snapshot.get("scope") != current_scope:
+        st.warning("Liga oder Zeitraum wurden seit dem Snapshot geändert. Neu scannen.")
+        return
+    results = snapshot.get("results")
+    st.caption(f"Snapshot: {_format_snapshot_time(snapshot.get('scanned_at'))}")
+    if not isinstance(results, pd.DataFrame) or results.empty:
+        st.info("Dieser Snapshot enthält keine kommenden Spiele.")
+        return
+    _render_prematch_results(results, min_probability, min_quality)
 
 
-# TAB 7: ALTERNATIVE MARKETS - EXTENDED VERSION
-# TAB 7: ALTERNATIVE MARKETS
-with tab7:
-    create_alternative_markets_tab_extended()
+def _filter_live_opportunities(
+    analyses: list[dict],
+    minimum_btts: int,
+    minimum_quality: str,
+) -> list[dict]:
+    quality_rank = {"LOW": 1, "MEDIUM": 2}
+    required_rank = {
+        "Berechenbar": 1,
+        "Live-xG + Prematch": 2,
+    }.get(minimum_quality)
+    if required_rank is None:
+        raise ValueError("Unbekannte Live-Datenbasis")
 
-with tab8:
-    app_config = load_app_config(st)
-    st.header("🔴 Red Card Alert System")
-    
-    st.markdown("""
-    Get **instant notifications** when a red card happens in live matches!
-    
-    💡 **Why this matters for betting:**
-    - Team down to 10 men changes everything
-    - BTTS becomes more likely (desperate attack)
-    - Over 2.5 becomes less likely (defensive focus)
-    - Opponent win becomes more likely
-    
-    ⚡ **Quick reaction = Better odds!**
-    """)
-    
-    st.markdown("---")
-    
-    # Settings
-    st.subheader("⚙️ Notification Settings")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        enable_browser = st.checkbox("🔔 Browser Alerts", value=True,
-                                     help="Show alerts in this browser window")
-    
-    with col2:
-        # Auto-enable Telegram if credentials are configured
-        telegram_configured = bool(app_config.telegram_bot_token and app_config.telegram_chat_id)
-        
-        enable_telegram = st.checkbox("📱 Telegram Alerts", value=telegram_configured,
-                                      help="Send alerts to your Telegram")
-        
-        if telegram_configured:
-            st.success("✅ Telegram konfiguriert!")
-    
-    # Telegram setup (nur anzeigen wenn NICHT in secrets)
-    if enable_telegram and not telegram_configured:
-        with st.expander("📱 Setup Telegram"):
-            st.markdown("""
-            **How to setup:**
-            1. Message @BotFather on Telegram
-            2. Create new bot: `/newbot`
-            3. Copy your Bot Token
-            4. Message your bot to get Chat ID
-            5. Use @userinfobot to get your Chat ID
-            
-            **Oder:** Füge die Daten zu Streamlit Secrets hinzu:
-            ```
-            [telegram]
-            bot_token = "DEIN_TOKEN"
-            chat_id = "DEINE_ID"
-            ```
-            """)
-            
-            telegram_token = st.text_input("Bot Token", type="password", key="tg_token")
-            telegram_chat_id = st.text_input("Chat ID", key="tg_chat")
-    
-    st.markdown("---")
-    
-    # Start monitoring
-    if st.button("🚀 Scan for Red Cards NOW", type="primary", key="red_card_scan"):
-        with st.spinner("🔍 Scanning live matches for red cards..."):
+    opportunities = []
+    for analysis in analyses:
+        probability = analysis.get("btts_prob")
+        quality = analysis.get("btts_confidence", "INSUFFICIENT")
+        if quality == "COMPLETE" or probability is None:
+            continue
+        if probability >= minimum_btts and quality_rank.get(quality, 0) >= required_rank:
+            opportunities.append(analysis)
+    return sorted(opportunities, key=lambda item: item.get("btts_prob", 0), reverse=True)
+
+
+def _scan_live_football(analyzer) -> dict:
+    from api_football import APIFootball
+    from ultra_live_scanner_v3 import UltraLiveScanner
+
+    config = load_app_config(st)
+    if not config.api_football_key:
+        raise ValueError("API-Football-Key fehlt")
+
+    api = APIFootball(config.api_football_key)
+    scanner = UltraLiveScanner(analyzer, api)
+    all_matches = api.get_live_matches()
+    supported_ids = set(api.league_ids.values())
+    matches = [
+        match
+        for match in all_matches
+        if match.get("league", {}).get("id") in supported_ids
+    ]
+
+    analyses = []
+    for match in matches:
+        analysis = scanner.analyze_live_match_ultra(match)
+        if analysis:
+            analyses.append(analysis)
+    return {
+        "version": LIVE_SNAPSHOT_VERSION,
+        "scanned_at": datetime.now().astimezone().isoformat(),
+        "provider_matches": len(all_matches),
+        "supported_matches": len(matches),
+        "analyses": analyses,
+        "provider_error": api.last_error,
+    }
+
+
+def _render_live_football(analyzer) -> None:
+    st.subheader("Live-Spiele")
+    filter_columns = st.columns(2)
+    minimum_btts = filter_columns[0].slider(
+        "Min. BTTS (%)",
+        0,
+        100,
+        55,
+        key="live_min_btts",
+        help="Lokaler Filter auf den aktuellen Live-Snapshot; löst keinen neuen Provider-Abruf aus.",
+    )
+    live_quality_options = ["Berechenbar", "Live-xG + Prematch"]
+    if st.session_state.get("live_min_quality") not in live_quality_options:
+        st.session_state["live_min_quality"] = live_quality_options[0]
+    minimum_quality = filter_columns[1].selectbox(
+        "Live-Datenbasis",
+        live_quality_options,
+        index=0,
+        key="live_min_quality",
+        help=(
+            "Berechenbar nutzt jede valide Resttor-Schätzung. Live-xG + Prematch verlangt "
+            "für beide Teams beobachtetes Live-xG und einen Prematch-Prior."
+        ),
+    )
+    if st.button(
+        "Live-Scan starten",
+        type="primary",
+        use_container_width=True,
+        key="run_live_football",
+    ):
+        try:
+            with st.spinner("Live-Spiele werden analysiert..."):
+                st.session_state["live_football_snapshot"] = _scan_live_football(analyzer)
+        except Exception as exc:
+            st.error(f"Live-Scan fehlgeschlagen: {exc}")
+
+    snapshot = st.session_state.get("live_football_snapshot")
+    if not snapshot:
+        st.info("Noch kein Live-Snapshot in dieser Sitzung.")
+        return
+    if snapshot.get("version") != LIVE_SNAPSHOT_VERSION:
+        st.warning("Dieser Live-Snapshot stammt aus einer älteren App-Version. Neu scannen.")
+        return
+
+    st.caption(f"Snapshot: {_format_snapshot_time(snapshot.get('scanned_at'))}")
+    opportunities = _filter_live_opportunities(
+        snapshot.get("analyses", []),
+        minimum_btts,
+        minimum_quality,
+    )
+    if snapshot.get("provider_error"):
+        st.warning(f"Live-Provider nicht vollständig verfügbar: {snapshot['provider_error']}")
+    counts = st.columns(4)
+    counts[0].metric("Provider-Spiele", snapshot["provider_matches"])
+    counts[1].metric("Unterstützte Ligen", snapshot["supported_matches"])
+    counts[2].metric("Analysiert", len(snapshot.get("analyses", [])))
+    counts[3].metric("Aktueller Filter", len(opportunities))
+
+    if not opportunities:
+        st.info("Kein Spiel erfüllt die Filter dieses Snapshots.")
+        return
+
+    rows = []
+    for item in opportunities:
+        rows.append(
+            {
+                "Minute": item.get("minute"),
+                "Liga": item.get("league"),
+                "Match": f"{item.get('home_team')} vs {item.get('away_team')}",
+                "Stand": item.get("score"),
+                "BTTS %": item.get("btts_prob"),
+                "Datenbasis": LIVE_QUALITY_LABELS.get(
+                    item.get("btts_confidence"),
+                    item.get("btts_confidence", "n/a"),
+                ),
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    live_detail_options = list(range(len(opportunities)))
+    live_detail_key = "live_match_detail"
+    if st.session_state.get(live_detail_key) not in live_detail_options:
+        st.session_state[live_detail_key] = live_detail_options[0]
+    selected = st.selectbox(
+        "Live-Match im Detail",
+        live_detail_options,
+        format_func=lambda index: rows[index]["Match"],
+        key=live_detail_key,
+    )
+    item = opportunities[selected]
+    from ultra_live_scanner_v3 import display_ultra_opportunity
+
+    display_ultra_opportunity(item)
+    if _segmented(
+        "Live-Details",
+        ["Signal", "Modelleingaben"],
+        "live_detail_view",
+        "Signal",
+    ) == "Modelleingaben":
+        st.json(item.get("breakdown", {}), expanded=False)
+
+
+def _red_card_entry(alert_system, card: dict) -> dict:
+    match = card["match"]
+    fixture_id = match["fixture"]["id"]
+    home = match["teams"]["home"]
+    away = match["teams"]["away"]
+    home_goals = match.get("goals", {}).get("home")
+    away_goals = match.get("goals", {}).get("away")
+    entry = {
+        "card": card,
+        "home": home["name"],
+        "away": away["name"],
+        "score": f"{home_goals}-{away_goals}" if home_goals is not None and away_goals is not None else "n/a",
+        "live_stats": None,
+        "prediction": None,
+        "error": None,
+    }
+    if home_goals is None or away_goals is None:
+        entry["error"] = "Aktueller Spielstand fehlt"
+        return entry
+
+    if card.get("team_id") == home["id"]:
+        red_side = "home"
+        opponent = away["name"]
+    elif card.get("team_id") == away["id"]:
+        red_side = "away"
+        opponent = home["name"]
+    else:
+        entry["error"] = "Team des Platzverweises ist nicht eindeutig"
+        return entry
+
+    entry["red_side"] = red_side
+    entry["opponent"] = opponent
+    entry["live_stats"] = alert_system.get_live_stats(fixture_id, home["id"], away["id"])
+    if alert_system.predictor:
+        prediction = alert_system.predictor.predict(
+            minute=card["minute"],
+            home_goals=home_goals,
+            away_goals=away_goals,
+            red_card_team=red_side,
+            live_stats=entry["live_stats"],
+        )
+        entry["prediction"] = asdict(prediction)
+    return entry
+
+
+def _scan_red_cards(
+    api_key: str,
+    telegram_token: Optional[str],
+    telegram_chat_id: Optional[str],
+    enable_browser: bool,
+    enable_telegram: bool,
+    league_ids: Optional[list[int]],
+    scope_label: str,
+) -> dict:
+    from red_card_bot import RedCardBotEnhanced
+
+    alert_system = RedCardBotEnhanced(
+        api_key=api_key,
+        telegram_token=telegram_token,
+        telegram_chat_id=telegram_chat_id,
+        streamlit_mode=True,
+    )
+    live_matches = alert_system.get_live_matches(league_ids)
+    cards = []
+    for match in live_matches:
+        for card in alert_system.check_match_for_red_cards(match):
+            entry = _red_card_entry(alert_system, card)
+            if enable_browser:
+                st.toast(f"Platzverweis: {card['player']} ({card['team']})")
+            if enable_telegram and alert_system.send_telegram_alert_with_stats(
+                card,
+                live_stats=entry.get("live_stats"),
+                fetch_live_stats=False,
+            ):
+                entry["telegram_sent"] = True
+            else:
+                entry["telegram_sent"] = False
+            alert_system._mark_alerted(card["card_id"])
+            cards.append(entry)
+    return {
+        "version": RED_CARD_SNAPSHOT_VERSION,
+        "scanned_at": datetime.now().astimezone().isoformat(),
+        "scope": scope_label,
+        "live_matches": len(live_matches),
+        "cards": cards,
+        "errors": list(alert_system.errors),
+    }
+
+
+def _render_red_card_detail(entry: dict) -> None:
+    card = entry["card"]
+    st.subheader(f"{entry['home']} vs {entry['away']}")
+    st.caption(
+        f"{entry['score']} | Minute {card['minute']} | "
+        f"{card['player']} ({card['team']})"
+    )
+    if entry.get("error"):
+        st.warning(entry["error"])
+        return
+
+    prediction = entry.get("prediction")
+    if not prediction:
+        st.warning("Für dieses Ereignis ist kein Wirkungsmodell verfügbar.")
+        return
+
+    next_goal = st.columns(3)
+    next_goal[0].metric(
+        f"{entry['opponent']} trifft",
+        f"{prediction['next_goal_by_opponent'] * 100:.0f}%",
+    )
+    next_goal[1].metric(
+        f"{card['team']} trifft",
+        f"{prediction['next_goal_by_red_team'] * 100:.0f}%",
+    )
+    next_goal[2].metric("Kein Tor mehr", f"{prediction['no_more_goals'] * 100:.0f}%")
+
+    outcomes = st.columns(3)
+    outcomes[0].metric(
+        f"{entry['opponent']} gewinnt",
+        f"{prediction['opponent_wins'] * 100:.0f}%",
+    )
+    outcomes[1].metric("Unentschieden", f"{prediction['draw'] * 100:.0f}%")
+    outcomes[2].metric(
+        f"{card['team']} gewinnt",
+        f"{prediction['red_team_wins'] * 100:.0f}%",
+    )
+    st.caption(
+        f"Modell-Datenbasis: {prediction['data_quality']} | Erwartete Zeit bis zum nächsten Tor: "
+        f"{prediction['expected_minutes_to_goal']:.0f} Minuten"
+    )
+
+    live_stats = entry.get("live_stats")
+    if live_stats:
+        stats = pd.DataFrame(
+            [
+                {
+                    "Team": entry["home"],
+                    "Ballbesitz %": live_stats.get("possession_home"),
+                    "Schüsse aufs Tor": live_stats.get("shots_on_goal_home"),
+                    "Angriffe": live_stats.get("total_attacks_home"),
+                },
+                {
+                    "Team": entry["away"],
+                    "Ballbesitz %": live_stats.get("possession_away"),
+                    "Schüsse aufs Tor": live_stats.get("shots_on_goal_away"),
+                    "Angriffe": live_stats.get("total_attacks_away"),
+                },
+            ]
+        )
+        st.dataframe(stats, use_container_width=True, hide_index=True)
+
+    if prediction["too_late_for_signal"]:
+        st.warning("Zu wenig Restzeit für ein belastbares Modellsignal.")
+    elif prediction["model_signals"]:
+        st.info("Modellsignale: " + " | ".join(prediction["model_signals"]))
+    if prediction["risk_flags"]:
+        st.warning("Risikofaktoren: " + " | ".join(prediction["risk_flags"]))
+
+
+def _render_red_cards(analyzer) -> None:
+    config = load_app_config(st)
+    st.subheader("Platzverweise")
+    scope_options = ["Konfigurierte Ligen", "Weltweit"]
+    if st.session_state.get("red_card_scope") not in scope_options:
+        st.session_state["red_card_scope"] = scope_options[0]
+    scan_scope = st.selectbox(
+        "Scan-Umfang",
+        scope_options,
+        key="red_card_scope",
+        help=(
+            "Konfigurierte Ligen begrenzt Event-Abfragen. Weltweit prüft jedes vom Provider "
+            "gelieferte Live-Spiel und kann viel API-Quota benötigen."
+        ),
+    )
+    league_ids = (
+        sorted(set(analyzer.engine.LEAGUES_CONFIG.values()))
+        if scan_scope == "Konfigurierte Ligen"
+        else None
+    )
+    setting_columns = st.columns(2)
+    enable_browser = setting_columns[0].checkbox(
+        "Browser-Hinweis", value=True, key="red_browser_alert"
+    )
+    configured_telegram = bool(config.telegram_bot_token and config.telegram_chat_id)
+    enable_telegram = setting_columns[1].checkbox(
+        "Telegram",
+        value=configured_telegram,
+        key="red_telegram_alert",
+    )
+
+    telegram_token = config.telegram_bot_token
+    telegram_chat_id = config.telegram_chat_id
+    if enable_telegram and not configured_telegram:
+        credential_columns = st.columns(2)
+        telegram_token = credential_columns[0].text_input(
+            "Telegram Bot-Token", type="password", key="red_telegram_token"
+        )
+        telegram_chat_id = credential_columns[1].text_input(
+            "Telegram Chat-ID", key="red_telegram_chat_id"
+        )
+
+    if st.button(
+        "Auf neue Platzverweise prüfen",
+        type="primary",
+        use_container_width=True,
+        key="run_red_card_scan",
+    ):
+        if not config.api_football_key:
+            st.error("API-Football-Key fehlt.")
+        elif enable_telegram and (not telegram_token or not telegram_chat_id):
+            st.warning("Für Telegram werden Bot-Token und Chat-ID benötigt.")
+        else:
             try:
-                from red_card_bot import RedCardBotEnhanced
-                from api_football import APIFootball
-                
-                # Get API key
-                api_key = app_config.api_football_key
-                if not api_key:
-                    st.error("API-Football key fehlt. Red-Card-Scan kann ohne Live-Daten nicht starten.")
-                    st.stop()
-                
-                # Initialize alert system
-                alert_system = RedCardBotEnhanced(api_key=api_key, streamlit_mode=True)
-                
-                # Setup Telegram - prioritize secrets
-                if enable_telegram:
-                    if telegram_configured:
-                        alert_system.telegram_token = app_config.telegram_bot_token
-                        alert_system.telegram_chat_id = app_config.telegram_chat_id
-                        st.info("📱 Telegram Alerts aktiviert (aus Secrets)")
-                    elif 'tg_token' in st.session_state and 'tg_chat' in st.session_state:
-                        if st.session_state.tg_token and st.session_state.tg_chat:
-                            alert_system.telegram_token = st.session_state.tg_token
-                            alert_system.telegram_chat_id = st.session_state.tg_chat
-                
-                # Get league IDs - ALLE LIGEN WELTWEIT
-                league_ids = None  # None = alle Ligen weltweit
-                
-                # Get live matches
-                live_matches = alert_system.get_live_matches(league_ids)
-                
-                if live_matches:
-                    st.success(f"✅ Found {len(live_matches)} live matches in our leagues!")
-                    
-                    # Check each match for red cards
-                    red_cards_found = []
-                    
-                    for match in live_matches:
-                        home = match['teams']['home']['name']
-                        away = match['teams']['away']['name']
-                        score = f"{match['goals']['home']}-{match['goals']['away']}"
-                        minute = match['fixture']['status']['elapsed'] or 0
-                        
-                        st.write(f"🔍 Checking: **{home} vs {away}** ({score}) - {minute}'")
-                        
-                        # Check for red cards
-                        cards = alert_system.check_match_for_red_cards(match)
-                        if cards:
-                            red_cards_found.extend(cards)
-                    
-                    if red_cards_found:
-                        st.error(f"🔴 **{len(red_cards_found)} RED CARDS FOUND!**")
-                        
-                        for card in red_cards_found:
-                            match = card['match']
-                            fixture_id = match['fixture']['id']
-                            home = match['teams']['home']['name']
-                            away = match['teams']['away']['name']
-                            home_goals = match['goals']['home'] or 0
-                            away_goals = match['goals']['away'] or 0
-                            score = f"{home_goals}-{away_goals}"
-                            minute = card['minute']
-                            
-                            # Determine red card team
-                            red_team_name = card['team']
-                            if red_team_name == home:
-                                red_card_team = 'home'
-                                opponent_name = away
-                            else:
-                                red_card_team = 'away'
-                                opponent_name = home
-                            
-                            # =============================================
-                            # GET LIVE STATS & PREDICTIONS!
-                            # =============================================
-                            
-                            try:
-                                with st.spinner(f"📊 Analyzing impact for {card['player']}..."):
-                                    # Get live stats (optional)
-                                    try:
-                                        live_stats = alert_system.get_live_stats(fixture_id)
-                                        if live_stats:
-                                            st.write("✅ Live-Stats erfolgreich geladen!")
-                                        else:
-                                            st.write("ℹ️ Keine erweiterten Stats verfügbar (verwende Basis-Berechnung)")
-                                    except Exception as e:
-                                        st.warning(f"⚠️ Live-Stats Fehler: {e}")
-                                        live_stats = None
-                                    
-                                    # Get prediction (with or without live stats!)
-                                    if alert_system.predictor:
-                                        try:
-                                            prediction = alert_system.predictor.predict(
-                                                minute=minute,
-                                                home_goals=home_goals,
-                                                away_goals=away_goals,
-                                                red_card_team=red_card_team,
-                                                live_stats=live_stats  # Can be None!
-                                            )
-                                            
-                                            # Display enhanced analysis
-                                            col1, col2 = st.columns([2, 1])
-                                            
-                                            with col1:
-                                                st.markdown(f"""
-                                                <div style='background: linear-gradient(135deg, #c92a2a 0%, #e03131 100%); padding: 1.5rem; border-radius: 10px; color: white; margin: 1rem 0;'>
-                                                    <h3>🔴 RED CARD - ENHANCED ANALYSIS</h3>
-                                                    <p><strong>Player:</strong> {card['player']}</p>
-                                                    <p><strong>Team:</strong> {red_team_name} (10 Mann)</p>
-                                                    <p><strong>Match:</strong> {home} vs {away} ({score})</p>
-                                                    <p><strong>Minute:</strong> {minute}' | ~{prediction.remaining_minutes} Min verbleibend</p>
-                                                </div>
-                                                """, unsafe_allow_html=True)
-                                                
-                                                # Live Stats (if available)
-                                                if live_stats:
-                                                    st.subheader("📊 Live Statistiken")
-                                                    
-                                                    stats_col1, stats_col2 = st.columns(2)
-                                                    
-                                                    with stats_col1:
-                                                        st.metric("Ballbesitz " + home, f"{live_stats.get('possession_home', 0):.0f}%")
-                                                        st.metric("Schüsse " + home, f"{live_stats.get('shots_on_goal_home', 0):.0f}")
-                                                        st.metric("Angriffe " + home, f"{live_stats.get('total_attacks_home', 0):.0f}")
-                                                    
-                                                    with stats_col2:
-                                                        st.metric("Ballbesitz " + away, f"{live_stats.get('possession_away', 0):.0f}%")
-                                                        st.metric("Schüsse " + away, f"{live_stats.get('shots_on_goal_away', 0):.0f}")
-                                                        st.metric("Angriffe " + away, f"{live_stats.get('total_attacks_away', 0):.0f}")
-                                                
-                                                # Predictions (ALWAYS show!)
-                                                st.subheader("🎯 Was passiert als nächstes?")
-                                                
-                                                pred_col1, pred_col2, pred_col3 = st.columns(3)
-                                                
-                                                with pred_col1:
-                                                    st.metric(
-                                                        f"{opponent_name} trifft", 
-                                                        f"{prediction.next_goal_by_opponent*100:.0f}%",
-                                                        help="Wahrscheinlichkeit dass 11-Mann-Team als nächstes trifft"
-                                                    )
-                                                
-                                                with pred_col2:
-                                                    st.metric(
-                                                        f"{red_team_name} trifft",
-                                                        f"{prediction.next_goal_by_red_team*100:.0f}%",
-                                                        help="Wahrscheinlichkeit dass 10-Mann-Team als nächstes trifft"
-                                                    )
-                                                
-                                                with pred_col3:
-                                                    st.metric(
-                                                        "Kein Tor mehr",
-                                                        f"{prediction.no_more_goals*100:.0f}%",
-                                                        help="Wahrscheinlichkeit dass kein weiteres Tor fällt"
-                                                    )
-                                                
-                                                st.info(f"⏱️ Erwartete Zeit bis zum nächsten Tor: ~{prediction.expected_minutes_to_goal:.0f} Minuten")
-                                            
-                                            with col2:
-                                                # Endstand Prognose
-                                                st.subheader("🏆 Endstand-Prognose")
-                                                
-                                                st.metric(f"{opponent_name} gewinnt", f"{prediction.opponent_wins*100:.0f}%")
-                                                st.metric("Unentschieden", f"{prediction.draw*100:.0f}%")
-                                                st.metric(f"{red_team_name} gewinnt", f"{prediction.red_team_wins*100:.0f}%")
-                                                
-                                                st.caption(f"📊 Confidence: **{prediction.confidence}**")
-                                                
-                                                # Recommendations
-                                                if not prediction.too_late_to_bet:
-                                                    if prediction.recommended_bets:
-                                                        st.success("✅ **Empfehlungen:**")
-                                                        for bet in prediction.recommended_bets:
-                                                            st.write(bet)
-                                                    
-                                                    if prediction.avoid_bets:
-                                                        st.error("🚫 **Vermeiden:**")
-                                                        for bet in prediction.avoid_bets:
-                                                            st.write(bet)
-                                                else:
-                                                    st.warning("⚠️ Zu spät für Wetten!")
-                                        
-                                        except Exception as pred_error:
-                                            st.error(f"❌ Prediction Fehler: {pred_error}")
-                                            import traceback
-                                            st.code(traceback.format_exc())
-                                    
-                                    else:
-                                        st.error("❌ RedCardImpactPredictor nicht geladen!")
-                                        st.info("Stelle sicher dass `red_card_impact_predictor.py` im Repository ist!")
-                            
-                            except Exception as main_error:
-                                st.error(f"❌ Hauptfehler: {main_error}")
-                                import traceback
-                                st.code(traceback.format_exc())
-                                
-                                # Fallback: Simple display
-                                st.markdown(f"""
-                                <div style='background: linear-gradient(135deg, #c92a2a 0%, #e03131 100%); padding: 1rem; border-radius: 10px; color: white; margin: 1rem 0;'>
-                                    <h3>🔴 RED CARD!</h3>
-                                    <p><strong>Player:</strong> {card['player']}</p>
-                                    <p><strong>Team:</strong> {card['team']}</p>
-                                    <p><strong>Match:</strong> {home} vs {away} ({score})</p>
-                                    <p><strong>Minute:</strong> {minute}'</p>
-                                    <hr>
-                                    <p>⚠️ Erweiterte Analyse fehlgeschlagen - siehe Fehler oben</p>
-                                </div>
-                                """, unsafe_allow_html=True)
-                            # Send alerts
-                            if enable_browser:
-                                st.toast(f"🔴 RED CARD: {card['player']} ({card['team']})", icon="🔴")
-                            
-                            # Send Telegram alert
-                            if enable_telegram:
-                                result = alert_system.send_telegram_alert_with_stats(card)
-                                if result:
-                                    st.success(f"📱 Telegram Alert gesendet für {card['player']}!")
-                                else:
-                                    st.warning(f"⚠️ Telegram Alert fehlgeschlagen (Check Token/Chat ID)")
-                    else:
-                        st.info("✅ No red cards in current live matches")
-                else:
-                    st.warning("⚠️ No live matches at the moment in our leagues")
-                    st.info("Try again when there are live matches!")
-                    
-            except ImportError as e:
-                st.error(f"❌ Missing module: {e}")
-                st.info("Make sure `red_card_bot.py` is in your repository!")
-                
-            except Exception as e:
-                st.error(f"❌ Error: {e}")
-                import traceback
-                st.code(traceback.format_exc())
-    
-    st.markdown("---")
-    
-    # Info section
-    st.subheader("ℹ️ How Red Cards Affect Betting")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("""
-        **📈 More Likely After Red Card:**
-        - BTTS (desperate attacking)
-        - Cards/Fouls (frustration)
-        - Opponent Goals
-        - Opponent Win
-        """)
-    
-    with col2:
-        st.markdown("""
-        **📉 Less Likely After Red Card:**
-        - Over 2.5 Goals (defensive)
-        - Red Card Team Win
-        - Clean Sheet for 10-man team
-        """)
+                with st.spinner("Live-Ereignisse werden geprüft..."):
+                    st.session_state["red_card_snapshot"] = _scan_red_cards(
+                        config.api_football_key,
+                        telegram_token,
+                        telegram_chat_id,
+                        enable_browser,
+                        enable_telegram,
+                        league_ids,
+                        scan_scope,
+                    )
+            except Exception as exc:
+                st.error(f"Platzverweis-Scan fehlgeschlagen: {exc}")
 
-# TAB 9: Multi-Sport Scanner
-with tab9:
+    snapshot = st.session_state.get("red_card_snapshot")
+    if not snapshot:
+        st.info("Noch kein Platzverweis-Snapshot in dieser Sitzung.")
+        return
+    if snapshot.get("version") != RED_CARD_SNAPSHOT_VERSION:
+        st.warning("Dieser Platzverweis-Snapshot stammt aus einer älteren App-Version. Neu scannen.")
+        return
+    if snapshot.get("scope") != scan_scope:
+        st.warning("Der Scan-Umfang wurde seit dem Snapshot geändert. Neu scannen.")
+        return
+
+    st.caption(
+        f"Snapshot: {_format_snapshot_time(snapshot.get('scanned_at'))} | "
+        f"Umfang: {snapshot.get('scope')}"
+    )
+    if snapshot.get("errors"):
+        st.warning(
+            f"{len(snapshot['errors'])} Provider-Abfragen sind fehlgeschlagen; "
+            "vorhandene Ereignisse bleiben sichtbar."
+        )
+    summary = st.columns(2)
+    summary[0].metric("Live-Spiele", snapshot["live_matches"])
+    summary[1].metric("Neue Platzverweise", len(snapshot["cards"]))
+    if not snapshot["cards"]:
+        st.info("Keine neuen Platzverweise gefunden.")
+        return
+
+    labels = [
+        f"{entry['home']} vs {entry['away']} | {entry['card']['player']}"
+        for entry in snapshot["cards"]
+    ]
+    detail_key = "red_card_detail"
+    detail_options = list(range(len(labels)))
+    if st.session_state.get(detail_key) not in detail_options:
+        st.session_state[detail_key] = detail_options[0]
+    selected = st.selectbox(
+        "Ereignis im Detail",
+        detail_options,
+        format_func=lambda index: labels[index],
+        key=detail_key,
+    )
+    _render_red_card_detail(snapshot["cards"][selected])
+
+
+def render_live(analyzer) -> None:
+    if analyzer is None:
+        st.error("Analyzer nicht bereit.")
+        return
+    mode = _segmented(
+        "Live-Bereich",
+        ["Spiele", "Platzverweise"],
+        "live_workspace",
+        "Spiele",
+    )
+    if mode == "Spiele":
+        _render_live_football(analyzer)
+    else:
+        _render_red_cards(analyzer)
+
+
+def _render_model_validation(analyzer) -> None:
+    if analyzer.model_trained:
+        metrics = analyzer.model_metrics
+        st.success("Das ML-Modell hat das chronologische Brier-Gate bestanden.")
+        columns = st.columns(4)
+        columns[0].metric("Training", metrics.get("training_matches", 0))
+        columns[1].metric("Holdout", metrics.get("validation_matches", 0))
+        columns[2].metric("Brier", _format_optional(metrics.get("brier_score"), 4))
+        columns[3].metric(
+            "Basis-Brier", _format_optional(metrics.get("baseline_brier_score"), 4)
+        )
+
+        importance = pd.DataFrame(
+            {
+                "Merkmal": ML_FEATURE_NAMES,
+                "Bedeutung": analyzer.ml_model.feature_importances_,
+            }
+        ).sort_values("Bedeutung", ascending=True)
+        figure = px.bar(
+            importance,
+            x="Bedeutung",
+            y="Merkmal",
+            orientation="h",
+            color_discrete_sequence=["#1f8a70"],
+        )
+        figure.update_layout(height=390, margin=dict(l=0, r=12, t=12, b=30))
+        st.plotly_chart(figure, use_container_width=True, config={"displayModeBar": False})
+    elif analyzer.model_metrics:
+        st.warning(
+            "ML ist inaktiv, weil es die chronologische Prävalenz-Baseline nicht geschlagen hat."
+        )
+    else:
+        st.warning("ML ist wegen zu wenig leakage-freier Trainingsdaten inaktiv.")
+
+    if ML_MODEL_PATH.exists():
+        trained_at = datetime.fromtimestamp(ML_MODEL_PATH.stat().st_mtime).strftime(
+            "%d.%m.%Y %H:%M"
+        )
+        st.caption(f"Modelldatei zuletzt geändert: {trained_at}")
+
+
+def _run_data_refresh(analyzer, leagues: list[str], force: bool) -> int:
+    progress = st.progress(0)
+    status = st.empty()
+    refreshed = 0
+    total = max(len(leagues), 1)
+    try:
+        for index, league_code in enumerate(leagues):
+            status.caption(f"Lade {league_code} ({index + 1}/{len(leagues)})")
+            analyzer.engine.fetch_league_matches(league_code, force_refresh=force)
+            refreshed += 1
+            progress.progress((index + 1) / total)
+    finally:
+        status.empty()
+        progress.empty()
+    return refreshed
+
+
+def _smart_refresh(analyzer, leagues: list[str]) -> int:
+    connection = _get_db_connection("btts_data.db")
+    refreshed = 0
+    progress = st.progress(0)
+    status = st.empty()
+    try:
+        cursor = connection.cursor()
+        placeholder = "%s" if hasattr(connection, "info") else "?"
+        total = max(len(leagues), 1)
+        for index, league_code in enumerate(leagues):
+            status.caption(f"Prüfe {league_code} ({index + 1}/{len(leagues)})")
+            cursor.execute(
+                f"SELECT MAX(date) FROM matches WHERE league_code = {placeholder}",
+                (league_code,),
+            )
+            row = cursor.fetchone()
+            last_date = row[0] if row else None
+            is_current = False
+            if last_date:
+                try:
+                    last_day = pd.to_datetime(last_date).date()
+                    is_current = (datetime.now().date() - last_day).days <= 2
+                except (TypeError, ValueError, OverflowError):
+                    is_current = False
+            if not is_current:
+                analyzer.engine.fetch_league_matches(league_code, force_refresh=False)
+                refreshed += 1
+            progress.progress((index + 1) / total)
+    finally:
+        connection.close()
+        status.empty()
+        progress.empty()
+    return refreshed
+
+
+def _training_match_count() -> int:
+    connection = _get_db_connection("btts_data.db")
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT COUNT(*) FROM matches WHERE btts IS NOT NULL")
+        return int(cursor.fetchone()[0])
+    finally:
+        connection.close()
+
+
+def _render_data_management(analyzer) -> None:
+    available = list(analyzer.engine.LEAGUES_CONFIG)
+    scope = _segmented(
+        "Datenumfang",
+        ["Auswahl", "Alle"],
+        "data_league_scope",
+        "Auswahl",
+    )
+    if scope == "Alle":
+        selected = available
+        st.caption(f"{len(selected)} konfigurierte Ligen")
+    else:
+        defaults = [code for code in ["BL1", "PL", "PD"] if code in available]
+        selected = st.multiselect(
+            "Ligen",
+            available,
+            default=defaults,
+            key="data_selected_leagues",
+        )
+
+    refresh_columns = st.columns(2)
+    smart = refresh_columns[0].button(
+        "Nur veraltete Daten laden",
+        use_container_width=True,
+        key="smart_data_refresh",
+    )
+    full = refresh_columns[1].button(
+        "Auswahl komplett neu laden",
+        use_container_width=True,
+        key="full_data_refresh",
+    )
+    if (smart or full) and not selected:
+        st.warning("Mindestens eine Liga auswählen.")
+    elif smart:
+        try:
+            refreshed = _smart_refresh(analyzer, selected)
+            if refreshed:
+                st.success(f"{refreshed} Ligen aktualisiert.")
+            else:
+                st.info("Alle gewählten Ligen sind höchstens zwei Tage alt.")
+        except Exception as exc:
+            st.error(f"Smart-Update fehlgeschlagen: {exc}")
+    elif full:
+        try:
+            refreshed = _run_data_refresh(analyzer, selected, force=True)
+            st.success(f"{refreshed} Ligen vollständig geladen.")
+        except Exception as exc:
+            st.error(f"Vollständiges Update fehlgeschlagen: {exc}")
+
+    st.divider()
+    st.subheader("Training")
+    training_scope = _segmented(
+        "Trainingsumfang",
+        ["Gewählte Ligen", "Alle Ligen"],
+        "training_scope",
+        "Gewählte Ligen",
+    )
+    training_leagues = selected if training_scope == "Gewählte Ligen" else available
+    if st.button(
+        "Modell neu trainieren",
+        type="primary",
+        use_container_width=True,
+        key="retrain_model",
+    ):
+        if not training_leagues:
+            st.warning("Mindestens eine Liga auswählen.")
+            return
+        try:
+            _run_data_refresh(
+                analyzer,
+                training_leagues,
+                force=training_scope == "Alle Ligen",
+            )
+            with st.spinner("Chronologische Modellvalidierung läuft..."):
+                succeeded = analyzer.train_model()
+            matches = _training_match_count()
+            if succeeded:
+                st.success(f"Modell-Gate bestanden; {matches} gespeicherte Matches.")
+            else:
+                st.warning(
+                    "Kandidat hat das Brier-Gate nicht bestanden; das zuvor validierte Modell bleibt aktiv."
+                )
+        except Exception as exc:
+            st.error(f"Training fehlgeschlagen: {exc}")
+
+
+def render_model(analyzer) -> None:
+    if analyzer is None:
+        st.error("Analyzer nicht bereit. API-Schlüssel in Secrets, Environment oder config.ini prüfen.")
+        return
+    mode = _segmented(
+        "Modellbereich",
+        ["Validierung", "Daten"],
+        "model_workspace",
+        "Validierung",
+    )
+    if mode == "Validierung":
+        _render_model_validation(analyzer)
+    else:
+        _render_data_management(analyzer)
+
+
+def _fetch_multi_sport_snapshot(game_filter: str) -> dict:
+    """Fetch one cross-provider snapshot after an explicit user action."""
     import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).parent / 'scanners'))
-    
-    st.header("🎯 MULTI-SPORT LIVE SCANNER")
-    st.caption("Basketball • NHL • Tennis • Cricket • E-Sports")
-    
-    if st.button("🔄 Refresh", key="ref_ms", use_container_width=True):
-        st.rerun()
-    
-    st.markdown("---")
-    
-    all_opps = []
-    
-    # Basketball
-    st.markdown("### 🏀 BASKETBALL")
+
+    scanner_path = str(Path(__file__).parent / "scanners")
+    if scanner_path not in sys.path:
+        sys.path.insert(0, scanner_path)
+    snapshot = {
+        "scanned_at": datetime.now().astimezone().isoformat(),
+        "game_filter": game_filter,
+        "basketball": [],
+        "nhl": [],
+        "tennis": [],
+        "cricket": [],
+        "esports": [],
+        "esports_key_available": False,
+        "errors": {},
+    }
+
+    basketball = None
     try:
         from basketball_scanner import BasketballScanner
-        bball = BasketballScanner()
-        games = bball.scan_live_games("All")
-        
-        if games:
-            st.success(f"✅ {len(games)} live games")
-            for g in games:
-                qo = bball.analyze_quarter_winner(g)
-                to = bball.analyze_total_points(g)
-                
-                c1, c2, c3 = st.columns([2, 1, 1])
-                with c1:
-                    st.markdown(f"**{g['home_team']} vs {g['away_team']}**")
-                    st.caption(f"Q{g['period']} • {g['home_score']}-{g['away_score']}")
-                with c2:
-                    if qo: st.metric("Edge", f"+{qo['edge']}%")
-                with c3:
-                    if qo: st.metric("ROI", f"+{qo['roi']}%")
-                
-                if qo:
-                    st.markdown(f"{'🔥🔥' if qo['confidence'] >= 85 else '🔥'} **{qo['market']}** @ {qo['odds']} • {qo['confidence']}%")
-                    all_opps.append({**qo, 'sport': '🏀', 'game': f"{g['home_team']} vs {g['away_team']}"})
-                if to:
-                    st.markdown(f"{'🔥🔥' if to['confidence'] >= 85 else '🔥'} **{to['market']}** @ {to['odds']} • {to['confidence']}%")
-                    all_opps.append({**to, 'sport': '🏀', 'game': f"{g['home_team']} vs {g['away_team']}"})
-                st.markdown("---")
-        else:
-            st.info("No live games")
-    except Exception as e:
-        st.error(f"Basketball: {str(e)[:60]}")
-    
-    # NHL
-    st.markdown("### 🏒 NHL")
+
+        basketball = BasketballScanner()
+    except Exception:
+        snapshot["errors"]["basketball_scanner"] = "Scanner nicht verfügbar"
+
     try:
-        from basketball_scanner import BasketballScanner
-        nhl = BasketballScanner()
-        nhl_games = nhl.get_live_nhl_games()
-        
-        if nhl_games:
-            st.success(f"✅ {len(nhl_games)} live NHL games")
-            for g in nhl_games:
-                opp = nhl.analyze_nhl_game(g)
-                
-                c1, c2, c3 = st.columns([2, 1, 1])
-                with c1:
-                    st.markdown(f"**{g['away_team']} @ {g['home_team']}**")
-                    st.caption(f"P{g['period']} • {g['away_score']}-{g['home_score']}")
-                with c2:
-                    if opp: st.metric("Edge", f"+{opp['edge']}%")
-                with c3:
-                    if opp: st.metric("ROI", f"+{opp['roi']}%")
-                
-                if opp:
-                    st.markdown(f"{'🔥🔥' if opp['confidence'] >= 85 else '🔥'} **{opp['market']}** @ {opp['odds']} • {opp['confidence']}%")
-                    all_opps.append({**opp, 'sport': '🏒 NHL', 'game': f"{g['away_team']} @ {g['home_team']}"})
-                st.markdown("---")
-        else:
-            st.info("No live NHL games")
-    except Exception as e:
-        st.error(f"NHL: {str(e)[:60]}")
-    
-    # Tennis
-    st.markdown("### 🎾 TENNIS")
+        if basketball is None:
+            raise RuntimeError("basketball scanner unavailable")
+        for game in basketball.scan_live_games("All"):
+            item = dict(game)
+            item["projection"] = basketball.calculate_scoring_projection(game)
+            snapshot["basketball"].append(item)
+    except Exception:
+        snapshot["errors"]["basketball"] = "Provider nicht verfügbar"
+
+    try:
+        if basketball is None:
+            raise RuntimeError("basketball scanner unavailable")
+        snapshot["nhl"] = basketball.get_live_nhl_games()
+    except Exception:
+        snapshot["errors"]["nhl"] = "Provider nicht verfügbar"
+
     try:
         from tennis_scanner import TennisScanner
-        ten = TennisScanner()
-        matches = ten.get_live_matches()
-        
-        if matches:
-            st.success(f"✅ {len(matches)} live matches")
-            for m in matches:
-                ng = ten.analyze_next_game(m)
-                sw = ten.analyze_set_winner(m)
-                
-                c1, c2, c3 = st.columns([2, 1, 1])
-                with c1:
-                    st.markdown(f"**{m['player1']} vs {m['player2']}**")
-                    st.caption(f"{m.get('tournament', 'ATP/WTA')} • {m['player1_score']}-{m['player2_score']}")
-                with c2:
-                    if ng: st.metric("Edge", f"+{ng['edge']}%")
-                with c3:
-                    if ng: st.metric("ROI", f"+{ng['roi']}%")
-                
-                if ng:
-                    st.markdown(f"{'🔥🔥' if ng['confidence'] >= 85 else '🔥'} **{ng['market']}** @ {ng['odds']} • {ng['confidence']}%")
-                    all_opps.append({**ng, 'sport': '🎾', 'game': f"{m['player1']} vs {m['player2']}"})
-                if sw:
-                    st.markdown(f"{'🔥🔥' if sw['confidence'] >= 85 else '🔥'} **{sw['market']}** @ {sw['odds']} • {sw['confidence']}%")
-                    all_opps.append({**sw, 'sport': '🎾', 'game': f"{m['player1']} vs {m['player2']}"})
-                st.markdown("---")
-        else:
-            st.info("No live matches")
-    except Exception as e:
-        st.error(f"Tennis: {str(e)[:60]}")
-    
-    # Cricket
-    st.markdown("### 🏏 CRICKET")
+
+        snapshot["tennis"] = TennisScanner().get_live_matches()
+    except Exception:
+        snapshot["errors"]["tennis"] = "Provider nicht verfügbar"
+
     try:
         from cricket_scanner import CricketScanner
-        cri = CricketScanner()
-        matches = cri.get_live_matches()
-        
-        if matches:
-            st.success(f"✅ {len(matches)} live matches")
-            for m in matches:
-                ov = cri.analyze_current_over(m)
-                
-                c1, c2, c3 = st.columns([2, 1, 1])
-                with c1:
-                    st.markdown(f"**{m['team1']} vs {m['team2']}**")
-                    st.caption(f"{m.get('format', 'T20')}")
-                with c2:
-                    if ov: st.metric("Edge", f"+{ov['edge']}%")
-                with c3:
-                    if ov: st.metric("ROI", f"+{ov['roi']}%")
-                
-                if ov:
-                    st.markdown(f"{'🔥🔥' if ov['confidence'] >= 85 else '🔥'} **{ov['market']}** @ {ov['odds']} • {ov['confidence']}%")
-                    all_opps.append({**ov, 'sport': '🏏', 'game': f"{m['team1']} vs {m['team2']}"})
-                st.markdown("---")
-        else:
-            st.info("No live matches")
-    except Exception as e:
-        st.error(f"Cricket: {str(e)[:60]}")
-    
-    # E-Sports
-    st.markdown("### 🎮 E-SPORTS")
+
+        snapshot["cricket"] = CricketScanner().get_live_matches()
+    except Exception:
+        snapshot["errors"]["cricket"] = "Provider nicht verfügbar"
+
     try:
         from esports_scanner import EsportsScanner
-        
-        game_sel = st.radio("", ["All", "CS2", "LoL", "Dota2", "Valorant"], horizontal=True, key="esp_g")
-        esp = EsportsScanner()
-        
-        if not esp.api_key:
-            st.warning("⚠️ API key needed • pandascore.co")
-        else:
-            matches = esp.get_live_matches(game_sel.lower())
-            
-            if matches:
-                st.success(f"✅ {len(matches)} live matches")
-                for m in matches:
-                    opp = esp.analyze_match(m)
-                    
-                    c1, c2, c3 = st.columns([2, 1, 1])
-                    with c1:
-                        st.markdown(f"**{m['team1']} vs {m['team2']}**")
-                        st.caption(f"{m['game']} • {m['team1_score']}-{m['team2_score']}")
-                    with c2:
-                        if opp: st.metric("Edge", f"+{opp['edge']}%")
-                    with c3:
-                        if opp: st.metric("ROI", f"+{opp['roi']}%")
-                    
-                    if opp:
-                        st.markdown(f"{'🔥🔥' if opp['confidence'] >= 85 else '🔥'} **{opp.get('team', '')} {opp['market']}** @ {opp['odds']} • {opp['confidence']}%")
-                        all_opps.append({**opp, 'sport': f"🎮 {m['game']}", 'game': f"{m['team1']} vs {m['team2']}"})
-                    st.markdown("---")
-            else:
-                st.info("No live matches")
-    except Exception as e:
-        st.error(f"E-Sports: {str(e)[:60]}")
-    
-    # Top 10
-    if all_opps:
-        st.markdown("---")
-        st.markdown("## 🔥 TOP 10 OPPORTUNITIES")
-        
-        for o in all_opps:
-            o['score'] = (o['edge'] * 0.4) + (o['roi'] * 0.3) + (o['confidence'] / 100 * 30 * 0.3)
-        
-        all_opps.sort(key=lambda x: x['score'], reverse=True)
-        
-        for i, o in enumerate(all_opps[:10], 1):
-            c1, c2, c3, c4 = st.columns([0.3, 1.5, 2, 1])
-            
-            with c1:
-                st.markdown(f"**#{i}**")
-            with c2:
-                st.markdown(f"**{o['sport']}**")
-                st.caption(o.get('game', ''))
-            with c3:
-                bet = f"{o.get('team', '')} {o.get('player', '')} {o['market']}"
-                st.markdown(f"**{bet.strip()}**")
-                st.caption(f"@ {o.get('odds', 'N/A')}")
-            with c4:
-                st.metric("", f"{o['score']:.1f}")
-                st.caption("⭐⭐⭐" if o['score'] >= 12 else "⭐⭐")
-            
-            with st.expander("📊"):
-                cc1, cc2, cc3 = st.columns(3)
-                cc1.metric("Edge", f"+{o['edge']}%")
-                cc2.metric("ROI", f"+{o['roi']}%")
-                cc3.metric("Conf", f"{o['confidence']}%")
-            
-            st.markdown("---")
 
-# Footer
-st.markdown("---")
-st.markdown("""
-    <div style='text-align: center; color: gray; padding: 2rem 0;'>
-        <p><strong>⚽ BTTS Pro + Multi-Sport Scanner v2.0</strong></p>
-        <p>Powered by Machine Learning & Advanced Analytics</p>
-        <p><small>⚠️ For informational purposes only. Gambling involves risk.</small></p>
-    </div>
-""", unsafe_allow_html=True)
+        esports = EsportsScanner()
+        snapshot["esports_key_available"] = bool(esports.api_key)
+        if esports.api_key:
+            for match in esports.get_live_matches(game_filter.lower()):
+                item = dict(match)
+                item["_analysis"] = esports.analyze_match(match)
+                snapshot["esports"].append(item)
+    except Exception:
+        snapshot["errors"]["esports"] = "Provider nicht verfügbar"
+    return snapshot
+
+
+def _multi_sport_frame(snapshot: dict, sport: str) -> pd.DataFrame:
+    if sport == "Basketball":
+        return pd.DataFrame(
+            [
+                {
+                    "Match": f"{game['home_team']} vs {game['away_team']}",
+                    "Periode": f"Q{game.get('period', 'n/a')}",
+                    "Stand": f"{game.get('home_score', 'n/a')}-{game.get('away_score', 'n/a')}",
+                    "Lineare Total-Projektion": _format_optional(game.get("projection"), 1),
+                }
+                for game in snapshot["basketball"]
+            ]
+        )
+    if sport == "NHL":
+        return pd.DataFrame(
+            [
+                {
+                    "Match": f"{game['away_team']} @ {game['home_team']}",
+                    "Periode": f"P{game.get('period', 'n/a')}",
+                    "Stand": f"{game.get('away_score', 'n/a')}-{game.get('home_score', 'n/a')}",
+                    "Uhr": game.get("game_clock") or "n/a",
+                }
+                for game in snapshot["nhl"]
+            ]
+        )
+    if sport == "Tennis":
+        return pd.DataFrame(
+            [
+                {
+                    "Match": f"{match['player1']} vs {match['player2']}",
+                    "Turnier": match.get("tournament", "ATP/WTA"),
+                    "Stand": f"{match.get('player1_score', 'n/a')}-{match.get('player2_score', 'n/a')}",
+                    "Aufschlag": match.get("server", "n/a"),
+                }
+                for match in snapshot["tennis"]
+            ]
+        )
+    if sport == "Cricket":
+        return pd.DataFrame(
+            [
+                {
+                    "Match": f"{match['team1']} vs {match['team2']}",
+                    "Format": match.get("format", "T20"),
+                    "Over": match.get("current_over", "n/a"),
+                    "Run Rate": match.get("run_rate", "n/a"),
+                }
+                for match in snapshot["cricket"]
+            ]
+        )
+    return pd.DataFrame(
+        [
+            {
+                "Match": f"{match['team1']} vs {match['team2']}",
+                "Game": match.get("game", "n/a"),
+                "Stand": f"{match.get('team1_score', 'n/a')}-{match.get('team2_score', 'n/a')}",
+                "Wahrscheinlichkeitslücke": (
+                    match.get("_analysis", {}).get("probability_gap")
+                    if match.get("_analysis")
+                    else "n/a"
+                ),
+                "Datenabdeckung %": (
+                    match.get("_analysis", {}).get("data_coverage")
+                    if match.get("_analysis")
+                    else "n/a"
+                ),
+            }
+            for match in snapshot["esports"]
+        ]
+    )
+
+
+def render_multi_sport() -> None:
+    game_filter = _segmented(
+        "E-Sport-Filter",
+        ["All", "CS2", "LoL", "Dota2", "Valorant"],
+        "esports_game_filter",
+        "All",
+    )
+    if st.button(
+        "Provider-Snapshot laden",
+        type="primary",
+        use_container_width=True,
+        key="run_multi_sport",
+    ):
+        with st.spinner("Externe Provider werden abgefragt..."):
+            st.session_state["multi_sport_snapshot"] = _fetch_multi_sport_snapshot(game_filter)
+
+    snapshot = st.session_state.get("multi_sport_snapshot")
+    if not snapshot:
+        st.info("Noch kein Multi-Sport-Snapshot in dieser Sitzung.")
+        return
+
+    st.caption(
+        f"Snapshot: {_format_snapshot_time(snapshot.get('scanned_at'))} | "
+        f"E-Sport-Filter: {snapshot['game_filter']}"
+    )
+    if snapshot.get("game_filter") != game_filter:
+        st.warning("Der E-Sport-Filter wurde seit dem Snapshot geändert. Für aktuelle E-Sport-Daten neu laden.")
+    counts = st.columns(5)
+    counts[0].metric("Basketball", len(snapshot["basketball"]))
+    counts[1].metric("NHL", len(snapshot["nhl"]))
+    counts[2].metric("Tennis", len(snapshot["tennis"]))
+    counts[3].metric("Cricket", len(snapshot["cricket"]))
+    counts[4].metric("E-Sport", len(snapshot["esports"]))
+
+    sport = _segmented(
+        "Sport",
+        ["Basketball", "NHL", "Tennis", "Cricket", "E-Sport"],
+        "multi_sport_view",
+        "Basketball",
+    )
+    if sport == "E-Sport" and not snapshot["esports_key_available"]:
+        st.warning("Für E-Sport ist ein PandaScore-Key erforderlich.")
+    frame = _multi_sport_frame(snapshot, sport)
+    if frame.empty:
+        st.info("Dieser Provider hat keine Live-Daten geliefert.")
+    else:
+        st.dataframe(frame, use_container_width=True, hide_index=True)
+
+    if snapshot["errors"]:
+        st.info("Mindestens ein externer Provider war für diesen Snapshot nicht verfügbar.")
+    st.caption(
+        "Sportübergreifendes Ranking bleibt deaktiviert: unkalibrierte Scores verschiedener "
+        "Sportarten sind mathematisch nicht vergleichbar."
+    )
+
+
+def main() -> None:
+    st.set_page_config(
+        page_title="BetBoy",
+        page_icon=":material/sports_soccer:",
+        layout="wide",
+        initial_sidebar_state="auto",
+    )
+    _apply_app_styles()
+
+    try:
+        analyzer = get_analyzer()
+        st.session_state.pop("analyzer_error", None)
+    except Exception as exc:
+        analyzer = None
+        st.session_state["analyzer_error"] = str(exc)
+
+    workspace = _render_sidebar(analyzer)
+    title, caption = PAGE_INFO[workspace]
+    st.markdown(f'<div class="bb-context">BetBoy / {workspace}</div>', unsafe_allow_html=True)
+    st.title(title)
+    st.caption(caption)
+
+    if st.session_state.get("analyzer_error"):
+        st.error(f"Analyzer konnte nicht initialisiert werden: {st.session_state['analyzer_error']}")
+
+    if workspace == "Spiele":
+        render_matches(analyzer)
+    elif workspace == "Märkte":
+        create_alternative_markets_tab_extended()
+    elif workspace == "Live":
+        render_live(analyzer)
+    elif workspace == "Modell":
+        render_model(analyzer)
+    elif workspace == "15K Challenge":
+        render_challenge_15k()
+    else:
+        render_multi_sport()
+
+    st.divider()
+    st.caption(
+        "Modellwahrscheinlichkeiten können falsch sein. Glücksspiel birgt finanzielles Risiko; "
+        "kein Ergebnis ist garantiert."
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -1,7 +1,7 @@
 """
 API-Football Integration - FINAL FIXED VERSION
 ✅ Correct header: x-apisports-key
-✅ Season: 2025 (current season 2025/26)
+Season selection is dynamic.
 ✅ All required methods included
 """
 
@@ -9,6 +9,12 @@ import requests
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+
+from season_utils import (
+    current_season_start_year,
+    current_season_start_year_for_id,
+)
+from league_catalog import ANALYZER_LEAGUE_IDS
 
 class APIFootball:
     """API-Football wrapper with all 28 leagues"""
@@ -21,47 +27,11 @@ class APIFootball:
         }
         self.last_request_time = 0
         self.min_request_interval = 1.0  # 1 second between requests
+        self.last_error: Optional[str] = None
         
-        # ALL 28 LEAGUES - League ID mappings
-        self.league_ids = {
-            # TIER 1: TOP LEAGUES (12)
-            'BL1': 78,    # 🇩🇪 Bundesliga
-            'PL': 39,     # 🇬🇧 Premier League
-            'PD': 140,    # 🇪🇸 La Liga
-            'SA': 135,    # 🇮🇹 Serie A
-            'FL1': 61,    # 🇫🇷 Ligue 1
-            'DED': 88,    # 🇳🇱 Eredivisie
-            'PPL': 94,    # 🇵🇹 Primeira Liga
-            'TSL': 203,   # 🇹🇷 Süper Lig
-            'ELC': 40,    # 🇬🇧 Championship
-            'BL2': 79,    # 🇩🇪 Bundesliga 2
-            'MX1': 262,   # 🇲🇽 Liga MX
-            'BSA': 71,    # 🇧🇷 Brasileirão
-            
-            # TIER 1: EUROPEAN CUPS (3)
-            'CL': 2,      # 🏆 Champions League
-            'EL': 3,      # 🏆 Europa League
-            'ECL': 848,   # 🏆 Conference League
-            
-            # TIER 2: EU EXPANSION (4)
-            'SC1': 179,   # 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scottish Premiership
-            'BE1': 144,   # 🇧🇪 Belgian Pro League
-            'SL1': 207,   # 🇨🇭 Swiss Super League
-            'AL1': 218,   # 🇦🇹 Austrian Bundesliga
-            
-            # TIER 3: GOAL FESTIVALS! (9)
-            'SPL': 265,   # 🇸🇬 Singapore Premier
-            'ESI': 330,   # 🇪🇪 Esiliiga (Estonia 2)
-            'IS2': 165,   # 🇮🇸 1. Deild (Iceland 2)
-            'ALE': 188,   # 🇦🇺 A-League
-            'ED1': 89,    # 🇳🇱 Eerste Divisie (NL 2)
-            'CHL': 209,   # 🇨🇭 Challenge League (CH 2)
-            'ALL': 113,   # 🇸🇪 Allsvenskan
-            'QSL': 292,   # 🇶🇦 Qatar Stars League
-            'UAE': 301,   # 🇦🇪 UAE Pro League
-        }
+        self.league_ids = ANALYZER_LEAGUE_IDS.copy()
         
-        print(f"✅ API-Football initialized with {len(self.league_ids)} leagues")
+        print(f"API-Football initialized with {len(self.league_ids)} leagues")
     
     def _rate_limit(self):
         """Ensure minimum time between requests"""
@@ -84,7 +54,7 @@ class APIFootball:
         """
         league_id = self.league_ids.get(league_code)
         if not league_id:
-            print(f"⚠️ Unknown league code: {league_code}")
+            print(f"WARNING: Unknown league code: {league_code}")
             return []
         
         self._rate_limit()
@@ -99,7 +69,7 @@ class APIFootball:
                 headers=self.headers,
                 params={
                     'league': league_id,
-                    'season': 2025,  # CORRECTED: Current season 2025/26
+                    'season': current_season_start_year(league_code),
                     'from': today.strftime('%Y-%m-%d'),
                     'to': end_date.strftime('%Y-%m-%d'),
                     'status': 'NS'  # Not Started
@@ -111,7 +81,7 @@ class APIFootball:
                 data = response.json()
                 fixtures = data.get('response', [])
                 
-                print(f"   📅 Found {len(fixtures)} upcoming fixtures for {league_code}")
+                print(f"Found {len(fixtures)} upcoming fixtures for {league_code}")
                 
                 result = []
                 for fixture in fixtures:
@@ -127,20 +97,21 @@ class APIFootball:
                             'league_name': fixture['league']['name']
                         })
                     except KeyError as e:
-                        print(f"   ⚠️ Missing data in fixture: {e}")
+                        print(f"WARNING: Missing data in fixture: {e}")
                         continue
                 
                 return result
             else:
-                print(f"   ❌ API error {response.status_code} for {league_code}")
+                print(f"ERROR: API status {response.status_code} for {league_code}")
                 return []
                 
         except Exception as e:
-            print(f"   ❌ Exception fetching fixtures for {league_code}: {e}")
+            print(f"ERROR: Could not fetch fixtures for {league_code}: {e}")
             return []
     
     def get_live_matches(self) -> List[Dict]:
         """Get all live matches across all leagues"""
+        self.last_error = None
         self._rate_limit()
         
         try:
@@ -155,14 +126,21 @@ class APIFootball:
                 data = response.json()
                 return data.get('response', [])
             else:
-                print(f"❌ API error {response.status_code}")
+                self.last_error = f"HTTP {response.status_code}"
+                print(f"ERROR: API status {response.status_code}")
                 return []
                 
         except Exception as e:
-            print(f"❌ Exception: {e}")
+            self.last_error = str(e)
+            print(f"ERROR: {e}")
             return []
     
-    def get_match_statistics(self, fixture_id: int) -> Optional[Dict]:
+    def get_match_statistics(
+        self,
+        fixture_id: int,
+        home_team_id: int,
+        away_team_id: int,
+    ) -> Optional[Dict]:
         """Get detailed statistics for a specific match"""
         self._rate_limit()
         
@@ -179,22 +157,28 @@ class APIFootball:
                 stats_list = data.get('response', [])
                 
                 if len(stats_list) >= 2:
-                    home_stats = stats_list[0].get('statistics', [])
-                    away_stats = stats_list[1].get('statistics', [])
+                    stats_by_team = {
+                        item.get('team', {}).get('id'): item.get('statistics', [])
+                        for item in stats_list
+                    }
+                    home_stats = stats_by_team.get(home_team_id)
+                    away_stats = stats_by_team.get(away_team_id)
+                    if home_stats is None or away_stats is None:
+                        return None
                     
                     def get_stat(stats, stat_type):
                         for s in stats:
                             if s.get('type') == stat_type:
                                 val = s.get('value')
                                 if val is None:
-                                    return 0
+                                    return None
                                 if isinstance(val, str):
                                     val = val.replace('%', '')
                                 try:
                                     return float(val)
-                                except:
-                                    return 0
-                        return 0
+                                except (TypeError, ValueError):
+                                    return None
+                        return None
                     
                     return {
                         # Shots
@@ -247,11 +231,13 @@ class APIFootball:
             return None
             
         except Exception as e:
-            print(f"⚠️ Stats error: {e}")
+            print(f"WARNING: Stats error: {e}")
             return None
     
-    def get_team_statistics(self, team_id: int, league_id: int, season: int = 2025) -> Optional[Dict]:
+    def get_team_statistics(self, team_id: int, league_id: int,
+                            season: Optional[int] = None) -> Optional[Dict]:
         """Get team statistics from API-Football"""
+        season = season or current_season_start_year_for_id(league_id)
         self._rate_limit()
         
         try:
@@ -271,7 +257,7 @@ class APIFootball:
                 if data.get('response'):
                     stats = data['response']
                     
-                    print(f"   🔍 API returned team: {stats.get('team')}")
+                    print(f"API returned team: {stats.get('team')}")
                     
                     # Extract relevant statistics
                     fixtures = stats.get('fixtures', {})
@@ -281,40 +267,73 @@ class APIFootball:
                     away_stats = fixtures.get('played', {}).get('away', 0)
                     total_stats = fixtures.get('played', {}).get('total', 0)
                     
-                    # Calculate BTTS rates
                     clean_sheets_home = int(stats.get('clean_sheet', {}).get('home', 0))
                     clean_sheets_away = int(stats.get('clean_sheet', {}).get('away', 0))
                     failed_to_score_home = int(stats.get('failed_to_score', {}).get('home', 0))
                     failed_to_score_away = int(stats.get('failed_to_score', {}).get('away', 0))
-                    
-                    # BTTS = Spiele wo Team UND Gegner scoren
-                    # = Total - (Clean Sheets + Failed to Score)
-                    btts_home = max(0, home_stats - clean_sheets_home - failed_to_score_home) if home_stats > 0 else 0
-                    btts_away = max(0, away_stats - clean_sheets_away - failed_to_score_away) if away_stats > 0 else 0
-                    btts_total = max(0, total_stats - (clean_sheets_home + clean_sheets_away) - (failed_to_score_home + failed_to_score_away)) if total_stats > 0 else 0
-                    
-                    btts_rate_home = (btts_home / home_stats * 100) if home_stats > 0 else 60
-                    btts_rate_away = (btts_away / away_stats * 100) if away_stats > 0 else 60
-                    btts_rate_total = (btts_total / total_stats * 100) if total_stats > 0 else 60
+                    btts_rates = self._get_btts_rates(team_id, league_id, season)
                     
                     # Convert string values to float
                     def safe_float(value, default):
                         try:
-                            return float(value) if value else default
-                        except:
+                            return float(value) if value is not None else default
+                        except (TypeError, ValueError):
                             return default
                     
+                    played_home = int(home_stats) if home_stats else 0
+                    played_away = int(away_stats) if away_stats else 0
+                    scored_home = safe_float(
+                        goals.get('for', {}).get('average', {}).get('home'),
+                        None,
+                    )
+                    scored_away = safe_float(
+                        goals.get('for', {}).get('average', {}).get('away'),
+                        None,
+                    )
+                    conceded_home = safe_float(
+                        goals.get('against', {}).get('average', {}).get('home'),
+                        None,
+                    )
+                    conceded_away = safe_float(
+                        goals.get('against', {}).get('average', {}).get('away'),
+                        None,
+                    )
+
+                    def weighted_average(home_value, away_value):
+                        observations = []
+                        if home_value is not None and played_home > 0:
+                            observations.append((home_value, played_home))
+                        if away_value is not None and played_away > 0:
+                            observations.append((away_value, played_away))
+                        total = sum(sample for _, sample in observations)
+                        return (
+                            sum(value * sample for value, sample in observations) / total
+                            if total > 0
+                            else None
+                        )
+
                     return {
                         'team_name': stats.get('team', {}).get('name', 'Unknown'),
-                        'matches_played_home': int(home_stats) if home_stats else 0,
-                        'matches_played_away': int(away_stats) if away_stats else 0,
-                        'avg_goals_scored_home': safe_float(goals.get('for', {}).get('average', {}).get('home'), 1.5),
-                        'avg_goals_scored_away': safe_float(goals.get('for', {}).get('average', {}).get('away'), 1.3),
-                        'avg_goals_conceded_home': safe_float(goals.get('against', {}).get('average', {}).get('home'), 1.3),
-                        'avg_goals_conceded_away': safe_float(goals.get('against', {}).get('average', {}).get('away'), 1.5),
-                        'btts_rate_home': round(btts_rate_home, 1),
-                        'btts_rate_away': round(btts_rate_away, 1),
-                        'btts_rate_total': round(btts_rate_total, 1),
+                        'matches_played_home': played_home,
+                        'matches_played_away': played_away,
+                        'avg_goals_scored_home': scored_home,
+                        'avg_goals_scored_away': scored_away,
+                        'avg_goals_conceded_home': conceded_home,
+                        'avg_goals_conceded_away': conceded_away,
+                        'avg_goals_scored_total': weighted_average(
+                            scored_home,
+                            scored_away,
+                        ),
+                        'avg_goals_conceded_total': weighted_average(
+                            conceded_home,
+                            conceded_away,
+                        ),
+                        'btts_rate_home': btts_rates['home_rate'],
+                        'btts_rate_away': btts_rates['away_rate'],
+                        'btts_rate_total': btts_rates['total_rate'],
+                        'btts_sample_home': btts_rates['home_matches'],
+                        'btts_sample_away': btts_rates['away_matches'],
+                        'btts_sample_total': btts_rates['total_matches'],
                         'clean_sheets_home': clean_sheets_home,
                         'clean_sheets_away': clean_sheets_away,
                         'failed_to_score_home': failed_to_score_home,
@@ -324,8 +343,68 @@ class APIFootball:
             return None
             
         except Exception as e:
-            print(f"⚠️ Team stats error: {e}")
+            print(f"WARNING: Team stats error: {e}")
             return None
+
+    def _get_btts_rates(self, team_id: int, league_id: int, season: int,
+                        limit: int = 20) -> Dict:
+        """Calculate BTTS rates from finished fixtures without aggregate overlap bias."""
+        self._rate_limit()
+        empty = {
+            'home_rate': None,
+            'away_rate': None,
+            'total_rate': None,
+            'home_matches': 0,
+            'away_matches': 0,
+            'total_matches': 0,
+        }
+        try:
+            response = requests.get(
+                f"{self.base_url}/fixtures",
+                headers=self.headers,
+                params={
+                    'team': team_id,
+                    'league': league_id,
+                    'season': season,
+                    'status': 'FT',
+                    'last': limit,
+                },
+                timeout=15,
+            )
+            if response.status_code != 200:
+                return empty
+            fixtures = response.json().get('response', [])
+        except Exception:
+            return empty
+
+        counts = {'home': [0, 0], 'away': [0, 0]}
+        for fixture in fixtures:
+            home_id = fixture.get('teams', {}).get('home', {}).get('id')
+            home_goals = fixture.get('goals', {}).get('home')
+            away_goals = fixture.get('goals', {}).get('away')
+            if home_goals is None or away_goals is None:
+                continue
+            venue = 'home' if home_id == team_id else 'away'
+            counts[venue][1] += 1
+            if home_goals > 0 and away_goals > 0:
+                counts[venue][0] += 1
+
+        home_btts, home_matches = counts['home']
+        away_btts, away_matches = counts['away']
+        total_btts = home_btts + away_btts
+        total_matches = home_matches + away_matches
+
+        def rate(btts: int, matches: int) -> Optional[float]:
+            return round(btts / matches * 100.0, 1) if matches else None
+
+        return {
+            'home_rate': rate(home_btts, home_matches),
+            'away_rate': rate(away_btts, away_matches),
+            'total_rate': rate(total_btts, total_matches),
+            'home_matches': home_matches,
+            'away_matches': away_matches,
+            'total_matches': total_matches,
+        }
     
     def get_h2h(self, team1_id: int, team2_id: int, last_n: int = 10) -> List[Dict]:
         """Get head-to-head matches"""
@@ -349,7 +428,7 @@ class APIFootball:
             return []
             
         except Exception as e:
-            print(f"⚠️ H2H error: {e}")
+            print(f"WARNING: H2H error: {e}")
             return []
     
     def get_last_matches(self, team_id: int, league_id: int, n: int = 5) -> List[Dict]:
@@ -363,7 +442,7 @@ class APIFootball:
                 params={
                     'team': team_id,
                     'league': league_id,
-                    'season': 2025,
+                    'season': current_season_start_year_for_id(league_id),
                     'last': n
                 },
                 timeout=15
@@ -376,30 +455,51 @@ class APIFootball:
             return []
             
         except Exception as e:
-            print(f"⚠️ Last matches error: {e}")
+            print(f"WARNING: Last matches error: {e}")
             return []
     
     def get_head_to_head(self, team1_id: int, team2_id: int, last_n: int = 10) -> List[Dict]:
         """Alias for get_h2h - used by advanced_analyzer"""
         return self.get_h2h(team1_id, team2_id, last_n)
     
-    def get_team_last_matches(self, team_id: int, n: int = 5) -> Dict:
+    def get_team_last_matches(
+        self,
+        team_id: int,
+        n: int = 5,
+        league_id: Optional[int] = None,
+        season: Optional[int] = None,
+    ) -> Dict:
         """
         Get last N matches for a team and calculate form stats
         Used by advanced_analyzer for form calculation
         """
         self._rate_limit()
+        empty = {
+            'matches_played': 0,
+            'btts_rate': None,
+            'avg_goals_scored': None,
+            'avg_goals_conceded': None,
+            'form_string': '',
+            'wins': 0,
+            'draws': 0,
+            'losses': 0,
+        }
         
         try:
-            # Get last N finished matches for this team (any league)
+            params = {
+                'team': team_id,
+                'last': n,
+                'status': 'FT',
+            }
+            if league_id is not None:
+                params['league'] = league_id
+                params['season'] = season or current_season_start_year_for_id(
+                    league_id
+                )
             response = requests.get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
-                params={
-                    'team': team_id,
-                    'last': n,
-                    'status': 'FT'  # Only finished matches
-                },
+                params=params,
                 timeout=15
             )
             
@@ -408,17 +508,7 @@ class APIFootball:
                 matches = data.get('response', [])
                 
                 if not matches:
-                    # Return defaults if no matches found
-                    return {
-                        'matches_played': 0,
-                        'btts_rate': 55,
-                        'avg_goals_scored': 1.3,
-                        'avg_goals_conceded': 1.3,
-                        'form_string': '',
-                        'wins': 0,
-                        'draws': 0,
-                        'losses': 0
-                    }
+                    return empty
                 
                 # Calculate stats from matches
                 btts_count = 0
@@ -433,8 +523,10 @@ class APIFootball:
                     try:
                         home_id = match['teams']['home']['id']
                         away_id = match['teams']['away']['id']
-                        home_goals = match['goals']['home'] or 0
-                        away_goals = match['goals']['away'] or 0
+                        home_goals = match['goals']['home']
+                        away_goals = match['goals']['away']
+                        if home_goals is None or away_goals is None:
+                            continue
                         
                         # Determine if this team was home or away
                         if home_id == team_id:
@@ -472,10 +564,12 @@ class APIFootball:
                     except (KeyError, TypeError):
                         continue
                 
-                matches_played = len(matches)
-                btts_rate = (btts_count / matches_played * 100) if matches_played > 0 else 55
-                avg_scored = (total_scored / matches_played) if matches_played > 0 else 1.3
-                avg_conceded = (total_conceded / matches_played) if matches_played > 0 else 1.3
+                matches_played = wins + draws + losses
+                if matches_played == 0:
+                    return empty
+                btts_rate = btts_count / matches_played * 100
+                avg_scored = total_scored / matches_played
+                avg_conceded = total_conceded / matches_played
                 
                 return {
                     'matches_played': matches_played,
@@ -488,36 +582,17 @@ class APIFootball:
                     'losses': losses
                 }
             
-            # Return defaults if API call failed
-            return {
-                'matches_played': 0,
-                'btts_rate': 55,
-                'avg_goals_scored': 1.3,
-                'avg_goals_conceded': 1.3,
-                'form_string': '',
-                'wins': 0,
-                'draws': 0,
-                'losses': 0
-            }
+            return empty
             
         except Exception as e:
-            print(f"⚠️ Form error: {e}")
-            return {
-                'matches_played': 0,
-                'btts_rate': 55,
-                'avg_goals_scored': 1.3,
-                'avg_goals_conceded': 1.3,
-                'form_string': '',
-                'wins': 0,
-                'draws': 0,
-                'losses': 0
-            }
+            print(f"WARNING: Form error: {e}")
+            return empty
 
 
 # Test
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print("🔥 API-FOOTBALL TEST")
+    print("API-FOOTBALL TEST")
     print("="*60)
     
     api_key = input("\nEnter API key (or press Enter to skip): ").strip()
@@ -525,16 +600,16 @@ if __name__ == '__main__':
     if api_key:
         api = APIFootball(api_key)
         
-        print("\n📊 Testing get_upcoming_fixtures() for Premier League...")
+        print("\nTesting get_upcoming_fixtures() for Premier League...")
         fixtures = api.get_upcoming_fixtures('PL', days_ahead=7)
         
         if fixtures:
-            print(f"\n✅ Found {len(fixtures)} upcoming fixtures!")
+            print(f"\nFound {len(fixtures)} upcoming fixtures")
             for f in fixtures[:3]:
                 print(f"   {f['home_team']} vs {f['away_team']} - {f['date'][:10]}")
         else:
-            print("\n⚠️ No fixtures found")
+            print("\nNo fixtures found")
     else:
-        print("\n⚠️ Test skipped (no API key)")
+        print("\nTest skipped (no API key)")
     
-    print("\n✅ API-Football module loaded successfully!")
+    print("\nAPI-Football module loaded successfully")

@@ -9,7 +9,7 @@ Basiert auf:
 - Welches Team hat Rot (Heim/Auswärts)
 - Live-Statistiken (Schüsse, xG, Druck)
 
-Historische Daten aus 50,000+ Spielen mit Roten Karten analysiert.
+The numerical factors are explicit model priors, not a validated betting edge.
 """
 
 import math
@@ -41,29 +41,27 @@ class RedCardPrediction:
     draw: float
     red_team_wins: float  # 10-Mann-Team gewinnt
     
-    # Wett-Empfehlungen
-    recommended_bets: list
-    avoid_bets: list
+    model_signals: list
+    risk_flags: list
     
-    # Confidence
-    confidence: str  # 'HIGH', 'MEDIUM', 'LOW'
-    too_late_to_bet: bool
+    data_quality: str
+    too_late_for_signal: bool
 
 
 class RedCardImpactPredictor:
     """
     Berechnet Auswirkungen einer Roten Karte auf das Spiel
     
-    STATISTISCHE BASIS (aus 50,000+ Spielen):
-    - Tor-Wahrscheinlichkeit pro Minute: ~0.028 (normal)
-    - Nach Rot für Heimteam: Gegner +45% Tor-Wahrscheinlichkeit
-    - Nach Rot für Auswärts: Gegner +35% Tor-Wahrscheinlichkeit
-    - 10-Mann-Team: -60% Tor-Wahrscheinlichkeit
-    - Pro Minute weniger: -1.5% Tor-Wahrscheinlichkeit
+    All rates and red-card multipliers below are configurable priors. Outputs
+    remain uncalibrated model signals until a chronological backtest says otherwise.
     """
     
-    # Historische Daten (validiert aus echten Spielen)
-    BASE_GOAL_PROB_PER_MINUTE = 0.028  # ~2.8% Tor pro Minute
+    # Explicit league priors. They are inputs to the model, not measured facts
+    # about the current fixture.
+    BASE_TOTAL_GOALS_PER_MATCH = 2.70
+    HOME_GOAL_SHARE = 0.54
+    REGULAR_MATCH_MINUTES = 93
+    XG_PRIOR_MINUTES = 30
     
     # Effekt der Roten Karte auf Tor-Wahrscheinlichkeit
     RED_CARD_EFFECTS = {
@@ -73,23 +71,59 @@ class RedCardImpactPredictor:
         'away_red_extra_penalty': 0.95,  # Auswärtsrot = extra 5% Nachteil
     }
     
-    # Endstand-Wahrscheinlichkeiten nach Rot (aus historischen Daten)
-    # Format: minutes_remaining -> (opponent_wins, draw, red_team_wins)
-    ENDSTAND_PROBS = {
-        # Viel Zeit übrig = großer Effekt
-        60: (0.52, 0.30, 0.18),  # Rot in 30'
-        45: (0.48, 0.32, 0.20),  # Rot in 45'
-        30: (0.42, 0.35, 0.23),  # Rot in 60'
-        20: (0.38, 0.38, 0.24),  # Rot in 70'
-        15: (0.35, 0.40, 0.25),  # Rot in 75'
-        10: (0.32, 0.42, 0.26),  # Rot in 80'
-        5: (0.28, 0.48, 0.24),   # Rot in 85'
-        3: (0.22, 0.55, 0.23),   # Rot in 87'
-        0: (0.15, 0.70, 0.15),   # Rot in 90'
-    }
-    
     def __init__(self):
         pass
+
+    @staticmethod
+    def _optional_nonnegative(value) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(numeric) or numeric < 0:
+            return None
+        return numeric
+
+    @staticmethod
+    def _poisson_probability(goals: int, mean: float) -> float:
+        if mean == 0:
+            return 1.0 if goals == 0 else 0.0
+        return math.exp(-mean) * mean ** goals / math.factorial(goals)
+
+    @classmethod
+    def _final_result_probabilities(
+        cls,
+        home_goals: int,
+        away_goals: int,
+        remaining_home_mean: float,
+        remaining_away_mean: float,
+    ) -> Tuple[float, float, float]:
+        """Return home/draw/away probabilities conditional on the current score."""
+        largest_mean = max(remaining_home_mean, remaining_away_mean)
+        max_future_goals = max(10, math.ceil(largest_mean + 8 * math.sqrt(largest_mean + 1)))
+
+        home_win = draw = away_win = total_mass = 0.0
+        for future_home in range(max_future_goals + 1):
+            home_probability = cls._poisson_probability(future_home, remaining_home_mean)
+            for future_away in range(max_future_goals + 1):
+                probability = home_probability * cls._poisson_probability(
+                    future_away, remaining_away_mean
+                )
+                total_mass += probability
+                final_home = home_goals + future_home
+                final_away = away_goals + future_away
+                if final_home > final_away:
+                    home_win += probability
+                elif final_home < final_away:
+                    away_win += probability
+                else:
+                    draw += probability
+
+        if total_mass <= 0:
+            raise ValueError("could not normalize final-result probabilities")
+        return home_win / total_mass, draw / total_mass, away_win / total_mass
     
     def predict(
         self,
@@ -112,10 +146,14 @@ class RedCardImpactPredictor:
         Returns:
             RedCardPrediction mit allen Berechnungen
         """
+        if not 0 <= minute <= 130:
+            raise ValueError("minute must be between 0 and 130")
+        if home_goals < 0 or away_goals < 0:
+            raise ValueError("goals cannot be negative")
+        if red_card_team not in {'home', 'away'}:
+            raise ValueError("red_card_team must be 'home' or 'away'")
         
-        # Verbleibende Zeit (inkl. Nachspielzeit ~3-5 Min)
-        total_time = 93  # 90 + ~3 Min Nachspielzeit
-        remaining = max(0, total_time - minute)
+        remaining = max(0, self.REGULAR_MATCH_MINUTES - minute)
         
         # Zu spät für Wetten?
         too_late = remaining <= 3
@@ -124,54 +162,49 @@ class RedCardImpactPredictor:
         # 1. TOR-WAHRSCHEINLICHKEITEN BERECHNEN
         # =====================================================
         
-        # Basis: Wahrscheinlichkeit dass noch ein Tor fällt
-        # Formel: 1 - (1 - p)^n wo p=Tor/Minute, n=Minuten
-        base_no_goal_prob = (1 - self.BASE_GOAL_PROB_PER_MINUTE) ** remaining
-        base_goal_prob = 1 - base_no_goal_prob
-        
-        # Wer ist Gegner (11 Mann)?
         opponent = 'away' if red_card_team == 'home' else 'home'
-        
-        # Anpassung für Rote Karte
-        # 11-Mann-Team bekommt Boost
-        opponent_goal_rate = self.BASE_GOAL_PROB_PER_MINUTE * self.RED_CARD_EFFECTS['opponent_boost']
-        
-        # 10-Mann-Team bekommt Penalty
-        red_team_goal_rate = self.BASE_GOAL_PROB_PER_MINUTE * self.RED_CARD_EFFECTS['red_team_penalty']
-        
-        # Extra Penalty für Heimrot (psychologisch härter)
+
+        total_rate = self.BASE_TOTAL_GOALS_PER_MATCH / self.REGULAR_MATCH_MINUTES
+        home_goal_rate = total_rate * self.HOME_GOAL_SHARE
+        away_goal_rate = total_rate * (1.0 - self.HOME_GOAL_SHARE)
+
+        xg_home = self._optional_nonnegative((live_stats or {}).get('xg_home'))
+        xg_away = self._optional_nonnegative((live_stats or {}).get('xg_away'))
+        has_live_xg = xg_home is not None and xg_away is not None and minute > 0
+        if has_live_xg:
+            # Gamma-Poisson style shrinkage: 30 prior minutes prevent a noisy
+            # early xG reading from replacing the league-rate prior outright.
+            home_goal_rate = (
+                home_goal_rate * self.XG_PRIOR_MINUTES + xg_home
+            ) / (self.XG_PRIOR_MINUTES + minute)
+            away_goal_rate = (
+                away_goal_rate * self.XG_PRIOR_MINUTES + xg_away
+            ) / (self.XG_PRIOR_MINUTES + minute)
+
         if red_card_team == 'home':
-            red_team_goal_rate *= self.RED_CARD_EFFECTS['home_red_extra_penalty']
-            opponent_goal_rate *= 1.05  # Auswärts profitiert mehr
+            home_goal_rate *= (
+                self.RED_CARD_EFFECTS['red_team_penalty']
+                * self.RED_CARD_EFFECTS['home_red_extra_penalty']
+            )
+            away_goal_rate *= self.RED_CARD_EFFECTS['opponent_boost']
+            opponent_goal_rate = away_goal_rate
+            red_team_goal_rate = home_goal_rate
         else:
-            red_team_goal_rate *= self.RED_CARD_EFFECTS['away_red_extra_penalty']
-        
-        # Live-Stats Anpassung (falls verfügbar)
-        if live_stats:
-            # xG-basierte Anpassung
-            xg_home = live_stats.get('xg_home', 0)
-            xg_away = live_stats.get('xg_away', 0)
-            
-            if xg_home + xg_away > 0:
-                # Dominanz-Faktor
-                if opponent == 'home':
-                    dominance = xg_home / (xg_home + xg_away + 0.01)
-                else:
-                    dominance = xg_away / (xg_home + xg_away + 0.01)
-                
-                # Anpassung basierend auf Dominanz (0.3-0.7 normal)
-                if dominance > 0.55:
-                    opponent_goal_rate *= 1 + (dominance - 0.5) * 0.5
-                elif dominance < 0.45:
-                    opponent_goal_rate *= 1 - (0.5 - dominance) * 0.3
+            away_goal_rate *= (
+                self.RED_CARD_EFFECTS['red_team_penalty']
+                * self.RED_CARD_EFFECTS['away_red_extra_penalty']
+            )
+            home_goal_rate *= self.RED_CARD_EFFECTS['opponent_boost']
+            opponent_goal_rate = home_goal_rate
+            red_team_goal_rate = away_goal_rate
         
         # Berechne Wahrscheinlichkeiten für verbleibende Zeit
-        opponent_scores = 1 - (1 - opponent_goal_rate) ** remaining
-        red_team_scores = 1 - (1 - red_team_goal_rate) ** remaining
+        opponent_scores = 1 - math.exp(-opponent_goal_rate * remaining)
+        red_team_scores = 1 - math.exp(-red_team_goal_rate * remaining)
         
         # Mindestens einer trifft
         # P(mindestens 1 Tor) = 1 - P(keiner trifft)
-        no_goals_prob = (1 - opponent_goal_rate) ** remaining * (1 - red_team_goal_rate) ** remaining
+        no_goals_prob = math.exp(-(opponent_goal_rate + red_team_goal_rate) * remaining)
         any_goal_prob = 1 - no_goals_prob
         
         # Normalisiere für "wer trifft als nächstes" (gegeben dass ein Tor fällt)
@@ -188,106 +221,71 @@ class RedCardImpactPredictor:
         # =====================================================
         
         combined_goal_rate = opponent_goal_rate + red_team_goal_rate
-        if combined_goal_rate > 0:
-            # Exponentialverteilung: E[T] = 1/lambda
-            expected_minutes = min(1 / combined_goal_rate, remaining)
+        if combined_goal_rate > 0 and remaining > 0 and any_goal_prob > 0:
+            expected_minutes = (
+                1 / combined_goal_rate
+                - remaining * math.exp(-combined_goal_rate * remaining) / any_goal_prob
+            )
         else:
             expected_minutes = remaining
         
         # =====================================================
         # 3. ENDSTAND-PROGNOSE
         # =====================================================
-        
-        # Finde nächste passende Zeit-Kategorie
-        time_categories = sorted(self.ENDSTAND_PROBS.keys(), reverse=True)
-        base_probs = self.ENDSTAND_PROBS[0]  # Default
-        
-        for t in time_categories:
-            if remaining >= t:
-                base_probs = self.ENDSTAND_PROBS[t]
-                break
-        
-        opp_wins_base, draw_base, red_wins_base = base_probs
-        
-        # Anpassung basierend auf aktuellem Spielstand
-        goal_diff = home_goals - away_goals
-        
+        home_win, draw_prob, away_win = self._final_result_probabilities(
+            home_goals,
+            away_goals,
+            home_goal_rate * remaining,
+            away_goal_rate * remaining,
+        )
         if red_card_team == 'home':
-            # Heimteam hat Rot
-            if goal_diff > 0:
-                # Heim führt trotz Rot - schwieriger für Gegner
-                opp_wins_adj = opp_wins_base * (0.8 ** goal_diff)
-                red_wins_adj = red_wins_base * (1.3 ** goal_diff)
-            elif goal_diff < 0:
-                # Heim liegt zurück + Rot = sehr schwer
-                opp_wins_adj = opp_wins_base * (1.2 ** abs(goal_diff))
-                red_wins_adj = red_wins_base * (0.6 ** abs(goal_diff))
-            else:
-                opp_wins_adj = opp_wins_base
-                red_wins_adj = red_wins_base
+            opponent_wins = away_win
+            red_team_wins = home_win
         else:
-            # Auswärtsteam hat Rot
-            if goal_diff < 0:
-                # Auswärts führt trotz Rot
-                opp_wins_adj = opp_wins_base * (0.85 ** abs(goal_diff))
-                red_wins_adj = red_wins_base * (1.25 ** abs(goal_diff))
-            elif goal_diff > 0:
-                # Auswärts liegt zurück + Rot
-                opp_wins_adj = opp_wins_base * (1.15 ** goal_diff)
-                red_wins_adj = red_wins_base * (0.65 ** goal_diff)
-            else:
-                opp_wins_adj = opp_wins_base
-                red_wins_adj = red_wins_base
-        
-        # Normalisiere auf 100%
-        total = opp_wins_adj + draw_base + red_wins_adj
-        opponent_wins = opp_wins_adj / total
-        draw_prob = draw_base / total
-        red_team_wins = red_wins_adj / total
+            opponent_wins = home_win
+            red_team_wins = away_win
         
         # =====================================================
-        # 4. WETT-EMPFEHLUNGEN
+        # 4. MODEL SIGNALS (NO MARKET PRICE)
         # =====================================================
         
-        recommended = []
-        avoid = []
+        model_signals = []
+        risk_flags = []
         
         # Nur empfehlen wenn genug Zeit
         if remaining >= 10:
             # Gegner Over 0.5 Tore (in verbleibender Zeit)
             if next_by_opponent >= 0.55:
-                recommended.append(f"✅ {opponent.upper()} nächstes Tor: {next_by_opponent*100:.0f}%")
+                model_signals.append(f"{opponent.upper()} next goal: {next_by_opponent*100:.0f}%")
             
             # Gegner gewinnt
             if opponent_wins >= 0.45 and remaining >= 20:
-                recommended.append(f"✅ {opponent.upper()} gewinnt: {opponent_wins*100:.0f}%")
+                model_signals.append(f"{opponent.upper()} result signal: {opponent_wins*100:.0f}%")
             
             # Under X.5 (weil 10 Mann defensiver)
             if remaining >= 15 and no_goals_prob >= 0.35:
-                recommended.append(f"✅ Keine weiteren Tore: {no_goals_prob*100:.0f}%")
+                model_signals.append(f"No-more-goals signal: {no_goals_prob*100:.0f}%")
         
-        # Was NICHT wetten
+        # Risk flags for model outputs that remain especially weak
         # BTTS - 10-Mann-Team trifft selten
         if red_team_scores < 0.25:
-            avoid.append(f"❌ BTTS: 10-Mann-Team trifft nur {red_team_scores*100:.0f}%")
+            risk_flags.append(f"BTTS model probability is reduced: {red_team_scores*100:.0f}%")
         
         # 10-Mann-Team gewinnt - sehr unwahrscheinlich
         if red_team_wins < 0.25:
-            avoid.append(f"❌ {red_card_team.upper()} gewinnt: nur {red_team_wins*100:.0f}%")
+            risk_flags.append(f"{red_card_team.upper()} result model probability: {red_team_wins*100:.0f}%")
         
         if too_late:
-            avoid.append("⚠️ ZU SPÄT - Keine Zeit für sinnvolle Wetten!")
+            risk_flags.append("Too little remaining time for a useful model signal")
         
         # =====================================================
-        # 5. CONFIDENCE LEVEL
+        # 5. DATA QUALITY
         # =====================================================
         
-        if remaining >= 30:
-            confidence = 'HIGH'
-        elif remaining >= 15:
-            confidence = 'MEDIUM'
+        if has_live_xg and minute >= 15:
+            data_quality = 'MEDIUM'
         else:
-            confidence = 'LOW'
+            data_quality = 'LIMITED'
         
         # =====================================================
         # RETURN PREDICTION
@@ -310,11 +308,11 @@ class RedCardImpactPredictor:
             draw=draw_prob,
             red_team_wins=red_team_wins,
             
-            recommended_bets=recommended,
-            avoid_bets=avoid,
+            model_signals=model_signals,
+            risk_flags=risk_flags,
             
-            confidence=confidence,
-            too_late_to_bet=too_late
+            data_quality=data_quality,
+            too_late_for_signal=too_late
         )
     
     def format_prediction(
@@ -363,24 +361,24 @@ Unentschieden: {prediction.draw*100:.0f}%
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-💡 *WETT-EMPFEHLUNGEN:*
+💡 *MODEL SIGNALS (NO MARKET PRICE):*
 """
         
-        if prediction.too_late_to_bet:
-            output += "\n⚠️ *ZU SPÄT FÜR WETTEN!*\n"
+        if prediction.too_late_for_signal:
+            output += "\nToo little time for a useful model signal.\n"
         else:
-            if prediction.recommended_bets:
-                for bet in prediction.recommended_bets:
-                    output += f"\n{bet}"
+            if prediction.model_signals:
+                for signal in prediction.model_signals:
+                    output += f"\n{signal}"
             else:
-                output += "\n⚠️ Keine klaren Empfehlungen"
+                output += "\nNo clear model signal"
         
-        output += "\n\n🚫 *VERMEIDEN:*"
-        if prediction.avoid_bets:
-            for bet in prediction.avoid_bets:
-                output += f"\n{bet}"
+        output += "\n\n⚠️ *RISK FLAGS:*"
+        if prediction.risk_flags:
+            for flag in prediction.risk_flags:
+                output += f"\n{flag}"
         
-        output += f"\n\n📊 *Confidence:* {prediction.confidence}"
+        output += f"\n\n📊 *Data quality:* {prediction.data_quality}"
         
         return output
 
@@ -403,10 +401,14 @@ if __name__ == "__main__":
         red_card_team='home'
     )
     
-    print(predictor.format_prediction(pred, "Bayern München", "Borussia Dortmund"))
+    print(
+        predictor.format_prediction(pred, "Bayern Munich", "Borussia Dortmund")
+        .encode("ascii", "replace")
+        .decode("ascii")
+    )
     
     print("\n" + "="*60)
-    print("TEST 2: Rot in Minute 88, Spielstand 2-1, Auswärtsteam Rot")
+    print("TEST 2: Red card at minute 88, score 2-1, away team red")
     print("="*60)
     
     pred = predictor.predict(
@@ -419,7 +421,7 @@ if __name__ == "__main__":
     print(predictor.format_prediction(pred, "Real Madrid", "Barcelona"))
     
     print("\n" + "="*60)
-    print("TEST 3: Rot in Minute 60, Spielstand 0-0, Auswärtsteam Rot")
+    print("TEST 3: Red card at minute 60, score 0-0, away team red")
     print("="*60)
     
     pred = predictor.predict(

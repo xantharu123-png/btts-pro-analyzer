@@ -4,7 +4,7 @@ DATA ENGINE - SUPABASE/POSTGRESQL VERSION
 Nutzt Supabase (PostgreSQL) für persistente Daten auf Streamlit Cloud.
 Fallback auf SQLite für lokale Entwicklung.
 
-Season: 2025 (für 2024/25 Saison)
+Season is selected dynamically per competition.
 """
 
 import os
@@ -15,6 +15,8 @@ from typing import Dict, List, Optional
 import sqlite3
 
 from config_loader import load_app_config
+from season_utils import current_season_start_year
+from league_catalog import ANALYZER_LEAGUE_IDS
 
 
 def _load_supabase_url() -> Optional[str]:
@@ -155,46 +157,7 @@ def _init_sqlite_schema(cursor):
 class DataEngine:
     """Data Engine for BTTS Pro Analyzer - Supabase/PostgreSQL Support"""
     
-    # ALL 28 LEAGUES
-    LEAGUES_CONFIG = {
-        # TIER 1: TOP LEAGUES
-        'BL1': 78,    # Bundesliga
-        'PL': 39,     # Premier League
-        'PD': 140,    # La Liga
-        'SA': 135,    # Serie A
-        'FL1': 61,    # Ligue 1
-        'DED': 88,    # Eredivisie
-        'PPL': 94,    # Primeira Liga
-        'TSL': 203,   # Super Lig
-        'ELC': 40,    # Championship
-        'BL2': 79,    # Bundesliga 2
-        'MX1': 262,   # Liga MX
-        'BSA': 71,    # Brasileirao
-        
-        # TIER 1: EUROPEAN CUPS
-        'CL': 2,      # Champions League
-        'EL': 3,      # Europa League
-        'ECL': 848,   # Conference League
-        
-        # TIER 2: EU EXPANSION
-        'SC1': 179,   # Scottish Premiership
-        'BE1': 144,   # Belgian Pro League
-        'SL1': 207,   # Swiss Super League
-        'AL1': 218,   # Austrian Bundesliga
-        
-        # TIER 3: GOAL FESTIVALS
-        'SPL': 265,   # Allsvenskan
-        'ESI': 330,   # Paraguay
-        'IS2': 165,   # Iceland
-        'ALE': 188,   # Albania
-        
-        # TIER 4: GLOBAL
-        'ED1': 89,    # Danish Superliga
-        'CHL': 209,   # Chile
-        'ALL': 113,   # J-League
-        'QSL': 292,   # Qatar
-        'UAE': 301,   # UAE
-    }
+    LEAGUES_CONFIG = ANALYZER_LEAGUE_IDS
     
     def __init__(self, api_key: str, db_path: str = "btts_data.db"):
         """Initialize Data Engine with Supabase or SQLite"""
@@ -208,6 +171,7 @@ class DataEngine:
         # Use cached URL from module-level check
         global _SUPABASE_URL_CACHE
         self.supabase_url = _SUPABASE_URL_CACHE
+        self.database_warning: Optional[str] = None
         
         # Check PostgreSQL availability
         postgres_available = _check_postgres()
@@ -220,8 +184,22 @@ class DataEngine:
                 print("SUPABASE_DB_URL found but psycopg2 is not available.")
             print("Using SQLite (local).")
         
-        # Initialize database
-        self._init_database()
+        # A stale Streamlit secret must not make the whole analyzer unusable.
+        # Streamlit's local SQLite storage is ephemeral, but it is still a
+        # functional read/write fallback until the Supabase URL is corrected.
+        try:
+            self._init_database()
+        except Exception as exc:
+            if not self.use_postgres:
+                raise
+            self.database_warning = (
+                "Supabase ist nicht erreichbar; diese Sitzung nutzt lokalen "
+                f"SQLite-Speicher ({type(exc).__name__})."
+            )
+            print(f"WARNING: {self.database_warning}")
+            self.use_postgres = False
+            self.supabase_url = None
+            self._init_database()
         print(f"Data Engine initialized with {len(self.LEAGUES_CONFIG)} leagues.")
     
     def _get_connection(self):
@@ -257,15 +235,16 @@ class DataEngine:
             time.sleep(self.min_delay - elapsed)
         self.last_request = time.time()
     
-    def fetch_league_matches(self, league_code: str, season: int = 2025, 
+    def fetch_league_matches(self, league_code: str, season: Optional[int] = None,
                             force_refresh: bool = False) -> int:
         """Fetch and store ALL finished matches for a league"""
+        season = season or current_season_start_year(league_code)
         league_id = self.LEAGUES_CONFIG.get(league_code)
         if not league_id:
-            print(f"❌ Unknown league: {league_code}")
+            print(f"ERROR: Unknown league: {league_code}")
             return 0
         
-        print(f"📡 Fetching {league_code} (season {season})...")
+        print(f"Fetching {league_code} (season {season})...")
         
         try:
             self._rate_limit()
@@ -282,14 +261,14 @@ class DataEngine:
             )
             
             if response.status_code != 200:
-                print(f"❌ API Error {response.status_code} for {league_code}")
+                print(f"ERROR: API status {response.status_code} for {league_code}")
                 return 0
             
             data = response.json()
             fixtures = data.get('response', [])
             
             if not fixtures:
-                print(f"⚠️ No finished matches for {league_code}")
+                print(f"WARNING: No finished matches for {league_code}")
                 return 0
             
             # Process matches
@@ -306,8 +285,15 @@ class DataEngine:
                     away_team = fixture['teams']['away']['name']
                     home_id = fixture['teams']['home']['id']
                     away_id = fixture['teams']['away']['id']
-                    home_goals = fixture['goals']['home'] or 0
-                    away_goals = fixture['goals']['away'] or 0
+                    home_goals = fixture['goals']['home']
+                    away_goals = fixture['goals']['away']
+                    if (
+                        not isinstance(home_goals, int)
+                        or not isinstance(away_goals, int)
+                        or home_goals < 0
+                        or away_goals < 0
+                    ):
+                        continue
                     btts = 1 if (home_goals > 0 and away_goals > 0) else 0
                     total = home_goals + away_goals
                     
@@ -340,17 +326,17 @@ class DataEngine:
                     
                     count += 1
                     
-                except Exception as e:
+                except (KeyError, TypeError, ValueError):
                     continue
             
             conn.commit()
             conn.close()
             
-            print(f"✅ {league_code}: {count} matches stored")
+            print(f"{league_code}: {count} matches stored")
             return count
             
         except Exception as e:
-            print(f"❌ Error fetching {league_code}: {e}")
+            print(f"ERROR: Could not fetch {league_code}: {e}")
             return 0
     
     def get_match_count(self, league_code: str = None) -> int:
@@ -368,7 +354,7 @@ class DataEngine:
             count = c.fetchone()[0]
             conn.close()
             return count
-        except:
+        except Exception:
             return 0
     
     def get_team_stats(self, team_id: int, league_code: str, venue: str = 'all') -> Optional[Dict]:
@@ -387,6 +373,8 @@ class DataEngine:
                         SUM(btts) * 100.0 / COUNT(*) as btts_rate
                     FROM matches
                     WHERE home_team_id = {ph} AND league_code = {ph}
+                      AND home_goals IS NOT NULL AND away_goals IS NOT NULL
+                      AND btts IS NOT NULL
                 ''', (team_id, league_code))
             elif venue == 'away':
                 c.execute(f'''
@@ -397,6 +385,8 @@ class DataEngine:
                         SUM(btts) * 100.0 / COUNT(*) as btts_rate
                     FROM matches
                     WHERE away_team_id = {ph} AND league_code = {ph}
+                      AND home_goals IS NOT NULL AND away_goals IS NOT NULL
+                      AND btts IS NOT NULL
                 ''', (team_id, league_code))
             else:
                 c.execute(f'''
@@ -407,6 +397,8 @@ class DataEngine:
                         SUM(btts) * 100.0 / COUNT(*) as btts_rate
                     FROM matches
                     WHERE (home_team_id = {ph} OR away_team_id = {ph}) AND league_code = {ph}
+                      AND home_goals IS NOT NULL AND away_goals IS NOT NULL
+                      AND btts IS NOT NULL
                 ''', (team_id, team_id, team_id, team_id, league_code))
             
             row = c.fetchone()
@@ -415,25 +407,25 @@ class DataEngine:
             if row and row[0] > 0:
                 return {
                     'matches_played': row[0],
-                    'avg_scored': round(row[1] or 1.3, 2),
-                    'avg_conceded': round(row[2] or 1.2, 2),
-                    'btts_rate': round(row[3] or 50, 1)
+                    'avg_scored': round(row[1], 2) if row[1] is not None else None,
+                    'avg_conceded': round(row[2], 2) if row[2] is not None else None,
+                    'btts_rate': round(row[3], 1) if row[3] is not None else None,
                 }
             
             return {
                 'matches_played': 0,
-                'avg_scored': 1.3,
-                'avg_conceded': 1.2,
-                'btts_rate': 55
+                'avg_scored': None,
+                'avg_conceded': None,
+                'btts_rate': None,
             }
             
         except Exception as e:
-            print(f"⚠️ Stats error: {e}")
+            print(f"Stats error: {e}")
             return {
                 'matches_played': 0,
-                'avg_scored': 1.3,
-                'avg_conceded': 1.2,
-                'btts_rate': 55
+                'avg_scored': None,
+                'avg_conceded': None,
+                'btts_rate': None,
             }
     
     def get_recent_form(self, team_id: int, league_code: str, 
@@ -476,7 +468,12 @@ class DataEngine:
             conn.close()
             
             if not rows:
-                return {'btts_rate': 50, 'avg_scored': 1.3, 'avg_conceded': 1.2, 'matches': 0}
+                return {
+                    'btts_rate': None,
+                    'avg_scored': None,
+                    'avg_conceded': None,
+                    'matches': 0,
+                }
             
             btts_count = sum(r[2] for r in rows)
             avg_scored = sum(r[0] for r in rows) / len(rows)
@@ -490,8 +487,13 @@ class DataEngine:
             }
             
         except Exception as e:
-            print(f"⚠️ Form error: {e}")
-            return {'btts_rate': 50, 'avg_scored': 1.3, 'avg_conceded': 1.2, 'matches': 0}
+            print(f"Form error: {e}")
+            return {
+                'btts_rate': None,
+                'avg_scored': None,
+                'avg_conceded': None,
+                'matches': 0,
+            }
     
     def calculate_head_to_head(self, team1_id: int, team2_id: int, 
                                last_n: int = 10) -> Optional[Dict]:
@@ -514,7 +516,7 @@ class DataEngine:
             conn.close()
             
             if not rows:
-                return {'btts_rate': 50, 'avg_goals': 2.5, 'matches_played': 0}
+                return {'btts_rate': None, 'avg_goals': None, 'matches_played': 0}
             
             btts_count = sum(r[2] for r in rows)
             total_goals = sum(r[0] + r[1] for r in rows)
@@ -526,8 +528,8 @@ class DataEngine:
             }
             
         except Exception as e:
-            print(f"⚠️ H2H error: {e}")
-            return {'btts_rate': 50, 'avg_goals': 2.5, 'matches_played': 0}
+            print(f"H2H error: {e}")
+            return {'btts_rate': None, 'avg_goals': None, 'matches_played': 0}
     
     def get_league_stats(self, league_code: str) -> Optional[Dict]:
         """Get league-wide statistics"""
@@ -553,26 +555,26 @@ class DataEngine:
             if row and row[0] > 0:
                 return {
                     'total_matches': row[0],
-                    'avg_home_scored': round(row[1] or 1.5, 2),
-                    'avg_away_scored': round(row[2] or 1.2, 2),
-                    'avg_home_conceded': round(row[2] or 1.2, 2),
-                    'avg_away_conceded': round(row[1] or 1.5, 2),
-                    'avg_total_goals': round(row[3] or 2.7, 2),
-                    'btts_rate': round(row[4] or 52, 1)
+                    'avg_home_scored': round(row[1], 2) if row[1] is not None else None,
+                    'avg_away_scored': round(row[2], 2) if row[2] is not None else None,
+                    'avg_home_conceded': round(row[2], 2) if row[2] is not None else None,
+                    'avg_away_conceded': round(row[1], 2) if row[1] is not None else None,
+                    'avg_total_goals': round(row[3], 2) if row[3] is not None else None,
+                    'btts_rate': round(row[4], 1) if row[4] is not None else None,
                 }
             
             return {
                 'total_matches': 0,
-                'avg_home_scored': 1.5,
-                'avg_away_scored': 1.2,
-                'avg_home_conceded': 1.2,
-                'avg_away_conceded': 1.5,
-                'avg_total_goals': 2.7,
-                'btts_rate': 52
+                'avg_home_scored': None,
+                'avg_away_scored': None,
+                'avg_home_conceded': None,
+                'avg_away_conceded': None,
+                'avg_total_goals': None,
+                'btts_rate': None,
             }
             
         except Exception as e:
-            print(f"⚠️ League stats error: {e}")
+            print(f"League stats error: {e}")
             return None
 
 
@@ -582,6 +584,6 @@ if __name__ == '__main__':
     print("=" * 60)
     
     engine = DataEngine(api_key="test_key")
-    print(f"\n✅ Initialized with {len(engine.LEAGUES_CONFIG)} leagues")
+    print(f"\nInitialized with {len(engine.LEAGUES_CONFIG)} leagues")
     print(f"Database type: {'PostgreSQL (Supabase)' if engine.use_postgres else 'SQLite'}")
     print(f"Current matches in DB: {engine.get_match_count()}")

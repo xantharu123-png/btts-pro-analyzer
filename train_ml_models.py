@@ -20,6 +20,7 @@ import requests
 import json
 import os
 import time
+from typing import Optional
 
 # Import our V3 engine
 from betboy_v3_ml_engine import (
@@ -34,7 +35,7 @@ class HistoricalDataCollector:
     """
     Sammelt historische Daten für ML-Training
     
-    Ziel: 10,000+ Spiele mit allen Features
+    Collects historical fixtures; required sample size is enforced by training.
     """
     
     def __init__(self, api_key: str):
@@ -48,7 +49,7 @@ class HistoricalDataCollector:
         
         Returns DataFrame mit Spielen und Ergebnissen
         """
-        print(f"📥 Collecting {league_id} Season {season}...")
+        print(f"Collecting {league_id} season {season}...")
         
         try:
             response = requests.get(
@@ -69,11 +70,11 @@ class HistoricalDataCollector:
                 
                 return self._parse_fixtures(fixtures, league_id)
             else:
-                print(f"   ⚠️ API Error: {response.status_code}")
+                print(f"WARNING: API status {response.status_code}")
                 return pd.DataFrame()
                 
         except Exception as e:
-            print(f"   ⚠️ Error: {e}")
+            print(f"WARNING: {e}")
             return pd.DataFrame()
     
     def _parse_fixtures(self, fixtures: list, league_id: int) -> pd.DataFrame:
@@ -86,8 +87,20 @@ class HistoricalDataCollector:
             goals = fix.get('goals', {})
             score = fix.get('score', {})
             
-            home_goals = goals.get('home', 0) or 0
-            away_goals = goals.get('away', 0) or 0
+            home_goals = goals.get('home')
+            away_goals = goals.get('away')
+            home_team_id = teams.get('home', {}).get('id')
+            away_team_id = teams.get('away', {}).get('id')
+            if (
+                not isinstance(home_goals, int)
+                or not isinstance(away_goals, int)
+                or home_goals < 0
+                or away_goals < 0
+                or not home_team_id
+                or not away_team_id
+                or not fixture.get('date')
+            ):
+                continue
             
             # Determine result
             if home_goals > away_goals:
@@ -107,8 +120,8 @@ class HistoricalDataCollector:
                 'fixture_id': fixture.get('id'),
                 'date': fixture.get('date'),
                 'league_id': league_id,
-                'home_team_id': teams.get('home', {}).get('id'),
-                'away_team_id': teams.get('away', {}).get('id'),
+                'home_team_id': home_team_id,
+                'away_team_id': away_team_id,
                 'home_team': teams.get('home', {}).get('name'),
                 'away_team': teams.get('away', {}).get('name'),
                 'home_goals': home_goals,
@@ -148,12 +161,15 @@ class FeatureEngineer:
     """
     
     def __init__(self, df: pd.DataFrame):
-        self.df = df.sort_values('date')
+        sort_columns = ['date']
+        if 'fixture_id' in df.columns:
+            sort_columns.append('fixture_id')
+        self.df = df.sort_values(sort_columns, kind='mergesort')
         self.team_history = {}
     
     def calculate_features(self) -> pd.DataFrame:
         """Berechne Features für alle Spiele"""
-        print("🔧 Calculating features...")
+        print("Calculating features...")
         
         features = []
         
@@ -165,6 +181,11 @@ class FeatureEngineer:
             # Get team history before this match
             home_history = self._get_team_history(home_id, match_date, is_home=True)
             away_history = self._get_team_history(away_id, match_date, is_home=False)
+
+            if home_history is None or away_history is None:
+                self._update_team_history(home_id, row, is_home=True)
+                self._update_team_history(away_id, row, is_home=False)
+                continue
             
             feature_row = {
                 # Basic info
@@ -183,8 +204,6 @@ class FeatureEngineer:
                 'home_form_goals_scored': home_history['form_scored'],
                 'home_form_goals_conceded': home_history['form_conceded'],
                 'home_form_points': home_history['form_points'],
-                'home_xg_for': home_history['attack'] * 1.1,  # Approximation
-                'home_xg_against': home_history['defense'] * 0.9,
                 
                 # Away team features  
                 'away_attack_strength': away_history['attack'],
@@ -192,45 +211,6 @@ class FeatureEngineer:
                 'away_form_goals_scored': away_history['form_scored'],
                 'away_form_goals_conceded': away_history['form_conceded'],
                 'away_form_points': away_history['form_points'],
-                'away_xg_for': away_history['attack'] * 0.9,
-                'away_xg_against': away_history['defense'] * 1.1,
-                
-                # H2H (simplified)
-                'h2h_home_wins': 0,
-                'h2h_draws': 0,
-                'h2h_away_wins': 0,
-                'h2h_avg_goals': 2.5,
-                'h2h_btts_rate': 0.5,
-                
-                # Placeholders for V3 features (would need more data)
-                'home_injury_impact': 0.0,
-                'away_injury_impact': 0.0,
-                'home_key_players_out': 0,
-                'away_key_players_out': 0,
-                'home_fatigue_factor': 1.0,
-                'away_fatigue_factor': 1.0,
-                'home_days_rest': 4,
-                'away_days_rest': 4,
-                'home_congestion_games': 2,
-                'away_congestion_games': 2,
-                'home_position': home_history.get('position', 10),
-                'away_position': away_history.get('position', 10),
-                'home_motivation_score': 1.0,
-                'away_motivation_score': 1.0,
-                'home_in_relegation': 0,
-                'away_in_relegation': 0,
-                'home_in_title_race': 0,
-                'away_in_title_race': 0,
-                'home_new_manager_boost': 1.0,
-                'away_new_manager_boost': 1.0,
-                'is_derby': 0,
-                'derby_intensity': 1.0,
-                'league_avg_goals': 2.75,
-                'referee_cards_avg': 4.0,
-                'referee_has_data': 0,
-                'wind_speed': 0,
-                'is_raining': 0,
-                'temperature': 15,
             }
             
             features.append(feature_row)
@@ -242,30 +222,16 @@ class FeatureEngineer:
         print(f"   Generated {len(features)} feature rows")
         return pd.DataFrame(features)
     
-    def _get_team_history(self, team_id: int, before_date: str, is_home: bool) -> dict:
+    def _get_team_history(self, team_id: int, before_date: str, is_home: bool) -> Optional[dict]:
         """Hole Team-Historie vor einem bestimmten Datum"""
         if team_id not in self.team_history:
-            return {
-                'attack': 1.2,
-                'defense': 1.2,
-                'form_scored': 1.3,
-                'form_conceded': 1.2,
-                'form_points': 1.5,
-                'position': 10
-            }
+            return None
         
         history = self.team_history[team_id]
         
         # Use last 5 matches
-        if len(history) < 3:
-            return {
-                'attack': 1.2,
-                'defense': 1.2,
-                'form_scored': 1.3,
-                'form_conceded': 1.2,
-                'form_points': 1.5,
-                'position': 10
-            }
+        if len(history) < 5:
+            return None
         
         recent = history[-5:]
         
@@ -274,12 +240,11 @@ class FeatureEngineer:
         points = [h['points'] for h in recent]
         
         return {
-            'attack': np.mean(scored) if scored else 1.2,
-            'defense': np.mean(conceded) if conceded else 1.2,
-            'form_scored': np.mean(scored[-3:]) if len(scored) >= 3 else 1.3,
-            'form_conceded': np.mean(conceded[-3:]) if len(conceded) >= 3 else 1.2,
-            'form_points': np.mean(points[-5:]) if points else 1.5,
-            'position': 10  # Would need standings data
+            'attack': float(np.mean(scored)),
+            'defense': float(np.mean(conceded)),
+            'form_scored': float(np.mean(scored[-3:])),
+            'form_conceded': float(np.mean(conceded[-3:])),
+            'form_points': float(np.mean(points)),
         }
     
     def _update_team_history(self, team_id: int, row: pd.Series, is_home: bool):
@@ -309,71 +274,54 @@ class FeatureEngineer:
         })
 
 
-def train_models(api_key: str = None, use_sample_data: bool = True):
+def train_models(api_key: str = None, use_sample_data: bool = False):
     """
     Hauptfunktion zum Trainieren der Modelle
     """
     print("=" * 60)
-    print("🚀 BETBOY V3.0 - ML TRAINING")
+    print("BETBOY V3.0 - ML TRAINING")
     print("=" * 60)
     
-    # Option 1: Sammle echte Daten
-    if api_key and not use_sample_data:
+    if use_sample_data:
+        raise ValueError(
+            "Synthetic data may be used in tests, but never to train persisted models"
+        )
+    if not api_key:
+        raise ValueError("API_FOOTBALL_KEY is required for historical training data")
+
+    if api_key:
         collector = HistoricalDataCollector(api_key)
         
         # Top 5 Ligen, letzte 2 Saisons
         leagues = [39, 78, 140, 135, 61]  # PL, BL, LL, SA, L1
-        seasons = [2024, 2023]
+        from season_utils import current_season_start_year
+        current_season = current_season_start_year()
+        seasons = [current_season - 1, current_season - 2]
         
         raw_data = collector.collect_multiple_leagues(leagues, seasons)
         
         if raw_data.empty:
-            print("⚠️ Keine Daten gesammelt - nutze Sample Data")
-            use_sample_data = True
+            raise RuntimeError("No historical fixtures were collected")
     
-    # Option 2: Generiere Sample-Daten für Demo
-    if use_sample_data:
-        print("📊 Generating sample training data...")
-        raw_data = generate_sample_data(n_matches=5000)
-    
-    print(f"\n📈 Total matches: {len(raw_data)}")
+    print(f"\nTotal matches: {len(raw_data)}")
     
     # Feature Engineering
     engineer = FeatureEngineer(raw_data)
     features_df = engineer.calculate_features()
+    if len(features_df) < 100:
+        raise RuntimeError(
+            "Fewer than 100 fixtures have at least five prior matches for both teams"
+        )
     
     # Prepare training data
-    feature_columns = [
-        'home_attack_strength', 'home_defense_strength',
-        'away_attack_strength', 'away_defense_strength',
-        'home_form_goals_scored', 'home_form_goals_conceded',
-        'away_form_goals_scored', 'away_form_goals_conceded',
-        'home_form_points', 'away_form_points',
-        'home_xg_for', 'home_xg_against',
-        'away_xg_for', 'away_xg_against',
-        'h2h_home_wins', 'h2h_draws', 'h2h_away_wins',
-        'h2h_avg_goals', 'h2h_btts_rate',
-        'home_injury_impact', 'away_injury_impact',
-        'home_key_players_out', 'away_key_players_out',
-        'home_fatigue_factor', 'away_fatigue_factor',
-        'home_days_rest', 'away_days_rest',
-        'home_congestion_games', 'away_congestion_games',
-        'home_position', 'away_position',
-        'home_motivation_score', 'away_motivation_score',
-        'home_in_relegation', 'away_in_relegation',
-        'home_in_title_race', 'away_in_title_race',
-        'home_new_manager_boost', 'away_new_manager_boost',
-        'is_derby', 'derby_intensity',
-        'league_avg_goals', 'referee_cards_avg', 'referee_has_data',
-        'wind_speed', 'is_raining', 'temperature',
-    ]
+    feature_columns = MatchFeatures.feature_names()
     
     X = features_df[feature_columns].values
     y_result = features_df['result_code'].values
     y_btts = features_df['btts'].values
     y_over25 = features_df['over_25'].values
     
-    print(f"\n🎯 Training data shape: {X.shape}")
+    print(f"\nTraining data shape: {X.shape}")
     
     # Train ML Ensemble
     print("\n" + "=" * 40)
@@ -382,6 +330,8 @@ def train_models(api_key: str = None, use_sample_data: bool = True):
     
     ml_result = MLEnsemble('models/result/')
     ml_result.train(X, y_result, target='match_result')
+    if not ml_result.is_trained:
+        raise RuntimeError("Match-result ensemble failed the chronological Brier gate")
     ml_result.save_models()
     
     print("\n" + "=" * 40)
@@ -390,6 +340,8 @@ def train_models(api_key: str = None, use_sample_data: bool = True):
     
     ml_btts = MLEnsemble('models/btts/')
     ml_btts.train(X, y_btts, target='btts')
+    if not ml_btts.is_trained:
+        raise RuntimeError("BTTS ensemble failed the chronological Brier gate")
     ml_btts.save_models()
     
     print("\n" + "=" * 40)
@@ -398,10 +350,12 @@ def train_models(api_key: str = None, use_sample_data: bool = True):
     
     ml_over = MLEnsemble('models/over25/')
     ml_over.train(X, y_over25, target='over_25')
+    if not ml_over.is_trained:
+        raise RuntimeError("Over-2.5 ensemble failed the chronological Brier gate")
     ml_over.save_models()
     
     print("\n" + "=" * 60)
-    print("✅ TRAINING COMPLETE!")
+    print("TRAINING COMPLETE")
     print("=" * 60)
     print("\nModels saved to:")
     print("  - models/result/")
@@ -411,9 +365,10 @@ def train_models(api_key: str = None, use_sample_data: bool = True):
 
 def generate_sample_data(n_matches: int = 5000) -> pd.DataFrame:
     """
-    Generiere realistische Sample-Daten für Training
-    
-    Basiert auf echten Fußball-Statistiken
+    Generate synthetic fixtures for isolated tests only.
+
+    The output is not real football data and must never be persisted as a
+    production model training set.
     """
     np.random.seed(42)
     
@@ -468,7 +423,7 @@ def generate_sample_data(n_matches: int = 5000) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     
     # Print statistics
-    print(f"\n📊 Sample Data Statistics:")
+    print("\nSample data statistics:")
     print(f"   Home Win: {(df['result'] == 'HOME').mean()*100:.1f}%")
     print(f"   Draw: {(df['result'] == 'DRAW').mean()*100:.1f}%")
     print(f"   Away Win: {(df['result'] == 'AWAY').mean()*100:.1f}%")
@@ -488,5 +443,6 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         api_key = sys.argv[1]
     
-    # Train with sample data if no API key
-    train_models(api_key=api_key, use_sample_data=(api_key is None))
+    if not api_key:
+        raise SystemExit("API_FOOTBALL_KEY is required; synthetic training is disabled")
+    train_models(api_key=api_key, use_sample_data=False)

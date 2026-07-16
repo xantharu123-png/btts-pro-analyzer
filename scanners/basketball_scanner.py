@@ -1,16 +1,12 @@
 """
-BASKETBALL & NHL SCANNER - REAL IMPLEMENTATION
-NBA + Euroleague + NHL - NO DEMOS, ONLY REAL DATA
+BASKETBALL & NHL LIVE OBSERVATION SCANNER
+API observations are real; no betting probability is inferred from score alone.
 
 Features:
 - Real NBA API Integration (stats.nba.com)
 - Real Euroleague API Integration
 - Real NHL API Integration (api-web.nhle.com)
-- Live Quarter Winner Predictions
-- Live Total Points Analysis
-- Live Player Props Tracking
-- Momentum Detection
-- Pace Analysis
+- Live scores and clock-aware straight-line scoring projections
 
 Author: Miroslav
 Date: January 2026
@@ -19,9 +15,13 @@ Date: January 2026
 import streamlit as st
 import requests
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import time
+import re
+
+logger = logging.getLogger(__name__)
 
 class BasketballScanner:
     """
@@ -60,6 +60,9 @@ class BasketballScanner:
             
             if response.status_code == 200:
                 data = response.json()
+                if not isinstance(data, dict):
+                    logger.warning("NHL live API returned an invalid payload")
+                    return []
                 live_games = []
                 
                 # NHL API returns games grouped by date
@@ -67,90 +70,51 @@ class BasketballScanner:
                     for game in date_group.get('games', []):
                         # LIVE, CRIT (critical/close game), or in progress
                         if game.get('gameState') in ['LIVE', 'CRIT']:
-                            live_games.append(self._parse_nhl_game(game))
+                            parsed = self._parse_nhl_game(game)
+                            if parsed:
+                                live_games.append(parsed)
                 
                 return live_games
-            else:
-                return []
+            logger.warning("NHL live API returned HTTP %s", response.status_code)
+            return []
                 
-        except Exception as e:
-            st.info(f"NHL: {str(e)[:50]}")
+        except requests.RequestException as exc:
+            logger.warning("NHL live data request failed: %s", type(exc).__name__)
             return []
     
-    def _parse_nhl_game(self, game: Dict) -> Dict:
+    def _parse_nhl_game(self, game: Dict) -> Optional[Dict]:
         """Parse NHL game data into our format"""
         home = game.get('homeTeam', {})
         away = game.get('awayTeam', {})
+        home_score = home.get('score')
+        away_score = away.get('score')
+        period = game.get('period')
+        clock = game.get('clock')
+        if (
+            not isinstance(home_score, (int, float))
+            or not isinstance(away_score, (int, float))
+            or not isinstance(period, int)
+            or not isinstance(clock, dict)
+            or not isinstance(clock.get('timeRemaining'), str)
+        ):
+            return None
         
         return {
             'league': 'NHL',
             'game_id': game.get('id'),
             'home_team': home.get('abbrev', 'HOME'),
             'away_team': away.get('abbrev', 'AWAY'),
-            'home_score': home.get('score', 0),
-            'away_score': away.get('score', 0),
-            'period': game.get('period', 1),
-            'game_clock': game.get('clock', {}).get('timeRemaining', '20:00') if isinstance(game.get('clock'), dict) else '20:00',
+            'home_score': home_score,
+            'away_score': away_score,
+            'period': period,
+            'game_clock': clock['timeRemaining'],
             'game_status': game.get('gameState', 'Live'),
             'venue': game.get('venue', {}).get('default', 'Unknown')
         }
     
     def analyze_nhl_game(self, game: Dict) -> Optional[Dict]:
-        """Analyze NHL game for betting opportunities"""
-        try:
-            home_score = game.get('home_score', 0)
-            away_score = game.get('away_score', 0)
-            period = game.get('period', 1)
-            total = home_score + away_score
-            
-            # Simple analysis based on score and period
-            opportunities = []
-            
-            # Over/Under analysis
-            if period <= 2:
-                pace = total / max(period, 1)
-                projected = pace * 3
-                
-                if projected >= 6.5:
-                    opportunities.append({
-                        'market': 'Over 5.5 Goals',
-                        'edge': min(round((projected - 5.5) * 10, 1), 15),
-                        'confidence': min(65 + int(projected * 3), 90)
-                    })
-                elif projected <= 4:
-                    opportunities.append({
-                        'market': 'Under 5.5 Goals',
-                        'edge': min(round((5.5 - projected) * 8, 1), 12),
-                        'confidence': min(60 + int((5.5 - projected) * 10), 85)
-                    })
-            
-            # Winner analysis
-            diff = home_score - away_score
-            if abs(diff) >= 2 and period >= 2:
-                leader = game['home_team'] if diff > 0 else game['away_team']
-                opportunities.append({
-                    'market': f'{leader} to Win',
-                    'edge': min(abs(diff) * 5, 15),
-                    'confidence': min(70 + abs(diff) * 5, 92)
-                })
-            
-            if opportunities:
-                best = max(opportunities, key=lambda x: x['confidence'])
-                return {
-                    'game': f"{game['away_team']} @ {game['home_team']}",
-                    'score': f"{away_score}-{home_score}",
-                    'period': f"P{period}",
-                    'market': best['market'],
-                    'edge': best['edge'],
-                    'confidence': best['confidence'],
-                    'roi': round(best['edge'] * 1.2, 1),
-                    'odds': round(100 / best['confidence'] + 0.1, 2)
-                }
-            
-            return None
-            
-        except Exception:
-            return None
+        """No NHL signal is emitted without team-strength and goalie inputs."""
+        return None
         
     def get_live_nba_games(self) -> List[Dict]:
         """
@@ -162,36 +126,52 @@ class BasketballScanner:
             
             if response.status_code == 200:
                 data = response.json()
+                if not isinstance(data, dict):
+                    logger.warning("NBA live API returned an invalid payload")
+                    return []
                 games = data.get('scoreboard', {}).get('games', [])
                 
                 live_games = []
                 for game in games:
                     if game.get('gameStatus') == 2:  # 2 = Live
-                        live_games.append(self._parse_nba_game(game))
+                        parsed = self._parse_nba_game(game)
+                        if parsed:
+                            live_games.append(parsed)
                 
                 return live_games
             else:
-                st.error(f"NBA API Error: {response.status_code}")
+                logger.warning("NBA live API returned HTTP %s", response.status_code)
                 return []
                 
-        except Exception as e:
-            st.error(f"Error fetching NBA games: {e}")
+        except requests.RequestException as exc:
+            logger.warning("NBA live data request failed: %s", type(exc).__name__)
             return []
     
-    def _parse_nba_game(self, game: Dict) -> Dict:
+    def _parse_nba_game(self, game: Dict) -> Optional[Dict]:
         """Parse NBA game data into our format"""
         home = game.get('homeTeam', {})
         away = game.get('awayTeam', {})
+        home_score = home.get('score')
+        away_score = away.get('score')
+        period = game.get('period')
+        clock = game.get('gameClock')
+        if (
+            not isinstance(home_score, (int, float))
+            or not isinstance(away_score, (int, float))
+            or not isinstance(period, int)
+            or not isinstance(clock, str)
+        ):
+            return None
         
         return {
             'league': 'NBA',
             'game_id': game.get('gameId'),
             'home_team': home.get('teamTricode', 'HOME'),
             'away_team': away.get('teamTricode', 'AWAY'),
-            'home_score': home.get('score', 0),
-            'away_score': away.get('score', 0),
-            'period': game.get('period', 1),
-            'game_clock': game.get('gameClock', '12:00'),
+            'home_score': home_score,
+            'away_score': away_score,
+            'period': period,
+            'game_clock': clock,
             'game_status': game.get('gameStatusText', 'Live'),
             'home_stats': home.get('statistics', {}),
             'away_stats': away.get('statistics', {}),
@@ -208,31 +188,47 @@ class BasketballScanner:
             
             if response.status_code == 200:
                 data = response.json()
+                if not isinstance(data, list):
+                    logger.warning("Euroleague live API returned an invalid payload")
+                    return []
                 
                 live_games = []
                 for game in data:
                     if game.get('Live', False):
-                        live_games.append(self._parse_euroleague_game(game))
+                        parsed = self._parse_euroleague_game(game)
+                        if parsed:
+                            live_games.append(parsed)
                 
                 return live_games
-            else:
-                return []
+            logger.warning("Euroleague live API returned HTTP %s", response.status_code)
+            return []
                 
-        except Exception as e:
-            st.warning(f"Euroleague API currently unavailable: {e}")
+        except requests.RequestException as exc:
+            logger.warning("Euroleague live data request failed: %s", type(exc).__name__)
             return []
     
-    def _parse_euroleague_game(self, game: Dict) -> Dict:
+    def _parse_euroleague_game(self, game: Dict) -> Optional[Dict]:
         """Parse Euroleague game data"""
+        home_score = game.get('HomeScore')
+        away_score = game.get('AwayScore')
+        period = game.get('Quarter')
+        clock = game.get('Clock')
+        if (
+            not isinstance(home_score, (int, float))
+            or not isinstance(away_score, (int, float))
+            or not isinstance(period, int)
+            or not isinstance(clock, str)
+        ):
+            return None
         return {
             'league': 'Euroleague',
             'game_id': game.get('GameCode'),
             'home_team': game.get('HomeTeam', {}).get('Name', 'HOME'),
             'away_team': game.get('AwayTeam', {}).get('Name', 'AWAY'),
-            'home_score': game.get('HomeScore', 0),
-            'away_score': game.get('AwayScore', 0),
-            'period': game.get('Quarter', 1),
-            'game_clock': game.get('Clock', '10:00'),
+            'home_score': home_score,
+            'away_score': away_score,
+            'period': period,
+            'game_clock': clock,
             'game_status': 'Live',
         }
     
@@ -246,162 +242,66 @@ class BasketballScanner:
         all_games = []
         
         if league in ["NBA", "All"]:
-            st.info("🔍 Fetching live NBA games...")
             nba_games = self.get_live_nba_games()
             all_games.extend(nba_games)
         
         if league in ["Euroleague", "All"]:
-            st.info("🔍 Fetching live Euroleague games...")
             euroleague_games = self.get_live_euroleague_games()
             all_games.extend(euroleague_games)
         
         return all_games
     
-    def calculate_pace(self, game: Dict) -> float:
-        """
-        Calculate game pace (possessions per 48 minutes)
-        """
-        period = game.get('period', 1)
-        home_score = game.get('home_score', 0)
-        away_score = game.get('away_score', 0)
-        
-        # Estimate possessions
-        total_score = home_score + away_score
-        
-        # Rough pace calculation
-        if period > 0:
-            estimated_possessions = total_score / 2  # Rough estimate
-            minutes_played = (period - 1) * 12 + 2  # Assuming 2 min into current period
-            
-            if minutes_played > 0:
-                pace = (estimated_possessions / minutes_played) * 48
-                return round(pace, 1)
-        
-        return 100.0  # Default NBA average
+    @staticmethod
+    def _clock_minutes_remaining(clock) -> Optional[float]:
+        if not isinstance(clock, str):
+            return None
+        iso_match = re.fullmatch(r"PT(?:(\d+)M)?([\d.]+)S", clock)
+        if iso_match:
+            minutes = int(iso_match.group(1) or 0)
+            seconds = float(iso_match.group(2))
+            return minutes + seconds / 60.0
+        plain_match = re.fullmatch(r"(\d+):(\d{2})", clock)
+        if plain_match:
+            return int(plain_match.group(1)) + int(plain_match.group(2)) / 60.0
+        return None
+
+    def calculate_scoring_projection(self, game: Dict) -> Optional[float]:
+        """Straight-line projection from score and actual game clock."""
+        try:
+            period = int(game.get('period'))
+            total_score = float(game.get('home_score')) + float(game.get('away_score'))
+        except (TypeError, ValueError):
+            return None
+        if period < 1 or period > 4:
+            return None
+
+        period_minutes = 12 if game.get('league') == 'NBA' else 10
+        remaining = self._clock_minutes_remaining(game.get('game_clock'))
+        if remaining is None or not 0 <= remaining <= period_minutes:
+            return None
+        elapsed = (period - 1) * period_minutes + (period_minutes - remaining)
+        regulation_minutes = period_minutes * 4
+        if elapsed < 2:
+            return None
+        return round(total_score / elapsed * regulation_minutes, 1)
     
     def analyze_quarter_winner(self, game: Dict) -> Optional[Dict]:
-        """
-        Analyze quarter winner opportunity
-        REAL LOGIC - NO DEMO DATA
-        """
-        home_team = game['home_team']
-        away_team = game['away_team']
-        home_score = game['home_score']
-        away_score = game['away_score']
-        period = game.get('period', 1)
-        
-        # Only analyze if in first 3 quarters
-        if period >= 4:
-            return None
-        
-        score_diff = away_score - home_score
-        
-        # Fade overreaction strategy
-        # If team is down significantly after Q1, bet on them for Q2
-        if period == 1 and abs(score_diff) >= 7:
-            
-            underdog = home_team if score_diff > 0 else away_team
-            favorite = away_team if score_diff > 0 else home_team
-            
-            # Calculate edge based on score differential
-            edge = min(abs(score_diff) * 1.5, 20)  # Cap at 20%
-            roi = edge + 3  # ROI slightly higher than edge
-            confidence = 70 + min(abs(score_diff), 15)  # 70-85% range
-            
-            # Estimated odds (inverse of probability)
-            prob = (confidence + edge) / 100
-            estimated_odds = round(1 / prob, 2)
-            
-            return {
-                'type': 'quarter_winner',
-                'team': underdog,
-                'market': f'Q{period + 1} Winner',
-                'odds': estimated_odds,
-                'edge': round(edge, 1),
-                'roi': round(roi, 1),
-                'confidence': round(confidence, 0),
-                'stake': '3-5%' if confidence >= 80 else '2-3%',
-                'reasoning': [
-                    f'{underdog} down {abs(score_diff)} after Q{period}',
-                    f'Market overreacting to Q{period} performance',
-                    f'{favorite} likely to regress to mean',
-                    'Historical comeback pattern in next quarter',
-                    'Fade recency bias opportunity'
-                ]
-            }
-        
+        """No quarter-winner signal is emitted from score differential alone."""
         return None
     
     def analyze_total_points(self, game: Dict) -> Optional[Dict]:
-        """
-        Analyze total points over/under
-        REAL LOGIC based on current pace
-        """
-        pace = self.calculate_pace(game)
-        period = game.get('period', 1)
-        home_score = game.get('home_score', 0)
-        away_score = game.get('away_score', 0)
-        current_total = home_score + away_score
-        
-        # NBA average pace is ~100
-        nba_avg_pace = 100.0
-        pace_diff = pace - nba_avg_pace
-        
-        # If pace is significantly above average
-        if pace_diff > 3 and period <= 2:
-            
-            # Project final score
-            minutes_played = (period - 1) * 12 + 6  # Estimate
-            minutes_remaining = 48 - minutes_played
-            
-            if minutes_played > 0:
-                points_per_min = current_total / minutes_played
-                projected_remaining = points_per_min * minutes_remaining
-                projected_total = current_total + projected_remaining
-                
-                # Set line slightly below projection
-                line = int(projected_total) - 5
-                
-                edge = min(pace_diff * 2, 15)
-                roi = edge + 3
-                confidence = 70 + min(int(pace_diff * 2), 15)
-                
-                prob = (confidence + edge) / 100
-                estimated_odds = round(1 / prob, 2)
-                
-                return {
-                    'type': 'total_points',
-                    'market': f'Total Points Over {line}.5',
-                    'odds': estimated_odds,
-                    'edge': round(edge, 1),
-                    'roi': round(roi, 1),
-                    'confidence': round(confidence, 0),
-                    'stake': '2-3%',
-                    'reasoning': [
-                        f'Current pace: {pace} (avg: {nba_avg_pace})',
-                        f'Projected final score: ~{int(projected_total)}',
-                        f'Both teams scoring efficiently',
-                        f'Pace differential: +{pace_diff} possessions',
-                        'Over has strong value based on pace'
-                    ]
-                }
-        
+        """No totals signal is emitted without a validated scoring model and line."""
         return None
     
     def analyze_player_props(self, game: Dict) -> List[Dict]:
-        """
-        Analyze player prop opportunities
-        NOTE: Requires detailed player stats - placeholder for now
-        """
-        # This would require additional API calls for player stats
-        # Leaving as TODO for Phase 2
+        """No player output is emitted without detailed player statistics."""
         return []
 
 
 def create_basketball_tab(league: str = "All"):
     """
     Main Basketball Tab Creator
-    NO DEMOS - ONLY REAL DATA
+    API-backed live observations.
     """
     st.header("🏀 BASKETBALL LIVE SCANNER")
     st.markdown(f"### {league} - Real-Time Analysis")
@@ -414,13 +314,6 @@ def create_basketball_tab(league: str = "All"):
     
     if not games:
         st.warning(f"⚠️ No live {league} games at this moment")
-        st.info("""
-        **When are games typically live?**
-        - NBA: 7:00 PM - 10:30 PM ET (Game days: Tue, Wed, Thu, Fri, Sat, Sun)
-        - Euroleague: 6:00 PM - 9:00 PM CET (Game days: Tue, Thu, Fri)
-        
-        💡 Check back during game times for live analysis!
-        """)
         return
     
     st.success(f"✅ Found {len(games)} live {league} game(s)!")
@@ -431,9 +324,7 @@ def create_basketball_tab(league: str = "All"):
 
 
 def analyze_and_display_game(game: Dict, scanner: BasketballScanner):
-    """
-    Analyze and display a single game with opportunities
-    """
+    """Display one live game and its clock-aware score projection."""
     home = game['home_team']
     away = game['away_team']
     period = game.get('period', 1)
@@ -456,81 +347,21 @@ def analyze_and_display_game(game: Dict, scanner: BasketballScanner):
                      f"{leader} +{score_diff}")
         
         with col3:
-            pace = scanner.calculate_pace(game)
-            st.metric("Pace", f"{pace}", 
-                     f"{'Fast' if pace > 105 else 'Normal' if pace > 95 else 'Slow'}")
+            projection = scanner.calculate_scoring_projection(game)
+            st.metric(
+                "Straight-line total",
+                f"{projection:.1f}" if projection is not None else "n/a",
+            )
         
         with col4:
             st.metric("Period", f"Q{period}", clock)
         
         st.markdown("---")
         
-        # Analyze opportunities
-        st.markdown("### 🎯 Opportunities")
-        
-        opportunities_found = False
-        
-        # Quarter Winner
-        quarter_opp = scanner.analyze_quarter_winner(game)
-        if quarter_opp:
-            display_opportunity(quarter_opp)
-            opportunities_found = True
-        
-        # Total Points
-        total_opp = scanner.analyze_total_points(game)
-        if total_opp:
-            display_opportunity(total_opp)
-            opportunities_found = True
-        
-        # Player Props
-        player_opps = scanner.analyze_player_props(game)
-        for opp in player_opps:
-            display_opportunity(opp)
-            opportunities_found = True
-        
-        if not opportunities_found:
-            st.info("ℹ️ No high-value opportunities detected for this game at the moment")
-
-
-def display_opportunity(opp: Dict):
-    """Display a betting opportunity"""
-    
-    # Determine bet strength
-    if opp['confidence'] >= 85:
-        strength = "🔥🔥 ULTRA STRONG"
-        color = "#e74c3c"
-    elif opp['confidence'] >= 80:
-        strength = "🔥 STRONG"
-        color = "#e67e22"
-    elif opp['confidence'] >= 75:
-        strength = "✅ GOOD"
-        color = "#27ae60"
-    else:
-        strength = "⚠️ CONSIDER"
-        color = "#95a5a6"
-    
-    market = opp.get('market', '')
-    team = opp.get('team', '')
-    bet_text = f"{team} {market}" if team else market
-    
-    st.markdown(f"""
-    <div style='padding: 1.5rem; border-left: 5px solid {color}; background: #f8f9fa; 
-                margin: 1rem 0; border-radius: 8px;'>
-        <h4>{strength}: {bet_text} @ {opp.get('odds', 0)}</h4>
-        <p style='margin: 0.5rem 0;'>
-            <b>Edge:</b> +{opp['edge']}% | 
-            <b>Expected ROI:</b> +{opp['roi']}% | 
-            <b>Confidence:</b> {opp['confidence']}%
-        </p>
-        <p style='margin: 0.5rem 0;'>
-            <b>💰 Stake Recommendation:</b> {opp.get('stake', '2-3%')} of bankroll
-        </p>
-        <p style='margin: 0.5rem 0;'><b>Analysis:</b></p>
-        <ul style='margin: 0.5rem 0; padding-left: 1.5rem;'>
-            {''.join(f'<li>{reason}</li>' for reason in opp.get('reasoning', []))}
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
+        st.info(
+            "Live observation only. Team-strength, possession, lineup, and "
+            "out-of-sample calibration are required before a model signal is emitted."
+        )
 
 
 # For standalone testing

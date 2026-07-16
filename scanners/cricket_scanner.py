@@ -1,20 +1,17 @@
 """
-CRICKET SCANNER - REAL IMPLEMENTATION
-IPL/T20/ODI Live Matches - NO DEMOS
+CRICKET LIVE OBSERVATION SCANNER
+API observations are displayed without manufacturing betting probabilities.
 
 Features:
 - Real Cricbuzz API Integration
 - Live Match Scanning
-- Over-by-Over Predictions
-- Powerplay Analysis (Overs 1-6)
-- Death Overs Analysis (Overs 16-20)
-- Total Runs Predictions
+- Innings state and exact run-rate calculation
 
 APIs:
 - Cricbuzz API (primary)
 - Cricinfo backup
 
-Expected ROI: 12-18%
+No ROI claim is made without historical market prices and settlement data.
 
 Author: Miroslav
 Date: January 2026
@@ -23,8 +20,12 @@ Date: January 2026
 import streamlit as st
 import requests
 import json
+import logging
 from datetime import datetime
 from typing import Dict, List, Optional
+from config_loader import load_app_config
+
+logger = logging.getLogger(__name__)
 
 class CricketScanner:
     """
@@ -36,9 +37,11 @@ class CricketScanner:
         # Cricbuzz unofficial API endpoints
         self.cricbuzz_base = "https://cricbuzz-cricket.p.rapidapi.com"
         
-        # Note: RapidAPI key needed for production
+        config = load_app_config(st)
+        self.rapidapi_key = config.rapidapi_key
+        self.cricket_api_key = config.cricket_api_key
         self.headers = {
-            'X-RapidAPI-Key': 'YOUR_RAPIDAPI_KEY',  # Replace with actual key
+            'X-RapidAPI-Key': self.rapidapi_key or '',
             'X-RapidAPI-Host': 'cricbuzz-cricket.p.rapidapi.com'
         }
         
@@ -49,32 +52,32 @@ class CricketScanner:
         """
         Get real-time cricket matches
         """
+        if not self.rapidapi_key and not self.cricket_api_key:
+            return []
         try:
-            # Try Cricbuzz API first
-            url = f"{self.cricbuzz_base}/matches/v1/live"
-            
-            response = requests.get(url, headers=self.headers, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                matches = data.get('typeMatches', [])
-                
-                live_matches = []
-                for match_type in matches:
-                    for series in match_type.get('seriesMatches', []):
-                        for match in series.get('seriesAdWrapper', {}).get('matches', []):
-                            if match.get('matchInfo', {}).get('state') == 'In Progress':
-                                parsed = self._parse_match(match)
-                                if parsed:
-                                    live_matches.append(parsed)
-                
-                return live_matches
-            else:
-                # Fallback to alternative method
-                return self._get_matches_alternative()
+            if self.rapidapi_key:
+                url = f"{self.cricbuzz_base}/matches/v1/live"
+                response = requests.get(url, headers=self.headers, timeout=10)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    matches = data.get('typeMatches', [])
+
+                    live_matches = []
+                    for match_type in matches:
+                        for series in match_type.get('seriesMatches', []):
+                            wrapper = series.get('seriesAdWrapper') or {}
+                            for match in wrapper.get('matches', []):
+                                if match.get('matchInfo', {}).get('state') == 'In Progress':
+                                    parsed = self._parse_match(match)
+                                    if parsed:
+                                        live_matches.append(parsed)
+
+                    return live_matches
+            return self._get_matches_alternative()
                 
         except Exception as e:
-            st.error(f"Error fetching cricket matches: {e}")
+            logger.warning("Cricket live request failed: %s", type(e).__name__)
             return []
     
     def _get_matches_alternative(self) -> List[Dict]:
@@ -84,7 +87,9 @@ class CricketScanner:
         try:
             # This would require API key from cricapi.com
             url = f"{self.public_api}/currentMatches"
-            params = {'apikey': 'YOUR_API_KEY', 'offset': 0}
+            if not self.cricket_api_key:
+                return []
+            params = {'apikey': self.cricket_api_key, 'offset': 0}
             
             response = requests.get(url, params=params, timeout=10)
             
@@ -102,7 +107,7 @@ class CricketScanner:
                 return live_matches
             
             return []
-        except:
+        except requests.RequestException:
             return []
     
     def _parse_match(self, match: Dict) -> Optional[Dict]:
@@ -121,19 +126,19 @@ class CricketScanner:
                 'tournament': match_info.get('seriesName', 'Unknown'),
                 'team1': match_info.get('team1', {}).get('teamName', 'Team 1'),
                 'team2': match_info.get('team2', {}).get('teamName', 'Team 2'),
-                'team1_score': team1_innings.get('runs', 0),
-                'team1_wickets': team1_innings.get('wickets', 0),
-                'team1_overs': team1_innings.get('overs', 0),
-                'team2_score': team2_innings.get('runs', 0),
-                'team2_wickets': team2_innings.get('wickets', 0),
-                'team2_overs': team2_innings.get('overs', 0),
+                'team1_score': team1_innings.get('runs'),
+                'team1_wickets': team1_innings.get('wickets'),
+                'team1_overs': team1_innings.get('overs'),
+                'team2_score': team2_innings.get('runs'),
+                'team2_wickets': team2_innings.get('wickets'),
+                'team2_overs': team2_innings.get('overs'),
                 'batting_team': self._determine_batting_team(match_score),
                 'current_over': self._get_current_over(match_score),
                 'run_rate': self._calculate_run_rate(match_score),
                 'status': match_info.get('status', 'Live')
             }
         except Exception as e:
-            st.warning(f"Error parsing match: {e}")
+            logger.warning("Cricket match payload rejected: %s", type(e).__name__)
             return None
     
     def _parse_match_alternative(self, match: Dict) -> Optional[Dict]:
@@ -150,142 +155,55 @@ class CricketScanner:
     
     def _determine_batting_team(self, match_score: Dict) -> str:
         """Determine which team is currently batting"""
-        # Logic to determine batting team from score data
-        return 'team1'  # Simplified
+        team2 = match_score.get('team2Score', {}).get('inngs1', {})
+        return 'team2' if team2 and team2.get('overs') is not None else 'team1'
     
-    def _get_current_over(self, match_score: Dict) -> float:
+    def _get_current_over(self, match_score: Dict) -> Optional[float]:
         """Get current over being bowled"""
-        # Extract from match score
-        return 8.3  # Simplified
+        batting_team = self._determine_batting_team(match_score)
+        score_key = 'team2Score' if batting_team == 'team2' else 'team1Score'
+        innings = match_score.get(score_key, {}).get('inngs1', {})
+        try:
+            value = innings.get('overs')
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
     
-    def _calculate_run_rate(self, match_score: Dict) -> float:
+    def _calculate_run_rate(self, match_score: Dict) -> Optional[float]:
         """Calculate current run rate"""
-        # Calculate from scores
-        return 8.5  # Simplified
+        batting_team = self._determine_batting_team(match_score)
+        score_key = 'team2Score' if batting_team == 'team2' else 'team1Score'
+        innings = match_score.get(score_key, {}).get('inngs1', {})
+        try:
+            runs_value = innings.get('runs')
+            overs_value = innings.get('overs')
+            if runs_value is None or overs_value is None:
+                return None
+            runs = float(runs_value)
+            overs = float(overs_value)
+        except (TypeError, ValueError):
+            return None
+
+        completed_overs = int(overs)
+        balls_in_over = int(round((overs - completed_overs) * 10))
+        if balls_in_over < 0 or balls_in_over > 5:
+            return None
+        balls = completed_overs * 6 + balls_in_over
+        return round(runs * 6 / balls, 2) if balls > 0 else None
     
     def analyze_current_over(self, match: Dict) -> Optional[Dict]:
-        """
-        Analyze current over runs prediction
-        """
-        current_over = match.get('current_over', 0)
-        run_rate = match.get('run_rate', 0)
-        format_type = match.get('format', 'T20')
-        
-        # Powerplay Analysis (Overs 1-6 in T20)
-        if format_type == 'T20' and current_over <= 6:
-            
-            # High aggression expected in powerplay
-            if run_rate >= 8.0:
-                
-                edge = min((run_rate - 6) * 3, 20)
-                roi = edge + 4
-                confidence = 70 + min(int((run_rate - 6) * 5), 15)
-                
-                prob = (confidence + edge) / 100
-                estimated_odds = round(1 / prob, 2)
-                
-                next_over = int(current_over) + 1
-                
-                return {
-                    'type': 'over_runs',
-                    'market': f'Over {next_over} Runs Over 10.5',
-                    'odds': estimated_odds,
-                    'edge': round(edge, 1),
-                    'roi': round(roi, 1),
-                    'confidence': round(confidence, 0),
-                    'stake': '3-5%' if confidence >= 80 else '2-3%',
-                    'reasoning': [
-                        f'Powerplay phase (Over {int(current_over)})',
-                        f'Current run rate: {run_rate}',
-                        'Aggressive batting expected',
-                        'Field restrictions in place',
-                        'High scoring opportunity'
-                    ]
-                }
-        
-        # Death Overs Analysis (Overs 16-20 in T20)
-        elif format_type == 'T20' and current_over >= 16:
-            
-            # Death overs = maximum aggression
-            edge = 15
-            roi = 20
-            confidence = 80
-            
-            prob = (confidence + edge) / 100
-            estimated_odds = round(1 / prob, 2)
-            
-            next_over = int(current_over) + 1
-            
-            return {
-                'type': 'over_runs',
-                'market': f'Over {next_over} Runs Over 12.5',
-                'odds': estimated_odds,
-                'edge': edge,
-                'roi': roi,
-                'confidence': confidence,
-                'stake': '3-5%',
-                'reasoning': [
-                    f'Death overs phase (Over {int(current_over)})',
-                    'Maximum aggression expected',
-                    'Batsmen going for big hits',
-                    'Death bowling difficult',
-                    'Expect 12-18 runs'
-                ]
-            }
-        
+        """No next-over signal is emitted without ball-level batter/bowler inputs."""
         return None
     
     def analyze_total_runs(self, match: Dict) -> Optional[Dict]:
-        """
-        Analyze match total runs prediction
-        """
-        current_score = match.get('team1_score', 0) or match.get('team2_score', 0)
-        current_overs = match.get('team1_overs', 0) or match.get('team2_overs', 0)
-        run_rate = match.get('run_rate', 0)
-        format_type = match.get('format', 'T20')
-        
-        if format_type == 'T20' and current_overs >= 10 and current_overs <= 15:
-            
-            # Project final score
-            overs_remaining = 20 - current_overs
-            projected_runs = current_score + (run_rate * overs_remaining)
-            
-            # Set line
-            line = int(projected_runs) - 10
-            
-            if projected_runs >= 180:
-                
-                edge = 12
-                roi = 15
-                confidence = 78
-                
-                prob = (confidence + edge) / 100
-                estimated_odds = round(1 / prob, 2)
-                
-                return {
-                    'type': 'total_runs',
-                    'market': f'Total Runs Over {line}.5',
-                    'odds': estimated_odds,
-                    'edge': edge,
-                    'roi': roi,
-                    'confidence': confidence,
-                    'stake': '2-3%',
-                    'reasoning': [
-                        f'Current score: {current_score}/{match.get("team1_wickets", 0)} ({current_overs} overs)',
-                        f'Run rate: {run_rate}',
-                        f'Projected: ~{int(projected_runs)} runs',
-                        'Strong batting display',
-                        'Over has value'
-                    ]
-                }
-        
+        """No innings-total signal is emitted from run rate alone."""
         return None
 
 
 def create_cricket_tab():
     """
     Main Cricket Tab Creator
-    NO DEMOS - ONLY REAL DATA
+    API-backed live observations.
     """
     st.header("🏏 CRICKET LIVE SCANNER")
     st.markdown("### IPL/T20/ODI - Real-Time Analysis")
@@ -298,25 +216,8 @@ def create_cricket_tab():
     
     if not matches:
         st.warning("⚠️ No live cricket matches at this moment")
-        st.info("""
-        **When are matches typically live?**
-        - **IPL (Indian Premier League):** April-May (~70 matches, 2 months)
-        - **International Matches:** Year-round
-          - Test Cricket (5 days)
-          - ODI (One Day International)
-          - T20 Internationals
-        - **Other T20 Leagues:**
-          - BBL (Big Bash League - Australia): Dec-Feb
-          - PSL (Pakistan Super League): Feb-Mar
-          - CPL (Caribbean Premier League): Aug-Sep
-        - **Peak times:** 14:00-23:00 IST / 08:30-17:30 GMT
-        
-        💡 Check back during tournament seasons!
-        
-        **Note:** Cricket Scanner requires API keys:
-        - Cricbuzz API (via RapidAPI)
-        - Or Cricket API (cricapi.com)
-        """)
+        if not scanner.rapidapi_key and not scanner.cricket_api_key:
+            st.info("Configure `RAPIDAPI_KEY` or `CRICKET_API_KEY` to load matches.")
         return
     
     st.success(f"✅ Found {len(matches)} live cricket match(es)!")
@@ -343,78 +244,29 @@ def analyze_and_display_match(match: Dict, scanner: CricketScanner):
         with col1:
             st.metric("Format", match.get('format', 'T20'))
         
+        batting_team = match.get('batting_team')
+        score_prefix = 'team2' if batting_team == 'team2' else 'team1'
+        runs = match.get(f'{score_prefix}_score')
+        wickets = match.get(f'{score_prefix}_wickets')
+        overs = match.get(f'{score_prefix}_overs')
+
         with col2:
-            score = f"{match.get('team1_score', 0)}/{match.get('team1_wickets', 0)}"
+            score = f"{runs}/{wickets}" if runs is not None and wickets is not None else "n/a"
             st.metric("Current Score", score)
         
         with col3:
-            overs = match.get('team1_overs', 0)
-            st.metric("Overs", f"{overs}/20")
+            st.metric("Overs", str(overs) if overs is not None else "n/a")
         
         with col4:
-            run_rate = match.get('run_rate', 0)
-            st.metric("Run Rate", f"{run_rate}")
+            run_rate = match.get('run_rate')
+            st.metric("Run Rate", str(run_rate) if run_rate is not None else "n/a")
         
         st.markdown("---")
         
-        # Analyze opportunities
-        st.markdown("### 🎯 Opportunities")
-        
-        opportunities_found = False
-        
-        # Current Over
-        over_opp = scanner.analyze_current_over(match)
-        if over_opp:
-            display_opportunity(over_opp)
-            opportunities_found = True
-        
-        # Total Runs
-        total_opp = scanner.analyze_total_runs(match)
-        if total_opp:
-            display_opportunity(total_opp)
-            opportunities_found = True
-        
-        if not opportunities_found:
-            st.info("ℹ️ No high-value opportunities detected for this match at the moment")
-
-
-def display_opportunity(opp: Dict):
-    """Display a betting opportunity"""
-    
-    # Determine bet strength
-    if opp['confidence'] >= 85:
-        strength = "🔥🔥 ULTRA STRONG"
-        color = "#e74c3c"
-    elif opp['confidence'] >= 80:
-        strength = "🔥 STRONG"
-        color = "#e67e22"
-    elif opp['confidence'] >= 75:
-        strength = "✅ GOOD"
-        color = "#27ae60"
-    else:
-        strength = "⚠️ CONSIDER"
-        color = "#95a5a6"
-    
-    market = opp.get('market', '')
-    
-    st.markdown(f"""
-    <div style='padding: 1.5rem; border-left: 5px solid {color}; background: #f8f9fa; 
-                margin: 1rem 0; border-radius: 8px;'>
-        <h4>{strength}: {market} @ {opp.get('odds', 0)}</h4>
-        <p style='margin: 0.5rem 0;'>
-            <b>Edge:</b> +{opp['edge']}% | 
-            <b>Expected ROI:</b> +{opp['roi']}% | 
-            <b>Confidence:</b> {opp['confidence']}%
-        </p>
-        <p style='margin: 0.5rem 0;'>
-            <b>💰 Stake Recommendation:</b> {opp.get('stake', '2-3%')} of bankroll
-        </p>
-        <p style='margin: 0.5rem 0;'><b>Analysis:</b></p>
-        <ul style='margin: 0.5rem 0; padding-left: 1.5rem;'>
-            {''.join(f'<li>{reason}</li>' for reason in opp.get('reasoning', []))}
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
+        st.info(
+            "Live observation only. Ball-level batter, bowler, wicket-state, and "
+            "out-of-sample calibration are required before a model signal is emitted."
+        )
 
 
 # For standalone testing
