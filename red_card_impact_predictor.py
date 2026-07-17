@@ -46,6 +46,8 @@ class RedCardPrediction:
     
     data_quality: str
     too_late_for_signal: bool
+    calibrated: bool = False
+    actionable: bool = False
 
 
 class RedCardImpactPredictor:
@@ -256,15 +258,15 @@ class RedCardImpactPredictor:
         if remaining >= 10:
             # Gegner Over 0.5 Tore (in verbleibender Zeit)
             if next_by_opponent >= 0.55:
-                model_signals.append(f"{opponent.upper()} next goal: {next_by_opponent*100:.0f}%")
+                model_signals.append(f"{opponent.upper()} next-goal estimate: {next_by_opponent*100:.0f}%")
             
             # Gegner gewinnt
             if opponent_wins >= 0.45 and remaining >= 20:
-                model_signals.append(f"{opponent.upper()} result signal: {opponent_wins*100:.0f}%")
+                model_signals.append(f"{opponent.upper()} result estimate: {opponent_wins*100:.0f}%")
             
             # Under X.5 (weil 10 Mann defensiver)
             if remaining >= 15 and no_goals_prob >= 0.35:
-                model_signals.append(f"No-more-goals signal: {no_goals_prob*100:.0f}%")
+                model_signals.append(f"No-more-goals estimate: {no_goals_prob*100:.0f}%")
         
         # Risk flags for model outputs that remain especially weak
         # BTTS - 10-Mann-Team trifft selten
@@ -361,17 +363,17 @@ Unentschieden: {prediction.draw*100:.0f}%
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-💡 *MODEL SIGNALS (NO MARKET PRICE):*
+💡 *EXPLORATORY ESTIMATES (NOT ACTIONABLE):*
 """
         
         if prediction.too_late_for_signal:
-            output += "\nToo little time for a useful model signal.\n"
+            output += "\nToo little time for a useful exploratory estimate.\n"
         else:
             if prediction.model_signals:
                 for signal in prediction.model_signals:
                     output += f"\n{signal}"
             else:
-                output += "\nNo clear model signal"
+                output += "\nNo clear exploratory estimate"
         
         output += "\n\n⚠️ *RISK FLAGS:*"
         if prediction.risk_flags:

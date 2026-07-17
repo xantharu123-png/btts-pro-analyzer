@@ -33,6 +33,7 @@ class TennisScanner:
     """
     
     def __init__(self):
+        self.last_error: Optional[str] = None
         # Sofascore API
         self.sofascore_base = "https://api.sofascore.com/api/v1"
         self.headers = {
@@ -48,6 +49,7 @@ class TennisScanner:
         Get real-time tennis matches from Sofascore
         Note: Sofascore may block cloud server IPs (works locally)
         """
+        self.last_error = None
         try:
             # Sofascore live tennis endpoint
             url = f"{self.sofascore_base}/sport/tennis/events/live"
@@ -65,12 +67,18 @@ class TennisScanner:
                 }
             ]
             
+            usable_response = False
+            last_status = None
             for headers in headers_options:
                 try:
                     response = requests.get(url, headers=headers, timeout=10)
                     
                     if response.status_code == 200:
                         data = response.json()
+                        if not isinstance(data, dict):
+                            self.last_error = "Invalid provider payload"
+                            continue
+                        usable_response = True
                         events = data.get('events', [])
                         
                         live_matches = []
@@ -81,18 +89,23 @@ class TennisScanner:
                                 if match:
                                     live_matches.append(match)
                         
-                        if live_matches:
-                            return live_matches
+                        return live_matches
                     elif response.status_code == 403:
+                        last_status = response.status_code
                         continue  # Try next headers
+                    else:
+                        last_status = response.status_code
                 except requests.RequestException:
                     continue
             
             # All attempts failed
+            if not usable_response:
+                self.last_error = f"HTTP {last_status}" if last_status else "Provider unavailable"
             logger.info("Tennis live provider did not return a usable response")
             return []
                 
         except Exception as e:
+            self.last_error = type(e).__name__
             logger.warning("Tennis live request failed: %s", type(e).__name__)
             return []
     

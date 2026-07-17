@@ -858,7 +858,7 @@ class AdvancedBTTSAnalyzer:
         confidence = evidence['score']
         agreement_score = evidence['agreement_score'] / 100.0
         
-        # Backward-compatible evidence band.
+        # Evidence band measures data coverage/agreement, not betting confidence.
         if confidence >= 80:
             confidence_level = "VERY_HIGH"
         elif confidence >= 65:
@@ -868,15 +868,15 @@ class AdvancedBTTSAnalyzer:
         else:
             confidence_level = "LOW"
         
-        # This is a model signal. Value requires a verified market price later.
+        # This remains exploratory until a separate calibration and price gate.
         if final_btts >= 70 and confidence >= 65:
-            recommendation = "STRONG MODEL SIGNAL"
+            recommendation = "LARGE EXPLORATORY MARGIN"
         elif final_btts >= 60 and confidence >= 55:
-            recommendation = "POSITIVE MODEL SIGNAL"
+            recommendation = "POSITIVE EXPLORATORY MARGIN"
         elif final_btts >= 50:
-            recommendation = "WEAK MODEL SIGNAL"
+            recommendation = "SMALL EXPLORATORY MARGIN"
         else:
-            recommendation = "NO BTTS SIGNAL"
+            recommendation = "NO BTTS ESTIMATE MARGIN"
         
         # Expected total goals
         expected_total = lambda_home + lambda_away
@@ -896,6 +896,9 @@ class AdvancedBTTSAnalyzer:
             'confidence': round(confidence, 1),
             'confidence_level': confidence_level,
             'recommendation': recommendation,
+            'calibrated': False,
+            'actionable': False,
+            'recommendation_type': 'EXPLORATORY_ESTIMATE',
             
             # Individual components
             'season_btts': round(season_btts, 1),
@@ -1169,7 +1172,7 @@ class AdvancedBTTSAnalyzer:
     
     def analyze_upcoming_matches(self, league_code: str, days_ahead: int = 7,
                                 min_probability: float = 60.0) -> pd.DataFrame:
-        """Analyze all upcoming matches and return recommendations"""
+        """Analyze upcoming matches and return non-actionable model estimates."""
         print(f"\nAnalyzing upcoming matches for {league_code}...")
         
         matches = self.get_upcoming_matches(league_code, days_ahead)
@@ -1214,7 +1217,7 @@ class AdvancedBTTSAnalyzer:
                     'BTTS %': f"{analysis['ensemble_probability']:.1f}%",
                     'Data Quality': f"{analysis['confidence']:.1f}%",
                     'Quality Level': analysis['confidence_level'],
-                    'Tip': analysis['recommendation'],
+                    'Modellstatus': analysis['recommendation'],
                     'ML': (
                         f"{analysis['ml_probability']:.1f}%"
                         if analysis['ml_probability'] is not None
@@ -1242,7 +1245,7 @@ class AdvancedBTTSAnalyzer:
         df = pd.DataFrame(results)
         df = df.sort_values('BTTS %', ascending=False)
         
-        print(f"Found {len(results)} model signals")
+        print(f"Found {len(results)} exploratory estimates")
         
         return df
 

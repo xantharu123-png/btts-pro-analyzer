@@ -8,6 +8,7 @@ config.ini
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.codex_test_venv/
 .mypy_cache/
 .ruff_cache/
 .coverage

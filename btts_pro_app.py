@@ -536,8 +536,11 @@ def _render_match_overview(row: pd.Series) -> None:
     metrics[1].metric("Evidenzscore", row.get("Data Quality", "n/a"))
     metrics[2].metric("Erwartete Tore", row.get("xG Total", "n/a"))
 
-    tip = row.get("Tip", "Kein Signal")
-    st.info(f"Modellsignal: {tip}. Ohne verifizierte Quote keine Value-Aussage.")
+    model_status = row.get("Modellstatus", "Keine Schätzung")
+    st.info(
+        f"Explorative Modellschätzung: {model_status}. Nicht kalibriert, nicht "
+        "einsatzfähig und ohne verifizierte Quote keine Value-Aussage."
+    )
 
     home_stats = analysis.get("home_stats", {})
     away_stats = analysis.get("away_stats", {})
@@ -722,7 +725,7 @@ def _render_prematch_results(results: pd.DataFrame, min_probability: int, min_qu
         "Away",
         "BTTS %",
         "Data Quality",
-        "Tip",
+        "Modellstatus",
         "xG Total",
     ]
     display_columns = [column for column in preferred_columns if column in eligible.columns]
@@ -1556,6 +1559,8 @@ def _fetch_multi_sport_snapshot(game_filter: str) -> dict:
             item = dict(game)
             item["projection"] = basketball.calculate_scoring_projection(game)
             snapshot["basketball"].append(item)
+        for provider, message in basketball.errors.items():
+            snapshot["errors"][f"basketball_{provider}"] = message
     except Exception:
         snapshot["errors"]["basketball"] = "Provider nicht verfügbar"
 
@@ -1563,20 +1568,28 @@ def _fetch_multi_sport_snapshot(game_filter: str) -> dict:
         if basketball is None:
             raise RuntimeError("basketball scanner unavailable")
         snapshot["nhl"] = basketball.get_live_nhl_games()
+        if basketball.errors.get("nhl"):
+            snapshot["errors"]["nhl"] = basketball.errors["nhl"]
     except Exception:
         snapshot["errors"]["nhl"] = "Provider nicht verfügbar"
 
     try:
         from tennis_scanner import TennisScanner
 
-        snapshot["tennis"] = TennisScanner().get_live_matches()
+        tennis = TennisScanner()
+        snapshot["tennis"] = tennis.get_live_matches()
+        if tennis.last_error:
+            snapshot["errors"]["tennis"] = tennis.last_error
     except Exception:
         snapshot["errors"]["tennis"] = "Provider nicht verfügbar"
 
     try:
         from cricket_scanner import CricketScanner
 
-        snapshot["cricket"] = CricketScanner().get_live_matches()
+        cricket = CricketScanner()
+        snapshot["cricket"] = cricket.get_live_matches()
+        if cricket.last_error:
+            snapshot["errors"]["cricket"] = cricket.last_error
     except Exception:
         snapshot["errors"]["cricket"] = "Provider nicht verfügbar"
 
@@ -1590,6 +1603,8 @@ def _fetch_multi_sport_snapshot(game_filter: str) -> dict:
                 item = dict(match)
                 item["_analysis"] = esports.analyze_match(match)
                 snapshot["esports"].append(item)
+            for provider, message in esports.errors.items():
+                snapshot["errors"][f"esports_{provider}"] = message
     except Exception:
         snapshot["errors"]["esports"] = "Provider nicht verfügbar"
     return snapshot
@@ -1650,7 +1665,7 @@ def _multi_sport_frame(snapshot: dict, sport: str) -> pd.DataFrame:
                 "Match": f"{match['team1']} vs {match['team2']}",
                 "Game": match.get("game", "n/a"),
                 "Stand": f"{match.get('team1_score', 'n/a')}-{match.get('team2_score', 'n/a')}",
-                "Wahrscheinlichkeitslücke": (
+                "Explorative Lücke": (
                     match.get("_analysis", {}).get("probability_gap")
                     if match.get("_analysis")
                     else "n/a"
@@ -1715,7 +1730,18 @@ def render_multi_sport() -> None:
         st.dataframe(frame, use_container_width=True, hide_index=True)
 
     if snapshot["errors"]:
-        st.info("Mindestens ein externer Provider war für diesen Snapshot nicht verfügbar.")
+        st.warning("Mindestens ein externer Provider war für diesen Snapshot nicht verfügbar.")
+        with st.expander("Providerfehler"):
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {"Provider": provider, "Fehler": message}
+                        for provider, message in snapshot["errors"].items()
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
     st.caption(
         "Sportübergreifendes Ranking bleibt deaktiviert: unkalibrierte Scores verschiedener "
         "Sportarten sind mathematisch nicht vergleichbar."

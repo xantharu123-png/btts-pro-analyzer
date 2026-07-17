@@ -34,6 +34,7 @@ class CricketScanner:
     """
     
     def __init__(self):
+        self.last_error: Optional[str] = None
         # Cricbuzz unofficial API endpoints
         self.cricbuzz_base = "https://cricbuzz-cricket.p.rapidapi.com"
         
@@ -52,7 +53,9 @@ class CricketScanner:
         """
         Get real-time cricket matches
         """
+        self.last_error = None
         if not self.rapidapi_key and not self.cricket_api_key:
+            self.last_error = "Cricket API key missing"
             return []
         try:
             if self.rapidapi_key:
@@ -74,9 +77,11 @@ class CricketScanner:
                                         live_matches.append(parsed)
 
                     return live_matches
+                self.last_error = f"Cricbuzz HTTP {response.status_code}"
             return self._get_matches_alternative()
                 
         except Exception as e:
+            self.last_error = type(e).__name__
             logger.warning("Cricket live request failed: %s", type(e).__name__)
             return []
     
@@ -107,7 +112,8 @@ class CricketScanner:
                 return live_matches
             
             return []
-        except requests.RequestException:
+        except requests.RequestException as exc:
+            self.last_error = type(exc).__name__
             return []
     
     def _parse_match(self, match: Dict) -> Optional[Dict]:

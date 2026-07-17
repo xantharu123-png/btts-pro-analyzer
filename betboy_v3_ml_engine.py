@@ -842,6 +842,9 @@ class BetBoyV3Predictor:
             },
             'over_25': over_payload,
             'over_under': over_payload,
+            'calibrated': False,
+            'actionable': False,
+            'recommendation_type': 'EXPLORATORY_ESTIMATE',
             'model_info': {
                 'version': '3.1',
                 'ml_used': True,

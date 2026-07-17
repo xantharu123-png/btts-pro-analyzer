@@ -167,6 +167,7 @@ class DataEngine:
         self.headers = {'x-apisports-key': api_key}
         self.last_request = 0
         self.min_delay = 0.5
+        self.last_error: Optional[str] = None
         
         # Use cached URL from module-level check
         global _SUPABASE_URL_CACHE
@@ -238,6 +239,7 @@ class DataEngine:
     def fetch_league_matches(self, league_code: str, season: Optional[int] = None,
                             force_refresh: bool = False) -> int:
         """Fetch and store ALL finished matches for a league"""
+        self.last_error = None
         season = season or current_season_start_year(league_code)
         league_id = self.LEAGUES_CONFIG.get(league_code)
         if not league_id:
@@ -265,6 +267,15 @@ class DataEngine:
                 return 0
             
             data = response.json()
+            provider_errors = data.get('errors') if isinstance(data, dict) else None
+            if provider_errors:
+                self.last_error = (
+                    "; ".join(f"{key}: {value}" for key, value in provider_errors.items())
+                    if isinstance(provider_errors, dict)
+                    else str(provider_errors)
+                )
+                print(f"ERROR: API provider error for {league_code}: {self.last_error}")
+                return 0
             fixtures = data.get('response', [])
             
             if not fixtures:
@@ -336,6 +347,7 @@ class DataEngine:
             return count
             
         except Exception as e:
+            self.last_error = type(e).__name__
             print(f"ERROR: Could not fetch {league_code}: {e}")
             return 0
     

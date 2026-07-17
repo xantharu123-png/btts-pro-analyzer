@@ -737,9 +737,11 @@ class MatchResultPredictor:
         return {
             'market': selection,
             'prob': probability,
-            'model_price': 1.0 / probability,
+            'model_price': None,
             'signal_score': probability,
             'calibrated': False,
+            'actionable': False,
+            'recommendation_type': 'EXPLORATORY_ESTIMATE',
         }
 
     def find_best_signals(

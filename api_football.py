@@ -32,6 +32,17 @@ class APIFootball:
         self.league_ids = ANALYZER_LEAGUE_IDS.copy()
         
         print(f"API-Football initialized with {len(self.league_ids)} leagues")
+
+    @staticmethod
+    def _payload_error(payload) -> Optional[str]:
+        if not isinstance(payload, dict):
+            return "Invalid provider payload"
+        errors = payload.get('errors')
+        if not errors:
+            return None
+        if isinstance(errors, dict):
+            return "; ".join(f"{key}: {value}" for key, value in errors.items())
+        return str(errors)
     
     def _rate_limit(self):
         """Ensure minimum time between requests"""
@@ -52,6 +63,7 @@ class APIFootball:
         Returns:
             List of upcoming fixtures with team info
         """
+        self.last_error = None
         league_id = self.league_ids.get(league_code)
         if not league_id:
             print(f"WARNING: Unknown league code: {league_code}")
@@ -79,7 +91,15 @@ class APIFootball:
             
             if response.status_code == 200:
                 data = response.json()
+                provider_error = self._payload_error(data)
+                if provider_error:
+                    self.last_error = provider_error
+                    print(f"ERROR: API provider error for {league_code}: {provider_error}")
+                    return []
                 fixtures = data.get('response', [])
+                if not isinstance(fixtures, list):
+                    self.last_error = "Invalid fixtures response"
+                    return []
                 
                 print(f"Found {len(fixtures)} upcoming fixtures for {league_code}")
                 
@@ -102,10 +122,12 @@ class APIFootball:
                 
                 return result
             else:
+                self.last_error = f"HTTP {response.status_code}"
                 print(f"ERROR: API status {response.status_code} for {league_code}")
                 return []
                 
         except Exception as e:
+            self.last_error = type(e).__name__
             print(f"ERROR: Could not fetch fixtures for {league_code}: {e}")
             return []
     
@@ -124,6 +146,10 @@ class APIFootball:
             
             if response.status_code == 200:
                 data = response.json()
+                provider_error = self._payload_error(data)
+                if provider_error:
+                    self.last_error = provider_error
+                    return []
                 return data.get('response', [])
             else:
                 self.last_error = f"HTTP {response.status_code}"

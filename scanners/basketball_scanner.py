@@ -30,6 +30,7 @@ class BasketballScanner:
     """
     
     def __init__(self):
+        self.errors: Dict[str, str] = {}
         # NBA Stats API
         self.nba_api_base = "https://stats.nba.com/stats"
         self.nba_headers = {
@@ -61,6 +62,7 @@ class BasketballScanner:
             if response.status_code == 200:
                 data = response.json()
                 if not isinstance(data, dict):
+                    self.errors['nhl'] = 'Invalid provider payload'
                     logger.warning("NHL live API returned an invalid payload")
                     return []
                 live_games = []
@@ -76,9 +78,11 @@ class BasketballScanner:
                 
                 return live_games
             logger.warning("NHL live API returned HTTP %s", response.status_code)
+            self.errors['nhl'] = f"HTTP {response.status_code}"
             return []
                 
         except requests.RequestException as exc:
+            self.errors['nhl'] = type(exc).__name__
             logger.warning("NHL live data request failed: %s", type(exc).__name__)
             return []
     
@@ -127,6 +131,7 @@ class BasketballScanner:
             if response.status_code == 200:
                 data = response.json()
                 if not isinstance(data, dict):
+                    self.errors['nba'] = 'Invalid provider payload'
                     logger.warning("NBA live API returned an invalid payload")
                     return []
                 games = data.get('scoreboard', {}).get('games', [])
@@ -141,9 +146,11 @@ class BasketballScanner:
                 return live_games
             else:
                 logger.warning("NBA live API returned HTTP %s", response.status_code)
+                self.errors['nba'] = f"HTTP {response.status_code}"
                 return []
                 
         except requests.RequestException as exc:
+            self.errors['nba'] = type(exc).__name__
             logger.warning("NBA live data request failed: %s", type(exc).__name__)
             return []
     
@@ -189,6 +196,7 @@ class BasketballScanner:
             if response.status_code == 200:
                 data = response.json()
                 if not isinstance(data, list):
+                    self.errors['euroleague'] = 'Invalid provider payload'
                     logger.warning("Euroleague live API returned an invalid payload")
                     return []
                 
@@ -201,9 +209,11 @@ class BasketballScanner:
                 
                 return live_games
             logger.warning("Euroleague live API returned HTTP %s", response.status_code)
+            self.errors['euroleague'] = f"HTTP {response.status_code}"
             return []
                 
         except requests.RequestException as exc:
+            self.errors['euroleague'] = type(exc).__name__
             logger.warning("Euroleague live data request failed: %s", type(exc).__name__)
             return []
     

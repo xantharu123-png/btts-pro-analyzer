@@ -5,7 +5,7 @@ import pytest
 
 import btts_pro_app as app
 from advanced_analyzer import calculate_evidence_score
-from alternative_markets_tab_extended import _market_scope_signature
+from alternative_markets_tab_extended import _api_football_items, _market_scope_signature
 from api_football import APIFootball
 from red_card_bot import RedCardBotEnhanced
 
@@ -105,6 +105,17 @@ def test_scope_signatures_are_order_independent():
     }
 
 
+def test_api_football_http_200_provider_error_is_not_treated_as_empty_success():
+    response = Mock(
+        status_code=200,
+        json=Mock(return_value={"errors": {"access": "account suspended"}, "response": []}),
+    )
+    response.raise_for_status = Mock()
+
+    with pytest.raises(ValueError, match="account suspended"):
+        _api_football_items(response, "fixtures")
+
+
 def test_red_card_bot_respects_explicit_credentials_outside_streamlit():
     bot = RedCardBotEnhanced(
         api_key="explicit-api",
@@ -197,3 +208,25 @@ def test_live_provider_exposes_http_failure(monkeypatch):
 
     assert client.get_live_matches() == []
     assert client.last_error == "HTTP 429"
+
+
+def test_live_provider_exposes_http_200_account_error(monkeypatch):
+    client = APIFootball("api")
+    monkeypatch.setattr(client, "_rate_limit", Mock())
+    monkeypatch.setattr(
+        "api_football.requests.get",
+        Mock(
+            return_value=Mock(
+                status_code=200,
+                json=Mock(
+                    return_value={
+                        "errors": {"access": "Your account is suspended"},
+                        "response": [],
+                    }
+                ),
+            )
+        ),
+    )
+
+    assert client.get_live_matches() == []
+    assert "suspended" in client.last_error

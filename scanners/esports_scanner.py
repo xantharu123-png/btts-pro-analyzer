@@ -1,5 +1,6 @@
-"""Uncalibrated e-sports model signals from observed match histories."""
+"""Exploratory e-sports estimates from observed match histories."""
 
+import math
 import streamlit as st
 import requests
 from datetime import datetime
@@ -24,9 +25,14 @@ class EsportsScanner:
         
         # Cache for team stats to avoid repeated API calls
         self._stats_cache = {}
+        self.errors: Dict[str, str] = {}
     
     def get_live_matches(self, game: str = "all") -> List[Dict]:
         """Get live matches from Pandascore"""
+        self.errors = {}
+        if not self.api_key:
+            self.errors["credentials"] = "PandaScore key missing"
+            return []
         all_matches = []
         
         games_map = {
@@ -47,12 +53,18 @@ class EsportsScanner:
                 
                 if response.status_code == 200:
                     matches = response.json()
+                    if not isinstance(matches, list):
+                        self.errors[g] = "Invalid provider payload"
+                        continue
                     for match in matches:
                         formatted = self._format_match(match, g.upper())
                         if formatted:
                             all_matches.append(formatted)
-                            
-            except requests.RequestException:
+                else:
+                    self.errors[g] = f"HTTP {response.status_code}"
+
+            except requests.RequestException as exc:
+                self.errors[g] = type(exc).__name__
                 continue
         
         return all_matches
@@ -209,15 +221,26 @@ class EsportsScanner:
         wr2 = stats2.get('win_rate')
         form1 = stats1.get('form', [])
         form2 = stats2.get('form', [])
-        matches1 = stats1.get('matches', 0)
-        matches2 = stats2.get('matches', 0)
+        try:
+            score1_value = float(score1)
+            score2_value = float(score2)
+            matches1 = int(stats1.get('matches', 0))
+            matches2 = int(stats2.get('matches', 0))
+            wins1 = int(stats1.get('wins', -1))
+            wins2 = int(stats2.get('wins', -1))
+        except (TypeError, ValueError, OverflowError):
+            return None
         if (
-            score1 is None
-            or score2 is None
-            or wr1 is None
+            wr1 is None
             or wr2 is None
+            or not math.isfinite(score1_value)
+            or not math.isfinite(score2_value)
+            or not score1_value.is_integer()
+            or not score2_value.is_integer()
             or matches1 < 5
             or matches2 < 5
+            or not 0 <= wins1 <= matches1
+            or not 0 <= wins2 <= matches2
         ):
             return None
         
@@ -225,8 +248,8 @@ class EsportsScanner:
         
         # Beta(1,1) shrinkage avoids zero/one estimates. Relative odds form an
         # uncalibrated map-strength matchup; opponent strength is not adjusted.
-        rate1 = (stats1['wins'] + 1) / (matches1 + 2)
-        rate2 = (stats2['wins'] + 1) / (matches2 + 2)
+        rate1 = (wins1 + 1) / (matches1 + 2)
+        rate2 = (wins2 + 1) / (matches2 + 2)
         strength1 = rate1 / (1.0 - rate1)
         strength2 = rate2 / (1.0 - rate2)
         map_probability1 = strength1 / (strength1 + strength2)
@@ -242,21 +265,23 @@ class EsportsScanner:
             return None
         maps_to_win = (series_maps // 2) + 1
         if (
-            score1 < 0
-            or score2 < 0
-            or float(score1).is_integer() is False
-            or float(score2).is_integer() is False
+            score1_value < 0
+            or score2_value < 0
         ):
+            return None
+        score1_int = int(score1_value)
+        score2_int = int(score2_value)
+        if score1_int >= maps_to_win or score2_int >= maps_to_win:
             return None
         prob1 = self._series_win_probability(
             map_probability1,
-            int(score1),
-            int(score2),
+            score1_int,
+            score2_int,
             maps_to_win,
         ) * 100
         prob2 = 100 - prob1
         reasoning.append(
-            f"Series state {int(score1)}-{int(score2)} evaluated as a first-to-{maps_to_win} race"
+            f"Series state {score1_int}-{score2_int} evaluated as a first-to-{maps_to_win} race"
         )
         reasoning.append("Opponent strength and map-specific lineups are not adjusted")
         
@@ -273,12 +298,8 @@ class EsportsScanner:
             opp_team = team1
             opp_prob = prob1
         
-        # Reciprocal model price; this is not a calibrated fair price.
-        model_price = round(100 / rec_prob, 2)
-        
         # ===== CONFIDENCE CALCULATION =====
-        
-        prob_diff = abs(prob1 - prob2)
+
         data_coverage = min(100.0, min(matches1, matches2) / 20.0 * 100.0)
         
         probability_gap = abs(rec_prob - opp_prob)
@@ -303,12 +324,14 @@ class EsportsScanner:
             'tournament': match.get('tournament', 'Unknown'),
             'market': 'Match Winner',
             'team': rec_team,
-            'model_price': model_price,
+            'model_price': None,
             'win_probability': round(rec_prob, 1),
             'probability_gap': round(probability_gap, 1),
             'data_coverage': round(data_coverage),
             'stars': stars,
-            'recommendation_type': 'MODEL_SIGNAL',
+            'recommendation_type': 'EXPLORATORY_ESTIMATE',
+            'calibrated': False,
+            'actionable': False,
             'reasoning': reasoning,
             'team1_wr': wr1,
             'team2_wr': wr2,
@@ -387,19 +410,15 @@ def create_esports_tab():
         
         # Stats
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Win Prob", f"{rec['win_probability']}%")
-        c2.metric("Uncalibrated model price", f"{rec['model_price']}")
+        c1.metric("Exploratory estimate", f"{rec['win_probability']}%")
+        c2.metric("Fair price", "n/a")
         c3.metric("Probability gap", f"{rec['probability_gap']} pp")
         c4.metric("Data coverage", f"{rec['data_coverage']}%")
         
-        # Recommendation
-        if rec['stars'] >= 3:
-            st.success(
-                f"**{rec['team']}** model signal: {rec['win_probability']}% "
-                "(no market price checked)"
-            )
-        else:
-            st.info(f"**{rec['team']}** slight model favorite; low signal quality")
+        st.info(
+            f"**{rec['team']}** is the exploratory favorite. This estimate is "
+            "uncalibrated and cannot be used as a bet or fair price."
+        )
         
         # Details expander
         with st.expander("📊 Analysis"):

@@ -204,7 +204,9 @@ class UltraLiveScanner:
                     'away_prior': prior_away,
                 },
                 'phase_data': {'phase': self._get_phase(minute)},
-                'recommendation_type': 'MODEL_SIGNAL',
+                'recommendation_type': 'EXPLORATORY_ESTIMATE',
+                'calibrated': False,
+                'actionable': False,
             }
         except (KeyError, TypeError, ValueError, AttributeError):
             return None
@@ -325,9 +327,9 @@ class UltraLiveScanner:
 
         over_25_probability = thresholds['over_2.5']['over_probability']
         if over_25_probability >= 70:
-            recommendation = 'OVER 2.5 MODEL SIGNAL'
+            recommendation = 'OVER 2.5 EXPLORATORY ESTIMATE'
         elif over_25_probability <= 30:
-            recommendation = 'UNDER 2.5 MODEL SIGNAL'
+            recommendation = 'UNDER 2.5 EXPLORATORY ESTIMATE'
         else:
             recommendation = 'NO CLEAR TOTALS SIGNAL'
         return {
@@ -386,7 +388,7 @@ class UltraLiveScanner:
             favorite = 'AWAY'
         gap = abs(home_probability - away_probability)
         if favorite and gap >= 20:
-            recommendation = f'{favorite} NEXT GOAL MODEL SIGNAL'
+            recommendation = f'{favorite} NEXT GOAL EXPLORATORY ESTIMATE'
         elif favorite and gap >= 10:
             recommendation = f'{favorite} SLIGHT MODEL ADVANTAGE'
         else:
@@ -409,9 +411,9 @@ class UltraLiveScanner:
         if probability is None:
             return 'INSUFFICIENT DATA'
         if probability >= 70:
-            return 'BTTS MODEL SIGNAL'
+            return 'BTTS EXPLORATORY ESTIMATE'
         if probability >= 55:
-            return 'WEAK BTTS MODEL SIGNAL'
+            return 'WEAK BTTS EXPLORATORY ESTIMATE'
         return 'NO BTTS SIGNAL'
 
     @staticmethod
@@ -468,7 +470,7 @@ def display_ultra_opportunity(match: Dict):
     )
     st.caption(
         f"Datenbasis: {quality_label} | "
-        "Uncalibrated model signal; no market price checked"
+        "Uncalibrated exploratory estimate; not actionable and no market price checked"
     )
     st.write(match.get('btts_recommendation', 'INSUFFICIENT DATA'))
     st.write(totals.get('recommendation', 'INSUFFICIENT DATA'))

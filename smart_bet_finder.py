@@ -54,7 +54,9 @@ class SmartBet:
     point_expected_roi: Optional[float] = None
     market_overround: Optional[float] = None
     kelly_stake: Optional[float] = None
-    recommendation_type: str = 'MODEL_SIGNAL'
+    recommendation_type: str = 'EXPLORATORY_ESTIMATE'
+    calibrated: bool = False
+    actionable: bool = False
     
     def to_dict(self):
         return {
@@ -79,7 +81,9 @@ class SmartBet:
             'point_expected_roi': self.point_expected_roi,
             'market_overround': self.market_overround,
             'kelly_stake': self.kelly_stake,
-            'recommendation_type': self.recommendation_type
+            'recommendation_type': self.recommendation_type,
+            'calibrated': self.calibrated,
+            'actionable': self.actionable,
         }
 
     @property
@@ -743,7 +747,9 @@ class SmartBetFinder:
                     point_expected_roi=round(metrics.expected_roi, 1),
                     market_overround=round(overround, 4),
                     kelly_stake=kelly,
-                    recommendation_type='VALUE_BET'
+                    recommendation_type='VALUE_BET',
+                    calibrated=True,
+                    actionable=True,
                 )
                 value_bets.append(bet)
         
@@ -757,7 +763,7 @@ class SmartBetFinder:
     def find_model_signals(self, analysis_results: Dict,
                            home_team: str = None, away_team: str = None,
                            min_probability: float = 70.0) -> List[SmartBet]:
-        """Return high-probability model signals without price-derived metrics."""
+        """Return exploratory estimates without price-derived metrics."""
         high_conf_bets = []
         
         markets = self._extract_all_probabilities(analysis_results)
@@ -768,19 +774,21 @@ class SmartBetFinder:
                     market=self._get_market_category(market),
                     sub_market=market,
                     probability=prob,
-                    signal_strength='VERY_HIGH' if prob >= 80 else 'HIGH',
+                    signal_strength='LARGE_MODEL_MARGIN' if prob >= 80 else 'MODEL_MARGIN',
                     edge=None,
                     expected_roi=None,
                     reasoning=(
-                        f"Model signal: {prob:.0f}% probability. "
-                        "No market-price or value claim."
+                        f"Exploratory estimate: {prob:.0f}%. This output is "
+                        "uncalibrated, non-actionable, and has no fair-price claim."
                     ),
-                    stake_recommendation='NO STAKE - MODEL SIGNAL ONLY',
+                    stake_recommendation='NO STAKE - EXPLORATORY ESTIMATE ONLY',
                     risk_level='MODEL_UNCERTAINTY',
                     real_odds=None,
                     bookmaker=None,
                     kelly_stake=None,
-                    recommendation_type='MODEL_SIGNAL'
+                    recommendation_type='EXPLORATORY_ESTIMATE',
+                    calibrated=False,
+                    actionable=False,
                 )
                 high_conf_bets.append(bet)
         
@@ -1018,7 +1026,7 @@ def display_smart_bet(bet: SmartBet, rank: int = 1):
             )
         else:
             col1, col2 = st.columns(2)
-            col1.metric("Model probability", f"{bet.probability:.1f}%")
+            col1.metric("Exploratory estimate", f"{bet.probability:.1f}%")
             col2.metric("Market price", "not checked")
         provenance = (
             f"{bet.bookmaker} via {bet.quote_source} at {bet.quoted_at}"
@@ -1061,17 +1069,17 @@ def render_smart_bet_finder(analysis_results: Dict, home_team: str = None, away_
                 st.warning("Keine Value Bets gefunden")
     
     with col2:
-        if st.button("Model Signals", use_container_width=True):
+        if st.button("Exploratory Estimates", use_container_width=True):
             bets = finder.find_model_signals(analysis_results, home_team, away_team)
             
             if bets:
-                st.success(f"{len(bets)} starke Modell-Signale")
+                st.info(f"{len(bets)} unkalibrierte Modellschätzungen")
                 for bet in bets:
                     with st.expander(f"{bet.market}: {bet.sub_market} | {bet.probability:.0f}%"):
-                        st.metric("Signal strength", bet.signal_strength)
+                        st.metric("Model margin", bet.signal_strength)
                         st.write(bet.reasoning)
             else:
-                st.warning("Keine starken Modell-Signale gefunden")
+                st.warning("Keine ausreichend großen Modellschätzungen gefunden")
     
     with col3:
         if st.button("Combo-Modell", use_container_width=True):

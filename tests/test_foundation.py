@@ -130,6 +130,18 @@ class SmartBetFinderTests(unittest.TestCase):
 
         self.assertEqual(bets, [])
 
+    def test_model_only_output_is_explicitly_non_actionable(self):
+        estimates = SmartBetFinder().find_model_signals(
+            {"btts_probability": 80.0}
+        )
+
+        self.assertEqual(len(estimates), 1)
+        self.assertEqual(estimates[0].recommendation_type, "EXPLORATORY_ESTIMATE")
+        self.assertFalse(estimates[0].calibrated)
+        self.assertFalse(estimates[0].actionable)
+        self.assertIsNone(estimates[0].real_odds)
+        self.assertIsNone(estimates[0].kelly_stake)
+
     def test_value_bet_uses_market_price_only_after_model_probability(self):
         finder = SmartBetFinder()
         finder.odds_client.get_match_odds = lambda *args, **kwargs: self._btts_quotes()
@@ -146,6 +158,8 @@ class SmartBetFinderTests(unittest.TestCase):
         self.assertAlmostEqual(bets[0].edge, 25.4, places=1)
         self.assertGreater(bets[0].point_edge, 30)
         self.assertLessEqual(bets[0].kelly_stake, 2.0)
+        self.assertTrue(bets[0].calibrated)
+        self.assertTrue(bets[0].actionable)
         self.assertEqual(bets[0].bookmaker, "TestBook")
 
     def test_value_bet_requires_exact_fixture_binding(self):
@@ -639,6 +653,22 @@ class DataEngineMigrationTests(unittest.TestCase):
             self.assertEqual(stored, 0)
             self.assertEqual(engine.get_match_count("PL"), 0)
 
+    def test_data_refresh_exposes_provider_error_returned_with_http_200(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "provider-error.db"
+            data_engine._SUPABASE_URL_CACHE = None
+            engine = data_engine.DataEngine(api_key="test", db_path=str(db_path))
+            response = Mock(status_code=200)
+            response.json.return_value = {
+                "errors": {"access": "Your account is suspended"},
+                "response": [],
+            }
+            with patch("data_engine.requests.get", return_value=response):
+                stored = engine.fetch_league_matches("PL", season=2025)
+
+            self.assertEqual(stored, 0)
+            self.assertIn("suspended", engine.last_error)
+
 
 class APIOrientationTests(unittest.TestCase):
     def test_live_statistics_are_mapped_by_team_id_not_response_order(self):
@@ -788,6 +818,8 @@ class RedCardModelTests(unittest.TestCase):
         self.assertAlmostEqual(prediction.red_team_wins, 1.0)
         self.assertAlmostEqual(prediction.draw, 0.0)
         self.assertAlmostEqual(prediction.opponent_wins, 0.0)
+        self.assertFalse(prediction.calibrated)
+        self.assertFalse(prediction.actionable)
 
 
 class UltraDataGateTests(unittest.TestCase):
@@ -822,9 +854,36 @@ class UltraDataGateTests(unittest.TestCase):
 
         self.assertIsNone(result["btts_prob"])
         self.assertEqual(result["btts_confidence"], "INSUFFICIENT")
+        self.assertFalse(result["calibrated"])
+        self.assertFalse(result["actionable"])
+        self.assertEqual(result["recommendation_type"], "EXPLORATORY_ESTIMATE")
 
 
 class CrossSportMathTests(unittest.TestCase):
+    @staticmethod
+    def _esports_match(score1=0, score2=0):
+        return {
+            "id": 1,
+            "game": "CS2",
+            "team1": "Alpha",
+            "team2": "Beta",
+            "team1_score": score1,
+            "team2_score": score2,
+            "series_type": 3,
+            "team1_stats": {
+                "win_rate": 70.0,
+                "matches": 20,
+                "wins": 14,
+                "form": ["W", "W", "L"],
+            },
+            "team2_stats": {
+                "win_rate": 45.0,
+                "matches": 20,
+                "wins": 9,
+                "form": ["L", "W", "L"],
+            },
+        }
+
     def test_cricket_decimal_over_notation_counts_balls(self):
         scanner = CricketScanner.__new__(CricketScanner)
         run_rate = scanner._calculate_run_rate({
@@ -847,6 +906,22 @@ class CrossSportMathTests(unittest.TestCase):
             EsportsScanner._series_win_probability(0.5, 2, 0, 2),
             1.0,
         )
+
+    def test_esports_estimate_is_never_exposed_as_actionable_or_fair_price(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        result = scanner.analyze_match(self._esports_match())
+
+        self.assertIsNotNone(result)
+        self.assertFalse(result["calibrated"])
+        self.assertFalse(result["actionable"])
+        self.assertIsNone(result["model_price"])
+        self.assertEqual(result["recommendation_type"], "EXPLORATORY_ESTIMATE")
+
+    def test_esports_rejects_completed_or_invalid_series_state(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+
+        self.assertIsNone(scanner.analyze_match(self._esports_match(2, 0)))
+        self.assertIsNone(scanner.analyze_match(self._esports_match("bad", 0)))
 
     def test_best_bet_ranker_rejects_uncalibrated_inputs(self):
         result = BestBetFinder().find_best_bet(

@@ -87,6 +87,26 @@ def _fixture_model_input(match: dict) -> dict:
     }
 
 
+def _api_football_items(response, label: str) -> list[dict]:
+    """Reject provider-level errors that API-Football returns with HTTP 200."""
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label}: invalid provider payload")
+    errors = payload.get("errors")
+    if errors:
+        detail = (
+            "; ".join(f"{key}: {value}" for key, value in errors.items())
+            if isinstance(errors, dict)
+            else str(errors)
+        )
+        raise ValueError(f"{label}: {detail}")
+    items = payload.get("response")
+    if not isinstance(items, list):
+        raise ValueError(f"{label}: response list missing")
+    return items
+
+
 def _collect_match_analysis(match: dict, api_key: str) -> dict:
     """Collect API-backed market probabilities without mixing in bookmaker prices."""
     fixture = _fixture_model_input(match)
@@ -103,8 +123,8 @@ def _collect_match_analysis(match: dict, api_key: str) -> dict:
         if corners and corners.get("thresholds"):
             analysis["corners"] = {
                 key: {
-                    "probability": value.get("probability", 0),
-                    "threshold": value.get("threshold", 0),
+                    "probability": value.get("probability"),
+                    "threshold": value.get("threshold"),
                 }
                 for key, value in corners["thresholds"].items()
             }
@@ -119,8 +139,8 @@ def _collect_match_analysis(match: dict, api_key: str) -> dict:
         if cards and cards.get("thresholds"):
             analysis["cards"] = {
                 key: {
-                    "probability": value.get("probability", 0),
-                    "threshold": value.get("threshold", 0),
+                    "probability": value.get("probability"),
+                    "threshold": value.get("threshold"),
                 }
                 for key, value in cards["thresholds"].items()
             }
@@ -147,14 +167,14 @@ def _market_rows(market: str, result: dict) -> list[dict]:
                     "Markt": market,
                     "Auswahl": f"Over {threshold}",
                     "Modell %": round(over * 100, 1),
-                    "Modellpreis": _rounded_model_price(over),
+                    "Fairer Preis": None,
                     "Signal": _signal_label(over),
                 },
                 {
                     "Markt": market,
                     "Auswahl": f"Under {threshold}",
                     "Modell %": round(under * 100, 1),
-                    "Modellpreis": _rounded_model_price(under),
+                    "Fairer Preis": None,
                     "Signal": _signal_label(under),
                 },
             ]
@@ -203,7 +223,7 @@ def _render_corners_cards_analysis(match: dict, api_key: str) -> None:
     )
     st.dataframe(frame, use_container_width=True, hide_index=True)
     st.caption(
-        "Unkalibrierte Modellwahrscheinlichkeiten. Der Modellpreis ist 1/p und keine Buchmacherquote."
+        "Unkalibrierte Modellschätzungen. Ein fairer Preis wird erst nach bestandener Kalibrierung gezeigt."
     )
 
 
@@ -225,8 +245,7 @@ def _request_team_fixtures(
         },
         timeout=15,
     )
-    response.raise_for_status()
-    fixtures = response.json().get("response", [])
+    fixtures = _api_football_items(response, "team fixtures")
     return sorted(
         fixtures,
         key=lambda fixture: fixture.get("fixture", {}).get("date", ""),
@@ -263,7 +282,7 @@ def _probability_row(market: str, selection: str, probability: float) -> dict:
         "Markt": market,
         "Auswahl": selection,
         "Modell %": round(probability * 100, 1),
-        "Modellpreis": _rounded_model_price(probability),
+        "Fairer Preis": None,
         "Signal": _signal_label(probability),
     }
 
@@ -326,7 +345,7 @@ def _render_match_result_analysis(match: dict, api_key: str) -> None:
         "Ohne verifizierte Quote keine Edge-, EV- oder Einsatz-Aussage."
     )
     st.caption(
-        "Unkalibrierte unabhängige Poisson-Basis; kein fixer Heim-, H2H-, Wetter- oder Quotenfaktor."
+        "Unkalibrierte unabhängige Poisson-Basis; kein fairer Preis und keine Wettfreigabe."
     )
 
 
@@ -393,8 +412,7 @@ def _load_fixtures(api_key: str, leagues: list[int], search_date) -> tuple[list[
                     },
                     timeout=15,
                 )
-                response.raise_for_status()
-                fixtures.extend(response.json().get("response", []))
+                fixtures.extend(_api_football_items(response, "fixtures"))
             except (requests.RequestException, ValueError, TypeError) as exc:
                 league_name = ALTERNATIVE_MARKET_LEAGUES.get(league_id, str(league_id))
                 errors.append(f"{league_name}: {exc}")
