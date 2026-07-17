@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import time
 import re
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -65,11 +66,20 @@ class BasketballScanner:
                     self.errors['nhl'] = 'Invalid provider payload'
                     logger.warning("NHL live API returned an invalid payload")
                     return []
+                date_groups = data.get('gamesByDate', [])
+                if not isinstance(date_groups, list):
+                    self.errors['nhl'] = 'Invalid games list'
+                    return []
                 live_games = []
                 
                 # NHL API returns games grouped by date
-                for date_group in data.get('gamesByDate', []):
-                    for game in date_group.get('games', []):
+                for date_group in date_groups:
+                    games = date_group.get('games', []) if isinstance(date_group, dict) else []
+                    if not isinstance(games, list):
+                        continue
+                    for game in games:
+                        if not isinstance(game, dict):
+                            continue
                         # LIVE, CRIT (critical/close game), or in progress
                         if game.get('gameState') in ['LIVE', 'CRIT']:
                             parsed = self._parse_nhl_game(game)
@@ -81,13 +91,15 @@ class BasketballScanner:
             self.errors['nhl'] = f"HTTP {response.status_code}"
             return []
                 
-        except requests.RequestException as exc:
+        except (requests.RequestException, ValueError) as exc:
             self.errors['nhl'] = type(exc).__name__
             logger.warning("NHL live data request failed: %s", type(exc).__name__)
             return []
     
     def _parse_nhl_game(self, game: Dict) -> Optional[Dict]:
         """Parse NHL game data into our format"""
+        if not isinstance(game, dict):
+            return None
         home = game.get('homeTeam', {})
         away = game.get('awayTeam', {})
         home_score = home.get('score')
@@ -95,9 +107,19 @@ class BasketballScanner:
         period = game.get('period')
         clock = game.get('clock')
         if (
-            not isinstance(home_score, (int, float))
+            isinstance(home_score, bool)
+            or isinstance(away_score, bool)
+            or not isinstance(home_score, (int, float))
             or not isinstance(away_score, (int, float))
+            or not math.isfinite(float(home_score))
+            or not math.isfinite(float(away_score))
+            or float(home_score) < 0
+            or float(away_score) < 0
+            or not float(home_score).is_integer()
+            or not float(away_score).is_integer()
+            or isinstance(period, bool)
             or not isinstance(period, int)
+            or period < 1
             or not isinstance(clock, dict)
             or not isinstance(clock.get('timeRemaining'), str)
         ):
@@ -135,9 +157,14 @@ class BasketballScanner:
                     logger.warning("NBA live API returned an invalid payload")
                     return []
                 games = data.get('scoreboard', {}).get('games', [])
+                if not isinstance(games, list):
+                    self.errors['nba'] = 'Invalid games list'
+                    return []
                 
                 live_games = []
                 for game in games:
+                    if not isinstance(game, dict):
+                        continue
                     if game.get('gameStatus') == 2:  # 2 = Live
                         parsed = self._parse_nba_game(game)
                         if parsed:
@@ -149,13 +176,15 @@ class BasketballScanner:
                 self.errors['nba'] = f"HTTP {response.status_code}"
                 return []
                 
-        except requests.RequestException as exc:
+        except (requests.RequestException, ValueError) as exc:
             self.errors['nba'] = type(exc).__name__
             logger.warning("NBA live data request failed: %s", type(exc).__name__)
             return []
     
     def _parse_nba_game(self, game: Dict) -> Optional[Dict]:
         """Parse NBA game data into our format"""
+        if not isinstance(game, dict):
+            return None
         home = game.get('homeTeam', {})
         away = game.get('awayTeam', {})
         home_score = home.get('score')
@@ -163,9 +192,19 @@ class BasketballScanner:
         period = game.get('period')
         clock = game.get('gameClock')
         if (
-            not isinstance(home_score, (int, float))
+            isinstance(home_score, bool)
+            or isinstance(away_score, bool)
+            or not isinstance(home_score, (int, float))
             or not isinstance(away_score, (int, float))
+            or not math.isfinite(float(home_score))
+            or not math.isfinite(float(away_score))
+            or float(home_score) < 0
+            or float(away_score) < 0
+            or not float(home_score).is_integer()
+            or not float(away_score).is_integer()
+            or isinstance(period, bool)
             or not isinstance(period, int)
+            or period < 1
             or not isinstance(clock, str)
         ):
             return None
@@ -202,6 +241,8 @@ class BasketballScanner:
                 
                 live_games = []
                 for game in data:
+                    if not isinstance(game, dict):
+                        continue
                     if game.get('Live', False):
                         parsed = self._parse_euroleague_game(game)
                         if parsed:
@@ -212,21 +253,33 @@ class BasketballScanner:
             self.errors['euroleague'] = f"HTTP {response.status_code}"
             return []
                 
-        except requests.RequestException as exc:
+        except (requests.RequestException, ValueError) as exc:
             self.errors['euroleague'] = type(exc).__name__
             logger.warning("Euroleague live data request failed: %s", type(exc).__name__)
             return []
     
     def _parse_euroleague_game(self, game: Dict) -> Optional[Dict]:
         """Parse Euroleague game data"""
+        if not isinstance(game, dict):
+            return None
         home_score = game.get('HomeScore')
         away_score = game.get('AwayScore')
         period = game.get('Quarter')
         clock = game.get('Clock')
         if (
-            not isinstance(home_score, (int, float))
+            isinstance(home_score, bool)
+            or isinstance(away_score, bool)
+            or not isinstance(home_score, (int, float))
             or not isinstance(away_score, (int, float))
+            or not math.isfinite(float(home_score))
+            or not math.isfinite(float(away_score))
+            or float(home_score) < 0
+            or float(away_score) < 0
+            or not float(home_score).is_integer()
+            or not float(away_score).is_integer()
+            or isinstance(period, bool)
             or not isinstance(period, int)
+            or period < 1
             or not isinstance(clock, str)
         ):
             return None
@@ -267,25 +320,52 @@ class BasketballScanner:
             return None
         iso_match = re.fullmatch(r"PT(?:(\d+)M)?([\d.]+)S", clock)
         if iso_match:
-            minutes = int(iso_match.group(1) or 0)
-            seconds = float(iso_match.group(2))
+            try:
+                minutes = int(iso_match.group(1) or 0)
+                seconds = float(iso_match.group(2))
+            except ValueError:
+                return None
+            if not math.isfinite(seconds) or not 0 <= seconds < 60:
+                return None
             return minutes + seconds / 60.0
         plain_match = re.fullmatch(r"(\d+):(\d{2})", clock)
         if plain_match:
-            return int(plain_match.group(1)) + int(plain_match.group(2)) / 60.0
+            seconds = int(plain_match.group(2))
+            if seconds > 59:
+                return None
+            return int(plain_match.group(1)) + seconds / 60.0
         return None
 
     def calculate_scoring_projection(self, game: Dict) -> Optional[float]:
         """Straight-line projection from score and actual game clock."""
+        league = game.get('league')
+        if league not in {'NBA', 'Euroleague'}:
+            return None
         try:
             period = int(game.get('period'))
-            total_score = float(game.get('home_score')) + float(game.get('away_score'))
+            home_score = float(game.get('home_score'))
+            away_score = float(game.get('away_score'))
+            total_score = home_score + away_score
         except (TypeError, ValueError):
             return None
-        if period < 1 or period > 4:
+        if (
+            isinstance(game.get('period'), bool)
+            or isinstance(game.get('home_score'), bool)
+            or isinstance(game.get('away_score'), bool)
+            or not math.isfinite(home_score)
+            or not math.isfinite(away_score)
+            or not math.isfinite(total_score)
+            or home_score < 0
+            or away_score < 0
+            or not home_score.is_integer()
+            or not away_score.is_integer()
+            or total_score < 0
+            or period < 1
+            or period > 4
+        ):
             return None
 
-        period_minutes = 12 if game.get('league') == 'NBA' else 10
+        period_minutes = 12 if league == 'NBA' else 10
         remaining = self._clock_minutes_remaining(game.get('game_clock'))
         if remaining is None or not 0 <= remaining <= period_minutes:
             return None

@@ -5,8 +5,10 @@ import pytest
 
 import btts_pro_app as app
 from advanced_analyzer import calculate_evidence_score
+from alternative_markets import PreMatchAlternativeAnalyzer
 from alternative_markets_tab_extended import _api_football_items, _market_scope_signature
 from api_football import APIFootball
+from config_loader import AppConfig
 from red_card_bot import RedCardBotEnhanced
 
 
@@ -19,6 +21,19 @@ class _ProgressStub:
 
     def caption(self, _value):
         return None
+
+
+def test_football_data_org_key_is_never_used_as_api_football_key(monkeypatch):
+    monkeypatch.setattr(
+        app,
+        "load_app_config",
+        lambda _st: AppConfig(api_key="football-data-only"),
+    )
+    app.get_analyzer.clear()
+    try:
+        assert app.get_analyzer() is None
+    finally:
+        app.get_analyzer.clear()
 
 
 def test_evidence_score_full_coverage_and_agreement_is_100():
@@ -52,6 +67,8 @@ def test_evidence_score_rejects_ambiguous_inputs():
         calculate_evidence_score(12, 12, 5, 5, [60.0])
     with pytest.raises(ValueError):
         calculate_evidence_score(12, 12, 5, 5, [60.0, 101.0])
+    with pytest.raises(ValueError):
+        calculate_evidence_score(12.5, 12, 5, 5, [60.0, 61.0])
 
 
 def test_live_quality_filter_has_two_distinct_levels():
@@ -114,6 +131,17 @@ def test_api_football_http_200_provider_error_is_not_treated_as_empty_success():
 
     with pytest.raises(ValueError, match="account suspended"):
         _api_football_items(response, "fixtures")
+
+
+def test_alternative_market_provider_records_http_200_account_error():
+    analyzer = PreMatchAlternativeAnalyzer("api")
+    response = Mock(
+        status_code=200,
+        json=Mock(return_value={"errors": {"access": "account suspended"}, "response": []}),
+    )
+
+    assert analyzer._response_data(response, "team stats", list) is None
+    assert "suspended" in analyzer.errors["team stats"]
 
 
 def test_red_card_bot_respects_explicit_credentials_outside_streamlit():
@@ -181,6 +209,21 @@ def test_red_card_provider_records_http_errors(monkeypatch):
     assert bot.errors == [{"operation": "live_matches", "message": "HTTP 503"}]
 
 
+def test_red_card_provider_records_http_200_account_errors(monkeypatch):
+    bot = RedCardBotEnhanced(api_key="api", streamlit_mode=False)
+    response = Mock(
+        status_code=200,
+        json=Mock(return_value={"errors": {"access": "account suspended"}, "response": []}),
+    )
+    monkeypatch.setattr("red_card_bot.requests.get", Mock(return_value=response))
+
+    assert bot.get_live_stats(1, 10, 20) is None
+    assert bot.errors == [{
+        "operation": "live_stats",
+        "message": "{'access': 'account suspended'}",
+    }]
+
+
 def test_red_card_empty_league_scope_does_not_expand_to_worldwide(monkeypatch):
     bot = RedCardBotEnhanced(api_key="api", streamlit_mode=False)
     response = Mock(
@@ -198,6 +241,49 @@ def test_red_card_empty_league_scope_does_not_expand_to_worldwide(monkeypatch):
     assert bot.get_live_matches([]) == []
 
 
+def test_red_card_event_rejects_boolean_extra_time(monkeypatch):
+    bot = RedCardBotEnhanced(api_key="api", streamlit_mode=False)
+    match = {
+        "fixture": {"id": 1, "status": {"elapsed": 50}},
+        "league": {"id": 39},
+        "teams": {"home": {"id": 10}, "away": {"id": 20}},
+        "goals": {"home": 1, "away": 0},
+    }
+    response = Mock(
+        status_code=200,
+        json=Mock(return_value={
+            "response": [{
+                "type": "Card",
+                "detail": "Red Card",
+                "player": {"id": 7, "name": "Player"},
+                "team": {"id": 10, "name": "Home"},
+                "time": {"elapsed": 50, "extra": False},
+            }],
+        }),
+    )
+    monkeypatch.setattr("red_card_bot.requests.get", Mock(return_value=response))
+
+    assert bot.check_match_for_red_cards(match) == []
+
+
+def test_h2h_provider_rejects_wrong_fixture_membership(monkeypatch):
+    client = APIFootball("api")
+    monkeypatch.setattr(client, "_rate_limit", Mock())
+    response = Mock(
+        status_code=200,
+        json=Mock(return_value={
+            "response": [{
+                "teams": {"home": {"id": 10}, "away": {"id": 30}},
+                "goals": {"home": 1, "away": 1},
+            }],
+        }),
+    )
+    monkeypatch.setattr("api_football.requests.get", Mock(return_value=response))
+
+    assert client.get_h2h(10, 20) == []
+    assert client.last_error == "head-to-head: invalid fixture data"
+
+
 def test_live_provider_exposes_http_failure(monkeypatch):
     client = APIFootball("api")
     monkeypatch.setattr(client, "_rate_limit", Mock())
@@ -207,7 +293,7 @@ def test_live_provider_exposes_http_failure(monkeypatch):
     )
 
     assert client.get_live_matches() == []
-    assert client.last_error == "HTTP 429"
+    assert client.last_error == "live fixtures: HTTP 429"
 
 
 def test_live_provider_exposes_http_200_account_error(monkeypatch):

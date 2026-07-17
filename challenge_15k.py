@@ -32,10 +32,83 @@ from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from season_utils import current_season_start_year_for_id
 
 
-CHALLENGE_SNAPSHOT_VERSION = 1
+CHALLENGE_SNAPSHOT_VERSION = 2
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140)
 MAX_CONTEXT_FIXTURES = 8
 QUOTE_MAX_AGE_MINUTES = 10
+SNAPSHOT_MAX_AGE_MINUTES = 20
+
+
+def _positive_integer(value: Any) -> Optional[int]:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+def _fixture_kickoff(fixture: dict[str, Any]) -> Optional[datetime]:
+    fixture_data = fixture.get("fixture")
+    if not isinstance(fixture_data, dict):
+        return None
+    try:
+        kickoff = datetime.fromisoformat(str(fixture_data.get("date")).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if kickoff.tzinfo is None:
+        return None
+    return kickoff.astimezone(timezone.utc)
+
+
+def _valid_upcoming_fixture(value: Any, expected_league_id: int) -> bool:
+    if not isinstance(value, dict):
+        return False
+    fixture_data = value.get("fixture")
+    league = value.get("league")
+    teams = value.get("teams")
+    if not all(isinstance(item, dict) for item in (fixture_data, league, teams)):
+        return False
+    home = teams.get("home")
+    away = teams.get("away")
+    if not isinstance(home, dict) or not isinstance(away, dict):
+        return False
+    fixture_id = _positive_integer(fixture_data.get("id"))
+    league_id = _positive_integer(league.get("id"))
+    home_id = _positive_integer(home.get("id"))
+    away_id = _positive_integer(away.get("id"))
+    if None in (fixture_id, league_id, home_id, away_id):
+        return False
+    if league_id != expected_league_id or home_id == away_id:
+        return False
+    home_name = home.get("name")
+    away_name = away.get("name")
+    if (
+        not isinstance(home_name, str)
+        or not home_name.strip()
+        or not isinstance(away_name, str)
+        or not away_name.strip()
+    ):
+        return False
+    return _fixture_kickoff(value) is not None
+
+
+def _validate_scan_inputs(
+    league_ids: list[int],
+    search_date: date,
+    max_fixtures: int,
+) -> None:
+    if not isinstance(league_ids, list) or not league_ids:
+        raise ValueError("league_ids must be a non-empty list")
+    if any(_positive_integer(league_id) is None for league_id in league_ids):
+        raise ValueError("league_ids must contain only positive integer IDs")
+    if len(set(league_ids)) != len(league_ids):
+        raise ValueError("league_ids must not contain duplicates")
+    if not isinstance(search_date, date) or isinstance(search_date, datetime):
+        raise ValueError("search_date must be a date")
+    if (
+        isinstance(max_fixtures, bool)
+        or not isinstance(max_fixtures, int)
+        or not 1 <= max_fixtures <= 12
+    ):
+        raise ValueError("max_fixtures must be an integer between 1 and 12")
 
 
 def _segmented(label: str, options: list[str], key: str, default: str) -> str:
@@ -126,6 +199,9 @@ class ChallengeDataProvider:
         except (requests.RequestException, ValueError) as exc:
             self.errors.append(f"{label}: {exc}")
             return None
+        if not isinstance(payload, dict):
+            self.errors.append(f"{label}: ungültige Provider-Antwort")
+            return None
         provider_errors = payload.get("errors")
         if provider_errors:
             plan_error = (
@@ -144,6 +220,9 @@ class ChallengeDataProvider:
         data = payload.get("response")
         if not isinstance(data, list):
             self.errors.append(f"{label}: ungültige Provider-Antwort")
+            return None
+        if any(not isinstance(item, dict) for item in data):
+            self.errors.append(f"{label}: ungültige Einträge in der Provider-Antwort")
             return None
         return data
 
@@ -188,15 +267,32 @@ class ChallengeDataProvider:
         if not data:
             return {"injuries": False, "lineups": False}
         seasons = data[0].get("seasons") or []
+        if not isinstance(seasons, list):
+            self.errors.append(f"Coverage Liga {league_id}: ungültige Saisondaten")
+            return {"injuries": False, "lineups": False}
+        seasons = [item for item in seasons if isinstance(item, dict)]
         season_data = next(
-            (item for item in seasons if item.get("year") == season),
-            seasons[-1] if seasons else {},
+            (
+                item
+                for item in seasons
+                if not isinstance(item.get("year"), bool)
+                and item.get("year") == season
+            ),
+            None,
         )
+        if season_data is None:
+            self.errors.append(f"Coverage Liga {league_id}: Saison {season} fehlt")
+            return {"injuries": False, "lineups": False}
         coverage = season_data.get("coverage") or {}
+        if not isinstance(coverage, dict):
+            self.errors.append(f"Coverage Liga {league_id}: ungültige Abdeckungsdaten")
+            return {"injuries": False, "lineups": False}
         fixtures = coverage.get("fixtures") or {}
+        if not isinstance(fixtures, dict):
+            fixtures = {}
         return {
-            "injuries": bool(coverage.get("injuries")),
-            "lineups": bool(fixtures.get("lineups")),
+            "injuries": coverage.get("injuries") is True,
+            "lineups": fixtures.get("lineups") is True,
         }
 
     def h2h(self, home_team_id: int, away_team_id: int) -> Optional[list[dict[str, Any]]]:
@@ -222,11 +318,37 @@ class ChallengeDataProvider:
                         {"fixture": fixture_id},
                         f"Verletzungen Fixture {fixture_id}",
                     )
-                    result[fixture_id] = fallback
+                    if fallback is None:
+                        result[fixture_id] = None
+                        continue
+                    valid_fallback = all(
+                        isinstance(entry.get("fixture"), dict)
+                        and entry["fixture"].get("id") == fixture_id
+                        for entry in fallback
+                    )
+                    if valid_fallback:
+                        result[fixture_id] = fallback
+                    else:
+                        self.errors.append(
+                            f"Verletzungen Fixture {fixture_id}: ungültige Fixture-Zuordnung"
+                        )
+                        result[fixture_id] = None
                 continue
+            response_ids = []
             for entry in data:
-                fixture_id = entry.get("fixture", {}).get("id")
-                if fixture_id in result and result[fixture_id] is not None:
+                fixture_data = entry.get("fixture")
+                fixture_id = fixture_data.get("id") if isinstance(fixture_data, dict) else None
+                if _positive_integer(fixture_id) is None or fixture_id not in chunk:
+                    response_ids = []
+                    break
+                response_ids.append(fixture_id)
+            if data and not response_ids:
+                self.errors.append("Verletzungen: ungültige Fixture-Zuordnung")
+                for fixture_id in chunk:
+                    result[fixture_id] = None
+                continue
+            for entry, fixture_id in zip(data, response_ids):
+                if result[fixture_id] is not None:
                     result[fixture_id].append(entry)
         return result
 
@@ -246,13 +368,38 @@ class ChallengeDataProvider:
                         {"id": fixture_id},
                         f"Fixture-Details {fixture_id}",
                     )
-                    if fallback:
+                    if (
+                        fallback
+                        and len(fallback) == 1
+                        and isinstance(fallback[0].get("fixture"), dict)
+                        and fallback[0]["fixture"].get("id") == fixture_id
+                    ):
                         result[fixture_id] = fallback[0]
+                    elif fallback:
+                        self.errors.append(
+                            f"Fixture-Details {fixture_id}: ungültige Fixture-Zuordnung"
+                        )
+                continue
+            batch_valid = True
+            response_ids: set[int] = set()
+            for fixture in data:
+                fixture_data = fixture.get("fixture")
+                fixture_id = fixture_data.get("id") if isinstance(fixture_data, dict) else None
+                if (
+                    _positive_integer(fixture_id) is None
+                    or fixture_id not in chunk
+                    or fixture_id in response_ids
+                ):
+                    batch_valid = False
+                    break
+                response_ids.add(fixture_id)
+            if not batch_valid:
+                self.errors.append("Fixture-Details: ungültige Fixture-Zuordnung")
+                for fixture_id in chunk:
+                    result[fixture_id] = None
                 continue
             for fixture in data:
-                fixture_id = fixture.get("fixture", {}).get("id")
-                if fixture_id in result:
-                    result[fixture_id] = fixture
+                result[fixture["fixture"]["id"]] = fixture
         return result
 
     def weather(self, fixture: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -287,14 +434,28 @@ class ChallengeDataProvider:
             )
             geocode.raise_for_status()
             locations = geocode.json()
-            if not locations:
+            if not isinstance(locations, list) or not locations or not isinstance(locations[0], dict):
+                self._weather_cache[cache_key] = None
+                return None
+            latitude = locations[0].get("lat")
+            longitude = locations[0].get("lon")
+            if (
+                isinstance(latitude, bool)
+                or isinstance(longitude, bool)
+                or not isinstance(latitude, (int, float))
+                or not isinstance(longitude, (int, float))
+                or not math.isfinite(float(latitude))
+                or not math.isfinite(float(longitude))
+                or not -90 <= float(latitude) <= 90
+                or not -180 <= float(longitude) <= 180
+            ):
                 self._weather_cache[cache_key] = None
                 return None
             forecast_response = requests.get(
                 "https://api.openweathermap.org/data/2.5/forecast",
                 params={
-                    "lat": locations[0]["lat"],
-                    "lon": locations[0]["lon"],
+                    "lat": latitude,
+                    "lon": longitude,
                     "appid": self.weather_key,
                     "units": "metric",
                     "lang": "de",
@@ -302,31 +463,64 @@ class ChallengeDataProvider:
                 timeout=15,
             )
             forecast_response.raise_for_status()
-            forecasts = forecast_response.json().get("list") or []
-        except (requests.RequestException, ValueError, KeyError) as exc:
+            forecast_payload = forecast_response.json()
+            forecasts = (
+                forecast_payload.get("list")
+                if isinstance(forecast_payload, dict)
+                else None
+            )
+        except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
             self.errors.append(f"Wetter {city}: {exc}")
             self._weather_cache[cache_key] = None
             return None
-        if not forecasts:
+        if not isinstance(forecasts, list):
+            self.errors.append(f"Wetter {city}: ungültige Provider-Antwort")
+            self._weather_cache[cache_key] = None
+            return None
+        valid_forecasts = []
+        for item in forecasts:
+            if not isinstance(item, dict):
+                continue
+            timestamp = item.get("dt")
+            if (
+                isinstance(timestamp, bool)
+                or not isinstance(timestamp, (int, float))
+                or not math.isfinite(float(timestamp))
+                or timestamp <= 0
+            ):
+                continue
+            valid_forecasts.append(item)
+        if not valid_forecasts:
             self._weather_cache[cache_key] = None
             return None
         nearest = min(
-            forecasts,
-            key=lambda item: abs(datetime.fromtimestamp(item.get("dt", 0), timezone.utc) - kickoff),
+            valid_forecasts,
+            key=lambda item: abs(datetime.fromtimestamp(item["dt"], timezone.utc) - kickoff),
         )
-        forecast_time = datetime.fromtimestamp(nearest.get("dt", 0), timezone.utc)
+        forecast_time = datetime.fromtimestamp(nearest["dt"], timezone.utc)
         if abs((forecast_time - kickoff).total_seconds()) > 4 * 3600:
             self._weather_cache[cache_key] = None
             return None
-        weather_items = nearest.get("weather") or [{}]
+        main_data = nearest.get("main") if isinstance(nearest.get("main"), dict) else {}
+        wind_data = nearest.get("wind") if isinstance(nearest.get("wind"), dict) else {}
+        rain_data = nearest.get("rain") if isinstance(nearest.get("rain"), dict) else {}
+        snow_data = nearest.get("snow") if isinstance(nearest.get("snow"), dict) else {}
+        weather_items = nearest.get("weather")
+        weather_item = (
+            weather_items[0]
+            if isinstance(weather_items, list)
+            and weather_items
+            and isinstance(weather_items[0], dict)
+            else {}
+        )
         result = {
             "status": "ok",
             "forecast_at": forecast_time.isoformat(),
-            "temperature_c": nearest.get("main", {}).get("temp"),
-            "wind_mps": nearest.get("wind", {}).get("speed"),
-            "rain_3h_mm": nearest.get("rain", {}).get("3h", 0.0),
-            "snow_3h_mm": nearest.get("snow", {}).get("3h", 0.0),
-            "description": weather_items[0].get("description"),
+            "temperature_c": main_data.get("temp"),
+            "wind_mps": wind_data.get("speed"),
+            "rain_3h_mm": rain_data.get("3h", 0.0),
+            "snow_3h_mm": snow_data.get("3h", 0.0),
+            "description": weather_item.get("description"),
         }
         self._weather_cache[cache_key] = result
         return result
@@ -352,6 +546,7 @@ def scan_daily_challenge(
     max_fixtures: int,
 ) -> dict[str, Any]:
     """Run one explicit, quota-aware daily challenge scan."""
+    _validate_scan_inputs(league_ids, search_date, max_fixtures)
     fixtures: list[dict[str, Any]] = []
     histories: dict[int, list[dict[str, Any]]] = {}
     coverage: dict[int, dict[str, bool]] = {}
@@ -363,16 +558,34 @@ def scan_daily_challenge(
         upcoming = provider.upcoming_fixtures(league_id, season, search_date)
         if upcoming is None:
             continue
-        fixtures.extend(upcoming)
-        if upcoming:
-            history = provider.completed_history(league_id, season, upcoming)
+        valid_upcoming = [
+            fixture
+            for fixture in upcoming
+            if _valid_upcoming_fixture(fixture, league_id)
+        ]
+        invalid_count = len(upcoming) - len(valid_upcoming)
+        if invalid_count:
+            provider.errors.append(
+                f"Fixtures Liga {league_id}: {invalid_count} ungültige Einträge verworfen"
+            )
+        fixtures.extend(valid_upcoming)
+        if valid_upcoming:
+            history = provider.completed_history(league_id, season, valid_upcoming)
             histories[league_id] = history or []
             coverage[league_id] = provider.coverage(league_id, season)
 
-    fixtures.sort(key=lambda item: item.get("fixture", {}).get("date", ""))
+    fixtures.sort(key=lambda item: _fixture_kickoff(item) or datetime.max.replace(tzinfo=timezone.utc))
+    unique_fixtures: list[dict[str, Any]] = []
+    seen_fixture_ids: set[int] = set()
+    for fixture in fixtures:
+        fixture_id = fixture["fixture"]["id"]
+        if fixture_id in seen_fixture_ids:
+            provider.errors.append(f"Fixture {fixture_id}: doppelter Provider-Eintrag verworfen")
+            continue
+        seen_fixture_ids.add(fixture_id)
+        unique_fixtures.append(fixture)
+    fixtures = unique_fixtures
     fixtures = fixtures[:max_fixtures]
-    fixture_ids = {fixture.get("fixture", {}).get("id") for fixture in fixtures}
-    fixtures = [fixture for fixture in fixtures if isinstance(fixture.get("fixture", {}).get("id"), int)]
 
     validations = {
         league_id: _cached_market_validation(
@@ -409,7 +622,6 @@ def scan_daily_challenge(
     fixture_by_id = {
         fixture["fixture"]["id"]: fixture
         for fixture in fixtures
-        if fixture.get("fixture", {}).get("id") in fixture_ids
     }
     h2h_by_fixture: dict[int, Optional[list[dict[str, Any]]]] = {}
     weather_by_fixture: dict[int, Optional[dict[str, Any]]] = {}
@@ -439,7 +651,11 @@ def scan_daily_challenge(
             injuries=injuries.get(candidate.fixture_id),
             injury_coverage=bool(league_coverage.get("injuries")),
             weather=weather_by_fixture.get(candidate.fixture_id),
-            lineups=detail.get("lineups") if isinstance(detail, dict) else None,
+            lineups=(
+                detail.get("lineups")
+                if isinstance(detail, dict) and league_coverage.get("lineups") is True
+                else None
+            ),
         )
         contextualized.append(candidate)
 
@@ -762,6 +978,10 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         return
     if not config.weather_key:
         st.warning("Wetter-Key fehlt. Der strikte Kontext-Gate wird daher keine Tipps freigeben.")
+    st.caption(
+        "Eine finale Freigabe ist erst mit bestätigten Startaufstellungen möglich. "
+        "Vorherige Scans bleiben bewusst ohne Ticketfreigabe."
+    )
 
     controls = st.columns(2)
     with controls[0]:
@@ -839,6 +1059,19 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         return
 
     st.caption(f"Snapshot: {_format_time(snapshot.get('scanned_at'))}")
+    try:
+        scanned_at = datetime.fromisoformat(snapshot["scanned_at"]).astimezone(timezone.utc)
+        snapshot_age = (
+            datetime.now(timezone.utc) - scanned_at
+        ).total_seconds() / 60.0
+    except (KeyError, TypeError, ValueError):
+        snapshot_age = float("inf")
+    if snapshot_age > SNAPSHOT_MAX_AGE_MINUTES or snapshot_age < -1:
+        st.warning(
+            "Dieser Kontext-Snapshot ist nicht mehr aktuell. Verletzungen, Wetter, "
+            "Aufstellungen und Anstoßstatus müssen neu geprüft werden."
+        )
+        return
     counts = st.columns(4)
     counts[0].metric("Gefunden", snapshot["fixtures_found"])
     counts[1].metric("Modelliert", snapshot["fixtures_modeled"])

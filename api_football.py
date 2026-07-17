@@ -5,9 +5,10 @@ Season selection is dynamic.
 ✅ All required methods included
 """
 
+import math
 import requests
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from season_utils import (
@@ -43,6 +44,84 @@ class APIFootball:
         if isinstance(errors, dict):
             return "; ".join(f"{key}: {value}" for key, value in errors.items())
         return str(errors)
+
+    @staticmethod
+    def _finite_nonnegative(value, *, maximum: Optional[float] = None) -> Optional[float]:
+        if isinstance(value, bool):
+            return None
+        try:
+            numeric = float(str(value).replace('%', '').strip())
+        except (TypeError, ValueError):
+            return None
+        if (
+            not math.isfinite(numeric)
+            or numeric < 0
+            or maximum is not None and numeric > maximum
+        ):
+            return None
+        return numeric
+
+    @classmethod
+    def _nonnegative_integer(cls, value, *, maximum: Optional[int] = None) -> Optional[int]:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return None
+        if maximum is not None and value > maximum:
+            return None
+        return value
+
+    @classmethod
+    def _positive_integer(cls, value) -> Optional[int]:
+        numeric = cls._nonnegative_integer(value)
+        return numeric if numeric is not None and numeric > 0 else None
+
+    def _response_data(self, response, label: str, expected_type):
+        """Validate HTTP status, provider errors, and response shape."""
+        if response.status_code != 200:
+            self.last_error = f"{label}: HTTP {response.status_code}"
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            self.last_error = f"{label}: invalid JSON"
+            return None
+        provider_error = self._payload_error(payload)
+        if provider_error:
+            self.last_error = f"{label}: {provider_error}"
+            return None
+        data = payload.get('response') if isinstance(payload, dict) else None
+        if not isinstance(data, expected_type):
+            self.last_error = f"{label}: invalid response payload"
+            return None
+        if expected_type is list and any(not isinstance(item, dict) for item in data):
+            self.last_error = f"{label}: invalid response entries"
+            return None
+        return data
+
+    @classmethod
+    def _completed_fixture_values(cls, fixture) -> Optional[tuple[int, int, int, int]]:
+        if not isinstance(fixture, dict):
+            return None
+        teams = fixture.get('teams')
+        goals = fixture.get('goals')
+        if not isinstance(teams, dict) or not isinstance(goals, dict):
+            return None
+        home = teams.get('home')
+        away = teams.get('away')
+        if not isinstance(home, dict) or not isinstance(away, dict):
+            return None
+        home_id = cls._positive_integer(home.get('id'))
+        away_id = cls._positive_integer(away.get('id'))
+        home_goals = cls._nonnegative_integer(goals.get('home'), maximum=30)
+        away_goals = cls._nonnegative_integer(goals.get('away'), maximum=30)
+        if (
+            home_id is None
+            or away_id is None
+            or home_id == away_id
+            or home_goals is None
+            or away_goals is None
+        ):
+            return None
+        return home_id, away_id, home_goals, away_goals
     
     def _rate_limit(self):
         """Ensure minimum time between requests"""
@@ -64,6 +143,15 @@ class APIFootball:
             List of upcoming fixtures with team info
         """
         self.last_error = None
+        if (
+            not isinstance(league_code, str)
+            or not league_code.strip()
+            or isinstance(days_ahead, bool)
+            or not isinstance(days_ahead, int)
+            or not 1 <= days_ahead <= 30
+        ):
+            self.last_error = "upcoming fixtures: invalid request parameters"
+            return []
         league_id = self.league_ids.get(league_code)
         if not league_id:
             print(f"WARNING: Unknown league code: {league_code}")
@@ -89,42 +177,59 @@ class APIFootball:
                 timeout=15
             )
             
-            if response.status_code == 200:
-                data = response.json()
-                provider_error = self._payload_error(data)
-                if provider_error:
-                    self.last_error = provider_error
-                    print(f"ERROR: API provider error for {league_code}: {provider_error}")
-                    return []
-                fixtures = data.get('response', [])
-                if not isinstance(fixtures, list):
-                    self.last_error = "Invalid fixtures response"
-                    return []
+            fixtures = self._response_data(
+                response,
+                f"fixtures {league_code}",
+                list,
+            )
+            if fixtures is not None:
                 
                 print(f"Found {len(fixtures)} upcoming fixtures for {league_code}")
                 
                 result = []
                 for fixture in fixtures:
                     try:
+                        fixture_id = self._positive_integer(fixture['fixture']['id'])
+                        home_team_id = self._positive_integer(fixture['teams']['home']['id'])
+                        away_team_id = self._positive_integer(fixture['teams']['away']['id'])
+                        home_team = str(fixture['teams']['home']['name'] or '').strip()
+                        away_team = str(fixture['teams']['away']['name'] or '').strip()
+                        fixture_date = str(fixture['fixture']['date'] or '').strip()
+                        kickoff = datetime.fromisoformat(fixture_date.replace('Z', '+00:00'))
+                        fixture_league_id = self._positive_integer(fixture['league']['id'])
+                        league_name = fixture['league']['name']
+                        if (
+                            fixture_id is None
+                            or home_team_id is None
+                            or away_team_id is None
+                            or home_team_id == away_team_id
+                            or not home_team
+                            or not away_team
+                            or home_team == away_team
+                            or kickoff.tzinfo is None
+                            or kickoff.astimezone(timezone.utc) <= datetime.now(timezone.utc)
+                            or fixture_league_id != league_id
+                            or not isinstance(league_name, str)
+                            or not league_name.strip()
+                        ):
+                            continue
                         result.append({
-                            'fixture_id': fixture['fixture']['id'],
-                            'date': fixture['fixture']['date'],
-                            'home_team': fixture['teams']['home']['name'],
-                            'away_team': fixture['teams']['away']['name'],
-                            'home_team_id': fixture['teams']['home']['id'],
-                            'away_team_id': fixture['teams']['away']['id'],
+                            'fixture_id': fixture_id,
+                            'date': fixture_date,
+                            'home_team': home_team,
+                            'away_team': away_team,
+                            'home_team_id': home_team_id,
+                            'away_team_id': away_team_id,
                             'league_code': league_code,
-                            'league_name': fixture['league']['name']
+                            'league_name': league_name.strip()
                         })
-                    except KeyError as e:
+                    except (KeyError, TypeError, ValueError, AttributeError) as e:
                         print(f"WARNING: Missing data in fixture: {e}")
                         continue
                 
                 return result
-            else:
-                self.last_error = f"HTTP {response.status_code}"
-                print(f"ERROR: API status {response.status_code} for {league_code}")
-                return []
+            print(f"ERROR: {self.last_error or 'fixture request failed'}")
+            return []
                 
         except Exception as e:
             self.last_error = type(e).__name__
@@ -144,17 +249,8 @@ class APIFootball:
                 timeout=15
             )
             
-            if response.status_code == 200:
-                data = response.json()
-                provider_error = self._payload_error(data)
-                if provider_error:
-                    self.last_error = provider_error
-                    return []
-                return data.get('response', [])
-            else:
-                self.last_error = f"HTTP {response.status_code}"
-                print(f"ERROR: API status {response.status_code}")
-                return []
+            matches = self._response_data(response, "live fixtures", list)
+            return matches if matches is not None else []
                 
         except Exception as e:
             self.last_error = str(e)
@@ -168,6 +264,18 @@ class APIFootball:
         away_team_id: int,
     ) -> Optional[Dict]:
         """Get detailed statistics for a specific match"""
+        self.last_error = None
+        fixture_id = self._positive_integer(fixture_id)
+        home_team_id = self._positive_integer(home_team_id)
+        away_team_id = self._positive_integer(away_team_id)
+        if (
+            fixture_id is None
+            or home_team_id is None
+            or away_team_id is None
+            or home_team_id == away_team_id
+        ):
+            self.last_error = "fixture statistics: invalid identifiers"
+            return None
         self._rate_limit()
         
         try:
@@ -178,35 +286,41 @@ class APIFootball:
                 timeout=15
             )
             
-            if response.status_code == 200:
-                data = response.json()
-                stats_list = data.get('response', [])
-                
+            stats_list = self._response_data(
+                response,
+                f"fixture statistics {fixture_id}",
+                list,
+            )
+            if stats_list is not None:
                 if len(stats_list) >= 2:
-                    stats_by_team = {
-                        item.get('team', {}).get('id'): item.get('statistics', [])
-                        for item in stats_list
-                    }
+                    stats_by_team = {}
+                    for item in stats_list:
+                        if not isinstance(item, dict):
+                            continue
+                        team = item.get('team')
+                        statistics = item.get('statistics')
+                        if not isinstance(team, dict) or not isinstance(statistics, list):
+                            continue
+                        team_id = self._positive_integer(team.get('id'))
+                        if team_id is not None:
+                            stats_by_team[team_id] = statistics
                     home_stats = stats_by_team.get(home_team_id)
                     away_stats = stats_by_team.get(away_team_id)
                     if home_stats is None or away_stats is None:
                         return None
-                    
+
                     def get_stat(stats, stat_type):
                         for s in stats:
+                            if not isinstance(s, dict):
+                                continue
                             if s.get('type') == stat_type:
                                 val = s.get('value')
-                                if val is None:
-                                    return None
-                                if isinstance(val, str):
-                                    val = val.replace('%', '')
-                                try:
-                                    return float(val)
-                                except (TypeError, ValueError):
-                                    return None
+                                if stat_type == 'Ball Possession':
+                                    return self._finite_nonnegative(val, maximum=100.0)
+                                return self._nonnegative_integer(val, maximum=5000)
                         return None
-                    
-                    return {
+
+                    result = {
                         # Shots
                         'shots_home': get_stat(home_stats, 'Total Shots'),
                         'shots_away': get_stat(away_stats, 'Total Shots'),
@@ -253,17 +367,30 @@ class APIFootball:
                         'passes_accurate_home': get_stat(home_stats, 'Passes accurate'),
                         'passes_accurate_away': get_stat(away_stats, 'Passes accurate')
                     }
+                    return result
+                self.last_error = f"fixture statistics {fixture_id}: both teams are required"
             
             return None
             
         except Exception as e:
+            self.last_error = f"fixture statistics {fixture_id}: {type(e).__name__}"
             print(f"WARNING: Stats error: {e}")
             return None
     
     def get_team_statistics(self, team_id: int, league_id: int,
                             season: Optional[int] = None) -> Optional[Dict]:
         """Get team statistics from API-Football"""
-        season = season or current_season_start_year_for_id(league_id)
+        self.last_error = None
+        team_id = self._positive_integer(team_id)
+        league_id = self._positive_integer(league_id)
+        if team_id is None or league_id is None:
+            self.last_error = "team statistics: invalid identifiers"
+            return None
+        season = season if season is not None else current_season_start_year_for_id(league_id)
+        season = self._nonnegative_integer(season)
+        if season is None or not 1900 <= season <= 2100:
+            self.last_error = "team statistics: invalid season"
+            return None
         self._rate_limit()
         
         try:
@@ -278,10 +405,13 @@ class APIFootball:
                 timeout=15
             )
             
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('response'):
-                    stats = data['response']
+            stats = self._response_data(
+                response,
+                f"team statistics {team_id}",
+                dict,
+            )
+            if stats is not None:
+                if stats:
                     
                     print(f"API returned team: {stats.get('team')}")
                     
@@ -289,40 +419,57 @@ class APIFootball:
                     fixtures = stats.get('fixtures', {})
                     goals = stats.get('goals', {})
                     
-                    home_stats = fixtures.get('played', {}).get('home', 0)
-                    away_stats = fixtures.get('played', {}).get('away', 0)
-                    total_stats = fixtures.get('played', {}).get('total', 0)
-                    
-                    clean_sheets_home = int(stats.get('clean_sheet', {}).get('home', 0))
-                    clean_sheets_away = int(stats.get('clean_sheet', {}).get('away', 0))
-                    failed_to_score_home = int(stats.get('failed_to_score', {}).get('home', 0))
-                    failed_to_score_away = int(stats.get('failed_to_score', {}).get('away', 0))
+                    played = fixtures.get('played', {}) if isinstance(fixtures, dict) else {}
+                    if not isinstance(played, dict) or not isinstance(goals, dict):
+                        self.last_error = f"team statistics {team_id}: invalid aggregates"
+                        return None
+                    played_home = self._nonnegative_integer(played.get('home'), maximum=200)
+                    played_away = self._nonnegative_integer(played.get('away'), maximum=200)
+                    clean_sheet = stats.get('clean_sheet', {})
+                    failed_to_score = stats.get('failed_to_score', {})
+                    if not isinstance(clean_sheet, dict) or not isinstance(failed_to_score, dict):
+                        self.last_error = f"team statistics {team_id}: invalid count aggregates"
+                        return None
+                    clean_sheets_home = self._nonnegative_integer(clean_sheet.get('home'), maximum=200)
+                    clean_sheets_away = self._nonnegative_integer(clean_sheet.get('away'), maximum=200)
+                    failed_to_score_home = self._nonnegative_integer(failed_to_score.get('home'), maximum=200)
+                    failed_to_score_away = self._nonnegative_integer(failed_to_score.get('away'), maximum=200)
+                    aggregate_counts = (
+                        played_home,
+                        played_away,
+                        clean_sheets_home,
+                        clean_sheets_away,
+                        failed_to_score_home,
+                        failed_to_score_away,
+                    )
+                    if any(value is None for value in aggregate_counts):
+                        self.last_error = f"team statistics {team_id}: invalid count aggregates"
+                        return None
+                    if (
+                        clean_sheets_home > played_home
+                        or clean_sheets_away > played_away
+                        or failed_to_score_home > played_home
+                        or failed_to_score_away > played_away
+                    ):
+                        self.last_error = f"team statistics {team_id}: inconsistent count aggregates"
+                        return None
                     btts_rates = self._get_btts_rates(team_id, league_id, season)
-                    
-                    # Convert string values to float
-                    def safe_float(value, default):
-                        try:
-                            return float(value) if value is not None else default
-                        except (TypeError, ValueError):
-                            return default
-                    
-                    played_home = int(home_stats) if home_stats else 0
-                    played_away = int(away_stats) if away_stats else 0
-                    scored_home = safe_float(
+
+                    scored_home = self._finite_nonnegative(
                         goals.get('for', {}).get('average', {}).get('home'),
-                        None,
+                        maximum=20.0,
                     )
-                    scored_away = safe_float(
+                    scored_away = self._finite_nonnegative(
                         goals.get('for', {}).get('average', {}).get('away'),
-                        None,
+                        maximum=20.0,
                     )
-                    conceded_home = safe_float(
+                    conceded_home = self._finite_nonnegative(
                         goals.get('against', {}).get('average', {}).get('home'),
-                        None,
+                        maximum=20.0,
                     )
-                    conceded_away = safe_float(
+                    conceded_away = self._finite_nonnegative(
                         goals.get('against', {}).get('average', {}).get('away'),
-                        None,
+                        maximum=20.0,
                     )
 
                     def weighted_average(home_value, away_value):
@@ -365,17 +512,18 @@ class APIFootball:
                         'failed_to_score_home': failed_to_score_home,
                         'failed_to_score_away': failed_to_score_away
                     }
+                self.last_error = f"team statistics {team_id}: empty response"
             
             return None
             
         except Exception as e:
+            self.last_error = f"team statistics {team_id}: {type(e).__name__}"
             print(f"WARNING: Team stats error: {e}")
             return None
 
     def _get_btts_rates(self, team_id: int, league_id: int, season: int,
                         limit: int = 20) -> Dict:
         """Calculate BTTS rates from finished fixtures without aggregate overlap bias."""
-        self._rate_limit()
         empty = {
             'home_rate': None,
             'away_rate': None,
@@ -384,6 +532,17 @@ class APIFootball:
             'away_matches': 0,
             'total_matches': 0,
         }
+        if (
+            self._positive_integer(team_id) is None
+            or self._positive_integer(league_id) is None
+            or self._nonnegative_integer(season) is None
+            or isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= 100
+        ):
+            self.last_error = "BTTS history: invalid request parameters"
+            return empty
+        self._rate_limit()
         try:
             response = requests.get(
                 f"{self.base_url}/fixtures",
@@ -397,22 +556,27 @@ class APIFootball:
                 },
                 timeout=15,
             )
-            if response.status_code != 200:
+            fixtures = self._response_data(
+                response,
+                f"BTTS history {team_id}",
+                list,
+            )
+            if fixtures is None:
                 return empty
-            fixtures = response.json().get('response', [])
-        except Exception:
+        except Exception as exc:
+            self.last_error = f"BTTS history {team_id}: {type(exc).__name__}"
             return empty
 
         counts = {'home': [0, 0], 'away': [0, 0]}
         for fixture in fixtures:
-            home_id = fixture.get('teams', {}).get('home', {}).get('id')
-            home_goals = fixture.get('goals', {}).get('home')
-            away_goals = fixture.get('goals', {}).get('away')
-            if home_goals is None or away_goals is None:
-                continue
+            values = self._completed_fixture_values(fixture)
+            if values is None or team_id not in values[:2]:
+                self.last_error = f"BTTS history {team_id}: invalid fixture data"
+                return empty
+            home_id, away_id, home_score, away_score = values
             venue = 'home' if home_id == team_id else 'away'
             counts[venue][1] += 1
-            if home_goals > 0 and away_goals > 0:
+            if home_score > 0 and away_score > 0:
                 counts[venue][0] += 1
 
         home_btts, home_matches = counts['home']
@@ -434,6 +598,19 @@ class APIFootball:
     
     def get_h2h(self, team1_id: int, team2_id: int, last_n: int = 10) -> List[Dict]:
         """Get head-to-head matches"""
+        self.last_error = None
+        team1_id = self._positive_integer(team1_id)
+        team2_id = self._positive_integer(team2_id)
+        if (
+            team1_id is None
+            or team2_id is None
+            or team1_id == team2_id
+            or isinstance(last_n, bool)
+            or not isinstance(last_n, int)
+            or not 1 <= last_n <= 100
+        ):
+            self.last_error = "head-to-head: invalid request parameters"
+            return []
         self._rate_limit()
         
         try:
@@ -447,18 +624,35 @@ class APIFootball:
                 timeout=15
             )
             
-            if response.status_code == 200:
-                data = response.json()
-                return data.get('response', [])
-            
-            return []
+            matches = self._response_data(response, "head-to-head", list)
+            if matches is None:
+                return []
+            for match in matches:
+                values = self._completed_fixture_values(match)
+                if values is None or set(values[:2]) != {team1_id, team2_id}:
+                    self.last_error = "head-to-head: invalid fixture data"
+                    return []
+            return matches
             
         except Exception as e:
+            self.last_error = f"head-to-head: {type(e).__name__}"
             print(f"WARNING: H2H error: {e}")
             return []
     
     def get_last_matches(self, team_id: int, league_id: int, n: int = 5) -> List[Dict]:
         """Get last N matches for a team"""
+        self.last_error = None
+        team_id = self._positive_integer(team_id)
+        league_id = self._positive_integer(league_id)
+        if (
+            team_id is None
+            or league_id is None
+            or isinstance(n, bool)
+            or not isinstance(n, int)
+            or not 1 <= n <= 100
+        ):
+            self.last_error = "last matches: invalid request parameters"
+            return []
         self._rate_limit()
         
         try:
@@ -474,13 +668,28 @@ class APIFootball:
                 timeout=15
             )
             
-            if response.status_code == 200:
-                data = response.json()
-                return data.get('response', [])
-            
-            return []
+            matches = self._response_data(response, f"last matches {team_id}", list)
+            if matches is None:
+                return []
+            for match in matches:
+                values = self._completed_fixture_values(match)
+                league = match.get('league')
+                match_league_id = (
+                    self._positive_integer(league.get('id'))
+                    if isinstance(league, dict)
+                    else None
+                )
+                if (
+                    values is None
+                    or team_id not in values[:2]
+                    or match_league_id != league_id
+                ):
+                    self.last_error = f"last matches {team_id}: invalid fixture data"
+                    return []
+            return matches
             
         except Exception as e:
+            self.last_error = f"last matches {team_id}: {type(e).__name__}"
             print(f"WARNING: Last matches error: {e}")
             return []
     
@@ -499,7 +708,7 @@ class APIFootball:
         Get last N matches for a team and calculate form stats
         Used by advanced_analyzer for form calculation
         """
-        self._rate_limit()
+        self.last_error = None
         empty = {
             'matches_played': 0,
             'btts_rate': None,
@@ -510,6 +719,28 @@ class APIFootball:
             'draws': 0,
             'losses': 0,
         }
+        team_id = self._positive_integer(team_id)
+        if (
+            team_id is None
+            or isinstance(n, bool)
+            or not isinstance(n, int)
+            or not 1 <= n <= 100
+        ):
+            self.last_error = "team form: invalid request parameters"
+            return empty
+        if league_id is not None:
+            league_id = self._positive_integer(league_id)
+            if league_id is None:
+                self.last_error = "team form: invalid league identifier"
+                return empty
+            season = season if season is not None else current_season_start_year_for_id(
+                league_id
+            )
+            season = self._nonnegative_integer(season)
+            if season is None or not 1900 <= season <= 2100:
+                self.last_error = "team form: invalid season"
+                return empty
+        self._rate_limit()
         
         try:
             params = {
@@ -519,9 +750,7 @@ class APIFootball:
             }
             if league_id is not None:
                 params['league'] = league_id
-                params['season'] = season or current_season_start_year_for_id(
-                    league_id
-                )
+                params['season'] = season
             response = requests.get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
@@ -529,9 +758,12 @@ class APIFootball:
                 timeout=15
             )
             
-            if response.status_code == 200:
-                data = response.json()
-                matches = data.get('response', [])
+            matches = self._response_data(
+                response,
+                f"team form {team_id}",
+                list,
+            )
+            if matches is not None:
                 
                 if not matches:
                     return empty
@@ -546,49 +778,44 @@ class APIFootball:
                 form_string = ""
                 
                 for match in matches:
-                    try:
-                        home_id = match['teams']['home']['id']
-                        away_id = match['teams']['away']['id']
-                        home_goals = match['goals']['home']
-                        away_goals = match['goals']['away']
-                        if home_goals is None or away_goals is None:
-                            continue
+                    values = self._completed_fixture_values(match)
+                    if values is None or team_id not in values[:2]:
+                        self.last_error = f"team form {team_id}: invalid fixture data"
+                        return empty
+                    home_id, away_id, home_goals, away_goals = values
                         
-                        # Determine if this team was home or away
-                        if home_id == team_id:
-                            scored = home_goals
-                            conceded = away_goals
-                            if home_goals > away_goals:
-                                wins += 1
-                                form_string += "W"
-                            elif home_goals < away_goals:
-                                losses += 1
-                                form_string += "L"
-                            else:
-                                draws += 1
-                                form_string += "D"
+                    # Determine if this team was home or away
+                    if home_id == team_id:
+                        scored = home_goals
+                        conceded = away_goals
+                        if home_goals > away_goals:
+                            wins += 1
+                            form_string += "W"
+                        elif home_goals < away_goals:
+                            losses += 1
+                            form_string += "L"
                         else:
-                            scored = away_goals
-                            conceded = home_goals
-                            if away_goals > home_goals:
-                                wins += 1
-                                form_string += "W"
-                            elif away_goals < home_goals:
-                                losses += 1
-                                form_string += "L"
-                            else:
-                                draws += 1
-                                form_string += "D"
-                        
-                        total_scored += scored
-                        total_conceded += conceded
-                        
-                        # BTTS if both teams scored
-                        if home_goals > 0 and away_goals > 0:
-                            btts_count += 1
-                            
-                    except (KeyError, TypeError):
-                        continue
+                            draws += 1
+                            form_string += "D"
+                    else:
+                        scored = away_goals
+                        conceded = home_goals
+                        if away_goals > home_goals:
+                            wins += 1
+                            form_string += "W"
+                        elif away_goals < home_goals:
+                            losses += 1
+                            form_string += "L"
+                        else:
+                            draws += 1
+                            form_string += "D"
+
+                    total_scored += scored
+                    total_conceded += conceded
+
+                    # BTTS if both teams scored
+                    if home_goals > 0 and away_goals > 0:
+                        btts_count += 1
                 
                 matches_played = wins + draws + losses
                 if matches_played == 0:
@@ -611,6 +838,7 @@ class APIFootball:
             return empty
             
         except Exception as e:
+            self.last_error = f"team form {team_id}: {type(e).__name__}"
             print(f"WARNING: Form error: {e}")
             return empty
 

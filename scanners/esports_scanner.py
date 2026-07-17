@@ -63,7 +63,7 @@ class EsportsScanner:
                 else:
                     self.errors[g] = f"HTTP {response.status_code}"
 
-            except requests.RequestException as exc:
+            except (requests.RequestException, ValueError) as exc:
                 self.errors[g] = type(exc).__name__
                 continue
         
@@ -81,7 +81,15 @@ class EsportsScanner:
             
             team1_id = team1.get('id')
             team2_id = team2.get('id')
-            if not team1_id or not team2_id:
+            if (
+                not isinstance(team1_id, int)
+                or isinstance(team1_id, bool)
+                or team1_id <= 0
+                or not isinstance(team2_id, int)
+                or isinstance(team2_id, bool)
+                or team2_id <= 0
+                or team1_id == team2_id
+            ):
                 return None
             
             results = match.get('results', [])
@@ -92,7 +100,18 @@ class EsportsScanner:
             }
             score1 = scores_by_team.get(team1_id)
             score2 = scores_by_team.get(team2_id)
-            if not isinstance(score1, (int, float)) or not isinstance(score2, (int, float)):
+            if (
+                isinstance(score1, bool)
+                or isinstance(score2, bool)
+                or not isinstance(score1, (int, float))
+                or not isinstance(score2, (int, float))
+                or not math.isfinite(float(score1))
+                or not math.isfinite(float(score2))
+                or float(score1) < 0
+                or float(score2) < 0
+                or not float(score1).is_integer()
+                or not float(score2).is_integer()
+            ):
                 return None
             
             # Get REAL team statistics
@@ -119,7 +138,7 @@ class EsportsScanner:
     
     def _get_team_stats(self, team_id: int, game: str) -> Dict:
         """Get REAL team statistics from last matches"""
-        if not team_id:
+        if not isinstance(team_id, int) or isinstance(team_id, bool) or team_id <= 0:
             return {'win_rate': None, 'matches': 0, 'wins': 0, 'form': []}
         
         # Check cache
@@ -128,25 +147,36 @@ class EsportsScanner:
             return self._stats_cache[cache_key]
         
         try:
-            # Get last 20 matches for this team
-            url = f"{self.pandascore_base}/{game}/matches/past"
+            # The team endpoint guarantees membership. The former
+            # filter[opponent_id] query selected the opponent instead.
+            url = f"{self.pandascore_base}/teams/{team_id}/matches"
             params = {
-                'filter[opponent_id]': team_id,
                 'sort': '-begin_at',
-                'per_page': 20
+                'per_page': 50,
             }
             
             response = requests.get(url, headers=self.headers, params=params, timeout=10)
             
             if response.status_code == 200:
                 matches = response.json()
-                
+                if not isinstance(matches, list):
+                    self.errors[f'team_{team_id}'] = 'Invalid provider payload'
+                    return {'win_rate': None, 'matches': 0, 'wins': 0, 'form': []}
                 if matches:
                     wins = 0
                     total = 0
                     form = []  # Last 5 results: W/L
                     
                     for m in matches:
+                        if str(m.get('status') or '').lower() != 'finished':
+                            continue
+                        opponent_ids = {
+                            item.get('opponent', {}).get('id')
+                            for item in (m.get('opponents') or [])
+                            if isinstance(item, dict)
+                        }
+                        if team_id not in opponent_ids:
+                            continue
                         winner = m.get('winner', {})
                         winner_id = winner.get('id') if winner else None
                         if winner_id is None:
@@ -159,6 +189,8 @@ class EsportsScanner:
                         
                         if len(form) < 5:
                             form.append('W' if won else 'L')
+                        if total >= 20:
+                            break
                     
                     if total == 0:
                         return {'win_rate': None, 'matches': 0, 'wins': 0, 'form': []}
@@ -173,8 +205,10 @@ class EsportsScanner:
                     
                     self._stats_cache[cache_key] = stats
                     return stats
-        except requests.RequestException:
-            pass
+            else:
+                self.errors[f'team_{team_id}'] = f'HTTP {response.status_code}'
+        except (requests.RequestException, ValueError) as exc:
+            self.errors[f'team_{team_id}'] = type(exc).__name__
         
         return {'win_rate': None, 'matches': 0, 'wins': 0, 'form': []}
 
@@ -185,6 +219,18 @@ class EsportsScanner:
         opponent_maps: int,
         maps_to_win: int,
     ) -> float:
+        if (
+            isinstance(map_probability, bool)
+            or not isinstance(map_probability, (int, float))
+            or not math.isfinite(float(map_probability))
+            or not 0.0 <= float(map_probability) <= 1.0
+            or any(
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+                for value in (team_maps, opponent_maps, maps_to_win)
+            )
+            or maps_to_win < 1
+        ):
+            raise ValueError("Invalid first-to-N series state")
         memo = {}
 
         def solve(team_score: int, opponent_score: int) -> float:
@@ -207,32 +253,56 @@ class EsportsScanner:
         Analyze match and give recommendation
         Same approach as Football/Basketball scanners
         """
+        if not isinstance(match, dict):
+            return None
         game = match.get('game', '')
-        team1 = match.get('team1', 'Team 1')
-        team2 = match.get('team2', 'Team 2')
+        team1 = str(match.get('team1') or '').strip()
+        team2 = str(match.get('team2') or '').strip()
         score1 = match.get('team1_score')
         score2 = match.get('team2_score')
         series_type = match.get('series_type', 3)
         
         stats1 = match.get('team1_stats', {})
         stats2 = match.get('team2_stats', {})
+        if not isinstance(stats1, dict) or not isinstance(stats2, dict):
+            return None
         
         wr1 = stats1.get('win_rate')
         wr2 = stats2.get('win_rate')
         form1 = stats1.get('form', [])
         form2 = stats2.get('form', [])
+        matches1_raw = stats1.get('matches')
+        matches2_raw = stats2.get('matches')
+        wins1_raw = stats1.get('wins')
+        wins2_raw = stats2.get('wins')
+        if (
+            not team1
+            or not team2
+            or team1 == team2
+            or any(
+                isinstance(value, bool) or not isinstance(value, int)
+                for value in (matches1_raw, matches2_raw, wins1_raw, wins2_raw)
+            )
+        ):
+            return None
         try:
             score1_value = float(score1)
             score2_value = float(score2)
-            matches1 = int(stats1.get('matches', 0))
-            matches2 = int(stats2.get('matches', 0))
-            wins1 = int(stats1.get('wins', -1))
-            wins2 = int(stats2.get('wins', -1))
+            matches1 = matches1_raw
+            matches2 = matches2_raw
+            wins1 = wins1_raw
+            wins2 = wins2_raw
         except (TypeError, ValueError, OverflowError):
             return None
         if (
             wr1 is None
             or wr2 is None
+            or isinstance(wr1, bool)
+            or isinstance(wr2, bool)
+            or not math.isfinite(float(wr1))
+            or not math.isfinite(float(wr2))
+            or not 0.0 <= float(wr1) <= 100.0
+            or not 0.0 <= float(wr2) <= 100.0
             or not math.isfinite(score1_value)
             or not math.isfinite(score2_value)
             or not score1_value.is_integer()
@@ -241,6 +311,8 @@ class EsportsScanner:
             or matches2 < 5
             or not 0 <= wins1 <= matches1
             or not 0 <= wins2 <= matches2
+            or not math.isclose(float(wr1), wins1 / matches1 * 100.0, abs_tol=0.2)
+            or not math.isclose(float(wr2), wins2 / matches2 * 100.0, abs_tol=0.2)
         ):
             return None
         
@@ -257,10 +329,9 @@ class EsportsScanner:
         reasoning = []
         reasoning.append(f"📊 Win rates: {team1} {wr1}% | {team2} {wr2}%")
         
-        try:
-            series_maps = int(series_type)
-        except (TypeError, ValueError):
+        if isinstance(series_type, bool) or not isinstance(series_type, int):
             return None
+        series_maps = series_type
         if series_maps <= 0 or series_maps % 2 == 0:
             return None
         maps_to_win = (series_maps // 2) + 1

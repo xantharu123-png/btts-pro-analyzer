@@ -37,27 +37,16 @@ def _segmented(label: str, options: list[str], key: str, default: str) -> str:
     return st.radio(label, options, index=options.index(default), horizontal=True, key=key)
 
 
-def _model_price(probability: Optional[float]) -> Optional[float]:
-    if probability is None or probability <= 0:
-        return None
-    return 1.0 / probability
-
-
-def _rounded_model_price(probability: Optional[float]) -> Optional[float]:
-    price = _model_price(probability)
-    return round(price, 2) if price is not None else None
-
-
 def _signal_label(probability: float) -> str:
     if probability >= 0.80:
-        return "Sehr stark"
+        return ">=80 % Modellmasse"
     if probability >= 0.70:
-        return "Stark"
+        return "70-79 % Modellmasse"
     if probability >= 0.60:
-        return "Moderat"
+        return "60-69 % Modellmasse"
     if probability >= 0.50:
-        return "Schwach"
-    return "Kein Signal"
+        return "50-59 % Modellmasse"
+    return "<50 % Modellmasse"
 
 
 def _market_scope_signature(leagues: list[int], search_date) -> dict:
@@ -149,6 +138,8 @@ def _collect_match_analysis(match: dict, api_key: str) -> dict:
             analysis["data_sources"]["cards"] = "API_TEAM_HISTORY"
     except Exception as exc:
         analysis.setdefault("errors", {})["cards"] = str(exc)
+    if analyzer.errors:
+        analysis.setdefault("errors", {}).update(analyzer.errors)
     return analysis
 
 
@@ -188,6 +179,18 @@ def _render_corners_cards_analysis(match: dict, api_key: str) -> None:
     with st.spinner("Liga- und venue-spezifische Stichproben werden geladen..."):
         corners = analyzer.analyze_prematch_corners(fixture)
         cards = analyzer.analyze_prematch_cards(fixture)
+
+    if analyzer.errors:
+        st.warning("Mindestens eine historische Provider-Abfrage war unvollständig.")
+        with st.expander("Providerdiagnose"):
+            st.dataframe(
+                pd.DataFrame([
+                    {"Abfrage": label, "Fehler": message}
+                    for label, message in analyzer.errors.items()
+                ]),
+                use_container_width=True,
+                hide_index=True,
+            )
 
     home = match["teams"]["home"]["name"]
     away = match["teams"]["away"]["name"]

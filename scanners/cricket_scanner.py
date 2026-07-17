@@ -21,6 +21,7 @@ import streamlit as st
 import requests
 import json
 import logging
+import math
 from datetime import datetime
 from typing import Dict, List, Optional
 from config_loader import load_app_config
@@ -64,13 +65,27 @@ class CricketScanner:
 
                 if response.status_code == 200:
                     data = response.json()
+                    if not isinstance(data, dict):
+                        self.last_error = "Cricbuzz invalid provider payload"
+                        return []
                     matches = data.get('typeMatches', [])
+                    if not isinstance(matches, list):
+                        self.last_error = "Cricbuzz invalid matches payload"
+                        return []
 
                     live_matches = []
                     for match_type in matches:
+                        if not isinstance(match_type, dict):
+                            continue
                         for series in match_type.get('seriesMatches', []):
+                            if not isinstance(series, dict):
+                                continue
                             wrapper = series.get('seriesAdWrapper') or {}
+                            if not isinstance(wrapper, dict):
+                                continue
                             for match in wrapper.get('matches', []):
+                                if not isinstance(match, dict):
+                                    continue
                                 if match.get('matchInfo', {}).get('state') == 'In Progress':
                                     parsed = self._parse_match(match)
                                     if parsed:
@@ -100,10 +115,18 @@ class CricketScanner:
             
             if response.status_code == 200:
                 data = response.json()
+                if not isinstance(data, dict):
+                    self.last_error = "Cricket API invalid provider payload"
+                    return []
                 matches = data.get('data', [])
+                if not isinstance(matches, list):
+                    self.last_error = "Cricket API invalid matches payload"
+                    return []
                 
                 live_matches = []
                 for match in matches:
+                    if not isinstance(match, dict):
+                        continue
                     if match.get('matchStarted') and not match.get('matchEnded'):
                         parsed = self._parse_match_alternative(match)
                         if parsed:
@@ -111,8 +134,9 @@ class CricketScanner:
                 
                 return live_matches
             
+            self.last_error = f"Cricket API HTTP {response.status_code}"
             return []
-        except requests.RequestException as exc:
+        except (requests.RequestException, ValueError) as exc:
             self.last_error = type(exc).__name__
             return []
     
@@ -149,13 +173,18 @@ class CricketScanner:
     
     def _parse_match_alternative(self, match: Dict) -> Optional[Dict]:
         """Parse alternative API match data"""
+        if not isinstance(match, dict):
+            return None
+        teams = match.get('teams')
+        if not isinstance(teams, list) or len(teams) < 2:
+            return None
         # Simpler parsing for alternative API
         return {
             'match_id': match.get('id'),
             'format': match.get('matchType', 'T20'),
             'tournament': match.get('name', 'Unknown'),
-            'team1': match.get('teams', ['Team 1', 'Team 2'])[0] if len(match.get('teams', [])) > 0 else 'Team 1',
-            'team2': match.get('teams', ['Team 1', 'Team 2'])[1] if len(match.get('teams', [])) > 1 else 'Team 2',
+            'team1': str(teams[0] or '').strip() or 'Team 1',
+            'team2': str(teams[1] or '').strip() or 'Team 2',
             'status': 'Live'
         }
     
@@ -186,13 +215,24 @@ class CricketScanner:
             if runs_value is None or overs_value is None:
                 return None
             runs = float(runs_value)
-            overs = float(overs_value)
         except (TypeError, ValueError):
             return None
-
-        completed_overs = int(overs)
-        balls_in_over = int(round((overs - completed_overs) * 10))
-        if balls_in_over < 0 or balls_in_over > 5:
+        if not math.isfinite(runs) or runs < 0 or not runs.is_integer():
+            return None
+        overs_text = str(overs_value).strip()
+        parts = overs_text.split('.')
+        if len(parts) > 2 or not parts[0].isdigit():
+            return None
+        completed_overs = int(parts[0])
+        if len(parts) == 1:
+            balls_in_over = 0
+        elif len(parts[1]) == 1 and parts[1].isdigit():
+            balls_in_over = int(parts[1])
+        elif set(parts[1]) <= {'0'}:
+            balls_in_over = 0
+        else:
+            return None
+        if balls_in_over > 5:
             return None
         balls = completed_overs * 6 + balls_in_over
         return round(runs * 6 / balls, 2) if balls > 0 else None

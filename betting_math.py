@@ -42,6 +42,8 @@ def validate_probability_percent(probability: float) -> float:
 
 def validate_decimal_odds(odds: float) -> float:
     """Return finite decimal odds; prices at or below 1.0 are invalid."""
+    if isinstance(odds, bool):
+        raise BettingMathError("Decimal odds must be numeric, not boolean")
     try:
         value = float(odds)
     except (TypeError, ValueError) as exc:
@@ -72,9 +74,19 @@ def evaluate_market_price(
     haircut_percent = validate_probability_percent(probability_haircut)
     decimal_odds = validate_decimal_odds(odds)
 
-    if not 0.0 <= kelly_fraction <= 1.0:
+    if (
+        isinstance(kelly_fraction, bool)
+        or not isinstance(kelly_fraction, (int, float))
+        or not math.isfinite(float(kelly_fraction))
+        or not 0.0 <= float(kelly_fraction) <= 1.0
+    ):
         raise BettingMathError("Kelly fraction must be between 0 and 1")
-    if not 0.0 <= kelly_cap <= 1.0:
+    if (
+        isinstance(kelly_cap, bool)
+        or not isinstance(kelly_cap, (int, float))
+        or not math.isfinite(float(kelly_cap))
+        or not 0.0 <= float(kelly_cap) <= 1.0
+    ):
         raise BettingMathError("Kelly cap must be between 0 and 1")
 
     probability_decimal = probability_percent / 100.0

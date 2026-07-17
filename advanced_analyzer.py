@@ -24,7 +24,7 @@ from data_engine import DataEngine
 from season_utils import current_season_start_year_for_id
 
 
-ML_MODEL_VERSION = 3
+ML_MODEL_VERSION = 4
 ML_FEATURE_NAMES = (
     'home_btts_rate',
     'away_btts_rate',
@@ -35,6 +35,8 @@ ML_FEATURE_NAMES = (
 )
 ML_MIN_TEAM_HISTORY = 5
 ML_HISTORY_WINDOW = 20
+ML_MIN_TRAINING_ROWS = 200
+ML_MIN_VALIDATION_ROWS = 100
 ML_MODEL_PATH = Path(__file__).resolve().parent / "ml_model.pkl"
 
 
@@ -45,9 +47,16 @@ def beta_smoothed_percentage(
     beta: float = 1.0,
 ) -> float:
     """Shrink a binomial rate with an explicit Beta prior."""
+    if (
+        isinstance(rate_percent, bool)
+        or isinstance(sample_size, bool)
+        or isinstance(alpha, bool)
+        or isinstance(beta, bool)
+    ):
+        raise ValueError("invalid beta-smoothing inputs")
     try:
         rate = float(rate_percent)
-        sample = int(sample_size)
+        sample_numeric = float(sample_size)
         prior_alpha = float(alpha)
         prior_beta = float(beta)
     except (TypeError, ValueError) as exc:
@@ -55,14 +64,16 @@ def beta_smoothed_percentage(
     if (
         not math.isfinite(rate)
         or not 0.0 <= rate <= 100.0
-        or isinstance(sample_size, bool)
-        or sample < 0
+        or not math.isfinite(sample_numeric)
+        or not sample_numeric.is_integer()
+        or sample_numeric < 0
         or not math.isfinite(prior_alpha)
         or not math.isfinite(prior_beta)
         or prior_alpha <= 0.0
         or prior_beta <= 0.0
     ):
         raise ValueError("invalid beta-smoothing inputs")
+    sample = int(sample_numeric)
     successes = rate / 100.0 * sample
     return (successes + prior_alpha) / (
         sample + prior_alpha + prior_beta
@@ -77,6 +88,8 @@ def calculate_evidence_score(
     model_probabilities: List[float],
 ) -> Dict:
     """Score sample coverage and model agreement; this is not calibration."""
+    if not isinstance(model_probabilities, (list, tuple)):
+        raise ValueError("model probabilities must be a list or tuple")
     raw_counts = {
         'home_venue_matches': home_venue_matches,
         'away_venue_matches': away_venue_matches,
@@ -91,9 +104,9 @@ def calculate_evidence_score(
             count = float(value)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{name} must be a non-negative count") from exc
-        if not math.isfinite(count) or count < 0:
+        if not math.isfinite(count) or count < 0 or not count.is_integer():
             raise ValueError(f"{name} must be a non-negative count")
-        counts[name] = count
+        counts[name] = int(count)
 
     probabilities = []
     for value in model_probabilities:
@@ -136,14 +149,33 @@ def build_prematch_training_rows(
     matches: pd.DataFrame,
     min_team_history: int = ML_MIN_TEAM_HISTORY,
     history_window: int = ML_HISTORY_WINDOW,
-) -> Tuple[np.ndarray, np.ndarray]:
+    *,
+    return_dates: bool = False,
+):
     """Convert chronological results into leakage-free pre-match rows."""
-    sort_columns = [column for column in ('date', 'id') if column in matches.columns]
-    if sort_columns:
-        matches = matches.sort_values(sort_columns, kind='mergesort')
+    if (
+        isinstance(min_team_history, bool)
+        or isinstance(history_window, bool)
+        or not isinstance(min_team_history, int)
+        or not isinstance(history_window, int)
+        or min_team_history < 1
+        or history_window < min_team_history
+    ):
+        raise ValueError("history settings must be positive coherent integers")
+    matches = matches.copy()
+    if 'date' not in matches.columns:
+        empty = (np.array([]), np.array([]), np.array([], dtype='datetime64[D]'))
+        return empty if return_dates else empty[:2]
+    matches['_model_date'] = pd.to_datetime(
+        matches['date'], errors='coerce', utc=True
+    ).dt.floor('D')
+    matches = matches.dropna(subset=['_model_date'])
+    sort_columns = ['_model_date'] + (["id"] if 'id' in matches.columns else [])
+    matches = matches.sort_values(sort_columns, kind='mergesort')
     team_history = defaultdict(list)
     features_list = []
     labels = []
+    feature_dates = []
 
     def history_features(history: List[Tuple[float, float, int]]) -> Tuple[float, float, float]:
         sample = history[-history_window:]
@@ -153,58 +185,103 @@ def build_prematch_training_rows(
             float(np.mean([entry[1] for entry in sample])),
         )
 
-    for _, row in matches.iterrows():
-        try:
-            league_code = str(row['league_code'] or '')
-            home_team_id = int(row['home_team_id'])
-            away_team_id = int(row['away_team_id'])
-            home_goals = float(row['home_goals'])
-            away_goals = float(row['away_goals'])
-            label = int(row['btts'])
-        except (TypeError, ValueError):
-            continue
-        if (
-            not league_code
-            or home_team_id <= 0
-            or away_team_id <= 0
-            or home_team_id == away_team_id
-            or not math.isfinite(home_goals)
-            or not math.isfinite(away_goals)
-            or home_goals < 0
-            or away_goals < 0
-            or label not in {0, 1}
-        ):
-            continue
+    for model_date, day_matches in matches.groupby('_model_date', sort=False):
+        pending_updates = []
+        for _, row in day_matches.iterrows():
+            raw_home_team_id = row.get('home_team_id')
+            raw_away_team_id = row.get('away_team_id')
+            raw_home_goals = row.get('home_goals')
+            raw_away_goals = row.get('away_goals')
+            raw_label = row.get('btts')
+            if any(
+                isinstance(value, (bool, np.bool_))
+                for value in (
+                    raw_home_team_id,
+                    raw_away_team_id,
+                    raw_home_goals,
+                    raw_away_goals,
+                    raw_label,
+                )
+            ):
+                continue
+            try:
+                raw_league_code = row.get('league_code')
+                league_code = (
+                    raw_league_code.strip()
+                    if isinstance(raw_league_code, str)
+                    else ''
+                )
+                home_team_numeric = float(raw_home_team_id)
+                away_team_numeric = float(raw_away_team_id)
+                home_goals = float(raw_home_goals)
+                away_goals = float(raw_away_goals)
+                label_numeric = float(raw_label)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if (
+                not league_code
+                or not math.isfinite(home_team_numeric)
+                or not math.isfinite(away_team_numeric)
+                or not home_team_numeric.is_integer()
+                or not away_team_numeric.is_integer()
+                or not math.isfinite(home_goals)
+                or not math.isfinite(away_goals)
+                or not math.isfinite(label_numeric)
+                or home_goals < 0
+                or away_goals < 0
+                or home_goals > 30
+                or away_goals > 30
+                or not home_goals.is_integer()
+                or not away_goals.is_integer()
+                or not label_numeric.is_integer()
+                or label_numeric not in {0.0, 1.0}
+            ):
+                continue
+            home_team_id = int(home_team_numeric)
+            away_team_id = int(away_team_numeric)
+            label = int(label_numeric)
+            if home_team_id <= 0 or away_team_id <= 0 or home_team_id == away_team_id:
+                continue
 
-        home_key = (league_code, home_team_id)
-        away_key = (league_code, away_team_id)
-        home_history = team_history[home_key]
-        away_history = team_history[away_key]
+            home_key = (league_code, home_team_id)
+            away_key = (league_code, away_team_id)
+            home_history = team_history[home_key]
+            away_history = team_history[away_key]
+            if (
+                len(home_history) >= min_team_history
+                and len(away_history) >= min_team_history
+            ):
+                home_btts, home_scored, home_conceded = history_features(home_history)
+                away_btts, away_scored, away_conceded = history_features(away_history)
+                features_list.append([
+                    home_btts,
+                    away_btts,
+                    home_scored,
+                    away_scored,
+                    home_conceded,
+                    away_conceded,
+                ])
+                labels.append(label)
+                feature_dates.append(model_date.to_datetime64())
+            pending_updates.append((
+                home_key,
+                away_key,
+                home_goals,
+                away_goals,
+                label,
+            ))
 
-        if (
-            len(home_history) >= min_team_history
-            and len(away_history) >= min_team_history
-        ):
-            home_btts, home_scored, home_conceded = history_features(home_history)
-            away_btts, away_scored, away_conceded = history_features(away_history)
-            features_list.append([
-                home_btts,
-                away_btts,
-                home_scored,
-                away_scored,
-                home_conceded,
-                away_conceded,
-            ])
-            labels.append(label)
+        # Same-day results never enter another fixture's pre-match features.
+        for home_key, away_key, home_goals, away_goals, label in pending_updates:
+            team_history[home_key].append((home_goals, away_goals, label))
+            team_history[away_key].append((away_goals, home_goals, label))
 
-        # Update only after the current fixture's pre-match row was created.
-        home_history.append((home_goals, away_goals, label))
-        away_history.append((away_goals, home_goals, label))
-
-    return (
+    result = (
         np.asarray(features_list, dtype=float),
         np.asarray(labels, dtype=int),
+        np.asarray(feature_dates, dtype='datetime64[D]'),
     )
+    return result if return_dates else result[:2]
 
 
 def _get_supabase_url() -> Optional[str]:
@@ -415,7 +492,7 @@ class AdvancedBTTSAnalyzer:
         # Load or train model
         self.load_or_train_model()
     
-    def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray]:
+    def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Build chronological features using only information available pre-match."""
         conn, is_postgres = _get_db_connection(self.db_path)
 
@@ -448,33 +525,45 @@ class AdvancedBTTSAnalyzer:
 
         if df.empty or len(df) < 50:
             print(f"WARNING: Not enough training data ({len(df) if not df.empty else 0} matches)")
-            return np.array([]), np.array([])
+            return np.array([]), np.array([]), np.array([], dtype='datetime64[D]')
 
-        X, y = build_prematch_training_rows(df)
+        X, y, dates = build_prematch_training_rows(df, return_dates=True)
         if len(X) < 50:
             print(f"WARNING: Not enough valid training data ({len(X)} matches)")
-            return np.array([]), np.array([])
-        return X, y
+            return np.array([]), np.array([]), np.array([], dtype='datetime64[D]')
+        return X, y, dates
     
     def train_model(self) -> bool:
         """Train and gate the model with expanding-window validation."""
-        X, y = self.prepare_training_data()
+        X, y, dates = self.prepare_training_data()
 
-        if len(X) < 80 or len(np.unique(y)) < 2:
+        if len(X) < ML_MIN_TRAINING_ROWS or len(np.unique(y)) < 2:
             print("WARNING: Not enough data to train model; using statistical only")
             return False
 
         print(f"Training on {len(X)} matches...")
 
-        split_count = 5 if len(X) >= 150 else 3
-        splitter = TimeSeriesSplit(n_splits=split_count)
+        unique_dates = np.unique(dates)
+        if len(unique_dates) < 12:
+            print("WARNING: Too few distinct match dates; using statistical only")
+            return False
+        splitter = TimeSeriesSplit(n_splits=5)
         validation_probabilities = []
         validation_labels = []
         baseline_probabilities = []
         fold_brier_scores = []
         fold_baseline_scores = []
 
-        for train_index, validation_index in splitter.split(X):
+        for train_dates, validation_dates in splitter.split(unique_dates):
+            train_index = np.flatnonzero(np.isin(dates, unique_dates[train_dates]))
+            validation_index = np.flatnonzero(
+                np.isin(dates, unique_dates[validation_dates])
+            )
+            if (
+                len(train_index) < ML_MIN_TRAINING_ROWS
+                or len(validation_index) == 0
+            ):
+                continue
             y_train = y[train_index]
             if len(np.unique(y_train)) < 2:
                 continue
@@ -494,7 +583,7 @@ class AdvancedBTTSAnalyzer:
             fold_brier_scores.append(brier_score_loss(fold_labels, fold_probabilities))
             fold_baseline_scores.append(brier_score_loss(fold_labels, fold_baseline))
 
-        if len(validation_labels) < 20:
+        if len(validation_labels) < ML_MIN_VALIDATION_ROWS:
             print("WARNING: Too few walk-forward predictions; using statistical only")
             return False
 
@@ -534,7 +623,7 @@ class AdvancedBTTSAnalyzer:
                 for model_score, baseline_score
                 in zip(fold_brier_scores, fold_baseline_scores)
             ),
-            'validation': 'expanding_window',
+            'validation': 'date_grouped_expanding_window',
         }
 
         # A probability model must beat the prevalence baseline out of sample.
@@ -1086,17 +1175,36 @@ class AdvancedBTTSAnalyzer:
                     matches_played = 0
                     
                     for match in h2h_matches:
-                        try:
-                            home_goals = match.get('goals', {}).get('home')
-                            away_goals = match.get('goals', {}).get('away')
-                            if home_goals is None or away_goals is None:
-                                continue
-                            matches_played += 1
-                            if home_goals > 0 and away_goals > 0:
-                                btts_count += 1
-                            total_goals += home_goals + away_goals
-                        except (AttributeError, TypeError, ValueError):
-                            continue
+                        if not isinstance(match, dict):
+                            return self._empty_h2h_stats()
+                        teams = match.get('teams')
+                        goals = match.get('goals')
+                        if not isinstance(teams, dict) or not isinstance(goals, dict):
+                            return self._empty_h2h_stats()
+                        home = teams.get('home')
+                        away = teams.get('away')
+                        if not isinstance(home, dict) or not isinstance(away, dict):
+                            return self._empty_h2h_stats()
+                        home_id = home.get('id')
+                        away_id = away.get('id')
+                        home_goals = goals.get('home')
+                        away_goals = goals.get('away')
+                        if (
+                            any(
+                                isinstance(value, bool) or not isinstance(value, int)
+                                for value in (home_id, away_id, home_goals, away_goals)
+                            )
+                            or set((home_id, away_id)) != {team1_id, team2_id}
+                            or home_goals < 0
+                            or away_goals < 0
+                            or home_goals > 30
+                            or away_goals > 30
+                        ):
+                            return self._empty_h2h_stats()
+                        matches_played += 1
+                        if home_goals > 0 and away_goals > 0:
+                            btts_count += 1
+                        total_goals += home_goals + away_goals
 
                     if matches_played == 0:
                         return self._empty_h2h_stats()

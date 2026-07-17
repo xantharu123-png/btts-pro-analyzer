@@ -15,6 +15,8 @@ from season_utils import current_season_start_year_for_id
 
 
 def _optional_nonnegative(value) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
     try:
         numeric = float(value)
     except (TypeError, ValueError):
@@ -24,9 +26,26 @@ def _optional_nonnegative(value) -> Optional[float]:
     return numeric
 
 
+def _optional_count(value, *, maximum: Optional[int] = None) -> Optional[int]:
+    numeric = _optional_nonnegative(value)
+    if (
+        numeric is None
+        or not numeric.is_integer()
+        or maximum is not None and numeric > maximum
+    ):
+        return None
+    return int(numeric)
+
+
+def _positive_integer(value) -> Optional[int]:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
 def poisson_probability(k: int, lambda_: float) -> float:
     """Return ``P(X=k)`` for a Poisson random variable."""
-    if not isinstance(k, int) or k < 0:
+    if isinstance(k, bool) or not isinstance(k, int) or k < 0:
         return 0.0
     rate = _optional_nonnegative(lambda_)
     if rate is None:
@@ -39,7 +58,12 @@ def poisson_probability(k: int, lambda_: float) -> float:
 def poisson_over_probability(expected: float, threshold: float) -> float:
     """Return ``P(X > threshold)`` for a Poisson count."""
     rate = _optional_nonnegative(expected)
-    if rate is None or not math.isfinite(float(threshold)):
+    if (
+        rate is None
+        or isinstance(threshold, bool)
+        or not isinstance(threshold, (int, float))
+        or not math.isfinite(float(threshold))
+    ):
         raise ValueError("expected and threshold must be finite")
     floor_threshold = math.floor(threshold)
     if floor_threshold < 0:
@@ -54,7 +78,7 @@ def negative_binomial_probability(k: int, mu: float, alpha: float = 0.3) -> floa
     """Return an NB2 count probability with variance ``mu + alpha*mu^2``."""
     mean = _optional_nonnegative(mu)
     dispersion = _optional_nonnegative(alpha)
-    if not isinstance(k, int) or k < 0 or mean is None or not dispersion:
+    if isinstance(k, bool) or not isinstance(k, int) or k < 0 or mean is None or not dispersion:
         return 0.0
     if mean == 0:
         return 1.0 if k == 0 else 0.0
@@ -78,16 +102,28 @@ def dixon_coles_adjustment(
     rho: float = 0.0,
 ) -> float:
     """Return Dixon-Coles tau for an explicitly supplied dependence value."""
-    if not math.isfinite(rho) or not -0.3 <= rho <= 0.3:
+    if (
+        isinstance(rho, bool)
+        or not isinstance(rho, (int, float))
+        or not math.isfinite(float(rho))
+        or not -0.3 <= float(rho) <= 0.3
+    ):
         raise ValueError("rho must be finite and between -0.3 and 0.3")
-    if home_lambda < 0 or away_lambda < 0:
+    home_rate = _optional_nonnegative(home_lambda)
+    away_rate = _optional_nonnegative(away_lambda)
+    if home_rate is None or away_rate is None:
         raise ValueError("goal rates cannot be negative")
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in (home_goals, away_goals)
+    ):
+        raise ValueError("goals must be non-negative integers")
     if home_goals == 0 and away_goals == 0:
-        tau = 1 - home_lambda * away_lambda * rho
+        tau = 1 - home_rate * away_rate * rho
     elif home_goals == 1 and away_goals == 0:
-        tau = 1 + away_lambda * rho
+        tau = 1 + away_rate * rho
     elif home_goals == 0 and away_goals == 1:
-        tau = 1 + home_lambda * rho
+        tau = 1 + home_rate * rho
     elif home_goals == 1 and away_goals == 1:
         tau = 1 - rho
     else:
@@ -106,12 +142,38 @@ class PreMatchAlternativeAnalyzer:
         self.headers = {'x-apisports-key': api_key}
         self.last_request = 0.0
         self.cache = {}
+        self.errors: Dict[str, str] = {}
 
     def _rate_limit(self):
         elapsed = time.monotonic() - self.last_request
         if elapsed < 1.0:
             time.sleep(1.0 - elapsed)
         self.last_request = time.monotonic()
+
+    def _response_data(self, response, label: str, expected_type):
+        if response.status_code != 200:
+            self.errors[label] = f"HTTP {response.status_code}"
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            self.errors[label] = "invalid JSON"
+            return None
+        if not isinstance(payload, dict):
+            self.errors[label] = "invalid provider payload"
+            return None
+        provider_errors = payload.get('errors')
+        if provider_errors:
+            self.errors[label] = str(provider_errors)
+            return None
+        data = payload.get('response')
+        if not isinstance(data, expected_type):
+            self.errors[label] = "invalid response payload"
+            return None
+        if expected_type is list and any(not isinstance(item, dict) for item in data):
+            self.errors[label] = "invalid response entries"
+            return None
+        return data
 
     @staticmethod
     def _empty_team_stats() -> Dict:
@@ -138,11 +200,21 @@ class PreMatchAlternativeAnalyzer:
         league_id: int,
         season: Optional[int] = None,
     ) -> Dict:
-        season = season or current_season_start_year_for_id(league_id)
+        team_id = _positive_integer(team_id)
+        league_id = _positive_integer(league_id)
+        if team_id is None or league_id is None:
+            return self._empty_team_stats()
+        season = season if season is not None else current_season_start_year_for_id(league_id)
+        if (
+            isinstance(season, bool)
+            or not isinstance(season, int)
+            or not 1900 <= season <= 2100
+        ):
+            return self._empty_team_stats()
         cache_key = ('team', team_id, league_id, season)
         if cache_key in self.cache:
             return self.cache[cache_key]
-        if not self.api_key or not team_id or not league_id:
+        if not self.api_key:
             return self._empty_team_stats()
 
         self._rate_limit()
@@ -153,47 +225,68 @@ class PreMatchAlternativeAnalyzer:
                 params={'team': team_id, 'league': league_id, 'season': season},
                 timeout=15,
             )
-            if response.status_code != 200:
+            data = self._response_data(response, f'team_{team_id}', dict)
+            if data is None:
                 return self._empty_team_stats()
-            data = response.json().get('response') or {}
         except (requests.RequestException, ValueError):
             return self._empty_team_stats()
 
-        played = data.get('fixtures', {}).get('played', {})
-        played_home = int(played.get('home') or 0)
-        played_away = int(played.get('away') or 0)
+        fixtures_data = data.get('fixtures')
+        played = fixtures_data.get('played') if isinstance(fixtures_data, dict) else None
+        if not isinstance(played, dict):
+            self.errors[f'team_{team_id}'] = 'invalid fixture aggregates'
+            return self._empty_team_stats()
+        played_home = _optional_count(played.get('home'), maximum=200)
+        played_away = _optional_count(played.get('away'), maximum=200)
+        if played_home is None or played_away is None:
+            self.errors[f'team_{team_id}'] = 'invalid match counts'
+            return self._empty_team_stats()
         total_played = played_home + played_away
         if total_played <= 0:
             return self._empty_team_stats()
 
-        goals = data.get('goals', {})
-        goals_for = goals.get('for', {}).get('total', {})
-        goals_against = goals.get('against', {}).get('total', {})
+        goals = data.get('goals')
+        goals_for_group = goals.get('for') if isinstance(goals, dict) else None
+        goals_against_group = goals.get('against') if isinstance(goals, dict) else None
+        goals_for = goals_for_group.get('total') if isinstance(goals_for_group, dict) else None
+        goals_against = (
+            goals_against_group.get('total')
+            if isinstance(goals_against_group, dict)
+            else None
+        )
+        if not isinstance(goals_for, dict) or not isinstance(goals_against, dict):
+            self.errors[f'team_{team_id}'] = 'invalid goal aggregates'
+            return self._empty_team_stats()
         totals_for = [
-            _optional_nonnegative(goals_for.get('home')),
-            _optional_nonnegative(goals_for.get('away')),
+            _optional_count(goals_for.get('home'), maximum=total_played * 30),
+            _optional_count(goals_for.get('away'), maximum=total_played * 30),
         ]
         totals_against = [
-            _optional_nonnegative(goals_against.get('home')),
-            _optional_nonnegative(goals_against.get('away')),
+            _optional_count(goals_against.get('home'), maximum=total_played * 30),
+            _optional_count(goals_against.get('away'), maximum=total_played * 30),
         ]
 
-        def card_total(periods: Dict) -> Tuple[float, int]:
+        def card_total(periods: Dict) -> Tuple[Optional[int], int]:
+            if not isinstance(periods, dict):
+                return None, 0
             total = 0.0
             observations = 0
-            for period in (periods or {}).values():
+            for period in periods.values():
                 if not isinstance(period, dict):
-                    continue
-                value = _optional_nonnegative(period.get('total'))
-                if value is not None:
-                    total += value
-                    observations += 1
-            return total, observations
+                    return None, 0
+                value = _optional_count(period.get('total'), maximum=total_played * 20)
+                if value is None:
+                    return None, 0
+                total += value
+                observations += 1
+            return int(total), observations
 
-        cards = data.get('cards', {})
-        yellows, yellow_periods = card_total(cards.get('yellow', {}))
-        reds, red_periods = card_total(cards.get('red', {}))
-        has_card_data = yellow_periods + red_periods > 0
+        cards = data.get('cards')
+        cards = cards if isinstance(cards, dict) else {}
+        yellows, yellow_periods = card_total(cards.get('yellow'))
+        reds, red_periods = card_total(cards.get('red'))
+        has_yellows = yellows is not None and yellow_periods > 0
+        has_reds = reds is not None and red_periods > 0
         result = {
             'matches_played': total_played,
             'goals_scored_avg': (
@@ -206,11 +299,11 @@ class PreMatchAlternativeAnalyzer:
                 if all(value is not None for value in totals_against)
                 else None
             ),
-            'yellow_cards_avg': round(yellows / total_played, 2) if has_card_data else None,
-            'red_cards_avg': round(reds / total_played, 3) if has_card_data else None,
+            'yellow_cards_avg': round(yellows / total_played, 2) if has_yellows else None,
+            'red_cards_avg': round(reds / total_played, 3) if has_reds else None,
             'total_cards_avg': (
                 round((yellows + reds) / total_played, 2)
-                if has_card_data else None
+                if has_yellows and has_reds else None
             ),
         }
         self.cache[cache_key] = result
@@ -222,6 +315,16 @@ class PreMatchAlternativeAnalyzer:
         home_team_id: int,
         away_team_id: int,
     ) -> Optional[Dict]:
+        fixture_id = _positive_integer(fixture_id)
+        home_team_id = _positive_integer(home_team_id)
+        away_team_id = _positive_integer(away_team_id)
+        if (
+            fixture_id is None
+            or home_team_id is None
+            or away_team_id is None
+            or home_team_id == away_team_id
+        ):
+            return None
         cache_key = ('fixture_stats', fixture_id)
         if cache_key in self.cache:
             return self.cache[cache_key]
@@ -233,16 +336,29 @@ class PreMatchAlternativeAnalyzer:
                 params={'fixture': fixture_id},
                 timeout=15,
             )
-            if response.status_code != 200:
+            entries = self._response_data(
+                response,
+                f'fixture_stats_{fixture_id}',
+                list,
+            )
+            if entries is None:
                 return None
-            entries = response.json().get('response') or []
         except (requests.RequestException, ValueError):
             return None
 
-        by_team = {
-            entry.get('team', {}).get('id'): entry.get('statistics', [])
-            for entry in entries
-        }
+        by_team = {}
+        for entry in entries:
+            team = entry.get('team')
+            statistics = entry.get('statistics')
+            team_id = team.get('id') if isinstance(team, dict) else None
+            if (
+                _positive_integer(team_id) is None
+                or not isinstance(statistics, list)
+                or team_id in by_team
+            ):
+                self.errors[f'fixture_stats_{fixture_id}'] = 'invalid team statistics'
+                return None
+            by_team[team_id] = statistics
         home_stats = by_team.get(home_team_id)
         away_stats = by_team.get(away_team_id)
         if home_stats is None or away_stats is None:
@@ -250,8 +366,10 @@ class PreMatchAlternativeAnalyzer:
 
         def get_stat(stats: List[Dict], stat_type: str) -> Optional[float]:
             for stat in stats:
+                if not isinstance(stat, dict):
+                    return None
                 if stat.get('type') == stat_type:
-                    return _optional_nonnegative(stat.get('value'))
+                    return _optional_count(stat.get('value'), maximum=40)
             return None
 
         result = {
@@ -268,14 +386,33 @@ class PreMatchAlternativeAnalyzer:
         n_matches: int = 10,
         season: Optional[int] = None,
     ) -> Dict:
+        team_id = _positive_integer(team_id)
+        if team_id is None:
+            return self._empty_corner_stats()
+        if league_id is not None:
+            league_id = _positive_integer(league_id)
+            if league_id is None:
+                return self._empty_corner_stats()
+        if (
+            isinstance(n_matches, bool)
+            or not isinstance(n_matches, int)
+            or not 1 <= n_matches <= 50
+        ):
+            return self._empty_corner_stats()
         season = (
-            season or current_season_start_year_for_id(league_id)
+            season if season is not None else current_season_start_year_for_id(league_id)
             if league_id is not None else None
         )
+        if season is not None and (
+            isinstance(season, bool)
+            or not isinstance(season, int)
+            or not 1900 <= season <= 2100
+        ):
+            return self._empty_corner_stats()
         cache_key = ('corners', team_id, league_id, season, n_matches)
         if cache_key in self.cache:
             return self.cache[cache_key]
-        if not self.api_key or not team_id:
+        if not self.api_key:
             return self._empty_corner_stats()
 
         params = {'team': team_id, 'last': n_matches, 'status': 'FT'}
@@ -289,20 +426,35 @@ class PreMatchAlternativeAnalyzer:
                 params=params,
                 timeout=15,
             )
-            if response.status_code != 200:
+            fixtures = self._response_data(
+                response,
+                f'team_fixtures_{team_id}',
+                list,
+            )
+            if fixtures is None:
                 return self._empty_corner_stats()
-            fixtures = response.json().get('response') or []
         except (requests.RequestException, ValueError):
             return self._empty_corner_stats()
 
         corners_for = []
         corners_against = []
         for fixture in fixtures:
-            home_id = fixture.get('teams', {}).get('home', {}).get('id')
-            away_id = fixture.get('teams', {}).get('away', {}).get('id')
-            fixture_id = fixture.get('fixture', {}).get('id')
-            if not fixture_id or team_id not in {home_id, away_id}:
-                continue
+            teams = fixture.get('teams')
+            fixture_data = fixture.get('fixture')
+            home = teams.get('home') if isinstance(teams, dict) else None
+            away = teams.get('away') if isinstance(teams, dict) else None
+            home_id = home.get('id') if isinstance(home, dict) else None
+            away_id = away.get('id') if isinstance(away, dict) else None
+            fixture_id = fixture_data.get('id') if isinstance(fixture_data, dict) else None
+            if (
+                _positive_integer(fixture_id) is None
+                or _positive_integer(home_id) is None
+                or _positive_integer(away_id) is None
+                or home_id == away_id
+                or team_id not in {home_id, away_id}
+            ):
+                self.errors[f'team_fixtures_{team_id}'] = 'invalid fixture data'
+                return self._empty_corner_stats()
             stats = self._get_fixture_statistics(fixture_id, home_id, away_id)
             if not stats:
                 continue
@@ -353,18 +505,45 @@ class PreMatchAlternativeAnalyzer:
         return {
             'selection': f"{side} {threshold}",
             'probability': round(probability * 100.0, 1),
-            'model_price': round(1.0 / probability, 2) if probability > 0 else None,
+            'model_price': None,
             'calibrated': False,
+            'actionable': False,
+            'recommendation_type': 'EXPLORATORY_ESTIMATE',
         }
 
+    @staticmethod
+    def _fixture_inputs(fixture: Dict) -> Optional[Tuple[int, int, int, int]]:
+        if not isinstance(fixture, dict):
+            return None
+        league_id = _positive_integer(fixture.get('league_id'))
+        home_team_id = _positive_integer(fixture.get('home_team_id'))
+        away_team_id = _positive_integer(fixture.get('away_team_id'))
+        season = fixture.get('season')
+        if league_id is None or home_team_id is None or away_team_id is None:
+            return None
+        if home_team_id == away_team_id:
+            return None
+        if season is None:
+            season = current_season_start_year_for_id(league_id)
+        if (
+            isinstance(season, bool)
+            or not isinstance(season, int)
+            or not 1900 <= season <= 2100
+        ):
+            return None
+        return league_id, home_team_id, away_team_id, season
+
     def analyze_prematch_corners(self, fixture: Dict) -> Dict:
-        league_id = fixture.get('league_id')
-        season = fixture.get('season') or current_season_start_year_for_id(league_id)
+        inputs = self._fixture_inputs(fixture)
+        if inputs is None:
+            safe_fixture = fixture if isinstance(fixture, dict) else {}
+            return self._empty_analysis('PRE_MATCH_CORNERS', safe_fixture, 0, 0)
+        league_id, home_team_id, away_team_id, season = inputs
         home = self.get_team_corner_stats(
-            fixture.get('home_team_id'), league_id, season=season
+            home_team_id, league_id, season=season
         )
         away = self.get_team_corner_stats(
-            fixture.get('away_team_id'), league_id, season=season
+            away_team_id, league_id, season=season
         )
         quality = self._data_quality(home['matches'], away['matches'])
         values = (
@@ -398,13 +577,17 @@ class PreMatchAlternativeAnalyzer:
             'confidence': quality,
             'data_quality': {'home_matches': home['matches'], 'away_matches': away['matches']},
             'calibrated': False,
+            'actionable': False,
         }
 
     def analyze_prematch_cards(self, fixture: Dict) -> Dict:
-        league_id = fixture.get('league_id')
-        season = fixture.get('season') or current_season_start_year_for_id(league_id)
-        home = self.get_team_statistics(fixture.get('home_team_id'), league_id, season)
-        away = self.get_team_statistics(fixture.get('away_team_id'), league_id, season)
+        inputs = self._fixture_inputs(fixture)
+        if inputs is None:
+            safe_fixture = fixture if isinstance(fixture, dict) else {}
+            return self._empty_analysis('PRE_MATCH_CARDS', safe_fixture, 0, 0)
+        league_id, home_team_id, away_team_id, season = inputs
+        home = self.get_team_statistics(home_team_id, league_id, season)
+        away = self.get_team_statistics(away_team_id, league_id, season)
         quality = self._data_quality(home['matches_played'], away['matches_played'])
         if (
             quality == 'INSUFFICIENT_DATA'
@@ -458,6 +641,7 @@ class PreMatchAlternativeAnalyzer:
             },
             'card_unit': 'one API card event; settlement rules are not modeled',
             'calibrated': False,
+            'actionable': False,
         }
 
     @staticmethod
@@ -482,6 +666,7 @@ class PreMatchAlternativeAnalyzer:
             'confidence': 'INSUFFICIENT_DATA',
             'data_quality': {'home_matches': home_sample, 'away_matches': away_sample},
             'calibrated': False,
+            'actionable': False,
         }
 
 
@@ -490,8 +675,27 @@ def _inplay_count_thresholds(
     minute: int,
     thresholds: List[float],
 ) -> Tuple[float, Dict]:
-    if minute < 15 or minute > 90 or current < 0:
-        raise ValueError("minute must be 15..90 and current count non-negative")
+    if (
+        isinstance(minute, bool)
+        or not isinstance(minute, int)
+        or minute < 15
+        or minute > 90
+        or isinstance(current, bool)
+        or not isinstance(current, int)
+        or current < 0
+        or current > 500
+        or not isinstance(thresholds, list)
+        or not thresholds
+        or any(
+            isinstance(threshold, bool)
+            or not isinstance(threshold, (int, float))
+            or not math.isfinite(float(threshold))
+            or threshold < 0
+            or not math.isclose(float(threshold) % 1.0, 0.5, abs_tol=1e-9)
+            for threshold in thresholds
+        )
+    ):
+        raise ValueError("invalid in-play count model inputs")
     remaining = 90 - minute
     future_mean = current / minute * remaining
     expected_total = current + future_mean
@@ -515,32 +719,34 @@ def _inplay_count_thresholds(
 class CardPredictor:
     def predict_cards(self, match_data: Dict, minute: int) -> Dict:
         stats = match_data.get('stats') or {}
-        home = stats.get('yellow_cards_home')
-        away = stats.get('yellow_cards_away')
-        if minute < 15 or not isinstance(home, (int, float)) or not isinstance(away, (int, float)):
-            return {'market': 'YELLOW_CARDS', 'thresholds': {}, 'recommendation': None, 'confidence': 'INSUFFICIENT'}
-        current = int(home + away)
+        home = _optional_count(stats.get('yellow_cards_home'), maximum=20)
+        away = _optional_count(stats.get('yellow_cards_away'), maximum=20)
+        if not isinstance(minute, int) or isinstance(minute, bool) or not 15 <= minute <= 90 or home is None or away is None:
+            return {'market': 'YELLOW_CARDS', 'thresholds': {}, 'recommendation': None, 'confidence': 'INSUFFICIENT', 'calibrated': False, 'actionable': False}
+        current = home + away
         expected, thresholds = _inplay_count_thresholds(current, minute, [2.5, 3.5, 4.5, 5.5])
         return {
             'market': 'YELLOW_CARDS', 'current_cards': current,
             'expected_total': round(expected, 2), 'thresholds': thresholds,
             'recommendation': None, 'confidence': 'LIMITED', 'calibrated': False,
+            'actionable': False,
         }
 
 
 class CornerPredictor:
     def predict_corners(self, match_data: Dict, minute: int) -> Dict:
         stats = match_data.get('stats') or {}
-        home = stats.get('corners_home')
-        away = stats.get('corners_away')
-        if minute < 15 or not isinstance(home, (int, float)) or not isinstance(away, (int, float)):
-            return {'market': 'CORNERS', 'thresholds': {}, 'recommendation': None, 'confidence': 'INSUFFICIENT'}
-        current = int(home + away)
+        home = _optional_count(stats.get('corners_home'), maximum=40)
+        away = _optional_count(stats.get('corners_away'), maximum=40)
+        if not isinstance(minute, int) or isinstance(minute, bool) or not 15 <= minute <= 90 or home is None or away is None:
+            return {'market': 'CORNERS', 'thresholds': {}, 'recommendation': None, 'confidence': 'INSUFFICIENT', 'calibrated': False, 'actionable': False}
+        current = home + away
         expected, thresholds = _inplay_count_thresholds(current, minute, [7.5, 8.5, 9.5, 10.5, 11.5])
         return {
             'market': 'CORNERS', 'current_corners': current,
             'expected_total': round(expected, 2), 'thresholds': thresholds,
             'recommendation': None, 'confidence': 'LIMITED', 'calibrated': False,
+            'actionable': False,
         }
 
 
@@ -548,10 +754,16 @@ class ShotPredictor:
     def predict_shots(self, match_data: Dict, minute: int) -> Dict:
         stats = match_data.get('stats') or {}
         required = ('shots_home', 'shots_away', 'shots_on_target_home', 'shots_on_target_away')
-        if minute < 15 or any(not isinstance(stats.get(key), (int, float)) for key in required):
-            return {'market': 'SHOTS', 'thresholds': {}, 'recommendation': None, 'confidence': 'INSUFFICIENT'}
-        shots = int(stats['shots_home'] + stats['shots_away'])
-        shots_on_target = int(stats['shots_on_target_home'] + stats['shots_on_target_away'])
+        counts = {
+            key: _optional_count(stats.get(key), maximum=100)
+            for key in required
+        }
+        if not isinstance(minute, int) or isinstance(minute, bool) or not 15 <= minute <= 90 or any(value is None for value in counts.values()):
+            return {'market': 'SHOTS', 'thresholds': {}, 'recommendation': None, 'confidence': 'INSUFFICIENT', 'calibrated': False, 'actionable': False}
+        shots = counts['shots_home'] + counts['shots_away']
+        shots_on_target = counts['shots_on_target_home'] + counts['shots_on_target_away']
+        if shots_on_target > shots:
+            return {'market': 'SHOTS', 'thresholds': {}, 'recommendation': None, 'confidence': 'INSUFFICIENT', 'calibrated': False, 'actionable': False}
         expected_shots, shot_thresholds = _inplay_count_thresholds(
             shots, minute, [20.5, 22.5, 24.5, 26.5, 28.5]
         )
@@ -562,13 +774,13 @@ class ShotPredictor:
             'market': 'SHOTS',
             'total_shots': {'current': shots, 'expected': round(expected_shots, 2), 'thresholds': shot_thresholds, 'recommendation': None},
             'shots_on_target': {'current': shots_on_target, 'expected': round(expected_sot, 2), 'thresholds': sot_thresholds, 'recommendation': None},
-            'confidence': 'LIMITED', 'calibrated': False,
+            'confidence': 'LIMITED', 'calibrated': False, 'actionable': False,
         }
 
 
 class TeamSpecialPredictor:
     def predict_team_specials(self, match_data: Dict, minute: int) -> Dict:
-        return {'market': 'TEAM_SPECIALS', 'opportunities': [], 'data_quality': 'INSUFFICIENT_MODEL'}
+        return {'market': 'TEAM_SPECIALS', 'opportunities': [], 'data_quality': 'INSUFFICIENT_MODEL', 'calibrated': False, 'actionable': False}
 
 
 class HighestProbabilityFinder:
@@ -583,7 +795,7 @@ class HighestProbabilityFinder:
         if probability is not None and probability <= 100:
             candidates.append({'market': 'BTTS', 'selection': 'YES', 'probability': probability})
         candidates.sort(key=lambda item: item['probability'], reverse=True)
-        return {'highest': candidates[0] if candidates else None, 'all': candidates, 'calibrated': False}
+        return {'highest': candidates[0] if candidates else None, 'all': candidates, 'calibrated': False, 'actionable': False}
 
 
 @dataclass
@@ -624,6 +836,8 @@ class MatchResultPredictor:
     MIN_SAMPLE = 5
 
     def __init__(self, league_id: int, api_client=None):
+        if isinstance(league_id, bool) or not isinstance(league_id, int) or league_id <= 0:
+            raise ValueError("league_id must be a positive integer")
         self.league_id = league_id
         self.api_client = api_client
 
@@ -635,25 +849,47 @@ class MatchResultPredictor:
         xg_for: Optional[List[float]] = None,
         xg_against: Optional[List[float]] = None,
     ) -> TeamStrength:
-        if len(goals_scored) < self.MIN_SAMPLE or len(goals_scored) != len(goals_conceded):
+        if (
+            not isinstance(goals_scored, list)
+            or not isinstance(goals_conceded, list)
+            or len(goals_scored) < self.MIN_SAMPLE
+            or len(goals_scored) != len(goals_conceded)
+        ):
             raise ValueError("At least five equally paired completed matches are required")
-        values = [*goals_scored, *goals_conceded]
-        if any(_optional_nonnegative(value) is None for value in values):
-            raise ValueError("Goal histories must be finite and non-negative")
-        offensive = sum(goals_scored) / len(goals_scored)
-        defensive = sum(goals_conceded) / len(goals_conceded)
+        if any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in [*goals_scored, *goals_conceded]
+        ):
+            raise ValueError("Goal histories must contain integer counts")
+        scored = [_optional_count(value, maximum=30) for value in goals_scored]
+        conceded = [_optional_count(value, maximum=30) for value in goals_conceded]
+        if any(value is None for value in [*scored, *conceded]):
+            raise ValueError("Goal histories must contain non-negative integer counts")
+        offensive = sum(scored) / len(scored)
+        defensive = sum(conceded) / len(conceded)
 
         valid_xg = (
-            xg_for is not None and xg_against is not None
+            isinstance(xg_for, list) and isinstance(xg_against, list)
             and len(xg_for) == len(goals_scored)
             and len(xg_against) == len(goals_conceded)
-            and all(_optional_nonnegative(value) is not None for value in [*xg_for, *xg_against])
+            and all(
+                (value := _optional_nonnegative(item)) is not None and value <= 20.0
+                for item in [*xg_for, *xg_against]
+            )
+        )
+        normalized_xg_for = [_optional_nonnegative(value) for value in xg_for] if valid_xg else []
+        normalized_xg_against = (
+            [_optional_nonnegative(value) for value in xg_against]
+            if valid_xg else []
         )
         return TeamStrength(
             offensive=offensive,
             defensive=defensive,
-            xg_for=sum(xg_for) / len(xg_for) if valid_xg else offensive,
-            xg_against=sum(xg_against) / len(xg_against) if valid_xg else defensive,
+            xg_for=sum(normalized_xg_for) / len(normalized_xg_for) if valid_xg else offensive,
+            xg_against=(
+                sum(normalized_xg_against) / len(normalized_xg_against)
+                if valid_xg else defensive
+            ),
             form_factor=1.0,
             home_away_factor=1.0,
         )
@@ -675,22 +911,45 @@ class MatchResultPredictor:
         self,
         home_lambda: float,
         away_lambda: float,
-        max_goals: int = 12,
+        max_goals: int = 25,
         use_dixon_coles: bool = False,
         rho: float = 0.0,
     ) -> Dict[Tuple[int, int], float]:
-        if home_lambda < 0 or away_lambda < 0 or max_goals < 1:
+        home_rate = _optional_nonnegative(home_lambda)
+        away_rate = _optional_nonnegative(away_lambda)
+        if (
+            home_rate is None
+            or away_rate is None
+            or home_rate > 8
+            or away_rate > 8
+            or isinstance(max_goals, bool)
+            or not isinstance(max_goals, int)
+            or max_goals < 5
+            or not isinstance(use_dixon_coles, bool)
+        ):
             raise ValueError("Invalid score-model inputs")
+
+        def marginal(rate: float) -> list[float]:
+            values = [poisson_probability(goals, rate) for goals in range(max_goals + 1)]
+            tail = max(0.0, 1.0 - sum(values))
+            if tail > 0.00001:
+                raise ValueError("max_goals truncates too much probability mass")
+            values[-1] += tail
+            mass = sum(values)
+            return [value / mass for value in values]
+
+        home_probabilities = marginal(home_rate)
+        away_probabilities = marginal(away_rate)
         probabilities = {}
         for home_goals in range(max_goals + 1):
             for away_goals in range(max_goals + 1):
                 probability = (
-                    poisson_probability(home_goals, home_lambda)
-                    * poisson_probability(away_goals, away_lambda)
+                    home_probabilities[home_goals]
+                    * away_probabilities[away_goals]
                 )
                 if use_dixon_coles:
                     probability *= dixon_coles_adjustment(
-                        home_goals, away_goals, home_lambda, away_lambda, rho
+                        home_goals, away_goals, home_rate, away_rate, rho
                     )
                 probabilities[(home_goals, away_goals)] = probability
         mass = sum(probabilities.values())
@@ -708,6 +967,18 @@ class MatchResultPredictor:
 
     @staticmethod
     def calculate_double_chance(home_win: float, draw: float, away_win: float) -> Tuple[float, float, float]:
+        probabilities = (home_win, draw, away_win)
+        if (
+            any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or not 0.0 <= float(value) <= 1.0
+                for value in probabilities
+            )
+            or not math.isclose(sum(probabilities), 1.0, abs_tol=1e-6)
+        ):
+            raise ValueError("1X2 probabilities must be finite and sum to one")
         return home_win + draw, draw + away_win, home_win + away_win
 
     def calculate_over_under(
@@ -716,23 +987,58 @@ class MatchResultPredictor:
         away_lambda: float,
         thresholds: Optional[List[float]] = None,
     ) -> Dict[float, Tuple[float, float]]:
-        total = home_lambda + away_lambda
+        home_rate = _optional_nonnegative(home_lambda)
+        away_rate = _optional_nonnegative(away_lambda)
+        if home_rate is None or away_rate is None:
+            raise ValueError("Goal rates must be finite and non-negative")
+        if home_rate > 8.0 or away_rate > 8.0:
+            raise ValueError("Goal rates exceed the supported model range")
+        total = home_rate + away_rate
+        active_thresholds = thresholds or [0.5, 1.5, 2.5, 3.5, 4.5]
+        if (
+            not isinstance(active_thresholds, list)
+            or not active_thresholds
+            or any(
+                isinstance(threshold, bool)
+                or not isinstance(threshold, (int, float))
+                or not math.isfinite(float(threshold))
+                or threshold < 0
+                or not math.isclose(float(threshold) % 1.0, 0.5, abs_tol=1e-9)
+                for threshold in active_thresholds
+            )
+        ):
+            raise ValueError("Totals thresholds must be non-negative half lines")
         return {
             threshold: (
                 poisson_over_probability(total, threshold),
                 1.0 - poisson_over_probability(total, threshold),
             )
-            for threshold in (thresholds or [0.5, 1.5, 2.5, 3.5, 4.5])
+            for threshold in active_thresholds
         }
 
     @staticmethod
     def calculate_btts(home_lambda: float, away_lambda: float) -> Tuple[float, float]:
-        yes = (1.0 - math.exp(-home_lambda)) * (1.0 - math.exp(-away_lambda))
+        home_rate = _optional_nonnegative(home_lambda)
+        away_rate = _optional_nonnegative(away_lambda)
+        if (
+            home_rate is None
+            or away_rate is None
+            or home_rate > 8.0
+            or away_rate > 8.0
+        ):
+            raise ValueError("Goal rates must be finite and non-negative")
+        yes = (1.0 - math.exp(-home_rate)) * (1.0 - math.exp(-away_rate))
         return yes, 1.0 - yes
 
     @staticmethod
     def _signal(selection: str, probability: float) -> Optional[Dict]:
-        if probability < 0.60:
+        if (
+            isinstance(probability, bool)
+            or not isinstance(probability, (int, float))
+            or not math.isfinite(float(probability))
+            or not 0.0 <= float(probability) <= 1.0
+            or probability < 0.60
+        ):
             return None
         return {
             'market': selection,
@@ -818,9 +1124,9 @@ class MatchResultPredictor:
             best_result_signal=signals['result'],
             best_double_chance_signal=signals['double_chance'],
             best_over_under_signal=signals['over_under'],
-            model_price_home=1.0 / home_win if home_win > 0 else None,
-            model_price_draw=1.0 / draw if draw > 0 else None,
-            model_price_away=1.0 / away_win if away_win > 0 else None,
+            model_price_home=None,
+            model_price_draw=None,
+            model_price_away=None,
         )
 
 

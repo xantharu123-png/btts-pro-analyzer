@@ -21,6 +21,7 @@ import streamlit as st
 import requests
 import json
 import logging
+import math
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -80,10 +81,17 @@ class TennisScanner:
                             continue
                         usable_response = True
                         events = data.get('events', [])
+                        if not isinstance(events, list):
+                            self.last_error = "Invalid events payload"
+                            continue
                         
                         live_matches = []
                         for event in events:
+                            if not isinstance(event, dict):
+                                continue
                             status = event.get('status', {})
+                            if not isinstance(status, dict):
+                                continue
                             if status.get('type') == 'inprogress':
                                 match = self._parse_match(event)
                                 if match:
@@ -95,7 +103,7 @@ class TennisScanner:
                         continue  # Try next headers
                     else:
                         last_status = response.status_code
-                except requests.RequestException:
+                except (requests.RequestException, ValueError):
                     continue
             
             # All attempts failed
@@ -112,22 +120,47 @@ class TennisScanner:
     def _parse_match(self, event: Dict) -> Optional[Dict]:
         """Parse Sofascore match data"""
         try:
+            if not isinstance(event, dict):
+                return None
             home_team = event.get('homeTeam', {})
             away_team = event.get('awayTeam', {})
+            match_id = event.get('id')
+            player1 = str(home_team.get('name') or '').strip()
+            player2 = str(away_team.get('name') or '').strip()
+            score1 = event.get('homeScore', {}).get('current')
+            score2 = event.get('awayScore', {}).get('current')
+            if (
+                not isinstance(match_id, int)
+                or isinstance(match_id, bool)
+                or match_id <= 0
+                or not player1
+                or not player2
+                or player1 == player2
+                or isinstance(score1, bool)
+                or isinstance(score2, bool)
+                or not isinstance(score1, (int, float))
+                or not isinstance(score2, (int, float))
+                or not math.isfinite(float(score1))
+                or not math.isfinite(float(score2))
+                or float(score1) < 0
+                or float(score2) < 0
+                or not float(score1).is_integer()
+                or not float(score2).is_integer()
+            ):
+                return None
             
             # Get serve stats if available
-            match_id = event.get('id')
             serve_stats = self._get_serve_stats(match_id)
             
             return {
                 'match_id': match_id,
                 'tournament': event.get('tournament', {}).get('name', 'Unknown'),
                 'surface': event.get('groundType', 'Hard'),
-                'player1': home_team.get('name', 'Player 1'),
-                'player2': away_team.get('name', 'Player 2'),
-                'player1_score': event.get('homeScore', {}).get('current'),
-                'player2_score': event.get('awayScore', {}).get('current'),
-                'current_set': event.get('homeScore', {}).get('current', 0),
+                'player1': player1,
+                'player2': player2,
+                'player1_score': score1,
+                'player2_score': score2,
+                'current_set': event.get('status', {}).get('period'),
                 'server': self._determine_server(event),
                 'serve_stats': serve_stats,
                 'status': event.get('status', {}).get('description', 'Live')
@@ -146,7 +179,11 @@ class TennisScanner:
             
             if response.status_code == 200:
                 data = response.json()
+                if not isinstance(data, dict):
+                    return {}
                 stats = data.get('statistics', [])
+                if not isinstance(stats, list):
+                    return {}
                 
                 # Extract serve stats
                 serve_data = {}
@@ -163,7 +200,7 @@ class TennisScanner:
                 return serve_data
             
             return {}
-        except requests.RequestException:
+        except (requests.RequestException, ValueError):
             return {}
     
     def _determine_server(self, event: Dict) -> Optional[str]:

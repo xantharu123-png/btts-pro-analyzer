@@ -10,7 +10,7 @@ Season is selected dynamically per competition.
 import os
 import time
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import sqlite3
 
@@ -240,10 +240,22 @@ class DataEngine:
                             force_refresh: bool = False) -> int:
         """Fetch and store ALL finished matches for a league"""
         self.last_error = None
-        season = season or current_season_start_year(league_code)
+        if not isinstance(league_code, str) or not league_code.strip():
+            self.last_error = "Invalid league code"
+            return 0
         league_id = self.LEAGUES_CONFIG.get(league_code)
         if not league_id:
+            self.last_error = "Unknown league code"
             print(f"ERROR: Unknown league: {league_code}")
+            return 0
+        season = season if season is not None else current_season_start_year(league_code)
+        if (
+            isinstance(season, bool)
+            or not isinstance(season, int)
+            or not 1900 <= season <= 2100
+            or not isinstance(force_refresh, bool)
+        ):
+            self.last_error = "Invalid fetch parameters"
             return 0
         
         print(f"Fetching {league_code} (season {season})...")
@@ -263,6 +275,7 @@ class DataEngine:
             )
             
             if response.status_code != 200:
+                self.last_error = f"HTTP {response.status_code}"
                 print(f"ERROR: API status {response.status_code} for {league_code}")
                 return 0
             
@@ -276,35 +289,95 @@ class DataEngine:
                 )
                 print(f"ERROR: API provider error for {league_code}: {self.last_error}")
                 return 0
-            fixtures = data.get('response', [])
+            fixtures = data.get('response') if isinstance(data, dict) else None
+            if not isinstance(fixtures, list):
+                self.last_error = "Invalid fixtures response"
+                return 0
             
             if not fixtures:
                 print(f"WARNING: No finished matches for {league_code}")
                 return 0
-            
-            # Process matches
-            conn = self._get_connection()
-            c = conn.cursor()
-            ph = self._get_placeholder()
-            
-            count = 0
+
+            normalized_fixtures = []
+            seen_fixture_ids = set()
             for fixture in fixtures:
                 try:
                     match_id = fixture['fixture']['id']
-                    match_date = fixture['fixture']['date'][:10]
+                    match_date = fixture['fixture']['date']
                     home_team = fixture['teams']['home']['name']
                     away_team = fixture['teams']['away']['name']
                     home_id = fixture['teams']['home']['id']
                     away_id = fixture['teams']['away']['id']
                     home_goals = fixture['goals']['home']
                     away_goals = fixture['goals']['away']
-                    if (
-                        not isinstance(home_goals, int)
-                        or not isinstance(away_goals, int)
-                        or home_goals < 0
-                        or away_goals < 0
-                    ):
-                        continue
+                    fixture_league_id = fixture['league']['id']
+                    if not isinstance(match_date, str) or not match_date.strip():
+                        raise ValueError
+                    parsed_date = datetime.fromisoformat(
+                        match_date.replace('Z', '+00:00')
+                    )
+                except (KeyError, TypeError, ValueError, AttributeError):
+                    self.last_error = "Invalid fixture entry"
+                    return 0
+                if (
+                    parsed_date.tzinfo is None
+                    or isinstance(match_id, bool)
+                    or not isinstance(match_id, int)
+                    or match_id <= 0
+                    or match_id in seen_fixture_ids
+                    or isinstance(fixture_league_id, bool)
+                    or fixture_league_id != league_id
+                    or isinstance(home_id, bool)
+                    or isinstance(away_id, bool)
+                    or not isinstance(home_id, int)
+                    or not isinstance(away_id, int)
+                    or home_id <= 0
+                    or away_id <= 0
+                    or home_id == away_id
+                    or not isinstance(home_team, str)
+                    or not isinstance(away_team, str)
+                    or not home_team.strip()
+                    or not away_team.strip()
+                    or home_team.strip() == away_team.strip()
+                    or parsed_date.astimezone(timezone.utc) > datetime.now(timezone.utc)
+                    or isinstance(home_goals, bool)
+                    or isinstance(away_goals, bool)
+                    or not isinstance(home_goals, int)
+                    or not isinstance(away_goals, int)
+                    or not 0 <= home_goals <= 30
+                    or not 0 <= away_goals <= 30
+                ):
+                    self.last_error = "Invalid fixture entry"
+                    return 0
+                seen_fixture_ids.add(match_id)
+                normalized_fixtures.append((
+                    match_id,
+                    match_date,
+                    home_team.strip(),
+                    away_team.strip(),
+                    home_id,
+                    away_id,
+                    home_goals,
+                    away_goals,
+                ))
+
+            # Process matches
+            conn = self._get_connection()
+            c = conn.cursor()
+            ph = self._get_placeholder()
+
+            count = 0
+            for (
+                match_id,
+                match_date,
+                home_team,
+                away_team,
+                home_id,
+                away_id,
+                home_goals,
+                away_goals,
+            ) in normalized_fixtures:
+                try:
                     btts = 1 if (home_goals > 0 and away_goals > 0) else 0
                     total = home_goals + away_goals
                     
@@ -337,8 +410,10 @@ class DataEngine:
                     
                     count += 1
                     
-                except (KeyError, TypeError, ValueError):
-                    continue
+                except (KeyError, TypeError, ValueError) as exc:
+                    conn.rollback()
+                    conn.close()
+                    raise ValueError("Could not store normalized fixture batch") from exc
             
             conn.commit()
             conn.close()
@@ -423,7 +498,7 @@ class DataEngine:
                     'avg_conceded': round(row[2], 2) if row[2] is not None else None,
                     'btts_rate': round(row[3], 1) if row[3] is not None else None,
                 }
-            
+
             return {
                 'matches_played': 0,
                 'avg_scored': None,

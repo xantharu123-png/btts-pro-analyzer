@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from itertools import combinations
 import math
 import re
@@ -29,7 +30,12 @@ MIN_LEAGUE_MATCHES = 24
 MIN_VENUE_MATCHES = 5
 MIN_FORM_MATCHES = 5
 MIN_H2H_MATCHES = 3
-MIN_VALIDATION_MATCHES = 30
+MIN_VALIDATION_MATCHES = 200
+MIN_CALIBRATION_BINS = 3
+MIN_CALIBRATION_BIN_SIZE = 20
+MAX_EXPECTED_CALIBRATION_ERROR = 0.08
+MAX_CALIBRATION_BIN_ERROR = 0.12
+MIN_LEG_EXPECTED_ROI = 0.02
 
 
 @dataclass(frozen=True)
@@ -52,6 +58,9 @@ class ValidationMetrics:
     relative_improvement: Optional[float]
     expected_calibration_error: Optional[float]
     passed: bool
+    calibration_bins: int = 0
+    min_bin_size: int = 0
+    max_calibration_error: Optional[float] = None
 
 
 @dataclass
@@ -410,12 +419,19 @@ def _parse_kickoff(value: Any) -> Optional[datetime]:
 
 
 def _fixture_datetime(fixture: dict[str, Any]) -> Optional[datetime]:
-    return _parse_kickoff(fixture.get("fixture", {}).get("date"))
+    if not isinstance(fixture, dict):
+        return None
+    fixture_data = fixture.get("fixture")
+    if not isinstance(fixture_data, dict):
+        return None
+    return _parse_kickoff(fixture_data.get("date"))
 
 
 def _fixture_score(fixture: dict[str, Any]) -> Optional[tuple[int, int]]:
-    home = fixture.get("goals", {}).get("home")
-    away = fixture.get("goals", {}).get("away")
+    if not isinstance(fixture, dict) or not isinstance(fixture.get("goals"), dict):
+        return None
+    home = fixture["goals"].get("home")
+    away = fixture["goals"].get("away")
     if isinstance(home, bool) or isinstance(away, bool):
         return None
     if not isinstance(home, int) or not isinstance(away, int) or home < 0 or away < 0:
@@ -429,7 +445,7 @@ def _is_completed_before(fixture: dict[str, Any], before: datetime) -> bool:
     return score is not None and played_at is not None and played_at < before
 
 
-def score_matrix(home_lambda: float, away_lambda: float, max_goals: int = 12) -> dict[tuple[int, int], float]:
+def score_matrix(home_lambda: float, away_lambda: float, max_goals: int = 25) -> dict[tuple[int, int], float]:
     """Return a normalized independent-Poisson score matrix."""
     home_rate = _finite_nonnegative(home_lambda)
     away_rate = _finite_nonnegative(away_lambda)
@@ -443,8 +459,19 @@ def score_matrix(home_lambda: float, away_lambda: float, max_goals: int = 12) ->
             return 1.0 if k == 0 else 0.0
         return math.exp(k * math.log(rate) - rate - math.lgamma(k + 1))
 
+    def marginal(rate: float) -> list[float]:
+        values = [poisson(goals, rate) for goals in range(max_goals + 1)]
+        tail = max(0.0, 1.0 - sum(values))
+        if tail > 0.00001:
+            raise ValueError("max_goals truncates too much probability mass")
+        values[-1] += tail
+        mass = sum(values)
+        return [value / mass for value in values]
+
+    home_probabilities = marginal(home_rate)
+    away_probabilities = marginal(away_rate)
     matrix = {
-        (home, away): poisson(home, home_rate) * poisson(away, away_rate)
+        (home, away): home_probabilities[home] * away_probabilities[away]
         for home in range(max_goals + 1)
         for away in range(max_goals + 1)
     }
@@ -456,6 +483,13 @@ def score_matrix(home_lambda: float, away_lambda: float, max_goals: int = 12) ->
 
 def market_outcome(spec: MarketSpec, home_count: int, away_count: int) -> bool:
     """Settle a supported market on its two full-time count values."""
+    if not isinstance(spec, MarketSpec):
+        raise ValueError("spec must be a supported MarketSpec")
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in (home_count, away_count)
+    ):
+        raise ValueError("market counts must be non-negative integers")
     home_goals = home_count
     away_goals = away_count
     total = home_count + away_count
@@ -665,7 +699,11 @@ def _fixture_count_pair(
     fixture: dict[str, Any],
     family: str,
 ) -> Optional[tuple[int, int]]:
+    if not isinstance(fixture, dict):
+        return None
     stats = fixture.get("challenge_stats") or {}
+    if not isinstance(stats, dict):
+        return None
     if family == "corners":
         home_value = stats.get("corners_home")
         away_value = stats.get("corners_away")
@@ -781,11 +819,32 @@ def _count_matrix(
     away_alpha: float,
     max_count: int,
 ) -> dict[tuple[int, int], float]:
+    if isinstance(max_count, bool) or not isinstance(max_count, int) or max_count < 1:
+        raise ValueError("max_count must be a positive integer")
+    parameters = (home_mean, away_mean, home_alpha, away_alpha)
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        for value in parameters
+    ) or home_mean < 0 or away_mean < 0 or home_alpha <= 0 or away_alpha <= 0:
+        raise ValueError("count distribution parameters are invalid")
+
+    def marginal(mean: float, alpha: float) -> list[float]:
+        values = [
+            _negative_binomial_pmf(count, mean, alpha)
+            for count in range(max_count)
+        ]
+        values.append(max(0.0, 1.0 - sum(values)))
+        mass = sum(values)
+        if mass <= 0:
+            raise ValueError("Count distribution has no probability mass")
+        return [value / mass for value in values]
+
+    home_probabilities = marginal(home_mean, home_alpha)
+    away_probabilities = marginal(away_mean, away_alpha)
     matrix = {
-        (home, away): (
-            _negative_binomial_pmf(home, home_mean, home_alpha)
-            * _negative_binomial_pmf(away, away_mean, away_alpha)
-        )
+        (home, away): home_probabilities[home] * away_probabilities[away]
         for home in range(max_count + 1)
         for away in range(max_count + 1)
     }
@@ -940,11 +999,17 @@ def fixture_market_probabilities(
     return model
 
 
-def _expected_calibration_error(predictions: list[float], outcomes: list[int]) -> float:
-    if not predictions:
-        return 1.0
+def _calibration_diagnostics(
+    predictions: list[float],
+    outcomes: list[int],
+) -> tuple[float, int, int, Optional[float]]:
+    """Return ECE and supported-bin diagnostics on a fixed five-bin grid."""
+    if not predictions or len(predictions) != len(outcomes):
+        return 1.0, 0, 0, None
     total = len(predictions)
     error = 0.0
+    supported_sizes: list[int] = []
+    supported_deviations: list[float] = []
     for lower in (0.0, 0.2, 0.4, 0.6, 0.8):
         upper = lower + 0.2
         indices = [
@@ -956,8 +1021,64 @@ def _expected_calibration_error(predictions: list[float], outcomes: list[int]) -
             continue
         mean_probability = _mean(predictions[index] for index in indices)
         observed_rate = _mean(outcomes[index] for index in indices)
-        error += len(indices) / total * abs(mean_probability - observed_rate)
-    return error
+        deviation = abs(mean_probability - observed_rate)
+        error += len(indices) / total * deviation
+        if len(indices) >= MIN_CALIBRATION_BIN_SIZE:
+            supported_sizes.append(len(indices))
+            supported_deviations.append(deviation)
+    return (
+        error,
+        len(supported_sizes),
+        min(supported_sizes) if supported_sizes else 0,
+        max(supported_deviations) if supported_deviations else None,
+    )
+
+
+def _credible_validation(metric: Optional[ValidationMetrics]) -> bool:
+    """Re-check the full validation contract instead of trusting one flag."""
+    if metric is None or metric.passed is not True:
+        return False
+    count_values = (
+        metric.observations,
+        metric.calibration_bins,
+        metric.min_bin_size,
+    )
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in count_values
+    ):
+        return False
+    numeric_values = (
+        metric.brier_score,
+        metric.baseline_brier_score,
+        metric.relative_improvement,
+        metric.expected_calibration_error,
+        metric.max_calibration_error,
+    )
+    try:
+        invalid_numeric = any(
+            value is None
+            or isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            for value in numeric_values
+        )
+    except (TypeError, ValueError):
+        return False
+    if invalid_numeric:
+        return False
+    return bool(
+        metric.observations >= MIN_VALIDATION_MATCHES
+        and 0.0 <= metric.brier_score <= 1.0
+        and 0.0 < metric.baseline_brier_score <= 1.0
+        and 0.02 <= metric.relative_improvement <= 1.0
+        and 0.0 <= metric.expected_calibration_error <= MAX_EXPECTED_CALIBRATION_ERROR
+        and MIN_CALIBRATION_BINS <= metric.calibration_bins <= 5
+        and metric.min_bin_size >= MIN_CALIBRATION_BIN_SIZE
+        and metric.min_bin_size <= metric.observations
+        and metric.calibration_bins * metric.min_bin_size <= metric.observations
+        and 0.0 <= metric.max_calibration_error <= MAX_CALIBRATION_BIN_ERROR
+    )
 
 
 def validate_league_markets(
@@ -976,12 +1097,19 @@ def validate_league_markets(
     event_successes = {spec.key: 0 for spec in MARKET_SPECS}
     event_totals = {spec.key: 0 for spec in MARKET_SPECS}
 
+    grouped: dict[datetime, list[dict[str, Any]]] = {}
     for fixture in ordered:
-        prediction = fixture_market_probabilities(fixture, prior)
-        score = _fixture_score(fixture)
-        if score is None:
-            continue
-        if prediction is not None:
+        played_at = _fixture_datetime(fixture)
+        if played_at is not None:
+            day = played_at.replace(hour=0, minute=0, second=0, microsecond=0)
+            grouped.setdefault(day, []).append(fixture)
+
+    for day in sorted(grouped):
+        day_fixtures = grouped[day]
+        for fixture in day_fixtures:
+            prediction = fixture_market_probabilities(fixture, prior)
+            if prediction is None:
+                continue
             for spec in MARKET_SPECS:
                 probability_values = prediction["probabilities"].get(spec.key)
                 outcome_value = _fixture_market_outcome(spec, fixture)
@@ -994,14 +1122,15 @@ def validate_league_markets(
                 records[spec.key]["outcomes"].append(outcome)
                 records[spec.key]["baselines"].append(baseline)
 
-        for spec in MARKET_SPECS:
-            outcome_value = _fixture_market_outcome(spec, fixture)
-            if outcome_value is None:
-                continue
-            outcome = int(outcome_value)
-            event_successes[spec.key] += outcome
-            event_totals[spec.key] += 1
-        prior.append(fixture)
+        for fixture in day_fixtures:
+            for spec in MARKET_SPECS:
+                outcome_value = _fixture_market_outcome(spec, fixture)
+                if outcome_value is None:
+                    continue
+                outcome = int(outcome_value)
+                event_successes[spec.key] += outcome
+                event_totals[spec.key] += 1
+        prior.extend(day_fixtures)
 
     metrics: dict[str, ValidationMetrics] = {}
     for spec in MARKET_SPECS:
@@ -1016,12 +1145,18 @@ def validate_league_markets(
         brier = _mean((probability - outcome) ** 2 for probability, outcome in zip(probabilities, outcomes))
         baseline_brier = _mean((probability - outcome) ** 2 for probability, outcome in zip(baselines, outcomes))
         improvement = (baseline_brier - brier) / baseline_brier if baseline_brier > 0 else None
-        ece = _expected_calibration_error(probabilities, outcomes)
+        ece, calibration_bins, min_bin_size, max_calibration_error = (
+            _calibration_diagnostics(probabilities, outcomes)
+        )
         passed = (
             observations >= MIN_VALIDATION_MATCHES
             and improvement is not None
             and improvement >= 0.02
-            and ece <= 0.12
+            and ece <= MAX_EXPECTED_CALIBRATION_ERROR
+            and calibration_bins >= MIN_CALIBRATION_BINS
+            and min_bin_size >= MIN_CALIBRATION_BIN_SIZE
+            and max_calibration_error is not None
+            and max_calibration_error <= MAX_CALIBRATION_BIN_ERROR
         )
         metrics[spec.key] = ValidationMetrics(
             observations=observations,
@@ -1030,6 +1165,12 @@ def validate_league_markets(
             relative_improvement=round(improvement, 6) if improvement is not None else None,
             expected_calibration_error=round(ece, 6),
             passed=passed,
+            calibration_bins=calibration_bins,
+            min_bin_size=min_bin_size,
+            max_calibration_error=(
+                round(max_calibration_error, 6)
+                if max_calibration_error is not None else None
+            ),
         )
     return metrics
 
@@ -1042,7 +1183,10 @@ def _fixture_identity(fixture: dict[str, Any]) -> Optional[dict[str, Any]]:
     league_id = league.get("id")
     home_id = teams.get("home", {}).get("id")
     away_id = teams.get("away", {}).get("id")
-    if not all(isinstance(value, int) for value in (fixture_id, league_id, home_id, away_id)):
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value <= 0
+        for value in (fixture_id, league_id, home_id, away_id)
+    ) or home_id == away_id:
         return None
     kickoff = _fixture_datetime(fixture)
     if kickoff is None:
@@ -1101,15 +1245,23 @@ def build_fixture_candidates(
         spread_pp = (max(active, season, form) - min(active, season, form)) * 100.0
         sample_penalty = max(0.0, 8 - min(venue_samples)) * 0.5
         freshness_penalty = max(0.0, freshness_days - 14.0) * 0.12
-        haircut_pp = min(15.0, 3.0 + spread_pp * 0.5 + sample_penalty + freshness_penalty)
-        conservative = max(0.0, min(active, season, form) - haircut_pp / 100.0)
         metric = validation.get(spec.key)
+        structural_haircut = 3.0 + spread_pp * 0.5 + sample_penalty + freshness_penalty
+        calibration_haircut = (
+            float(metric.max_calibration_error) * 100.0
+            if metric and metric.max_calibration_error is not None
+            and math.isfinite(float(metric.max_calibration_error))
+            else 20.0
+        )
+        haircut_pp = min(20.0, max(structural_haircut, calibration_haircut))
+        conservative = max(0.0, min(active, season, form) - haircut_pp / 100.0)
+        validation_passed = _credible_validation(metric)
 
         sample_score = 35.0 * min(1.0, min(venue_samples) / 10.0)
         form_score = 15.0 * min(1.0, min(form_samples) / 6.0)
         agreement_score = 20.0 * max(0.0, 1.0 - spread_pp / 20.0)
         freshness_score = 10.0 * max(0.0, 1.0 - max(0.0, freshness_days - 7.0) / 28.0)
-        validation_score = 20.0 if metric and metric.passed else 0.0
+        validation_score = 20.0 if validation_passed else 0.0
         evidence = min(100.0, sample_score + form_score + agreement_score + freshness_score + validation_score)
 
         blocked: list[str] = []
@@ -1119,7 +1271,7 @@ def build_fixture_candidates(
             blocked.append("Konservative Wahrscheinlichkeit unter 55 %")
         if spread_pp > 12.0:
             blocked.append("Saison- und Formmodell widersprechen sich")
-        if metric is None or not metric.passed:
+        if not validation_passed:
             blocked.append("Markt hat das Walk-forward-Gate nicht bestanden")
         if evidence < 72.0:
             blocked.append("Evidenzscore unter 72")
@@ -1183,9 +1335,15 @@ def _h2h_scores(
         score = _fixture_score(fixture)
         if score is None:
             continue
-        teams = fixture.get("teams", {})
-        historical_home = teams.get("home", {}).get("id")
-        historical_away = teams.get("away", {}).get("id")
+        teams = fixture.get("teams")
+        if not isinstance(teams, dict):
+            continue
+        home = teams.get("home")
+        away = teams.get("away")
+        if not isinstance(home, dict) or not isinstance(away, dict):
+            continue
+        historical_home = home.get("id")
+        historical_away = away.get("id")
         if {historical_home, historical_away} != {current_home_team_id, current_away_team_id}:
             continue
         if historical_home == current_home_team_id:
@@ -1205,16 +1363,21 @@ def _injury_summary(
         return False, {"status": "unavailable"}, "Verletzungsdaten werden für diese Liga nicht abgedeckt"
     if injuries is None:
         return False, {"status": "unavailable"}, "Verletzungsdaten konnten nicht verifiziert werden"
+    if not isinstance(injuries, list) or any(not isinstance(entry, dict) for entry in injuries):
+        return False, {"status": "unavailable"}, "Verletzungsdaten sind ungültig"
 
     summary: dict[int, dict[str, Any]] = {
         home_team_id: {"missing": set(), "questionable": set(), "names": []},
         away_team_id: {"missing": set(), "questionable": set(), "names": []},
     }
     for entry in injuries:
-        team_id = entry.get("team", {}).get("id")
+        team = entry.get("team")
+        player = entry.get("player")
+        if not isinstance(team, dict) or not isinstance(player, dict):
+            return False, {"status": "unavailable"}, "Verletzungsdaten sind unvollständig"
+        team_id = team.get("id")
         if team_id not in summary:
             continue
-        player = entry.get("player", {})
         player_id = player.get("id") or player.get("name")
         if player_id is None:
             continue
@@ -1242,13 +1405,13 @@ def _injury_summary(
 
 
 def _weather_summary(weather: Optional[dict[str, Any]]) -> tuple[bool, dict[str, Any], Optional[str]]:
-    if not weather or weather.get("status") != "ok":
+    if not isinstance(weather, dict) or weather.get("status") != "ok":
         return False, {"status": "unavailable"}, "Wetter zum Anpfiff konnte nicht verifiziert werden"
     temperature = _finite_number(weather.get("temperature_c"))
     wind = _finite_nonnegative(weather.get("wind_mps"))
-    rain = _finite_nonnegative(weather.get("rain_3h_mm")) or 0.0
-    snow = _finite_nonnegative(weather.get("snow_3h_mm")) or 0.0
-    if temperature is None or wind is None:
+    rain = _finite_nonnegative(weather.get("rain_3h_mm"))
+    snow = _finite_nonnegative(weather.get("snow_3h_mm"))
+    if temperature is None or wind is None or rain is None or snow is None:
         return False, {"status": "unavailable"}, "Wetterdaten sind unvollständig"
     adverse = temperature < 0.0 or temperature > 35.0 or wind >= 12.0 or rain >= 6.0 or snow >= 2.0
     summary = {
@@ -1266,20 +1429,44 @@ def _lineup_summary(
     lineups: Optional[list[dict[str, Any]]],
     kickoff: datetime,
     now: datetime,
+    home_team_id: int,
+    away_team_id: int,
 ) -> tuple[bool, dict[str, Any], Optional[str]]:
     minutes_to_kickoff = (kickoff - now).total_seconds() / 60.0
-    required = -5 <= minutes_to_kickoff <= 60
-    complete = bool(
-        lineups
-        and len(lineups) >= 2
-        and all(len(item.get("startXI") or []) >= 11 for item in lineups[:2])
-    )
-    if required and not complete:
-        return False, {"status": "required_missing", "required": True}, "Aufstellungen fehlen kurz vor Anpfiff"
+    confirmed_teams: set[int] = set()
+    if isinstance(lineups, list):
+        for item in lineups:
+            if not isinstance(item, dict):
+                continue
+            team = item.get("team")
+            starters = item.get("startXI")
+            if not isinstance(team, dict) or not isinstance(starters, list):
+                continue
+            team_id = team.get("id")
+            if team_id not in {home_team_id, away_team_id} or team_id in confirmed_teams:
+                continue
+            player_ids: list[int] = []
+            for starter in starters:
+                if not isinstance(starter, dict) or not isinstance(starter.get("player"), dict):
+                    continue
+                player_id = starter["player"].get("id")
+                if isinstance(player_id, bool) or not isinstance(player_id, int) or player_id <= 0:
+                    continue
+                player_ids.append(player_id)
+            if len(player_ids) == 11 and len(set(player_ids)) == 11:
+                confirmed_teams.add(team_id)
+    complete = confirmed_teams == {home_team_id, away_team_id}
+    if not complete:
+        reason = (
+            "Aufstellungen fehlen kurz vor Anpfiff"
+            if minutes_to_kickoff <= 60
+            else "Aufstellungen sind noch nicht verifiziert"
+        )
+        return False, {"status": "required_missing", "required": True}, reason
     return True, {
-        "status": "passed" if complete else "not_due",
-        "required": required,
-        "teams": len(lineups or []),
+        "status": "passed",
+        "required": True,
+        "teams": len(confirmed_teams),
     }, None
 
 
@@ -1302,6 +1489,9 @@ def apply_candidate_context(
     kickoff = _parse_kickoff(candidate.kickoff)
     if kickoff is None:
         candidate.context = {"passed": False, "blocked_reasons": ["Anstoßzeit ist ungültig"]}
+        return candidate
+    if kickoff <= now_utc:
+        candidate.context = {"passed": False, "blocked_reasons": ["Spiel hat bereits begonnen"]}
         return candidate
 
     blocked: list[str] = []
@@ -1350,7 +1540,13 @@ def apply_candidate_context(
     weather_passed, weather_summary, weather_reason = _weather_summary(weather)
     if weather_reason:
         blocked.append(weather_reason)
-    lineup_passed, lineup_summary, lineup_reason = _lineup_summary(lineups, kickoff, now_utc)
+    lineup_passed, lineup_summary, lineup_reason = _lineup_summary(
+        lineups,
+        kickoff,
+        now_utc,
+        candidate.home_team_id,
+        candidate.away_team_id,
+    )
     if lineup_reason:
         blocked.append(lineup_reason)
 
@@ -1376,7 +1572,13 @@ def select_shortlist(
     max_candidates: int = 6,
 ) -> list[ChallengeCandidate]:
     """Select a small price-independent board for the later quote check."""
-    eligible = [candidate for candidate in candidates if candidate.eligible]
+    if (
+        isinstance(max_candidates, bool)
+        or not isinstance(max_candidates, int)
+        or max_candidates < 1
+    ):
+        raise ValueError("max_candidates must be a positive integer")
+    eligible = [candidate for candidate in candidates if candidate_is_credible(candidate)]
     eligible.sort(
         key=lambda candidate: (
             candidate.conservative_probability,
@@ -1397,17 +1599,127 @@ def select_shortlist(
     return selected
 
 
+def candidate_is_credible(candidate: ChallengeCandidate) -> bool:
+    """Validate the complete candidate contract again at selection time."""
+    if not isinstance(candidate, ChallengeCandidate):
+        return False
+    if (
+        not isinstance(candidate.blocked_reasons, list)
+        or candidate.blocked_reasons
+        or not isinstance(candidate.context, dict)
+        or candidate.context.get("passed") is not True
+    ):
+        return False
+    if not _credible_validation(candidate.validation):
+        return False
+    integer_values = (
+        candidate.fixture_id,
+        candidate.league_id,
+        candidate.home_team_id,
+        candidate.away_team_id,
+    )
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value <= 0
+        for value in integer_values
+    ):
+        return False
+    if candidate.home_team_id == candidate.away_team_id:
+        return False
+    if candidate.market_key not in MARKET_BY_KEY:
+        return False
+    numeric_values = (
+        candidate.probability,
+        candidate.conservative_probability,
+        candidate.probability_haircut_pp,
+        candidate.model_price,
+        candidate.evidence_score,
+        candidate.model_spread_pp,
+        candidate.expected_home_goals,
+        candidate.expected_away_goals,
+    )
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        for value in numeric_values
+    ):
+        return False
+    if not (
+        0.0 < candidate.conservative_probability <= candidate.probability <= 1.0
+        and 0.0 <= candidate.probability_haircut_pp <= 20.0
+        and 72.0 <= candidate.evidence_score <= 100.0
+        and 0.0 <= candidate.model_spread_pp <= 12.0
+        and 0.0 <= candidate.expected_home_goals <= 8.0
+        and 0.0 <= candidate.expected_away_goals <= 8.0
+    ):
+        return False
+    expected_price = 1.0 / candidate.conservative_probability
+    if not math.isclose(candidate.model_price, expected_price, rel_tol=0.0, abs_tol=0.001):
+        return False
+    for samples, minimum in (
+        (candidate.venue_samples, MIN_VENUE_MATCHES),
+        (candidate.form_samples, MIN_FORM_MATCHES),
+    ):
+        if (
+            not isinstance(samples, tuple)
+            or len(samples) != 2
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < minimum
+                for value in samples
+            )
+        ):
+            return False
+    return True
+
+
+def _future_candidate(candidate: ChallengeCandidate, now: datetime) -> bool:
+    kickoff = _parse_kickoff(candidate.kickoff)
+    return kickoff is not None and kickoff > now
+
+
+def _independent_fixture_set(candidates: Iterable[ChallengeCandidate]) -> bool:
+    """Reject repeated fixtures or teams inside one accumulator."""
+    items = tuple(candidates)
+    if len({candidate.fixture_id for candidate in items}) != len(items):
+        return False
+    team_ids = [
+        team_id
+        for candidate in items
+        for team_id in (candidate.home_team_id, candidate.away_team_id)
+    ]
+    return len(set(team_ids)) == len(team_ids)
+
+
 def select_model_ticket(
     candidates: Iterable[ChallengeCandidate],
     odds_min: float = TARGET_ODDS_MIN,
     odds_max: float = TARGET_ODDS_MAX,
+    *,
+    now: Optional[datetime] = None,
 ) -> tuple[ChallengeCandidate, ...]:
     """Choose a quote-free preview using conservative model prices only."""
-    board = [candidate for candidate in candidates if candidate.eligible]
+    try:
+        odds_min = validate_decimal_odds(odds_min)
+        odds_max = validate_decimal_odds(odds_max)
+    except BettingMathError as exc:
+        raise ValueError("Odds corridor must contain valid decimal odds") from exc
+    if odds_min > odds_max:
+        raise ValueError("Odds corridor minimum must not exceed its maximum")
+    now_utc = now or datetime.now(timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    else:
+        now_utc = now_utc.astimezone(timezone.utc)
+    board = [
+        candidate for candidate in candidates
+        if candidate_is_credible(candidate) and _future_candidate(candidate, now_utc)
+    ]
     options: list[tuple[float, float, int, tuple[ChallengeCandidate, ...]]] = []
     for size in range(1, MAX_TICKET_LEGS + 1):
         for legs in combinations(board, size):
-            if len({leg.fixture_id for leg in legs}) != size:
+            if not _independent_fixture_set(legs):
                 continue
             dependency_factor = CROSS_LEG_MODEL_FACTOR ** max(0, size - 1)
             model_total = math.prod(leg.model_price for leg in legs) / dependency_factor
@@ -1431,11 +1743,36 @@ def select_quoted_ticket(
     odds_min: float = TARGET_ODDS_MIN,
     odds_max: float = TARGET_ODDS_MAX,
     minimum_ticket_roi: float = 0.03,
+    minimum_leg_roi: float = MIN_LEG_EXPECTED_ROI,
+    now: Optional[datetime] = None,
 ) -> Optional[QuotedTicket]:
     """Return the strongest valid 1-3 leg ticket after manual price entry."""
+    try:
+        odds_min = validate_decimal_odds(odds_min)
+        odds_max = validate_decimal_odds(odds_max)
+    except BettingMathError as exc:
+        raise ValueError("Odds corridor must contain valid decimal odds") from exc
+    if odds_min > odds_max:
+        raise ValueError("Odds corridor minimum must not exceed its maximum")
+    now_utc = now or datetime.now(timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    else:
+        now_utc = now_utc.astimezone(timezone.utc)
+    if (
+        isinstance(minimum_ticket_roi, bool)
+        or isinstance(minimum_leg_roi, bool)
+        or not isinstance(minimum_ticket_roi, (int, float))
+        or not isinstance(minimum_leg_roi, (int, float))
+        or not math.isfinite(float(minimum_ticket_roi))
+        or not math.isfinite(float(minimum_leg_roi))
+        or minimum_ticket_roi < 0.0
+        or minimum_leg_roi < 0.0
+    ):
+        raise ValueError("ROI thresholds must be finite and non-negative")
     priced: list[tuple[ChallengeCandidate, float, float]] = []
     for candidate in candidates:
-        if not candidate.eligible:
+        if not candidate_is_credible(candidate) or not _future_candidate(candidate, now_utc):
             continue
         raw_odds = odds_by_candidate.get(candidate.candidate_id)
         if raw_odds in (None, 0, 0.0):
@@ -1451,7 +1788,7 @@ def select_quoted_ticket(
             )
         except BettingMathError:
             continue
-        if metrics.risk_adjusted_expected_roi < 0:
+        if metrics.risk_adjusted_expected_roi < minimum_leg_roi * 100.0:
             continue
         priced.append((candidate, odds, metrics.risk_adjusted_expected_roi / 100.0))
 
@@ -1459,7 +1796,7 @@ def select_quoted_ticket(
     for size in range(1, MAX_TICKET_LEGS + 1):
         for entries in combinations(priced, size):
             candidates_in_ticket = tuple(entry[0] for entry in entries)
-            if len({candidate.fixture_id for candidate in candidates_in_ticket}) != size:
+            if not _independent_fixture_set(candidates_in_ticket):
                 continue
             total_odds = math.prod(entry[1] for entry in entries)
             if not odds_min <= total_odds <= odds_max:
@@ -1511,7 +1848,13 @@ def ticket_stake(ticket: QuotedTicket, available_balance: float) -> float:
     balance = _finite_nonnegative(available_balance)
     if balance is None:
         raise ValueError("Available balance must be finite and non-negative")
-    return round(min(balance, balance * min(ticket.stake_fraction, MAX_STAKE_FRACTION)), 2)
+    fraction = _finite_nonnegative(ticket.stake_fraction)
+    if fraction is None:
+        raise ValueError("Ticket stake fraction must be finite and non-negative")
+    stake = min(balance, balance * min(fraction, MAX_STAKE_FRACTION))
+    return float(
+        Decimal(str(stake)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    )
 
 
 __all__ = [
@@ -1528,6 +1871,7 @@ __all__ = [
     "ValidationMetrics",
     "apply_candidate_context",
     "build_fixture_candidates",
+    "candidate_is_credible",
     "fixture_market_probabilities",
     "market_outcome",
     "market_probability",

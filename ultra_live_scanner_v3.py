@@ -21,14 +21,16 @@ class UltraLiveScanner:
         self.api_football = api_football
 
     @staticmethod
-    def _optional_nonnegative(value) -> Optional[float]:
+    def _optional_nonnegative(value, maximum: float = 20.0) -> Optional[float]:
         if value is None:
+            return None
+        if isinstance(value, bool):
             return None
         try:
             numeric = float(value)
         except (TypeError, ValueError):
             return None
-        if not math.isfinite(numeric) or numeric < 0:
+        if not math.isfinite(numeric) or numeric < 0 or numeric > maximum:
             return None
         return numeric
 
@@ -67,8 +69,14 @@ class UltraLiveScanner:
         prior_home: Optional[float] = None,
         prior_away: Optional[float] = None,
     ) -> Tuple[Optional[float], Optional[float], str]:
-        if not isinstance(minute, (int, float)) or minute < 0:
-            raise ValueError("minute must be non-negative")
+        if (
+            isinstance(minute, bool)
+            or not isinstance(minute, (int, float))
+            or not math.isfinite(float(minute))
+            or minute < 0
+            or minute > self.MATCH_END_MINUTE
+        ):
+            raise ValueError("minute must be between 0 and 93")
         remaining = max(0.0, self.MATCH_END_MINUTE - float(minute))
         observed = [
             self._optional_nonnegative(xg_home),
@@ -111,14 +119,52 @@ class UltraLiveScanner:
             goals = match['goals']
             league = match['league']
 
-            fixture_id = int(fixture['id'])
-            home_team_id = int(teams['home']['id'])
-            away_team_id = int(teams['away']['id'])
-            minute = int(fixture.get('status', {}).get('elapsed') or 0)
+            raw_fixture_id = fixture.get('id')
+            raw_home_team_id = teams.get('home', {}).get('id')
+            raw_away_team_id = teams.get('away', {}).get('id')
+            raw_league_id = league.get('id')
+            identifiers = (
+                raw_fixture_id,
+                raw_home_team_id,
+                raw_away_team_id,
+                raw_league_id,
+            )
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value <= 0
+                for value in identifiers
+            ) or raw_home_team_id == raw_away_team_id:
+                return None
+            fixture_id = raw_fixture_id
+            home_team_id = raw_home_team_id
+            away_team_id = raw_away_team_id
+            raw_minute = fixture.get('status', {}).get('elapsed')
+            raw_home_score = goals.get('home')
+            raw_away_score = goals.get('away')
+            if (
+                raw_minute is None
+                or isinstance(raw_minute, bool)
+                or not isinstance(raw_minute, int)
+                or isinstance(raw_home_score, bool)
+                or isinstance(raw_away_score, bool)
+                or not isinstance(raw_home_score, int)
+                or not isinstance(raw_away_score, int)
+            ):
+                return None
+            minute = raw_minute
             if goals.get('home') is None or goals.get('away') is None:
                 return None
-            home_score = int(goals['home'])
-            away_score = int(goals['away'])
+            home_score = raw_home_score
+            away_score = raw_away_score
+            if (
+                not 0 <= minute <= self.MATCH_END_MINUTE
+                or home_score < 0
+                or away_score < 0
+                or home_score > 30
+                or away_score > 30
+            ):
+                return None
 
             stats = self.api_football.get_match_statistics(
                 fixture_id,
@@ -130,7 +176,7 @@ class UltraLiveScanner:
             prior_home, prior_away = self._get_prematch_goal_priors(
                 home_team_id,
                 away_team_id,
-                int(league['id']),
+                raw_league_id,
             )
 
             btts = self._calculate_btts_probability(

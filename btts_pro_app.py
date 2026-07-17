@@ -362,11 +362,10 @@ def _apply_app_styles() -> None:
 def get_analyzer():
     """Initialize the analyzer from the central configuration."""
     config = load_app_config(st)
-    api_key = config.api_key or config.api_football_key
-    if not api_key and not config.api_football_key:
+    if not config.api_football_key:
         return None
     return AdvancedBTTSAnalyzer(
-        api_key=api_key,
+        api_key=config.api_football_key,
         weather_api_key=config.weather_key,
         api_football_key=config.api_football_key,
     )

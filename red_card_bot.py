@@ -6,6 +6,7 @@ fields remain missing rather than being converted into observed zeroes.
 
 import os
 import json
+import math
 import requests
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -29,7 +30,11 @@ except ImportError:
 def _format_stat(value, decimals: int = 0, suffix: str = "") -> str:
     if value is None:
         return "n/a"
-    return f"{float(value):.{decimals}f}{suffix}"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+    return f"{numeric:.{decimals}f}{suffix}" if math.isfinite(numeric) else "n/a"
 
 
 class RedCardBotEnhanced:
@@ -106,6 +111,72 @@ class RedCardBotEnhanced:
         self.errors.append({'operation': operation, 'message': str(message)})
         if not self.streamlit_mode:
             print(f"WARNING: {operation}: {message}")
+
+    def _response_items(self, response, operation: str) -> Optional[List[Dict]]:
+        if response.status_code != 200:
+            self._record_error(operation, f"HTTP {response.status_code}")
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            self._record_error(operation, "invalid JSON")
+            return None
+        if not isinstance(payload, dict):
+            self._record_error(operation, "invalid provider payload")
+            return None
+        provider_errors = payload.get('errors')
+        if provider_errors:
+            self._record_error(operation, str(provider_errors))
+            return None
+        items = payload.get('response')
+        if not isinstance(items, list):
+            self._record_error(operation, "invalid response payload")
+            return None
+        if any(not isinstance(item, dict) for item in items):
+            self._record_error(operation, "invalid response entries")
+            return None
+        return items
+
+    @staticmethod
+    def _live_match_identity(match: Dict) -> Optional[tuple[int, int, int, int]]:
+        if not isinstance(match, dict):
+            return None
+        fixture = match.get('fixture')
+        league = match.get('league')
+        teams = match.get('teams')
+        goals = match.get('goals')
+        if not all(isinstance(value, dict) for value in (fixture, league, teams, goals)):
+            return None
+        home = teams.get('home')
+        away = teams.get('away')
+        status = fixture.get('status')
+        if not isinstance(home, dict) or not isinstance(away, dict) or not isinstance(status, dict):
+            return None
+        fixture_id = fixture.get('id')
+        league_id = league.get('id')
+        home_id = home.get('id')
+        away_id = away.get('id')
+        elapsed = status.get('elapsed')
+        home_score = goals.get('home')
+        away_score = goals.get('away')
+        if (
+            any(
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
+                for value in (fixture_id, league_id, home_id, away_id)
+            )
+            or home_id == away_id
+            or isinstance(elapsed, bool)
+            or not isinstance(elapsed, int)
+            or not 0 <= elapsed <= 120
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not 0 <= value <= 30
+                for value in (home_score, away_score)
+            )
+        ):
+            return None
+        return fixture_id, league_id, home_id, away_id
     
     def get_live_stats(
         self,
@@ -123,6 +194,20 @@ class RedCardBotEnhanced:
         - attacks_home, attacks_away: Total attacks
         - corners_home, corners_away: Corners
         """
+        if (
+            isinstance(fixture_id, bool)
+            or not isinstance(fixture_id, int)
+            or fixture_id <= 0
+            or isinstance(home_team_id, bool)
+            or isinstance(away_team_id, bool)
+            or not isinstance(home_team_id, int)
+            or not isinstance(away_team_id, int)
+            or home_team_id <= 0
+            or away_team_id <= 0
+            or home_team_id == away_team_id
+        ):
+            self._record_error('live_stats', 'invalid identifiers')
+            return None
         try:
             response = requests.get(
                 f"{self.base_url}/fixtures/statistics",
@@ -131,19 +216,27 @@ class RedCardBotEnhanced:
                 timeout=15
             )
             
-            if response.status_code != 200:
+            stats_data = self._response_items(response, 'live_stats')
+            if stats_data is None:
                 return None
-            
-            stats_data = response.json().get('response', [])
             if len(stats_data) < 2:
                 return None
 
-            if home_team_id is None or away_team_id is None:
-                return None
-            stats_by_team = {
-                item.get('team', {}).get('id'): item.get('statistics', [])
-                for item in stats_data
-            }
+            stats_by_team = {}
+            for item in stats_data:
+                if not isinstance(item, dict):
+                    continue
+                team = item.get('team')
+                statistics = item.get('statistics')
+                team_id = team.get('id') if isinstance(team, dict) else None
+                if (
+                    isinstance(team_id, int)
+                    and not isinstance(team_id, bool)
+                    and team_id > 0
+                    and isinstance(statistics, list)
+                    and team_id not in stats_by_team
+                ):
+                    stats_by_team[team_id] = statistics
             home_stats = stats_by_team.get(home_team_id)
             away_stats = stats_by_team.get(away_team_id)
             if home_stats is None or away_stats is None:
@@ -152,17 +245,30 @@ class RedCardBotEnhanced:
             def extract_stat(stats_list: list, stat_type: str) -> Optional[float]:
                 """Extract specific stat from API response"""
                 for stat in stats_list:
+                    if not isinstance(stat, dict):
+                        continue
                     if stat.get('type') == stat_type:
                         value = stat.get('value')
-                        if value is None:
+                        if value is None or isinstance(value, bool):
                             return None
                         # Remove % sign if present
                         if isinstance(value, str):
                             value = value.replace('%', '').strip()
                         try:
-                            return float(value)
+                            numeric = float(value)
                         except (TypeError, ValueError):
                             return None
+                        if stat_type == 'Ball Possession':
+                            return numeric if math.isfinite(numeric) and 0 <= numeric <= 100 else None
+                        if stat_type == 'expected_goals':
+                            return numeric if math.isfinite(numeric) and 0 <= numeric <= 20 else None
+                        return (
+                            numeric
+                            if math.isfinite(numeric)
+                            and 0 <= numeric <= 5000
+                            and numeric.is_integer()
+                            else None
+                        )
                 return None
             
             live_stats = {
@@ -203,6 +309,17 @@ class RedCardBotEnhanced:
     
     def get_live_matches(self, league_ids: List[int] = None) -> List[Dict]:
         """Get all live matches"""
+        if league_ids is not None and (
+            not isinstance(league_ids, list)
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value <= 0
+                for value in league_ids
+            )
+        ):
+            self._record_error('live_matches', 'invalid league scope')
+            return []
         try:
             response = requests.get(
                 f"{self.base_url}/fixtures",
@@ -211,18 +328,23 @@ class RedCardBotEnhanced:
                 timeout=15
             )
             
-            if response.status_code == 200:
-                matches = response.json().get('response', [])
-                
+            matches = self._response_items(response, 'live_matches')
+            if matches is not None:
+                matches = [
+                    match
+                    for match in matches
+                    if self._live_match_identity(match) is not None
+                ]
                 if league_ids is not None:
                     allowed_leagues = set(league_ids)
                     matches = [
                         match for match in matches
-                        if match.get('league', {}).get('id') in allowed_leagues
+                        if isinstance(match, dict)
+                        and isinstance(match.get('league'), dict)
+                        and match['league'].get('id') in allowed_leagues
                     ]
                 
                 return matches
-            self._record_error('live_matches', f"HTTP {response.status_code}")
             return []
         except Exception as e:
             self._record_error('live_matches', str(e))
@@ -231,10 +353,13 @@ class RedCardBotEnhanced:
     def check_match_for_red_cards(self, match: Dict) -> List[Dict]:
         """Check single match for red card events"""
         red_cards = []
+        identity = self._live_match_identity(match)
+        if identity is None:
+            self._record_error('red_card_events', 'invalid live match')
+            return red_cards
+        fixture_id, _, home_team_id, away_team_id = identity
         
         try:
-            fixture_id = match['fixture']['id']
-            
             response = requests.get(
                 f"{self.base_url}/fixtures/events",
                 headers=self.headers,
@@ -242,10 +367,11 @@ class RedCardBotEnhanced:
                 timeout=15
             )
             
-            if response.status_code == 200:
-                events = response.json().get('response', [])
-                
+            events = self._response_items(response, f'red_card_events_{fixture_id}')
+            if events is not None:
                 for event in events:
+                    if not isinstance(event, dict):
+                        continue
                     event_type = event.get('type', '')
                     event_detail = event.get('detail', '')
                     
@@ -253,19 +379,41 @@ class RedCardBotEnhanced:
                         'Red Card',
                         'Second Yellow card',
                     }:
-                        player_id = event.get('player', {}).get('id', 'unknown')
-                        minute = event.get('time', {}).get('elapsed')
-                        if not isinstance(minute, int) or minute < 0:
+                        player = event.get('player')
+                        team = event.get('team')
+                        event_time = event.get('time')
+                        if not all(isinstance(value, dict) for value in (player, team, event_time)):
                             continue
-                        extra = event.get('time', {}).get('extra') or 0
-                        team_id = event.get('team', {}).get('id', 'unknown')
+                        player_id = player.get('id')
+                        team_id = team.get('id')
+                        minute = event_time.get('elapsed')
+                        if (
+                            isinstance(player_id, bool)
+                            or not isinstance(player_id, int)
+                            or player_id <= 0
+                            or isinstance(team_id, bool)
+                            or not isinstance(team_id, int)
+                            or team_id not in {home_team_id, away_team_id}
+                            or isinstance(minute, bool)
+                            or not isinstance(minute, int)
+                            or not 0 <= minute <= 120
+                        ):
+                            continue
+                        raw_extra = event_time.get('extra')
+                        extra = 0 if raw_extra is None else raw_extra
+                        if (
+                            isinstance(extra, bool)
+                            or not isinstance(extra, int)
+                            or not 0 <= extra <= 30
+                        ):
+                            continue
                         card_id = f"{fixture_id}_{team_id}_{player_id}_{minute}_{extra}"
                         
                         if card_id not in self.alerted_cards:
                             red_cards.append({
                                 'card_id': card_id,
-                                'player': event.get('player', {}).get('name', 'Unknown'),
-                                'team': event.get('team', {}).get('name', 'Unknown'),
+                                'player': str(player.get('name') or 'Unknown'),
+                                'team': str(team.get('name') or 'Unknown'),
                                 'team_id': team_id,
                                 'minute': minute,
                                 'extra_minute': extra,
@@ -273,8 +421,6 @@ class RedCardBotEnhanced:
                                 'match': match
                             })
             
-            else:
-                self._record_error('red_card_events', f"fixture {fixture_id}: HTTP {response.status_code}")
             return red_cards
         except Exception as e:
             self._record_error('red_card_events', str(e))

@@ -6,6 +6,7 @@ provenance. Market price, edge, EV, and stake remain outside this component.
 """
 
 import math
+from datetime import datetime, timezone
 from typing import Dict, List
 
 import streamlit as st
@@ -18,16 +19,102 @@ class BestBetFinder:
         self.all_bets: List[Dict] = []
 
     @staticmethod
+    def _utc_datetime(value) -> datetime | None:
+        try:
+            timestamp = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        except (TypeError, ValueError):
+            return None
+        if timestamp.tzinfo is None:
+            return None
+        return timestamp.astimezone(timezone.utc)
+
+    @classmethod
+    def _credible_validation(cls, raw: Dict) -> bool:
+        validation = raw.get('validation')
+        if not isinstance(validation, dict):
+            return False
+        league_id = raw.get('league_id')
+        league_ids = validation.get('league_ids')
+        validation_end = cls._utc_datetime(validation.get('validation_end'))
+        kickoff = cls._utc_datetime(raw.get('fixture_kickoff'))
+        integer_values = (
+            validation.get('sample_size'),
+            validation.get('calibration_bins'),
+            validation.get('min_bin_size'),
+        )
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or not float(value).is_integer()
+            for value in integer_values
+        ):
+            return False
+        try:
+            decimal_values = (
+                validation.get('expected_calibration_error'),
+                validation.get('max_calibration_error'),
+                validation.get('calibration_coverage'),
+            )
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in decimal_values
+            ):
+                return False
+            sample_size = int(integer_values[0])
+            calibration_bins = int(integer_values[1])
+            min_bin_size = int(integer_values[2])
+            ece = float(decimal_values[0])
+            max_error = float(decimal_values[1])
+            calibration_coverage = float(decimal_values[2])
+        except (TypeError, ValueError, OverflowError):
+            return False
+        return bool(
+            validation.get('calibrated') is True
+            and validation.get('out_of_sample') is True
+            and isinstance(league_id, int)
+            and not isinstance(league_id, bool)
+            and league_id > 0
+            and isinstance(league_ids, list)
+            and all(
+                isinstance(value, int) and not isinstance(value, bool) and value > 0
+                for value in league_ids
+            )
+            and league_id in league_ids
+            and sample_size >= 200
+            and calibration_bins >= 3
+            and min_bin_size >= 20
+            and min_bin_size <= sample_size
+            and calibration_bins * min_bin_size <= sample_size
+            and math.isfinite(ece)
+            and math.isfinite(max_error)
+            and 0.0 <= ece <= 0.08
+            and 0.0 <= max_error <= 0.12
+            and 0.80 <= calibration_coverage <= 1.0
+            and str(validation.get('model_version') or '').strip()
+            and validation_end is not None
+            and kickoff is not None
+            and validation_end <= datetime.now(timezone.utc)
+            and validation_end < kickoff
+        )
+
+    @staticmethod
     def _eligible_signal(raw: Dict) -> Dict | None:
-        if not isinstance(raw, dict) or raw.get('calibrated') is not True:
+        if (
+            not isinstance(raw, dict)
+            or raw.get('calibrated') is not True
+            or not BestBetFinder._credible_validation(raw)
+        ):
             return None
         source = str(raw.get('source') or '').strip()
         market = str(raw.get('market') or '').strip()
         selection = str(raw.get('selection') or '').strip()
-        try:
-            probability = float(raw.get('probability'))
-        except (TypeError, ValueError):
+        probability = raw.get('probability')
+        if isinstance(probability, bool) or not isinstance(probability, (int, float)):
             return None
+        probability = float(probability)
         if (
             not source
             or not market

@@ -10,6 +10,7 @@ from __future__ import annotations
 from hashlib import sha256
 from io import BytesIO
 from difflib import SequenceMatcher
+import math
 import re
 import unicodedata
 from typing import Any, Optional
@@ -100,6 +101,23 @@ def _pseudo_fixture_id(league_id: int, date_text: str, home: str, away: str) -> 
     return -int.from_bytes(sha256(token).digest()[:8], "big", signed=False) - 1
 
 
+def _nonnegative_integer(value: Any, *, maximum: Optional[int] = None) -> Optional[int]:
+    if isinstance(value, bool):
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if (
+        not math.isfinite(numeric)
+        or numeric < 0
+        or not numeric.is_integer()
+        or maximum is not None and numeric > maximum
+    ):
+        return None
+    return int(numeric)
+
+
 def _season_folder(season_start_year: int) -> str:
     if not isinstance(season_start_year, int) or not 1990 <= season_start_year <= 2098:
         raise ValueError("season_start_year is invalid")
@@ -117,27 +135,55 @@ def _current_team_mapping(
     history_names: set[str],
     upcoming_fixtures: list[dict[str, Any]],
 ) -> dict[str, int]:
-    mapping: dict[str, int] = {}
+    current_teams: dict[int, str] = {}
     for fixture in upcoming_fixtures:
+        if not isinstance(fixture, dict) or not isinstance(fixture.get("teams"), dict):
+            continue
         for side in ("home", "away"):
-            team = fixture.get("teams", {}).get(side, {})
+            team = fixture["teams"].get(side)
+            if not isinstance(team, dict):
+                continue
             team_id = team.get("id")
             normalized = _normalized_team_name(team.get("name"))
-            if not isinstance(team_id, int) or not normalized:
+            if (
+                isinstance(team_id, bool)
+                or not isinstance(team_id, int)
+                or team_id <= 0
+                or not normalized
+            ):
                 continue
-            exact = next((name for name in history_names if name == normalized), None)
-            if exact is not None:
-                mapping[exact] = team_id
-                continue
-            matches = sorted(
-                (
-                    (SequenceMatcher(None, normalized, name).ratio(), name)
-                    for name in history_names
-                ),
-                reverse=True,
-            )
-            if matches and matches[0][0] >= 0.84:
-                mapping[matches[0][1]] = team_id
+            current_teams[team_id] = normalized
+
+    mapping: dict[str, int] = {}
+    used_team_ids: set[int] = set()
+    for team_id, normalized in current_teams.items():
+        if normalized in history_names and normalized not in mapping:
+            mapping[normalized] = team_id
+            used_team_ids.add(team_id)
+
+    candidates = []
+    for team_id, normalized in current_teams.items():
+        if team_id in used_team_ids:
+            continue
+        matches = sorted(
+            (
+                (SequenceMatcher(None, normalized, name).ratio(), name)
+                for name in history_names
+                if name not in mapping
+            ),
+            reverse=True,
+        )
+        if not matches or matches[0][0] < 0.90:
+            continue
+        if len(matches) > 1 and matches[0][0] - matches[1][0] < 0.02:
+            continue
+        candidates.append((matches[0][0], matches[0][1], team_id))
+
+    for _, history_name, team_id in sorted(candidates, reverse=True):
+        if history_name in mapping or team_id in used_team_ids:
+            continue
+        mapping[history_name] = team_id
+        used_team_ids.add(team_id)
     return mapping
 
 
@@ -148,6 +194,15 @@ def parse_history_csv(
     upcoming_fixtures: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Parse an allowlisted CSV payload into the internal fixture shape."""
+    if (
+        isinstance(league_id, bool)
+        or not isinstance(league_id, int)
+        or league_id <= 0
+        or isinstance(season_start_year, bool)
+        or not isinstance(season_start_year, int)
+        or not 1900 <= season_start_year <= 2100
+    ):
+        raise ValueError("league and season identifiers are invalid")
     frame = pd.read_csv(BytesIO(content), usecols=lambda column: column in ALLOWED_COLUMNS)
     if not REQUIRED_COLUMNS.issubset(frame.columns):
         raise ValueError("Historical CSV is missing required result columns")
@@ -175,13 +230,28 @@ def parse_history_csv(
         away_name = str(row["AwayTeam"]).strip()
         home_normalized = _normalized_team_name(home_name)
         away_normalized = _normalized_team_name(away_name)
-        if home_normalized not in team_ids or away_normalized not in team_ids:
+        if (
+            home_normalized not in team_ids
+            or away_normalized not in team_ids
+            or home_normalized == away_normalized
+            or team_ids[home_normalized] == team_ids[away_normalized]
+        ):
             continue
-        home_goals = int(row["FTHG"])
-        away_goals = int(row["FTAG"])
-        if min(home_goals, away_goals) < 0:
+        home_goals = _nonnegative_integer(row["FTHG"])
+        away_goals = _nonnegative_integer(row["FTAG"])
+        if (
+            home_goals is None
+            or away_goals is None
+            or home_goals > 30
+            or away_goals > 30
+        ):
             continue
         played_at = row["parsed_date"].to_pydatetime()
+        if (
+            played_at.year not in {season_start_year, season_start_year + 1}
+            or played_at > pd.Timestamp.now(tz="UTC").to_pydatetime()
+        ):
+            continue
         stats = {}
         stat_columns = {
             "corners_home": "HC",
@@ -191,8 +261,10 @@ def parse_history_csv(
         }
         for key, column in stat_columns.items():
             value = row.get(column)
-            if value is not None and not pd.isna(value) and float(value) >= 0:
-                stats[key] = int(value)
+            maximum = 40 if key.startswith("corners_") else 20
+            count = _nonnegative_integer(value, maximum=maximum)
+            if count is not None:
+                stats[key] = count
         date_text = played_at.isoformat()
         fixtures.append(
             {
@@ -219,7 +291,8 @@ def parse_history_csv(
                 "challenge_source": "football-data-results-only",
             }
         )
-    return sorted(fixtures, key=lambda item: item["fixture"]["date"])
+    unique = {item["fixture"]["id"]: item for item in fixtures}
+    return sorted(unique.values(), key=lambda item: item["fixture"]["date"])
 
 
 def fetch_history(

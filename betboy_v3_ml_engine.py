@@ -40,6 +40,8 @@ except ImportError:
 
 
 def _optional_nonnegative(value) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
     try:
         numeric = float(value)
     except (TypeError, ValueError):
@@ -506,7 +508,7 @@ class BacktestingEngine:
         else:
             raise ValueError("timestamp must be datetime or ISO-8601 text")
         if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=timezone.utc)
+            raise ValueError("timestamp must include a timezone")
         return timestamp.astimezone(timezone.utc)
 
     def add_prediction(
@@ -521,6 +523,8 @@ class BacktestingEngine:
         model_trained_until,
         model_version: str,
     ):
+        if not isinstance(prediction, dict) or not isinstance(actual_result, dict):
+            raise ValueError("prediction and actual_result must be mappings")
         if (
             not isinstance(fixture_id, int)
             or isinstance(fixture_id, bool)
@@ -533,13 +537,18 @@ class BacktestingEngine:
         prediction_time = self._utc_datetime(predicted_at)
         kickoff_time = self._utc_datetime(fixture_kickoff)
         training_cutoff = self._utc_datetime(model_trained_until)
-        version = str(model_version or '').strip()
+        version = model_version.strip() if isinstance(model_version, str) else ''
         if not version:
             raise ValueError("model_version is required")
         if not training_cutoff < prediction_time < kickoff_time:
             raise ValueError(
                 "out-of-sample prediction requires training cutoff < prediction < kickoff"
             )
+        if any(
+            item['fixture_id'] == fixture_id and item['league_id'] == league_id
+            for item in self.provenance
+        ):
+            raise ValueError("fixture already has an out-of-sample prediction")
         self.predictions.append(dict(prediction))
         self.results.append(dict(actual_result))
         self.provenance.append({
@@ -566,7 +575,12 @@ class BacktestingEngine:
         if not selection:
             return None, None
         explicit = market_prediction.get('probability')
-        if isinstance(explicit, (int, float)) and 0 <= float(explicit) <= 1:
+        if (
+            not isinstance(explicit, bool)
+            and isinstance(explicit, (int, float))
+            and math.isfinite(float(explicit))
+            and 0 <= float(explicit) <= 1
+        ):
             return selection, float(explicit)
         key_maps = {
             'match_result': {'HOME': 'home_win', 'DRAW': 'draw', 'AWAY': 'away_win'},
@@ -575,10 +589,36 @@ class BacktestingEngine:
         }
         key = key_maps.get(market, {}).get(selection)
         value = market_prediction.get(key) if key else None
-        if not isinstance(value, (int, float)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             return None, None
         probability = float(value) / 100.0
-        return (selection, probability) if 0 <= probability <= 1 else (None, None)
+        return (
+            (selection, probability)
+            if math.isfinite(probability) and 0 <= probability <= 1
+            else (None, None)
+        )
+
+    @classmethod
+    def _verified_historical_price(
+        cls,
+        market_prediction: Dict,
+        provenance: Dict,
+    ) -> Optional[float]:
+        if not str(market_prediction.get('bookmaker') or '').strip():
+            return None
+        if not str(market_prediction.get('quote_source') or '').strip():
+            return None
+        try:
+            quote_time = cls._utc_datetime(market_prediction.get('quoted_at'))
+            prediction_time = provenance['predicted_at']
+            kickoff = provenance['fixture_kickoff']
+            age = (prediction_time - quote_time).total_seconds()
+            price = validate_decimal_odds(market_prediction.get('market_odds'))
+        except (ValueError, KeyError, BettingMathError):
+            return None
+        if not 0 <= age <= 600 or quote_time >= kickoff:
+            return None
+        return price
 
     def calculate_accuracy(self, market: str = 'match_result') -> Dict:
         total = correct = price_sample = 0
@@ -588,7 +628,7 @@ class BacktestingEngine:
             'medium': {'pred': 0, 'correct': 0},
             'low': {'pred': 0, 'correct': 0},
         }
-        for prediction, result in zip(self.predictions, self.results):
+        for index, (prediction, result) in enumerate(zip(self.predictions, self.results)):
             market_prediction = self._market_prediction(prediction, market)
             settled = result.get(market)
             if not market_prediction or settled is None:
@@ -605,10 +645,14 @@ class BacktestingEngine:
             bucket = 'high' if probability >= 0.70 else 'medium' if probability >= 0.55 else 'low'
             buckets[bucket]['pred'] += 1
             buckets[bucket]['correct'] += int(is_correct)
-            try:
-                price = validate_decimal_odds(market_prediction.get('market_odds'))
-            except BettingMathError:
-                price = None
+            price = (
+                self._verified_historical_price(
+                    market_prediction,
+                    self.provenance[index],
+                )
+                if index < len(self.provenance)
+                else None
+            )
             if price is not None:
                 price_sample += 1
                 total_return += price if is_correct else 0.0
@@ -631,11 +675,26 @@ class BacktestingEngine:
             'total_return': total_return,
         }
 
-    def calibration_curve(self, market: str = 'btts', bins: int = 10) -> Dict:
-        if not isinstance(bins, int) or bins < 2:
-            raise ValueError("bins must be an integer of at least 2")
+    def calibration_curve(
+        self,
+        market: str = 'btts',
+        bins: int = 10,
+        *,
+        league_id: Optional[int] = None,
+    ) -> Dict:
+        if isinstance(bins, bool) or not isinstance(bins, int) or not 2 <= bins <= 100:
+            raise ValueError("bins must be an integer between 2 and 100")
+        if league_id is not None and (
+            isinstance(league_id, bool)
+            or not isinstance(league_id, int)
+            or league_id <= 0
+        ):
+            raise ValueError("league_id must be a positive integer or None")
         observations = []
-        for prediction, result in zip(self.predictions, self.results):
+        for index, (prediction, result) in enumerate(zip(self.predictions, self.results)):
+            if league_id is not None:
+                if index >= len(self.provenance) or self.provenance[index]['league_id'] != league_id:
+                    continue
             market_prediction = self._market_prediction(prediction, market)
             if not market_prediction or result.get(market) is None:
                 continue
@@ -670,13 +729,18 @@ class BacktestingEngine:
 
         eligible = [index for index, count in enumerate(counts) if count >= 20]
         eligible_count = sum(counts[index] for index in eligible)
+        calibration_coverage = eligible_count / len(observations)
         deviations = [abs(predicted[index] - actual[index]) for index in eligible]
         ece = (
             sum(counts[index] * abs(predicted[index] - actual[index]) for index in eligible)
             / eligible_count
             if eligible_count else None
         )
-        minimum_sample_met = len(observations) >= 200 and len(eligible) >= 3
+        minimum_sample_met = (
+            eligible_count >= 200
+            and calibration_coverage >= 0.80
+            and len(eligible) >= 3
+        )
         max_deviation = max(deviations) if deviations else None
         brier = float(np.mean([
             (probability - outcome) ** 2 for probability, outcome in observations
@@ -690,6 +754,8 @@ class BacktestingEngine:
             'expected_calibration_error': round(ece, 3) if ece is not None else None,
             'max_deviation': round(max_deviation, 3) if max_deviation is not None else None,
             'minimum_sample_met': minimum_sample_met,
+            'calibrated_predictions': eligible_count,
+            'calibration_coverage': round(calibration_coverage, 4),
             'is_well_calibrated': bool(
                 minimum_sample_met
                 and ece is not None and ece < 0.05
@@ -704,34 +770,63 @@ class BacktestingEngine:
         *,
         method: str,
         bins: int = 10,
+        league_id: Optional[int] = None,
     ) -> Optional[Dict]:
         """Build the exact SmartBet validation contract from OOS records."""
         method_name = str(method or '').strip()
         if not method_name or len(self.provenance) != len(self.predictions):
             return None
-        curve = self.calibration_curve(market, bins=bins)
+        available_leagues = {item['league_id'] for item in self.provenance}
+        if league_id is None:
+            if len(available_leagues) != 1:
+                return None
+            league_id = next(iter(available_leagues))
+        if (
+            not isinstance(league_id, int)
+            or isinstance(league_id, bool)
+            or league_id <= 0
+        ):
+            return None
+        curve = self.calibration_curve(market, bins=bins, league_id=league_id)
         if curve.get('is_well_calibrated') is not True:
             return None
-        versions = {item['model_version'] for item in self.provenance}
+        observation_indices = []
+        for index, (prediction, result) in enumerate(zip(self.predictions, self.results)):
+            if self.provenance[index]['league_id'] != league_id:
+                continue
+            market_prediction = self._market_prediction(prediction, market)
+            if not market_prediction or result.get(market) is None:
+                continue
+            selection, probability = self._selection_and_probability(
+                market,
+                market_prediction,
+            )
+            if selection is not None and probability is not None:
+                observation_indices.append(index)
+        if len(observation_indices) != curve['evaluated_predictions']:
+            return None
+        market_provenance = [self.provenance[index] for index in observation_indices]
+        versions = {item['model_version'] for item in market_provenance}
         if len(versions) != 1:
             return None
         eligible_counts = [count for count in curve['counts'] if count >= 20]
         if len(eligible_counts) < 3:
             return None
-        prediction_times = [item['predicted_at'] for item in self.provenance]
+        prediction_times = [item['predicted_at'] for item in market_provenance]
         return {
             'calibrated': True,
             'out_of_sample': True,
-            'sample_size': int(curve['evaluated_predictions']),
+            'sample_size': int(curve['calibrated_predictions']),
             'calibration_bins': len(eligible_counts),
             'min_bin_size': min(eligible_counts),
             'expected_calibration_error': curve['expected_calibration_error'],
             'max_calibration_error': curve['max_deviation'],
+            'calibration_coverage': curve['calibration_coverage'],
             'method': method_name,
             'model_version': next(iter(versions)),
             'validation_start': min(prediction_times).isoformat(),
             'validation_end': max(prediction_times).isoformat(),
-            'league_ids': sorted({item['league_id'] for item in self.provenance}),
+            'league_ids': [league_id],
         }
 
     def generate_report(self) -> str:
@@ -769,6 +864,8 @@ class BetBoyV3Predictor:
         raise ValueError(f"Missing required fixture field: {keys[0]}")
 
     def build_features(self, fixture: Dict) -> MatchFeatures:
+        if not isinstance(fixture, dict):
+            raise ValueError("fixture must be a mapping")
         aliases = {
             'home_attack_strength': ('home_attack_strength', 'home_attack'),
             'home_defense_strength': ('home_defense_strength', 'home_defense'),
@@ -785,12 +882,19 @@ class BetBoyV3Predictor:
             attribute: self._required_fixture_number(fixture, *keys)
             for attribute, keys in aliases.items()
         }
+        league_id = fixture.get('league_id')
+        if (
+            isinstance(league_id, bool)
+            or not isinstance(league_id, int)
+            or league_id <= 0
+        ):
+            raise ValueError("league_id must be a positive integer")
         values.update({
             'home_xg_for': self._required_fixture_number(fixture, 'home_xg_for'),
             'home_xg_against': self._required_fixture_number(fixture, 'home_xg_against'),
             'away_xg_for': self._required_fixture_number(fixture, 'away_xg_for'),
             'away_xg_against': self._required_fixture_number(fixture, 'away_xg_against'),
-            'league_id': int(fixture.get('league_id') or 0),
+            'league_id': league_id,
         })
         return MatchFeatures(**values)
 

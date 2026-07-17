@@ -42,6 +42,7 @@ class HistoricalDataCollector:
         self.api_key = api_key
         self.base_url = "https://v3.football.api-sports.io"
         self.headers = {'x-apisports-key': api_key}
+        self.last_error = None
     
     def collect_season_data(self, league_id: int, season: int) -> pd.DataFrame:
         """
@@ -49,6 +50,16 @@ class HistoricalDataCollector:
         
         Returns DataFrame mit Spielen und Ergebnissen
         """
+        if (
+            isinstance(league_id, bool)
+            or not isinstance(league_id, int)
+            or league_id <= 0
+            or isinstance(season, bool)
+            or not isinstance(season, int)
+            or not 1900 <= season <= 2100
+        ):
+            raise ValueError("league_id and season must be valid integers")
+        self.last_error = None
         print(f"Collecting {league_id} season {season}...")
         
         try:
@@ -63,42 +74,101 @@ class HistoricalDataCollector:
                 timeout=30
             )
             
-            if response.status_code == 200:
-                data = response.json()
-                fixtures = data.get('response', [])
-                print(f"   Found {len(fixtures)} fixtures")
-                
-                return self._parse_fixtures(fixtures, league_id)
-            else:
+            if response.status_code != 200:
+                self.last_error = f"HTTP {response.status_code}"
                 print(f"WARNING: API status {response.status_code}")
                 return pd.DataFrame()
+            data = response.json()
+            if not isinstance(data, dict):
+                self.last_error = "invalid provider payload"
+                return pd.DataFrame()
+            if data.get('errors'):
+                self.last_error = str(data['errors'])
+                return pd.DataFrame()
+            fixtures = data.get('response')
+            if not isinstance(fixtures, list):
+                self.last_error = "invalid fixtures payload"
+                return pd.DataFrame()
+            print(f"   Found {len(fixtures)} fixtures")
+            return self._parse_fixtures(fixtures, league_id)
                 
-        except Exception as e:
-            print(f"WARNING: {e}")
+        except (requests.RequestException, ValueError, TypeError) as exc:
+            self.last_error = type(exc).__name__
+            print(f"WARNING: {exc}")
             return pd.DataFrame()
     
     def _parse_fixtures(self, fixtures: list, league_id: int) -> pd.DataFrame:
         """Parse fixtures zu DataFrame"""
         rows = []
-        
+        if not isinstance(fixtures, list):
+            return pd.DataFrame()
         for fix in fixtures:
+            if not isinstance(fix, dict):
+                continue
             fixture = fix.get('fixture', {})
             teams = fix.get('teams', {})
             goals = fix.get('goals', {})
             score = fix.get('score', {})
+            if not all(isinstance(value, dict) for value in (fixture, teams, goals, score)):
+                continue
+            home_team = teams.get('home')
+            away_team = teams.get('away')
+            halftime = score.get('halftime')
+            league = fix.get('league')
+            if (
+                not isinstance(home_team, dict)
+                or not isinstance(away_team, dict)
+                or not isinstance(league, dict)
+                or halftime is not None and not isinstance(halftime, dict)
+            ):
+                continue
             
             home_goals = goals.get('home')
             away_goals = goals.get('away')
-            home_team_id = teams.get('home', {}).get('id')
-            away_team_id = teams.get('away', {}).get('id')
+            home_team_id = home_team.get('id')
+            away_team_id = away_team.get('id')
+            fixture_id = fixture.get('id')
+            fixture_date = fixture.get('date')
+            if not isinstance(fixture_date, str) or not fixture_date.strip():
+                continue
+            try:
+                parsed_date = datetime.fromisoformat(
+                    fixture_date.replace('Z', '+00:00')
+                )
+            except ValueError:
+                continue
+            if parsed_date.tzinfo is None:
+                continue
             if (
-                not isinstance(home_goals, int)
+                isinstance(home_goals, bool)
+                or isinstance(away_goals, bool)
+                or not isinstance(home_goals, int)
                 or not isinstance(away_goals, int)
                 or home_goals < 0
                 or away_goals < 0
-                or not home_team_id
-                or not away_team_id
-                or not fixture.get('date')
+                or home_goals > 30
+                or away_goals > 30
+                or isinstance(home_team_id, bool)
+                or isinstance(away_team_id, bool)
+                or not isinstance(home_team_id, int)
+                or not isinstance(away_team_id, int)
+                or home_team_id <= 0
+                or away_team_id <= 0
+                or home_team_id == away_team_id
+                or isinstance(fixture_id, bool)
+                or not isinstance(fixture_id, int)
+                or fixture_id <= 0
+                or isinstance(league.get('id'), bool)
+                or league.get('id') != league_id
+            ):
+                continue
+            home_name = home_team.get('name')
+            away_name = away_team.get('name')
+            if (
+                not isinstance(home_name, str)
+                or not home_name.strip()
+                or not isinstance(away_name, str)
+                or not away_name.strip()
             ):
                 continue
             
@@ -117,13 +187,13 @@ class HistoricalDataCollector:
             over_25 = 1 if (home_goals + away_goals) > 2.5 else 0
             
             rows.append({
-                'fixture_id': fixture.get('id'),
-                'date': fixture.get('date'),
+                'fixture_id': fixture_id,
+                'date': parsed_date.isoformat(),
                 'league_id': league_id,
                 'home_team_id': home_team_id,
                 'away_team_id': away_team_id,
-                'home_team': teams.get('home', {}).get('name'),
-                'away_team': teams.get('away', {}).get('name'),
+                'home_team': home_name.strip(),
+                'away_team': away_name.strip(),
                 'home_goals': home_goals,
                 'away_goals': away_goals,
                 'total_goals': home_goals + away_goals,
@@ -131,11 +201,14 @@ class HistoricalDataCollector:
                 'result_code': result_code,
                 'btts': btts,
                 'over_25': over_25,
-                'ht_home': score.get('halftime', {}).get('home', 0),
-                'ht_away': score.get('halftime', {}).get('away', 0),
+                'ht_home': halftime.get('home') if halftime else None,
+                'ht_away': halftime.get('away') if halftime else None,
             })
         
-        return pd.DataFrame(rows)
+        parsed = pd.DataFrame(rows)
+        if parsed.empty:
+            return parsed
+        return parsed.drop_duplicates(subset=['fixture_id'], keep='last')
     
     def collect_multiple_leagues(self, leagues: list, seasons: list) -> pd.DataFrame:
         """Sammle Daten aus mehreren Ligen und Saisons"""
@@ -170,55 +243,48 @@ class FeatureEngineer:
     def calculate_features(self) -> pd.DataFrame:
         """Berechne Features für alle Spiele"""
         print("Calculating features...")
-        
+        working = self.df.copy()
+        working['_model_day'] = pd.to_datetime(
+            working['date'], errors='coerce', utc=True
+        ).dt.floor('D')
+        working = working.dropna(subset=['_model_day'])
         features = []
-        
-        for idx, row in self.df.iterrows():
-            home_id = row['home_team_id']
-            away_id = row['away_team_id']
-            match_date = row['date']
-            
-            # Get team history before this match
-            home_history = self._get_team_history(home_id, match_date, is_home=True)
-            away_history = self._get_team_history(away_id, match_date, is_home=False)
 
-            if home_history is None or away_history is None:
-                self._update_team_history(home_id, row, is_home=True)
-                self._update_team_history(away_id, row, is_home=False)
-                continue
-            
-            feature_row = {
-                # Basic info
-                'fixture_id': row['fixture_id'],
-                'league_id': row['league_id'],
-                
-                # Targets
-                'result_code': row['result_code'],
-                'btts': row['btts'],
-                'over_25': row['over_25'],
-                'total_goals': row['total_goals'],
-                
-                # Home team features
-                'home_attack_strength': home_history['attack'],
-                'home_defense_strength': home_history['defense'],
-                'home_form_goals_scored': home_history['form_scored'],
-                'home_form_goals_conceded': home_history['form_conceded'],
-                'home_form_points': home_history['form_points'],
-                
-                # Away team features  
-                'away_attack_strength': away_history['attack'],
-                'away_defense_strength': away_history['defense'],
-                'away_form_goals_scored': away_history['form_scored'],
-                'away_form_goals_conceded': away_history['form_conceded'],
-                'away_form_points': away_history['form_points'],
-            }
-            
-            features.append(feature_row)
-            
-            # Update team history after this match
-            self._update_team_history(home_id, row, is_home=True)
-            self._update_team_history(away_id, row, is_home=False)
-        
+        for _, day_rows in working.groupby('_model_day', sort=True):
+            for _, row in day_rows.iterrows():
+                home_id = row['home_team_id']
+                away_id = row['away_team_id']
+                match_date = row['date']
+                home_history = self._get_team_history(home_id, match_date, is_home=True)
+                away_history = self._get_team_history(away_id, match_date, is_home=False)
+                if home_history is None or away_history is None:
+                    continue
+
+                features.append({
+                    'fixture_id': row['fixture_id'],
+                    'league_id': row['league_id'],
+                    'result_code': row['result_code'],
+                    'btts': row['btts'],
+                    'over_25': row['over_25'],
+                    'total_goals': row['total_goals'],
+                    'home_attack_strength': home_history['attack'],
+                    'home_defense_strength': home_history['defense'],
+                    'home_form_goals_scored': home_history['form_scored'],
+                    'home_form_goals_conceded': home_history['form_conceded'],
+                    'home_form_points': home_history['form_points'],
+                    'away_attack_strength': away_history['attack'],
+                    'away_defense_strength': away_history['defense'],
+                    'away_form_goals_scored': away_history['form_scored'],
+                    'away_form_goals_conceded': away_history['form_conceded'],
+                    'away_form_points': away_history['form_points'],
+                })
+
+            # Keep every result from this day invisible until every prediction
+            # row for the day has been built.
+            for _, row in day_rows.iterrows():
+                self._update_team_history(row['home_team_id'], row, is_home=True)
+                self._update_team_history(row['away_team_id'], row, is_home=False)
+
         print(f"   Generated {len(features)} feature rows")
         return pd.DataFrame(features)
     

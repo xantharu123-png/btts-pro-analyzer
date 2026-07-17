@@ -93,7 +93,7 @@ class CLVTracker:
         else:
             raise ValueError("timestamp must be datetime or ISO-8601 text")
         if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=timezone.utc)
+            raise ValueError("timestamp must include a timezone")
         return timestamp.astimezone(timezone.utc).isoformat()
 
     @classmethod
@@ -144,6 +144,17 @@ class CLVTracker:
             'bookmaker': self._required_text(bookmaker, 'bookmaker'),
             'quote_source': self._required_text(quote_source, 'quote_source'),
         }
+        if values['home_team'].casefold() == values['away_team'].casefold():
+            raise ValueError("home_team and away_team must be different")
+        if (
+            confidence is not None
+            and (
+                isinstance(confidence, bool)
+                or not isinstance(confidence, int)
+                or not 0 <= confidence <= 100
+            )
+        ):
+            raise ValueError("confidence must be an integer from 0 to 100")
         quote_time = self._iso_timestamp(quoted_at)
         kickoff_time = self._iso_timestamp(fixture_kickoff)
         now = datetime.now(timezone.utc)
@@ -181,13 +192,22 @@ class CLVTracker:
         quote_source: str,
         quoted_at=None,
     ) -> None:
+        if (
+            isinstance(prediction_id, bool)
+            or not isinstance(prediction_id, int)
+            or prediction_id <= 0
+        ):
+            raise ValueError("prediction_id must be a positive integer")
         price = validate_decimal_odds(closing_odds)
         bookmaker = self._required_text(bookmaker, 'bookmaker')
         quote_source = self._required_text(quote_source, 'quote_source')
         quote_time = self._iso_timestamp(quoted_at)
         with self._connect() as conn:
             row = conn.execute(
-                'SELECT result, quoted_at, fixture_kickoff FROM predictions WHERE id = ?',
+                '''
+                SELECT result, quoted_at, fixture_kickoff, bookmaker, quote_source
+                FROM predictions WHERE id = ?
+                ''',
                 (prediction_id,),
             ).fetchone()
             if row is None:
@@ -200,9 +220,15 @@ class CLVTracker:
                     raise ValueError("closing quote cannot predate the opening quote")
             if row[2] is None:
                 raise ValueError("fixture kickoff provenance is required for CLV")
+            if bookmaker.casefold() != str(row[3]).casefold():
+                raise ValueError("closing quote must use the opening bookmaker")
+            if quote_source.casefold() != str(row[4]).casefold():
+                raise ValueError("closing quote must use the opening source")
             kickoff_time = self._iso_timestamp(row[2])
             closing_datetime = datetime.fromisoformat(quote_time)
             kickoff_datetime = datetime.fromisoformat(kickoff_time)
+            if closing_datetime > datetime.now(timezone.utc) + timedelta(seconds=60):
+                raise ValueError("closing quote cannot be in the future")
             if closing_datetime >= kickoff_datetime:
                 raise ValueError("closing quote must be captured before kickoff")
             if kickoff_datetime - closing_datetime > self.CLOSING_WINDOW:
@@ -221,14 +247,24 @@ class CLVTracker:
         home_score: int,
         away_score: int,
     ) -> None:
+        if (
+            isinstance(prediction_id, bool)
+            or not isinstance(prediction_id, int)
+            or prediction_id <= 0
+        ):
+            raise ValueError("prediction_id must be a positive integer")
         normalized_result = str(result or '').strip().title()
         if normalized_result not in {'Won', 'Lost', 'Push'}:
             raise ValueError("result must be Won, Lost, or Push")
         if (
-            not isinstance(home_score, int)
+            isinstance(home_score, bool)
+            or isinstance(away_score, bool)
+            or not isinstance(home_score, int)
             or not isinstance(away_score, int)
             or home_score < 0
             or away_score < 0
+            or home_score > 30
+            or away_score > 30
         ):
             raise ValueError("final scores must be non-negative integers")
 
@@ -256,8 +292,8 @@ class CLVTracker:
             ))
 
     def get_clv_statistics(self, days: int = 30) -> Dict:
-        if not isinstance(days, int) or days <= 0:
-            raise ValueError("days must be a positive integer")
+        if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= 36500:
+            raise ValueError("days must be an integer between 1 and 36500")
         date_filter = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         with self._connect() as conn:
             rows = conn.execute('''
@@ -325,8 +361,8 @@ class CLVTracker:
         }
 
     def get_recent_predictions(self, limit: int = 10) -> List[Dict]:
-        if not isinstance(limit, int) or limit <= 0:
-            raise ValueError("limit must be a positive integer")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit must be an integer between 1 and 1000")
         with self._connect() as conn:
             rows = conn.execute('''
                 SELECT id, fixture_id, home_team, away_team, market_type,

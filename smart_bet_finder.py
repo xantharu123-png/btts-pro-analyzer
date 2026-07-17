@@ -188,6 +188,8 @@ class OddsAPIClient:
         
         if response.status_code == 200:
             data = response.json()
+            if not isinstance(data, list):
+                return {}
             
             # Find matching game
             for game in data:
@@ -208,8 +210,10 @@ class OddsAPIClient:
             response = requests.get(url, headers=headers, params=params, timeout=10)
             if response.status_code == 200:
                 data = response.json()
+                if not isinstance(data, dict) or data.get('errors'):
+                    return {}
                 return self._parse_api_football_odds(data.get('response', []))
-        except requests.RequestException:
+        except (requests.RequestException, ValueError):
             pass
         
         return {}
@@ -224,14 +228,19 @@ class OddsAPIClient:
 
     @staticmethod
     def _kickoff_matches(expected: str, actual: str, tolerance_hours: float = 2.0) -> bool:
+        if (
+            isinstance(tolerance_hours, bool)
+            or not isinstance(tolerance_hours, (int, float))
+            or not math.isfinite(float(tolerance_hours))
+            or tolerance_hours < 0
+        ):
+            return False
         try:
             expected_time = datetime.fromisoformat(expected.replace('Z', '+00:00'))
             actual_time = datetime.fromisoformat(actual.replace('Z', '+00:00'))
-            if expected_time.tzinfo is None:
-                expected_time = expected_time.replace(tzinfo=timezone.utc)
-            if actual_time.tzinfo is None:
-                actual_time = actual_time.replace(tzinfo=timezone.utc)
         except (AttributeError, TypeError, ValueError):
+            return False
+        if expected_time.tzinfo is None or actual_time.tzinfo is None:
             return False
         return abs((expected_time - actual_time).total_seconds()) <= tolerance_hours * 3600
 
@@ -256,6 +265,8 @@ class OddsAPIClient:
     def _parse_odds_api_response(self, game: Dict) -> Dict:
         """Parse The Odds API response"""
         result = {}
+        if not isinstance(game, dict):
+            return result
         
         for bookmaker in game.get('bookmakers', []):
             bookie_name = str(bookmaker.get('title') or '').strip()
@@ -264,6 +275,17 @@ class OddsAPIClient:
             
             for market in bookmaker.get('markets', []):
                 market_key = market.get('key', '')
+                quoted_at = market.get('last_update') or bookmaker.get('last_update')
+
+                def update(selection: str, price) -> None:
+                    self._update_best_odds(
+                        result,
+                        selection,
+                        price,
+                        bookie_name,
+                        source='the_odds_api',
+                        quoted_at=quoted_at,
+                    )
                 
                 for outcome in market.get('outcomes', []):
                     price = outcome.get('price')
@@ -271,39 +293,51 @@ class OddsAPIClient:
                     
                     if market_key == 'h2h':
                         if self._match_team_name(name, game.get('home_team', '')):
-                            self._update_best_odds(result, 'home_win', price, bookie_name)
+                            update('home_win', price)
                         elif self._match_team_name(name, game.get('away_team', '')):
-                            self._update_best_odds(result, 'away_win', price, bookie_name)
+                            update('away_win', price)
                         elif name in {'draw', 'tie'}:
-                            self._update_best_odds(result, 'draw', price, bookie_name)
+                            update('draw', price)
                     
                     elif market_key == 'totals':
                         point = _optional_point(outcome.get('point'))
                         if point is None:
                             continue
                         if 'over' in name:
-                            self._update_best_odds(result, f'over_{point}', price, bookie_name)
+                            update(f'over_{point}', price)
                         elif 'under' in name:
-                            self._update_best_odds(result, f'under_{point}', price, bookie_name)
+                            update(f'under_{point}', price)
                     
                     elif market_key == 'btts':
                         if 'yes' in name:
-                            self._update_best_odds(result, 'btts_yes', price, bookie_name)
+                            update('btts_yes', price)
                         elif 'no' in name:
-                            self._update_best_odds(result, 'btts_no', price, bookie_name)
+                            update('btts_no', price)
         
-        self._attach_quote_provenance(result, 'the_odds_api')
         return result
     
     def _parse_api_football_odds(self, response: List) -> Dict:
         """Parse API-Football odds response"""
         result = {}
+        if not isinstance(response, list):
+            return result
         
         for entry in response:
+            quoted_at = entry.get('update')
             for bookmaker in entry.get('bookmakers', []):
                 bookie_name = str(bookmaker.get('name') or '').strip()
                 if not bookie_name:
                     continue
+
+                def update(selection: str, odd) -> None:
+                    self._update_best_odds(
+                        result,
+                        selection,
+                        odd,
+                        bookie_name,
+                        source='api_football',
+                        quoted_at=quoted_at,
+                    )
                 
                 for bet in bookmaker.get('bets', []):
                     bet_name = str(bet.get('name') or '').lower()
@@ -314,35 +348,27 @@ class OddsAPIClient:
                         
                         if 'match winner' in bet_name:
                             if val == 'home':
-                                self._update_best_odds(result, 'home_win', odd, bookie_name)
+                                update('home_win', odd)
                             elif val == 'draw':
-                                self._update_best_odds(result, 'draw', odd, bookie_name)
+                                update('draw', odd)
                             elif val == 'away':
-                                self._update_best_odds(result, 'away_win', odd, bookie_name)
+                                update('away_win', odd)
                         
                         elif 'both teams score' in bet_name:
                             if val == 'yes':
-                                self._update_best_odds(result, 'btts_yes', odd, bookie_name)
+                                update('btts_yes', odd)
                             elif val == 'no':
-                                self._update_best_odds(result, 'btts_no', odd, bookie_name)
+                                update('btts_no', odd)
                         
                         elif 'goals over/under' in bet_name:
                             if 'over' in val:
                                 threshold = val.replace('over ', '')
-                                self._update_best_odds(result, f'over_{threshold}', odd, bookie_name)
+                                update(f'over_{threshold}', odd)
                             elif 'under' in val:
                                 threshold = val.replace('under ', '')
-                                self._update_best_odds(result, f'under_{threshold}', odd, bookie_name)
+                                update(f'under_{threshold}', odd)
         
-        self._attach_quote_provenance(result, 'api_football')
         return result
-
-    @staticmethod
-    def _attach_quote_provenance(result: Dict, source: str) -> None:
-        quoted_at = datetime.now(timezone.utc).isoformat()
-        for quote in result.values():
-            quote['source'] = source
-            quote['quoted_at'] = quoted_at
     
     def _update_best_odds(
         self,
@@ -436,7 +462,7 @@ class SmartBetFinder:
         try:
             timestamp = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
             if timestamp.tzinfo is None:
-                timestamp = timestamp.replace(tzinfo=timezone.utc)
+                return None
             return timestamp.astimezone(timezone.utc)
         except (TypeError, ValueError):
             return None
@@ -468,12 +494,36 @@ class SmartBetFinder:
         for market, metadata in validations.items():
             if not isinstance(metadata, dict):
                 continue
+            integer_values = (
+                metadata.get('sample_size'),
+                metadata.get('calibration_bins'),
+                metadata.get('min_bin_size'),
+            )
+            decimal_values = (
+                metadata.get('expected_calibration_error'),
+                metadata.get('max_calibration_error'),
+                metadata.get('calibration_coverage'),
+            )
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or not float(value).is_integer()
+                for value in integer_values
+            ) or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in decimal_values
+            ):
+                continue
             try:
-                sample_size = int(metadata.get('sample_size'))
-                ece = float(metadata.get('expected_calibration_error'))
-                max_deviation = float(metadata.get('max_calibration_error'))
-                calibration_bins = int(metadata.get('calibration_bins'))
-                minimum_bin_size = int(metadata.get('min_bin_size'))
+                sample_size = int(integer_values[0])
+                calibration_bins = int(integer_values[1])
+                minimum_bin_size = int(integer_values[2])
+                ece = float(decimal_values[0])
+                max_deviation = float(decimal_values[1])
+                calibration_coverage = float(decimal_values[2])
             except (TypeError, ValueError):
                 continue
             validation_start = cls._utc_datetime(metadata.get('validation_start'))
@@ -481,21 +531,25 @@ class SmartBetFinder:
             raw_league_ids = metadata.get('league_ids')
             if not isinstance(raw_league_ids, (list, tuple, set)):
                 continue
-            try:
-                league_ids = {
-                    int(item) for item in raw_league_ids
-                    if not isinstance(item, bool)
-                }
-            except (TypeError, ValueError):
+            if any(
+                isinstance(item, bool)
+                or not isinstance(item, int)
+                or item <= 0
+                for item in raw_league_ids
+            ):
                 continue
+            league_ids = set(raw_league_ids)
             if (
                 metadata.get('calibrated') is True
                 and metadata.get('out_of_sample') is True
                 and sample_size >= 200
                 and calibration_bins >= 3
                 and minimum_bin_size >= 20
+                and minimum_bin_size <= sample_size
+                and calibration_bins * minimum_bin_size <= sample_size
                 and 0.0 <= ece < 0.05
                 and 0.0 <= max_deviation < 0.10
+                and 0.80 <= calibration_coverage <= 1.0
                 and validation_start is not None
                 and validation_end is not None
                 and validation_start < validation_end < fixture_time
@@ -509,6 +563,7 @@ class SmartBetFinder:
                     'sample_size': sample_size,
                     'expected_calibration_error': ece,
                     'max_calibration_error': max_deviation,
+                    'calibration_coverage': calibration_coverage,
                     'calibration_bins': calibration_bins,
                     'min_bin_size': minimum_bin_size,
                     'validation_start': validation_start.isoformat(),
@@ -541,10 +596,21 @@ class SmartBetFinder:
         group = cls._market_group(market)
         if group is None:
             return None
+        selected_quote = market_odds.get(market)
+        if not isinstance(selected_quote, dict):
+            return None
+        reference_source = str(selected_quote.get('source') or '').strip()
+        if not reference_source:
+            return None
         prices = []
         for selection in group:
             quote = market_odds.get(selection)
             if not isinstance(quote, dict):
+                return None
+            if (
+                str(quote.get('source') or '').strip() != reference_source
+                or not cls._quote_is_fresh(quote.get('quoted_at'))
+            ):
                 return None
             all_odds = quote.get('all_odds')
             if not isinstance(all_odds, dict):

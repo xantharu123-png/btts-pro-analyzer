@@ -77,14 +77,16 @@ class RedCardImpactPredictor:
         pass
 
     @staticmethod
-    def _optional_nonnegative(value) -> Optional[float]:
+    def _optional_nonnegative(value, maximum: float = 20.0) -> Optional[float]:
         if value is None:
+            return None
+        if isinstance(value, bool):
             return None
         try:
             numeric = float(value)
         except (TypeError, ValueError):
             return None
-        if not math.isfinite(numeric) or numeric < 0:
+        if not math.isfinite(numeric) or numeric < 0 or numeric > maximum:
             return None
         return numeric
 
@@ -148,12 +150,23 @@ class RedCardImpactPredictor:
         Returns:
             RedCardPrediction mit allen Berechnungen
         """
-        if not 0 <= minute <= 130:
-            raise ValueError("minute must be between 0 and 130")
-        if home_goals < 0 or away_goals < 0:
+        if isinstance(minute, bool) or not isinstance(minute, int) or not 0 <= minute <= self.REGULAR_MATCH_MINUTES:
+            raise ValueError("minute must be an integer between 0 and 93")
+        if (
+            isinstance(home_goals, bool)
+            or isinstance(away_goals, bool)
+            or not isinstance(home_goals, int)
+            or not isinstance(away_goals, int)
+            or home_goals < 0
+            or away_goals < 0
+            or home_goals > 30
+            or away_goals > 30
+        ):
             raise ValueError("goals cannot be negative")
         if red_card_team not in {'home', 'away'}:
             raise ValueError("red_card_team must be 'home' or 'away'")
+        if live_stats is not None and not isinstance(live_stats, dict):
+            raise ValueError("live_stats must be a mapping or None")
         
         remaining = max(0, self.REGULAR_MATCH_MINUTES - minute)
         

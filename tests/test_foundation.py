@@ -18,7 +18,12 @@ from advanced_analyzer import (
     beta_smoothed_percentage,
     build_prematch_training_rows,
 )
-from alternative_markets import negative_binomial_probability, poisson_probability
+from alternative_markets import (
+    CardPredictor,
+    MatchResultPredictor,
+    negative_binomial_probability,
+    poisson_probability,
+)
 from api_football import APIFootball
 from best_bet_finder import BestBetFinder
 from betboy_v3_ml_engine import BacktestingEngine, MLEnsemble, MatchFeatures
@@ -28,8 +33,10 @@ from config_loader import load_app_config
 import data_engine
 from league_catalog import ANALYZER_LEAGUE_IDS, LEAGUE_BY_ID
 from red_card_impact_predictor import RedCardImpactPredictor
+from scanners.basketball_scanner import BasketballScanner
 from scanners.cricket_scanner import CricketScanner
 from scanners.esports_scanner import EsportsScanner
+from scanners.tennis_scanner import TennisScanner
 from season_utils import (
     current_season_start_year,
     current_season_start_year_for_id,
@@ -80,6 +87,7 @@ class SmartBetFinderTests(unittest.TestCase):
                 "min_bin_size": 40,
                 "expected_calibration_error": 0.02,
                 "max_calibration_error": 0.07,
+                "calibration_coverage": 0.90,
                 "method": "expanding_window_isotonic",
                 "model_version": "test-v1",
                 "validation_start": (now - timedelta(days=180)).isoformat(),
@@ -249,6 +257,48 @@ class SmartBetFinderTests(unittest.TestCase):
 
         self.assertEqual(bets, [])
 
+    def test_provider_quote_requires_its_own_update_timestamp(self):
+        finder = SmartBetFinder()
+        payload = [{
+            "bookmakers": [{
+                "name": "Book",
+                "bets": [{
+                    "name": "Both Teams Score",
+                    "values": [{"value": "Yes", "odd": "2.10"}],
+                }],
+            }],
+        }]
+        quotes = finder.odds_client._parse_api_football_odds(payload)
+
+        odds, _, is_real = finder.get_odds("btts_yes", market_odds=quotes)
+
+        self.assertIsNone(odds)
+        self.assertFalse(is_real)
+
+    def test_provider_quote_preserves_provider_update_timestamp(self):
+        finder = SmartBetFinder()
+        quoted_at = datetime.now(timezone.utc).isoformat()
+        quotes = finder.odds_client._parse_api_football_odds([{
+            "update": quoted_at,
+            "bookmakers": [{
+                "name": "Book",
+                "bets": [{
+                    "name": "Both Teams Score",
+                    "values": [{"value": "Yes", "odd": "2.10"}],
+                }],
+            }],
+        }])
+
+        odds, bookmaker, is_real = finder.get_odds(
+            "btts_yes",
+            market_odds=quotes,
+        )
+
+        self.assertEqual(odds, 2.10)
+        self.assertEqual(bookmaker, "Book")
+        self.assertTrue(is_real)
+        self.assertEqual(quotes["btts_yes"]["quoted_at"], quoted_at)
+
     def test_incomplete_market_cannot_pass_quote_integrity_gate(self):
         finder = SmartBetFinder()
         finder.odds_client.get_match_odds = lambda *args, **kwargs: {
@@ -347,9 +397,12 @@ class SmartBetFinderTests(unittest.TestCase):
         future_validation["market_validation"]["btts_yes"]["validation_end"] = (
             datetime.now(timezone.utc) + timedelta(days=2)
         ).isoformat()
+        fractional_sample = self._analysis(btts_probability=80)
+        fractional_sample["market_validation"]["btts_yes"]["sample_size"] = 200.9
 
         self.assertEqual(SmartBetFinder._validated_markets(wrong_league), {})
         self.assertEqual(SmartBetFinder._validated_markets(future_validation), {})
+        self.assertEqual(SmartBetFinder._validated_markets(fractional_sample), {})
 
 
 class BettingMathTests(unittest.TestCase):
@@ -364,6 +417,10 @@ class BettingMathTests(unittest.TestCase):
             evaluate_market_price(60, 1.0)
         with self.assertRaises(BettingMathError):
             evaluate_market_price(True, 2.0)
+        with self.assertRaises(BettingMathError):
+            evaluate_market_price(60, 2.0, kelly_fraction=float("nan"))
+        with self.assertRaises(BettingMathError):
+            evaluate_market_price(60, 2.0, kelly_cap=True)
 
     def test_kelly_uses_risk_adjusted_probability(self):
         metrics = evaluate_market_price(
@@ -381,6 +438,8 @@ class GoalModelTests(unittest.TestCase):
     def test_small_empirical_rate_is_beta_smoothed(self):
         self.assertAlmostEqual(beta_smoothed_percentage(100.0, 2), 75.0)
         self.assertAlmostEqual(beta_smoothed_percentage(50.0, 20), 50.0)
+        with self.assertRaises(ValueError):
+            beta_smoothed_percentage(50.0, 20.5)
 
     def test_zero_dependence_matches_independent_btts_formula(self):
         home_rate = 1.4
@@ -430,6 +489,31 @@ class GoalModelTests(unittest.TestCase):
             4.0,
             places=5,
         )
+
+    def test_high_rate_score_matrix_keeps_its_tail_mass(self):
+        matrix = MatchResultPredictor(39).calculate_score_probability(8.0, 8.0)
+        home_mean = sum(home * probability for (home, _), probability in matrix.items())
+        away_mean = sum(away * probability for (_, away), probability in matrix.items())
+
+        self.assertAlmostEqual(sum(matrix.values()), 1.0, places=10)
+        self.assertAlmostEqual(home_mean, 8.0, places=4)
+        self.assertAlmostEqual(away_mean, 8.0, places=4)
+
+    def test_low_score_cutoff_rejects_materially_truncated_mass(self):
+        with self.assertRaises(ValueError):
+            MatchResultPredictor(39).calculate_score_probability(
+                4.0,
+                4.0,
+                max_goals=5,
+            )
+
+    def test_two_way_totals_reject_push_lines_and_noninteger_scores(self):
+        predictor = MatchResultPredictor(39)
+
+        with self.assertRaises(ValueError):
+            predictor.calculate_over_under(1.4, 1.1, thresholds=[2.0])
+        with self.assertRaises(ValueError):
+            predictor.calculate_team_strength(["1"] * 5, [1] * 5, True)
 
 
 class SeasonUtilsTests(unittest.TestCase):
@@ -506,6 +590,100 @@ class MLFeatureTests(unittest.TestCase):
         np.testing.assert_allclose(X_with[0], X_without[0])
         self.assertEqual(X_with[0][0], 40.0)
         self.assertNotEqual(y_with[0], y_without[0])
+
+    def test_same_day_results_are_invisible_to_all_same_day_rows(self):
+        rows = []
+        scores = [(1, 0), (0, 1), (1, 1), (2, 0), (0, 0)]
+        for index, (home_goals, away_goals) in enumerate(scores, start=1):
+            rows.append({
+                "id": index,
+                "date": f"2026-02-{index:02d}T12:00:00Z",
+                "league_code": "PL",
+                "home_team_id": 1,
+                "away_team_id": 2,
+                "home_goals": home_goals,
+                "away_goals": away_goals,
+                "btts": int(home_goals > 0 and away_goals > 0),
+            })
+        rows.extend((
+            {
+                "id": 6,
+                "date": "2026-02-06T12:00:00Z",
+                "league_code": "PL",
+                "home_team_id": 1,
+                "away_team_id": 2,
+                "home_goals": 5,
+                "away_goals": 0,
+                "btts": 0,
+            },
+            {
+                "id": 7,
+                "date": "2026-02-06T20:00:00Z",
+                "league_code": "PL",
+                "home_team_id": 1,
+                "away_team_id": 2,
+                "home_goals": 0,
+                "away_goals": 5,
+                "btts": 0,
+            },
+        ))
+
+        X, y, dates = build_prematch_training_rows(
+            pd.DataFrame(rows),
+            return_dates=True,
+        )
+
+        self.assertEqual(len(X), 2)
+        np.testing.assert_allclose(X[0], X[1])
+        self.assertEqual(list(y), [0, 0])
+        self.assertEqual(dates[0], dates[1])
+
+    def test_separate_trainer_uses_the_same_daily_information_boundary(self):
+        records = []
+        for index, (home_goals, away_goals) in enumerate(
+            [(1, 0), (0, 1), (1, 1), (2, 0), (0, 0)],
+            start=1,
+        ):
+            records.append({
+                "fixture_id": index,
+                "date": f"2026-03-{index:02d}T12:00:00Z",
+                "league_id": 39,
+                "home_team_id": 1,
+                "away_team_id": 2,
+                "home_goals": home_goals,
+                "away_goals": away_goals,
+                "result_code": 0 if home_goals > away_goals else 1 if home_goals == away_goals else 2,
+                "btts": int(home_goals > 0 and away_goals > 0),
+                "over_25": int(home_goals + away_goals > 2.5),
+                "total_goals": home_goals + away_goals,
+            })
+        for fixture_id, kickoff, score in (
+            (6, "2026-03-06T12:00:00Z", (5, 0)),
+            (7, "2026-03-06T20:00:00Z", (0, 5)),
+        ):
+            home_goals, away_goals = score
+            records.append({
+                "fixture_id": fixture_id,
+                "date": kickoff,
+                "league_id": 39,
+                "home_team_id": 1,
+                "away_team_id": 2,
+                "home_goals": home_goals,
+                "away_goals": away_goals,
+                "result_code": 0 if home_goals > away_goals else 2,
+                "btts": 0,
+                "over_25": 1,
+                "total_goals": 5,
+            })
+
+        features = FeatureEngineer(pd.DataFrame(records)).calculate_features()
+
+        self.assertEqual(len(features), 2)
+        feature_columns = MatchFeatures.feature_names()
+        np.testing.assert_allclose(
+            features.iloc[0][feature_columns].astype(float),
+            features.iloc[1][feature_columns].astype(float),
+        )
 
 
 class DataEngineMigrationTests(unittest.TestCase):
@@ -693,6 +871,26 @@ class APIOrientationTests(unittest.TestCase):
         self.assertEqual(stats["corners_home"], 3.0)
         self.assertEqual(stats["corners_away"], 7.0)
 
+    def test_fractional_team_match_counts_are_rejected_not_truncated(self):
+        api = APIFootball("test")
+        api._rate_limit = lambda: None
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "response": {
+                "team": {"name": "Home"},
+                "fixtures": {"played": {"home": 10.5, "away": 10, "total": 20}},
+                "goals": {"for": {"average": {}}, "against": {"average": {}}},
+                "clean_sheet": {"home": 3, "away": 2},
+                "failed_to_score": {"home": 2, "away": 3},
+            }
+        }
+
+        with patch("api_football.requests.get", return_value=response):
+            stats = api.get_team_statistics(1, 39, 2025)
+
+        self.assertIsNone(stats)
+        self.assertIn("invalid count aggregates", api.last_error)
+
 
 class CLVTrackerTests(unittest.TestCase):
     def test_quote_provenance_order_settlement_and_statistics(self):
@@ -803,6 +1001,62 @@ class CLVTrackerTests(unittest.TestCase):
                     quoted_at=now - timedelta(minutes=11),
                 )
 
+    def test_future_closing_quote_and_boolean_score_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tracker = CLVTracker(str(Path(tmp) / "clv.db"))
+            now = datetime.now(timezone.utc)
+            prediction_id = tracker.record_prediction(
+                1,
+                "Home",
+                "Away",
+                "BTTS",
+                "Yes",
+                2.0,
+                60.0,
+                bookmaker="Book",
+                quote_source="API",
+                fixture_kickoff=now + timedelta(minutes=10),
+                quoted_at=now,
+            )
+
+            with self.assertRaises(ValueError):
+                tracker.update_closing_odds(
+                    prediction_id,
+                    1.9,
+                    bookmaker="Book",
+                    quote_source="API",
+                    quoted_at=now + timedelta(minutes=5),
+                )
+            with self.assertRaises(ValueError):
+                tracker.settle_prediction(prediction_id, "Won", True, 0)
+
+    def test_closing_quote_must_use_same_bookmaker_and_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tracker = CLVTracker(str(Path(tmp) / "clv.db"))
+            now = datetime.now(timezone.utc)
+            prediction_id = tracker.record_prediction(
+                1,
+                "Home",
+                "Away",
+                "BTTS",
+                "Yes",
+                2.0,
+                60.0,
+                bookmaker="Book A",
+                quote_source="API A",
+                fixture_kickoff=now + timedelta(minutes=10),
+                quoted_at=now,
+            )
+
+            with self.assertRaises(ValueError):
+                tracker.update_closing_odds(
+                    prediction_id,
+                    1.9,
+                    bookmaker="Book B",
+                    quote_source="API A",
+                    quoted_at=now + timedelta(seconds=1),
+                )
+
 
 class RedCardModelTests(unittest.TestCase):
     def test_minute_93_has_deterministic_current_result(self):
@@ -820,6 +1074,26 @@ class RedCardModelTests(unittest.TestCase):
         self.assertAlmostEqual(prediction.opponent_wins, 0.0)
         self.assertFalse(prediction.calibrated)
         self.assertFalse(prediction.actionable)
+
+    def test_red_card_model_rejects_extra_time_and_boolean_scores(self):
+        predictor = RedCardImpactPredictor()
+
+        with self.assertRaises(ValueError):
+            predictor.predict(94, 1, 1, "home")
+        with self.assertRaises(ValueError):
+            predictor.predict(45, True, 1, "home")
+
+    def test_implausible_live_xg_is_not_used_as_evidence(self):
+        prediction = RedCardImpactPredictor().predict(
+            45,
+            1,
+            0,
+            "away",
+            live_stats={"xg_home": 25.0, "xg_away": 0.2},
+        )
+
+        self.assertEqual(prediction.data_quality, "LIMITED")
+        self.assertFalse(prediction.calibrated)
 
 
 class UltraDataGateTests(unittest.TestCase):
@@ -858,6 +1132,23 @@ class UltraDataGateTests(unittest.TestCase):
         self.assertFalse(result["actionable"])
         self.assertEqual(result["recommendation_type"], "EXPLORATORY_ESTIMATE")
 
+    def test_missing_minute_and_boolean_identifiers_are_rejected(self):
+        scanner = UltraLiveScanner(None, None)
+        base = {
+            "fixture": {"id": 1, "status": {"elapsed": None}},
+            "teams": {
+                "home": {"id": 10, "name": "Home"},
+                "away": {"id": 20, "name": "Away"},
+            },
+            "goals": {"home": 0, "away": 0},
+            "league": {"id": 39, "name": "Premier League"},
+        }
+        self.assertIsNone(scanner.analyze_live_match_ultra(base))
+
+        base["fixture"]["status"]["elapsed"] = 20
+        base["teams"]["home"]["id"] = True
+        self.assertIsNone(scanner.analyze_live_match_ultra(base))
+
 
 class CrossSportMathTests(unittest.TestCase):
     @staticmethod
@@ -893,6 +1184,64 @@ class CrossSportMathTests(unittest.TestCase):
 
         self.assertEqual(run_rate, 12.0)
 
+    def test_cricket_over_notation_rejects_sixth_ball_and_uses_five_balls(self):
+        scanner = CricketScanner.__new__(CricketScanner)
+
+        valid = scanner._calculate_run_rate({
+            "team1Score": {"inngs1": {"runs": 65, "overs": 10.5}},
+            "team2Score": {},
+        })
+        invalid = scanner._calculate_run_rate({
+            "team1Score": {"inngs1": {"runs": 66, "overs": 10.6}},
+            "team2Score": {},
+        })
+
+        self.assertEqual(valid, 6.0)
+        self.assertIsNone(invalid)
+
+    def test_basketball_projection_rejects_hockey_and_invalid_clocks(self):
+        scanner = BasketballScanner.__new__(BasketballScanner)
+
+        self.assertIsNone(scanner._clock_minutes_remaining("PT8M75S"))
+        self.assertIsNone(scanner._clock_minutes_remaining("PT1..2S"))
+        self.assertIsNone(scanner.calculate_scoring_projection({
+            "league": "NHL",
+            "period": 2,
+            "home_score": 2,
+            "away_score": 1,
+            "game_clock": "10:00",
+        }))
+        self.assertIsNone(scanner.calculate_scoring_projection({
+            "league": "NBA",
+            "period": 2,
+            "home_score": 52.5,
+            "away_score": 50,
+            "game_clock": "10:00",
+        }))
+
+    def test_live_card_model_rejects_fractional_provider_counts(self):
+        result = CardPredictor().predict_cards(
+            {"stats": {"yellow_cards_home": 1.5, "yellow_cards_away": 1}},
+            45,
+        )
+
+        self.assertEqual(result["thresholds"], {})
+        self.assertFalse(result["actionable"])
+
+    def test_tennis_parser_rejects_fractional_set_scores(self):
+        scanner = TennisScanner.__new__(TennisScanner)
+        scanner._get_serve_stats = lambda match_id: {}
+
+        parsed = scanner._parse_match({
+            "id": 1,
+            "homeTeam": {"name": "Player A"},
+            "awayTeam": {"name": "Player B"},
+            "homeScore": {"current": 1.5},
+            "awayScore": {"current": 1},
+        })
+
+        self.assertIsNone(parsed)
+
     def test_esports_series_probability_is_exact_first_to_n_recursion(self):
         self.assertAlmostEqual(
             EsportsScanner._series_win_probability(0.5, 0, 0, 2),
@@ -923,6 +1272,43 @@ class CrossSportMathTests(unittest.TestCase):
         self.assertIsNone(scanner.analyze_match(self._esports_match(2, 0)))
         self.assertIsNone(scanner.analyze_match(self._esports_match("bad", 0)))
 
+    def test_esports_rejects_fractional_or_boolean_sample_counts(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        fractional = self._esports_match()
+        fractional["team1_stats"]["matches"] = 20.9
+        boolean = self._esports_match()
+        boolean["team1_stats"]["wins"] = True
+
+        self.assertIsNone(scanner.analyze_match(fractional))
+        self.assertIsNone(scanner.analyze_match(boolean))
+
+    def test_esports_history_uses_team_endpoint_and_filters_membership(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        scanner.pandascore_base = "https://api.pandascore.co"
+        scanner.headers = {"Authorization": "Bearer test"}
+        scanner._stats_cache = {}
+        scanner.errors = {}
+        response = Mock(status_code=200)
+        response.json.return_value = [
+            {
+                "status": "finished",
+                "opponents": [{"opponent": {"id": 7}}, {"opponent": {"id": 8}}],
+                "winner": {"id": 7},
+            },
+            {
+                "status": "finished",
+                "opponents": [{"opponent": {"id": 8}}, {"opponent": {"id": 9}}],
+                "winner": {"id": 8},
+            },
+        ]
+
+        with patch("scanners.esports_scanner.requests.get", return_value=response) as get:
+            stats = scanner._get_team_stats(7, "cs2")
+
+        self.assertEqual(stats["matches"], 1)
+        self.assertEqual(stats["wins"], 1)
+        self.assertEqual(get.call_args.args[0], "https://api.pandascore.co/teams/7/matches")
+
     def test_best_bet_ranker_rejects_uncalibrated_inputs(self):
         result = BestBetFinder().find_best_bet(
             {
@@ -941,6 +1327,57 @@ class CrossSportMathTests(unittest.TestCase):
         self.assertEqual(result["status"], "NO_CALIBRATED_SIGNALS")
         self.assertEqual(result["all_bets"], [])
 
+    def test_best_bet_ranker_does_not_trust_calibrated_flag_alone(self):
+        result = BestBetFinder().find_best_bet(
+            {
+                "market_probabilities": [{
+                    "market": "BTTS",
+                    "selection": "YES",
+                    "probability": 80,
+                    "source": "test",
+                    "calibrated": True,
+                }]
+            },
+            minute=20,
+            stats={},
+        )
+
+        self.assertEqual(result["status"], "NO_CALIBRATED_SIGNALS")
+
+    def test_best_bet_ranker_accepts_complete_calibration_contract(self):
+        kickoff = datetime.now(timezone.utc) + timedelta(hours=2)
+        result = BestBetFinder().find_best_bet(
+            {
+                "market_probabilities": [{
+                    "market": "BTTS",
+                    "selection": "YES",
+                    "probability": 70,
+                    "source": "walk-forward-model",
+                    "calibrated": True,
+                    "league_id": 39,
+                    "fixture_kickoff": kickoff.isoformat(),
+                    "validation": {
+                        "calibrated": True,
+                        "out_of_sample": True,
+                        "sample_size": 300,
+                        "calibration_bins": 4,
+                        "min_bin_size": 30,
+                        "expected_calibration_error": 0.04,
+                        "max_calibration_error": 0.08,
+                        "calibration_coverage": 0.90,
+                        "model_version": "test-v1",
+                        "validation_end": (kickoff - timedelta(days=1)).isoformat(),
+                        "league_ids": [39],
+                    },
+                }]
+            },
+            minute=20,
+            stats={},
+        )
+
+        self.assertEqual(result["status"], "OK")
+        self.assertEqual(result["best_signal"]["model_price"], 1.43)
+
 
 class V3EngineTests(unittest.TestCase):
     @staticmethod
@@ -948,6 +1385,31 @@ class V3EngineTests(unittest.TestCase):
         ensemble.models = {
             "logistic": LogisticRegression(max_iter=1000, random_state=42),
         }
+
+    def test_backtest_roi_requires_verified_historical_quote_provenance(self):
+        engine = BacktestingEngine()
+        prediction_time = datetime(2026, 1, 2, 10, 0, tzinfo=timezone.utc)
+        engine.add_prediction(
+            {
+                "btts": {
+                    "prediction": "YES",
+                    "probability": 0.70,
+                    "market_odds": 2.0,
+                }
+            },
+            {"btts": "YES"},
+            fixture_id=1,
+            league_id=39,
+            predicted_at=prediction_time,
+            fixture_kickoff=prediction_time + timedelta(hours=2),
+            model_trained_until=prediction_time - timedelta(days=1),
+            model_version="test-v1",
+        )
+
+        metrics = engine.calculate_accuracy("btts")
+
+        self.assertIsNone(metrics["roi"])
+        self.assertEqual(metrics["total_staked"], 0)
 
     def test_model_selection_requires_untouched_final_holdout(self):
         rng = np.random.default_rng(42)
@@ -1062,20 +1524,66 @@ class V3EngineTests(unittest.TestCase):
         collector = HistoricalDataCollector("test")
         frame = collector._parse_fixtures([
             {
-                "fixture": {"id": 1, "date": "2026-01-01"},
-                "teams": {"home": {"id": 1}, "away": {"id": 2}},
+                "fixture": {"id": 1, "date": "2026-01-01T12:00:00+00:00"},
+                "league": {"id": 39},
+                "teams": {
+                    "home": {"id": 1, "name": "Home"},
+                    "away": {"id": 2, "name": "Away"},
+                },
                 "goals": {"home": None, "away": 0},
                 "score": {},
             },
             {
-                "fixture": {"id": 2, "date": "2026-01-02"},
-                "teams": {"home": {"id": 1}, "away": {"id": 2}},
+                "fixture": {"id": 2, "date": "2026-01-02T12:00:00+00:00"},
+                "league": {"id": 39},
+                "teams": {
+                    "home": {"id": 1, "name": "Home"},
+                    "away": {"id": 2, "name": "Away"},
+                },
                 "goals": {"home": 0, "away": 0},
                 "score": {},
             },
         ], 39)
 
         self.assertEqual(frame["fixture_id"].tolist(), [2])
+
+    def test_calibration_requires_dense_bin_coverage(self):
+        engine = BacktestingEngine()
+        counts = [23 if index in {0, 4, 8} else 19 for index in range(10)]
+        for bin_index, count in enumerate(counts):
+            probability = (bin_index + 0.5) / 10.0
+            successes = round(probability * count)
+            for observation in range(count):
+                engine.predictions.append({
+                    "btts": {
+                        "prediction": "YES",
+                        "probability": probability,
+                    },
+                })
+                engine.results.append({
+                    "btts": "YES" if observation < successes else "NO",
+                })
+
+        curve = engine.calibration_curve("btts", bins=10)
+
+        self.assertEqual(curve["evaluated_predictions"], 202)
+        self.assertEqual(curve["calibrated_predictions"], 69)
+        self.assertLess(curve["calibration_coverage"], 0.80)
+        self.assertFalse(curve["minimum_sample_met"])
+
+    def test_historical_collector_exposes_http_200_provider_error(self):
+        collector = HistoricalDataCollector("test")
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "errors": {"access": "account suspended"},
+            "response": [],
+        }
+
+        with patch("train_ml_models.requests.get", return_value=response):
+            frame = collector.collect_season_data(39, 2025)
+
+        self.assertTrue(frame.empty)
+        self.assertIn("suspended", collector.last_error)
 
 
 if __name__ == "__main__":

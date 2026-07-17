@@ -1,10 +1,12 @@
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from challenge_15k import ChallengeDataProvider
+from challenge_15k import ChallengeDataProvider, scan_daily_challenge
 from challenge_engine import (
     ChallengeCandidate,
     MARKET_BY_KEY,
@@ -12,9 +14,12 @@ from challenge_engine import (
     ValidationMetrics,
     apply_candidate_context,
     build_fixture_candidates,
+    candidate_is_credible,
     market_outcome,
     score_matrix,
+    select_model_ticket,
     select_quoted_ticket,
+    select_shortlist,
     ticket_stake,
     validate_league_markets,
 )
@@ -50,7 +55,12 @@ def fixture(
 
 
 def candidate(candidate_id, fixture_id, probability, *, kickoff=None, eligible=True):
-    validation = ValidationMetrics(100, 0.15, 0.2, 0.25, 0.04, True)
+    validation = ValidationMetrics(
+        300, 0.15, 0.2, 0.25, 0.04, True,
+        calibration_bins=4,
+        min_bin_size=30,
+        max_calibration_error=0.06,
+    )
     item = ChallengeCandidate(
         candidate_id=candidate_id,
         fixture_id=fixture_id,
@@ -80,12 +90,47 @@ def candidate(candidate_id, fixture_id, probability, *, kickoff=None, eligible=T
     return item
 
 
+def credible_validation():
+    return ValidationMetrics(
+        300,
+        0.15,
+        0.20,
+        0.25,
+        0.04,
+        True,
+        calibration_bins=4,
+        min_bin_size=30,
+        max_calibration_error=0.06,
+    )
+
+
+def confirmed_lineups(home_team_id=10, away_team_id=11):
+    return [
+        {
+            "team": {"id": team_id},
+            "startXI": [
+                {"player": {"id": side * 100 + index}}
+                for index in range(1, 12)
+            ],
+        }
+        for side, team_id in ((1, home_team_id), (2, away_team_id))
+    ]
+
+
 class ChallengeProbabilityTests(unittest.TestCase):
     def test_score_matrix_is_normalized(self):
         matrix = score_matrix(1.4, 1.1)
 
         self.assertAlmostEqual(sum(matrix.values()), 1.0, places=12)
         self.assertGreater(matrix[(1, 1)], 0)
+
+    def test_score_matrix_preserves_high_rate_mean_and_rejects_short_cutoff(self):
+        matrix = score_matrix(8.0, 8.0)
+        home_mean = sum(home * value for (home, _), value in matrix.items())
+
+        self.assertAlmostEqual(home_mean, 8.0, places=4)
+        with self.assertRaises(ValueError):
+            score_matrix(4.0, 4.0, max_goals=5)
 
     def test_supported_markets_settle_exactly(self):
         self.assertTrue(market_outcome(MARKET_BY_KEY["BTTS_YES"], 2, 1))
@@ -94,6 +139,9 @@ class ChallengeProbabilityTests(unittest.TestCase):
         self.assertFalse(market_outcome(MARKET_BY_KEY["DC_X2"], 2, 1))
         self.assertTrue(market_outcome(MARKET_BY_KEY["CORNERS_OVER_5_5"], 4, 3))
         self.assertTrue(market_outcome(MARKET_BY_KEY["HOME_YELLOW_OVER_1_5"], 2, 1))
+
+        with self.assertRaises(ValueError):
+            market_outcome(MARKET_BY_KEY["BTTS_YES"], True, 1)
 
     def test_fixture_candidates_are_created_without_any_odds_input(self):
         start = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -110,7 +158,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
             fixture_id += 1
         target = fixture(999, start + timedelta(days=45), 1, 2)
         validation = {
-            spec.key: ValidationMetrics(100, 0.15, 0.2, 0.25, 0.04, True)
+            spec.key: credible_validation()
             for spec in MARKET_SPECS
         }
 
@@ -155,6 +203,32 @@ class ChallengeProbabilityTests(unittest.TestCase):
         self.assertLess(metrics["BTTS_YES"].observations, len(history))
         self.assertGreater(metrics["CORNERS_OVER_5_5"].observations, 0)
 
+    def test_walk_forward_validation_hides_all_same_day_results(self):
+        start = datetime(2026, 4, 1, 10, tzinfo=timezone.utc)
+        history = [
+            fixture(1, start, 1, 2, 1, 0),
+            fixture(2, start + timedelta(hours=8), 3, 4, 0, 1),
+            fixture(3, start + timedelta(days=1), 1, 3, 1, 1),
+        ]
+        prior_sizes = []
+
+        def fake_probabilities(_fixture, prior):
+            prior_sizes.append(len(prior))
+            return {
+                "probabilities": {
+                    spec.key: (0.5, 0.5, 0.5)
+                    for spec in MARKET_SPECS
+                }
+            }
+
+        with patch(
+            "challenge_engine.fixture_market_probabilities",
+            side_effect=fake_probabilities,
+        ):
+            validate_league_markets(history)
+
+        self.assertEqual(prior_sizes, [0, 0, 2])
+
     def test_corner_candidates_require_their_own_validated_history(self):
         start = datetime(2026, 1, 1, tzinfo=timezone.utc)
         history = []
@@ -190,7 +264,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
             fixture_id += 1
         target = fixture(999, start + timedelta(days=45), 1, 2)
         validation = {
-            spec.key: ValidationMetrics(100, 0.15, 0.2, 0.25, 0.04, True)
+            spec.key: credible_validation()
             for spec in MARKET_SPECS
         }
 
@@ -238,6 +312,19 @@ class FootballDataBoundaryTests(unittest.TestCase):
         self.assertNotIn("AvgH", serialized)
         self.assertNotIn("1.50", serialized)
 
+    def test_parser_never_truncates_fractional_result_or_count_data(self):
+        csv_content = (
+            "Date,HomeTeam,AwayTeam,FTHG,FTAG,HC,AC,HY,AY\n"
+            "01/08/2025,Alpha,Beta,1.5,1,7,3,2,4\n"
+            "02/08/2025,Alpha,Beta,2,1,7.5,3,2,4\n"
+        ).encode("utf-8")
+
+        history = parse_history_csv(csv_content, 39, 2025, [])
+
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["goals"], {"home": 2, "away": 1})
+        self.assertNotIn("corners_home", history[0]["challenge_stats"])
+
 
 class ChallengeProviderTests(unittest.TestCase):
     @patch("challenge_15k.requests.get")
@@ -259,6 +346,77 @@ class ChallengeProviderTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertIn("keinen Zugriff auf diese Saison", provider.errors[0])
         self.assertEqual(get.call_args.kwargs["params"]["status"], "NS")
+
+    @patch("challenge_15k.requests.get")
+    def test_mixed_provider_response_is_rejected_as_invalid(self, get):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"errors": [], "response": [{}, None]}
+        get.return_value = response
+        provider = ChallengeDataProvider("test-key", None)
+        provider._rate_limit = lambda: None
+
+        result = provider.upcoming_fixtures(39, 2026, datetime(2026, 7, 14).date())
+
+        self.assertIsNone(result)
+        self.assertIn("ungültige Einträge", provider.errors[0])
+
+    def test_coverage_never_falls_back_to_a_different_season(self):
+        provider = ChallengeDataProvider("test-key", None)
+        provider._football_get = Mock(return_value=[{
+            "seasons": [{
+                "year": 2025,
+                "coverage": {
+                    "injuries": True,
+                    "fixtures": {"lineups": True},
+                },
+            }],
+        }])
+
+        coverage = provider.coverage(39, 2026)
+
+        self.assertEqual(coverage, {"injuries": False, "lineups": False})
+        self.assertTrue(any("Saison 2026 fehlt" in error for error in provider.errors))
+
+    def test_scan_rejects_ambiguous_request_parameters_before_provider_calls(self):
+        provider = Mock()
+
+        invalid_requests = (
+            ([True], datetime.now().date(), 8),
+            ([39, 39], datetime.now().date(), 8),
+            ([39], datetime.now(timezone.utc), 8),
+            ([39], datetime.now().date(), True),
+            ([39], datetime.now().date(), 13),
+        )
+        for league_ids, search_date, max_fixtures in invalid_requests:
+            with self.subTest(league_ids=league_ids, max_fixtures=max_fixtures):
+                with self.assertRaises(ValueError):
+                    scan_daily_challenge(provider, league_ids, search_date, max_fixtures)
+        provider.upcoming_fixtures.assert_not_called()
+
+    def test_scan_drops_malformed_and_duplicate_upcoming_fixtures(self):
+        provider = Mock()
+        provider.errors = []
+        valid = fixture(
+            900,
+            datetime.now(timezone.utc) + timedelta(days=1),
+            10,
+            11,
+        )
+        provider.upcoming_fixtures.return_value = [None, valid, valid]
+        provider.completed_history.return_value = []
+        provider.coverage.return_value = {"injuries": True, "lineups": True}
+
+        snapshot = scan_daily_challenge(
+            provider,
+            [39],
+            datetime.now().date(),
+            8,
+        )
+
+        self.assertEqual(snapshot["fixtures_found"], 1)
+        self.assertTrue(any("ungültige Einträge" in error for error in snapshot["errors"]))
+        self.assertTrue(any("doppelter Provider-Eintrag" in error for error in snapshot["errors"]))
 
 
 class ChallengeContextTests(unittest.TestCase):
@@ -284,12 +442,78 @@ class ChallengeContextTests(unittest.TestCase):
                 "snow_3h_mm": 0,
                 "description": "klar",
             },
-            lineups=None,
+            lineups=confirmed_lineups(),
             now=now,
         )
 
         self.assertTrue(item.eligible)
         self.assertEqual(item.conservative_probability, original_probability)
+
+    def test_placeholder_lineups_never_count_as_confirmed(self):
+        item = candidate("1:BTTS", 1, 0.70)
+        now = datetime.now(timezone.utc)
+        h2h = [
+            fixture(100 + index, now - timedelta(days=30 + index), 10, 11, 1, 1)
+            for index in range(3)
+        ]
+        forged_lineups = [
+            {"team": {"id": team_id}, "startXI": [None] * 11}
+            for team_id in (10, 11)
+        ]
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=h2h,
+            injuries=[],
+            injury_coverage=True,
+            weather={
+                "status": "ok",
+                "temperature_c": 12,
+                "wind_mps": 3,
+                "rain_3h_mm": 0,
+                "snow_3h_mm": 0,
+            },
+            lineups=forged_lineups,
+            now=now,
+        )
+
+        self.assertFalse(item.eligible)
+        self.assertIn("Aufstellungen", " ".join(item.context["blocked_reasons"]))
+
+    def test_unconfirmed_lineups_block_even_before_final_hour(self):
+        now = datetime.now(timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(hours=5),
+        )
+        h2h = [
+            fixture(100 + index, now - timedelta(days=30 + index), 10, 11, 1, 1)
+            for index in range(3)
+        ]
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=h2h,
+            injuries=[],
+            injury_coverage=True,
+            weather={
+                "status": "ok",
+                "temperature_c": 12,
+                "wind_mps": 3,
+                "rain_3h_mm": 0,
+                "snow_3h_mm": 0,
+            },
+            lineups=None,
+            now=now,
+        )
+
+        self.assertFalse(item.eligible)
+        self.assertIn(
+            "Aufstellungen sind noch nicht verifiziert",
+            item.context["blocked_reasons"],
+        )
 
     def test_missing_h2h_blocks_candidate(self):
         item = candidate("1:BTTS", 1, 0.70)
@@ -381,12 +605,68 @@ class ChallengeTicketTests(unittest.TestCase):
 
         self.assertIsNone(ticket)
 
+    def test_selection_rechecks_validation_instead_of_trusting_passed_flag(self):
+        item = candidate("1:BTTS", 1, 0.70)
+        item.validation = ValidationMetrics(
+            10,
+            0.10,
+            0.20,
+            0.50,
+            0.01,
+            True,
+            calibration_bins=1,
+            min_bin_size=10,
+            max_calibration_error=0.01,
+        )
+
+        self.assertFalse(candidate_is_credible(item))
+        self.assertEqual(select_shortlist([item]), [])
+        self.assertEqual(select_model_ticket([item]), ())
+        self.assertIsNone(select_quoted_ticket([item], {"1:BTTS": 2.50}))
+
+    def test_started_fixture_is_never_selected(self):
+        started = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=datetime.now(timezone.utc) - timedelta(seconds=1),
+        )
+
+        self.assertEqual(select_model_ticket([started]), ())
+        self.assertIsNone(select_quoted_ticket([started], {"1:BTTS": 2.50}))
+
+    def test_ticket_rejects_repeated_team_across_different_fixtures(self):
+        first = candidate("1:BTTS", 1, 0.70)
+        second = candidate("2:BTTS", 2, 0.68)
+        second.home_team_id = first.away_team_id
+
+        self.assertEqual(select_model_ticket([first, second]), ())
+        self.assertIsNone(select_quoted_ticket(
+            [first, second],
+            {"1:BTTS": 1.50, "2:BTTS": 1.50},
+        ))
+
+    def test_each_leg_must_have_value_even_when_combination_roi_is_positive(self):
+        candidates = [
+            candidate("1:BTTS", 1, 0.70),
+            candidate("2:BTTS", 2, 0.80),
+        ]
+
+        ticket = select_quoted_ticket(
+            candidates,
+            {"1:BTTS": 1.45, "2:BTTS": 1.50},
+        )
+
+        self.assertIsNone(ticket)
+
     def test_stake_is_capped_at_two_percent(self):
         candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.68)]
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
 
         self.assertIsNotNone(ticket)
         self.assertLessEqual(ticket_stake(ticket, 1000), 20.0)
+        capped_ticket = replace(ticket, stake_fraction=0.02)
+        self.assertEqual(ticket_stake(capped_ticket, 101.25), 2.03)
 
 
 class ChallengeLedgerTests(unittest.TestCase):
@@ -397,19 +677,24 @@ class ChallengeLedgerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            stake = ticket_stake(ticket, 100.0)
             ticket_id = ledger.place_ticket(
                 "2026-07-14",
                 ticket,
-                2.00,
+                stake,
                 datetime.now(timezone.utc).isoformat(),
             )
-            self.assertEqual(ledger.settings()["current_balance"], 98.0)
+            self.assertEqual(ledger.settings()["current_balance"], 100.0 - stake)
 
             ledger.settle_ticket(ticket_id, "WON")
-            self.assertEqual(ledger.settings()["current_balance"], 102.5)
+            payout = (
+                Decimal(str(stake)) * Decimal(str(ticket.total_odds))
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            expected_balance = float(Decimal("100.00") - Decimal(str(stake)) + payout)
+            self.assertEqual(ledger.settings()["current_balance"], expected_balance)
             with self.assertRaises(ValueError):
                 ledger.settle_ticket(ticket_id, "WON")
-            self.assertEqual(ledger.settings()["current_balance"], 102.5)
+            self.assertEqual(ledger.settings()["current_balance"], expected_balance)
 
     def test_only_one_non_void_ticket_per_day(self):
         candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.68)]
@@ -418,17 +703,48 @@ class ChallengeLedgerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            stake = ticket_stake(ticket, 100.0)
             ledger.place_ticket(
                 "2026-07-14",
                 ticket,
-                2.00,
+                stake,
                 datetime.now(timezone.utc).isoformat(),
             )
             with self.assertRaises(ValueError):
                 ledger.place_ticket(
                     "2026-07-14",
                     ticket,
-                    2.00,
+                    stake,
+                    datetime.now(timezone.utc).isoformat(),
+                )
+
+    def test_ledger_recomputes_ticket_math_quote_age_and_kelly_cap(self):
+        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.68)]
+        ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
+        self.assertIsNotNone(ticket)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            stake = ticket_stake(ticket, 100.0)
+            with self.assertRaises(ValueError):
+                ledger.place_ticket(
+                    "2026-07-14",
+                    ticket,
+                    stake,
+                    (datetime.now(timezone.utc) - timedelta(minutes=11)).isoformat(),
+                )
+            with self.assertRaises(ValueError):
+                ledger.place_ticket(
+                    "2026-07-14",
+                    replace(ticket, expected_roi=0.50),
+                    stake,
+                    datetime.now(timezone.utc).isoformat(),
+                )
+            with self.assertRaises(ValueError):
+                ledger.place_ticket(
+                    "2026-07-14",
+                    ticket,
+                    stake + 0.01,
                     datetime.now(timezone.utc).isoformat(),
                 )
 
