@@ -5,7 +5,6 @@ import math
 import sqlite3
 from dataclasses import asdict
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -51,7 +50,7 @@ PAGE_INFO = {
     ),
     "Multi-Sport": (
         "Multi-Sport",
-        "Provider-Snapshots sportweise ansehen, ohne Scores zu vermischen.",
+        "Live-Daten je Sportart getrennt laden und prüfen.",
     ),
 }
 
@@ -68,6 +67,17 @@ LIVE_DATA_BASIS_OPTIONS = (
     "Basis: teilweise Daten",
 )
 LIVE_MARKET_OPTIONS = ("BTTS", "Noch ein Tor", "Team trifft noch")
+MULTI_SPORT_OPTIONS = (
+    "Basketball",
+    "Eishockey",
+    "Tennis",
+    "Cricket",
+    "E-Sport",
+)
+MULTI_SPORT_FILTER_OPTIONS = {
+    "Basketball": ("Alle Ligen", "NBA", "EuroLeague"),
+    "E-Sport": ("Alle Spiele", "CS2", "LoL", "Dota2", "Valorant"),
+}
 
 
 def _league_label_for_code(league_code: str) -> str:
@@ -1670,145 +1680,169 @@ def render_model(analyzer) -> None:
         _render_data_management(analyzer)
 
 
-def _fetch_multi_sport_snapshot(game_filter: str) -> dict:
-    """Fetch one cross-provider snapshot after an explicit user action."""
-    import sys
+def _multi_sport_scope_key(sport: str, detail_filter: Optional[str]) -> str:
+    return f"{sport}:{detail_filter or 'all'}"
 
-    scanner_path = str(Path(__file__).parent / "scanners")
-    if scanner_path not in sys.path:
-        sys.path.insert(0, scanner_path)
+
+def _fetch_multi_sport_snapshot(
+    sport: str,
+    detail_filter: Optional[str] = None,
+) -> dict:
+    """Fetch only the provider selected by the user."""
+    if sport not in MULTI_SPORT_OPTIONS:
+        raise ValueError(f"Unbekannte Sportart: {sport}")
+    valid_filters = MULTI_SPORT_FILTER_OPTIONS.get(sport)
+    if valid_filters:
+        detail_filter = detail_filter or valid_filters[0]
+        if detail_filter not in valid_filters:
+            raise ValueError(f"Ungültiger Filter für {sport}: {detail_filter}")
+    elif detail_filter is not None:
+        raise ValueError(f"{sport} unterstützt keinen Detailfilter")
+
     snapshot = {
+        "version": 2,
         "scanned_at": datetime.now().astimezone().isoformat(),
-        "game_filter": game_filter,
-        "basketball": [],
-        "nhl": [],
-        "tennis": [],
-        "cricket": [],
-        "esports": [],
-        "esports_key_available": False,
+        "sport": sport,
+        "detail_filter": detail_filter,
+        "items": [],
+        "credentials_available": True,
         "errors": {},
     }
 
-    basketball = None
+    if sport == "Basketball":
+        try:
+            from scanners.basketball_scanner import BasketballScanner
+
+            scanner = BasketballScanner()
+            provider_filter = {
+                "Alle Ligen": "All",
+                "NBA": "NBA",
+                "EuroLeague": "Euroleague",
+            }[detail_filter]
+            for game in scanner.scan_live_games(provider_filter):
+                item = dict(game)
+                item["projection"] = scanner.calculate_scoring_projection(game)
+                snapshot["items"].append(item)
+            for provider, message in scanner.errors.items():
+                snapshot["errors"][provider] = message
+        except Exception:
+            snapshot["errors"]["Basketball"] = "Provider nicht verfügbar"
+        return snapshot
+
+    if sport == "Eishockey":
+        try:
+            from scanners.basketball_scanner import BasketballScanner
+
+            scanner = BasketballScanner()
+            snapshot["items"] = scanner.get_live_nhl_games()
+            if scanner.errors.get("nhl"):
+                snapshot["errors"]["NHL"] = scanner.errors["nhl"]
+        except Exception:
+            snapshot["errors"]["NHL"] = "Provider nicht verfügbar"
+        return snapshot
+
+    if sport == "Tennis":
+        try:
+            from scanners.tennis_scanner import TennisScanner
+
+            scanner = TennisScanner()
+            snapshot["items"] = scanner.get_live_matches()
+            if scanner.last_error:
+                snapshot["errors"]["Tennis"] = scanner.last_error
+        except Exception:
+            snapshot["errors"]["Tennis"] = "Provider nicht verfügbar"
+        return snapshot
+
+    if sport == "Cricket":
+        try:
+            from scanners.cricket_scanner import CricketScanner
+
+            scanner = CricketScanner()
+            snapshot["items"] = scanner.get_live_matches()
+            if scanner.last_error:
+                snapshot["errors"]["Cricket"] = scanner.last_error
+        except Exception:
+            snapshot["errors"]["Cricket"] = "Provider nicht verfügbar"
+        return snapshot
+
     try:
-        from basketball_scanner import BasketballScanner
+        from scanners.esports_scanner import EsportsScanner
 
-        basketball = BasketballScanner()
-    except Exception:
-        snapshot["errors"]["basketball_scanner"] = "Scanner nicht verfügbar"
-
-    try:
-        if basketball is None:
-            raise RuntimeError("basketball scanner unavailable")
-        for game in basketball.scan_live_games("All"):
-            item = dict(game)
-            item["projection"] = basketball.calculate_scoring_projection(game)
-            snapshot["basketball"].append(item)
-        for provider, message in basketball.errors.items():
-            snapshot["errors"][f"basketball_{provider}"] = message
-    except Exception:
-        snapshot["errors"]["basketball"] = "Provider nicht verfügbar"
-
-    try:
-        if basketball is None:
-            raise RuntimeError("basketball scanner unavailable")
-        snapshot["nhl"] = basketball.get_live_nhl_games()
-        if basketball.errors.get("nhl"):
-            snapshot["errors"]["nhl"] = basketball.errors["nhl"]
-    except Exception:
-        snapshot["errors"]["nhl"] = "Provider nicht verfügbar"
-
-    try:
-        from tennis_scanner import TennisScanner
-
-        tennis = TennisScanner()
-        snapshot["tennis"] = tennis.get_live_matches()
-        if tennis.last_error:
-            snapshot["errors"]["tennis"] = tennis.last_error
-    except Exception:
-        snapshot["errors"]["tennis"] = "Provider nicht verfügbar"
-
-    try:
-        from cricket_scanner import CricketScanner
-
-        cricket = CricketScanner()
-        snapshot["cricket"] = cricket.get_live_matches()
-        if cricket.last_error:
-            snapshot["errors"]["cricket"] = cricket.last_error
-    except Exception:
-        snapshot["errors"]["cricket"] = "Provider nicht verfügbar"
-
-    try:
-        from esports_scanner import EsportsScanner
-
-        esports = EsportsScanner()
-        snapshot["esports_key_available"] = bool(esports.api_key)
-        if esports.api_key:
-            for match in esports.get_live_matches(game_filter.lower()):
+        scanner = EsportsScanner()
+        snapshot["credentials_available"] = bool(scanner.api_key)
+        if scanner.api_key:
+            provider_filter = "all" if detail_filter == "Alle Spiele" else detail_filter.lower()
+            for match in scanner.get_live_matches(provider_filter):
                 item = dict(match)
-                item["_analysis"] = esports.analyze_match(match)
-                snapshot["esports"].append(item)
-            for provider, message in esports.errors.items():
-                snapshot["errors"][f"esports_{provider}"] = message
+                item["_analysis"] = scanner.analyze_match(match)
+                snapshot["items"].append(item)
+            for provider, message in scanner.errors.items():
+                snapshot["errors"][provider] = message
     except Exception:
-        snapshot["errors"]["esports"] = "Provider nicht verfügbar"
+        snapshot["errors"]["PandaScore"] = "Provider nicht verfügbar"
     return snapshot
 
 
-def _multi_sport_frame(snapshot: dict, sport: str) -> pd.DataFrame:
+def _multi_sport_frame(snapshot: dict) -> pd.DataFrame:
+    sport = snapshot.get("sport")
+    items = snapshot.get("items") if isinstance(snapshot.get("items"), list) else []
     if sport == "Basketball":
         return pd.DataFrame(
             [
                 {
-                    "Match": f"{game['home_team']} vs {game['away_team']}",
+                    "Match": f"{game.get('home_team', 'HOME')} vs {game.get('away_team', 'AWAY')}",
+                    "Liga": game.get("league", "n/a"),
                     "Periode": f"Q{game.get('period', 'n/a')}",
                     "Stand": f"{game.get('home_score', 'n/a')}-{game.get('away_score', 'n/a')}",
                     "Lineare Total-Projektion": _format_optional(game.get("projection"), 1),
                 }
-                for game in snapshot["basketball"]
+                for game in items
             ]
         )
-    if sport == "NHL":
+    if sport == "Eishockey":
         return pd.DataFrame(
             [
                 {
-                    "Match": f"{game['away_team']} @ {game['home_team']}",
+                    "Match": f"{game.get('away_team', 'AWAY')} @ {game.get('home_team', 'HOME')}",
+                    "Liga": "NHL",
                     "Periode": f"P{game.get('period', 'n/a')}",
                     "Stand": f"{game.get('away_score', 'n/a')}-{game.get('home_score', 'n/a')}",
                     "Uhr": game.get("game_clock") or "n/a",
                 }
-                for game in snapshot["nhl"]
+                for game in items
             ]
         )
     if sport == "Tennis":
         return pd.DataFrame(
             [
                 {
-                    "Match": f"{match['player1']} vs {match['player2']}",
+                    "Match": f"{match.get('player1', 'Spieler 1')} vs {match.get('player2', 'Spieler 2')}",
                     "Turnier": match.get("tournament", "ATP/WTA"),
                     "Stand": f"{match.get('player1_score', 'n/a')}-{match.get('player2_score', 'n/a')}",
                     "Aufschlag": match.get("server", "n/a"),
                 }
-                for match in snapshot["tennis"]
+                for match in items
             ]
         )
     if sport == "Cricket":
         return pd.DataFrame(
             [
                 {
-                    "Match": f"{match['team1']} vs {match['team2']}",
-                    "Format": match.get("format", "T20"),
+                    "Match": f"{match.get('team1', 'Team 1')} vs {match.get('team2', 'Team 2')}",
+                    "Format": match.get("format", "n/a"),
                     "Over": match.get("current_over", "n/a"),
                     "Run Rate": match.get("run_rate", "n/a"),
                 }
-                for match in snapshot["cricket"]
+                for match in items
             ]
         )
+    if sport != "E-Sport":
+        return pd.DataFrame()
     return pd.DataFrame(
         [
             {
-                "Match": f"{match['team1']} vs {match['team2']}",
-                "Game": match.get("game", "n/a"),
+                "Match": f"{match.get('team1', 'Team 1')} vs {match.get('team2', 'Team 2')}",
+                "Spiel": match.get("game", "n/a"),
                 "Stand": f"{match.get('team1_score', 'n/a')}-{match.get('team2_score', 'n/a')}",
                 "Explorative Lücke": (
                     match.get("_analysis", {}).get("probability_gap")
@@ -1821,61 +1855,69 @@ def _multi_sport_frame(snapshot: dict, sport: str) -> pd.DataFrame:
                     else "n/a"
                 ),
             }
-            for match in snapshot["esports"]
+            for match in items
         ]
     )
 
 
 def render_multi_sport() -> None:
-    game_filter = _segmented(
-        "E-Sport-Filter",
-        ["All", "CS2", "LoL", "Dota2", "Valorant"],
-        "esports_game_filter",
-        "All",
+    sport = st.selectbox(
+        "Sportart",
+        list(MULTI_SPORT_OPTIONS),
+        key="multi_sport_selected_sport",
     )
+    detail_filter = None
+    filter_options = MULTI_SPORT_FILTER_OPTIONS.get(sport)
+    if filter_options:
+        detail_filter = st.selectbox(
+            "Liga" if sport == "Basketball" else "Spiel",
+            list(filter_options),
+            key=f"multi_sport_filter_{sport.lower().replace('-', '_')}",
+        )
+
+    snapshots = st.session_state.get("multi_sport_snapshots")
+    if not isinstance(snapshots, dict):
+        snapshots = {}
+        st.session_state["multi_sport_snapshots"] = snapshots
+    scope_key = _multi_sport_scope_key(sport, detail_filter)
     if st.button(
-        "Provider-Snapshot laden",
+        f"{sport} laden",
         type="primary",
         use_container_width=True,
         key="run_multi_sport",
     ):
-        with st.spinner("Externe Provider werden abgefragt..."):
-            st.session_state["multi_sport_snapshot"] = _fetch_multi_sport_snapshot(game_filter)
+        with st.spinner(f"{sport}-Live-Daten werden geladen..."):
+            snapshots[scope_key] = _fetch_multi_sport_snapshot(sport, detail_filter)
 
-    snapshot = st.session_state.get("multi_sport_snapshot")
+    snapshot = snapshots.get(scope_key)
     if not snapshot:
-        st.info("Noch kein Multi-Sport-Snapshot in dieser Sitzung.")
+        st.info(f"Noch kein {sport}-Snapshot für diese Auswahl.")
         return
 
-    st.caption(
-        f"Snapshot: {_format_snapshot_time(snapshot.get('scanned_at'))} | "
-        f"E-Sport-Filter: {snapshot['game_filter']}"
-    )
-    if snapshot.get("game_filter") != game_filter:
-        st.warning("Der E-Sport-Filter wurde seit dem Snapshot geändert. Für aktuelle E-Sport-Daten neu laden.")
-    counts = st.columns(5)
-    counts[0].metric("Basketball", len(snapshot["basketball"]))
-    counts[1].metric("NHL", len(snapshot["nhl"]))
-    counts[2].metric("Tennis", len(snapshot["tennis"]))
-    counts[3].metric("Cricket", len(snapshot["cricket"]))
-    counts[4].metric("E-Sport", len(snapshot["esports"]))
+    snapshot_items = snapshot.get("items")
+    item_count = len(snapshot_items) if isinstance(snapshot_items, list) else 0
+    caption_parts = [
+        f"Snapshot: {_format_snapshot_time(snapshot.get('scanned_at'))}",
+        f"{item_count} Live-Ereignisse",
+    ]
+    if detail_filter:
+        caption_parts.append(f"Filter: {detail_filter}")
+    st.caption(" | ".join(caption_parts))
 
-    sport = _segmented(
-        "Sport",
-        ["Basketball", "NHL", "Tennis", "Cricket", "E-Sport"],
-        "multi_sport_view",
-        "Basketball",
+    missing_esports_key = sport == "E-Sport" and not snapshot.get(
+        "credentials_available"
     )
-    if sport == "E-Sport" and not snapshot["esports_key_available"]:
+    if missing_esports_key:
         st.warning("Für E-Sport ist ein PandaScore-Key erforderlich.")
-    frame = _multi_sport_frame(snapshot, sport)
-    if frame.empty:
-        st.info("Dieser Provider hat keine Live-Daten geliefert.")
-    else:
+
+    frame = _multi_sport_frame(snapshot)
+    if frame.empty and not missing_esports_key and not snapshot["errors"]:
+        st.info(f"Zurzeit wurden keine laufenden {sport}-Ereignisse gefunden.")
+    elif not frame.empty:
         st.dataframe(frame, use_container_width=True, hide_index=True)
 
     if snapshot["errors"]:
-        st.warning("Mindestens ein externer Provider war für diesen Snapshot nicht verfügbar.")
+        st.warning(f"Der {sport}-Provider war für diesen Snapshot nicht vollständig verfügbar.")
         with st.expander("Providerfehler"):
             st.dataframe(
                 pd.DataFrame(

@@ -34,6 +34,136 @@ def test_app_formats_new_league_codes_from_existing_catalog_symbols():
     assert app._league_label_for_code("unknown") == "UNKNOWN"
 
 
+def test_multi_sport_fetches_only_the_selected_basketball_scope(monkeypatch):
+    from scanners import basketball_scanner
+
+    calls = []
+
+    class FakeBasketballScanner:
+        def __init__(self):
+            self.errors = {}
+
+        def scan_live_games(self, league):
+            calls.append(("basketball", league))
+            return [
+                {
+                    "home_team": "Home",
+                    "away_team": "Away",
+                    "league": league,
+                    "period": 2,
+                    "home_score": 42,
+                    "away_score": 40,
+                }
+            ]
+
+        def calculate_scoring_projection(self, _game):
+            return 218.5
+
+        def get_live_nhl_games(self):
+            raise AssertionError("NHL must not be fetched for Basketball")
+
+    monkeypatch.setattr(
+        basketball_scanner,
+        "BasketballScanner",
+        FakeBasketballScanner,
+    )
+
+    snapshot = app._fetch_multi_sport_snapshot("Basketball", "NBA")
+
+    assert calls == [("basketball", "NBA")]
+    assert snapshot["sport"] == "Basketball"
+    assert snapshot["detail_filter"] == "NBA"
+    assert len(snapshot["items"]) == 1
+    assert "nhl" not in snapshot
+    assert list(app._multi_sport_frame(snapshot).columns) == [
+        "Match",
+        "Liga",
+        "Periode",
+        "Stand",
+        "Lineare Total-Projektion",
+    ]
+
+
+def test_multi_sport_eishockey_does_not_run_basketball_scan(monkeypatch):
+    from scanners import basketball_scanner
+
+    calls = []
+
+    class FakeBasketballScanner:
+        def __init__(self):
+            self.errors = {}
+
+        def scan_live_games(self, _league):
+            raise AssertionError("Basketball must not be fetched for Eishockey")
+
+        def get_live_nhl_games(self):
+            calls.append("nhl")
+            return [
+                {
+                    "home_team": "ZSC",
+                    "away_team": "SCB",
+                    "period": 1,
+                    "home_score": 1,
+                    "away_score": 0,
+                    "game_clock": "12:34",
+                }
+            ]
+
+    monkeypatch.setattr(
+        basketball_scanner,
+        "BasketballScanner",
+        FakeBasketballScanner,
+    )
+
+    snapshot = app._fetch_multi_sport_snapshot("Eishockey")
+
+    assert calls == ["nhl"]
+    assert snapshot["sport"] == "Eishockey"
+    assert app._multi_sport_frame(snapshot).iloc[0]["Liga"] == "NHL"
+
+
+def test_multi_sport_esports_filter_is_scoped_to_pandascore(monkeypatch):
+    from scanners import esports_scanner
+
+    calls = []
+
+    class FakeEsportsScanner:
+        def __init__(self):
+            self.api_key = "configured"
+            self.errors = {}
+
+        def get_live_matches(self, game):
+            calls.append(game)
+            return [
+                {
+                    "team1": "Alpha",
+                    "team2": "Beta",
+                    "game": "VALORANT",
+                    "team1_score": 1,
+                    "team2_score": 0,
+                }
+            ]
+
+        def analyze_match(self, _match):
+            return {"probability_gap": 4.0, "data_coverage": 75.0}
+
+    monkeypatch.setattr(esports_scanner, "EsportsScanner", FakeEsportsScanner)
+
+    snapshot = app._fetch_multi_sport_snapshot("E-Sport", "Valorant")
+
+    assert calls == ["valorant"]
+    assert snapshot["sport"] == "E-Sport"
+    assert snapshot["credentials_available"] is True
+    assert app._multi_sport_frame(snapshot).iloc[0]["Spiel"] == "VALORANT"
+
+
+def test_multi_sport_rejects_filters_from_another_sport():
+    with pytest.raises(ValueError):
+        app._fetch_multi_sport_snapshot("Tennis", "CS2")
+    with pytest.raises(ValueError):
+        app._fetch_multi_sport_snapshot("E-Sport", "NBA")
+
+
 def test_football_data_org_key_is_never_used_as_api_football_key(monkeypatch):
     monkeypatch.setattr(
         app,

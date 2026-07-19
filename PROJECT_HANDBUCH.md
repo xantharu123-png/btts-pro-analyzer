@@ -22,7 +22,7 @@ BetBoy ist ein datengetriebener Analyse-Arbeitsplatz für Fußballwetten mit erg
 Der aktuelle Kernzustand ist technisch stabil:
 
 - Der aktuelle Code einschließlich der ergänzten Live-Märkte ist auf `main` committed und zu GitHub gepusht.
-- Der letzte vollständige Testlauf ergab `153 passed, 5 subtests passed`.
+- Der letzte vollständige Testlauf ergab `157 passed, 5 subtests passed`.
 - Mobile, Tablet und Desktop wurden mit installiertem Google Chrome geprüft.
 - Die Streamlit-App wurde nach dem letzten Push erfolgreich aufgeweckt und gerendert.
 - API-Football Pro ist aktiv und meldet ein Tageslimit von 7.500 Anfragen. Direkte Endpunkte, BetBoy-Wrapper und der sichtbare Live-App-Status wurden geprüft.
@@ -103,7 +103,7 @@ Die App besitzt eine flache Sidebar-Navigation ohne tiefe Menüverschachtelung:
 | `Live` | BTTS, Resttore, weitere Teamtore und Platzverweise prüfen | Unkalibrierte Live-Signale mit strengen Datenqualitätstoren; keine Wettfreigabe |
 | `Modell` | Datenbestand, Validierung und Training verwalten | Administrativ |
 | `15K Challenge` | Tägliche Shortlist, N1Bet-Preisprüfung, Ticket und Kontoverlauf | Strengste Freigaberegeln |
-| `Multi-Sport` | E-Sport, Basketball, NHL, Tennis und Cricket getrennt anzeigen | Explorativ, kein Wettauftrag |
+| `Multi-Sport` | Basketball, Eishockey (NHL), Tennis, Cricket und E-Sport getrennt laden | Explorativ, kein Wettauftrag |
 
 Die Oberflächen wurden für folgende Viewports geprüft:
 
@@ -376,6 +376,7 @@ CLV wird derzeit lokal in SQLite gespeichert. Modellartefakte wie `*.pkl`, `*.jo
 
 ### Multi-Sport und Live
 
+- Multi-Sport fragt nur die vorab gewählte Sportart ab. Basketball-Liga- und E-Sport-Spiel-Filter erscheinen ausschließlich in ihrem jeweiligen Kontext; Ergebnisse anderer Sportarten werden nicht mitgeladen oder eingeblendet.
 - NHL-Spiele laufen nicht mehr durch Basketball-Projektionslogik.
 - Cricket-Overs werden korrekt als Bälle interpretiert; `10.5` sind 65 Bälle und `10.6` ist ungültig.
 - Tennis-, Cricket-, Basketball-, NHL- und E-Sport-Ausgaben sind ohne Kalibrierung nicht handlungsfähig.
@@ -491,7 +492,7 @@ Streamlit Community Cloud legt inaktive Apps schlafen. Das ist kein Codefehler. 
 Letztes bestätigtes Ergebnis:
 
 ```text
-153 passed, 5 subtests passed
+157 passed, 5 subtests passed
 ```
 
 Die acht zusätzlichen Tests (`tests/test_audit_fixes.py` und Ledger-/Stake-Tests) pinnen die Audit-Fixes vom 18. Juli 2026 fest.
@@ -603,4 +604,4 @@ sind. Committe oder pushe nur, wenn dies ausdrücklich beauftragt wurde.
 
 ## 22. Übergabestatus
 
-Der Stand vom 19. Juli 2026 ist die aktuelle belastbare Basis: API-Football Pro ist aktiv, alle Fußball-Arbeitsbereiche verwenden denselben kanonischen 44-Ligen-Katalog, die Challenge trennt den konfigurierbaren 5–100-%-Einsatz von der Kelly-Referenz, und `153` Tests plus `5` Subtests bestehen. `main` enthält streng gegatete Live-Resttor- und Teamtor-Märkte samt Platzverweis-Neuberechnung. Noch offen sind primär dauerhafte Speicherung, Benutzertrennung, echte N1Bet-Livepreise und längere reale Shadow-Mode-/CLV-Beobachtung. Diese offenen Punkte dürfen nicht mit einer Modellgarantie verwechselt werden.
+Der Stand vom 19. Juli 2026 ist die aktuelle belastbare Basis: API-Football Pro ist aktiv, alle Fußball-Arbeitsbereiche verwenden denselben kanonischen 44-Ligen-Katalog, die Challenge trennt den konfigurierbaren 5–100-%-Einsatz von der Kelly-Referenz, und `157` Tests plus `5` Subtests bestehen. `main` enthält streng gegatete Live-Resttor- und Teamtor-Märkte samt Platzverweis-Neuberechnung. Multi-Sport lädt nur noch den ausdrücklich gewählten Sport und zeigt ausschließlich dessen passende Filter und Ergebnisse. Noch offen sind primär dauerhafte Speicherung, Benutzertrennung, echte N1Bet-Livepreise und längere reale Shadow-Mode-/CLV-Beobachtung. Diese offenen Punkte dürfen nicht mit einer Modellgarantie verwechselt werden.
