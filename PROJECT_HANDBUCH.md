@@ -515,6 +515,12 @@ Vor einer UI-Veröffentlichung mindestens prüfen:
 4. Providerfehler müssen als Fehler erscheinen, nicht als "keine Spiele".
 5. Challenge darf bei unzureichenden Daten kein Ticket erzeugen.
 
+Letzte Produktionsprüfung am 19. Juli 2026 mit installiertem Google Chrome:
+`Spiele`, `Märkte`, `15K Challenge` und `Modell` zeigten nach Auswahl von
+`Alle` jeweils den gemeinsamen Umfang von 44 Ligen. Bei 390 Pixel Breite waren
+Viewport und Dokument exakt gleich breit; der Browser meldete keine
+Laufzeit-Exception.
+
 ## 17. Lokale Inbetriebnahme
 
 ```powershell
