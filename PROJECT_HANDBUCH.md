@@ -4,10 +4,10 @@
 
 | Feld | Wert |
 |---|---|
-| Stand | 17. Juli 2026 |
+| Stand | 19. Juli 2026 |
 | Repository | https://github.com/xantharu123-png/btts-pro-analyzer |
 | Produktiv-Branch | `main` |
-| Übergabe-Commit | `0925d18bb8deb97ff0f74f18930665980f122680` |
+| Produktivstand | `main`; exakten Stand mit `git rev-parse HEAD` prüfen |
 | Live-App | https://btts-pro-analyzer-atnoeulcg3jzwkghckhbth.streamlit.app/ |
 | Lokaler Projektpfad | `C:\Users\miros\Desktop\BetBoy\btts-pro-analyzer` |
 | Python | 3.11 |
@@ -22,13 +22,13 @@ BetBoy ist ein datengetriebener Analyse-Arbeitsplatz für Fußballwetten mit erg
 Der aktuelle Kernzustand ist technisch stabil:
 
 - Der Code ist auf `main` committed und zu GitHub gepusht.
-- Der letzte vollständige Testlauf ergab `127 passed, 5 subtests passed`.
+- Der letzte vollständige Testlauf ergab `137 passed, 5 subtests passed`.
 - Mobile, Tablet und Desktop wurden mit installiertem Google Chrome geprüft.
 - Die Streamlit-App wurde nach dem letzten Push erfolgreich aufgeweckt und gerendert.
-- API-Football ist extern gesperrt; der Anbieter meldet `Your account is suspended`.
+- API-Football Pro ist aktiv und meldet ein Tageslimit von 7.500 Anfragen. Direkte Endpunkte, BetBoy-Wrapper und der sichtbare Live-App-Status wurden geprüft.
 - Die bisherige Supabase-Verbindung ist ungültig. Die App fällt kontrolliert auf lokale SQLite-Datenbanken zurück.
 
-Die größte noch offene Arbeit liegt nicht in der Rechenlogik, sondern in den Produktionsabhängigkeiten: API-Football reaktivieren, persistente Datenbank korrekt einrichten und Challenge-Daten nutzerbezogen speichern.
+Die größte noch offene Arbeit liegt nicht in der Rechenlogik, sondern in der Produktionspersistenz: eine gültige Datenbankverbindung einrichten, Challenge-Daten nutzerbezogen speichern und reale Out-of-sample-/CLV-Historie sammeln.
 
 ## 2. Produktziel
 
@@ -48,7 +48,7 @@ Das gewünschte Verhalten lautet:
 
 Die Challenge startet standardmäßig bei 100 EUR und zeigt den Fortschritt zu einem Zielwert von 15.000 EUR. Pro Tag sollen höchstens drei unterschiedliche Spiele in Frage kommen. Die gewünschte Gesamtkorridorquote liegt zwischen 2,00 und 3,00.
 
-Wichtig: 15.000 EUR sind ein Zielwert, keine Prognose und keine Garantie. Der ursprüngliche Wunsch, Einsätze nach Verlusten zu verdoppeln oder zu verdreifachen, wurde bewusst nicht als Martingale umgesetzt. Eine solche Progression erhöht das Ruinrisiko und erzeugt keinen mathematischen Vorteil. Stattdessen verwendet die App Viertel-Kelly mit einer harten Einsatzkappe von 2 % des verfügbaren Guthabens.
+Wichtig: 15.000 EUR sind ein Zielwert, keine Prognose und keine Garantie. Der Challenge-Einsatz ist getrennt von der Kelly-Referenz und kann im Konto zwischen 5 % und 100 % des aktuellen Guthabens eingestellt werden; Standard ist der ausdrücklich gewünschte 100-%-Roll-over. Damit verdoppelt ein Gewinn bei Quote 2,00 das Guthaben und verdreifacht es bei Quote 3,00. Eine Niederlage bei 100 % setzt das Challenge-Guthaben jedoch auf null. Es gibt keine Martingale-Erhöhung nach Verlusten und kein Nachschießen.
 
 ### 2.3 Nicht-Ziele
 
@@ -159,9 +159,8 @@ Bei der letzten Prüfung gab es keine horizontale Seitenüberbreite und keine St
 
 ### 6.1 Modellfamilien
 
-- Dixon-Coles-Korrektur für niedrige Fußballergebnisse.
-- Bivariate Poisson-Verteilung für gemeinsame Torkomponenten.
-- Negative-Binomial-Modelle für überdisperse Ecken- und Kartenanzahlen.
+- Aktive Torwahrscheinlichkeiten (Challenge und Analyzer) basieren auf unabhängigem Poisson mit Shrinkage. Dixon-Coles und bivariate Poisson sind implementiert, aber bewusst nur als angezeigte Sensitivitätsszenarien mit festen Parametern; sie fließen erst in aktive Wahrscheinlichkeiten ein, wenn ρ bzw. die Kovarianz aus Daten gefittet und out-of-sample validiert sind.
+- Negative-Binomial-Modelle für überdisperse Ecken- und Kartenanzahlen (aktiv in der Challenge-Engine; der explorative Märkte-Tab nutzt eine einfachere Poisson-Basis).
 - Beta-Smoothing und Shrinkage gegen extreme Raten aus kleinen Stichproben.
 - Score-Matrizen mit kontrollierter Restwahrscheinlichkeit statt still abgeschnittener Tails.
 - Ensemble-/ML-Bausteine nur mit chronologischer Out-of-sample-Prüfung.
@@ -173,8 +172,8 @@ Bei der letzten Prüfung gab es keine horizontale Seitenüberbreite und keine St
 | Zielguthaben | 15.000 EUR |
 | Zulässige Gesamtquote | 2,00 bis 3,00 |
 | Maximale Ticket-Legs | 3 |
-| Maximale Einsatzquote | 2 % des Guthabens |
-| Kelly-Variante | Viertel-Kelly |
+| Challenge-Einsatzquote | 5 % bis 100 % des aktuellen Guthabens; Standard 100 % Roll-over |
+| Kelly-Variante | Viertel-Kelly als sichtbare Risikoreferenz, nicht als Challenge-Limit |
 | Cross-Leg-Abhängigkeitsfaktor | 0,97 je zusätzlichem Leg |
 | Mindestspiele Liga | 24 |
 | Mindestspiele Heim-/Auswärtskontext | 5 je Team |
@@ -190,6 +189,8 @@ Bei der letzten Prüfung gab es keine horizontale Seitenüberbreite und keine St
 | Mindest-EV des Tickets | 3 % |
 | Maximales Alter manueller Quote | 10 Minuten |
 | Mindest-Evidenzscore eines Challenge-Kandidaten | 72 % |
+| Offene Tickets | Ein offenes (PENDING) Ticket blockiert jede neue Platzierung, auch für einen anderen Spieltag |
+| Einsatzrundung | Abrunden auf ganze Cents; die konfigurierte Challenge-Grenze wird nie überschritten |
 
 ### 6.3 Kernformeln
 
@@ -199,7 +200,11 @@ Für Dezimalquote `o` und konservative Wahrscheinlichkeit `p`:
 Implizite Wahrscheinlichkeit = 1 / o
 Erwartungswert                = p * o - 1
 Full Kelly                    = ((o - 1) * p - (1 - p)) / (o - 1)
-Verwendeter Einsatzanteil     = min(max(Full Kelly, 0) * 0,25, 0,02)
+Viertel-Kelly-Referenz        = min(max(Full Kelly, 0) * 0,25, 0,25)
+Challenge-Einsatz             = Guthaben * konfigurierter Anteil
+Saldo bei Gewinn              = Guthaben + Einsatz * (o - 1)
+Saldo bei Verlust             = Guthaben - Einsatz
+Siege ohne Verlust bis Ziel   = ceil(log(Ziel/Guthaben) / log(1 + Anteil*(o-1)))
 ```
 
 Bei Kombinationen wird die gemeinsame Modellwahrscheinlichkeit zusätzlich mit `0,97^(Legs-1)` reduziert. Kandidaten desselben Fixtures oder mit wiederholten Teams dürfen nicht gemeinsam auf ein Ticket.
@@ -253,11 +258,11 @@ Diese Regeln bedeuten bewusst, dass eine finale Challenge-Auswahl häufig erst n
 
 ## 9. Provider und Integrationen
 
-Statusangaben beziehen sich auf die letzte Prüfung am 17. Juli 2026.
+Statusangaben beziehen sich auf die letzte Prüfung am 19. Juli 2026.
 
 | Provider | Verwendung | Aktueller Zustand | Nächste Aktion |
 |---|---|---|---|
-| API-Football / API-Sports | Hauptquelle für Fixtures, Statistiken, Form, H2H, Aufstellungen, Verletzungen, Live und Challenge | Schlüssel vorhanden, Konto vom Provider als `suspended` gemeldet | Bestehendes Abo im Dashboard prüfen und reaktivieren; nicht blind neu kaufen |
+| API-Football / API-Sports | Hauptquelle für Fixtures, Statistiken, Form, H2H, Aufstellungen, Verletzungen, Live und Challenge | Pro aktiv; 7.500 Anfragen/Tag; Anbieter meldet Laufzeitende 19.10.2026 | Nutzung messen und Abrechnungs-/Verlängerungsstatus im Dashboard kontrollieren |
 | football-data.org | Älterer/sekundärer Schlüssel | Schlüssel antwortet, wird vom aktiven Analyzer nicht verwendet | Kein bezahltes Abo nötig, solange kein eigener Adapter geplant ist |
 | football-data.co.uk | Öffentliche historische CSV-Ergebnisse | Verfügbar, kein API-Schlüssel nötig | Als historische Zusatzquelle behalten |
 | OpenWeather | Wetterkontext der Challenge | Lokal konfiguriert | Kontingent und Deployment-Secret prüfen |
@@ -374,6 +379,23 @@ CLV wird derzeit lokal in SQLite gespeichert. Modellartefakte wie `*.pkl`, `*.jo
 - Providerstatus und Blocker werden direkt sichtbar.
 - Quotenfreie Analyse und spätere N1Bet-Preisprüfung sind visuell getrennt.
 
+## 12b. Audit-Fixes vom 18. Juli 2026
+
+Ein vollständiges externes Audit (Bericht: `AUDIT_BERICHT_2026-07-18.md`) führte zu folgenden Korrekturen; jede ist durch einen Regressionstest gepinnt:
+
+- **Live-xG-Parsing (HIGH):** `api_football.get_match_statistics` parst `expected_goals` jetzt als Dezimalwert. Vorher wurde Provider-xG (Text wie `"1.34"`) still verworfen, wodurch die Live-Qualitätsstufe „Live-xG + Prematch" nie erreichbar war.
+- **Challenge-Spieltag in Europe/Zurich:** `challenge_15k` bestimmt „Heute/Morgen" jetzt über die Zürcher Kalenderzeit statt über das Serverdatum (vorher zwischen 00:00 und 02:00 CH-Zeit der falsche Tag).
+- **Sequenzielle Tickets:** Der Ledger blockiert jede neue Platzierung, solange ein Ticket PENDING ist — auch für einen anderen Spieltag. Kelly bleibt damit sequenziell, paralleles Exposure ist ausgeschlossen.
+- **Einsatzrundung als harte Kappe:** `ticket_stake` und der Ledger runden den konfigurierten Challenge-Einsatz auf ganze Cents ab.
+- **Challenge-Einsatz korrigiert (19. Juli):** Die frühere 2-%-Kelly-Kappe wurde als falscher Produktvertrag erkannt. Einsatzanteil und Kelly-Referenz sind jetzt getrennt; 5–100 % sind persistent konfigurierbar, Standard ist 100 % Roll-over, inklusive Gewinn-/Verlustsaldo und transparenter Zielpfad-Mathematik.
+- **ECE-Bin-Kanten:** Kalibrierungs-Bins nutzen exakte Konstanten; eine Wahrscheinlichkeit von exakt 0,6 wurde vorher wegen Fließkomma-Addition doppelt gezählt.
+- **ML-Fallback explizit:** `ml_predict` liefert bei Fehlern `None` statt still 0,5; die Anzeige fällt dann sichtbar auf das statistische Modell zurück.
+- **Train/Serve-Konsistenz:** Die BTTS-ML-Serving-Features stammen jetzt wie das Training aus rollierenden Fenstern des lokalen Datenbestands (`get_recent_form`, letzte 20 Spiele) statt aus Provider-Saisonaggregaten.
+- **Tagesgruppierter ML-Split:** `MLEnsemble.train` akzeptiert Kalendertage je Zeile und legt Trainings-, Validierungs- und Holdout-Grenzen ausschließlich auf Tagesgrenzen (`train_ml_models` reicht die Tage durch).
+- **H2H-Aktualität:** `_h2h_scores` sortiert selbst nach Anstoß absteigend, statt der Lieferreihenfolge des Providers zu vertrauen.
+- **UTC-Zeitstempel:** `fetched_at` in der Datenbank ist jetzt zeitzonenbewusst in UTC.
+- **UX-Ehrlichkeit:** Ungültige manuelle Quoten (≤ 1,00) werden benannt statt still ignoriert; Ecken-/Kartenmärkte in der Challenge tragen einen Hinweis auf abweichende Buchmacher-Settlementregeln; der Value-Pfad im Märkte-Tab erklärt, dass er ohne Shadow-Mode-Kalibrierungshistorie gesperrt bleibt.
+
 ## 13. Schwierigkeiten und ihre Ursachen
 
 ### Zwei ähnlich benannte Fußball-APIs
@@ -412,9 +434,9 @@ Streamlit Community Cloud legt inaktive Apps schlafen. Das ist kein Codefehler. 
 
 ### Priorität 0 - vor ernsthafter Nutzung
 
-1. API-Football-Konto im bestehenden Dashboard prüfen und reaktivieren. Kein zweites Abo kaufen, solange ein bezahltes Jahresabo möglicherweise noch gültig ist.
-2. Gültige Supabase-/PostgreSQL-Verbindung einrichten und Persistenz über einen echten Redeploy testen.
-3. Challenge-Ledger auf PostgreSQL und Benutzeridentität migrieren.
+1. Gültige Supabase-/PostgreSQL-Verbindung einrichten und Persistenz über einen echten Redeploy testen.
+2. Challenge-Ledger auf PostgreSQL und Benutzeridentität migrieren.
+3. API-Football-Verbrauch pro Scan messen und das Pro-Kontingent überwachen.
 4. Die App mehrere Tage im Shadow Mode betreiben, ohne echtes Geld einzusetzen.
 
 ### Priorität 1 - Produktionsreife
@@ -455,8 +477,10 @@ Streamlit Community Cloud legt inaktive Apps schlafen. Das ist kein Codefehler. 
 Letztes bestätigtes Ergebnis:
 
 ```text
-127 passed, 5 subtests passed
+135 passed, 5 subtests passed
 ```
+
+Die acht zusätzlichen Tests (`tests/test_audit_fixes.py` und Ledger-/Stake-Tests) pinnen die Audit-Fixes vom 18. Juli 2026 fest.
 
 ### Patch-Sauberkeit
 
@@ -543,7 +567,7 @@ Der nächste sinnvolle Entwicklungsblock ist die Produktionspersistenz:
 3. PostgreSQL-Implementierung mit Benutzer-ID ergänzen.
 4. Bestehende SQLite-Tests als Vertragsbasis behalten.
 5. Migration, Neustart und Mehrbenutzerszenario testen.
-6. Erst danach API-Football im Shadow Mode aktivieren und reale Datenqualität beobachten.
+6. Mit dem aktiven API-Football-Pro-Zugang reale Datenqualität und CLV im Shadow Mode beobachten.
 
 ## 21. Übergabeprompt für Claude
 
@@ -551,7 +575,7 @@ Der nächste sinnvolle Entwicklungsblock ist die Produktionspersistenz:
 Lies zuerst PROJECT_HANDBUCH.md vollständig und behandle es als aktuellen
 Projektvertrag. Prüfe danach git status, den letzten Commit und die betroffenen
 Tests. Bewahre insbesondere Modell/Preis-Trennung, Fail-closed-Datenverträge,
-day-grouped Walk-forward, die 2-%-Stake-Kappe und die Trennung der beiden
+day-grouped Walk-forward, die Trennung von Challenge-Einsatz und Kelly-Referenz und die Trennung der beiden
 Fußball-APIs. Ändere keine Schwelle nur mit dem Ziel, mehr Tipps auszugeben.
 Arbeite bis Implementierung, Tests und eine klare Zusammenfassung abgeschlossen
 sind. Committe oder pushe nur, wenn dies ausdrücklich beauftragt wurde.
@@ -559,4 +583,4 @@ sind. Committe oder pushe nur, wenn dies ausdrücklich beauftragt wurde.
 
 ## 22. Übergabestatus
 
-Der Codezustand `0925d18` ist die aktuelle belastbare Basis. Die mathematischen und technischen Audits sind umgesetzt. Noch offen sind primär externe Providerfreigabe, dauerhafte Speicherung, Benutzertrennung und längere reale Shadow-Mode-Beobachtung. Diese offenen Punkte dürfen nicht mit einer Modellgarantie verwechselt werden.
+Der Stand vom 19. Juli 2026 ist die aktuelle belastbare Basis: API-Football Pro ist aktiv, die Challenge trennt den konfigurierbaren 5–100-%-Einsatz von der Kelly-Referenz, und `137` Tests plus `5` Subtests bestehen. Noch offen sind primär dauerhafte Speicherung, Benutzertrennung und längere reale Shadow-Mode-/CLV-Beobachtung. Diese offenen Punkte dürfen nicht mit einer Modellgarantie verwechselt werden.

@@ -9,11 +9,14 @@ import json
 import math
 from pathlib import Path
 import sqlite3
-from typing import Any, Optional
+from typing import Any
 
 from challenge_engine import (
     CROSS_LEG_MODEL_FACTOR,
-    MAX_STAKE_FRACTION,
+    DEFAULT_CHALLENGE_STAKE_FRACTION,
+    KELLY_REFERENCE_CAP,
+    MAX_CHALLENGE_STAKE_FRACTION,
+    MIN_CHALLENGE_STAKE_FRACTION,
     QuotedTicket,
     TARGET_BALANCE,
     TARGET_ODDS_MAX,
@@ -82,10 +85,24 @@ class ChallengeLedger:
                     starting_balance_cents INTEGER NOT NULL CHECK (starting_balance_cents >= 0),
                     current_balance_cents INTEGER NOT NULL CHECK (current_balance_cents >= 0),
                     target_balance_cents INTEGER NOT NULL CHECK (target_balance_cents > 0),
+                    stake_fraction_bps INTEGER NOT NULL DEFAULT 10000
+                        CHECK (stake_fraction_bps BETWEEN 500 AND 10000),
                     updated_at TEXT NOT NULL
                 )
                 """
             )
+            setting_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(challenge_settings)")
+            }
+            if "stake_fraction_bps" not in setting_columns:
+                connection.execute(
+                    """
+                    ALTER TABLE challenge_settings
+                    ADD COLUMN stake_fraction_bps INTEGER NOT NULL DEFAULT 10000
+                        CHECK (stake_fraction_bps BETWEEN 500 AND 10000)
+                    """
+                )
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS challenge_tickets (
@@ -118,10 +135,16 @@ class ChallengeLedger:
                 """
                 INSERT OR IGNORE INTO challenge_settings (
                     id, starting_balance_cents, current_balance_cents,
-                    target_balance_cents, updated_at
-                ) VALUES (1, ?, ?, ?, ?)
+                    target_balance_cents, stake_fraction_bps, updated_at
+                ) VALUES (1, ?, ?, ?, ?, ?)
                 """,
-                (default_cents, default_cents, target_cents, now),
+                (
+                    default_cents,
+                    default_cents,
+                    target_cents,
+                    int(DEFAULT_CHALLENGE_STAKE_FRACTION * 10_000),
+                    now,
+                ),
             )
             connection.commit()
 
@@ -136,6 +159,7 @@ class ChallengeLedger:
             "starting_balance": _cents_to_money(row["starting_balance_cents"]),
             "current_balance": _cents_to_money(row["current_balance_cents"]),
             "target_balance": _cents_to_money(row["target_balance_cents"]),
+            "stake_fraction": row["stake_fraction_bps"] / 10_000.0,
             "updated_at": row["updated_at"],
         }
 
@@ -166,6 +190,38 @@ class ChallengeLedger:
                     """,
                     (cents, now),
                 )
+            connection.commit()
+        return self.settings()
+
+    def set_stake_fraction(self, stake_fraction: Any) -> dict[str, Any]:
+        if isinstance(stake_fraction, bool):
+            raise ValueError("Stake fraction must be numeric")
+        try:
+            fraction = Decimal(str(stake_fraction))
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise ValueError("Stake fraction must be numeric") from exc
+        if (
+            not fraction.is_finite()
+            or fraction < Decimal(str(MIN_CHALLENGE_STAKE_FRACTION))
+            or fraction > Decimal(str(MAX_CHALLENGE_STAKE_FRACTION))
+        ):
+            raise ValueError("Stake fraction must be between 5% and 100%")
+        basis_points = int(
+            (fraction * Decimal("10000")).quantize(
+                Decimal("1"),
+                rounding=ROUND_HALF_UP,
+            )
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE challenge_settings
+                SET stake_fraction_bps = ?, updated_at = ?
+                WHERE id = 1
+                """,
+                (basis_points, now),
+            )
             connection.commit()
         return self.settings()
 
@@ -245,7 +301,7 @@ class ChallengeLedger:
                 derived_total_odds,
                 probability_haircut=0.0,
                 kelly_fraction=0.25,
-                kelly_cap=MAX_STAKE_FRACTION,
+                kelly_cap=KELLY_REFERENCE_CAP,
             )
         except BettingMathError as exc:
             raise ValueError("Ticket mathematics are invalid") from exc
@@ -316,23 +372,26 @@ class ChallengeLedger:
         with closing(self._connect()) as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                pending_count = connection.execute(
+                    "SELECT COUNT(*) FROM challenge_tickets WHERE status = 'PENDING'"
+                ).fetchone()[0]
+                if pending_count:
+                    # Challenge sizing assumes sequential roll-over tickets;
+                    # concurrent tickets would silently stack bankroll exposure.
+                    raise ValueError(
+                        "An open ticket must be settled before a new ticket can be placed"
+                    )
                 row = connection.execute(
-                    "SELECT current_balance_cents FROM challenge_settings WHERE id = 1"
+                    """
+                    SELECT current_balance_cents, stake_fraction_bps
+                    FROM challenge_settings WHERE id = 1
+                    """
                 ).fetchone()
                 if row is None or stake_cents > row[0]:
                     raise ValueError("Stake exceeds the available balance")
-                allowed_fraction = min(
-                    MAX_STAKE_FRACTION,
-                    derived_metrics.kelly_fraction,
-                )
-                max_stake_cents = int(
-                    (Decimal(row[0]) * Decimal(str(allowed_fraction))).quantize(
-                        Decimal("1"),
-                        rounding=ROUND_HALF_UP,
-                    )
-                )
+                max_stake_cents = row[0] * row[1] // 10_000
                 if stake_cents > max_stake_cents:
-                    raise ValueError("Stake exceeds the ticket's Kelly cap")
+                    raise ValueError("Stake exceeds the configured challenge limit")
                 cursor = connection.execute(
                     """
                     INSERT INTO challenge_tickets (

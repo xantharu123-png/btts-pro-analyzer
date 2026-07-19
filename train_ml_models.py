@@ -262,6 +262,7 @@ class FeatureEngineer:
 
                 features.append({
                     'fixture_id': row['fixture_id'],
+                    'model_day': row['_model_day'],
                     'league_id': row['league_id'],
                     'result_code': row['result_code'],
                     'btts': row['btts'],
@@ -386,6 +387,9 @@ def train_models(api_key: str = None, use_sample_data: bool = False):
     y_result = features_df['result_code'].values
     y_btts = features_df['btts'].values
     y_over25 = features_df['over_25'].values
+    # Calendar days per row: keeps every train/validation/holdout boundary
+    # day-grouped inside MLEnsemble (handbook rule 7).
+    feature_dates = features_df['model_day'].values
     
     print(f"\nTraining data shape: {X.shape}")
     
@@ -395,7 +399,7 @@ def train_models(api_key: str = None, use_sample_data: bool = False):
     print("=" * 40)
     
     ml_result = MLEnsemble('models/result/')
-    ml_result.train(X, y_result, target='match_result')
+    ml_result.train(X, y_result, target='match_result', dates=feature_dates)
     if not ml_result.is_trained:
         raise RuntimeError("Match-result ensemble failed the chronological Brier gate")
     ml_result.save_models()
@@ -405,7 +409,7 @@ def train_models(api_key: str = None, use_sample_data: bool = False):
     print("=" * 40)
     
     ml_btts = MLEnsemble('models/btts/')
-    ml_btts.train(X, y_btts, target='btts')
+    ml_btts.train(X, y_btts, target='btts', dates=feature_dates)
     if not ml_btts.is_trained:
         raise RuntimeError("BTTS ensemble failed the chronological Brier gate")
     ml_btts.save_models()
@@ -415,7 +419,7 @@ def train_models(api_key: str = None, use_sample_data: bool = False):
     print("=" * 40)
     
     ml_over = MLEnsemble('models/over25/')
-    ml_over.train(X, y_over25, target='over_25')
+    ml_over.train(X, y_over25, target='over_25', dates=feature_dates)
     if not ml_over.is_trained:
         raise RuntimeError("Over-2.5 ensemble failed the chronological Brier gate")
     ml_over.save_models()

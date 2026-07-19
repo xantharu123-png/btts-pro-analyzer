@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 import math
 import time
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -13,12 +14,15 @@ import streamlit as st
 
 from challenge_engine import (
     ChallengeCandidate,
+    COUNT_MARKET_KINDS,
     CROSS_LEG_MODEL_FACTOR,
-    MAX_STAKE_FRACTION,
+    MARKET_BY_KEY,
     TARGET_ODDS_MAX,
     TARGET_ODDS_MIN,
     apply_candidate_context,
     build_fixture_candidates,
+    consecutive_wins_to_target,
+    kelly_reference_stake,
     select_model_ticket,
     select_quoted_ticket,
     select_shortlist,
@@ -33,10 +37,24 @@ from season_utils import current_season_start_year_for_id
 
 
 CHALLENGE_SNAPSHOT_VERSION = 2
+CHALLENGE_TIMEZONE = ZoneInfo("Europe/Zurich")
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140)
 MAX_CONTEXT_FIXTURES = 8
 QUOTE_MAX_AGE_MINUTES = 10
 SNAPSHOT_MAX_AGE_MINUTES = 20
+
+
+def _challenge_today(now: Optional[datetime] = None) -> date:
+    """Return the current calendar date in the challenge timezone.
+
+    Provider requests use ``timezone=Europe/Zurich``; the search date must be
+    derived from the same zone, otherwise a UTC server picks the wrong match
+    day between 00:00 and 02:00 Swiss time.
+    """
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    return reference.astimezone(CHALLENGE_TIMEZONE).date()
 
 
 def _positive_integer(value: Any) -> Optional[int]:
@@ -688,13 +706,14 @@ def _render_progress(ledger: ChallengeLedger) -> dict[str, Any]:
     current = settings["current_balance"]
     target = settings["target_balance"]
     start = settings["starting_balance"]
+    stake_fraction = settings["stake_fraction"]
     progress = 1.0 if target <= start and current >= target else (current - start) / max(target - start, 0.01)
     progress = max(0.0, min(1.0, progress))
     values = (
         ("Guthaben", _format_euro(current)),
         ("Ziel", _format_euro(target)),
         ("Noch offen", _format_euro(max(0.0, target - current))),
-        ("Max. Einsatz", _format_euro(current * MAX_STAKE_FRACTION)),
+        ("Challenge-Einsatz", _format_euro(current * stake_fraction)),
     )
     stats_html = "".join(
         '<div class="bb-challenge-stat">'
@@ -713,6 +732,55 @@ def _render_progress(ledger: ChallengeLedger) -> dict[str, Any]:
 
 def _render_account(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     st.subheader("Challenge-Konto")
+    stake_percent = st.slider(
+        "Einsatzanteil je Ticket (%)",
+        min_value=5,
+        max_value=100,
+        value=int(round(settings["stake_fraction"] * 100)),
+        step=5,
+        key="challenge_stake_percent",
+    )
+    if st.button(
+        "Einsatzanteil speichern",
+        type="primary",
+        width="stretch",
+        key="challenge_save_stake_fraction",
+    ):
+        try:
+            ledger.set_stake_fraction(stake_percent / 100.0)
+            st.success("Einsatzanteil aktualisiert.")
+            st.rerun()
+        except ValueError as exc:
+            st.warning(str(exc))
+
+    preview_fraction = stake_percent / 100.0
+    loss_balance = settings["current_balance"] * (1.0 - preview_fraction)
+    wins_at_two = consecutive_wins_to_target(
+        settings["current_balance"],
+        settings["target_balance"],
+        2.0,
+        preview_fraction,
+    )
+    wins_at_three = consecutive_wins_to_target(
+        settings["current_balance"],
+        settings["target_balance"],
+        3.0,
+        preview_fraction,
+    )
+    projection = st.columns(3)
+    projection[0].metric(
+        "Quote 2,00",
+        f"{wins_at_two} Siege" if wins_at_two is not None else "nicht erreichbar",
+    )
+    projection[1].metric(
+        "Quote 3,00",
+        f"{wins_at_three} Siege" if wins_at_three is not None else "nicht erreichbar",
+    )
+    projection[2].metric("Saldo nach Verlust", _format_euro(loss_balance))
+    if stake_percent == 100:
+        st.warning("100 % Roll-over: Eine verlorene Wette setzt das Challenge-Guthaben auf 0 €.")
+
+    st.divider()
     balance = st.number_input(
         "Guthaben korrigieren",
         min_value=0.0,
@@ -737,8 +805,9 @@ def _render_account(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         except ValueError as exc:
             st.warning(str(exc))
     st.caption(
-        "Das Ziel bleibt 15.000 €. Es gibt höchstens ein Ticket pro Tag, keine Einsatzverdopplung "
-        "nach Verlusten und höchstens 2 % Fractional-Kelly pro Ticket."
+        "Das Ziel bleibt 15.000 €. Der Einsatzanteil wird immer vom aktuellen Guthaben "
+        "berechnet; es gibt kein Nachschießen und keine Martingale-Verdopplung nach Verlusten. "
+        "Ein offenes Ticket muss vor dem nächsten Ticket abgerechnet sein."
     )
 
 
@@ -877,6 +946,18 @@ def _render_price_check(
         "Die Preise werden erst jetzt manuell ergänzt. Eine niedrige Quote erhöht keine "
         "Modellwahrscheinlichkeit; ein negativer Einzel- oder Ticket-EV sperrt die Auswahl."
     )
+    count_market_candidates = [
+        candidate
+        for candidate in shortlist
+        if MARKET_BY_KEY[candidate.market_key].kind in COUNT_MARKET_KINDS
+    ]
+    if count_market_candidates:
+        st.warning(
+            "Ecken-/Kartenmärkte in der Shortlist: Das Modell rechnet mit API-Zählungen ab. "
+            "Buchmacherregeln (z. B. zweite Gelbe Karte, Karten für Trainer oder Bank, Karten "
+            "nach Abpfiff, zurückgenommene Ecken) können abweichen. Vor der Abgabe die "
+            "N1Bet-Marktregeln prüfen; bei Abweichung den Markt auslassen."
+        )
     odds_by_candidate: dict[str, float] = {}
     for index, candidate in enumerate(shortlist, start=1):
         st.markdown(
@@ -902,6 +983,18 @@ def _render_price_check(
         width="stretch",
         key="challenge_check_quotes",
     ):
+        implausible_entries = [
+            f"{candidate.home_team} vs {candidate.away_team} "
+            f"({odds_by_candidate.get(candidate.candidate_id, 0.0):.2f})"
+            for candidate in shortlist
+            if 0.0 < odds_by_candidate.get(candidate.candidate_id, 0.0) <= 1.0
+        ]
+        if implausible_entries:
+            st.warning(
+                "Ungültige Quote (kleiner oder gleich 1,00) eingegeben und ignoriert: "
+                + "; ".join(implausible_entries)
+                + ". Dezimalquoten müssen über 1,00 liegen; 0 bedeutet Markt nicht verfügbar."
+            )
         ticket = select_quoted_ticket(shortlist, odds_by_candidate)
         st.session_state["challenge_quote_result"] = {
             "snapshot_time": snapshot["scanned_at"],
@@ -941,11 +1034,31 @@ def _render_price_check(
         st.caption(
             f"Zusätzlicher Kombi-Modellfehlerabschlag: Faktor {ticket.model_dependency_factor:.3f}."
         )
-    stake = ticket_stake(ticket, settings["current_balance"])
-    st.info(
-        f"Einsatz nach 1/4-Kelly und 2-%-Kappe: {stake:.2f} €. "
-        f"Mögliche Auszahlung: {stake * ticket.total_odds:.2f} €."
+    current_balance = settings["current_balance"]
+    stake_fraction = settings["stake_fraction"]
+    stake = ticket_stake(ticket, current_balance, stake_fraction)
+    kelly_stake = kelly_reference_stake(ticket, current_balance)
+    win_balance = current_balance - stake + stake * ticket.total_odds
+    loss_balance = current_balance - stake
+    wins_remaining = consecutive_wins_to_target(
+        current_balance,
+        settings["target_balance"],
+        ticket.total_odds,
+        stake_fraction,
     )
+    stake_metrics = st.columns(4)
+    stake_metrics[0].metric("Challenge-Einsatz", _format_euro(stake))
+    stake_metrics[1].metric("Saldo bei Gewinn", _format_euro(win_balance))
+    stake_metrics[2].metric("Saldo bei Verlust", _format_euro(loss_balance))
+    stake_metrics[3].metric("¼-Kelly-Referenz", _format_euro(kelly_stake))
+    if wins_remaining is not None and wins_remaining > 0:
+        path_probability = ticket.joint_probability ** wins_remaining
+        st.caption(
+            f"Bei unveränderter Quote wären {wins_remaining} Siege in Folge bis zum Ziel nötig. "
+            f"Modellpfad unter identischer Trefferchance: {path_probability * 100:.3f} %."
+        )
+    if stake_fraction >= 1.0:
+        st.warning("All-in-Stufe: Eine Niederlage beendet die Challenge mit 0 € Guthaben.")
     if stale:
         st.warning("Die manuell geprüften N1Bet-Preise sind älter als 10 Minuten. Erneut prüfen.")
         return
@@ -991,7 +1104,11 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
             "challenge_date_mode",
             "Heute",
         )
-    search_date = datetime.now().date() if date_mode == "Heute" else (datetime.now() + timedelta(days=1)).date()
+    search_date = (
+        _challenge_today()
+        if date_mode == "Heute"
+        else _challenge_today() + timedelta(days=1)
+    )
     max_fixtures = controls[1].slider(
         "Max. analysierte Spiele",
         3,
@@ -1097,6 +1214,7 @@ def render_challenge_15k() -> None:
     ledger = _challenge_ledger()
     settings = _render_progress(ledger)
     st.caption(
+        f"Einsatzanteil {settings['stake_fraction'] * 100:.0f} % | "
         "Tageszielquote 2,00-3,00 | maximal drei verschiedene Spiele | "
         "Buchmacherpreise erst nach der Modellfreigabe"
     )

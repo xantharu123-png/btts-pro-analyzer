@@ -360,14 +360,23 @@ def _render_value_analysis(match: dict, api_key: str) -> None:
     away = match["teams"]["away"]["name"]
     with st.spinner("Modell und exakte Marktquote werden geprüft..."):
         match_analysis = _collect_match_analysis(match, api_key)
+
+    st.subheader(f"{home} vs {away}")
+    if not match_analysis.get("market_validation"):
+        st.info(
+            "Value-Bets setzen eine gespeicherte Out-of-sample-Kalibrierungshistorie je Markt "
+            "und Liga voraus (Shadow-Mode-Backtest mit Preis-Provenienz). Diese Historie "
+            "existiert noch nicht; der Pfad bleibt deshalb bewusst gesperrt und es wird keine "
+            "Quote abgerufen. Erst mehrere Wochen Shadow Mode schalten ihn frei."
+        )
+        return
+    with st.spinner("Verifizierte Marktquote wird geprüft..."):
         config = load_app_config(st)
         finder = SmartBetFinder(
             odds_api_key=config.odds_api_key,
             api_football_key=api_key,
         )
         bets = finder.find_value_bets(match_analysis, home, away)
-
-    st.subheader(f"{home} vs {away}")
     if not bets:
         st.warning(
             "Kein zulässiger Value-Kandidat: Kalibrierung, exaktes Fixture, frische vollständige "

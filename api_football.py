@@ -317,6 +317,11 @@ class APIFootball:
                                 val = s.get('value')
                                 if stat_type == 'Ball Possession':
                                     return self._finite_nonnegative(val, maximum=100.0)
+                                if stat_type == 'expected_goals':
+                                    # Provider delivers xG as decimal text such as
+                                    # "1.34"; an integer-only parse would silently
+                                    # disable every live-xG data-quality tier.
+                                    return self._finite_nonnegative(val, maximum=20.0)
                                 return self._nonnegative_integer(val, maximum=5000)
                         return None
 

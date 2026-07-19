@@ -229,6 +229,7 @@ class MLEnsemble:
         X: np.ndarray,
         y: np.ndarray,
         target: str = 'match_result',
+        dates: Optional[np.ndarray] = None,
     ) -> Dict:
         if not ML_AVAILABLE:
             raise RuntimeError("scikit-learn is required for training")
@@ -242,6 +243,12 @@ class MLEnsemble:
             raise ValueError("At least 100 aligned chronological samples are required")
         if not np.isfinite(X).all():
             raise ValueError("Training features must be finite")
+        if dates is not None:
+            dates = np.asarray(dates)
+            if len(dates) != len(X):
+                raise ValueError("dates must align one-to-one with the training rows")
+            if len(dates) > 1 and np.any(dates[:-1] > dates[1:]):
+                raise ValueError("dates must be chronologically ordered")
 
         expected_classes = self.TARGET_CLASSES[target]
         if set(np.unique(y)) != set(expected_classes):
@@ -250,11 +257,31 @@ class MLEnsemble:
         self.classes_ = expected_classes.copy()
         self._initialize_models()
 
-        holdout_size = max(20, int(math.ceil(len(X) * 0.20)))
-        selection_end = len(X) - holdout_size
+        if dates is None:
+            holdout_size = max(20, int(math.ceil(len(X) * 0.20)))
+            selection_end = len(X) - holdout_size
+        else:
+            # Day-grouped boundary: the holdout starts at a calendar-day edge,
+            # so matches of the same day never straddle selection and holdout.
+            unique_days = np.unique(dates)
+            if len(unique_days) < 12:
+                self.models = {}
+                self.weights = {}
+                self.is_trained = False
+                self.validation_scores = {}
+                return {}
+            holdout_day_count = max(1, int(math.ceil(len(unique_days) * 0.20)))
+            boundary_day = unique_days[len(unique_days) - holdout_day_count]
+            selection_end = int(np.searchsorted(dates, boundary_day, side='left'))
+            if len(X) - selection_end < 20:
+                self.models = {}
+                self.weights = {}
+                self.is_trained = False
+                self.validation_scores = {}
+                return {}
         X_selection, y_selection = X[:selection_end], y[:selection_end]
         X_holdout, y_holdout = X[selection_end:], y[selection_end:]
-        if set(np.unique(y_selection)) != set(expected_classes):
+        if len(X_selection) < 100 or set(np.unique(y_selection)) != set(expected_classes):
             self.models = {}
             self.weights = {}
             self.is_trained = False
@@ -262,6 +289,26 @@ class MLEnsemble:
             return {}
 
         splitter = TimeSeriesSplit(n_splits=5)
+        if dates is None:
+            split_pairs = list(splitter.split(X_selection))
+        else:
+            # Day-grouped expanding window: fold boundaries are calendar days,
+            # never rows, so same-day results cannot cross a fold boundary.
+            selection_days = np.unique(dates[:selection_end])
+            if len(selection_days) <= 5:
+                self.models = {}
+                self.weights = {}
+                self.is_trained = False
+                self.validation_scores = {}
+                return {}
+            dates_selection = dates[:selection_end]
+            split_pairs = [
+                (
+                    np.flatnonzero(np.isin(dates_selection, selection_days[train_days])),
+                    np.flatnonzero(np.isin(dates_selection, selection_days[validation_days])),
+                )
+                for train_days, validation_days in splitter.split(selection_days)
+            ]
         accepted = {}
         scores_by_model = {}
         for name, template in self.models.items():
@@ -269,7 +316,7 @@ class MLEnsemble:
             baseline_scores = []
             fold_accuracies = []
             valid = True
-            for train_index, validation_index in splitter.split(X_selection):
+            for train_index, validation_index in split_pairs:
                 y_train = y_selection[train_index]
                 if len(np.unique(y_train)) < 2:
                     valid = False
@@ -318,7 +365,11 @@ class MLEnsemble:
                     score < baseline
                     for score, baseline in zip(fold_scores, baseline_scores)
                 ),
-                'validation': 'expanding_window',
+                'validation': (
+                    'day_grouped_expanding_window'
+                    if dates is not None
+                    else 'expanding_window'
+                ),
             }
             scores_by_model[name] = metrics
             if (
@@ -386,7 +437,11 @@ class MLEnsemble:
             'holdout_baseline_brier_score': holdout_baseline_brier,
             'holdout_accuracy': holdout_accuracy,
             'holdout_passed': holdout_passed,
-            'validation': 'inner_expanding_window_plus_untouched_final_holdout',
+            'validation': (
+                'inner_day_grouped_expanding_window_plus_untouched_final_holdout'
+                if dates is not None
+                else 'inner_expanding_window_plus_untouched_final_holdout'
+            ),
         })
         self.validation_scores = scores_by_model
         if not holdout_passed:

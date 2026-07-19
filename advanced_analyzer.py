@@ -719,15 +719,19 @@ class AdvancedBTTSAnalyzer:
             print("Training new model...")
             self.train_model()
     
-    def ml_predict(self, features: List[float]) -> Tuple[float, float]:
-        """Return probability and relative out-of-sample Brier improvement."""
+    def ml_predict(self, features: List[float]) -> Tuple[Optional[float], float]:
+        """Return probability (or None) and relative out-of-sample Brier improvement.
+
+        A failed prediction returns ``None`` so callers fall back explicitly;
+        a silent neutral 0.5 would be displayed as a real 50% estimate.
+        """
         if not self.model_trained or self.ml_model is None:
-            return 0.5, 0.0
-        
+            return None, 0.0
+
         try:
             X = np.array([features])
             if X.shape[1] != len(ML_FEATURE_NAMES):
-                return 0.5, 0.0
+                return None, 0.0
             X_scaled = self.scaler.transform(X)
             proba = self.ml_model.predict_proba(X_scaled)[0][1]
             model_brier = self.model_metrics.get('brier_score')
@@ -739,7 +743,7 @@ class AdvancedBTTSAnalyzer:
             )
             return proba, max(0.0, min(1.0, improvement))
         except Exception:
-            return 0.5, 0.0
+            return None, 0.0
     
     def _poisson_at_least_one(self, expected_goals: float) -> float:
         """
@@ -905,20 +909,42 @@ class AdvancedBTTSAnalyzer:
         # FINALE KOMBINATION
         # =============================================
         ml_probability = None
-        ml_features = [
-            home_season['btts_rate'],
-            away_season['btts_rate'],
-            home_season['ml_avg_scored'],
-            away_season['ml_avg_scored'],
-            home_season['ml_avg_conceded'],
-            away_season['ml_avg_conceded'],
-        ]
-        ml_features_available = all(
-            isinstance(value, (int, float)) and math.isfinite(float(value))
-            for value in ml_features
+        # Serving features must match the training definition: rolling
+        # last-N windows from the local match store, not provider season
+        # aggregates. Mixing the two would create silent train/serve skew.
+        ml_features = None
+        home_recent = self.engine.get_recent_form(
+            home_team_id, league_code, venue='all', last_n=ML_HISTORY_WINDOW
         )
-        if self.model_trained and ml_features_available:
-            ml_probability = self.ml_predict(ml_features)[0] * 100.0
+        away_recent = self.engine.get_recent_form(
+            away_team_id, league_code, venue='all', last_n=ML_HISTORY_WINDOW
+        )
+        if (
+            isinstance(home_recent, dict)
+            and isinstance(away_recent, dict)
+            and home_recent.get('matches', 0) >= ML_MIN_TEAM_HISTORY
+            and away_recent.get('matches', 0) >= ML_MIN_TEAM_HISTORY
+        ):
+            candidate_features = [
+                home_recent.get('btts_rate'),
+                away_recent.get('btts_rate'),
+                home_recent.get('avg_scored'),
+                away_recent.get('avg_scored'),
+                home_recent.get('avg_conceded'),
+                away_recent.get('avg_conceded'),
+            ]
+            if all(
+                not isinstance(value, bool)
+                and isinstance(value, (int, float))
+                and math.isfinite(float(value))
+                for value in candidate_features
+            ):
+                ml_features = [float(value) for value in candidate_features]
+        if self.model_trained and ml_features is not None:
+            predicted_probability = self.ml_predict(ml_features)[0]
+            if predicted_probability is not None:
+                ml_probability = predicted_probability * 100.0
+        if ml_probability is not None:
             final_btts = ml_probability
             active_model = 'walk_forward_validated_ml'
         else:

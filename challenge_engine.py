@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_FLOOR
 from itertools import combinations
 import math
 import re
@@ -23,7 +23,10 @@ TARGET_BALANCE = 15_000.0
 TARGET_ODDS_MIN = 2.0
 TARGET_ODDS_MAX = 3.0
 MAX_TICKET_LEGS = 3
-MAX_STAKE_FRACTION = 0.02
+DEFAULT_CHALLENGE_STAKE_FRACTION = 1.0
+MIN_CHALLENGE_STAKE_FRACTION = 0.05
+MAX_CHALLENGE_STAKE_FRACTION = 1.0
+KELLY_REFERENCE_CAP = 0.25
 CROSS_LEG_MODEL_FACTOR = 0.97
 
 MIN_LEAGUE_MATCHES = 24
@@ -1010,8 +1013,9 @@ def _calibration_diagnostics(
     error = 0.0
     supported_sizes: list[int] = []
     supported_deviations: list[float] = []
-    for lower in (0.0, 0.2, 0.4, 0.6, 0.8):
-        upper = lower + 0.2
+    # Explicit bin edges: deriving ``upper`` as ``lower + 0.2`` yields
+    # 0.6000000000000001 in floating point and double-counts p == 0.6.
+    for lower, upper in ((0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.0)):
         indices = [
             index
             for index, probability in enumerate(predictions)
@@ -1330,8 +1334,15 @@ def _h2h_scores(
     current_home_team_id: int,
     current_away_team_id: int,
 ) -> list[tuple[int, int]]:
+    # Sort by kickoff descending instead of trusting provider delivery order,
+    # so "last 10" always means the ten most recent completed meetings.
+    ordered = sorted(
+        (fixture for fixture in fixtures if isinstance(fixture, dict)),
+        key=lambda item: _fixture_datetime(item) or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
     scores: list[tuple[int, int]] = []
-    for fixture in fixtures:
+    for fixture in ordered:
         score = _fixture_score(fixture)
         if score is None:
             continue
@@ -1784,7 +1795,7 @@ def select_quoted_ticket(
                 odds,
                 probability_haircut=0.0,
                 kelly_fraction=0.25,
-                kelly_cap=MAX_STAKE_FRACTION,
+                kelly_cap=KELLY_REFERENCE_CAP,
             )
         except BettingMathError:
             continue
@@ -1816,7 +1827,7 @@ def select_quoted_ticket(
                 total_odds,
                 probability_haircut=0.0,
                 kelly_fraction=0.25,
-                kelly_cap=MAX_STAKE_FRACTION,
+                kelly_cap=KELLY_REFERENCE_CAP,
             )
             legs = tuple(
                 QuotedLeg(candidate=entry[0], odds=entry[1], expected_roi=entry[2])
@@ -1844,26 +1855,92 @@ def select_quoted_ticket(
     )
 
 
-def ticket_stake(ticket: QuotedTicket, available_balance: float) -> float:
+def _stake_fraction(value: Any, label: str) -> float:
+    fraction = _finite_nonnegative(value)
+    if (
+        fraction is None
+        or fraction < MIN_CHALLENGE_STAKE_FRACTION
+        or fraction > MAX_CHALLENGE_STAKE_FRACTION
+    ):
+        raise ValueError(f"{label} must be between 5% and 100%")
+    return fraction
+
+
+def ticket_stake(
+    ticket: QuotedTicket,
+    available_balance: float,
+    challenge_fraction: float = DEFAULT_CHALLENGE_STAKE_FRACTION,
+) -> float:
+    """Return the configured challenge stake, rounded down to whole cents.
+
+    ``ticket.stake_fraction`` remains the conservative quarter-Kelly reference.
+    The challenge fraction is a separate, explicit risk decision because a
+    roll-over challenge cannot mathematically operate under a hidden 2% cap.
+    """
+    balance = _finite_nonnegative(available_balance)
+    if balance is None:
+        raise ValueError("Available balance must be finite and non-negative")
+    kelly_fraction = _finite_nonnegative(ticket.stake_fraction)
+    if kelly_fraction is None or kelly_fraction > 1.0:
+        raise ValueError("Ticket stake fraction must be finite and non-negative")
+    fraction = _stake_fraction(challenge_fraction, "Challenge stake fraction")
+    stake = min(balance, balance * fraction)
+    return float(
+        Decimal(str(stake)).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
+    )
+
+
+def kelly_reference_stake(ticket: QuotedTicket, available_balance: float) -> float:
+    """Return quarter-Kelly as a comparison value, never as the challenge cap."""
     balance = _finite_nonnegative(available_balance)
     if balance is None:
         raise ValueError("Available balance must be finite and non-negative")
     fraction = _finite_nonnegative(ticket.stake_fraction)
-    if fraction is None:
-        raise ValueError("Ticket stake fraction must be finite and non-negative")
-    stake = min(balance, balance * min(fraction, MAX_STAKE_FRACTION))
+    if fraction is None or fraction > KELLY_REFERENCE_CAP:
+        raise ValueError("Ticket Kelly fraction is invalid")
     return float(
-        Decimal(str(stake)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        Decimal(str(balance * fraction)).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_FLOOR,
+        )
     )
+
+
+def consecutive_wins_to_target(
+    current_balance: float,
+    target_balance: float,
+    decimal_odds: float,
+    challenge_fraction: float,
+) -> Optional[int]:
+    """Return loss-free wins needed when the same bankroll fraction is rolled over."""
+    current = _finite_nonnegative(current_balance)
+    target = _finite_nonnegative(target_balance)
+    if current is None or target is None:
+        raise ValueError("Balances must be finite and non-negative")
+    if current >= target:
+        return 0
+    if current <= 0.0:
+        return None
+    try:
+        odds = validate_decimal_odds(decimal_odds)
+    except BettingMathError as exc:
+        raise ValueError("Decimal odds must be greater than 1") from exc
+    fraction = _stake_fraction(challenge_fraction, "Challenge stake fraction")
+    win_multiplier = 1.0 + fraction * (odds - 1.0)
+    raw_steps = math.log(target / current) / math.log(win_multiplier)
+    return max(1, math.ceil(raw_steps - 1e-12))
 
 
 __all__ = [
     "ChallengeCandidate",
     "CROSS_LEG_MODEL_FACTOR",
+    "DEFAULT_CHALLENGE_STAKE_FRACTION",
+    "KELLY_REFERENCE_CAP",
     "MARKET_BY_KEY",
     "MARKET_SPECS",
-    "MAX_STAKE_FRACTION",
+    "MAX_CHALLENGE_STAKE_FRACTION",
     "MAX_TICKET_LEGS",
+    "MIN_CHALLENGE_STAKE_FRACTION",
     "QuotedTicket",
     "TARGET_BALANCE",
     "TARGET_ODDS_MAX",
@@ -1872,6 +1949,7 @@ __all__ = [
     "apply_candidate_context",
     "build_fixture_candidates",
     "candidate_is_credible",
+    "consecutive_wins_to_target",
     "fixture_market_probabilities",
     "market_outcome",
     "market_probability",
@@ -1879,6 +1957,7 @@ __all__ = [
     "select_model_ticket",
     "select_quoted_ticket",
     "select_shortlist",
+    "kelly_reference_stake",
     "ticket_stake",
     "validate_league_markets",
 ]

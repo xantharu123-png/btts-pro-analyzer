@@ -396,7 +396,7 @@ class DataEngine:
                                 fetched_at = EXCLUDED.fetched_at
                         ''', (match_id, league_code, league_id, match_date, home_team, away_team,
                               home_id, away_id, home_goals, away_goals, btts, total, 
-                              datetime.now().isoformat()))
+                              datetime.now(timezone.utc).isoformat()))
                     else:
                         c.execute(f'''
                             INSERT OR REPLACE INTO matches 
@@ -406,7 +406,7 @@ class DataEngine:
                             VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
                         ''', (match_id, league_code, league_id, match_date, home_team, away_team,
                               home_id, away_id, home_goals, away_goals, btts, total,
-                              datetime.now().isoformat()))
+                              datetime.now(timezone.utc).isoformat()))
                     
                     count += 1
                     

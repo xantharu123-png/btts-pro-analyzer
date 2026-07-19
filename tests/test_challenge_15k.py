@@ -1,3 +1,5 @@
+from contextlib import closing
+import sqlite3
 import tempfile
 import unittest
 from dataclasses import replace
@@ -15,6 +17,8 @@ from challenge_engine import (
     apply_candidate_context,
     build_fixture_candidates,
     candidate_is_credible,
+    consecutive_wins_to_target,
+    kelly_reference_stake,
     market_outcome,
     score_matrix,
     select_model_ticket,
@@ -659,14 +663,22 @@ class ChallengeTicketTests(unittest.TestCase):
 
         self.assertIsNone(ticket)
 
-    def test_stake_is_capped_at_two_percent(self):
+    def test_challenge_stake_is_separate_from_kelly_reference(self):
         candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.68)]
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
 
         self.assertIsNotNone(ticket)
-        self.assertLessEqual(ticket_stake(ticket, 1000), 20.0)
+        self.assertEqual(ticket_stake(ticket, 1000), 1000.0)
+        self.assertEqual(ticket_stake(ticket, 1000, 0.25), 250.0)
         capped_ticket = replace(ticket, stake_fraction=0.02)
-        self.assertEqual(ticket_stake(capped_ticket, 101.25), 2.03)
+        self.assertEqual(ticket_stake(capped_ticket, 101.25, 0.25), 25.31)
+        self.assertEqual(kelly_reference_stake(capped_ticket, 101.25), 2.02)
+
+    def test_rollover_growth_projection_matches_target_math(self):
+        self.assertEqual(consecutive_wins_to_target(100, 15_000, 2.0, 1.0), 8)
+        self.assertEqual(consecutive_wins_to_target(100, 15_000, 3.0, 1.0), 5)
+        self.assertEqual(consecutive_wins_to_target(100, 15_000, 2.0, 0.5), 13)
+        self.assertEqual(consecutive_wins_to_target(15_000, 15_000, 2.0, 1.0), 0)
 
 
 class ChallengeLedgerTests(unittest.TestCase):
@@ -718,14 +730,53 @@ class ChallengeLedgerTests(unittest.TestCase):
                     datetime.now(timezone.utc).isoformat(),
                 )
 
-    def test_ledger_recomputes_ticket_math_quote_age_and_kelly_cap(self):
+    def test_open_ticket_blocks_new_placement_even_on_another_date(self):
         candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.68)]
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
         self.assertIsNotNone(ticket)
 
         with tempfile.TemporaryDirectory() as tmp:
             ledger = ChallengeLedger(Path(tmp) / "challenge.db")
-            stake = ticket_stake(ticket, 100.0)
+            ledger.set_stake_fraction(0.5)
+            stake = ticket_stake(ticket, 100.0, 0.5)
+            ticket_id = ledger.place_ticket(
+                "2026-07-14",
+                ticket,
+                stake,
+                datetime.now(timezone.utc).isoformat(),
+            )
+            # A second ticket for tomorrow would stack concurrent exposure.
+            with self.assertRaises(ValueError):
+                ledger.place_ticket(
+                    "2026-07-15",
+                    ticket,
+                    stake,
+                    datetime.now(timezone.utc).isoformat(),
+                )
+            # Once the open ticket is settled, the next match day is allowed.
+            ledger.settle_ticket(ticket_id, "LOST")
+            second_stake = ticket_stake(
+                ticket,
+                ledger.settings()["current_balance"],
+                ledger.settings()["stake_fraction"],
+            )
+            second_id = ledger.place_ticket(
+                "2026-07-15",
+                ticket,
+                second_stake,
+                datetime.now(timezone.utc).isoformat(),
+            )
+            self.assertGreater(second_id, ticket_id)
+
+    def test_ledger_recomputes_ticket_math_quote_age_and_challenge_cap(self):
+        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.68)]
+        ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
+        self.assertIsNotNone(ticket)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            ledger.set_stake_fraction(0.25)
+            stake = ticket_stake(ticket, 100.0, 0.25)
             with self.assertRaises(ValueError):
                 ledger.place_ticket(
                     "2026-07-14",
@@ -747,6 +798,32 @@ class ChallengeLedgerTests(unittest.TestCase):
                     stake + 0.01,
                     datetime.now(timezone.utc).isoformat(),
                 )
+
+    def test_legacy_database_migrates_to_full_rollover_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "legacy.db"
+            with closing(sqlite3.connect(db_path)) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE challenge_settings (
+                        id INTEGER PRIMARY KEY,
+                        starting_balance_cents INTEGER NOT NULL,
+                        current_balance_cents INTEGER NOT NULL,
+                        target_balance_cents INTEGER NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                connection.execute(
+                    "INSERT INTO challenge_settings VALUES (1, 10000, 10000, 1500000, 'now')"
+                )
+                connection.commit()
+
+            ledger = ChallengeLedger(db_path)
+
+            self.assertEqual(ledger.settings()["stake_fraction"], 1.0)
+            ledger.set_stake_fraction(0.25)
+            self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
 
 
 if __name__ == "__main__":
