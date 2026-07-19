@@ -29,6 +29,11 @@ def test_red_card_monitor_uses_the_full_canonical_league_scope():
     assert set(RED_CARD_MONITORED_LEAGUE_IDS) == set(ALTERNATIVE_MARKET_LEAGUES)
 
 
+def test_app_formats_new_league_codes_from_existing_catalog_symbols():
+    assert app._league_label_for_code("NOR1") == "Norway: Eliteserien"
+    assert app._league_label_for_code("unknown") == "UNKNOWN"
+
+
 def test_football_data_org_key_is_never_used_as_api_football_key(monkeypatch):
     monkeypatch.setattr(
         app,

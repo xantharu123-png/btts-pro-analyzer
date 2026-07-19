@@ -17,7 +17,7 @@ from advanced_analyzer import AdvancedBTTSAnalyzer, ML_FEATURE_NAMES, ML_MODEL_P
 from alternative_markets_tab_extended import create_alternative_markets_tab_extended
 from challenge_15k import render_challenge_15k
 from config_loader import load_app_config
-from league_catalog import league_label_for_code
+from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
 
 
 PAGE_INFO = {
@@ -60,6 +60,13 @@ LIVE_DATA_BASIS_OPTIONS = (
     "Basis: teilweise Daten",
 )
 LIVE_MARKET_OPTIONS = ("BTTS", "Noch ein Tor", "Team trifft noch")
+
+
+def _league_label_for_code(league_code: str) -> str:
+    """Format a league code using catalog symbols present before this release."""
+    code = str(league_code).upper()
+    league_id = ANALYZER_LEAGUE_IDS.get(code)
+    return ALTERNATIVE_MARKET_LEAGUES.get(league_id, code)
 
 
 def _get_supabase_url() -> Optional[str]:
@@ -819,7 +826,7 @@ def render_matches(analyzer) -> None:
     if league_scope == "Favoriten":
         selected_leagues = defaults
         st.caption(
-            ", ".join(league_label_for_code(code) for code in selected_leagues)
+            ", ".join(_league_label_for_code(code) for code in selected_leagues)
         )
     elif league_scope == "Alle":
         selected_leagues = available_leagues
@@ -832,7 +839,7 @@ def render_matches(analyzer) -> None:
             "Ligen auswählen",
             available_leagues,
             default=defaults,
-            format_func=league_label_for_code,
+            format_func=_league_label_for_code,
             key="prematch_leagues",
         )
 
@@ -1569,7 +1576,7 @@ def _render_data_management(analyzer) -> None:
             "Ligen",
             available,
             default=defaults,
-            format_func=league_label_for_code,
+            format_func=_league_label_for_code,
             key="data_selected_leagues",
         )
 
