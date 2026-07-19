@@ -17,6 +17,7 @@ from advanced_analyzer import AdvancedBTTSAnalyzer, ML_FEATURE_NAMES, ML_MODEL_P
 from alternative_markets_tab_extended import create_alternative_markets_tab_extended
 from challenge_15k import render_challenge_15k
 from config_loader import load_app_config
+from league_catalog import league_label_for_code
 
 
 PAGE_INFO = {
@@ -817,15 +818,21 @@ def render_matches(analyzer) -> None:
         defaults = available_leagues[: min(3, len(available_leagues))]
     if league_scope == "Favoriten":
         selected_leagues = defaults
-        st.caption(", ".join(selected_leagues))
+        st.caption(
+            ", ".join(league_label_for_code(code) for code in selected_leagues)
+        )
     elif league_scope == "Alle":
         selected_leagues = available_leagues
-        st.caption(f"{len(selected_leagues)} konfigurierte Ligen")
+        st.caption(
+            f"{len(selected_leagues)} konfigurierte Ligen; dieser Scan benötigt "
+            "entsprechend mehr Provider-Aufrufe."
+        )
     else:
         selected_leagues = st.multiselect(
             "Ligen auswählen",
             available_leagues,
             default=defaults,
+            format_func=league_label_for_code,
             key="prematch_leagues",
         )
 
@@ -1552,13 +1559,17 @@ def _render_data_management(analyzer) -> None:
     )
     if scope == "Alle":
         selected = available
-        st.caption(f"{len(selected)} konfigurierte Ligen")
+        st.caption(
+            f"{len(selected)} konfigurierte Ligen; vollständige Datenupdates "
+            "benötigen entsprechend mehr Provider-Aufrufe."
+        )
     else:
         defaults = [code for code in ["BL1", "PL", "PD"] if code in available]
         selected = st.multiselect(
             "Ligen",
             available,
             default=defaults,
+            format_func=league_label_for_code,
             key="data_selected_leagues",
         )
 

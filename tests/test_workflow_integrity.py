@@ -9,7 +9,8 @@ from alternative_markets import PreMatchAlternativeAnalyzer
 from alternative_markets_tab_extended import _api_football_items, _market_scope_signature
 from api_football import APIFootball
 from config_loader import AppConfig
-from red_card_bot import RedCardBotEnhanced
+from league_catalog import ALTERNATIVE_MARKET_LEAGUES
+from red_card_bot import RED_CARD_MONITORED_LEAGUE_IDS, RedCardBotEnhanced
 
 
 class _ProgressStub:
@@ -21,6 +22,11 @@ class _ProgressStub:
 
     def caption(self, _value):
         return None
+
+
+def test_red_card_monitor_uses_the_full_canonical_league_scope():
+    assert len(RED_CARD_MONITORED_LEAGUE_IDS) == 44
+    assert set(RED_CARD_MONITORED_LEAGUE_IDS) == set(ALTERNATIVE_MARKET_LEAGUES)
 
 
 def test_football_data_org_key_is_never_used_as_api_football_key(monkeypatch):

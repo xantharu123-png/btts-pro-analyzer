@@ -14,7 +14,7 @@ class LeagueDefinition:
     league_id: int
     name: str
     country: str
-    code: Optional[str] = None
+    code: str
     calendar_year: bool = False
     rollover_month: int = 7
 
@@ -48,31 +48,37 @@ LEAGUES = (
     LeagueDefinition(113, "Allsvenskan", "Sweden", "ALL", calendar_year=True),
     LeagueDefinition(292, "K League 1", "South Korea", "QSL", calendar_year=True),
     LeagueDefinition(301, "Pro League", "United Arab Emirates", "UAE"),
-    LeagueDefinition(41, "League One", "England"),
-    LeagueDefinition(42, "League Two", "England"),
-    LeagueDefinition(119, "Superliga", "Denmark"),
-    LeagueDefinition(103, "Eliteserien", "Norway", calendar_year=True),
-    LeagueDefinition(197, "Super League 1", "Greece", rollover_month=8),
-    LeagueDefinition(345, "Czech Liga", "Czech Republic"),
-    LeagueDefinition(283, "Liga I", "Romania"),
-    LeagueDefinition(286, "Super Liga", "Serbia"),
-    LeagueDefinition(210, "HNL", "Croatia"),
-    LeagueDefinition(333, "Premier League", "Ukraine"),
-    LeagueDefinition(106, "Ekstraklasa", "Poland"),
-    LeagueDefinition(332, "Super Liga", "Slovakia"),
-    LeagueDefinition(128, "Liga Profesional Argentina", "Argentina", calendar_year=True),
-    LeagueDefinition(239, "Primera A", "Colombia", calendar_year=True),
-    LeagueDefinition(274, "Liga 1", "Indonesia", rollover_month=8),
-    LeagueDefinition(242, "Liga Pro", "Ecuador", calendar_year=True),
+    LeagueDefinition(41, "League One", "England", "ENG3"),
+    LeagueDefinition(42, "League Two", "England", "ENG4"),
+    LeagueDefinition(119, "Superliga", "Denmark", "DEN1"),
+    LeagueDefinition(103, "Eliteserien", "Norway", "NOR1", calendar_year=True),
+    LeagueDefinition(197, "Super League 1", "Greece", "GRE1", rollover_month=8),
+    LeagueDefinition(345, "Czech Liga", "Czech Republic", "CZE1"),
+    LeagueDefinition(283, "Liga I", "Romania", "ROU1"),
+    LeagueDefinition(286, "Super Liga", "Serbia", "SRB1"),
+    LeagueDefinition(210, "HNL", "Croatia", "CRO1"),
+    LeagueDefinition(333, "Premier League", "Ukraine", "UKR1"),
+    LeagueDefinition(106, "Ekstraklasa", "Poland", "POL1"),
+    LeagueDefinition(332, "Super Liga", "Slovakia", "SVK1"),
+    LeagueDefinition(
+        128,
+        "Liga Profesional Argentina",
+        "Argentina",
+        "ARG1",
+        calendar_year=True,
+    ),
+    LeagueDefinition(239, "Primera A", "Colombia", "COL1", calendar_year=True),
+    LeagueDefinition(274, "Liga 1", "Indonesia", "IDN1", rollover_month=8),
+    LeagueDefinition(242, "Liga Pro", "Ecuador", "ECU1", calendar_year=True),
 )
 
 
 LEAGUE_BY_ID = {league.league_id: league for league in LEAGUES}
 LEAGUE_BY_CODE = {
-    league.code: league for league in LEAGUES if league.code is not None
+    league.code: league for league in LEAGUES
 }
 ANALYZER_LEAGUE_IDS = {
-    code: league.league_id for code, league in LEAGUE_BY_CODE.items()
+    league.code: league.league_id for league in LEAGUES
 }
 ALTERNATIVE_MARKET_LEAGUES = {
     league.league_id: f"{league.country}: {league.name}" for league in LEAGUES
@@ -82,3 +88,11 @@ ALTERNATIVE_MARKET_LEAGUES = {
 def league_code_for_id(league_id: int) -> Optional[str]:
     league = LEAGUE_BY_ID.get(league_id)
     return league.code if league else None
+
+
+def league_label_for_code(league_code: str) -> str:
+    """Return a stable user-facing label while keeping codes as internal keys."""
+    league = LEAGUE_BY_CODE.get(str(league_code).upper())
+    if league is None:
+        return str(league_code)
+    return f"{league.country}: {league.name}"

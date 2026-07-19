@@ -18,7 +18,7 @@ from season_utils import (
 from league_catalog import ANALYZER_LEAGUE_IDS
 
 class APIFootball:
-    """API-Football wrapper with all 28 leagues"""
+    """API-Football wrapper for the canonical 44-league catalog."""
     
     def __init__(self, api_key: str):
         self.api_key = api_key

@@ -11,6 +11,11 @@ import requests
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from league_catalog import ALTERNATIVE_MARKET_LEAGUES
+
+
+RED_CARD_MONITORED_LEAGUE_IDS = tuple(ALTERNATIVE_MARKET_LEAGUES)
+
 # Import predictor
 try:
     from red_card_impact_predictor import RedCardImpactPredictor
@@ -701,23 +706,17 @@ def create_red_card_monitor_tab_enhanced():
         # League selection
         st.subheader("Liga Auswahl")
         
-        top_leagues = {
-            'Premier League': 39,
-            'La Liga': 140,
-            'Bundesliga': 78,
-            'Serie A': 135,
-            'Ligue 1': 61,
-            'Champions League': 2,
-            'Europa League': 3
-        }
-        
         selected = st.multiselect(
             "Zu überwachende Ligen",
-            options=list(top_leagues.keys()),
-            default=['Premier League', 'Bundesliga']
+            options=list(RED_CARD_MONITORED_LEAGUE_IDS),
+            default=[39, 78],
+            format_func=lambda league_id: ALTERNATIVE_MARKET_LEAGUES.get(
+                league_id,
+                f"Liga {league_id}",
+            ),
         )
-        
-        league_ids = [top_leagues[name] for name in selected] if selected else None
+
+        league_ids = list(selected)
 
         auto_refresh = st.checkbox("Auto-Refresh aktivieren (alle 60 Sek.)")
         if auto_refresh:
@@ -793,9 +792,10 @@ def create_red_card_monitor_tab_enhanced():
 # =====================================================
 
 if __name__ == "__main__":
-    # Example: Monitor top leagues
+    # Monitor the same canonical scope used by the application workspaces.
     bot = RedCardBotEnhanced()
     
-    top_leagues = [39, 140, 78, 135, 61]  # EPL, LaLiga, Bundesliga, SerieA, Ligue1
-    
-    bot.monitor_loop(league_ids=top_leagues, check_interval=60)
+    bot.monitor_loop(
+        league_ids=list(RED_CARD_MONITORED_LEAGUE_IDS),
+        check_interval=60,
+    )

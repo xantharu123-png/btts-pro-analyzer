@@ -31,7 +31,14 @@ from betting_math import BettingMathError, evaluate_market_price
 from clv_tracker import CLVTracker
 from config_loader import load_app_config
 import data_engine
-from league_catalog import ANALYZER_LEAGUE_IDS, LEAGUE_BY_ID
+from league_catalog import (
+    ALTERNATIVE_MARKET_LEAGUES,
+    ANALYZER_LEAGUE_IDS,
+    LEAGUES,
+    LEAGUE_BY_CODE,
+    LEAGUE_BY_ID,
+    league_label_for_code,
+)
 from red_card_impact_predictor import RedCardImpactPredictor
 from scanners.basketball_scanner import BasketballScanner
 from scanners.cricket_scanner import CricketScanner
@@ -517,6 +524,26 @@ class GoalModelTests(unittest.TestCase):
 
 
 class SeasonUtilsTests(unittest.TestCase):
+    def test_all_football_workspaces_share_the_same_44_leagues(self):
+        canonical_ids = {league.league_id for league in LEAGUES}
+
+        self.assertEqual(len(LEAGUES), 44)
+        self.assertEqual(len(LEAGUE_BY_CODE), 44)
+        self.assertEqual(len(ANALYZER_LEAGUE_IDS), 44)
+        self.assertEqual(len(ALTERNATIVE_MARKET_LEAGUES), 44)
+        self.assertSetEqual(set(ANALYZER_LEAGUE_IDS.values()), canonical_ids)
+        self.assertSetEqual(set(ALTERNATIVE_MARKET_LEAGUES), canonical_ids)
+        self.assertSetEqual(
+            set(data_engine.DataEngine.LEAGUES_CONFIG.values()),
+            canonical_ids,
+        )
+
+    def test_new_league_codes_have_labels_and_correct_season_modes(self):
+        self.assertEqual(ANALYZER_LEAGUE_IDS["ENG3"], 41)
+        self.assertEqual(ANALYZER_LEAGUE_IDS["ARG1"], 128)
+        self.assertEqual(league_label_for_code("NOR1"), "Norway: Eliteserien")
+        self.assertEqual(current_season_start_year("NOR1", date(2026, 2, 1)), 2026)
+
     def test_european_season_rolls_in_july(self):
         self.assertEqual(current_season_start_year("PL", date(2026, 6, 30)), 2025)
         self.assertEqual(current_season_start_year("PL", date(2026, 7, 1)), 2026)

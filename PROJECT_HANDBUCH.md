@@ -22,7 +22,7 @@ BetBoy ist ein datengetriebener Analyse-Arbeitsplatz für Fußballwetten mit erg
 Der aktuelle Kernzustand ist technisch stabil:
 
 - Der aktuelle Code einschließlich der ergänzten Live-Märkte ist auf `main` committed und zu GitHub gepusht.
-- Der letzte vollständige Testlauf ergab `148 passed, 5 subtests passed`.
+- Der letzte vollständige Testlauf ergab `151 passed, 5 subtests passed`.
 - Mobile, Tablet und Desktop wurden mit installiertem Google Chrome geprüft.
 - Die Streamlit-App wurde nach dem letzten Push erfolgreich aufgeweckt und gerendert.
 - API-Football Pro ist aktiv und meldet ein Tageslimit von 7.500 Anfragen. Direkte Endpunkte, BetBoy-Wrapper und der sichtbare Live-App-Status wurden geprüft.
@@ -121,6 +121,7 @@ Bei der letzten Prüfung gab es keine horizontale Seitenüberbreite und keine St
 |---|---|
 | `btts_pro_app.py` | Streamlit-Einstieg, Navigation, Seitenaufbau, Providerstatus und UI-Orchestrierung |
 | `config_loader.py` | Einheitliche Konfiguration aus INI, Umgebung und Streamlit Secrets |
+| `league_catalog.py` | Kanonischer 44-Ligen-Katalog mit eindeutigen IDs, internen Codes, Ländern und Saisonmodi |
 | `api_football.py` | Strikter API-Football-Client für Fixtures, Form, H2H und Statistiken |
 | `data_engine.py` | Historische Matchdaten, SQLite-/PostgreSQL-Zugriff und Datenimport |
 | `football_data_history.py` | Kontrollierter Import öffentlicher CSV-Historie von football-data.co.uk |
@@ -140,6 +141,8 @@ Bei der letzten Prüfung gab es keine horizontale Seitenüberbreite und keine St
 | `red_card_impact_predictor.py` | Modelliert den Einfluss eines Platzverweises auf Restspiel und Tore |
 | `scanners/*.py` | Getrennte explorative Scanner für weitere Sportarten |
 | `tests/*.py` | Regressionen für Mathematik, Datenverträge, Providerfehler und Workflows |
+
+Alle Fußball-Arbeitsbereiche verwenden denselben Katalog aus exakt 44 Wettbewerben. `Spiele`, `Märkte`, `Live`, `Modell`, `15K Challenge`, der API-Client und der Platzverweis-Monitor dürfen keine eigenen Teilmengen als verfügbaren Gesamtkatalog führen. Favoriten bleiben lediglich eine kleine vorausgewählte Scanmenge; `Auswahl` und `Alle` greifen überall auf dieselben 44 IDs zu. Vertrags-Tests prüfen Anzahl, Eindeutigkeit und ID-Gleichheit.
 
 ### 5.2 Prematch-Datenfluss
 
@@ -280,7 +283,7 @@ Statusangaben beziehen sich auf die letzte Prüfung am 19. Juli 2026.
 | RapidAPI/CricAPI | Cricket | Nicht konfiguriert | Nur bei Priorisierung von Cricket aktivieren |
 | Telegram | Platzverweis-Benachrichtigung | Nicht konfiguriert | Optional nach erfolgreichem Live-Provider-Test |
 
-Live-Smoke-Test am 19. Juli 2026: `/status` antwortete mit HTTP 200, aktivem Pro-Abo, 7.500 Anfragen Tageslimit und Laufzeitende 19. Oktober 2026. Der Provider lieferte zum Prüfzeitpunkt sechs Live-Spiele, davon keines aus den 28 Analyzer-Ligen; ein echter unterstützter Live-Tipp konnte deshalb in diesem Moment nicht erzeugt werden. An einem kürzlich beendeten Serie-A-Spiel aus Brasilien wurden jedoch die rohen Statistikfelder geprüft: xG kam als Dezimaltext und ein vorhandenes `Red Cards`-Feld ohne Platzverweis als `null`.
+Live-Smoke-Test am 19. Juli 2026: `/status` antwortete mit HTTP 200, aktivem Pro-Abo, 7.500 Anfragen Tageslimit und Laufzeitende 19. Oktober 2026. Nach der Katalogvereinheitlichung initialisierte der echte API-Client exakt 44 Ligen und verarbeitete die Live-Antwort ohne Fehler. Der Provider lieferte zum letzten Prüfzeitpunkt fünf Live-Spiele, davon keines aus dem 44er-Katalog; ein echter unterstützter Live-Tipp konnte deshalb in diesem Moment nicht erzeugt werden. Der neu aktivierte Code `NOR1` wurde end-to-end auf Liga-ID 103 und Saison 2026 abgebildet und lieferte acht kommende Fixtures ohne Providerfehler. An einem kürzlich beendeten Serie-A-Spiel aus Brasilien wurden außerdem die rohen Statistikfelder geprüft: xG kam als Dezimaltext und ein vorhandenes `Red Cards`-Feld ohne Platzverweis als `null`.
 
 ### Wichtige API-Entscheidung
 
@@ -462,7 +465,7 @@ Streamlit Community Cloud legt inaktive Apps schlafen. Das ist kein Codefehler. 
 
 ### Priorität 2 - fachliche Weiterentwicklung
 
-1. Weitere Ligen erst nach ausreichender historischer Abdeckung freigeben.
+1. Weitere Ligen über den kanonischen 44er-Katalog hinaus erst nach ausreichender historischer Abdeckung freigeben.
 2. Märkte nur mit eigener Walk-forward-Kalibrierung erweitern.
 3. Multi-Sport entweder mit bewährten Engines und Datenverträgen produktisieren oder klar als Monitoring belassen.
 4. CLV-Auswertung und Kalibrierungsdrift als Dashboard aufbauen.
@@ -488,7 +491,7 @@ Streamlit Community Cloud legt inaktive Apps schlafen. Das ist kein Codefehler. 
 Letztes bestätigtes Ergebnis:
 
 ```text
-148 passed, 5 subtests passed
+151 passed, 5 subtests passed
 ```
 
 Die acht zusätzlichen Tests (`tests/test_audit_fixes.py` und Ledger-/Stake-Tests) pinnen die Audit-Fixes vom 18. Juli 2026 fest.
@@ -594,4 +597,4 @@ sind. Committe oder pushe nur, wenn dies ausdrücklich beauftragt wurde.
 
 ## 22. Übergabestatus
 
-Der Stand vom 19. Juli 2026 ist die aktuelle belastbare Basis: API-Football Pro ist aktiv, die Challenge trennt den konfigurierbaren 5–100-%-Einsatz von der Kelly-Referenz, und `148` Tests plus `5` Subtests bestehen. `main` enthält streng gegatete Live-Resttor- und Teamtor-Märkte samt Platzverweis-Neuberechnung. Noch offen sind primär dauerhafte Speicherung, Benutzertrennung, echte N1Bet-Livepreise und längere reale Shadow-Mode-/CLV-Beobachtung. Diese offenen Punkte dürfen nicht mit einer Modellgarantie verwechselt werden.
+Der Stand vom 19. Juli 2026 ist die aktuelle belastbare Basis: API-Football Pro ist aktiv, alle Fußball-Arbeitsbereiche verwenden denselben kanonischen 44-Ligen-Katalog, die Challenge trennt den konfigurierbaren 5–100-%-Einsatz von der Kelly-Referenz, und `151` Tests plus `5` Subtests bestehen. `main` enthält streng gegatete Live-Resttor- und Teamtor-Märkte samt Platzverweis-Neuberechnung. Noch offen sind primär dauerhafte Speicherung, Benutzertrennung, echte N1Bet-Livepreise und längere reale Shadow-Mode-/CLV-Beobachtung. Diese offenen Punkte dürfen nicht mit einer Modellgarantie verwechselt werden.
