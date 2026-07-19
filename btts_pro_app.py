@@ -1,5 +1,6 @@
 """Responsive BetBoy analysis workspace."""
 
+import importlib
 import math
 import sqlite3
 from dataclasses import asdict
@@ -12,6 +13,13 @@ import plotly.express as px
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+
+import league_catalog as _league_catalog
+
+
+_REQUIRED_LEAGUE_CATALOG_VERSION = 2
+if getattr(_league_catalog, "CATALOG_VERSION", 0) < _REQUIRED_LEAGUE_CATALOG_VERSION:
+    _league_catalog = importlib.reload(_league_catalog)
 
 from advanced_analyzer import AdvancedBTTSAnalyzer, ML_FEATURE_NAMES, ML_MODEL_PATH
 from alternative_markets_tab_extended import create_alternative_markets_tab_extended

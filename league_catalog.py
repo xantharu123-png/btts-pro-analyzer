@@ -9,6 +9,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+CATALOG_VERSION = 2
+
+
 @dataclass(frozen=True)
 class LeagueDefinition:
     league_id: int
@@ -73,16 +76,35 @@ LEAGUES = (
 )
 
 
-LEAGUE_BY_ID = {league.league_id: league for league in LEAGUES}
-LEAGUE_BY_CODE = {
-    league.code: league for league in LEAGUES
-}
-ANALYZER_LEAGUE_IDS = {
-    league.code: league.league_id for league in LEAGUES
-}
-ALTERNATIVE_MARKET_LEAGUES = {
-    league.league_id: f"{league.country}: {league.name}" for league in LEAGUES
-}
+def _sync_mapping(name: str, values: dict) -> dict:
+    """Preserve imported mapping references across Streamlit module reloads."""
+    existing = globals().get(name)
+    if isinstance(existing, dict):
+        existing.clear()
+        existing.update(values)
+        return existing
+    return values
+
+
+LEAGUE_BY_ID = _sync_mapping(
+    "LEAGUE_BY_ID",
+    {league.league_id: league for league in LEAGUES},
+)
+LEAGUE_BY_CODE = _sync_mapping(
+    "LEAGUE_BY_CODE",
+    {league.code: league for league in LEAGUES},
+)
+ANALYZER_LEAGUE_IDS = _sync_mapping(
+    "ANALYZER_LEAGUE_IDS",
+    {league.code: league.league_id for league in LEAGUES},
+)
+ALTERNATIVE_MARKET_LEAGUES = _sync_mapping(
+    "ALTERNATIVE_MARKET_LEAGUES",
+    {
+        league.league_id: f"{league.country}: {league.name}"
+        for league in LEAGUES
+    },
+)
 
 
 def league_code_for_id(league_id: int) -> Optional[str]:

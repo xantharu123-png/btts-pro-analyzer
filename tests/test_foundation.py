@@ -1,3 +1,4 @@
+import importlib
 import os
 import math
 import sqlite3
@@ -31,6 +32,7 @@ from betting_math import BettingMathError, evaluate_market_price
 from clv_tracker import CLVTracker
 from config_loader import load_app_config
 import data_engine
+import league_catalog
 from league_catalog import (
     ALTERNATIVE_MARKET_LEAGUES,
     ANALYZER_LEAGUE_IDS,
@@ -524,6 +526,23 @@ class GoalModelTests(unittest.TestCase):
 
 
 class SeasonUtilsTests(unittest.TestCase):
+    def test_catalog_reload_updates_existing_mapping_references(self):
+        mapping_reference = ANALYZER_LEAGUE_IDS
+        added_codes = (
+            "ENG3", "ENG4", "DEN1", "NOR1", "GRE1", "CZE1", "ROU1", "SRB1",
+            "CRO1", "UKR1", "POL1", "SVK1", "ARG1", "COL1", "IDN1", "ECU1",
+        )
+        for code in added_codes:
+            mapping_reference.pop(code)
+
+        try:
+            self.assertEqual(len(mapping_reference), 28)
+        finally:
+            reloaded_catalog = importlib.reload(league_catalog)
+
+        self.assertIs(reloaded_catalog.ANALYZER_LEAGUE_IDS, mapping_reference)
+        self.assertEqual(len(mapping_reference), 44)
+
     def test_all_football_workspaces_share_the_same_44_leagues(self):
         canonical_ids = {league.league_id for league in LEAGUES}
 
