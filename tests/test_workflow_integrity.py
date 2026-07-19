@@ -88,6 +88,77 @@ def test_live_quality_filter_has_two_distinct_levels():
     assert [item["id"] for item in complete_basis] == ["medium"]
 
 
+def test_live_market_filter_uses_selected_remaining_goal_probability():
+    analyses = [
+        {
+            "id": "high-btts",
+            "home_team": "A",
+            "away_team": "B",
+            "btts_prob": 90.0,
+            "btts_confidence": "MEDIUM",
+            "live_data_quality": "MEDIUM",
+            "remaining_goals": {
+                "over_0_5_probability": 40.0,
+                "home_scores_probability": 35.0,
+                "away_scores_probability": 20.0,
+            },
+        },
+        {
+            "id": "high-rest",
+            "home_team": "C",
+            "away_team": "D",
+            "btts_prob": 45.0,
+            "btts_confidence": "MEDIUM",
+            "live_data_quality": "MEDIUM",
+            "remaining_goals": {
+                "over_0_5_probability": 75.0,
+                "home_scores_probability": 30.0,
+                "away_scores_probability": 65.0,
+            },
+        },
+    ]
+
+    another_goal = app._filter_live_opportunities(
+        analyses,
+        60,
+        "Streng: Live-xG + Prematch (empfohlen)",
+        "Noch ein Tor",
+    )
+    team_goal = app._filter_live_opportunities(
+        analyses,
+        60,
+        "Streng: Live-xG + Prematch (empfohlen)",
+        "Team trifft noch",
+    )
+
+    assert [item["id"] for item in another_goal] == ["high-rest"]
+    assert [item["id"] for item in team_goal] == ["high-rest"]
+    probability, selection = app._live_market_signal(analyses[1], "Team trifft noch")
+    assert probability == pytest.approx(65.0)
+    assert selection == "D trifft noch"
+
+
+def test_strict_live_data_basis_is_the_ui_default():
+    assert app.LIVE_DATA_BASIS_OPTIONS[0] == "Streng: Live-xG + Prematch (empfohlen)"
+
+
+def test_equal_team_goal_probabilities_do_not_create_a_team_selection():
+    probability, selection = app._live_market_signal(
+        {
+            "home_team": "A",
+            "away_team": "B",
+            "remaining_goals": {
+                "home_scores_probability": 45.0,
+                "away_scores_probability": 45.0,
+            },
+        },
+        "Team trifft noch",
+    )
+
+    assert probability is None
+    assert selection == "Kein klarer Teamvorteil"
+
+
 def test_prematch_scan_collects_before_probability_filter(monkeypatch):
     frame = pd.DataFrame(
         [
@@ -177,7 +248,7 @@ def test_telegram_reuses_preloaded_live_stats(monkeypatch):
         "team_id": 1,
         "minute": 55,
         "match": {
-            "fixture": {"id": 10},
+            "fixture": {"id": 10, "status": {"elapsed": 70}},
             "teams": {
                 "home": {"id": 1, "name": "Home"},
                 "away": {"id": 2, "name": "Away"},
@@ -196,6 +267,34 @@ def test_telegram_reuses_preloaded_live_stats(monkeypatch):
     assert sent is True
     bot.get_live_stats.assert_not_called()
     assert bot.predictor.predict.call_args.kwargs["live_stats"] is None
+    assert bot.predictor.predict.call_args.kwargs["minute"] == 70
+    assert bot.predictor.format_prediction.call_args.kwargs["red_card_minute"] == 55
+
+
+def test_red_card_app_prediction_uses_current_snapshot_minute():
+    bot = RedCardBotEnhanced(api_key="api", streamlit_mode=False)
+    bot.get_live_stats = Mock(return_value={"xg_home": 0.9, "xg_away": 0.4})
+    card = {
+        "player": "Player",
+        "team": "Home",
+        "team_id": 1,
+        "minute": 55,
+        "match": {
+            "fixture": {"id": 10, "status": {"elapsed": 70}},
+            "teams": {
+                "home": {"id": 1, "name": "Home"},
+                "away": {"id": 2, "name": "Away"},
+            },
+            "goals": {"home": 1, "away": 0},
+            "league": {"name": "League", "country": "Country"},
+        },
+    }
+
+    entry = app._red_card_entry(bot, card)
+
+    assert entry["prediction_minute"] == 70
+    assert entry["prediction"]["minute"] == 70
+    assert entry["card"]["minute"] == 55
 
 
 def test_red_card_provider_records_http_errors(monkeypatch):

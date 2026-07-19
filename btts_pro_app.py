@@ -1,10 +1,11 @@
 """Responsive BetBoy analysis workspace."""
 
+import math
+import sqlite3
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-import sqlite3
 
 import pandas as pd
 import plotly.express as px
@@ -46,13 +47,18 @@ PAGE_INFO = {
 }
 
 PREMATCH_SNAPSHOT_VERSION = 2
-LIVE_SNAPSHOT_VERSION = 2
+LIVE_SNAPSHOT_VERSION = 3
 RED_CARD_SNAPSHOT_VERSION = 2
 DEFAULT_PREMATCH_LEAGUES = ("BL1", "PL", "PD")
 LIVE_QUALITY_LABELS = {
-    "LOW": "Berechenbar",
-    "MEDIUM": "Live-xG + Prematch",
+    "LOW": "Basis: teilweise Daten",
+    "MEDIUM": "Streng: Live-xG + Prematch",
 }
+LIVE_DATA_BASIS_OPTIONS = (
+    "Streng: Live-xG + Prematch (empfohlen)",
+    "Basis: teilweise Daten",
+)
+LIVE_MARKET_OPTIONS = ("BTTS", "Noch ein Tor", "Team trifft noch")
 
 
 def _get_supabase_url() -> Optional[str]:
@@ -874,28 +880,80 @@ def render_matches(analyzer) -> None:
     _render_prematch_results(results, min_probability, min_quality)
 
 
+def _live_probability(value) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        probability = float(value)
+    except (TypeError, ValueError):
+        return None
+    return probability if math.isfinite(probability) and 0.0 <= probability <= 100.0 else None
+
+
+def _live_market_signal(analysis: dict, market: str) -> tuple[Optional[float], str]:
+    """Return the selected live-market probability and its concrete selection."""
+    if not isinstance(analysis, dict):
+        return None, "Ungültige Analyse"
+    if market == "BTTS":
+        return _live_probability(analysis.get("btts_prob")), "Beide Teams treffen"
+
+    remaining = analysis.get("remaining_goals")
+    if not isinstance(remaining, dict):
+        return None, "Restspiel nicht berechenbar"
+    if market == "Noch ein Tor":
+        return (
+            _live_probability(remaining.get("over_0_5_probability")),
+            "Mindestens 1 weiteres Tor",
+        )
+    if market == "Team trifft noch":
+        home_probability = _live_probability(remaining.get("home_scores_probability"))
+        away_probability = _live_probability(remaining.get("away_scores_probability"))
+        if home_probability is None or away_probability is None:
+            return None, "Teamtor nicht berechenbar"
+        if math.isclose(home_probability, away_probability, abs_tol=0.05):
+            return None, "Kein klarer Teamvorteil"
+        if home_probability > away_probability:
+            return home_probability, f"{analysis.get('home_team', 'Heimteam')} trifft noch"
+        return away_probability, f"{analysis.get('away_team', 'Auswärtsteam')} trifft noch"
+    raise ValueError("Unbekannter Live-Markt")
+
+
 def _filter_live_opportunities(
     analyses: list[dict],
-    minimum_btts: int,
+    minimum_probability: int,
     minimum_quality: str,
+    market: str = "BTTS",
 ) -> list[dict]:
     quality_rank = {"LOW": 1, "MEDIUM": 2}
     required_rank = {
+        "Basis: teilweise Daten": 1,
         "Berechenbar": 1,
+        "Streng: Live-xG + Prematch (empfohlen)": 2,
         "Live-xG + Prematch": 2,
     }.get(minimum_quality)
     if required_rank is None:
         raise ValueError("Unbekannte Live-Datenbasis")
+    if market not in LIVE_MARKET_OPTIONS:
+        raise ValueError("Unbekannter Live-Markt")
 
     opportunities = []
     for analysis in analyses:
-        probability = analysis.get("btts_prob")
-        quality = analysis.get("btts_confidence", "INSUFFICIENT")
-        if quality == "COMPLETE" or probability is None:
+        probability, _ = _live_market_signal(analysis, market)
+        quality = analysis.get(
+            "live_data_quality",
+            analysis.get("btts_confidence", "INSUFFICIENT"),
+        )
+        if market == "BTTS" and analysis.get("btts_confidence") == "COMPLETE":
             continue
-        if probability >= minimum_btts and quality_rank.get(quality, 0) >= required_rank:
+        if probability is None:
+            continue
+        if probability >= minimum_probability and quality_rank.get(quality, 0) >= required_rank:
             opportunities.append(analysis)
-    return sorted(opportunities, key=lambda item: item.get("btts_prob", 0), reverse=True)
+    return sorted(
+        opportunities,
+        key=lambda item: _live_market_signal(item, market)[0] or 0.0,
+        reverse=True,
+    )
 
 
 def _scan_live_football(analyzer) -> dict:
@@ -933,28 +991,49 @@ def _scan_live_football(analyzer) -> dict:
 
 def _render_live_football(analyzer) -> None:
     st.subheader("Live-Spiele")
+    market = _segmented(
+        "Live-Markt",
+        list(LIVE_MARKET_OPTIONS),
+        "live_market",
+        "Noch ein Tor",
+    )
+    market_notes = {
+        "BTTS": "Beide Teams treffen bis zum Spielende; der aktuelle Spielstand zählt mit.",
+        "Noch ein Tor": (
+            "Restspiel-Markt: Es zählt mindestens ein Tor nach diesem Snapshot. "
+            "Nicht mit dem normalen Live-Gesamttor-Markt verwechseln."
+        ),
+        "Team trifft noch": "Restspiel-Markt: Das angezeigte Team erzielt nach dem Snapshot noch ein Tor.",
+    }
+    st.caption(market_notes[market])
+
     filter_columns = st.columns(2)
-    minimum_btts = filter_columns[0].slider(
-        "Min. BTTS (%)",
+    minimum_probability = filter_columns[0].slider(
+        "Min. Modellwahrscheinlichkeit (%)",
         0,
         100,
         55,
-        key="live_min_btts",
+        key=f"live_min_probability_{market}",
         help="Lokaler Filter auf den aktuellen Live-Snapshot; löst keinen neuen Provider-Abruf aus.",
     )
-    live_quality_options = ["Berechenbar", "Live-xG + Prematch"]
-    if st.session_state.get("live_min_quality") not in live_quality_options:
-        st.session_state["live_min_quality"] = live_quality_options[0]
+    if st.session_state.get("live_min_quality") not in LIVE_DATA_BASIS_OPTIONS:
+        st.session_state["live_min_quality"] = LIVE_DATA_BASIS_OPTIONS[0]
     minimum_quality = filter_columns[1].selectbox(
         "Live-Datenbasis",
-        live_quality_options,
+        LIVE_DATA_BASIS_OPTIONS,
         index=0,
         key="live_min_quality",
         help=(
-            "Berechenbar nutzt jede valide Resttor-Schätzung. Live-xG + Prematch verlangt "
-            "für beide Teams beobachtetes Live-xG und einen Prematch-Prior."
+            "Streng verlangt für beide Teams Live-xG, einen Prematch-Prior und einen "
+            "verwertbaren Platzverweisstand. Basis lässt auch Schätzungen mit nur einer "
+            "vollständigen Datenquelle zu."
         ),
     )
+    if st.session_state.get("live_snapshot_invalidated_by_red_card"):
+        st.warning(
+            "Seit dem letzten Live-Snapshot wurde ein neuer Platzverweis erkannt. "
+            "Der alte Snapshot wurde verworfen; bitte neu scannen."
+        )
     if st.button(
         "Live-Scan starten",
         type="primary",
@@ -963,7 +1042,9 @@ def _render_live_football(analyzer) -> None:
     ):
         try:
             with st.spinner("Live-Spiele werden analysiert..."):
-                st.session_state["live_football_snapshot"] = _scan_live_football(analyzer)
+                snapshot = _scan_live_football(analyzer)
+                st.session_state["live_football_snapshot"] = snapshot
+                st.session_state.pop("live_snapshot_invalidated_by_red_card", None)
         except Exception as exc:
             st.error(f"Live-Scan fehlgeschlagen: {exc}")
 
@@ -978,16 +1059,17 @@ def _render_live_football(analyzer) -> None:
     st.caption(f"Snapshot: {_format_snapshot_time(snapshot.get('scanned_at'))}")
     opportunities = _filter_live_opportunities(
         snapshot.get("analyses", []),
-        minimum_btts,
+        minimum_probability,
         minimum_quality,
+        market,
     )
     if snapshot.get("provider_error"):
         st.warning(f"Live-Provider nicht vollständig verfügbar: {snapshot['provider_error']}")
     counts = st.columns(4)
     counts[0].metric("Provider-Spiele", snapshot["provider_matches"])
-    counts[1].metric("Unterstützte Ligen", snapshot["supported_matches"])
+    counts[1].metric("Unterstützte Spiele", snapshot["supported_matches"])
     counts[2].metric("Analysiert", len(snapshot.get("analyses", [])))
-    counts[3].metric("Aktueller Filter", len(opportunities))
+    counts[3].metric("Filtertreffer", len(opportunities))
 
     if not opportunities:
         st.info("Kein Spiel erfüllt die Filter dieses Snapshots.")
@@ -995,17 +1077,27 @@ def _render_live_football(analyzer) -> None:
 
     rows = []
     for item in opportunities:
+        probability, selection = _live_market_signal(item, market)
+        red_cards = item.get("red_cards") or {}
+        home_red = red_cards.get("home_count")
+        away_red = red_cards.get("away_count")
+        red_card_label = (
+            f"{home_red}/{away_red}"
+            if home_red is not None and away_red is not None
+            else "n/a"
+        )
         rows.append(
             {
                 "Minute": item.get("minute"),
-                "Liga": item.get("league"),
                 "Match": f"{item.get('home_team')} vs {item.get('away_team')}",
                 "Stand": item.get("score"),
-                "BTTS %": item.get("btts_prob"),
+                "Auswahl": selection,
+                "Modell %": probability,
                 "Datenbasis": LIVE_QUALITY_LABELS.get(
-                    item.get("btts_confidence"),
-                    item.get("btts_confidence", "n/a"),
+                    item.get("live_data_quality"),
+                    item.get("live_data_quality", "n/a"),
                 ),
+                "Rot H/A": red_card_label,
             }
         )
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
@@ -1023,14 +1115,26 @@ def _render_live_football(analyzer) -> None:
     item = opportunities[selected]
     from ultra_live_scanner_v3 import display_ultra_opportunity
 
-    display_ultra_opportunity(item)
-    if _segmented(
-        "Live-Details",
-        ["Signal", "Modelleingaben"],
+    live_detail_options = ["Kernmärkte", "Modelleingaben"]
+    if st.session_state.get("live_detail_view") not in live_detail_options:
+        st.session_state["live_detail_view"] = live_detail_options[0]
+    detail_view = _segmented(
+        "Detailansicht",
+        live_detail_options,
         "live_detail_view",
-        "Signal",
-    ) == "Modelleingaben":
-        st.json(item.get("breakdown", {}), expanded=False)
+        "Kernmärkte",
+    )
+    if detail_view == "Kernmärkte":
+        display_ultra_opportunity(item)
+    else:
+        st.json(
+            {
+                "Modell": item.get("breakdown", {}),
+                "Restspiel": item.get("remaining_goals", {}),
+                "Platzverweise": item.get("red_cards", {}),
+            },
+            expanded=False,
+        )
 
 
 def _red_card_entry(alert_system, card: dict) -> dict:
@@ -1047,6 +1151,7 @@ def _red_card_entry(alert_system, card: dict) -> dict:
         "score": f"{home_goals}-{away_goals}" if home_goals is not None and away_goals is not None else "n/a",
         "live_stats": None,
         "prediction": None,
+        "prediction_minute": None,
         "error": None,
     }
     if home_goals is None or away_goals is None:
@@ -1065,10 +1170,15 @@ def _red_card_entry(alert_system, card: dict) -> dict:
 
     entry["red_side"] = red_side
     entry["opponent"] = opponent
+    snapshot_minute = alert_system.model_snapshot_minute(match)
+    if snapshot_minute is None:
+        entry["error"] = "Aktuelle Spielminute liegt außerhalb des unterstützten 0-93-Modells"
+        return entry
+    entry["prediction_minute"] = snapshot_minute
     entry["live_stats"] = alert_system.get_live_stats(fixture_id, home["id"], away["id"])
     if alert_system.predictor:
         prediction = alert_system.predictor.predict(
-            minute=card["minute"],
+            minute=snapshot_minute,
             home_goals=home_goals,
             away_goals=away_goals,
             red_card_team=red_side,
@@ -1125,10 +1235,14 @@ def _scan_red_cards(
 def _render_red_card_detail(entry: dict) -> None:
     card = entry["card"]
     st.subheader(f"{entry['home']} vs {entry['away']}")
-    st.caption(
-        f"{entry['score']} | Minute {card['minute']} | "
-        f"{card['player']} ({card['team']})"
-    )
+    caption_parts = [
+        entry["score"],
+        f"Platzverweis Minute {card['minute']}",
+        f"{card['player']} ({card['team']})",
+    ]
+    if entry.get("prediction_minute") is not None:
+        caption_parts.append(f"Modell-Snapshot Minute {entry['prediction_minute']}")
+    st.caption(" | ".join(caption_parts))
     if entry.get("error"):
         st.warning(entry["error"])
         return
@@ -1247,7 +1361,7 @@ def _render_red_cards(analyzer) -> None:
         else:
             try:
                 with st.spinner("Live-Ereignisse werden geprüft..."):
-                    st.session_state["red_card_snapshot"] = _scan_red_cards(
+                    red_card_snapshot = _scan_red_cards(
                         config.api_football_key,
                         telegram_token,
                         telegram_chat_id,
@@ -1256,6 +1370,12 @@ def _render_red_cards(analyzer) -> None:
                         league_ids,
                         scan_scope,
                     )
+                    st.session_state["red_card_snapshot"] = red_card_snapshot
+                    if red_card_snapshot.get("cards"):
+                        st.session_state.pop("live_football_snapshot", None)
+                        st.session_state["live_snapshot_invalidated_by_red_card"] = (
+                            red_card_snapshot.get("scanned_at")
+                        )
             except Exception as exc:
                 st.error(f"Platzverweis-Scan fehlgeschlagen: {exc}")
 

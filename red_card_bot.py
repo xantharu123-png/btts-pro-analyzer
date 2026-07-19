@@ -39,6 +39,8 @@ def _format_stat(value, decimals: int = 0, suffix: str = "") -> str:
 
 class RedCardBotEnhanced:
     """Enhanced red card bot with real live statistics integration"""
+
+    MODEL_END_MINUTE = 93
     
     def __init__(self, api_key: str = None, telegram_token: str = None, 
                  telegram_chat_id: str = None, streamlit_mode: bool = False):
@@ -136,6 +138,26 @@ class RedCardBotEnhanced:
             self._record_error(operation, "invalid response entries")
             return None
         return items
+
+    @classmethod
+    def model_snapshot_minute(cls, match: Dict) -> Optional[int]:
+        """Return the current regulation-time minute used by the impact model."""
+        if not isinstance(match, dict):
+            return None
+        fixture = match.get('fixture')
+        if not isinstance(fixture, dict):
+            return None
+        status = fixture.get('status')
+        if not isinstance(status, dict):
+            return None
+        minute = status.get('elapsed')
+        if (
+            isinstance(minute, bool)
+            or not isinstance(minute, int)
+            or not 0 <= minute <= cls.MODEL_END_MINUTE
+        ):
+            return None
+        return minute
 
     @staticmethod
     def _live_match_identity(match: Dict) -> Optional[tuple[int, int, int, int]]:
@@ -451,7 +473,8 @@ class RedCardBotEnhanced:
         score = f"{home_goals}-{away_goals}"
         league = match['league']['name']
         country = match['league']['country']
-        minute = card_info['minute']
+        event_minute = card_info['minute']
+        snapshot_minute = self.model_snapshot_minute(match)
         
         # Determine red card team
         red_team_name = card_info['team']
@@ -476,9 +499,9 @@ class RedCardBotEnhanced:
         # BERECHNE MIT PREDICTOR (falls verfügbar)
         # =====================================================
         
-        if self.predictor:
+        if self.predictor and snapshot_minute is not None:
             prediction = self.predictor.predict(
-                minute=minute,
+                minute=snapshot_minute,
                 home_goals=home_goals,
                 away_goals=away_goals,
                 red_card_team=red_card_team,
@@ -487,7 +510,10 @@ class RedCardBotEnhanced:
             
             # Format prediction
             message = self.predictor.format_prediction(
-                prediction, home, away
+                prediction,
+                home,
+                away,
+                red_card_minute=event_minute,
             )
             
             # Add live stats to message
@@ -523,7 +549,7 @@ class RedCardBotEnhanced:
             # Fallback: basic calculation without predictor
             message = self._create_basic_alert(
                 card_info, home, away, home_goals, away_goals,
-                score, league, country, minute, red_card_team,
+                score, league, country, event_minute, snapshot_minute, red_card_team,
                 opponent_name, red_team_name, live_stats
             )
         
@@ -545,11 +571,24 @@ class RedCardBotEnhanced:
             return False
     
     def _create_basic_alert(self, card_info, home, away, home_goals, away_goals,
-                           score, league, country, minute, red_card_team,
+                           score, league, country, event_minute, snapshot_minute,
+                           red_card_team,
                            opponent_name, red_team_name, live_stats):
         """Fallback alert without predictor"""
-        
-        remaining = max(0, 93 - minute)
+
+        remaining = (
+            max(0, self.MODEL_END_MINUTE - snapshot_minute)
+            if snapshot_minute is not None
+            else None
+        )
+        snapshot_label = (
+            f"{snapshot_minute}'" if snapshot_minute is not None else "n/a"
+        )
+        remaining_label = (
+            f"~{remaining} Minuten verbleibend"
+            if remaining is not None
+            else "Restzeit nicht berechenbar"
+        )
         
         message = f"""
 🔴 *ROTE KARTE - ENHANCED*
@@ -558,12 +597,13 @@ class RedCardBotEnhanced:
 *Team:* {red_team_name}
 *Match:* {home} vs {away}
 *Spielstand:* {score}
-*Minute:* {minute}'
+*Platzverweis:* Minute {event_minute}'
+*Snapshot:* {snapshot_label}
 *Liga:* {country} - {league}
 
 ━━━━━━━━━━━━━━━━━━
 
-⏱️ *~{remaining} Minuten verbleibend*
+⏱️ *{remaining_label}*
 """
         
         if live_stats:

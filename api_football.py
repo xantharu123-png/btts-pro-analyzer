@@ -322,6 +322,11 @@ class APIFootball:
                                     # "1.34"; an integer-only parse would silently
                                     # disable every live-xG data-quality tier.
                                     return self._finite_nonnegative(val, maximum=20.0)
+                                if stat_type == 'Red Cards' and val is None:
+                                    # API-Football includes the field with JSON null
+                                    # when the verified count is zero. A missing field
+                                    # still falls through to None below.
+                                    return 0
                                 return self._nonnegative_integer(val, maximum=5000)
                         return None
 

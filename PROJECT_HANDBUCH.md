@@ -21,8 +21,8 @@ BetBoy ist ein datengetriebener Analyse-Arbeitsplatz für Fußballwetten mit erg
 
 Der aktuelle Kernzustand ist technisch stabil:
 
-- Der Code ist auf `main` committed und zu GitHub gepusht.
-- Der letzte vollständige Testlauf ergab `137 passed, 5 subtests passed`.
+- Der aktuelle Code einschließlich der ergänzten Live-Märkte ist auf `main` committed und zu GitHub gepusht.
+- Der letzte vollständige Testlauf ergab `148 passed, 5 subtests passed`.
 - Mobile, Tablet und Desktop wurden mit installiertem Google Chrome geprüft.
 - Die Streamlit-App wurde nach dem letzten Push erfolgreich aufgeweckt und gerendert.
 - API-Football Pro ist aktiv und meldet ein Tageslimit von 7.500 Anfragen. Direkte Endpunkte, BetBoy-Wrapper und der sichtbare Live-App-Status wurden geprüft.
@@ -100,7 +100,7 @@ Die App besitzt eine flache Sidebar-Navigation ohne tiefe Menüverschachtelung:
 |---|---|---|
 | `Spiele` | Prematch-Spiele analysieren, BTTS und Evidenz filtern, Details vergleichen | Nur bei ausreichender Datenbasis |
 | `Märkte` | Alternative Märkte wie Tore, Ecken und Karten untersuchen | Ohne vollständige Validierung explorativ |
-| `Live` | Live-Fußball und Platzverweise prüfen | Strenge Live-Datenqualitätsstufen |
+| `Live` | BTTS, Resttore, weitere Teamtore und Platzverweise prüfen | Unkalibrierte Live-Signale mit strengen Datenqualitätstoren; keine Wettfreigabe |
 | `Modell` | Datenbestand, Validierung und Training verwalten | Administrativ |
 | `15K Challenge` | Tägliche Shortlist, N1Bet-Preisprüfung, Ticket und Kontoverlauf | Strengste Freigaberegeln |
 | `Multi-Sport` | E-Sport, Basketball, NHL, Tennis und Cricket getrennt anzeigen | Explorativ, kein Wettauftrag |
@@ -235,13 +235,19 @@ Der in `Spiele` sichtbare Evidenzscore ist keine zweite Gewinnwahrscheinlichkeit
 
 ### 8.2 Live-Datenqualität
 
-Live-Signale unterscheiden zwischen:
+Der Live-Scanner bietet drei flache Marktansichten:
 
-- berechenbarer Basis aus Spielstand, Minute und belastbaren Vorinformationen,
-- höherer Stufe mit Live-xG und Prematch-Basis,
-- unzureichenden Daten ohne handlungsfähige Ausgabe.
+- `BTTS`: Beide Teams treffen bis zum Spielende; der aktuelle Spielstand zählt mit.
+- `Noch ein Tor`: Wahrscheinlichkeit für mindestens ein Tor nach dem aktuellen Snapshot.
+- `Team trifft noch`: separate Restspiel-Wahrscheinlichkeit für Heim- und Auswärtsteam; die stärkere Seite wird nur bei einem echten Unterschied angezeigt.
 
-Fehlende Werte werden nicht mehr automatisch als Null interpretiert. Besonders bei Karten, Schüssen, xG und Restspielzeit würde das sonst systematische Fehlbewertungen erzeugen.
+Die Datenbasis `Streng: Live-xG + Prematch` verlangt für beide Teams gültiges Live-xG, einen Prematch-Torprior und einen verwertbaren Platzverweisstand. `Basis: teilweise Daten` erlaubt eine valide Resttor-Schätzung aus weniger vollständigen Quellen, bleibt aber klar niedriger eingestuft. Die strenge Stufe ist Standard.
+
+Resttor-Wahrscheinlichkeiten werden aus den verbleibenden, per Prematch-Prior geschrumpften Live-xG-Raten mit einer Poisson-Annahme berechnet. Ein einzelner bestätigter Platzverweis passt beide Teamraten mit den expliziten, noch unkalibrierten 11-gegen-10-Priorfaktoren an. Mehrere Platzverweise, Platzverweise beider Teams oder ein nur teilweise bekannter Kartenstand sperren die Restspiel-Ausgabe.
+
+API-Football liefert ein vorhandenes `Red Cards`-Feld ohne Platzverweis als JSON `null`; nur dieser bestätigte Fall wird zu `0` normalisiert. Ein tatsächlich fehlendes Kartenfeld bleibt unbekannt und kann die strenge Qualitätsstufe nicht erfüllen. Fehlende Schüsse, xG oder Restspielzeit werden ebenfalls nie still als echte Null interpretiert.
+
+Alle Live-Prozentwerte sind unkalibrierte Modellschätzungen. Ohne frische N1Bet-Quote, Overround-Bereinigung, Kalibrierung und positiven risikoadjustierten EV entsteht keine Wett- oder Einsatzfreigabe.
 
 ### 8.3 Kontextgates der Challenge
 
@@ -273,6 +279,8 @@ Statusangaben beziehen sich auf die letzte Prüfung am 19. Juli 2026.
 | SofaScore-Endpunkt | Tennis | Unoffiziell und extern veränderlich | Nicht als dauerhaft garantierten Vertrag betrachten |
 | RapidAPI/CricAPI | Cricket | Nicht konfiguriert | Nur bei Priorisierung von Cricket aktivieren |
 | Telegram | Platzverweis-Benachrichtigung | Nicht konfiguriert | Optional nach erfolgreichem Live-Provider-Test |
+
+Live-Smoke-Test am 19. Juli 2026: `/status` antwortete mit HTTP 200, aktivem Pro-Abo, 7.500 Anfragen Tageslimit und Laufzeitende 19. Oktober 2026. Der Provider lieferte zum Prüfzeitpunkt sechs Live-Spiele, davon keines aus den 28 Analyzer-Ligen; ein echter unterstützter Live-Tipp konnte deshalb in diesem Moment nicht erzeugt werden. An einem kürzlich beendeten Serie-A-Spiel aus Brasilien wurden jedoch die rohen Statistikfelder geprüft: xG kam als Dezimaltext und ein vorhandenes `Red Cards`-Feld ohne Platzverweis als `null`.
 
 ### Wichtige API-Entscheidung
 
@@ -370,6 +378,9 @@ CLV wird derzeit lokal in SQLite gespeichert. Modellartefakte wie `*.pkl`, `*.jo
 - Tennis-, Cricket-, Basketball-, NHL- und E-Sport-Ausgaben sind ohne Kalibrierung nicht handlungsfähig.
 - Karten-, Ecken- und Schussdaten behandeln fehlende Werte nicht mehr als echte Nullen.
 - Platzverweisereignisse werden Team, Fixture und Spielminute strikt zugeordnet.
+- Live-Resttore und weitere Teamtore sind vom normalen Gesamttor-Markt getrennt; nur Tore nach dem Snapshot zählen für den Restspiel-Markt.
+- Vorhandene Provider-Nullwerte bei roten Karten werden als bestätigte Null gezählt; fehlende oder komplexe Kartenstände schließen strenge beziehungsweise sämtliche Restspiel-Signale aus.
+- Die Platzverweis-Prognose berechnet Restzeit und Live-xG ab der aktuellen Snapshot-Minute; die frühere Kartenminute bleibt nur Ereignisinformation. Minuten außerhalb des unterstützten 0–93-Modells werden nicht prognostiziert.
 
 ### UX
 
@@ -477,7 +488,7 @@ Streamlit Community Cloud legt inaktive Apps schlafen. Das ist kein Codefehler. 
 Letztes bestätigtes Ergebnis:
 
 ```text
-135 passed, 5 subtests passed
+148 passed, 5 subtests passed
 ```
 
 Die acht zusätzlichen Tests (`tests/test_audit_fixes.py` und Ledger-/Stake-Tests) pinnen die Audit-Fixes vom 18. Juli 2026 fest.
@@ -583,4 +594,4 @@ sind. Committe oder pushe nur, wenn dies ausdrücklich beauftragt wurde.
 
 ## 22. Übergabestatus
 
-Der Stand vom 19. Juli 2026 ist die aktuelle belastbare Basis: API-Football Pro ist aktiv, die Challenge trennt den konfigurierbaren 5–100-%-Einsatz von der Kelly-Referenz, und `137` Tests plus `5` Subtests bestehen. Noch offen sind primär dauerhafte Speicherung, Benutzertrennung und längere reale Shadow-Mode-/CLV-Beobachtung. Diese offenen Punkte dürfen nicht mit einer Modellgarantie verwechselt werden.
+Der Stand vom 19. Juli 2026 ist die aktuelle belastbare Basis: API-Football Pro ist aktiv, die Challenge trennt den konfigurierbaren 5–100-%-Einsatz von der Kelly-Referenz, und `148` Tests plus `5` Subtests bestehen. `main` enthält streng gegatete Live-Resttor- und Teamtor-Märkte samt Platzverweis-Neuberechnung. Noch offen sind primär dauerhafte Speicherung, Benutzertrennung, echte N1Bet-Livepreise und längere reale Shadow-Mode-/CLV-Beobachtung. Diese offenen Punkte dürfen nicht mit einer Modellgarantie verwechselt werden.

@@ -22,7 +22,7 @@ class RedCardPrediction:
     """Vorhersage nach Roter Karte"""
     
     # Allgemeine Info
-    minute: int
+    minute: int  # Aktuelle Spielminute des Modell-Snapshots
     remaining_minutes: int
     red_card_team: str  # 'home' oder 'away'
     current_score: Tuple[int, int]  # (home, away)
@@ -141,7 +141,7 @@ class RedCardImpactPredictor:
         Hauptfunktion: Berechne was als nächstes passiert
         
         Args:
-            minute: Minute der Roten Karte
+            minute: Aktuelle Spielminute des Modell-Snapshots
             home_goals: Aktuelle Heimtore
             away_goals: Aktuelle Auswärtstore
             red_card_team: 'home' oder 'away' - wer hat Rot bekommen
@@ -334,7 +334,8 @@ class RedCardImpactPredictor:
         self, 
         prediction: RedCardPrediction,
         home_team: str,
-        away_team: str
+        away_team: str,
+        red_card_minute: Optional[int] = None,
     ) -> str:
         """
         Formatiere Prediction als lesbaren Text (für Telegram/Display)
@@ -347,12 +348,20 @@ class RedCardImpactPredictor:
         # Score
         h, a = prediction.current_score
         
+        red_card_minute_label = (
+            f"Minute {red_card_minute}'"
+            if red_card_minute is not None
+            else "nicht erfasst"
+        )
+
         output = f"""
 🔴 *ROTE KARTE ANALYSE*
 
 *Match:* {home_team} vs {away_team}
 *Spielstand:* {h}-{a}
-*Rot für:* {red_team_name} (Minute {prediction.minute}')
+*Rot für:* {red_team_name}
+*Platzverweis:* {red_card_minute_label}
+*Modell-Snapshot:* Minute {prediction.minute}'
 *Verbleibend:* ~{prediction.remaining_minutes} Minuten
 
 ━━━━━━━━━━━━━━━━━━━━━━

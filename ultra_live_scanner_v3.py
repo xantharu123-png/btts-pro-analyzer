@@ -11,10 +11,13 @@ from typing import Dict, Optional, Tuple
 
 import streamlit as st
 
+from red_card_impact_predictor import RedCardImpactPredictor
+
 
 class UltraLiveScanner:
     MATCH_END_MINUTE = 93
     PRIOR_PSEUDO_MINUTES = 30
+    MAX_RED_CARDS_PER_TEAM = 3
 
     def __init__(self, analyzer, api_football):
         self.analyzer = analyzer
@@ -33,6 +36,81 @@ class UltraLiveScanner:
         if not math.isfinite(numeric) or numeric < 0 or numeric > maximum:
             return None
         return numeric
+
+    @classmethod
+    def _optional_count(cls, value) -> Optional[int]:
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+        if (
+            not math.isfinite(numeric)
+            or not numeric.is_integer()
+            or not 0 <= numeric <= cls.MAX_RED_CARDS_PER_TEAM
+        ):
+            return None
+        return int(numeric)
+
+    @classmethod
+    def _red_card_state(cls, stats: Optional[Dict]) -> Dict:
+        """Return a fail-closed red-card adjustment for the remaining match."""
+        stats = stats if isinstance(stats, dict) else {}
+        home_count = cls._optional_count(stats.get('red_cards_home'))
+        away_count = cls._optional_count(stats.get('red_cards_away'))
+
+        base = {
+            'home_count': home_count,
+            'away_count': away_count,
+            'home_factor': 1.0,
+            'away_factor': 1.0,
+            'detected': bool((home_count or 0) + (away_count or 0)),
+            'applied': False,
+            'supported': True,
+            'inferred_zero_side': None,
+        }
+        if home_count is None or away_count is None:
+            if base['detected']:
+                return {
+                    **base,
+                    'status': 'INCOMPLETE_DISMISSAL_STATE',
+                    'supported': False,
+                }
+            return {**base, 'status': 'UNAVAILABLE'}
+        if home_count == 0 and away_count == 0:
+            return {**base, 'status': 'VERIFIED_NONE'}
+
+        # The shared prior is defined for the common 11-v-10 state only.
+        if home_count + away_count != 1:
+            return {
+                **base,
+                'status': 'UNSUPPORTED_COMPLEX_DISMISSAL_STATE',
+                'supported': False,
+            }
+
+        effects = RedCardImpactPredictor.RED_CARD_EFFECTS
+        if home_count == 1:
+            return {
+                **base,
+                'status': 'HOME_DISMISSED_ADJUSTED',
+                'home_factor': (
+                    effects['red_team_penalty']
+                    * effects['home_red_extra_penalty']
+                ),
+                'away_factor': effects['opponent_boost'],
+                'applied': True,
+            }
+        return {
+            **base,
+            'status': 'AWAY_DISMISSED_ADJUSTED',
+            'home_factor': effects['opponent_boost'],
+            'away_factor': (
+                effects['red_team_penalty']
+                * effects['away_red_extra_penalty']
+            ),
+            'applied': True,
+        }
 
     def _get_prematch_goal_priors(
         self,
@@ -68,6 +146,7 @@ class UltraLiveScanner:
         minute: int,
         prior_home: Optional[float] = None,
         prior_away: Optional[float] = None,
+        red_card_state: Optional[Dict] = None,
     ) -> Tuple[Optional[float], Optional[float], str]:
         if (
             isinstance(minute, bool)
@@ -110,6 +189,19 @@ class UltraLiveScanner:
             quality = 'LOW'
         else:
             quality = 'INSUFFICIENT'
+
+        if red_card_state and red_card_state.get('detected'):
+            if red_card_state.get('supported') is not True:
+                return None, None, 'INSUFFICIENT'
+            if all(value is not None for value in means):
+                means[0] *= float(red_card_state.get('home_factor', 1.0))
+                means[1] *= float(red_card_state.get('away_factor', 1.0))
+        elif (
+            red_card_state
+            and red_card_state.get('status') == 'UNAVAILABLE'
+            and quality == 'MEDIUM'
+        ):
+            quality = 'LOW'
         return means[0], means[1], quality
 
     def analyze_live_match_ultra(self, match: Dict) -> Optional[Dict]:
@@ -173,6 +265,7 @@ class UltraLiveScanner:
             ) if self.api_football is not None else None
             xg_home = self._optional_nonnegative((stats or {}).get('xg_home'))
             xg_away = self._optional_nonnegative((stats or {}).get('xg_away'))
+            red_card_state = self._red_card_state(stats)
             prior_home, prior_away = self._get_prematch_goal_priors(
                 home_team_id,
                 away_team_id,
@@ -187,6 +280,7 @@ class UltraLiveScanner:
                 minute,
                 prior_home,
                 prior_away,
+                red_card_state,
             )
             totals = self._calculate_over_under(
                 home_score,
@@ -196,6 +290,15 @@ class UltraLiveScanner:
                 minute,
                 prior_home,
                 prior_away,
+                red_card_state,
+            )
+            remaining_goals = self._calculate_remaining_goal_markets(
+                xg_home,
+                xg_away,
+                minute,
+                prior_home,
+                prior_away,
+                red_card_state,
             )
             next_goal = self._calculate_next_goal(
                 home_score,
@@ -204,6 +307,14 @@ class UltraLiveScanner:
                 xg_away,
                 minute,
                 stats or {},
+                prior_home,
+                prior_away,
+                red_card_state,
+            )
+            base_home_mean, base_away_mean, _ = self._remaining_goal_means(
+                xg_home,
+                xg_away,
+                minute,
                 prior_home,
                 prior_away,
             )
@@ -223,6 +334,8 @@ class UltraLiveScanner:
                 'btts_recommendation': self._get_btts_recommendation(
                     btts['probability'], btts['data_quality']
                 ),
+                'live_data_quality': remaining_goals['data_quality'],
+                'remaining_goals': remaining_goals,
                 'over_under': {
                     'expected_total_goals': totals['expected_total'],
                     'over_25_probability': totals['over_25_prob'],
@@ -231,6 +344,7 @@ class UltraLiveScanner:
                     'confidence': totals['data_quality'],
                 },
                 'next_goal': next_goal,
+                'red_cards': red_card_state,
                 'league': league.get('name', 'Unknown'),
                 'breakdown': {
                     'base': btts['base_prob'],
@@ -240,6 +354,10 @@ class UltraLiveScanner:
                     'prematch_away_goal_prior': prior_away,
                     'remaining_home_mean': btts['remaining_home_mean'],
                     'remaining_away_mean': btts['remaining_away_mean'],
+                    'unadjusted_remaining_home_mean': base_home_mean,
+                    'unadjusted_remaining_away_mean': base_away_mean,
+                    'red_card_home_factor': red_card_state['home_factor'],
+                    'red_card_away_factor': red_card_state['away_factor'],
                     'game_phase': self._get_phase(minute),
                 },
                 'stats': stats,
@@ -266,6 +384,7 @@ class UltraLiveScanner:
         minute: int,
         prior_home: Optional[float] = None,
         prior_away: Optional[float] = None,
+        red_card_state: Optional[Dict] = None,
     ) -> Dict:
         if home_score > 0 and away_score > 0:
             return {
@@ -285,6 +404,7 @@ class UltraLiveScanner:
             minute,
             prior_home,
             prior_away,
+            red_card_state,
         )
         if remaining_home is None or remaining_away is None:
             return {
@@ -339,6 +459,7 @@ class UltraLiveScanner:
         minute: int,
         prior_home: Optional[float] = None,
         prior_away: Optional[float] = None,
+        red_card_state: Optional[Dict] = None,
     ) -> Dict:
         current_goals = home_score + away_score
         remaining_home, remaining_away, quality = self._remaining_goal_means(
@@ -347,6 +468,7 @@ class UltraLiveScanner:
             minute,
             prior_home,
             prior_away,
+            red_card_state,
         )
         if remaining_home is None or remaining_away is None:
             return {
@@ -386,6 +508,74 @@ class UltraLiveScanner:
             'data_quality': quality,
         }
 
+    def _calculate_remaining_goal_markets(
+        self,
+        xg_home: Optional[float],
+        xg_away: Optional[float],
+        minute: int,
+        prior_home: Optional[float] = None,
+        prior_away: Optional[float] = None,
+        red_card_state: Optional[Dict] = None,
+    ) -> Dict:
+        """Calculate markets settled only on goals scored after this snapshot."""
+        remaining_home, remaining_away, quality = self._remaining_goal_means(
+            xg_home,
+            xg_away,
+            minute,
+            prior_home,
+            prior_away,
+            red_card_state,
+        )
+        if remaining_home is None or remaining_away is None:
+            return {
+                'expected_remaining_goals': None,
+                'over_0_5_probability': None,
+                'under_0_5_probability': None,
+                'over_1_5_probability': None,
+                'under_1_5_probability': None,
+                'home_scores_probability': None,
+                'away_scores_probability': None,
+                'team_signal_side': None,
+                'team_signal_probability': None,
+                'recommendation': 'INSUFFICIENT DATA',
+                'data_quality': 'INSUFFICIENT',
+            }
+
+        total_mean = remaining_home + remaining_away
+        over_05 = self._poisson_at_least_n(total_mean, 1)
+        over_15 = self._poisson_at_least_n(total_mean, 2)
+        home_scores = self._poisson_at_least_one(remaining_home)
+        away_scores = self._poisson_at_least_one(remaining_away)
+        if home_scores > away_scores:
+            team_side = 'HOME'
+            team_probability = home_scores
+        elif away_scores > home_scores:
+            team_side = 'AWAY'
+            team_probability = away_scores
+        else:
+            team_side = None
+            team_probability = home_scores
+
+        if over_05 >= 70.0:
+            recommendation = 'AT LEAST ONE MORE GOAL EXPLORATORY ESTIMATE'
+        elif over_05 <= 30.0:
+            recommendation = 'NO MORE GOAL EXPLORATORY ESTIMATE'
+        else:
+            recommendation = 'NO CLEAR REMAINING-GOAL SIGNAL'
+        return {
+            'expected_remaining_goals': round(total_mean, 3),
+            'over_0_5_probability': round(over_05, 1),
+            'under_0_5_probability': round(100.0 - over_05, 1),
+            'over_1_5_probability': round(over_15, 1),
+            'under_1_5_probability': round(100.0 - over_15, 1),
+            'home_scores_probability': round(home_scores, 1),
+            'away_scores_probability': round(away_scores, 1),
+            'team_signal_side': team_side,
+            'team_signal_probability': round(team_probability, 1),
+            'recommendation': recommendation,
+            'data_quality': quality,
+        }
+
     def _poisson_over_threshold(self, expected: float, goals_needed: int) -> float:
         return self._poisson_at_least_n(expected, goals_needed)
 
@@ -399,6 +589,7 @@ class UltraLiveScanner:
         stats: Dict,
         prior_home: Optional[float] = None,
         prior_away: Optional[float] = None,
+        red_card_state: Optional[Dict] = None,
     ) -> Dict:
         remaining_home, remaining_away, quality = self._remaining_goal_means(
             xg_home,
@@ -406,6 +597,7 @@ class UltraLiveScanner:
             minute,
             prior_home,
             prior_away,
+            red_card_state,
         )
         if remaining_home is None or remaining_away is None:
             return {
@@ -480,47 +672,93 @@ class UltraLiveScanner:
 def display_ultra_opportunity(match: Dict):
     """Render one API-backed live model result."""
     phase = match.get('breakdown', {}).get('game_phase', 'UNKNOWN')
-    quality = match.get('btts_confidence', 'INSUFFICIENT')
+    phase_label = {
+        'OPENING': 'Anfangsphase',
+        'PROBING': 'Frühe Phase',
+        'PRE_HT': 'Vor der Pause',
+        'POST_HT': 'Nach der Pause',
+        'LATE': 'Späte Phase',
+        'CLOSING': 'Schlussphase',
+    }.get(phase, phase)
+    quality = match.get('live_data_quality', match.get('btts_confidence', 'INSUFFICIENT'))
     quality_label = {
-        'LOW': 'Berechenbar',
-        'MEDIUM': 'Live-xG + Prematch',
+        'LOW': 'Basis: teilweise Daten',
+        'MEDIUM': 'Streng: Live-xG + Prematch',
         'INSUFFICIENT': 'Unzureichend',
         'COMPLETE': 'BTTS bereits eingetreten',
     }.get(quality, quality)
-    st.subheader(f"Live {match['minute']}' | {phase}")
+    st.subheader(f"Live {match['minute']}' | {phase_label}")
     st.write(f"**{match['home_team']} vs {match['away_team']}**")
-    st.caption(f"{match['league']} | Score: {match['score']}")
+    st.caption(f"{match['league']} | Spielstand: {match['score']}")
 
     btts = match.get('btts_prob')
+    remaining = match.get('remaining_goals', {})
     totals = match.get('over_under', {})
-    next_goal = match.get('next_goal', {})
-    columns = st.columns(3)
-    columns[0].metric(
+    primary = st.columns(2)
+    primary[0].metric(
         "BTTS",
-        "Complete" if quality == 'COMPLETE'
+        "Bereits erfüllt" if match.get('btts_confidence') == 'COMPLETE'
         else f"{btts:.1f}%" if btts is not None else "n/a",
     )
+    another_goal = remaining.get('over_0_5_probability')
+    primary[1].metric(
+        "Mindestens 1 weiteres Tor",
+        f"{another_goal:.1f}%" if another_goal is not None else "n/a",
+    )
+
+    team_goals = st.columns(2)
+    home_scores = remaining.get('home_scores_probability')
+    away_scores = remaining.get('away_scores_probability')
+    team_goals[0].metric(
+        f"{match['home_team']} trifft noch",
+        f"{home_scores:.1f}%" if home_scores is not None else "n/a",
+    )
+    team_goals[1].metric(
+        f"{match['away_team']} trifft noch",
+        f"{away_scores:.1f}%" if away_scores is not None else "n/a",
+    )
+
+    red_cards = match.get('red_cards') or {}
+    if red_cards.get('detected') and red_cards.get('supported') is not True:
+        st.error(
+            "Nicht vollständig unterstützter Platzverweis-Zustand: Die "
+            "Restspiel-Prognose ist gesperrt, "
+            "weil das Modell diesen Mannschaftsbestand nicht verlässlich abbildet."
+        )
+    elif red_cards.get('applied'):
+        st.warning(
+            "Platzverweis erkannt: Die Resttor-Raten wurden für 11 gegen 10 neu "
+            "berechnet. Der verwendete Wirkungsabschlag ist noch nicht kalibriert."
+        )
+
+    no_more = remaining.get('under_0_5_probability')
+    over_15 = remaining.get('over_1_5_probability')
+    expected_remaining = remaining.get('expected_remaining_goals')
+    detail_parts = []
+    if no_more is not None:
+        detail_parts.append(f"Kein weiteres Tor {no_more:.1f}%")
+    if over_15 is not None:
+        detail_parts.append(f"Mindestens 2 weitere Tore {over_15:.1f}%")
+    if expected_remaining is not None:
+        detail_parts.append(f"Erwartete Resttore {expected_remaining:.2f}")
+    if detail_parts:
+        st.caption(" | ".join(detail_parts))
+
     expected_total = totals.get('expected_total_goals')
-    columns[1].metric(
-        "Expected total",
-        f"{expected_total:.2f}" if expected_total is not None else "n/a",
-    )
-    favorite = next_goal.get('favorite')
-    favorite_probability = next_goal.get(
-        'home_prob' if favorite == 'HOME' else 'away_prob'
-    ) if favorite else None
-    columns[2].metric(
-        "Next-goal side",
-        f"{favorite} {favorite_probability:.1f}%"
-        if favorite_probability is not None else "n/a",
-    )
+    over_25 = totals.get('over_25_probability')
+    if expected_total is not None and over_25 is not None:
+        st.caption(
+            f"Gesamtspiel inklusive aktuellem Stand: Erwartete Tore {expected_total:.2f} | "
+            f"Über 2,5 {over_25:.1f}%"
+        )
     st.caption(
         f"Datenbasis: {quality_label} | "
-        "Uncalibrated exploratory estimate; not actionable and no market price checked"
+        "Unkalibrierte Modellschätzung; keine Wettfreigabe und keine Quote geprüft."
     )
-    st.write(match.get('btts_recommendation', 'INSUFFICIENT DATA'))
-    st.write(totals.get('recommendation', 'INSUFFICIENT DATA'))
-    st.write(next_goal.get('recommendation', 'INSUFFICIENT DATA'))
+    st.caption(
+        "Restspiel bedeutet: Es zählen nur Tore nach diesem Snapshot. Ein normales "
+        "Live-Over/Under berücksichtigt dagegen den bereits vorhandenen Spielstand."
+    )
 
 
 __all__ = ['UltraLiveScanner', 'display_ultra_opportunity']

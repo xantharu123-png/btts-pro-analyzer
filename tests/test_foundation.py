@@ -871,6 +871,37 @@ class APIOrientationTests(unittest.TestCase):
         self.assertEqual(stats["corners_home"], 3.0)
         self.assertEqual(stats["corners_away"], 7.0)
 
+    def test_present_null_red_card_fields_are_verified_zero_counts(self):
+        api = APIFootball("test")
+        api._rate_limit = lambda: None
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "response": [
+                {
+                    "team": {"id": 1},
+                    "statistics": [
+                        {"type": "expected_goals", "value": "1.38"},
+                        {"type": "Red Cards", "value": None},
+                    ],
+                },
+                {
+                    "team": {"id": 2},
+                    "statistics": [
+                        {"type": "expected_goals", "value": "0.52"},
+                        {"type": "Red Cards", "value": None},
+                    ],
+                },
+            ]
+        }
+
+        with patch("api_football.requests.get", return_value=response):
+            stats = api.get_match_statistics(99, 1, 2)
+
+        self.assertEqual(stats["red_cards_home"], 0)
+        self.assertEqual(stats["red_cards_away"], 0)
+        self.assertEqual(stats["xg_home"], 1.38)
+        self.assertEqual(stats["xg_away"], 0.52)
+
     def test_fractional_team_match_counts_are_rejected_not_truncated(self):
         api = APIFootball("test")
         api._rate_limit = lambda: None
@@ -1148,6 +1179,172 @@ class UltraDataGateTests(unittest.TestCase):
         base["fixture"]["status"]["elapsed"] = 20
         base["teams"]["home"]["id"] = True
         self.assertIsNone(scanner.analyze_live_match_ultra(base))
+
+    def test_remaining_goal_markets_match_poisson_identities(self):
+        scanner = UltraLiveScanner(None, None)
+        home_mean, away_mean, quality = scanner._remaining_goal_means(
+            1.0,
+            0.8,
+            60,
+            1.5,
+            1.2,
+        )
+
+        result = scanner._calculate_remaining_goal_markets(
+            1.0,
+            0.8,
+            60,
+            1.5,
+            1.2,
+        )
+
+        total_mean = home_mean + away_mean
+        self.assertEqual(quality, "MEDIUM")
+        self.assertAlmostEqual(
+            result["over_0_5_probability"],
+            round((1.0 - math.exp(-total_mean)) * 100.0, 1),
+        )
+        self.assertAlmostEqual(
+            result["home_scores_probability"],
+            round((1.0 - math.exp(-home_mean)) * 100.0, 1),
+        )
+        self.assertAlmostEqual(
+            result["away_scores_probability"],
+            round((1.0 - math.exp(-away_mean)) * 100.0, 1),
+        )
+        self.assertAlmostEqual(
+            result["over_0_5_probability"] + result["under_0_5_probability"],
+            100.0,
+        )
+
+    def test_single_red_card_adjusts_remaining_rates_in_correct_direction(self):
+        scanner = UltraLiveScanner(None, None)
+        base_home, base_away, _ = scanner._remaining_goal_means(
+            1.0,
+            0.8,
+            60,
+            1.5,
+            1.2,
+        )
+        red_card_state = scanner._red_card_state({
+            "red_cards_home": 1,
+            "red_cards_away": 0,
+        })
+        adjusted_home, adjusted_away, quality = scanner._remaining_goal_means(
+            1.0,
+            0.8,
+            60,
+            1.5,
+            1.2,
+            red_card_state,
+        )
+
+        self.assertEqual(red_card_state["status"], "HOME_DISMISSED_ADJUSTED")
+        self.assertEqual(red_card_state["away_count"], 0)
+        self.assertIsNone(red_card_state["inferred_zero_side"])
+        self.assertTrue(red_card_state["applied"])
+        self.assertEqual(quality, "MEDIUM")
+        self.assertLess(adjusted_home, base_home)
+        self.assertGreater(adjusted_away, base_away)
+
+    def test_missing_red_card_fields_cannot_keep_strict_data_quality(self):
+        scanner = UltraLiveScanner(None, None)
+        red_card_state = scanner._red_card_state({})
+
+        _, _, quality = scanner._remaining_goal_means(
+            1.0,
+            0.8,
+            60,
+            1.5,
+            1.2,
+            red_card_state,
+        )
+
+        self.assertEqual(red_card_state["status"], "UNAVAILABLE")
+        self.assertEqual(quality, "LOW")
+
+    def test_incomplete_red_card_state_blocks_remaining_goal_output(self):
+        scanner = UltraLiveScanner(None, None)
+        red_card_state = scanner._red_card_state({
+            "red_cards_home": 1,
+            "red_cards_away": None,
+        })
+
+        result = scanner._calculate_remaining_goal_markets(
+            1.0,
+            0.8,
+            60,
+            1.5,
+            1.2,
+            red_card_state,
+        )
+
+        self.assertEqual(red_card_state["status"], "INCOMPLETE_DISMISSAL_STATE")
+        self.assertFalse(red_card_state["supported"])
+        self.assertEqual(result["data_quality"], "INSUFFICIENT")
+
+    def test_complex_red_card_state_blocks_remaining_goal_output(self):
+        scanner = UltraLiveScanner(None, None)
+        red_card_state = scanner._red_card_state({
+            "red_cards_home": 1,
+            "red_cards_away": 1,
+        })
+
+        result = scanner._calculate_remaining_goal_markets(
+            1.0,
+            0.8,
+            60,
+            1.5,
+            1.2,
+            red_card_state,
+        )
+
+        self.assertFalse(red_card_state["supported"])
+        self.assertEqual(result["data_quality"], "INSUFFICIENT")
+        self.assertIsNone(result["over_0_5_probability"])
+
+    def test_live_analysis_exposes_core_markets_and_red_card_state(self):
+        class FakeEngine:
+            LEAGUES_CONFIG = {"PL": 39}
+
+        class FakeAnalyzer:
+            engine = FakeEngine()
+
+            @staticmethod
+            def analyze_match(*args):
+                return {
+                    "details": {
+                        "expected_home_goals": 1.5,
+                        "expected_away_goals": 1.2,
+                    }
+                }
+
+        class FakeAPI:
+            @staticmethod
+            def get_match_statistics(*args):
+                return {
+                    "xg_home": 1.0,
+                    "xg_away": 0.8,
+                    "red_cards_home": 0,
+                    "red_cards_away": 1,
+                }
+
+        result = UltraLiveScanner(FakeAnalyzer(), FakeAPI()).analyze_live_match_ultra({
+            "fixture": {"id": 1, "status": {"elapsed": 60}},
+            "teams": {
+                "home": {"id": 10, "name": "Home"},
+                "away": {"id": 20, "name": "Away"},
+            },
+            "goals": {"home": 1, "away": 0},
+            "league": {"id": 39, "name": "Premier League"},
+        })
+
+        self.assertEqual(result["live_data_quality"], "MEDIUM")
+        self.assertEqual(result["red_cards"]["status"], "AWAY_DISMISSED_ADJUSTED")
+        self.assertIsNotNone(result["remaining_goals"]["over_0_5_probability"])
+        self.assertIsNotNone(result["remaining_goals"]["home_scores_probability"])
+        self.assertFalse(result["calibrated"])
+        self.assertFalse(result["actionable"])
 
 
 class CrossSportMathTests(unittest.TestCase):
