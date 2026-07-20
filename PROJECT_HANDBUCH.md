@@ -536,6 +536,13 @@ Basketball zeigte ausschließlich den Filter `Liga`, E-Sport ausschließlich
 Viewport, Root und Body jeweils exakt gleich breit; Browserkonsole und
 Seitenlaufzeit meldeten keine Fehler.
 
+Produktive Multi-Sport-Prüfung am 20. Juli 2026 mit installiertem Google Chrome:
+EuroLeague und Tennis erzeugten aktuelle Snapshots, meldeten korrekt null laufende
+Ereignisse und keinen Providerfehler. Bei 390 Pixel Breite waren Cloud-Hülle und
+eingebettete App exakt 390 Pixel breit; es gab keine Seitenlaufzeit-Exception. Ein
+HTTP 403 auf Streamlits Plattformpfad `/api/v1/app/event/open` betraf nur das
+Cloud-Öffnungsereignis und blockierte weder App noch Sportdaten.
+
 ## 17. Lokale Inbetriebnahme
 
 ```powershell
