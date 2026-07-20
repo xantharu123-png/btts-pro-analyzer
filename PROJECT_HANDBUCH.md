@@ -4,10 +4,10 @@
 
 | Feld | Wert |
 |---|---|
-| Stand | 20. Juli 2026 |
+| Stand | 20. Juli 2026, nach finaler Produktionsprüfung |
 | Repository | https://github.com/xantharu123-png/btts-pro-analyzer |
 | Produktiv-Branch | `main` |
-| Produktivstand | `main`; exakten Stand mit `git rev-parse HEAD` prüfen |
+| Funktionale Produktionsbasis | `613447f` (`Reload stale Streamlit workflow modules`) |
 | Live-App | https://btts-pro-analyzer-atnoeulcg3jzwkghckhbth.streamlit.app/ |
 | Lokaler Projektpfad | `C:\Users\miros\Desktop\BetBoy\btts-pro-analyzer` |
 | Python | 3.11 |
@@ -21,14 +21,15 @@ BetBoy ist ein datengetriebener Wettfinder für Fußball und ausgewählte Live-M
 
 Der aktuelle Kernzustand ist technisch stabil:
 
-- Der aktuelle Code einschließlich der ergänzten Live-Märkte ist auf `main` committed und zu GitHub gepusht.
+- Der vollständige Umbau aller nutzerseitigen Suchbereiche zu Wettfindern ist auf `main` committed, zu GitHub gepusht und öffentlich ausgerollt. Die abschließend geprüfte funktionale Basis ist `613447f`.
 - Der letzte vollständige Testlauf ergab `190 passed, 5 subtests passed`.
 - Mobile, Tablet und Desktop wurden mit installiertem Google Chrome geprüft.
-- Die Streamlit-App wurde nach dem letzten Push erfolgreich aufgeweckt und gerendert.
+- Die Streamlit-App wurde nach dem letzten Push erfolgreich aufgeweckt. Alle sechs Hauptbereiche und ihre primären Wettfinder-Aktionen waren öffentlich sichtbar; es gab weder Seiten- noch Browserkonsolenfehler.
 - API-Football Pro ist aktiv und meldet ein Tageslimit von 7.500 Anfragen. Direkte Endpunkte, BetBoy-Wrapper und der sichtbare Live-App-Status wurden geprüft.
 - Die öffentlichen Multi-Sport-Pfade besitzen validierte Fallbacks: NBA.com zu ESPN, SofaScore Tennis zu ESPN sowie EuroLeague v2-Saisonliste plus Live-Header.
 - Multi-Sport ist als Wettfinder aufgebaut: Basketball, NHL und E-Sport führen bis zu Mindestquote, Preis-Gate und `WETTEN`/`NICHT WETTEN`; unzureichende Tennis- und Cricket-Daten enden ausdrücklich mit `NICHT WETTEN`.
 - Auch BTTS, alternative Fußballmärkte, Live-Fußball und Platzverweise verwenden denselben Preisentscheid. Tabellen, Rohsignale und Ereigniszähler sind nur noch aufklappbare Prüfdetails, nicht das Endprodukt.
+- Eine Streamlit-spezifische Mischversion aus neuem Einstieg und alten importierten Seitenmodulen wurde mit entkoppelten Kandidatenmodulen, expliziten Modulversionen und kontrolliertem Reload behoben.
 - Die bisherige Supabase-Verbindung ist ungültig. Die App fällt kontrolliert auf lokale SQLite-Datenbanken zurück.
 
 Die größte noch offene Arbeit liegt nicht in der Rechenlogik, sondern in der Produktionspersistenz: eine gültige Datenbankverbindung einrichten, Challenge-Daten nutzerbezogen speichern und reale Out-of-sample-/CLV-Historie sammeln.
@@ -61,6 +62,7 @@ Wichtig: 15.000 EUR sind ein Zielwert, keine Prognose und keine Garantie. Der Ch
 - Keine simulierten Buchmacherpreise, wenn kein echter Preis vorhanden ist.
 - Keine automatische Umgehung von N1Bet-Zugriffsschutz oder AGB.
 - Keine Vermischung verschiedener Sportarten oder Datenmodelle.
+- Kein reines Monitoring als Endprodukt: Ein nutzerseitiger Suchbereich muss eine konkrete, preisprüfbare Auswahl oder ein begründetes `NICHT WETTEN` liefern.
 
 ### 2.4 Wichtige Meilensteine
 
@@ -70,8 +72,31 @@ Wichtig: 15.000 EUR sind ein Zielwert, keine Prognose und keine Garantie. Der Ch
 | `cb01363` | Vollständiger Betting-Audit, responsive UX und 15K-Challenge integriert |
 | `f2173b5` | Scanner-Mathematik, Providerfehler und Signal-UX weiter abgesichert |
 | `0925d18` | Ultra-Audit aller Modelle, Datenverträge, Kalibrierungen und Ticketgates abgeschlossen |
+| `eeebcc6` | Alle Fußball-Arbeitsbereiche auf denselben kanonischen 44-Ligen-Katalog vereinheitlicht |
+| `9d79578` | Multi-Sport-Filter und Providerabrufe strikt nach gewählter Sportart getrennt |
+| `78e164c` | Multi-Sport-Provider, Fallbacks und Live-Datenverträge gehärtet |
+| `568dd80` | Basketball-, NHL- und E-Sport-v1 bis zur echten Wett- und Preisentscheidung ausgebaut |
+| `6230be5` | BTTS, Märkte, Live, Platzverweise und Challenge in durchgängige Wettfinder umgebaut |
+| `cb8ce39` | Gemeinsamen Kandidatenbau entkoppelt und Cloud-Importfehler beseitigt |
+| `613447f` | Veraltete Streamlit-Seitenmodule und Analyzer-Caches über Versionsgates neu geladen |
 
-Ältere Commits enthalten die schrittweise Einführung alternativer Märkte, der Platzverweis-Erkennung, weiterer Sportarten und der Edge-basierten Value-Logik. Die vier genannten Commits bilden die maßgebliche Härtungsphase.
+Ältere Commits enthalten die schrittweise Einführung alternativer Märkte, der Platzverweis-Erkennung, weiterer Sportarten und der Edge-basierten Value-Logik. Die Tabelle nennt die wichtigsten fachlichen und betrieblichen Meilensteine; reine Dokumentations- und Redeploy-Commits sind nicht einzeln aufgeführt.
+
+### 2.5 Umgesetzter Lieferumfang
+
+| Bereich | Was bis zum aktuellen Stand umgesetzt wurde |
+|---|---|
+| Konfiguration und APIs | API-Football und football-data.org sauber getrennt, Secrets priorisiert geladen, Providerfehler trotz HTTP 200 erkannt und API-Football Pro live verifiziert |
+| Ligenauswahl | Ein kanonischer Katalog mit exakt 44 Wettbewerben für alle Fußball-Arbeitsbereiche, inklusive Vertrags- und Reload-Tests |
+| Datenintegrität | Strikte Fixture-, Team-, Liga-, Zeitstempel- und Payload-Prüfung; fehlende Werte bleiben unbekannt statt fälschlich null zu werden |
+| Mathematik | Poisson-, Negative-Binomial-, Beta-/Shrinkage-, Kalibrierungs-, Edge-, EV- und Kelly-Logik gehärtet; zeitliche Leakage geschlossen |
+| Prematch | BTTS-Shortlist mit höchstens drei Spielen, Evidenz-, Stichproben-, Modellkonsistenz- und Frischegates sowie separater N1Bet-Preisprüfung |
+| Fußballmärkte | Ein linearer Markt-Wettfinder über den strikten Challenge-Motor statt separater Rohsignal-, Resultat- und Value-Ansichten |
+| Live und Platzverweise | BTTS, noch ein Tor, Team trifft noch und nächstes Tor nach Platzverweis mit maximal zwei Minuten alten Daten und konservativen Abschlägen |
+| 15K Challenge | Zielpfad von 100 auf 15.000 EUR, maximal drei Spiele, Gesamtquote 2,00–3,00, 5–100 % Challenge-Einsatz und davon getrennte Kelly-Referenz |
+| Multi-Sport | Sportgetrennte Providerpfade; modellierte Wettentscheidungen für Basketball, NHL und E-Sport; Tennis und Cricket bleiben fail-closed |
+| UX | Flache Navigation, gemeinsame Endzustände, mobile Bedienelemente, responsive Darstellung und Prüfdetails nur bei Bedarf |
+| Qualität und Betrieb | 190 Tests plus 5 Subtests, lokale und öffentliche Chrome-QA, kontrollierter SQLite-Fallback und Streamlit-Hot-Reload-Schutz |
 
 ## 3. Leitprinzipien
 
@@ -451,6 +476,18 @@ Ein vollständiges externes Audit (Bericht: `AUDIT_BERICHT_2026-07-18.md`) führ
 - **Responsive QA:** installiertes Google Chrome öffnete alle sechs Bereiche bei 1280 × 800 und echten 390 × 844 Pixeln. Beide Viewports hatten 0 Pixel Root-Überlauf, keine Seitenfehler und keine Browserkonsolenfehler. Ein realer Pro-API-Abruf am 20. Juli lieferte für die drei Standardligen keine kommenden Ligaspiele und endete korrekt mit `NICHT WETTEN` statt eines erfundenen Tipps.
 - **Streamlit-Hot-Reload:** zentrale Seitenmodule tragen explizite Versionsnummern. `btts_pro_app.py` lädt Analyzer, Märkte, Challenge und Fußball-Empfehlungen neu, wenn ein laufender Cloud-Prozess noch eine ältere importierte Modulversion hält; der Analyzer-Cache ist ebenfalls an die Modulversion gebunden.
 
+## 12d. Produktions-Rollout und Hot-Reload-Fix vom 20. Juli 2026
+
+Der vollständige Rollout verlief in mehreren technisch getrennten Schritten. Diese Chronik ist wichtig, weil ein grüner GitHub-Push bei einem langlebigen Streamlit-Prozess nicht automatisch beweist, dass alle importierten Seitenmodule bereits aus demselben Commit stammen.
+
+1. `6230be5` brachte den gemeinsamen Wettfinder-Umbau auf `main`. Die öffentliche App lud den neuen Einstieg, scheiterte aber zunächst beim Import von `football_recommendations`, weil im laufenden Prozess noch eine ältere Version von `multi_sport_recommendations` ohne das neue Symbol aktiv war.
+2. `cb8ce39` verschob den generischen fail-closed Kandidatenbau nach `bet_finder_candidates.py`. Damit war die Fußballlogik nicht länger von einem bereits importierten Multi-Sport-Modul abhängig und der Startfehler verschwand.
+3. Danach zeigte die Cloud zwar den neuen globalen Titel, im Bereich `Märkte` aber noch die alte Aktion `Matches laden`. Ursache war erneut kein falscher Git-Stand, sondern ein altes Seitenmodul im Streamlit-Prozess.
+4. `613447f` führte explizite Versionen für Analyzer (`3`), Markt-Workflow (`4`), Challenge (`3`), Fußball-Empfehlungen (`2`) und Platzverweis-Modul (`2`) ein. Der App-Einstieg lädt zu alte Module kontrolliert neu; der Streamlit-Analyzer-Cache trägt die Modulversion als Cache-Schlüssel.
+5. Anschließend waren lokaler `HEAD`, `origin/main` und der geprüfte Funktionsstand identisch. Die öffentliche App zeigte alle neuen Wettfinder-Abläufe und bestand die abschließende Desktop- und Mobilprüfung.
+
+Dieser Fix ist kein allgemeiner Ersatz für einen sauberen Redeploy. Bei künftigen strukturellen Änderungen müssen Git-Hash, sichtbare UI-Aktion und Modulversion gemeinsam geprüft werden.
+
 ## 13. Schwierigkeiten und ihre Ursachen
 
 ### Zwei ähnlich benannte Fußball-APIs
@@ -484,6 +521,10 @@ Mehrere Multi-Sport-Quellen sind öffentliche oder inoffizielle Endpunkte. Beim 
 ### Streamlit-Schlafmodus und Browser-QA
 
 Streamlit Community Cloud legt inaktive Apps schlafen. Das ist kein Codefehler. Für die letzte visuelle Prüfung wurde die App mit normalem Chrome aufgeweckt. Die Codex-Browsererweiterung wurde vermieden, weil sie lokal die Codex-App destabilisieren konnte.
+
+### Gemischte Modulstände in langlebigen Streamlit-Prozessen
+
+Beim letzten Rollout kombinierte der Cloud-Prozess zeitweise den neuen App-Einstieg mit bereits importierten alten Workflow-Modulen. Das führte nacheinander zu einem Importfehler und zu einer alten Markt-Oberfläche trotz aktuellem Git-Branch. Abhilfe schaffen die entkoppelte Modulgrenze in `bet_finder_candidates.py`, explizite Workflow-Versionen und gezielte Reload-Gates in `btts_pro_app.py`. Bei künftigen Deployments reicht deshalb weder der Seitentitel noch der GitHub-Status als alleiniger Nachweis; die primäre Aktion jedes Arbeitsbereichs muss sichtbar geprüft werden.
 
 ## 14. Bekannte offene Punkte und Risiken
 
@@ -535,6 +576,8 @@ Letztes bestätigtes Ergebnis:
 190 passed, 5 subtests passed
 ```
 
+Dieser Lauf wurde auf der funktionalen Produktionsbasis `613447f` ausgeführt. Die einzige Warnung betraf einen nicht beschreibbaren pytest-Cachepfad; der Testlauf selbst und alle Subtests waren erfolgreich.
+
 Die zehn neuen Multi-Sport- und Workflow-Tests prüfen Buchmacherunabhängigkeit, Push- und Tippfehler-Linien, reguläre Spielzeit, Snapshot-Frische, Mindeststichprobe, Unsicherheitsabschläge, Preis-Gates und den prozentualen Kelly-Einsatz. Die bisherigen Audit-, Ledger- und Stake-Regressionen bleiben ebenfalls aktiv.
 
 ### Patch-Sauberkeit
@@ -575,6 +618,15 @@ eingebettete App exakt 390 Pixel breit; es gab keine Seitenlaufzeit-Exception. E
 HTTP 403 auf Streamlits Plattformpfad `/api/v1/app/event/open` betraf nur das
 Cloud-Öffnungsereignis und blockierte weder App noch Sportdaten.
 
+Abschließende öffentliche Gesamtprüfung nach `613447f` am 20. Juli 2026:
+API-Football Pro war in der App als aktiv sichtbar. `Spiele`, `Märkte`, `Live`,
+`System`, `15K Challenge` und `Multi-Sport` ließen sich öffnen und zeigten ihre
+aktuellen primären Aktionen. Bei 1280 × 800 und 390 × 844 Pixeln betrug der
+horizontale Root-Überlauf 0 Pixel. Es gab keine Seiten- oder Browserkonsolenfehler.
+Der einzige beobachtete HTTP 403 blieb das nicht fachliche Streamlit-Telemetrieereignis
+`/api/v1/app/event/open`; es war kein Fehler von API-Football oder einem anderen
+Sportdatenprovider.
+
 ## 17. Lokale Inbetriebnahme
 
 ```powershell
@@ -597,6 +649,11 @@ Für lokale Konfiguration `config.ini.example` nach `config.ini` übertragen und
 
 Der produktive Code liegt auf `main`. Ein Push auf `main` stößt das Streamlit-Deployment an.
 
+Die zuletzt vollständig geprüfte funktionale Codebasis ist `613447f`. Vor diesem
+Handbuch-Nachtrag waren lokaler `HEAD`, `origin/main` und der öffentlich geprüfte
+Stand identisch. Ein späterer reiner Dokumentationscommit ändert die App-Logik nicht;
+für den jeweils aktuellen Branch-Hash bleibt `git rev-parse HEAD` maßgeblich.
+
 ```powershell
 git add -A
 git commit -m "Beschreibende Commit-Nachricht"
@@ -610,6 +667,7 @@ Nach dem Push:
 3. Schlafende App über die Live-URL aufwecken.
 4. Providerstatus und alle Hauptseiten in normalem Chrome prüfen.
 5. Keine Secrets oder vollständigen Providerpayloads in Logs ausgeben.
+6. Nicht nur den App-Titel, sondern in allen sechs Bereichen die aktuelle primäre Aktion prüfen; damit werden alte importierte Workflow-Module erkannt.
 
 ## 19. Arbeitsregeln für Claude oder weitere Entwickler
 
@@ -657,4 +715,4 @@ sind. Committe oder pushe nur, wenn dies ausdrücklich beauftragt wurde.
 
 ## 22. Übergabestatus
 
-Der Stand vom 20. Juli 2026 ist die aktuelle belastbare Basis: API-Football Pro ist aktiv, alle Fußball-Arbeitsbereiche verwenden denselben kanonischen 44-Ligen-Katalog, die Challenge trennt den konfigurierbaren 5–100-%-Einsatz von der Kelly-Referenz, und `190` Tests plus `5` Subtests bestehen. Alle nutzerseitigen Suchbereiche enden nun in `WETTEN`, `NICHT WETTEN` oder `PREIS ERFORDERLICH`; Rohdaten und Zähler sind nur Prüfdetails. BTTS, strikte Fußballmärkte, Live-Resttore, Teamtore, Platzverweise sowie Basketball-, NHL- und E-Sport-v1-Modelle führen über Mindestquote, Edge, EV und Einsatzreferenz zur Entscheidung; Tennis und Cricket bleiben mangels ausreichender Modellinputs gesperrt. Die Chrome-QA bestand bei 1280 und echten 390 Pixeln ohne Überlauf oder Seitenfehler. Noch offen sind primär dauerhafte Speicherung, Benutzertrennung, echte N1Bet-Livepreise sowie sportartspezifische OOS-/CLV-Kalibrierung. Diese offenen Punkte dürfen nicht mit einer Modellgarantie verwechselt werden.
+Der Funktionsstand `613447f` vom 20. Juli 2026 ist die aktuelle belastbare Basis: API-Football Pro ist aktiv, alle Fußball-Arbeitsbereiche verwenden denselben kanonischen 44-Ligen-Katalog, die Challenge trennt den konfigurierbaren 5–100-%-Einsatz von der Kelly-Referenz, und `190` Tests plus `5` Subtests bestehen. Alle nutzerseitigen Suchbereiche enden nun in `WETTEN`, `NICHT WETTEN` oder `PREIS ERFORDERLICH`; Rohdaten und Zähler sind nur Prüfdetails. BTTS, strikte Fußballmärkte, Live-Resttore, Teamtore, Platzverweise sowie Basketball-, NHL- und E-Sport-v1-Modelle führen über Mindestquote, Edge, EV und Einsatzreferenz zur Entscheidung; Tennis und Cricket bleiben mangels ausreichender Modellinputs gesperrt. Die lokale und öffentliche Chrome-QA bestand bei 1280 und echten 390 Pixeln ohne Überlauf, Seiten- oder Konsolenfehler. Der Cloud-Rollout ist einschließlich der behobenen Mischversion alter Streamlit-Module dokumentiert. Noch offen sind primär dauerhafte Speicherung, Benutzertrennung, echte N1Bet-Livepreise sowie sportartspezifische OOS-/CLV-Kalibrierung. Diese offenen Punkte dürfen nicht mit einer Modellgarantie verwechselt werden.
