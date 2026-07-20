@@ -6,10 +6,8 @@ from datetime import datetime
 import math
 from typing import Any, Mapping, Optional
 
-from multi_sport_recommendations import (
-    RecommendationCandidate,
-    build_probability_candidate,
-)
+from bet_finder_candidates import build_probability_candidate
+from multi_sport_recommendations import RecommendationCandidate
 
 
 PREMATCH_MAX_AGE_SECONDS = 6 * 3600

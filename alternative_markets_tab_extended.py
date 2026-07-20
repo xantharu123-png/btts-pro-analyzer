@@ -8,10 +8,10 @@ import pandas as pd
 import streamlit as st
 
 from bet_finder_ui import render_price_decision
+from bet_finder_candidates import build_probability_candidate
 from challenge_15k import ChallengeDataProvider, scan_daily_challenge
 from config_loader import load_app_config
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
-from multi_sport_recommendations import build_probability_candidate
 
 
 DEFAULT_LEAGUES = [78, 39, 140]

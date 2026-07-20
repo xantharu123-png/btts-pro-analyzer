@@ -135,6 +135,7 @@ Bei der letzten Prüfung gab es keine horizontale Seitenüberbreite und keine St
 | `smart_bet_finder.py` | Verifizierte Marktpreise, Overround, risikoadjustierter EV und Stake |
 | `alternative_markets.py` | Wahrscheinlichkeitsmodelle für Tore, Ecken, Karten und Live-Metriken |
 | `alternative_markets_tab_extended.py` | Linearer Markt-Wettfinder auf Basis des strikten Challenge-Motors |
+| `bet_finder_candidates.py` | Gemeinsamer fail-closed Kandidatenbau ohne neue Abhängigkeit zum Streamlit-Einstieg |
 | `football_recommendations.py` | Preisunabhängige BTTS-, Live- und Platzverweis-Kandidaten samt Frische- und Qualitätsgates |
 | `bet_finder_ui.py` | Gemeinsamer N1Bet-Preisentscheid mit Mindestquote, Edge, EV und Einsatzreferenz |
 | `challenge_engine.py` | Marktdefinitionen, Walk-forward-Validierung, Kandidaten, Kontext und Tickets |
