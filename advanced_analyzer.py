@@ -25,6 +25,7 @@ from season_utils import current_season_start_year_for_id
 
 
 ML_MODEL_VERSION = 4
+ANALYZER_MODULE_VERSION = 3
 ML_FEATURE_NAMES = (
     'home_btts_rate',
     'away_btts_rate',

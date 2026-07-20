@@ -15,6 +15,7 @@ from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 
 
 RED_CARD_MONITORED_LEAGUE_IDS = tuple(ALTERNATIVE_MARKET_LEAGUES)
+RED_CARD_BOT_VERSION = 2
 
 # Import predictor
 try:

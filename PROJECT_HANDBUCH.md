@@ -449,6 +449,7 @@ Ein vollständiges externes Audit (Bericht: `AUDIT_BERICHT_2026-07-18.md`) führ
 - **Platzverweis-Wettfinder:** Browser- und Telegram-Hinweise wurden aus der Nutzerführung entfernt. Jede Suche berücksichtigt alle aktuellen Platzverweise, bildet daraus die stärkste konkrete `Nächstes Tor`-Auswahl und prüft anschließend den N1Bet-Preis.
 - **15K Challenge:** der Hauptbereich heißt `Wettfinder`, die primäre Aktion `Challenge-Wetten finden`; Kontoführung und Verlauf bleiben getrennte Aufgaben.
 - **Responsive QA:** installiertes Google Chrome öffnete alle sechs Bereiche bei 1280 × 800 und echten 390 × 844 Pixeln. Beide Viewports hatten 0 Pixel Root-Überlauf, keine Seitenfehler und keine Browserkonsolenfehler. Ein realer Pro-API-Abruf am 20. Juli lieferte für die drei Standardligen keine kommenden Ligaspiele und endete korrekt mit `NICHT WETTEN` statt eines erfundenen Tipps.
+- **Streamlit-Hot-Reload:** zentrale Seitenmodule tragen explizite Versionsnummern. `btts_pro_app.py` lädt Analyzer, Märkte, Challenge und Fußball-Empfehlungen neu, wenn ein laufender Cloud-Prozess noch eine ältere importierte Modulversion hält; der Analyzer-Cache ist ebenfalls an die Modulversion gebunden.
 
 ## 13. Schwierigkeiten und ihre Ursachen
 

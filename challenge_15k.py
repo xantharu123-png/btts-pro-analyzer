@@ -37,6 +37,7 @@ from season_utils import current_season_start_year_for_id
 
 
 CHALLENGE_SNAPSHOT_VERSION = 2
+CHALLENGE_WORKSPACE_VERSION = 3
 CHALLENGE_TIMEZONE = ZoneInfo("Europe/Zurich")
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140)
 MAX_CONTEXT_FIXTURES = 8

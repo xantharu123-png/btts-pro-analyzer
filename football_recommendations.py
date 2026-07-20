@@ -12,6 +12,7 @@ from multi_sport_recommendations import RecommendationCandidate
 
 PREMATCH_MAX_AGE_SECONDS = 6 * 3600
 LIVE_MAX_AGE_SECONDS = 120
+FOOTBALL_RECOMMENDATIONS_VERSION = 2
 
 
 def _finite(value: Any) -> Optional[float]:

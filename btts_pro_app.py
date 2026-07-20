@@ -20,16 +20,43 @@ _REQUIRED_LEAGUE_CATALOG_VERSION = 2
 if getattr(_league_catalog, "CATALOG_VERSION", 0) < _REQUIRED_LEAGUE_CATALOG_VERSION:
     _league_catalog = importlib.reload(_league_catalog)
 
-from advanced_analyzer import AdvancedBTTSAnalyzer, ML_FEATURE_NAMES, ML_MODEL_PATH
-from alternative_markets_tab_extended import create_alternative_markets_tab_extended
-from bet_finder_ui import render_price_decision
-from challenge_15k import render_challenge_15k
-from config_loader import load_app_config
-from football_recommendations import (
-    live_football_candidate,
-    prematch_btts_candidate,
-    red_card_candidate,
+import advanced_analyzer as _advanced_analyzer
+import alternative_markets_tab_extended as _alternative_markets
+import challenge_15k as _challenge_15k
+import football_recommendations as _football_recommendations
+
+_REQUIRED_ANALYZER_MODULE_VERSION = 3
+if getattr(_advanced_analyzer, "ANALYZER_MODULE_VERSION", 0) < _REQUIRED_ANALYZER_MODULE_VERSION:
+    _advanced_analyzer = importlib.reload(_advanced_analyzer)
+
+_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 3
+if getattr(_challenge_15k, "CHALLENGE_WORKSPACE_VERSION", 0) < _REQUIRED_CHALLENGE_WORKSPACE_VERSION:
+    _challenge_15k = importlib.reload(_challenge_15k)
+
+_REQUIRED_MARKET_WORKFLOW_VERSION = 4
+if getattr(_alternative_markets, "MARKET_WORKFLOW_VERSION", 0) < _REQUIRED_MARKET_WORKFLOW_VERSION:
+    _alternative_markets = importlib.reload(_alternative_markets)
+
+_REQUIRED_FOOTBALL_RECOMMENDATIONS_VERSION = 2
+if (
+    getattr(_football_recommendations, "FOOTBALL_RECOMMENDATIONS_VERSION", 0)
+    < _REQUIRED_FOOTBALL_RECOMMENDATIONS_VERSION
+):
+    _football_recommendations = importlib.reload(_football_recommendations)
+
+AdvancedBTTSAnalyzer = _advanced_analyzer.AdvancedBTTSAnalyzer
+ML_FEATURE_NAMES = _advanced_analyzer.ML_FEATURE_NAMES
+ML_MODEL_PATH = _advanced_analyzer.ML_MODEL_PATH
+create_alternative_markets_tab_extended = (
+    _alternative_markets.create_alternative_markets_tab_extended
 )
+render_challenge_15k = _challenge_15k.render_challenge_15k
+live_football_candidate = _football_recommendations.live_football_candidate
+prematch_btts_candidate = _football_recommendations.prematch_btts_candidate
+red_card_candidate = _football_recommendations.red_card_candidate
+
+from bet_finder_ui import render_price_decision
+from config_loader import load_app_config
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
 from multi_sport_recommendations import build_candidate, evaluate_candidate_price
 
@@ -424,8 +451,10 @@ def _apply_app_styles() -> None:
 
 
 @st.cache_resource
-def get_analyzer():
+def get_analyzer(module_version: int = _REQUIRED_ANALYZER_MODULE_VERSION):
     """Initialize the analyzer from the central configuration."""
+    if module_version != _REQUIRED_ANALYZER_MODULE_VERSION:
+        raise ValueError("Unsupported analyzer module version")
     config = load_app_config(st)
     if not config.api_football_key:
         return None
@@ -1270,7 +1299,11 @@ def _scan_red_cards(
     league_ids: Optional[list[int]],
     scope_label: str,
 ) -> dict:
-    from red_card_bot import RedCardBotEnhanced
+    import red_card_bot as red_card_module
+
+    if getattr(red_card_module, "RED_CARD_BOT_VERSION", 0) < 2:
+        red_card_module = importlib.reload(red_card_module)
+    RedCardBotEnhanced = red_card_module.RedCardBotEnhanced
 
     scanned_at = datetime.now().astimezone().isoformat()
     finder = RedCardBotEnhanced(
@@ -2063,7 +2096,7 @@ def main() -> None:
     _apply_app_styles()
 
     try:
-        analyzer = get_analyzer()
+        analyzer = get_analyzer(_REQUIRED_ANALYZER_MODULE_VERSION)
         st.session_state.pop("analyzer_error", None)
     except Exception as exc:
         analyzer = None
