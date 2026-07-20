@@ -17,16 +17,17 @@ Dieses Dokument ist die maßgebliche Übergabe für die weitere Entwicklung. Es 
 
 ## 1. Kurzfassung
 
-BetBoy ist ein datengetriebener Analyse-Arbeitsplatz für Fußballwetten mit ergänzenden, ausdrücklich explorativen Multi-Sport-Scannern. Das System soll Wahrscheinlichkeiten unabhängig vom Buchmacher ermitteln und Marktquoten erst danach als Preis bewerten.
+BetBoy ist ein datengetriebener Wettanalyse-Arbeitsplatz für Fußball und ausgewählte Live-Märkte weiterer Sportarten. Das System ermittelt Modellrichtung und Wahrscheinlichkeit unabhängig vom Buchmacher und bewertet die N1Bet-Quote erst danach als Preis.
 
 Der aktuelle Kernzustand ist technisch stabil:
 
 - Der aktuelle Code einschließlich der ergänzten Live-Märkte ist auf `main` committed und zu GitHub gepusht.
-- Der letzte vollständige Testlauf ergab `174 passed, 5 subtests passed`.
+- Der letzte vollständige Testlauf ergab `184 passed, 5 subtests passed`.
 - Mobile, Tablet und Desktop wurden mit installiertem Google Chrome geprüft.
 - Die Streamlit-App wurde nach dem letzten Push erfolgreich aufgeweckt und gerendert.
 - API-Football Pro ist aktiv und meldet ein Tageslimit von 7.500 Anfragen. Direkte Endpunkte, BetBoy-Wrapper und der sichtbare Live-App-Status wurden geprüft.
 - Die öffentlichen Multi-Sport-Pfade besitzen validierte Fallbacks: NBA.com zu ESPN, SofaScore Tennis zu ESPN sowie EuroLeague v2-Saisonliste plus Live-Header.
+- Multi-Sport ist als Wettfinder aufgebaut: Basketball, NHL und E-Sport führen bis zu Mindestquote, Preis-Gate und `WETTEN`/`NICHT WETTEN`; unzureichende Tennis- und Cricket-Daten enden ausdrücklich mit `NICHT WETTEN`.
 - Die bisherige Supabase-Verbindung ist ungültig. Die App fällt kontrolliert auf lokale SQLite-Datenbanken zurück.
 
 Die größte noch offene Arbeit liegt nicht in der Rechenlogik, sondern in der Produktionspersistenz: eine gültige Datenbankverbindung einrichten, Challenge-Daten nutzerbezogen speichern und reale Out-of-sample-/CLV-Historie sammeln.
@@ -91,7 +92,7 @@ Training und Walk-forward-Validierung werden chronologisch und nach Spieltag gru
 
 ### Trennung von Analyse und Aktion
 
-Explorative Sport- oder Marktindikatoren dürfen angezeigt werden, sind aber ohne belastbare Out-of-sample-Kalibrierung nicht handlungsfähig und erhalten keinen Einsatzvorschlag.
+Explorative Rohindikatoren erhalten keinen Einsatzvorschlag. Eine v1-Modellentscheidung ohne ausreichende eigene OOS-Historie muss ihren Modellstatus, konservativen Wahrscheinlichkeitsabschlag und die getrennte Preisprüfung offenlegen; sie darf nur nach den dokumentierten Edge-, EV- und Kelly-Gates `WETTEN` anzeigen. Das bleibt eine vorläufige Modellfreigabe und keine Behauptung nachgewiesener Profitabilität.
 
 ## 4. Aktuelle Benutzeroberfläche
 
@@ -104,7 +105,7 @@ Die App besitzt eine flache Sidebar-Navigation ohne tiefe Menüverschachtelung:
 | `Live` | BTTS, Resttore, weitere Teamtore und Platzverweise prüfen | Unkalibrierte Live-Signale mit strengen Datenqualitätstoren; keine Wettfreigabe |
 | `Modell` | Datenbestand, Validierung und Training verwalten | Administrativ |
 | `15K Challenge` | Tägliche Shortlist, N1Bet-Preisprüfung, Ticket und Kontoverlauf | Strengste Freigaberegeln |
-| `Multi-Sport` | Basketball, Eishockey (NHL), Tennis, Cricket und E-Sport getrennt laden | Explorativ, kein Wettauftrag |
+| `Multi-Sport` | Live-Ereignis auswählen, Modellmarkt bilden, N1Bet-Preis prüfen und Einsatzreferenz berechnen | Basketball/NHL/E-Sport mit Preis-Gates; Tennis/Cricket gesperrt |
 
 Die Oberflächen wurden für folgende Viewports geprüft:
 
@@ -141,6 +142,7 @@ Bei der letzten Prüfung gab es keine horizontale Seitenüberbreite und keine St
 | `red_card_bot.py` | Platzverweis-Erkennung, Statistikabruf und optionale Benachrichtigung |
 | `red_card_impact_predictor.py` | Modelliert den Einfluss eines Platzverweises auf Restspiel und Tore |
 | `scanners/*.py` | Getrennte explorative Scanner für weitere Sportarten |
+| `multi_sport_recommendations.py` | Sportmodelle, Unsicherheitsabschläge, Mindestquote sowie Edge-/EV-/Kelly-Preisentscheidung |
 | `tests/*.py` | Regressionen für Mathematik, Datenverträge, Providerfehler und Workflows |
 
 Alle Fußball-Arbeitsbereiche verwenden denselben Katalog aus exakt 44 Wettbewerben. `Spiele`, `Märkte`, `Live`, `Modell`, `15K Challenge`, der API-Client und der Platzverweis-Monitor dürfen keine eigenen Teilmengen als verfügbaren Gesamtkatalog führen. Favoriten bleiben lediglich eine kleine vorausgewählte Scanmenge; `Auswahl` und `Alle` greifen überall auf dieselben 44 IDs zu. Vertrags-Tests prüfen Anzahl, Eindeutigkeit und ID-Gleichheit.
@@ -278,8 +280,8 @@ Statusangaben beziehen sich auf die letzte Prüfung am 20. Juli 2026.
 | OpenWeather | Wetterkontext der Challenge | Lokal konfiguriert | Kontingent und Deployment-Secret prüfen |
 | The Odds API | Automatische Marktpreise | Derzeit nicht konfiguriert | Optional; N1Bet bleibt aktuell manuelle Preisprüfung |
 | Supabase/PostgreSQL | Persistente Matchdaten | Deployment-Verbindung ungültig; Tenant/User wird nicht gefunden | Neue korrekte Pooler-URL eintragen und Migration testen |
-| PandaScore | E-Sport | Nicht konfiguriert | Nur nötig, wenn E-Sport weiterentwickelt wird |
-| NBA/NHL/EuroLeague öffentliche Endpunkte | Multi-Sport-Snapshots | NBA.com-CDN blockierte den Testhost mit 403 und fällt auf ESPN zurück; NHL-Scoreboard gesund; EuroLeague nutzt v2-Saisonliste plus offiziellen Live-Header | Nur explorativ behandeln, Fallback-Verträge überwachen und Providerfehler sichtbar halten |
+| PandaScore | E-Sport | Nicht konfiguriert | Für E-Sport-Wettvorschläge erforderlich; ohne Schlüssel stets `NICHT WETTEN` |
+| NBA/NHL/EuroLeague öffentliche Endpunkte | Multi-Sport-Snapshots | NBA.com-CDN blockierte den Testhost mit 403 und fällt auf ESPN zurück; NHL-Scoreboard gesund; EuroLeague nutzt v2-Saisonliste plus offiziellen Live-Header | Payload-Verträge überwachen; nur validierte Ereignisse an das Wettmodell geben |
 | SofaScore-/ESPN-Endpunkte | Tennis | SofaScore blockierte den Testhost mit 403; ATP-/WTA-Fallback über ESPN antwortete gesund | Beide Verträge überwachen; keinen Aufschlag oder Punktestand ergänzen, wenn der Provider ihn nicht liefert |
 | RapidAPI/CricAPI | Cricket | Nicht konfiguriert | Nur bei Priorisierung von Cricket aktivieren |
 | Telegram | Platzverweis-Benachrichtigung | Nicht konfiguriert | Optional nach erfolgreichem Live-Provider-Test |
@@ -387,8 +389,22 @@ CLV wird derzeit lokal in SQLite gespeichert. Modellartefakte wie `*.pkl`, `*.jo
 - Der Snapshot-Kopf nennt die tatsächlich verwendete Datenquelle, sofern Ereignisse vorliegen.
 - NHL-Spiele laufen nicht mehr durch Basketball-Projektionslogik.
 - Cricket-Overs werden korrekt als Bälle interpretiert; `10.5` sind 65 Bälle und `10.6` ist ungültig.
-- Tennis-, Cricket-, Basketball-, NHL- und E-Sport-Ausgaben sind ohne Kalibrierung nicht handlungsfähig.
+- Tennis und Cricket liefern mit der aktuellen Payload keine Wettwahrscheinlichkeit und enden mit `NICHT WETTEN` statt einer Rohdatenempfehlung.
+- Basketball und NHL bewerten ausschließlich x,5-Gesamtmärkte der regulären Spielzeit. Verlängerung, Push-Linien, fehlende Uhr oder zu frühe Spielstände werden gesperrt.
+- E-Sport verlangt mindestens 20 abgeschlossene Matches je Team, einen validen Best-of-Serienstand und konservative Beta-Grenzen.
 - Karten-, Ecken- und Schussdaten behandeln fehlende Werte nicht mehr als echte Nullen.
+
+### Multi-Sport-Wettentscheidung
+
+Der Multi-Sport-Ablauf zeigt keine Rohdatentabelle mehr als Endprodukt. Nach Auswahl eines laufenden Ereignisses entsteht zuerst eine buchmacherunabhängige Modellauswahl. Erst danach werden die exakte N1Bet-Linie und die aktuelle Dezimalquote eingegeben und über `N1Bet-Preis prüfen` bestätigt.
+
+- Basketball verwendet ein Gamma-Poisson-Pace-Modell mit ligaabhängigem Total-Prior, echter Spieluhr und einem expliziten Abschlag für Pace-, Lineup- und Possession-Risiko.
+- NHL verwendet ein Gamma-Poisson-Tormodell über exakt 60 Minuten mit zusätzlichem Abschlag für Goalie-, Special-Team- und Empty-Net-Risiko.
+- E-Sport bildet aus geglätteten Teamhistorien zunächst eine relative Serienwahrscheinlichkeit, löst daraus die konsistente Map-Wahrscheinlichkeit und aktualisiert sie mit dem Live-Serienstand. Die risikoadjustierte Wahrscheinlichkeit nutzt 10/90-%-Beta-Grenzen plus fünf weitere Prozentpunkte Modellabschlag.
+- Der Preis besteht nur bei mindestens `4,0` Prozentpunkten risikoadjustierter Edge, mindestens `3,0 %` risikoadjustiertem EV und positivem Quarter-Kelly. Die Kelly-Referenz ist auf `2 %` des eingegebenen Guthabens begrenzt; sie ist kein fixer Zwei-Euro-Einsatz.
+- Eine neue Provider-Aktualisierung erzeugt neue Linien- und Quotenfelder. Eine alte manuelle Quote wird dadurch nicht still weiterverwendet.
+
+Diese sportartspezifischen v1-Modelle besitzen noch keine ausreichende eigene OOS-/CLV-Historie. `WETTEN` bedeutet deshalb, dass die implementierten Modell-, Robustheits- und Preis-Gates bestanden sind; es ist keine Garantie und kein Nachweis dauerhaften positiven Erwartungswerts. Die laufende Ergebnis- und CLV-Erfassung bleibt für die weitere Kalibrierung erforderlich.
 - Platzverweisereignisse werden Team, Fixture und Spielminute strikt zugeordnet.
 - Live-Resttore und weitere Teamtore sind vom normalen Gesamttor-Markt getrennt; nur Tore nach dem Snapshot zählen für den Restspiel-Markt.
 - Vorhandene Provider-Nullwerte bei roten Karten werden als bestätigte Null gezählt; fehlende oder komplexe Kartenstände schließen strenge beziehungsweise sämtliche Restspiel-Signale aus.
@@ -447,7 +463,7 @@ Niedrige Quoten wirkten in früheren Darstellungen implizit sicher. Das System b
 
 ### Upstream-Instabilität
 
-Mehrere Multi-Sport-Quellen sind öffentliche oder inoffizielle Endpunkte. Beim Audit blockierten NBA.com und SofaScore den Testhost mit HTTP 403; ESPN übernahm beide Pfade. Der frühere EuroLeague-Games-Endpunkt lieferte nur noch eine HTML-404-Seite. Payloads, Ratelimits und Verfügbarkeit können sich ohne Ankündigung ändern. Jeder Scanner validiert deshalb seine Daten separat, zeigt die aktive Quelle und bleibt explorativ.
+Mehrere Multi-Sport-Quellen sind öffentliche oder inoffizielle Endpunkte. Beim Audit blockierten NBA.com und SofaScore den Testhost mit HTTP 403; ESPN übernahm beide Pfade. Der frühere EuroLeague-Games-Endpunkt lieferte nur noch eine HTML-404-Seite. Payloads, Ratelimits und Verfügbarkeit können sich ohne Ankündigung ändern. Jeder Scanner validiert deshalb seine Daten separat und bleibt reine Provider-Schicht; erst `multi_sport_recommendations.py` darf aus einem validierten Ereignis eine getrennte Modell- und Preisentscheidung bilden.
 
 ### Streamlit-Schlafmodus und Browser-QA
 
@@ -476,7 +492,7 @@ Streamlit Community Cloud legt inaktive Apps schlafen. Das ist kein Codefehler. 
 
 1. Weitere Ligen über den kanonischen 44er-Katalog hinaus erst nach ausreichender historischer Abdeckung freigeben.
 2. Märkte nur mit eigener Walk-forward-Kalibrierung erweitern.
-3. Multi-Sport entweder mit bewährten Engines und Datenverträgen produktisieren oder klar als Monitoring belassen.
+3. Multi-Sport-v1-Modelle mit mindestens 200 chronologischen OOS-Fällen je Markt kalibrieren und die statischen Liga-Priors automatisiert versionieren.
 4. CLV-Auswertung und Kalibrierungsdrift als Dashboard aufbauen.
 5. Request-Caching über mehrere Streamlit-Sessions hinweg verbessern.
 
@@ -500,10 +516,10 @@ Streamlit Community Cloud legt inaktive Apps schlafen. Das ist kein Codefehler. 
 Letztes bestätigtes Ergebnis:
 
 ```text
-174 passed, 5 subtests passed
+184 passed, 5 subtests passed
 ```
 
-Die acht zusätzlichen Tests (`tests/test_audit_fixes.py` und Ledger-/Stake-Tests) pinnen die Audit-Fixes vom 18. Juli 2026 fest.
+Die zehn neuen Multi-Sport- und Workflow-Tests prüfen Buchmacherunabhängigkeit, Push- und Tippfehler-Linien, reguläre Spielzeit, Snapshot-Frische, Mindeststichprobe, Unsicherheitsabschläge, Preis-Gates und den prozentualen Kelly-Einsatz. Die bisherigen Audit-, Ledger- und Stake-Regressionen bleiben ebenfalls aktiv.
 
 ### Patch-Sauberkeit
 
@@ -625,4 +641,4 @@ sind. Committe oder pushe nur, wenn dies ausdrücklich beauftragt wurde.
 
 ## 22. Übergabestatus
 
-Der Stand vom 20. Juli 2026 ist die aktuelle belastbare Basis: API-Football Pro ist aktiv, alle Fußball-Arbeitsbereiche verwenden denselben kanonischen 44-Ligen-Katalog, die Challenge trennt den konfigurierbaren 5–100-%-Einsatz von der Kelly-Referenz, und `174` Tests plus `5` Subtests bestehen. `main` enthält streng gegatete Live-Resttor- und Teamtor-Märkte samt Platzverweis-Neuberechnung. Multi-Sport lädt nur den ausdrücklich gewählten Sport, zeigt passende Filter und nutzt geprüfte Provider-Fallbacks, bleibt aber ohne sportartspezifische OOS-Kalibrierung ein Monitoring-Werkzeug und keine Wettfreigabe. Noch offen sind primär dauerhafte Speicherung, Benutzertrennung, echte N1Bet-Livepreise und längere reale Shadow-Mode-/CLV-Beobachtung. Diese offenen Punkte dürfen nicht mit einer Modellgarantie verwechselt werden.
+Der Stand vom 20. Juli 2026 ist die aktuelle belastbare Basis: API-Football Pro ist aktiv, alle Fußball-Arbeitsbereiche verwenden denselben kanonischen 44-Ligen-Katalog, die Challenge trennt den konfigurierbaren 5–100-%-Einsatz von der Kelly-Referenz, und `184` Tests plus `5` Subtests bestehen. `main` enthält streng gegatete Live-Resttor- und Teamtor-Märkte samt Platzverweis-Neuberechnung. Multi-Sport ist kein Rohdaten-Monitoring mehr: Basketball-, NHL- und E-Sport-v1-Modelle führen über Mindestquote, Edge, EV und Kelly-Referenz zu `WETTEN` oder `NICHT WETTEN`; Tennis und Cricket bleiben mangels ausreichender Modellinputs gesperrt. Die Chrome-QA bestand bei 1280 und 390 Pixeln ohne Überlauf oder Seitenfehler. Noch offen sind primär dauerhafte Speicherung, Benutzertrennung, echte N1Bet-Livepreise sowie sportartspezifische OOS-/CLV-Kalibrierung. Diese offenen Punkte dürfen nicht mit einer Modellgarantie verwechselt werden.

@@ -25,6 +25,7 @@ from alternative_markets_tab_extended import create_alternative_markets_tab_exte
 from challenge_15k import render_challenge_15k
 from config_loader import load_app_config
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
+from multi_sport_recommendations import build_candidate, evaluate_candidate_price
 
 
 PAGE_INFO = {
@@ -49,8 +50,8 @@ PAGE_INFO = {
         "Bis zu drei streng geprüfte Spiele; N1Bet-Preise kommen erst nach der Modellfreigabe hinzu.",
     ),
     "Multi-Sport": (
-        "Multi-Sport",
-        "Live-Daten je Sportart getrennt laden und prüfen.",
+        "Multi-Sport Wettfinder",
+        "Modell zuerst, N1Bet-Preis danach: wetten nur bei positivem risikoadjustiertem Value.",
     ),
 }
 
@@ -131,6 +132,25 @@ def _format_snapshot_time(value: Optional[str]) -> str:
         return datetime.fromisoformat(value).astimezone().strftime("%d.%m.%Y %H:%M:%S")
     except (TypeError, ValueError):
         return str(value)
+
+
+def _snapshot_age_seconds(
+    value: Optional[str],
+    *,
+    now: Optional[datetime] = None,
+) -> Optional[float]:
+    if not value:
+        return None
+    try:
+        timestamp = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    if timestamp.tzinfo is None:
+        return None
+    reference = now or datetime.now().astimezone()
+    if reference.tzinfo is None:
+        return None
+    return (reference.astimezone() - timestamp.astimezone()).total_seconds()
 
 
 def _scope_signature(leagues: list[str], days_ahead: int) -> dict:
@@ -1684,6 +1704,41 @@ def _multi_sport_scope_key(sport: str, detail_filter: Optional[str]) -> str:
     return f"{sport}:{detail_filter or 'all'}"
 
 
+def _multi_sport_event_label(sport: str, item: dict) -> str:
+    if sport == "Basketball":
+        return (
+            f"{item.get('home_team', 'HOME')} vs {item.get('away_team', 'AWAY')} | "
+            f"Q{item.get('period', 'n/a')} | {item.get('home_score', 'n/a')}:"
+            f"{item.get('away_score', 'n/a')}"
+        )
+    if sport == "Eishockey":
+        return (
+            f"{item.get('away_team', 'AWAY')} @ {item.get('home_team', 'HOME')} | "
+            f"P{item.get('period', 'n/a')} | {item.get('away_score', 'n/a')}:"
+            f"{item.get('home_score', 'n/a')}"
+        )
+    if sport == "Tennis":
+        return (
+            f"{item.get('player1', 'Spieler 1')} vs {item.get('player2', 'Spieler 2')} | "
+            f"{item.get('player1_score', 'n/a')}:{item.get('player2_score', 'n/a')}"
+        )
+    if sport == "Cricket":
+        score = (
+            f"{item.get('current_runs')}/{item.get('current_wickets')}"
+            if item.get("current_runs") is not None
+            and item.get("current_wickets") is not None
+            else "n/a"
+        )
+        return (
+            f"{item.get('team1', 'Team 1')} vs {item.get('team2', 'Team 2')} | "
+            f"{score} nach {item.get('current_over', 'n/a')} Over"
+        )
+    return (
+        f"{item.get('team1', 'Team 1')} vs {item.get('team2', 'Team 2')} | "
+        f"{item.get('team1_score', 'n/a')}:{item.get('team2_score', 'n/a')}"
+    )
+
+
 def _fetch_multi_sport_snapshot(
     sport: str,
     detail_filter: Optional[str] = None,
@@ -1720,9 +1775,7 @@ def _fetch_multi_sport_snapshot(
                 "EuroLeague": "Euroleague",
             }[detail_filter]
             for game in scanner.scan_live_games(provider_filter):
-                item = dict(game)
-                item["projection"] = scanner.calculate_scoring_projection(game)
-                snapshot["items"].append(item)
+                snapshot["items"].append(dict(game))
             for provider, message in scanner.errors.items():
                 snapshot["errors"][provider] = message
         except Exception:
@@ -1773,100 +1826,12 @@ def _fetch_multi_sport_snapshot(
         if scanner.api_key:
             provider_filter = "all" if detail_filter == "Alle Spiele" else detail_filter.lower()
             for match in scanner.get_live_matches(provider_filter):
-                item = dict(match)
-                item["_analysis"] = scanner.analyze_match(match)
-                snapshot["items"].append(item)
+                snapshot["items"].append(dict(match))
             for provider, message in scanner.errors.items():
                 snapshot["errors"][provider] = message
     except Exception:
         snapshot["errors"]["PandaScore"] = "Provider nicht verfügbar"
     return snapshot
-
-
-def _multi_sport_frame(snapshot: dict) -> pd.DataFrame:
-    sport = snapshot.get("sport")
-    items = snapshot.get("items") if isinstance(snapshot.get("items"), list) else []
-    if sport == "Basketball":
-        return pd.DataFrame(
-            [
-                {
-                    "Match": f"{game.get('home_team', 'HOME')} vs {game.get('away_team', 'AWAY')}",
-                    "Liga": game.get("league", "n/a"),
-                    "Periode": f"Q{game.get('period', 'n/a')}",
-                    "Stand": f"{game.get('home_score', 'n/a')}-{game.get('away_score', 'n/a')}",
-                    "Lineare Total-Projektion": _format_optional(game.get("projection"), 1),
-                }
-                for game in items
-            ]
-        )
-    if sport == "Eishockey":
-        return pd.DataFrame(
-            [
-                {
-                    "Match": f"{game.get('away_team', 'AWAY')} @ {game.get('home_team', 'HOME')}",
-                    "Liga": "NHL",
-                    "Periode": f"P{game.get('period', 'n/a')}",
-                    "Stand": f"{game.get('away_score', 'n/a')}-{game.get('home_score', 'n/a')}",
-                    "Uhr": game.get("game_clock") or "n/a",
-                }
-                for game in items
-            ]
-        )
-    if sport == "Tennis":
-        return pd.DataFrame(
-            [
-                {
-                    "Match": f"{match.get('player1', 'Spieler 1')} vs {match.get('player2', 'Spieler 2')}",
-                    "Turnier": match.get("tournament", "ATP/WTA"),
-                    "Satzstand": f"{match.get('player1_score', 'n/a')}-{match.get('player2_score', 'n/a')}",
-                    "Punktstand": match.get("point_score") or "n/a",
-                    "Phase": match.get("status") or "Live",
-                }
-                for match in items
-            ]
-        )
-    if sport == "Cricket":
-        return pd.DataFrame(
-            [
-                {
-                    "Match": f"{match.get('team1', 'Team 1')} vs {match.get('team2', 'Team 2')}",
-                    "Format": match.get("format", "n/a"),
-                    "Am Schlag": match.get("batting_team_name") or "n/a",
-                    "Innings": match.get("current_innings") or "n/a",
-                    "Stand": (
-                        f"{match.get('current_runs')}/{match.get('current_wickets')}"
-                        if match.get('current_runs') is not None
-                        and match.get('current_wickets') is not None
-                        else "n/a"
-                    ),
-                    "Over": _format_optional(match.get("current_over"), 1),
-                    "Run Rate": _format_optional(match.get("run_rate"), 2),
-                }
-                for match in items
-            ]
-        )
-    if sport != "E-Sport":
-        return pd.DataFrame()
-    return pd.DataFrame(
-        [
-            {
-                "Match": f"{match.get('team1', 'Team 1')} vs {match.get('team2', 'Team 2')}",
-                "Spiel": match.get("game", "n/a"),
-                "Stand": f"{match.get('team1_score', 'n/a')}-{match.get('team2_score', 'n/a')}",
-                "Explorative Lücke": (
-                    match.get("_analysis", {}).get("probability_gap")
-                    if match.get("_analysis")
-                    else "n/a"
-                ),
-                "Datenabdeckung %": (
-                    match.get("_analysis", {}).get("data_coverage")
-                    if match.get("_analysis")
-                    else "n/a"
-                ),
-            }
-            for match in items
-        ]
-    )
 
 
 def render_multi_sport() -> None:
@@ -1890,21 +1855,22 @@ def render_multi_sport() -> None:
         st.session_state["multi_sport_snapshots"] = snapshots
     scope_key = _multi_sport_scope_key(sport, detail_filter)
     if st.button(
-        f"{sport} laden",
+        f"{sport}-Wettvorschläge aktualisieren",
         type="primary",
         use_container_width=True,
         key="run_multi_sport",
     ):
-        with st.spinner(f"{sport}-Live-Daten werden geladen..."):
+        with st.spinner(f"{sport}-Modelle werden aktualisiert..."):
             snapshots[scope_key] = _fetch_multi_sport_snapshot(sport, detail_filter)
 
     snapshot = snapshots.get(scope_key)
     if not snapshot:
-        st.info(f"Noch kein {sport}-Snapshot für diese Auswahl.")
+        st.info(f"Noch keine {sport}-Wettanalyse für diese Auswahl.")
         return
 
     snapshot_items = snapshot.get("items")
-    item_count = len(snapshot_items) if isinstance(snapshot_items, list) else 0
+    snapshot_items = snapshot_items if isinstance(snapshot_items, list) else []
+    item_count = len(snapshot_items)
     caption_parts = [
         f"Snapshot: {_format_snapshot_time(snapshot.get('scanned_at'))}",
         f"{item_count} Live-Ereignisse",
@@ -1920,20 +1886,19 @@ def render_multi_sport() -> None:
         caption_parts.append(f"Quelle: {', '.join(sources)}")
     st.caption(" | ".join(caption_parts))
 
+    snapshot_age = _snapshot_age_seconds(snapshot.get("scanned_at"))
+    if snapshot_age is None or snapshot_age < -30 or snapshot_age > 180:
+        st.error("NICHT WETTEN: Live-Snapshot ist ungültig oder älter als drei Minuten.")
+        return
+
     missing_esports_key = sport == "E-Sport" and not snapshot.get(
         "credentials_available"
     )
     if missing_esports_key:
-        st.warning("Für E-Sport ist ein PandaScore-Key erforderlich.")
+        st.error("NICHT WETTEN: Für E-Sport fehlt der PandaScore-Key.")
 
-    frame = _multi_sport_frame(snapshot)
-    if frame.empty and not missing_esports_key and not snapshot["errors"]:
-        st.info(f"Zurzeit wurden keine laufenden {sport}-Ereignisse gefunden.")
-    elif not frame.empty:
-        st.dataframe(frame, use_container_width=True, hide_index=True)
-
-    if snapshot["errors"]:
-        st.warning(f"Der {sport}-Provider war für diesen Snapshot nicht vollständig verfügbar.")
+    if snapshot.get("errors"):
+        st.warning(f"Eine {sport}-Teilquelle war nicht vollständig verfügbar.")
         with st.expander("Providerfehler"):
             st.dataframe(
                 pd.DataFrame(
@@ -1945,10 +1910,139 @@ def render_multi_sport() -> None:
                 use_container_width=True,
                 hide_index=True,
             )
-    st.caption(
-        "Sportübergreifendes Ranking bleibt deaktiviert: unkalibrierte Scores verschiedener "
-        "Sportarten sind mathematisch nicht vergleichbar."
+
+    if not snapshot_items:
+        if not missing_esports_key:
+            st.info(f"Keine laufenden {sport}-Ereignisse, daher aktuell keine Wettempfehlung.")
+        return
+
+    selected_index = st.selectbox(
+        "Spiel",
+        list(range(len(snapshot_items))),
+        format_func=lambda index: _multi_sport_event_label(sport, snapshot_items[index]),
+        key=f"multi_sport_event_{scope_key}",
     )
+    selected_item = snapshot_items[selected_index]
+    snapshot_token = str(snapshot.get("scanned_at") or "snapshot").replace(":", "_")
+    line_value = None
+    if sport in {"Basketball", "Eishockey"}:
+        line_label = (
+            "N1Bet-Gesamtpunkte-Linie (x,5)"
+            if sport == "Basketball"
+            else "N1Bet-Gesamttore-Linie (x,5)"
+        )
+        raw_line = st.text_input(
+            line_label,
+            placeholder="z. B. 221,5" if sport == "Basketball" else "z. B. 5,5",
+            key=f"multi_sport_line_{scope_key}_{selected_index}_{snapshot_token}",
+        ).strip()
+        if not raw_line:
+            st.info("Für diesen Markt zuerst die exakte N1Bet-Linie eintragen.")
+            return
+        try:
+            line_value = float(raw_line.replace(",", "."))
+        except ValueError:
+            line_value = raw_line
+
+    candidate = build_candidate(
+        sport,
+        selected_item,
+        market_line=line_value,
+    )
+    if candidate.blockers:
+        st.error("NICHT WETTEN")
+        st.markdown("\n".join(f"- {reason}" for reason in candidate.blockers))
+        return
+
+    st.subheader(candidate.selection)
+    st.caption(candidate.market)
+    model_metrics = st.columns(3)
+    model_metrics[0].metric("Modell", f"{candidate.model_probability:.1f} %")
+    model_metrics[1].metric(
+        "Risiko-adjustiert",
+        f"{candidate.risk_adjusted_probability:.1f} %",
+    )
+    model_metrics[2].metric("Mindestquote", f"{candidate.minimum_odds:.2f}")
+    if candidate.expected_total is not None:
+        st.caption(f"Posteriorer Total-Erwartungswert: {candidate.expected_total:.2f}")
+
+    decision_slot = st.empty()
+    with st.form(
+        f"multi_sport_price_form_{scope_key}_{selected_index}_{snapshot_token}",
+        border=False,
+    ):
+        price_column, bankroll_column = st.columns(2)
+        with price_column:
+            raw_odds = st.text_input(
+                f"N1Bet-Quote für {candidate.selection}",
+                placeholder="z. B. 1,95",
+                key=f"multi_sport_odds_{scope_key}_{selected_index}_{snapshot_token}",
+            ).strip()
+        with bankroll_column:
+            bankroll = st.number_input(
+                "Aktuelles Wettguthaben",
+                min_value=1.0,
+                value=100.0,
+                step=10.0,
+                key="multi_sport_bankroll",
+            )
+        selection_confirmed = st.checkbox(
+            f"N1Bet-Auswahl stimmt exakt: {candidate.selection} / {candidate.market}",
+            value=False,
+            key=f"multi_sport_selection_confirmed_{scope_key}_{selected_index}_{snapshot_token}",
+        )
+        price_submitted = st.form_submit_button(
+            f"Preis für {candidate.selection} prüfen",
+            type="primary",
+            use_container_width=True,
+        )
+    quoted_odds = None
+    if raw_odds:
+        try:
+            quoted_odds = float(raw_odds.replace(",", "."))
+        except ValueError:
+            quoted_odds = raw_odds
+    decision = evaluate_candidate_price(
+        candidate,
+        quoted_odds,
+        bankroll=bankroll,
+        quote_confirmed=price_submitted and selection_confirmed,
+    )
+    with decision_slot.container():
+        if decision.status == "PRICE_REQUIRED":
+            st.info(
+                f"{decision.reasons[0]} Mindestquote für {candidate.selection}: "
+                f"{candidate.minimum_odds:.2f}."
+            )
+        elif decision.actionable:
+            st.success(
+                f"WETTEN: {candidate.selection} @ {decision.quoted_odds:.2f} | "
+                f"Kelly-Referenz {decision.stake_amount:.2f} ({decision.stake_fraction * 100:.2f} %)"
+            )
+        else:
+            st.error("NICHT WETTEN")
+            st.markdown("\n".join(f"- {reason}" for reason in decision.reasons))
+
+        if decision.metrics is not None:
+            price_metrics = st.columns(3)
+            price_metrics[0].metric(
+                "Risiko-Edge",
+                f"{decision.metrics.risk_adjusted_edge:.1f} pp",
+            )
+            price_metrics[1].metric(
+                "Risiko-EV",
+                f"{decision.metrics.risk_adjusted_expected_roi:.1f} %",
+            )
+            price_metrics[2].metric(
+                "Kelly-Referenz",
+                f"{decision.stake_fraction * 100:.2f} %",
+            )
+
+    with st.expander("Modellprüfung"):
+        st.write(f"Modell: {candidate.model_name}")
+        st.write(f"Modell-Fair-Quote: {candidate.fair_odds:.3f}")
+        st.write(f"Robustheitsabschlag: {candidate.probability_haircut:.1f} Prozentpunkte")
+        st.markdown("\n".join(f"- {reason}" for reason in candidate.evidence))
 
 
 def main() -> None:

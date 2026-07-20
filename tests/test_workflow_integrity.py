@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
 import pandas as pd
@@ -34,6 +35,17 @@ def test_app_formats_new_league_codes_from_existing_catalog_symbols():
     assert app._league_label_for_code("unknown") == "UNKNOWN"
 
 
+def test_live_recommendation_snapshot_age_requires_timezone_and_freshness():
+    now = datetime(2026, 7, 20, 10, 0, tzinfo=timezone.utc)
+
+    assert app._snapshot_age_seconds(now.isoformat(), now=now) == 0
+    assert app._snapshot_age_seconds(
+        (now - timedelta(seconds=181)).isoformat(),
+        now=now,
+    ) == 181
+    assert app._snapshot_age_seconds("2026-07-20T10:00:00", now=now) is None
+
+
 def test_multi_sport_fetches_only_the_selected_basketball_scope(monkeypatch):
     from scanners import basketball_scanner
 
@@ -57,7 +69,7 @@ def test_multi_sport_fetches_only_the_selected_basketball_scope(monkeypatch):
             ]
 
         def calculate_scoring_projection(self, _game):
-            return 218.5
+            raise AssertionError("Legacy projection must not run")
 
         def get_live_nhl_games(self):
             raise AssertionError("NHL must not be fetched for Basketball")
@@ -75,13 +87,9 @@ def test_multi_sport_fetches_only_the_selected_basketball_scope(monkeypatch):
     assert snapshot["detail_filter"] == "NBA"
     assert len(snapshot["items"]) == 1
     assert "nhl" not in snapshot
-    assert list(app._multi_sport_frame(snapshot).columns) == [
-        "Match",
-        "Liga",
-        "Periode",
-        "Stand",
-        "Lineare Total-Projektion",
-    ]
+    assert app._multi_sport_event_label("Basketball", snapshot["items"][0]) == (
+        "Home vs Away | Q2 | 42:40"
+    )
 
 
 def test_multi_sport_eishockey_does_not_run_basketball_scan(monkeypatch):
@@ -119,7 +127,9 @@ def test_multi_sport_eishockey_does_not_run_basketball_scan(monkeypatch):
 
     assert calls == ["nhl"]
     assert snapshot["sport"] == "Eishockey"
-    assert app._multi_sport_frame(snapshot).iloc[0]["Liga"] == "NHL"
+    assert app._multi_sport_event_label("Eishockey", snapshot["items"][0]) == (
+        "SCB @ ZSC | P1 | 0:1"
+    )
 
 
 def test_multi_sport_esports_filter_is_scoped_to_pandascore(monkeypatch):
@@ -145,7 +155,7 @@ def test_multi_sport_esports_filter_is_scoped_to_pandascore(monkeypatch):
             ]
 
         def analyze_match(self, _match):
-            return {"probability_gap": 4.0, "data_coverage": 75.0}
+            raise AssertionError("Legacy exploratory estimate must not run")
 
     monkeypatch.setattr(esports_scanner, "EsportsScanner", FakeEsportsScanner)
 
@@ -154,7 +164,9 @@ def test_multi_sport_esports_filter_is_scoped_to_pandascore(monkeypatch):
     assert calls == ["valorant"]
     assert snapshot["sport"] == "E-Sport"
     assert snapshot["credentials_available"] is True
-    assert app._multi_sport_frame(snapshot).iloc[0]["Spiel"] == "VALORANT"
+    assert app._multi_sport_event_label("E-Sport", snapshot["items"][0]) == (
+        "Alpha vs Beta | 1:0"
+    )
 
 
 def test_multi_sport_rejects_filters_from_another_sport():
@@ -164,44 +176,27 @@ def test_multi_sport_rejects_filters_from_another_sport():
         app._fetch_multi_sport_snapshot("E-Sport", "NBA")
 
 
-def test_multi_sport_tennis_frame_shows_verified_phase_and_points():
-    frame = app._multi_sport_frame({
-        "sport": "Tennis",
-        "items": [{
-            "player1": "Player A",
-            "player2": "Player B",
-            "tournament": "Bastad",
-            "player1_score": 1,
-            "player2_score": 0,
-            "point_score": "AD-40",
-            "status": "2nd set",
-        }],
+def test_multi_sport_tennis_event_label_uses_verified_set_score():
+    label = app._multi_sport_event_label("Tennis", {
+        "player1": "Player A",
+        "player2": "Player B",
+        "player1_score": 1,
+        "player2_score": 0,
     })
 
-    assert list(frame.columns) == ["Match", "Turnier", "Satzstand", "Punktstand", "Phase"]
-    assert frame.iloc[0]["Punktstand"] == "AD-40"
-    assert frame.iloc[0]["Phase"] == "2nd set"
+    assert label == "Player A vs Player B | 1:0"
 
 
-def test_multi_sport_cricket_frame_uses_current_innings_fields():
-    frame = app._multi_sport_frame({
-        "sport": "Cricket",
-        "items": [{
-            "team1": "Alpha",
-            "team2": "Beta",
-            "format": "ODI",
-            "batting_team_name": "Beta",
-            "current_innings": 1,
-            "current_runs": 191,
-            "current_wickets": 4,
-            "current_over": 40.2,
-            "run_rate": 4.74,
-        }],
+def test_multi_sport_cricket_event_label_uses_current_innings_fields():
+    label = app._multi_sport_event_label("Cricket", {
+        "team1": "Alpha",
+        "team2": "Beta",
+        "current_runs": 191,
+        "current_wickets": 4,
+        "current_over": 40.2,
     })
 
-    assert frame.iloc[0]["Am Schlag"] == "Beta"
-    assert frame.iloc[0]["Stand"] == "191/4"
-    assert frame.iloc[0]["Over"] == "40.2"
+    assert label == "Alpha vs Beta | 191/4 nach 40.2 Over"
 
 
 def test_football_data_org_key_is_never_used_as_api_football_key(monkeypatch):
