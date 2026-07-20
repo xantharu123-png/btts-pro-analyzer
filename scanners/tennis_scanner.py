@@ -5,11 +5,11 @@ API observations are displayed without manufacturing betting probabilities.
 Features:
 - Real Sofascore API Integration
 - Live Match Scanning
-- Live scores and available serve statistics
+- Live set, phase, and point scores
 
 APIs:
 - Sofascore API (primary)
-- Flashscore backup
+- ESPN scoreboard fallback
 
 No ROI claim is made without historical market prices and settlement data.
 
@@ -51,71 +51,156 @@ class TennisScanner:
         Note: Sofascore may block cloud server IPs (works locally)
         """
         self.last_error = None
+        sofascore_error = None
         try:
-            # Sofascore live tennis endpoint
             url = f"{self.sofascore_base}/sport/tennis/events/live"
-            
-            # Try with different headers
-            headers_options = [
-                self.headers,
-                {
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-                    'Accept': '*/*',
-                },
-                {
-                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
-                    'Accept': 'application/json',
-                }
-            ]
-            
-            usable_response = False
-            last_status = None
-            for headers in headers_options:
-                try:
-                    response = requests.get(url, headers=headers, timeout=10)
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        if not isinstance(data, dict):
-                            self.last_error = "Invalid provider payload"
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, dict) and isinstance(data.get('events', []), list):
+                    live_matches = []
+                    for event in data.get('events', []):
+                        if not isinstance(event, dict):
                             continue
-                        usable_response = True
-                        events = data.get('events', [])
-                        if not isinstance(events, list):
-                            self.last_error = "Invalid events payload"
-                            continue
-                        
-                        live_matches = []
-                        for event in events:
-                            if not isinstance(event, dict):
-                                continue
-                            status = event.get('status', {})
-                            if not isinstance(status, dict):
-                                continue
-                            if status.get('type') == 'inprogress':
-                                match = self._parse_match(event)
-                                if match:
-                                    live_matches.append(match)
-                        
-                        return live_matches
-                    elif response.status_code == 403:
-                        last_status = response.status_code
-                        continue  # Try next headers
-                    else:
-                        last_status = response.status_code
-                except (requests.RequestException, ValueError):
+                        status = event.get('status', {})
+                        if isinstance(status, dict) and status.get('type') == 'inprogress':
+                            match = self._parse_match(event)
+                            if match:
+                                match['source'] = 'SofaScore'
+                                live_matches.append(match)
+                    return live_matches
+                sofascore_error = 'Invalid provider payload'
+            else:
+                sofascore_error = f"HTTP {response.status_code}"
+        except (requests.RequestException, ValueError) as exc:
+            sofascore_error = type(exc).__name__
+
+        fallback = self._get_espn_live_matches()
+        if fallback is not None:
+            return fallback
+        self.last_error = f"SofaScore {sofascore_error or 'unavailable'}; ESPN unavailable"
+        logger.info("Tennis live providers did not return a usable response")
+        return []
+
+    def _get_espn_live_matches(self) -> Optional[List[Dict]]:
+        """Use ESPN's public ATP/WTA scoreboards when SofaScore blocks the host."""
+        matches = []
+        errors = []
+        successful_feeds = 0
+        for tour in ('atp', 'wta'):
+            url = f"https://site.api.espn.com/apis/site/v2/sports/tennis/{tour}/scoreboard"
+            try:
+                response = requests.get(url, headers=self.headers, timeout=10)
+                if response.status_code != 200:
+                    errors.append(f"{tour.upper()} HTTP {response.status_code}")
                     continue
-            
-            # All attempts failed
-            if not usable_response:
-                self.last_error = f"HTTP {last_status}" if last_status else "Provider unavailable"
-            logger.info("Tennis live provider did not return a usable response")
-            return []
-                
-        except Exception as e:
-            self.last_error = type(e).__name__
-            logger.warning("Tennis live request failed: %s", type(e).__name__)
-            return []
+                data = response.json()
+                events = data.get('events', []) if isinstance(data, dict) else None
+                if not isinstance(events, list):
+                    errors.append(f"{tour.upper()} invalid payload")
+                    continue
+                successful_feeds += 1
+                for event in events:
+                    if not isinstance(event, dict):
+                        continue
+                    for grouping in event.get('groupings', []):
+                        if not isinstance(grouping, dict):
+                            continue
+                        competitions = grouping.get('competitions', [])
+                        if not isinstance(competitions, list):
+                            continue
+                        for competition in competitions:
+                            parsed = self._parse_espn_match(event, competition)
+                            if parsed:
+                                matches.append(parsed)
+            except (requests.RequestException, ValueError) as exc:
+                errors.append(f"{tour.upper()} {type(exc).__name__}")
+
+        if successful_feeds == 0:
+            return None
+        self.last_error = '; '.join(errors) if errors else None
+        return matches
+
+    def _parse_espn_match(self, event: Dict, competition: Dict) -> Optional[Dict]:
+        """Parse one in-progress ESPN tennis competition without inventing point data."""
+        if not isinstance(event, dict) or not isinstance(competition, dict):
+            return None
+        status = competition.get('status', {})
+        status_type = status.get('type', {}) if isinstance(status, dict) else {}
+        if not isinstance(status_type, dict) or status_type.get('state') != 'in':
+            return None
+        competitors = competition.get('competitors', [])
+        if not isinstance(competitors, list) or len(competitors) != 2:
+            return None
+        by_side = {
+            item.get('homeAway'): item
+            for item in competitors
+            if isinstance(item, dict) and item.get('homeAway') in {'home', 'away'}
+        }
+        home = by_side.get('home')
+        away = by_side.get('away')
+        if not isinstance(home, dict) or not isinstance(away, dict):
+            return None
+
+        def competitor_name(item: Dict) -> str:
+            athlete = item.get('athlete', {})
+            return (
+                str(athlete.get('displayName') or '').strip()
+                if isinstance(athlete, dict)
+                else ''
+            )
+
+        def won_sets(item: Dict) -> Optional[int]:
+            linescores = item.get('linescores', [])
+            if not isinstance(linescores, list):
+                return None
+            return sum(
+                1
+                for score in linescores
+                if isinstance(score, dict) and score.get('winner') is True
+            )
+
+        player1 = competitor_name(home)
+        player2 = competitor_name(away)
+        score1 = won_sets(home)
+        score2 = won_sets(away)
+        match_id = competition.get('id')
+        if (
+            not player1
+            or not player2
+            or player1.casefold() == player2.casefold()
+            or score1 is None
+            or score2 is None
+            or isinstance(match_id, bool)
+            or not isinstance(match_id, (int, str))
+            or not str(match_id).strip()
+        ):
+            return None
+
+        period = status.get('period')
+        if isinstance(period, bool) or not isinstance(period, int) or period < 1:
+            period = None
+        phase = str(
+            status_type.get('detail')
+            or status_type.get('description')
+            or 'Live'
+        ).strip() or 'Live'
+        tournament = str(event.get('name') or 'ATP/WTA').strip() or 'ATP/WTA'
+        return {
+            'match_id': match_id,
+            'tournament': tournament,
+            'surface': 'Unknown',
+            'player1': player1,
+            'player2': player2,
+            'player1_score': score1,
+            'player2_score': score2,
+            'current_set': period,
+            'point_score': None,
+            'server': None,
+            'serve_stats': {},
+            'status': phase,
+            'source': 'ESPN',
+        }
     
     def _parse_match(self, event: Dict) -> Optional[Dict]:
         """Parse Sofascore match data"""
@@ -124,11 +209,20 @@ class TennisScanner:
                 return None
             home_team = event.get('homeTeam', {})
             away_team = event.get('awayTeam', {})
+            home_score = event.get('homeScore', {})
+            away_score = event.get('awayScore', {})
+            status = event.get('status', {})
+            tournament = event.get('tournament', {})
+            if not all(
+                isinstance(value, dict)
+                for value in (home_team, away_team, home_score, away_score, status, tournament)
+            ):
+                return None
             match_id = event.get('id')
             player1 = str(home_team.get('name') or '').strip()
             player2 = str(away_team.get('name') or '').strip()
-            score1 = event.get('homeScore', {}).get('current')
-            score2 = event.get('awayScore', {}).get('current')
+            score1 = home_score.get('current')
+            score2 = away_score.get('current')
             if (
                 not isinstance(match_id, int)
                 or isinstance(match_id, bool)
@@ -148,26 +242,46 @@ class TennisScanner:
                 or not float(score2).is_integer()
             ):
                 return None
-            
-            # Get serve stats if available
-            serve_stats = self._get_serve_stats(match_id)
+
+            phase = str(status.get('description') or 'Live').strip() or 'Live'
+            current_period = event.get('lastPeriod') or status.get('period')
+            point_score = self._format_point_score(
+                home_score.get('point'),
+                away_score.get('point'),
+            )
+            tournament_name = str(tournament.get('name') or 'Unknown').strip() or 'Unknown'
+            surface = str(event.get('groundType') or 'Unknown').strip() or 'Unknown'
             
             return {
                 'match_id': match_id,
-                'tournament': event.get('tournament', {}).get('name', 'Unknown'),
-                'surface': event.get('groundType', 'Hard'),
+                'tournament': tournament_name,
+                'surface': surface,
                 'player1': player1,
                 'player2': player2,
-                'player1_score': score1,
-                'player2_score': score2,
-                'current_set': event.get('status', {}).get('period'),
+                'player1_score': int(score1),
+                'player2_score': int(score2),
+                'current_set': current_period,
+                'point_score': point_score,
                 'server': self._determine_server(event),
-                'serve_stats': serve_stats,
-                'status': event.get('status', {}).get('description', 'Live')
+                'serve_stats': {},
+                'status': phase,
             }
         except Exception as e:
             logger.warning("Tennis match payload rejected: %s", type(e).__name__)
             return None
+
+    @staticmethod
+    def _format_point_score(home_point, away_point) -> Optional[str]:
+        """Return only recognisable tennis point values from the live payload."""
+        formatted = []
+        for value in (home_point, away_point):
+            if isinstance(value, bool) or value is None:
+                return None
+            text = str(value).strip().upper()
+            if not text or not (text.isdigit() or text in {'A', 'AD'}):
+                return None
+            formatted.append(text)
+        return f"{formatted[0]}-{formatted[1]}"
     
     def _get_serve_stats(self, match_id: int) -> Dict:
         """

@@ -164,6 +164,46 @@ def test_multi_sport_rejects_filters_from_another_sport():
         app._fetch_multi_sport_snapshot("E-Sport", "NBA")
 
 
+def test_multi_sport_tennis_frame_shows_verified_phase_and_points():
+    frame = app._multi_sport_frame({
+        "sport": "Tennis",
+        "items": [{
+            "player1": "Player A",
+            "player2": "Player B",
+            "tournament": "Bastad",
+            "player1_score": 1,
+            "player2_score": 0,
+            "point_score": "AD-40",
+            "status": "2nd set",
+        }],
+    })
+
+    assert list(frame.columns) == ["Match", "Turnier", "Satzstand", "Punktstand", "Phase"]
+    assert frame.iloc[0]["Punktstand"] == "AD-40"
+    assert frame.iloc[0]["Phase"] == "2nd set"
+
+
+def test_multi_sport_cricket_frame_uses_current_innings_fields():
+    frame = app._multi_sport_frame({
+        "sport": "Cricket",
+        "items": [{
+            "team1": "Alpha",
+            "team2": "Beta",
+            "format": "ODI",
+            "batting_team_name": "Beta",
+            "current_innings": 1,
+            "current_runs": 191,
+            "current_wickets": 4,
+            "current_over": 40.2,
+            "run_rate": 4.74,
+        }],
+    })
+
+    assert frame.iloc[0]["Am Schlag"] == "Beta"
+    assert frame.iloc[0]["Stand"] == "191/4"
+    assert frame.iloc[0]["Over"] == "40.2"
+
+
 def test_football_data_org_key_is_never_used_as_api_football_key(monkeypatch):
     monkeypatch.setattr(
         app,

@@ -10,9 +10,10 @@ from config_loader import load_app_config
 
 class EsportsScanner:
     """
-    E-Sports Scanner - Same approach as Football/Basketball
-    Fetch real stats, calculate probabilities, give recommendations
+    E-Sports live scanner with explicitly uncalibrated history estimates.
     """
+
+    MAX_LIVE_MATCHES_PER_GAME = 6
     
     def __init__(self):
         self.pandascore_base = "https://api.pandascore.co"
@@ -41,6 +42,10 @@ class EsportsScanner:
             'dota2': 'dota2',
             'valorant': 'valorant'
         }
+
+        if game != 'all' and game not in games_map:
+            self.errors['selection'] = 'Unsupported game'
+            return []
         
         games_to_scan = list(games_map.keys()) if game == 'all' else [game]
         
@@ -49,14 +54,19 @@ class EsportsScanner:
                 api_game = games_map.get(g, g)
                 url = f"{self.pandascore_base}/{api_game}/matches/running"
                 
-                response = requests.get(url, headers=self.headers, timeout=10)
+                response = requests.get(
+                    url,
+                    headers=self.headers,
+                    params={'per_page': self.MAX_LIVE_MATCHES_PER_GAME},
+                    timeout=10,
+                )
                 
                 if response.status_code == 200:
                     matches = response.json()
                     if not isinstance(matches, list):
                         self.errors[g] = "Invalid provider payload"
                         continue
-                    for match in matches:
+                    for match in matches[:self.MAX_LIVE_MATCHES_PER_GAME]:
                         formatted = self._format_match(match, g.upper())
                         if formatted:
                             all_matches.append(formatted)
@@ -72,15 +82,24 @@ class EsportsScanner:
     def _format_match(self, match: Dict, game: str) -> Optional[Dict]:
         """Format match with team stats"""
         try:
-            opponents = match.get('opponents', [])
-            if len(opponents) < 2:
+            if not isinstance(match, dict):
                 return None
-            
+            opponents = match.get('opponents', [])
+            if not isinstance(opponents, list) or len(opponents) != 2:
+                return None
+
+            if not all(isinstance(item, dict) for item in opponents):
+                return None
             team1 = opponents[0].get('opponent', {})
             team2 = opponents[1].get('opponent', {})
+            if not isinstance(team1, dict) or not isinstance(team2, dict):
+                return None
             
             team1_id = team1.get('id')
             team2_id = team2.get('id')
+            team1_name = str(team1.get('name') or '').strip()
+            team2_name = str(team2.get('name') or '').strip()
+            match_id = match.get('id')
             if (
                 not isinstance(team1_id, int)
                 or isinstance(team1_id, bool)
@@ -89,14 +108,22 @@ class EsportsScanner:
                 or isinstance(team2_id, bool)
                 or team2_id <= 0
                 or team1_id == team2_id
+                or not team1_name
+                or not team2_name
+                or team1_name.casefold() == team2_name.casefold()
+                or not isinstance(match_id, int)
+                or isinstance(match_id, bool)
+                or match_id <= 0
             ):
                 return None
             
             results = match.get('results', [])
+            if not isinstance(results, list):
+                return None
             scores_by_team = {
                 result.get('team_id'): result.get('score')
                 for result in results
-                if result.get('team_id') is not None
+                if isinstance(result, dict) and result.get('team_id') is not None
             }
             score1 = scores_by_team.get(team1_id)
             score2 = scores_by_team.get(team2_id)
@@ -113,33 +140,57 @@ class EsportsScanner:
                 or not float(score2).is_integer()
             ):
                 return None
-            
-            # Get REAL team statistics
+
+            series_type = match.get('number_of_games')
+            can_estimate = (
+                isinstance(series_type, int)
+                and not isinstance(series_type, bool)
+                and series_type > 0
+                and series_type % 2 == 1
+            )
+
+            # Historical calls are useful only when the series model can consume them.
             game_slug = 'csgo' if game == 'CS2' else game.lower()
-            team1_stats = self._get_team_stats(team1_id, game_slug)
-            team2_stats = self._get_team_stats(team2_id, game_slug)
+            if can_estimate:
+                team1_stats = self._get_team_stats(team1_id, game_slug)
+                team2_stats = self._get_team_stats(team2_id, game_slug)
+            else:
+                team1_stats = self._empty_stats()
+                team2_stats = self._empty_stats()
+
+            tournament = match.get('tournament', {})
+            tournament_name = (
+                str(tournament.get('name') or 'Unknown').strip()
+                if isinstance(tournament, dict)
+                else 'Unknown'
+            ) or 'Unknown'
             
             return {
-                'id': match.get('id'),
+                'id': match_id,
                 'game': game if game != 'CSGO' else 'CS2',
-                'team1': team1.get('name', 'Team 1'),
-                'team2': team2.get('name', 'Team 2'),
+                'team1': team1_name,
+                'team2': team2_name,
                 'team1_id': team1_id,
                 'team2_id': team2_id,
                 'team1_score': score1,
                 'team2_score': score2,
-                'tournament': match.get('tournament', {}).get('name', 'Unknown'),
-                'series_type': match.get('number_of_games', 3),
+                'tournament': tournament_name,
+                'series_type': series_type,
                 'team1_stats': team1_stats,
-                'team2_stats': team2_stats
+                'team2_stats': team2_stats,
+                'source': 'PandaScore',
             }
         except (AttributeError, KeyError, TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _empty_stats() -> Dict:
+        return {'win_rate': None, 'matches': 0, 'wins': 0, 'form': []}
     
     def _get_team_stats(self, team_id: int, game: str) -> Dict:
         """Get REAL team statistics from last matches"""
         if not isinstance(team_id, int) or isinstance(team_id, bool) or team_id <= 0:
-            return {'win_rate': None, 'matches': 0, 'wins': 0, 'form': []}
+            return self._empty_stats()
         
         # Check cache
         cache_key = f"{game}_{team_id}"
@@ -161,7 +212,9 @@ class EsportsScanner:
                 matches = response.json()
                 if not isinstance(matches, list):
                     self.errors[f'team_{team_id}'] = 'Invalid provider payload'
-                    return {'win_rate': None, 'matches': 0, 'wins': 0, 'form': []}
+                    stats = self._empty_stats()
+                    self._stats_cache[cache_key] = stats
+                    return stats
                 if matches:
                     wins = 0
                     total = 0
@@ -193,7 +246,9 @@ class EsportsScanner:
                             break
                     
                     if total == 0:
-                        return {'win_rate': None, 'matches': 0, 'wins': 0, 'form': []}
+                        stats = self._empty_stats()
+                        self._stats_cache[cache_key] = stats
+                        return stats
                     win_rate = wins / total * 100
                     
                     stats = {
@@ -209,8 +264,10 @@ class EsportsScanner:
                 self.errors[f'team_{team_id}'] = f'HTTP {response.status_code}'
         except (requests.RequestException, ValueError) as exc:
             self.errors[f'team_{team_id}'] = type(exc).__name__
-        
-        return {'win_rate': None, 'matches': 0, 'wins': 0, 'form': []}
+
+        stats = self._empty_stats()
+        self._stats_cache[cache_key] = stats
+        return stats
 
     @staticmethod
     def _series_win_probability(
@@ -250,8 +307,7 @@ class EsportsScanner:
     
     def analyze_match(self, match: Dict) -> Optional[Dict]:
         """
-        Analyze match and give recommendation
-        Same approach as Football/Basketball scanners
+        Produce a non-actionable exploratory estimate when inputs are sufficient.
         """
         if not isinstance(match, dict):
             return None

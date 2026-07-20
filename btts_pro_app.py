@@ -1818,8 +1818,9 @@ def _multi_sport_frame(snapshot: dict) -> pd.DataFrame:
                 {
                     "Match": f"{match.get('player1', 'Spieler 1')} vs {match.get('player2', 'Spieler 2')}",
                     "Turnier": match.get("tournament", "ATP/WTA"),
-                    "Stand": f"{match.get('player1_score', 'n/a')}-{match.get('player2_score', 'n/a')}",
-                    "Aufschlag": match.get("server", "n/a"),
+                    "Satzstand": f"{match.get('player1_score', 'n/a')}-{match.get('player2_score', 'n/a')}",
+                    "Punktstand": match.get("point_score") or "n/a",
+                    "Phase": match.get("status") or "Live",
                 }
                 for match in items
             ]
@@ -1830,8 +1831,16 @@ def _multi_sport_frame(snapshot: dict) -> pd.DataFrame:
                 {
                     "Match": f"{match.get('team1', 'Team 1')} vs {match.get('team2', 'Team 2')}",
                     "Format": match.get("format", "n/a"),
-                    "Over": match.get("current_over", "n/a"),
-                    "Run Rate": match.get("run_rate", "n/a"),
+                    "Am Schlag": match.get("batting_team_name") or "n/a",
+                    "Innings": match.get("current_innings") or "n/a",
+                    "Stand": (
+                        f"{match.get('current_runs')}/{match.get('current_wickets')}"
+                        if match.get('current_runs') is not None
+                        and match.get('current_wickets') is not None
+                        else "n/a"
+                    ),
+                    "Over": _format_optional(match.get("current_over"), 1),
+                    "Run Rate": _format_optional(match.get("run_rate"), 2),
                 }
                 for match in items
             ]
@@ -1902,6 +1911,13 @@ def render_multi_sport() -> None:
     ]
     if detail_filter:
         caption_parts.append(f"Filter: {detail_filter}")
+    sources = sorted({
+        str(item.get("source")).strip()
+        for item in snapshot_items or []
+        if isinstance(item, dict) and str(item.get("source") or "").strip()
+    })
+    if sources:
+        caption_parts.append(f"Quelle: {', '.join(sources)}")
     st.caption(" | ".join(caption_parts))
 
     missing_esports_key = sport == "E-Sport" and not snapshot.get(

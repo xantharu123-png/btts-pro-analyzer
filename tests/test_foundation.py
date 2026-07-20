@@ -1442,6 +1442,133 @@ class CrossSportMathTests(unittest.TestCase):
         self.assertEqual(valid, 6.0)
         self.assertIsNone(invalid)
 
+    def test_cricket_uses_provider_innings_id_for_follow_on_order(self):
+        scanner = CricketScanner.__new__(CricketScanner)
+        match_score = {
+            "team1Score": {
+                "inngs1": {"inningsId": 1, "runs": 250, "wickets": 10, "overs": 80},
+                "inngs2": {"inningsId": 4, "runs": 42, "wickets": 1, "overs": 10.3},
+            },
+            "team2Score": {
+                "inngs1": {"inningsId": 2, "runs": 120, "wickets": 10, "overs": 45},
+                "inngs2": {"inningsId": 3, "runs": 180, "wickets": 10, "overs": 55},
+            },
+        }
+
+        current = scanner._select_current_innings(match_score)
+
+        self.assertEqual(current["team"], "team1")
+        self.assertEqual(current["innings_number"], 2)
+        self.assertEqual(scanner._get_current_over(match_score), 10.3)
+        self.assertEqual(scanner._calculate_run_rate(match_score), 4.0)
+
+    def test_cricket_refuses_ambiguous_second_innings_without_provider_order(self):
+        scanner = CricketScanner.__new__(CricketScanner)
+        match_score = {
+            "team1Score": {
+                "inngs1": {"runs": 250, "wickets": 10, "overs": 80},
+                "inngs2": {"runs": 42, "wickets": 1, "overs": 10.3},
+            },
+            "team2Score": {
+                "inngs1": {"runs": 120, "wickets": 10, "overs": 45},
+                "inngs2": {"runs": 180, "wickets": 10, "overs": 55},
+            },
+        }
+
+        self.assertIsNone(scanner._select_current_innings(match_score))
+        self.assertIsNone(scanner._determine_batting_team(match_score))
+        self.assertIsNone(scanner._calculate_run_rate(match_score))
+
+    def test_cricket_parser_exposes_current_innings_score(self):
+        scanner = CricketScanner.__new__(CricketScanner)
+        parsed = scanner._parse_match({
+            "matchInfo": {
+                "matchId": 17,
+                "matchFormat": "ODI",
+                "seriesName": "Test Series",
+                "team1": {"teamName": "Alpha"},
+                "team2": {"teamName": "Beta"},
+                "status": "Beta need 50 runs",
+            },
+            "matchScore": {
+                "team1Score": {
+                    "inngs1": {"inningsId": 1, "runs": 240, "wickets": 10, "overs": 50},
+                },
+                "team2Score": {
+                    "inngs1": {"inningsId": 2, "runs": 191, "wickets": 4, "overs": 40.2},
+                },
+            },
+        })
+
+        self.assertEqual(parsed["batting_team_name"], "Beta")
+        self.assertEqual(parsed["current_runs"], 191)
+        self.assertEqual(parsed["current_wickets"], 4)
+        self.assertEqual(parsed["current_over"], 40.2)
+        self.assertEqual(parsed["run_rate"], 4.74)
+
+    def test_cricket_parser_rejects_missing_or_duplicate_team_identity(self):
+        scanner = CricketScanner.__new__(CricketScanner)
+        base = {
+            "matchInfo": {
+                "matchId": 17,
+                "team1": {"teamName": "Alpha"},
+                "team2": {"teamName": "Alpha"},
+            },
+            "matchScore": {},
+        }
+
+        self.assertIsNone(scanner._parse_match(base))
+
+    def test_cricket_alternative_parser_uses_last_documented_score_entry(self):
+        scanner = CricketScanner.__new__(CricketScanner)
+        parsed = scanner._parse_match_alternative({
+            "id": "match-17",
+            "name": "Alpha vs Beta",
+            "matchType": "t20",
+            "teams": ["Alpha", "Beta"],
+            "status": "Beta Innings",
+            "score": [
+                {"r": 150, "w": 8, "o": 20, "inning": "Alpha Inning 1"},
+                {"r": 90, "w": 3, "o": 12, "inning": "Beta Inning 1"},
+            ],
+        })
+
+        self.assertEqual(parsed["batting_team"], "team2")
+        self.assertEqual(parsed["current_runs"], 90)
+        self.assertEqual(parsed["current_wickets"], 3)
+        self.assertEqual(parsed["run_rate"], 7.5)
+
+    def test_cricket_falls_back_after_invalid_primary_payload(self):
+        scanner = CricketScanner.__new__(CricketScanner)
+        scanner.last_error = None
+        scanner.rapidapi_key = "rapid"
+        scanner.cricket_api_key = "cricket"
+        scanner.cricbuzz_base = "https://cricbuzz.test"
+        scanner.public_api = "https://cricketdata.test"
+        scanner.headers = {"X-RapidAPI-Key": "rapid"}
+        primary = Mock(status_code=200)
+        primary.json.return_value = {"typeMatches": "invalid"}
+        fallback = Mock(status_code=200)
+        fallback.json.return_value = {
+            "data": [{
+                "id": "match-1",
+                "teams": ["Alpha", "Beta"],
+                "matchStarted": True,
+                "matchEnded": False,
+                "score": [],
+            }],
+        }
+
+        with patch(
+            "scanners.cricket_scanner.requests.get",
+            side_effect=[primary, fallback],
+        ) as get:
+            matches = scanner.get_live_matches()
+
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(matches[0]["source"], "CricketData")
+        self.assertIsNone(scanner.last_error)
+
     def test_basketball_projection_rejects_hockey_and_invalid_clocks(self):
         scanner = BasketballScanner.__new__(BasketballScanner)
 
@@ -1462,6 +1589,167 @@ class CrossSportMathTests(unittest.TestCase):
             "game_clock": "10:00",
         }))
 
+    def test_basketball_parsers_reject_malformed_nested_teams(self):
+        scanner = BasketballScanner.__new__(BasketballScanner)
+
+        self.assertIsNone(scanner._parse_nba_game({
+            "gameId": "1",
+            "homeTeam": [],
+            "awayTeam": {},
+            "period": 1,
+            "gameClock": "PT10M00S",
+        }))
+        self.assertIsNone(scanner._parse_nhl_game({
+            "id": 1,
+            "homeTeam": None,
+            "awayTeam": {},
+            "period": 1,
+            "clock": {"timeRemaining": "10:00"},
+        }))
+
+    def test_nba_falls_back_to_espn_live_scoreboard(self):
+        scanner = BasketballScanner.__new__(BasketballScanner)
+        scanner.nba_live_url = "https://cdn.nba.test/scoreboard"
+        scanner.espn_nba_url = "https://espn.test/scoreboard"
+        scanner.nba_headers = {"User-Agent": "test"}
+        scanner.errors = {}
+        primary = Mock(status_code=403)
+        fallback = Mock(status_code=200)
+        fallback.json.return_value = {
+            "events": [{
+                "id": "event-1",
+                "competitions": [{
+                    "id": "game-1",
+                    "status": {
+                        "period": 2,
+                        "displayClock": "04:30",
+                        "type": {"state": "in", "detail": "2nd Quarter"},
+                    },
+                    "venue": {"fullName": "Test Arena"},
+                    "competitors": [
+                        {
+                            "homeAway": "home",
+                            "score": "48",
+                            "team": {"abbreviation": "AAA"},
+                        },
+                        {
+                            "homeAway": "away",
+                            "score": "45",
+                            "team": {"abbreviation": "BBB"},
+                        },
+                    ],
+                }],
+            }],
+        }
+
+        with patch(
+            "scanners.basketball_scanner.requests.get",
+            side_effect=[primary, fallback],
+        ) as get:
+            games = scanner.get_live_nba_games()
+
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(games[0]["source"], "ESPN")
+        self.assertEqual(games[0]["home_score"], 48)
+        self.assertNotIn("nba", scanner.errors)
+
+    def test_euroleague_live_scan_uses_schedule_and_header_contracts(self):
+        scanner = BasketballScanner.__new__(BasketballScanner)
+        scanner.euroleague_api_base = "https://live.euroleague.test/api"
+        scanner.euroleague_games_base = "https://api-live.euroleague.test/v2"
+        scanner.errors = {}
+        schedule = Mock(status_code=200)
+        schedule.json.return_value = {
+            "data": [{
+                "gameCode": 7,
+                "utcDate": datetime.now(timezone.utc).isoformat(),
+            }],
+        }
+        header = Mock(status_code=200)
+        header.json.return_value = {
+            "Live": True,
+            "TeamA": "Alpha",
+            "TeamB": "Beta",
+            "ScoreA": "51",
+            "ScoreB": "49",
+            "Quarter": "Q3",
+            "RemainingPartialTime": "08:12",
+            "Stadium": "Test Arena",
+        }
+
+        with patch(
+            "scanners.basketball_scanner.requests.get",
+            side_effect=[schedule, header],
+        ) as get:
+            games = scanner.get_live_euroleague_games()
+
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(games[0]["period"], 3)
+        self.assertEqual(games[0]["home_score"], 51)
+        self.assertEqual(games[0]["source"], "EuroLeague")
+        self.assertNotIn("euroleague", scanner.errors)
+
+    def test_euroleague_isolates_one_broken_live_header(self):
+        scanner = BasketballScanner.__new__(BasketballScanner)
+        scanner.euroleague_api_base = "https://live.euroleague.test/api"
+        scanner.euroleague_games_base = "https://api-live.euroleague.test/v2"
+        scanner.errors = {}
+        now = datetime.now(timezone.utc).isoformat()
+        schedule = Mock(status_code=200)
+        schedule.json.return_value = {
+            "data": [
+                {"gameCode": 7, "utcDate": now},
+                {"gameCode": 8, "utcDate": now},
+            ],
+        }
+        broken = Mock(status_code=200)
+        broken.json.side_effect = ValueError("bad json")
+        healthy = Mock(status_code=200)
+        healthy.json.return_value = {
+            "Live": True,
+            "TeamA": "Alpha",
+            "TeamB": "Beta",
+            "ScoreA": "51",
+            "ScoreB": "49",
+            "Quarter": "3rd quarter",
+            "RemainingPartialTime": "08:12",
+        }
+
+        with patch(
+            "scanners.basketball_scanner.requests.get",
+            side_effect=[schedule, broken, healthy],
+        ):
+            games = scanner.get_live_euroleague_games()
+
+        self.assertEqual(len(games), 1)
+        self.assertEqual(games[0]["game_id"], 8)
+        self.assertIn("Game 7", scanner.errors["euroleague"])
+
+    def test_euroleague_season_and_candidate_window_are_time_aware(self):
+        self.assertEqual(
+            BasketballScanner._euroleague_season_code(
+                datetime(2026, 2, 1, tzinfo=timezone.utc)
+            ),
+            "E2025",
+        )
+        self.assertEqual(
+            BasketballScanner._euroleague_season_code(
+                datetime(2026, 9, 1, tzinfo=timezone.utc)
+            ),
+            "E2026",
+        )
+        now = datetime(2026, 1, 7, 20, tzinfo=timezone.utc)
+        nearby = BasketballScanner._nearby_euroleague_games(
+            [
+                {"gameCode": 1, "utcDate": "2026-01-07T18:30:00Z"},
+                {"gameCode": 2, "utcDate": "2026-01-06T18:30:00Z"},
+                {"gameCode": 3, "utcDate": "invalid"},
+            ],
+            now=now,
+        )
+
+        self.assertEqual([game["gameCode"] for game in nearby], [1])
+
     def test_live_card_model_rejects_fractional_provider_counts(self):
         result = CardPredictor().predict_cards(
             {"stats": {"yellow_cards_home": 1.5, "yellow_cards_away": 1}},
@@ -1473,7 +1761,6 @@ class CrossSportMathTests(unittest.TestCase):
 
     def test_tennis_parser_rejects_fractional_set_scores(self):
         scanner = TennisScanner.__new__(TennisScanner)
-        scanner._get_serve_stats = lambda match_id: {}
 
         parsed = scanner._parse_match({
             "id": 1,
@@ -1484,6 +1771,76 @@ class CrossSportMathTests(unittest.TestCase):
         })
 
         self.assertIsNone(parsed)
+
+    def test_tennis_parser_uses_list_payload_without_statistics_request(self):
+        scanner = TennisScanner.__new__(TennisScanner)
+        scanner._get_serve_stats = Mock(side_effect=AssertionError("unexpected request"))
+
+        parsed = scanner._parse_match({
+            "id": 7,
+            "tournament": {"name": "Bastad"},
+            "groundType": "Red clay",
+            "status": {"description": "2nd set"},
+            "lastPeriod": "period2",
+            "homeTeam": {"name": "Player A"},
+            "awayTeam": {"name": "Player B"},
+            "homeScore": {"current": 1, "point": "AD"},
+            "awayScore": {"current": 0, "point": "40"},
+        })
+
+        self.assertEqual(parsed["status"], "2nd set")
+        self.assertEqual(parsed["current_set"], "period2")
+        self.assertEqual(parsed["point_score"], "AD-40")
+        self.assertEqual(parsed["serve_stats"], {})
+        scanner._get_serve_stats.assert_not_called()
+
+    def test_tennis_falls_back_to_espn_without_inventing_point_score(self):
+        scanner = TennisScanner.__new__(TennisScanner)
+        scanner.sofascore_base = "https://sofa.test"
+        scanner.headers = {"User-Agent": "test", "Accept": "application/json"}
+        scanner.last_error = None
+        blocked = Mock(status_code=403)
+        atp = Mock(status_code=200)
+        atp.json.return_value = {
+            "events": [{
+                "name": "Bastad",
+                "groupings": [{
+                    "competitions": [{
+                        "id": "match-7",
+                        "status": {
+                            "period": 2,
+                            "type": {"state": "in", "detail": "2nd set"},
+                        },
+                        "competitors": [
+                            {
+                                "homeAway": "home",
+                                "athlete": {"displayName": "Player A"},
+                                "linescores": [{"value": 6, "winner": True}],
+                            },
+                            {
+                                "homeAway": "away",
+                                "athlete": {"displayName": "Player B"},
+                                "linescores": [{"value": 4, "winner": False}],
+                            },
+                        ],
+                    }],
+                }],
+            }],
+        }
+        wta = Mock(status_code=200)
+        wta.json.return_value = {"events": []}
+
+        with patch(
+            "scanners.tennis_scanner.requests.get",
+            side_effect=[blocked, atp, wta],
+        ) as get:
+            matches = scanner.get_live_matches()
+
+        self.assertEqual(get.call_count, 3)
+        self.assertEqual(matches[0]["source"], "ESPN")
+        self.assertEqual(matches[0]["player1_score"], 1)
+        self.assertIsNone(matches[0]["point_score"])
+        self.assertIsNone(scanner.last_error)
 
     def test_esports_series_probability_is_exact_first_to_n_recursion(self):
         self.assertAlmostEqual(
@@ -1551,6 +1908,49 @@ class CrossSportMathTests(unittest.TestCase):
         self.assertEqual(stats["matches"], 1)
         self.assertEqual(stats["wins"], 1)
         self.assertEqual(get.call_args.args[0], "https://api.pandascore.co/teams/7/matches")
+
+    def test_esports_rejects_invalid_identity_before_history_requests(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        scanner._get_team_stats = Mock(side_effect=AssertionError("unexpected history request"))
+        parsed = scanner._format_match({
+            "id": 11,
+            "opponents": [
+                {"opponent": {"id": 7, "name": ""}},
+                {"opponent": {"id": 8, "name": "Beta"}},
+            ],
+            "results": [
+                {"team_id": 7, "score": 0},
+                {"team_id": 8, "score": 0},
+            ],
+            "number_of_games": 3,
+        }, "CS2")
+
+        self.assertIsNone(parsed)
+        scanner._get_team_stats.assert_not_called()
+
+    def test_esports_running_scan_is_bounded_and_rejects_unknown_game(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        scanner.api_key = "test"
+        scanner.pandascore_base = "https://api.pandascore.co"
+        scanner.headers = {"Authorization": "Bearer test"}
+        scanner.errors = {}
+        scanner._stats_cache = {}
+        scanner._format_match = Mock(side_effect=lambda match, game: {"id": match["id"], "game": game})
+        response = Mock(status_code=200)
+        response.json.return_value = [{"id": index} for index in range(10)]
+
+        with patch("scanners.esports_scanner.requests.get", return_value=response) as get:
+            matches = scanner.get_live_matches("cs2")
+
+        self.assertEqual(len(matches), scanner.MAX_LIVE_MATCHES_PER_GAME)
+        self.assertEqual(
+            get.call_args.kwargs["params"]["per_page"],
+            scanner.MAX_LIVE_MATCHES_PER_GAME,
+        )
+
+        with patch("scanners.esports_scanner.requests.get") as get:
+            self.assertEqual(scanner.get_live_matches("unknown"), [])
+        get.assert_not_called()
 
     def test_best_bet_ranker_rejects_uncalibrated_inputs(self):
         result = BestBetFinder().find_best_bet(
