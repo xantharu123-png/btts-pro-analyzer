@@ -677,7 +677,7 @@ def scan_daily_challenge(
         )
         contextualized.append(candidate)
 
-    shortlist = select_shortlist(contextualized, max_candidates=6)
+    shortlist = select_shortlist(contextualized, max_candidates=3)
     model_ticket = select_model_ticket(shortlist)
     blocked_counts: dict[str, int] = {}
     for candidate in all_candidates:
@@ -693,7 +693,7 @@ def scan_daily_challenge(
         "fixtures_modeled": len({candidate.fixture_id for candidate in all_candidates}),
         "base_candidates": len(base_candidates),
         "context_fixtures": len(context_fixture_ids),
-        "approved_candidates": len([candidate for candidate in contextualized if candidate.eligible]),
+        "approved_candidates": len(shortlist),
         "shortlist": shortlist,
         "model_ticket": model_ticket,
         "blocked_counts": blocked_counts,
@@ -912,7 +912,7 @@ def _render_price_check(
 ) -> None:
     shortlist: list[ChallengeCandidate] = snapshot["shortlist"]
     if not shortlist:
-        st.warning("0 Tipps: Kein Kandidat hat heute alle Modell- und Kontext-Gates bestanden.")
+        st.error("NICHT WETTEN: Kein Kandidat hat heute alle Modell- und Kontext-Gates bestanden.")
         if snapshot.get("blocked_counts"):
             audit = pd.DataFrame(
                 [
@@ -942,6 +942,17 @@ def _render_price_check(
         st.info(f"Quotenfreie Modellkombination: {preview_text} | Modellpreis {preview_price:.2f}")
 
     st.subheader("N1Bet-Preisprüfung")
+    current_quote_result = st.session_state.get("challenge_quote_result")
+    has_current_ticket = (
+        isinstance(current_quote_result, dict)
+        and current_quote_result.get("snapshot_time") == snapshot["scanned_at"]
+        and current_quote_result.get("ticket") is not None
+    )
+    if not has_current_ticket:
+        st.info(
+            "PREIS ERFORDERLICH: Für jede gewünschte Auswahl die aktuelle N1Bet-Quote eintragen; "
+            "0 lässt den Markt aus."
+        )
     st.caption(
         "Die Preise werden erst jetzt manuell ergänzt. Eine niedrige Quote erhöht keine "
         "Modellwahrscheinlichkeit; ein negativer Einzel- oder Ticket-EV sperrt die Auswahl."
@@ -1002,7 +1013,9 @@ def _render_price_check(
             "ticket": ticket,
         }
         if ticket is None:
-            st.warning("Keine Kombination erfüllt Zielquote, Einzel-Value und Mindest-EV gemeinsam.")
+            st.error(
+                "NICHT WETTEN: Keine Kombination erfüllt Zielquote, Einzel-Value und Mindest-EV gemeinsam."
+            )
 
     quote_result = st.session_state.get("challenge_quote_result")
     if not isinstance(quote_result, dict) or quote_result.get("snapshot_time") != snapshot["scanned_at"]:
@@ -1060,11 +1073,17 @@ def _render_price_check(
     if stake_fraction >= 1.0:
         st.warning("All-in-Stufe: Eine Niederlage beendet die Challenge mit 0 € Guthaben.")
     if stale:
-        st.warning("Die manuell geprüften N1Bet-Preise sind älter als 10 Minuten. Erneut prüfen.")
+        st.warning(
+            "PREIS ERFORDERLICH: Die geprüften N1Bet-Preise sind älter als 10 Minuten. Erneut prüfen."
+        )
         return
     if stake <= 0:
-        st.warning("Kein verfügbares Guthaben für einen Einsatz.")
+        st.error("NICHT WETTEN: Kein verfügbares Guthaben für einen Einsatz.")
         return
+    st.success(
+        f"WETTEN: {len(ticket.legs)} Spiel(e) @ Gesamtquote {ticket.total_odds:.2f} | "
+        f"Challenge-Einsatz {stake:.2f} €"
+    )
     if st.button(
         f"Ticket mit {stake:.2f} € eintragen",
         width="stretch",
@@ -1093,7 +1112,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         st.warning("Wetter-Key fehlt. Der strikte Kontext-Gate wird daher keine Tipps freigeben.")
     st.caption(
         "Eine finale Freigabe ist erst mit bestätigten Startaufstellungen möglich. "
-        "Vorherige Scans bleiben bewusst ohne Ticketfreigabe."
+        "Frühere Suchen bleiben bewusst ohne Ticketfreigabe."
     )
 
     controls = st.columns(2)
@@ -1110,7 +1129,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         else _challenge_today() + timedelta(days=1)
     )
     max_fixtures = controls[1].slider(
-        "Max. analysierte Spiele",
+        "Max. geprüfte Spiele",
         3,
         12,
         8,
@@ -1131,7 +1150,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         st.caption(", ".join(ALTERNATIVE_MARKET_LEAGUES[item] for item in selected_leagues))
     elif league_scope == "Alle":
         selected_leagues = available_ids
-        st.caption(f"{len(selected_leagues)} Ligen; dieser Scan benötigt entsprechend mehr Provider-Aufrufe.")
+        st.caption(f"{len(selected_leagues)} Ligen; diese Suche benötigt entsprechend mehr Provider-Aufrufe.")
     else:
         selected_leagues = st.multiselect(
             "Ligen auswählen",
@@ -1142,7 +1161,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         )
 
     if st.button(
-        "Tagesanalyse starten",
+        "Challenge-Wetten finden",
         type="primary",
         width="stretch",
         key="run_challenge_scan",
@@ -1161,21 +1180,21 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
                     )
                 st.session_state.pop("challenge_quote_result", None)
             except Exception as exc:
-                st.error(f"Challenge-Analyse fehlgeschlagen: {exc}")
+                st.error(f"Challenge-Wettfinder fehlgeschlagen: {exc}")
 
     snapshot = st.session_state.get("challenge_snapshot")
     if not isinstance(snapshot, dict):
-        st.info("Noch kein Challenge-Snapshot in dieser Sitzung.")
+        st.info("Noch keine Challenge-Wetten gesucht.")
         return
     if snapshot.get("version") != CHALLENGE_SNAPSHOT_VERSION:
-        st.warning("Dieser Snapshot stammt aus einer älteren App-Version. Neu analysieren.")
+        st.warning("Dieses Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
         return
     current_scope = _scope_signature(selected_leagues, search_date, max_fixtures)
     if snapshot.get("scope") != current_scope:
-        st.warning("Datum, Liga oder Scanlimit wurden seit dem Snapshot geändert. Neu analysieren.")
+        st.warning("Datum, Liga oder Prüfumfang wurden seit dem Ergebnis geändert. Wetten neu suchen.")
         return
 
-    st.caption(f"Snapshot: {_format_time(snapshot.get('scanned_at'))}")
+    st.caption(f"Datenstand: {_format_time(snapshot.get('scanned_at'))}")
     try:
         scanned_at = datetime.fromisoformat(snapshot["scanned_at"]).astimezone(timezone.utc)
         snapshot_age = (
@@ -1185,7 +1204,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         snapshot_age = float("inf")
     if snapshot_age > SNAPSHOT_MAX_AGE_MINUTES or snapshot_age < -1:
         st.warning(
-            "Dieser Kontext-Snapshot ist nicht mehr aktuell. Verletzungen, Wetter, "
+            "Dieser Datenstand ist nicht mehr aktuell. Verletzungen, Wetter, "
             "Aufstellungen und Anstoßstatus müssen neu geprüft werden."
         )
         return
@@ -1218,13 +1237,16 @@ def render_challenge_15k() -> None:
         "Tageszielquote 2,00-3,00 | maximal drei verschiedene Spiele | "
         "Buchmacherpreise erst nach der Modellfreigabe"
     )
+    challenge_views = ["Wettfinder", "Verlauf", "Konto"]
+    if st.session_state.get("challenge_workspace") not in challenge_views:
+        st.session_state["challenge_workspace"] = "Wettfinder"
     mode = _segmented(
         "Challenge-Bereich",
-        ["Analyse", "Verlauf", "Konto"],
+        challenge_views,
         "challenge_workspace",
-        "Analyse",
+        "Wettfinder",
     )
-    if mode == "Analyse":
+    if mode == "Wettfinder":
         _render_analysis(ledger, settings)
     elif mode == "Verlauf":
         _render_history(ledger)

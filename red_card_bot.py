@@ -377,8 +377,13 @@ class RedCardBotEnhanced:
             self._record_error('live_matches', str(e))
             return []
     
-    def check_match_for_red_cards(self, match: Dict) -> List[Dict]:
-        """Check single match for red card events"""
+    def check_match_for_red_cards(
+        self,
+        match: Dict,
+        *,
+        include_seen: bool = False,
+    ) -> List[Dict]:
+        """Return valid red-card events, optionally including earlier events."""
         red_cards = []
         identity = self._live_match_identity(match)
         if identity is None:
@@ -436,7 +441,7 @@ class RedCardBotEnhanced:
                             continue
                         card_id = f"{fixture_id}_{team_id}_{player_id}_{minute}_{extra}"
                         
-                        if card_id not in self.alerted_cards:
+                        if include_seen or card_id not in self.alerted_cards:
                             red_cards.append({
                                 'card_id': card_id,
                                 'player': str(player.get('name') or 'Unknown'),

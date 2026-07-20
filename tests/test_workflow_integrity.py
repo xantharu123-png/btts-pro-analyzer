@@ -541,6 +541,33 @@ def test_red_card_event_rejects_boolean_extra_time(monkeypatch):
     assert bot.check_match_for_red_cards(match) == []
 
 
+def test_red_card_finder_can_recheck_a_seen_live_event(monkeypatch):
+    bot = RedCardBotEnhanced(api_key="api", streamlit_mode=False)
+    match = {
+        "fixture": {"id": 1, "status": {"elapsed": 50}},
+        "league": {"id": 39},
+        "teams": {"home": {"id": 10}, "away": {"id": 20}},
+        "goals": {"home": 1, "away": 0},
+    }
+    response = Mock(
+        status_code=200,
+        json=Mock(return_value={
+            "response": [{
+                "type": "Card",
+                "detail": "Red Card",
+                "player": {"id": 7, "name": "Player"},
+                "team": {"id": 10, "name": "Home"},
+                "time": {"elapsed": 50, "extra": 0},
+            }],
+        }),
+    )
+    monkeypatch.setattr("red_card_bot.requests.get", Mock(return_value=response))
+    bot.alerted_cards = {"1_10_7_50_0": 1.0}
+
+    assert bot.check_match_for_red_cards(match) == []
+    assert len(bot.check_match_for_red_cards(match, include_seen=True)) == 1
+
+
 def test_h2h_provider_rejects_wrong_fixture_membership(monkeypatch):
     client = APIFootball("api")
     monkeypatch.setattr(client, "_rate_limit", Mock())

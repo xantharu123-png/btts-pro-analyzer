@@ -22,28 +22,34 @@ if getattr(_league_catalog, "CATALOG_VERSION", 0) < _REQUIRED_LEAGUE_CATALOG_VER
 
 from advanced_analyzer import AdvancedBTTSAnalyzer, ML_FEATURE_NAMES, ML_MODEL_PATH
 from alternative_markets_tab_extended import create_alternative_markets_tab_extended
+from bet_finder_ui import render_price_decision
 from challenge_15k import render_challenge_15k
 from config_loader import load_app_config
+from football_recommendations import (
+    live_football_candidate,
+    prematch_btts_candidate,
+    red_card_candidate,
+)
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
 from multi_sport_recommendations import build_candidate, evaluate_candidate_price
 
 
 PAGE_INFO = {
     "Spiele": (
-        "Spiele analysieren",
-        "Prematch-Signale filtern, vergleichen und im selben Ablauf prüfen.",
+        "BTTS Wettfinder",
+        "Bis zu drei geprüfte BTTS-Auswahlen; die N1Bet-Quote entscheidet erst danach über den Preis.",
     ),
     "Märkte": (
-        "Märkte prüfen",
-        "Modellpreise und verifizierte externe Quoten strikt getrennt auswerten.",
+        "Markt Wettfinder",
+        "Für den Spieltag bis zu drei konkrete Markt-Auswahlen finden und anschließend den N1Bet-Preis prüfen.",
     ),
     "Live": (
-        "Live-Lage",
-        "Live-Spiele und Platzverweise nur auf ausdrücklichen Abruf analysieren.",
+        "Live Wettfinder",
+        "Frische Live-Daten in eine konkrete Wette oder ein eindeutiges Nicht-wetten übersetzen.",
     ),
-    "Modell": (
-        "Modell und Daten",
-        "Validierung, Datenbestand und Training an einem Ort verwalten.",
+    "System": (
+        "Wettfinder-System",
+        "Validierung, Datenbestand und Modelltraining für die Wettfinder verwalten.",
     ),
     "15K Challenge": (
         "15K Challenge",
@@ -55,9 +61,9 @@ PAGE_INFO = {
     ),
 }
 
-PREMATCH_SNAPSHOT_VERSION = 2
-LIVE_SNAPSHOT_VERSION = 3
-RED_CARD_SNAPSHOT_VERSION = 2
+PREMATCH_SNAPSHOT_VERSION = 3
+LIVE_SNAPSHOT_VERSION = 4
+RED_CARD_SNAPSHOT_VERSION = 3
 DEFAULT_PREMATCH_LEAGUES = ("BL1", "PL", "PD")
 LIVE_QUALITY_LABELS = {
     "LOW": "Basis: teilweise Daten",
@@ -241,6 +247,13 @@ def _apply_app_styles() -> None:
 
         p, label, [data-testid="stMarkdownContainer"] {
             overflow-wrap: anywhere;
+        }
+
+        [data-testid="stCaptionContainer"],
+        [data-testid="stCaptionContainer"] p {
+            max-width: 100%;
+            overflow-wrap: anywhere;
+            white-space: normal !important;
         }
 
         .bb-context {
@@ -477,7 +490,9 @@ def _api_football_health(api_key: str) -> dict:
 def _render_sidebar(analyzer) -> str:
     with st.sidebar:
         st.markdown("## BetBoy")
-        st.caption("Analyse-Arbeitsplatz")
+        st.caption("Wettfinder")
+        if st.session_state.get("workspace") not in PAGE_INFO:
+            st.session_state["workspace"] = "Spiele"
         workspace = st.radio(
             "Arbeitsbereich",
             list(PAGE_INFO),
@@ -753,75 +768,89 @@ def _render_match_teams(row: pd.Series) -> None:
     h2h_columns[2].metric("BTTS-Rate", _format_optional(h2h.get("btts_rate"), 1, "%"))
 
 
-def _render_prematch_results(results: pd.DataFrame, min_probability: int, min_quality: int) -> None:
+def _render_prematch_results(
+    results: pd.DataFrame,
+    min_probability: int,
+    min_quality: int,
+    *,
+    scanned_at: Optional[str],
+    validated_model_available: bool,
+) -> None:
     eligible = results[
         (results["BTTS_num"] >= min_probability)
         & (results["Quality_num"] >= min_quality)
     ].copy()
     if eligible.empty:
-        st.warning("Kein gespeichertes Ergebnis erfüllt die aktuellen Filter.")
+        st.error("NICHT WETTEN: Kein Spiel erfüllt die gewählten Mindestwerte.")
         return
 
-    st.subheader("Ergebnisse")
-    summary = st.columns(4)
-    summary[0].metric("Matches", len(eligible))
-    summary[1].metric("BTTS im Mittel", f"{eligible['BTTS_num'].mean():.1f}%")
-    summary[2].metric("Qualität im Mittel", f"{eligible['Quality_num'].mean():.1f}%")
-    summary[3].metric("Ligen", eligible["League"].nunique())
-
-    preferred_columns = [
-        "Date",
-        "League",
-        "Home",
-        "Away",
-        "BTTS %",
-        "Data Quality",
-        "Modellstatus",
-        "xG Total",
-    ]
-    display_columns = [column for column in preferred_columns if column in eligible.columns]
-    display_frame = eligible[display_columns].rename(
-        columns={"Data Quality": "Evidenzscore"}
+    snapshot_age = _snapshot_age_seconds(scanned_at)
+    candidate_rows = []
+    for _, row in eligible.iterrows():
+        candidate = prematch_btts_candidate(
+            row,
+            snapshot_age_seconds=snapshot_age,
+            validated_model_available=validated_model_available,
+        )
+        candidate_rows.append((candidate, row))
+    candidate_rows.sort(
+        key=lambda item: (
+            item[0].model_ready,
+            item[0].risk_adjusted_probability or -1.0,
+            _numeric_or_zero(item[1].get("Quality_num")),
+        ),
+        reverse=True,
     )
-    st.dataframe(
-        display_frame,
-        use_container_width=True,
-        hide_index=True,
-        height=min(430, 72 + len(eligible) * 35),
+    shortlist = candidate_rows[:3]
+    ready_count = sum(candidate.model_ready for candidate, _ in shortlist)
+    st.caption(
+        f"{ready_count} von maximal {len(shortlist)} Kandidaten bestehen die Modellgates. "
+        "Eine Wettfreigabe entsteht erst nach der exakten N1Bet-Quote."
     )
 
-    options = list(range(len(eligible)))
-    detail_key = "prematch_detail_match"
-    if st.session_state.get(detail_key) not in options:
-        st.session_state[detail_key] = options[0]
+    options = list(range(len(shortlist)))
     selected_position = st.selectbox(
-        "Match im Detail",
+        "Wettkandidat",
         options,
         format_func=lambda position: (
-            f"{eligible.iloc[position].get('Home', 'Home')} vs "
-            f"{eligible.iloc[position].get('Away', 'Away')} | "
-            f"{eligible.iloc[position].get('Date', 'n/a')}"
+            f"{'PREIS PRÜFEN' if shortlist[position][0].model_ready else 'NICHT WETTEN'} | "
+            f"{shortlist[position][0].event_label} | {shortlist[position][0].selection or 'keine Auswahl'}"
         ),
-        key=detail_key,
+        key="prematch_bet_candidate",
     )
-    selected_row = eligible.iloc[selected_position]
-    detail_view = _segmented(
-        "Detailansicht",
-        ["Überblick", "Modelle", "Teams"],
-        "prematch_detail_view",
-        "Überblick",
+    candidate, selected_row = shortlist[selected_position]
+    render_price_decision(
+        candidate,
+        key=f"prematch_{candidate.event_key}_{scanned_at}",
+        bankroll_key="football_bet_finder_bankroll",
     )
-    if detail_view == "Überblick":
-        _render_match_overview(selected_row)
-    elif detail_view == "Modelle":
-        _render_match_models(selected_row)
-    else:
-        _render_match_teams(selected_row)
+
+    with st.expander("Weitere geprüfte Spiele"):
+        display_frame = pd.DataFrame(
+            [
+                {
+                    "Entscheidung": "Preis prüfen" if item.model_ready else "Nicht wetten",
+                    "Zeit": row.get("Date"),
+                    "Liga": row.get("League"),
+                    "Spiel": item.event_label,
+                    "Auswahl": item.selection,
+                    "Modell %": item.model_probability,
+                    "Konservativ %": item.risk_adjusted_probability,
+                    "Mindestquote": item.minimum_odds,
+                }
+                for item, row in shortlist
+            ]
+        )
+        st.dataframe(display_frame, use_container_width=True, hide_index=True)
+        st.caption(
+            f"Ausgewählt: {selected_row.get('Home')} vs {selected_row.get('Away')} | "
+            f"{selected_row.get('Date')}"
+        )
 
 
 def render_matches(analyzer) -> None:
     if analyzer is None:
-        st.error("API-Football-Key fehlt. Konfiguration unter Modell prüfen.")
+        st.error("API-Football-Key fehlt. Konfiguration unter System prüfen.")
         return
 
     st.subheader("Filter")
@@ -869,7 +898,7 @@ def render_matches(analyzer) -> None:
     elif league_scope == "Alle":
         selected_leagues = available_leagues
         st.caption(
-            f"{len(selected_leagues)} konfigurierte Ligen; dieser Scan benötigt "
+            f"{len(selected_leagues)} konfigurierte Ligen; diese Suche benötigt "
             "entsprechend mehr Provider-Aufrufe."
         )
     else:
@@ -883,7 +912,7 @@ def render_matches(analyzer) -> None:
 
     action_columns = st.columns([1, 2])
     run_scan = action_columns[0].button(
-        "Spiele analysieren",
+        "BTTS-Wetten finden",
         type="primary",
         use_container_width=True,
         key="run_prematch_scan",
@@ -907,29 +936,35 @@ def render_matches(analyzer) -> None:
             st.session_state["prematch_results"] = results
             st.session_state["all_results"] = results
             if results.empty:
-                st.warning("Für diese Auswahl wurden keine kommenden Spiele gefunden.")
+                st.error("NICHT WETTEN: Für diese Auswahl wurden keine kommenden Spiele gefunden.")
             else:
-                st.success(f"{len(results)} Matches geladen.")
+                st.success(f"{len(results)} Spiele geprüft. Jetzt folgt die Wett- und Preisentscheidung.")
         except Exception as exc:
-            st.error(f"Analyse fehlgeschlagen: {exc}")
+            st.error(f"Wettfinder fehlgeschlagen: {exc}")
 
     snapshot = st.session_state.get("prematch_snapshot")
     if not isinstance(snapshot, dict):
-        st.info("Noch kein Prematch-Snapshot in dieser Sitzung.")
+        st.info("Noch keine BTTS-Wetten gesucht.")
         return
     if snapshot.get("version") != PREMATCH_SNAPSHOT_VERSION:
-        st.warning("Dieser Prematch-Snapshot stammt aus einer älteren App-Version. Neu scannen.")
+        st.warning("Dieses Prematch-Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
         return
     current_scope = _scope_signature(selected_leagues, days_ahead)
     if snapshot.get("scope") != current_scope:
-        st.warning("Liga oder Zeitraum wurden seit dem Snapshot geändert. Neu scannen.")
+        st.warning("Liga oder Zeitraum wurden seit dem Ergebnis geändert. Wetten neu suchen.")
         return
     results = snapshot.get("results")
-    st.caption(f"Snapshot: {_format_snapshot_time(snapshot.get('scanned_at'))}")
+    st.caption(f"Datenstand: {_format_snapshot_time(snapshot.get('scanned_at'))}")
     if not isinstance(results, pd.DataFrame) or results.empty:
         st.info("Dieser Snapshot enthält keine kommenden Spiele.")
         return
-    _render_prematch_results(results, min_probability, min_quality)
+    _render_prematch_results(
+        results,
+        min_probability,
+        min_quality,
+        scanned_at=snapshot.get("scanned_at"),
+        validated_model_available=bool(analyzer.model_trained),
+    )
 
 
 def _live_probability(value) -> Optional[float]:
@@ -945,7 +980,7 @@ def _live_probability(value) -> Optional[float]:
 def _live_market_signal(analysis: dict, market: str) -> tuple[Optional[float], str]:
     """Return the selected live-market probability and its concrete selection."""
     if not isinstance(analysis, dict):
-        return None, "Ungültige Analyse"
+        return None, "Ungültige Modelldaten"
     if market == "BTTS":
         return _live_probability(analysis.get("btts_prob")), "Beide Teams treffen"
 
@@ -1012,6 +1047,7 @@ def _scan_live_football(analyzer) -> dict:
     from api_football import APIFootball
     from ultra_live_scanner_v3 import UltraLiveScanner
 
+    scanned_at = datetime.now().astimezone().isoformat()
     config = load_app_config(st)
     if not config.api_football_key:
         raise ValueError("API-Football-Key fehlt")
@@ -1033,7 +1069,7 @@ def _scan_live_football(analyzer) -> dict:
             analyses.append(analysis)
     return {
         "version": LIVE_SNAPSHOT_VERSION,
-        "scanned_at": datetime.now().astimezone().isoformat(),
+        "scanned_at": scanned_at,
         "provider_matches": len(all_matches),
         "supported_matches": len(matches),
         "analyses": analyses,
@@ -1042,7 +1078,7 @@ def _scan_live_football(analyzer) -> dict:
 
 
 def _render_live_football(analyzer) -> None:
-    st.subheader("Live-Spiele")
+    st.subheader("Live-Wetten")
     market = _segmented(
         "Live-Markt",
         list(LIVE_MARKET_OPTIONS),
@@ -1083,32 +1119,32 @@ def _render_live_football(analyzer) -> None:
     )
     if st.session_state.get("live_snapshot_invalidated_by_red_card"):
         st.warning(
-            "Seit dem letzten Live-Snapshot wurde ein neuer Platzverweis erkannt. "
-            "Der alte Snapshot wurde verworfen; bitte neu scannen."
+            "Seit dem letzten Live-Datenstand wurde ein neuer Platzverweis erkannt. "
+            "Der alte Datenstand wurde verworfen; Live-Wetten neu suchen."
         )
     if st.button(
-        "Live-Scan starten",
+        "Live-Wetten finden",
         type="primary",
         use_container_width=True,
         key="run_live_football",
     ):
         try:
-            with st.spinner("Live-Spiele werden analysiert..."):
+            with st.spinner("Live-Wetten werden geprüft..."):
                 snapshot = _scan_live_football(analyzer)
                 st.session_state["live_football_snapshot"] = snapshot
                 st.session_state.pop("live_snapshot_invalidated_by_red_card", None)
         except Exception as exc:
-            st.error(f"Live-Scan fehlgeschlagen: {exc}")
+            st.error(f"Live-Wettfinder fehlgeschlagen: {exc}")
 
     snapshot = st.session_state.get("live_football_snapshot")
     if not snapshot:
-        st.info("Noch kein Live-Snapshot in dieser Sitzung.")
+        st.info("Noch keine Live-Wetten gesucht.")
         return
     if snapshot.get("version") != LIVE_SNAPSHOT_VERSION:
-        st.warning("Dieser Live-Snapshot stammt aus einer älteren App-Version. Neu scannen.")
+        st.warning("Dieses Live-Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
         return
 
-    st.caption(f"Snapshot: {_format_snapshot_time(snapshot.get('scanned_at'))}")
+    st.caption(f"Datenstand: {_format_snapshot_time(snapshot.get('scanned_at'))}")
     opportunities = _filter_live_opportunities(
         snapshot.get("analyses", []),
         minimum_probability,
@@ -1117,68 +1153,57 @@ def _render_live_football(analyzer) -> None:
     )
     if snapshot.get("provider_error"):
         st.warning(f"Live-Provider nicht vollständig verfügbar: {snapshot['provider_error']}")
-    counts = st.columns(4)
-    counts[0].metric("Provider-Spiele", snapshot["provider_matches"])
-    counts[1].metric("Unterstützte Spiele", snapshot["supported_matches"])
-    counts[2].metric("Analysiert", len(snapshot.get("analyses", [])))
-    counts[3].metric("Filtertreffer", len(opportunities))
 
     if not opportunities:
-        st.info("Kein Spiel erfüllt die Filter dieses Snapshots.")
+        st.error("NICHT WETTEN: Kein Live-Spiel erfüllt Markt-, Daten- und Wahrscheinlichkeitsfilter.")
         return
 
-    rows = []
+    snapshot_age = _snapshot_age_seconds(snapshot.get("scanned_at"))
+    candidate_items = []
     for item in opportunities:
         probability, selection = _live_market_signal(item, market)
-        red_cards = item.get("red_cards") or {}
-        home_red = red_cards.get("home_count")
-        away_red = red_cards.get("away_count")
-        red_card_label = (
-            f"{home_red}/{away_red}"
-            if home_red is not None and away_red is not None
-            else "n/a"
+        candidate = live_football_candidate(
+            item,
+            market=market,
+            selection=selection,
+            probability=probability,
+            snapshot_age_seconds=snapshot_age,
         )
-        rows.append(
-            {
-                "Minute": item.get("minute"),
-                "Match": f"{item.get('home_team')} vs {item.get('away_team')}",
-                "Stand": item.get("score"),
-                "Auswahl": selection,
-                "Modell %": probability,
-                "Datenbasis": LIVE_QUALITY_LABELS.get(
-                    item.get("live_data_quality"),
-                    item.get("live_data_quality", "n/a"),
-                ),
-                "Rot H/A": red_card_label,
-            }
-        )
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    live_detail_options = list(range(len(opportunities)))
+        candidate_items.append((candidate, item))
+    candidate_items.sort(
+        key=lambda pair: (
+            pair[0].model_ready,
+            pair[0].risk_adjusted_probability or -1.0,
+        ),
+        reverse=True,
+    )
+    candidate_items = candidate_items[:3]
+    live_detail_options = list(range(len(candidate_items)))
     live_detail_key = "live_match_detail"
     if st.session_state.get(live_detail_key) not in live_detail_options:
         st.session_state[live_detail_key] = live_detail_options[0]
     selected = st.selectbox(
-        "Live-Match im Detail",
+        "Wettkandidat",
         live_detail_options,
-        format_func=lambda index: rows[index]["Match"],
+        format_func=lambda index: (
+            f"{'PREIS PRÜFEN' if candidate_items[index][0].model_ready else 'NICHT WETTEN'} | "
+            f"{candidate_items[index][0].event_label} | {candidate_items[index][0].selection}"
+        ),
         key=live_detail_key,
     )
-    item = opportunities[selected]
-    from ultra_live_scanner_v3 import display_ultra_opportunity
-
-    live_detail_options = ["Kernmärkte", "Modelleingaben"]
-    if st.session_state.get("live_detail_view") not in live_detail_options:
-        st.session_state["live_detail_view"] = live_detail_options[0]
-    detail_view = _segmented(
-        "Detailansicht",
-        live_detail_options,
-        "live_detail_view",
-        "Kernmärkte",
+    candidate, item = candidate_items[selected]
+    render_price_decision(
+        candidate,
+        key=f"live_{candidate.event_key}_{market}_{snapshot.get('scanned_at')}",
+        bankroll_key="football_bet_finder_bankroll",
     )
-    if detail_view == "Kernmärkte":
-        display_ultra_opportunity(item)
-    else:
+
+    with st.expander("Live-Prüfdetails"):
+        counts = st.columns(4)
+        counts[0].metric("Provider-Spiele", snapshot["provider_matches"])
+        counts[1].metric("Unterstützt", snapshot["supported_matches"])
+        counts[2].metric("Berechnet", len(snapshot.get("analyses", [])))
+        counts[3].metric("Kandidaten", len(candidate_items))
         st.json(
             {
                 "Modell": item.get("breakdown", {}),
@@ -1242,45 +1267,31 @@ def _red_card_entry(alert_system, card: dict) -> dict:
 
 def _scan_red_cards(
     api_key: str,
-    telegram_token: Optional[str],
-    telegram_chat_id: Optional[str],
-    enable_browser: bool,
-    enable_telegram: bool,
     league_ids: Optional[list[int]],
     scope_label: str,
 ) -> dict:
     from red_card_bot import RedCardBotEnhanced
 
-    alert_system = RedCardBotEnhanced(
+    scanned_at = datetime.now().astimezone().isoformat()
+    finder = RedCardBotEnhanced(
         api_key=api_key,
-        telegram_token=telegram_token,
-        telegram_chat_id=telegram_chat_id,
         streamlit_mode=True,
     )
-    live_matches = alert_system.get_live_matches(league_ids)
+    live_matches = finder.get_live_matches(league_ids)
     cards = []
     for match in live_matches:
-        for card in alert_system.check_match_for_red_cards(match):
-            entry = _red_card_entry(alert_system, card)
-            if enable_browser:
-                st.toast(f"Platzverweis: {card['player']} ({card['team']})")
-            if enable_telegram and alert_system.send_telegram_alert_with_stats(
-                card,
-                live_stats=entry.get("live_stats"),
-                fetch_live_stats=False,
-            ):
-                entry["telegram_sent"] = True
-            else:
-                entry["telegram_sent"] = False
-            alert_system._mark_alerted(card["card_id"])
+        match_cards = finder.check_match_for_red_cards(match, include_seen=True)
+        for card in match_cards:
+            entry = _red_card_entry(finder, card)
+            entry["fixture_red_card_count"] = len(match_cards)
             cards.append(entry)
     return {
         "version": RED_CARD_SNAPSHOT_VERSION,
-        "scanned_at": datetime.now().astimezone().isoformat(),
+        "scanned_at": scanned_at,
         "scope": scope_label,
         "live_matches": len(live_matches),
         "cards": cards,
-        "errors": list(alert_system.errors),
+        "errors": list(finder.errors),
     }
 
 
@@ -1360,17 +1371,17 @@ def _render_red_card_detail(entry: dict) -> None:
 
 def _render_red_cards(analyzer) -> None:
     config = load_app_config(st)
-    st.subheader("Platzverweise")
+    st.subheader("Platzverweis-Wetten")
     scope_options = ["Konfigurierte Ligen", "Weltweit"]
     if st.session_state.get("red_card_scope") not in scope_options:
         st.session_state["red_card_scope"] = scope_options[0]
     scan_scope = st.selectbox(
-        "Scan-Umfang",
+        "Suchumfang",
         scope_options,
         key="red_card_scope",
         help=(
             "Konfigurierte Ligen begrenzt Event-Abfragen. Weltweit prüft jedes vom Provider "
-            "gelieferte Live-Spiel und kann viel API-Quota benötigen."
+            "gelieferte Live-Spiel und benötigt entsprechend mehr API-Quota."
         ),
     )
     league_ids = (
@@ -1378,47 +1389,19 @@ def _render_red_cards(analyzer) -> None:
         if scan_scope == "Konfigurierte Ligen"
         else None
     )
-    setting_columns = st.columns(2)
-    enable_browser = setting_columns[0].checkbox(
-        "Browser-Hinweis", value=True, key="red_browser_alert"
-    )
-    configured_telegram = bool(config.telegram_bot_token and config.telegram_chat_id)
-    enable_telegram = setting_columns[1].checkbox(
-        "Telegram",
-        value=configured_telegram,
-        key="red_telegram_alert",
-    )
-
-    telegram_token = config.telegram_bot_token
-    telegram_chat_id = config.telegram_chat_id
-    if enable_telegram and not configured_telegram:
-        credential_columns = st.columns(2)
-        telegram_token = credential_columns[0].text_input(
-            "Telegram Bot-Token", type="password", key="red_telegram_token"
-        )
-        telegram_chat_id = credential_columns[1].text_input(
-            "Telegram Chat-ID", key="red_telegram_chat_id"
-        )
-
     if st.button(
-        "Auf neue Platzverweise prüfen",
+        "Platzverweis-Wetten finden",
         type="primary",
         use_container_width=True,
         key="run_red_card_scan",
     ):
         if not config.api_football_key:
             st.error("API-Football-Key fehlt.")
-        elif enable_telegram and (not telegram_token or not telegram_chat_id):
-            st.warning("Für Telegram werden Bot-Token und Chat-ID benötigt.")
         else:
             try:
-                with st.spinner("Live-Ereignisse werden geprüft..."):
+                with st.spinner("Platzverweis-Wetten werden geprüft..."):
                     red_card_snapshot = _scan_red_cards(
                         config.api_football_key,
-                        telegram_token,
-                        telegram_chat_id,
-                        enable_browser,
-                        enable_telegram,
                         league_ids,
                         scan_scope,
                     )
@@ -1429,21 +1412,21 @@ def _render_red_cards(analyzer) -> None:
                             red_card_snapshot.get("scanned_at")
                         )
             except Exception as exc:
-                st.error(f"Platzverweis-Scan fehlgeschlagen: {exc}")
+                st.error(f"Platzverweis-Wettfinder fehlgeschlagen: {exc}")
 
     snapshot = st.session_state.get("red_card_snapshot")
     if not snapshot:
-        st.info("Noch kein Platzverweis-Snapshot in dieser Sitzung.")
+        st.info("Noch keine Platzverweis-Wetten gesucht.")
         return
     if snapshot.get("version") != RED_CARD_SNAPSHOT_VERSION:
-        st.warning("Dieser Platzverweis-Snapshot stammt aus einer älteren App-Version. Neu scannen.")
+        st.warning("Dieses Platzverweis-Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
         return
     if snapshot.get("scope") != scan_scope:
-        st.warning("Der Scan-Umfang wurde seit dem Snapshot geändert. Neu scannen.")
+        st.warning("Der Suchumfang wurde seit dem Ergebnis geändert. Wetten neu suchen.")
         return
 
     st.caption(
-        f"Snapshot: {_format_snapshot_time(snapshot.get('scanned_at'))} | "
+        f"Datenstand: {_format_snapshot_time(snapshot.get('scanned_at'))} | "
         f"Umfang: {snapshot.get('scope')}"
     )
     if snapshot.get("errors"):
@@ -1451,28 +1434,51 @@ def _render_red_cards(analyzer) -> None:
             f"{len(snapshot['errors'])} Provider-Abfragen sind fehlgeschlagen; "
             "vorhandene Ereignisse bleiben sichtbar."
         )
-    summary = st.columns(2)
-    summary[0].metric("Live-Spiele", snapshot["live_matches"])
-    summary[1].metric("Neue Platzverweise", len(snapshot["cards"]))
     if not snapshot["cards"]:
-        st.info("Keine neuen Platzverweise gefunden.")
+        st.error("NICHT WETTEN: Kein aktueller Platzverweis mit prüfbarem Markt gefunden.")
         return
 
-    labels = [
-        f"{entry['home']} vs {entry['away']} | {entry['card']['player']}"
+    snapshot_age = _snapshot_age_seconds(snapshot.get("scanned_at"))
+    candidate_entries = [
+        (
+            red_card_candidate(entry, snapshot_age_seconds=snapshot_age),
+            entry,
+        )
         for entry in snapshot["cards"]
     ]
+    candidate_entries.sort(
+        key=lambda pair: (
+            pair[0].model_ready,
+            pair[0].risk_adjusted_probability or -1.0,
+        ),
+        reverse=True,
+    )
+    candidate_entries = candidate_entries[:3]
     detail_key = "red_card_detail"
-    detail_options = list(range(len(labels)))
+    detail_options = list(range(len(candidate_entries)))
     if st.session_state.get(detail_key) not in detail_options:
         st.session_state[detail_key] = detail_options[0]
     selected = st.selectbox(
-        "Ereignis im Detail",
+        "Wettkandidat",
         detail_options,
-        format_func=lambda index: labels[index],
+        format_func=lambda index: (
+            f"{'PREIS PRÜFEN' if candidate_entries[index][0].model_ready else 'NICHT WETTEN'} | "
+            f"{candidate_entries[index][0].event_label} | {candidate_entries[index][0].selection}"
+        ),
         key=detail_key,
     )
-    _render_red_card_detail(snapshot["cards"][selected])
+    candidate, entry = candidate_entries[selected]
+    render_price_decision(
+        candidate,
+        key=f"red_card_{candidate.event_key}_{snapshot.get('scanned_at')}",
+        bankroll_key="football_bet_finder_bankroll",
+    )
+    with st.expander("Platzverweis-Prüfdetails"):
+        st.caption(
+            f"{snapshot['live_matches']} Live-Spiele geprüft | "
+            f"{len(snapshot['cards'])} Platzverweise bewertet"
+        )
+        _render_red_card_detail(entry)
 
 
 def render_live(analyzer) -> None:
@@ -1865,14 +1871,14 @@ def render_multi_sport() -> None:
 
     snapshot = snapshots.get(scope_key)
     if not snapshot:
-        st.info(f"Noch keine {sport}-Wettanalyse für diese Auswahl.")
+        st.info(f"Noch keine {sport}-Wetten für diese Auswahl gesucht.")
         return
 
     snapshot_items = snapshot.get("items")
     snapshot_items = snapshot_items if isinstance(snapshot_items, list) else []
     item_count = len(snapshot_items)
     caption_parts = [
-        f"Snapshot: {_format_snapshot_time(snapshot.get('scanned_at'))}",
+        f"Datenstand: {_format_snapshot_time(snapshot.get('scanned_at'))}",
         f"{item_count} Live-Ereignisse",
     ]
     if detail_filter:
@@ -1913,7 +1919,9 @@ def render_multi_sport() -> None:
 
     if not snapshot_items:
         if not missing_esports_key:
-            st.info(f"Keine laufenden {sport}-Ereignisse, daher aktuell keine Wettempfehlung.")
+            st.error(
+                f"NICHT WETTEN: Keine laufenden {sport}-Ereignisse mit prüfbarem Markt."
+            )
         return
 
     selected_index = st.selectbox(
@@ -2076,7 +2084,7 @@ def main() -> None:
         create_alternative_markets_tab_extended()
     elif workspace == "Live":
         render_live(analyzer)
-    elif workspace == "Modell":
+    elif workspace == "System":
         render_model(analyzer)
     elif workspace == "15K Challenge":
         render_challenge_15k()

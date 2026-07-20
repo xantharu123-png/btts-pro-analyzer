@@ -1346,6 +1346,8 @@ class AdvancedBTTSAnalyzer:
                 
                 results.append({
                     'Date': date_formatted,
+                    '_fixture_id': match.get('fixture_id'),
+                    '_fixture_date': match.get('utcDate', match.get('date')),
                     'Home': home_team['name'],
                     'Away': away_team['name'],
                     'BTTS %': f"{analysis['ensemble_probability']:.1f}%",
