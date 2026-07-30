@@ -27,6 +27,7 @@ class UltraLiveScanner:
         self.analyzer = analyzer
         self.api_football = api_football
         self._domestic_league_cache: Dict[int, List[int]] = {}
+        self._red_card_minute_cache: Dict[int, Optional[int]] = {}
 
     @staticmethod
     def _optional_nonnegative(value, maximum: float = 20.0) -> Optional[float]:
@@ -67,6 +68,7 @@ class UltraLiveScanner:
         minute: Optional[int] = None,
         prior_home: Optional[float] = None,
         prior_away: Optional[float] = None,
+        red_card_minute: Optional[int] = None,
     ) -> Dict:
         """Return a fail-closed red-card adjustment for the remaining match.
 
@@ -122,10 +124,12 @@ class UltraLiveScanner:
                 minute,
                 prior_home_goals=prior_home,
                 prior_away_goals=prior_away,
+                red_card_minute=red_card_minute,
             )
             context = {
                 'strength_ratio': effects['strength_ratio'],
                 'goal_diff_red_team': effects['goal_diff_red_team'],
+                'minutes_since_card': effects['minutes_since_card'],
                 'adjustments': effects['adjustments'],
             }
         else:
@@ -154,6 +158,44 @@ class UltraLiveScanner:
             'applied': True,
             'context': context,
         }
+
+    def _get_red_card_minute(
+        self,
+        fixture_id: int,
+        stats: Optional[Dict],
+    ) -> Optional[int]:
+        """Minute of the first red card, from fixture events (cached).
+
+        Events are only fetched when the statistics actually show a
+        dismissal — otherwise the call would waste provider quota. The
+        first red card minute is immutable once it happened, so the
+        per-fixture cache never goes stale for this purpose.
+        """
+        stats = stats if isinstance(stats, dict) else {}
+        if not (stats.get('red_cards_home') or stats.get('red_cards_away')):
+            return None
+        if fixture_id in self._red_card_minute_cache:
+            return self._red_card_minute_cache[fixture_id]
+        minute_found: Optional[int] = None
+        try:
+            events = self.api_football.get_fixture_events(fixture_id)
+        except Exception:
+            events = []
+        red_minutes = []
+        for event in events or []:
+            if not isinstance(event, dict):
+                continue
+            if event.get('type') != 'Card':
+                continue
+            if 'Red' not in str(event.get('detail') or ''):
+                continue
+            elapsed = event.get('time', {}).get('elapsed')
+            if isinstance(elapsed, int) and not isinstance(elapsed, bool) and elapsed >= 0:
+                red_minutes.append(elapsed)
+        if red_minutes:
+            minute_found = min(red_minutes)
+        self._red_card_minute_cache[fixture_id] = minute_found
+        return minute_found
 
     def _resolve_domestic_league_id(self, team_id: int) -> Optional[int]:
         """Resolve a team's domestic league via /teams/leagues (cached).
@@ -365,6 +407,9 @@ class UltraLiveScanner:
                 away_team_id,
                 raw_league_id,
             )
+            red_card_minute = self._get_red_card_minute(
+                fixture_id, stats
+            )
             red_card_state = self._red_card_state(
                 stats,
                 home_score=home_score,
@@ -372,6 +417,7 @@ class UltraLiveScanner:
                 minute=minute,
                 prior_home=prior_home,
                 prior_away=prior_away,
+                red_card_minute=red_card_minute,
             )
 
             btts = self._calculate_btts_probability(

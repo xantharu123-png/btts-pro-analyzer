@@ -1296,6 +1296,75 @@ class RedCardModelTests(unittest.TestCase):
 
         self.assertFalse(with_priors.context_effects["context_used"])
 
+    def test_fatigue_ramp_inactive_right_after_card(self):
+        effects = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 0, 0, 40, red_card_minute=36
+        )
+
+        self.assertEqual(effects["minutes_since_card"], 4)
+        self.assertNotIn("fatigue ramp", " ".join(effects["adjustments"]))
+
+    def test_fatigue_ramp_grows_with_minutes_since_card(self):
+        fresh = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 0, 0, 60, red_card_minute=36
+        )
+        tired = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 0, 0, 82, red_card_minute=36
+        )
+
+        self.assertEqual(fresh["minutes_since_card"], 24)
+        self.assertEqual(tired["minutes_since_card"], 46)
+        self.assertGreater(tired["opponent_boost"], fresh["opponent_boost"])
+        self.assertLess(tired["red_team_penalty"], fresh["red_team_penalty"])
+
+    def test_fatigue_ramp_caps_at_full_exhaustion(self):
+        full = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 0, 0, 81, red_card_minute=36  # exactly 45 min
+        )
+        beyond = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 0, 0, 90, red_card_minute=30  # 60 min
+        )
+
+        self.assertAlmostEqual(
+            full["opponent_boost"], beyond["opponent_boost"], places=6
+        )
+        self.assertAlmostEqual(
+            beyond["opponent_boost"],
+            RedCardImpactPredictor.RED_CARD_EFFECTS["opponent_boost"]
+            * (1 + RedCardImpactPredictor.FATIGUE_BOOST_GAIN),
+            places=6,
+        )
+
+    def test_fatigue_ramp_fails_closed_without_card_minute(self):
+        effects = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 0, 0, 80
+        )
+
+        self.assertIsNone(effects["minutes_since_card"])
+        self.assertNotIn("fatigue ramp", " ".join(effects["adjustments"]))
+
+    def test_fatigue_ramp_rejects_impossible_card_minute(self):
+        # Karte "in der Zukunft" oder negativ -> kein Fatigue-Adjustment
+        for bad_minute in (85, -3):
+            effects = RedCardImpactPredictor.context_adjusted_effects(
+                "home", 0, 0, 80, red_card_minute=bad_minute
+            )
+            self.assertIsNone(effects["minutes_since_card"])
+
+    def test_prediction_carries_fatigue_in_audit_trail(self):
+        prediction = RedCardImpactPredictor().predict(
+            minute=82,
+            home_goals=2,
+            away_goals=0,
+            red_card_team="home",
+            red_card_minute=36,
+        )
+
+        self.assertEqual(prediction.context_effects["minutes_since_card"], 46)
+        self.assertIn(
+            "fatigue ramp", " ".join(prediction.context_effects["adjustments"])
+        )
+
 
 class UltraDataGateTests(unittest.TestCase):
     def test_missing_xg_and_prior_produces_no_probability(self):

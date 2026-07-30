@@ -606,6 +606,32 @@ class APIFootball:
             'total_matches': total_matches,
         }
     
+    def get_fixture_events(self, fixture_id: int) -> List[Dict]:
+        """Get timeline events (goals, cards, subs) for one fixture."""
+        self.last_error = None
+        fixture_id = self._positive_integer(fixture_id)
+        if fixture_id is None:
+            self.last_error = "fixture events: invalid fixture id"
+            return []
+        self._rate_limit()
+        try:
+            response = requests.get(
+                f"{self.base_url}/fixtures/events",
+                headers=self.headers,
+                params={'fixture': fixture_id},
+                timeout=15,
+            )
+            data = self._response_data(
+                response,
+                f"fixture events {fixture_id}",
+                list,
+            )
+            return data if data is not None else []
+        except Exception as e:
+            self.last_error = f"fixture events {fixture_id}: {type(e).__name__}"
+            print(f"WARNING: Fixture events error: {e}")
+            return []
+
     def get_team_leagues(self, team_id: int) -> List[Dict]:
         """Get all leagues a team participates in (used for domestic-league fallback)."""
         self.last_error = None

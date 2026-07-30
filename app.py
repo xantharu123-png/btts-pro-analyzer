@@ -1678,6 +1678,7 @@ def _red_card_entry(alert_system, card: dict) -> dict:
             live_stats=entry["live_stats"],
             prior_home_goals=prior_home,
             prior_away_goals=prior_away,
+            red_card_minute=card.get("minute"),
         )
         entry["prediction"] = asdict(prediction)
     return entry

@@ -95,6 +95,46 @@ class RedCardImpactPredictor:
     BOOST_RANGE = (1.0, 2.0)
     PENALTY_RANGE = (0.15, 1.0)
 
+    # Fatigue ramp (minutes-since-card accumulator), shape informed by the
+    # 11 red-card matches of 2026-07-30: 11-man breakthroughs at +45/+46/
+    # +47/+50/+58/+65 minutes after the card -> the exhausted-10-men cliff.
+    # Ramp starts after FATIGUE_FREE_MINUTES of "fresh" 10-man play and is
+    # fully active after FATIGUE_FULL_MINUTES. Documented priors.
+    FATIGUE_FREE_MINUTES = 25
+    FATIGUE_FULL_MINUTES = 45
+    FATIGUE_BOOST_GAIN = 0.15   # +15% opponent rate when fully fatigued
+    FATIGUE_PENALTY_DROP = 0.20  # -20% red-team attack when fully fatigued
+
+    @classmethod
+    def _fatigue_multipliers(
+        cls,
+        minute: int,
+        red_card_minute: Optional[int],
+    ) -> Tuple[float, float, Optional[int]]:
+        """Return (boost_mult, penalty_mult, minutes_since_card).
+
+        Fails closed to (1.0, 1.0, None) when the card minute is unknown.
+        """
+        if (
+            red_card_minute is None
+            or isinstance(red_card_minute, bool)
+            or not isinstance(red_card_minute, int)
+            or red_card_minute < 0
+            or red_card_minute > minute
+        ):
+            return 1.0, 1.0, None
+        since = minute - red_card_minute
+        ramp = min(
+            1.0,
+            max(0.0, (since - cls.FATIGUE_FREE_MINUTES))
+            / (cls.FATIGUE_FULL_MINUTES - cls.FATIGUE_FREE_MINUTES),
+        )
+        return (
+            1.0 + cls.FATIGUE_BOOST_GAIN * ramp,
+            1.0 - cls.FATIGUE_PENALTY_DROP * ramp,
+            since,
+        )
+
     @staticmethod
     def _clamp(value: float, bounds: Tuple[float, float]) -> float:
         return max(bounds[0], min(bounds[1], value))
@@ -108,6 +148,7 @@ class RedCardImpactPredictor:
         minute: int,
         prior_home_goals: Optional[float] = None,
         prior_away_goals: Optional[float] = None,
+        red_card_minute: Optional[int] = None,
     ) -> Dict:
         """Score-state-, strength- and fatigue-aware red card multipliers.
 
@@ -161,6 +202,17 @@ class RedCardImpactPredictor:
             boost *= cls.LATE_SHELL_BOOST_MULT
             applied.append(f"late shell (minute {minute})")
 
+        # 4. Fatigue ramp: minutes already spent at 10 men drain the red
+        # team. A card at 88' is irrelevant; a card at 50' means the legs
+        # go around minute 75-80 (the 2026-07-30 casebook cliff).
+        fatigue_boost, fatigue_penalty, since_card = cls._fatigue_multipliers(
+            minute, red_card_minute
+        )
+        if since_card is not None and (fatigue_boost != 1.0 or fatigue_penalty != 1.0):
+            boost *= fatigue_boost
+            penalty *= fatigue_penalty
+            applied.append(f"fatigue ramp ({since_card} min at 10 men)")
+
         return {
             'opponent_boost': cls._clamp(boost, cls.BOOST_RANGE),
             'red_team_penalty': cls._clamp(penalty, cls.PENALTY_RANGE),
@@ -168,6 +220,7 @@ class RedCardImpactPredictor:
             'away_red_extra_penalty': base['away_red_extra_penalty'],
             'strength_ratio': strength_ratio,
             'goal_diff_red_team': goal_diff,
+            'minutes_since_card': since_card,
             'adjustments': applied,
             'context_used': bool(applied),
         }
@@ -237,6 +290,7 @@ class RedCardImpactPredictor:
         live_stats: Optional[Dict] = None,
         prior_home_goals: Optional[float] = None,
         prior_away_goals: Optional[float] = None,
+        red_card_minute: Optional[int] = None,
     ) -> RedCardPrediction:
         """
         Hauptfunktion: Berechne was als nächstes passiert
@@ -251,6 +305,9 @@ class RedCardImpactPredictor:
                 das Kontext-Adjustment: staerkeres 10-Mann-Team wird weniger
                 bestraft, Fuehrung laesst das Spiel einschlafen)
             prior_away_goals: Optional - Prematch-Torerwartung Auswaerts
+            red_card_minute: Optional - Minute des Platzverweises. Steuert die
+                Ermuedungsrampe: je laenger das Team schon zu zehnt spielt,
+                desto groesser der Durchbruch-Vorteil des 11-Mann-Teams.
 
         Returns:
             RedCardPrediction mit allen Berechnungen
@@ -308,6 +365,7 @@ class RedCardImpactPredictor:
             minute,
             prior_home_goals=prior_home_goals,
             prior_away_goals=prior_away_goals,
+            red_card_minute=red_card_minute,
         )
         if red_card_team == 'home':
             home_goal_rate *= (
