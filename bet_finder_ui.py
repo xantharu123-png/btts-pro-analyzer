@@ -10,7 +10,10 @@ from multi_sport_recommendations import (
     PriceDecision,
     RecommendationCandidate,
     evaluate_candidate_price,
+    format_fair_odds,
+    format_probability_percent,
 )
+from ui_components import edge_badge_html, ev_badge_html, plain_german
 
 
 def _decimal_input(value: str):
@@ -31,13 +34,15 @@ def render_price_decision(
     price_source: str = "N1Bet",
 ) -> Optional[PriceDecision]:
     """Render one exact candidate and require a fresh manual bookmaker price."""
-    st.subheader(candidate.selection or "Keine freigegebene Auswahl")
-    st.caption(f"{candidate.event_label} | {candidate.market}")
+    selection = candidate.selection or "keine Auswahl"
+    st.subheader(f"{candidate.market}: {selection}")
+    st.caption(candidate.event_label)
 
     if candidate.blockers:
-        st.error("NICHT WETTEN")
+        st.error("NICHT WETTEN — das Modell gibt dieses Spiel nicht frei.")
+        st.write("Gründe:")
         for reason in candidate.blockers:
-            st.write(f"- {reason}")
+            st.write(f"- {plain_german(reason)}")
         if candidate.evidence:
             with st.expander("Prüfdetails"):
                 st.write(f"Modell: {candidate.model_name}")
@@ -46,10 +51,10 @@ def render_price_decision(
         return None
 
     metrics = st.columns(3)
-    metrics[0].metric("Modell", f"{candidate.model_probability:.1f} %")
+    metrics[0].metric("Modell", format_probability_percent(candidate.model_probability))
     metrics[1].metric(
         "Konservativ",
-        f"{candidate.risk_adjusted_probability:.1f} %",
+        format_probability_percent(candidate.risk_adjusted_probability),
     )
     metrics[2].metric("Mindestquote", f"{candidate.minimum_odds:.2f}")
 
@@ -100,23 +105,26 @@ def render_price_decision(
     else:
         st.error("NICHT WETTEN")
         for reason in decision.reasons:
-            st.write(f"- {reason}")
+            st.write(f"- {plain_german(reason)}")
 
     if decision.metrics is not None:
-        price_metrics = st.columns(3)
-        price_metrics[0].metric(
-            "Risiko-Edge", f"{decision.metrics.risk_adjusted_edge:.1f} pp"
+        st.markdown(
+            edge_badge_html(decision.metrics.risk_adjusted_edge, label="Risiko-Edge")
+            + ev_badge_html(
+                decision.metrics.risk_adjusted_expected_roi, label="Risiko-EV"
+            )
+            + '<span class="bb-edge-badge bb-edge-none">'
+            f'<span class="bb-edge-label">Einsatz</span> '
+            f"{decision.stake_fraction * 100:.2f} %</span>",
+            unsafe_allow_html=True,
         )
-        price_metrics[1].metric(
-            "Risiko-EV", f"{decision.metrics.risk_adjusted_expected_roi:.1f} %"
-        )
-        price_metrics[2].metric(
-            "Einsatzreferenz", f"{decision.stake_fraction * 100:.2f} %"
+        st.caption(
+            "Ampel: grün ≥ 6 pp Edge, gelb 4–6 pp (Preis-Gate), rot unter dem Gate."
         )
 
     with st.expander("Prüfdetails"):
         st.write(f"Modell: {candidate.model_name}")
-        st.write(f"Modell-Fair-Quote: {candidate.fair_odds:.3f}")
+        st.write(f"Modell-Fair-Quote: {format_fair_odds(candidate.fair_odds)}")
         st.write(
             f"Robustheitsabschlag: {candidate.probability_haircut:.1f} Prozentpunkte"
         )

@@ -531,6 +531,7 @@ class SeasonUtilsTests(unittest.TestCase):
         added_codes = (
             "ENG3", "ENG4", "DEN1", "NOR1", "GRE1", "CZE1", "ROU1", "SRB1",
             "CRO1", "UKR1", "POL1", "SVK1", "ARG1", "COL1", "IDN1", "ECU1",
+            "SWE2", "NOR2", "DEN2", "IS1", "FIN1", "FIN2",
         )
         for code in added_codes:
             mapping_reference.pop(code)
@@ -541,15 +542,15 @@ class SeasonUtilsTests(unittest.TestCase):
             reloaded_catalog = importlib.reload(league_catalog)
 
         self.assertIs(reloaded_catalog.ANALYZER_LEAGUE_IDS, mapping_reference)
-        self.assertEqual(len(mapping_reference), 44)
+        self.assertEqual(len(mapping_reference), 50)
 
-    def test_all_football_workspaces_share_the_same_44_leagues(self):
+    def test_all_football_workspaces_share_the_same_50_leagues(self):
         canonical_ids = {league.league_id for league in LEAGUES}
 
-        self.assertEqual(len(LEAGUES), 44)
-        self.assertEqual(len(LEAGUE_BY_CODE), 44)
-        self.assertEqual(len(ANALYZER_LEAGUE_IDS), 44)
-        self.assertEqual(len(ALTERNATIVE_MARKET_LEAGUES), 44)
+        self.assertEqual(len(LEAGUES), 50)
+        self.assertEqual(len(LEAGUE_BY_CODE), 50)
+        self.assertEqual(len(ANALYZER_LEAGUE_IDS), 50)
+        self.assertEqual(len(ALTERNATIVE_MARKET_LEAGUES), 50)
         self.assertSetEqual(set(ANALYZER_LEAGUE_IDS.values()), canonical_ids)
         self.assertSetEqual(set(ALTERNATIVE_MARKET_LEAGUES), canonical_ids)
         self.assertSetEqual(
@@ -562,6 +563,28 @@ class SeasonUtilsTests(unittest.TestCase):
         self.assertEqual(ANALYZER_LEAGUE_IDS["ARG1"], 128)
         self.assertEqual(league_label_for_code("NOR1"), "Norway: Eliteserien")
         self.assertEqual(current_season_start_year("NOR1", date(2026, 2, 1)), 2026)
+
+    def test_nordic_second_tiers_have_verified_ids_and_season_modes(self):
+        self.assertEqual(ANALYZER_LEAGUE_IDS["SWE2"], 114)
+        self.assertEqual(ANALYZER_LEAGUE_IDS["NOR2"], 104)
+        self.assertEqual(ANALYZER_LEAGUE_IDS["DEN2"], 120)
+        self.assertEqual(ANALYZER_LEAGUE_IDS["IS1"], 164)
+        self.assertEqual(league_label_for_code("SWE2"), "Sweden: Superettan")
+        self.assertEqual(league_label_for_code("IS1"), "Iceland: Úrvalsdeild")
+        self.assertEqual(current_season_start_year("SWE2", date(2026, 2, 1)), 2026)
+        self.assertEqual(current_season_start_year("NOR2", date(2026, 2, 1)), 2026)
+        self.assertEqual(current_season_start_year("IS1", date(2026, 2, 1)), 2026)
+        # Denmark 2nd tier rolls over in summer like the Superliga
+        self.assertEqual(current_season_start_year("DEN2", date(2026, 2, 1)), 2025)
+        self.assertEqual(current_season_start_year("DEN2", date(2026, 8, 1)), 2026)
+
+    def test_finland_leagues_have_verified_ids_and_calendar_year_mode(self):
+        self.assertEqual(ANALYZER_LEAGUE_IDS["FIN1"], 244)
+        self.assertEqual(ANALYZER_LEAGUE_IDS["FIN2"], 245)
+        self.assertEqual(league_label_for_code("FIN1"), "Finland: Veikkausliiga")
+        self.assertEqual(league_label_for_code("FIN2"), "Finland: Ykkönen")
+        self.assertEqual(current_season_start_year("FIN1", date(2026, 2, 1)), 2026)
+        self.assertEqual(current_season_start_year("FIN2", date(2026, 2, 1)), 2026)
 
     def test_european_season_rolls_in_july(self):
         self.assertEqual(current_season_start_year("PL", date(2026, 6, 30)), 2025)

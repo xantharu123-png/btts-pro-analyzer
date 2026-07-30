@@ -311,6 +311,10 @@ def _get_db_connection(db_path: str = "btts_data.db"):
         except Exception as e:
             print(f"WARNING: PostgreSQL connection error: {e}")
     
+    from db_paths import LEGACY_DB_NAME, PRIMARY_DB_NAME, ensure_primary_db
+
+    if db_path in (LEGACY_DB_NAME, PRIMARY_DB_NAME):
+        db_path = ensure_primary_db()
     return sqlite3.connect(db_path), False  # (connection, is_postgres)
 
 

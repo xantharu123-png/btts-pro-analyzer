@@ -1,4 +1,4 @@
-# BTTS Pro Analyzer - Repository Cleanup Script
+# BetBoy - Repository Cleanup Script
 # Führe dieses Script in PowerShell aus
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -7,7 +7,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Wechsle zum Projektordner
-Set-Location "C:\Users\miros\Desktop\BetBoy\btts-pro-analyzer"
+Set-Location "C:\Users\miros\Desktop\BetBoy\betboy-app"
 
 Write-Host "📁 Aktueller Ordner: $(Get-Location)" -ForegroundColor Yellow
 Write-Host ""

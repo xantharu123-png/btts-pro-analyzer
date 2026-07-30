@@ -390,7 +390,7 @@ class ChallengeProviderTests(unittest.TestCase):
             ([39, 39], datetime.now().date(), 8),
             ([39], datetime.now(timezone.utc), 8),
             ([39], datetime.now().date(), True),
-            ([39], datetime.now().date(), 13),
+            ([39], datetime.now().date(), 401),
         )
         for league_ids, search_date, max_fixtures in invalid_requests:
             with self.subTest(league_ids=league_ids, max_fixtures=max_fixtures):

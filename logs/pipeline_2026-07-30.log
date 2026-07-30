@@ -1,0 +1,99 @@
+2026-07-30 10:05:24,872 INFO Pipeline-Start (Wochentag Thursday)
+2026-07-30 10:05:24,872 INFO === State-Rebuild gestartet (Timeout 900s) ===
+2026-07-30 10:05:29,871 INFO State-Rebuild beendet rc=0 in 5s
+State frisch (0.1 Tage alt < 7.0) â€” kein Rebuild.
+2026-07-30 10:05:29,872 INFO === Tages-Scan gestartet (Timeout 900s) ===
+2026-07-30 10:05:32,808 INFO Tages-Scan beendet rc=0 in 3s
+
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+        Sperre: Erfahrung â€” Darja Vidmanova: 7 Matches, Sloane Stephens: 532 (min. 20)
+[rot ] WTA Renata Zarazua vs Anastasia Zakharova (The Memphis Classic, Belag?, Bo3) p=43.8% / 56.2%
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+[rot ] WTA Mia Ristic vs Yelyzaveta Kotliar (Axeria Open 2026 powered by Intaro Sport, Belag?, Bo3) p=42.1% / 57.9%
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+        Sperre: Erfahrung â€” Mia Ristic: 2 Matches, Yelyzaveta Kotliar: 3 (min. 20)
+[rot ] WTA Anastasiia Sobolieva vs Laura Samson (Axeria Open 2026 powered by Intaro Sport, Belag?, Bo3) p=45.9% / 54.1%
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+        Sperre: Erfahrung â€” Anastasiia Sobolieva: 1 Matches, Laura Samson: 5 (min. 20)
+[rot ] WTA Lucija Ciric Bagaric vs Francesca Jones (Axeria Open 2026 powered by Intaro Sport, Belag?, Bo3) p=48.7% / 51.3%
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+        Sperre: Erfahrung â€” Lucija Ciric Bagaric: 1 Matches, Francesca Jones: 45 (min. 20)
+[rot ] WTA Lucia Bronzetti vs Alevtina Ibragimova (Axeria Open 2026 powered by Intaro Sport, Belag?, Bo3) p=50.6% / 49.4%
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+        Sperre: Erfahrung â€” Lucia Bronzetti: 157 Matches, Alevtina Ibragimova: 2 (min. 20)
+[rot ] WTA Carole Monnet vs Kaitlin Quevedo (Axeria Open 2026 powered by Intaro Sport, Belag?, Bo3) p=42.8% / 57.2%
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+        Sperre: Erfahrung â€” Carole Monnet: 9 Matches, Kaitlin Quevedo: 10 (min. 20)
+
+Gespeichert: 0 neue Predictions (Duplikate uebersprungen)
+Shadow-Stand: {'predictions': 50, 'settled': 0, 'open': 50, 'recommended_bets': 0, 'units': 0.0, 'roi': None}
+2026-07-30 10:05:32,808 INFO === Wochenreport gestartet (Timeout 300s) ===
+2026-07-30 10:05:33,129 INFO Wochenreport beendet rc=0 in 0s
+REPORT=C:\Users\miros\Desktop\BetBoy\btts-pro-analyzer\reports\weekly_2026-07-30.html
+Karten: 39 | gruene Gates: 9 | Waechter: noch kein Ergebnis
+2026-07-30 10:05:33,129 INFO Pipeline-Ende (Scan OK)
+2026-07-30 10:09:03,023 INFO Pipeline-Start (Wochentag Thursday)
+2026-07-30 10:09:03,023 INFO === State-Rebuild gestartet (Timeout 900s) ===
+2026-07-30 10:09:04,344 INFO State-Rebuild beendet rc=0 in 1s
+State frisch (0.1 Tage alt < 7.0) — kein Rebuild.
+2026-07-30 10:09:04,344 INFO === Tages-Scan gestartet (Timeout 900s) ===
+2026-07-30 10:09:06,847 INFO Tages-Scan beendet rc=1 in 3s
+=== TENNIS DAILY SCAN 2026-07-31 ===
+Modell-Stand: Daten bis 2026-07-27, Kalibrator n=7771
+Fixtures (ATP/WTA Singles, noch nicht gestartet): 58
+
+[GRUEN] ATP Arthur Gea vs Francisco Cerundolo (Mifel Tennis Open by Telcel Oppo, Hard, Bo3) p=35.6% / 64.4%
+[GRUEN] ATP Jenson Brooksby vs Chak Lam Coleman Wong (Mifel Tennis Open by Telcel Oppo, Hard, Bo3) p=64.5% / 35.5%
+[GRUEN] ATP Dalibor Svrcina vs Denis Shapovalov (Mifel Tennis Open by Telcel Oppo, Hard, Bo3) p=32.1% / 67.9%
+[GRUEN] ATP Bernard Tomic vs Cameron Norrie (Mifel Tennis Open by Telcel Oppo, Hard, Bo3) p=29.3% / 70.7%
+[GRUEN] ATP Jakub Mensik vs Brandon Nakashima (Mubadala DC Open, Hard, Bo3) p=62.0% / 38.0%
+[rot ] ATP Cruz Hewitt vs Alex de Minaur (Mubadala DC Open, Hard, Bo3) p=3.7% / 96.3%
+        Sperre: Aufschlag-Daten — 28 / 5937 Service-Games (min. 60)
+[GRUEN] ATP Alejandro Tabilo vs Terence Atmane (Mubadala DC Open, Hard, Bo3) p=54.5% / 45.5%
+[GRUEN] ATP Ben Shelton vs Ugo Humbert (Mubadala DC Open, Hard, Bo3) p=56.8% / 43.2%
+[GRUEN] ATP Lorenzo Musetti vs Rafael Jodar (Mubadala DC Open, Hard, Bo3) p=54.6% / 45.4%
+[GRUEN] ATP Alex Michelsen vs Taylor Fritz (Mubadala DC Open, Hard, Bo3) p=40.8% / 59.2%
+[rot ] WTA Mananchaya Sawangkaew vs Emerson Jones (Odlum Brown VanOpen, Hard, Bo3) p=66.3% / 33.7%
+Traceback (most recent call last):
+  File "C:\Users\miros\Desktop\BetBoy\btts-pro-analyzer\scripts\tennis_daily.py", line 230, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\miros\Desktop\BetBoy\btts-pro-analyzer\scripts\tennis_daily.py", line 223, in main
+    print(f"        Sperre: {g.name} — {g.detail}")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2212' in position 59: character maps to <undefined>
+2026-07-30 10:09:06,847 ERROR Tages-Scan FEHLGESCHLAGEN (rc=1)
+2026-07-30 10:09:06,847 INFO Pipeline-Ende (Scan FEHLGESCHLAGEN)
+2026-07-30 10:11:22,049 INFO Pipeline-Start (Wochentag Thursday)
+2026-07-30 10:11:22,049 INFO === State-Rebuild gestartet (Timeout 900s) ===
+2026-07-30 10:11:23,551 INFO State-Rebuild beendet rc=0 in 2s
+State frisch (0.1 Tage alt < 7.0) â€” kein Rebuild.
+2026-07-30 10:11:23,551 INFO === Tages-Scan gestartet (Timeout 900s) ===
+2026-07-30 10:11:26,444 INFO Tages-Scan beendet rc=0 in 3s
+
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+        Sperre: Erfahrung â€” Darja Vidmanova: 7 Matches, Sloane Stephens: 532 (min. 20)
+[rot ] WTA Renata Zarazua vs Anastasia Zakharova (The Memphis Classic, Belag?, Bo3) p=43.8% / 56.2%
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+[rot ] WTA Mia Ristic vs Yelyzaveta Kotliar (Axeria Open 2026 powered by Intaro Sport, Belag?, Bo3) p=42.1% / 57.9%
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+        Sperre: Erfahrung â€” Mia Ristic: 2 Matches, Yelyzaveta Kotliar: 3 (min. 20)
+[rot ] WTA Anastasiia Sobolieva vs Laura Samson (Axeria Open 2026 powered by Intaro Sport, Belag?, Bo3) p=45.9% / 54.1%
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+        Sperre: Erfahrung â€” Anastasiia Sobolieva: 1 Matches, Laura Samson: 5 (min. 20)
+[rot ] WTA Lucija Ciric Bagaric vs Francesca Jones (Axeria Open 2026 powered by Intaro Sport, Belag?, Bo3) p=48.7% / 51.3%
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+        Sperre: Erfahrung â€” Lucija Ciric Bagaric: 1 Matches, Francesca Jones: 45 (min. 20)
+[rot ] WTA Lucia Bronzetti vs Alevtina Ibragimova (Axeria Open 2026 powered by Intaro Sport, Belag?, Bo3) p=50.6% / 49.4%
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+        Sperre: Erfahrung â€” Lucia Bronzetti: 157 Matches, Alevtina Ibragimova: 2 (min. 20)
+[rot ] WTA Carole Monnet vs Kaitlin Quevedo (Axeria Open 2026 powered by Intaro Sport, Belag?, Bo3) p=42.8% / 57.2%
+        Sperre: WTA-Freigabe â€” Zweifach getestet: Elo-only âˆ’0,7 % (2019â€“24), Elo+Serve âˆ’16,6 % (2025â€“26) ROI â€” kein Edge, nur Shadow-Beobachtung
+        Sperre: Erfahrung â€” Carole Monnet: 9 Matches, Kaitlin Quevedo: 10 (min. 20)
+
+Gespeichert: 0 neue Predictions (Duplikate uebersprungen)
+Shadow-Stand: {'predictions': 50, 'settled': 0, 'open': 50, 'recommended_bets': 0, 'units': 0.0, 'roi': None}
+2026-07-30 10:11:26,445 INFO Pipeline-Ende (Scan OK)

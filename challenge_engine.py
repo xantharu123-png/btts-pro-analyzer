@@ -7,6 +7,7 @@ create, modify, or rank the underlying match candidates.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_FLOOR
@@ -38,7 +39,23 @@ MIN_CALIBRATION_BINS = 3
 MIN_CALIBRATION_BIN_SIZE = 20
 MAX_EXPECTED_CALIBRATION_ERROR = 0.08
 MAX_CALIBRATION_BIN_ERROR = 0.12
+# z-Wert für die stichprobenadaptive Bin-Schwelle: ~98,8 % Konfidenz pro Bin,
+# familienweise über 5 Bins ~6 % Falsch-Alarm bei perfekter Kalibrierung.
+CALIBRATION_Z_SCORE = 2.5
+# Kalibrierungsschicht: binierte, zur Identität geschrumpfte Isotonie-Karte
+# pro Liga+Markt, gefittet ausschließlich auf Walk-forward-Prädiktionen.
+CALIBRATION_MIN_SAMPLES = 100
+CALIBRATION_REFIT_NEW_SAMPLES = 60
+CALIBRATION_BIN_COUNT = 10
+CALIBRATION_SHRINKAGE = 25.0
 MIN_LEG_EXPECTED_ROI = 0.02
+
+# Expected-Goals-Hybrid: Stärken werden aus Toren UND xG geschätzt.
+# xG hat pro Spiel deutlich weniger Varianz als Tore; Inverse-Varianz-Logik
+# (Var(Tore|lambda) = lambda vs. Var(xG-Fehler) ~ 0.6 * lambda) ergibt ~0.6.
+XG_BLEND_WEIGHT = 0.6
+XG_MIN_COVERAGE = 0.6
+XG_MAX_MATCH_VALUE = 12.0
 
 
 @dataclass(frozen=True)
@@ -64,6 +81,9 @@ class ValidationMetrics:
     calibration_bins: int = 0
     min_bin_size: int = 0
     max_calibration_error: Optional[float] = None
+    max_error_bin_size: int = 0
+    max_error_bin_mean_probability: Optional[float] = None
+    raw_brier_score: Optional[float] = None
 
 
 @dataclass
@@ -448,6 +468,25 @@ def _is_completed_before(fixture: dict[str, Any], before: datetime) -> bool:
     return score is not None and played_at is not None and played_at < before
 
 
+def _fixture_xg(fixture: dict[str, Any]) -> Optional[tuple[float, float]]:
+    """Expected-Goals-Paar (Heim, Auswärts) aus challenge_stats, sonst None."""
+    if not isinstance(fixture, dict):
+        return None
+    stats = fixture.get("challenge_stats")
+    if not isinstance(stats, dict):
+        return None
+    home = _finite_nonnegative(stats.get("xg_home"))
+    away = _finite_nonnegative(stats.get("xg_away"))
+    if (
+        home is None
+        or away is None
+        or home > XG_MAX_MATCH_VALUE
+        or away > XG_MAX_MATCH_VALUE
+    ):
+        return None
+    return home, away
+
+
 def score_matrix(home_lambda: float, away_lambda: float, max_goals: int = 25) -> dict[tuple[int, int], float]:
     """Return a normalized independent-Poisson score matrix."""
     home_rate = _finite_nonnegative(home_lambda)
@@ -580,8 +619,9 @@ def _team_observations(
     *,
     venue: Optional[str],
     limit: int,
-) -> list[tuple[float, float, datetime]]:
-    rows: list[tuple[float, float, datetime]] = []
+) -> list[tuple[float, float, datetime, Optional[float], Optional[float]]]:
+    """Letzte Spiele eines Teams: (Tore, Gegentore, Datum, xG, xGA)."""
+    rows: list[tuple[float, float, datetime, Optional[float], Optional[float]]] = []
     ordered = sorted(
         fixtures,
         key=lambda item: _fixture_datetime(item) or datetime.min.replace(tzinfo=timezone.utc),
@@ -604,7 +644,16 @@ def _team_observations(
         scored, conceded = (
             (home_goals, away_goals) if actual_venue == "home" else (away_goals, home_goals)
         )
-        rows.append((float(scored), float(conceded), _fixture_datetime(fixture)))
+        xg_pair = _fixture_xg(fixture)
+        if xg_pair is not None:
+            xg_scored, xg_conceded = (
+                xg_pair if actual_venue == "home" else (xg_pair[1], xg_pair[0])
+            )
+        else:
+            xg_scored, xg_conceded = None, None
+        rows.append(
+            (float(scored), float(conceded), _fixture_datetime(fixture), xg_scored, xg_conceded)
+        )
         if len(rows) >= limit:
             break
     return rows
@@ -622,6 +671,30 @@ def _shrunk_mean(values: Iterable[float], prior_mean: float, prior_weight: float
     if not sample:
         return prior_mean
     return (sum(sample) + prior_weight * prior_mean) / (len(sample) + prior_weight)
+
+
+def _hybrid_strength(
+    rows: list[tuple[float, float, datetime, Optional[float], Optional[float]]],
+    *,
+    scored: bool,
+    prior_mean: float,
+    prior_weight: float = 4.0,
+) -> tuple[float, float]:
+    """Geschrumpfte Team-Stärke aus Toren, mit xG geblendet (0.6/0.4).
+
+    Gibt (Stärke, xG-Abdeckung) zurück. xG und Tore werden separat gegen
+    denselben Liga-Prior geschrumpft und erst danach gewichtet gemischt;
+    bei zu geringer xG-Abdeckung bleibt es beim reinen Tormodell.
+    """
+    goals_index = 0 if scored else 1
+    xg_index = 3 if scored else 4
+    base = _shrunk_mean((row[goals_index] for row in rows), prior_mean, prior_weight)
+    xg_values = [row[xg_index] for row in rows if row[xg_index] is not None]
+    coverage = len(xg_values) / len(rows) if rows else 0.0
+    if rows and coverage >= XG_MIN_COVERAGE and xg_values:
+        xg_part = _shrunk_mean(xg_values, prior_mean, prior_weight)
+        return XG_BLEND_WEIGHT * xg_part + (1.0 - XG_BLEND_WEIGHT) * base, coverage
+    return base, coverage
 
 
 def _league_goal_means(fixtures: Iterable[dict[str, Any]], before: datetime) -> Optional[tuple[float, float, int]]:
@@ -666,27 +739,36 @@ def _fixture_model(
     if min(len(home_form), len(away_form)) < MIN_FORM_MATCHES:
         return None
 
-    home_scored = _shrunk_mean((row[0] for row in home_venue), league_home)
-    home_conceded = _shrunk_mean((row[1] for row in home_venue), league_away)
-    away_scored = _shrunk_mean((row[0] for row in away_venue), league_away)
-    away_conceded = _shrunk_mean((row[1] for row in away_venue), league_home)
+    home_scored, cov_hs = _hybrid_strength(home_venue, scored=True, prior_mean=league_home)
+    home_conceded, cov_hc = _hybrid_strength(home_venue, scored=False, prior_mean=league_away)
+    away_scored, cov_as = _hybrid_strength(away_venue, scored=True, prior_mean=league_away)
+    away_conceded, cov_ac = _hybrid_strength(away_venue, scored=False, prior_mean=league_home)
     season_home = (home_scored + away_conceded) / 2.0
     season_away = (away_scored + home_conceded) / 2.0
 
     league_team_mean = (league_home + league_away) / 2.0
-    form_home = (
-        _shrunk_mean((row[0] for row in home_form), league_team_mean, 3.0)
-        + _shrunk_mean((row[1] for row in away_form), league_team_mean, 3.0)
-    ) / 2.0
-    form_away = (
-        _shrunk_mean((row[0] for row in away_form), league_team_mean, 3.0)
-        + _shrunk_mean((row[1] for row in home_form), league_team_mean, 3.0)
-    ) / 2.0
+    form_home_attack, cov_fha = _hybrid_strength(
+        home_form, scored=True, prior_mean=league_team_mean, prior_weight=3.0
+    )
+    form_away_defense, cov_fad = _hybrid_strength(
+        away_form, scored=False, prior_mean=league_team_mean, prior_weight=3.0
+    )
+    form_away_attack, cov_faa = _hybrid_strength(
+        away_form, scored=True, prior_mean=league_team_mean, prior_weight=3.0
+    )
+    form_home_defense, cov_fhd = _hybrid_strength(
+        home_form, scored=False, prior_mean=league_team_mean, prior_weight=3.0
+    )
+    form_home = (form_home_attack + form_away_defense) / 2.0
+    form_away = (form_away_attack + form_home_defense) / 2.0
 
     active_home = 0.75 * season_home + 0.25 * form_home
     active_away = 0.75 * season_away + 0.25 * form_away
     latest_observation = max(home_form[0][2], away_form[0][2])
     freshness_days = max(0.0, (kickoff - latest_observation).total_seconds() / 86_400.0)
+    xg_coverage = min(
+        cov_hs, cov_hc, cov_as, cov_ac, cov_fha, cov_fad, cov_faa, cov_fhd
+    )
     return {
         "active_lambdas": (active_home, active_away),
         "season_lambdas": (season_home, season_away),
@@ -695,6 +777,7 @@ def _fixture_model(
         "form_samples": (len(home_form), len(away_form)),
         "league_sample": league_sample,
         "freshness_days": freshness_days,
+        "xg_coverage": xg_coverage,
     }
 
 
@@ -968,6 +1051,7 @@ def _fixture_count_model(
 def fixture_market_probabilities(
     fixture: dict[str, Any],
     league_history: Iterable[dict[str, Any]],
+    calibration: Optional[dict[str, MarketCalibration]] = None,
 ) -> Optional[dict[str, Any]]:
     history = list(league_history)
     model = _fixture_model(fixture, history)
@@ -999,30 +1083,50 @@ def fixture_market_probabilities(
                 market_probability(count_model["season_matrix"], spec),
                 market_probability(count_model["form_matrix"], spec),
             )
+    if calibration:
+        for market_key, values in model["probabilities"].items():
+            curve = calibration.get(market_key)
+            if curve is not None:
+                model["probabilities"][market_key] = tuple(curve(value) for value in values)
+        model["calibrated_markets"] = len(
+            [key for key in model["probabilities"] if key in calibration]
+        )
     return model
 
 
 def _calibration_diagnostics(
     predictions: list[float],
     outcomes: list[int],
-) -> tuple[float, int, int, Optional[float]]:
-    """Return ECE and supported-bin diagnostics on a fixed five-bin grid."""
+) -> tuple[float, int, int, Optional[float], int, Optional[float]]:
+    """ECE und Bin-Diagnostik auf besetzungsgleichen (Quantil-)Bins.
+
+    Fixe 0.2-Raster passen nicht zum Vorhersagebereich des Modells: Liegen
+    alle Wahrscheinlichkeiten z. B. zwischen 0.2 und 0.6, bleiben drei von
+    fünf Rasterzellen leer und die Kalibrierung wirkt schlecht belegt, obwohl
+    genug Daten vorliegen. Quantil-Bins (jeweils ~n/5 Beobachtungen) sind der
+    übliche Schätzer und machen die Belegung konstruktionsbedingt gleich;
+    identische Vorhersagewerte landen garantiert im selben Bin.
+    """
     if not predictions or len(predictions) != len(outcomes):
-        return 1.0, 0, 0, None
+        return 1.0, 0, 0, None, 0, None
     total = len(predictions)
+    ordered_values = sorted(float(value) for value in predictions)
+    edge_candidates = (
+        ordered_values[min(total - 1, int(fraction * total))]
+        for fraction in (0.2, 0.4, 0.6, 0.8)
+    )
+    edges = sorted(set(edge_candidates))
+
+    bins: dict[int, list[int]] = {}
+    for index, probability in enumerate(predictions):
+        bin_index = bisect_right(edges, float(probability))
+        bins.setdefault(bin_index, []).append(index)
+
     error = 0.0
     supported_sizes: list[int] = []
     supported_deviations: list[float] = []
-    # Explicit bin edges: deriving ``upper`` as ``lower + 0.2`` yields
-    # 0.6000000000000001 in floating point and double-counts p == 0.6.
-    for lower, upper in ((0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.0)):
-        indices = [
-            index
-            for index, probability in enumerate(predictions)
-            if lower <= probability < upper or (upper == 1.0 and probability == 1.0)
-        ]
-        if not indices:
-            continue
+    supported_means: list[float] = []
+    for indices in bins.values():
         mean_probability = _mean(predictions[index] for index in indices)
         observed_rate = _mean(outcomes[index] for index in indices)
         deviation = abs(mean_probability - observed_rate)
@@ -1030,12 +1134,148 @@ def _calibration_diagnostics(
         if len(indices) >= MIN_CALIBRATION_BIN_SIZE:
             supported_sizes.append(len(indices))
             supported_deviations.append(deviation)
+            supported_means.append(mean_probability)
+    if not supported_deviations:
+        return error, 0, 0, None, 0, None
+    worst = max(range(len(supported_deviations)), key=lambda index: supported_deviations[index])
     return (
         error,
         len(supported_sizes),
-        min(supported_sizes) if supported_sizes else 0,
-        max(supported_deviations) if supported_deviations else None,
+        min(supported_sizes),
+        supported_deviations[worst],
+        supported_sizes[worst],
+        supported_means[worst],
     )
+
+
+def adaptive_bin_threshold(
+    mean_probability: Optional[float],
+    bin_size: int,
+) -> float:
+    """Stichprobenadaptive Bin-Schwelle: max(0.12, z * Binomial-SE).
+
+    Eine starre Schwelle bestraft kleine Bins für reines Zufallsrauschen:
+    bei n=56 liegt die 1σ-Streuung einer perfekt kalibrierten Vorhersage
+    schon bei ±0.064. Die Schwelle steigt deshalb mit 1/sqrt(n), bleibt
+    aber für große Stichproben beim inhaltlichen Standard 0.12.
+    """
+    if (
+        mean_probability is None
+        or not isinstance(mean_probability, (int, float))
+        or not math.isfinite(float(mean_probability))
+        or not isinstance(bin_size, int)
+        or isinstance(bin_size, bool)
+        or bin_size < 1
+    ):
+        return 1.0  # ohne Bin-Kontext kein Freispruch möglich
+    probability = min(0.99, max(0.01, float(mean_probability)))
+    standard_error = math.sqrt(probability * (1.0 - probability) / bin_size)
+    return max(MAX_CALIBRATION_BIN_ERROR, CALIBRATION_Z_SCORE * standard_error)
+
+
+@dataclass(frozen=True)
+class MarketCalibration:
+    """Monotone Kalibrierungskurve: rohe Modell-Wahrscheinlichkeit -> kalibriert.
+
+    Stückweise linear zwischen den Stützstellen, außerhalb flach fortgesetzt.
+    Die Kurve wird ausschließlich aus Walk-forward-Prädiktionen gefittet, also
+    nur aus Information, die zum jeweiligen Vorhersagezeitpunkt vorlag.
+    """
+
+    points: tuple[tuple[float, float], ...]
+    samples: int
+
+    def __call__(self, probability: float) -> float:
+        if not self.points:
+            return probability
+        value = min(1.0, max(0.0, float(probability)))
+        xs = [point[0] for point in self.points]
+        if value <= xs[0]:
+            return self.points[0][1]
+        if value >= xs[-1]:
+            return self.points[-1][1]
+        index = bisect_right(xs, value)
+        x0, y0 = self.points[index - 1]
+        x1, y1 = self.points[index]
+        if x1 <= x0:
+            return y1
+        weight = (value - x0) / (x1 - x0)
+        return y0 + weight * (y1 - y0)
+
+
+def _pava(blocks: list[list[float]]) -> list[list[float]]:
+    """Pool-Adjacent-Violators für monotone Niveaus (gewichtet).
+
+    blocks: [sum_wx, sum_wy, sum_w] pro Bin; verschmilzt Verletzer zu Blöcken
+    und liefert die Endblöcke mit ihren gewichteten Mittelpunkten.
+    """
+    merged = [block[:] for block in blocks]
+    index = 0
+    while index < len(merged) - 1:
+        level_here = merged[index][1] / merged[index][2]
+        level_next = merged[index + 1][1] / merged[index + 1][2]
+        if level_here > level_next + 1e-12:
+            merged[index][0] += merged[index + 1][0]
+            merged[index][1] += merged[index + 1][1]
+            merged[index][2] += merged[index + 1][2]
+            del merged[index + 1]
+            if index > 0:
+                index -= 1
+        else:
+            index += 1
+    return merged
+
+
+def _fit_calibration_map(
+    probabilities: list[float],
+    outcomes: list[int],
+) -> Optional[MarketCalibration]:
+    """Binierte, isotonische Kalibrierungskarte mit Schrumpfung zur Identität.
+
+    Gleich besetzte Bins über den rohen Wahrscheinlichkeiten; pro Bin wird die
+    Trefferrate mit ``CALIBRATION_SHRINKAGE`` Pseudo-Beobachtungen Richtung der
+    Vorhersage gezogen (kleine Bins => fast Identität), danach erzwingt PAVA
+    Monotonie. Unter ``CALIBRATION_MIN_SAMPLES`` bleibt alles unkalibriert.
+    """
+    total = len(probabilities)
+    if total < CALIBRATION_MIN_SAMPLES or total != len(outcomes):
+        return None
+    order = sorted(range(total), key=lambda index: probabilities[index])
+    bin_count = min(CALIBRATION_BIN_COUNT, max(2, total // 40))
+    blocks: list[list[float]] = []
+    start = 0
+    base, extra = divmod(total, bin_count)
+    for bucket_index in range(bin_count):
+        size = base + (1 if bucket_index < extra else 0)
+        bucket = order[start : start + size]
+        start += size
+        if not bucket:
+            continue
+        mean_probability = _mean(probabilities[index] for index in bucket)
+        observed_rate = _mean(outcomes[index] for index in bucket)
+        count = len(bucket)
+        shrunk_rate = (
+            observed_rate * count + CALIBRATION_SHRINKAGE * mean_probability
+        ) / (count + CALIBRATION_SHRINKAGE)
+        blocks.append([mean_probability * count, shrunk_rate * count, float(count)])
+    merged = _pava(blocks)
+    points = tuple(
+        (
+            min(0.999, max(0.001, block[0] / block[2])),
+            min(0.999, max(0.001, block[1] / block[2])),
+        )
+        for block in merged
+    )
+    # Stützstellen müssen streng aufsteigend sein (bisect-Interpolation).
+    deduped: list[tuple[float, float]] = []
+    for point in points:
+        if deduped and point[0] <= deduped[-1][0] + 1e-9:
+            deduped[-1] = point
+        else:
+            deduped.append(point)
+    if len(deduped) < 2:
+        return None
+    return MarketCalibration(points=tuple(deduped), samples=total)
 
 
 def _credible_validation(metric: Optional[ValidationMetrics]) -> bool:
@@ -1071,6 +1311,16 @@ def _credible_validation(metric: Optional[ValidationMetrics]) -> bool:
         return False
     if invalid_numeric:
         return False
+    if (
+        not isinstance(metric.max_error_bin_size, int)
+        or isinstance(metric.max_error_bin_size, bool)
+        or metric.max_error_bin_size < 0
+    ):
+        return False
+    bin_threshold = adaptive_bin_threshold(
+        metric.max_error_bin_mean_probability,
+        metric.max_error_bin_size,
+    )
     return bool(
         metric.observations >= MIN_VALIDATION_MATCHES
         and 0.0 <= metric.brier_score <= 1.0
@@ -1081,7 +1331,7 @@ def _credible_validation(metric: Optional[ValidationMetrics]) -> bool:
         and metric.min_bin_size >= MIN_CALIBRATION_BIN_SIZE
         and metric.min_bin_size <= metric.observations
         and metric.calibration_bins * metric.min_bin_size <= metric.observations
-        and 0.0 <= metric.max_calibration_error <= MAX_CALIBRATION_BIN_ERROR
+        and 0.0 <= metric.max_calibration_error <= bin_threshold
     )
 
 
@@ -1094,12 +1344,17 @@ def validate_league_markets(
         key=lambda item: _fixture_datetime(item),
     )
     records: dict[str, dict[str, list[float]]] = {
-        spec.key: {"probabilities": [], "outcomes": [], "baselines": []}
+        spec.key: {"probabilities": [], "outcomes": [], "baselines": [], "raw": []}
         for spec in MARKET_SPECS
     }
     prior: list[dict[str, Any]] = []
     event_successes = {spec.key: 0 for spec in MARKET_SPECS}
     event_totals = {spec.key: 0 for spec in MARKET_SPECS}
+    # Kalibrierungszustand pro Markt: Die Karte für Tag t wurde nur aus
+    # Beobachtungen vor Tag t gefittet und wird periodisch nachgezogen.
+    calibration_state: dict[str, dict[str, Any]] = {
+        spec.key: {"map": None, "count": 0} for spec in MARKET_SPECS
+    }
 
     grouped: dict[datetime, list[dict[str, Any]]] = {}
     for fixture in ordered:
@@ -1119,12 +1374,15 @@ def validate_league_markets(
                 outcome_value = _fixture_market_outcome(spec, fixture)
                 if probability_values is None or outcome_value is None:
                     continue
-                probability = probability_values[0]
+                raw_probability = probability_values[0]
+                curve = calibration_state[spec.key]["map"]
+                probability = curve(raw_probability) if curve is not None else raw_probability
                 outcome = int(outcome_value)
                 baseline = (event_successes[spec.key] + 1.0) / (event_totals[spec.key] + 2.0)
                 records[spec.key]["probabilities"].append(probability)
                 records[spec.key]["outcomes"].append(outcome)
                 records[spec.key]["baselines"].append(baseline)
+                records[spec.key]["raw"].append(raw_probability)
 
         for fixture in day_fixtures:
             for spec in MARKET_SPECS:
@@ -1136,22 +1394,42 @@ def validate_league_markets(
                 event_totals[spec.key] += 1
         prior.extend(day_fixtures)
 
+        # Refit erst nach Tagesende: Die Karte ab morgen kennt heute.
+        for spec in MARKET_SPECS:
+            record = records[spec.key]
+            state = calibration_state[spec.key]
+            if len(record["raw"]) - state["count"] >= CALIBRATION_REFIT_NEW_SAMPLES:
+                new_map = _fit_calibration_map(record["raw"], record["outcomes"])
+                if new_map is not None:
+                    state["map"] = new_map
+                    state["count"] = len(record["raw"])
+
     metrics: dict[str, ValidationMetrics] = {}
     for spec in MARKET_SPECS:
         record = records[spec.key]
         probabilities = record["probabilities"]
         outcomes = [int(value) for value in record["outcomes"]]
         baselines = record["baselines"]
+        raw_probabilities = record["raw"]
         observations = len(probabilities)
         if observations == 0:
             metrics[spec.key] = ValidationMetrics(0, None, None, None, None, False)
             continue
         brier = _mean((probability - outcome) ** 2 for probability, outcome in zip(probabilities, outcomes))
+        raw_brier = _mean(
+            (probability - outcome) ** 2 for probability, outcome in zip(raw_probabilities, outcomes)
+        )
         baseline_brier = _mean((probability - outcome) ** 2 for probability, outcome in zip(baselines, outcomes))
         improvement = (baseline_brier - brier) / baseline_brier if baseline_brier > 0 else None
-        ece, calibration_bins, min_bin_size, max_calibration_error = (
-            _calibration_diagnostics(probabilities, outcomes)
-        )
+        (
+            ece,
+            calibration_bins,
+            min_bin_size,
+            max_calibration_error,
+            max_error_bin_size,
+            max_error_bin_mean,
+        ) = _calibration_diagnostics(probabilities, outcomes)
+        bin_threshold = adaptive_bin_threshold(max_error_bin_mean, max_error_bin_size)
         passed = (
             observations >= MIN_VALIDATION_MATCHES
             and improvement is not None
@@ -1160,7 +1438,7 @@ def validate_league_markets(
             and calibration_bins >= MIN_CALIBRATION_BINS
             and min_bin_size >= MIN_CALIBRATION_BIN_SIZE
             and max_calibration_error is not None
-            and max_calibration_error <= MAX_CALIBRATION_BIN_ERROR
+            and max_calibration_error <= bin_threshold
         )
         metrics[spec.key] = ValidationMetrics(
             observations=observations,
@@ -1175,8 +1453,62 @@ def validate_league_markets(
                 round(max_calibration_error, 6)
                 if max_calibration_error is not None else None
             ),
+            max_error_bin_size=max_error_bin_size,
+            max_error_bin_mean_probability=(
+                round(max_error_bin_mean, 6)
+                if max_error_bin_mean is not None else None
+            ),
+            raw_brier_score=round(raw_brier, 6),
         )
     return metrics
+
+
+def fit_market_calibration(
+    fixtures: Iterable[dict[str, Any]],
+) -> dict[str, MarketCalibration]:
+    """Finale Kalibrierungskarten pro Markt für neue Kandidaten.
+
+    Nutzt denselben tagesgruppierten Walk-forward wie die Validierung, fittet
+    die Karte aber auf allen gesammelten Prädiktionen — für ein künftiges
+    Spiel ist das vollständig vergangenheitsbasiert (leakage-frei).
+    """
+    ordered = sorted(
+        (fixture for fixture in fixtures if _fixture_datetime(fixture) and _fixture_score(fixture)),
+        key=lambda item: _fixture_datetime(item),
+    )
+    raw_records: dict[str, dict[str, list[float]]] = {
+        spec.key: {"probabilities": [], "outcomes": []} for spec in MARKET_SPECS
+    }
+    prior: list[dict[str, Any]] = []
+    grouped: dict[datetime, list[dict[str, Any]]] = {}
+    for fixture in ordered:
+        played_at = _fixture_datetime(fixture)
+        if played_at is not None:
+            day = played_at.replace(hour=0, minute=0, second=0, microsecond=0)
+            grouped.setdefault(day, []).append(fixture)
+
+    for day in sorted(grouped):
+        day_fixtures = grouped[day]
+        for fixture in day_fixtures:
+            prediction = fixture_market_probabilities(fixture, prior)
+            if prediction is None:
+                continue
+            for spec in MARKET_SPECS:
+                probability_values = prediction["probabilities"].get(spec.key)
+                outcome_value = _fixture_market_outcome(spec, fixture)
+                if probability_values is None or outcome_value is None:
+                    continue
+                raw_records[spec.key]["probabilities"].append(probability_values[0])
+                raw_records[spec.key]["outcomes"].append(int(outcome_value))
+        prior.extend(day_fixtures)
+
+    maps: dict[str, MarketCalibration] = {}
+    for spec in MARKET_SPECS:
+        record = raw_records[spec.key]
+        curve = _fit_calibration_map(record["probabilities"], record["outcomes"])
+        if curve is not None:
+            maps[spec.key] = curve
+    return maps
 
 
 def _fixture_identity(fixture: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -1211,10 +1543,11 @@ def build_fixture_candidates(
     fixture: dict[str, Any],
     league_history: Iterable[dict[str, Any]],
     validation: dict[str, ValidationMetrics],
+    calibration: Optional[dict[str, MarketCalibration]] = None,
 ) -> list[ChallengeCandidate]:
     """Build price-independent candidates for one fixture."""
     identity = _fixture_identity(fixture)
-    model = fixture_market_probabilities(fixture, league_history)
+    model = fixture_market_probabilities(fixture, league_history, calibration)
     if identity is None or model is None:
         return []
 
@@ -1289,6 +1622,9 @@ def build_fixture_candidates(
             f"Venue-Stichprobe {venue_samples[0]}/{venue_samples[1]}",
             f"Saison/Form-Spanne {spread_pp:.1f} PP",
         ]
+        xg_coverage = float(model.get("xg_coverage", 0.0) or 0.0)
+        if xg_coverage >= XG_MIN_COVERAGE:
+            reasons.append(f"xG-Hybrid aktiv (Abdeckung {xg_coverage * 100:.0f} %)")
         if expected_unit and expected_market_home is not None and expected_market_away is not None:
             reasons.append(
                 f"Erwartete {expected_unit} {expected_market_home:.1f}/{expected_market_away:.1f}"

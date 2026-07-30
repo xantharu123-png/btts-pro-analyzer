@@ -22,6 +22,11 @@ from betting_math import BettingMathError, ValueMetrics, evaluate_market_price
 MINIMUM_EDGE_PERCENTAGE_POINTS = 4.0
 MINIMUM_EXPECTED_ROI_PERCENT = 3.0
 MAXIMUM_KELLY_FRACTION = 0.02
+# No honest model is 100% certain. Above this probability the dominant risk is
+# wrong input data (clock, score), not the model — display and evidence must
+# say so instead of printing a rounded "100.0 %".
+HIGH_PROBABILITY_DISPLAY_CAP = 99.5
+HIGH_PROBABILITY_EVIDENCE_THRESHOLD = 97.0
 
 
 @dataclass(frozen=True)
@@ -90,6 +95,27 @@ def _ceil_price(value: float) -> float:
     return math.ceil((value - 1e-12) * 100.0) / 100.0
 
 
+def format_probability_percent(probability: Any) -> str:
+    """Format a model probability without ever printing a rounded 100 %."""
+    number = _finite_number(probability)
+    if number is None:
+        return "k. A."
+    if number >= HIGH_PROBABILITY_DISPLAY_CAP:
+        return f"> {HIGH_PROBABILITY_DISPLAY_CAP:.1f} %"
+    return f"{number:.1f} %"
+
+
+def format_fair_odds(fair_odds: Any) -> str:
+    """Format model fair odds; cap the display when they round to 1.00."""
+    number = _finite_number(fair_odds)
+    if number is None:
+        return "k. A."
+    cap_odds = 100.0 / HIGH_PROBABILITY_DISPLAY_CAP
+    if number <= cap_odds:
+        return f"< {cap_odds:.3f}"
+    return f"{number:.3f}"
+
+
 def _minimum_market_odds(risk_adjusted_probability: float) -> Optional[float]:
     probability = risk_adjusted_probability / 100.0
     edge = MINIMUM_EDGE_PERCENTAGE_POINTS / 100.0
@@ -119,6 +145,13 @@ def _candidate(
     adjusted = probability - haircut
     fair_odds = 100.0 / probability if probability > 0 else None
     minimum_odds = _minimum_market_odds(adjusted)
+    evidence_notes = tuple(evidence)
+    if probability >= HIGH_PROBABILITY_EVIDENCE_THRESHOLD:
+        evidence_notes = evidence_notes + (
+            "Sehr hohe Modellwahrscheinlichkeit: Das Risiko fehlerhafter "
+            "Eingangsdaten (Uhr, Spielstand, Provider) übersteigt das "
+            "verbleibende Modellrisiko.",
+        )
     return RecommendationCandidate(
         event_key=event_key,
         sport=sport,
@@ -133,7 +166,7 @@ def _candidate(
         minimum_odds=minimum_odds,
         model_name=model_name,
         expected_total=(round(expected_total, 2) if expected_total is not None else None),
-        evidence=tuple(evidence),
+        evidence=evidence_notes,
         blockers=(
             ()
             if minimum_odds is not None

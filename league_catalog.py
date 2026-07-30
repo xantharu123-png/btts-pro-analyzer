@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-CATALOG_VERSION = 2
+CATALOG_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,15 @@ LEAGUES = (
     LeagueDefinition(239, "Primera A", "Colombia", "COL1", calendar_year=True),
     LeagueDefinition(274, "Liga 1", "Indonesia", "IDN1", rollover_month=8),
     LeagueDefinition(242, "Liga Pro", "Ecuador", "ECU1", calendar_year=True),
+    # Nordic additions 2026-07-30 (ids verified against /leagues on 2026-07-30):
+    # complete the 1st+2nd tier pairs for the Scandinavian summer leagues.
+    LeagueDefinition(114, "Superettan", "Sweden", "SWE2", calendar_year=True),
+    LeagueDefinition(120, "1. Division", "Denmark", "DEN2"),
+    LeagueDefinition(104, "1. Division", "Norway", "NOR2", calendar_year=True),
+    LeagueDefinition(164, "Úrvalsdeild", "Iceland", "IS1", calendar_year=True),
+    # Finland (Nordic, user request 2026-07-30; ids verified against /leagues):
+    LeagueDefinition(244, "Veikkausliiga", "Finland", "FIN1", calendar_year=True),
+    LeagueDefinition(245, "Ykkönen", "Finland", "FIN2", calendar_year=True),
 )
 
 

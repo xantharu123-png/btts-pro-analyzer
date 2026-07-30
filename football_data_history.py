@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 from io import BytesIO
+from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 import math
 import re
@@ -317,10 +318,140 @@ def fetch_history(
         return None
 
 
+def _fixture_played_at(item: dict[str, Any]) -> Optional[datetime]:
+    fixture = item.get("fixture") if isinstance(item, dict) else None
+    if not isinstance(fixture, dict):
+        return None
+    raw = fixture.get("date")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _tail_match_key(item: dict[str, Any]) -> Optional[tuple[str, str, str]]:
+    """Dedupe-Schlüssel: Spieltag + normalisierte Teamnamen (aliasbereinigt)."""
+    teams = item.get("teams") if isinstance(item, dict) else None
+    if not isinstance(teams, dict):
+        return None
+    played_at = _fixture_played_at(item)
+    home = teams.get("home")
+    away = teams.get("away")
+    if played_at is None or not isinstance(home, dict) or not isinstance(away, dict):
+        return None
+    home_name = _normalized_team_name(home.get("name"))
+    away_name = _normalized_team_name(away.get("name"))
+    if not home_name or not away_name or home_name == away_name:
+        return None
+    return (played_at.date().isoformat(), home_name, away_name)
+
+
+def merge_api_tail(
+    history: list[dict[str, Any]],
+    api_fixtures: Optional[list[dict[str, Any]]],
+    *,
+    tail_days: int = 7,
+    now: Optional[datetime] = None,
+) -> list[dict[str, Any]]:
+    """Frische API-FT-Ergebnisse der letzten ``tail_days`` Tage einmergen.
+
+    Die Football-Data-CSV hinkt typischerweise 1-3 Tage hinterher; API-Football
+    liefert Endstände minutenaktuell. Dedupe läuft über (Spieltag,
+    normalisierte Teamnamen) — niemals über Quoten- oder ID-Felder. CSV-Zeilen
+    behalten ihre Ecken-/Karten-Stats; neu gemergte API-Spiele tragen keine
+    Stats (reine Ergebnisse) und erben die Team-ID der CSV, falls der Name
+    dort bekannt ist, damit Form- und Venue-Zählungen konsistent bleiben.
+    """
+    if not isinstance(history, list):
+        return []
+    if isinstance(tail_days, bool) or not isinstance(tail_days, int) or tail_days < 1:
+        raise ValueError("tail_days is invalid")
+    if not isinstance(api_fixtures, list) or not api_fixtures:
+        return list(history)
+    moment = now if now is not None else datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    cutoff = moment - timedelta(days=tail_days)
+
+    name_to_id: dict[str, int] = {}
+    known: set[tuple[str, str, str]] = set()
+    for item in history:
+        key = _tail_match_key(item)
+        if key is None:
+            continue
+        known.add(key)
+        teams = item.get("teams", {})
+        for side, normalized in (("home", key[1]), ("away", key[2])):
+            team = teams.get(side)
+            team_id = team.get("id") if isinstance(team, dict) else None
+            if (
+                normalized not in name_to_id
+                and not isinstance(team_id, bool)
+                and isinstance(team_id, int)
+            ):
+                name_to_id[normalized] = team_id
+
+    merged = list(history)
+    for item in api_fixtures:
+        if not isinstance(item, dict):
+            continue
+        key = _tail_match_key(item)
+        if key is None or key in known:
+            continue
+        played_at = _fixture_played_at(item)
+        fixture_data = item.get("fixture")
+        goals = item.get("goals")
+        fixture_id = fixture_data.get("id") if isinstance(fixture_data, dict) else None
+        home_goals = _nonnegative_integer(goals.get("home"), maximum=30) if isinstance(goals, dict) else None
+        away_goals = _nonnegative_integer(goals.get("away"), maximum=30) if isinstance(goals, dict) else None
+        teams = item.get("teams")
+        home_id = teams.get("home", {}).get("id") if isinstance(teams, dict) else None
+        away_id = teams.get("away", {}).get("id") if isinstance(teams, dict) else None
+        if (
+            played_at is None
+            or played_at < cutoff
+            or played_at > moment
+            or home_goals is None
+            or away_goals is None
+            or isinstance(fixture_id, bool)
+            or not isinstance(fixture_id, int)
+            or fixture_id <= 0
+            or isinstance(home_id, bool)
+            or not isinstance(home_id, int)
+            or home_id <= 0
+            or isinstance(away_id, bool)
+            or not isinstance(away_id, int)
+            or away_id <= 0
+            or home_id == away_id
+        ):
+            continue
+        entry = dict(item)  # flache Kopie: API-Original wird nie mutiert
+        entry["goals"] = {"home": home_goals, "away": away_goals}
+        entry["challenge_stats"] = {}
+        entry["challenge_source"] = "api-football-ft-tail"
+        patched_teams = {
+            side: dict(teams.get(side))
+            for side in ("home", "away")
+        }
+        for side, normalized in (("home", key[1]), ("away", key[2])):
+            if normalized in name_to_id:
+                patched_teams[side]["id"] = name_to_id[normalized]
+        entry["teams"] = patched_teams
+        merged.append(entry)
+        known.add(key)
+    return sorted(merged, key=lambda item: _fixture_played_at(item) or moment)
+
+
 __all__ = [
     "ALLOWED_COLUMNS",
     "FOOTBALL_DATA_DIVISIONS",
     "fetch_history",
     "history_url",
+    "merge_api_tail",
     "parse_history_csv",
 ]

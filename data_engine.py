@@ -155,7 +155,7 @@ def _init_sqlite_schema(cursor):
 
 
 class DataEngine:
-    """Data Engine for BTTS Pro Analyzer - Supabase/PostgreSQL Support"""
+    """Data Engine for BetBoy - Supabase/PostgreSQL Support"""
     
     LEAGUES_CONFIG = ANALYZER_LEAGUE_IDS
     
@@ -209,6 +209,9 @@ class DataEngine:
             import psycopg2
             return psycopg2.connect(self.supabase_url)
         else:
+            from db_paths import LEGACY_DB_NAME, PRIMARY_DB_NAME, ensure_primary_db
+            if self.db_path in (LEGACY_DB_NAME, PRIMARY_DB_NAME):
+                self.db_path = ensure_primary_db()
             return sqlite3.connect(self.db_path)
     
     def _get_placeholder(self) -> str:

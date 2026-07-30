@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-cd /d "C:\Users\miros\Desktop\BetBoy\btts-pro-analyzer"
+cd /d "C:\Users\miros\Desktop\BetBoy\betboy-app"
 
 echo ==========================================
-echo    BTTS Pro Analyzer - Git Auto Push
+echo    BetBoy - Git Auto Push
 echo ==========================================
 echo.
 

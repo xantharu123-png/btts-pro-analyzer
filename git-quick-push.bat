@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-cd /d "C:\Users\miros\Desktop\BetBoy\btts-pro-analyzer"
+cd /d "C:\Users\miros\Desktop\BetBoy\betboy-app"
 
 echo ⏳ Quick Push zu GitHub...
 

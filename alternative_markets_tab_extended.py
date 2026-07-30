@@ -9,6 +9,7 @@ import streamlit as st
 
 from bet_finder_ui import render_price_decision
 from bet_finder_candidates import build_probability_candidate
+from ui_components import render_empty_state
 from challenge_15k import ChallengeDataProvider, scan_daily_challenge
 from config_loader import load_app_config
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
@@ -178,13 +179,14 @@ def create_alternative_markets_tab_extended() -> None:
             "Spieldatum", _zurich_today(), key="market_custom_date"
         )
 
-    max_fixtures = st.slider(
-        "Max. geprüfte Spiele",
-        1,
-        12,
-        8,
-        key="market_max_fixtures",
-        help="Begrenzt Provider-Aufrufe und die Zahl vollständig geprüfter Spiele.",
+    # Kein künstliches Limit mehr: ALLE Spiele der gewählten Ligen werden
+    # modelliert (reine Lokalrechnung, keine Provider-Zusatzkosten).
+    # Teure Live-Kontext-Checks (H2H, Wetter, Aufstellung) laufen nur für
+    # die Top-Kandidaten — 400 ist das technische Sicherheitsventil.
+    max_fixtures = 400
+    st.caption(
+        "Alle Spiele der gewählten Ligen werden modelliert; Live-Kontext "
+        "(H2H, Wetter, Aufstellung) nur für die Top-Kandidaten."
     )
     scope = _market_scope_signature(selected_leagues, search_date)
     scope["max_fixtures"] = max_fixtures
@@ -226,7 +228,15 @@ def create_alternative_markets_tab_extended() -> None:
 
     snapshot = st.session_state.get("market_bet_finder_snapshot")
     if not isinstance(snapshot, dict):
-        st.info("Noch keine Markt-Wetten gesucht.")
+        render_empty_state(
+            "So funktioniert die Markt-Suche",
+            [
+                "Ligen, Datum und Prüfumfang wählen, dann „Wetten finden“ klicken.",
+                "Das Modell prüft alle freigegebenen Märkte quotenfrei.",
+                "Erst die exakte N1Bet-Quote entscheidet über WETTEN oder NICHT WETTEN.",
+            ],
+            duration_hint="Dauer: je nach Ligaanzahl etwa 30–90 Sekunden.",
+        )
         return
     if snapshot.get("version") != MARKET_SNAPSHOT_VERSION:
         st.warning("Dieses Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
@@ -251,17 +261,17 @@ def create_alternative_markets_tab_extended() -> None:
     shortlist = shortlist if isinstance(shortlist, list) else []
     if not shortlist:
         st.error(
-            "NICHT WETTEN: Kein Spiel besteht gleichzeitig Modell-, Kalibrierungs-, "
-            "H2H-, Ausfall-, Wetter- und Aufstellungsgate."
+            "KEINE WETTE — kein Spiel besteht alle Prüfkriterien "
+            "(Modell, Kalibrierung, Direktvergleich, Ausfälle, Wetter, Aufstellung)."
         )
     else:
         candidates = [_strict_market_candidate(candidate) for candidate in shortlist]
         options = list(range(len(candidates)))
         selected = st.selectbox(
-            "Wettkandidat",
+            "Spiel auswählen",
             options,
             format_func=lambda index: (
-                f"PREIS PRÜFEN | {candidates[index].event_label} | "
+                f"{candidates[index].event_label} | "
                 f"{candidates[index].market}: {candidates[index].selection}"
             ),
             key="market_bet_candidate",

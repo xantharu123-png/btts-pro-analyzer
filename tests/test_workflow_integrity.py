@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import pandas as pd
 import pytest
 
-import btts_pro_app as app
+import app
 from advanced_analyzer import calculate_evidence_score
 from alternative_markets import PreMatchAlternativeAnalyzer
 from alternative_markets_tab_extended import _api_football_items, _market_scope_signature
@@ -26,7 +26,7 @@ class _ProgressStub:
 
 
 def test_red_card_monitor_uses_the_full_canonical_league_scope():
-    assert len(RED_CARD_MONITORED_LEAGUE_IDS) == 44
+    assert len(RED_CARD_MONITORED_LEAGUE_IDS) == 50
     assert set(RED_CARD_MONITORED_LEAGUE_IDS) == set(ALTERNATIVE_MARKET_LEAGUES)
 
 

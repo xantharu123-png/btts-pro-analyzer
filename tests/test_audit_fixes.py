@@ -60,14 +60,38 @@ def test_calibration_bins_do_not_double_count_exact_edges():
     predictions = [0.6] * 40
     outcomes = [1] * 20 + [0] * 20
 
-    ece, supported_bins, min_bin_size, max_deviation = _calibration_diagnostics(
-        predictions, outcomes
-    )
+    (
+        ece,
+        supported_bins,
+        min_bin_size,
+        max_deviation,
+        max_bin_size,
+        max_bin_mean,
+    ) = _calibration_diagnostics(predictions, outcomes)
 
     assert supported_bins == 1
     assert min_bin_size == 40
     assert ece == pytest.approx(0.1)
     assert max_deviation == pytest.approx(0.1)
+    assert max_bin_size == 40
+    assert max_bin_mean == pytest.approx(0.6)
+
+
+def test_adaptive_bin_threshold_scales_with_sample_size():
+    """Small bins get a noise-aware threshold; large bins keep the 0.12 floor."""
+    from challenge_engine import MAX_CALIBRATION_BIN_ERROR, adaptive_bin_threshold
+
+    # n=56, p=0.65: 2.5 * sqrt(0.65*0.35/56) ≈ 0.159 > 0.12
+    assert adaptive_bin_threshold(0.65, 56) == pytest.approx(0.159, abs=0.01)
+    # n=2000, p=0.65: SE ≈ 0.0107 -> 2.5*SE ≈ 0.027 < 0.12 -> Floor greift
+    assert adaptive_bin_threshold(0.65, 2000) == MAX_CALIBRATION_BIN_ERROR
+    # Ungültiger Kontext -> kein Freispruch möglich
+    assert adaptive_bin_threshold(None, 56) == 1.0
+    assert adaptive_bin_threshold(0.65, 0) == 1.0
+    # p wird auf [0.01, 0.99] geklemmt (keine Division durch 0, kein SE=0)
+    assert adaptive_bin_threshold(1.0, 25) == MAX_CALIBRATION_BIN_ERROR
+    # Kleiner Bin bei p=0.5: 2.5 * sqrt(0.25/25) = 0.25 -> deutlich über dem Floor
+    assert adaptive_bin_threshold(0.5, 25) == pytest.approx(0.25, abs=0.01)
 
 
 def test_challenge_today_uses_swiss_calendar_day():

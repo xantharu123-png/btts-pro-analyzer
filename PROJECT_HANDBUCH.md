@@ -9,7 +9,7 @@
 | Produktiv-Branch | `main` |
 | Funktionale Produktionsbasis | `613447f` (`Reload stale Streamlit workflow modules`) |
 | Live-App | https://btts-pro-analyzer-atnoeulcg3jzwkghckhbth.streamlit.app/ |
-| Lokaler Projektpfad | `C:\Users\miros\Desktop\BetBoy\btts-pro-analyzer` |
+| Lokaler Projektpfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Python | 3.11 |
 | UI-Framework | Streamlit |
 
@@ -147,7 +147,7 @@ Bei der letzten Prüfung gab es keine horizontale Seitenüberbreite und keine St
 
 | Datei | Verantwortung |
 |---|---|
-| `btts_pro_app.py` | Streamlit-Einstieg, Navigation, Seitenaufbau, Providerstatus und UI-Orchestrierung |
+| `app.py` | Streamlit-Einstieg, Navigation, Seitenaufbau, Providerstatus und UI-Orchestrierung |
 | `config_loader.py` | Einheitliche Konfiguration aus INI, Umgebung und Streamlit Secrets |
 | `league_catalog.py` | Kanonischer 44-Ligen-Katalog mit eindeutigen IDs, internen Codes, Ländern und Saisonmodi |
 | `api_football.py` | Strikter API-Football-Client für Fixtures, Form, H2H und Statistiken |
@@ -182,7 +182,7 @@ Alle Fußball-Arbeitsbereiche verwenden denselben Katalog aus exakt 44 Wettbewer
 2. Fixture-ID, Liga, Teams, Datum und Status werden strikt validiert.
 3. Historische Ergebnisse kommen aus Datenbank, API-Football oder kontrolliertem CSV-Import.
 4. Team-, Venue-, Form- und Ligastärken werden nur aus Spielen vor dem jeweiligen Stichtag gebildet.
-5. Poisson-/Dixon-Coles- und gegebenenfalls Count-Modelle erzeugen Ereigniswahrscheinlichkeiten.
+5. Unabhängige Poisson-Modelle mit Shrinkage erzeugen die aktiven Ereigniswahrscheinlichkeiten; Dixon-Coles und bivariate Poisson erzeugen ausschließlich angezeigte Sensitivitätsszenarien (siehe 6.1).
 6. Day-grouped Walk-forward validiert jedes Marktmodell außerhalb der Trainingsperiode.
 7. Eine konservative Wahrscheinlichkeit wird aus mehreren Modellhorizonten und Kalibrierungsabschlag gebildet.
 8. H2H, Verletzungen, Wetter und bestätigte Aufstellungen werden als Kontextgates angewendet.
@@ -474,7 +474,7 @@ Ein vollständiges externes Audit (Bericht: `AUDIT_BERICHT_2026-07-18.md`) führ
 - **Platzverweis-Wettfinder:** Browser- und Telegram-Hinweise wurden aus der Nutzerführung entfernt. Jede Suche berücksichtigt alle aktuellen Platzverweise, bildet daraus die stärkste konkrete `Nächstes Tor`-Auswahl und prüft anschließend den N1Bet-Preis.
 - **15K Challenge:** der Hauptbereich heißt `Wettfinder`, die primäre Aktion `Challenge-Wetten finden`; Kontoführung und Verlauf bleiben getrennte Aufgaben.
 - **Responsive QA:** installiertes Google Chrome öffnete alle sechs Bereiche bei 1280 × 800 und echten 390 × 844 Pixeln. Beide Viewports hatten 0 Pixel Root-Überlauf, keine Seitenfehler und keine Browserkonsolenfehler. Ein realer Pro-API-Abruf am 20. Juli lieferte für die drei Standardligen keine kommenden Ligaspiele und endete korrekt mit `NICHT WETTEN` statt eines erfundenen Tipps.
-- **Streamlit-Hot-Reload:** zentrale Seitenmodule tragen explizite Versionsnummern. `btts_pro_app.py` lädt Analyzer, Märkte, Challenge und Fußball-Empfehlungen neu, wenn ein laufender Cloud-Prozess noch eine ältere importierte Modulversion hält; der Analyzer-Cache ist ebenfalls an die Modulversion gebunden.
+- **Streamlit-Hot-Reload:** zentrale Seitenmodule tragen explizite Versionsnummern. `app.py` lädt Analyzer, Märkte, Challenge und Fußball-Empfehlungen neu, wenn ein laufender Cloud-Prozess noch eine ältere importierte Modulversion hält; der Analyzer-Cache ist ebenfalls an die Modulversion gebunden.
 
 ## 12d. Produktions-Rollout und Hot-Reload-Fix vom 20. Juli 2026
 
@@ -524,7 +524,7 @@ Streamlit Community Cloud legt inaktive Apps schlafen. Das ist kein Codefehler. 
 
 ### Gemischte Modulstände in langlebigen Streamlit-Prozessen
 
-Beim letzten Rollout kombinierte der Cloud-Prozess zeitweise den neuen App-Einstieg mit bereits importierten alten Workflow-Modulen. Das führte nacheinander zu einem Importfehler und zu einer alten Markt-Oberfläche trotz aktuellem Git-Branch. Abhilfe schaffen die entkoppelte Modulgrenze in `bet_finder_candidates.py`, explizite Workflow-Versionen und gezielte Reload-Gates in `btts_pro_app.py`. Bei künftigen Deployments reicht deshalb weder der Seitentitel noch der GitHub-Status als alleiniger Nachweis; die primäre Aktion jedes Arbeitsbereichs muss sichtbar geprüft werden.
+Beim letzten Rollout kombinierte der Cloud-Prozess zeitweise den neuen App-Einstieg mit bereits importierten alten Workflow-Modulen. Das führte nacheinander zu einem Importfehler und zu einer alten Markt-Oberfläche trotz aktuellem Git-Branch. Abhilfe schaffen die entkoppelte Modulgrenze in `bet_finder_candidates.py`, explizite Workflow-Versionen und gezielte Reload-Gates in `app.py`. Bei künftigen Deployments reicht deshalb weder der Seitentitel noch der GitHub-Status als alleiniger Nachweis; die primäre Aktion jedes Arbeitsbereichs muss sichtbar geprüft werden.
 
 ## 14. Bekannte offene Punkte und Risiken
 
@@ -630,17 +630,17 @@ Sportdatenprovider.
 ## 17. Lokale Inbetriebnahme
 
 ```powershell
-cd C:\Users\miros\Desktop\BetBoy\btts-pro-analyzer
+cd C:\Users\miros\Desktop\BetBoy\betboy-app
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-streamlit run btts_pro_app.py
+streamlit run app.py
 ```
 
 Danach ist die App standardmäßig über `http://localhost:8501` erreichbar. Falls der Port belegt ist:
 
 ```powershell
-streamlit run btts_pro_app.py --server.port 8502
+streamlit run app.py --server.port 8502
 ```
 
 Für lokale Konfiguration `config.ini.example` nach `config.ini` übertragen und Werte nur lokal eintragen. Für Streamlit Cloud `.streamlit/secrets.example.toml` als Schema verwenden und die echten Werte in den App-Secrets pflegen.

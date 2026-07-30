@@ -179,3 +179,26 @@ def test_tennis_and_cricket_return_no_bet_instead_of_fake_probabilities():
     assert tennis.model_probability is None
     assert not cricket.model_ready
     assert cricket.model_probability is None
+
+
+def test_near_certain_probability_is_display_capped_and_flagged():
+    from multi_sport_recommendations import (
+        HIGH_PROBABILITY_DISPLAY_CAP,
+        format_fair_odds,
+        format_probability_percent,
+    )
+
+    game = _basketball_game()
+    game.update({"period": 4, "game_clock": "06:00", "home_score": 110, "away_score": 105})
+    candidate = basketball_total_candidate(game, 216.5)
+
+    assert candidate.model_probability >= HIGH_PROBABILITY_DISPLAY_CAP
+    assert format_probability_percent(candidate.model_probability) == "> 99.5 %"
+    assert not format_probability_percent(candidate.model_probability).startswith("100")
+    assert format_fair_odds(candidate.fair_odds).startswith("<")
+    assert any("Eingangsdaten" in note for note in candidate.evidence)
+
+    assert format_probability_percent(58.34) == "58.3 %"
+    assert format_probability_percent(None) == "k. A."
+    assert format_fair_odds(1.83) == "1.830"
+    assert format_fair_odds(None) == "k. A."

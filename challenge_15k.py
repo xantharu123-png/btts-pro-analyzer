@@ -9,6 +9,7 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 
@@ -22,6 +23,7 @@ from challenge_engine import (
     apply_candidate_context,
     build_fixture_candidates,
     consecutive_wins_to_target,
+    fit_market_calibration,
     kelly_reference_stake,
     select_model_ticket,
     select_quoted_ticket,
@@ -31,18 +33,28 @@ from challenge_engine import (
 )
 from challenge_store import ChallengeLedger
 from config_loader import load_app_config
+from ui_components import milestone_bar_html, plain_german, render_empty_state
 from football_data_history import fetch_history as fetch_stat_history
+from football_data_history import merge_api_tail
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from season_utils import current_season_start_year_for_id
+from xg_backfill import annotate_history as annotate_history_xg
 
 
 CHALLENGE_SNAPSHOT_VERSION = 2
 CHALLENGE_WORKSPACE_VERSION = 3
 CHALLENGE_TIMEZONE = ZoneInfo("Europe/Zurich")
-DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140)
+DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
+API_TAIL_DAYS = 7  # Frische-Tail: API-FT-Ergebnisse über die CSV-Historie legen
+MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
 MAX_CONTEXT_FIXTURES = 8
+# Safety-Ventil, kein Modell-Limit: ALLE Spiele der gewählten Ligen werden
+# modelliert (lokal, kostenlos). Teuer sind nur die Kontext-Checks, und die
+# bleiben über MAX_CONTEXT_FIXTURES gedeckelt.
+MAX_SCAN_FIXTURES = 400
 QUOTE_MAX_AGE_MINUTES = 10
 SNAPSHOT_MAX_AGE_MINUTES = 20
+XG_MAX_NEW_CALLS_PER_SCAN = 12
 
 
 def _challenge_today(now: Optional[datetime] = None) -> date:
@@ -125,9 +137,11 @@ def _validate_scan_inputs(
     if (
         isinstance(max_fixtures, bool)
         or not isinstance(max_fixtures, int)
-        or not 1 <= max_fixtures <= 12
+        or not 1 <= max_fixtures <= MAX_SCAN_FIXTURES
     ):
-        raise ValueError("max_fixtures must be an integer between 1 and 12")
+        raise ValueError(
+            f"max_fixtures must be an integer between 1 and {MAX_SCAN_FIXTURES}"
+        )
 
 
 def _segmented(label: str, options: list[str], key: str, default: str) -> str:
@@ -179,6 +193,17 @@ def _cached_market_validation(
     """Cache expensive walk-forward results; history content is part of the key."""
     del league_id, season
     return validate_league_markets(history)
+
+
+@st.cache_data(ttl=6 * 3600, max_entries=32, show_spinner=False)
+def _cached_market_calibration(
+    league_id: int,
+    season: int,
+    history: list[dict[str, Any]],
+):
+    """Kalibrierungskarten pro Liga; Cache-Schlüssel ist der Historieninhalt."""
+    del league_id, season
+    return fit_market_calibration(history)
 
 
 class ChallengeDataProvider:
@@ -258,6 +283,27 @@ class ChallengeDataProvider:
             f"Fixtures Liga {league_id}",
         )
 
+    def recent_ft_results(
+        self,
+        league_id: int,
+        season: int,
+        from_date: date,
+        to_date: date,
+    ) -> Optional[list[dict[str, Any]]]:
+        """Endstände der letzten Tage aus API-Football (Frische-Tail für die CSV)."""
+        return self._football_get(
+            "fixtures",
+            {
+                "league": league_id,
+                "season": season,
+                "status": "FT",
+                "from": from_date.isoformat(),
+                "to": to_date.isoformat(),
+                "timezone": "Europe/Zurich",
+            },
+            f"FT-Tail Liga {league_id}",
+        )
+
     def completed_history(
         self,
         league_id: int,
@@ -270,12 +316,43 @@ class ChallengeDataProvider:
             upcoming_fixtures,
         )
         if statistical_history:
-            return statistical_history
-        return self._football_get(
-            "fixtures",
-            {"league": league_id, "season": season, "status": "FT"},
-            f"Historie Liga {league_id}",
-        )
+            today = datetime.now(CHALLENGE_TIMEZONE).date()
+            tail = self.recent_ft_results(
+                league_id,
+                season,
+                today - timedelta(days=API_TAIL_DAYS),
+                today,
+            )
+            history = (
+                merge_api_tail(statistical_history, tail, tail_days=API_TAIL_DAYS)
+                if tail
+                else list(statistical_history)
+            )
+        else:
+            history = self._football_get(
+                "fixtures",
+                {"league": league_id, "season": season, "status": "FT"},
+                f"Historie Liga {league_id}",
+            ) or []
+        if (
+            len(history) < MIN_HISTORY_GAMES
+            and isinstance(season, int)
+            and not isinstance(season, bool)
+            and season > 2020
+        ):
+            # Cold-Start-Schutz: bei dünner Saison (Saisonstart, kleine Ligen)
+            # die Vorsaison voranstellen, sonst erreicht die Validierung nie
+            # genügend Walk-forward-Beobachtungen.
+            previous = fetch_stat_history(league_id, season - 1, upcoming_fixtures)
+            if not previous:
+                previous = self._football_get(
+                    "fixtures",
+                    {"league": league_id, "season": season - 1, "status": "FT"},
+                    f"Vorsaison Liga {league_id}",
+                )
+            if previous:
+                history = list(previous) + list(history)
+        return history or None
 
     def coverage(self, league_id: int, season: int) -> dict[str, bool]:
         data = self._football_get(
@@ -590,6 +667,22 @@ def scan_daily_challenge(
         fixtures.extend(valid_upcoming)
         if valid_upcoming:
             history = provider.completed_history(league_id, season, valid_upcoming)
+            if history:
+                try:
+                    xg_stats = annotate_history_xg(
+                        history,
+                        league_id,
+                        season,
+                        provider._football_get,
+                        max_new_calls=XG_MAX_NEW_CALLS_PER_SCAN,
+                    )
+                    if xg_stats.get("coverage", 0.0) < 0.5:
+                        provider.errors.append(
+                            f"xG Liga {league_id}: nur {xg_stats.get('annotated', 0)}/"
+                            f"{xg_stats.get('total', 0)} Spiele mit xG — Tormodell dominant"
+                        )
+                except Exception as exc:  # xG ist optional, der Scan läuft ohne weiter
+                    provider.errors.append(f"xG Liga {league_id}: Annotation fehlgeschlagen ({exc})")
             histories[league_id] = history or []
             coverage[league_id] = provider.coverage(league_id, season)
 
@@ -615,6 +708,15 @@ def scan_daily_challenge(
         for league_id, history in histories.items()
         if history
     }
+    calibrations = {
+        league_id: _cached_market_calibration(
+            league_id,
+            seasons[league_id],
+            history,
+        )
+        for league_id, history in histories.items()
+        if history
+    }
     all_candidates: list[ChallengeCandidate] = []
     for fixture in fixtures:
         league_id = fixture.get("league", {}).get("id")
@@ -623,6 +725,7 @@ def scan_daily_challenge(
                 fixture,
                 histories.get(league_id, []),
                 validations.get(league_id, {}),
+                calibrations.get(league_id, {}),
             )
         )
 
@@ -708,8 +811,6 @@ def _render_progress(ledger: ChallengeLedger) -> dict[str, Any]:
     target = settings["target_balance"]
     start = settings["starting_balance"]
     stake_fraction = settings["stake_fraction"]
-    progress = 1.0 if target <= start and current >= target else (current - start) / max(target - start, 0.01)
-    progress = max(0.0, min(1.0, progress))
     values = (
         ("Guthaben", _format_euro(current)),
         ("Ziel", _format_euro(target)),
@@ -727,7 +828,15 @@ def _render_progress(ledger: ChallengeLedger) -> dict[str, Any]:
         f'<div class="bb-challenge-grid">{stats_html}</div>',
         unsafe_allow_html=True,
     )
-    st.progress(progress)
+    st.markdown(milestone_bar_html(current, target, start), unsafe_allow_html=True)
+    wins_needed = consecutive_wins_to_target(current, target, 2.5, stake_fraction)
+    if current >= target:
+        st.success("Ziel erreicht: 15.000 € sind geknackt.")
+    elif wins_needed is not None:
+        st.caption(
+            f"Rechnerisch: {wins_needed} Gewinne in Folge bei Quote 2,50 "
+            f"und {int(round(stake_fraction * 100))} % Roll-over bis zum Ziel. Kein Versprechen, nur Mathematik."
+        )
     return settings
 
 
@@ -812,7 +921,96 @@ def _render_account(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     )
 
 
+def _render_equity_curve(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
+    """Equity curve from settled challenge tickets — the build-in-public proof."""
+    tickets = ledger.tickets()
+    settled = [
+        ticket
+        for ticket in tickets
+        if ticket["status"] in ("WON", "LOST", "VOID") and ticket.get("settled_at")
+    ]
+    settled.sort(key=lambda ticket: ticket["settled_at"])
+    start = float(settings["starting_balance"])
+    if not settled:
+        st.caption(
+            "Die Guthabenkurve startet mit dem ersten abgerechneten Ticket. "
+            "Jeder Punkt ist ein echtes Ergebnis — kein Backtest."
+        )
+        return
+
+    times = [min(ticket["created_at"] for ticket in tickets)]
+    balances = [start]
+    deltas = [0.0]
+    balance = start
+    wins = losses = 0
+    staked_total = 0.0
+    for ticket in settled:
+        stake = float(ticket["stake"])
+        staked_total += stake
+        if ticket["status"] == "WON":
+            delta = float(ticket["payout"]) - stake
+            wins += 1
+        elif ticket["status"] == "LOST":
+            delta = -stake
+            losses += 1
+        else:
+            delta = 0.0
+        balance += delta
+        times.append(ticket["settled_at"])
+        balances.append(balance)
+        deltas.append(delta)
+
+    marker_colors = [
+        "#66707a" if index == 0 else ("#16784b" if deltas[index] > 0 else ("#b4232f" if deltas[index] < 0 else "#66707a"))
+        for index in range(len(balances))
+    ]
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=times,
+            y=balances,
+            mode="lines+markers",
+            line={"color": "#16784b", "width": 2},
+            marker={"size": 9, "color": marker_colors},
+            hovertemplate="%{x|%d.%m.%Y %H:%M}<br>Guthaben: %{y:,.2f} €<extra></extra>",
+        )
+    )
+    figure.add_hline(
+        y=float(settings["target_balance"]),
+        line_dash="dot",
+        line_color="#a45f00",
+        annotation_text="Ziel",
+        annotation_position="top left",
+    )
+    figure.add_hline(y=start, line_dash="dot", line_color="#dfe3e7")
+    figure.update_layout(
+        margin={"l": 10, "r": 10, "t": 10, "b": 10},
+        height=280,
+        showlegend=False,
+        xaxis={"showgrid": False},
+        yaxis={"title": "Guthaben €", "gridcolor": "#eceef0"},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(figure, width="stretch", config={"displayModeBar": False})
+
+    decided = wins + losses
+    net = balance - start
+    kpis = st.columns(3)
+    kpis[0].metric("Netto", f"{net:+,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+    kpis[1].metric(
+        "Trefferquote",
+        f"{wins}/{decided}" if decided else "—",
+    )
+    kpis[2].metric(
+        "ROI auf Einsatz",
+        f"{(net / staked_total) * 100:+.1f} %" if staked_total > 0 else "—",
+    )
+
+
 def _render_history(ledger: ChallengeLedger) -> None:
+    settings = ledger.settings()
+    _render_equity_curve(ledger, settings)
     tickets = ledger.tickets()
     if not tickets:
         st.info("Noch kein Challenge-Ticket eingetragen.")
@@ -913,19 +1111,32 @@ def _render_price_check(
 ) -> None:
     shortlist: list[ChallengeCandidate] = snapshot["shortlist"]
     if not shortlist:
-        st.error("NICHT WETTEN: Kein Kandidat hat heute alle Modell- und Kontext-Gates bestanden.")
+        found = snapshot.get("fixtures_found", 0)
+        modeled = snapshot.get("fixtures_modeled", 0)
+        st.error("KEINE WETTE HEUTE — kein Kandidat besteht alle Prüfkriterien.")
+        st.caption(
+            f"{found} Spiele gefunden, aber nur für {modeled} davon lag genug Statistik "
+            "für eine Modellbewertung vor. In der Sommerpause ist das normal: "
+            "Das Modell wettet nur bei ausreichender Evidenz."
+        )
         if snapshot.get("blocked_counts"):
-            audit = pd.DataFrame(
-                [
-                    {"Blocker": reason, "Kandidaten": count}
-                    for reason, count in sorted(
-                        snapshot["blocked_counts"].items(),
-                        key=lambda item: item[1],
-                        reverse=True,
-                    )[:10]
-                ]
-            )
-            st.dataframe(audit, width="stretch", hide_index=True)
+            with st.expander("Warum wurden Kandidaten abgelehnt?"):
+                st.caption(
+                    "Jedes Spiel wird auf mehreren Märkten geprüft und kann mehrere "
+                    "Ablehnungsgründe gleichzeitig haben. Die Tabelle zählt, wie oft "
+                    "jeder Grund vorkam — reine Diagnose, keine Handlungsaufforderung."
+                )
+                audit = pd.DataFrame(
+                    [
+                        {"Grund": plain_german(reason), "Anzahl": count}
+                        for reason, count in sorted(
+                            snapshot["blocked_counts"].items(),
+                            key=lambda item: item[1],
+                            reverse=True,
+                        )[:10]
+                    ]
+                )
+                st.dataframe(audit, width="stretch", hide_index=True)
         return
 
     st.subheader("Modell-Shortlist")
@@ -1129,13 +1340,14 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         if date_mode == "Heute"
         else _challenge_today() + timedelta(days=1)
     )
-    max_fixtures = controls[1].slider(
-        "Max. geprüfte Spiele",
-        3,
-        12,
-        8,
-        key="challenge_max_fixtures",
-        help="Begrenzt Provider-Aufrufe und Kontextprüfungen; final bleiben höchstens drei Spiele.",
+    # Kein künstliches Limit: ALLE Spiele der gewählten Ligen werden
+    # modelliert (lokal). Die teuren Live-Kontext-Checks bleiben über
+    # MAX_CONTEXT_FIXTURES gedeckelt; MAX_SCAN_FIXTURES ist nur das
+    # technische Sicherheitsventil.
+    max_fixtures = MAX_SCAN_FIXTURES
+    controls[1].caption(
+        "Alle Spiele der gewählten Ligen werden modelliert; "
+        "Live-Kontext (H2H, Wetter, Aufstellung) für die Top-Kandidaten."
     )
 
     available_ids = list(ALTERNATIVE_MARKET_LEAGUES)
@@ -1185,7 +1397,15 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
 
     snapshot = st.session_state.get("challenge_snapshot")
     if not isinstance(snapshot, dict):
-        st.info("Noch keine Challenge-Wetten gesucht.")
+        render_empty_state(
+            "So funktioniert die Challenge-Suche",
+            [
+                "Spieltag und Ligen wählen, dann „Challenge-Wetten finden“ klicken.",
+                "Das Modell prüft quotenfrei bis zu drei streng gefilterte Spiele.",
+                "Erst danach entscheidet der N1Bet-Preis über eine Freigabe.",
+            ],
+            duration_hint="Dauer: je nach Ligaanzahl etwa 30–90 Sekunden.",
+        )
         return
     if snapshot.get("version") != CHALLENGE_SNAPSHOT_VERSION:
         st.warning("Dieses Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
