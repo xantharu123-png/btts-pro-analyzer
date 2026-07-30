@@ -7,10 +7,11 @@ market-value statement.
 """
 
 import math
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import streamlit as st
 
+from league_catalog import LEAGUE_BY_ID
 from red_card_impact_predictor import RedCardImpactPredictor
 
 
@@ -18,10 +19,14 @@ class UltraLiveScanner:
     MATCH_END_MINUTE = 93
     PRIOR_PSEUDO_MINUTES = 30
     MAX_RED_CARDS_PER_TEAM = 3
+    # Continental competitions and cups never serve as a domestic fallback
+    # source: teams carry no season statistics inside them.
+    EXCLUDED_FALLBACK_LEAGUE_IDS = frozenset({2, 3, 848, 209})
 
     def __init__(self, analyzer, api_football):
         self.analyzer = analyzer
         self.api_football = api_football
+        self._domestic_league_cache: Dict[int, List[int]] = {}
 
     @staticmethod
     def _optional_nonnegative(value, maximum: float = 20.0) -> Optional[float]:
@@ -112,6 +117,40 @@ class UltraLiveScanner:
             'applied': True,
         }
 
+    def _resolve_domestic_league_id(self, team_id: int) -> Optional[int]:
+        """Resolve a team's domestic league via /teams/leagues (cached).
+
+        Only league-type competitions already present in our catalog qualify;
+        continental competitions and cups are excluded because teams carry no
+        season statistics inside them.
+        """
+        if team_id in self._domestic_league_cache:
+            cached = self._domestic_league_cache[team_id]
+            return cached[0] if cached else None
+        candidates: List[int] = []
+        try:
+            entries = self.api_football.get_team_leagues(team_id)
+        except Exception:
+            entries = []
+        for entry in entries or []:
+            if not isinstance(entry, dict):
+                continue
+            league = entry.get('league', {})
+            if not isinstance(league, dict):
+                continue
+            league_id = league.get('id')
+            if (
+                league.get('type') != 'League'
+                or not isinstance(league_id, int)
+                or league_id in self.EXCLUDED_FALLBACK_LEAGUE_IDS
+                or league_id not in LEAGUE_BY_ID
+                or league_id in candidates
+            ):
+                continue
+            candidates.append(league_id)
+        self._domestic_league_cache[team_id] = candidates
+        return candidates[0] if candidates else None
+
     def _get_prematch_goal_priors(
         self,
         home_team_id: int,
@@ -128,15 +167,33 @@ class UltraLiveScanner:
             ),
             None,
         )
-        if league_code is None:
+        if league_code is not None:
+            analysis = self.analyzer.analyze_match(home_team_id, away_team_id, league_code)
+            if analysis and not analysis.get('error'):
+                details = analysis.get('details', {})
+                priors = (
+                    self._optional_nonnegative(details.get('expected_home_goals')),
+                    self._optional_nonnegative(details.get('expected_away_goals')),
+                )
+                if priors != (None, None):
+                    return priors
+        # Domestic fallback: continental qualifiers pair teams that share no
+        # competition, so each side's rates come from its own domestic league.
+        home_league_id = self._resolve_domestic_league_id(home_team_id)
+        away_league_id = self._resolve_domestic_league_id(away_team_id)
+        if home_league_id is None or away_league_id is None:
             return None, None
-        analysis = self.analyzer.analyze_match(home_team_id, away_team_id, league_code)
-        if not analysis or analysis.get('error'):
+        if not hasattr(self.analyzer, 'cross_league_expected_goals'):
             return None, None
-        details = analysis.get('details', {})
+        lambda_home, lambda_away = self.analyzer.cross_league_expected_goals(
+            home_team_id,
+            away_team_id,
+            home_league_id,
+            away_league_id,
+        )
         return (
-            self._optional_nonnegative(details.get('expected_home_goals')),
-            self._optional_nonnegative(details.get('expected_away_goals')),
+            self._optional_nonnegative(lambda_home),
+            self._optional_nonnegative(lambda_away),
         )
 
     def _remaining_goal_means(

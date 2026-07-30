@@ -606,6 +606,32 @@ class APIFootball:
             'total_matches': total_matches,
         }
     
+    def get_team_leagues(self, team_id: int) -> List[Dict]:
+        """Get all leagues a team participates in (used for domestic-league fallback)."""
+        self.last_error = None
+        team_id = self._positive_integer(team_id)
+        if team_id is None:
+            self.last_error = "team leagues: invalid team id"
+            return []
+        self._rate_limit()
+        try:
+            response = requests.get(
+                f"{self.base_url}/leagues",
+                headers=self.headers,
+                params={'team': team_id},
+                timeout=15,
+            )
+            data = self._response_data(
+                response,
+                f"team leagues {team_id}",
+                list,
+            )
+            return data if data is not None else []
+        except Exception as e:
+            self.last_error = f"team leagues {team_id}: {type(e).__name__}"
+            print(f"WARNING: Team leagues error: {e}")
+            return []
+
     def get_h2h(self, team1_id: int, team2_id: int, last_n: int = 10) -> List[Dict]:
         """Get head-to-head matches"""
         self.last_error = None

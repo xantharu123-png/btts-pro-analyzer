@@ -1087,14 +1087,57 @@ class AdvancedBTTSAnalyzer:
             'weather': None
         }
     
+    def cross_league_expected_goals(
+        self,
+        home_team_id: int,
+        away_team_id: int,
+        home_league_id: int,
+        away_league_id: int,
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """Poisson baseline when both teams come from different leagues.
+
+        Continental qualifiers pair teams that share no competition, so
+        ``analyze_match`` cannot find season stats for both sides in the
+        fixture league. This fallback draws each side's scoring/conceding
+        rates from its own domestic league and applies the identical
+        lambda formula: lambda_home = (home scored + away conceded) / 2.
+        Returns (None, None) on any data failure (fail-closed).
+        """
+        if not hasattr(self, '_team_stats_cache'):
+            self._team_stats_cache = {}
+        home_season = away_season = None
+        # Try the current season first, then walk back: early in a season
+        # (e.g. July qualifiers) the current campaign has <5 matches, which
+        # the sample gate in _get_season_stats rejects. Previous-season data
+        # is the correct prior for those fixtures.
+        for offset in (0, 1, 2):
+            home_season = self._get_season_stats(
+                home_team_id, home_league_id, 'home', season_offset=offset
+            )
+            away_season = self._get_season_stats(
+                away_team_id, away_league_id, 'away', season_offset=offset
+            )
+            if home_season and away_season:
+                break
+        if not home_season or not away_season:
+            return None, None
+        lambda_home = (
+            home_season['avg_scored'] + away_season['avg_conceded']
+        ) / 2
+        lambda_away = (
+            away_season['avg_scored'] + home_season['avg_conceded']
+        ) / 2
+        return lambda_home, lambda_away
+
     def _get_season_stats(
         self,
         team_id: int,
         league_id: int,
         venue: str,
+        season_offset: int = 0,
     ) -> Optional[Dict]:
         """Get season statistics from API or cache"""
-        season = current_season_start_year_for_id(league_id)
+        season = current_season_start_year_for_id(league_id) - season_offset
         cache_key = f"season_{team_id}_{league_id}_{season}"
         stats = self._team_stats_cache.get(cache_key)
 
