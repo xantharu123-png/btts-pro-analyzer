@@ -1665,15 +1665,46 @@ def _red_card_entry(alert_system, card: dict) -> dict:
     entry["prediction_minute"] = snapshot_minute
     entry["live_stats"] = alert_system.get_live_stats(fixture_id, home["id"], away["id"])
     if alert_system.predictor:
+        prior_home, prior_away = _red_card_prematch_priors(
+            home["id"],
+            away["id"],
+            match.get("league", {}).get("id"),
+        )
         prediction = alert_system.predictor.predict(
             minute=snapshot_minute,
             home_goals=home_goals,
             away_goals=away_goals,
             red_card_team=red_side,
             live_stats=entry["live_stats"],
+            prior_home_goals=prior_home,
+            prior_away_goals=prior_away,
         )
         entry["prediction"] = asdict(prediction)
     return entry
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _red_card_prematch_priors(
+    home_team_id: int,
+    away_team_id: int,
+    league_id,
+):
+    """Prematch-Torerwartung fuer das Rotkarten-Kontextmodell (Staerke-Daempfung)."""
+    if not isinstance(league_id, int):
+        return None, None
+    try:
+        from api_football import APIFootball
+        from ultra_live_scanner_v3 import UltraLiveScanner
+
+        analyzer = get_analyzer()
+        if analyzer is None:
+            return None, None
+        config = load_app_config(st)
+        api = APIFootball(config.api_football_key)
+        scanner = UltraLiveScanner(analyzer, api)
+        return scanner._get_prematch_goal_priors(home_team_id, away_team_id, league_id)
+    except Exception:
+        return None, None
 
 
 def _scan_red_cards(
@@ -1755,6 +1786,19 @@ def _render_red_card_detail(entry: dict) -> None:
         f"Modell-Datenbasis: {prediction['data_quality']} | Erwartete Zeit bis zum nächsten Tor: "
         f"{prediction['expected_minutes_to_goal']:.0f} Minuten"
     )
+
+    context = prediction.get("context_effects") or {}
+    adjustments = context.get("adjustments") or []
+    if adjustments:
+        ratio = context.get("strength_ratio")
+        ratio_label = (
+            f" | Stärkeverhältnis 10-Mann-Team: {ratio:.2f}x"
+            if isinstance(ratio, (int, float))
+            else ""
+        )
+        st.caption(
+            "Kontext-Adjustment: " + "; ".join(adjustments) + ratio_label
+        )
 
     live_stats = entry.get("live_stats")
     if live_stats:

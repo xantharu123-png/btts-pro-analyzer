@@ -1195,6 +1195,107 @@ class RedCardModelTests(unittest.TestCase):
         self.assertEqual(prediction.data_quality, "LIMITED")
         self.assertFalse(prediction.calibrated)
 
+    def test_context_effects_fail_closed_without_priors(self):
+        effects = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 1, 1, 60
+        )
+
+        self.assertEqual(
+            effects["opponent_boost"],
+            RedCardImpactPredictor.RED_CARD_EFFECTS["opponent_boost"],
+        )
+        self.assertEqual(
+            effects["red_team_penalty"],
+            RedCardImpactPredictor.RED_CARD_EFFECTS["red_team_penalty"],
+        )
+        self.assertFalse(effects["context_used"])
+        self.assertIsNone(effects["strength_ratio"])
+
+    def test_stronger_red_team_is_penalized_less(self):
+        base = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 0, 0, 30, prior_home_goals=1.3, prior_away_goals=1.3
+        )
+        stronger = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 0, 0, 30, prior_home_goals=2.6, prior_away_goals=0.9
+        )
+
+        self.assertGreater(stronger["red_team_penalty"], base["red_team_penalty"])
+        self.assertLess(stronger["opponent_boost"], base["opponent_boost"])
+        self.assertAlmostEqual(stronger["strength_ratio"], 2.6 / 0.9)
+        self.assertTrue(stronger["context_used"])
+
+    def test_leading_red_team_damps_both_rates(self):
+        # 2:0 Fuehrung + Rot -> Bus: BEIDE Raten sinken (Spiel schläft ein).
+        # Genau der Ferencvaros-Twente-Fall. Ausgeglichene Priors, damit
+        # nur der Spielstands-Effekt wirkt.
+        effects = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 2, 0, 55, prior_home_goals=1.2, prior_away_goals=1.2
+        )
+
+        self.assertEqual(effects["goal_diff_red_team"], 2)
+        self.assertLess(
+            effects["opponent_boost"],
+            RedCardImpactPredictor.RED_CARD_EFFECTS["opponent_boost"],
+        )
+        self.assertLess(
+            effects["red_team_penalty"],
+            RedCardImpactPredictor.RED_CARD_EFFECTS["red_team_penalty"],
+        )
+
+    def test_trailing_red_team_opens_game(self):
+        effects = RedCardImpactPredictor.context_adjusted_effects(
+            "away", 2, 1, 60
+        )
+
+        self.assertEqual(effects["goal_diff_red_team"], -1)
+        self.assertGreater(
+            effects["opponent_boost"],
+            RedCardImpactPredictor.RED_CARD_EFFECTS["opponent_boost"],
+        )
+
+    def test_late_shell_amplifies_bus(self):
+        mid = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 1, 0, 60
+        )
+        late = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 1, 0, 80
+        )
+
+        self.assertLess(late["opponent_boost"], mid["opponent_boost"])
+
+    def test_effects_stay_inside_documented_ranges(self):
+        extreme = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 0, 5, 88, prior_home_goals=9.9, prior_away_goals=0.1
+        )
+
+        lo_b, hi_b = RedCardImpactPredictor.BOOST_RANGE
+        lo_p, hi_p = RedCardImpactPredictor.PENALTY_RANGE
+        self.assertGreaterEqual(extreme["opponent_boost"], lo_b)
+        self.assertLessEqual(extreme["opponent_boost"], hi_b)
+        self.assertGreaterEqual(extreme["red_team_penalty"], lo_p)
+        self.assertLessEqual(extreme["red_team_penalty"], hi_p)
+
+    def test_prediction_carries_context_audit_trail(self):
+        prediction = RedCardImpactPredictor().predict(
+            minute=55,
+            home_goals=2,
+            away_goals=0,
+            red_card_team="home",
+            prior_home_goals=1.6,
+            prior_away_goals=1.2,
+        )
+
+        self.assertIsNotNone(prediction.context_effects)
+        self.assertTrue(prediction.context_effects["context_used"])
+        self.assertEqual(prediction.context_effects["goal_diff_red_team"], 2)
+
+    def test_prediction_without_priors_keeps_flat_effects(self):
+        with_priors = RedCardImpactPredictor().predict(
+            minute=60, home_goals=1, away_goals=1, red_card_team="home",
+        )
+
+        self.assertFalse(with_priors.context_effects["context_used"])
+
 
 class UltraDataGateTests(unittest.TestCase):
     def test_missing_xg_and_prior_produces_no_probability(self):

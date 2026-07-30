@@ -48,6 +48,7 @@ class RedCardPrediction:
     too_late_for_signal: bool
     calibrated: bool = False
     actionable: bool = False
+    context_effects: Optional[Dict] = None  # audit trail of adjustments
 
 
 class RedCardImpactPredictor:
@@ -72,6 +73,104 @@ class RedCardImpactPredictor:
         'home_red_extra_penalty': 0.90,  # Heimrot = extra 10% Nachteil
         'away_red_extra_penalty': 0.95,  # Auswärtsrot = extra 5% Nachteil
     }
+
+    # Context-layer priors (documented inputs, not measured facts):
+    # - Strength damping: a much stronger 10-man team (Barcelona vs Zuerich)
+    #   stays competitive; the flat penalty would overstate the damage.
+    # - Score state: a leading 10-man team parks the bus -> BOTH rates drop
+    #   (the game dies). A trailing 10-man team must attack -> more space
+    #   both ways.
+    # - Late-game shell: protecting a lead for 15 minutes is easier than
+    #   for 60, so the bus effect amplifies late.
+    SCORE_STATE_ADJUSTMENTS = {
+        # goal_diff (red team view): (opponent_boost mult, red_penalty mult)
+        2: (0.80, 0.75),
+        1: (0.90, 0.85),
+        0: (1.00, 1.00),
+        -1: (1.10, 1.20),
+        -2: (1.05, 1.10),
+    }
+    LATE_SHELL_MINUTE = 75
+    LATE_SHELL_BOOST_MULT = 0.90
+    BOOST_RANGE = (1.0, 2.0)
+    PENALTY_RANGE = (0.15, 1.0)
+
+    @staticmethod
+    def _clamp(value: float, bounds: Tuple[float, float]) -> float:
+        return max(bounds[0], min(bounds[1], value))
+
+    @classmethod
+    def context_adjusted_effects(
+        cls,
+        red_card_team: str,
+        home_goals: int,
+        away_goals: int,
+        minute: int,
+        prior_home_goals: Optional[float] = None,
+        prior_away_goals: Optional[float] = None,
+    ) -> Dict:
+        """Score-state-, strength- and fatigue-aware red card multipliers.
+
+        Layers documented context priors on RED_CARD_EFFECTS. Missing priors
+        fail closed to the unadjusted base effect. Returns the adjusted
+        multipliers plus an audit trail of every applied adjustment.
+        """
+        if red_card_team not in {'home', 'away'}:
+            raise ValueError("red_card_team must be 'home' or 'away'")
+        base = cls.RED_CARD_EFFECTS
+        boost = float(base['opponent_boost'])
+        penalty = float(base['red_team_penalty'])
+        applied = []
+
+        # 1. Strength damping from pre-match goal priors.
+        strength_ratio = None
+        if (
+            prior_home_goals is not None
+            and prior_away_goals is not None
+            and prior_home_goals > 0
+            and prior_away_goals > 0
+        ):
+            if red_card_team == 'home':
+                strength_ratio = prior_home_goals / prior_away_goals
+            else:
+                strength_ratio = prior_away_goals / prior_home_goals
+            if strength_ratio > 1.0:
+                log_r = math.log(strength_ratio)
+                penalty = 1.0 - (1.0 - penalty) / (1.0 + log_r)
+                boost = 1.0 + (boost - 1.0) / (1.0 + 0.7 * log_r)
+                applied.append(
+                    f"strength damping (red team {strength_ratio:.2f}x stronger)"
+                )
+
+        # 2. Score state from the red team's perspective.
+        if red_card_team == 'home':
+            goal_diff = home_goals - away_goals
+        else:
+            goal_diff = away_goals - home_goals
+        clamped_diff = max(-2, min(2, goal_diff))
+        boost_mult, penalty_mult = cls.SCORE_STATE_ADJUSTMENTS[clamped_diff]
+        if (boost_mult, penalty_mult) != (1.00, 1.00):
+            boost *= boost_mult
+            penalty *= penalty_mult
+            applied.append(
+                f"score state {goal_diff:+d} (bus/attack adjustment)"
+            )
+
+        # 3. Late-game shell: short holds are easier to defend.
+        if goal_diff >= 1 and minute >= cls.LATE_SHELL_MINUTE:
+            boost *= cls.LATE_SHELL_BOOST_MULT
+            applied.append(f"late shell (minute {minute})")
+
+        return {
+            'opponent_boost': cls._clamp(boost, cls.BOOST_RANGE),
+            'red_team_penalty': cls._clamp(penalty, cls.PENALTY_RANGE),
+            'home_red_extra_penalty': base['home_red_extra_penalty'],
+            'away_red_extra_penalty': base['away_red_extra_penalty'],
+            'strength_ratio': strength_ratio,
+            'goal_diff_red_team': goal_diff,
+            'adjustments': applied,
+            'context_used': bool(applied),
+        }
     
     def __init__(self):
         pass
@@ -135,18 +234,24 @@ class RedCardImpactPredictor:
         home_goals: int,
         away_goals: int,
         red_card_team: str,  # 'home' oder 'away'
-        live_stats: Optional[Dict] = None
+        live_stats: Optional[Dict] = None,
+        prior_home_goals: Optional[float] = None,
+        prior_away_goals: Optional[float] = None,
     ) -> RedCardPrediction:
         """
         Hauptfunktion: Berechne was als nächstes passiert
-        
+
         Args:
             minute: Aktuelle Spielminute des Modell-Snapshots
             home_goals: Aktuelle Heimtore
             away_goals: Aktuelle Auswärtstore
             red_card_team: 'home' oder 'away' - wer hat Rot bekommen
             live_stats: Optional - {shots_home, shots_away, xg_home, xg_away, ...}
-        
+            prior_home_goals: Optional - Prematch-Torerwartung Heim (staerkt
+                das Kontext-Adjustment: staerkeres 10-Mann-Team wird weniger
+                bestraft, Fuehrung laesst das Spiel einschlafen)
+            prior_away_goals: Optional - Prematch-Torerwartung Auswaerts
+
         Returns:
             RedCardPrediction mit allen Berechnungen
         """
@@ -196,20 +301,28 @@ class RedCardImpactPredictor:
                 away_goal_rate * self.XG_PRIOR_MINUTES + xg_away
             ) / (self.XG_PRIOR_MINUTES + minute)
 
+        effects = self.context_adjusted_effects(
+            red_card_team,
+            home_goals,
+            away_goals,
+            minute,
+            prior_home_goals=prior_home_goals,
+            prior_away_goals=prior_away_goals,
+        )
         if red_card_team == 'home':
             home_goal_rate *= (
-                self.RED_CARD_EFFECTS['red_team_penalty']
-                * self.RED_CARD_EFFECTS['home_red_extra_penalty']
+                effects['red_team_penalty']
+                * effects['home_red_extra_penalty']
             )
-            away_goal_rate *= self.RED_CARD_EFFECTS['opponent_boost']
+            away_goal_rate *= effects['opponent_boost']
             opponent_goal_rate = away_goal_rate
             red_team_goal_rate = home_goal_rate
         else:
             away_goal_rate *= (
-                self.RED_CARD_EFFECTS['red_team_penalty']
-                * self.RED_CARD_EFFECTS['away_red_extra_penalty']
+                effects['red_team_penalty']
+                * effects['away_red_extra_penalty']
             )
-            home_goal_rate *= self.RED_CARD_EFFECTS['opponent_boost']
+            home_goal_rate *= effects['opponent_boost']
             opponent_goal_rate = home_goal_rate
             red_team_goal_rate = away_goal_rate
         
@@ -327,7 +440,8 @@ class RedCardImpactPredictor:
             risk_flags=risk_flags,
             
             data_quality=data_quality,
-            too_late_for_signal=too_late
+            too_late_for_signal=too_late,
+            context_effects=effects
         )
     
     def format_prediction(

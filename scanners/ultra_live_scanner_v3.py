@@ -59,8 +59,21 @@ class UltraLiveScanner:
         return int(numeric)
 
     @classmethod
-    def _red_card_state(cls, stats: Optional[Dict]) -> Dict:
-        """Return a fail-closed red-card adjustment for the remaining match."""
+    def _red_card_state(
+        cls,
+        stats: Optional[Dict],
+        home_score: Optional[int] = None,
+        away_score: Optional[int] = None,
+        minute: Optional[int] = None,
+        prior_home: Optional[float] = None,
+        prior_away: Optional[float] = None,
+    ) -> Dict:
+        """Return a fail-closed red-card adjustment for the remaining match.
+
+        When score/minute/prematch priors are supplied, the flat multipliers
+        are context-adjusted (strength damping, bus/attack score state, late
+        shell). Without context the historical flat factors apply.
+        """
         stats = stats if isinstance(stats, dict) else {}
         home_count = cls._optional_count(stats.get('red_cards_home'))
         away_count = cls._optional_count(stats.get('red_cards_away'))
@@ -74,6 +87,7 @@ class UltraLiveScanner:
             'applied': False,
             'supported': True,
             'inferred_zero_side': None,
+            'context': None,
         }
         if home_count is None or away_count is None:
             if base['detected']:
@@ -94,8 +108,30 @@ class UltraLiveScanner:
                 'supported': False,
             }
 
-        effects = RedCardImpactPredictor.RED_CARD_EFFECTS
-        if home_count == 1:
+        red_card_team = 'home' if home_count == 1 else 'away'
+        context = None
+        if (
+            isinstance(home_score, int)
+            and isinstance(away_score, int)
+            and isinstance(minute, int)
+        ):
+            effects = RedCardImpactPredictor.context_adjusted_effects(
+                red_card_team,
+                home_score,
+                away_score,
+                minute,
+                prior_home_goals=prior_home,
+                prior_away_goals=prior_away,
+            )
+            context = {
+                'strength_ratio': effects['strength_ratio'],
+                'goal_diff_red_team': effects['goal_diff_red_team'],
+                'adjustments': effects['adjustments'],
+            }
+        else:
+            effects = RedCardImpactPredictor.RED_CARD_EFFECTS
+
+        if red_card_team == 'home':
             return {
                 **base,
                 'status': 'HOME_DISMISSED_ADJUSTED',
@@ -105,6 +141,7 @@ class UltraLiveScanner:
                 ),
                 'away_factor': effects['opponent_boost'],
                 'applied': True,
+                'context': context,
             }
         return {
             **base,
@@ -115,6 +152,7 @@ class UltraLiveScanner:
                 * effects['away_red_extra_penalty']
             ),
             'applied': True,
+            'context': context,
         }
 
     def _resolve_domestic_league_id(self, team_id: int) -> Optional[int]:
@@ -322,11 +360,18 @@ class UltraLiveScanner:
             ) if self.api_football is not None else None
             xg_home = self._optional_nonnegative((stats or {}).get('xg_home'))
             xg_away = self._optional_nonnegative((stats or {}).get('xg_away'))
-            red_card_state = self._red_card_state(stats)
             prior_home, prior_away = self._get_prematch_goal_priors(
                 home_team_id,
                 away_team_id,
                 raw_league_id,
+            )
+            red_card_state = self._red_card_state(
+                stats,
+                home_score=home_score,
+                away_score=away_score,
+                minute=minute,
+                prior_home=prior_home,
+                prior_away=prior_away,
             )
 
             btts = self._calculate_btts_probability(
