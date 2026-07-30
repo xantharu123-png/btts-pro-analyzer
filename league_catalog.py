@@ -63,6 +63,10 @@ LEAGUES = (
     LeagueDefinition(333, "Premier League", "Ukraine", "UKR1"),
     LeagueDefinition(106, "Ekstraklasa", "Poland", "POL1"),
     LeagueDefinition(332, "Super Liga", "Slovakia", "SVK1"),
+    # Hungary (user request 2026-07-31; id verified against /leagues):
+    # Ferencvaros & co. are UEFA qualifier regulars — needed for the
+    # domestic-league prior fallback in continental fixtures.
+    LeagueDefinition(271, "NB I", "Hungary", "HUN1"),
     LeagueDefinition(
         128,
         "Liga Profesional Argentina",

@@ -531,7 +531,7 @@ class SeasonUtilsTests(unittest.TestCase):
         added_codes = (
             "ENG3", "ENG4", "DEN1", "NOR1", "GRE1", "CZE1", "ROU1", "SRB1",
             "CRO1", "UKR1", "POL1", "SVK1", "ARG1", "COL1", "IDN1", "ECU1",
-            "SWE2", "NOR2", "DEN2", "IS1", "FIN1", "FIN2",
+            "SWE2", "NOR2", "DEN2", "IS1", "FIN1", "FIN2", "HUN1",
         )
         for code in added_codes:
             mapping_reference.pop(code)
@@ -542,15 +542,15 @@ class SeasonUtilsTests(unittest.TestCase):
             reloaded_catalog = importlib.reload(league_catalog)
 
         self.assertIs(reloaded_catalog.ANALYZER_LEAGUE_IDS, mapping_reference)
-        self.assertEqual(len(mapping_reference), 50)
+        self.assertEqual(len(mapping_reference), 51)
 
-    def test_all_football_workspaces_share_the_same_50_leagues(self):
+    def test_all_football_workspaces_share_the_same_51_leagues(self):
         canonical_ids = {league.league_id for league in LEAGUES}
 
-        self.assertEqual(len(LEAGUES), 50)
-        self.assertEqual(len(LEAGUE_BY_CODE), 50)
-        self.assertEqual(len(ANALYZER_LEAGUE_IDS), 50)
-        self.assertEqual(len(ALTERNATIVE_MARKET_LEAGUES), 50)
+        self.assertEqual(len(LEAGUES), 51)
+        self.assertEqual(len(LEAGUE_BY_CODE), 51)
+        self.assertEqual(len(ANALYZER_LEAGUE_IDS), 51)
+        self.assertEqual(len(ALTERNATIVE_MARKET_LEAGUES), 51)
         self.assertSetEqual(set(ANALYZER_LEAGUE_IDS.values()), canonical_ids)
         self.assertSetEqual(set(ALTERNATIVE_MARKET_LEAGUES), canonical_ids)
         self.assertSetEqual(

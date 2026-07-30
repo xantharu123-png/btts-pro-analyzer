@@ -26,7 +26,7 @@ class _ProgressStub:
 
 
 def test_red_card_monitor_uses_the_full_canonical_league_scope():
-    assert len(RED_CARD_MONITORED_LEAGUE_IDS) == 50
+    assert len(RED_CARD_MONITORED_LEAGUE_IDS) == 51
     assert set(RED_CARD_MONITORED_LEAGUE_IDS) == set(ALTERNATIVE_MARKET_LEAGUES)
 
 
