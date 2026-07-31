@@ -52,6 +52,8 @@ _STATS_MATCH_COLUMNS = (
     "match_ret",  # retirement flag, e.g. "(RET)"
     "winner_name",
     "loser_name",
+    "winner_code",   # joins players.csv -> handedness
+    "loser_code",
     "winner_age",
     "loser_age",
     "winner_seed",
@@ -83,6 +85,8 @@ _STATS_MATCH_COLUMNS = (
     "win_return_points_total",
     "win_total_points_won",
     "win_total_points_total",
+    "win_net_points_won",     # sparse pre-2020, but the only style marker
+    "win_net_points_total",   # the feed has: net-approach frequency
     # loser serve/return box score
     "los_aces",
     "los_double_faults",
@@ -104,6 +108,8 @@ _STATS_MATCH_COLUMNS = (
     "los_return_points_total",
     "los_total_points_won",
     "los_total_points_total",
+    "los_net_points_won",
+    "los_net_points_total",
 )
 
 _STATS_TOURNAMENT_COLUMNS = (
