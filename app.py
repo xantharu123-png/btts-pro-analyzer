@@ -76,6 +76,10 @@ PAGE_INFO = {
         "Live Wettfinder",
         "Frische Live-Daten in eine konkrete Wette oder ein eindeutiges Nicht-wetten übersetzen.",
     ),
+    "Wett-Check": (
+        "Wett-Check (Erwartungswert)",
+        "Quote + deine Prozent-Einschätzung prüfen: Break-even, Erwartungswert in CHF und klares JA/NEIN vor jeder eigenen Wette.",
+    ),
     "System": (
         "Wettfinder-System",
         "Validierung, Datenbestand und Modelltraining für die Wettfinder verwalten.",
@@ -2573,6 +2577,7 @@ def _render_mobile_nav(workspace: str) -> None:
         "Spiele": "🎯 Spiele",
         "Märkte": "📈 Märkte",
         "Live": "⚡ Live",
+        "Wett-Check": "🧮 Check",
         "System": "⚙️ System",
         "15K Challenge": "🏆 15K",
         "Multi-Sport": "🏀 Multi",
@@ -2626,6 +2631,10 @@ def main() -> None:
         create_alternative_markets_tab_extended()
     elif workspace == "Live":
         render_live(analyzer)
+    elif workspace == "Wett-Check":
+        from ev_checker_tab import render_ev_checker
+
+        render_ev_checker()
     elif workspace == "System":
         render_model(analyzer)
     elif workspace == "15K Challenge":
