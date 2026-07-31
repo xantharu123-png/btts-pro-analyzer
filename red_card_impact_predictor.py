@@ -74,36 +74,51 @@ class RedCardImpactPredictor:
         'away_red_extra_penalty': 0.95,  # Auswärtsrot = extra 5% Nachteil
     }
 
-    # Context-layer priors (documented inputs, not measured facts):
+    # Context-layer priors, calibrated on the 1,132-dismissal history
+    # (2025-10-22 to 2026-07-30, 6,660 matches, exposure-normalised per
+    # 100 minutes at 11-v-10; baseline rates 2.81 for the 11-man team,
+    # 0.69 for the 10-man team):
     # - Strength damping: a much stronger 10-man team (Barcelona vs Zuerich)
     #   stays competitive; the flat penalty would overstate the damage.
-    # - Score state: a leading 10-man team parks the bus -> BOTH rates drop
-    #   (the game dies). A trailing 10-man team must attack -> more space
-    #   both ways.
-    # - Late-game shell: protecting a lead for 15 minutes is easier than
-    #   for 60, so the bus effect amplifies late.
+    # - Score state: U-shaped. A LEADING 10-man team concedes MORE, not
+    #   less (history: 3.60/100min at +2) — the trailing favourite throws
+    #   everything forward, and the 10-man attack goes to sleep (0.50).
+    #   Level games are the quietest state (2.50). A trailing 10-man team
+    #   opens up both ways (3.33 / 0.86 at -2).
+    # - Late-game shell: history contradicts the "game falls asleep" prior.
+    #   When the 10-man team still leads after minute 75, the 11-man rate
+    #   rises to 3.70 vs the leading-baseline 3.14 (x1.18 escalation).
     SCORE_STATE_ADJUSTMENTS = {
         # goal_diff (red team view): (opponent_boost mult, red_penalty mult)
-        2: (0.80, 0.75),
-        1: (0.90, 0.85),
-        0: (1.00, 1.00),
-        -1: (1.10, 1.20),
-        -2: (1.05, 1.10),
+        2: (1.28, 0.72),
+        1: (1.06, 0.93),
+        0: (0.89, 1.03),
+        -1: (1.04, 0.93),
+        -2: (1.19, 1.25),
     }
     LATE_SHELL_MINUTE = 75
-    LATE_SHELL_BOOST_MULT = 0.90
+    LATE_SHELL_BOOST_MULT = 1.18
     BOOST_RANGE = (1.0, 2.0)
-    PENALTY_RANGE = (0.15, 1.0)
+    PENALTY_RANGE = (0.15, 1.5)
 
-    # Fatigue ramp (minutes-since-card accumulator), shape informed by the
-    # 11 red-card matches of 2026-07-30: 11-man breakthroughs at +45/+46/
-    # +47/+50/+58/+65 minutes after the card -> the exhausted-10-men cliff.
-    # Ramp starts after FATIGUE_FREE_MINUTES of "fresh" 10-man play and is
-    # fully active after FATIGUE_FULL_MINUTES. Documented priors.
-    FATIGUE_FREE_MINUTES = 25
-    FATIGUE_FULL_MINUTES = 45
-    FATIGUE_BOOST_GAIN = 0.15   # +15% opponent rate when fully fatigued
-    FATIGUE_PENALTY_DROP = 0.20  # -20% red-team attack when fully fatigued
+    # Minutes-since-card layer, calibrated on the same 1,132-case history
+    # (fine phase grid, per-100-min rates):
+    # - SHOCK phase 0-10 min: the 10-man attack is at its weakest right
+    #   after the card (0.52/100min = x0.75 vs baseline) — reorganisation,
+    #   not fatigue. The 11-man rate is at baseline there (2.92).
+    # - After minute 10 the 10-man attack RECOVERS above baseline
+    #   (0.79-0.86 plateau = x1.15-1.25; modelled conservatively at +15%):
+    #   the 11-man team opens up late and gets countered — the user's
+    #   Ferencvaros pattern, confirmed by the large sample.
+    # - The 11-man "fatigue cliff" from the 43-case probe did NOT survive
+    #   the large sample: rates are flat (2.83/2.97/2.93). Modelled as a
+    #   small +5% plateau between minutes 20-30 only.
+    FATIGUE_SHOCK_MINUTES = 10
+    FATIGUE_SHOCK_PENALTY = 0.25  # -25% red-team attack in the shock phase
+    FATIGUE_LATE_PENALTY_GAIN = 0.15  # +15% red-team attack after the shock
+    FATIGUE_FREE_MINUTES = 20
+    FATIGUE_FULL_MINUTES = 30
+    FATIGUE_BOOST_GAIN = 0.05   # +5% opponent rate plateau from minute 30
 
     @classmethod
     def _fatigue_multipliers(
@@ -129,9 +144,13 @@ class RedCardImpactPredictor:
             max(0.0, (since - cls.FATIGUE_FREE_MINUTES))
             / (cls.FATIGUE_FULL_MINUTES - cls.FATIGUE_FREE_MINUTES),
         )
+        if since <= cls.FATIGUE_SHOCK_MINUTES:
+            penalty_mult = 1.0 - cls.FATIGUE_SHOCK_PENALTY
+        else:
+            penalty_mult = 1.0 + cls.FATIGUE_LATE_PENALTY_GAIN
         return (
             1.0 + cls.FATIGUE_BOOST_GAIN * ramp,
-            1.0 - cls.FATIGUE_PENALTY_DROP * ramp,
+            penalty_mult,
             since,
         )
 
@@ -194,24 +213,27 @@ class RedCardImpactPredictor:
             boost *= boost_mult
             penalty *= penalty_mult
             applied.append(
-                f"score state {goal_diff:+d} (bus/attack adjustment)"
+                f"score state {goal_diff:+d} (history-calibrated U-shape)"
             )
 
-        # 3. Late-game shell: short holds are easier to defend.
+        # 3. Late-game escalation: history shows the trailing side throws
+        # everything forward after minute 75 when the 10-man team still
+        # leads (3.70 vs 3.14 baseline) — the shell cracks MORE, not less.
         if goal_diff >= 1 and minute >= cls.LATE_SHELL_MINUTE:
             boost *= cls.LATE_SHELL_BOOST_MULT
-            applied.append(f"late shell (minute {minute})")
+            applied.append(f"late escalation (minute {minute})")
 
-        # 4. Fatigue ramp: minutes already spent at 10 men drain the red
-        # team. A card at 88' is irrelevant; a card at 50' means the legs
-        # go around minute 75-80 (the 2026-07-30 casebook cliff).
+        # 4. Minutes-since-card layer: shock phase first (10-man attack at
+        # its weakest right after the card), then recovery above baseline
+        # as the 11-man team opens up; small +5% opponent plateau 20-30.
         fatigue_boost, fatigue_penalty, since_card = cls._fatigue_multipliers(
             minute, red_card_minute
         )
         if since_card is not None and (fatigue_boost != 1.0 or fatigue_penalty != 1.0):
             boost *= fatigue_boost
             penalty *= fatigue_penalty
-            applied.append(f"fatigue ramp ({since_card} min at 10 men)")
+            phase = "shock phase" if since_card <= cls.FATIGUE_SHOCK_MINUTES else "fatigue ramp"
+            applied.append(f"{phase} ({since_card} min at 10 men)")
 
         return {
             'opponent_boost': cls._clamp(boost, cls.BOOST_RANGE),
@@ -303,11 +325,13 @@ class RedCardImpactPredictor:
             live_stats: Optional - {shots_home, shots_away, xg_home, xg_away, ...}
             prior_home_goals: Optional - Prematch-Torerwartung Heim (staerkt
                 das Kontext-Adjustment: staerkeres 10-Mann-Team wird weniger
-                bestraft, Fuehrung laesst das Spiel einschlafen)
+                bestraft; Spielstand-Layer ist an der 1.132-Faelle-Historie
+                kalibriert: U-Form, führendes 10-Mann-Team kassiert mehr)
             prior_away_goals: Optional - Prematch-Torerwartung Auswaerts
-            red_card_minute: Optional - Minute des Platzverweises. Steuert die
-                Ermuedungsrampe: je laenger das Team schon zu zehnt spielt,
-                desto groesser der Durchbruch-Vorteil des 11-Mann-Teams.
+            red_card_minute: Optional - Minute des Platzverweises. Steuert
+                die Minuten-seit-Karte-Schicht: Schockphase 0-10 Minuten
+                (10-Mann-Angriff gedämpft), danach Erholung ueber Baseline,
+                kleine 11-Mann-Anhebung ab Minute 20-30.
 
         Returns:
             RedCardPrediction mit allen Berechnungen

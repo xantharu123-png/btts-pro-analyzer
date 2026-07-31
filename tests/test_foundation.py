@@ -1196,20 +1196,28 @@ class RedCardModelTests(unittest.TestCase):
         self.assertFalse(prediction.calibrated)
 
     def test_context_effects_fail_closed_without_priors(self):
+        # Ohne Priors und ohne Kartenminute greifen nur die historisch
+        # kalibrierten Spielstands-Faktoren (der Spielstand ist immer
+        # bekannt); Staerke- und Minuten-Layer bleiben inaktiv.
         effects = RedCardImpactPredictor.context_adjusted_effects(
             "home", 1, 1, 60
         )
 
-        self.assertEqual(
-            effects["opponent_boost"],
-            RedCardImpactPredictor.RED_CARD_EFFECTS["opponent_boost"],
+        base = RedCardImpactPredictor.RED_CARD_EFFECTS
+        level_boost, level_penalty = (
+            RedCardImpactPredictor.SCORE_STATE_ADJUSTMENTS[0]
         )
-        self.assertEqual(
-            effects["red_team_penalty"],
-            RedCardImpactPredictor.RED_CARD_EFFECTS["red_team_penalty"],
+        self.assertAlmostEqual(
+            effects["opponent_boost"], base["opponent_boost"] * level_boost
         )
-        self.assertFalse(effects["context_used"])
+        self.assertAlmostEqual(
+            effects["red_team_penalty"], base["red_team_penalty"] * level_penalty
+        )
+        self.assertTrue(effects["context_used"])
         self.assertIsNone(effects["strength_ratio"])
+        self.assertNotIn("strength damping", " ".join(effects["adjustments"]))
+        self.assertNotIn("fatigue ramp", " ".join(effects["adjustments"]))
+        self.assertNotIn("shock phase", " ".join(effects["adjustments"]))
 
     def test_stronger_red_team_is_penalized_less(self):
         base = RedCardImpactPredictor.context_adjusted_effects(
@@ -1224,16 +1232,16 @@ class RedCardModelTests(unittest.TestCase):
         self.assertAlmostEqual(stronger["strength_ratio"], 2.6 / 0.9)
         self.assertTrue(stronger["context_used"])
 
-    def test_leading_red_team_damps_both_rates(self):
-        # 2:0 Fuehrung + Rot -> Bus: BEIDE Raten sinken (Spiel schläft ein).
-        # Genau der Ferencvaros-Twente-Fall. Ausgeglichene Priors, damit
-        # nur der Spielstands-Effekt wirkt.
+    def test_leading_red_team_concedes_more_attacks_less(self):
+        # Historie (1.132 Faelle): Fuehrendes 10-Mann-Team kassiert MEHR
+        # (der Gegner wirft alles nach vorne), trifft selbst aber seltener.
+        # Ausgeglichene Priors, damit nur der Spielstands-Effekt wirkt.
         effects = RedCardImpactPredictor.context_adjusted_effects(
             "home", 2, 0, 55, prior_home_goals=1.2, prior_away_goals=1.2
         )
 
         self.assertEqual(effects["goal_diff_red_team"], 2)
-        self.assertLess(
+        self.assertGreater(
             effects["opponent_boost"],
             RedCardImpactPredictor.RED_CARD_EFFECTS["opponent_boost"],
         )
@@ -1253,7 +1261,9 @@ class RedCardModelTests(unittest.TestCase):
             RedCardImpactPredictor.RED_CARD_EFFECTS["opponent_boost"],
         )
 
-    def test_late_shell_amplifies_bus(self):
+    def test_late_escalation_raises_opponent_rate(self):
+        # Historie: Fuehrt das 10-Mann-Team ab Minute 75 noch, eskaliert
+        # der Gegner (3.70 vs 3.14 Baseline) statt dass das Spiel einschlaeft.
         mid = RedCardImpactPredictor.context_adjusted_effects(
             "home", 1, 0, 60
         )
@@ -1261,7 +1271,7 @@ class RedCardModelTests(unittest.TestCase):
             "home", 1, 0, 80
         )
 
-        self.assertLess(late["opponent_boost"], mid["opponent_boost"])
+        self.assertGreater(late["opponent_boost"], mid["opponent_boost"])
 
     def test_effects_stay_inside_documented_ranges(self):
         extreme = RedCardImpactPredictor.context_adjusted_effects(
@@ -1289,33 +1299,55 @@ class RedCardModelTests(unittest.TestCase):
         self.assertTrue(prediction.context_effects["context_used"])
         self.assertEqual(prediction.context_effects["goal_diff_red_team"], 2)
 
-    def test_prediction_without_priors_keeps_flat_effects(self):
-        with_priors = RedCardImpactPredictor().predict(
+    def test_prediction_without_priors_uses_only_history_layers(self):
+        # Ohne Priors/Minuten-Input greifen nur die historisch kalibrierten
+        # Spielstands-Faktoren; Staerke- und Zeit-Layer bleiben aus.
+        prediction = RedCardImpactPredictor().predict(
             minute=60, home_goals=1, away_goals=1, red_card_team="home",
         )
 
-        self.assertFalse(with_priors.context_effects["context_used"])
+        self.assertTrue(prediction.context_effects["context_used"])
+        self.assertIsNone(prediction.context_effects["strength_ratio"])
+        self.assertIsNone(prediction.context_effects["minutes_since_card"])
 
-    def test_fatigue_ramp_inactive_right_after_card(self):
+    def test_shock_phase_damps_red_attack_right_after_card(self):
+        # Historie: In den ersten 10 Minuten nach Rot ist der 10-Mann-Angriff
+        # am schwächsten (0.52/100min = x0.75) — Reorganisation, nicht Ermuedung.
         effects = RedCardImpactPredictor.context_adjusted_effects(
             "home", 0, 0, 40, red_card_minute=36
         )
 
         self.assertEqual(effects["minutes_since_card"], 4)
-        self.assertNotIn("fatigue ramp", " ".join(effects["adjustments"]))
+        self.assertIn("shock phase", " ".join(effects["adjustments"]))
+        base_penalty = (
+            RedCardImpactPredictor.RED_CARD_EFFECTS["red_team_penalty"]
+            * RedCardImpactPredictor.SCORE_STATE_ADJUSTMENTS[0][1]
+        )
+        self.assertLess(effects["red_team_penalty"], base_penalty)
 
     def test_fatigue_ramp_grows_with_minutes_since_card(self):
+        # Boost-Rampe waechst zwischen Minute 20 und 30 seit der Karte;
+        # der 10-Mann-Angriff erholt sich nach der Schockphase ueber die
+        # Baseline (Plateau, Historie 0.79-0.86/100min).
+        shock = RedCardImpactPredictor.context_adjusted_effects(
+            "home", 0, 0, 44, red_card_minute=36  # 8 min: Schockphase
+        )
         fresh = RedCardImpactPredictor.context_adjusted_effects(
-            "home", 0, 0, 60, red_card_minute=36
+            "home", 0, 0, 57, red_card_minute=36  # 21 min: Rampe startet
         )
         tired = RedCardImpactPredictor.context_adjusted_effects(
-            "home", 0, 0, 82, red_card_minute=36
+            "home", 0, 0, 82, red_card_minute=36  # 46 min: volles Plateau
         )
 
-        self.assertEqual(fresh["minutes_since_card"], 24)
+        self.assertEqual(shock["minutes_since_card"], 8)
         self.assertEqual(tired["minutes_since_card"], 46)
         self.assertGreater(tired["opponent_boost"], fresh["opponent_boost"])
-        self.assertLess(tired["red_team_penalty"], fresh["red_team_penalty"])
+        self.assertGreater(
+            fresh["red_team_penalty"], shock["red_team_penalty"]
+        )
+        self.assertAlmostEqual(
+            fresh["red_team_penalty"], tired["red_team_penalty"], places=6
+        )
 
     def test_fatigue_ramp_caps_at_full_exhaustion(self):
         full = RedCardImpactPredictor.context_adjusted_effects(
@@ -1331,6 +1363,7 @@ class RedCardModelTests(unittest.TestCase):
         self.assertAlmostEqual(
             beyond["opponent_boost"],
             RedCardImpactPredictor.RED_CARD_EFFECTS["opponent_boost"]
+            * RedCardImpactPredictor.SCORE_STATE_ADJUSTMENTS[0][0]
             * (1 + RedCardImpactPredictor.FATIGUE_BOOST_GAIN),
             places=6,
         )
