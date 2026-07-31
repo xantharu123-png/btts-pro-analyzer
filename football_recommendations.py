@@ -45,6 +45,7 @@ def prematch_btts_candidate(
     *,
     snapshot_age_seconds: Optional[float],
     validated_model_available: bool,
+    freemode: bool = False,
 ) -> RecommendationCandidate:
     analysis = row.get("_analysis")
     analysis = analysis if isinstance(analysis, dict) else {}
@@ -76,6 +77,7 @@ def prematch_btts_candidate(
     )
 
     blockers: list[str] = []
+    model_vetoes: list[str] = []
     if snapshot_age_seconds is None or snapshot_age_seconds < -30:
         blockers.append("Der Prematch-Snapshot besitzt keine verlässliche Zeitbasis.")
     elif snapshot_age_seconds > PREMATCH_MAX_AGE_SECONDS:
@@ -85,14 +87,18 @@ def prematch_btts_candidate(
     if not validated_model_available or details.get("ml_active") is not True:
         blockers.append("Das chronologisch validierte BTTS-Modell ist für dieses Spiel nicht aktiv.")
     if probability is None or probability < 58.0:
-        blockers.append("Die BTTS-Modellwahrscheinlichkeit liegt unter 58 %.")
+        model_vetoes.append("Die BTTS-Modellwahrscheinlichkeit liegt unter 58 %.")
     if quality is None or quality < 70.0:
-        blockers.append("Der Evidenzscore liegt unter 70 %.")
+        model_vetoes.append("Der Evidenzscore liegt unter 70 %.")
     if min(venue_samples) < 5 or min(form_samples) < 5:
-        blockers.append("Mindestens fünf Venue- und Formspiele je Team fehlen.")
+        model_vetoes.append("Mindestens fünf Venue- und Formspiele je Team fehlen.")
     if spread is None or spread > 15.0:
-        blockers.append("ML- und Statistikmodell stimmen nicht ausreichend überein.")
+        model_vetoes.append("ML- und Statistikmodell stimmen nicht ausreichend überein.")
 
+    if probability is None:
+        blockers.extend(model_vetoes)
+    elif not freemode:
+        blockers.extend(model_vetoes)
     quality_penalty = max(0.0, 80.0 - (quality or 0.0)) * 0.12
     spread_penalty = max(0.0, (spread or 20.0) - 5.0) * 0.25
     haircut = min(20.0, max(10.0, 10.0 + quality_penalty + spread_penalty))
@@ -103,6 +109,10 @@ def prematch_btts_candidate(
         f"ML/Statistik-Abstand {spread:.1f} Prozentpunkte." if spread is not None else "Modellabstand nicht berechenbar.",
         f"Robustheitsabschlag {haircut:.1f} Prozentpunkte für Kalibrierungs-, Aufstellungs- und Marktrisiko.",
     )
+    if freemode and model_vetoes and probability is not None:
+        evidence = evidence + tuple(
+            f"⚠️ Modell-Warnung (freigeschaltet): {veto}" for veto in model_vetoes
+        )
     return build_probability_candidate(
         event_key=fixture_key,
         sport="Fußball",
@@ -125,6 +135,7 @@ def live_football_candidate(
     selection: str,
     probability: Any,
     snapshot_age_seconds: Optional[float],
+    freemode: bool = False,
 ) -> RecommendationCandidate:
     home = str(analysis.get("home_team") or "Heimteam")
     away = str(analysis.get("away_team") or "Auswärtsteam")
@@ -132,6 +143,7 @@ def live_football_candidate(
     quality = str(analysis.get("live_data_quality") or "INSUFFICIENT").upper()
     probability_number = _finite(probability)
     blockers: list[str] = []
+    model_vetoes: list[str] = []
     if snapshot_age_seconds is None or snapshot_age_seconds < -15:
         blockers.append("Der Live-Snapshot besitzt keine verlässliche Zeitbasis.")
     elif snapshot_age_seconds > LIVE_MAX_AGE_SECONDS:
@@ -141,14 +153,18 @@ def live_football_candidate(
     if not str(analysis.get("score") or "").strip():
         blockers.append("Der aktuelle Spielstand fehlt.")
     if quality not in {"MEDIUM", "LOW"}:
-        blockers.append("Die Live-Daten reichen für diesen Markt nicht aus.")
+        model_vetoes.append("Die Live-Daten reichen für diesen Markt nicht aus.")
     if probability_number is None or probability_number < 55.0:
-        blockers.append("Die Modellwahrscheinlichkeit liegt unter 55 %.")
+        model_vetoes.append("Die Modellwahrscheinlichkeit liegt unter 55 %.")
 
     red_cards = analysis.get("red_cards")
     red_cards = red_cards if isinstance(red_cards, dict) else {}
     if red_cards.get("supported") is False:
         blockers.append("Der Platzverweisstand ist für das Restspielmodell nicht eindeutig.")
+    if probability_number is None:
+        blockers.extend(model_vetoes)
+    elif not freemode:
+        blockers.extend(model_vetoes)
     haircut = 12.0 if quality == "MEDIUM" else 18.0
     event_key = analysis.get("fixture_id") or f"{home}:{away}:{analysis.get('minute')}"
     evidence = (
@@ -156,6 +172,10 @@ def live_football_candidate(
         f"Datenbasis {quality}; Robustheitsabschlag {haircut:.1f} Prozentpunkte.",
         f"Platzverweisstatus {red_cards.get('status', 'nicht gemeldet')}.",
     )
+    if freemode and model_vetoes and probability_number is not None:
+        evidence = evidence + tuple(
+            f"⚠️ Modell-Warnung (freigeschaltet): {veto}" for veto in model_vetoes
+        )
     return build_probability_candidate(
         event_key=event_key,
         sport="Fußball Live",
@@ -174,6 +194,7 @@ def red_card_candidate(
     entry: Mapping[str, Any],
     *,
     snapshot_age_seconds: Optional[float],
+    freemode: bool = False,
 ) -> RecommendationCandidate:
     card = entry.get("card")
     card = card if isinstance(card, dict) else {}
@@ -189,6 +210,7 @@ def red_card_candidate(
     probability = probability_decimal * 100.0 if probability_decimal is not None else None
     quality = str(prediction.get("data_quality") or "INSUFFICIENT").upper()
     blockers: list[str] = []
+    model_vetoes: list[str] = []
     if entry.get("error"):
         blockers.append(str(entry["error"]))
     if snapshot_age_seconds is None or snapshot_age_seconds < -15:
@@ -200,9 +222,13 @@ def red_card_candidate(
     if entry.get("fixture_red_card_count") != 1:
         blockers.append("Mehrere Platzverweise werden vom 11-gegen-10-Modell nicht unterstützt.")
     if quality != "MEDIUM":
-        blockers.append("Live-xG und Spielminute reichen nicht für die strenge Datenbasis.")
+        model_vetoes.append("Live-xG und Spielminute reichen nicht für die strenge Datenbasis.")
     if probability is None or probability < 55.0:
-        blockers.append("Keine Nächstes-Tor-Auswahl erreicht 55 % Modellwahrscheinlichkeit.")
+        model_vetoes.append("Keine Nächstes-Tor-Auswahl erreicht 55 % Modellwahrscheinlichkeit.")
+    if probability is None:
+        blockers.extend(model_vetoes)
+    elif not freemode:
+        blockers.extend(model_vetoes)
 
     home = str(entry.get("home") or "Heimteam")
     away = str(entry.get("away") or "Auswärtsteam")
@@ -211,6 +237,10 @@ def red_card_candidate(
         f"Modell-Snapshot Minute {entry.get('prediction_minute', 'n/a')}, Datenbasis {quality}.",
         "Robustheitsabschlag 15,0 Prozentpunkte für seltene Ereignisse, Taktikwechsel und Modellunsicherheit.",
     )
+    if freemode and model_vetoes and probability is not None:
+        evidence = evidence + tuple(
+            f"⚠️ Modell-Warnung (freigeschaltet): {veto}" for veto in model_vetoes
+        )
     return build_probability_candidate(
         event_key=card.get("card_id") or f"{home}:{away}:{card.get('minute')}",
         sport="Fußball Live",

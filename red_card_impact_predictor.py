@@ -523,7 +523,10 @@ class RedCardImpactPredictor:
             
             data_quality=data_quality,
             too_late_for_signal=too_late,
-            context_effects=effects
+            context_effects=effects,
+            # Freigeschaltet: Signale sind sichtbar/spielbar, bleiben aber
+            # unkalibriert (kein Marktpreis-Beweis) — calibrated bleibt False.
+            actionable=bool(model_signals) and not too_late,
         )
     
     def format_prediction(

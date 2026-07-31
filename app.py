@@ -3,7 +3,7 @@
 import importlib
 import math
 import sqlite3
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime
 from typing import Optional
 from pathlib import Path
@@ -130,6 +130,18 @@ def _league_label_for_code(league_code: str) -> str:
 def _get_supabase_url() -> Optional[str]:
     """Return the configured PostgreSQL URL when available."""
     return load_app_config(st).supabase_db_url
+
+
+def _freemode_enabled() -> bool:
+    """Freemode-Schalter (Modell-Vetos als Warnung statt Blocker).
+
+    Test- und Bare-Mode-sicher: Jeder Konfigurationsfehler faellt auf den
+    Default (freigeschaltet) zurueck statt das Rendering zu brechen.
+    """
+    try:
+        return bool(load_app_config(st).freemode)
+    except Exception:
+        return True
 
 
 def _get_db_connection(db_path: str = "betboy_data.db"):
@@ -1112,6 +1124,7 @@ def _render_prematch_results(
             row,
             snapshot_age_seconds=snapshot_age,
             validated_model_available=validated_model_available,
+            freemode=_freemode_enabled(),
         )
         candidate_rows.append((candidate, row))
     candidate_rows.sort(
@@ -1536,6 +1549,7 @@ def _render_live_football(analyzer) -> None:
                 selection=selection,
                 probability=probability,
                 snapshot_age_seconds=snapshot_age,
+                freemode=_freemode_enabled(),
             )
             candidate_items.append((candidate, item))
         candidate_items.sort(
@@ -1909,7 +1923,11 @@ def _render_red_cards(analyzer) -> None:
     snapshot_age = _snapshot_age_seconds(snapshot.get("scanned_at"))
     candidate_entries = [
         (
-            red_card_candidate(entry, snapshot_age_seconds=snapshot_age),
+            red_card_candidate(
+                entry,
+                snapshot_age_seconds=snapshot_age,
+                freemode=_freemode_enabled(),
+            ),
             entry,
         )
         for entry in snapshot["cards"]
@@ -1921,6 +1939,15 @@ def _render_red_cards(analyzer) -> None:
         ),
         reverse=True,
     )
+    # Shadow-Logging: jede bewertete Platzverweis-Prediction still sichern
+    # (Abrechnung nach Abpfiff via redcard_signal_log --settle im Cron).
+    try:
+        from redcard_signal_log import log_signal as _log_red_card_signal
+
+        for _, _entry in candidate_entries:
+            _log_red_card_signal(_entry)
+    except Exception:
+        pass
     candidate_entries = candidate_entries[:3]
     detail_key = "red_card_detail"
     detail_options = list(range(len(candidate_entries)))
@@ -2443,10 +2470,16 @@ def render_multi_sport() -> None:
         selected_item,
         market_line=line_value,
     )
-    if candidate.blockers:
-        st.error("NICHT WETTEN — das Modell gibt diese Auswahl nicht frei.")
+    if candidate.blockers and candidate.model_probability is None:
+        st.error("NICHT WETTEN — für diese Auswahl liegt keine Modellwahrscheinlichkeit vor.")
         st.markdown("\n".join(f"- {plain_german(reason)}" for reason in candidate.blockers))
         return
+    if candidate.blockers:
+        st.warning(
+            "⚠️ Modell-Warnung (freigeschaltet) — Empfehlung trotzdem sichtbar:"
+        )
+        st.markdown("\n".join(f"- {plain_german(reason)}" for reason in candidate.blockers))
+        candidate = replace(candidate, blockers=())
 
     if candidate.expected_total is not None:
         st.caption(f"Posteriorer Total-Erwartungswert: {candidate.expected_total:.2f}")

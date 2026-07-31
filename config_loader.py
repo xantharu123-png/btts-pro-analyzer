@@ -21,7 +21,24 @@ class AppConfig:
     pandascore_key: Optional[str] = None
     rapidapi_key: Optional[str] = None
     cricket_api_key: Optional[str] = None
+    # Freemode: Modell-Vetos (Qualitaets-Huerde, 55-%-Schwelle) werden zu
+    # sichtbaren Warnungen statt harten Blockern — Empfehlungen erscheinen
+    # trotzdem. Daten-Gates (kein Spielstand, veralteter Snapshot) bleiben
+    # immer hart. Default True; abschaltbar via config.ini [app] freemode=off
+    # oder Env BETBOY_FREEMODE=0.
+    freemode: bool = True
     source: str = "empty"
+
+
+def _truthy(value: Any) -> Optional[bool]:
+    text = _clean(value)
+    if text is None:
+        return None
+    if text.lower() in {"1", "true", "yes", "on", "ja"}:
+        return True
+    if text.lower() in {"0", "false", "no", "off", "nein"}:
+        return False
+    return None
 
 
 def _clean(value: Any) -> Optional[str]:
@@ -131,4 +148,26 @@ def load_app_config(st_module: Any = None, config_path: str | Path = "config.ini
             if value:
                 merged[key] = value
 
-    return AppConfig(**merged, source=", ".join(dict.fromkeys(sources)) or "not configured")
+    freemode: Optional[bool] = None
+    ini_path = Path(config_path)
+    if ini_path.exists():
+        parser = configparser.ConfigParser()
+        try:
+            parser.read(ini_path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            parser.read(ini_path, encoding="latin-1")
+        if parser.has_option("app", "freemode"):
+            freemode = _truthy(parser.get("app", "freemode"))
+    if freemode is None:
+        freemode = _truthy(os.environ.get("BETBOY_FREEMODE"))
+    if freemode is None and st_module is not None and hasattr(st_module, "secrets"):
+        freemode = _truthy(_secret_get(st_module.secrets, "app", "freemode"))
+    if freemode is None:
+        freemode = True
+
+    merged.pop("freemode", None)
+    return AppConfig(
+        **merged,
+        freemode=freemode,
+        source=", ".join(dict.fromkeys(sources)) or "not configured",
+    )
