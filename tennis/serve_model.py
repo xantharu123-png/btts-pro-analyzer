@@ -37,6 +37,7 @@ Small samples are shrunk toward the tour average with a prior of
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date, datetime, timezone
 from typing import Dict, Optional, Tuple
 
 from .data_loader import normalize_player_name
@@ -75,7 +76,7 @@ def is_tour_level(row) -> bool:
 
 class _Accum:
     __slots__ = ("sv_gms", "sv_held", "ret_gms", "ret_breaks",
-                 "sv_opp_break_sum", "ret_opp_hold_sum")
+                 "sv_opp_break_sum", "ret_opp_hold_sum", "last_date")
 
     def __init__(self) -> None:
         self.sv_gms = 0.0
@@ -84,6 +85,27 @@ class _Accum:
         self.ret_breaks = 0.0
         self.sv_opp_break_sum = 0.0   # sum(sv_gms * opponent break% at the time)
         self.ret_opp_hold_sum = 0.0   # sum(ret_gms * opponent hold% at the time)
+        self.last_date = None         # date of the most recent contribution
+
+
+def _to_naive_utc(value) -> Optional[datetime]:
+    """Accept datetime/date/pandas Timestamp/ISO str -> naive UTC datetime."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, date):
+        moment = datetime(value.year, value.month, value.day)
+    elif isinstance(value, str):
+        try:
+            moment = datetime.fromisoformat(value[:19])
+        except ValueError:
+            return None
+    else:
+        return None
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(timezone.utc).replace(tzinfo=None)
+    return moment
 
 
 def _odds(p: float) -> float:
@@ -96,26 +118,61 @@ def _from_odds(o: float) -> float:
 
 
 class ServeReturnModel:
-    """Chronological tracker; state only moves when ``update`` is called."""
+    """Chronological tracker; state only moves when ``update`` is called.
+
+    ``half_life_days``: exponential decay of every accumulator — a match
+    counts half after one half-life, a quarter after two.  Ratings follow
+    current form instead of career averages.  ``None`` keeps the old
+    cumulative behaviour (used for the A/B backtest).
+    """
 
     def __init__(self, hold_avg: float = TOUR_HOLD_AVG,
-                 break_avg: float = TOUR_BREAK_AVG) -> None:
+                 break_avg: float = TOUR_BREAK_AVG,
+                 half_life_days: Optional[float] = 365.0) -> None:
         self._table: Dict[Tuple[str, str], _Accum] = defaultdict(_Accum)
         self._hold_avg = hold_avg
         self._break_avg = break_avg
+        if half_life_days is not None and half_life_days <= 0:
+            raise ValueError("half_life_days must be positive or None")
+        self._half_life = half_life_days
+
+    # ------------------------------------------------------------------ decay
+
+    def _decay_factor(self, acc: _Accum, as_of: Optional[datetime]) -> float:
+        if self._half_life is None:
+            return 1.0
+        last = getattr(acc, "last_date", None)  # old pickles lack the slot
+        moment = _to_naive_utc(as_of)
+        if last is None or moment is None:
+            return 1.0
+        days = (moment - last).total_seconds() / 86400.0
+        if days <= 0:
+            return 1.0  # same day or out-of-order: never inflate
+        return 0.5 ** (days / self._half_life)
+
+    def _decayed(self, acc: _Accum, as_of: Optional[datetime]):
+        f = self._decay_factor(acc, as_of)
+        if f == 1.0:
+            return (acc.sv_gms, acc.sv_held, acc.ret_gms, acc.ret_breaks,
+                    acc.sv_opp_break_sum, acc.ret_opp_hold_sum)
+        return (acc.sv_gms * f, acc.sv_held * f, acc.ret_gms * f,
+                acc.ret_breaks * f, acc.sv_opp_break_sum * f,
+                acc.ret_opp_hold_sum * f)
 
     # ------------------------------------------------------------------ update
 
-    def update_from_match_row(self, row) -> None:
+    def update_from_match_row(self, row, match_date=None) -> None:
         """Consume one ManTennisData stats row (winner/loser box score)."""
+        moment = _to_naive_utc(match_date if match_date is not None
+                               else row.get("tourney_date"))
         surface = row.get("surface")
         keys = [OVERALL_KEY] + ([surface] if surface in SURFACES else [])
-        self._add_player(row, "win", "los", keys)
-        self._add_player(row, "los", "win", keys)
+        self._add_player(row, "win", "los", keys, moment)
+        self._add_player(row, "los", "win", keys, moment)
 
     _NAME_COLUMN = {"win": "winner_key", "los": "loser_key"}
 
-    def _add_player(self, row, me: str, opp: str, keys) -> None:
+    def _add_player(self, row, me: str, opp: str, keys, moment) -> None:
         # rows must already carry normalized keys (add_normalized_names);
         # fall back to normalizing the raw name so callers can't mismatch
         name = row.get(self._NAME_COLUMN[me])
@@ -139,64 +196,84 @@ class ServeReturnModel:
         # opponent's CURRENT overall rates (before this match) for the
         # schedule adjustment; tour average when the opponent is unknown
         opp_hold, opp_break = self.hold_and_break(
-            opp_name if isinstance(opp_name, str) else "", None
+            opp_name if isinstance(opp_name, str) else "", None, as_of=moment
         )
 
         for key in keys:
             acc = self._table[(name, key)]
-            acc.sv_gms += sv_gms
-            acc.sv_held += max(sv_gms - breaks_conceded, 0.0)
-            acc.ret_gms += ret_gms
-            acc.ret_breaks += breaks_made
-            acc.sv_opp_break_sum += sv_gms * opp_break
-            acc.ret_opp_hold_sum += ret_gms * opp_hold
+            # decay the past to this match's date, then add the match raw
+            (d_sv, d_held, d_ret, d_brk, d_oppb, d_opph) = self._decayed(acc, moment)
+            acc.sv_gms = d_sv + sv_gms
+            acc.sv_held = d_held + max(sv_gms - breaks_conceded, 0.0)
+            acc.ret_gms = d_ret + ret_gms
+            acc.ret_breaks = d_brk + breaks_made
+            acc.sv_opp_break_sum = d_oppb + sv_gms * opp_break
+            acc.ret_opp_hold_sum = d_opph + ret_gms * opp_hold
+            if moment is not None:
+                last = getattr(acc, "last_date", None)
+                acc.last_date = moment if last is None else max(last, moment)
 
     # -------------------------------------------------------------- prediction
 
-    def _rates(self, player: str, key: str) -> Tuple[Optional[float], Optional[float]]:
+    def service_games(self, player: str, as_of: Optional[datetime] = None) -> float:
+        """Decay-weighted tracked service games (overall) — for data gates."""
+        acc = self._table.get((player, OVERALL_KEY))
+        if acc is None:
+            return 0.0
+        return self._decayed(acc, as_of)[0]
+
+    def _rates(self, player: str, key: str,
+               as_of: Optional[datetime] = None) -> Tuple[Optional[float], Optional[float]]:
         acc = self._table.get((player, key))
-        if acc is None or acc.sv_gms <= 0 or acc.ret_gms <= 0:
+        if acc is None:
             return None, None
-        raw_hold = acc.sv_held / acc.sv_gms
-        raw_break = acc.ret_breaks / acc.ret_gms
+        sv_gms, sv_held, ret_gms, ret_breaks, opp_break_sum, opp_hold_sum = (
+            self._decayed(acc, as_of)
+        )
+        if sv_gms <= 0 or ret_gms <= 0:
+            return None, None
+        raw_hold = sv_held / sv_gms
+        raw_break = ret_breaks / ret_gms
 
         # schedule adjustment in odds form (capped)
-        avg_opp_break = acc.sv_opp_break_sum / acc.sv_gms
-        avg_opp_hold = acc.ret_opp_hold_sum / acc.ret_gms
+        avg_opp_break = opp_break_sum / sv_gms
+        avg_opp_hold = opp_hold_sum / ret_gms
         hold_factor = min(max(avg_opp_break / self._break_avg, ADJUST_MIN), ADJUST_MAX)
         break_factor = min(max(avg_opp_hold / self._hold_avg, ADJUST_MIN), ADJUST_MAX)
         adj_hold = _from_odds(_odds(raw_hold) * hold_factor)
         adj_break = _from_odds(_odds(raw_break) * break_factor)
 
         # shrinkage toward tour average after adjustment
-        hold = (adj_hold * acc.sv_gms + PRIOR_GAMES * self._hold_avg) / (
-            acc.sv_gms + PRIOR_GAMES
+        hold = (adj_hold * sv_gms + PRIOR_GAMES * self._hold_avg) / (
+            sv_gms + PRIOR_GAMES
         )
-        brk = (adj_break * acc.ret_gms + PRIOR_GAMES * self._break_avg) / (
-            acc.ret_gms + PRIOR_GAMES
+        brk = (adj_break * ret_gms + PRIOR_GAMES * self._break_avg) / (
+            ret_gms + PRIOR_GAMES
         )
         return hold, brk
 
     def hold_and_break(
-        self, player: str, surface: Optional[str]
+        self, player: str, surface: Optional[str],
+        as_of: Optional[datetime] = None,
     ) -> Tuple[float, float]:
         """Adjusted + shrunk (hold%, break%), surface-aware with fallback."""
         hold_s, brk_s = (None, None)
         if surface in SURFACES:
             acc = self._table.get((player, surface))
-            if acc is not None and acc.sv_gms >= MIN_SURFACE_GAMES:
-                hold_s, brk_s = self._rates(player, surface)
-        hold_o, brk_o = self._rates(player, OVERALL_KEY)
+            if acc is not None and self._decayed(acc, as_of)[0] >= MIN_SURFACE_GAMES:
+                hold_s, brk_s = self._rates(player, surface, as_of=as_of)
+        hold_o, brk_o = self._rates(player, OVERALL_KEY, as_of=as_of)
         hold = hold_s if hold_s is not None else (hold_o if hold_o is not None else self._hold_avg)
         brk = brk_s if brk_s is not None else (brk_o if brk_o is not None else self._break_avg)
         return hold, brk
 
     def expected_hold_probabilities(
-        self, player_a: str, player_b: str, surface: Optional[str]
+        self, player_a: str, player_b: str, surface: Optional[str],
+        as_of: Optional[datetime] = None,
     ) -> Tuple[float, float]:
         """P(A holds serve vs B) and P(B holds serve vs A) via log5."""
-        hold_a, break_a = self.hold_and_break(player_a, surface)
-        hold_b, break_b = self.hold_and_break(player_b, surface)
+        hold_a, break_a = self.hold_and_break(player_a, surface, as_of=as_of)
+        hold_b, break_b = self.hold_and_break(player_b, surface, as_of=as_of)
         p_a = _log5(hold_a, break_b, self._hold_avg)
         p_b = _log5(hold_b, break_a, self._hold_avg)
         return p_a, p_b

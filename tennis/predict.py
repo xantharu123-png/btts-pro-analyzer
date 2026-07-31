@@ -20,6 +20,7 @@ BET or NO BET with the exact reason.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 from .backtest import MIN_ELO_MATCHES, MIN_SERVE_GAMES
@@ -124,17 +125,18 @@ def predict_match(
         best_of = 3
 
     # --- model probabilities ------------------------------------------------
+    now = datetime.now(timezone.utc)
     p_elo = state.elo.win_probability(key_a, key_b, surface_model)
     p_serve = None
-    acc_a = state.serve._table.get((key_a, "__overall__"))
-    acc_b = state.serve._table.get((key_b, "__overall__"))
-    serve_games_a = acc_a.sv_gms if acc_a else 0.0
-    serve_games_b = acc_b.sv_gms if acc_b else 0.0
+    serve_games_a = state.serve.service_games(key_a, as_of=now)
+    serve_games_b = state.serve.service_games(key_b, as_of=now)
     have_serve = serve_games_a >= MIN_SERVE_GAMES and serve_games_b >= MIN_SERVE_GAMES
 
     markets = None
     if have_serve:
-        hold_a, hold_b = state.serve.expected_hold_probabilities(key_a, key_b, surface_model)
+        hold_a, hold_b = state.serve.expected_hold_probabilities(
+            key_a, key_b, surface_model, as_of=now
+        )
         markets = simulate_match(hold_a, hold_b, best_of=best_of)
         p_serve = markets.p_a_win
     p_raw = (

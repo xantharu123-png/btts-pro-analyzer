@@ -290,6 +290,7 @@ def run_backtest(
     min_elo_matches: int = MIN_ELO_MATCHES,
     recalibrate: bool = True,
     score_from: Optional[str] = None,
+    serve_half_life_days: Optional[float] = 365.0,
 ) -> BacktestReport:
     """Full walk-forward backtest.
 
@@ -301,6 +302,10 @@ def run_backtest(
     never feed the calibrator.  Needed for WTA, where the Tennis Abstract
     box-score plane starts 2024 — give the serve model a learning year
     and evaluate only 2025+.
+
+    ``serve_half_life_days`` sets the exponential decay of the serve/return
+    accumulators (None = plain career sums, the pre-2026-07 behaviour —
+    kept for A/B testing).
     """
     stats_records = None
     stats_dates = None
@@ -326,9 +331,10 @@ def run_backtest(
     score_from_ts = pd.Timestamp(score_from) if score_from else None
 
     elo = SurfaceElo()
-    serve = ServeReturnModel()
+    serve = ServeReturnModel(half_life_days=serve_half_life_days)
     serve_wta = (
-        ServeReturnModel(hold_avg=WTA_TOUR_HOLD_AVG, break_avg=WTA_TOUR_BREAK_AVG)
+        ServeReturnModel(hold_avg=WTA_TOUR_HOLD_AVG, break_avg=WTA_TOUR_BREAK_AVG,
+                         half_life_days=serve_half_life_days)
         if "wta" in tours
         else None
     )
@@ -402,15 +408,14 @@ def run_backtest(
             p_elo = elo.win_probability(w_key, l_key, surface)
             p_serve = None
             if have_serve_plane and serve_weight > 0:
-                acc_w = serve_model._table.get((w_key, "__overall__"))
-                acc_l = serve_model._table.get((l_key, "__overall__"))
                 enough = (
-                    acc_w is not None and acc_l is not None
-                    and acc_w.sv_gms >= MIN_SERVE_GAMES
-                    and acc_l.sv_gms >= MIN_SERVE_GAMES
+                    serve_model.service_games(w_key, as_of=row.Date) >= MIN_SERVE_GAMES
+                    and serve_model.service_games(l_key, as_of=row.Date) >= MIN_SERVE_GAMES
                 )
                 if enough:
-                    hold_w, hold_l = serve_model.expected_hold_probabilities(w_key, l_key, surface)
+                    hold_w, hold_l = serve_model.expected_hold_probabilities(
+                        w_key, l_key, surface, as_of=row.Date
+                    )
                     p_serve = simulate_match(hold_w, hold_l, best_of=best_of).p_a_win
             p_model = (
                 (1.0 - serve_weight) * p_elo + serve_weight * p_serve

@@ -66,11 +66,10 @@ def collect_calibration() -> Dict:
         if not w_key or not l_key:
             continue
         if str(s["tourney_date"])[:10] >= WARMUP_UNTIL and is_tour_level(s):
-            acc_w = serve._table.get((w_key, "__overall__"))
-            acc_l = serve._table.get((l_key, "__overall__"))
+            as_of = s.get("tourney_date")
             scored = None
-            if (acc_w and acc_l and acc_w.sv_gms >= MIN_SERVE_GAMES
-                    and acc_l.sv_gms >= MIN_SERVE_GAMES):
+            if (serve.service_games(w_key, as_of=as_of) >= MIN_SERVE_GAMES
+                    and serve.service_games(l_key, as_of=as_of) >= MIN_SERVE_GAMES):
                 scored = _parse_score(s)
             if scored:
                 flip = hash(w_key) % 2 == 1
@@ -78,6 +77,7 @@ def collect_calibration() -> Dict:
                 hold_a, hold_b = serve.expected_hold_probabilities(
                     key_a, key_b,
                     s.get("surface") if s.get("surface") in ("Hard", "Clay", "Grass") else None,
+                    as_of=as_of,
                 )
                 m = simulate_match(hold_a, hold_b, best_of=3)
                 sa_w, sb_w, total_games, _, _ = scored

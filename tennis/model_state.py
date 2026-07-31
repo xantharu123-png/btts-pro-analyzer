@@ -61,9 +61,15 @@ def build_state(
     calibration_odds_years: Tuple[int, ...] = (2022, 2023, 2024),
     serve_weight: float = 0.3,
     verbose: bool = True,
+    serve_half_life_days: Optional[float] = 365.0,
 ) -> ModelState:
     """Build ratings from the stats plane and fit the calibrator on a
-    causal walk-forward backtest of the recent seasons."""
+    causal walk-forward backtest of the recent seasons.
+
+    ``serve_half_life_days`` must match between the production ratings
+    and the calibrator fit — the calibrator learns the distribution the
+    decayed serve model produces, not the old cumulative one.
+    """
     if stats_years is None:
         stats_years = range(2010, 2027)
 
@@ -72,7 +78,7 @@ def build_state(
     stats = stats.sort_values("tourney_date", kind="mergesort").reset_index(drop=True)
 
     elo = SurfaceElo()
-    serve = ServeReturnModel()
+    serve = ServeReturnModel(half_life_days=serve_half_life_days)
     n = 0
     for s in stats.to_dict("records"):
         if _is_retired(s.get("match_ret")):
@@ -121,6 +127,7 @@ def build_state(
         tours=("atp",),
         serve_weight=serve_weight,
         recalibrate=False,  # we want RAW probabilities for the fit
+        serve_half_life_days=serve_half_life_days,
     )
     cal = WalkForwardCalibrator(min_samples=1500, refit_every=250)
     for row in report.rows:
