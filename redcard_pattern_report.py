@@ -6,6 +6,10 @@ Reads the harvested dismissal history and produces:
 - score-state splits (red team leading / level / trailing)
 - markdown report + PNG chart in the workspace root
 
+Model horizon: regulation time only (up to 93'). Goals in extra time or
+shootouts never count, and dismissals that happened in extra time are
+excluded — the impact model ends at 93'.
+
 Safe to run at any history size; every figure carries its sample count.
 """
 
@@ -32,29 +36,61 @@ FINE_PHASES = (
 LATE_SHELL_MINUTE = 75
 
 
+def _goal_in_model_horizon(abs_minute: int, status) -> bool:
+    """True, wenn das Tor im Modell-Horizont (reguläre Spielzeit) fiel.
+
+    Halte diese Regel synchron mit redcard_signal_log.py: 93 deckt
+    Nachspielzeit im alten API-Stil ab; 91-93 zählt nur bei Endstatus FT,
+    alles darüber ist Verlängerung oder Elfmeterschießen.
+    """
+    if abs_minute > MATCH_MINUTES:
+        return False
+    if abs_minute > 90 and status != "FT":
+        return False
+    return True
+
+
+def _in_scope(case) -> bool:
+    """Nur Fälle im Modell-Horizont: keine komplexen Fälle (2+ Platzverweise),
+    keine Platzverweise, die erst in der Verlängerung fielen."""
+    return not case["complex"] and case["red_minute"] <= MATCH_MINUTES
+
+
 def load_cases(conn: sqlite3.Connection):
     rows = conn.execute(
-        """SELECT match_date, league_name, home_name, away_name,
-                  final_home, final_away, red_minute, red_side, red_team_name,
-                  score_at_red_home, score_at_red_away, red_team_goal_diff,
-                  complex_state, goals_after_json
-           FROM dismissals"""
+        """SELECT d.match_date, d.league_name, d.home_name, d.away_name,
+                  d.final_home, d.final_away, d.red_minute, d.red_side,
+                  d.red_team_name, d.score_at_red_home, d.score_at_red_away,
+                  d.red_team_goal_diff, d.complex_state, d.goals_after_json,
+                  f.status_short
+           FROM dismissals d
+           LEFT JOIN fixtures f ON f.fixture_id = d.fixture_id"""
     ).fetchall()
     cases = []
     for row in rows:
+        status = row[14]
+        red_minute = row[6]
+        goals_after = []
+        for goal in json.loads(row[13]):
+            since = goal.get("since_card")
+            if not isinstance(since, int):
+                continue
+            if _goal_in_model_horizon(red_minute + since, status):
+                goals_after.append(goal)
         cases.append(
             {
                 "date": row[0],
                 "league": row[1],
                 "match": f"{row[2]} vs {row[3]}",
                 "final": f"{row[4]}:{row[5]}",
-                "red_minute": row[6],
+                "red_minute": red_minute,
                 "red_side": row[7],
                 "red_team": row[8],
                 "score_at_red": f"{row[9]}:{row[10]}",
                 "goal_diff": row[11],
                 "complex": row[12],
-                "goals_after": json.loads(row[13]),
+                "goals_after": goals_after,
+                "status": status,
             }
         )
     return cases
@@ -67,7 +103,7 @@ def _phase_bucket_stats(cases, phases):
         for _, _, label in phases
     }
     for case in cases:
-        if case["complex"]:
+        if not _in_scope(case):
             continue
         window = max(0, MATCH_MINUTES - case["red_minute"])
         for lo, hi, label in phases:
@@ -101,7 +137,7 @@ def exact_score_stats(cases):
     """Rates split by the exact goal difference of the red team at the card."""
     stats = {}
     for case in cases:
-        if case["complex"]:
+        if not _in_scope(case):
             continue
         diff = case["goal_diff"]
         if diff >= 2:
@@ -138,7 +174,7 @@ def late_shell_stats(cases):
     }
     matches = 0
     for case in cases:
-        if case["complex"] or case["goal_diff"] <= 0:
+        if not _in_scope(case) or case["goal_diff"] <= 0:
             continue
         matches += 1
         red_minute = case["red_minute"]
@@ -157,7 +193,7 @@ def late_shell_stats(cases):
 def score_state_stats(cases):
     stats = {}
     for case in cases:
-        if case["complex"]:
+        if not _in_scope(case):
             continue
         diff = case["goal_diff"]
         state = "fuehrend" if diff > 0 else ("rueckstand" if diff < 0 else "ausgeglichen")
@@ -279,6 +315,12 @@ def main():
     lines += [
         "",
         f"_Komplexe Fälle (2+ Platzverweise) ausgenommen: {len(cases) - len(clean)}_",
+        "",
+        f"_Modell-Horizont reguläre Spielzeit (bis {MATCH_MINUTES}'): "
+        f"Platzverweise in der Verlängerung ausgenommen: "
+        f"{sum(1 for c in cases if c['red_minute'] > MATCH_MINUTES)} · "
+        "Tore in Verlängerung/Elfmeterschießen zählen nicht "
+        "(Regel synchron zur Shadow-Abrechnung in redcard_signal_log.py)._",
         "",
         "_Chart: rot_karten_musteranalyse.png_",
     ]

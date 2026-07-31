@@ -28,6 +28,23 @@ DB_PATH = Path(__file__).resolve().parent / "redcard_signals.db"
 
 FINISHED_STATUSES = {"FT", "AET", "PEN"}
 
+# Modell-Horizont: reguläre Spielzeit. 93 deckt Nachspielzeit im alten
+# API-Stil ab (elapsed ohne extra-Feld). Tore mit elapsed 91-93 zählen nur
+# bei Endstatus "FT" — bei AET/PEN sind sie bereits Verlängerung. Tore in
+# der Verlängerung (bis 120) und im Elfmeterschießen liegen außerhalb des
+# Modell-Horizonts und dürfen das Outcome nicht verfälschen.
+# Halte diese Regel synchron mit redcard_pattern_report.py.
+MODEL_HORIZON_MINUTES = 93
+
+
+def _goal_in_model_horizon(elapsed: int, status: Optional[str]) -> bool:
+    """True, wenn das Tor im Modell-Horizont (reguläre Spielzeit) fiel."""
+    if elapsed > MODEL_HORIZON_MINUTES:
+        return False
+    if elapsed > 90 and status != "FT":
+        return False
+    return True
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS signals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -148,14 +165,23 @@ def log_signal(entry: Dict[str, Any], db_path: Path = DB_PATH) -> bool:
         return False
 
 
-def _first_goal_after(events: list, minute: int) -> Optional[tuple[int, Optional[int]]]:
-    """(elapsed, team_id) des ersten Tors nach dem Modell-Snapshot, sonst None."""
+def _first_goal_after(
+    events: list, minute: int, status: Optional[str] = None
+) -> Optional[tuple[int, Optional[int]]]:
+    """(elapsed, team_id) des ersten Tors nach dem Modell-Snapshot, sonst None.
+
+    Zählt nur Tore im Modell-Horizont (reguläre Spielzeit, siehe
+    _goal_in_model_horizon) — Verlängerung und Elfmeterschießen sind
+    kein Modell-Outcome.
+    """
     first: Optional[tuple[int, Optional[int]]] = None
     for event in events or []:
         if not isinstance(event, dict) or event.get("type") != "Goal":
             continue
         elapsed = (event.get("time") or {}).get("elapsed")
         if not isinstance(elapsed, int) or elapsed <= minute:
+            continue
+        if not _goal_in_model_horizon(elapsed, status):
             continue
         team_id = (event.get("team") or {}).get("id")
         if first is None or elapsed < first[0]:
@@ -207,7 +233,7 @@ def settle_open_signals(
                 continue
 
             home_id = ((fixture_data.get("teams") or {}).get("home") or {}).get("id")
-            first_goal = _first_goal_after(events, row["minute"])
+            first_goal = _first_goal_after(events, row["minute"], status)
             if first_goal is None:
                 outcome = "no_goal"
             elif row["red_side"] == "home":

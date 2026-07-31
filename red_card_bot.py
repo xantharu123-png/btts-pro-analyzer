@@ -516,7 +516,8 @@ class RedCardBotEnhanced:
                 home_goals=home_goals,
                 away_goals=away_goals,
                 red_card_team=red_card_team,
-                live_stats=live_stats
+                live_stats=live_stats,
+                red_card_minute=event_minute,
             )
             
             # Format prediction

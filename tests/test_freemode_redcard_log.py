@@ -204,5 +204,138 @@ class RedCardSignalLogTests(unittest.TestCase):
         self.assertEqual(stats["top_pick_hit_rate"], 0.0)
 
 
+class RedCardHorizonSettlementTests(unittest.TestCase):
+    """Modell-Horizont: Verlängerung und Elfmeterschießen zählen nicht
+    als Outcome — das Modell endet bei der regulären Spielzeit (93')."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.db = Path(self._tmp.name) / "signals.db"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _settle_with(self, status, events):
+        log_signal(_entry(), db_path=self.db)
+
+        class _FakeAPI:
+            def _request(self, endpoint, params):
+                if endpoint == "fixtures":
+                    return {
+                        "response": [
+                            {
+                                "fixture": {"status": {"short": status}},
+                                "teams": {
+                                    "home": {"id": 10},
+                                    "away": {"id": 20},
+                                },
+                            }
+                        ]
+                    }
+                if endpoint == "events":
+                    return {"response": events}
+                return {"response": []}
+
+        result = settle_open_signals(_FakeAPI(), sleep_seconds=0, db_path=self.db)
+        self.assertEqual(result["settled"], 1)
+        return settlement_stats(db_path=self.db)
+
+    def test_extra_time_goal_does_not_count(self):
+        stats = self._settle_with(
+            "AET",
+            [{"type": "Goal", "time": {"elapsed": 95}, "team": {"id": 20}}],
+        )
+        self.assertEqual(stats["by_outcome"]["no_goal"]["n"], 1)
+
+    def test_stoppage_goal_counts_when_ft(self):
+        stats = self._settle_with(
+            "FT",
+            [{"type": "Goal", "time": {"elapsed": 92}, "team": {"id": 20}}],
+        )
+        self.assertEqual(stats["by_outcome"]["opponent"]["n"], 1)
+
+    def test_stoppage_window_goal_ignored_when_aet(self):
+        # elapsed 92 bei AET ist bereits Verlängerung, nicht Nachspielzeit
+        stats = self._settle_with(
+            "AET",
+            [{"type": "Goal", "time": {"elapsed": 92}, "team": {"id": 20}}],
+        )
+        self.assertEqual(stats["by_outcome"]["no_goal"]["n"], 1)
+
+    def test_shootout_goals_ignored(self):
+        stats = self._settle_with(
+            "PEN",
+            [
+                {"type": "Goal", "time": {"elapsed": 121}, "team": {"id": 20}},
+                {"type": "Goal", "time": {"elapsed": None}, "team": {"id": 10}},
+            ],
+        )
+        self.assertEqual(stats["by_outcome"]["no_goal"]["n"], 1)
+
+    def test_regular_goal_counts_when_aet(self):
+        stats = self._settle_with(
+            "AET",
+            [{"type": "Goal", "time": {"elapsed": 88}, "team": {"id": 20}}],
+        )
+        self.assertEqual(stats["by_outcome"]["opponent"]["n"], 1)
+
+
+class RedCardBotWiringTests(unittest.TestCase):
+    """Der Telegram-Alert muss die Kartenminute an den Predictor
+    durchreichen — sonst sind Fatigue-/Schock-Layer inaktiv."""
+
+    def test_alert_passes_red_card_minute(self):
+        from unittest.mock import patch
+
+        from red_card_bot import RedCardBotEnhanced
+
+        bot = RedCardBotEnhanced(
+            api_key="test-key",
+            telegram_token="token",
+            telegram_chat_id="chat",
+        )
+
+        captured = {}
+
+        class _FakePredictor:
+            def predict(self, **kwargs):
+                captured.update(kwargs)
+                return {"prediction": True}
+
+            def format_prediction(
+                self, prediction, home, away, red_card_minute=None
+            ):
+                return "Modellnachricht"
+
+        bot.predictor = _FakePredictor()
+        card_info = {
+            "player": "Testspieler",
+            "team": "Heim",
+            "team_id": 10,
+            "minute": 55,
+            "match": {
+                "fixture": {"id": 7, "status": {"elapsed": 58}},
+                "teams": {
+                    "home": {"id": 10, "name": "Heim"},
+                    "away": {"id": 20, "name": "Gast"},
+                },
+                "goals": {"home": 1, "away": 0},
+                "league": {"name": "Liga", "country": "Land"},
+            },
+        }
+        with patch("red_card_bot.requests.post") as post:
+            post.return_value.status_code = 200
+            ok = bot.send_telegram_alert_with_stats(
+                card_info, fetch_live_stats=False
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(captured.get("red_card_minute"), 55)
+        self.assertEqual(captured.get("minute"), 58)
+
+
 if __name__ == "__main__":
     unittest.main()
