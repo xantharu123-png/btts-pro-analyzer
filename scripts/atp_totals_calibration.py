@@ -17,7 +17,7 @@ from collections import defaultdict
 from tennis.data_loader import load_atp_stats, add_normalized_names
 from tennis.serve_model import ServeReturnModel, is_tour_level
 from tennis.simulator import simulate_match
-from tennis.backtest import _is_retired
+from tennis.backtest import _is_retired, stable_flip
 
 MIN_SERVE_GAMES = 40.0  # same gate as predict.py
 
@@ -78,7 +78,7 @@ def main():
                 # neutral "A" perspective (deterministic coin flip): without
                 # this, "A covers" is measured on the actual WINNER and the
                 # calibration test is nonsense by construction
-                flip = hash(w_key) % 2 == 1
+                flip = stable_flip(w_key)
                 key_a, key_b = (l_key, w_key) if flip else (w_key, l_key)
                 hold_a, hold_b = serve.expected_hold_probabilities(
                     key_a, key_b, s.get("surface") if s.get("surface") in ("Hard", "Clay", "Grass") else None,

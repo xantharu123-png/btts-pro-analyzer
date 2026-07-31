@@ -34,6 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Tuple
 
+import hashlib
 import math
 import pandas as pd
 
@@ -53,6 +54,17 @@ CUTOFF_DAYS_SLAM = 15
 MIN_SERVE_GAMES = 60.0   # both players need this many tracked service games
 MIN_ELO_MATCHES = 20     # experience gate: below this we do not bet
 RETIRED_FLAGS = {"retired", "ret", "walkover", "w/o", "def", "default"}
+
+
+def stable_flip(key: str) -> bool:
+    """Deterministic, reproducible coin flip for neutral A/B orientation.
+
+    ``hash()`` on str is salted per process (PYTHONHASHSEED) — the same
+    match landed in a different orientation on every run, so any output
+    built on it was irreproducible (F5).  md5 is stable across processes
+    and platforms and just as uniform.
+    """
+    return hashlib.md5(key.encode("utf-8")).digest()[0] % 2 == 1
 
 
 # --------------------------------------------------------------------------

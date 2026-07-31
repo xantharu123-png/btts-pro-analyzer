@@ -34,6 +34,31 @@ def brier(p, y):
     return (p - y) ** 2
 
 
+def m4_calibrator_regimes():
+    """F3: does the single Platt calibrator misfit one model regime?
+
+    p_model is Elo-only when the serve gate fails (unknown players) and
+    Elo+serve blended otherwise.  A stable regime bias would justify two
+    calibrators.  Measured: the gap flips sign between windows -> noise,
+    one calibrator stays.  (Production fit/score consistency verified by
+    construction: build_state fits on the same mixture predict.py sees.)
+    """
+    from tennis.backtest import run_backtest
+
+    for years in ((2021, 2022), (2023, 2024)):
+        rep = run_backtest(odds_years=years, stats_years=range(2015, 2027),
+                           tours=("atp",), serve_weight=0.3, recalibrate=True)
+        f = rep.to_frame()
+        f["regime"] = f["p_serve"].notna().map({True: "blended", False: "elo_only"})
+        print(f"\n=== M4: Kalibrator-Regime-Mischung {years} ===")
+        for regime, d in f.groupby("regime"):
+            y = d["y_alpha"].astype(float)
+            p = d["p_alpha"].clip(1e-6, 1 - 1e-6)
+            print(f"  {regime:9s}: n={len(d):5d}  brier={brier(p, y).mean():.4f}"
+                  f"  base_rate={y.mean():.4f}  mean_p={p.mean():.4f}"
+                  f"  gap={p.mean() - y.mean():+.4f}")
+
+
 def main():
     players = pd.read_csv(
         Path(__file__).resolve().parent.parent / "tennis" / "data" / "atp_players.csv",
@@ -122,6 +147,58 @@ def main():
         se = math.sqrt(0.25 / n)
         print(f"  {key[0]:6s}: n={n:6d}  bias={bias/n:+.4f}  (SE {se:.4f})")
 
+    print("\n=== M1b: individuelle Rechtshaender-Schwaeche vs Linkshaender ===")
+    print("(korrigierte Fassung — erste Version zaehlte linkshaendige")
+    print("Verlierer ins Rechtshaender-Bucket und Rechtshaender nur bei")
+    print("Siegen: komplettes Selektions-Artefakt, z-sd 3.58. Wachter:")
+    print("die Tabelle darf NUR Rechtshaender enthalten.)")
+    elo2 = SurfaceElo()
+    vs_l = defaultdict(lambda: [0, 0.0])   # righty -> [n vs lefty, sum(actual - expected)]
+    for s in tour.to_dict("records"):
+        if _is_retired(s.get("match_ret")):
+            continue
+        w_key, l_key = s.get("winner_key"), s.get("loser_key")
+        if not w_key or not l_key:
+            continue
+        p_w = elo2.win_probability(w_key, l_key, s.get("surface"))
+        hw, hl = hand.get(s.get("winner_code")), hand.get(s.get("loser_code"))
+        if (isinstance(hw, str) and isinstance(hl, str)
+                and hw != hl and "Handed" in hw and "Handed" in hl):
+            if hw == "Left-Handed":
+                # loser is the righty: actual 0, expectation 1 - p_w
+                vs_l[l_key][0] += 1
+                vs_l[l_key][1] += 0.0 - (1.0 - p_w)
+            else:
+                # winner is the righty: actual 1, expectation p_w
+                vs_l[w_key][0] += 1
+                vs_l[w_key][1] += 1.0 - p_w
+        elo2.update(w_key, l_key, s.get("surface"))
+
+    # regression guard for the exact bug class above: the table must
+    # contain ONLY right-handers (a lefty in it means leakage)
+    code_by_name = {}
+    for s in tour.to_dict("records"):
+        code_by_name.setdefault(s.get("winner_key"), s.get("winner_code"))
+        code_by_name.setdefault(s.get("loser_key"), s.get("loser_code"))
+    leaked = [
+        k for k in vs_l
+        if hand.get(code_by_name.get(k)) == "Left-Handed"
+    ]
+    assert not leaked, f"Linkshaender im Rechtshaender-Bucket: {leaked}"
+
+    rows = sorted(
+        ((k, v[0], v[1] / v[0]) for k, v in vs_l.items() if v[0] >= 60),
+        key=lambda r: r[2],
+    )
+    print(f"Rechtshaender mit 60+ Matches vs Linkshaender: {len(rows)}")
+    for k, n, bias in rows[:4] + rows[-4:]:
+        se = math.sqrt(0.25 / n)
+        print(f"  {k:26s} n={n:3d}  bias={bias:+.3f}  (z={bias/se:+.1f})")
+    if rows:
+        zs = [b / math.sqrt(0.25 / n) for _, n, b in rows]
+        sd = (sum((z - sum(zs) / len(zs)) ** 2 for z in zs) / len(zs)) ** 0.5
+        print(f"  z-Streuung: sd={sd:.2f} (Nullhypothese reiner Noise: 1.00)")
+
     print("\n=== M2: Elo-Brier auf Hard nach Umgebung ===")
     for bucket, (n, b) in sorted(m2.items()):
         print(f"  {bucket:10s}: n={n:6d}  brier={b/n:.4f}")
@@ -147,3 +224,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    m4_calibrator_regimes()

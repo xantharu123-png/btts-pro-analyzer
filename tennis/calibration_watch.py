@@ -21,7 +21,7 @@ import re
 from collections import defaultdict
 from typing import Dict, Optional
 
-from .backtest import _is_retired
+from .backtest import _is_retired, stable_flip
 from .data_loader import load_atp_stats, add_normalized_names
 from .serve_model import ServeReturnModel, is_tour_level
 from .simulator import simulate_match
@@ -72,7 +72,7 @@ def collect_calibration() -> Dict:
                     and serve.service_games(l_key, as_of=as_of) >= MIN_SERVE_GAMES):
                 scored = _parse_score(s)
             if scored:
-                flip = hash(w_key) % 2 == 1
+                flip = stable_flip(w_key)
                 key_a, key_b = (l_key, w_key) if flip else (w_key, l_key)
                 hold_a, hold_b = serve.expected_hold_probabilities(
                     key_a, key_b,
