@@ -609,6 +609,12 @@ def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
     )
     probability_percent = point_probability * 100.0
     haircut = probability_percent - adjusted_probability
+    is_prematch = str(match.get("status") or "") == "upcoming"
+    series_evidence = (
+        f"Pre-Match (Serie noch nicht gestartet), Best-of-{series_type}."
+        if is_prematch
+        else f"Serienstand {score1}:{score2}, Best-of-{series_type}."
+    )
     return _candidate(
         event_key=_event_key(match, team1, team2),
         sport="E-Sport",
@@ -621,7 +627,7 @@ def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
         model_name="Beta-Bradley-Terry Series v1",
         expected_total=None,
         evidence=(
-            f"Serienstand {score1}:{score2}, Best-of-{series_type}.",
+            series_evidence,
             f"Historie: {team1} {wins1}/{matches1}, {team2} {wins2}/{matches2}.",
             f"Konservative 10/90-%-Beta-Grenzen plus 5,0 Prozentpunkte Modellabschlag.",
         ),

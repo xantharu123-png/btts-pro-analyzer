@@ -142,7 +142,7 @@ def test_multi_sport_esports_filter_is_scoped_to_pandascore(monkeypatch):
             self.api_key = "configured"
             self.errors = {}
 
-        def get_live_matches(self, game):
+        def get_matches(self, game):
             calls.append(game)
             return [
                 {

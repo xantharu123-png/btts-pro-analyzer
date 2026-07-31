@@ -17,6 +17,7 @@ class EsportsScanner:
     """E-Sports live data provider with strict payload validation."""
 
     MAX_LIVE_MATCHES_PER_GAME = 6
+    MAX_UPCOMING_MATCHES_PER_GAME = 6
 
     def __init__(self):
         self.pandascore_base = "https://api.pandascore.co"
@@ -32,12 +33,22 @@ class EsportsScanner:
         self.errors: Dict[str, str] = {}
 
     def get_live_matches(self, game: str = "all") -> List[Dict]:
-        """Get live matches from Pandascore"""
+        """Running matches from Pandascore."""
+        return self._scan(game, ("running", "live"))
+
+    def get_upcoming_matches(self, game: str = "all") -> List[Dict]:
+        """Not-yet-started matches from Pandascore, soonest first."""
+        return self._scan(game, ("upcoming", "upcoming"))
+
+    def get_matches(self, game: str = "all") -> List[Dict]:
+        """Live plus upcoming matches in one bounded scan."""
+        return self._scan(game, ("running", "live"), ("upcoming", "upcoming"))
+
+    def _scan(self, game: str, *endpoints: tuple) -> List[Dict]:
         self.errors = {}
         if not self.api_key:
             self.errors["credentials"] = "PandaScore key missing"
             return []
-        all_matches = []
 
         games_map = {
             'cs2': 'csgo',
@@ -51,41 +62,66 @@ class EsportsScanner:
             return []
 
         games_to_scan = list(games_map.keys()) if game == 'all' else [game]
-
+        all_matches: List[Dict] = []
         for g in games_to_scan:
-            try:
-                api_game = games_map.get(g, g)
-                url = f"{self.pandascore_base}/{api_game}/matches/running"
-
-                response = requests.get(
-                    url,
-                    headers=self.headers,
-                    params={'per_page': self.MAX_LIVE_MATCHES_PER_GAME},
-                    timeout=10,
+            api_game = games_map.get(g, g)
+            for endpoint, status in endpoints:
+                error_key = g if len(endpoints) == 1 else f"{status}_{g}"
+                all_matches.extend(
+                    self._fetch_endpoint(api_game, g.upper(), endpoint, status, error_key)
                 )
-
-                if response.status_code == 200:
-                    matches = response.json()
-                    if not isinstance(matches, list):
-                        self.errors[g] = "Invalid provider payload"
-                        continue
-                    for match in matches[:self.MAX_LIVE_MATCHES_PER_GAME]:
-                        formatted = self._format_match(match, g.upper())
-                        if formatted:
-                            all_matches.append(formatted)
-                else:
-                    self.errors[g] = f"HTTP {response.status_code}"
-
-            except (requests.RequestException, ValueError) as exc:
-                self.errors[g] = type(exc).__name__
-                continue
-
         return all_matches
 
-    def _format_match(self, match: Dict, game: str) -> Optional[Dict]:
-        """Format match with team stats"""
+    def _fetch_endpoint(
+        self,
+        api_game: str,
+        game_label: str,
+        endpoint: str,
+        status: str,
+        error_key: str,
+    ) -> List[Dict]:
+        limit = (
+            self.MAX_LIVE_MATCHES_PER_GAME
+            if status == "live"
+            else self.MAX_UPCOMING_MATCHES_PER_GAME
+        )
+        url = f"{self.pandascore_base}/{api_game}/matches/{endpoint}"
         try:
-            if not isinstance(match, dict):
+            response = requests.get(
+                url,
+                headers=self.headers,
+                params={'per_page': limit, 'sort': 'begin_at'},
+                timeout=10,
+            )
+        except (requests.RequestException, ValueError) as exc:
+            self.errors[error_key] = type(exc).__name__
+            return []
+        if response.status_code != 200:
+            self.errors[error_key] = f"HTTP {response.status_code}"
+            return []
+        try:
+            matches = response.json()
+        except ValueError:
+            self.errors[error_key] = "Invalid provider payload"
+            return []
+        if not isinstance(matches, list):
+            self.errors[error_key] = "Invalid provider payload"
+            return []
+        formatted_matches: List[Dict] = []
+        for match in matches[:limit]:
+            formatted = self._format_match(match, game_label, status=status)
+            if formatted:
+                formatted_matches.append(formatted)
+        return formatted_matches
+
+    def _format_match(self, match: Dict, game: str, status: str = "live") -> Optional[Dict]:
+        """Format match with team stats.
+
+        ``status`` is "live" (running match, verified scoreboard required)
+        or "upcoming" (not started, score fixed at 0:0).
+        """
+        try:
+            if not isinstance(match, dict) or status not in {"live", "upcoming"}:
                 return None
             opponents = match.get('opponents', [])
             if not isinstance(opponents, list) or len(opponents) != 2:
@@ -120,29 +156,42 @@ class EsportsScanner:
             ):
                 return None
 
-            results = match.get('results', [])
-            if not isinstance(results, list):
-                return None
-            scores_by_team = {
-                result.get('team_id'): result.get('score')
-                for result in results
-                if isinstance(result, dict) and result.get('team_id') is not None
-            }
-            score1 = scores_by_team.get(team1_id)
-            score2 = scores_by_team.get(team2_id)
-            if (
-                isinstance(score1, bool)
-                or isinstance(score2, bool)
-                or not isinstance(score1, (int, float))
-                or not isinstance(score2, (int, float))
-                or not math.isfinite(float(score1))
-                or not math.isfinite(float(score2))
-                or float(score1) < 0
-                or float(score2) < 0
-                or not float(score1).is_integer()
-                or not float(score2).is_integer()
-            ):
-                return None
+            if status == "upcoming":
+                if str(match.get('status') or '').lower() != 'not_started':
+                    return None
+                score1, score2 = 0, 0
+            else:
+                if str(match.get('status') or '').lower() != 'running':
+                    return None
+                results = match.get('results', [])
+                if not isinstance(results, list):
+                    return None
+                scores_by_team = {
+                    result.get('team_id'): result.get('score')
+                    for result in results
+                    if isinstance(result, dict) and result.get('team_id') is not None
+                }
+                score1 = scores_by_team.get(team1_id)
+                score2 = scores_by_team.get(team2_id)
+                if (
+                    isinstance(score1, bool)
+                    or isinstance(score2, bool)
+                    or not isinstance(score1, (int, float))
+                    or not isinstance(score2, (int, float))
+                    or not math.isfinite(float(score1))
+                    or not math.isfinite(float(score2))
+                    or float(score1) < 0
+                    or float(score2) < 0
+                    or not float(score1).is_integer()
+                    or not float(score2).is_integer()
+                ):
+                    return None
+                score1 = int(score1)
+                score2 = int(score2)
+
+            begin_at = match.get('begin_at')
+            if begin_at is not None and not isinstance(begin_at, str):
+                begin_at = None
 
             series_type = match.get('number_of_games')
             can_estimate = (
@@ -181,6 +230,8 @@ class EsportsScanner:
                 'series_type': series_type,
                 'team1_stats': team1_stats,
                 'team2_stats': team2_stats,
+                'status': status,
+                'begin_at': begin_at,
                 'source': 'PandaScore',
             }
         except (AttributeError, KeyError, TypeError, ValueError):

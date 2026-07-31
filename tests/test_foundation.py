@@ -2097,7 +2097,9 @@ class CrossSportMathTests(unittest.TestCase):
         scanner.headers = {"Authorization": "Bearer test"}
         scanner.errors = {}
         scanner._stats_cache = {}
-        scanner._format_match = Mock(side_effect=lambda match, game: {"id": match["id"], "game": game})
+        scanner._format_match = Mock(
+            side_effect=lambda match, game, status="live": {"id": match["id"], "game": game}
+        )
         response = Mock(status_code=200)
         response.json.return_value = [{"id": index} for index in range(10)]
 
@@ -2113,6 +2115,102 @@ class CrossSportMathTests(unittest.TestCase):
         with patch("scanners.esports_scanner.requests.get") as get:
             self.assertEqual(scanner.get_live_matches("unknown"), [])
         get.assert_not_called()
+
+    def test_esports_upcoming_format_accepts_not_started_without_results(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        scanner._get_team_stats = Mock(
+            return_value={"win_rate": 60.0, "matches": 20, "wins": 12, "form": []}
+        )
+        parsed = scanner._format_match(
+            {
+                "id": 21,
+                "status": "not_started",
+                "begin_at": "2026-08-01T18:00:00Z",
+                "opponents": [
+                    {"opponent": {"id": 7, "name": "Alpha"}},
+                    {"opponent": {"id": 8, "name": "Beta"}},
+                ],
+                "number_of_games": 3,
+                "tournament": {"name": "Test Cup"},
+            },
+            "CS2",
+            status="upcoming",
+        )
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual((parsed["team1_score"], parsed["team2_score"]), (0, 0))
+        self.assertEqual(parsed["status"], "upcoming")
+        self.assertEqual(parsed["begin_at"], "2026-08-01T18:00:00Z")
+        self.assertEqual(parsed["tournament"], "Test Cup")
+
+    def test_esports_format_rejects_mismatched_status(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        scanner._get_team_stats = Mock(side_effect=AssertionError("no history call"))
+        payload = {
+            "id": 22,
+            "status": "not_started",
+            "opponents": [
+                {"opponent": {"id": 7, "name": "Alpha"}},
+                {"opponent": {"id": 8, "name": "Beta"}},
+            ],
+            "number_of_games": 3,
+        }
+        self.assertIsNone(scanner._format_match(payload, "CS2", status="live"))
+        payload["status"] = "running"
+        self.assertIsNone(scanner._format_match(payload, "CS2", status="upcoming"))
+        payload["status"] = "finished"
+        self.assertIsNone(scanner._format_match(payload, "CS2", status="upcoming"))
+
+    def test_esports_upcoming_scan_uses_upcoming_endpoint_and_limit(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        scanner.api_key = "test"
+        scanner.pandascore_base = "https://api.pandascore.co"
+        scanner.headers = {"Authorization": "Bearer test"}
+        scanner.errors = {}
+        scanner._stats_cache = {}
+        scanner._format_match = Mock(
+            side_effect=lambda match, game, status="live": {
+                "id": match["id"],
+                "status": status,
+            }
+        )
+        response = Mock(status_code=200)
+        response.json.return_value = [{"id": index} for index in range(10)]
+
+        with patch("scanners.esports_scanner.requests.get", return_value=response) as get:
+            matches = scanner.get_upcoming_matches("cs2")
+
+        self.assertEqual(len(matches), scanner.MAX_UPCOMING_MATCHES_PER_GAME)
+        self.assertTrue(get.call_args.args[0].endswith("/matches/upcoming"))
+        self.assertEqual(
+            get.call_args.kwargs["params"]["per_page"],
+            scanner.MAX_UPCOMING_MATCHES_PER_GAME,
+        )
+
+    def test_esports_combined_scan_covers_live_and_upcoming(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        scanner.api_key = "test"
+        scanner.pandascore_base = "https://api.pandascore.co"
+        scanner.headers = {"Authorization": "Bearer test"}
+        scanner.errors = {}
+        scanner._stats_cache = {}
+        scanner._format_match = Mock(
+            side_effect=lambda match, game, status="live": {
+                "id": match["id"],
+                "status": status,
+            }
+        )
+        response = Mock(status_code=200)
+        response.json.return_value = [{"id": 1}]
+
+        with patch("scanners.esports_scanner.requests.get", return_value=response) as get:
+            matches = scanner.get_matches("cs2")
+
+        self.assertEqual(get.call_count, 2)
+        urls = [call.args[0] for call in get.call_args_list]
+        self.assertTrue(any(url.endswith("/matches/running") for url in urls))
+        self.assertTrue(any(url.endswith("/matches/upcoming") for url in urls))
+        self.assertEqual({match["status"] for match in matches}, {"live", "upcoming"})
 
     def test_best_bet_ranker_rejects_uncalibrated_inputs(self):
         result = BestBetFinder().find_best_bet(

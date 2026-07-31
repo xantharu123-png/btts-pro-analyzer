@@ -2235,6 +2235,13 @@ def _multi_sport_event_label(sport: str, item: dict) -> str:
             f"{item.get('team1', 'Team 1')} vs {item.get('team2', 'Team 2')} | "
             f"{score} nach {item.get('current_over', 'n/a')} Over"
         )
+    if item.get("status") == "upcoming":
+        begin = str(item.get("begin_at") or "")
+        kickoff = begin[11:16] if len(begin) >= 16 else "offen"
+        return (
+            f"{item.get('team1', 'Team 1')} vs {item.get('team2', 'Team 2')} | "
+            f"Pre-Match · Anstoß {kickoff}"
+        )
     return (
         f"{item.get('team1', 'Team 1')} vs {item.get('team2', 'Team 2')} | "
         f"{item.get('team1_score', 'n/a')}:{item.get('team2_score', 'n/a')}"
@@ -2327,7 +2334,7 @@ def _fetch_multi_sport_snapshot(
         snapshot["credentials_available"] = bool(scanner.api_key)
         if scanner.api_key:
             provider_filter = "all" if detail_filter == "Alle Spiele" else detail_filter.lower()
-            for match in scanner.get_live_matches(provider_filter):
+            for match in scanner.get_matches(provider_filter):
                 snapshot["items"].append(dict(match))
             for provider, message in scanner.errors.items():
                 snapshot["errors"][provider] = message
@@ -2381,9 +2388,18 @@ def render_multi_sport() -> None:
     snapshot_items = snapshot.get("items")
     snapshot_items = snapshot_items if isinstance(snapshot_items, list) else []
     item_count = len(snapshot_items)
+    upcoming_count = sum(
+        1
+        for item in snapshot_items
+        if isinstance(item, dict) and item.get("status") == "upcoming"
+    )
+    if upcoming_count:
+        events_label = f"{item_count - upcoming_count} live · {upcoming_count} anstehend"
+    else:
+        events_label = f"{item_count} Live-Ereignisse"
     caption_parts = [
         f"Datenstand: {_format_snapshot_time(snapshot.get('scanned_at'))}",
-        f"{item_count} Live-Ereignisse",
+        events_label,
     ]
     if detail_filter:
         caption_parts.append(f"Filter: {detail_filter}")
@@ -2397,10 +2413,6 @@ def render_multi_sport() -> None:
     st.caption(" | ".join(caption_parts))
 
     snapshot_age = _snapshot_age_seconds(snapshot.get("scanned_at"))
-    if snapshot_age is None or snapshot_age < -30 or snapshot_age > 180:
-        st.error("NICHT WETTEN: Live-Snapshot ist ungültig oder älter als drei Minuten.")
-        return
-
     missing_esports_key = sport == "E-Sport" and not snapshot.get(
         "credentials_available"
     )
@@ -2435,6 +2447,23 @@ def render_multi_sport() -> None:
         key=f"multi_sport_event_{scope_key}",
     )
     selected_item = snapshot_items[selected_index]
+    is_upcoming = (
+        isinstance(selected_item, dict) and selected_item.get("status") == "upcoming"
+    )
+    max_snapshot_age = 3600 if is_upcoming else 180
+    if snapshot_age is None or snapshot_age < -30 or snapshot_age > max_snapshot_age:
+        if is_upcoming:
+            st.error(
+                "NICHT WETTEN: Pre-Match-Datenstand ist ungültig oder älter als eine Stunde."
+            )
+        else:
+            st.error("NICHT WETTEN: Live-Snapshot ist ungültig oder älter als drei Minuten.")
+        return
+    if is_upcoming:
+        st.caption(
+            "Pre-Match-Bewertung aus Team-Historien (Serienstand 0:0). "
+            "Lineups und N1Bet-Quote vor Abgabe prüfen."
+        )
     snapshot_token = str(snapshot.get("scanned_at") or "snapshot").replace(":", "_")
     line_value = None
     if sport in {"Basketball", "Eishockey"}:

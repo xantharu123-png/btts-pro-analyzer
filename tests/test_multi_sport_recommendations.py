@@ -1,5 +1,7 @@
 import math
 
+import pytest
+
 from multi_sport_recommendations import (
     basketball_total_candidate,
     build_candidate,
@@ -202,3 +204,61 @@ def test_near_certain_probability_is_display_capped_and_flagged():
     assert format_probability_percent(None) == "k. A."
     assert format_fair_odds(1.83) == "1.830"
     assert format_fair_odds(None) == "k. A."
+
+
+def test_esports_series_math_matches_closed_form_negative_binomial():
+    """Unabhängiger Beweis: Rekursion == geschlossene Form (neg. Binomial)."""
+    from multi_sport_recommendations import _series_win_probability
+
+    def closed_form(p, a, b, n):
+        m = n - a
+        return sum(
+            math.comb(m - 1 + k, k) * p**m * (1 - p) ** k
+            for k in range(0, n - b)
+        )
+
+    for n in (1, 2, 3, 4):  # Bo1, Bo3, Bo5, Bo7
+        for a in range(0, n):
+            for b in range(0, n):
+                for i in range(1, 10):
+                    p = i / 10.0
+                    assert _series_win_probability(p, a, b, n) == (
+                        pytest.approx(closed_form(p, a, b, n), abs=1e-12)
+                    )
+
+
+def test_esports_series_map_roundtrip_is_exact():
+    from multi_sport_recommendations import (
+        _map_probability_from_series_probability,
+        _series_win_probability,
+    )
+
+    for n in (1, 2, 3, 4):
+        for i in range(5, 96):
+            series_probability = i / 100.0
+            map_probability = _map_probability_from_series_probability(
+                series_probability, n
+            )
+            assert _series_win_probability(map_probability, 0, 0, n) == (
+                pytest.approx(series_probability, abs=1e-9)
+            )
+
+
+def test_esports_prematch_candidate_scores_upcoming_series():
+    match = _esports_match()
+    match.update(
+        {
+            "team1_score": 0,
+            "team2_score": 0,
+            "status": "upcoming",
+            "begin_at": "2026-08-01T18:00:00Z",
+        }
+    )
+
+    candidate = esports_match_winner_candidate(match)
+
+    assert candidate.model_ready
+    assert candidate.selection == "Alpha"
+    assert 70.0 < candidate.model_probability < 85.0
+    assert candidate.probability_haircut >= 5.0
+    assert any("Pre-Match" in note for note in candidate.evidence)
