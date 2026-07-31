@@ -25,17 +25,37 @@ def _basketball_game():
     }
 
 
+def _esports_history(team_id, opponent_id, wins, losses, start_id):
+    total = wins + losses
+    return [
+        {
+            "match_id": start_id + index,
+            "begin_at": f"2026-07-{1 + index:02d}T12:00:00Z",
+            "opponent_id": opponent_id,
+            # Interleaved results: avoids path artefacts of blocked
+            # win-then-loss sequences in the ELO iteration.
+            "won": (index * wins) % total < wins,
+            "number_of_games": 3,
+        }
+        for index in range(total)
+    ]
+
+
 def _esports_match():
     return {
         "id": 55,
         "game": "CS2",
         "team1": "Alpha",
         "team2": "Beta",
+        "team1_id": 7,
+        "team2_id": 8,
         "team1_score": 1,
         "team2_score": 0,
         "series_type": 3,
         "team1_stats": {"matches": 20, "wins": 15},
         "team2_stats": {"matches": 20, "wins": 8},
+        "team1_history": _esports_history(7, 100, 15, 5, 1000),
+        "team2_history": _esports_history(8, 100, 8, 12, 2000),
     }
 
 
@@ -159,7 +179,7 @@ def test_esports_live_series_uses_history_uncertainty_before_price_gate():
 
 def test_esports_history_gate_blocks_small_samples():
     match = _esports_match()
-    match["team1_stats"] = {"matches": 8, "wins": 6}
+    match["team1_history"] = match["team1_history"][:8]
 
     candidate = esports_match_winner_candidate(match)
 
@@ -259,6 +279,64 @@ def test_esports_prematch_candidate_scores_upcoming_series():
 
     assert candidate.model_ready
     assert candidate.selection == "Alpha"
-    assert 70.0 < candidate.model_probability < 85.0
+    assert 70.0 < candidate.model_probability < 99.5
     assert candidate.probability_haircut >= 5.0
     assert any("Pre-Match" in note for note in candidate.evidence)
+
+
+def test_elo_fixed_point_matches_empirical_win_rate():
+    """20 direct encounters, 75 % win rate: ELO converges to the
+    fixed point delta = 400 * log10(0.75/0.25) ~= 191 points."""
+    from esports_elo import expected_score, subgraph_ratings
+
+    history_a = _esports_history(7, 8, 15, 5, 3000)
+    history_b = _esports_history(8, 7, 5, 15, 3000)  # same match ids
+    elo_a, elo_b, size = subgraph_ratings(history_a, history_b, 7, 8)
+
+    assert size == 20  # direct encounters are deduplicated
+    assert abs((elo_a - elo_b) - 190.8) < 60.0
+    assert 0.70 < expected_score(elo_a, elo_b) < 0.82
+
+
+def test_elo_prices_opponent_strength_from_shared_opponent():
+    """A 16-4 vs C and B 4-16 vs C must rate A clearly above B even
+    though no direct A-vs-B match exists in the subgraph."""
+    from esports_elo import expected_score, subgraph_ratings
+
+    elo_a, elo_b, _ = subgraph_ratings(
+        _esports_history(7, 100, 16, 4, 4000),
+        _esports_history(8, 100, 4, 16, 5000),
+        7,
+        8,
+    )
+
+    assert 0.85 < expected_score(elo_a, elo_b) < 0.99
+
+
+def test_elo_bo1_results_move_ratings_less_than_bo3():
+    from esports_elo import ELO_BO1_K_MULTIPLIER, ELO_BASE, subgraph_ratings
+
+    one_bo3 = [
+        {
+            "match_id": 1,
+            "begin_at": "2026-07-01T12:00:00Z",
+            "opponent_id": 8,
+            "won": True,
+            "number_of_games": 3,
+        }
+    ]
+    one_bo1 = [dict(one_bo3[0], number_of_games=1)]
+    bo3_a, _, _ = subgraph_ratings(one_bo3, [], 7, 8, iterations=1)
+    bo1_a, _, _ = subgraph_ratings(one_bo1, [], 7, 8, iterations=1)
+
+    assert (bo1_a - ELO_BASE) == pytest.approx(
+        (bo3_a - ELO_BASE) * ELO_BO1_K_MULTIPLIER
+    )
+
+
+def test_esports_candidate_uses_elo_not_raw_winrates():
+    candidate = esports_match_winner_candidate(_esports_match())
+
+    assert candidate.model_ready
+    assert candidate.model_name == "Subgraph-ELO Series v2"
+    assert any("ELO" in note for note in candidate.evidence)

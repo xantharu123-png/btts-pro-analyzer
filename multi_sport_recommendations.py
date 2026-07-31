@@ -13,10 +13,14 @@ import math
 import re
 from typing import Any, Optional, Sequence
 
-from scipy.stats import beta as beta_distribution
 from scipy.stats import nbinom
 
 from betting_math import BettingMathError, ValueMetrics, evaluate_market_price
+from esports_elo import (
+    ELO_UNCERTAINTY_MARGIN,
+    expected_score,
+    subgraph_ratings,
+)
 
 
 MINIMUM_EDGE_PERCENTAGE_POINTS = 4.0
@@ -488,15 +492,6 @@ def _map_probability_from_series_probability(
     return (low + high) / 2.0
 
 
-def _relative_probability(rate_a: float, rate_b: float) -> float:
-    epsilon = 1e-9
-    a = min(1.0 - epsilon, max(epsilon, rate_a))
-    b = min(1.0 - epsilon, max(epsilon, rate_b))
-    odds_a = a / (1.0 - a)
-    odds_b = b / (1.0 - b)
-    return odds_a / (odds_a + odds_b)
-
-
 def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
     team1 = str(match.get("team1") or "").strip()
     team2 = str(match.get("team2") or "").strip()
@@ -521,19 +516,29 @@ def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
         blockers.append("Gültige Sieg-/Matchzahlen fehlen.")
     elif wins1 > matches1 or wins2 > matches2:
         blockers.append("Historische Sieg-/Matchzahlen widersprechen sich.")
-    elif matches1 < 20 or matches2 < 20:
-        blockers.append("Mindestens 20 abgeschlossene Matches je Team sind erforderlich.")
     if score1 is None or score2 is None:
         blockers.append("Der verifizierte Serienstand fehlt.")
     if series_type is None or series_type < 1 or series_type % 2 == 0:
         blockers.append("Das Best-of-Format fehlt oder ist unplausibel.")
+    history1 = match.get("team1_history")
+    history2 = match.get("team2_history")
+    if not isinstance(history1, list) or not isinstance(history2, list):
+        blockers.append("Historische Matchlisten fehlen.")
+        history1 = []
+        history2 = []
+    if len(history1) < 20 or len(history2) < 20:
+        blockers.append("Mindestens 20 abgeschlossene Matches je Team sind erforderlich.")
+    team1_id = _whole_non_negative(match.get("team1_id"))
+    team2_id = _whole_non_negative(match.get("team2_id"))
+    if team1_id is None or team2_id is None or team1_id == team2_id:
+        blockers.append("Team-IDs für die gegneradjustierte Stärkebewertung fehlen.")
     if blockers:
         return no_bet_candidate(
             "E-Sport",
             match,
             blockers,
             market="Match-Sieger",
-            model_name="Beta-Bradley-Terry Series v1",
+            model_name="Subgraph-ELO Series v2",
         )
 
     maps_to_win = series_type // 2 + 1
@@ -543,12 +548,13 @@ def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
             match,
             ["Die Serie ist bereits beendet oder der Serienstand ist unplausibel."],
             market="Match-Sieger",
-            model_name="Beta-Bradley-Terry Series v1",
+            model_name="Subgraph-ELO Series v2",
         )
 
-    rate1 = (wins1 + 1.0) / (matches1 + 2.0)
-    rate2 = (wins2 + 1.0) / (matches2 + 2.0)
-    team1_series_probability = _relative_probability(rate1, rate2)
+    elo1, elo2, subgraph_size = subgraph_ratings(
+        history1, history2, team1_id, team2_id
+    )
+    team1_series_probability = expected_score(elo1, elo2)
     team1_map_probability = _map_probability_from_series_probability(
         team1_series_probability,
         maps_to_win,
@@ -563,33 +569,19 @@ def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
     if team1_live_probability >= 0.5:
         selection = team1
         point_probability = team1_live_probability
-        selected_wins, selected_matches = wins1, matches1
-        opponent_wins, opponent_matches = wins2, matches2
+        fav_elo, opp_elo = elo1, elo2
         selected_score, opponent_score = score1, score2
     else:
         selection = team2
         point_probability = 1.0 - team1_live_probability
-        selected_wins, selected_matches = wins2, matches2
-        opponent_wins, opponent_matches = wins1, matches1
+        fav_elo, opp_elo = elo2, elo1
         selected_score, opponent_score = score2, score1
 
-    selected_lower = float(
-        beta_distribution.ppf(
-            0.10,
-            selected_wins + 1,
-            selected_matches - selected_wins + 1,
-        )
-    )
-    opponent_upper = float(
-        beta_distribution.ppf(
-            0.90,
-            opponent_wins + 1,
-            opponent_matches - opponent_wins + 1,
-        )
-    )
-    conservative_series_probability = _relative_probability(
-        selected_lower,
-        opponent_upper,
+    # Conservative line: the bounded subgraph carries estimation error,
+    # priced as a flat ELO margin against the favourite.
+    conservative_series_probability = expected_score(
+        fav_elo - ELO_UNCERTAINTY_MARGIN,
+        opp_elo,
     )
     conservative_map_probability = _map_probability_from_series_probability(
         conservative_series_probability,
@@ -601,8 +593,8 @@ def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
         opponent_score,
         maps_to_win,
     )
-    # Five additional percentage points cover opponent-quality, roster, and map
-    # selection effects that a short public match history does not identify.
+    # Five additional percentage points cover roster and map-veto effects
+    # that public match histories do not identify.
     adjusted_probability = max(
         0.0,
         min(point_probability, conservative_live_probability) * 100.0 - 5.0,
@@ -624,12 +616,13 @@ def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
         line=None,
         model_probability=probability_percent,
         probability_haircut=haircut,
-        model_name="Beta-Bradley-Terry Series v1",
+        model_name="Subgraph-ELO Series v2",
         expected_total=None,
         evidence=(
             series_evidence,
+            f"ELO {elo1:.0f} vs {elo2:.0f} aus {subgraph_size} Subgraph-Spielen (gegneradjustiert).",
             f"Historie: {team1} {wins1}/{matches1}, {team2} {wins2}/{matches2}.",
-            f"Konservative 10/90-%-Beta-Grenzen plus 5,0 Prozentpunkte Modellabschlag.",
+            f"Konservativ: 150 ELO-Punkte Unsicherheitsmarge plus 5,0 Prozentpunkte Modellabschlag.",
         ),
     )
 

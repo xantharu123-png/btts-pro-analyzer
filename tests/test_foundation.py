@@ -2053,11 +2053,13 @@ class CrossSportMathTests(unittest.TestCase):
         response = Mock(status_code=200)
         response.json.return_value = [
             {
+                "id": 901,
                 "status": "finished",
                 "opponents": [{"opponent": {"id": 7}}, {"opponent": {"id": 8}}],
                 "winner": {"id": 7},
             },
             {
+                "id": 902,
                 "status": "finished",
                 "opponents": [{"opponent": {"id": 8}}, {"opponent": {"id": 9}}],
                 "winner": {"id": 8},
@@ -2073,7 +2075,8 @@ class CrossSportMathTests(unittest.TestCase):
 
     def test_esports_rejects_invalid_identity_before_history_requests(self):
         scanner = EsportsScanner.__new__(EsportsScanner)
-        scanner._get_team_stats = Mock(side_effect=AssertionError("unexpected history request"))
+        scanner._get_team_stats = Mock(side_effect=AssertionError("unexpected stats request"))
+        scanner._get_team_history = Mock(side_effect=AssertionError("unexpected history request"))
         parsed = scanner._format_match({
             "id": 11,
             "opponents": [
@@ -2121,6 +2124,7 @@ class CrossSportMathTests(unittest.TestCase):
         scanner._get_team_stats = Mock(
             return_value={"win_rate": 60.0, "matches": 20, "wins": 12, "form": []}
         )
+        scanner._get_team_history = Mock(return_value=[])
         parsed = scanner._format_match(
             {
                 "id": 21,
@@ -2145,7 +2149,8 @@ class CrossSportMathTests(unittest.TestCase):
 
     def test_esports_format_rejects_mismatched_status(self):
         scanner = EsportsScanner.__new__(EsportsScanner)
-        scanner._get_team_stats = Mock(side_effect=AssertionError("no history call"))
+        scanner._get_team_stats = Mock(side_effect=AssertionError("no stats call"))
+        scanner._get_team_history = Mock(side_effect=AssertionError("no history call"))
         payload = {
             "id": 22,
             "status": "not_started",
