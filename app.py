@@ -2343,6 +2343,34 @@ def _fetch_multi_sport_snapshot(
     return snapshot
 
 
+def _render_esports_shadow_status() -> None:
+    """Compact proof line: shadow-log calibration for e-sport candidates."""
+    try:
+        from esports_shadow import DEFAULT_DB_PATH, EsportsShadowLog
+
+        if not DEFAULT_DB_PATH.exists():
+            return
+        summary = EsportsShadowLog().summary()
+    except Exception:
+        return
+    predictions = summary.get("predictions") or 0
+    settled = summary.get("settled") or 0
+    if not predictions:
+        return
+    if settled:
+        st.caption(
+            f"E-Sport Shadow-Protokoll: {predictions} Tipps protokolliert | "
+            f"{settled} abgerechnet | Treffer {summary['hit_rate']} % bei Ø "
+            f"Modellwahrscheinlichkeit {summary['avg_model_probability']} % | "
+            f"{summary['open']} offen"
+        )
+    else:
+        st.caption(
+            f"E-Sport Shadow-Protokoll: {predictions} Tipps protokolliert, "
+            "Abrechnung nach Spielende."
+        )
+
+
 def render_multi_sport() -> None:
     sport = st.selectbox(
         "Sportart",
@@ -2357,6 +2385,8 @@ def render_multi_sport() -> None:
             list(filter_options),
             key=f"multi_sport_filter_{sport.lower().replace('-', '_')}",
         )
+    if sport == "E-Sport":
+        _render_esports_shadow_status()
 
     snapshots = st.session_state.get("multi_sport_snapshots")
     if not isinstance(snapshots, dict):

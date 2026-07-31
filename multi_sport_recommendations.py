@@ -13,7 +13,10 @@ import math
 import re
 from typing import Any, Optional, Sequence
 
-from scipy.stats import nbinom
+try:  # Managed-Automation-Runner hat kein scipy; der E-Sport-Pfad braucht es nicht
+    from scipy.stats import nbinom
+except ImportError:  # pragma: no cover - nur in Runner-Umgebungen ohne scipy
+    nbinom = None
 
 from betting_math import BettingMathError, ValueMetrics, evaluate_market_price
 from esports_elo import (
@@ -259,6 +262,10 @@ def _gamma_poisson_total_probability(
         return 1.0, expected_total
     if remaining_exposure <= 0:
         return 0.0, expected_total
+    if nbinom is None:
+        raise RuntimeError(
+            "scipy fehlt in dieser Laufzeit — Basketball-Total-Modell nicht verfügbar"
+        )
     success_probability = rate / (rate + remaining_exposure)
     over_probability = float(
         nbinom.sf(required_future - 1, shape, success_probability)

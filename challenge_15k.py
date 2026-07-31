@@ -50,7 +50,7 @@ CHALLENGE_TIMEZONE = ZoneInfo("Europe/Zurich")
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
 API_TAIL_DAYS = 7  # Frische-Tail: API-FT-Ergebnisse über die CSV-Historie legen
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
-MAX_CONTEXT_FIXTURES = 8
+MAX_CONTEXT_FIXTURES = 20
 # Safety-Ventil, kein Modell-Limit: ALLE Spiele der gewählten Ligen werden
 # modelliert (lokal, kostenlos). Teuer sind nur die Kontext-Checks, und die
 # bleiben über MAX_CONTEXT_FIXTURES gedeckelt.
@@ -1551,7 +1551,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     max_fixtures = MAX_SCAN_FIXTURES
     controls[1].caption(
         "Alle Spiele der gewählten Ligen werden modelliert; "
-        "Live-Kontext (H2H, Wetter, Aufstellung) für die Top-Kandidaten."
+        "Live-Kontext (H2H, Wetter, Aufstellung) für die 20 stärksten Kandidaten."
     )
 
     available_ids = list(ALTERNATIVE_MARKET_LEAGUES)
@@ -1636,7 +1636,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     counts = st.columns(4)
     counts[0].metric("Gefunden", snapshot["fixtures_found"])
     counts[1].metric("Modelliert", snapshot["fixtures_modeled"])
-    counts[2].metric("Kontext geprüft", snapshot["context_fixtures"])
+    counts[2].metric("Kontext geprüft (Top 20)", snapshot["context_fixtures"])
     counts[3].metric("Freigegeben", snapshot["approved_candidates"])
     if snapshot.get("errors"):
         st.warning(

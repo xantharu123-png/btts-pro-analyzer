@@ -7,9 +7,13 @@ estimates anymore.
 """
 
 import math
-import streamlit as st
 import requests
 from typing import Dict, List, Optional
+
+try:  # Automation-Runner ohne streamlit: Secrets entfallen, config.ini/env greifen
+    import streamlit as st
+except ImportError:  # pragma: no cover - nur ausserhalb der Streamlit-App
+    st = None
 
 from config_loader import load_app_config
 
@@ -246,6 +250,47 @@ class EsportsScanner:
     @staticmethod
     def _empty_stats() -> Dict:
         return {'win_rate': None, 'matches': 0, 'wins': 0, 'form': []}
+
+    def get_match_result(self, match_id: int) -> Optional[Dict]:
+        """Finished-match result for shadow settlement.
+
+        Returns {"winner_team_id": int} for finished matches, else None
+        (still running, not started, or invalid payload).
+        """
+        if (
+            not self.api_key
+            or not isinstance(match_id, int)
+            or isinstance(match_id, bool)
+            or match_id <= 0
+        ):
+            return None
+        try:
+            response = requests.get(
+                f"{self.pandascore_base}/matches/{match_id}",
+                headers=self.headers,
+                timeout=10,
+            )
+        except (requests.RequestException, ValueError):
+            return None
+        if response.status_code != 200:
+            return None
+        try:
+            match = response.json()
+        except ValueError:
+            return None
+        if not isinstance(match, dict):
+            return None
+        if str(match.get("status") or "").lower() != "finished":
+            return None
+        winner = match.get("winner")
+        winner_id = winner.get("id") if isinstance(winner, dict) else None
+        if (
+            not isinstance(winner_id, int)
+            or isinstance(winner_id, bool)
+            or winner_id <= 0
+        ):
+            return None
+        return {"winner_team_id": winner_id}
 
     def _get_team_history(self, team_id: int, game: str) -> List[Dict]:
         """Raw finished-match history for a team (newest first, max 50).

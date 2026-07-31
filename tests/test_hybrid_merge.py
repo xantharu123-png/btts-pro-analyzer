@@ -12,6 +12,14 @@ from football_data_history import merge_api_tail  # noqa: E402
 NOW = datetime(2026, 7, 25, 12, tzinfo=timezone.utc)
 
 
+class FrozenDateTime(datetime):
+    """Eingefrorene Uhr: now() liefert immer NOW, Rest erbt datetime."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return NOW if tz is None else NOW.astimezone(tz)
+
+
 def csv_entry(fixture_id, played_at, home_name, away_name, home_id, away_id,
               home_goals=2, away_goals=1):
     return {
@@ -158,6 +166,15 @@ class MergeApiTailTest(unittest.TestCase):
 
 
 class CompletedHistoryMergeTest(unittest.TestCase):
+    def setUp(self):
+        # completed_history() fragt intern die echte Uhr ab (Tail-Fenster,
+        # from/to-Daten). Ohne eingefrorene Zeit kippt der Test, sobald die
+        # reale Zeit von NOW wegläuft (Zeitbombe am Fensterrand).
+        for target in ("challenge_15k.datetime", "football_data_history.datetime"):
+            patcher = patch(target, FrozenDateTime)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_completed_history_merges_api_tail_over_csv(self):
         csv_history = [
             csv_entry(-101, NOW - timedelta(days=14), "Arsenal", "Chelsea", 501, 502),
