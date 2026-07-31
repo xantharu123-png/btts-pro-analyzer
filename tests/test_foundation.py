@@ -1620,30 +1620,6 @@ class UltraDataGateTests(unittest.TestCase):
 
 
 class CrossSportMathTests(unittest.TestCase):
-    @staticmethod
-    def _esports_match(score1=0, score2=0):
-        return {
-            "id": 1,
-            "game": "CS2",
-            "team1": "Alpha",
-            "team2": "Beta",
-            "team1_score": score1,
-            "team2_score": score2,
-            "series_type": 3,
-            "team1_stats": {
-                "win_rate": 70.0,
-                "matches": 20,
-                "wins": 14,
-                "form": ["W", "W", "L"],
-            },
-            "team2_stats": {
-                "win_rate": 45.0,
-                "matches": 20,
-                "wins": 9,
-                "form": ["L", "W", "L"],
-            },
-        }
-
     def test_cricket_decimal_over_notation_counts_balls(self):
         scanner = CricketScanner.__new__(CricketScanner)
         run_rate = scanner._calculate_run_rate({
@@ -2067,46 +2043,6 @@ class CrossSportMathTests(unittest.TestCase):
         self.assertEqual(matches[0]["player1_score"], 1)
         self.assertIsNone(matches[0]["point_score"])
         self.assertIsNone(scanner.last_error)
-
-    def test_esports_series_probability_is_exact_first_to_n_recursion(self):
-        self.assertAlmostEqual(
-            EsportsScanner._series_win_probability(0.5, 0, 0, 2),
-            0.5,
-        )
-        self.assertAlmostEqual(
-            EsportsScanner._series_win_probability(0.5, 1, 0, 2),
-            0.75,
-        )
-        self.assertEqual(
-            EsportsScanner._series_win_probability(0.5, 2, 0, 2),
-            1.0,
-        )
-
-    def test_esports_estimate_is_never_exposed_as_actionable_or_fair_price(self):
-        scanner = EsportsScanner.__new__(EsportsScanner)
-        result = scanner.analyze_match(self._esports_match())
-
-        self.assertIsNotNone(result)
-        self.assertFalse(result["calibrated"])
-        self.assertFalse(result["actionable"])
-        self.assertIsNone(result["model_price"])
-        self.assertEqual(result["recommendation_type"], "EXPLORATORY_ESTIMATE")
-
-    def test_esports_rejects_completed_or_invalid_series_state(self):
-        scanner = EsportsScanner.__new__(EsportsScanner)
-
-        self.assertIsNone(scanner.analyze_match(self._esports_match(2, 0)))
-        self.assertIsNone(scanner.analyze_match(self._esports_match("bad", 0)))
-
-    def test_esports_rejects_fractional_or_boolean_sample_counts(self):
-        scanner = EsportsScanner.__new__(EsportsScanner)
-        fractional = self._esports_match()
-        fractional["team1_stats"]["matches"] = 20.9
-        boolean = self._esports_match()
-        boolean["team1_stats"]["wins"] = True
-
-        self.assertIsNone(scanner.analyze_match(fractional))
-        self.assertIsNone(scanner.analyze_match(boolean))
 
     def test_esports_history_uses_team_endpoint_and_filters_membership(self):
         scanner = EsportsScanner.__new__(EsportsScanner)

@@ -86,7 +86,8 @@ PAGE_INFO = {
     ),
     "Multi-Sport": (
         "Multi-Sport Wettfinder",
-        "Modell zuerst, N1Bet-Preis danach: wetten nur bei positivem risikoadjustiertem Value.",
+        "Basketball, Eishockey, Cricket, Tennis und E-Sport (CS2, LoL, Dota 2, Valorant): "
+        "Modell zuerst, N1Bet-Preis danach — wetten nur bei positivem risikoadjustiertem Value.",
     ),
     "Tennis": (
         "Tennis Wettfinder",
