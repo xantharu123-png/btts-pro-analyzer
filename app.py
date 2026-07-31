@@ -748,12 +748,25 @@ def _api_football_health(api_key: str) -> dict:
 
     errors = payload.get("errors") if isinstance(payload, dict) else None
     if errors:
-        detail = errors.get("access") if isinstance(errors, dict) else str(errors)
-        state = "suspended" if "suspend" in str(detail).lower() else "error"
+        if isinstance(errors, dict):
+            raw_detail = errors.get("access") or "; ".join(
+                f"{key}: {value}" for key, value in errors.items()
+            )
+        else:
+            raw_detail = str(errors)
+        detail_text = str(raw_detail).strip() or "Unbekannter API-Fehler"
+        lowered = detail_text.casefold()
+        if "suspend" in lowered:
+            state, label = "suspended", "Live-API gesperrt"
+        elif "ratelimit" in lowered.replace(" ", "") or "rate limit" in lowered:
+            # Kurzzeit-Limit (pro Minute): transient, kein harter Fehler
+            state, label = "error", "Live-API Kurzzeit-Limit"
+        else:
+            state, label = "error", "Live-API Fehler"
         return {
             "state": state,
-            "label": "Live-API gesperrt" if state == "suspended" else "Live-API Fehler",
-            "detail": str(detail),
+            "label": label,
+            "detail": detail_text,
             "checked_at": checked_at,
         }
 
