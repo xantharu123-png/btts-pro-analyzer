@@ -20,11 +20,14 @@ from challenge_engine import (
     MARKET_BY_KEY,
     TARGET_ODDS_MAX,
     TARGET_ODDS_MIN,
+    MarketSpec,
     apply_candidate_context,
     build_fixture_candidates,
     consecutive_wins_to_target,
     fit_market_calibration,
     kelly_reference_stake,
+    market_outcome,
+    market_specs,
     select_model_ticket,
     select_quoted_ticket,
     select_shortlist,
@@ -41,7 +44,7 @@ from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 2
+CHALLENGE_SNAPSHOT_VERSION = 3
 CHALLENGE_WORKSPACE_VERSION = 3
 CHALLENGE_TIMEZONE = ZoneInfo("Europe/Zurich")
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
@@ -783,6 +786,7 @@ def scan_daily_challenge(
 
     shortlist = select_shortlist(contextualized, max_candidates=3)
     model_ticket = select_model_ticket(shortlist)
+    base_shortlist = sorted(base_candidates, key=_candidate_rank, reverse=True)[:10]
     blocked_counts: dict[str, int] = {}
     for candidate in all_candidates:
         reasons = candidate.blocked_reasons or candidate.context.get("blocked_reasons", [])
@@ -799,10 +803,162 @@ def scan_daily_challenge(
         "context_fixtures": len(context_fixture_ids),
         "approved_candidates": len(shortlist),
         "shortlist": shortlist,
+        "base_shortlist": base_shortlist,
         "model_ticket": model_ticket,
         "blocked_counts": blocked_counts,
         "errors": list(provider.errors),
     }
+
+
+# Endstand nur über reguläre Spielzeit ("FT"). Verlängerung/Elfmeterschießen
+# ("AET"/"PEN") wertet der Buchmacher für 90-Minuten-Märkte anders — diese
+# Tickets bleiben zur manuellen Abrechnung offen.
+SETTLED_STATUSES = {"FT"}
+VOID_STATUSES = {"PST", "CANC", "ABD", "AWD", "WO"}
+
+
+def _spec_by_market_selection() -> dict[tuple[str, str], MarketSpec]:
+    mapping: dict[tuple[str, str], MarketSpec] = {}
+    for spec in market_specs():
+        mapping.setdefault((spec.market, spec.selection), spec)
+    return mapping
+
+
+def auto_settle_open_tickets(
+    ledger: ChallengeLedger,
+    provider: ChallengeDataProvider,
+    *,
+    max_api_calls: int = 10,
+) -> dict[str, int]:
+    """Settle pending challenge tickets against final API results.
+
+    Challenge rule: a lost ticket restarts the challenge at the starting
+    balance. AET/PEN results and mixed void/decided tickets stay open for
+    manual settlement. Never raises — settlement must not break the UI.
+    """
+    summary = {"won": 0, "lost": 0, "void": 0, "open": 0, "resets": 0}
+    try:
+        pending = ledger.pending_tickets()
+    except Exception:
+        return summary
+    if not pending:
+        return summary
+    spec_by_key = _spec_by_market_selection()
+    fixture_cache: dict[int, Optional[dict[str, Any]]] = {}
+    api_calls = 0
+
+    def fixture_details(fixture_id: int) -> Optional[dict[str, Any]]:
+        nonlocal api_calls
+        if fixture_id in fixture_cache:
+            return fixture_cache[fixture_id]
+        if api_calls >= max_api_calls:
+            return None
+        api_calls += 1
+        try:
+            data = provider.details_by_fixture([fixture_id])
+            fixture_cache[fixture_id] = data.get(fixture_id)
+        except Exception:
+            fixture_cache[fixture_id] = None
+        return fixture_cache[fixture_id]
+
+    for ticket in pending:
+        legs = ticket.get("legs") or []
+        if not legs:
+            summary["open"] += 1
+            continue
+        leg_wins = 0
+        leg_losses = 0
+        leg_voids = 0
+        undecided = False
+        for leg in legs:
+            spec = spec_by_key.get(
+                (str(leg.get("market", "")), str(leg.get("selection", "")))
+            )
+            fixture_id = leg.get("fixture_id")
+            if spec is None or fixture_id is None:
+                undecided = True
+                break
+            details = fixture_details(int(fixture_id))
+            if details is None:
+                undecided = True
+                break
+            fixture_data = details.get("fixture") or {}
+            status = str(
+                (fixture_data.get("status") or {}).get("short", "")
+            ).upper()
+            if status in VOID_STATUSES:
+                leg_voids += 1
+                continue
+            if status not in SETTLED_STATUSES:
+                undecided = True
+                break
+            goals = details.get("goals") or {}
+            home, away = goals.get("home"), goals.get("away")
+            if (
+                isinstance(home, bool)
+                or isinstance(away, bool)
+                or not isinstance(home, int)
+                or not isinstance(away, int)
+            ):
+                undecided = True
+                break
+            if market_outcome(spec, home, away):
+                leg_wins += 1
+            else:
+                leg_losses += 1
+        if undecided:
+            summary["open"] += 1
+            continue
+        try:
+            if leg_voids == len(legs):
+                ledger.settle_ticket(int(ticket["id"]), "VOID")
+                summary["void"] += 1
+            elif leg_voids:
+                # Gemischt entschieden/storniert: manuelle Abrechnung.
+                summary["open"] += 1
+            elif leg_losses == 0 and leg_wins == len(legs):
+                ledger.settle_ticket(int(ticket["id"]), "WON")
+                summary["won"] += 1
+            else:
+                ledger.settle_ticket(int(ticket["id"]), "LOST")
+                summary["lost"] += 1
+                # Challenge-Regel: Bei Verlust geht alles von vorne.
+                try:
+                    settings = ledger.settings()
+                    ledger.set_balance(settings["starting_balance"], reset_start=True)
+                    summary["resets"] += 1
+                except ValueError:
+                    pass
+        except Exception:
+            summary["open"] += 1
+    return summary
+
+
+def _auto_settle_feedback(ledger: ChallengeLedger) -> None:
+    """Run auto-settlement once per render when tickets are pending."""
+    try:
+        if not ledger.pending_tickets():
+            return
+        config = load_app_config(st)
+        if not config.api_football_key:
+            return
+        summary = auto_settle_open_tickets(
+            ledger,
+            ChallengeDataProvider(config.api_football_key, config.weather_key),
+        )
+    except Exception:
+        return
+    if summary.get("resets"):
+        st.warning(
+            "Ticket verloren — die Challenge wurde automatisch auf den "
+            "Startwert zurückgesetzt. Es geht von vorne los."
+        )
+    elif summary.get("lost"):
+        st.warning(f"{summary['lost']} Ticket(s) als verloren abgerechnet.")
+    if summary.get("won"):
+        st.success(f"{summary['won']} Ticket(s) gewonnen und abgerechnet.")
+    if summary.get("void"):
+        st.info(f"{summary['void']} Ticket(s) storniert — Einsatz zurückgebucht.")
 
 
 def _render_progress(ledger: ChallengeLedger) -> dict[str, Any]:
@@ -919,6 +1075,42 @@ def _render_account(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         "berechnet; es gibt kein Nachschießen und keine Martingale-Verdopplung nach Verlusten. "
         "Ein offenes Ticket muss vor dem nächsten Ticket abgerechnet sein."
     )
+
+    with st.expander("⚙️ Erweitert — Gefahrenzone"):
+        st.caption(
+            "Setzt die Challenge komplett zurück: Guthaben und Startwert gehen "
+            "zurück auf den Anfang. Die bisherige Ticket-Historie bleibt im "
+            "Verlauf erhalten. Nur nutzen, wenn die Challenge wirklich neu "
+            "starten soll."
+        )
+        reset_text = st.text_input(
+            'Bestätigung 1 von 2: „RESET" eintippen',
+            key="challenge_reset_text",
+        )
+        reset_check = st.checkbox(
+            "Bestätigung 2 von 2: Ich verstehe, dass der aktuelle "
+            "Challenge-Fortschritt verworfen wird.",
+            key="challenge_reset_check",
+        )
+        if st.button(
+            "Challenge endgültig zurücksetzen",
+            type="secondary",
+            width="stretch",
+            key="challenge_reset_button",
+        ):
+            if reset_text.strip().upper() != "RESET" or not reset_check:
+                st.warning("Nicht zurückgesetzt: Beide Bestätigungen sind nötig.")
+            else:
+                try:
+                    fresh = ledger.settings()
+                    ledger.set_balance(fresh["starting_balance"], reset_start=True)
+                    st.success("Challenge wurde zurückgesetzt — Neustart ab jetzt.")
+                    st.rerun()
+                except ValueError:
+                    st.warning(
+                        "Es gibt noch ein offenes Ticket. Erst abrechnen, "
+                        "dann zurücksetzen."
+                    )
 
 
 def _render_equity_curve(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
@@ -1137,6 +1329,18 @@ def _render_price_check(
                     ]
                 )
                 st.dataframe(audit, width="stretch", hide_index=True)
+        base_shortlist = snapshot.get("base_shortlist") or []
+        if base_shortlist:
+            st.subheader("Modell-Shortlist — Kontext & Quote offen")
+            st.caption(
+                "Diese Märkte bestehen die Mathematik-Gates (Modell, Walk-forward-Validierung, "
+                "Evidenz). Was noch fehlt: der Live-Kontext (bestätigte Aufstellungen, Ausfälle, "
+                "Wetter, H2H) — der steht ca. 60 Minuten vor Anpfiff bereit — und danach der "
+                "N1Bet-Preis. Kurz vor Anpfiff erneut suchen. Keine Wettfreigabe ohne Kontext + Quote."
+            )
+            st.dataframe(
+                _shortlist_frame(base_shortlist), width="stretch", hide_index=True
+            )
         return
 
     st.subheader("Modell-Shortlist")
@@ -1452,6 +1656,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
 def render_challenge_15k() -> None:
     """Render the complete challenge workspace."""
     ledger = _challenge_ledger()
+    _auto_settle_feedback(ledger)
     settings = _render_progress(ledger)
     st.caption(
         f"Einsatzanteil {settings['stake_fraction'] * 100:.0f} % | "

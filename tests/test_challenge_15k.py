@@ -826,5 +826,147 @@ class ChallengeLedgerTests(unittest.TestCase):
             self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
 
 
+class _SettleProvider:
+    """Provider-Double: liefert vorbereitete Fixture-Details."""
+
+    def __init__(self, fixtures_by_id):
+        self._fixtures = fixtures_by_id
+        self.calls = 0
+
+    def details_by_fixture(self, fixture_ids):
+        self.calls += 1
+        return {fid: self._fixtures.get(fid) for fid in fixture_ids}
+
+
+def _result_fixture(fixture_id, home, away, status="FT"):
+    item = fixture(
+        fixture_id,
+        datetime.now(timezone.utc) - timedelta(hours=3),
+        home_id=fixture_id * 10,
+        away_id=fixture_id * 10 + 1,
+        home_goals=home,
+        away_goals=away,
+    )
+    item["fixture"]["status"] = {"short": status}
+    return item
+
+
+def _placed_ticket(ledger, fixture_ids=(1, 2)):
+    candidates = [
+        candidate(f"{fid}:BTTS", fid, 0.70 - idx * 0.02)
+        for idx, fid in enumerate(fixture_ids)
+    ]
+    ticket = select_quoted_ticket(
+        candidates, {item.candidate_id: 1.50 for item in candidates}
+    )
+    assert ticket is not None
+    stake = ticket_stake(ticket, ledger.settings()["current_balance"])
+    ticket_id = ledger.place_ticket(
+        "2026-07-14",
+        ticket,
+        stake,
+        datetime.now(timezone.utc).isoformat(),
+    )
+    return ticket_id, ticket, stake
+
+
+class AutoSettleTests(unittest.TestCase):
+    def test_won_ticket_pays_out_and_keeps_start(self):
+        from challenge_15k import auto_settle_open_tickets
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            ticket_id, ticket, stake = _placed_ticket(ledger)
+            provider = _SettleProvider(
+                {
+                    1: _result_fixture(1, 2, 1),
+                    2: _result_fixture(2, 1, 3),
+                }
+            )
+            summary = auto_settle_open_tickets(ledger, provider)
+            self.assertEqual(summary["won"], 1)
+            self.assertEqual(summary["resets"], 0)
+            payout = (
+                Decimal(str(stake)) * Decimal(str(ticket.total_odds))
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            expected = float(Decimal("100.00") - Decimal(str(stake)) + payout)
+            self.assertAlmostEqual(ledger.settings()["current_balance"], expected, places=2)
+            self.assertEqual(ledger.get_ticket(ticket_id)["status"], "WON")
+
+    def test_lost_ticket_restarts_challenge_at_start_balance(self):
+        from challenge_15k import auto_settle_open_tickets
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            ticket_id, _ticket, _stake = _placed_ticket(ledger)
+            provider = _SettleProvider(
+                {
+                    1: _result_fixture(1, 2, 1),
+                    2: _result_fixture(2, 0, 0),  # BTTS Ja verloren
+                }
+            )
+            summary = auto_settle_open_tickets(ledger, provider)
+            self.assertEqual(summary["lost"], 1)
+            self.assertEqual(summary["resets"], 1)
+            self.assertEqual(ledger.get_ticket(ticket_id)["status"], "LOST")
+            settings = ledger.settings()
+            self.assertEqual(settings["current_balance"], 100.0)
+            self.assertEqual(settings["starting_balance"], 100.0)
+
+    def test_running_and_aet_games_stay_open(self):
+        from challenge_15k import auto_settle_open_tickets
+
+        for status in ("1H", "AET", "PEN"):
+            with tempfile.TemporaryDirectory() as tmp:
+                ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+                ticket_id, _ticket, stake = _placed_ticket(ledger)
+                provider = _SettleProvider(
+                    {
+                        1: _result_fixture(1, 2, 1),
+                        2: _result_fixture(2, 1, 0, status=status),
+                    }
+                )
+                summary = auto_settle_open_tickets(ledger, provider)
+                self.assertEqual(summary["open"], 1, status)
+                self.assertEqual(ledger.get_ticket(ticket_id)["status"], "PENDING")
+                self.assertEqual(
+                    ledger.settings()["current_balance"], 100.0 - stake, status
+                )
+
+    def test_all_void_legs_voids_ticket_and_returns_stake(self):
+        from challenge_15k import auto_settle_open_tickets
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            ticket_id, _ticket, _stake = _placed_ticket(ledger)
+            provider = _SettleProvider(
+                {
+                    1: _result_fixture(1, 0, 0, status="PST"),
+                    2: _result_fixture(2, 0, 0, status="CANC"),
+                }
+            )
+            summary = auto_settle_open_tickets(ledger, provider)
+            self.assertEqual(summary["void"], 1)
+            self.assertEqual(ledger.get_ticket(ticket_id)["status"], "VOID")
+            self.assertEqual(ledger.settings()["current_balance"], 100.0)
+
+    def test_api_cap_keeps_ticket_open(self):
+        from challenge_15k import auto_settle_open_tickets
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            ticket_id, _ticket, _stake = _placed_ticket(ledger)
+            provider = _SettleProvider({1: _result_fixture(1, 2, 1)})
+            summary = auto_settle_open_tickets(ledger, provider, max_api_calls=1)
+            self.assertEqual(summary["open"], 1)
+            self.assertEqual(ledger.get_ticket(ticket_id)["status"], "PENDING")
+
+    def test_spec_mapping_covers_all_market_specs(self):
+        from challenge_15k import _spec_by_market_selection
+
+        mapping = _spec_by_market_selection()
+        self.assertEqual(len(mapping), len(MARKET_SPECS))
+
+
 if __name__ == "__main__":
     unittest.main()
