@@ -62,6 +62,7 @@ def build_state(
     serve_weight: float = 0.3,
     verbose: bool = True,
     serve_half_life_days: Optional[float] = 365.0,
+    serve_split_indoor: bool = True,
 ) -> ModelState:
     """Build ratings from the stats plane and fit the calibrator on a
     causal walk-forward backtest of the recent seasons.
@@ -69,6 +70,9 @@ def build_state(
     ``serve_half_life_days`` must match between the production ratings
     and the calibrator fit — the calibrator learns the distribution the
     decayed serve model produces, not the old cumulative one.
+
+    ``serve_split_indoor`` likewise: production, calibrator fit and the
+    A/B evidence must all see the same environment split.
     """
     if stats_years is None:
         stats_years = range(2010, 2027)
@@ -78,7 +82,8 @@ def build_state(
     stats = stats.sort_values("tourney_date", kind="mergesort").reset_index(drop=True)
 
     elo = SurfaceElo()
-    serve = ServeReturnModel(half_life_days=serve_half_life_days)
+    serve = ServeReturnModel(half_life_days=serve_half_life_days,
+                             split_indoor=serve_split_indoor)
     n = 0
     for s in stats.to_dict("records"):
         if _is_retired(s.get("match_ret")):
@@ -128,6 +133,7 @@ def build_state(
         serve_weight=serve_weight,
         recalibrate=False,  # we want RAW probabilities for the fit
         serve_half_life_days=serve_half_life_days,
+        serve_split_indoor=serve_split_indoor,
     )
     cal = WalkForwardCalibrator(min_samples=1500, refit_every=250)
     for row in report.rows:
@@ -187,6 +193,8 @@ def load_state(path: Path = DEFAULT_STATE_PATH) -> ModelState:
             serve._hold_avg = 0.770
         if not hasattr(serve, "_break_avg"):
             serve._break_avg = 0.230
+        if not hasattr(serve, "_split_indoor"):
+            serve._split_indoor = False  # pre-F2 pickle: unsplit behaviour
     return state
 
 

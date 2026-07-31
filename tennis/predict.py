@@ -104,12 +104,17 @@ def predict_match(
     odds_b: Optional[float] = None,
     min_edge: float = MIN_EDGE,
     tour: str = "ATP",
+    indoor: Optional[bool] = None,
 ) -> TennisPrediction:
     """Full prediction + gate evaluation for one fixture.
 
     ``player_a`` / ``player_b`` may be any spelling — normalised here.
     Prices are optional: without them no edge gate is evaluated (the
     prediction itself is always computed).
+
+    ``indoor`` selects the environment for Hard matches (pure indoor
+    bucket + environment log5 constant); None means unknown and uses the
+    not-indoor bucket, which also carries the unrated-flag matches.
 
     WTA runs in Elo-only mode: no serve boxscore feed exists, so the
     serve gate is reported as a pass-through and the separate (thinner)
@@ -135,7 +140,7 @@ def predict_match(
     markets = None
     if have_serve:
         hold_a, hold_b = state.serve.expected_hold_probabilities(
-            key_a, key_b, surface_model, as_of=now
+            key_a, key_b, surface_model, as_of=now, indoor=indoor
         )
         markets = simulate_match(hold_a, hold_b, best_of=best_of)
         p_serve = markets.p_a_win

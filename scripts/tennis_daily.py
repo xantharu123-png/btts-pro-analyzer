@@ -65,22 +65,23 @@ def _norm(text: str) -> str:
 
 
 def tournament_surface_map(year: int) -> dict:
-    """normalized official name/location/slug -> (surface, best_of)."""
+    """normalized official name/location/slug -> (surface, best_of, name, indoor)."""
     path = DEFAULT_CACHE_DIR / "atp_tournaments.csv"
     df = pd.read_csv(path)
     df = df[df["year"] == year]
     mapping = {}
     for row in df.itertuples(index=False):
         best_of = 5 if row.series_category_id == "gs" else 3
+        indoor = getattr(row, "indoor_outdoor", None) == "Indoor"
         for token in {row.name, row.location, row.slug}:
             key = _norm(token)
             if key:
-                mapping[key] = (row.surface, best_of, row.name)
+                mapping[key] = (row.surface, best_of, row.name, indoor)
     return mapping
 
 
 def resolve_surface(tournament_name: str, surfaces: dict):
-    """(surface, best_of, official_name) or (None, 3, None)."""
+    """(surface, best_of, official_name, indoor) or (None, 3, None, None)."""
     t_norm = _norm(tournament_name)
     for alias, official in TOURNAMENT_ALIASES.items():
         if alias in t_norm:
@@ -90,7 +91,7 @@ def resolve_surface(tournament_name: str, surfaces: dict):
     for key, val in surfaces.items():
         if key and key in t_norm:
             return val
-    return None, 3, None
+    return None, 3, None, None
 
 
 # ------------------------------------------------------------------- fixtures
@@ -206,7 +207,7 @@ def main() -> None:
             fx["player_b"],
         ):
             continue  # qualifiers not yet decided — nothing to audit
-        surface, best_of, official = resolve_surface(fx["tournament"], surfaces)
+        surface, best_of, official, indoor = resolve_surface(fx["tournament"], surfaces)
         pred = predict_match(
             state,
             fx["player_a"],
@@ -214,6 +215,7 @@ def main() -> None:
             surface,
             best_of,
             tour=fx.get("tour", "ATP"),
+            indoor=indoor,
         )
         row_id = shadow.store_prediction(
             fx["match_date"], fx["tour"], fx["tournament"], pred

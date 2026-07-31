@@ -45,6 +45,19 @@ from .data_loader import normalize_player_name
 SURFACES = ("Hard", "Clay", "Grass", "Carpet")
 OVERALL_KEY = "__overall__"
 
+# F2: indoor/outdoor split.  Measured on tour-level box scores 2015-2026
+# (ManTennisData): Hard Indoor hold 0.7996 (n=118'640 service games),
+# Hard not-indoor 0.7924 (n=466'349 — Outdoor + missing flag).  Only
+# Hard gets a compound bucket: grass has no indoor events at tour level
+# and indoor clay is 54 matches in two seasons (n=2'988 — noise).
+# The log5 league constant MUST come from the same environment as the
+# ratings — two league-average players combined with the wrong L are off
+# by 2.6 pp (checked numerically), so every environment carries its own
+# average and sparse players are translated between scales in odds form.
+HARD_INDOOR_KEY = "Hard@Indoor"
+HARD_INDOOR_HOLD_AVG = 0.800
+HARD_NOTINDOOR_HOLD_AVG = 0.792
+
 # ATP tour averages (long-run): servers hold ~77%, returners break ~23%.
 # WTA is a different universe (~70.6% hold, measured on Tennis Abstract
 # top-100 box scores 2024-2026, n=56.6k service games): passing WTA rows
@@ -117,6 +130,16 @@ def _from_odds(o: float) -> float:
     return o / (1.0 + o)
 
 
+def _shift(p: float, from_avg: float, to_avg: float) -> float:
+    """Translate a rate between environment scales in odds form.
+
+    Identity at the source average: shifting the not-indoor average into
+    the indoor world returns exactly the indoor average, so a player with
+    no indoor data keeps his *relative* strength instead of his raw rate.
+    """
+    return _from_odds(_odds(p) * _odds(to_avg) / _odds(from_avg))
+
+
 class ServeReturnModel:
     """Chronological tracker; state only moves when ``update`` is called.
 
@@ -128,13 +151,16 @@ class ServeReturnModel:
 
     def __init__(self, hold_avg: float = TOUR_HOLD_AVG,
                  break_avg: float = TOUR_BREAK_AVG,
-                 half_life_days: Optional[float] = 365.0) -> None:
+                 half_life_days: Optional[float] = 365.0,
+                 split_indoor: bool = False) -> None:
         self._table: Dict[Tuple[str, str], _Accum] = defaultdict(_Accum)
         self._hold_avg = hold_avg
         self._break_avg = break_avg
         if half_life_days is not None and half_life_days <= 0:
             raise ValueError("half_life_days must be positive or None")
         self._half_life = half_life_days
+        # ATP-only refinement; the WTA box-score feed has no indoor flag
+        self._split_indoor = split_indoor
 
     # ------------------------------------------------------------------ decay
 
@@ -166,7 +192,13 @@ class ServeReturnModel:
         moment = _to_naive_utc(match_date if match_date is not None
                                else row.get("tourney_date"))
         surface = row.get("surface")
-        keys = [OVERALL_KEY] + ([surface] if surface in SURFACES else [])
+        keys = [OVERALL_KEY]
+        if surface in SURFACES:
+            if (self._split_indoor and surface == "Hard"
+                    and row.get("indoor_outdoor") == "Indoor"):
+                keys.append(HARD_INDOOR_KEY)  # keep "Hard" not-indoor-pure
+            else:
+                keys.append(surface)
         self._add_player(row, "win", "los", keys, moment)
         self._add_player(row, "los", "win", keys, moment)
 
@@ -215,6 +247,14 @@ class ServeReturnModel:
 
     # -------------------------------------------------------------- prediction
 
+    def _bucket_prior(self, key: str) -> Tuple[float, float]:
+        """Shrinkage prior (hold, break) for a bucket — environment scale."""
+        if key == HARD_INDOOR_KEY:
+            return HARD_INDOOR_HOLD_AVG, 1.0 - HARD_INDOOR_HOLD_AVG
+        if key == "Hard" and self._split_indoor:
+            return HARD_NOTINDOOR_HOLD_AVG, 1.0 - HARD_NOTINDOOR_HOLD_AVG
+        return self._hold_avg, self._break_avg
+
     def service_games(self, player: str, as_of: Optional[datetime] = None) -> float:
         """Decay-weighted tracked service games (overall) — for data gates."""
         acc = self._table.get((player, OVERALL_KEY))
@@ -235,7 +275,9 @@ class ServeReturnModel:
         raw_hold = sv_held / sv_gms
         raw_break = ret_breaks / ret_gms
 
-        # schedule adjustment in odds form (capped)
+        # schedule adjustment in odds form (capped).  The opponent sums are
+        # stored on the OVERALL scale, so the divisor stays the overall
+        # average for every bucket — apples to apples.
         avg_opp_break = opp_break_sum / sv_gms
         avg_opp_hold = opp_hold_sum / ret_gms
         hold_factor = min(max(avg_opp_break / self._break_avg, ADJUST_MIN), ADJUST_MAX)
@@ -243,25 +285,68 @@ class ServeReturnModel:
         adj_hold = _from_odds(_odds(raw_hold) * hold_factor)
         adj_break = _from_odds(_odds(raw_break) * break_factor)
 
-        # shrinkage toward tour average after adjustment
-        hold = (adj_hold * sv_gms + PRIOR_GAMES * self._hold_avg) / (
+        # shrinkage toward the bucket's environment average
+        prior_hold, prior_break = self._bucket_prior(key)
+        hold = (adj_hold * sv_gms + PRIOR_GAMES * prior_hold) / (
             sv_gms + PRIOR_GAMES
         )
-        brk = (adj_break * ret_gms + PRIOR_GAMES * self._break_avg) / (
+        brk = (adj_break * ret_gms + PRIOR_GAMES * prior_break) / (
             ret_gms + PRIOR_GAMES
         )
         return hold, brk
 
+    def _surface_rates(self, player: str, key: str,
+                       as_of: Optional[datetime]):
+        """Surface/compound bucket rates when the decayed sample is big
+        enough, else None."""
+        acc = self._table.get((player, key))
+        if acc is None or self._decayed(acc, as_of)[0] < MIN_SURFACE_GAMES:
+            return None, None
+        return self._rates(player, key, as_of=as_of)
+
     def hold_and_break(
         self, player: str, surface: Optional[str],
         as_of: Optional[datetime] = None,
+        indoor: Optional[bool] = None,
     ) -> Tuple[float, float]:
-        """Adjusted + shrunk (hold%, break%), surface-aware with fallback."""
+        """Adjusted + shrunk (hold%, break%), surface- and environment-aware.
+
+        With ``split_indoor`` a Hard match knows three levels: the pure
+        indoor bucket, the not-indoor bucket, and overall.  Fallback
+        ratings are translated between environment scales in odds form so
+        a league-average player stays league-average in both worlds.
+        """
+        if self._split_indoor and surface == "Hard":
+            if indoor is True:
+                hold_s, brk_s = self._surface_rates(player, HARD_INDOOR_KEY, as_of)
+                if hold_s is not None:
+                    return hold_s, brk_s
+                hold_o, brk_o = self._surface_rates(player, "Hard", as_of)
+                from_avg, from_break = HARD_NOTINDOOR_HOLD_AVG, 1.0 - HARD_NOTINDOOR_HOLD_AVG
+                if hold_o is None:
+                    hold_o, brk_o = self._rates(player, OVERALL_KEY, as_of=as_of)
+                    from_avg, from_break = self._hold_avg, self._break_avg
+                if hold_o is None:
+                    return HARD_INDOOR_HOLD_AVG, 1.0 - HARD_INDOOR_HOLD_AVG
+                return (
+                    _shift(hold_o, from_avg, HARD_INDOOR_HOLD_AVG),
+                    _shift(brk_o, from_break, 1.0 - HARD_INDOOR_HOLD_AVG),
+                )
+            # outdoor / unknown environment
+            hold_s, brk_s = self._surface_rates(player, "Hard", as_of)
+            if hold_s is not None:
+                return hold_s, brk_s
+            hold_o, brk_o = self._rates(player, OVERALL_KEY, as_of=as_of)
+            if hold_o is None:
+                return HARD_NOTINDOOR_HOLD_AVG, 1.0 - HARD_NOTINDOOR_HOLD_AVG
+            return (
+                _shift(hold_o, self._hold_avg, HARD_NOTINDOOR_HOLD_AVG),
+                _shift(brk_o, self._break_avg, 1.0 - HARD_NOTINDOOR_HOLD_AVG),
+            )
+
         hold_s, brk_s = (None, None)
         if surface in SURFACES:
-            acc = self._table.get((player, surface))
-            if acc is not None and self._decayed(acc, as_of)[0] >= MIN_SURFACE_GAMES:
-                hold_s, brk_s = self._rates(player, surface, as_of=as_of)
+            hold_s, brk_s = self._surface_rates(player, surface, as_of)
         hold_o, brk_o = self._rates(player, OVERALL_KEY, as_of=as_of)
         hold = hold_s if hold_s is not None else (hold_o if hold_o is not None else self._hold_avg)
         brk = brk_s if brk_s is not None else (brk_o if brk_o is not None else self._break_avg)
@@ -270,12 +355,18 @@ class ServeReturnModel:
     def expected_hold_probabilities(
         self, player_a: str, player_b: str, surface: Optional[str],
         as_of: Optional[datetime] = None,
+        indoor: Optional[bool] = None,
     ) -> Tuple[float, float]:
         """P(A holds serve vs B) and P(B holds serve vs A) via log5."""
-        hold_a, break_a = self.hold_and_break(player_a, surface, as_of=as_of)
-        hold_b, break_b = self.hold_and_break(player_b, surface, as_of=as_of)
-        p_a = _log5(hold_a, break_b, self._hold_avg)
-        p_b = _log5(hold_b, break_a, self._hold_avg)
+        if self._split_indoor and surface == "Hard":
+            league_hold = (HARD_INDOOR_HOLD_AVG if indoor is True
+                           else HARD_NOTINDOOR_HOLD_AVG)
+        else:
+            league_hold = self._hold_avg
+        hold_a, break_a = self.hold_and_break(player_a, surface, as_of=as_of, indoor=indoor)
+        hold_b, break_b = self.hold_and_break(player_b, surface, as_of=as_of, indoor=indoor)
+        p_a = _log5(hold_a, break_b, league_hold)
+        p_b = _log5(hold_b, break_a, league_hold)
         return p_a, p_b
 
 

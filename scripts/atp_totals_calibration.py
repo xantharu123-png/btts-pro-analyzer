@@ -56,7 +56,7 @@ def main():
     stats = add_normalized_names(stats, "winner_name", "loser_name")
     stats = stats.sort_values("tourney_date", kind="mergesort").reset_index(drop=True)
 
-    serve = ServeReturnModel()
+    serve = ServeReturnModel(split_indoor=True)
     # predictions only from 2024 on: two full seasons to warm ratings up
     warmup_until = "2024-01-01"
 
@@ -83,6 +83,7 @@ def main():
                 hold_a, hold_b = serve.expected_hold_probabilities(
                     key_a, key_b, s.get("surface") if s.get("surface") in ("Hard", "Clay", "Grass") else None,
                     as_of=as_of,
+                    indoor=s.get("indoor_outdoor") == "Indoor",
                 )
                 m = simulate_match(hold_a, hold_b, best_of=3)
                 sa_w, sb_w, total_games, ga_w, gb_w = scored

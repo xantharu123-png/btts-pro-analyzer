@@ -55,7 +55,7 @@ def collect_calibration() -> Dict:
     stats = add_normalized_names(stats, "winner_name", "loser_name")
     stats = stats.sort_values("tourney_date", kind="mergesort").reset_index(drop=True)
 
-    serve = ServeReturnModel()
+    serve = ServeReturnModel(split_indoor=True)
     buckets = defaultdict(lambda: [0, 0.0, 0.0])  # (market, bucket) -> [n, p_sum, hit_sum]
     n_scored = 0
 
@@ -78,6 +78,7 @@ def collect_calibration() -> Dict:
                     key_a, key_b,
                     s.get("surface") if s.get("surface") in ("Hard", "Clay", "Grass") else None,
                     as_of=as_of,
+                    indoor=s.get("indoor_outdoor") == "Indoor",
                 )
                 m = simulate_match(hold_a, hold_b, best_of=3)
                 sa_w, sb_w, total_games, _, _ = scored

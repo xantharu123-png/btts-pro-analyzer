@@ -291,6 +291,7 @@ def run_backtest(
     recalibrate: bool = True,
     score_from: Optional[str] = None,
     serve_half_life_days: Optional[float] = 365.0,
+    serve_split_indoor: bool = True,
 ) -> BacktestReport:
     """Full walk-forward backtest.
 
@@ -306,6 +307,10 @@ def run_backtest(
     ``serve_half_life_days`` sets the exponential decay of the serve/return
     accumulators (None = plain career sums, the pre-2026-07 behaviour —
     kept for A/B testing).
+
+    ``serve_split_indoor`` keeps a pure Hard@Indoor bucket and makes the
+    log5 league constant environment-aware (WTA feed has no flag and
+    always runs unsplit).
     """
     stats_records = None
     stats_dates = None
@@ -331,7 +336,8 @@ def run_backtest(
     score_from_ts = pd.Timestamp(score_from) if score_from else None
 
     elo = SurfaceElo()
-    serve = ServeReturnModel(half_life_days=serve_half_life_days)
+    serve = ServeReturnModel(half_life_days=serve_half_life_days,
+                             split_indoor=serve_split_indoor)
     serve_wta = (
         ServeReturnModel(hold_avg=WTA_TOUR_HOLD_AVG, break_avg=WTA_TOUR_BREAK_AVG,
                          half_life_days=serve_half_life_days)
@@ -413,8 +419,9 @@ def run_backtest(
                     and serve_model.service_games(l_key, as_of=row.Date) >= MIN_SERVE_GAMES
                 )
                 if enough:
+                    indoor = str(getattr(row, "Court", "")) == "Indoor"
                     hold_w, hold_l = serve_model.expected_hold_probabilities(
-                        w_key, l_key, surface, as_of=row.Date
+                        w_key, l_key, surface, as_of=row.Date, indoor=indoor
                     )
                     p_serve = simulate_match(hold_w, hold_l, best_of=best_of).p_a_win
             p_model = (
