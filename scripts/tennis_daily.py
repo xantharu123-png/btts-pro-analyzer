@@ -182,7 +182,17 @@ def main() -> None:
     ).strftime("%Y-%m-%d")
     print(f"=== TENNIS DAILY SCAN {date} ===")
 
-    state = load_state()
+    try:
+        state = load_state()
+    except FileNotFoundError:
+        # Z.B. erster Start auf Streamlit Cloud: State aus den Repo-Daten
+        # einmalig neu bauen (mehrere Minuten), statt mit Traceback zu sterben.
+        print("Modell-State fehlt — baue neu aus den mitgelieferten Daten ...")
+        from tennis.model_state import build_state, save_state
+
+        state = build_state()
+        save_state(state)
+        print("Modell-State gebaut und gespeichert.")
     print(f"Modell-Stand: Daten bis {state.stats_through}, Kalibrator n={state.cal_samples}")
 
     surfaces = tournament_surface_map(int(date[:4]))

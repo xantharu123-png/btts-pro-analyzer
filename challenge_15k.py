@@ -1252,17 +1252,29 @@ def _render_history(ledger: ChallengeLedger) -> None:
             st.warning(str(exc))
 
 
+def _format_kickoff(raw: str) -> str:
+    """'2026-07-31T18:30:00+00:00' -> '31.07. 20:30' (lokale Zeit)."""
+    try:
+        moment = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        return moment.astimezone(CHALLENGE_TIMEZONE).strftime("%d.%m. %H:%M")
+    except (ValueError, TypeError):
+        return str(raw or "?")
+
+
 def _shortlist_frame(shortlist: list[ChallengeCandidate]) -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
+                "Anpfiff": _format_kickoff(candidate.kickoff),
                 "Match": f"{candidate.home_team} vs {candidate.away_team}",
                 "Markt": candidate.market,
                 "Auswahl": candidate.selection,
                 "Modell %": round(candidate.probability * 100, 1),
                 "Konservativ %": round(candidate.conservative_probability * 100, 1),
                 "Evidenz": candidate.evidence_score,
-                "Modellpreis": round(candidate.model_price, 2),
+                "Mindestquote": round(candidate.model_price, 2),
             }
             for candidate in shortlist
         ]
@@ -1293,7 +1305,7 @@ def _render_candidate_context(candidate: ChallengeCandidate) -> None:
         "Wetter",
         f"{weather.get('temperature_c', 'n/a')} °C",
     )
-    checks[3].metric("Modellpreis", f"{candidate.model_price:.2f}")
+    checks[3].metric("Mindestquote", f"{candidate.model_price:.2f}")
 
 
 def _render_price_check(
@@ -1305,7 +1317,15 @@ def _render_price_check(
     if not shortlist:
         found = snapshot.get("fixtures_found", 0)
         modeled = snapshot.get("fixtures_modeled", 0)
-        st.error("KEINE WETTE HEUTE — kein Kandidat besteht alle Prüfkriterien.")
+        base_shortlist = snapshot.get("base_shortlist") or []
+        if base_shortlist:
+            st.warning(
+                f"NOCH KEINE WETTFREIGABE — {len(base_shortlist)} Märkte bestehen "
+                "die Mathematik und warten auf Live-Kontext (Aufstellungen, ca. "
+                "60 Minuten vor Anpfiff) und den N1Bet-Preis."
+            )
+        else:
+            st.error("KEINE WETTE HEUTE — kein Kandidat besteht alle Prüfkriterien.")
         st.caption(
             f"{found} Spiele gefunden, aber nur für {modeled} davon lag genug Statistik "
             "für eine Modellbewertung vor. In der Sommerpause ist das normal: "
@@ -1329,7 +1349,6 @@ def _render_price_check(
                     ]
                 )
                 st.dataframe(audit, width="stretch", hide_index=True)
-        base_shortlist = snapshot.get("base_shortlist") or []
         if base_shortlist:
             st.subheader("Modell-Shortlist — Kontext & Quote offen")
             st.caption(
@@ -1340,6 +1359,12 @@ def _render_price_check(
             )
             st.dataframe(
                 _shortlist_frame(base_shortlist), width="stretch", hide_index=True
+            )
+            st.caption(
+                "Mindestquote = die fairste Quote, die das Modell nach konservativem "
+                "Abschlag noch akzeptiert. Zahlt N1Bet WENIGER als die Mindestquote, "
+                "ist es keine Wette — egal wie „sicher“ sich der Tipp anfühlt. "
+                "Zahlt N1Bet mehr, entsteht ein Preis-Check."
             )
         return
 
@@ -1355,7 +1380,7 @@ def _render_price_check(
             math.prod(candidate.model_price for candidate in preview)
             / (CROSS_LEG_MODEL_FACTOR ** max(0, len(preview) - 1))
         )
-        st.info(f"Quotenfreie Modellkombination: {preview_text} | Modellpreis {preview_price:.2f}")
+        st.info(f"Quotenfreie Modellkombination: {preview_text} | Mindestquote kombiniert {preview_price:.2f}")
 
     st.subheader("N1Bet-Preisprüfung")
     current_quote_result = st.session_state.get("challenge_quote_result")

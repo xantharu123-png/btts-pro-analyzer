@@ -4,6 +4,7 @@ config.ini
 *.sqlite
 *.sqlite3
 *.pkl
+!tennis/data/model_state.pkl
 *.joblib
 __pycache__/
 *.py[cod]
