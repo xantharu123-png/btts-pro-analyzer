@@ -353,10 +353,14 @@ def _render_settlement(open_rows: list[dict]) -> None:
 def render_tennis_page() -> None:
     _render_shadow_summary()
 
-    head_cols = st.columns([3, 1])
-    head_cols[0].subheader("Tägliche Vorhersagen")
-    if head_cols[1].button("Scan jetzt ausführen", use_container_width=True):
-        with st.spinner("Scanne morgige Spiele …"):
+    st.subheader("Tägliche Vorhersagen")
+    if st.button(
+        "Tennis-Vorhersagen aktualisieren",
+        type="primary",
+        use_container_width=True,
+        key="run_tennis_scan",
+    ):
+        with st.spinner("Tennis-Modell wird aktualisiert …"):
             output = _run_daily_scan()
         st.session_state["tennis_scan_output"] = output
         st.rerun()
@@ -368,7 +372,8 @@ def render_tennis_page() -> None:
     if not rows:
         st.info(
             "Noch keine Tennis-Vorhersagen gespeichert. Ein Klick auf "
-            "»Scan jetzt ausführen« holt die Spiele von morgen ins Shadow-Protokoll."
+            "»Tennis-Vorhersagen aktualisieren« holt die Spiele von morgen "
+            "ins Shadow-Protokoll."
         )
     else:
         current_date = None
