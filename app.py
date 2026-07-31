@@ -2372,7 +2372,7 @@ def _render_esports_shadow_status() -> None:
         return
     if settled:
         st.caption(
-            f"E-Sport Shadow-Protokoll: {predictions} Tipps protokolliert | "
+            f"E-Sport Shadow-Protokoll (nur Pre-Match): {predictions} Tipps protokolliert | "
             f"{settled} abgerechnet | Treffer {summary['hit_rate']} % bei Ø "
             f"Modellwahrscheinlichkeit {summary['avg_model_probability']} % | "
             f"{summary['open']} offen"

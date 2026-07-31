@@ -90,6 +90,75 @@ class EsportsShadowLogTests(unittest.TestCase):
             self.assertEqual(settled, 0)
             self.assertEqual(log.summary()["open"], 1)
 
+    def test_live_matches_are_never_logged(self):
+        # E1: a score-conditioned record is a different product and must
+        # not contaminate the pre-match shadow
+        with tempfile.TemporaryDirectory() as tmp:
+            log = EsportsShadowLog(Path(tmp) / "shadow.db")
+            live = _match()
+            live["status"] = "live"
+            live["team1_score"] = 1
+
+            self.assertEqual(log.log_predictions([live]), 0)
+            summary = log.summary()
+            self.assertEqual(summary["predictions"], 0)
+            self.assertEqual(summary["live_records"], 0)
+
+    def test_summary_ignores_legacy_live_rows(self):
+        # rows written before the E1 fix stay in the table but leave the
+        # pre-match rates untouched
+        import sqlite3
+        from contextlib import closing
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "shadow.db"
+            log = EsportsShadowLog(db)
+            log.log_predictions([_match(55)])
+            with closing(sqlite3.connect(db)) as con:
+                con.execute(
+                    """
+                    INSERT INTO esports_shadow_predictions (
+                        match_id, logged_at, game, team1, team2,
+                        selected_team_id, selection, status, series_type,
+                        score1, score2, elo1, elo2, model_probability,
+                        risk_adjusted_probability, minimum_odds,
+                        settled, winner_team_id, hit, settled_at
+                    ) VALUES (
+                        999, '2026-07-31T12:00:00+00:00', 'CS2', 'X', 'Y',
+                        7, 'X', 'live', 3, 2, 0, 1600, 1400, 95.0,
+                        80.0, 1.25, 1, 7, 1, '2026-07-31T14:00:00+00:00'
+                    )
+                    """
+                )
+                con.commit()
+            summary = log.summary()
+            self.assertEqual(summary["predictions"], 1)      # not 2
+            self.assertEqual(summary["live_records"], 1)     # visible, but outside
+            self.assertIsNone(summary["hit_rate"])           # legacy live hit ignored
+
+    def test_stale_rows_are_voided_out_of_the_rates(self):
+        # E4: an abandoned match must not sit in "open" forever
+        import sqlite3
+        from contextlib import closing
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "shadow.db"
+            log = EsportsShadowLog(db)
+            log.log_predictions([_match()])
+            with closing(sqlite3.connect(db)) as con:
+                con.execute(
+                    "UPDATE esports_shadow_predictions "
+                    "SET logged_at = '2026-01-01T00:00:00+00:00'"
+                )
+                con.commit()
+
+            self.assertEqual(log.settle_open(lambda _mid: None, max_calls=10), 0)
+            summary = log.summary()
+            self.assertEqual(summary["open"], 0)
+            self.assertEqual(summary["settled"], 0)          # void is not a score
+            self.assertEqual(summary["voided"], 1)
+            self.assertIsNone(summary["hit_rate"])
+
 
 if __name__ == "__main__":
     unittest.main()

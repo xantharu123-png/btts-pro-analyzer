@@ -465,6 +465,17 @@ def _series_win_probability(
     opponent_maps: int,
     maps_to_win: int,
 ) -> float:
+    """Exact binomial series probability under i.i.d. maps.
+
+    Known limitation (audit E2): real series are negatively correlated —
+    map veto gives the previous-map loser the next map/side pick, so a
+    1:0 favourite is slightly LESS secure than i.i.d. says (roughly 2-4pp
+    from 1:0 in a Bo3).  Pre-match (0:0) the inversion from the Elo
+    series probability is exact and unaffected; the simplification only
+    touches score-conditioned live states, which the shadow no longer
+    logs.  The feed carries no veto data, so there is nothing to fit a
+    correlated model to.
+    """
     memo: dict[tuple[int, int], float] = {}
 
     def solve(selected_score: int, opponent_score: int) -> float:
