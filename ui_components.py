@@ -9,6 +9,8 @@ from typing import Any, Optional
 
 import streamlit as st
 
+import scan_jobs
+
 SHADOW_DB_PATH = Path(__file__).resolve().parent / "shadow_clv.db"
 
 # Preis-Gate der App: mindestens 4,0 pp risikoadjustierte Edge.
@@ -188,3 +190,27 @@ def milestone_bar_html(
         + f'<div class="bb-mile-current-label">{current_label} €</div>'
         + "</div></div></div>"
     )
+
+
+@st.fragment(run_every=2)
+def scan_progress_fragment(job_key: str, label: str) -> None:
+    """Pollt einen Hintergrund-Scan und zeigt Fortschritt, bis er fertig ist.
+
+    Läuft als eigenes Fragment alle 2 s: Der Seitenwechsel des Nutzers bricht
+    den Job nicht ab (er lebt in scan_jobs), und bei Abschluss wird genau ein
+    voller Rerun ausgelöst, damit die Seite das Ergebnis einsammelt.
+    """
+    job = scan_jobs.get_job(job_key)
+    state = job.get("state")
+    if state == "running":
+        progress = float(job.get("progress") or 0.0)
+        st.progress(min(max(progress, 0.0), 1.0))
+        detail = job.get("progress_text") or "Scan läuft …"
+        st.caption(
+            f"🔍 {label}: {detail} — läuft im Hintergrund, "
+            "Seitenwechsel unterbricht den Scan nicht."
+        )
+        return
+    if state in ("done", "error"):
+        # Ergebnis liegt bereit → Haupt-Render einsammeln lassen.
+        st.rerun()

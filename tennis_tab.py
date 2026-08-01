@@ -28,6 +28,8 @@ from pathlib import Path
 
 import streamlit as st
 
+import scan_jobs
+from ui_components import scan_progress_fragment
 from tennis import shadow
 from tennis.predict import MIN_EDGE, SIDE_MARKET_MIN_EDGE
 from tennis.shadow import SIDE_MARKETS
@@ -92,6 +94,16 @@ def _run_daily_scan() -> str:
     )
     output = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
     return output.strip()
+
+
+def _run_tennis_scan_worker(progress_cb=None) -> str:
+    """Hintergrund-Worker für den Tennis-Tages-Scan (kein st.* im Thread)."""
+    if progress_cb:
+        progress_cb(0.1, "Tennis-Modell wird aktualisiert …")
+    output = _run_daily_scan()
+    if progress_cb:
+        progress_cb(1.0, "Fertig")
+    return output
 
 
 # ------------------------------------------------------------------- rendering
@@ -360,10 +372,21 @@ def render_tennis_page() -> None:
         use_container_width=True,
         key="run_tennis_scan",
     ):
-        with st.spinner("Tennis-Modell wird aktualisiert …"):
-            output = _run_daily_scan()
-        st.session_state["tennis_scan_output"] = output
+        if scan_jobs.get_job("tennis")["state"] == "running":
+            st.info("Der Tennis-Scan läuft bereits im Hintergrund.")
+        else:
+            scan_jobs.start_job("tennis", _run_tennis_scan_worker)
+
+    job = scan_jobs.get_job("tennis")
+    if job["state"] == "running":
+        scan_progress_fragment("tennis", "Tennis-Scan")
+    elif job["state"] == "done":
+        st.session_state["tennis_scan_output"] = job.get("result") or ""
+        scan_jobs.clear_job("tennis")
         st.rerun()
+    elif job["state"] == "error":
+        st.error(f"Tennis-Scan fehlgeschlagen: {job.get('error')}")
+        scan_jobs.clear_job("tennis")
     if st.session_state.get("tennis_scan_output"):
         with st.expander("Letzter Scan-Verlauf"):
             st.text(st.session_state["tennis_scan_output"])

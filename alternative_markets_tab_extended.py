@@ -7,9 +7,10 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 
+import scan_jobs
 from bet_finder_ui import render_price_decision
 from bet_finder_candidates import build_probability_candidate
-from ui_components import render_empty_state
+from ui_components import render_empty_state, scan_progress_fragment
 from challenge_15k import ChallengeDataProvider, scan_daily_challenge
 from config_loader import load_app_config
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
@@ -131,6 +132,35 @@ def _strict_market_candidate(candidate):
     )
 
 
+def _run_market_scan_worker(
+    api_football_key: str,
+    weather_key: Optional[str],
+    league_ids: list[int],
+    search_date,
+    max_fixtures: int,
+    scope: dict,
+    progress_cb=None,
+) -> dict:
+    """Hintergrund-Worker für den Markt-Scan (thread-sicher, kein st.*).
+
+    Der Scope wird beim Job-Start eingefroren und mit dem Ergebnis
+    zurückgegeben — ändert der Nutzer die Auswahl während des Scans,
+    erkennt die Seite das wie bisher am Scope-Vergleich.
+    """
+    if progress_cb:
+        progress_cb(0.05, "Spiele und Kontext werden geladen …")
+    provider = ChallengeDataProvider(api_football_key, weather_key)
+    challenge_snapshot = scan_daily_challenge(
+        provider,
+        league_ids,
+        search_date,
+        max_fixtures,
+    )
+    if progress_cb:
+        progress_cb(1.0, "Fertig")
+    return {"scope": scope, "challenge": challenge_snapshot}
+
+
 def create_alternative_markets_tab_extended() -> None:
     """Find up to three fully gated football-market candidates."""
     config = load_app_config(st)
@@ -201,30 +231,42 @@ def create_alternative_markets_tab_extended() -> None:
     elif find_bets and search_date < _zurich_today():
         st.error("NICHT WETTEN: Das gewählte Datum liegt in der Vergangenheit.")
     elif find_bets:
-        try:
-            with st.spinner("Modelle, Kontext und Marktgates werden geprüft..."):
-                provider = ChallengeDataProvider(
+        if scan_jobs.get_job("markets")["state"] == "running":
+            st.info("Der Markt-Scan läuft bereits im Hintergrund.")
+        else:
+            scan_jobs.start_job(
+                "markets",
+                _run_market_scan_worker,
+                args=(
                     config.api_football_key,
                     config.weather_key,
-                )
-                challenge_snapshot = scan_daily_challenge(
-                    provider,
-                    selected_leagues,
+                    list(selected_leagues),
                     search_date,
                     max_fixtures,
-                )
-            st.session_state["market_bet_finder_snapshot"] = {
-                "version": MARKET_SNAPSHOT_VERSION,
-                "scanned_at": challenge_snapshot.get("scanned_at"),
-                "scope": scope,
-                "shortlist": challenge_snapshot.get("shortlist", [])[:3],
-                "fixtures_found": challenge_snapshot.get("fixtures_found", 0),
-                "fixtures_modeled": challenge_snapshot.get("fixtures_modeled", 0),
-                "blocked_counts": challenge_snapshot.get("blocked_counts", {}),
-                "errors": challenge_snapshot.get("errors", []),
-            }
-        except Exception as exc:
-            st.error(f"Markt-Wettfinder fehlgeschlagen: {exc}")
+                    dict(scope),
+                ),
+            )
+
+    job = scan_jobs.get_job("markets")
+    if job["state"] == "running":
+        scan_progress_fragment("markets", "Markt-Scan")
+    elif job["state"] == "done":
+        result = job.get("result") or {}
+        challenge_snapshot = result.get("challenge") or {}
+        st.session_state["market_bet_finder_snapshot"] = {
+            "version": MARKET_SNAPSHOT_VERSION,
+            "scanned_at": challenge_snapshot.get("scanned_at"),
+            "scope": result.get("scope") or scope,
+            "shortlist": challenge_snapshot.get("shortlist", [])[:3],
+            "fixtures_found": challenge_snapshot.get("fixtures_found", 0),
+            "fixtures_modeled": challenge_snapshot.get("fixtures_modeled", 0),
+            "blocked_counts": challenge_snapshot.get("blocked_counts", {}),
+            "errors": challenge_snapshot.get("errors", []),
+        }
+        scan_jobs.clear_job("markets")
+    elif job["state"] == "error":
+        st.error(f"Markt-Wettfinder fehlgeschlagen: {job.get('error')}")
+        scan_jobs.clear_job("markets")
 
     snapshot = st.session_state.get("market_bet_finder_snapshot")
     if not isinstance(snapshot, dict):

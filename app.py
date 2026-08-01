@@ -106,6 +106,9 @@ PAGE_SCAN_JOBS = {
     "Spiele": ("prematch",),
     "Live": ("live", "red_cards"),
     "15K Challenge": ("challenge_15k",),
+    "Märkte": ("markets",),
+    "Tennis": ("tennis",),
+    "Multi-Sport": ("multi_sport",),
 }
 
 PREMATCH_SNAPSHOT_VERSION = 3
@@ -2624,6 +2627,23 @@ def _fetch_multi_sport_snapshot(
     return snapshot
 
 
+def _run_multi_sport_worker(
+    sport: str,
+    detail_filter: Optional[str] = None,
+    progress_cb=None,
+) -> dict:
+    """Hintergrund-Worker für den Multi-Sport-Scan (thread-sicher, kein st.*)."""
+    if progress_cb:
+        progress_cb(0.1, f"{sport}-Daten werden geladen …")
+    snapshot = _fetch_multi_sport_snapshot(sport, detail_filter)
+    if progress_cb:
+        progress_cb(1.0, "Fertig")
+    return {
+        "scope_key": _multi_sport_scope_key(sport, detail_filter),
+        "snapshot": snapshot,
+    }
+
+
 def _render_esports_shadow_status() -> None:
     """Compact proof line: shadow-log calibration for e-sport candidates."""
     try:
@@ -2680,8 +2700,31 @@ def render_multi_sport() -> None:
         use_container_width=True,
         key="run_multi_sport",
     ):
-        with st.spinner(f"{sport}-Modelle werden aktualisiert..."):
-            snapshots[scope_key] = _fetch_multi_sport_snapshot(sport, detail_filter)
+        if scan_jobs.get_job("multi_sport")["state"] == "running":
+            st.info(f"Der {sport}-Scan läuft bereits im Hintergrund.")
+        else:
+            scan_jobs.start_job(
+                "multi_sport",
+                _run_multi_sport_worker,
+                args=(sport, detail_filter),
+            )
+
+    job = scan_jobs.get_job("multi_sport")
+    if job["state"] == "running":
+        _scan_job_progress_fragment(
+            "multi_sport",
+            f"{sport}-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht.",
+        )
+    elif job["state"] == "done":
+        result = job.get("result") or {}
+        result_scope = result.get("scope_key")
+        result_snapshot = result.get("snapshot")
+        if result_scope and isinstance(result_snapshot, dict):
+            snapshots[result_scope] = result_snapshot
+        scan_jobs.clear_job("multi_sport")
+    elif job["state"] == "error":
+        st.error(f"{sport}-Suche fehlgeschlagen: {job.get('error')}")
+        scan_jobs.clear_job("multi_sport")
 
     snapshot = snapshots.get(scope_key)
     if not snapshot:
