@@ -1817,6 +1817,69 @@ def _lineup_summary(
     }, None
 
 
+def extract_lineup_display(
+    lineups: Optional[list[dict[str, Any]]],
+    home_team_id: int,
+    away_team_id: int,
+) -> dict[str, Any]:
+    """Anzeigefähige Startaufstellung aus dem Provider-Lineup.
+
+    Liefert pro Seite Formation, Coach und 11 Spielernamen — nur für Teams
+    mit vollständigem, eindeutigem Startblock. Unvollständige Seiten fehlen
+    einfach; die Anzeige ist Information, kein Gate.
+    """
+    if not isinstance(lineups, list):
+        return {}
+    valid_ids = {
+        team_id
+        for team_id in (home_team_id, away_team_id)
+        if isinstance(team_id, int) and not isinstance(team_id, bool) and team_id > 0
+    }
+    if len(valid_ids) != 2:
+        return {}
+    result: dict[str, Any] = {}
+    seen: set[int] = set()
+    for item in lineups:
+        if not isinstance(item, dict):
+            continue
+        team = item.get("team")
+        team_id = team.get("id") if isinstance(team, dict) else None
+        if team_id not in valid_ids or team_id in seen:
+            continue
+        starters = item.get("startXI")
+        if not isinstance(starters, list):
+            continue
+        names: list[str] = []
+        for starter in starters:
+            player = starter.get("player") if isinstance(starter, dict) else None
+            name = player.get("name") if isinstance(player, dict) else None
+            if not isinstance(name, str) or not name.strip():
+                continue
+            cleaned = name.strip()
+            if cleaned not in names:
+                names.append(cleaned)
+        if len(names) < 11:
+            continue
+        seen.add(team_id)
+        formation = item.get("formation")
+        coach = item.get("coach")
+        coach_name = coach.get("name") if isinstance(coach, dict) else None
+        result["home" if team_id == home_team_id else "away"] = {
+            "formation": (
+                formation.strip()
+                if isinstance(formation, str) and formation.strip()
+                else None
+            ),
+            "coach": (
+                coach_name.strip()
+                if isinstance(coach_name, str) and coach_name.strip()
+                else None
+            ),
+            "starters": names[:11],
+        }
+    return result
+
+
 def apply_candidate_context(
     candidate: ChallengeCandidate,
     *,
@@ -1903,8 +1966,13 @@ def apply_candidate_context(
     )
     if lineup_reason and require_lineups:
         blocked.append(lineup_reason)
-    if not require_lineups:
-        lineup_summary = {**lineup_summary, "required": False}
+    lineup_summary = {
+        **lineup_summary,
+        "required": require_lineups,
+        "display": extract_lineup_display(
+            lineups, candidate.home_team_id, candidate.away_team_id
+        ),
+    }
 
     lineup_ok = lineup_passed or not require_lineups
     candidate.context = {

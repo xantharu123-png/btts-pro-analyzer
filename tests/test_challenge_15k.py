@@ -1249,5 +1249,94 @@ class AutoRecheckTests(unittest.TestCase):
         self.assertIsNone(decision["next_kickoff"])
 
 
+def _lineup_block(team_id, players=11):
+    return {
+        "team": {"id": team_id},
+        "formation": "4-4-2",
+        "coach": {"name": f"Coach {team_id}"},
+        "startXI": [
+            {"player": {"id": team_id * 100 + i, "name": f"Spieler {team_id}-{i}"}}
+            for i in range(1, players + 1)
+        ],
+    }
+
+
+class LineupDisplayTests(unittest.TestCase):
+    def test_valid_lineups_extract_both_sides(self):
+        from challenge_engine import extract_lineup_display
+
+        display = extract_lineup_display([_lineup_block(10), _lineup_block(11)], 10, 11)
+        self.assertEqual(set(display), {"home", "away"})
+        self.assertEqual(display["home"]["formation"], "4-4-2")
+        self.assertEqual(display["home"]["coach"], "Coach 10")
+        self.assertEqual(len(display["home"]["starters"]), 11)
+        self.assertEqual(display["away"]["starters"][0], "Spieler 11-1")
+
+    def test_partial_and_invalid_data(self):
+        from challenge_engine import extract_lineup_display
+
+        one_side = extract_lineup_display([_lineup_block(10)], 10, 11)
+        self.assertEqual(set(one_side), {"home"})
+        forged = [
+            {"team": {"id": team_id}, "startXI": [None] * 11}
+            for team_id in (10, 11)
+        ]
+        self.assertEqual(extract_lineup_display(forged, 10, 11), {})
+        self.assertEqual(extract_lineup_display(None, 10, 11), {})
+        self.assertEqual(extract_lineup_display([_lineup_block(10, players=9)], 10, 11), {})
+        duplicate = [_lineup_block(10), _lineup_block(10)]
+        self.assertEqual(set(extract_lineup_display(duplicate, 10, 11)), {"home"})
+        wrong = [_lineup_block(999), _lineup_block(998)]
+        self.assertEqual(extract_lineup_display(wrong, 10, 11), {})
+
+
+class _LineupProvider:
+    """Provider-Double: liefert Fixture-Details mit Lineups, zählt Aufrufe."""
+
+    def __init__(self, details):
+        self._details = details
+        self.requests = []
+
+    def details_by_fixture(self, fixture_ids):
+        self.requests.append(list(fixture_ids))
+        return {fid: self._details.get(fid) for fid in fixture_ids}
+
+
+class LineupRefreshTests(unittest.TestCase):
+    def test_refresh_fills_missing_displays_without_touching_gates(self):
+        from challenge_15k import _refresh_lineup_displays
+
+        item = candidate("1:X", 1, 0.70)
+        item.context = {"passed": True, "lineups": {"required": False, "display": {}}}
+        snapshot = {"shortlist": [item]}
+        provider = _LineupProvider(
+            {1: {"fixture": {"id": 1}, "lineups": [_lineup_block(10), _lineup_block(11)]}}
+        )
+
+        updated = _refresh_lineup_displays(provider, snapshot)
+
+        self.assertEqual(updated, 1)
+        self.assertEqual(provider.requests, [[1]])
+        display = item.context["lineups"]["display"]
+        self.assertEqual(len(display["home"]["starters"]), 11)
+        self.assertTrue(item.context["passed"])
+
+    def test_refresh_skips_complete_candidates_without_api_call(self):
+        from challenge_15k import _refresh_lineup_displays
+
+        item = candidate("1:X", 1, 0.70)
+        complete = {
+            "home": {"formation": None, "coach": None, "starters": ["A"] * 11},
+            "away": {"formation": None, "coach": None, "starters": ["B"] * 11},
+        }
+        item.context = {"passed": True, "lineups": {"display": complete}}
+        provider = _LineupProvider({})
+
+        updated = _refresh_lineup_displays(provider, {"shortlist": [item]})
+
+        self.assertEqual(updated, 0)
+        self.assertEqual(provider.requests, [])
+
+
 if __name__ == "__main__":
     unittest.main()

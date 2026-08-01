@@ -26,6 +26,7 @@ from challenge_engine import (
     apply_candidate_context,
     build_fixture_candidates,
     consecutive_wins_to_target,
+    extract_lineup_display,
     fit_market_calibration,
     kelly_reference_stake,
     market_outcome,
@@ -784,6 +785,78 @@ def _auto_recheck_decision(
     return decision
 
 
+def _refresh_lineup_displays(provider: "ChallengeDataProvider", snapshot: dict[str, Any]) -> int:
+    """Lädt bestätigte Aufstellungen für freigegebene Kandidaten nach.
+
+    Leichtgewichtig: nur Fixture-Details, keine Gates, keine Preise — der
+    Snapshot und ein laufender Preis-Check bleiben unverändert. Gibt die
+    Zahl der Kandidaten zurück, deren Anzeige neu befüllt wurde.
+    """
+    shortlist = snapshot.get("shortlist") or []
+    pending = [
+        candidate
+        for candidate in shortlist
+        if len(((candidate.context or {}).get("lineups") or {}).get("display") or {}) < 2
+    ]
+    if not pending:
+        return 0
+    fixture_ids = sorted({candidate.fixture_id for candidate in pending})
+    details = provider.details_by_fixture(fixture_ids)
+    updated = 0
+    for candidate in pending:
+        detail = details.get(candidate.fixture_id)
+        if not isinstance(detail, dict):
+            continue
+        display = extract_lineup_display(
+            detail.get("lineups"), candidate.home_team_id, candidate.away_team_id
+        )
+        if not display:
+            continue
+        context = candidate.context if isinstance(candidate.context, dict) else {}
+        lineups_summary = dict(context.get("lineups") or {})
+        lineups_summary["display"] = display
+        context["lineups"] = lineups_summary
+        candidate.context = context
+        updated += 1
+    return updated
+
+
+def _lineup_refresh_tick(
+    snapshot: dict[str, Any], api_football_key: str, weather_key: Optional[str]
+) -> None:
+    """Nach der Freigabe: holt bestätigte Aufstellungen nach, sobald sie
+    veröffentlicht sind (ca. 60 Minuten vor Anpfiff). Nur Anzeige —
+    Gates, Shortlist und Preise bleiben unberührt."""
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(minutes=5)
+    window_end = now + timedelta(minutes=75)
+    due = [
+        candidate
+        for candidate in (snapshot.get("shortlist") or [])
+        if len(((candidate.context or {}).get("lineups") or {}).get("display") or {}) < 2
+        and (kickoff := _candidate_kickoff(candidate)) is not None
+        and window_start <= kickoff <= window_end
+    ]
+    if not due:
+        return
+    try:
+        last_poll = datetime.fromisoformat(
+            str(st.session_state.get("challenge_lineup_poll_at") or "")
+        ).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        last_poll = None
+    if last_poll is not None and (now - last_poll) < timedelta(
+        seconds=AUTO_RECHECK_POLL_SECONDS
+    ):
+        return
+    st.session_state["challenge_lineup_poll_at"] = now.isoformat()
+    provider = ChallengeDataProvider(api_football_key, weather_key)
+    updated = _refresh_lineup_displays(provider, snapshot)
+    if updated:
+        st.toast("Bestätigte Aufstellungen sind da — nur Info, kein Gate.")
+        st.rerun()
+
+
 @st.fragment(run_every=AUTO_RECHECK_POLL_SECONDS)
 def _challenge_auto_recheck_fragment(
     api_football_key: str,
@@ -797,6 +870,13 @@ def _challenge_auto_recheck_fragment(
     vor Anpfiff), startet die App den Kontext-Scan selbstständig neu —
     nur solange nichts freigegeben ist und die Seite offen bleibt."""
     snapshot = st.session_state.get("challenge_snapshot")
+    if not isinstance(snapshot, dict):
+        return
+    if snapshot.get("shortlist"):
+        # Nach der Freigabe: kein Rescan mehr, nur bestätigte Aufstellungen
+        # für die Anzeige nachladen, sobald sie veröffentlicht sind.
+        _lineup_refresh_tick(snapshot, api_football_key, weather_key)
+        return
     if not _auto_recheck_eligible(snapshot, search_date):
         return
     if scan_jobs.get_job("challenge_15k").get("state") == "running":
@@ -1619,6 +1699,28 @@ def _render_candidate_context(candidate: ChallengeCandidate) -> None:
         f"{weather.get('temperature_c', 'n/a')} °C",
     )
     checks[3].metric("Mindestquote", f"{candidate.model_price:.2f}")
+    lineup_display = (context.get("lineups") or {}).get("display") or {}
+    if lineup_display:
+        with st.expander("Bestätigte Aufstellungen", expanded=False):
+            lineup_cols = st.columns(2)
+            for col, side, team_name in (
+                (lineup_cols[0], "home", candidate.home_team),
+                (lineup_cols[1], "away", candidate.away_team),
+            ):
+                info = lineup_display.get(side)
+                if not info:
+                    col.caption(f"{team_name}: noch nicht veröffentlicht")
+                    continue
+                formation = f" ({info['formation']})" if info.get("formation") else ""
+                col.markdown(f"**{team_name}**{formation}")
+                if info.get("coach"):
+                    col.caption(f"Coach: {info['coach']}")
+                col.markdown(
+                    "\n".join(
+                        f"{index}. {name}"
+                        for index, name in enumerate(info.get("starters", []), start=1)
+                    )
+                )
 
 
 def _render_price_check(
