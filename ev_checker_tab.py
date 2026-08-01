@@ -4,6 +4,10 @@ Die Seite setzt die Lektion aus dem EV-Prinzip um: Du wettest nicht auf
 ein Team, du kaufst eine Wahrscheinlichkeit zu einem Preis.  Drei Eingaben
 (Quote, eigene Einschätzung in %, Einsatz) liefern Break-even, Edge,
 Erwartungswert in CHF und ein klares JA / KNAPP / NEIN.
+
+Optional befüllt ein gespeichertes Modell-Signal (Tennis- oder
+E-Sport-Shadow) die Prozent-Einschätzung vor — die Quote tippst du immer
+selbst ein, denn der Preis entscheidet.
 """
 
 from __future__ import annotations
@@ -20,6 +24,9 @@ from ev_calculator import (
     expected_value,
     verdict,
 )
+from ev_signal_sources import list_signals
+
+_MANUAL = "manual"
 
 
 def _fmt_pct(value: float, digits: int = 1) -> str:
@@ -41,6 +48,34 @@ def render_ev_checker() -> None:
         "deutlich über der Break-even-Marke der Quote liegt."
     )
 
+    signals = list_signals()
+    by_key = {signal.key: signal for signal in signals}
+
+    def _apply_signal() -> None:
+        signal = by_key.get(st.session_state.get("ev_signal_choice"))
+        if signal is not None:
+            st.session_state["ev_prob"] = round(signal.probability * 100, 1)
+
+    st.session_state.setdefault("ev_prob", 70.0)
+    choice = st.selectbox(
+        "Modell-Signal übernehmen (optional)",
+        [_MANUAL] + list(by_key),
+        format_func=lambda key: (
+            "— manuell eingeben —" if key == _MANUAL else by_key[key].label
+        ),
+        key="ev_signal_choice",
+        on_change=_apply_signal,
+        help="Gespeicherte Modell-Wahrscheinlichkeiten (Tennis- und "
+             "E-Sport-Shadow). Danach nur noch die Buchmacher-Quote eintippen.",
+    )
+    chosen = by_key.get(choice)
+    if chosen is not None:
+        prob_text = f"{chosen.probability * 100:.1f}".replace(".", ",")
+        st.caption(
+            f"Übernommen: **{prob_text} %** — {chosen.detail}. "
+            "Anpassen kannst du die Zahl unten jederzeit."
+        )
+
     col_odds, col_prob, col_stake = st.columns(3)
     with col_odds:
         odds = st.number_input(
@@ -57,11 +92,12 @@ def render_ev_checker() -> None:
             "Deine Einschätzung (in %)",
             min_value=0.0,
             max_value=100.0,
-            value=70.0,
-            step=1.0,
-            format="%.0f",
+            step=0.5,
+            format="%.1f",
+            key="ev_prob",
             help="Wie wahrscheinlich ist die Wette DEINER ehrlichen "
-                 "Einschätzung nach? Nicht: wie sehr wünschst du sie dir.",
+                 "Einschätzung nach? Vom Modell vorbefüllbar — "
+                 "du bleibst verantwortlich.",
         )
     with col_stake:
         stake = st.number_input(

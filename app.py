@@ -78,7 +78,7 @@ PAGE_INFO = {
     ),
     "Wett-Check": (
         "Wett-Check (Erwartungswert)",
-        "Quote + deine Prozent-Einschätzung prüfen: Break-even, Erwartungswert in CHF und klares JA/NEIN vor jeder eigenen Wette.",
+        "Modell-Signal wählen oder eigene Prozent-Einschätzung eingeben, N1Bet-Quote dazu: Break-even, Erwartungswert in CHF und klares JA/NEIN.",
     ),
     "System": (
         "Wettfinder-System",
