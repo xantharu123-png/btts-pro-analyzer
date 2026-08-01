@@ -519,6 +519,67 @@ class ChallengeContextTests(unittest.TestCase):
             item.context["blocked_reasons"],
         )
 
+    def test_lineups_optional_do_not_block_when_disabled(self):
+        item = candidate("1:BTTS", 1, 0.70)
+        now = datetime.now(timezone.utc)
+        h2h = [
+            fixture(100 + index, now - timedelta(days=30 + index), 10, 11, 1, 1)
+            for index in range(3)
+        ]
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=h2h,
+            injuries=[],
+            injury_coverage=True,
+            weather={
+                "status": "ok",
+                "temperature_c": 12,
+                "wind_mps": 3,
+                "rain_3h_mm": 0,
+                "snow_3h_mm": 0,
+                "description": "klar",
+            },
+            lineups=None,
+            now=now,
+            require_lineups=False,
+        )
+
+        self.assertTrue(item.eligible)
+        self.assertNotIn("Aufstellung", " ".join(item.context["blocked_reasons"]))
+        self.assertFalse(item.context["lineups"]["required"])
+
+    def test_placeholder_lineups_still_ignored_when_optional(self):
+        item = candidate("1:BTTS", 1, 0.70)
+        now = datetime.now(timezone.utc)
+        h2h = [
+            fixture(100 + index, now - timedelta(days=30 + index), 10, 11, 1, 1)
+            for index in range(3)
+        ]
+        forged_lineups = [
+            {"team": {"id": team_id}, "startXI": [None] * 11}
+            for team_id in (10, 11)
+        ]
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=h2h,
+            injuries=[],
+            injury_coverage=True,
+            weather={
+                "status": "ok",
+                "temperature_c": 12,
+                "wind_mps": 3,
+                "rain_3h_mm": 0,
+                "snow_3h_mm": 0,
+            },
+            lineups=forged_lineups,
+            now=now,
+            require_lineups=False,
+        )
+
+        self.assertTrue(item.eligible)
+
     def test_missing_h2h_blocks_candidate(self):
         item = candidate("1:BTTS", 1, 0.70)
 

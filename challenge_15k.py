@@ -60,8 +60,8 @@ MAX_SCAN_FIXTURES = 400
 QUOTE_MAX_AGE_MINUTES = 10
 SNAPSHOT_MAX_AGE_MINUTES = 20
 XG_MAX_NEW_CALLS_PER_SCAN = 12
-# Auto-Nachprüfung: Die App wartet selbst auf das Kontextfenster (bestätigte
-# Aufstellungen erscheinen ca. 60 Minuten vor Anpfiff), statt dass der Nutzer
+# Auto-Nachprüfung: Die App wartet selbst auf frischen Live-Kontext
+# (H2H-Lage, Ausfälle, Wetter kurz vor Anpfiff), statt dass der Nutzer
 # den ganzen Tag manuell neu scannt. Läuft nur, solange die Seite offen ist
 # und noch kein Kandidat freigegeben wurde.
 AUTO_RECHECK_WINDOW_MINUTES = 80
@@ -792,8 +792,8 @@ def _challenge_auto_recheck_fragment(
     search_date: date,
     max_fixtures: int,
 ) -> None:
-    """Wartet an Stelle des Nutzers auf das Kontextfenster: Sobald
-    Shortlist-Spiele ins Fenster rutschen (Aufstellungen ca. 60 Minuten
+    """Wartet an Stelle des Nutzers auf frischen Live-Kontext: Sobald
+    Shortlist-Spiele ins Fenster rutschen (H2H, Ausfälle, Wetter kurz
     vor Anpfiff), startet die App den Kontext-Scan selbstständig neu —
     nur solange nichts freigegeben ist und die Seite offen bleibt."""
     snapshot = st.session_state.get("challenge_snapshot")
@@ -978,6 +978,8 @@ def scan_daily_challenge(
                 if isinstance(detail, dict) and league_coverage.get("lineups") is True
                 else None
             ),
+            # Nutzervorgabe: Aufstellungen sind Information, kein Freigabe-Veto.
+            require_lineups=False,
         )
         contextualized.append(candidate)
 
@@ -1632,8 +1634,8 @@ def _render_price_check(
         if base_shortlist:
             st.warning(
                 f"NOCH KEINE WETTFREIGABE — {len(base_shortlist)} Märkte bestehen "
-                "die Mathematik und warten auf Live-Kontext (Aufstellungen, ca. "
-                "60 Minuten vor Anpfiff) und den N1Bet-Preis."
+                "die Mathematik und warten auf Live-Kontext (H2H, Ausfälle, "
+                "Wetter) und den N1Bet-Preis."
             )
         else:
             st.error("KEINE WETTE HEUTE — kein Kandidat besteht alle Prüfkriterien.")
@@ -1664,9 +1666,9 @@ def _render_price_check(
             st.subheader("Modell-Shortlist — Kontext & Quote offen")
             st.caption(
                 "Diese Märkte bestehen die Mathematik-Gates (Modell, Walk-forward-Validierung, "
-                "Evidenz). Was noch fehlt: der Live-Kontext (bestätigte Aufstellungen, Ausfälle, "
-                "Wetter, H2H) — der steht ca. 60 Minuten vor Anpfiff bereit — und danach der "
-                "N1Bet-Preis. Kurz vor Anpfiff erneut suchen. Keine Wettfreigabe ohne Kontext + Quote."
+                "Evidenz). Was noch fehlt: der Live-Kontext (H2H, Ausfälle, Wetter) und danach "
+                "der N1Bet-Preis. Aufstellungen werden nur angezeigt, sie blockieren nicht. "
+                "Keine Wettfreigabe ohne Kontext + Quote."
             )
             st.dataframe(
                 _shortlist_frame(base_shortlist), width="stretch", hide_index=True
@@ -1863,8 +1865,9 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     if not config.weather_key:
         st.warning("Wetter-Key fehlt. Der strikte Kontext-Gate wird daher keine Tipps freigeben.")
     st.caption(
-        "Eine finale Freigabe ist erst mit bestätigten Startaufstellungen möglich. "
-        "Frühere Suchen bleiben bewusst ohne Ticketfreigabe."
+        "Aufstellungen blockieren die Freigabe nicht mehr: Sie wird erteilt, sobald "
+        "Modell, Walk-forward, H2H, Ausfälle und Wetter passen — danach entscheidet "
+        "allein der N1Bet-Preis."
     )
 
     controls = st.columns(2)
@@ -1887,7 +1890,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     max_fixtures = MAX_SCAN_FIXTURES
     controls[1].caption(
         "Alle Spiele der gewählten Ligen werden modelliert; "
-        "Live-Kontext (H2H, Wetter, Aufstellung) für die 20 stärksten Kandidaten."
+        "Live-Kontext (H2H, Ausfälle, Wetter) für die 20 stärksten Kandidaten."
     )
 
     available_ids = list(ALTERNATIVE_MARKET_LEAGUES)
@@ -1975,14 +1978,14 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     if snapshot_age > SNAPSHOT_MAX_AGE_MINUTES or snapshot_age < -1:
         if not _auto_recheck_eligible(snapshot, search_date):
             st.warning(
-                "Dieser Datenstand ist nicht mehr aktuell. Verletzungen, Wetter, "
-                "Aufstellungen und Anstoßstatus müssen neu geprüft werden."
+                "Dieser Datenstand ist nicht mehr aktuell. Verletzungen, Wetter "
+                "und Anstoßstatus müssen neu geprüft werden."
             )
             return
         st.info(
             "Wartezustand: Der Datenstand ist älter, aber noch ohne Wettfreigabe. "
-            "Die Auto-Prüfung scannt selbstständig neu, sobald Shortlist-Spiele "
-            "ins Kontextfenster rutschen (Aufstellungen, ca. 60 Minuten vor Anpfiff)."
+            "Die Auto-Prüfung scannt selbstständig neu, sobald frischer Live-Kontext "
+            "(H2H, Ausfälle, Wetter) für Shortlist-Spiele verfügbar wird."
         )
     counts = st.columns(4)
     counts[0].metric("Gefunden", snapshot["fixtures_found"])

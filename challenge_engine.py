@@ -1826,8 +1826,15 @@ def apply_candidate_context(
     weather: Optional[dict[str, Any]],
     lineups: Optional[list[dict[str, Any]]],
     now: Optional[datetime] = None,
+    require_lineups: bool = True,
 ) -> ChallengeCandidate:
-    """Attach non-price context as veto gates without altering probability."""
+    """Attach non-price context as veto gates without altering probability.
+
+    Mit require_lineups=False werden Aufstellungen nur noch erfasst und
+    angezeigt, sperren die Freigabe aber nicht (Nutzervorgabe der
+    15K-Challenge). Der Shadow-Modus bleibt mit dem Standard strikt,
+    damit die CLV-Beweisführung vergleichbar bleibt.
+    """
     now_utc = now or datetime.now(timezone.utc)
     if now_utc.tzinfo is None:
         now_utc = now_utc.replace(tzinfo=timezone.utc)
@@ -1894,11 +1901,14 @@ def apply_candidate_context(
         candidate.home_team_id,
         candidate.away_team_id,
     )
-    if lineup_reason:
+    if lineup_reason and require_lineups:
         blocked.append(lineup_reason)
+    if not require_lineups:
+        lineup_summary = {**lineup_summary, "required": False}
 
+    lineup_ok = lineup_passed or not require_lineups
     candidate.context = {
-        "passed": h2h_passed and injuries_passed and weather_passed and lineup_passed,
+        "passed": h2h_passed and injuries_passed and weather_passed and lineup_ok,
         "h2h": {
             "status": "passed" if h2h_passed else "blocked",
             "matches": len(scores),
