@@ -13,6 +13,8 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
+import scan_jobs
+
 from challenge_engine import (
     ChallengeCandidate,
     COUNT_MARKET_KINDS,
@@ -636,6 +638,41 @@ def _candidate_rank(candidate: ChallengeCandidate) -> tuple[float, float, float]
         candidate.evidence_score,
         validation_improvement,
     )
+
+
+def _run_challenge_scan_worker(
+    provider: "ChallengeDataProvider",
+    league_ids: list[int],
+    search_date: date,
+    max_fixtures: int,
+    progress_cb=None,
+) -> dict[str, Any]:
+    """Hintergrund-Hülle für scan_jobs: scan_daily_challenge ist st-frei;
+    der Fortschritts-Callback meldet Start und Ende."""
+    if progress_cb:
+        progress_cb(0.0, "Quotenfreie Modelle, Validierung und Kontext werden geprüft...")
+    result = scan_daily_challenge(provider, league_ids, search_date, max_fixtures)
+    if progress_cb:
+        progress_cb(1.0, "Challenge-Scan fertig")
+    return result
+
+
+@st.fragment(run_every=2)
+def _challenge_scan_fragment() -> None:
+    """Pollt den Hintergrund-Challenge-Scan; bei Abschluss Voll-Rerun,
+    damit der Hauptlauf den Snapshot übernimmt."""
+    job = scan_jobs.get_job("challenge_15k")
+    state = job.get("state")
+    if state == "running":
+        st.progress(
+            min(max(float(job.get("progress") or 0.0), 0.0), 1.0),
+            text=job.get("progress_text") or "Challenge-Scan läuft...",
+        )
+        st.caption(
+            "Challenge-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht."
+        )
+    elif state in {"done", "error"}:
+        st.rerun()
 
 
 def scan_daily_challenge(
@@ -1610,19 +1647,26 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     ):
         if not selected_leagues:
             st.warning("Mindestens eine Liga auswählen.")
+        elif scan_jobs.get_job("challenge_15k")["state"] == "running":
+            st.info("Der Challenge-Scan läuft bereits im Hintergrund.")
         else:
-            try:
-                provider = ChallengeDataProvider(config.api_football_key, config.weather_key)
-                with st.spinner("Quotenfreie Modelle, Validierung und Kontext werden geprüft..."):
-                    st.session_state["challenge_snapshot"] = scan_daily_challenge(
-                        provider,
-                        selected_leagues,
-                        search_date,
-                        max_fixtures,
-                    )
-                st.session_state.pop("challenge_quote_result", None)
-            except Exception as exc:
-                st.error(f"Challenge-Wettfinder fehlgeschlagen: {exc}")
+            provider = ChallengeDataProvider(config.api_football_key, config.weather_key)
+            scan_jobs.start_job(
+                "challenge_15k",
+                _run_challenge_scan_worker,
+                args=(provider, list(selected_leagues), search_date, max_fixtures),
+            )
+
+    job = scan_jobs.get_job("challenge_15k")
+    if job["state"] == "running":
+        _challenge_scan_fragment()
+    elif job["state"] == "done":
+        st.session_state["challenge_snapshot"] = job.get("result")
+        st.session_state.pop("challenge_quote_result", None)
+        scan_jobs.clear_job("challenge_15k")
+    elif job["state"] == "error":
+        st.error(f"Challenge-Wettfinder fehlgeschlagen: {job.get('error')}")
+        scan_jobs.clear_job("challenge_15k")
 
     snapshot = st.session_state.get("challenge_snapshot")
     if not isinstance(snapshot, dict):

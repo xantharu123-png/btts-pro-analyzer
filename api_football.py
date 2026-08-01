@@ -129,6 +129,38 @@ class APIFootball:
         if elapsed < self.min_request_interval:
             time.sleep(self.min_request_interval - elapsed)
         self.last_request_time = time.time()
+
+    def _request(self, endpoint: str, params: Dict) -> Dict:
+        """Rate-limitter Roh-GET: volles Provider-Payload-Dict ({} bei Fehler).
+
+        Für Settlement-Pfade (z. B. redcard_signal_log), die das Payload
+        selbst interpretieren. Fehler landen in self.last_error.
+        """
+        self.last_error = None
+        self._rate_limit()
+        try:
+            response = requests.get(
+                f"{self.base_url}/{endpoint}",
+                headers=self.headers,
+                params=params,
+                timeout=15,
+            )
+        except Exception as e:
+            self.last_error = f"{endpoint}: {type(e).__name__}"
+            return {}
+        if response.status_code != 200:
+            self.last_error = f"{endpoint}: HTTP {response.status_code}"
+            return {}
+        try:
+            payload = response.json()
+        except ValueError:
+            self.last_error = f"{endpoint}: invalid JSON"
+            return {}
+        provider_error = self._payload_error(payload)
+        if provider_error:
+            self.last_error = f"{endpoint}: {provider_error}"
+            return {}
+        return payload if isinstance(payload, dict) else {}
     
     def get_upcoming_fixtures(self, league_code: str, days_ahead: int = 7) -> List[Dict]:
         """

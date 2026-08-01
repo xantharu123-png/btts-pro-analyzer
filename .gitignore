@@ -20,3 +20,6 @@ models/
 !.env.example
 !.streamlit/secrets.example.toml
 !config.ini.example
+
+# Laufzeit-Artefakte der Hintergrund-Scans
+scan_jobs/

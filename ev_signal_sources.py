@@ -14,12 +14,18 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import List, Optional, Union
 
+from scan_jobs import JOBS_DIR, load_persisted
+
 TENNIS_DB = Path(__file__).resolve().parent / "tennis" / "data" / "tennis_shadow.db"
 ESPORTS_DB = Path(__file__).resolve().parent / "esports_shadow.db"
+
+# Fußball-Scans älter als 24h nicht mehr anbieten (Live-Bezug veraltet,
+# Prematch-Spiele könnten bereits gelaufen sein).
+FOOTBALL_SIGNAL_MAX_AGE_HOURS = 24
 
 
 @dataclass(frozen=True)
@@ -133,12 +139,70 @@ def esports_signals(db_path: Union[str, Path] = ESPORTS_DB) -> List[ModelSignal]
     return signals
 
 
+def _parse_iso(value: object) -> Optional[datetime]:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def football_signals(
+    jobs_dir: Union[str, Path] = JOBS_DIR,
+    now: Optional[datetime] = None,
+    max_age_hours: float = FOOTBALL_SIGNAL_MAX_AGE_HOURS,
+) -> List[ModelSignal]:
+    """Letzte Fußball-Scans (BTTS Prematch + Platzverweis) als Signale.
+
+    Liest die von den Hintergrund-Scans persistierten Verdichtungen
+    (scan_jobs/<name>.json) — frisch genug (< max_age_hours) und nur mit
+    gültigen Wahrscheinlichkeiten.
+    """
+    now = now or datetime.now().astimezone()
+    signals: List[ModelSignal] = []
+    for name, source in (
+        ("prematch", "Fußball-Scan · BTTS"),
+        ("red_cards", "Fußball-Scan · Platzverweis"),
+    ):
+        document = load_persisted(name, jobs_dir=jobs_dir)
+        if not document:
+            continue
+        finished = _parse_iso(document.get("finished_at"))
+        if finished is None:
+            continue
+        age_hours = (now - finished).total_seconds() / 3600.0
+        if age_hours < 0 or age_hours > max_age_hours:
+            continue
+        for row in document.get("signals") or []:
+            if not isinstance(row, dict):
+                continue
+            probability = row.get("p")
+            if not _valid_probability(probability):
+                continue
+            home, away, market = row.get("home"), row.get("away"), row.get("market")
+            if not home or not away or not market:
+                continue
+            signals.append(
+                ModelSignal(
+                    key=f"football-{name}-{len(signals)}",
+                    label=f"⚽ {home} vs {away} · {market}",
+                    probability=float(probability),
+                    detail=f"{source} · Stand {finished.strftime('%d.%m. %H:%M')}",
+                )
+            )
+    return signals
+
+
 def list_signals(
     tennis_db: Union[str, Path] = TENNIS_DB,
     esports_db: Union[str, Path] = ESPORTS_DB,
+    jobs_dir: Union[str, Path] = JOBS_DIR,
     today: Optional[str] = None,
 ) -> List[ModelSignal]:
-    """Alle verfügbaren Modell-Signale (Tennis zuerst, dann E-Sport)."""
-    return tennis_signals(db_path=tennis_db, today=today) + esports_signals(
-        db_path=esports_db
+    """Alle verfügbaren Modell-Signale (Fußball, Tennis, E-Sport)."""
+    return (
+        football_signals(jobs_dir=jobs_dir)
+        + tennis_signals(db_path=tennis_db, today=today)
+        + esports_signals(db_path=esports_db)
     )

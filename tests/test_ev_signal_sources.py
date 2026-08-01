@@ -170,5 +170,98 @@ class ListSignalsTests(unittest.TestCase):
         self.assertEqual(len({s.key for s in signals}), 3)
 
 
+class FootballSignalTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _write(self, name: str, signals: list, finished_at: str) -> None:
+        import json
+
+        (self.tmp / f"{name}.json").write_text(
+            json.dumps({"finished_at": finished_at, "signals": signals}),
+            encoding="utf-8",
+        )
+
+    def test_fresh_scans_become_signals(self):
+        from datetime import datetime
+
+        from ev_signal_sources import football_signals
+
+        now = datetime.now().astimezone()
+        self._write(
+            "prematch",
+            [
+                {"home": "FC A", "away": "FC B", "league": "BL1",
+                 "date": "2026-08-02", "market": "BTTS Ja", "p": 0.64},
+            ],
+            now.isoformat(),
+        )
+        self._write(
+            "red_cards",
+            [
+                {"home": "FC C", "away": "FC D", "league": None,
+                 "date": now.isoformat(), "market": "Nächstes Tor: FC D",
+                 "p": 0.58},
+            ],
+            now.isoformat(),
+        )
+
+        signals = football_signals(jobs_dir=self.tmp, now=now)
+
+        self.assertEqual(len(signals), 2)
+        btts = next(s for s in signals if "BTTS" in s.label)
+        self.assertIn("⚽ FC A vs FC B", btts.label)
+        self.assertAlmostEqual(btts.probability, 0.64)
+        self.assertIn("Fußball-Scan · BTTS", btts.detail)
+        red = next(s for s in signals if "Nächstes Tor" in s.label)
+        self.assertAlmostEqual(red.probability, 0.58)
+
+    def test_stale_scans_are_excluded(self):
+        from datetime import datetime, timedelta
+
+        from ev_signal_sources import football_signals
+
+        now = datetime.now().astimezone()
+        old = (now - timedelta(hours=48)).isoformat()
+        self._write(
+            "prematch",
+            [{"home": "A", "away": "B", "market": "BTTS Ja", "p": 0.6}],
+            old,
+        )
+        self.assertEqual(football_signals(jobs_dir=self.tmp, now=now), [])
+
+    def test_invalid_rows_are_skipped(self):
+        from datetime import datetime
+
+        from ev_signal_sources import football_signals
+
+        now = datetime.now().astimezone()
+        self._write(
+            "prematch",
+            [
+                {"home": "A", "away": "B", "market": "BTTS Ja", "p": 0.0},
+                {"home": "A", "away": "B", "market": "BTTS Ja", "p": 1.2},
+                {"home": "A", "away": "B", "market": "BTTS Ja", "p": None},
+                {"home": "", "away": "B", "market": "BTTS Ja", "p": 0.6},
+                {"home": "A", "away": "B", "market": None, "p": 0.6},
+                "kein dict",
+                {"home": "Gut", "away": "Böse", "market": "BTTS Ja", "p": 0.61},
+            ],
+            now.isoformat(),
+        )
+        signals = football_signals(jobs_dir=self.tmp, now=now)
+        self.assertEqual(len(signals), 1)
+        self.assertIn("Gut vs Böse", signals[0].label)
+
+    def test_missing_files_return_empty(self):
+        from ev_signal_sources import football_signals
+
+        self.assertEqual(football_signals(jobs_dir=self.tmp), [])
+
+
 if __name__ == "__main__":
     unittest.main()

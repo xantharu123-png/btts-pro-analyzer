@@ -25,6 +25,7 @@ import advanced_analyzer as _advanced_analyzer
 import alternative_markets_tab_extended as _alternative_markets
 import challenge_15k as _challenge_15k
 import football_recommendations as _football_recommendations
+import scan_jobs
 
 _REQUIRED_ANALYZER_MODULE_VERSION = 3
 if getattr(_advanced_analyzer, "ANALYZER_MODULE_VERSION", 0) < _REQUIRED_ANALYZER_MODULE_VERSION:
@@ -899,6 +900,83 @@ def _render_sidebar(analyzer) -> str:
     return workspace
 
 
+def _persist_prematch(results) -> Optional[dict]:
+    """Verdichtet den BTTS-Scan zu Wett-Check-Signalen (JSON-bar)."""
+    if not isinstance(results, pd.DataFrame) or results.empty:
+        return {"signals": []}
+    rows = []
+    for row in results.head(40).to_dict("records"):
+        probability = row.get("BTTS_num")
+        if (
+            not isinstance(probability, (int, float))
+            or isinstance(probability, bool)
+            or probability != probability
+            or not 0.0 < probability < 100.0
+        ):
+            continue
+        rows.append(
+            {
+                "home": row.get("Home"),
+                "away": row.get("Away"),
+                "league": row.get("League"),
+                "date": str(row.get("Date")),
+                "market": "BTTS Ja",
+                "p": probability / 100.0,
+            }
+        )
+    return {"signals": rows}
+
+
+def _persist_red_cards(snapshot: dict) -> Optional[dict]:
+    """Verdichtet den Platzverweis-Scan zu Wett-Check-Signalen."""
+    if not isinstance(snapshot, dict):
+        return {"signals": []}
+    rows = []
+    for entry in (snapshot.get("cards") or [])[:20]:
+        if not isinstance(entry, dict):
+            continue
+        prediction = entry.get("prediction") or {}
+        probability = prediction.get("next_goal_by_opponent")
+        home, away = entry.get("home"), entry.get("away")
+        red_side = entry.get("red_side")
+        if (
+            not isinstance(probability, (int, float))
+            or isinstance(probability, bool)
+            or probability != probability
+            or not 0.0 < probability < 1.0
+            or not home
+            or not away
+        ):
+            continue
+        opponent = away if red_side == "home" else home
+        rows.append(
+            {
+                "home": home,
+                "away": away,
+                "league": None,
+                "date": snapshot.get("scanned_at"),
+                "market": f"Nächstes Tor: {opponent}",
+                "p": probability,
+            }
+        )
+    return {"signals": rows}
+
+
+@st.fragment(run_every=2)
+def _scan_job_progress_fragment(job_key: str, note: str) -> None:
+    """Pollt einen laufenden Hintergrund-Scan; bei Abschluss Voll-Rerun,
+    damit der Hauptlauf das Ergebnis in den session_state übernimmt."""
+    job = scan_jobs.get_job(job_key)
+    state = job.get("state")
+    if state == "running":
+        fraction = job.get("progress") or 0.0
+        text = job.get("progress_text") or "Scan läuft..."
+        st.progress(min(max(float(fraction), 0.0), 1.0), text=text)
+        st.caption(note)
+    elif state in {"done", "error"}:
+        st.rerun()
+
+
 def _prepare_results(results: list[pd.DataFrame]) -> pd.DataFrame:
     if not results:
         return pd.DataFrame()
@@ -911,14 +989,23 @@ def _prepare_results(results: list[pd.DataFrame]) -> pd.DataFrame:
     return combined
 
 
-def _scan_prematch(analyzer, leagues: list[str], days_ahead: int) -> pd.DataFrame:
-    progress = st.progress(0)
-    status = st.empty()
+def _scan_prematch(
+    analyzer, leagues: list[str], days_ahead: int, progress_cb=None
+) -> pd.DataFrame:
+    # Hintergrund-tauglich: mit progress_cb keinerlei st.*-Aufrufe.
+    progress = None if progress_cb else st.progress(0)
+    status = None if progress_cb else st.empty()
     collected = []
     total = max(len(leagues), 1)
     try:
         for index, league_code in enumerate(leagues):
-            status.caption(f"Analysiere {league_code} ({index + 1}/{len(leagues)})")
+            if progress_cb:
+                progress_cb(
+                    index / total,
+                    f"Analysiere {league_code} ({index + 1}/{len(leagues)})",
+                )
+            else:
+                status.caption(f"Analysiere {league_code} ({index + 1}/{len(leagues)})")
             league_results = analyzer.analyze_upcoming_matches(
                 league_code,
                 days_ahead=days_ahead,
@@ -928,10 +1015,15 @@ def _scan_prematch(analyzer, leagues: list[str], days_ahead: int) -> pd.DataFram
                 league_results = league_results.copy()
                 league_results["League"] = league_code
                 collected.append(league_results)
-            progress.progress((index + 1) / total)
+            if progress_cb:
+                progress_cb((index + 1) / total, f"{league_code} fertig")
+            else:
+                progress.progress((index + 1) / total)
     finally:
-        status.empty()
-        progress.empty()
+        if status is not None:
+            status.empty()
+        if progress is not None:
+            progress.empty()
     return _prepare_results(collected)
 
 
@@ -1280,27 +1372,48 @@ def render_matches(analyzer) -> None:
     if run_scan and not selected_leagues:
         st.warning("Mindestens eine Liga auswählen.")
     elif run_scan:
-        try:
-            results = _scan_prematch(
-                analyzer,
-                selected_leagues,
-                days_ahead,
+        if scan_jobs.get_job("prematch")["state"] == "running":
+            st.info("Der BTTS-Scan läuft bereits im Hintergrund.")
+        else:
+            st.session_state["prematch_pending_scope"] = _scope_signature(
+                selected_leagues, days_ahead
             )
-            snapshot = {
-                "version": PREMATCH_SNAPSHOT_VERSION,
-                "scanned_at": datetime.now().astimezone().isoformat(),
-                "scope": _scope_signature(selected_leagues, days_ahead),
-                "results": results,
-            }
-            st.session_state["prematch_snapshot"] = snapshot
-            st.session_state["prematch_results"] = results
-            st.session_state["all_results"] = results
-            if results.empty:
-                st.error("NICHT WETTEN: Für diese Auswahl wurden keine kommenden Spiele gefunden.")
-            else:
-                st.success(f"{len(results)} Spiele geprüft — Ergebnis:")
-        except Exception as exc:
-            st.error(f"Wettfinder fehlgeschlagen: {exc}")
+            scan_jobs.start_job(
+                "prematch",
+                _scan_prematch,
+                args=(analyzer, list(selected_leagues), days_ahead),
+                persist_name="prematch",
+                persist_fn=_persist_prematch,
+            )
+
+    job = scan_jobs.get_job("prematch")
+    if job["state"] == "running":
+        _scan_job_progress_fragment(
+            "prematch",
+            "BTTS-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht.",
+        )
+    elif job["state"] == "done":
+        results = job.get("result")
+        snapshot = {
+            "version": PREMATCH_SNAPSHOT_VERSION,
+            "scanned_at": datetime.now().astimezone().isoformat(),
+            "scope": st.session_state.pop(
+                "prematch_pending_scope",
+                _scope_signature(selected_leagues, days_ahead),
+            ),
+            "results": results,
+        }
+        st.session_state["prematch_snapshot"] = snapshot
+        st.session_state["prematch_results"] = results
+        st.session_state["all_results"] = results
+        scan_jobs.clear_job("prematch")
+        if results.empty:
+            st.error("NICHT WETTEN: Für diese Auswahl wurden keine kommenden Spiele gefunden.")
+        else:
+            st.success(f"{len(results)} Spiele geprüft — Ergebnis:")
+    elif job["state"] == "error":
+        st.error(f"Wettfinder fehlgeschlagen: {job.get('error')}")
+        scan_jobs.clear_job("prematch")
 
     snapshot = st.session_state.get("prematch_snapshot")
     if not isinstance(snapshot, dict):
@@ -1411,12 +1524,13 @@ def _filter_live_opportunities(
     )
 
 
-def _scan_live_football(analyzer) -> dict:
+def _scan_live_football(analyzer, config=None, progress_cb=None) -> dict:
     from api_football import APIFootball
     from ultra_live_scanner_v3 import UltraLiveScanner
 
     scanned_at = datetime.now().astimezone().isoformat()
-    config = load_app_config(st)
+    if config is None:
+        config = load_app_config(st)
     if not config.api_football_key:
         raise ValueError("API-Football-Key fehlt")
 
@@ -1432,7 +1546,8 @@ def _scan_live_football(analyzer) -> dict:
 
     analyses = []
     skipped = 0
-    progress = st.progress(0.0, text="Live-Spiele werden analysiert...")
+    # Hintergrund-tauglich: mit progress_cb keinerlei st.*-Aufrufe.
+    progress = None if progress_cb else st.progress(0.0, text="Live-Spiele werden analysiert...")
     total = max(1, len(matches))
     for index, match in enumerate(matches):
         analysis = scanner.analyze_live_match_ultra(match)
@@ -1440,11 +1555,18 @@ def _scan_live_football(analyzer) -> dict:
             analyses.append(analysis)
         else:
             skipped += 1
-        progress.progress(
-            (index + 1) / total,
-            text=f"Live-Spiel {index + 1} von {len(matches)} wird analysiert...",
-        )
-    progress.empty()
+        if progress_cb:
+            progress_cb(
+                (index + 1) / total,
+                f"Live-Spiel {index + 1} von {len(matches)} wird analysiert...",
+            )
+        else:
+            progress.progress(
+                (index + 1) / total,
+                text=f"Live-Spiel {index + 1} von {len(matches)} wird analysiert...",
+            )
+    if progress is not None:
+        progress.empty()
     insufficient = sum(
         1 for item in analyses if item.get("live_data_quality") == "INSUFFICIENT"
     )
@@ -1516,13 +1638,33 @@ def _render_live_football(analyzer) -> None:
         use_container_width=True,
         key="run_live_football",
     ):
-        try:
-            with st.spinner("Live-Wetten werden geprüft..."):
-                snapshot = _scan_live_football(analyzer)
-                st.session_state["live_football_snapshot"] = snapshot
-                st.session_state.pop("live_snapshot_invalidated_by_red_card", None)
-        except Exception as exc:
-            st.error(f"Live-Wettfinder fehlgeschlagen: {exc}")
+        if scan_jobs.get_job("live")["state"] == "running":
+            st.info("Der Live-Scan läuft bereits im Hintergrund.")
+        else:
+            config = load_app_config(st)
+            if not config.api_football_key:
+                st.error("API-Football-Key fehlt. Konfiguration unter System prüfen.")
+            else:
+                scan_jobs.start_job(
+                    "live",
+                    _scan_live_football,
+                    args=(analyzer,),
+                    kwargs={"config": config},
+                )
+
+    job = scan_jobs.get_job("live")
+    if job["state"] == "running":
+        _scan_job_progress_fragment(
+            "live",
+            "Live-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht.",
+        )
+    elif job["state"] == "done":
+        st.session_state["live_football_snapshot"] = job.get("result")
+        st.session_state.pop("live_snapshot_invalidated_by_red_card", None)
+        scan_jobs.clear_job("live")
+    elif job["state"] == "error":
+        st.error(f"Live-Wettfinder fehlgeschlagen: {job.get('error')}")
+        scan_jobs.clear_job("live")
 
     snapshot = st.session_state.get("live_football_snapshot")
     if not snapshot:
@@ -1744,6 +1886,8 @@ def _scan_red_cards(
     api_key: str,
     league_ids: Optional[list[int]],
     scope_label: str,
+    progress_cb=None,
+    streamlit_mode: bool = True,
 ) -> dict:
     import red_card_bot as red_card_module
 
@@ -1752,18 +1896,26 @@ def _scan_red_cards(
     RedCardBotEnhanced = red_card_module.RedCardBotEnhanced
 
     scanned_at = datetime.now().astimezone().isoformat()
+    # Hintergrund-tauglich: im Worker streamlit_mode=False, weil der Bot
+    # sonst st.session_state ohne Session-Kontext anfasst.
     finder = RedCardBotEnhanced(
         api_key=api_key,
-        streamlit_mode=True,
+        streamlit_mode=streamlit_mode,
     )
     live_matches = finder.get_live_matches(league_ids)
     cards = []
-    for match in live_matches:
+    total = max(len(live_matches), 1)
+    for index, match in enumerate(live_matches):
         match_cards = finder.check_match_for_red_cards(match, include_seen=True)
         for card in match_cards:
             entry = _red_card_entry(finder, card)
             entry["fixture_red_card_count"] = len(match_cards)
             cards.append(entry)
+        if progress_cb:
+            progress_cb(
+                (index + 1) / total,
+                f"Spiel {index + 1} von {len(live_matches)} auf Platzverweise geprüft",
+            )
     return {
         "version": RED_CARD_SNAPSHOT_VERSION,
         "scanned_at": scanned_at,
@@ -1889,22 +2041,36 @@ def _render_red_cards(analyzer) -> None:
     ):
         if not config.api_football_key:
             st.error("API-Football-Key fehlt.")
+        elif scan_jobs.get_job("red_cards")["state"] == "running":
+            st.info("Der Platzverweis-Scan läuft bereits im Hintergrund.")
         else:
-            try:
-                with st.spinner("Platzverweis-Wetten werden geprüft..."):
-                    red_card_snapshot = _scan_red_cards(
-                        config.api_football_key,
-                        league_ids,
-                        scan_scope,
-                    )
-                    st.session_state["red_card_snapshot"] = red_card_snapshot
-                    if red_card_snapshot.get("cards"):
-                        st.session_state.pop("live_football_snapshot", None)
-                        st.session_state["live_snapshot_invalidated_by_red_card"] = (
-                            red_card_snapshot.get("scanned_at")
-                        )
-            except Exception as exc:
-                st.error(f"Platzverweis-Wettfinder fehlgeschlagen: {exc}")
+            scan_jobs.start_job(
+                "red_cards",
+                _scan_red_cards,
+                args=(config.api_football_key, league_ids, scan_scope),
+                kwargs={"streamlit_mode": False},
+                persist_name="red_cards",
+                persist_fn=_persist_red_cards,
+            )
+
+    job = scan_jobs.get_job("red_cards")
+    if job["state"] == "running":
+        _scan_job_progress_fragment(
+            "red_cards",
+            "Platzverweis-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht.",
+        )
+    elif job["state"] == "done":
+        red_card_snapshot = job.get("result")
+        st.session_state["red_card_snapshot"] = red_card_snapshot
+        if isinstance(red_card_snapshot, dict) and red_card_snapshot.get("cards"):
+            st.session_state.pop("live_football_snapshot", None)
+            st.session_state["live_snapshot_invalidated_by_red_card"] = (
+                red_card_snapshot.get("scanned_at")
+            )
+        scan_jobs.clear_job("red_cards")
+    elif job["state"] == "error":
+        st.error(f"Platzverweis-Wettfinder fehlgeschlagen: {job.get('error')}")
+        scan_jobs.clear_job("red_cards")
 
     snapshot = st.session_state.get("red_card_snapshot")
     if not snapshot:
