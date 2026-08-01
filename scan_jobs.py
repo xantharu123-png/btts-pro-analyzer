@@ -126,6 +126,19 @@ def clear_job(key: str) -> None:
         _JOBS.pop(key, None)
 
 
+def running_pages(page_jobs: Dict[str, Any]) -> set:
+    """Seiten, für die mindestens ein zugeordneter Hintergrund-Job läuft.
+
+    page_jobs bildet Seitennamen auf Job-Schlüssel ab (z. B. PAGE_SCAN_JOBS
+    in app.py). Rein lesend; die Sidebar nutzt es für das Lauf-Rädchen.
+    """
+    return {
+        page
+        for page, keys in page_jobs.items()
+        if any(get_job(key).get("state") == "running" for key in keys)
+    }
+
+
 def _persist(name: str, payload: dict) -> None:
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
     document = {"finished_at": _now(), **payload}

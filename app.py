@@ -100,6 +100,14 @@ PAGE_INFO = {
     ),
 }
 
+# Seiten mit Hintergrund-Scans: Läuft einer dieser Jobs, dreht in der
+# Sidebar neben dem Seitennamen ein Rädchen (CSS, siehe _scan_spinner_css).
+PAGE_SCAN_JOBS = {
+    "Spiele": ("prematch",),
+    "Live": ("live", "red_cards"),
+    "15K Challenge": ("challenge_15k",),
+}
+
 PREMATCH_SNAPSHOT_VERSION = 3
 LIVE_SNAPSHOT_VERSION = 4
 RED_CARD_SNAPSHOT_VERSION = 3
@@ -830,6 +838,46 @@ def _stats_freshness() -> Optional[datetime]:
     return max(mtimes) if mtimes else None
 
 
+def _scan_spinner_css(running_pages: set) -> str:
+    """CSS für ein drehendes Rädchen (Border-Spinner) am Radio-Label jeder
+    Seite, deren Hintergrund-Scan läuft. Greift der Selektor nach einer
+    Streamlit-DOM-Änderung nicht mehr, fehlt schlicht das Rädchen — die
+    Caption-Zeile darunter bleibt als Fallback."""
+    order = list(PAGE_INFO)
+    rules = []
+    for page in sorted(running_pages):
+        if page not in order:
+            continue
+        nth = order.index(page) + 1
+        rules.append(
+            'section[data-testid="stSidebar"] [data-testid="stRadio"] '
+            f'[role="radiogroup"] > label:nth-of-type({nth}) p::after {{'
+            'content: ""; display: inline-block; width: 0.72em; height: 0.72em; '
+            "margin-left: 0.45em; vertical-align: -0.08em; "
+            "border: 2px solid rgba(128, 128, 128, 0.35); "
+            "border-top-color: #22c55e; border-radius: 50%; "
+            "animation: bbNavSpin 0.8s linear infinite; }"
+        )
+    if not rules:
+        return ""
+    return (
+        "<style>@keyframes bbNavSpin { to { transform: rotate(360deg); } }"
+        + "".join(rules)
+        + "</style>"
+    )
+
+
+@st.fragment(run_every=2)
+def _sidebar_scan_poller() -> None:
+    """Löst nur dann einen Voll-Rerun aus, wenn sich die Menge der Seiten
+    mit laufendem Scan ändert — so erscheint und verschwindet das Rädchen
+    von selbst, ohne Dauer-Reruns."""
+    running = frozenset(scan_jobs.running_pages(PAGE_SCAN_JOBS))
+    if running != st.session_state.get("_nav_running_pages"):
+        st.session_state["_nav_running_pages"] = running
+        st.rerun()
+
+
 def _render_sidebar(analyzer) -> str:
     with st.sidebar:
         st.markdown("## BetBoy")
@@ -842,6 +890,14 @@ def _render_sidebar(analyzer) -> str:
             label_visibility="collapsed",
             key="workspace",
         )
+        st.session_state.setdefault("_nav_running_pages", frozenset())
+        running_scan_pages = scan_jobs.running_pages(PAGE_SCAN_JOBS)
+        if running_scan_pages:
+            st.markdown(
+                _scan_spinner_css(running_scan_pages), unsafe_allow_html=True
+            )
+            st.caption("Scanner läuft: " + ", ".join(sorted(running_scan_pages)))
+        _sidebar_scan_poller()
 
         st.divider()
         st.caption("SYSTEMSTATUS")

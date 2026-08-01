@@ -111,5 +111,49 @@ class ScanJobTests(unittest.TestCase):
         self.assertIsNone(scan_jobs.load_persisted("kaputt", jobs_dir=self.tmp))
 
 
+class RunningPagesTests(unittest.TestCase):
+    """Seiten-Rädchen: running_pages bildet laufende Jobs auf Seiten ab."""
+
+    MAPPING = {
+        "Spiele": ("prematch",),
+        "Live": ("live", "red_cards"),
+        "15K Challenge": ("challenge_15k",),
+    }
+
+    def tearDown(self):
+        for key in ("prematch", "live", "red_cards", "challenge_15k"):
+            scan_jobs.clear_job(key)
+
+    def test_idle_means_no_running_pages(self):
+        self.tearDown()
+        self.assertEqual(scan_jobs.running_pages(self.MAPPING), set())
+
+    def test_running_job_marks_exactly_its_page(self):
+        gate = []
+
+        def slow(progress_cb=None):
+            gate.append(True)
+            time.sleep(0.5)
+            return 1
+
+        scan_jobs.start_job("red_cards", slow)
+        try:
+            self.assertEqual(scan_jobs.running_pages(self.MAPPING), {"Live"})
+        finally:
+            _wait_for_state("red_cards", {"done"})
+        self.assertEqual(gate, [True])
+        self.assertEqual(scan_jobs.running_pages(self.MAPPING), set())
+
+    def test_second_job_key_of_same_page(self):
+        scan_jobs.start_job("challenge_15k", lambda progress_cb=None: 1)
+        _wait_for_state("challenge_15k", {"done"})
+        scan_jobs.clear_job("challenge_15k")
+        scan_jobs.start_job("live", lambda progress_cb=None: time.sleep(0.4) or 1)
+        try:
+            self.assertEqual(scan_jobs.running_pages(self.MAPPING), {"Live"})
+        finally:
+            _wait_for_state("live", {"done"})
+
+
 if __name__ == "__main__":
     unittest.main()
