@@ -257,6 +257,48 @@ class FootballSignalTests(unittest.TestCase):
         self.assertEqual(len(signals), 1)
         self.assertIn("Gut vs Böse", signals[0].label)
 
+    def test_live_source_appears_with_context(self):
+        from datetime import datetime
+
+        from ev_signal_sources import football_signals
+
+        now = datetime.now().astimezone()
+        self._write(
+            "live",
+            [
+                {"home": "FC Live", "away": "FC Kurz",
+                 "league": "PL", "date": now.isoformat(),
+                 "market": "Live: Mindestens 1 weiteres Tor (Stand 1:0, 55')",
+                 "p": 0.71},
+            ],
+            now.isoformat(),
+        )
+        signals = football_signals(jobs_dir=self.tmp, now=now)
+
+        self.assertEqual(len(signals), 1)
+        self.assertIn("FC Live vs FC Kurz", signals[0].label)
+        self.assertIn("Stand 1:0", signals[0].label)
+        self.assertIn("Fußball-Scan · Live", signals[0].detail)
+        self.assertAlmostEqual(signals[0].probability, 0.71)
+
+    def test_per_source_freshness_windows(self):
+        from datetime import datetime, timedelta
+
+        from ev_signal_sources import football_signals
+
+        now = datetime.now().astimezone()
+        row = {"home": "A", "away": "B", "market": "M", "p": 0.6}
+        # Live 3h alt -> wertlos; Prematch 23h alt -> noch tragbar
+        self._write("live", [dict(row)], (now - timedelta(hours=3)).isoformat())
+        self._write(
+            "prematch", [dict(row)], (now - timedelta(hours=23)).isoformat()
+        )
+
+        signals = football_signals(jobs_dir=self.tmp, now=now)
+
+        self.assertEqual(len(signals), 1)
+        self.assertIn("BTTS", signals[0].detail)
+
     def test_missing_files_return_empty(self):
         from ev_signal_sources import football_signals
 

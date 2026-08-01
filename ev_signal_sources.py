@@ -23,9 +23,14 @@ from scan_jobs import JOBS_DIR, load_persisted
 TENNIS_DB = Path(__file__).resolve().parent / "tennis" / "data" / "tennis_shadow.db"
 ESPORTS_DB = Path(__file__).resolve().parent / "esports_shadow.db"
 
-# Fußball-Scans älter als 24h nicht mehr anbieten (Live-Bezug veraltet,
-# Prematch-Spiele könnten bereits gelaufen sein).
-FOOTBALL_SIGNAL_MAX_AGE_HOURS = 24
+# Maximales Signal-Alter je Fußball-Quelle: Prematch-Spiele liegen in der
+# Zukunft (24 h tragbar); Live- und Platzverweis-Märkte sind nach Spielende
+# wertlos — nach wenigen Stunden ist das Spiel sicher vorbei.
+FOOTBALL_SIGNAL_MAX_AGE_HOURS = {
+    "prematch": 24.0,
+    "red_cards": 6.0,
+    "live": 2.0,
+}
 
 
 @dataclass(frozen=True)
@@ -151,19 +156,21 @@ def _parse_iso(value: object) -> Optional[datetime]:
 def football_signals(
     jobs_dir: Union[str, Path] = JOBS_DIR,
     now: Optional[datetime] = None,
-    max_age_hours: float = FOOTBALL_SIGNAL_MAX_AGE_HOURS,
+    max_age_hours: Optional[float] = None,
 ) -> List[ModelSignal]:
-    """Letzte Fußball-Scans (BTTS Prematch + Platzverweis) als Signale.
+    """Letzte Fußball-Scans (BTTS Prematch, Platzverweis, Live) als Signale.
 
     Liest die von den Hintergrund-Scans persistierten Verdichtungen
-    (scan_jobs/<name>.json) — frisch genug (< max_age_hours) und nur mit
-    gültigen Wahrscheinlichkeiten.
+    (scan_jobs/<name>.json) — nur frisch genug (Freshness je Quelle, per
+    max_age_hours global überschreibbar) und nur mit gültigen
+    Wahrscheinlichkeiten.
     """
     now = now or datetime.now().astimezone()
     signals: List[ModelSignal] = []
     for name, source in (
         ("prematch", "Fußball-Scan · BTTS"),
         ("red_cards", "Fußball-Scan · Platzverweis"),
+        ("live", "Fußball-Scan · Live"),
     ):
         document = load_persisted(name, jobs_dir=jobs_dir)
         if not document:
@@ -171,8 +178,13 @@ def football_signals(
         finished = _parse_iso(document.get("finished_at"))
         if finished is None:
             continue
+        max_age = (
+            max_age_hours
+            if max_age_hours is not None
+            else FOOTBALL_SIGNAL_MAX_AGE_HOURS[name]
+        )
         age_hours = (now - finished).total_seconds() / 3600.0
-        if age_hours < 0 or age_hours > max_age_hours:
+        if age_hours < 0 or age_hours > max_age:
             continue
         for row in document.get("signals") or []:
             if not isinstance(row, dict):

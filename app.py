@@ -962,6 +962,46 @@ def _persist_red_cards(snapshot: dict) -> Optional[dict]:
     return {"signals": rows}
 
 
+def _persist_live(snapshot: dict) -> Optional[dict]:
+    """Verdichtet den Live-Scan zu Wett-Check-Signalen (alle drei Märkte).
+
+    Nutzt dieselbe _live_market_signal-Logik wie die Live-Seite, damit die
+    Wett-Check-Wahrscheinlichkeit exakt der Seiten-Logik entspricht
+    (Live-Werte liegen in Prozent vor → /100).
+    """
+    if not isinstance(snapshot, dict):
+        return {"signals": []}
+    rows = []
+    for item in (snapshot.get("analyses") or [])[:40]:
+        if not isinstance(item, dict):
+            continue
+        home, away = item.get("home_team"), item.get("away_team")
+        if not home or not away:
+            continue
+        score = item.get("score")
+        minute = item.get("minute")
+        context = (
+            f"Stand {score}, {minute}'"
+            if score is not None and minute is not None
+            else "Live"
+        )
+        for market in LIVE_MARKET_OPTIONS:
+            probability, selection = _live_market_signal(item, market)
+            if probability is None or not 0.0 < probability < 100.0:
+                continue
+            rows.append(
+                {
+                    "home": home,
+                    "away": away,
+                    "league": item.get("league"),
+                    "date": snapshot.get("scanned_at"),
+                    "market": f"Live: {selection} ({context})",
+                    "p": probability / 100.0,
+                }
+            )
+    return {"signals": rows}
+
+
 @st.fragment(run_every=2)
 def _scan_job_progress_fragment(job_key: str, note: str) -> None:
     """Pollt einen laufenden Hintergrund-Scan; bei Abschluss Voll-Rerun,
@@ -1650,6 +1690,8 @@ def _render_live_football(analyzer) -> None:
                     _scan_live_football,
                     args=(analyzer,),
                     kwargs={"config": config},
+                    persist_name="live",
+                    persist_fn=_persist_live,
                 )
 
     job = scan_jobs.get_job("live")
