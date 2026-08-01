@@ -60,6 +60,13 @@ MAX_SCAN_FIXTURES = 400
 QUOTE_MAX_AGE_MINUTES = 10
 SNAPSHOT_MAX_AGE_MINUTES = 20
 XG_MAX_NEW_CALLS_PER_SCAN = 12
+# Auto-Nachprüfung: Die App wartet selbst auf das Kontextfenster (bestätigte
+# Aufstellungen erscheinen ca. 60 Minuten vor Anpfiff), statt dass der Nutzer
+# den ganzen Tag manuell neu scannt. Läuft nur, solange die Seite offen ist
+# und noch kein Kandidat freigegeben wurde.
+AUTO_RECHECK_WINDOW_MINUTES = 80
+AUTO_RECHECK_MIN_GAP_MINUTES = 12
+AUTO_RECHECK_POLL_SECONDS = 180
 
 
 def _challenge_today(now: Optional[datetime] = None) -> date:
@@ -503,6 +510,32 @@ class ChallengeDataProvider:
                 result[fixture["fixture"]["id"]] = fixture
         return result
 
+    def statistics_by_fixture(self, fixture_id: int) -> Optional[list[dict[str, Any]]]:
+        """Team-Statistiken (Ecken, Gelbe Karten) eines Spiels.
+
+        Wird für die Abrechnung von Zählmarkt-Tickets gebraucht: Ohne diesen
+        Feed bleiben Ecken-/Karten-Legs bewusst offen, statt auf Toren
+        abgerechnet zu werden.
+        """
+        data = self._football_get(
+            "fixtures/statistics",
+            {"fixture": fixture_id},
+            f"Statistik Fixture {fixture_id}",
+        )
+        if data is None:
+            return None
+        valid = all(
+            isinstance(entry, dict)
+            and isinstance(entry.get("team"), dict)
+            and _positive_integer(entry["team"].get("id")) is not None
+            and isinstance(entry.get("statistics"), list)
+            for entry in data
+        )
+        if not valid:
+            self.errors.append(f"Statistik Fixture {fixture_id}: ungültige Provider-Antwort")
+            return None
+        return data
+
     def weather(self, fixture: dict[str, Any]) -> Optional[dict[str, Any]]:
         if not self.weather_key:
             return None
@@ -673,6 +706,133 @@ def _challenge_scan_fragment() -> None:
         )
     elif state in {"done", "error"}:
         st.rerun()
+
+
+def _candidate_kickoff(candidate: ChallengeCandidate) -> Optional[datetime]:
+    """Anpfiff eines Kandidaten als UTC-Datum, sonst None."""
+    try:
+        kickoff = datetime.fromisoformat(str(candidate.kickoff).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if kickoff.tzinfo is None:
+        return None
+    return kickoff.astimezone(timezone.utc)
+
+
+def _auto_recheck_eligible(snapshot: Any, search_date: date) -> bool:
+    """Auto-Nachprüfung nur im Wartezustand: nichts freigegeben, aber
+    mathematisch tragfähige Kandidaten vorhanden — und nur für heute,
+    weil der Live-Kontext erst am Spieltag entsteht."""
+    return (
+        isinstance(snapshot, dict)
+        and not snapshot.get("shortlist")
+        and bool(snapshot.get("base_shortlist"))
+        and search_date == _challenge_today()
+    )
+
+
+def _auto_recheck_decision(
+    base_shortlist: list[ChallengeCandidate],
+    now: datetime,
+    last_attempt: Optional[datetime],
+    seen_fixture_ids: set[int],
+) -> dict[str, Any]:
+    """Reine Entscheidung: Muss der Kontext-Scan jetzt automatisch neu laufen?
+
+    Feuert, wenn ein Shortlist-Spiel neu ins Kontextfenster gerückt ist
+    (Anpfiff innerhalb AUTO_RECHECK_WINDOW_MINUTES) oder wenn Spiele im
+    Fenster auf verspätet veröffentlichten Kontext warten und der
+    Mindestabstand verstrichen ist. Feuert nie öfter als
+    AUTO_RECHECK_MIN_GAP_MINUTES und nie für Spiele nach Anpfiff.
+    """
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    window_end = now + timedelta(minutes=AUTO_RECHECK_WINDOW_MINUTES)
+    grace_start = now - timedelta(minutes=5)
+    in_window: set[int] = set()
+    next_kickoff: Optional[datetime] = None
+    for candidate in base_shortlist:
+        kickoff = _candidate_kickoff(candidate)
+        if kickoff is None:
+            continue
+        if grace_start <= kickoff <= window_end:
+            in_window.add(candidate.fixture_id)
+        elif kickoff > window_end and (next_kickoff is None or kickoff < next_kickoff):
+            next_kickoff = kickoff
+    gap_ok = (
+        last_attempt is None
+        or (now - last_attempt) >= timedelta(minutes=AUTO_RECHECK_MIN_GAP_MINUTES)
+    )
+    decision: dict[str, Any] = {
+        "due": False,
+        "in_window": in_window,
+        "next_kickoff": next_kickoff,
+        "reason": "",
+    }
+    if not in_window:
+        decision["reason"] = "Kein Shortlist-Spiel im Kontextfenster."
+        return decision
+    if not gap_ok:
+        decision["reason"] = "Mindestabstand zwischen den Prüfläufen noch nicht erreicht."
+        return decision
+    if in_window - seen_fixture_ids:
+        decision["due"] = True
+        decision["reason"] = "Neue Shortlist-Spiele sind ins Kontextfenster gerückt."
+        return decision
+    decision["due"] = True
+    decision["reason"] = "Spiele warten im Fenster auf verspäteten Kontext — Nachprüfung fällig."
+    return decision
+
+
+@st.fragment(run_every=AUTO_RECHECK_POLL_SECONDS)
+def _challenge_auto_recheck_fragment(
+    api_football_key: str,
+    weather_key: Optional[str],
+    league_ids: list[int],
+    search_date: date,
+    max_fixtures: int,
+) -> None:
+    """Wartet an Stelle des Nutzers auf das Kontextfenster: Sobald
+    Shortlist-Spiele ins Fenster rutschen (Aufstellungen ca. 60 Minuten
+    vor Anpfiff), startet die App den Kontext-Scan selbstständig neu —
+    nur solange nichts freigegeben ist und die Seite offen bleibt."""
+    snapshot = st.session_state.get("challenge_snapshot")
+    if not _auto_recheck_eligible(snapshot, search_date):
+        return
+    if scan_jobs.get_job("challenge_15k").get("state") == "running":
+        return
+    now = datetime.now(timezone.utc)
+    try:
+        last_attempt = datetime.fromisoformat(
+            str(st.session_state.get("challenge_auto_recheck_at") or "")
+        ).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        last_attempt = None
+    seen = st.session_state.get("challenge_auto_seen")
+    if not isinstance(seen, set):
+        seen = set()
+    decision = _auto_recheck_decision(
+        snapshot["base_shortlist"], now, last_attempt, seen
+    )
+    if not decision["due"]:
+        next_kickoff = decision.get("next_kickoff")
+        if next_kickoff is not None:
+            st.caption(
+                "Auto-Prüfung aktiv: Nächster Shortlist-Anpfiff um "
+                f"{next_kickoff.astimezone(CHALLENGE_TIMEZONE).strftime('%H:%M')} — "
+                "die App prüft dann selbstständig erneut, solange diese Seite offen bleibt."
+            )
+        return
+    st.session_state["challenge_auto_recheck_at"] = now.isoformat()
+    st.session_state["challenge_auto_seen"] = set(decision["in_window"]) | seen
+    provider = ChallengeDataProvider(api_football_key, weather_key)
+    scan_jobs.start_job(
+        "challenge_15k",
+        _run_challenge_scan_worker,
+        args=(provider, list(league_ids), search_date, max_fixtures),
+    )
+    st.toast("Kontextfenster erreicht — die Shortlist wird automatisch erneut geprüft.")
+    st.rerun()
 
 
 def scan_daily_challenge(
@@ -847,6 +1007,69 @@ def scan_daily_challenge(
     }
 
 
+# Zählmarkt-Abrechnung: Ecken/Gelbe Karten kommen aus fixtures/statistics,
+# NICHT aus dem Endstand. Dieselben Obergrenzen wie beim Historien-Import.
+_COUNT_STAT_BOUNDS = {"corners": 40, "yellow_cards": 20}
+_COUNT_STAT_TYPES = {"Corner Kicks": "corners", "Yellow Cards": "yellow_cards"}
+
+
+def _count_stat_value(value: Any, maximum: int) -> Optional[int]:
+    """Statistikwert des Providers: strikt nicht-negative ganze Zahl mit Obergrenze."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value.isdigit():
+            return None
+        value = int(value)
+    if not isinstance(value, int) or not 0 <= value <= maximum:
+        return None
+    return value
+
+
+def count_stats_from_response(
+    data: Any,
+    home_team_id: Any,
+    away_team_id: Any,
+) -> dict[str, int]:
+    """Ecken/Gelbe Karten Heim/Auswärts aus einer fixtures/statistics-Antwort.
+
+    Strikte Team-Zuordnung: genau die beiden erwarteten Teams, jedes genau
+    einmal. Bei jeder Unklarheit {} — die Abrechnung bleibt dann offen,
+    statt auf falschen Zahlen zu entscheiden.
+    """
+    home_id = _positive_integer(home_team_id)
+    away_id = _positive_integer(away_team_id)
+    if home_id is None or away_id is None or home_id == away_id:
+        return {}
+    if not isinstance(data, list) or len(data) != 2:
+        return {}
+    result: dict[str, int] = {}
+    seen: set[int] = set()
+    for entry in data:
+        if not isinstance(entry, dict):
+            return {}
+        team = entry.get("team")
+        team_id = team.get("id") if isinstance(team, dict) else None
+        if team_id not in {home_id, away_id} or team_id in seen:
+            return {}
+        seen.add(team_id)
+        statistics = entry.get("statistics")
+        if not isinstance(statistics, list):
+            return {}
+        prefix = "home" if team_id == home_id else "away"
+        for item in statistics:
+            if not isinstance(item, dict):
+                continue
+            family = _COUNT_STAT_TYPES.get(str(item.get("type")))
+            if family is None:
+                continue
+            parsed = _count_stat_value(item.get("value"), _COUNT_STAT_BOUNDS[family])
+            if parsed is not None:
+                result[f"{family}_{prefix}"] = parsed
+    return result
+
+
 # Endstand nur über reguläre Spielzeit ("FT"). Verlängerung/Elfmeterschießen
 # ("AET"/"PEN") wertet der Buchmacher für 90-Minuten-Märkte anders — diese
 # Tickets bleiben zur manuellen Abrechnung offen.
@@ -898,6 +1121,47 @@ def auto_settle_open_tickets(
             fixture_cache[fixture_id] = None
         return fixture_cache[fixture_id]
 
+    stats_cache: dict[int, Optional[dict[str, int]]] = {}
+
+    def count_values(
+        fixture_id: int, details: dict[str, Any], kind: str
+    ) -> Optional[tuple[int, int]]:
+        """Ecken-/Karten-Zählwerte eines FT-Spiels aus der Provider-Statistik.
+
+        Liefert None, wenn der Feed fehlt oder unklar ist — das Leg bleibt
+        dann zur manuellen Abrechnung offen, statt auf Toren entschieden
+        zu werden.
+        """
+        nonlocal api_calls
+        if fixture_id not in stats_cache:
+            if api_calls >= max_api_calls:
+                return None
+            api_calls += 1
+            teams = details.get("teams") or {}
+            home_id = _positive_integer((teams.get("home") or {}).get("id"))
+            away_id = _positive_integer((teams.get("away") or {}).get("id"))
+            cached: Optional[dict[str, int]] = None
+            if home_id is not None and away_id is not None:
+                try:
+                    response = provider.statistics_by_fixture(fixture_id)
+                except Exception:
+                    response = None
+                if response is not None:
+                    counts = count_stats_from_response(response, home_id, away_id)
+                    cached = counts or None
+            stats_cache[fixture_id] = cached
+        counts = stats_cache[fixture_id]
+        if not counts:
+            return None
+        if kind in {"corner_total", "team_corners"}:
+            pair = (counts.get("corners_home"), counts.get("corners_away"))
+        else:
+            pair = (counts.get("yellow_cards_home"), counts.get("yellow_cards_away"))
+        home_value, away_value = pair
+        if home_value is None or away_value is None:
+            return None
+        return (home_value, away_value)
+
     for ticket in pending:
         legs = ticket.get("legs") or []
         if not legs:
@@ -929,16 +1193,26 @@ def auto_settle_open_tickets(
             if status not in SETTLED_STATUSES:
                 undecided = True
                 break
-            goals = details.get("goals") or {}
-            home, away = goals.get("home"), goals.get("away")
-            if (
-                isinstance(home, bool)
-                or isinstance(away, bool)
-                or not isinstance(home, int)
-                or not isinstance(away, int)
-            ):
-                undecided = True
-                break
+            if spec.kind in COUNT_MARKET_KINDS:
+                # Zählmärkte (Ecken, Gelbe Karten) werden NUR mit echten
+                # Zählwerten aus der Statistik abgerechnet — niemals mit
+                # Toren. Fehlt der Feed, bleibt das Leg offen.
+                counts = count_values(int(fixture_id), details, spec.kind)
+                if counts is None:
+                    undecided = True
+                    break
+                home, away = counts
+            else:
+                goals = details.get("goals") or {}
+                home, away = goals.get("home"), goals.get("away")
+                if (
+                    isinstance(home, bool)
+                    or isinstance(away, bool)
+                    or not isinstance(home, int)
+                    or not isinstance(away, int)
+                ):
+                    undecided = True
+                    break
             if market_outcome(spec, home, away):
                 leg_wins += 1
             else:
@@ -1651,6 +1925,8 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
             st.info("Der Challenge-Scan läuft bereits im Hintergrund.")
         else:
             provider = ChallengeDataProvider(config.api_football_key, config.weather_key)
+            st.session_state.pop("challenge_auto_recheck_at", None)
+            st.session_state.pop("challenge_auto_seen", None)
             scan_jobs.start_job(
                 "challenge_15k",
                 _run_challenge_scan_worker,
@@ -1697,11 +1973,17 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     except (KeyError, TypeError, ValueError):
         snapshot_age = float("inf")
     if snapshot_age > SNAPSHOT_MAX_AGE_MINUTES or snapshot_age < -1:
-        st.warning(
-            "Dieser Datenstand ist nicht mehr aktuell. Verletzungen, Wetter, "
-            "Aufstellungen und Anstoßstatus müssen neu geprüft werden."
+        if not _auto_recheck_eligible(snapshot, search_date):
+            st.warning(
+                "Dieser Datenstand ist nicht mehr aktuell. Verletzungen, Wetter, "
+                "Aufstellungen und Anstoßstatus müssen neu geprüft werden."
+            )
+            return
+        st.info(
+            "Wartezustand: Der Datenstand ist älter, aber noch ohne Wettfreigabe. "
+            "Die Auto-Prüfung scannt selbstständig neu, sobald Shortlist-Spiele "
+            "ins Kontextfenster rutschen (Aufstellungen, ca. 60 Minuten vor Anpfiff)."
         )
-        return
     counts = st.columns(4)
     counts[0].metric("Gefunden", snapshot["fixtures_found"])
     counts[1].metric("Modelliert", snapshot["fixtures_modeled"])
@@ -1720,6 +2002,14 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
             hide_index=True,
         )
     _render_price_check(snapshot, ledger, settings)
+    if _auto_recheck_eligible(snapshot, search_date):
+        _challenge_auto_recheck_fragment(
+            config.api_football_key,
+            config.weather_key,
+            list(selected_leagues),
+            search_date,
+            max_fixtures,
+        )
 
 
 def render_challenge_15k() -> None:

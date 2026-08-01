@@ -968,5 +968,225 @@ class AutoSettleTests(unittest.TestCase):
         self.assertEqual(len(mapping), len(MARKET_SPECS))
 
 
+class CountStatsResponseTests(unittest.TestCase):
+    def test_valid_response_maps_home_away(self):
+        from challenge_15k import count_stats_from_response
+
+        data = [
+            {"team": {"id": 10}, "statistics": [
+                {"type": "Corner Kicks", "value": 6},
+                {"type": "Yellow Cards", "value": 1},
+                {"type": "Ball Possession", "value": "55%"},
+            ]},
+            {"team": {"id": 11}, "statistics": [
+                {"type": "Corner Kicks", "value": "5"},
+                {"type": "Yellow Cards", "value": 2},
+            ]},
+        ]
+        counts = count_stats_from_response(data, 10, 11)
+        self.assertEqual(counts["corners_home"], 6)
+        self.assertEqual(counts["corners_away"], 5)
+        self.assertEqual(counts["yellow_cards_home"], 1)
+        self.assertEqual(counts["yellow_cards_away"], 2)
+
+    def test_invalid_values_are_skipped(self):
+        from challenge_15k import count_stats_from_response
+
+        data = [
+            {"team": {"id": 10}, "statistics": [
+                {"type": "Corner Kicks", "value": True},
+                {"type": "Yellow Cards", "value": 99},
+                {"type": "Corner Kicks", "value": None},
+            ]},
+            {"team": {"id": 11}, "statistics": [
+                {"type": "Corner Kicks", "value": -3},
+            ]},
+        ]
+        self.assertEqual(count_stats_from_response(data, 10, 11), {})
+
+    def test_wrong_or_duplicate_teams_rejected(self):
+        from challenge_15k import count_stats_from_response
+
+        wrong = [
+            {"team": {"id": 999}, "statistics": []},
+            {"team": {"id": 11}, "statistics": []},
+        ]
+        self.assertEqual(count_stats_from_response(wrong, 10, 11), {})
+        duplicate = [
+            {"team": {"id": 10}, "statistics": []},
+            {"team": {"id": 10}, "statistics": []},
+        ]
+        self.assertEqual(count_stats_from_response(duplicate, 10, 11), {})
+        self.assertEqual(count_stats_from_response([], 10, 11), {})
+        self.assertEqual(count_stats_from_response(None, 10, 11), {})
+        self.assertEqual(count_stats_from_response([{"team": {"id": 10}, "statistics": []}], 10, 11), {})
+        self.assertEqual(count_stats_from_response([], 10, 10), {})
+
+
+class _StatsSettleProvider(_SettleProvider):
+    """Provider-Double mit Statistik-Endpunkt für Zählmarkt-Abrechnung."""
+
+    def __init__(self, fixtures_by_id, stats_by_id):
+        super().__init__(fixtures_by_id)
+        self._stats = stats_by_id
+
+    def statistics_by_fixture(self, fixture_id):
+        return self._stats.get(fixture_id)
+
+
+def _corner_stats_response(home_id, away_id, corners_home, corners_away):
+    return [
+        {"team": {"id": home_id}, "statistics": [
+            {"type": "Corner Kicks", "value": corners_home},
+        ]},
+        {"team": {"id": away_id}, "statistics": [
+            {"type": "Corner Kicks", "value": corners_away},
+        ]},
+    ]
+
+
+def _corner_candidate(fixture_id):
+    item = candidate(f"{fixture_id}:CORNERS_OVER_9_5", fixture_id, 0.70)
+    item.market_key = "CORNERS_OVER_9_5"
+    item.market = "Eckbälle: Gesamtzahl"
+    item.selection = "Über 9.5"
+    return item
+
+
+def _placed_count_ticket(ledger, fixture_ids=(1, 2)):
+    candidates = [_corner_candidate(fid) for fid in fixture_ids]
+    ticket = select_quoted_ticket(
+        candidates, {item.candidate_id: 1.50 for item in candidates}
+    )
+    assert ticket is not None
+    stake = ticket_stake(ticket, ledger.settings()["current_balance"])
+    return ledger.place_ticket(
+        "2026-07-14",
+        ticket,
+        stake,
+        datetime.now(timezone.utc).isoformat(),
+    )
+
+
+class CountSettlementTests(unittest.TestCase):
+    def test_corner_ticket_settles_on_corner_counts_not_goals(self):
+        from challenge_15k import auto_settle_open_tickets
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            ticket_id = _placed_count_ticket(ledger)
+            # Tore wären verloren (4 bzw. 2 < 9,5), Ecken gewonnen (11 >= 10).
+            provider = _StatsSettleProvider(
+                {
+                    1: _result_fixture(1, 2, 2),
+                    2: _result_fixture(2, 1, 1),
+                },
+                {
+                    1: _corner_stats_response(10, 11, 6, 5),
+                    2: _corner_stats_response(20, 21, 7, 4),
+                },
+            )
+            summary = auto_settle_open_tickets(ledger, provider)
+            self.assertEqual(summary["won"], 1)
+            self.assertEqual(ledger.get_ticket(ticket_id)["status"], "WON")
+
+    def test_missing_statistics_keeps_count_ticket_open(self):
+        from challenge_15k import auto_settle_open_tickets
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            ticket_id = _placed_count_ticket(ledger)
+            provider = _StatsSettleProvider(
+                {
+                    1: _result_fixture(1, 5, 4),
+                    2: _result_fixture(2, 3, 3),
+                },
+                {},
+            )
+            summary = auto_settle_open_tickets(ledger, provider)
+            self.assertEqual(summary["open"], 1)
+            self.assertEqual(ledger.get_ticket(ticket_id)["status"], "PENDING")
+
+    def test_wrong_team_mapping_keeps_count_ticket_open(self):
+        from challenge_15k import auto_settle_open_tickets
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            ticket_id = _placed_count_ticket(ledger)
+            provider = _StatsSettleProvider(
+                {
+                    1: _result_fixture(1, 5, 4),
+                    2: _result_fixture(2, 3, 3),
+                },
+                {
+                    1: _corner_stats_response(999, 998, 8, 8),
+                    2: _corner_stats_response(20, 21, 7, 4),
+                },
+            )
+            summary = auto_settle_open_tickets(ledger, provider)
+            self.assertEqual(summary["open"], 1)
+            self.assertEqual(ledger.get_ticket(ticket_id)["status"], "PENDING")
+
+
+class AutoRecheckTests(unittest.TestCase):
+    def test_eligible_only_in_waiting_state_today(self):
+        from challenge_15k import _auto_recheck_eligible, _challenge_today
+
+        today = _challenge_today()
+        waiting = {"shortlist": [], "base_shortlist": [object()]}
+        released = {"shortlist": [object()], "base_shortlist": [object()]}
+        empty = {"shortlist": [], "base_shortlist": []}
+        self.assertTrue(_auto_recheck_eligible(waiting, today))
+        self.assertFalse(_auto_recheck_eligible(released, today))
+        self.assertFalse(_auto_recheck_eligible(empty, today))
+        self.assertFalse(_auto_recheck_eligible(waiting, today + timedelta(days=1)))
+        self.assertFalse(_auto_recheck_eligible(None, today))
+
+    def test_no_window_means_no_fire_but_next_kickoff_known(self):
+        from challenge_15k import _auto_recheck_decision
+
+        now = datetime.now(timezone.utc)
+        later = now + timedelta(hours=3)
+        item = candidate("1:X", 1, 0.70, kickoff=later)
+        decision = _auto_recheck_decision([item], now, None, set())
+        self.assertFalse(decision["due"])
+        self.assertEqual(decision["in_window"], set())
+        self.assertEqual(decision["next_kickoff"], later)
+
+    def test_new_window_entry_fires(self):
+        from challenge_15k import _auto_recheck_decision
+
+        now = datetime.now(timezone.utc)
+        item = candidate("1:X", 1, 0.70, kickoff=now + timedelta(minutes=60))
+        decision = _auto_recheck_decision([item], now, None, set())
+        self.assertTrue(decision["due"])
+        self.assertEqual(decision["in_window"], {1})
+
+    def test_min_gap_blocks_immediate_refire(self):
+        from challenge_15k import _auto_recheck_decision
+
+        now = datetime.now(timezone.utc)
+        item = candidate("1:X", 1, 0.70, kickoff=now + timedelta(minutes=60))
+        decision = _auto_recheck_decision([item], now, now - timedelta(minutes=5), set())
+        self.assertFalse(decision["due"])
+
+    def test_retry_after_gap_when_context_still_missing(self):
+        from challenge_15k import _auto_recheck_decision
+
+        now = datetime.now(timezone.utc)
+        item = candidate("1:X", 1, 0.70, kickoff=now + timedelta(minutes=60))
+        decision = _auto_recheck_decision([item], now, now - timedelta(minutes=20), {1})
+        self.assertTrue(decision["due"])
+
+    def test_long_past_kickoff_leaves_window(self):
+        from challenge_15k import _auto_recheck_decision
+
+        now = datetime.now(timezone.utc)
+        item = candidate("1:X", 1, 0.70, kickoff=now - timedelta(minutes=30))
+        decision = _auto_recheck_decision([item], now, None, set())
+        self.assertFalse(decision["due"])
+        self.assertIsNone(decision["next_kickoff"])
+
+
 if __name__ == "__main__":
     unittest.main()
