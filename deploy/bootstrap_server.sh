@@ -87,7 +87,8 @@ ${PUBLIC_HOST} {
 EOF
 caddy validate --config /etc/caddy/Caddyfile
 
-cat > /etc/ssh/sshd_config.d/99-betboy.conf <<'EOF'
+rm -f /etc/ssh/sshd_config.d/99-betboy.conf
+cat > /etc/ssh/sshd_config.d/00-betboy.conf <<'EOF'
 PermitRootLogin no
 PubkeyAuthentication yes
 PasswordAuthentication no
