@@ -1,4 +1,4 @@
-"""Standalone Tages-Pipeline fuer die Windows-Aufgabenplanung - kein Agent noetig.
+"""Standalone Tages-Pipeline fuer Windows-Aufgabenplanung und Linux-systemd.
 
 Ablauf (taeglich 07:17 lokal):
   1) Model-State neu bauen, wenn aelter als 7 Tage (rebuild_state.py --if-stale-days 7)
@@ -29,7 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 os.chdir(str(ROOT))
 
-VENV_PY = ROOT / ".codex_test_venv" / "Scripts" / "python.exe"
+WINDOWS_VENV_PY = ROOT / ".codex_test_venv" / "Scripts" / "python.exe"
 LOG_DIR = ROOT / "logs"
 WATCH_JSON = ROOT / "tennis" / "data" / "calibration_watch_latest.json"
 
@@ -37,6 +37,13 @@ MAX_STATE_AGE_DAYS = 7
 WATCH_WEEKDAY = 0  # Montag: nach den Wochenend-Matches
 
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+
+
+def python_executable() -> Path:
+    """Use the local Windows venv when present, otherwise this interpreter."""
+    if WINDOWS_VENV_PY.is_file():
+        return WINDOWS_VENV_PY
+    return Path(sys.executable)
 
 
 def run_step(log: logging.Logger, name: str, script: str,
@@ -50,7 +57,7 @@ def run_step(log: logging.Logger, name: str, script: str,
         # (z. B. "−0,7 %") lassen den Scan mit UnicodeEncodeError crashen.
         env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
         proc = subprocess.run(
-            [str(VENV_PY), str(ROOT / "scripts" / script), *args],
+            [str(python_executable()), str(ROOT / "scripts" / script), *args],
             capture_output=True, text=True, timeout=timeout,
             cwd=str(ROOT), creationflags=CREATE_NO_WINDOW, env=env,
         )
