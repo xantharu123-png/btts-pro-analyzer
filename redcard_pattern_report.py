@@ -14,15 +14,18 @@ Safe to run at any history size; every figure carries its sample count.
 """
 
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
 
-DB_PATH = Path(__file__).parent / "redcard_history.db"
-OUT_MD = Path(r"C:\Users\miros\Desktop\BetBoy\rot_karten_musteranalyse.md")
-OUT_PNG = Path(r"C:\Users\miros\Desktop\BetBoy\rot_karten_musteranalyse.png")
+DB_PATH = ROOT / "redcard_history.db"
+REPORT_DIR = Path(os.environ.get("BETBOY_REPORT_DIR", ROOT / "runtime_reports"))
+OUT_MD = REPORT_DIR / "rot_karten_musteranalyse.md"
+OUT_PNG = REPORT_DIR / "rot_karten_musteranalyse.png"
 
 MATCH_MINUTES = 93
 PHASES = ((0, 20, "0-20"), (21, 40, "21-40"), (41, 200, "41+"))
@@ -216,6 +219,7 @@ def main():
     if not DB_PATH.exists():
         print("Keine Historie gefunden — Harvester zuerst laufen lassen.")
         return
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     cases = load_cases(conn)
     scanned = conn.execute(
