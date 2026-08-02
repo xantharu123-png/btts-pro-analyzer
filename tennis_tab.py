@@ -93,7 +93,13 @@ def _run_daily_scan() -> str:
         cwd=str(DAILY_SCRIPT.parent.parent),
     )
     output = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
-    return output.strip()
+    output = output.strip()
+    if result.returncode != 0:
+        detail = output[-1200:] if output else "Kein Prozess-Output"
+        raise RuntimeError(
+            f"Tennis-Tageslauf endete mit Code {result.returncode}: {detail}"
+        )
+    return output
 
 
 def _run_tennis_scan_worker(progress_cb=None) -> str:
@@ -363,6 +369,8 @@ def _render_settlement(open_rows: list[dict]) -> None:
 
 
 def render_tennis_page() -> None:
+    session_scope = scan_jobs.session_scope(st.session_state)
+    job_key = scan_jobs.scoped_key("tennis", session_scope)
     _render_shadow_summary()
 
     st.subheader("Tägliche Vorhersagen")
@@ -372,21 +380,21 @@ def render_tennis_page() -> None:
         use_container_width=True,
         key="run_tennis_scan",
     ):
-        if scan_jobs.get_job("tennis")["state"] == "running":
+        if scan_jobs.get_job(job_key)["state"] == "running":
             st.info("Der Tennis-Scan läuft bereits im Hintergrund.")
         else:
-            scan_jobs.start_job("tennis", _run_tennis_scan_worker)
+            scan_jobs.start_job(job_key, _run_tennis_scan_worker)
 
-    job = scan_jobs.get_job("tennis")
+    job = scan_jobs.get_job(job_key)
     if job["state"] == "running":
-        scan_progress_fragment("tennis", "Tennis-Scan")
+        scan_progress_fragment(job_key, "Tennis-Scan")
     elif job["state"] == "done":
         st.session_state["tennis_scan_output"] = job.get("result") or ""
-        scan_jobs.clear_job("tennis")
+        scan_jobs.clear_job(job_key)
         st.rerun()
     elif job["state"] == "error":
         st.error(f"Tennis-Scan fehlgeschlagen: {job.get('error')}")
-        scan_jobs.clear_job("tennis")
+        scan_jobs.clear_job(job_key)
     if st.session_state.get("tennis_scan_output"):
         with st.expander("Letzter Scan-Verlauf"):
             st.text(st.session_state["tennis_scan_output"])

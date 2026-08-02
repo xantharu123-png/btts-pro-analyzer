@@ -6,6 +6,7 @@ import unittest
 
 from football_recommendations import red_card_candidate
 from redcard_signal_log import (
+    _first_goal_after,
     _connect,
     log_signal,
     settle_open_signals,
@@ -58,17 +59,17 @@ class FreemodeTests(unittest.TestCase):
         self.assertFalse(candidate.model_ready)
         self.assertTrue(candidate.blockers)
 
-    def test_freemode_turns_model_vetoes_into_evidence(self):
+    def test_freemode_keeps_model_vetoes_as_blockers(self):
         candidate = red_card_candidate(
             _entry(quality="LOW", p_opponent=0.40),
             snapshot_age_seconds=30,
             freemode=True,
         )
 
-        self.assertTrue(candidate.model_ready)
-        self.assertFalse(candidate.blockers)
+        self.assertFalse(candidate.model_ready)
+        self.assertTrue(candidate.blockers)
         self.assertTrue(
-            any("Modell-Warnung" in line for line in candidate.evidence)
+            any("Research-Hinweis" in line for line in candidate.evidence)
         )
 
     def test_freemode_keeps_hard_data_gates(self):
@@ -137,6 +138,44 @@ class RedCardSignalLogTests(unittest.TestCase):
         too_late = _entry()
         too_late["prediction"]["too_late_for_signal"] = True
         self.assertFalse(log_signal(too_late, db_path=self.db))
+
+    def test_log_signal_requires_complete_normalized_probabilities(self):
+        partial = _entry()
+        partial["prediction"]["p_no_goal"] = None
+        partial["prediction"]["no_more_goals"] = None
+        self.assertFalse(log_signal(partial, db_path=self.db))
+
+        invalid_sum = _entry(p_opponent=0.60, p_red=0.15, p_none=0.10)
+        self.assertFalse(log_signal(invalid_sum, db_path=self.db))
+
+        infinite = _entry(p_opponent=float("inf"))
+        self.assertFalse(log_signal(infinite, db_path=self.db))
+
+    def test_only_first_snapshot_per_fixture_is_logged(self):
+        first = _entry()
+        later = _entry()
+        later["prediction_minute"] = 70
+        self.assertTrue(log_signal(first, db_path=self.db))
+        self.assertFalse(log_signal(later, db_path=self.db))
+
+    def test_stoppage_extra_orders_goals_chronologically(self):
+        first = _first_goal_after(
+            [
+                {
+                    "type": "Goal",
+                    "time": {"elapsed": 90, "extra": 3},
+                    "team": {"id": 20},
+                },
+                {
+                    "type": "Goal",
+                    "time": {"elapsed": 90, "extra": 1},
+                    "team": {"id": 10},
+                },
+            ],
+            90,
+            "FT",
+        )
+        self.assertEqual(first, (91, 10))
 
     def test_settle_marks_opponent_goal_and_brier(self):
         log_signal(_entry(), db_path=self.db)
@@ -279,6 +318,19 @@ class RedCardHorizonSettlementTests(unittest.TestCase):
         stats = self._settle_with(
             "AET",
             [{"type": "Goal", "time": {"elapsed": 88}, "team": {"id": 20}}],
+        )
+        self.assertEqual(stats["by_outcome"]["opponent"]["n"], 1)
+
+    def test_explicit_regulation_stoppage_goal_counts_when_aet(self):
+        stats = self._settle_with(
+            "AET",
+            [
+                {
+                    "type": "Goal",
+                    "time": {"elapsed": 90, "extra": 2},
+                    "team": {"id": 20},
+                }
+            ],
         )
         self.assertEqual(stats["by_outcome"]["opponent"]["n"], 1)
 

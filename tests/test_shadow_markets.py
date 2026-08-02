@@ -1,21 +1,16 @@
 """Tests für das Shadow-Automation-Modul (Quoten-Mapping + Settlement-Integrität)."""
-import importlib.util
+import sqlite3
 import sys
+import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-AUTOMATION_PATH = (
-    Path.home()
-    / "AppData/Roaming/kimi-desktop/daimon-share/daimon/agents/main/blueprint/automations"
-    / "automation_14f34375-c87b-4932-b9cd-efc6be447879/assets/automation.py"
-)
-
-spec = importlib.util.spec_from_file_location("shadow_automation", AUTOMATION_PATH)
-shadow = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(shadow)
+import shadow_clv_automation as shadow  # noqa: E402
 
 from challenge_engine import MARKET_BY_KEY, MARKET_SPECS, market_outcome  # noqa: E402
 
@@ -119,6 +114,78 @@ class QuoteMappingIntegrityTest(unittest.TestCase):
         for market_key in shadow._QUOTE_BETS:
             self.assertNotIn("CORNER", market_key)
             self.assertNotIn("YELLOW", market_key)
+
+
+class PriceGateTest(unittest.TestCase):
+    @staticmethod
+    def _candidate(market_key, probability, evidence=80.0):
+        return SimpleNamespace(
+            market_key=market_key,
+            conservative_probability=probability,
+            evidence_score=evidence,
+        )
+
+    def test_candidates_must_clear_production_value_gate(self):
+        rejected = self._candidate("RESULT_HOME", 0.45)
+        accepted = self._candidate("BTTS_NO", 0.55)
+
+        priced, quote_seen = shadow._priced_candidates(
+            [rejected, accepted],
+            _odds_response(),
+        )
+
+        self.assertTrue(quote_seen)
+        self.assertEqual(len(priced), 1)
+        self.assertIs(priced[0][0], accepted)
+        self.assertGreaterEqual(priced[0][2], shadow.MIN_LEG_EXPECTED_ROI)
+
+    def test_extra_time_results_are_not_auto_settled_as_regulation(self):
+        self.assertEqual(shadow.FT_STATUSES, {"FT"})
+
+
+class ShadowConditionTest(unittest.TestCase):
+    @staticmethod
+    def _database(path, now, *, fixture_due):
+        connection = sqlite3.connect(path)
+        try:
+            connection.execute(
+                "CREATE TABLE predictions ("
+                "result TEXT, fixture_kickoff TEXT, closing_odds REAL)"
+            )
+            connection.execute(
+                "CREATE TABLE shadow_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+            )
+            connection.execute(
+                "CREATE TABLE shadow_fixtures (kickoff TEXT, evaluated INTEGER)"
+            )
+            connection.execute(
+                "INSERT INTO shadow_meta (key, value) VALUES (?, ?)",
+                ("schedule:2026-08-01", "loaded"),
+            )
+            if fixture_due:
+                connection.execute(
+                    "INSERT INTO shadow_fixtures (kickoff, evaluated) VALUES (?, 0)",
+                    ((now + timedelta(minutes=30)).isoformat(),),
+                )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def test_uses_production_evaluation_window(self):
+        now = datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as folder:
+            db_path = Path(folder) / "shadow.db"
+            self._database(db_path, now, fixture_due=True)
+            self.assertTrue(shadow._shadow_work_due(now, db_path))
+
+    def test_stays_idle_without_due_work(self):
+        now = datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as folder:
+            db_path = Path(folder) / "shadow.db"
+            self._database(db_path, now, fixture_due=False)
+            self.assertFalse(shadow._shadow_work_due(now, db_path))
 
 
 if __name__ == "__main__":

@@ -1,8 +1,10 @@
 """Responsive BetBoy analysis workspace."""
 
 import importlib
+from functools import wraps
 import math
 import sqlite3
+import threading
 from dataclasses import asdict, replace
 from datetime import datetime
 from typing import Optional
@@ -150,15 +152,49 @@ def _get_supabase_url() -> Optional[str]:
 
 
 def _freemode_enabled() -> bool:
-    """Freemode-Schalter (Modell-Vetos als Warnung statt Blocker).
-
-    Test- und Bare-Mode-sicher: Jeder Konfigurationsfehler faellt auf den
-    Default (freigeschaltet) zurueck statt das Rendering zu brechen.
-    """
+    """Research display flag; recommendation vetoes always remain active."""
     try:
         return bool(load_app_config(st).freemode)
     except Exception:
-        return True
+        return False
+
+
+def _session_scope_id() -> str:
+    return scan_jobs.session_scope(st.session_state)
+
+
+def _job_key(name: str) -> str:
+    return scan_jobs.scoped_key(name, _session_scope_id())
+
+
+_ANALYZER_LOCKS_GUARD = threading.Lock()
+_ANALYZER_LOCKS: dict[int, threading.RLock] = {}
+
+
+def _serialized_analyzer(position: int = 0):
+    """Serialize mutable analyzer access while keeping unrelated jobs parallel."""
+    def decorate(fn):
+        @wraps(fn)
+        def wrapped(*args, **kwargs):
+            analyzer = (
+                args[position]
+                if len(args) > position
+                else kwargs.get("analyzer")
+            )
+            if analyzer is None:
+                return fn(*args, **kwargs)
+            analyzer_id = id(analyzer)
+            with _ANALYZER_LOCKS_GUARD:
+                lock = _ANALYZER_LOCKS.setdefault(
+                    analyzer_id,
+                    threading.RLock(),
+                )
+            with lock:
+                return fn(*args, **kwargs)
+
+        return wrapped
+
+    return decorate
 
 
 def _get_db_connection(db_path: str = "betboy_data.db"):
@@ -718,6 +754,44 @@ def _apply_app_styles() -> None:
                 font-size: 0.68rem;
             }
         }
+
+        /* Keep the direct mobile navigation usable after the generic
+           responsive column rules above have been applied. */
+        @media (max-width: 767px) {
+            [data-testid="stMain"] .block-container {
+                padding-bottom: calc(6.25rem + env(safe-area-inset-bottom, 0px)) !important;
+            }
+
+            .st-key-bb_bottomnav {
+                padding-right: 0.35rem;
+            }
+
+            .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] {
+                flex-wrap: nowrap !important;
+                gap: 0.3rem;
+                overflow-x: hidden;
+            }
+
+            .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+                flex: 1 1 0 !important;
+                min-width: 0 !important;
+                width: auto !important;
+            }
+        }
+
+        @media (max-width: 430px) {
+            [data-testid="stMain"] .block-container {
+                padding-bottom: calc(8.5rem + env(safe-area-inset-bottom, 0px)) !important;
+            }
+
+            .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] {
+                flex-wrap: wrap !important;
+            }
+
+            .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+                flex: 0 0 calc(25% - 0.225rem) !important;
+            }
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -725,7 +799,10 @@ def _apply_app_styles() -> None:
 
 
 @st.cache_resource
-def get_analyzer(module_version: int = _REQUIRED_ANALYZER_MODULE_VERSION):
+def get_analyzer(
+    module_version: int = _REQUIRED_ANALYZER_MODULE_VERSION,
+    session_scope_id: str = "system",
+):
     """Initialize the analyzer from the central configuration."""
     if module_version != _REQUIRED_ANALYZER_MODULE_VERSION:
         raise ValueError("Unsupported analyzer module version")
@@ -875,7 +952,9 @@ def _sidebar_scan_poller() -> None:
     """Löst nur dann einen Voll-Rerun aus, wenn sich die Menge der Seiten
     mit laufendem Scan ändert — so erscheint und verschwindet das Rädchen
     von selbst, ohne Dauer-Reruns."""
-    running = frozenset(scan_jobs.running_pages(PAGE_SCAN_JOBS))
+    running = frozenset(
+        scan_jobs.running_pages(PAGE_SCAN_JOBS, scope=_session_scope_id())
+    )
     if running != st.session_state.get("_nav_running_pages"):
         st.session_state["_nav_running_pages"] = running
         st.rerun()
@@ -894,7 +973,10 @@ def _render_sidebar(analyzer) -> str:
             key="workspace",
         )
         st.session_state.setdefault("_nav_running_pages", frozenset())
-        running_scan_pages = scan_jobs.running_pages(PAGE_SCAN_JOBS)
+        running_scan_pages = scan_jobs.running_pages(
+            PAGE_SCAN_JOBS,
+            scope=_session_scope_id(),
+        )
         if running_scan_pages:
             st.markdown(
                 _scan_spinner_css(running_scan_pages), unsafe_allow_html=True
@@ -965,13 +1047,18 @@ def _persist_prematch(results) -> Optional[dict]:
         return {"signals": []}
     rows = []
     for row in results.head(40).to_dict("records"):
-        probability = row.get("BTTS_num")
-        if (
-            not isinstance(probability, (int, float))
-            or isinstance(probability, bool)
-            or probability != probability
-            or not 0.0 < probability < 100.0
-        ):
+        analysis = row.get("_analysis")
+        analysis = analysis if isinstance(analysis, dict) else {}
+        details = analysis.get("details")
+        details = details if isinstance(details, dict) else {}
+        candidate = prematch_btts_candidate(
+            row,
+            snapshot_age_seconds=0.0,
+            validated_model_available=details.get("ml_active") is True,
+            freemode=False,
+        )
+        probability = candidate.risk_adjusted_probability
+        if not candidate.model_ready or probability is None:
             continue
         rows.append(
             {
@@ -994,28 +1081,23 @@ def _persist_red_cards(snapshot: dict) -> Optional[dict]:
     for entry in (snapshot.get("cards") or [])[:20]:
         if not isinstance(entry, dict):
             continue
-        prediction = entry.get("prediction") or {}
-        probability = prediction.get("next_goal_by_opponent")
+        candidate = red_card_candidate(
+            entry,
+            snapshot_age_seconds=0.0,
+            freemode=False,
+        )
+        probability = candidate.risk_adjusted_probability
         home, away = entry.get("home"), entry.get("away")
-        red_side = entry.get("red_side")
-        if (
-            not isinstance(probability, (int, float))
-            or isinstance(probability, bool)
-            or probability != probability
-            or not 0.0 < probability < 1.0
-            or not home
-            or not away
-        ):
+        if not candidate.model_ready or probability is None or not home or not away:
             continue
-        opponent = away if red_side == "home" else home
         rows.append(
             {
                 "home": home,
                 "away": away,
                 "league": None,
                 "date": snapshot.get("scanned_at"),
-                "market": f"Nächstes Tor: {opponent}",
-                "p": probability,
+                "market": f"Nächstes Tor: {candidate.selection}",
+                "p": probability / 100.0,
             }
         )
     return {"signals": rows}
@@ -1048,6 +1130,19 @@ def _persist_live(snapshot: dict) -> Optional[dict]:
             probability, selection = _live_market_signal(item, market)
             if probability is None or not 0.0 < probability < 100.0:
                 continue
+            candidate = live_football_candidate(
+                item,
+                market=market,
+                selection=selection,
+                probability=probability,
+                snapshot_age_seconds=0.0,
+                freemode=False,
+            )
+            if (
+                not candidate.model_ready
+                or candidate.risk_adjusted_probability is None
+            ):
+                continue
             rows.append(
                 {
                     "home": home,
@@ -1055,7 +1150,7 @@ def _persist_live(snapshot: dict) -> Optional[dict]:
                     "league": item.get("league"),
                     "date": snapshot.get("scanned_at"),
                     "market": f"Live: {selection} ({context})",
-                    "p": probability / 100.0,
+                    "p": candidate.risk_adjusted_probability / 100.0,
                 }
             )
     return {"signals": rows}
@@ -1088,6 +1183,7 @@ def _prepare_results(results: list[pd.DataFrame]) -> pd.DataFrame:
     return combined
 
 
+@_serialized_analyzer()
 def _scan_prematch(
     analyzer, leagues: list[str], days_ahead: int, progress_cb=None
 ) -> pd.DataFrame:
@@ -1471,24 +1567,25 @@ def render_matches(analyzer) -> None:
     if run_scan and not selected_leagues:
         st.warning("Mindestens eine Liga auswählen.")
     elif run_scan:
-        if scan_jobs.get_job("prematch")["state"] == "running":
+        if scan_jobs.get_job(_job_key("prematch"))["state"] == "running":
             st.info("Der BTTS-Scan läuft bereits im Hintergrund.")
         else:
             st.session_state["prematch_pending_scope"] = _scope_signature(
                 selected_leagues, days_ahead
             )
             scan_jobs.start_job(
-                "prematch",
+                _job_key("prematch"),
                 _scan_prematch,
                 args=(analyzer, list(selected_leagues), days_ahead),
                 persist_name="prematch",
                 persist_fn=_persist_prematch,
+                persist_scope=_session_scope_id(),
             )
 
-    job = scan_jobs.get_job("prematch")
+    job = scan_jobs.get_job(_job_key("prematch"))
     if job["state"] == "running":
         _scan_job_progress_fragment(
-            "prematch",
+            _job_key("prematch"),
             "BTTS-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht.",
         )
     elif job["state"] == "done":
@@ -1505,14 +1602,14 @@ def render_matches(analyzer) -> None:
         st.session_state["prematch_snapshot"] = snapshot
         st.session_state["prematch_results"] = results
         st.session_state["all_results"] = results
-        scan_jobs.clear_job("prematch")
+        scan_jobs.clear_job(_job_key("prematch"))
         if results.empty:
             st.error("NICHT WETTEN: Für diese Auswahl wurden keine kommenden Spiele gefunden.")
         else:
             st.success(f"{len(results)} Spiele geprüft — Ergebnis:")
     elif job["state"] == "error":
         st.error(f"Wettfinder fehlgeschlagen: {job.get('error')}")
-        scan_jobs.clear_job("prematch")
+        scan_jobs.clear_job(_job_key("prematch"))
 
     snapshot = st.session_state.get("prematch_snapshot")
     if not isinstance(snapshot, dict):
@@ -1623,6 +1720,7 @@ def _filter_live_opportunities(
     )
 
 
+@_serialized_analyzer()
 def _scan_live_football(analyzer, config=None, progress_cb=None) -> dict:
     from api_football import APIFootball
     from ultra_live_scanner_v3 import UltraLiveScanner
@@ -1737,7 +1835,7 @@ def _render_live_football(analyzer) -> None:
         use_container_width=True,
         key="run_live_football",
     ):
-        if scan_jobs.get_job("live")["state"] == "running":
+        if scan_jobs.get_job(_job_key("live"))["state"] == "running":
             st.info("Der Live-Scan läuft bereits im Hintergrund.")
         else:
             config = load_app_config(st)
@@ -1745,27 +1843,28 @@ def _render_live_football(analyzer) -> None:
                 st.error("API-Football-Key fehlt. Konfiguration unter System prüfen.")
             else:
                 scan_jobs.start_job(
-                    "live",
+                    _job_key("live"),
                     _scan_live_football,
                     args=(analyzer,),
                     kwargs={"config": config},
                     persist_name="live",
                     persist_fn=_persist_live,
+                    persist_scope=_session_scope_id(),
                 )
 
-    job = scan_jobs.get_job("live")
+    job = scan_jobs.get_job(_job_key("live"))
     if job["state"] == "running":
         _scan_job_progress_fragment(
-            "live",
+            _job_key("live"),
             "Live-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht.",
         )
     elif job["state"] == "done":
         st.session_state["live_football_snapshot"] = job.get("result")
         st.session_state.pop("live_snapshot_invalidated_by_red_card", None)
-        scan_jobs.clear_job("live")
+        scan_jobs.clear_job(_job_key("live"))
     elif job["state"] == "error":
         st.error(f"Live-Wettfinder fehlgeschlagen: {job.get('error')}")
-        scan_jobs.clear_job("live")
+        scan_jobs.clear_job(_job_key("live"))
 
     snapshot = st.session_state.get("live_football_snapshot")
     if not snapshot:
@@ -1900,7 +1999,12 @@ def _render_live_football(analyzer) -> None:
             )
 
 
-def _red_card_entry(alert_system, card: dict) -> dict:
+def _red_card_entry(
+    alert_system,
+    card: dict,
+    analyzer=None,
+    api_key: Optional[str] = None,
+) -> dict:
     match = card["match"]
     fixture_id = match["fixture"]["id"]
     home = match["teams"]["home"]
@@ -1944,6 +2048,8 @@ def _red_card_entry(alert_system, card: dict) -> dict:
             home["id"],
             away["id"],
             match.get("league", {}).get("id"),
+            _analyzer=analyzer,
+            api_key=api_key,
         )
         prediction = alert_system.predictor.predict(
             minute=snapshot_minute,
@@ -1964,6 +2070,8 @@ def _red_card_prematch_priors(
     home_team_id: int,
     away_team_id: int,
     league_id,
+    _analyzer=None,
+    api_key: Optional[str] = None,
 ):
     """Prematch-Torerwartung fuer das Rotkarten-Kontextmodell (Staerke-Daempfung)."""
     if not isinstance(league_id, int):
@@ -1972,21 +2080,21 @@ def _red_card_prematch_priors(
         from api_football import APIFootball
         from ultra_live_scanner_v3 import UltraLiveScanner
 
-        analyzer = get_analyzer()
-        if analyzer is None:
+        if _analyzer is None or not api_key:
             return None, None
-        config = load_app_config(st)
-        api = APIFootball(config.api_football_key)
-        scanner = UltraLiveScanner(analyzer, api)
+        api = APIFootball(api_key)
+        scanner = UltraLiveScanner(_analyzer, api)
         return scanner._get_prematch_goal_priors(home_team_id, away_team_id, league_id)
     except Exception:
         return None, None
 
 
+@_serialized_analyzer(position=3)
 def _scan_red_cards(
     api_key: str,
     league_ids: Optional[list[int]],
     scope_label: str,
+    analyzer=None,
     progress_cb=None,
     streamlit_mode: bool = True,
 ) -> dict:
@@ -2009,7 +2117,12 @@ def _scan_red_cards(
     for index, match in enumerate(live_matches):
         match_cards = finder.check_match_for_red_cards(match, include_seen=True)
         for card in match_cards:
-            entry = _red_card_entry(finder, card)
+            entry = _red_card_entry(
+                finder,
+                card,
+                analyzer=analyzer,
+                api_key=api_key,
+            )
             entry["fixture_red_card_count"] = len(match_cards)
             cards.append(entry)
         if progress_cb:
@@ -2142,22 +2255,23 @@ def _render_red_cards(analyzer) -> None:
     ):
         if not config.api_football_key:
             st.error("API-Football-Key fehlt.")
-        elif scan_jobs.get_job("red_cards")["state"] == "running":
+        elif scan_jobs.get_job(_job_key("red_cards"))["state"] == "running":
             st.info("Der Platzverweis-Scan läuft bereits im Hintergrund.")
         else:
             scan_jobs.start_job(
-                "red_cards",
+                _job_key("red_cards"),
                 _scan_red_cards,
-                args=(config.api_football_key, league_ids, scan_scope),
+                args=(config.api_football_key, league_ids, scan_scope, analyzer),
                 kwargs={"streamlit_mode": False},
                 persist_name="red_cards",
                 persist_fn=_persist_red_cards,
+                persist_scope=_session_scope_id(),
             )
 
-    job = scan_jobs.get_job("red_cards")
+    job = scan_jobs.get_job(_job_key("red_cards"))
     if job["state"] == "running":
         _scan_job_progress_fragment(
-            "red_cards",
+            _job_key("red_cards"),
             "Platzverweis-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht.",
         )
     elif job["state"] == "done":
@@ -2168,10 +2282,10 @@ def _render_red_cards(analyzer) -> None:
             st.session_state["live_snapshot_invalidated_by_red_card"] = (
                 red_card_snapshot.get("scanned_at")
             )
-        scan_jobs.clear_job("red_cards")
+        scan_jobs.clear_job(_job_key("red_cards"))
     elif job["state"] == "error":
         st.error(f"Platzverweis-Wettfinder fehlgeschlagen: {job.get('error')}")
-        scan_jobs.clear_job("red_cards")
+        scan_jobs.clear_job(_job_key("red_cards"))
 
     snapshot = st.session_state.get("red_card_snapshot")
     if not snapshot:
@@ -2651,7 +2765,9 @@ def _render_esports_shadow_status() -> None:
 
         if not DEFAULT_DB_PATH.exists():
             return
-        summary = EsportsShadowLog().summary()
+        log = EsportsShadowLog()
+        summary = log.summary()
+        release = log.release_status()
     except Exception:
         return
     predictions = summary.get("predictions") or 0
@@ -2661,15 +2777,54 @@ def _render_esports_shadow_status() -> None:
     if settled:
         st.caption(
             f"E-Sport Shadow-Protokoll (nur Pre-Match): {predictions} Tipps protokolliert | "
-            f"{settled} abgerechnet | Treffer {summary['hit_rate']} % bei Ø "
-            f"Modellwahrscheinlichkeit {summary['avg_model_probability']} % | "
-            f"{summary['open']} offen"
+            f"{settled}/{release['required']} abgerechnet | Treffer {summary['hit_rate']} % bei Ø "
+            f"risikoadjustiert {summary['avg_risk_adjusted_probability']} % | "
+            f"{summary['open']} offen | "
+            f"{'Freigabe aktiv' if release['ready'] else 'Lernphase, noch keine Wettfreigabe'}"
         )
     else:
         st.caption(
             f"E-Sport Shadow-Protokoll: {predictions} Tipps protokolliert, "
             "Abrechnung nach Spielende."
         )
+
+
+def _multi_sport_release_blockers(
+    sport: str,
+    item: dict,
+    esports_release: Optional[dict] = None,
+) -> tuple[str, ...]:
+    if sport == "Basketball":
+        return (
+            "Das Live-Totalmodell besitzt noch keinen unabhängigen "
+            "Out-of-sample- und Closing-Line-Nachweis.",
+        )
+    if sport == "Eishockey":
+        return (
+            "Das NHL-Totalmodell besitzt noch keinen unabhängigen "
+            "Out-of-sample- und Goalie-spezifischen Nachweis.",
+        )
+    if sport != "E-Sport":
+        return ()
+    if item.get("status") != "upcoming":
+        return (
+            "Das E-Sport-Shadow-Gate validiert nur Pre-Match bei Serienstand 0:0, "
+            "nicht score-konditionierte Live-Wetten.",
+        )
+    if esports_release is None:
+        try:
+            from esports_shadow import EsportsShadowLog
+
+            esports_release = EsportsShadowLog().release_status()
+        except Exception:
+            esports_release = {"ready": False, "settled": 0, "required": 100}
+    if esports_release.get("ready") is True:
+        return ()
+    return (
+        "E-Sport ist noch in der ehrlichen Shadow-Anlaufphase: "
+        f"{int(esports_release.get('settled') or 0)}/"
+        f"{int(esports_release.get('required') or 100)} Prematch-Fälle abgerechnet.",
+    )
 
 
 def render_multi_sport() -> None:
@@ -2700,19 +2855,19 @@ def render_multi_sport() -> None:
         use_container_width=True,
         key="run_multi_sport",
     ):
-        if scan_jobs.get_job("multi_sport")["state"] == "running":
+        if scan_jobs.get_job(_job_key("multi_sport"))["state"] == "running":
             st.info(f"Der {sport}-Scan läuft bereits im Hintergrund.")
         else:
             scan_jobs.start_job(
-                "multi_sport",
+                _job_key("multi_sport"),
                 _run_multi_sport_worker,
                 args=(sport, detail_filter),
             )
 
-    job = scan_jobs.get_job("multi_sport")
+    job = scan_jobs.get_job(_job_key("multi_sport"))
     if job["state"] == "running":
         _scan_job_progress_fragment(
-            "multi_sport",
+            _job_key("multi_sport"),
             f"{sport}-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht.",
         )
     elif job["state"] == "done":
@@ -2721,13 +2876,35 @@ def render_multi_sport() -> None:
         result_snapshot = result.get("snapshot")
         if result_scope and isinstance(result_snapshot, dict):
             snapshots[result_scope] = result_snapshot
-        scan_jobs.clear_job("multi_sport")
+        scan_jobs.clear_job(_job_key("multi_sport"))
     elif job["state"] == "error":
         st.error(f"{sport}-Suche fehlgeschlagen: {job.get('error')}")
-        scan_jobs.clear_job("multi_sport")
+        scan_jobs.clear_job(_job_key("multi_sport"))
 
     snapshot = snapshots.get(scope_key)
     if not snapshot:
+        illustrative_examples = {
+            "Basketball": (
+                "Team A vs Team B",
+                "Team A +4,5 Punkte @ 1,91 - Modell 58 %, Mindestquote 1,86",
+            ),
+            "Eishockey": (
+                "Team A vs Team B",
+                "Unter 6,5 Tore @ 1,88 - Modell 60 %, Mindestquote 1,79",
+            ),
+            "Cricket": (
+                "Team A vs Team B",
+                "Team A gewinnt @ 1,95 - Modell 57 %, Mindestquote 1,89",
+            ),
+            "Tennis": (
+                "Spieler A vs Spieler B",
+                "Spieler A gewinnt 2:0 @ 2,10 - Modell 52 %, Mindestquote 2,08",
+            ),
+            "E-Sport": (
+                "Team A vs Team B",
+                "Team A gewinnt @ 1,95 - risikoadj. Modell 56 %, Mindestquote 1,92",
+            ),
+        }
         render_empty_state(
             f"So funktioniert die {sport}-Suche",
             [
@@ -2736,6 +2913,7 @@ def render_multi_sport() -> None:
                 "Wetten nur bei positivem risikoadjustiertem Value.",
             ],
             duration_hint="Dauer: wenige Sekunden bis etwa eine Minute.",
+            illustrative_example=illustrative_examples[sport],
         )
         return
 
@@ -2854,16 +3032,16 @@ def render_multi_sport() -> None:
         selected_item,
         market_line=line_value,
     )
-    if candidate.blockers and candidate.model_probability is None:
-        st.error("NICHT WETTEN — für diese Auswahl liegt keine Modellwahrscheinlichkeit vor.")
+    release_blockers = _multi_sport_release_blockers(sport, selected_item)
+    if release_blockers:
+        candidate = replace(
+            candidate,
+            blockers=tuple(dict.fromkeys(candidate.blockers + release_blockers)),
+        )
+    if candidate.blockers:
+        st.error("NICHT WETTEN — die Modellfreigabe ist nicht vollständig.")
         st.markdown("\n".join(f"- {plain_german(reason)}" for reason in candidate.blockers))
         return
-    if candidate.blockers:
-        st.warning(
-            "⚠️ Modell-Warnung (freigeschaltet) — Empfehlung trotzdem sichtbar:"
-        )
-        st.markdown("\n".join(f"- {plain_german(reason)}" for reason in candidate.blockers))
-        candidate = replace(candidate, blockers=())
 
     if candidate.expected_total is not None:
         st.caption(f"Posteriorer Total-Erwartungswert: {candidate.expected_total:.2f}")
@@ -2881,14 +3059,14 @@ def _render_mobile_nav(workspace: str) -> None:
     before the next script run and only sets the same ``workspace`` key.
     """
     short_labels = {
-        "Spiele": "🎯 Spiele",
-        "Märkte": "📈 Märkte",
-        "Live": "⚡ Live",
-        "Wett-Check": "🧮 Check",
-        "System": "⚙️ System",
-        "15K Challenge": "🏆 15K",
-        "Multi-Sport": "🏀 Multi",
-        "Tennis": "🎾 Tennis",
+        "Spiele": ("Spiele", ":material/sports_soccer:"),
+        "Märkte": ("Märkte", ":material/trending_up:"),
+        "Live": ("Live", ":material/bolt:"),
+        "Wett-Check": ("Check", ":material/calculate:"),
+        "System": ("System", ":material/settings:"),
+        "15K Challenge": ("15K", ":material/emoji_events:"),
+        "Multi-Sport": ("Multi", ":material/sports_basketball:"),
+        "Tennis": ("Tennis", ":material/sports_tennis:"),
     }
 
     def _go(page: str) -> None:
@@ -2896,10 +3074,11 @@ def _render_mobile_nav(workspace: str) -> None:
 
     with st.container(key="bb_bottomnav"):
         columns = st.columns(len(short_labels), gap="small")
-        for column, (page, label) in zip(columns, short_labels.items()):
+        for column, (page, (label, icon)) in zip(columns, short_labels.items()):
             column.button(
                 label,
                 key=f"bb_bottomnav_{page}",
+                icon=icon,
                 type="primary" if page == workspace else "secondary",
                 use_container_width=True,
                 on_click=_go,
@@ -2915,9 +3094,13 @@ def main() -> None:
         initial_sidebar_state="auto",
     )
     _apply_app_styles()
+    session_scope_id = _session_scope_id()
 
     try:
-        analyzer = get_analyzer(_REQUIRED_ANALYZER_MODULE_VERSION)
+        analyzer = get_analyzer(
+            _REQUIRED_ANALYZER_MODULE_VERSION,
+            session_scope_id,
+        )
         st.session_state.pop("analyzer_error", None)
     except Exception as exc:
         analyzer = None
@@ -2941,7 +3124,7 @@ def main() -> None:
     elif workspace == "Wett-Check":
         from ev_checker_tab import render_ev_checker
 
-        render_ev_checker()
+        render_ev_checker(scope=session_scope_id)
     elif workspace == "System":
         render_model(analyzer)
     elif workspace == "15K Challenge":

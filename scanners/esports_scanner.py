@@ -280,7 +280,10 @@ class EsportsScanner:
             return None
         if not isinstance(match, dict):
             return None
-        if str(match.get("status") or "").lower() != "finished":
+        status = str(match.get("status") or "").lower()
+        if status == "canceled":
+            return {"void": True, "status": status}
+        if status != "finished":
             return None
         winner = match.get("winner")
         winner_id = winner.get("id") if isinstance(winner, dict) else None

@@ -729,7 +729,7 @@ class ChallengeTicketTests(unittest.TestCase):
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
 
         self.assertIsNotNone(ticket)
-        self.assertEqual(ticket_stake(ticket, 1000), 1000.0)
+        self.assertEqual(ticket_stake(ticket, 1000), 250.0)
         self.assertEqual(ticket_stake(ticket, 1000, 0.25), 250.0)
         capped_ticket = replace(ticket, stake_fraction=0.02)
         self.assertEqual(ticket_stake(capped_ticket, 101.25, 0.25), 25.31)
@@ -886,6 +886,38 @@ class ChallengeLedgerTests(unittest.TestCase):
             ledger.set_stake_fraction(0.25)
             self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
 
+    def test_transactions_reconcile_exactly_with_current_balance(self):
+        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.68)]
+        ticket = select_quoted_ticket(
+            candidates,
+            {"1:BTTS": 1.50, "2:BTTS": 1.50},
+        )
+        self.assertIsNotNone(ticket)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
+            stake = ticket_stake(ticket, 100.0)
+            ticket_id = ledger.place_ticket(
+                "2026-07-14",
+                ticket,
+                stake,
+                datetime.now(timezone.utc).isoformat(),
+            )
+            ledger.settle_ticket(ticket_id, "LOST")
+            ledger.set_balance(80.0)
+
+            transactions = ledger.transactions()
+            self.assertEqual(transactions[-1]["balance_after"], 80.0)
+            self.assertEqual(
+                sum(item["amount"] for item in transactions),
+                ledger.settings()["current_balance"],
+            )
+            self.assertEqual(
+                ledger.settings()["net_external_funding"],
+                105.0,
+            )
+
 
 class _SettleProvider:
     """Provider-Double: liefert vorbereitete Fixture-Details."""
@@ -954,7 +986,7 @@ class AutoSettleTests(unittest.TestCase):
             self.assertAlmostEqual(ledger.settings()["current_balance"], expected, places=2)
             self.assertEqual(ledger.get_ticket(ticket_id)["status"], "WON")
 
-    def test_lost_ticket_restarts_challenge_at_start_balance(self):
+    def test_lost_ticket_keeps_real_remaining_balance(self):
         from challenge_15k import auto_settle_open_tickets
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -968,10 +1000,10 @@ class AutoSettleTests(unittest.TestCase):
             )
             summary = auto_settle_open_tickets(ledger, provider)
             self.assertEqual(summary["lost"], 1)
-            self.assertEqual(summary["resets"], 1)
+            self.assertEqual(summary["resets"], 0)
             self.assertEqual(ledger.get_ticket(ticket_id)["status"], "LOST")
             settings = ledger.settings()
-            self.assertEqual(settings["current_balance"], 100.0)
+            self.assertEqual(settings["current_balance"], 75.0)
             self.assertEqual(settings["starting_balance"], 100.0)
 
     def test_running_and_aet_games_stay_open(self):

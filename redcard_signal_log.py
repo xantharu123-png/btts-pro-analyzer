@@ -7,7 +7,7 @@ ob der User wettet. Gespeichert werden alle drei Modellwahrscheinlichkeiten
 Nach Abpfiff wird jedes offene Signal gegen die echten API-Events
 abgerechnet: Das erste Tor NACH dem Modell-Snapshot entscheidet das Outcome
 (opponent / red_team / no_goal). Ergebnis: Kalibrierungs-Beweis
-(Trefferquote + Brier-Score) gegen die 1.132-Faelle-Historie.
+(Trefferquote + Brier-Score) als neue, zeitlich nachgelagerte Shadow-Stichprobe.
 
 CLI:
     python redcard_signal_log.py --settle [--max 25]
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sqlite3
 import time
 from datetime import datetime, timezone
@@ -37,10 +38,18 @@ FINISHED_STATUSES = {"FT", "AET", "PEN"}
 MODEL_HORIZON_MINUTES = 93
 
 
-def _goal_in_model_horizon(elapsed: int, status: Optional[str]) -> bool:
+def _goal_in_model_horizon(
+    elapsed: int,
+    extra: int,
+    status: Optional[str],
+) -> bool:
     """True, wenn das Tor im Modell-Horizont (reguläre Spielzeit) fiel."""
-    if elapsed > MODEL_HORIZON_MINUTES:
+    effective_minute = elapsed + extra
+    if effective_minute > MODEL_HORIZON_MINUTES:
         return False
+    # In an AET/PEN fixture an unqualified elapsed value above 90 is
+    # ambiguous and may already be extra time. A 90+extra event is explicit
+    # regulation stoppage time and remains valid.
     if elapsed > 90 and status != "FT":
         return False
     return True
@@ -85,7 +94,7 @@ def _finite(value: Any) -> Optional[float]:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    return number if number == number else None  # NaN-Wache
+    return number if math.isfinite(number) else None
 
 
 def _parse_score(score: Any) -> tuple[Optional[int], Optional[int]]:
@@ -123,7 +132,13 @@ def log_signal(entry: Dict[str, Any], db_path: Path = DB_PATH) -> bool:
         p_opponent = _finite(prediction.get("next_goal_by_opponent"))
         p_red_team = _finite(prediction.get("next_goal_by_red_team"))
         p_no_goal = _finite(prediction.get("no_more_goals"))
-        if p_opponent is None and p_red_team is None and p_no_goal is None:
+        probabilities = (p_opponent, p_red_team, p_no_goal)
+        if (
+            any(value is None or not 0.0 <= value <= 1.0 for value in probabilities)
+            or not math.isclose(sum(probabilities), 1.0, abs_tol=1e-4)
+        ):
+            return False
+        if entry.get("fixture_red_card_count") != 1:
             return False
         score_home, score_away = _parse_score(entry.get("score"))
         league = match.get("league") or {}
@@ -133,6 +148,13 @@ def log_signal(entry: Dict[str, Any], db_path: Path = DB_PATH) -> bool:
         }
         conn = _connect(db_path)
         try:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute(
+                "SELECT 1 FROM signals WHERE fixture_id = ? LIMIT 1",
+                (fixture_id,),
+            ).fetchone():
+                conn.rollback()
+                return False
             cursor = conn.execute(
                 """INSERT OR IGNORE INTO signals
                    (ts_utc, fixture_id, home, away, minute, red_side,
@@ -174,19 +196,27 @@ def _first_goal_after(
     _goal_in_model_horizon) — Verlängerung und Elfmeterschießen sind
     kein Modell-Outcome.
     """
-    first: Optional[tuple[int, Optional[int]]] = None
-    for event in events or []:
+    first: Optional[tuple[int, Optional[int], int]] = None
+    for index, event in enumerate(events or []):
         if not isinstance(event, dict) or event.get("type") != "Goal":
             continue
-        elapsed = (event.get("time") or {}).get("elapsed")
-        if not isinstance(elapsed, int) or elapsed <= minute:
+        event_time = event.get("time") or {}
+        elapsed = event_time.get("elapsed")
+        extra = event_time.get("extra")
+        if not isinstance(elapsed, int) or isinstance(elapsed, bool):
             continue
-        if not _goal_in_model_horizon(elapsed, status):
+        if not isinstance(extra, int) or isinstance(extra, bool) or extra < 0:
+            extra = 0
+        effective_minute = elapsed + extra
+        if effective_minute <= minute:
+            continue
+        if not _goal_in_model_horizon(elapsed, extra, status):
             continue
         team_id = (event.get("team") or {}).get("id")
-        if first is None or elapsed < first[0]:
-            first = (elapsed, team_id)
-    return first
+        candidate = (effective_minute, team_id, index)
+        if first is None or (candidate[0], candidate[2]) < (first[0], first[2]):
+            first = candidate
+    return (first[0], first[1]) if first is not None else None
 
 
 def settle_open_signals(
@@ -233,9 +263,12 @@ def settle_open_signals(
                 continue
 
             home_id = ((fixture_data.get("teams") or {}).get("home") or {}).get("id")
+            away_id = ((fixture_data.get("teams") or {}).get("away") or {}).get("id")
             first_goal = _first_goal_after(events, row["minute"], status)
             if first_goal is None:
                 outcome = "no_goal"
+            elif first_goal[1] not in {home_id, away_id}:
+                outcome = None
             elif row["red_side"] == "home":
                 outcome = "red_team" if first_goal[1] == home_id else "opponent"
             elif row["red_side"] == "away":

@@ -66,6 +66,8 @@ class CLVTracker:
                 'closing_quoted_at': 'TEXT',
                 'data_quality': 'TEXT',
                 'fixture_kickoff': 'TEXT',
+                'model_version': 'TEXT',
+                'policy_version': 'TEXT',
             }
             for column, column_type in additions.items():
                 if column not in existing:
@@ -127,6 +129,8 @@ class CLVTracker:
         fixture_kickoff,
         quoted_at=None,
         data_quality: Optional[str] = None,
+        model_version: Optional[str] = None,
+        policy_version: Optional[str] = None,
     ) -> int:
         if (
             not isinstance(fixture_id, int)
@@ -173,13 +177,16 @@ class CLVTracker:
                 INSERT INTO predictions (
                     fixture_id, home_team, away_team, market_type, prediction,
                     odds, model_probability, confidence, created_at, bookmaker,
-                    quote_source, quoted_at, data_quality, fixture_kickoff
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    quote_source, quoted_at, data_quality, fixture_kickoff,
+                    model_version, policy_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 fixture_id, values['home_team'], values['away_team'],
                 values['market_type'], values['prediction'], price, probability,
                 confidence, created_at, values['bookmaker'], values['quote_source'],
                 quote_time, str(data_quality or '').strip() or None, kickoff_time,
+                str(model_version or '').strip() or None,
+                str(policy_version or '').strip() or None,
             ))
             return int(cursor.lastrowid)
 

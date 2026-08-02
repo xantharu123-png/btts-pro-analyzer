@@ -163,6 +163,8 @@ def _run_market_scan_worker(
 
 def create_alternative_markets_tab_extended() -> None:
     """Find up to three fully gated football-market candidates."""
+    session_scope = scan_jobs.session_scope(st.session_state)
+    job_key = scan_jobs.scoped_key("markets", session_scope)
     config = load_app_config(st)
     if not config.api_football_key:
         st.error("API-Football-Key fehlt.")
@@ -231,11 +233,11 @@ def create_alternative_markets_tab_extended() -> None:
     elif find_bets and search_date < _zurich_today():
         st.error("NICHT WETTEN: Das gewählte Datum liegt in der Vergangenheit.")
     elif find_bets:
-        if scan_jobs.get_job("markets")["state"] == "running":
+        if scan_jobs.get_job(job_key)["state"] == "running":
             st.info("Der Markt-Scan läuft bereits im Hintergrund.")
         else:
             scan_jobs.start_job(
-                "markets",
+                job_key,
                 _run_market_scan_worker,
                 args=(
                     config.api_football_key,
@@ -247,9 +249,9 @@ def create_alternative_markets_tab_extended() -> None:
                 ),
             )
 
-    job = scan_jobs.get_job("markets")
+    job = scan_jobs.get_job(job_key)
     if job["state"] == "running":
-        scan_progress_fragment("markets", "Markt-Scan")
+        scan_progress_fragment(job_key, "Markt-Scan")
     elif job["state"] == "done":
         result = job.get("result") or {}
         challenge_snapshot = result.get("challenge") or {}
@@ -263,10 +265,10 @@ def create_alternative_markets_tab_extended() -> None:
             "blocked_counts": challenge_snapshot.get("blocked_counts", {}),
             "errors": challenge_snapshot.get("errors", []),
         }
-        scan_jobs.clear_job("markets")
+        scan_jobs.clear_job(job_key)
     elif job["state"] == "error":
         st.error(f"Markt-Wettfinder fehlgeschlagen: {job.get('error')}")
-        scan_jobs.clear_job("markets")
+        scan_jobs.clear_job(job_key)
 
     snapshot = st.session_state.get("market_bet_finder_snapshot")
     if not isinstance(snapshot, dict):

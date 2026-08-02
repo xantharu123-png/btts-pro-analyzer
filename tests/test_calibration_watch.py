@@ -18,7 +18,9 @@ class TestWatchdogEvaluation:
     def test_calibrated_markets_pass(self):
         buckets = _buckets({
             "over_2_5_sets": [(0.5, 1000, 0.49, 0.46)],
+            "under_2_5_sets": [(0.5, 1000, 0.51, 0.54)],
             "set_a_2_0": [(0.3, 800, 0.30, 0.31)],
+            "set_b_2_0": [(0.3, 800, 0.30, 0.31)],
         })
         result = evaluate(buckets, n_scored=1800)
         assert result["status"] == "ok"
@@ -48,6 +50,9 @@ class TestWatchdogEvaluation:
         buckets = _buckets({
             "over_21_5_games": [(0.7, 2000, 0.70, 0.55)],
             "over_2_5_sets": [(0.5, 1000, 0.49, 0.46)],
+            "under_2_5_sets": [(0.5, 1000, 0.51, 0.54)],
+            "set_a_2_0": [(0.3, 800, 0.30, 0.31)],
+            "set_b_2_0": [(0.3, 800, 0.30, 0.31)],
         })
         result = evaluate(buckets, n_scored=3000)
         assert result["markets"]["over_21_5_games"]["drift"] is True
@@ -59,3 +64,5 @@ class TestWatchdogEvaluation:
         })
         result = evaluate(buckets, n_scored=10)
         assert "set_b_2_0" not in result["markets"]
+        assert result["status"] == "insufficient"
+        assert "set_b_2_0" in result["missing_markets"]

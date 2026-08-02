@@ -21,12 +21,10 @@ class AppConfig:
     pandascore_key: Optional[str] = None
     rapidapi_key: Optional[str] = None
     cricket_api_key: Optional[str] = None
-    # Freemode: Modell-Vetos (Qualitaets-Huerde, 55-%-Schwelle) werden zu
-    # sichtbaren Warnungen statt harten Blockern — Empfehlungen erscheinen
-    # trotzdem. Daten-Gates (kein Spielstand, veralteter Snapshot) bleiben
-    # immer hart. Default True; abschaltbar via config.ini [app] freemode=off
-    # oder Env BETBOY_FREEMODE=0.
-    freemode: bool = True
+    # Freemode exposes extra research evidence only. Model vetoes remain hard
+    # blockers. Disabled by default; enable with config.ini [app] freemode=on
+    # or Env BETBOY_FREEMODE=1.
+    freemode: bool = False
     source: str = "empty"
 
 
@@ -163,7 +161,7 @@ def load_app_config(st_module: Any = None, config_path: str | Path = "config.ini
     if freemode is None and st_module is not None and hasattr(st_module, "secrets"):
         freemode = _truthy(_secret_get(st_module.secrets, "app", "freemode"))
     if freemode is None:
-        freemode = True
+        freemode = False
 
     merged.pop("freemode", None)
     return AppConfig(

@@ -9,8 +9,9 @@ Nur Karten, bei denen ALLE Modell-Gates gruen sind, werden als wettbar
 gelistet.  WTA bleibt Shadow-only (kein Edge) und taucht daher nie in
 der Wettliste auf - nur als Info-Zeile.
 
-Mindestquote = (1 + MIN_EDGE) / p.  Nur wetten, wenn die Buchmacher-
-Quote >= Mindestquote ist, sonst liegt der Edge unter 15 %.
+Mindestquote = 1 / (p - MIN_EDGE). Nur wetten, wenn die Buchmacher-
+Quote mindestens diesen Preis erreicht; der Edge ist als absolute
+Wahrscheinlichkeitsdifferenz definiert.
 """
 
 from __future__ import annotations
@@ -89,11 +90,19 @@ def load_watch() -> tuple[dict | None, str]:
     return data, ""
 
 
+def _minimum_odds(p: float | None) -> float | None:
+    if p is None or p <= MIN_EDGE or p > 1.0:
+        return None
+    return 1.0 / (p - MIN_EDGE)
+
+
 def _fmt_odds(p: float | None) -> str:
     if not p or p <= 0:
         return "&ndash;"
     fair = 1.0 / p
-    minq = (1.0 + MIN_EDGE) / p
+    minq = _minimum_odds(p)
+    if minq is None:
+        return f"&ndash;<span class='fair'>fair {fair:,.2f}</span>".replace(",", " ").replace(".", ",")
     return f"<b>{minq:,.2f}</b><span class='fair'>fair {fair:,.2f}</span>".replace(",", " ").replace(".", ",")
 
 

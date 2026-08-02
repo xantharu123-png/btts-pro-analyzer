@@ -93,3 +93,46 @@ class TestDecay:
         m.update_from_match_row(_row(when=None), match_date=T0)
         acc = m._table[("alpha", "__overall__")]
         assert acc.last_date == T0
+
+    def test_both_players_use_pre_match_opponent_snapshot(self):
+        m = ServeReturnModel(half_life_days=None)
+        for _ in range(8):
+            m.update_from_match_row(
+                _row(
+                    winner="alpha",
+                    loser="other",
+                    brk_made=5.0,
+                    brk_conceded=1.0,
+                )
+            )
+            m.update_from_match_row(
+                _row(
+                    winner="third",
+                    loser="beta",
+                    brk_made=2.0,
+                    brk_conceded=2.0,
+                )
+            )
+
+        _alpha_hold, alpha_break_before = m.hold_and_break(
+            "alpha",
+            None,
+            as_of=T0,
+        )
+        beta_acc = m._table[("beta", "__overall__")]
+        opponent_sum_before = beta_acc.sv_opp_break_sum
+        m.update_from_match_row(
+            _row(
+                winner="alpha",
+                loser="beta",
+                sv_gms=12.0,
+                ret_gms=12.0,
+                brk_made=4.0,
+                brk_conceded=1.0,
+            )
+        )
+
+        beta_acc = m._table[("beta", "__overall__")]
+        assert beta_acc.sv_opp_break_sum - opponent_sum_before == pytest.approx(
+            12.0 * alpha_break_before
+        )

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+import hashlib
 import math
+from pathlib import Path
 import time
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -192,9 +194,20 @@ def _scope_signature(league_ids: list[int], search_date: date, max_fixtures: int
     }
 
 
+CHALLENGE_SESSIONS_DIR = Path(__file__).resolve().parent / "challenge_sessions"
+
+
 @st.cache_resource
-def _challenge_ledger() -> ChallengeLedger:
-    return ChallengeLedger()
+def _challenge_ledger(session_scope: str) -> ChallengeLedger:
+    """Keep public Streamlit sessions out of each other's bankroll."""
+    account_id = hashlib.sha256(session_scope.encode("utf-8")).hexdigest()[:24]
+    CHALLENGE_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+    return ChallengeLedger(CHALLENGE_SESSIONS_DIR / f"{account_id}.db")
+
+
+def _challenge_job_key() -> str:
+    scope = scan_jobs.session_scope(st.session_state)
+    return scan_jobs.scoped_key("challenge_15k", scope)
 
 
 @st.cache_data(ttl=6 * 3600, max_entries=32, show_spinner=False)
@@ -695,7 +708,7 @@ def _run_challenge_scan_worker(
 def _challenge_scan_fragment() -> None:
     """Pollt den Hintergrund-Challenge-Scan; bei Abschluss Voll-Rerun,
     damit der Hauptlauf den Snapshot übernimmt."""
-    job = scan_jobs.get_job("challenge_15k")
+    job = scan_jobs.get_job(_challenge_job_key())
     state = job.get("state")
     if state == "running":
         st.progress(
@@ -879,7 +892,7 @@ def _challenge_auto_recheck_fragment(
         return
     if not _auto_recheck_eligible(snapshot, search_date):
         return
-    if scan_jobs.get_job("challenge_15k").get("state") == "running":
+    if scan_jobs.get_job(_challenge_job_key()).get("state") == "running":
         return
     now = datetime.now(timezone.utc)
     try:
@@ -907,7 +920,7 @@ def _challenge_auto_recheck_fragment(
     st.session_state["challenge_auto_seen"] = set(decision["in_window"]) | seen
     provider = ChallengeDataProvider(api_football_key, weather_key)
     scan_jobs.start_job(
-        "challenge_15k",
+        _challenge_job_key(),
         _run_challenge_scan_worker,
         args=(provider, list(league_ids), search_date, max_fixtures),
     )
@@ -1058,8 +1071,7 @@ def scan_daily_challenge(
                 if isinstance(detail, dict) and league_coverage.get("lineups") is True
                 else None
             ),
-            # Nutzervorgabe: Aufstellungen sind Information, kein Freigabe-Veto.
-            require_lineups=False,
+            require_lineups=True,
         )
         contextualized.append(candidate)
 
@@ -1174,9 +1186,9 @@ def auto_settle_open_tickets(
 ) -> dict[str, int]:
     """Settle pending challenge tickets against final API results.
 
-    Challenge rule: a lost ticket restarts the challenge at the starting
-    balance. AET/PEN results and mixed void/decided tickets stay open for
-    manual settlement. Never raises — settlement must not break the UI.
+    A loss remains a real loss. AET/PEN results and mixed void/decided tickets
+    stay open for manual settlement. Never raises: settlement must not break
+    the UI.
     """
     summary = {"won": 0, "lost": 0, "void": 0, "open": 0, "resets": 0}
     try:
@@ -1315,13 +1327,6 @@ def auto_settle_open_tickets(
             else:
                 ledger.settle_ticket(int(ticket["id"]), "LOST")
                 summary["lost"] += 1
-                # Challenge-Regel: Bei Verlust geht alles von vorne.
-                try:
-                    settings = ledger.settings()
-                    ledger.set_balance(settings["starting_balance"], reset_start=True)
-                    summary["resets"] += 1
-                except ValueError:
-                    pass
         except Exception:
             summary["open"] += 1
     return summary
@@ -1341,12 +1346,7 @@ def _auto_settle_feedback(ledger: ChallengeLedger) -> None:
         )
     except Exception:
         return
-    if summary.get("resets"):
-        st.warning(
-            "Ticket verloren — die Challenge wurde automatisch auf den "
-            "Startwert zurückgesetzt. Es geht von vorne los."
-        )
-    elif summary.get("lost"):
+    if summary.get("lost"):
         st.warning(f"{summary['lost']} Ticket(s) als verloren abgerechnet.")
     if summary.get("won"):
         st.success(f"{summary['won']} Ticket(s) gewonnen und abgerechnet.")
@@ -1465,8 +1465,9 @@ def _render_account(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
             st.warning(str(exc))
     st.caption(
         "Das Ziel bleibt 15.000 €. Der Einsatzanteil wird immer vom aktuellen Guthaben "
-        "berechnet; es gibt kein Nachschießen und keine Martingale-Verdopplung nach Verlusten. "
-        "Ein offenes Ticket muss vor dem nächsten Ticket abgerechnet sein."
+        "berechnet; es gibt keine Martingale-Verdopplung nach Verlusten. Manuelle "
+        "Einzahlungen oder Korrekturen werden im Kontobuch ausgewiesen. Ein offenes "
+        "Ticket muss vor dem nächsten Ticket abgerechnet sein."
     )
 
     with st.expander("⚙️ Erweitert — Gefahrenzone"):
@@ -1507,48 +1508,38 @@ def _render_account(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
 
 
 def _render_equity_curve(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
-    """Equity curve from settled challenge tickets — the build-in-public proof."""
+    """Render the exact account path from the append-only transaction ledger."""
     tickets = ledger.tickets()
+    transactions = ledger.transactions()
     settled = [
         ticket
         for ticket in tickets
         if ticket["status"] in ("WON", "LOST", "VOID") and ticket.get("settled_at")
     ]
-    settled.sort(key=lambda ticket: ticket["settled_at"])
     start = float(settings["starting_balance"])
-    if not settled:
+    if not transactions:
         st.caption(
-            "Die Guthabenkurve startet mit dem ersten abgerechneten Ticket. "
-            "Jeder Punkt ist ein echtes Ergebnis — kein Backtest."
+            "Noch keine Kontobewegung vorhanden. Jeder spätere Punkt ist eine "
+            "echte Buchung — kein Backtest."
         )
         return
 
-    times = [min(ticket["created_at"] for ticket in tickets)]
-    balances = [start]
-    deltas = [0.0]
-    balance = start
-    wins = losses = 0
-    staked_total = 0.0
-    for ticket in settled:
-        stake = float(ticket["stake"])
-        staked_total += stake
-        if ticket["status"] == "WON":
-            delta = float(ticket["payout"]) - stake
-            wins += 1
-        elif ticket["status"] == "LOST":
-            delta = -stake
-            losses += 1
+    times = [item["created_at"] for item in transactions]
+    balances = [float(item["balance_after"]) for item in transactions]
+    marker_colors = []
+    for item in transactions:
+        if item["kind"] in {"PAYOUT", "VOID_REFUND"}:
+            marker_colors.append("#16784b")
+        elif item["kind"] == "STAKE":
+            marker_colors.append("#b4232f")
+        elif item["kind"] in {
+            "OPENING_BALANCE",
+            "BALANCE_ADJUSTMENT",
+            "CHALLENGE_RESET",
+        }:
+            marker_colors.append("#1d4ed8")
         else:
-            delta = 0.0
-        balance += delta
-        times.append(ticket["settled_at"])
-        balances.append(balance)
-        deltas.append(delta)
-
-    marker_colors = [
-        "#66707a" if index == 0 else ("#16784b" if deltas[index] > 0 else ("#b4232f" if deltas[index] < 0 else "#66707a"))
-        for index in range(len(balances))
-    ]
+            marker_colors.append("#66707a")
     figure = go.Figure()
     figure.add_trace(
         go.Scatter(
@@ -1579,17 +1570,32 @@ def _render_equity_curve(ledger: ChallengeLedger, settings: dict[str, Any]) -> N
     )
     st.plotly_chart(figure, width="stretch", config={"displayModeBar": False})
 
+    wins = sum(ticket["status"] == "WON" for ticket in settled)
+    losses = sum(ticket["status"] == "LOST" for ticket in settled)
     decided = wins + losses
-    net = balance - start
-    kpis = st.columns(3)
-    kpis[0].metric("Netto", f"{net:+,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+    staked_total = sum(float(ticket["stake"]) for ticket in settled)
+    betting_net = sum(
+        float(ticket["payout"]) - float(ticket["stake"])
+        for ticket in settled
+    )
+    kpis = st.columns(4)
+    kpis[0].metric(
+        "Wett-P/L",
+        f"{betting_net:+,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."),
+    )
     kpis[1].metric(
         "Trefferquote",
         f"{wins}/{decided}" if decided else "—",
     )
     kpis[2].metric(
         "ROI auf Einsatz",
-        f"{(net / staked_total) * 100:+.1f} %" if staked_total > 0 else "—",
+        f"{(betting_net / staked_total) * 100:+.1f} %"
+        if staked_total > 0
+        else "—",
+    )
+    kpis[3].metric(
+        "Netto finanziert",
+        _format_euro(settings.get("net_external_funding", 0.0)),
     )
 
 
@@ -1599,6 +1605,26 @@ def _render_history(ledger: ChallengeLedger) -> None:
     tickets = ledger.tickets()
     if not tickets:
         st.info("Noch kein Challenge-Ticket eingetragen.")
+    transactions = ledger.transactions()
+    if transactions:
+        with st.expander("Kontobewegungen"):
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Zeit": item["created_at"],
+                            "Art": item["kind"],
+                            "Betrag €": item["amount"],
+                            "Saldo €": item["balance_after"],
+                            "Ticket": item["ticket_id"],
+                        }
+                        for item in reversed(transactions)
+                    ]
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+    if not tickets:
         return
     frame = pd.DataFrame(
         [
@@ -1967,9 +1993,9 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     if not config.weather_key:
         st.warning("Wetter-Key fehlt. Der strikte Kontext-Gate wird daher keine Tipps freigeben.")
     st.caption(
-        "Aufstellungen blockieren die Freigabe nicht mehr: Sie wird erteilt, sobald "
-        "Modell, Walk-forward, H2H, Ausfälle und Wetter passen — danach entscheidet "
-        "allein der N1Bet-Preis."
+        "Freigabe erst, wenn Modell, Walk-forward, H2H, Ausfälle, Wetter und "
+        "bestätigte Startaufstellungen passen. Danach entscheidet allein der "
+        "N1Bet-Preis."
     )
 
     controls = st.columns(2)
@@ -2026,28 +2052,28 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     ):
         if not selected_leagues:
             st.warning("Mindestens eine Liga auswählen.")
-        elif scan_jobs.get_job("challenge_15k")["state"] == "running":
+        elif scan_jobs.get_job(_challenge_job_key())["state"] == "running":
             st.info("Der Challenge-Scan läuft bereits im Hintergrund.")
         else:
             provider = ChallengeDataProvider(config.api_football_key, config.weather_key)
             st.session_state.pop("challenge_auto_recheck_at", None)
             st.session_state.pop("challenge_auto_seen", None)
             scan_jobs.start_job(
-                "challenge_15k",
+                _challenge_job_key(),
                 _run_challenge_scan_worker,
                 args=(provider, list(selected_leagues), search_date, max_fixtures),
             )
 
-    job = scan_jobs.get_job("challenge_15k")
+    job = scan_jobs.get_job(_challenge_job_key())
     if job["state"] == "running":
         _challenge_scan_fragment()
     elif job["state"] == "done":
         st.session_state["challenge_snapshot"] = job.get("result")
         st.session_state.pop("challenge_quote_result", None)
-        scan_jobs.clear_job("challenge_15k")
+        scan_jobs.clear_job(_challenge_job_key())
     elif job["state"] == "error":
         st.error(f"Challenge-Wettfinder fehlgeschlagen: {job.get('error')}")
-        scan_jobs.clear_job("challenge_15k")
+        scan_jobs.clear_job(_challenge_job_key())
 
     snapshot = st.session_state.get("challenge_snapshot")
     if not isinstance(snapshot, dict):
@@ -2119,7 +2145,8 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
 
 def render_challenge_15k() -> None:
     """Render the complete challenge workspace."""
-    ledger = _challenge_ledger()
+    session_scope = scan_jobs.session_scope(st.session_state)
+    ledger = _challenge_ledger(session_scope)
     _auto_settle_feedback(ledger)
     settings = _render_progress(ledger)
     st.caption(

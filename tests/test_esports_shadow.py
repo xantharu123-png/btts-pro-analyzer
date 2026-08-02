@@ -104,6 +104,17 @@ class EsportsShadowLogTests(unittest.TestCase):
             self.assertEqual(summary["predictions"], 0)
             self.assertEqual(summary["live_records"], 0)
 
+    def test_upcoming_match_requires_verified_zero_zero_score(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = EsportsShadowLog(Path(tmp) / "shadow.db")
+            missing = _match(57)
+            missing.pop("team1_score")
+            started = _match(58)
+            started["team2_score"] = 1
+
+            self.assertEqual(log.log_predictions([missing, started]), 0)
+            self.assertEqual(log.summary()["predictions"], 0)
+
     def test_summary_ignores_legacy_live_rows(self):
         # rows written before the E1 fix stay in the table but leave the
         # pre-match rates untouched
@@ -136,8 +147,7 @@ class EsportsShadowLogTests(unittest.TestCase):
             self.assertEqual(summary["live_records"], 1)     # visible, but outside
             self.assertIsNone(summary["hit_rate"])           # legacy live hit ignored
 
-    def test_stale_rows_are_voided_out_of_the_rates(self):
-        # E4: an abandoned match must not sit in "open" forever
+    def test_age_alone_never_voids_an_unresolved_row(self):
         import sqlite3
         from contextlib import closing
 
@@ -154,10 +164,48 @@ class EsportsShadowLogTests(unittest.TestCase):
 
             self.assertEqual(log.settle_open(lambda _mid: None, max_calls=10), 0)
             summary = log.summary()
-            self.assertEqual(summary["open"], 0)
-            self.assertEqual(summary["settled"], 0)          # void is not a score
-            self.assertEqual(summary["voided"], 1)
+            self.assertEqual(summary["open"], 1)
+            self.assertEqual(summary["settled"], 0)
+            self.assertEqual(summary["voided"], 0)
             self.assertIsNone(summary["hit_rate"])
+
+    def test_explicit_provider_cancellation_is_voided(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = EsportsShadowLog(Path(tmp) / "shadow.db")
+            log.log_predictions([_match()])
+
+            self.assertEqual(
+                log.settle_open(
+                    lambda _mid: {"void": True, "status": "canceled"},
+                    max_calls=10,
+                ),
+                0,
+            )
+            summary = log.summary()
+            self.assertEqual(summary["open"], 0)
+            self.assertEqual(summary["voided"], 1)
+
+    def test_unresolved_rows_rotate_instead_of_starving_newer_matches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = EsportsShadowLog(Path(tmp) / "shadow.db")
+            log.log_predictions([_match(55), _match(56)])
+            checked = []
+
+            def missing(match_id):
+                checked.append(match_id)
+                return None
+
+            log.settle_open(missing, max_calls=1)
+            log.settle_open(missing, max_calls=1)
+            self.assertEqual(checked, [55, 56])
+
+    def test_young_shadow_sample_is_not_released(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = EsportsShadowLog(Path(tmp) / "shadow.db")
+            log.log_predictions([_match()])
+            status = log.release_status()
+            self.assertFalse(status["ready"])
+            self.assertEqual(status["required"], 100)
 
 
 if __name__ == "__main__":

@@ -29,8 +29,11 @@ sys.path.insert(0, str(PROJECT_DIR))
 
 import requests  # noqa: E402
 
+from betting_math import BettingMathError, evaluate_market_price  # noqa: E402
 from challenge_engine import (  # noqa: E402
+    KELLY_REFERENCE_CAP,
     MARKET_BY_KEY,
+    MIN_LEG_EXPECTED_ROI,
     apply_candidate_context,
     build_fixture_candidates,
     candidate_is_credible,
@@ -75,8 +78,10 @@ EVAL_EARLIEST = timedelta(minutes=20)
 EVAL_LATEST = timedelta(minutes=75)
 EVAL_FINAL_RETRY_MINUTES = 30  # Kontext-gesperrte Fixtures werden bis -30 min erneut versucht
 SETTLE_GRACE = timedelta(hours=2)
-FT_STATUSES = {"FT", "AET", "PEN"}
+FT_STATUSES = {"FT"}
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
+SHADOW_MODEL_VERSION = "challenge-engine-2026-08-01"
+SHADOW_POLICY_VERSION = "shadow-price-gate-v2"
 
 # Tor-basierte Märkte mit eindeutigem Buchmacher-Pendant (Bet365 via API-Football).
 # Nur diese Märkte werden geloggt: Settlement braucht Endstände, Ecken/Karten-
@@ -111,6 +116,79 @@ errors: list[str] = []
 
 def _utc_iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
+
+
+def _shadow_work_due(now: datetime, db_path: Path = SHADOW_DB) -> bool:
+    """Return whether the managed Shadow job currently has due work."""
+    now = now.astimezone(timezone.utc)
+    zurich_now = _zurich_time(now)
+    if not db_path.exists():
+        return zurich_now.hour >= 9
+
+    try:
+        connection = sqlite3.connect(
+            f"file:{db_path.as_posix()}?mode=ro",
+            uri=True,
+        )
+        try:
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            if "predictions" not in tables:
+                return zurich_now.hour >= 9
+
+            settle_due = connection.execute(
+                "SELECT 1 FROM predictions "
+                "WHERE result IS NULL AND fixture_kickoff < ? LIMIT 1",
+                (_utc_iso(now - SETTLE_GRACE),),
+            ).fetchone()
+            if settle_due:
+                return True
+
+            closing_due = connection.execute(
+                "SELECT 1 FROM predictions "
+                "WHERE closing_odds IS NULL AND result IS NULL "
+                "AND fixture_kickoff >= ? AND fixture_kickoff <= ? LIMIT 1",
+                (_utc_iso(now), _utc_iso(now + CLOSING_WINDOW)),
+            ).fetchone()
+            if closing_due:
+                return True
+
+            schedule_marker = f"schedule:{zurich_now.date().isoformat()}"
+            schedule_loaded = (
+                "shadow_meta" in tables
+                and connection.execute(
+                    "SELECT 1 FROM shadow_meta WHERE key = ? LIMIT 1",
+                    (schedule_marker,),
+                ).fetchone()
+                is not None
+            )
+            if not schedule_loaded and zurich_now.hour >= 9:
+                return True
+
+            if "shadow_fixtures" not in tables:
+                return False
+            evaluation_due = connection.execute(
+                "SELECT 1 FROM shadow_fixtures "
+                "WHERE evaluated = 0 AND kickoff >= ? AND kickoff <= ? LIMIT 1",
+                (
+                    _utc_iso(now + EVAL_EARLIEST),
+                    _utc_iso(now + EVAL_LATEST),
+                ),
+            ).fetchone()
+            return evaluation_due is not None
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error):
+        return False
+
+
+def should_fire(_ctx) -> bool:
+    """Managed condition entrypoint; performs local read-only checks only."""
+    return _shadow_work_due(datetime.now(timezone.utc))
 
 
 def _parse_iso(value) -> datetime | None:
@@ -492,6 +570,40 @@ def _btts_quote(odds_response, market_key: str):
     return _market_quote(odds_response, market_key)
 
 
+def _priced_candidates(credible, odds_response):
+    """Apply the production leg-value gate to one shared quote snapshot."""
+    priced = []
+    quote_seen = False
+    for candidate in credible:
+        quote = _market_quote(odds_response, candidate.market_key)
+        if quote is None:
+            continue
+        quote_seen = True
+        try:
+            metrics = evaluate_market_price(
+                candidate.conservative_probability * 100.0,
+                quote,
+                probability_haircut=0.0,
+                kelly_fraction=0.25,
+                kelly_cap=KELLY_REFERENCE_CAP,
+            )
+        except BettingMathError:
+            continue
+        expected_roi = metrics.risk_adjusted_expected_roi / 100.0
+        if expected_roi < MIN_LEG_EXPECTED_ROI:
+            continue
+        priced.append((candidate, quote, expected_roi))
+    priced.sort(
+        key=lambda item: (
+            item[2],
+            item[0].conservative_probability,
+            item[0].evidence_score,
+        ),
+        reverse=True,
+    )
+    return priced, quote_seen
+
+
 # --------------------------------------------------------------------------
 # Run steps
 # --------------------------------------------------------------------------
@@ -662,50 +774,59 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
             )
             if candidate_is_credible(candidate):
                 credible.append(candidate)
-        pick = max(
-            credible,
-            key=lambda c: (c.conservative_probability, c.evidence_score),
-            default=None,
-        )
+        odds_response = provider.odds(fixture_id) if credible else None
+        priced, quote_seen = _priced_candidates(credible, odds_response)
+        pick, quote, _expected_roi = priced[0] if priced else (None, None, None)
+        logged = False
+        existing = False
         if pick is not None:
             with _connect() as connection:
                 existing = connection.execute(
                     """SELECT COUNT(*) FROM predictions
-                       WHERE fixture_id = ? AND market_type = ?""",
-                    (fixture_id, pick.market_key),
+                       WHERE fixture_id = ?""",
+                    (fixture_id,),
                 ).fetchone()[0]
-            if existing == 0:
-                quote = _market_quote(provider.odds(fixture_id), pick.market_key)
-                if quote is None:
-                    errors.append(
-                        f"Fixture {fixture_id}: {BOOKMAKER_NAME}-Quote {pick.market_key} fehlt – nicht geloggt"
+            if not existing:
+                try:
+                    tracker.record_prediction(
+                        fixture_id=fixture_id,
+                        home_team=home_team,
+                        away_team=away_team,
+                        market_type=pick.market_key,
+                        prediction=pick.selection,
+                        odds=quote,
+                        model_probability=pick.conservative_probability * 100.0,
+                        confidence=int(round(min(100.0, max(0.0, pick.evidence_score)))),
+                        bookmaker=BOOKMAKER_NAME,
+                        quote_source=QUOTE_SOURCE,
+                        fixture_kickoff=kickoff_text,
+                        data_quality="shadow",
+                        model_version=SHADOW_MODEL_VERSION,
+                        policy_version=SHADOW_POLICY_VERSION,
                     )
-                else:
-                    try:
-                        tracker.record_prediction(
-                            fixture_id=fixture_id,
-                            home_team=home_team,
-                            away_team=away_team,
-                            market_type=pick.market_key,
-                            prediction=pick.selection,
-                            odds=quote,
-                            model_probability=pick.conservative_probability * 100.0,
-                            confidence=int(round(min(100.0, max(0.0, pick.evidence_score)))),
-                            bookmaker=BOOKMAKER_NAME,
-                            quote_source=QUOTE_SOURCE,
-                            fixture_kickoff=kickoff_text,
-                            data_quality="shadow",
-                        )
-                        result["logged"] += 1
-                    except ValueError as exc:
-                        errors.append(f"Logging {fixture_id}: {exc}")
+                    result["logged"] += 1
+                    logged = True
+                except ValueError as exc:
+                    errors.append(f"Logging {fixture_id}: {exc}")
+        elif credible and not quote_seen:
+            errors.append(
+                f"Fixture {fixture_id}: keine verwertbare {BOOKMAKER_NAME}-Quote; Retry"
+            )
+            result["quote_missing"] = result.get("quote_missing", 0) + 1
+        elif credible:
+            result["price_rejected"] = result.get("price_rejected", 0) + 1
         # Terminal-Logik: nur endgültig abhaken, wenn (a) ein Pick geloggt wurde
         # oder (b) das Modell grundsätzlich nichts anbietet (ändert sich heute
         # nicht mehr) oder (c) der Anpfiff so nah ist, dass kein Retry mehr
         # hilft. Kontext-Sperren (Aufstellungen erscheinen erst ~-60 min,
         # Wetter ggf. später) dürfen kein einmaliges Abhaken auslösen — sonst
         # wäre das Fixture für immer verloren, bevor die Daten da sind.
-        terminal = pick is not None or not base_candidates
+        terminal = (
+            logged
+            or bool(existing)
+            or not base_candidates
+            or bool(credible and quote_seen and not priced)
+        )
         if not terminal:
             kickoff_dt = _fixture_kickoff({"fixture": {"date": kickoff_text}})
             minutes_left = (
@@ -800,8 +921,12 @@ def run(ctx):
         league.league_id for league in LEAGUES
     ]
     max_fixtures = run_input.get("max_fixtures")
-    if not isinstance(max_fixtures, int) or isinstance(max_fixtures, bool) or not 1 <= max_fixtures <= 40:
-        max_fixtures = 12
+    if (
+        not isinstance(max_fixtures, int)
+        or isinstance(max_fixtures, bool)
+        or not 1 <= max_fixtures <= 200
+    ):
+        max_fixtures = 60
     force_schedule = run_input.get("force_schedule") is True
 
     config = load_app_config(config_path=PROJECT_DIR / "config.ini")

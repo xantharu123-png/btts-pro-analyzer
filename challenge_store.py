@@ -128,6 +128,21 @@ class ChallengeLedger:
                 WHERE status != 'VOID'
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS challenge_transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    amount_cents INTEGER NOT NULL,
+                    balance_after_cents INTEGER NOT NULL
+                        CHECK (balance_after_cents >= 0),
+                    ticket_id INTEGER,
+                    note TEXT,
+                    FOREIGN KEY (ticket_id) REFERENCES challenge_tickets(id)
+                )
+                """
+            )
             now = datetime.now(timezone.utc).isoformat()
             default_cents = _money_to_cents(100.0)
             target_cents = _money_to_cents(TARGET_BALANCE, allow_zero=False)
@@ -146,6 +161,37 @@ class ChallengeLedger:
                     now,
                 ),
             )
+            transaction_count = connection.execute(
+                "SELECT COUNT(*) FROM challenge_transactions"
+            ).fetchone()[0]
+            if transaction_count == 0:
+                settings_row = connection.execute(
+                    """
+                    SELECT current_balance_cents
+                    FROM challenge_settings WHERE id = 1
+                    """
+                ).fetchone()
+                ticket_count = connection.execute(
+                    "SELECT COUNT(*) FROM challenge_tickets"
+                ).fetchone()[0]
+                current_cents = int(settings_row["current_balance_cents"])
+                if ticket_count:
+                    kind = "MIGRATION_SNAPSHOT"
+                    amount_cents = 0
+                    note = "Legacy balance captured during ledger migration"
+                else:
+                    kind = "OPENING_BALANCE"
+                    amount_cents = current_cents
+                    note = "Challenge opening balance"
+                connection.execute(
+                    """
+                    INSERT INTO challenge_transactions (
+                        created_at, kind, amount_cents,
+                        balance_after_cents, note
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (now, kind, amount_cents, current_cents, note),
+                )
             connection.commit()
 
     def settings(self) -> dict[str, Any]:
@@ -153,6 +199,17 @@ class ChallengeLedger:
             row = connection.execute(
                 "SELECT * FROM challenge_settings WHERE id = 1"
             ).fetchone()
+            external_funding_cents = connection.execute(
+                """
+                SELECT COALESCE(SUM(amount_cents), 0)
+                FROM challenge_transactions
+                WHERE kind IN (
+                    'OPENING_BALANCE',
+                    'BALANCE_ADJUSTMENT',
+                    'CHALLENGE_RESET'
+                )
+                """
+            ).fetchone()[0]
         if row is None:
             raise RuntimeError("Challenge settings are missing")
         return {
@@ -160,17 +217,58 @@ class ChallengeLedger:
             "current_balance": _cents_to_money(row["current_balance_cents"]),
             "target_balance": _cents_to_money(row["target_balance_cents"]),
             "stake_fraction": row["stake_fraction_bps"] / 10_000.0,
+            "net_external_funding": _cents_to_money(external_funding_cents),
             "updated_at": row["updated_at"],
         }
+
+    @staticmethod
+    def _record_transaction(
+        connection: sqlite3.Connection,
+        *,
+        created_at: str,
+        kind: str,
+        amount_cents: int,
+        balance_after_cents: int,
+        ticket_id: int | None = None,
+        note: str | None = None,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO challenge_transactions (
+                created_at, kind, amount_cents, balance_after_cents,
+                ticket_id, note
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                created_at,
+                str(kind),
+                int(amount_cents),
+                int(balance_after_cents),
+                ticket_id,
+                note,
+            ),
+        )
 
     def set_balance(self, balance: Any, *, reset_start: bool = False) -> dict[str, Any]:
         cents = _money_to_cents(balance)
         with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
             pending = connection.execute(
                 "SELECT COUNT(*) FROM challenge_tickets WHERE status = 'PENDING'"
             ).fetchone()[0]
             if pending:
+                connection.rollback()
                 raise ValueError("Open tickets must be settled before correcting the balance")
+            current_row = connection.execute(
+                """
+                SELECT current_balance_cents
+                FROM challenge_settings WHERE id = 1
+                """
+            ).fetchone()
+            if current_row is None:
+                connection.rollback()
+                raise RuntimeError("Challenge settings are missing")
+            previous_cents = int(current_row["current_balance_cents"])
             now = datetime.now(timezone.utc).isoformat()
             if reset_start:
                 connection.execute(
@@ -190,6 +288,18 @@ class ChallengeLedger:
                     """,
                     (cents, now),
                 )
+            self._record_transaction(
+                connection,
+                created_at=now,
+                kind="CHALLENGE_RESET" if reset_start else "BALANCE_ADJUSTMENT",
+                amount_cents=cents - previous_cents,
+                balance_after_cents=cents,
+                note=(
+                    "Explicit challenge restart"
+                    if reset_start
+                    else "Manual balance correction"
+                ),
+            )
             connection.commit()
         return self.settings()
 
@@ -419,6 +529,16 @@ class ChallengeLedger:
                     """,
                     (stake_cents, now),
                 )
+                balance_after_cents = int(row[0]) - stake_cents
+                self._record_transaction(
+                    connection,
+                    created_at=now,
+                    kind="STAKE",
+                    amount_cents=-stake_cents,
+                    balance_after_cents=balance_after_cents,
+                    ticket_id=int(cursor.lastrowid),
+                    note=f"Ticket #{int(cursor.lastrowid)} placed",
+                )
                 connection.commit()
                 return int(cursor.lastrowid)
             except sqlite3.IntegrityError as exc:
@@ -458,6 +578,15 @@ class ChallengeLedger:
                 payout_cents = int(row["stake_cents"])
             else:
                 payout_cents = 0
+            settings_row = connection.execute(
+                """
+                SELECT current_balance_cents
+                FROM challenge_settings WHERE id = 1
+                """
+            ).fetchone()
+            if settings_row is None:
+                connection.rollback()
+                raise RuntimeError("Challenge settings are missing")
             connection.execute(
                 """
                 UPDATE challenge_tickets
@@ -473,6 +602,23 @@ class ChallengeLedger:
                 WHERE id = 1
                 """,
                 (payout_cents, now),
+            )
+            balance_after_cents = (
+                int(settings_row["current_balance_cents"]) + payout_cents
+            )
+            transaction_kind = {
+                "WON": "PAYOUT",
+                "LOST": "LOSS_SETTLED",
+                "VOID": "VOID_REFUND",
+            }[normalized]
+            self._record_transaction(
+                connection,
+                created_at=now,
+                kind=transaction_kind,
+                amount_cents=payout_cents,
+                balance_after_cents=balance_after_cents,
+                ticket_id=ticket_id,
+                note=f"Ticket #{ticket_id} settled {normalized}",
             )
             connection.commit()
         return self.get_ticket(ticket_id)
@@ -515,6 +661,30 @@ class ChallengeLedger:
 
     def pending_tickets(self) -> list[dict[str, Any]]:
         return [ticket for ticket in self.tickets() if ticket["status"] == "PENDING"]
+
+    def transactions(self, limit: int = 500) -> list[dict[str, Any]]:
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("limit must be a positive integer")
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM challenge_transactions
+                ORDER BY id ASC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "created_at": row["created_at"],
+                "kind": row["kind"],
+                "amount": _cents_to_money(row["amount_cents"]),
+                "balance_after": _cents_to_money(row["balance_after_cents"]),
+                "ticket_id": row["ticket_id"],
+                "note": row["note"],
+            }
+            for row in rows
+        ]
 
 
 __all__ = ["ChallengeLedger", "DEFAULT_CHALLENGE_DB"]

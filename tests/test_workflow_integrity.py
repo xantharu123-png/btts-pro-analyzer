@@ -176,6 +176,31 @@ def test_multi_sport_rejects_filters_from_another_sport():
         app._fetch_multi_sport_snapshot("E-Sport", "NBA")
 
 
+def test_multi_sport_release_is_fail_closed_during_shadow_ramp_up():
+    blocker = app._multi_sport_release_blockers(
+        "E-Sport",
+        {"status": "upcoming"},
+        esports_release={"ready": False, "settled": 5, "required": 100},
+    )
+    assert blocker
+    assert "5/100" in blocker[0]
+
+
+def test_multi_sport_live_esport_is_separate_from_prematch_release():
+    blocker = app._multi_sport_release_blockers(
+        "E-Sport",
+        {"status": "live"},
+        esports_release={"ready": True, "settled": 100, "required": 100},
+    )
+    assert blocker
+    assert "Live-Wetten" in blocker[0]
+
+
+def test_basketball_and_nhl_require_independent_release_evidence():
+    assert app._multi_sport_release_blockers("Basketball", {})
+    assert app._multi_sport_release_blockers("Eishockey", {})
+
+
 def test_multi_sport_tennis_event_label_uses_verified_set_score():
     label = app._multi_sport_event_label("Tennis", {
         "player1": "Player A",

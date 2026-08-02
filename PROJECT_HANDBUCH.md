@@ -1,718 +1,406 @@
-# BetBoy - Projekthandbuch und technische Übergabe
+# BetBoy - Projekthandbuch
 
 ## Dokumentstatus
 
-| Feld | Wert |
+| Feld | Verifizierter Stand |
 |---|---|
-| Stand | 20. Juli 2026, nach finaler Produktionsprüfung |
-| Repository | https://github.com/xantharu123-png/btts-pro-analyzer |
-| Produktiv-Branch | `main` |
-| Funktionale Produktionsbasis | `613447f` (`Reload stale Streamlit workflow modules`) |
-| Live-App | https://btts-pro-analyzer-atnoeulcg3jzwkghckhbth.streamlit.app/ |
-| Lokaler Projektpfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
-| Python | 3.11 |
-| UI-Framework | Streamlit |
+| Auditzeitraum | 1./2. August 2026 |
+| Repository | `xantharu123-png/btts-pro-analyzer` |
+| Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
+| Branch | `main` |
+| Basis vor diesem Audit | `b8c800b` |
+| Aktive Cloud-App | `https://betboypro.streamlit.app/` |
+| Alte Streamlit-URL | nicht mehr aktiv |
+| Framework | Python / Streamlit |
+| Fußballkatalog | 51 eindeutige Wettbewerbe |
+| Vollständiger Testlauf | 487 Tests und 5 Subtests bestanden |
+| Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
-Dieses Dokument ist die maßgebliche Übergabe für die weitere Entwicklung. Es enthält bewusst keine API-Schlüssel, Passwörter oder Datenbank-Zugangsdaten.
+Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
+enthält absichtlich keine Schlüssel, Passwörter oder Tokens. Ältere Berichte
+sind nur Historie, wenn sie diesem Handbuch widersprechen.
 
-## 1. Kurzfassung
+## 1. Produktziel
 
-BetBoy ist ein datengetriebener Wettfinder für Fußball und ausgewählte Live-Märkte weiterer Sportarten. Jeder nutzerseitige Arbeitsbereich muss in einer konkreten Auswahl mit Mindestquote und Einsatzreferenz oder in einem eindeutigen `NICHT WETTEN` enden. Das System ermittelt Modellrichtung und Wahrscheinlichkeit unabhängig vom Buchmacher und bewertet die N1Bet-Quote erst danach als Preis.
+BetBoy ist ein **Wettfinder**, kein Monitoring-Dashboard und kein
+Quoten-Nachahmer.
 
-Der aktuelle Kernzustand ist technisch stabil:
+Der verbindliche Ablauf lautet:
 
-- Der vollständige Umbau aller nutzerseitigen Suchbereiche zu Wettfindern ist auf `main` committed, zu GitHub gepusht und öffentlich ausgerollt. Die abschließend geprüfte funktionale Basis ist `613447f`.
-- Der letzte vollständige Testlauf ergab `190 passed, 5 subtests passed`.
-- Mobile, Tablet und Desktop wurden mit installiertem Google Chrome geprüft.
-- Die Streamlit-App wurde nach dem letzten Push erfolgreich aufgeweckt. Alle sechs Hauptbereiche und ihre primären Wettfinder-Aktionen waren öffentlich sichtbar; es gab weder Seiten- noch Browserkonsolenfehler.
-- API-Football Pro ist aktiv und meldet ein Tageslimit von 7.500 Anfragen. Direkte Endpunkte, BetBoy-Wrapper und der sichtbare Live-App-Status wurden geprüft.
-- Die öffentlichen Multi-Sport-Pfade besitzen validierte Fallbacks: NBA.com zu ESPN, SofaScore Tennis zu ESPN sowie EuroLeague v2-Saisonliste plus Live-Header.
-- Multi-Sport ist als Wettfinder aufgebaut: Basketball, NHL und E-Sport führen bis zu Mindestquote, Preis-Gate und `WETTEN`/`NICHT WETTEN`; unzureichende Tennis- und Cricket-Daten enden ausdrücklich mit `NICHT WETTEN`.
-- Auch BTTS, alternative Fußballmärkte, Live-Fußball und Platzverweise verwenden denselben Preisentscheid. Tabellen, Rohsignale und Ereigniszähler sind nur noch aufklappbare Prüfdetails, nicht das Endprodukt.
-- Eine Streamlit-spezifische Mischversion aus neuem Einstieg und alten importierten Seitenmodulen wurde mit entkoppelten Kandidatenmodulen, expliziten Modulversionen und kontrolliertem Reload behoben.
-- Die bisherige Supabase-Verbindung ist ungültig. Die App fällt kontrolliert auf lokale SQLite-Datenbanken zurück.
+1. Das Modell bildet eine Wahrscheinlichkeit ohne Buchmacherquote.
+2. Datenherkunft, Aktualität, Stichprobe und zeitliche Validierung werden
+   geprüft.
+3. H2H, Ausfälle, Wetter und bei Bedarf bestätigte Aufstellungen werden als
+   Kontextgates angewendet.
+4. Nicht belastbare Kandidaten enden in `NICHT WETTEN`.
+5. Erst nach der Modellfreigabe wird die exakte N1Bet-Quote als Preis erfasst.
+6. Eine Wette wird nur bei positivem risikoadjustiertem Value freigegeben.
+7. Pro Suche werden höchstens wenige, klar begründete Auswahlen angezeigt.
 
-Die größte noch offene Arbeit liegt nicht in der Rechenlogik, sondern in der Produktionspersistenz: eine gültige Datenbankverbindung einrichten, Challenge-Daten nutzerbezogen speichern und reale Out-of-sample-/CLV-Historie sammeln.
+Eine niedrige Quote ist kein Sicherheitsbeweis. Die Quote darf das Modell nicht
+erzeugen, bleibt aber nach Entfernung der Buchmachermarge ein wichtiger
+Marktbenchmark und der tatsächlich bezahlte Preis.
 
-## 2. Produktziel
+## 2. Kurzurteil
 
-### 2.1 Primäres Ziel
+Die App besitzt eine belastbare technische Basis und ist nach diesem Audit
+deutlich ehrlicher als zuvor:
 
-Die App soll für anstehende Fußballspiele belastbare, nachvollziehbare Modellwahrscheinlichkeiten liefern und nur dann eine handelbare Auswahl freigeben, wenn alle erforderlichen Daten- und Validierungstore erfüllt sind.
+- Fachliche Vetos sind standardmäßig fail-closed.
+- Scan-Jobs und lokale Resultate sind sitzungsgebunden.
+- Challenge-Buchungen sind nachvollziehbar und Verluste werden nicht
+  automatisch zurückgesetzt.
+- Shadow sammelt produktionsgleiche, versionsmarkierte Evidenz.
+- Nicht unabhängig validierte Modelle dürfen keine Wettempfehlung ausgeben.
+- Smartphone und Tablet sind ohne horizontalen Seitenüberlauf bedienbar.
+- Alle 51 Fußballligen kommen aus einem gemeinsamen Katalog.
 
-Das gewünschte Verhalten lautet:
+Trotzdem ist **kein Markt als profitabel bewiesen**. Testgrün beweist
+Softwareverträge, nicht Wettvorteil. Echtgeldfreigaben bleiben von sauberer
+Out-of-sample-Evidenz, Closing-Line-Vergleich und korrektem Settlement abhängig.
 
-1. Statistische Daten und Kontext werden geprüft.
-2. Das Modell schätzt Ereigniswahrscheinlichkeiten ohne Buchmacherquote.
-3. Nicht belastbare Kandidaten werden verworfen.
-4. Erst danach werden aktuelle N1Bet-Preise manuell ergänzt oder verifizierte Marktpreise geladen.
-5. Eine Auswahl wird nur bei positivem risikoadjustiertem Erwartungswert freigegeben.
+## 3. Was in diesem Audit behoben wurde
 
-### 2.2 15K-Challenge
+### Freigaben und Mathematik
 
-Die Challenge startet standardmäßig bei 100 EUR und zeigt den Fortschritt zu einem Zielwert von 15.000 EUR. Pro Tag sollen höchstens drei unterschiedliche Spiele in Frage kommen. Die gewünschte Gesamtkorridorquote liegt zwischen 2,00 und 3,00.
-
-Wichtig: 15.000 EUR sind ein Zielwert, keine Prognose und keine Garantie. Der Challenge-Einsatz ist getrennt von der Kelly-Referenz und kann im Konto zwischen 5 % und 100 % des aktuellen Guthabens eingestellt werden; Standard ist der ausdrücklich gewünschte 100-%-Roll-over. Damit verdoppelt ein Gewinn bei Quote 2,00 das Guthaben und verdreifacht es bei Quote 3,00. Eine Niederlage bei 100 % setzt das Challenge-Guthaben jedoch auf null. Es gibt keine Martingale-Erhöhung nach Verlusten und kein Nachschießen.
-
-### 2.3 Nicht-Ziele
-
-- Keine Behauptung sicherer oder garantierter Wetten.
-- Keine Quote als Beweis für Eintrittswahrscheinlichkeit.
-- Keine Freigabe, nur damit täglich zwingend ein Tipp erscheint.
-- Keine simulierten Buchmacherpreise, wenn kein echter Preis vorhanden ist.
-- Keine automatische Umgehung von N1Bet-Zugriffsschutz oder AGB.
-- Keine Vermischung verschiedener Sportarten oder Datenmodelle.
-- Kein reines Monitoring als Endprodukt: Ein nutzerseitiger Suchbereich muss eine konkrete, preisprüfbare Auswahl oder ein begründetes `NICHT WETTEN` liefern.
-
-### 2.4 Wichtige Meilensteine
-
-| Commit | Inhalt |
-|---|---|
-| `e7d5756` | Konfiguration, API-Schlüsseltrennung und mathematische Grundlage gehärtet |
-| `cb01363` | Vollständiger Betting-Audit, responsive UX und 15K-Challenge integriert |
-| `f2173b5` | Scanner-Mathematik, Providerfehler und Signal-UX weiter abgesichert |
-| `0925d18` | Ultra-Audit aller Modelle, Datenverträge, Kalibrierungen und Ticketgates abgeschlossen |
-| `eeebcc6` | Alle Fußball-Arbeitsbereiche auf denselben kanonischen 44-Ligen-Katalog vereinheitlicht |
-| `9d79578` | Multi-Sport-Filter und Providerabrufe strikt nach gewählter Sportart getrennt |
-| `78e164c` | Multi-Sport-Provider, Fallbacks und Live-Datenverträge gehärtet |
-| `568dd80` | Basketball-, NHL- und E-Sport-v1 bis zur echten Wett- und Preisentscheidung ausgebaut |
-| `6230be5` | BTTS, Märkte, Live, Platzverweise und Challenge in durchgängige Wettfinder umgebaut |
-| `cb8ce39` | Gemeinsamen Kandidatenbau entkoppelt und Cloud-Importfehler beseitigt |
-| `613447f` | Veraltete Streamlit-Seitenmodule und Analyzer-Caches über Versionsgates neu geladen |
-
-Ältere Commits enthalten die schrittweise Einführung alternativer Märkte, der Platzverweis-Erkennung, weiterer Sportarten und der Edge-basierten Value-Logik. Die Tabelle nennt die wichtigsten fachlichen und betrieblichen Meilensteine; reine Dokumentations- und Redeploy-Commits sind nicht einzeln aufgeführt.
-
-### 2.5 Umgesetzter Lieferumfang
-
-| Bereich | Was bis zum aktuellen Stand umgesetzt wurde |
-|---|---|
-| Konfiguration und APIs | API-Football und football-data.org sauber getrennt, Secrets priorisiert geladen, Providerfehler trotz HTTP 200 erkannt und API-Football Pro live verifiziert |
-| Ligenauswahl | Ein kanonischer Katalog mit exakt 44 Wettbewerben für alle Fußball-Arbeitsbereiche, inklusive Vertrags- und Reload-Tests |
-| Datenintegrität | Strikte Fixture-, Team-, Liga-, Zeitstempel- und Payload-Prüfung; fehlende Werte bleiben unbekannt statt fälschlich null zu werden |
-| Mathematik | Poisson-, Negative-Binomial-, Beta-/Shrinkage-, Kalibrierungs-, Edge-, EV- und Kelly-Logik gehärtet; zeitliche Leakage geschlossen |
-| Prematch | BTTS-Shortlist mit höchstens drei Spielen, Evidenz-, Stichproben-, Modellkonsistenz- und Frischegates sowie separater N1Bet-Preisprüfung |
-| Fußballmärkte | Ein linearer Markt-Wettfinder über den strikten Challenge-Motor statt separater Rohsignal-, Resultat- und Value-Ansichten |
-| Live und Platzverweise | BTTS, noch ein Tor, Team trifft noch und nächstes Tor nach Platzverweis mit maximal zwei Minuten alten Daten und konservativen Abschlägen |
-| 15K Challenge | Zielpfad von 100 auf 15.000 EUR, maximal drei Spiele, Gesamtquote 2,00–3,00, 5–100 % Challenge-Einsatz und davon getrennte Kelly-Referenz |
-| Multi-Sport | Sportgetrennte Providerpfade; modellierte Wettentscheidungen für Basketball, NHL und E-Sport; Tennis und Cricket bleiben fail-closed |
-| UX | Flache Navigation, gemeinsame Endzustände, mobile Bedienelemente, responsive Darstellung und Prüfdetails nur bei Bedarf |
-| Qualität und Betrieb | 190 Tests plus 5 Subtests, lokale und öffentliche Chrome-QA, kontrollierter SQLite-Fallback und Streamlit-Hot-Reload-Schutz |
-
-## 3. Leitprinzipien
-
-### Modell zuerst, Preis danach
-
-Buchmacherquoten dürfen Kandidaten weder erzeugen noch deren Modellwahrscheinlichkeit erhöhen. Eine niedrige Quote ist kein Sicherheitsmerkmal. Quoten werden ausschließlich für implizite Wahrscheinlichkeit, Edge, Erwartungswert und Einsatzberechnung verwendet.
-
-### Fail closed
-
-Fehlende, widersprüchliche, veraltete oder falsch zugeordnete Daten führen zu keiner Empfehlung. Ein leerer Ergebnisbereich ist in diesem System besser als eine scheinbar präzise, aber nicht belegte Auswahl.
-
-### Herkunft und Zeitstempel
-
-Marktpreise brauchen Buchmacher, Quelle und einen zeitzonenfähigen Zeitstempel. Für eine Overround-Prüfung müssen alle Marktseiten vom selben Buchmacher und derselben Quelle stammen.
-
-### Keine Datenleckage
-
-Training und Walk-forward-Validierung werden chronologisch und nach Spieltag gruppiert. Spiele desselben Tages dürfen sich nicht gegenseitig als Zukunftswissen verwenden.
-
-### Trennung von Modell und Preisentscheidung
-
-Explorative Rohindikatoren erhalten keinen Einsatzvorschlag. Eine v1-Modellentscheidung ohne ausreichende eigene OOS-Historie muss ihren Modellstatus, konservativen Wahrscheinlichkeitsabschlag und die getrennte Preisprüfung offenlegen; sie darf nur nach den dokumentierten Edge-, EV- und Kelly-Gates `WETTEN` anzeigen. Das bleibt eine vorläufige Modellfreigabe und keine Behauptung nachgewiesener Profitabilität.
-
-## 4. Aktuelle Benutzeroberfläche
-
-Die App besitzt eine flache Sidebar-Navigation ohne tiefe Menüverschachtelung:
-
-| Bereich | Zweck | Status der Signale |
-|---|---|---|
-| `Spiele` | Bis zu drei BTTS-Kandidaten finden und den exakten N1Bet-Preis prüfen | Walk-forward-Modell, Stichproben-, Konsistenz-, Frische-, Edge- und EV-Gates |
-| `Märkte` | Bis zu drei Markt-Kandidaten über den strikten Challenge-Motor finden | Marktbezogene Walk-forward-Kalibrierung plus H2H, Ausfälle, Wetter und Aufstellungen |
-| `Live` | BTTS, Resttore, Teamtore oder Nächstes-Tor-Wette nach Platzverweis finden | Maximal zwei Minuten alte Daten, expliziter Modellabschlag und Preis-Gates |
-| `System` | Datenbestand, Validierung und Training der Wettfinder verwalten | Administrativ, kein Tipp-Endpunkt |
-| `15K Challenge` | Tägliche Shortlist, N1Bet-Preisprüfung, Ticket und Kontoverlauf | Strengste Freigaberegeln |
-| `Multi-Sport` | Live-Ereignis auswählen, Modellmarkt bilden, N1Bet-Preis prüfen und Einsatzreferenz berechnen | Basketball/NHL/E-Sport mit Preis-Gates; Tennis/Cricket gesperrt |
-
-Die Oberflächen wurden für folgende Viewports geprüft:
-
-- Smartphone: 390 x 844
-- Tablet: 768 x 1024
-- Desktop: 1280 x 720
-
-Bei der letzten Prüfung gab es keine horizontale Seitenüberbreite und keine Streamlit-Ausnahme. Für Browser-QA wurde normales installiertes Chrome verwendet, nicht die Codex-Browsererweiterung.
-
-## 5. Technische Architektur
-
-### 5.1 Zentrale Module
-
-| Datei | Verantwortung |
-|---|---|
-| `app.py` | Streamlit-Einstieg, Navigation, Seitenaufbau, Providerstatus und UI-Orchestrierung |
-| `config_loader.py` | Einheitliche Konfiguration aus INI, Umgebung und Streamlit Secrets |
-| `league_catalog.py` | Kanonischer 44-Ligen-Katalog mit eindeutigen IDs, internen Codes, Ländern und Saisonmodi |
-| `api_football.py` | Strikter API-Football-Client für Fixtures, Form, H2H und Statistiken |
-| `data_engine.py` | Historische Matchdaten, SQLite-/PostgreSQL-Zugriff und Datenimport |
-| `football_data_history.py` | Kontrollierter Import öffentlicher CSV-Historie von football-data.co.uk |
-| `advanced_analyzer.py` | BTTS-Analyse, Evidenzscore, Dixon-Coles, bivariate Poisson-Logik und Modelltraining |
-| `betboy_v3_ml_engine.py` | Feature-Modell, Ensemble, Backtesting und Kalibrierungsdiagnostik |
-| `betting_math.py` | Zentrale Berechnung von impliziter Wahrscheinlichkeit, Edge, EV und Kelly |
-| `best_bet_finder.py` | Auswahl bereits validierter Modellkandidaten ohne Preislogik |
-| `smart_bet_finder.py` | Verifizierte Marktpreise, Overround, risikoadjustierter EV und Stake |
-| `alternative_markets.py` | Wahrscheinlichkeitsmodelle für Tore, Ecken, Karten und Live-Metriken |
-| `alternative_markets_tab_extended.py` | Linearer Markt-Wettfinder auf Basis des strikten Challenge-Motors |
-| `bet_finder_candidates.py` | Gemeinsamer fail-closed Kandidatenbau ohne neue Abhängigkeit zum Streamlit-Einstieg |
-| `football_recommendations.py` | Preisunabhängige BTTS-, Live- und Platzverweis-Kandidaten samt Frische- und Qualitätsgates |
-| `bet_finder_ui.py` | Gemeinsamer N1Bet-Preisentscheid mit Mindestquote, Edge, EV und Einsatzreferenz |
-| `challenge_engine.py` | Marktdefinitionen, Walk-forward-Validierung, Kandidaten, Kontext und Tickets |
-| `challenge_15k.py` | Challenge-Provider, Scan-Ablauf und komplette Challenge-Oberfläche |
-| `challenge_store.py` | Challenge-Guthaben, Tickets, Settlement und erneute serverseitige Validierung |
-| `clv_tracker.py` | Opening-/Closing-Line-Daten und Closing-Line-Value |
-| `ultra_live_scanner_v3.py` | Live-Fußballmodell mit expliziten Datenqualitätstoren |
-| `red_card_bot.py` | Platzverweis-Erkennung und Statistikabruf; der Wettfinder wertet bei jeder Suche alle aktuellen Ereignisse aus |
-| `red_card_impact_predictor.py` | Modelliert den Einfluss eines Platzverweises auf Restspiel und Tore |
-| `scanners/*.py` | Getrennte explorative Scanner für weitere Sportarten |
-| `multi_sport_recommendations.py` | Sportmodelle, Unsicherheitsabschläge, Mindestquote sowie Edge-/EV-/Kelly-Preisentscheidung |
-| `tests/*.py` | Regressionen für Mathematik, Datenverträge, Providerfehler und Workflows |
-
-Alle Fußball-Arbeitsbereiche verwenden denselben Katalog aus exakt 44 Wettbewerben. `Spiele`, `Märkte`, `Live`, `System`, `15K Challenge`, der API-Client und der Platzverweis-Wettfinder dürfen keine eigenen Teilmengen als verfügbaren Gesamtkatalog führen. Favoriten bleiben lediglich eine kleine vorausgewählte Suchmenge; `Auswahl` und `Alle` greifen überall auf dieselben 44 IDs zu. Vertrags-Tests prüfen Anzahl, Eindeutigkeit und ID-Gleichheit.
-
-### 5.2 Prematch-Datenfluss
-
-1. API-Football liefert zukünftige Fixtures für exakt angeforderte Ligen.
-2. Fixture-ID, Liga, Teams, Datum und Status werden strikt validiert.
-3. Historische Ergebnisse kommen aus Datenbank, API-Football oder kontrolliertem CSV-Import.
-4. Team-, Venue-, Form- und Ligastärken werden nur aus Spielen vor dem jeweiligen Stichtag gebildet.
-5. Unabhängige Poisson-Modelle mit Shrinkage erzeugen die aktiven Ereigniswahrscheinlichkeiten; Dixon-Coles und bivariate Poisson erzeugen ausschließlich angezeigte Sensitivitätsszenarien (siehe 6.1).
-6. Day-grouped Walk-forward validiert jedes Marktmodell außerhalb der Trainingsperiode.
-7. Eine konservative Wahrscheinlichkeit wird aus mehreren Modellhorizonten und Kalibrierungsabschlag gebildet.
-8. H2H, Verletzungen, Wetter und bestätigte Aufstellungen werden als Kontextgates angewendet.
-9. Erst die modellbasierte Shortlist wird für die N1Bet-Preisprüfung freigegeben.
-10. Das Ticket wird aus Preis, konservativer Wahrscheinlichkeit, Abhängigkeitsabschlag und EV neu berechnet.
-11. `ChallengeLedger` validiert alle Felder nochmals, bevor ein Ticket gespeichert wird.
-
-## 6. Mathematik und Validierung
-
-### 6.1 Modellfamilien
-
-- Aktive Torwahrscheinlichkeiten (Challenge und Analyzer) basieren auf unabhängigem Poisson mit Shrinkage. Dixon-Coles und bivariate Poisson sind implementiert, aber bewusst nur als angezeigte Sensitivitätsszenarien mit festen Parametern; sie fließen erst in aktive Wahrscheinlichkeiten ein, wenn ρ bzw. die Kovarianz aus Daten gefittet und out-of-sample validiert sind.
-- Negative-Binomial-Modelle für überdisperse Ecken- und Kartenanzahlen im strikten Markt- und Challenge-Wettfinder.
-- Beta-Smoothing und Shrinkage gegen extreme Raten aus kleinen Stichproben.
-- Score-Matrizen mit kontrollierter Restwahrscheinlichkeit statt still abgeschnittener Tails.
-- Ensemble-/ML-Bausteine nur mit chronologischer Out-of-sample-Prüfung.
-
-### 6.2 Harte Challenge-Schwellen
-
-| Regel | Wert |
-|---|---|
-| Zielguthaben | 15.000 EUR |
-| Zulässige Gesamtquote | 2,00 bis 3,00 |
-| Maximale Ticket-Legs | 3 |
-| Challenge-Einsatzquote | 5 % bis 100 % des aktuellen Guthabens; Standard 100 % Roll-over |
-| Kelly-Variante | Viertel-Kelly als sichtbare Risikoreferenz, nicht als Challenge-Limit |
-| Cross-Leg-Abhängigkeitsfaktor | 0,97 je zusätzlichem Leg |
-| Mindestspiele Liga | 24 |
-| Mindestspiele Heim-/Auswärtskontext | 5 je Team |
-| Mindestspiele Form | 5 je Team |
-| Mindestspiele H2H | 3 |
-| Mindestbeobachtungen Validierung | 200 |
-| Mindestanzahl gestützter Kalibrierungsbins | 3 |
-| Mindestbeobachtungen je Bin | 20 |
-| Maximale ECE | 0,08 |
-| Maximaler Fehler eines Kalibrierungsbins | 0,12 |
-| Relative Mindestverbesserung gegen Baseline | 2 % |
-| Mindest-EV je Leg | 2 % |
-| Mindest-EV des Tickets | 3 % |
-| Maximales Alter manueller Quote | 10 Minuten |
-| Mindest-Evidenzscore eines Challenge-Kandidaten | 72 % |
-| Offene Tickets | Ein offenes (PENDING) Ticket blockiert jede neue Platzierung, auch für einen anderen Spieltag |
-| Einsatzrundung | Abrunden auf ganze Cents; die konfigurierte Challenge-Grenze wird nie überschritten |
-
-### 6.3 Kernformeln
-
-Für Dezimalquote `o` und konservative Wahrscheinlichkeit `p`:
+- `freemode` ist standardmäßig `False`.
+- Ein Modell-Veto bleibt auch im Research-Modus ein Veto.
+- Live-Fußball bleibt blockiert, bis eine unabhängige Live-Kalibrierung
+  nachgewiesen und explizit markiert ist.
+- Rotkarten-Prognosen bleiben nicht handlungsfähig, bis unabhängige
+  Shadow-Evidenz vorliegt.
+- Multi-Sport entfernt keine Blocker mehr, um trotzdem eine Empfehlung
+  anzuzeigen.
+- Der Wett-Check übernimmt nur freigegebene beziehungsweise freigabefähige
+  Signale.
+- Die Tennis-Mindestquote verwendet jetzt bei absolutem Probability-Edge:
 
 ```text
-Implizite Wahrscheinlichkeit = 1 / o
-Erwartungswert                = p * o - 1
-Full Kelly                    = ((o - 1) * p - (1 - p)) / (o - 1)
-Viertel-Kelly-Referenz        = min(max(Full Kelly, 0) * 0,25, 0,25)
-Challenge-Einsatz             = Guthaben * konfigurierter Anteil
-Saldo bei Gewinn              = Guthaben + Einsatz * (o - 1)
-Saldo bei Verlust             = Guthaben - Einsatz
-Siege ohne Verlust bis Ziel   = ceil(log(Ziel/Guthaben) / log(1 + Anteil*(o-1)))
+Mindestquote = 1 / (p - Mindest-Edge)
 ```
 
-Bei Kombinationen wird die gemeinsame Modellwahrscheinlichkeit zusätzlich mit `0,97^(Legs-1)` reduziert. Kandidaten desselben Fixtures oder mit wiederholten Teams dürfen nicht gemeinsam auf ein Ticket.
+- Tennis-Gegnerwerte werden vor beiden Match-Updates eingefroren. Der Verlierer
+  sieht dadurch keine Information aus demselben Match.
+- Fehlende beobachtete Märkte ergeben im Kalibrierungswächter
+  `insufficient`, niemals ein falsches `ok`.
 
-### 6.4 Bookmaker-Unabhängigkeit
+### Jobs, Sitzungen und Challenge
 
-Die Modell-Shortlist wird quotenfrei gebaut. In der Challenge werden aktuelle N1Bet-Quoten anschließend manuell eingegeben. Jede Quote wird erneut gegen die konservative Modellwahrscheinlichkeit gerechnet. Ein niedriger Preis kann eine Auswahl deshalb nicht retten; negativer Einzel- oder Ticket-EV sperrt sie.
+- Jobs besitzen Sitzungs-Scope, Generation-ID, Timeout und atomare JSON-Writes.
+- Ein alter Thread kann keinen neueren Lauf mehr überschreiben.
+- Analyzer-Zugriffe aus Hintergrundthreads sind serialisiert.
+- Persistierte Scanner-Signale sind sitzungsgebunden.
+- Die Challenge verwendet pro Browser-Sitzung eine eigene lokale Ledger-Datei.
+- Jede Einzahlung, Korrektur, Einsatzbuchung und Abrechnung landet in einer
+  append-orientierten Transaktionstabelle.
+- Ein Verlust bleibt ein Verlust. Es gibt keinen automatischen Neustart auf
+  100 Euro.
+- Manuelle Kapitalzufuhr wird getrennt als externe Finanzierung ausgewiesen.
+- Der Standard-Einsatzanteil ist 25 %, nicht 2 Euro und nicht automatisch
+  All-in. Im Konto kann 5-100 % gewählt werden; 100 % wird ausdrücklich als
+  Totalverlustrisiko markiert.
+- Eine finale Challenge-Freigabe verlangt bestätigte Startaufstellungen.
 
-## 7. Unterstützte Fußballmärkte
+### Shadow und Settlement
 
-`challenge_engine.market_specs()` ist die maßgebliche Liste. Modelliert werden nur Märkte, die aus den vorhandenen Daten eindeutig berechnet und abgerechnet werden können. Dazu gehören insbesondere:
-
-- Endergebnis 1/X/2
-- Doppelte Chance
-- Beide Teams treffen
-- Tor-Gesamtmärkte und Team-Tormärkte
-- definierte Torbereiche
-- Ecken gesamt und Teamecken
-- gelbe Karten gesamt und Teamkarten
-
-Für Over/Under werden nur Linien verwendet, deren Push-Verhalten eindeutig behandelt ist. Halb-Linien sind zweiwegig; ganzzahlige Linien dürfen nicht fälschlich wie Zweiwegmärkte behandelt werden. Die Auswahl an Märkten darf nur erweitert werden, wenn Ergebnisdaten, Settlement und Out-of-sample-Validierung vollständig vorhanden sind.
-
-## 8. Datenqualität und Freigaben
-
-### 8.1 Prematch-Evidenzscore
-
-Der in `Spiele` sichtbare Evidenzscore ist keine zweite Gewinnwahrscheinlichkeit. Er bewertet Abdeckung, Stichprobengröße, Modellübereinstimmung, Aktualität und Validierung. Fehlende Formdaten begrenzen den erreichbaren Score. Modellwidersprüche senken ihn.
-
-### 8.2 Live-Datenqualität
-
-Der Live-Scanner bietet drei flache Marktansichten:
-
-- `BTTS`: Beide Teams treffen bis zum Spielende; der aktuelle Spielstand zählt mit.
-- `Noch ein Tor`: Wahrscheinlichkeit für mindestens ein Tor nach dem aktuellen Snapshot.
-- `Team trifft noch`: separate Restspiel-Wahrscheinlichkeit für Heim- und Auswärtsteam; die stärkere Seite wird nur bei einem echten Unterschied angezeigt.
-
-Die Datenbasis `Streng: Live-xG + Prematch` verlangt für beide Teams gültiges Live-xG, einen Prematch-Torprior und einen verwertbaren Platzverweisstand. `Basis: teilweise Daten` erlaubt eine valide Resttor-Schätzung aus weniger vollständigen Quellen, bleibt aber klar niedriger eingestuft. Die strenge Stufe ist Standard.
-
-Resttor-Wahrscheinlichkeiten werden aus den verbleibenden, per Prematch-Prior geschrumpften Live-xG-Raten mit einer Poisson-Annahme berechnet. Ein einzelner bestätigter Platzverweis passt beide Teamraten mit den expliziten, noch unkalibrierten 11-gegen-10-Priorfaktoren an. Mehrere Platzverweise, Platzverweise beider Teams oder ein nur teilweise bekannter Kartenstand sperren die Restspiel-Ausgabe.
-
-API-Football liefert ein vorhandenes `Red Cards`-Feld ohne Platzverweis als JSON `null`; nur dieser bestätigte Fall wird zu `0` normalisiert. Ein tatsächlich fehlendes Kartenfeld bleibt unbekannt und kann die strenge Qualitätsstufe nicht erfüllen. Fehlende Schüsse, xG oder Restspielzeit werden ebenfalls nie still als echte Null interpretiert.
-
-Die Live-v1-Prozentwerte besitzen noch keine ausreichende eigene OOS-/CLV-Historie. Deshalb werden bei strenger Datenbasis mindestens 12 Prozentpunkte, bei teilweiser Datenbasis 18 Prozentpunkte und beim Platzverweis-Modell 15 Prozentpunkte abgezogen. Nur ein höchstens zwei Minuten alter Datenstand, eine exakt bestätigte N1Bet-Auswahl, mindestens 4 Prozentpunkte risikoadjustierte Edge, mindestens 3 % risikoadjustierter EV und positives Viertel-Kelly können `WETTEN` auslösen. Das ist eine konservative v1-Modellfreigabe, kein Nachweis dauerhafter Profitabilität.
-
-### 8.3 Kontextgates der Challenge
-
-- Fixture muss zukünftig und noch nicht gestartet sein.
-- Teams und Liga müssen exakt zur angeforderten Partie gehören.
-- H2H darf nur Spiele der beiden konkreten Teams enthalten.
-- Verletzungsdaten müssen valide und den Teams zuordenbar sein.
-- Wetterdaten müssen strukturell und zeitlich plausibel sein.
-- Bestätigte Aufstellungen müssen für beide Teams vorliegen.
-- Jede Aufstellung benötigt genau elf eindeutige, gültige Spieler-IDs des richtigen Teams.
-- Wiederholte Fixtures, Teams und veraltete Snapshots werden gesperrt.
-
-Diese Regeln bedeuten bewusst, dass eine finale Challenge-Auswahl häufig erst nahe am Anstoß möglich ist oder vollständig ausbleibt.
-
-## 9. Provider und Integrationen
-
-Statusangaben beziehen sich auf die letzte Prüfung am 20. Juli 2026.
-
-| Provider | Verwendung | Aktueller Zustand | Nächste Aktion |
-|---|---|---|---|
-| API-Football / API-Sports | Hauptquelle für Fixtures, Statistiken, Form, H2H, Aufstellungen, Verletzungen, Live und Challenge | Pro aktiv; 7.500 Anfragen/Tag; Anbieter meldet Laufzeitende 19.10.2026 | Nutzung messen und Abrechnungs-/Verlängerungsstatus im Dashboard kontrollieren |
-| football-data.org | Älterer/sekundärer Schlüssel | Schlüssel antwortet, wird vom aktiven Analyzer nicht verwendet | Kein bezahltes Abo nötig, solange kein eigener Adapter geplant ist |
-| football-data.co.uk | Öffentliche historische CSV-Ergebnisse | Verfügbar, kein API-Schlüssel nötig | Als historische Zusatzquelle behalten |
-| OpenWeather | Wetterkontext der Challenge | Lokal konfiguriert | Kontingent und Deployment-Secret prüfen |
-| The Odds API | Automatische Marktpreise | Derzeit nicht konfiguriert | Optional; N1Bet bleibt aktuell manuelle Preisprüfung |
-| Supabase/PostgreSQL | Persistente Matchdaten | Deployment-Verbindung ungültig; Tenant/User wird nicht gefunden | Neue korrekte Pooler-URL eintragen und Migration testen |
-| PandaScore | E-Sport | Nicht konfiguriert | Für E-Sport-Wettvorschläge erforderlich; ohne Schlüssel stets `NICHT WETTEN` |
-| NBA/NHL/EuroLeague öffentliche Endpunkte | Multi-Sport-Snapshots | NBA.com-CDN blockierte den Testhost mit 403 und fällt auf ESPN zurück; NHL-Scoreboard gesund; EuroLeague nutzt v2-Saisonliste plus offiziellen Live-Header | Payload-Verträge überwachen; nur validierte Ereignisse an das Wettmodell geben |
-| SofaScore-/ESPN-Endpunkte | Tennis | SofaScore blockierte den Testhost mit 403; ATP-/WTA-Fallback über ESPN antwortete gesund | Beide Verträge überwachen; keinen Aufschlag oder Punktestand ergänzen, wenn der Provider ihn nicht liefert |
-| RapidAPI/CricAPI | Cricket | Nicht konfiguriert | Nur bei Priorisierung von Cricket aktivieren |
-| Telegram | Platzverweis-Benachrichtigung | Nicht konfiguriert | Optional nach erfolgreichem Live-Provider-Test |
-
-Live-Smoke-Test am 19. Juli 2026: `/status` antwortete mit HTTP 200, aktivem Pro-Abo, 7.500 Anfragen Tageslimit und Laufzeitende 19. Oktober 2026. Nach der Katalogvereinheitlichung initialisierte der echte API-Client exakt 44 Ligen und verarbeitete die Live-Antwort ohne Fehler. Der Provider lieferte zum letzten Prüfzeitpunkt fünf Live-Spiele, davon keines aus dem 44er-Katalog; ein echter unterstützter Live-Tipp konnte deshalb in diesem Moment nicht erzeugt werden. Der neu aktivierte Code `NOR1` wurde end-to-end auf Liga-ID 103 und Saison 2026 abgebildet und lieferte acht kommende Fixtures ohne Providerfehler. An einem kürzlich beendeten Serie-A-Spiel aus Brasilien wurden außerdem die rohen Statistikfelder geprüft: xG kam als Dezimaltext und ein vorhandenes `Red Cards`-Feld ohne Platzverweis als `null`.
-
-Multi-Sport-Smoke-Test am 20. Juli 2026: Der echte App-Code erreichte nach den Fallback-Korrekturen Tennis, NBA, NHL und EuroLeague ohne Providerfehler. Alle vier lieferten zum Prüfzeitpunkt korrekt null laufende Ereignisse. Lokal sind weder Cricket/RapidAPI noch PandaScore konfiguriert; diese Pfade wurden deshalb ohne Verbrauch bezahlter Kontingente über Vertrags- und Fehlertests geprüft, nicht als echter Live-Abruf.
-
-### Wichtige API-Entscheidung
-
-`FOOTBALL_DATA_API_KEY` und `API_FOOTBALL_KEY` sind nicht austauschbar. Endpunkte, Header und Datenverträge sind verschieden. Ein Regressionstest stellt sicher, dass der football-data.org-Schlüssel niemals als API-Football-Schlüssel eingesetzt wird.
-
-## 10. Konfiguration und Secrets
-
-Konfigurationspriorität, von niedrig nach hoch:
-
-1. `config.ini`
-2. Umgebungsvariablen
-3. Streamlit Secrets
-
-Unterstützte Umgebungsvariablen:
-
-```text
-FOOTBALL_DATA_API_KEY
-API_FOOTBALL_KEY
-OPENWEATHER_API_KEY
-SUPABASE_DB_URL
-ODDS_API_KEY
-TELEGRAM_BOT_TOKEN
-TELEGRAM_CHAT_ID
-PANDASCORE_KEY
-RAPIDAPI_KEY
-CRICKET_API_KEY
-```
-
-Lokale `config.ini`, `.streamlit/secrets.toml`, Datenbanken und Modellartefakte sind über `.gitignore` ausgeschlossen. Keine echten Schlüssel in Dokumentation, Tests, Logs oder Commits aufnehmen.
-
-## 11. Persistenz
-
-### 11.1 Matchdaten
-
-`DataEngine` bevorzugt PostgreSQL/Supabase, wenn eine gültige URL und `psycopg2` vorhanden sind. Bei Verbindungsfehlern wird SQLite verwendet. Die App bleibt dadurch bedienbar, aber Streamlit Community Cloud garantiert für lokale Dateien keine dauerhafte Speicherung.
-
-### 11.2 Challenge
-
-`ChallengeLedger` speichert aktuell ausschließlich in `challenge_15k.db` via SQLite. Das ist lokal funktionsfähig, aber noch nicht produktionsreif:
-
-- Daten können bei Neustart oder Redeploy verloren gehen.
-- Es gibt keine Benutzer-ID und keine Authentifizierung.
-- Mehrere Nutzer würden dasselbe Guthaben und dieselben Tickets teilen.
-- Der Ledger ist durch `st.cache_resource` pro Prozess gemeinsam.
-
-Vor öffentlicher oder mehrbenutzerfähiger Nutzung muss der Ledger nach PostgreSQL migriert und an eine eindeutige Benutzeridentität gebunden werden.
-
-### 11.3 CLV und Modelle
-
-CLV wird derzeit lokal in SQLite gespeichert. Modellartefakte wie `*.pkl`, `*.joblib` und der Ordner `models/` werden nicht committed. Ein in der Cloud trainiertes Modell kann deshalb nach einem Neustart verschwinden. Für reproduzierbare Produktion braucht es versionierten Artefaktspeicher oder einen deterministischen Trainingsjob.
-
-## 12. Was im Ultra-Audit behoben wurde
-
-### Provider und Datenverträge
-
-- HTTP 200 mit Provider-Fehlerpayload wird nicht mehr als leere erfolgreiche Antwort behandelt.
-- Providerfehler werden im UI als Konto-, HTTP- oder Datenfehler sichtbar.
-- IDs müssen positive echte Integer sein; Boolean-Werte werden abgelehnt.
-- Fixture-, Liga- und Teamzugehörigkeit werden auf jeder Ebene geprüft.
-- Naive, zukünftige oder veraltete Zeitstempel werden je nach Kontext abgelehnt.
-- Historische Imports sind transaktional: ein fehlerhafter Batch wird nicht teilweise gespeichert.
-- CSV-Felder sind allowlist-basiert; Bookmakerpreise aus historischen CSVs werden nicht als Modellfeature übernommen.
-
-### Modell und Statistik
-
-- Same-day Leakage in Training und Walk-forward wurde geschlossen.
-- Mindeststichproben, ECE, Binfehler und Kalibrierungsabdeckung werden vollständig geprüft.
-- Behauptetes `calibrated=True` reicht nicht mehr ohne passende Metriken.
-- Score- und Count-Matrizen behandeln Restwahrscheinlichkeit kontrolliert.
-- Sparse Samples und hohe Raten werden nicht durch willkürliche Abschneidung schön gerechnet.
-- H2H, Form und Teamaggregate werden auf innere Konsistenz geprüft.
-
-### Quoten und Tickets
-
-- Modellwahrscheinlichkeit und Buchmacherpreis sind strikt getrennt.
-- Marktseiten für den Overround müssen von derselben Quelle und demselben Buchmacher stammen.
-- Preise müssen frisch und vor Anstoß erfasst sein.
-- CLV vergleicht nur identischen Buchmacher und identische Quelle.
-- Ticketfelder werden beim Speichern aus den Legs vollständig neu berechnet.
-- Quote, EV, Abhängigkeit, Kelly, Stake, Cent-Rundung und Auszahlung werden serverseitig verifiziert.
-- Pro Fixture wird höchstens ein Value-Signal verwendet.
-
-### Challenge-Kontext
-
-- Bereits gestartete Spiele werden blockiert.
-- Doppelte Fixtures und wiederholte Teams werden blockiert.
-- Fehlerhafte H2H-, Verletzungs-, Wetter- und Aufstellungsdaten schließen die Auswahl.
-- Aufstellungen müssen je Team exakt elf eindeutige Spieler enthalten.
-- Snapshot- und Quotenalter werden begrenzt.
-
-### Multi-Sport und Live
-
-- Multi-Sport fragt nur die vorab gewählte Sportart ab. Basketball-Liga- und E-Sport-Spiel-Filter erscheinen ausschließlich in ihrem jeweiligen Kontext; Ergebnisse anderer Sportarten werden nicht mitgeladen oder eingeblendet.
-- Tennis löst keine Statistikabfrage mehr je Live-Match aus. Satzstand, Punktstand und Phase stammen aus demselben Snapshot; der ESPN-Fallback zeigt fehlende Punktdaten ausdrücklich als `n/a`.
-- Cricket wählt das aktuelle Innings über die Provider-`inningsId`, unterstützt zweite Innings und Follow-ons und verweigert bei mehrdeutiger Reihenfolge eine Run-Rate statt das Schlagteam zu raten.
-- NBA.com-403 wird durch ein validiertes ESPN-Scoreboard aufgefangen. Der abgeschaltete EuroLeague-`/api/Games`-Pfad wurde durch die offizielle v2-Saisonliste und den Live-Header ersetzt.
-- E-Sport validiert Identität, Score und Serienformat vor Teamhistorien, begrenzt Live-Matches je Spiel und cached auch fehlgeschlagene Historienabrufe.
-- Der Snapshot-Kopf nennt die tatsächlich verwendete Datenquelle, sofern Ereignisse vorliegen.
-- NHL-Spiele laufen nicht mehr durch Basketball-Projektionslogik.
-- Cricket-Overs werden korrekt als Bälle interpretiert; `10.5` sind 65 Bälle und `10.6` ist ungültig.
-- Tennis und Cricket liefern mit der aktuellen Payload keine Wettwahrscheinlichkeit und enden mit `NICHT WETTEN` statt einer Rohdatenempfehlung.
-- Basketball und NHL bewerten ausschließlich x,5-Gesamtmärkte der regulären Spielzeit. Verlängerung, Push-Linien, fehlende Uhr oder zu frühe Spielstände werden gesperrt.
-- E-Sport verlangt mindestens 20 abgeschlossene Matches je Team, einen validen Best-of-Serienstand und konservative Beta-Grenzen.
-- Karten-, Ecken- und Schussdaten behandeln fehlende Werte nicht mehr als echte Nullen.
-
-### Multi-Sport-Wettentscheidung
-
-Der Multi-Sport-Ablauf zeigt keine Rohdatentabelle mehr als Endprodukt. Nach Auswahl eines laufenden Ereignisses entsteht zuerst eine buchmacherunabhängige Modellauswahl. Erst danach werden die exakte N1Bet-Linie und die aktuelle Dezimalquote eingegeben und über `N1Bet-Preis prüfen` bestätigt.
-
-- Basketball verwendet ein Gamma-Poisson-Pace-Modell mit ligaabhängigem Total-Prior, echter Spieluhr und einem expliziten Abschlag für Pace-, Lineup- und Possession-Risiko.
-- NHL verwendet ein Gamma-Poisson-Tormodell über exakt 60 Minuten mit zusätzlichem Abschlag für Goalie-, Special-Team- und Empty-Net-Risiko.
-- E-Sport bildet aus geglätteten Teamhistorien zunächst eine relative Serienwahrscheinlichkeit, löst daraus die konsistente Map-Wahrscheinlichkeit und aktualisiert sie mit dem Live-Serienstand. Die risikoadjustierte Wahrscheinlichkeit nutzt 10/90-%-Beta-Grenzen plus fünf weitere Prozentpunkte Modellabschlag.
-- Der Preis besteht nur bei mindestens `4,0` Prozentpunkten risikoadjustierter Edge, mindestens `3,0 %` risikoadjustiertem EV und positivem Quarter-Kelly. Die Kelly-Referenz ist auf `2 %` des eingegebenen Guthabens begrenzt; sie ist kein fixer Zwei-Euro-Einsatz.
-- Eine neue Provider-Aktualisierung erzeugt neue Linien- und Quotenfelder. Eine alte manuelle Quote wird dadurch nicht still weiterverwendet.
-
-Diese sportartspezifischen v1-Modelle besitzen noch keine ausreichende eigene OOS-/CLV-Historie. `WETTEN` bedeutet deshalb, dass die implementierten Modell-, Robustheits- und Preis-Gates bestanden sind; es ist keine Garantie und kein Nachweis dauerhaften positiven Erwartungswerts. Die laufende Ergebnis- und CLV-Erfassung bleibt für die weitere Kalibrierung erforderlich.
-- Platzverweisereignisse werden Team, Fixture und Spielminute strikt zugeordnet.
-- Live-Resttore und weitere Teamtore sind vom normalen Gesamttor-Markt getrennt; nur Tore nach dem Snapshot zählen für den Restspiel-Markt.
-- Vorhandene Provider-Nullwerte bei roten Karten werden als bestätigte Null gezählt; fehlende oder komplexe Kartenstände schließen strenge beziehungsweise sämtliche Restspiel-Signale aus.
-- Die Platzverweis-Prognose berechnet Restzeit und Live-xG ab der aktuellen Snapshot-Minute; die frühere Kartenminute bleibt nur Ereignisinformation. Minuten außerhalb des unterstützten 0–93-Modells werden nicht prognostiziert.
+- Fußball-Shadow wendet dieselbe risikoadjustierte Preisprüfung wie die
+  produktive Challenge an.
+- Pro Fixture wird höchstens der beste preislich freigegebene Kandidat
+  protokolliert.
+- Fehlende Quote, fehlender Kontext oder temporärer Loggingfehler werden bis
+  zum finalen Fenster erneut geprüft.
+- Regulation-Wetten werden nur bei Providerstatus `FT` abgerechnet, nicht
+  versehentlich nach Verlängerung oder Elfmeterschießen.
+- Modell- und Policy-Version werden in jeder neuen Prediction gespeichert.
+- Die KIMI-Bedingung verwendet jetzt direkt den kanonischen Projektcode und
+  dieselben Zeitfenster wie der Runner.
+- E-Sport verlangt ein explizites 0:0-Prematch-Ereignis und eine eindeutige
+  Teamzuordnung.
+- Offene E-Sport-Zeilen werden fair rotiert; ein temporär fehlendes Ergebnis
+  wird nicht automatisch als Void entsorgt.
+- E-Sport-Freigabe verlangt mindestens 100 saubere Settlements, begrenzte
+  Kalibrierungsabweichung und akzeptablen risikoadjustierten Brier Score.
+- Rotkarten-Signale prüfen endliche, normierte 1X2-Wahrscheinlichkeiten,
+  exakt einen Platzverweis und nachvollziehbare Ereignisreihenfolge.
+- Pro Rotkarten-Fixture wird nur ein unabhängiger Snapshot für die
+  Evidenzstatistik gewertet.
 
 ### UX
 
-- Flache Navigation statt mehrfach verschachtelter Tabs.
-- Bedienelemente sind auf Smartphone und Tablet umgebrochen.
-- Kennzahlen, Tabellen und Slider besitzen stabile responsive Abmessungen.
-- Providerstatus und Blocker werden direkt sichtbar.
-- Quotenfreie Analyse und spätere N1Bet-Preisprüfung sind visuell getrennt.
+- Auf schmalen Smartphones sind alle acht Bereiche direkt in zwei Reihen
+  erreichbar; es gibt kein verstecktes Untermenü.
+- Auf breiteren Smartphones stehen alle acht Ziele in einer Reihe.
+- Der aktive Bereich bleibt sichtbar.
+- Material-Icons ersetzen uneinheitliche Emoji-Navigation.
+- Genügend Bottom-Padding verhindert die Überlagerung des Inhalts.
+- Multi-Sport beginnt mit der Sportart und zeigt danach nur den zugehörigen
+  Liga-/Spiel-Filter.
+- Leerstaat-Beispiele sind sportabhängig. Basketball zeigt keine
+  Fußball-BTTS-Wette mehr.
+- Externe Team- und Markttexte werden im HTML-Beispiel escaped.
 
-## 12b. Audit-Fixes vom 18. Juli 2026
+## 4. Arbeitsbereiche und Freigabestatus
 
-Ein vollständiges externes Audit (Bericht: `AUDIT_BERICHT_2026-07-18.md`) führte zu folgenden Korrekturen; jede ist durch einen Regressionstest gepinnt:
+| Bereich | Zweck | Aktueller Status |
+|---|---|---|
+| Spiele | BTTS-Prematch-Wettfinder | strikt; Quote erst nach Modellprüfung |
+| Märkte | Tore, Ecken, Karten und kombinierte Märkte | marktweise Walk-forward-Gates; kein Gate, keine Wette |
+| Live | BTTS, Resttor, Teamtor | Datenfinder aktiv; Wettempfehlung bis Live-Kalibrierung blockiert |
+| Wett-Check | N1Bet-Preis- und EV-Entscheid | nur konditional auf freigegebene Modellwahrscheinlichkeit |
+| System | Daten, Training, API-Status | administrativ; keine Wettfreigabe |
+| 15K Challenge | bis zu drei Legs, Zielquote 2,00-3,00 | Ledger korrekt; weiterhin sehr hohes Risiko |
+| Multi-Sport | Basketball, NHL, Cricket, Tennis, E-Sport | nicht validierte Kerne bleiben fail-closed |
+| Tennis | ATP/WTA und Tennis-Shadow | anspruchsvolle Pipeline; Live-Evidenz noch nicht abgerechnet |
 
-- **Live-xG-Parsing (HIGH):** `api_football.get_match_statistics` parst `expected_goals` jetzt als Dezimalwert. Vorher wurde Provider-xG (Text wie `"1.34"`) still verworfen, wodurch die Live-Qualitätsstufe „Live-xG + Prematch" nie erreichbar war.
-- **Challenge-Spieltag in Europe/Zurich:** `challenge_15k` bestimmt „Heute/Morgen" jetzt über die Zürcher Kalenderzeit statt über das Serverdatum (vorher zwischen 00:00 und 02:00 CH-Zeit der falsche Tag).
-- **Sequenzielle Tickets:** Der Ledger blockiert jede neue Platzierung, solange ein Ticket PENDING ist — auch für einen anderen Spieltag. Kelly bleibt damit sequenziell, paralleles Exposure ist ausgeschlossen.
-- **Einsatzrundung als harte Kappe:** `ticket_stake` und der Ledger runden den konfigurierten Challenge-Einsatz auf ganze Cents ab.
-- **Challenge-Einsatz korrigiert (19. Juli):** Die frühere 2-%-Kelly-Kappe wurde als falscher Produktvertrag erkannt. Einsatzanteil und Kelly-Referenz sind jetzt getrennt; 5–100 % sind persistent konfigurierbar, Standard ist 100 % Roll-over, inklusive Gewinn-/Verlustsaldo und transparenter Zielpfad-Mathematik.
-- **ECE-Bin-Kanten:** Kalibrierungs-Bins nutzen exakte Konstanten; eine Wahrscheinlichkeit von exakt 0,6 wurde vorher wegen Fließkomma-Addition doppelt gezählt.
-- **ML-Fallback explizit:** `ml_predict` liefert bei Fehlern `None` statt still 0,5; die Anzeige fällt dann sichtbar auf das statistische Modell zurück.
-- **Train/Serve-Konsistenz:** Die BTTS-ML-Serving-Features stammen jetzt wie das Training aus rollierenden Fenstern des lokalen Datenbestands (`get_recent_form`, letzte 20 Spiele) statt aus Provider-Saisonaggregaten.
-- **Tagesgruppierter ML-Split:** `MLEnsemble.train` akzeptiert Kalendertage je Zeile und legt Trainings-, Validierungs- und Holdout-Grenzen ausschließlich auf Tagesgrenzen (`train_ml_models` reicht die Tage durch).
-- **H2H-Aktualität:** `_h2h_scores` sortiert selbst nach Anstoß absteigend, statt der Lieferreihenfolge des Providers zu vertrauen.
-- **UTC-Zeitstempel:** `fetched_at` in der Datenbank ist jetzt zeitzonenbewusst in UTC.
-- **UX-Ehrlichkeit:** Ungültige manuelle Quoten (≤ 1,00) werden benannt statt still ignoriert; Ecken-/Kartenmärkte in der Challenge tragen einen Hinweis auf abweichende Buchmacher-Settlementregeln; der Value-Pfad im Märkte-Tab erklärt, dass er ohne Shadow-Mode-Kalibrierungshistorie gesperrt bleibt.
+Konkrete Blockaden:
 
-## 12c. Umbau zum durchgängigen Wettfinder vom 20. Juli 2026
+- Basketball braucht unabhängige OOS- und Closing-Line-Evidenz.
+- NHL braucht zusätzlich belastbare Goalie- und Lineup-Evidenz.
+- E-Sport bleibt bis zum Shadow-Release-Gate verborgen.
+- Cricket besitzt noch keinen freigegebenen Modellkern.
+- Rotkarten-Live bleibt bis zu unabhängiger Shadow-Evidenz blockiert.
 
-- **Ein Entscheidungsvertrag:** `bet_finder_ui.py` zeigt in jedem Suchbereich dieselben drei Endzustände: `WETTEN`, `NICHT WETTEN` oder `PREIS ERFORDERLICH`.
-- **Ein Preis-Gate:** Modell und Auswahl entstehen vor der Quote. Danach gelten mindestens 4,0 Prozentpunkte risikoadjustierte Edge, mindestens 3,0 % risikoadjustierter EV, positives Viertel-Kelly und eine Einsatzreferenz von höchstens 2 % des eingegebenen Guthabens.
-- **BTTS-Wettfinder:** zeigt maximal drei priorisierte Spiele. Freigaben benötigen ein aktives chronologisch validiertes ML-Modell, Evidenzscore mindestens 70 %, mindestens fünf Venue- und Formspiele je Team, ausreichende Modellübereinstimmung, zukünftigen Anstoß und einen höchstens sechs Stunden alten Datenstand.
-- **Markt-Wettfinder:** die früheren separaten Resultat-, Ecken/Karten- und Value-Ansichten wurden entfernt. Der Bereich nutzt direkt die Challenge-Engine mit marktbezogener Walk-forward-Kalibrierung und Kontext-Vetos.
-- **Live-Wettfinder:** zeigt maximal drei Kandidaten. Ein Live-Datenstand darf höchstens zwei Minuten alt sein; unvollständige oder komplexe Platzverweisstände sperren betroffene Restspielmärkte.
-- **Platzverweis-Wettfinder:** Browser- und Telegram-Hinweise wurden aus der Nutzerführung entfernt. Jede Suche berücksichtigt alle aktuellen Platzverweise, bildet daraus die stärkste konkrete `Nächstes Tor`-Auswahl und prüft anschließend den N1Bet-Preis.
-- **15K Challenge:** der Hauptbereich heißt `Wettfinder`, die primäre Aktion `Challenge-Wetten finden`; Kontoführung und Verlauf bleiben getrennte Aufgaben.
-- **Responsive QA:** installiertes Google Chrome öffnete alle sechs Bereiche bei 1280 × 800 und echten 390 × 844 Pixeln. Beide Viewports hatten 0 Pixel Root-Überlauf, keine Seitenfehler und keine Browserkonsolenfehler. Ein realer Pro-API-Abruf am 20. Juli lieferte für die drei Standardligen keine kommenden Ligaspiele und endete korrekt mit `NICHT WETTEN` statt eines erfundenen Tipps.
-- **Streamlit-Hot-Reload:** zentrale Seitenmodule tragen explizite Versionsnummern. `app.py` lädt Analyzer, Märkte, Challenge und Fußball-Empfehlungen neu, wenn ein laufender Cloud-Prozess noch eine ältere importierte Modulversion hält; der Analyzer-Cache ist ebenfalls an die Modulversion gebunden.
+## 5. Architektur
 
-## 12d. Produktions-Rollout und Hot-Reload-Fix vom 20. Juli 2026
+| Datei | Verantwortung |
+|---|---|
+| `app.py` | Streamlit-Einstieg, Navigation und Scanner-Orchestrierung |
+| `config_loader.py` | INI, Umgebung und Streamlit-Secrets |
+| `league_catalog.py` | kanonischer 51-Ligen-Katalog |
+| `advanced_analyzer.py` | BTTS-Analyse und Modellensemble |
+| `challenge_engine.py` | Märkte, Validierung, Kontext und Ticketlogik |
+| `football_recommendations.py` | gemeinsame Freigabepolicy |
+| `bet_finder_ui.py` | N1Bet-Preisentscheidung |
+| `scan_jobs.py` | sitzungsgebundene Hintergrundjobs |
+| `challenge_15k.py` | Challenge-Workflow und UI |
+| `challenge_store.py` | Challenge-Ledger und Transaktionen |
+| `shadow_clv_automation.py` | Fußball-Shadow, Closing und Settlement |
+| `clv_tracker.py` | versionsmarkierter CLV-Ledger |
+| `tennis/*` | Tennis-Modell, Kalibrierung und Shadow |
+| `esports_shadow.py` | E-Sport-Evidenz und Release-Status |
+| `redcard_signal_log.py` | Rotkarten-Shadow und Settlement |
+| `multi_sport_recommendations.py` | Basketball-, NHL- und E-Sport-Kandidaten |
 
-Der vollständige Rollout verlief in mehreren technisch getrennten Schritten. Diese Chronik ist wichtig, weil ein grüner GitHub-Push bei einem langlebigen Streamlit-Prozess nicht automatisch beweist, dass alle importierten Seitenmodule bereits aus demselben Commit stammen.
+Die lokale Prozessisolation ist verbessert, ersetzt aber noch keine echte
+Produktionsarchitektur. Ohne Login existiert keine stabile Benutzer-ID. Ein
+neuer Browser- oder Cloud-Prozess kann deshalb eine neue Challenge-Sitzung
+beginnen. Dauerhafte, geräteübergreifende Konten benötigen weiterhin eine
+gültige PostgreSQL-Verbindung und Authentifizierung.
 
-1. `6230be5` brachte den gemeinsamen Wettfinder-Umbau auf `main`. Die öffentliche App lud den neuen Einstieg, scheiterte aber zunächst beim Import von `football_recommendations`, weil im laufenden Prozess noch eine ältere Version von `multi_sport_recommendations` ohne das neue Symbol aktiv war.
-2. `cb8ce39` verschob den generischen fail-closed Kandidatenbau nach `bet_finder_candidates.py`. Damit war die Fußballlogik nicht länger von einem bereits importierten Multi-Sport-Modul abhängig und der Startfehler verschwand.
-3. Danach zeigte die Cloud zwar den neuen globalen Titel, im Bereich `Märkte` aber noch die alte Aktion `Matches laden`. Ursache war erneut kein falscher Git-Stand, sondern ein altes Seitenmodul im Streamlit-Prozess.
-4. `613447f` führte explizite Versionen für Analyzer (`3`), Markt-Workflow (`4`), Challenge (`3`), Fußball-Empfehlungen (`2`) und Platzverweis-Modul (`2`) ein. Der App-Einstieg lädt zu alte Module kontrolliert neu; der Streamlit-Analyzer-Cache trägt die Modulversion als Cache-Schlüssel.
-5. Anschließend waren lokaler `HEAD`, `origin/main` und der geprüfte Funktionsstand identisch. Die öffentliche App zeigte alle neuen Wettfinder-Abläufe und bestand die abschließende Desktop- und Mobilprüfung.
+## 6. Wettmathematik
 
-Dieser Fix ist kein allgemeiner Ersatz für einen sauberen Redeploy. Bei künftigen strukturellen Änderungen müssen Git-Hash, sichtbare UI-Aktion und Modulversion gemeinsam geprüft werden.
-
-## 13. Schwierigkeiten und ihre Ursachen
-
-### Zwei ähnlich benannte Fußball-APIs
-
-`football-data.org` und API-Football wurden historisch parallel konfiguriert. Dadurch bestand die Gefahr, einen gültigen Schlüssel beim falschen Endpoint einzusetzen. Die aktive App verwendet jetzt explizit API-Football. football-data.org ist kein automatischer Ersatz.
-
-### API-Football liefert Fehler mit HTTP 200
-
-Der Provider kann Kontofehler im JSON-Feld `errors` liefern, obwohl der HTTP-Status 200 ist. Frühere Logik interpretierte dies teilweise als leere Datenmenge. Die Antwortverarbeitung prüft nun Status, Fehlerpayload und erwartete Datentypen.
-
-### Ungültiger Supabase-Tenant
-
-Die hinterlegte Pooler-Verbindung meldete sinngemäß `tenant/user not found`. Die App darf deshalb nicht vollständig abstürzen und verwendet lokal SQLite. Das löst die Verfügbarkeit, aber nicht die dauerhafte Speicherung.
-
-### Overconfidence durch kleine Stichproben
-
-Form, H2H und seltene Märkte können extreme Prozentwerte aus wenigen Beobachtungen erzeugen. Dagegen wurden Mindestgrößen, Smoothing, Shrinkage, konservative Abschläge und Out-of-sample-Gates eingeführt.
-
-### Zeitliche Datenleckage
-
-Ein einfaches zeilenweises Walk-forward kann frühere Spiele desselben Tages bereits als Training für spätere Spiele desselben Tages verwenden. Die Validierung ist deshalb nach Kalendertag gruppiert.
-
-### Quoten als psychologischer Anker
-
-Niedrige Quoten wirkten in früheren Darstellungen implizit sicher. Das System baut Kandidaten jetzt vollständig ohne Quoten und bewertet Preise erst in einer separaten Phase.
-
-### Upstream-Instabilität
-
-Mehrere Multi-Sport-Quellen sind öffentliche oder inoffizielle Endpunkte. Beim Audit blockierten NBA.com und SofaScore den Testhost mit HTTP 403; ESPN übernahm beide Pfade. Der frühere EuroLeague-Games-Endpunkt lieferte nur noch eine HTML-404-Seite. Payloads, Ratelimits und Verfügbarkeit können sich ohne Ankündigung ändern. Jeder Scanner validiert deshalb seine Daten separat und bleibt reine Provider-Schicht; erst `multi_sport_recommendations.py` darf aus einem validierten Ereignis eine getrennte Modell- und Preisentscheidung bilden.
-
-### Streamlit-Schlafmodus und Browser-QA
-
-Streamlit Community Cloud legt inaktive Apps schlafen. Das ist kein Codefehler. Für die letzte visuelle Prüfung wurde die App mit normalem Chrome aufgeweckt. Die Codex-Browsererweiterung wurde vermieden, weil sie lokal die Codex-App destabilisieren konnte.
-
-### Gemischte Modulstände in langlebigen Streamlit-Prozessen
-
-Beim letzten Rollout kombinierte der Cloud-Prozess zeitweise den neuen App-Einstieg mit bereits importierten alten Workflow-Modulen. Das führte nacheinander zu einem Importfehler und zu einer alten Markt-Oberfläche trotz aktuellem Git-Branch. Abhilfe schaffen die entkoppelte Modulgrenze in `bet_finder_candidates.py`, explizite Workflow-Versionen und gezielte Reload-Gates in `app.py`. Bei künftigen Deployments reicht deshalb weder der Seitentitel noch der GitHub-Status als alleiniger Nachweis; die primäre Aktion jedes Arbeitsbereichs muss sichtbar geprüft werden.
-
-## 14. Bekannte offene Punkte und Risiken
-
-### Priorität 0 - vor ernsthafter Nutzung
-
-1. Gültige Supabase-/PostgreSQL-Verbindung einrichten und Persistenz über einen echten Redeploy testen.
-2. Challenge-Ledger auf PostgreSQL und Benutzeridentität migrieren.
-3. API-Football-Verbrauch pro Scan messen und das Pro-Kontingent überwachen.
-4. Die App mehrere Tage im Shadow Mode betreiben, ohne echtes Geld einzusetzen.
-
-### Priorität 1 - Produktionsreife
-
-1. API-Request-Budget pro Scan messen und im UI anzeigen.
-2. Provider-Health, Ratelimit und letzte erfolgreiche Aktualisierung persistieren.
-3. Automatische N1Bet-Preise nur über eine erlaubte, stabile Schnittstelle integrieren; bis dahin manuelle Eingabe behalten.
-4. Ticket-Settlement gegen offizielle Resultate automatisieren und weiterhin manuelle Korrektur ermöglichen.
-5. Challenge- und CLV-Migrationen versionieren.
-6. Modellartefakte reproduzierbar speichern und versionieren.
-7. GitHub Actions für Tests und statische Checks ergänzen.
-
-### Priorität 2 - fachliche Weiterentwicklung
-
-1. Weitere Ligen über den kanonischen 44er-Katalog hinaus erst nach ausreichender historischer Abdeckung freigeben.
-2. Märkte nur mit eigener Walk-forward-Kalibrierung erweitern.
-3. Multi-Sport-v1-Modelle mit mindestens 200 chronologischen OOS-Fällen je Markt kalibrieren und die statischen Liga-Priors automatisiert versionieren.
-4. CLV-Auswertung und Kalibrierungsdrift als Dashboard aufbauen.
-5. Request-Caching über mehrere Streamlit-Sessions hinweg verbessern.
-
-## 15. Bewusste Einschränkungen
-
-- Ein Markt mit weniger als 200 OOS-Beobachtungen kann trotz plausibler Modellidee gesperrt bleiben.
-- Bestätigte Aufstellungen sind häufig erst kurz vor Spielbeginn verfügbar.
-- Bei unvollständigen Kontextdaten kann die 15K-Challenge an einem Tag null Spiele liefern.
-- Ohne The Odds API existiert kein automatischer N1Bet-Preisfeed.
-- Ein positiver modellierter EV ist eine Schätzung, kein Beweis eines tatsächlichen Vorteils.
-- Selbst ein kalibriertes Modell kann verlieren; Varianz und Modellfehler bleiben bestehen.
-
-## 16. Tests und Qualitätssicherung
-
-### Vollständiger Testlauf
-
-```powershell
-.\.codex_test_venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
-```
-
-Letztes bestätigtes Ergebnis:
+Verbindliche Grundformeln:
 
 ```text
-190 passed, 5 subtests passed
+Break-even-Wahrscheinlichkeit = 1 / Quote
+Erwartungswert beziehungsweise ROI = p * Quote - 1
+Probability Edge = p - 1 / Quote
+Full Kelly = ((Quote - 1) * p - (1 - p)) / (Quote - 1)
 ```
 
-Dieser Lauf wurde auf der funktionalen Produktionsbasis `613447f` ausgeführt. Die einzige Warnung betraf einen nicht beschreibbaren pytest-Cachepfad; der Testlauf selbst und alle Subtests waren erfolgreich.
+Probability Edge und erwartete Rendite sind verschiedene Einheiten. Kelly ist
+nur so gut wie die kalibrierte Wahrscheinlichkeit. Bei unsicherem `p` wird mit
+einer konservativen Wahrscheinlichkeit und einem Kelly-Cap gerechnet.
 
-Die zehn neuen Multi-Sport- und Workflow-Tests prüfen Buchmacherunabhängigkeit, Push- und Tippfehler-Linien, reguläre Spielzeit, Snapshot-Frische, Mindeststichprobe, Unsicherheitsabschläge, Preis-Gates und den prozentualen Kelly-Einsatz. Die bisherigen Audit-, Ledger- und Stake-Regressionen bleiben ebenfalls aktiv.
+### 15K-Rechnung
 
-### Patch-Sauberkeit
+Bei 100 Euro Startguthaben, 25 % Einsatzanteil und Ticketquote 2,50 wächst das
+Guthaben nach einem Gewinn um den Faktor:
+
+```text
+1 + 0,25 * (2,50 - 1) = 1,375
+```
+
+Ohne einen einzigen Verlust wären 16 Gewinne nötig, um 15.000 Euro zu
+überschreiten. Das ist keine Prognose. Bei einer wahren Ticketchance von 42 %
+liegt die Chance auf 16 Siege in Folge nur bei ungefähr 0,0001 %. Verluste,
+Korrelationen, Limits und schwankende Quoten machen den Pfad zusätzlich
+schwieriger.
+
+Der Einsatzregler ist deshalb eine Risikowahl, keine Optimierung. 100 % Einsatz
+kann das Konto mit einer Niederlage auf null setzen. Die App darf das Ziel
+visualisieren, aber niemals als realistische oder sichere Challenge verkaufen.
+
+## 7. Shadow- und Evidenzstand
+
+Lokaler Snapshot nach dem Audit:
+
+| Bereich | Stand | Fachliche Aussage |
+|---|---|---|
+| Fußball CLV | 250 Fixtures, 230 bewertet, 0 Picks | kein CLV-/ROI-Urteil möglich |
+| Tennis | 64 Predictions, 0 abgerechnet, 0 Empfehlungen | keine Live-Evidenz |
+| E-Sport | 20 sauber klassifizierte Zeilen, 5 abgerechnet, 4 Treffer | n=5 ist bedeutungslos; Release bleibt gesperrt |
+| E-Sport risikoadjustiert | Ø p 38,9 %, Brier 0,3711 | aktuelles Release-Gate klar nicht erfüllt |
+| Rotkarten-Live | 0 unabhängige Shadow-Signale | keine Freigabe |
+| Rotkarten-Historie | 1.132 Fälle | Entwicklungsdaten, kein unabhängiger Holdout |
+| 15K | keine belastbare Echtgeldhistorie | kein Erfolgsnachweis |
+
+Wichtig zur jungen Stichprobe:
+
+- Die vorhandenen Fußball-Fixtures reichen vom 24. Juli bis 1. August.
+- Die **revidierte produktionsgleiche Price-/Policy-Version** ist erst seit
+  diesem Audit aktiv.
+- Viele große Ligen starten erst noch; bestätigte Aufstellungen fehlen weit vor
+  dem Anpfiff erwartbar.
+- Null Picks sind derzeit kein Beweis für ein schlechtes Modell und kein Grund,
+  Schwellen zu lockern.
+- Die nächsten Schritte sind sammeln, Dropout-Gründe zählen und Versionen
+  getrennt auswerten.
+
+Eine Freigabe darf frühestens nach mindestens 100 unabhängigen, vorab
+protokollierten und korrekt abgerechneten Picks diskutiert werden. Zusätzlich
+müssen Kalibrierung, Brier/Log Loss gegen einen No-Vig-Benchmark, positiver CLV
+und Unsicherheitsintervalle überzeugen. ROI allein reicht nicht.
+
+## 8. Automationen
+
+| Automation | Status nach Bereinigung |
+|---|---|
+| Windows `BetBoy Tennis Daily`, 07:17 | aktiv, aktueller Projektpfad |
+| KIMI Tennis Daily, ebenfalls 07:17 | deaktiviert, um Doppelverarbeitung zu verhindern |
+| KIMI Fußball CLV, Bedingung alle 10 Minuten | aktiv; feuert nur bei fälliger Arbeit |
+| KIMI wöchentlicher CLV-Bericht | aktiv; aktueller Pfad, Versionen getrennt |
+| KIMI Statistik-Backfill | deaktiviert; `.backfill_complete` vorhanden |
+| KIMI First-Pick-Watcher | deaktiviert; reines Monitoring ohne Wettfinder-Nutzen |
+| KIMI E-Sport Shadow | aktiv, aktueller Projektpfad |
+| KIMI Rotkarten-Harvest | aktiv, aktueller Projektpfad |
+
+Der CLV-Runner und seine Bedingung verwenden nun beide
+`betboy-app\shadow_clv_automation.py`. Der Standard umfasst alle 51 Ligen und
+höchstens 60 fällige Fixtures pro Lauf. Die alte Asset-Kopie in KIMIs
+Automation-Verzeichnis ist nicht mehr Ausführungsquelle.
+
+Es fehlt weiterhin ein zentraler API-Budgetmanager über Streamlit, KIMI und
+Windows. Das Pro-Limit von API-Football muss deshalb betrieblich beobachtet
+werden, ohne daraus ein Nutzer-Monitoringprodukt zu machen.
+
+## 9. API- und Datenstand
+
+API-Football war beim Audit als Pro-Abo aktiv:
+
+| Merkmal | Stand |
+|---|---|
+| Plan | Pro |
+| Laufzeit laut Providerprüfung | bis 19. Oktober 2026 |
+| Tageslimit | 7.500 Requests |
+
+API-Football ist die zentrale Quelle für Fixtures, Ergebnisse, Live-Daten,
+Kontext, Statistiken und Referenzquoten. Das Abo liefert Datenqualität und
+Abdeckung, aber keinen garantierten Wettvorteil.
+
+Ein separater football-data.org-Schlüssel ist im aktuellen Produktionspfad
+nicht nötig. Historische CSV-Daten kommen überwiegend von
+football-data.co.uk. Ein zweites Abo sollte erst aktiviert werden, wenn eine
+konkrete fehlende Datenart und ein messbarer Nutzen feststehen.
+
+Die Cloud meldete zuletzt einen lokalen Datenbankersatz, weil der alte
+Supabase-Pooler-Zugang ungültig war. Der Code fällt funktionsfähig lokal zurück,
+aber echte Persistenz, Konten und geräteübergreifende Challenge-Stände sind
+damit nicht gelöst.
+
+## 10. Sicherheit
+
+Im früheren KIMI-Chat und in alter öffentlicher Git-Historie standen echte
+Zugangsdaten. Aktuelle Secret-Dateien sind ignoriert, doch das entfernt keine
+bereits veröffentlichten Geheimnisse.
+
+Extern erforderliche Schritte:
+
+1. Supabase-/Datenbankzugang rotieren.
+2. Telegram-Token rotieren.
+3. API-Football-, Wetter-, PandaScore- und weitere Schlüssel rotieren.
+4. Neue Werte nur in Streamlit Secrets beziehungsweise lokaler `config.ini`
+   speichern.
+5. Danach die öffentliche Git-Historie bereinigen.
+
+Rotation kommt vor Historienbereinigung. Diese Schritte kann der Code nicht
+selbstständig erledigen, weil dafür die Providerkonten benötigt werden.
+
+## 11. Test- und UX-Nachweis
+
+Vollständiger Lauf:
+
+```text
+487 passed
+5 subtests passed
+```
+
+Reproduzierbarer Windows-Befehl:
 
 ```powershell
-git diff --check
+New-Item -ItemType Directory -Path .pytest_tmp -Force
+.\.codex_test_venv\Scripts\python.exe -m pytest -q `
+  -p no:cacheprovider --basetemp .pytest_tmp\full
+```
+
+Edge wurde direkt per Playwright mit der installierten normalen Edge-Engine
+getestet, nicht über den Codex-In-App-Browser:
+
+| Viewport | Ergebnis |
+|---|---|
+| 390 x 844 | kein horizontaler Seitenüberlauf; zwei Reihen mit 4 Touch-Zielen |
+| 820 x 1180 | Sidebar und Hauptinhalt ohne Überlauf; Bottom-Navigation korrekt verborgen |
+
+Zusätzlich verifiziert:
+
+- 15K zeigt bei 100 Euro Startguthaben standardmäßig 25 Euro Einsatz.
+- Alle acht Arbeitsbereiche bleiben direkt erreichbar.
+- Multi-Sport zeigt Sportart und danach Liga.
+- Basketball zeigt ein Basketball-Beispiel.
+- Keine sichtbaren Button- oder Label-Überläufe in den geprüften Ansichten.
+
+## 12. Offene Prioritäten
+
+### P0 - extern und vor ernsthafter Echtgeldnutzung
+
+1. Alle historisch exponierten Secrets rotieren.
+2. Gültiges dauerhaftes PostgreSQL/Supabase-Projekt anbinden.
+3. Authentifizierung und stabile `user_id` für Konten und Ledger einführen.
+4. N1Bet-Regeln für Void, Verlängerung, Early Payout und Marktlinien
+   schriftlich gegen die Settlement-Implementierung prüfen.
+
+### P1 - Evidenz
+
+1. Die eingefrorene Shadow-Policy über die beginnenden Ligen laufen lassen.
+2. Dropout-Funnel nach Modell-, Kontext- und Preisgrund versionsweise
+   auswerten.
+3. Keine Schwelle auf demselben Zeitraum wählen und beweisen.
+4. Erst nach ausreichender Stichprobe CLV, Kalibrierung und No-Vig-Benchmark
+   beurteilen.
+
+### P2 - Betrieb
+
+1. API-Budget zentralisieren.
+2. Cloud-Persistenz und Neustartverhalten testen.
+3. Nach jedem Push die echte Streamlit-App auf Commitstand und Mobilansicht
+   prüfen.
+
+## 13. Betrieb und Übergabe
+
+Lokale App:
+
+```powershell
+.\.codex_test_venv\Scripts\python.exe -m streamlit run app.py
+```
+
+Vor einem Commit:
+
+```powershell
 git status --short
+git diff --check
 ```
 
-Vor Commit und Push müssen beide Befehle sauber sein. Datenbanken, Secrets, Modellartefakte und QA-Screenshots dürfen nicht staged werden.
+Die ungetrackte Datei `logs/pipeline_2026-07-31.log` ist bestehender Laufoutput
+und darf nicht committed oder gelöscht werden.
 
-### Browser-QA
+Verbindliche Übergaberegeln:
 
-Vor einer UI-Veröffentlichung mindestens prüfen:
-
-1. `Spiele`, `Märkte`, `Live`, `System`, `15K Challenge`, `Multi-Sport` öffnen.
-2. Smartphone, Tablet und Desktop testen.
-3. Keine Root-Überbreite und keine Streamlit-Exception.
-4. Providerfehler müssen als Fehler erscheinen, nicht als "keine Spiele".
-5. Challenge darf bei unzureichenden Daten kein Ticket erzeugen.
-
-Letzte Produktionsprüfung am 19. Juli 2026 mit installiertem Google Chrome:
-`Spiele`, `Märkte`, `15K Challenge` und `System` zeigten nach Auswahl von
-`Alle` jeweils den gemeinsamen Umfang von 44 Ligen. Bei 390 Pixel Breite waren
-Viewport und Dokument exakt gleich breit; der Browser meldete keine
-Laufzeit-Exception.
-
-Lokale Multi-Sport-Prüfung am 20. Juli 2026 mit installiertem Google Chrome:
-Basketball zeigte ausschließlich den Filter `Liga`, E-Sport ausschließlich
-`Spiel`, Tennis keinen fremden Detailfilter. Bei 1280 und 390 Pixel Breite waren
-Viewport, Root und Body jeweils exakt gleich breit; Browserkonsole und
-Seitenlaufzeit meldeten keine Fehler.
-
-Produktive Multi-Sport-Prüfung am 20. Juli 2026 mit installiertem Google Chrome:
-EuroLeague und Tennis erzeugten aktuelle Snapshots, meldeten korrekt null laufende
-Ereignisse und keinen Providerfehler. Bei 390 Pixel Breite waren Cloud-Hülle und
-eingebettete App exakt 390 Pixel breit; es gab keine Seitenlaufzeit-Exception. Ein
-HTTP 403 auf Streamlits Plattformpfad `/api/v1/app/event/open` betraf nur das
-Cloud-Öffnungsereignis und blockierte weder App noch Sportdaten.
-
-Abschließende öffentliche Gesamtprüfung nach `613447f` am 20. Juli 2026:
-API-Football Pro war in der App als aktiv sichtbar. `Spiele`, `Märkte`, `Live`,
-`System`, `15K Challenge` und `Multi-Sport` ließen sich öffnen und zeigten ihre
-aktuellen primären Aktionen. Bei 1280 × 800 und 390 × 844 Pixeln betrug der
-horizontale Root-Überlauf 0 Pixel. Es gab keine Seiten- oder Browserkonsolenfehler.
-Der einzige beobachtete HTTP 403 blieb das nicht fachliche Streamlit-Telemetrieereignis
-`/api/v1/app/event/open`; es war kein Fehler von API-Football oder einem anderen
-Sportdatenprovider.
-
-## 17. Lokale Inbetriebnahme
-
-```powershell
-cd C:\Users\miros\Desktop\BetBoy\betboy-app
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-streamlit run app.py
-```
-
-Danach ist die App standardmäßig über `http://localhost:8501` erreichbar. Falls der Port belegt ist:
-
-```powershell
-streamlit run app.py --server.port 8502
-```
-
-Für lokale Konfiguration `config.ini.example` nach `config.ini` übertragen und Werte nur lokal eintragen. Für Streamlit Cloud `.streamlit/secrets.example.toml` als Schema verwenden und die echten Werte in den App-Secrets pflegen.
-
-## 18. Deployment
-
-Der produktive Code liegt auf `main`. Ein Push auf `main` stößt das Streamlit-Deployment an.
-
-Die zuletzt vollständig geprüfte funktionale Codebasis ist `613447f`. Vor diesem
-Handbuch-Nachtrag waren lokaler `HEAD`, `origin/main` und der öffentlich geprüfte
-Stand identisch. Ein späterer reiner Dokumentationscommit ändert die App-Logik nicht;
-für den jeweils aktuellen Branch-Hash bleibt `git rev-parse HEAD` maßgeblich.
-
-```powershell
-git add -A
-git commit -m "Beschreibende Commit-Nachricht"
-git push origin main
-```
-
-Nach dem Push:
-
-1. GitHub-Remote-Hash gegen lokalen Hash prüfen.
-2. Streamlit einige Minuten für den Build geben.
-3. Schlafende App über die Live-URL aufwecken.
-4. Providerstatus und alle Hauptseiten in normalem Chrome prüfen.
-5. Keine Secrets oder vollständigen Providerpayloads in Logs ausgeben.
-6. Nicht nur den App-Titel, sondern in allen sechs Bereichen die aktuelle primäre Aktion prüfen; damit werden alte importierte Workflow-Module erkannt.
-
-## 19. Arbeitsregeln für Claude oder weitere Entwickler
-
-Diese Regeln dürfen nicht still gelockert werden:
-
-1. Quoten niemals als Feature zur Erzeugung oder Erhöhung der Modellwahrscheinlichkeit verwenden.
-2. `FOOTBALL_DATA_API_KEY` niemals an API-Football-Endpunkte senden.
-3. Providerfehler nicht als leere erfolgreiche Datenmenge behandeln.
-4. Keine erfundenen Quoten, Zeitstempel, Lineups oder Statistiken einsetzen.
-5. Boolean, NaN und Infinity nicht still als Zahlen akzeptieren.
-6. Alle produktiven Zeitstempel zeitzonenfähig und bevorzugt in UTC verarbeiten.
-7. Walk-forward chronologisch und nach Spieltag gruppieren.
-8. Validierungsmetriken vollständig prüfen; ein einzelnes `calibrated`-Flag reicht nicht.
-9. Fehlende Sportdaten nicht automatisch zu Null machen.
-10. Explorative Signale ohne OOS-Validierung erhalten keinen Kelly-Stake und keine Fair-Price-Behauptung.
-11. Challenge-Gates nicht lockern, nur damit eine tägliche Auswahl erscheint.
-12. Vor Änderungen bestehende Tests und Datenverträge lesen.
-13. Dirty Worktree respektieren und fremde Änderungen nicht zurücksetzen.
-14. Keine Secrets, SQLite-Dateien oder Modell-Binaries committen.
-15. Nach Änderungen Tests, `git diff --check` und responsive Chrome-QA ausführen.
-16. Glücksspiel nie als sicher, garantiert oder risikofrei vermarkten.
-
-## 20. Empfohlener nächster Arbeitsauftrag
-
-Der nächste sinnvolle Entwicklungsblock ist die Produktionspersistenz:
-
-1. Neue gültige Supabase-Verbindung einrichten.
-2. `ChallengeLedger` hinter ein Storage-Interface stellen.
-3. PostgreSQL-Implementierung mit Benutzer-ID ergänzen.
-4. Bestehende SQLite-Tests als Vertragsbasis behalten.
-5. Migration, Neustart und Mehrbenutzerszenario testen.
-6. Mit dem aktiven API-Football-Pro-Zugang reale Datenqualität und CLV im Shadow Mode beobachten.
-
-## 21. Übergabeprompt für Claude
-
-```text
-Lies zuerst PROJECT_HANDBUCH.md vollständig und behandle es als aktuellen
-Projektvertrag. Prüfe danach git status, den letzten Commit und die betroffenen
-Tests. Bewahre insbesondere Modell/Preis-Trennung, Fail-closed-Datenverträge,
-day-grouped Walk-forward, die Trennung von Challenge-Einsatz und Kelly-Referenz und die Trennung der beiden
-Fußball-APIs. Ändere keine Schwelle nur mit dem Ziel, mehr Tipps auszugeben.
-Arbeite bis Implementierung, Tests und eine klare Zusammenfassung abgeschlossen
-sind. Committe oder pushe nur, wenn dies ausdrücklich beauftragt wurde.
-```
-
-## 22. Übergabestatus
-
-Der Funktionsstand `613447f` vom 20. Juli 2026 ist die aktuelle belastbare Basis: API-Football Pro ist aktiv, alle Fußball-Arbeitsbereiche verwenden denselben kanonischen 44-Ligen-Katalog, die Challenge trennt den konfigurierbaren 5–100-%-Einsatz von der Kelly-Referenz, und `190` Tests plus `5` Subtests bestehen. Alle nutzerseitigen Suchbereiche enden nun in `WETTEN`, `NICHT WETTEN` oder `PREIS ERFORDERLICH`; Rohdaten und Zähler sind nur Prüfdetails. BTTS, strikte Fußballmärkte, Live-Resttore, Teamtore, Platzverweise sowie Basketball-, NHL- und E-Sport-v1-Modelle führen über Mindestquote, Edge, EV und Einsatzreferenz zur Entscheidung; Tennis und Cricket bleiben mangels ausreichender Modellinputs gesperrt. Die lokale und öffentliche Chrome-QA bestand bei 1280 und echten 390 Pixeln ohne Überlauf, Seiten- oder Konsolenfehler. Der Cloud-Rollout ist einschließlich der behobenen Mischversion alter Streamlit-Module dokumentiert. Noch offen sind primär dauerhafte Speicherung, Benutzertrennung, echte N1Bet-Livepreise sowie sportartspezifische OOS-/CLV-Kalibrierung. Diese offenen Punkte dürfen nicht mit einer Modellgarantie verwechselt werden.
+- Keine Geheimnisse in Chat, Git, Tests, Screenshots oder Dokumentation.
+- Kein `WETTEN` ohne belastbare Modell- und Preisfreigabe.
+- Kein „sicher“, „bewiesen“ oder „profitabel“ ohne unabhängige Evidenz.
+- Backtest und Testgrün sind keine Echtgeldfreigabe.
+- Ein Haircut ersetzt keine fehlenden Daten.
+- Preis und Modell bleiben getrennt.
+- Monitoring darf intern Evidenz sammeln, ist aber nicht das Nutzerprodukt.
+- Junge Shadow-Daten werden gesammelt, nicht schöngeredet und nicht durch
+  gelockerte Gates künstlich vergrößert.

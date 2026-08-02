@@ -199,12 +199,49 @@ class ServeReturnModel:
                 keys.append(HARD_INDOOR_KEY)  # keep "Hard" not-indoor-pure
             else:
                 keys.append(surface)
-        self._add_player(row, "win", "los", keys, moment)
-        self._add_player(row, "los", "win", keys, moment)
+        winner = self._player_name(row, "win")
+        loser = self._player_name(row, "los")
+        # Snapshot both opponent rates before either player consumes this match.
+        # Otherwise the loser would be adjusted against a winner rate that
+        # already contains the same match.
+        winner_opponent_rates = self.hold_and_break(loser or "", None, as_of=moment)
+        loser_opponent_rates = self.hold_and_break(winner or "", None, as_of=moment)
+        self._add_player(
+            row,
+            "win",
+            "los",
+            keys,
+            moment,
+            opponent_rates=winner_opponent_rates,
+        )
+        self._add_player(
+            row,
+            "los",
+            "win",
+            keys,
+            moment,
+            opponent_rates=loser_opponent_rates,
+        )
 
     _NAME_COLUMN = {"win": "winner_key", "los": "loser_key"}
 
-    def _add_player(self, row, me: str, opp: str, keys, moment) -> None:
+    def _player_name(self, row, side: str) -> Optional[str]:
+        name = row.get(self._NAME_COLUMN[side])
+        if not name:
+            raw = row.get("winner_name" if side == "win" else "loser_name")
+            name = normalize_player_name(raw)
+        return name if isinstance(name, str) and name else None
+
+    def _add_player(
+        self,
+        row,
+        me: str,
+        opp: str,
+        keys,
+        moment,
+        *,
+        opponent_rates: Optional[Tuple[float, float]] = None,
+    ) -> None:
         # rows must already carry normalized keys (add_normalized_names);
         # fall back to normalizing the raw name so callers can't mismatch
         name = row.get(self._NAME_COLUMN[me])
@@ -227,9 +264,14 @@ class ServeReturnModel:
 
         # opponent's CURRENT overall rates (before this match) for the
         # schedule adjustment; tour average when the opponent is unknown
-        opp_hold, opp_break = self.hold_and_break(
-            opp_name if isinstance(opp_name, str) else "", None, as_of=moment
-        )
+        if opponent_rates is None:
+            opp_hold, opp_break = self.hold_and_break(
+                opp_name if isinstance(opp_name, str) else "",
+                None,
+                as_of=moment,
+            )
+        else:
+            opp_hold, opp_break = opponent_rates
 
         for key in keys:
             acc = self._table[(name, key)]

@@ -41,14 +41,14 @@ def _fmt_chf(value: float) -> str:
     return f"{value:+.2f} CHF".replace(".", ",")
 
 
-def render_ev_checker() -> None:
+def render_ev_checker(scope: str | None = None) -> None:
     st.markdown(
         "Prüfe **vor jeder eigenen Wette**, ob der Preis stimmt: Die Quote ist "
         "kein Tipp, sie ist ein Preis. Du spielst nur, wenn deine Einschätzung "
         "deutlich über der Break-even-Marke der Quote liegt."
     )
 
-    signals = list_signals()
+    signals = list_signals(scope=scope)
     by_key = {signal.key: signal for signal in signals}
 
     def _apply_signal() -> None:
@@ -137,7 +137,10 @@ def render_ev_checker() -> None:
     )
 
     if label == VERDICT_BET:
-        st.success(f"**{label} — Preis ist falsch zu deinen Gunsten.** {reason}")
+        st.success(
+            f"**{label} — unter dieser Wahrscheinlichkeitsannahme rechnerisch positiv.** "
+            f"{reason}"
+        )
     elif label == VERDICT_CLOSE:
         st.warning(f"**{label} — Finger weg.** {reason}")
     else:
@@ -148,7 +151,8 @@ def render_ev_checker() -> None:
         f"Langfristig-Bild: Bei 100 gleichen Wetten à {stake:.0f} CHF "
         f"(gesamt {stake * 100:.0f} CHF gesetzt) ist dein erwartetes Ergebnis "
         f"**{_fmt_chf(hundred)}**. Die einzelne Wette ist Zufall — "
-        "100 Wetten sind Arithmetik."
+        "auch 100 Wetten folgen dieser Rechnung nur, wenn die verwendete "
+        "Wahrscheinlichkeit wirklich kalibriert ist."
     )
 
     with st.expander("Warum KNAPP schon NEIN bedeutet?"):

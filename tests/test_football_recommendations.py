@@ -65,6 +65,7 @@ def test_live_candidate_fails_closed_for_stale_snapshot():
             "minute": 54,
             "score": "1-0",
             "live_data_quality": "MEDIUM",
+            "model_calibrated": True,
             "red_cards": {"supported": True, "status": "VERIFIED_NONE"},
         },
         market="Noch ein Tor",
@@ -74,6 +75,27 @@ def test_live_candidate_fails_closed_for_stale_snapshot():
     )
     assert candidate.model_ready is False
     assert any("älter als zwei Minuten" in reason for reason in candidate.blockers)
+
+
+def test_live_candidate_blocks_uncalibrated_model():
+    candidate = live_football_candidate(
+        {
+            "fixture_id": 77,
+            "home_team": "Alpha",
+            "away_team": "Beta",
+            "minute": 54,
+            "score": "1-0",
+            "live_data_quality": "MEDIUM",
+            "red_cards": {"supported": True, "status": "VERIFIED_NONE"},
+        },
+        market="Noch ein Tor",
+        selection="Mindestens 1 weiteres Tor",
+        probability=72.0,
+        snapshot_age_seconds=30,
+    )
+
+    assert candidate.model_ready is False
+    assert any("Kalibrierungsnachweis" in reason for reason in candidate.blockers)
 
 
 def test_red_card_candidate_selects_strongest_next_goal_outcome():
@@ -96,6 +118,8 @@ def test_red_card_candidate_selects_strongest_next_goal_outcome():
                 "no_more_goals": 0.22,
                 "data_quality": "MEDIUM",
                 "too_late_for_signal": False,
+                "calibrated": True,
+                "actionable": True,
             },
         },
         snapshot_age_seconds=30,
@@ -104,6 +128,33 @@ def test_red_card_candidate_selects_strongest_next_goal_outcome():
     assert candidate.selection == "Beta"
     assert candidate.model_probability == 64.0
     assert candidate.risk_adjusted_probability == 49.0
+
+
+def test_red_card_candidate_blocks_uncalibrated_shadow_model():
+    candidate = red_card_candidate(
+        {
+            "home": "Alpha",
+            "away": "Beta",
+            "score": "0-1",
+            "opponent": "Beta",
+            "prediction_minute": 61,
+            "fixture_red_card_count": 1,
+            "card": {"card_id": "card", "team": "Alpha", "minute": 60},
+            "prediction": {
+                "next_goal_by_opponent": 0.70,
+                "next_goal_by_red_team": 0.10,
+                "no_more_goals": 0.20,
+                "data_quality": "MEDIUM",
+                "too_late_for_signal": False,
+                "calibrated": False,
+                "actionable": False,
+            },
+        },
+        snapshot_age_seconds=30,
+    )
+
+    assert candidate.model_ready is False
+    assert any("Shadow-Evidenz" in reason for reason in candidate.blockers)
 
 
 def test_red_card_candidate_blocks_multiple_dismissals():

@@ -74,7 +74,7 @@ class RedCardImpactPredictor:
         'away_red_extra_penalty': 0.95,  # Auswärtsrot = extra 5% Nachteil
     }
 
-    # Context-layer priors, calibrated on the 1,132-dismissal history
+    # Context-layer priors fitted on the 1,132-case development history.
     # (2025-10-22 to 2026-07-30, 6,660 matches, exposure-normalised per
     # 100 minutes at 11-v-10; baseline rates 2.81 for the 11-man team,
     # 0.69 for the 10-man team):
@@ -101,7 +101,7 @@ class RedCardImpactPredictor:
     BOOST_RANGE = (1.0, 2.0)
     PENALTY_RANGE = (0.15, 1.5)
 
-    # Minutes-since-card layer, calibrated on the same 1,132-case history
+    # Minutes-since-card layer fitted on the same development history.
     # (fine phase grid, per-100-min rates):
     # - SHOCK phase 0-10 min: the 10-man attack is at its weakest right
     #   after the card (0.52/100min = x0.75 vs baseline) — reorganisation,
@@ -213,7 +213,7 @@ class RedCardImpactPredictor:
             boost *= boost_mult
             penalty *= penalty_mult
             applied.append(
-                f"score state {goal_diff:+d} (history-calibrated U-shape)"
+                f"score state {goal_diff:+d} (development-history U-shape)"
             )
 
         # 3. Late-game escalation: history shows the trailing side throws
@@ -325,8 +325,9 @@ class RedCardImpactPredictor:
             live_stats: Optional - {shots_home, shots_away, xg_home, xg_away, ...}
             prior_home_goals: Optional - Prematch-Torerwartung Heim (staerkt
                 das Kontext-Adjustment: staerkeres 10-Mann-Team wird weniger
-                bestraft; Spielstand-Layer ist an der 1.132-Faelle-Historie
-                kalibriert: U-Form, führendes 10-Mann-Team kassiert mehr)
+                bestraft; Spielstand-Layer wurde an der 1.132-Faelle-
+                Entwicklungshistorie angepasst: U-Form, führendes
+                10-Mann-Team kassiert mehr)
             prior_away_goals: Optional - Prematch-Torerwartung Auswaerts
             red_card_minute: Optional - Minute des Platzverweises. Steuert
                 die Minuten-seit-Karte-Schicht: Schockphase 0-10 Minuten
@@ -524,9 +525,9 @@ class RedCardImpactPredictor:
             data_quality=data_quality,
             too_late_for_signal=too_late,
             context_effects=effects,
-            # Freigeschaltet: Signale sind sichtbar/spielbar, bleiben aber
-            # unkalibriert (kein Marktpreis-Beweis) — calibrated bleibt False.
-            actionable=bool(model_signals) and not too_late,
+            # Research signal only until chronological shadow validation
+            # supplies independent calibration evidence.
+            actionable=False,
         )
     
     def format_prediction(

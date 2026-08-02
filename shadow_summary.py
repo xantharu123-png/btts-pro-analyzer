@@ -2,8 +2,12 @@
 """Tägliche Shadow-CLV-Zusammenfassung."""
 import sqlite3, os, sys, json, traceback
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
-db_path = r"C:\Users\miros\Desktop\BetBoy\betboy-app\shadow_clv.db"
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+db_path = str(Path(__file__).resolve().with_name("shadow_clv.db"))
 output = []
 
 def log(*args):

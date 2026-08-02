@@ -14,17 +14,15 @@ Two disciplines keep the metric honest:
   into the summary inflates hit rate and Brier with records nobody
   could have bet pre-match — the first 30-row batch carried 33 % of
   those (E1 audit finding).
-- STALE ROWS ARE VOIDED.  Abandoned or forfeited matches never reach
-  PandaScore "finished"; without an expiry they would sit in "open"
-  forever.  Rows older than ``STALE_AFTER_DAYS`` without a result are
-  settled as void (hit = NULL) and excluded from every rate.
+- EXPLICIT SETTLEMENT ONLY. Provider gaps remain open and rotate through the
+  retry queue. Only a provider-confirmed cancellation is voided.
 """
 
 from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -35,7 +33,11 @@ from scanners.esports_scanner import EsportsScanner
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "esports_shadow.db"
 MAX_SETTLE_CALLS_PER_RUN = 15
-STALE_AFTER_DAYS = 10
+STALE_AFTER_DAYS = 30
+ESPORTS_MODEL_VERSION = "subgraph-elo-v2"
+ESPORTS_RELEASE_MIN_SETTLED = 100
+ESPORTS_RELEASE_MAX_CALIBRATION_GAP = 0.08
+ESPORTS_RELEASE_MAX_BRIER = 0.25
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS esports_shadow_predictions (
@@ -58,7 +60,11 @@ CREATE TABLE IF NOT EXISTS esports_shadow_predictions (
     settled INTEGER NOT NULL DEFAULT 0,
     winner_team_id INTEGER,
     hit INTEGER,
-    settled_at TEXT
+    settled_at TEXT,
+    scheduled_at TEXT,
+    model_version TEXT,
+    last_checked_at TEXT,
+    check_attempts INTEGER NOT NULL DEFAULT 0
 )
 """
 
@@ -68,6 +74,24 @@ class EsportsShadowLog:
         self._db_path = Path(db_path)
         with closing(self._connect()) as connection:
             connection.execute(_SCHEMA)
+            existing = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(esports_shadow_predictions)"
+                )
+            }
+            additions = {
+                "scheduled_at": "TEXT",
+                "model_version": "TEXT",
+                "last_checked_at": "TEXT",
+                "check_attempts": "INTEGER NOT NULL DEFAULT 0",
+            }
+            for column, column_type in additions.items():
+                if column not in existing:
+                    connection.execute(
+                        f"ALTER TABLE esports_shadow_predictions "
+                        f"ADD COLUMN {column} {column_type}"
+                    )
             connection.commit()
 
     def _connect(self) -> sqlite3.Connection:
@@ -91,6 +115,17 @@ class EsportsShadowLog:
                     continue
                 if match.get("status") != "upcoming":
                     continue
+                score1 = match.get("team1_score")
+                score2 = match.get("team2_score")
+                if (
+                    isinstance(score1, bool)
+                    or isinstance(score2, bool)
+                    or not isinstance(score1, int)
+                    or not isinstance(score2, int)
+                    or score1 != 0
+                    or score2 != 0
+                ):
+                    continue
                 match_id = match.get("id")
                 if (
                     not isinstance(match_id, int)
@@ -103,11 +138,12 @@ class EsportsShadowLog:
                     continue
                 team1_id = match.get("team1_id")
                 team2_id = match.get("team2_id")
-                selected_team_id = (
-                    team1_id
-                    if candidate.selection == match.get("team1")
-                    else team2_id
-                )
+                if candidate.selection == match.get("team1"):
+                    selected_team_id = team1_id
+                elif candidate.selection == match.get("team2"):
+                    selected_team_id = team2_id
+                else:
+                    continue
                 if not isinstance(selected_team_id, int) or selected_team_id <= 0:
                     continue
                 elo1, elo2, _subgraph_size = subgraph_ratings(
@@ -122,8 +158,9 @@ class EsportsShadowLog:
                         match_id, logged_at, game, team1, team2,
                         selected_team_id, selection, status, series_type,
                         score1, score2, elo1, elo2, model_probability,
-                        risk_adjusted_probability, minimum_odds
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        risk_adjusted_probability, minimum_odds,
+                        scheduled_at, model_version
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         match_id,
@@ -135,13 +172,15 @@ class EsportsShadowLog:
                         str(candidate.selection or ""),
                         str(match.get("status") or "live"),
                         int(match.get("series_type") or 0),
-                        int(match.get("team1_score") or 0),
-                        int(match.get("team2_score") or 0),
+                        score1,
+                        score2,
                         float(elo1),
                         float(elo2),
                         float(candidate.model_probability),
                         float(candidate.risk_adjusted_probability),
                         float(candidate.minimum_odds),
+                        str(match.get("begin_at") or "").strip() or None,
+                        ESPORTS_MODEL_VERSION,
                     ),
                 )
                 logged += cursor.rowcount
@@ -157,26 +196,29 @@ class EsportsShadowLog:
     ) -> int:
         """Settle open predictions against finished match results.
 
-        Rows whose match never reaches "finished" (abandoned, forfeited
-        without winner, provider amnesia) are voided once they are older
-        than ``stale_after_days``: settled with hit = NULL, excluded from
-        every rate.  Returns the number of rows scored (hits + misses).
+        Missing results stay open and rotate to the back of the queue. A row
+        is voided only when the provider explicitly reports a canceled match;
+        time or a transient API failure is not settlement evidence.
         """
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
                 SELECT match_id, selected_team_id, series_type, score1, score2,
-                       logged_at
+                       logged_at, last_checked_at, check_attempts
                 FROM esports_shadow_predictions
                 WHERE settled = 0
-                ORDER BY logged_at ASC
+                ORDER BY
+                    CASE WHEN last_checked_at IS NULL THEN 0 ELSE 1 END,
+                    last_checked_at ASC,
+                    logged_at ASC,
+                    match_id ASC
                 LIMIT ?
                 """,
                 (max_calls,),
             ).fetchall()
         settled = 0
         now = datetime.now(timezone.utc)
-        stale_before = now - timedelta(days=stale_after_days)
+        del stale_after_days
         with closing(self._connect()) as connection:
             for row in rows:
                 try:
@@ -184,21 +226,29 @@ class EsportsShadowLog:
                 except Exception:
                     result = None
                 winner_id = result.get("winner_team_id") if isinstance(result, dict) else None
+                explicitly_void = bool(
+                    isinstance(result, dict) and result.get("void") is True
+                )
                 if (
                     not isinstance(winner_id, int)
                     or isinstance(winner_id, bool)
                     or winner_id <= 0
                 ):
-                    # no usable result — void once the row is stale
-                    try:
-                        logged_at = datetime.fromisoformat(str(row["logged_at"]))
-                    except ValueError:
-                        logged_at = None
-                    if logged_at is not None and logged_at < stale_before:
+                    if explicitly_void:
                         connection.execute(
                             """
                             UPDATE esports_shadow_predictions
                             SET settled = 1, hit = NULL, settled_at = ?
+                            WHERE match_id = ?
+                            """,
+                            (now.isoformat(), int(row["match_id"])),
+                        )
+                    else:
+                        connection.execute(
+                            """
+                            UPDATE esports_shadow_predictions
+                            SET last_checked_at = ?,
+                                check_attempts = check_attempts + 1
                             WHERE match_id = ?
                             """,
                             (now.isoformat(), int(row["match_id"])),
@@ -237,9 +287,15 @@ class EsportsShadowLog:
                        AVG(CASE WHEN settled = 1 AND hit IS NOT NULL
                            THEN model_probability END) AS avg_prob,
                        AVG(CASE WHEN settled = 1 AND hit IS NOT NULL
+                           THEN risk_adjusted_probability END) AS avg_risk_prob,
+                       AVG(CASE WHEN settled = 1 AND hit IS NOT NULL
                            THEN (model_probability / 100.0 - hit)
                                 * (model_probability / 100.0 - hit)
-                           END) AS brier
+                           END) AS brier,
+                       AVG(CASE WHEN settled = 1 AND hit IS NOT NULL
+                           THEN (risk_adjusted_probability / 100.0 - hit)
+                                * (risk_adjusted_probability / 100.0 - hit)
+                           END) AS risk_brier
                 FROM esports_shadow_predictions
                 WHERE status = 'upcoming'
                 """
@@ -264,14 +320,50 @@ class EsportsShadowLog:
                 if totals["avg_prob"] is not None
                 else None
             ),
+            "avg_risk_adjusted_probability": (
+                round(float(totals["avg_risk_prob"]), 1)
+                if totals["avg_risk_prob"] is not None
+                else None
+            ),
             "brier_score": (
                 round(float(totals["brier"]), 4)
                 if totals["brier"] is not None
                 else None
             ),
+            "risk_adjusted_brier_score": (
+                round(float(totals["risk_brier"]), 4)
+                if totals["risk_brier"] is not None
+                else None
+            ),
             "open": total - scored_n - voided_n,
             "voided": voided_n,
             "live_records": int(live_n or 0),
+        }
+
+    def release_status(self) -> Dict[str, Any]:
+        summary = self.summary()
+        settled = int(summary["settled"])
+        hit_rate = summary.get("hit_rate")
+        average = summary.get("avg_risk_adjusted_probability")
+        brier = summary.get("risk_adjusted_brier_score")
+        gap = (
+            abs(float(hit_rate) - float(average)) / 100.0
+            if hit_rate is not None and average is not None
+            else None
+        )
+        ready = bool(
+            settled >= ESPORTS_RELEASE_MIN_SETTLED
+            and gap is not None
+            and gap <= ESPORTS_RELEASE_MAX_CALIBRATION_GAP
+            and brier is not None
+            and brier <= ESPORTS_RELEASE_MAX_BRIER
+        )
+        return {
+            "ready": ready,
+            "settled": settled,
+            "required": ESPORTS_RELEASE_MIN_SETTLED,
+            "calibration_gap": gap,
+            "brier_score": brier,
         }
 
 

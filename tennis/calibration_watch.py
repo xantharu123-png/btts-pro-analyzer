@@ -138,10 +138,20 @@ def evaluate(buckets: Dict, n_scored: int) -> Dict:
     offered_drift = any(
         markets.get(mk, {}).get("drift") for mk in WATCHED_MARKETS
     )
+    missing_markets = [
+        market for market in WATCHED_MARKETS if market not in markets
+    ]
+    if offered_drift:
+        status = "drift"
+    elif missing_markets:
+        status = "insufficient"
+    else:
+        status = "ok"
     return {
         "n_scored": n_scored,
         "markets": markets,
-        "status": "drift" if offered_drift else "ok",
+        "missing_markets": missing_markets,
+        "status": status,
         "limits": {"rms": RMS_DRIFT_LIMIT, "mid_bias": BIAS_DRIFT_LIMIT},
     }
 

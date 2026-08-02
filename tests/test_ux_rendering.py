@@ -12,7 +12,7 @@ module-level helpers, constants, or imports.
 
 from streamlit.testing.v1 import AppTest
 
-from ui_components import plain_german
+from ui_components import _example_ticket_html, plain_german
 
 
 def _run_zero_ready() -> None:
@@ -182,3 +182,12 @@ def test_plain_german_replaces_model_jargon():
         "Markt hat das Walk-forward-Gate nicht bestanden"
     )
     assert plain_german("normaler Text") == "normaler Text"
+
+
+def test_empty_state_supports_sport_specific_escaped_example():
+    rendered = _example_ticket_html(
+        ("Spieler <A>", "Sieg & Satzvorsprung @ 2,10"),
+    )
+    assert "Spieler &lt;A&gt;" in rendered
+    assert "Sieg &amp; Satzvorsprung" in rendered
+    assert "Beide treffen" not in rendered

@@ -110,6 +110,55 @@ class ScanJobTests(unittest.TestCase):
         (self.tmp / "kaputt.json").write_text("{kein json", encoding="utf-8")
         self.assertIsNone(scan_jobs.load_persisted("kaputt", jobs_dir=self.tmp))
 
+    def test_session_scopes_are_stable_and_isolated(self):
+        first = {}
+        second = {}
+        first_scope = scan_jobs.session_scope(first)
+        self.assertEqual(scan_jobs.session_scope(first), first_scope)
+        self.assertNotEqual(scan_jobs.session_scope(second), first_scope)
+
+    def test_scoped_persistence_does_not_mix_sessions(self):
+        scan_jobs._persist("live", {"value": 1}, scope="session-a")
+        scan_jobs._persist("live", {"value": 2}, scope="session-b")
+        self.assertEqual(
+            scan_jobs.load_persisted(
+                "live",
+                jobs_dir=self.tmp,
+                scope="session-a",
+            )["value"],
+            1,
+        )
+        self.assertEqual(
+            scan_jobs.load_persisted(
+                "live",
+                jobs_dir=self.tmp,
+                scope="session-b",
+            )["value"],
+            2,
+        )
+
+    def test_timed_out_generation_cannot_overwrite_restart(self):
+        def slow(progress_cb=None):
+            time.sleep(0.2)
+            return "old"
+
+        self.assertTrue(
+            scan_jobs.start_job("test", slow, timeout_seconds=0.03)
+        )
+        time.sleep(0.05)
+        self.assertEqual(scan_jobs.get_job("test")["state"], "error")
+        self.assertTrue(
+            scan_jobs.start_job(
+                "test",
+                lambda progress_cb=None: "new",
+                timeout_seconds=1,
+            )
+        )
+        current = _wait_for_state("test", {"done"})
+        self.assertEqual(current["result"], "new")
+        time.sleep(0.2)
+        self.assertEqual(scan_jobs.get_job("test")["result"], "new")
+
 
 class RunningPagesTests(unittest.TestCase):
     """Seiten-Rädchen: running_pages bildet laufende Jobs auf Seiten ab."""
@@ -153,6 +202,23 @@ class RunningPagesTests(unittest.TestCase):
             self.assertEqual(scan_jobs.running_pages(self.MAPPING), {"Live"})
         finally:
             _wait_for_state("live", {"done"})
+
+    def test_running_pages_can_be_session_scoped(self):
+        scope = "abc"
+        key = scan_jobs.scoped_key("prematch", scope)
+        scan_jobs.start_job(
+            key,
+            lambda progress_cb=None: time.sleep(0.2) or 1,
+        )
+        try:
+            self.assertEqual(
+                scan_jobs.running_pages(self.MAPPING, scope=scope),
+                {"Spiele"},
+            )
+            self.assertEqual(scan_jobs.running_pages(self.MAPPING), set())
+        finally:
+            _wait_for_state(key, {"done"})
+            scan_jobs.clear_job(key)
 
 
 if __name__ == "__main__":

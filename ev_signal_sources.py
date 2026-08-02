@@ -69,16 +69,16 @@ def tennis_signals(
     db_path: Union[str, Path] = TENNIS_DB,
     today: Optional[str] = None,
 ) -> List[ModelSignal]:
-    """Offene Tennis-Predictions ab heute — beide Spielerseiten als Signale.
-
-    p_cal ist die kalibrierte Sieg-Wahrscheinlichkeit von player_a.
-    """
+    """Return only open, fully released tennis price decisions."""
     today = today or date.today().isoformat()
     rows = _read_rows(
         db_path,
-        """SELECT id, match_date, tour, tournament, player_a, player_b, p_cal
+        """SELECT id, match_date, tour, tournament, player_a, player_b,
+                  p_cal, verdict, recommended_side
            FROM predictions
            WHERE settled = 0 AND match_date >= ?
+             AND verdict = 'WETTE'
+             AND recommended_side IN ('A', 'B')
            ORDER BY match_date, id""",
         (today,),
     )
@@ -91,40 +91,52 @@ def tennis_signals(
             f"Tennis-Shadow · {row['tour']} · {row['tournament']} · "
             f"{row['match_date']}"
         )
-        for side, player, prob in (
-            ("A", row["player_a"], p_a),
-            ("B", row["player_b"], 1.0 - p_a),
-        ):
-            signals.append(
-                ModelSignal(
-                    key=f"tennis-{row['id']}-{side}",
-                    label=(
-                        f"🎾 {row['player_a']} vs {row['player_b']} · "
-                        f"Sieg {player}"
-                    ),
-                    probability=prob,
-                    detail=detail,
-                )
+        side = row["recommended_side"]
+        player = row["player_a"] if side == "A" else row["player_b"]
+        probability = p_a if side == "A" else 1.0 - p_a
+        signals.append(
+            ModelSignal(
+                key=f"tennis-{row['id']}-{side}",
+                label=(
+                    f"🎾 {row['player_a']} vs {row['player_b']} · "
+                    f"Sieg {player}"
+                ),
+                probability=probability,
+                detail=detail,
             )
+        )
     return signals
 
 
-def esports_signals(db_path: Union[str, Path] = ESPORTS_DB) -> List[ModelSignal]:
+def esports_signals(
+    db_path: Union[str, Path] = ESPORTS_DB,
+    *,
+    require_released: bool = True,
+) -> List[ModelSignal]:
     """Pre-Match-E-Sport-Predictions (Status 'upcoming').
 
     model_probability liegt in Prozent vor (55.27 = 55,27 %); Bruchwerte
     (0.55) werden der Robustheit halber auch akzeptiert.
     """
+    if require_released:
+        try:
+            from esports_shadow import EsportsShadowLog
+
+            if not EsportsShadowLog(db_path).release_status()["ready"]:
+                return []
+        except (OSError, sqlite3.Error, ValueError):
+            return []
     rows = _read_rows(
         db_path,
-        """SELECT match_id, game, team1, team2, selection, model_probability
+        """SELECT match_id, game, team1, team2, selection,
+                  risk_adjusted_probability
            FROM esports_shadow_predictions
-           WHERE status = 'upcoming'
+           WHERE status = 'upcoming' AND settled = 0
            ORDER BY logged_at DESC""",
     )
     signals: List[ModelSignal] = []
     for row in rows:
-        raw = row["model_probability"]
+        raw = row["risk_adjusted_probability"]
         if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw != raw:
             continue
         prob = raw / 100.0 if raw > 1.0 else float(raw)
@@ -157,6 +169,7 @@ def football_signals(
     jobs_dir: Union[str, Path] = JOBS_DIR,
     now: Optional[datetime] = None,
     max_age_hours: Optional[float] = None,
+    scope: Optional[str] = None,
 ) -> List[ModelSignal]:
     """Letzte Fußball-Scans (BTTS Prematch, Platzverweis, Live) als Signale.
 
@@ -172,7 +185,7 @@ def football_signals(
         ("red_cards", "Fußball-Scan · Platzverweis"),
         ("live", "Fußball-Scan · Live"),
     ):
-        document = load_persisted(name, jobs_dir=jobs_dir)
+        document = load_persisted(name, jobs_dir=jobs_dir, scope=scope)
         if not document:
             continue
         finished = _parse_iso(document.get("finished_at"))
@@ -211,10 +224,15 @@ def list_signals(
     esports_db: Union[str, Path] = ESPORTS_DB,
     jobs_dir: Union[str, Path] = JOBS_DIR,
     today: Optional[str] = None,
+    scope: Optional[str] = None,
+    require_esports_release: bool = True,
 ) -> List[ModelSignal]:
     """Alle verfügbaren Modell-Signale (Fußball, Tennis, E-Sport)."""
     return (
-        football_signals(jobs_dir=jobs_dir)
+        football_signals(jobs_dir=jobs_dir, scope=scope)
         + tennis_signals(db_path=tennis_db, today=today)
-        + esports_signals(db_path=esports_db)
+        + esports_signals(
+            db_path=esports_db,
+            require_released=require_esports_release,
+        )
     )

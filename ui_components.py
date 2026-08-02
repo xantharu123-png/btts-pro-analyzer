@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import math
 import sqlite3
 from pathlib import Path
@@ -94,18 +95,34 @@ def _latest_shadow_example() -> Optional[dict[str, Any]]:
     return dict(row) if row else None
 
 
-def _example_ticket_html() -> str:
+def _example_ticket_html(
+    illustrative_example: Optional[tuple[str, str]] = None,
+) -> str:
+    if illustrative_example is not None:
+        line, pick = illustrative_example
+        return (
+            '<div class="bb-empty-example">'
+            '<span class="bb-empty-example-tag">Beispiel (illustrativ)</span>'
+            f'<div class="bb-empty-example-line">{html.escape(line)}</div>'
+            f'<div class="bb-empty-example-pick">{html.escape(pick)}</div>'
+            "</div>"
+        )
+
     example = _latest_shadow_example()
     if example:
         odds = example.get("odds")
         odds_text = f" @ {odds:.2f}" if isinstance(odds, (int, float)) else ""
+        home_team = html.escape(str(example["home_team"]))
+        away_team = html.escape(str(example["away_team"]))
+        prediction = html.escape(str(example["prediction"]))
+        market_type = html.escape(str(example["market_type"]))
         return (
             '<div class="bb-empty-example">'
             '<span class="bb-empty-example-tag">Echtes Shadow-Beispiel</span>'
-            f'<div class="bb-empty-example-line">{example["home_team"]} vs '
-            f'{example["away_team"]}</div>'
-            f'<div class="bb-empty-example-pick">{example["prediction"]} '
-            f'({example["market_type"]}){odds_text}</div>'
+            f'<div class="bb-empty-example-line">{home_team} vs '
+            f'{away_team}</div>'
+            f'<div class="bb-empty-example-pick">{prediction} '
+            f'({market_type}){odds_text}</div>'
             "</div>"
         )
     return (
@@ -118,7 +135,13 @@ def _example_ticket_html() -> str:
     )
 
 
-def render_empty_state(title: str, steps: list[str], *, duration_hint: str) -> None:
+def render_empty_state(
+    title: str,
+    steps: list[str],
+    *,
+    duration_hint: str,
+    illustrative_example: Optional[tuple[str, str]] = None,
+) -> None:
     """Informative empty state: what happens on click, how long it takes,
     and one example ticket (real shadow data when available)."""
     steps_html = "".join(
@@ -130,7 +153,7 @@ def render_empty_state(title: str, steps: list[str], *, duration_hint: str) -> N
         f'<div class="bb-empty-title">{title}</div>'
         f'<ol class="bb-empty-steps">{steps_html}</ol>'
         f'<div class="bb-empty-duration">{duration_hint}</div>'
-        f"{_example_ticket_html()}"
+        f"{_example_ticket_html(illustrative_example)}"
         "</div>",
         unsafe_allow_html=True,
     )

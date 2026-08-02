@@ -11,7 +11,7 @@ Logs: logs/pipeline_<datum>.log
 
 Flags fuer Tests: --skip-rebuild --skip-scan --skip-watch --skip-report
 --force-monday (Waechter/Report auch an anderen Wochentagen) --no-open
-Exit-Code 1 nur, wenn der Tages-Scan fehlschlaegt.
+Exit-Code 1, wenn ein angeforderter Pipeline-Schritt fehlschlaegt.
 """
 
 from __future__ import annotations
@@ -94,6 +94,7 @@ def main() -> int:
         log.addHandler(ch)
 
     log.info("Pipeline-Start (Wochentag %s)", date.today().strftime("%A"))
+    pipeline_ok = True
 
     # 1) State-Rebuild (no-op wenn frisch)
     if not args.skip_rebuild:
@@ -101,11 +102,13 @@ def main() -> int:
                        ["--if-stale-days", str(MAX_STATE_AGE_DAYS)], timeout=900)
         if out is None:
             log.warning("Rebuild fehlgeschlagen - Scan nutzt bisherigen State.")
+            pipeline_ok = False
 
     # 2) Tages-Scan
     scan_ok = True
     if not args.skip_scan:
         scan_ok = run_step(log, "Tages-Scan", "tennis_daily.py", [], timeout=900) is not None
+        pipeline_ok = pipeline_ok and scan_ok
 
     monday = date.today().weekday() == WATCH_WEEKDAY or args.force_monday
 
@@ -130,16 +133,29 @@ def main() -> int:
                 log.warning("WAECHTER-ALARM: Satz-Maerkte driften!")
         else:
             log.error("Waechter lieferte kein JSON - Report zeigt letzten Stand.")
+            pipeline_ok = False
 
     # 4) Wochenreport (montags)
     if monday and not args.skip_report:
         rargs = ["--days", "2"]
         if not args.no_open:
             rargs.append("--open")
-        run_step(log, "Wochenreport", "weekly_report.py", rargs, timeout=300)
+        report_ok = (
+            run_step(log, "Wochenreport", "weekly_report.py", rargs, timeout=300)
+            is not None
+        )
+        pipeline_ok = pipeline_ok and report_ok
 
-    log.info("Pipeline-Ende (Scan %s)", "OK" if scan_ok else "FEHLGESCHLAGEN")
-    return 0 if scan_ok else 1
+    log.info(
+        "Pipeline-Ende (Scan %s, Gesamt %s)",
+        "OK" if scan_ok else "FEHLGESCHLAGEN",
+        "OK" if pipeline_ok else "FEHLGESCHLAGEN",
+    )
+    for handler in list(log.handlers):
+        handler.flush()
+        handler.close()
+        log.removeHandler(handler)
+    return 0 if pipeline_ok else 1
 
 
 if __name__ == "__main__":

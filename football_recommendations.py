@@ -95,10 +95,7 @@ def prematch_btts_candidate(
     if spread is None or spread > 15.0:
         model_vetoes.append("ML- und Statistikmodell stimmen nicht ausreichend überein.")
 
-    if probability is None:
-        blockers.extend(model_vetoes)
-    elif not freemode:
-        blockers.extend(model_vetoes)
+    blockers.extend(model_vetoes)
     quality_penalty = max(0.0, 80.0 - (quality or 0.0)) * 0.12
     spread_penalty = max(0.0, (spread or 20.0) - 5.0) * 0.25
     haircut = min(20.0, max(10.0, 10.0 + quality_penalty + spread_penalty))
@@ -109,9 +106,9 @@ def prematch_btts_candidate(
         f"ML/Statistik-Abstand {spread:.1f} Prozentpunkte." if spread is not None else "Modellabstand nicht berechenbar.",
         f"Robustheitsabschlag {haircut:.1f} Prozentpunkte für Kalibrierungs-, Aufstellungs- und Marktrisiko.",
     )
-    if freemode and model_vetoes and probability is not None:
+    if freemode and model_vetoes:
         evidence = evidence + tuple(
-            f"⚠️ Modell-Warnung (freigeschaltet): {veto}" for veto in model_vetoes
+            f"Research-Hinweis (keine Freigabe): {veto}" for veto in model_vetoes
         )
     return build_probability_candidate(
         event_key=fixture_key,
@@ -154,6 +151,11 @@ def live_football_candidate(
         blockers.append("Der aktuelle Spielstand fehlt.")
     if quality not in {"MEDIUM", "LOW"}:
         model_vetoes.append("Die Live-Daten reichen für diesen Markt nicht aus.")
+    if analysis.get("model_calibrated") is not True:
+        model_vetoes.append(
+            "Das kombinierte Live-Modell besitzt noch keinen unabhängigen "
+            "chronologischen Kalibrierungsnachweis."
+        )
     if probability_number is None or probability_number < 55.0:
         model_vetoes.append("Die Modellwahrscheinlichkeit liegt unter 55 %.")
 
@@ -161,10 +163,7 @@ def live_football_candidate(
     red_cards = red_cards if isinstance(red_cards, dict) else {}
     if red_cards.get("supported") is False:
         blockers.append("Der Platzverweisstand ist für das Restspielmodell nicht eindeutig.")
-    if probability_number is None:
-        blockers.extend(model_vetoes)
-    elif not freemode:
-        blockers.extend(model_vetoes)
+    blockers.extend(model_vetoes)
     haircut = 12.0 if quality == "MEDIUM" else 18.0
     event_key = analysis.get("fixture_id") or f"{home}:{away}:{analysis.get('minute')}"
     evidence = (
@@ -172,9 +171,9 @@ def live_football_candidate(
         f"Datenbasis {quality}; Robustheitsabschlag {haircut:.1f} Prozentpunkte.",
         f"Platzverweisstatus {red_cards.get('status', 'nicht gemeldet')}.",
     )
-    if freemode and model_vetoes and probability_number is not None:
+    if freemode and model_vetoes:
         evidence = evidence + tuple(
-            f"⚠️ Modell-Warnung (freigeschaltet): {veto}" for veto in model_vetoes
+            f"Research-Hinweis (keine Freigabe): {veto}" for veto in model_vetoes
         )
     return build_probability_candidate(
         event_key=event_key,
@@ -223,12 +222,16 @@ def red_card_candidate(
         blockers.append("Mehrere Platzverweise werden vom 11-gegen-10-Modell nicht unterstützt.")
     if quality != "MEDIUM":
         model_vetoes.append("Live-xG und Spielminute reichen nicht für die strenge Datenbasis.")
+    if (
+        prediction.get("calibrated") is not True
+        or prediction.get("actionable") is not True
+    ):
+        model_vetoes.append(
+            "Das Platzverweis-Modell sammelt noch unabhängige Shadow-Evidenz."
+        )
     if probability is None or probability < 55.0:
         model_vetoes.append("Keine Nächstes-Tor-Auswahl erreicht 55 % Modellwahrscheinlichkeit.")
-    if probability is None:
-        blockers.extend(model_vetoes)
-    elif not freemode:
-        blockers.extend(model_vetoes)
+    blockers.extend(model_vetoes)
 
     home = str(entry.get("home") or "Heimteam")
     away = str(entry.get("away") or "Auswärtsteam")
@@ -237,9 +240,9 @@ def red_card_candidate(
         f"Modell-Snapshot Minute {entry.get('prediction_minute', 'n/a')}, Datenbasis {quality}.",
         "Robustheitsabschlag 15,0 Prozentpunkte für seltene Ereignisse, Taktikwechsel und Modellunsicherheit.",
     )
-    if freemode and model_vetoes and probability is not None:
+    if freemode and model_vetoes:
         evidence = evidence + tuple(
-            f"⚠️ Modell-Warnung (freigeschaltet): {veto}" for veto in model_vetoes
+            f"Research-Hinweis (keine Freigabe): {veto}" for veto in model_vetoes
         )
     return build_probability_candidate(
         event_key=card.get("card_id") or f"{home}:{away}:{card.get('minute')}",

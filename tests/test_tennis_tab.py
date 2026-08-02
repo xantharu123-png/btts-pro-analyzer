@@ -12,7 +12,10 @@ import sqlite3
 import tempfile
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
+import pytest
 from streamlit.testing.v1 import AppTest
 
 
@@ -116,3 +119,12 @@ def test_match_card_shows_plain_gates_and_markets():
     # market metrics visible without any click
     labels = [m.label for m in at.metric]
     assert any("Vorhersagen gesamt" in label for label in labels)
+
+
+def test_daily_scan_propagates_nonzero_exit_code():
+    import tennis_tab
+
+    failed = SimpleNamespace(returncode=2, stdout="out", stderr="boom")
+    with patch.object(tennis_tab.subprocess, "run", return_value=failed):
+        with pytest.raises(RuntimeError, match="Code 2"):
+            tennis_tab._run_daily_scan()
