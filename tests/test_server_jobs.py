@@ -52,6 +52,7 @@ def test_sqlite_backup_is_consistent_and_prunes_old_archives(tmp_path):
     archive, count = backup.create_archive(output, root=root, now=now)
 
     assert count == 1
+    assert backup.verify_archive(archive) == 1
     assert archive.name == "betboy-sqlite-20300102T030405Z.zip"
     with zipfile.ZipFile(archive) as zipped:
         zipped.extractall(tmp_path / "restored")
@@ -68,3 +69,14 @@ def test_sqlite_backup_is_consistent_and_prunes_old_archives(tmp_path):
     os.utime(old, (old_timestamp, old_timestamp))
     assert backup.prune_archives(output, retention_days=14, now=now) == 1
     assert not old.exists()
+
+
+def test_backup_verifier_rejects_an_invalid_sqlite_member(tmp_path):
+    archive = tmp_path / "invalid.zip"
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr("runtime_state/api_budget.db", b"not a database")
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="not restorable"):
+        backup.verify_archive(archive)
