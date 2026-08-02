@@ -6,6 +6,7 @@ from typing import Optional
 
 import streamlit as st
 
+from betting_math import MINIMUM_RISK_ADJUSTED_ROI_PERCENT
 from multi_sport_recommendations import (
     PriceDecision,
     RecommendationCandidate,
@@ -35,11 +36,42 @@ def render_price_decision(
 ) -> Optional[PriceDecision]:
     """Render one exact candidate and require a fresh manual bookmaker price."""
     selection = candidate.selection or "keine Auswahl"
-    st.subheader(f"{candidate.market}: {selection}")
-    st.caption(candidate.event_label)
+    st.subheader(f"Prognose: {candidate.market}: {selection}")
+    st.caption(
+        f"{candidate.event_label} · Modellreife: {candidate.evidence_label}"
+    )
+
+    if candidate.forecast_available:
+        metrics = st.columns(3)
+        metrics[0].metric(
+            "Modellwahrscheinlichkeit",
+            format_probability_percent(candidate.model_probability),
+        )
+        metrics[1].metric(
+            "Konservativ",
+            format_probability_percent(candidate.risk_adjusted_probability),
+        )
+        metrics[2].metric(
+            "Mindestquote",
+            (
+                f"{candidate.minimum_odds:.2f}"
+                if candidate.minimum_odds is not None
+                else "k. A."
+            ),
+        )
+        st.caption(
+            "Diese Prognose entsteht ohne Quote. Die Quote ändert nicht die "
+            "Prognose, sondern nur die Entscheidung, ob der Preis gut genug ist."
+        )
 
     if candidate.blockers:
-        st.error("NICHT WETTEN — das Modell gibt dieses Spiel nicht frei.")
+        if candidate.forecast_available:
+            st.warning(
+                "PROGNOSE VORHANDEN, ABER KEINE WETTFREIGABE - mindestens "
+                "eine preisunabhängige Modell- oder Datenprüfung ist gesperrt."
+            )
+        else:
+            st.error("KEINE BELASTBARE PROGNOSE - nicht wetten.")
         st.write("Gründe:")
         for reason in candidate.blockers:
             st.write(f"- {plain_german(reason)}")
@@ -49,14 +81,6 @@ def render_price_decision(
                 for reason in candidate.evidence:
                     st.write(f"- {reason}")
         return None
-
-    metrics = st.columns(3)
-    metrics[0].metric("Modell", format_probability_percent(candidate.model_probability))
-    metrics[1].metric(
-        "Konservativ",
-        format_probability_percent(candidate.risk_adjusted_probability),
-    )
-    metrics[2].metric("Mindestquote", f"{candidate.minimum_odds:.2f}")
 
     with st.form(f"bet_price_{key}", border=False):
         price_column, bankroll_column = st.columns(2)
@@ -102,8 +126,24 @@ def render_price_decision(
             f"Einsatzreferenz {decision.stake_amount:.2f} "
             f"({decision.stake_fraction * 100:.2f} % des Guthabens)"
         )
+    elif decision.status == "SHADOW":
+        st.info(
+            f"SHADOW-TIPP: {candidate.selection} @ {decision.quoted_odds:.2f}. "
+            "Modell und Preis bestehen die Prüfung, aber es gibt noch keine "
+            "Echtgeldfreigabe und deshalb keinen Einsatz."
+        )
+    elif decision.status == "RESEARCH":
+        st.warning(
+            f"RESEARCH-SIGNAL: Der Preis für {candidate.selection} @ "
+            f"{decision.quoted_odds:.2f} wäre rechnerisch ausreichend, aber "
+            "dem Modell fehlt noch die unabhängige Modellfreigabe."
+        )
     else:
-        st.error("NICHT WETTEN")
+        st.error(
+            f"NICHT WETTEN ZU DIESER QUOTE - die Prognose bleibt "
+            f"{candidate.selection} mit "
+            f"{format_probability_percent(candidate.model_probability)}."
+        )
         for reason in decision.reasons:
             st.write(f"- {plain_german(reason)}")
 
@@ -119,7 +159,9 @@ def render_price_decision(
             unsafe_allow_html=True,
         )
         st.caption(
-            "Ampel: grün ≥ 6 pp Edge, gelb 4–6 pp (Preis-Gate), rot unter dem Gate."
+            "Der Edge ist nur der Abstand zur Break-even-Wahrscheinlichkeit. "
+            f"Das gemeinsame Preis-Gate ist ein risikobereinigter EV von mindestens "
+            f"{MINIMUM_RISK_ADJUSTED_ROI_PERCENT:.1f} %."
         )
 
     with st.expander("Prüfdetails"):

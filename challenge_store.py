@@ -17,6 +17,7 @@ from challenge_engine import (
     KELLY_REFERENCE_CAP,
     MAX_CHALLENGE_STAKE_FRACTION,
     MIN_CHALLENGE_STAKE_FRACTION,
+    MIN_LEG_EXPECTED_ROI,
     QuotedTicket,
     TARGET_BALANCE,
     TARGET_ODDS_MAX,
@@ -394,7 +395,7 @@ class ChallengeLedger:
             leg.candidate.conservative_probability * odds - 1.0
             for leg, odds in zip(ticket.legs, leg_odds)
         ]
-        if any(value < 0.02 for value in derived_leg_rois):
+        if any(value < MIN_LEG_EXPECTED_ROI for value in derived_leg_rois):
             raise ValueError("Every ticket leg must clear the value gate")
         try:
             leg_roi_consistent = all(
@@ -454,7 +455,7 @@ class ChallengeLedger:
             raise ValueError("Ticket fields do not match the underlying legs")
         if not TARGET_ODDS_MIN <= derived_total_odds <= TARGET_ODDS_MAX:
             raise ValueError("Ticket odds are outside the challenge corridor")
-        if derived_expected_roi < 0.03:
+        if derived_expected_roi < MIN_LEG_EXPECTED_ROI:
             raise ValueError("Ticket expected ROI is below the challenge gate")
 
         fixture_ids = [leg.candidate.fixture_id for leg in ticket.legs]

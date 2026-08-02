@@ -5,11 +5,13 @@ from __future__ import annotations
 import unittest
 
 from ev_calculator import (
-    MIN_EDGE_FOR_BET,
+    DEFAULT_PROBABILITY_UNCERTAINTY,
+    MIN_EXPECTED_ROI_FOR_BET,
     VERDICT_BET,
     VERDICT_CLOSE,
     VERDICT_NO_BET,
     breakeven_probability,
+    conservative_probability,
     edge_points,
     expected_profit,
     expected_value,
@@ -58,21 +60,24 @@ class ExpectedValueTests(unittest.TestCase):
 
 class VerdictTests(unittest.TestCase):
     def test_clear_edge_says_yes(self):
-        # Break-even 66,7 %, Einschätzung 75 % -> 8,3 Punkte Edge
+        # 75% minus 5pp uncertainty at 1.50 -> +5% risk-adjusted EV.
         label, reason = verdict(0.75, 1.5)
         self.assertEqual(label, VERDICT_BET)
-        self.assertIn("Prozentpunkte", reason)
+        self.assertIn("Risiko-EV", reason)
 
-    def test_margin_boundary_says_yes(self):
-        breakeven = breakeven_probability(1.5)
-        label, _ = verdict(breakeven + MIN_EDGE_FOR_BET, 1.5)
+    def test_risk_adjusted_roi_boundary_says_yes(self):
+        required_adjusted_probability = (1.0 + MIN_EXPECTED_ROI_FOR_BET) / 1.5
+        point_probability = (
+            required_adjusted_probability + DEFAULT_PROBABILITY_UNCERTAINTY
+        )
+        label, _ = verdict(point_probability, 1.5)
         self.assertEqual(label, VERDICT_BET)
 
     def test_thin_positive_says_close(self):
         # +2 % EV, aber nur 1,3 Punkte über Break-even -> Schätzfehler frisst es
         label, reason = verdict(0.68, 1.5)
         self.assertEqual(label, VERDICT_CLOSE)
-        self.assertIn("Schätzfehler", reason)
+        self.assertIn("Unsicherheitsabschlag", reason)
 
     def test_negative_says_no(self):
         label, reason = verdict(0.60, 1.5)
@@ -86,6 +91,10 @@ class VerdictTests(unittest.TestCase):
 
     def test_edge_points_matches_breakeven_distance(self):
         self.assertAlmostEqual(edge_points(0.75, 1.5), 0.75 - 2.0 / 3.0)
+
+    def test_conservative_probability_is_explicit_and_bounded(self):
+        self.assertAlmostEqual(conservative_probability(0.70, 0.05), 0.65)
+        self.assertEqual(conservative_probability(0.03, 0.05), 0.0)
 
 
 if __name__ == "__main__":

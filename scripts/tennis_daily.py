@@ -12,7 +12,7 @@ via TOURNAMENT_ALIASES — unknown surfaces fail the surface gate
 honestly (NO BET), never guessed.
 
 N1Bet prices are entered later in the app (manual price entry is part
-of the design); the edge gate is evaluated then.
+of the design); the uncertainty-adjusted EV price gate is evaluated then.
 
 Usage:
     python scripts/tennis_daily.py [YYYY-MM-DD]

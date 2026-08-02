@@ -35,7 +35,7 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent / "esports_shadow.db"
 MAX_SETTLE_CALLS_PER_RUN = 15
 STALE_AFTER_DAYS = 30
 ESPORTS_MODEL_VERSION = "subgraph-elo-v2"
-ESPORTS_RELEASE_MIN_SETTLED = 100
+ESPORTS_RELEASE_MIN_SETTLED = 300
 ESPORTS_RELEASE_MAX_CALIBRATION_GAP = 0.08
 ESPORTS_RELEASE_MAX_BRIER = 0.25
 
@@ -351,19 +351,30 @@ class EsportsShadowLog:
             if hit_rate is not None and average is not None
             else None
         )
-        ready = bool(
+        calibration_ready = bool(
             settled >= ESPORTS_RELEASE_MIN_SETTLED
             and gap is not None
             and gap <= ESPORTS_RELEASE_MAX_CALIBRATION_GAP
             and brier is not None
             and brier <= ESPORTS_RELEASE_MAX_BRIER
         )
+        # This ledger currently stores probabilities and results, but no
+        # timestamped offered/closing prices. Calibration can therefore mature,
+        # while a real-money release cannot: CLV and return uncertainty are
+        # still unmeasurable.
+        price_evidence_ready = False
         return {
-            "ready": ready,
+            "ready": calibration_ready and price_evidence_ready,
+            "calibration_ready": calibration_ready,
+            "price_evidence_ready": price_evidence_ready,
             "settled": settled,
             "required": ESPORTS_RELEASE_MIN_SETTLED,
             "calibration_gap": gap,
             "brier_score": brier,
+            "blockers": (
+                "Timestamped opening and closing prices, CLV, and a return "
+                "confidence interval are not available.",
+            ),
         }
 
 

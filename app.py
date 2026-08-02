@@ -33,15 +33,15 @@ _REQUIRED_ANALYZER_MODULE_VERSION = 3
 if getattr(_advanced_analyzer, "ANALYZER_MODULE_VERSION", 0) < _REQUIRED_ANALYZER_MODULE_VERSION:
     _advanced_analyzer = importlib.reload(_advanced_analyzer)
 
-_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 3
+_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 4
 if getattr(_challenge_15k, "CHALLENGE_WORKSPACE_VERSION", 0) < _REQUIRED_CHALLENGE_WORKSPACE_VERSION:
     _challenge_15k = importlib.reload(_challenge_15k)
 
-_REQUIRED_MARKET_WORKFLOW_VERSION = 4
+_REQUIRED_MARKET_WORKFLOW_VERSION = 5
 if getattr(_alternative_markets, "MARKET_WORKFLOW_VERSION", 0) < _REQUIRED_MARKET_WORKFLOW_VERSION:
     _alternative_markets = importlib.reload(_alternative_markets)
 
-_REQUIRED_FOOTBALL_RECOMMENDATIONS_VERSION = 2
+_REQUIRED_FOOTBALL_RECOMMENDATIONS_VERSION = 3
 if (
     getattr(_football_recommendations, "FOOTBALL_RECOMMENDATIONS_VERSION", 0)
     < _REQUIRED_FOOTBALL_RECOMMENDATIONS_VERSION
@@ -60,10 +60,11 @@ prematch_btts_candidate = _football_recommendations.prematch_btts_candidate
 red_card_candidate = _football_recommendations.red_card_candidate
 
 from bet_finder_ui import render_price_decision
+from betting_math import BETTING_POLICY_VERSION
 from ui_components import plain_german, render_empty_state
 from config_loader import load_app_config
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
-from multi_sport_recommendations import build_candidate
+from multi_sport_recommendations import EVIDENCE_RELEASED, build_candidate
 
 
 PAGE_INFO = {
@@ -77,11 +78,12 @@ PAGE_INFO = {
     ),
     "Live": (
         "Live Wettfinder",
-        "Frische Live-Daten in eine konkrete Wette oder ein eindeutiges Nicht-wetten übersetzen.",
+        "Frische Live-Daten in eine konkrete Prognose mit klarer Modell- und Preisprüfung übersetzen.",
     ),
     "Wett-Check": (
         "Wett-Check (Erwartungswert)",
-        "Modell-Signal wählen oder eigene Prozent-Einschätzung eingeben, N1Bet-Quote dazu: Break-even, Erwartungswert in CHF und klares JA/NEIN.",
+        "Modell-Signal oder eigene Annahme mit N1Bet-Quote prüfen: "
+        "Break-even, Risiko-EV und reines Preisergebnis.",
     ),
     "System": (
         "Wettfinder-System",
@@ -466,7 +468,7 @@ def _apply_app_styles() -> None:
             overflow-x: auto;
         }
 
-        /* --- Edge / EV badges (traffic light follows the 4/6 pp price gate) --- */
+        /* --- Edge / EV badges; edge is diagnostic, risk-EV drives price status --- */
         .bb-edge-badge {
             border-radius: 6px;
             display: inline-block;
@@ -1057,8 +1059,9 @@ def _persist_prematch(results) -> Optional[dict]:
             validated_model_available=details.get("ml_active") is True,
             freemode=False,
         )
-        probability = candidate.risk_adjusted_probability
-        if not candidate.model_ready or probability is None:
+        probability = candidate.model_probability
+        haircut = candidate.probability_haircut
+        if not candidate.model_ready or probability is None or haircut is None:
             continue
         rows.append(
             {
@@ -1066,8 +1069,11 @@ def _persist_prematch(results) -> Optional[dict]:
                 "away": row.get("Away"),
                 "league": row.get("League"),
                 "date": str(row.get("Date")),
-                "market": "BTTS Ja",
+                "market": f"BTTS {candidate.selection}",
                 "p": probability / 100.0,
+                "haircut": haircut / 100.0,
+                "evidence_stage": candidate.evidence_stage,
+                "policy_version": BETTING_POLICY_VERSION,
             }
         )
     return {"signals": rows}
@@ -1086,9 +1092,16 @@ def _persist_red_cards(snapshot: dict) -> Optional[dict]:
             snapshot_age_seconds=0.0,
             freemode=False,
         )
-        probability = candidate.risk_adjusted_probability
+        probability = candidate.model_probability
+        haircut = candidate.probability_haircut
         home, away = entry.get("home"), entry.get("away")
-        if not candidate.model_ready or probability is None or not home or not away:
+        if (
+            not candidate.model_ready
+            or probability is None
+            or haircut is None
+            or not home
+            or not away
+        ):
             continue
         rows.append(
             {
@@ -1098,6 +1111,9 @@ def _persist_red_cards(snapshot: dict) -> Optional[dict]:
                 "date": snapshot.get("scanned_at"),
                 "market": f"Nächstes Tor: {candidate.selection}",
                 "p": probability / 100.0,
+                "haircut": haircut / 100.0,
+                "evidence_stage": candidate.evidence_stage,
+                "policy_version": BETTING_POLICY_VERSION,
             }
         )
     return {"signals": rows}
@@ -1140,7 +1156,8 @@ def _persist_live(snapshot: dict) -> Optional[dict]:
             )
             if (
                 not candidate.model_ready
-                or candidate.risk_adjusted_probability is None
+                or candidate.model_probability is None
+                or candidate.probability_haircut is None
             ):
                 continue
             rows.append(
@@ -1150,7 +1167,10 @@ def _persist_live(snapshot: dict) -> Optional[dict]:
                     "league": item.get("league"),
                     "date": snapshot.get("scanned_at"),
                     "market": f"Live: {selection} ({context})",
-                    "p": candidate.risk_adjusted_probability / 100.0,
+                    "p": candidate.model_probability / 100.0,
+                    "haircut": candidate.probability_haircut / 100.0,
+                    "evidence_stage": candidate.evidence_stage,
+                    "policy_version": BETTING_POLICY_VERSION,
                 }
             )
     return {"signals": rows}
@@ -1411,8 +1431,13 @@ def _render_prematch_results(
     scanned_at: Optional[str],
     validated_model_available: bool,
 ) -> None:
+    btts_probability = pd.to_numeric(results["BTTS_num"], errors="coerce")
+    likely_btts_probability = pd.concat(
+        [btts_probability, 100.0 - btts_probability],
+        axis=1,
+    ).max(axis=1)
     eligible = results[
-        (results["BTTS_num"] >= min_probability)
+        (likely_btts_probability >= min_probability)
         & (results["Quality_num"] >= min_quality)
     ].copy()
     if eligible.empty:
@@ -1444,30 +1469,37 @@ def _render_prematch_results(
     ready_rows = [(candidate, row) for candidate, row in shortlist if candidate.model_ready]
 
     if not ready_rows:
-        st.error(
+        st.warning(
             f"KEINE WETTE — keines der {len(candidate_rows)} geprüften Spiele "
-            "besteht alle Prüfkriterien."
+            "besteht alle Prüf- und Freigabekriterien. Die quotenfreie "
+            "Prognose bleibt trotzdem sichtbar."
         )
         st.caption(
-            "Das ist Absicht, kein Fehler: Das Modell wettet nur bei ausreichender "
-            "Evidenz. Warum jedes Spiel durchgefallen ist, steht in der Liste unten."
+            "Die Quote hat diese Spiele nicht aussortiert. Warum die "
+            "preisunabhängige Modellprüfung fehlt, steht direkt beim Kandidaten."
         )
+        selectable_rows = shortlist
     else:
         st.success(
             f"{len(ready_rows)} von {len(candidate_rows)} geprüften Spielen bestehen "
-            "alle Prüfkriterien. Jetzt nur noch die exakte N1Bet-Quote prüfen."
+            "die Modellprüfung. Nach der exakten N1Bet-Preisprüfung bleiben "
+            "sie bis zur unabhängigen ROI-/CLV-Freigabe Shadow-Signale."
         )
-        options = list(range(len(ready_rows)))
+        selectable_rows = ready_rows
+
+    if selectable_rows:
+        options = list(range(len(selectable_rows)))
         selected_position = st.selectbox(
             "Spiel auswählen",
             options,
             format_func=lambda position: (
-                f"{ready_rows[position][0].event_label} | "
-                f"{ready_rows[position][0].market}: {ready_rows[position][0].selection or 'keine Auswahl'}"
+                f"{selectable_rows[position][0].event_label} | "
+                f"{selectable_rows[position][0].market}: "
+                f"{selectable_rows[position][0].selection or 'keine Auswahl'}"
             ),
             key="prematch_bet_candidate",
         )
-        candidate, selected_row = ready_rows[selected_position]
+        candidate, selected_row = selectable_rows[selected_position]
         render_price_decision(
             candidate,
             key=f"prematch_{candidate.event_key}_{scanned_at}",
@@ -1478,7 +1510,9 @@ def _render_prematch_results(
         display_frame = pd.DataFrame(
             [
                 {
-                    "Freigabe": "✅ Ja" if item.model_ready else "❌ Nein",
+                    "Modellprüfung": (
+                        "✅ Bestanden" if item.model_ready else "❌ Blockiert"
+                    ),
                     "Zeit": row.get("Date"),
                     "Liga": row.get("League"),
                     "Spiel": item.event_label,
@@ -1503,7 +1537,7 @@ def render_matches(analyzer) -> None:
     st.subheader("Filter")
     filter_columns = st.columns(3)
     min_probability = filter_columns[0].slider(
-        "Min. BTTS (%)",
+        "Min. wahrscheinlichere BTTS-Auswahl (%)",
         50,
         90,
         60,
@@ -1618,7 +1652,8 @@ def render_matches(analyzer) -> None:
             [
                 "Mindestwerte und Ligen wählen, dann „BTTS-Wetten finden“ klicken.",
                 "Das Modell filtert quotenfrei bis zu drei geprüfte Auswahlen.",
-                "Erst die exakte N1Bet-Quote entscheidet über WETTEN oder NICHT WETTEN.",
+                "Die exakte N1Bet-Quote prüft danach nur den Preis; die "
+                "Evidenzstufe bleibt separat sichtbar.",
             ],
             duration_hint="Dauer: je nach Ligaanzahl etwa 30–90 Sekunden.",
         )
@@ -1873,7 +1908,7 @@ def _render_live_football(analyzer) -> None:
             [
                 "Live-Markt und Datenbasis wählen, dann „Live-Wetten finden“ klicken.",
                 "Das Modell übersetzt frische Live-Daten in eine klare Entscheidung.",
-                "Ergebnis: WETTEN, NICHT WETTEN oder PREIS ERFORDERLICH.",
+                "Ergebnis: Prognose, Preisstatus und Evidenzstufe getrennt.",
             ],
             duration_hint="Dauer: wenige Sekunden — Live-Daten liegen bereits vor.",
         )
@@ -2294,7 +2329,8 @@ def _render_red_cards(analyzer) -> None:
             [
                 "Filter wählen und die Suche starten.",
                 "Das Modell bewertet Spiele mit erhöhter Platzverweis-Wahrscheinlichkeit.",
-                "Erst die exakte Quote entscheidet über WETTEN oder NICHT WETTEN.",
+                "Die exakte Quote entscheidet über den Preisstatus, nicht über "
+                "die zugrunde liegende Prognose.",
             ],
             duration_hint="Dauer: je nach Ligaanzahl etwa 30–90 Sekunden.",
         )
@@ -2817,13 +2853,24 @@ def _multi_sport_release_blockers(
 
             esports_release = EsportsShadowLog().release_status()
         except Exception:
-            esports_release = {"ready": False, "settled": 0, "required": 100}
-    if esports_release.get("ready") is True:
+            esports_release = {"ready": False, "settled": 0, "required": 300}
+    if (
+        esports_release.get("ready") is True
+        and esports_release.get("price_evidence_ready") is True
+    ):
         return ()
+    if (
+        esports_release.get("calibration_ready") is True
+        and esports_release.get("price_evidence_ready") is not True
+    ):
+        return (
+            "E-Sport ist kalibrierungsreif, aber timestamped Opening-/Closing-"
+            "Quoten, CLV und ein positives Rendite-Konfidenzintervall fehlen.",
+        )
     return (
         "E-Sport ist noch in der ehrlichen Shadow-Anlaufphase: "
         f"{int(esports_release.get('settled') or 0)}/"
-        f"{int(esports_release.get('required') or 100)} Prematch-Fälle abgerechnet.",
+        f"{int(esports_release.get('required') or 300)} Prematch-Fälle abgerechnet.",
     )
 
 
@@ -2886,23 +2933,23 @@ def render_multi_sport() -> None:
         illustrative_examples = {
             "Basketball": (
                 "Team A vs Team B",
-                "Team A +4,5 Punkte @ 1,91 - Modell 58 %, Mindestquote 1,86",
+                "Unter 225,5 @ 2,18 - Modell 58 %, konservativ 48 %, Mindestquote 2,15",
             ),
             "Eishockey": (
                 "Team A vs Team B",
-                "Unter 6,5 Tore @ 1,88 - Modell 60 %, Mindestquote 1,79",
+                "Unter 6,5 Tore @ 2,10 - Modell 60 %, konservativ 50 %, Mindestquote 2,06",
             ),
             "Cricket": (
                 "Team A vs Team B",
-                "Team A gewinnt @ 1,95 - Modell 57 %, Mindestquote 1,89",
+                "Kein belastbares Innings-Modell - keine Wettfreigabe",
             ),
             "Tennis": (
                 "Spieler A vs Spieler B",
-                "Spieler A gewinnt 2:0 @ 2,10 - Modell 52 %, Mindestquote 2,08",
+                "Prematch-Tennis wird im eigenen Tennis-Bereich berechnet",
             ),
             "E-Sport": (
                 "Team A vs Team B",
-                "Team A gewinnt @ 1,95 - risikoadj. Modell 56 %, Mindestquote 1,92",
+                "Team A gewinnt @ 1,90 - konservativ 56 %, Mindestquote 1,84",
             ),
         }
         render_empty_state(
@@ -3038,10 +3085,8 @@ def render_multi_sport() -> None:
             candidate,
             blockers=tuple(dict.fromkeys(candidate.blockers + release_blockers)),
         )
-    if candidate.blockers:
-        st.error("NICHT WETTEN — die Modellfreigabe ist nicht vollständig.")
-        st.markdown("\n".join(f"- {plain_german(reason)}" for reason in candidate.blockers))
-        return
+    elif sport == "E-Sport":
+        candidate = replace(candidate, evidence_stage=EVIDENCE_RELEASED)
 
     if candidate.expected_total is not None:
         st.caption(f"Posteriorer Total-Erwartungswert: {candidate.expected_total:.2f}")

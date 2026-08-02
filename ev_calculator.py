@@ -1,20 +1,17 @@
-"""Erwartungswert-Rechner: eigenen fairen Preis gegen die Buchmacher-Quote prüfen.
+"""Pure expected-value calculations for the manual wager check.
 
-Kernidee (App-Seite "Wett-Check"): Du wettest nicht auf ein Team, du kaufst
-eine Wahrscheinlichkeit zu einem Preis.  Gespielt wird nur, wenn die eigene
-Wahrscheinlichkeit deutlich ÜBER der Break-even-Marke der Quote liegt —
-die Sicherheitsmarge MIN_EDGE_FOR_BET deckt den Schätzfehler der eigenen
-Einschätzung.
-
-Alle Funktionen sind rein (kein Streamlit, kein IO) und werfen ValueError
-bei unsinnigen Eingaben.
+The forecast, its explicit uncertainty deduction, and the offered price are
+separate inputs. A fixed probability-point edge cannot represent model error
+at every odds level, so the decision uses expected return after uncertainty.
 """
 
 from __future__ import annotations
 
-MIN_EDGE_FOR_BET = 0.03  # 3 Prozentpunkte Sicherheitsmarge über Break-even
+DEFAULT_PROBABILITY_UNCERTAINTY = 0.05
+MIN_EXPECTED_ROI_FOR_BET = 0.03
 
-VERDICT_BET = "JA"
+VERDICT_PRICE_PASS = "PREIS OK"
+VERDICT_BET = VERDICT_PRICE_PASS  # Backward-compatible import name.
 VERDICT_CLOSE = "KNAPP"
 VERDICT_NO_BET = "NEIN"
 
@@ -68,32 +65,53 @@ def edge_points(probability: float, odds: float) -> float:
     return probability - breakeven_probability(odds)
 
 
-def verdict(probability: float, odds: float) -> tuple[str, str]:
-    """(Urteil, Begründung) — JA / KNAPP / NEIN.
+def conservative_probability(
+    probability: float,
+    uncertainty: float = DEFAULT_PROBABILITY_UNCERTAINTY,
+) -> float:
+    """Deduct an explicit absolute uncertainty from a point forecast."""
+    _validate_probability(probability)
+    _validate_probability(uncertainty)
+    return max(0.0, probability - uncertainty)
 
-    KNAPP heißt: rechnerisch leicht über Break-even, aber unter der
-    Sicherheitsmarge — der Schätzfehler der eigenen Einschätzung frisst
-    den Vorteil.  NEIN heißt: negativer Erwartungswert, langfristig
-    garantierter Verlust, egal wie oft die Wette einmal aufgeht.
+
+def verdict(
+    probability: float,
+    odds: float,
+    *,
+    uncertainty: float = DEFAULT_PROBABILITY_UNCERTAINTY,
+    minimum_expected_roi: float = MIN_EXPECTED_ROI_FOR_BET,
+) -> tuple[str, str]:
+    """(Urteil, Begründung) — PREIS OK / KNAPP / NEIN.
+
+    ``KNAPP`` means the point estimate is positive but the conservative
+    estimate misses the required ROI. ``NEIN`` means even the point estimate
+    has no positive expected return. ``PREIS OK`` is only a mathematical
+    price result under the supplied probability; it is not a model or
+    real-money release.
     """
-    ev = expected_value(probability, odds)
-    edge = edge_points(probability, odds)
-    if edge >= MIN_EDGE_FOR_BET:
+    _validate_probability(minimum_expected_roi)
+    point_ev = expected_value(probability, odds)
+    adjusted_probability = conservative_probability(probability, uncertainty)
+    adjusted_ev = expected_value(adjusted_probability, odds)
+    if adjusted_ev >= minimum_expected_roi:
         return (
             VERDICT_BET,
-            f"Deine Einschätzung liegt {edge * 100:.1f} Prozentpunkte über "
-            f"Break-even und deckt die Sicherheitsmarge von "
-            f"{MIN_EDGE_FOR_BET * 100:.0f} Punkten (Erwartungswert {ev * 100:+.1f} %).",
+            f"Nach {uncertainty * 100:.1f} Prozentpunkten Unsicherheitsabschlag "
+            f"beträgt die verwendete Wahrscheinlichkeit "
+            f"{adjusted_probability * 100:.1f} % und der Risiko-EV "
+            f"{adjusted_ev * 100:+.1f} %.",
         )
-    if ev > 0:
+    if point_ev > 0:
         return (
             VERDICT_CLOSE,
-            f"Rechnerisch leicht positiv ({ev * 100:+.1f} %), aber unter der "
-            f"Sicherheitsmarge von {MIN_EDGE_FOR_BET * 100:.0f} Prozentpunkten — "
-            "der Schätzfehler deiner Einschätzung frisst den Vorteil.",
+            f"Der Punktwert ist positiv ({point_ev * 100:+.1f} %), aber nach "
+            f"{uncertainty * 100:.1f} Prozentpunkten Unsicherheitsabschlag "
+            f"bleiben nur {adjusted_ev * 100:+.1f} % Risiko-EV; erforderlich "
+            f"sind {minimum_expected_roi * 100:.1f} %.",
         )
     return (
         VERDICT_NO_BET,
-        f"Erwartungswert {ev * 100:+.1f} % — bei diesem Preis verlierst du "
+        f"Erwartungswert {point_ev * 100:+.1f} % — bei diesem Preis verlierst du "
         "langfristig, egal wie oft die Wette im Einzelfall aufgeht.",
     )

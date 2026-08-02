@@ -56,6 +56,24 @@ def test_prematch_candidate_requires_validated_active_model():
     assert any("validiert" in reason for reason in blocked.blockers)
 
 
+def test_prematch_candidate_can_select_btts_no_without_price_influence():
+    row = _prematch_row()
+    row["BTTS_num"] = 27.0
+    row["_analysis"]["ml_probability"] = 27.0
+    row["_analysis"]["statistical_probability"] = 30.0
+
+    candidate = prematch_btts_candidate(
+        row,
+        snapshot_age_seconds=60,
+        validated_model_available=True,
+    )
+
+    assert candidate.model_ready is True
+    assert candidate.selection == "Nein"
+    assert candidate.model_probability == 73.0
+    assert candidate.evidence_stage == "SHADOW"
+
+
 def test_live_candidate_fails_closed_for_stale_snapshot():
     candidate = live_football_candidate(
         {

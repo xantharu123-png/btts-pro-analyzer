@@ -3,7 +3,7 @@
 Die Seite setzt die Lektion aus dem EV-Prinzip um: Du wettest nicht auf
 ein Team, du kaufst eine Wahrscheinlichkeit zu einem Preis.  Drei Eingaben
 (Quote, eigene Einschätzung in %, Einsatz) liefern Break-even, Edge,
-Erwartungswert in CHF und ein klares JA / KNAPP / NEIN.
+Erwartungswert in CHF und ein klares PREIS OK / KNAPP / NEIN.
 
 Optional befüllt ein gespeichertes Modell-Signal (Tennis- oder
 E-Sport-Shadow) die Prozent-Einschätzung vor — die Quote tippst du immer
@@ -15,10 +15,12 @@ from __future__ import annotations
 import streamlit as st
 
 from ev_calculator import (
-    MIN_EDGE_FOR_BET,
+    DEFAULT_PROBABILITY_UNCERTAINTY,
+    MIN_EXPECTED_ROI_FOR_BET,
     VERDICT_BET,
     VERDICT_CLOSE,
     breakeven_probability,
+    conservative_probability,
     edge_points,
     expected_profit,
     expected_value,
@@ -43,9 +45,13 @@ def _fmt_chf(value: float) -> str:
 
 def render_ev_checker(scope: str | None = None) -> None:
     st.markdown(
-        "Prüfe **vor jeder eigenen Wette**, ob der Preis stimmt: Die Quote ist "
+        "Prüfe den Preis einer bereits begründeten Prognose: Die Quote ist "
         "kein Tipp, sie ist ein Preis. Du spielst nur, wenn deine Einschätzung "
         "deutlich über der Break-even-Marke der Quote liegt."
+    )
+    st.caption(
+        "Diese Rechenhilfe erzeugt keine Prognose und keine Echtgeld-Freigabe. "
+        "Sie bewertet nur die eingegebene Wahrscheinlichkeitsannahme."
     )
 
     signals = list_signals(scope=scope)
@@ -55,8 +61,20 @@ def render_ev_checker(scope: str | None = None) -> None:
         signal = by_key.get(st.session_state.get("ev_signal_choice"))
         if signal is not None:
             st.session_state["ev_prob"] = round(signal.probability * 100, 1)
+            st.session_state["ev_uncertainty"] = round(
+                signal.probability_haircut * 100,
+                1,
+            )
+        else:
+            st.session_state["ev_uncertainty"] = (
+                DEFAULT_PROBABILITY_UNCERTAINTY * 100.0
+            )
 
     st.session_state.setdefault("ev_prob", 70.0)
+    st.session_state.setdefault(
+        "ev_uncertainty",
+        DEFAULT_PROBABILITY_UNCERTAINTY * 100.0,
+    )
     choice = st.selectbox(
         "Modell-Signal übernehmen (optional)",
         [_MANUAL] + list(by_key),
@@ -65,15 +83,17 @@ def render_ev_checker(scope: str | None = None) -> None:
         ),
         key="ev_signal_choice",
         on_change=_apply_signal,
-        help="Gespeicherte Modell-Wahrscheinlichkeiten (Tennis- und "
-             "E-Sport-Shadow). Danach nur noch die Buchmacher-Quote eintippen.",
+        help="Gespeicherte Fußball-, Tennis- und E-Sport-Signale übernehmen "
+             "Punktprognose und den zugehörigen Modellabschlag gemeinsam.",
     )
     chosen = by_key.get(choice)
     if chosen is not None:
         prob_text = f"{chosen.probability * 100:.1f}".replace(".", ",")
+        haircut_text = f"{chosen.probability_haircut * 100:.1f}".replace(".", ",")
         st.caption(
-            f"Übernommen: **{prob_text} %** — {chosen.detail}. "
-            "Anpassen kannst du die Zahl unten jederzeit."
+            f"Übernommen: **{prob_text} % Punktprognose**, "
+            f"**{haircut_text} Prozentpunkte Modellabschlag** · "
+            f"Evidenz {chosen.evidence_stage} — {chosen.detail}."
         )
 
     col_odds, col_prob, col_stake = st.columns(3)
@@ -89,7 +109,7 @@ def render_ev_checker(scope: str | None = None) -> None:
         )
     with col_prob:
         probability_pct = st.number_input(
-            "Deine Einschätzung (in %)",
+            "Punktprognose (in %)",
             min_value=0.0,
             max_value=100.0,
             step=0.5,
@@ -109,12 +129,32 @@ def render_ev_checker(scope: str | None = None) -> None:
             format="%.0f",
         )
 
+    uncertainty_pct = st.slider(
+        "Modell-Unsicherheitsabschlag",
+        min_value=0.0,
+        max_value=40.0,
+        step=0.5,
+        key="ev_uncertainty",
+        help=(
+            "Absolute Prozentpunkte, die vor der Einsatzentscheidung von der "
+            "Punktprognose abgezogen werden. Bei einem übernommenen Signal "
+            "kommt dieser Wert aus exakt derselben Modellpolicy wie der Tipp."
+        ),
+    )
+
     probability = probability_pct / 100.0
+    uncertainty = uncertainty_pct / 100.0
+    adjusted_probability = conservative_probability(probability, uncertainty)
     breakeven = breakeven_probability(odds)
     edge = edge_points(probability, odds)
-    ev = expected_value(probability, odds)
-    profit = expected_profit(probability, odds, stake)
-    label, reason = verdict(probability, odds)
+    point_ev = expected_value(probability, odds)
+    risk_ev = expected_value(adjusted_probability, odds)
+    profit = expected_profit(adjusted_probability, odds, stake)
+    label, reason = verdict(
+        probability,
+        odds,
+        uncertainty=uncertainty,
+    )
 
     col_be, col_edge, col_ev = st.columns(3)
     col_be.metric(
@@ -125,28 +165,37 @@ def render_ev_checker(scope: str | None = None) -> None:
     col_edge.metric(
         "Dein Abstand zu Break-even",
         _fmt_pp(edge),
-        help=f"Gespielt wird erst ab +{MIN_EDGE_FOR_BET * 100:.0f} Prozentpunkten "
-             "Sicherheitsmarge — deine Schätzung kann danebenliegen.",
+        help=(
+            "Diagnosewert, kein starres Preis-Gate. Derselbe Abstand besitzt "
+            "bei verschiedenen Quoten einen unterschiedlichen Geldwert."
+        ),
     )
     col_ev.metric(
-        "Erwartungswert pro Wette",
-        _fmt_pct(ev),
+        "Risiko-EV pro Wette",
+        _fmt_pct(risk_ev),
         delta=_fmt_chf(profit),
-        help="So viel gewinnst oder verlierst du bei diesem Preis "
-             "im langfristigen Schnitt pro Wette.",
+        help=(
+            f"Nach {uncertainty_pct:.1f} Prozentpunkten Abschlag. "
+            f"Freigabe ab {MIN_EXPECTED_ROI_FOR_BET * 100:.1f} % Risiko-EV."
+        ),
+    )
+    st.caption(
+        f"Punktschätzung: {probability_pct:.1f} % / EV {point_ev * 100:+.1f} % · "
+        f"Konservativ: {adjusted_probability * 100:.1f} % / "
+        f"Risiko-EV {risk_ev * 100:+.1f} %"
     )
 
     if label == VERDICT_BET:
         st.success(
-            f"**{label} — unter dieser Wahrscheinlichkeitsannahme rechnerisch positiv.** "
-            f"{reason}"
+            f"**{label} — unter dieser Wahrscheinlichkeitsannahme rechnerisch "
+            f"ausreichend.** {reason} Das ist keine eigenständige Wettfreigabe."
         )
     elif label == VERDICT_CLOSE:
         st.warning(f"**{label} — Finger weg.** {reason}")
     else:
         st.error(f"**{label} — nicht wetten.** {reason}")
 
-    hundred = expected_profit(probability, odds, stake * 100)
+    hundred = expected_profit(adjusted_probability, odds, stake * 100)
     st.caption(
         f"Langfristig-Bild: Bei 100 gleichen Wetten à {stake:.0f} CHF "
         f"(gesamt {stake * 100:.0f} CHF gesetzt) ist dein erwartetes Ergebnis "
@@ -155,14 +204,13 @@ def render_ev_checker(scope: str | None = None) -> None:
         "Wahrscheinlichkeit wirklich kalibriert ist."
     )
 
-    with st.expander("Warum KNAPP schon NEIN bedeutet?"):
+    with st.expander("Warum eine wahrscheinliche Auswahl trotzdem keine Wette sein kann"):
         st.markdown(
-            f"Deine Prozent-Einschätzung ist eine Schätzung — sie kann um "
-            f"ein paar Punkte danebenliegen. Liegt der Vorteil unter "
-            f"{MIN_EDGE_FOR_BET * 100:.0f} Prozentpunkten, frisst dieser "
-            f"Schätzfehler den ganzen Edge. **Beispiel Bayern:** Quote 1,50 "
-            f"bei echten 71 % ist ein Kauf (+7 %). Dieselbe Bayern-Wette bei "
-            f"Quote 1,40 gewinnst du zwei von drei Mal — und verlierst "
-            f"trotzdem langfristig 6,7 % pro Wette. Oft gewinnen und gut "
-            f"wetten sind verschiedene Dinge."
+            "Die Prognose beantwortet, was am wahrscheinlichsten passiert. "
+            "Der Preis beantwortet, ob sich die Wette lohnt. **Beispiel:** "
+            "Eine Auswahl kann mit 70 % sehr wahrscheinlich sein. Bei Quote "
+            "1,30 liegt ihr Erwartungswert trotzdem bei −9 %. Die Prognose "
+            "bleibt 70 %, aber die korrekte Wettentscheidung lautet NEIN. "
+            "Der explizite Unsicherheitsabschlag verhindert zusätzlich, dass "
+            "eine zu genaue Punktschätzung als Gewissheit behandelt wird."
         )

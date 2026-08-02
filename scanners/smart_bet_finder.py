@@ -15,8 +15,10 @@ import math
 from datetime import datetime, timezone
 
 from betting_math import (
+    MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
     BettingMathError,
     evaluate_market_price,
+    proportional_no_vig_market,
     validate_decimal_odds,
     validate_probability_percent,
 )
@@ -53,10 +55,14 @@ class SmartBet:
     point_edge: Optional[float] = None
     point_expected_roi: Optional[float] = None
     market_overround: Optional[float] = None
+    no_vig_market_probability: Optional[float] = None
+    model_market_gap: Optional[float] = None
     kelly_stake: Optional[float] = None
     recommendation_type: str = 'EXPLORATORY_ESTIMATE'
     calibrated: bool = False
     actionable: bool = False
+    price_passed: bool = False
+    evidence_stage: str = 'RESEARCH'
     
     def to_dict(self):
         return {
@@ -80,10 +86,14 @@ class SmartBet:
             'point_edge': self.point_edge,
             'point_expected_roi': self.point_expected_roi,
             'market_overround': self.market_overround,
+            'no_vig_market_probability': self.no_vig_market_probability,
+            'model_market_gap': self.model_market_gap,
             'kelly_stake': self.kelly_stake,
             'recommendation_type': self.recommendation_type,
             'calibrated': self.calibrated,
             'actionable': self.actionable,
+            'price_passed': self.price_passed,
+            'evidence_stage': self.evidence_stage,
         }
 
     @property
@@ -623,6 +633,49 @@ class SmartBetFinder:
         if not math.isfinite(overround) or not 0.98 <= overround <= 1.25:
             return None
         return overround
+
+    @classmethod
+    def _no_vig_market_probability(
+        cls,
+        market: str,
+        market_odds: Dict,
+        bookmaker: str,
+    ) -> Optional[float]:
+        """Return the selected side's de-vigged benchmark probability."""
+        group = cls._market_group(market)
+        if group is None:
+            return None
+        selected_quote = market_odds.get(market)
+        if not isinstance(selected_quote, dict):
+            return None
+        reference_source = str(selected_quote.get('source') or '').strip()
+        if not reference_source:
+            return None
+        prices = []
+        for selection in group:
+            quote = market_odds.get(selection)
+            if not isinstance(quote, dict):
+                return None
+            if (
+                str(quote.get('source') or '').strip() != reference_source
+                or not cls._quote_is_fresh(quote.get('quoted_at'))
+            ):
+                return None
+            try:
+                prices.append(
+                    validate_decimal_odds(
+                        (quote.get('all_odds') or {}).get(bookmaker)
+                    )
+                )
+            except BettingMathError:
+                return None
+        try:
+            no_vig = proportional_no_vig_market(prices)
+        except BettingMathError:
+            return None
+        if not 0.98 <= no_vig.overround <= 1.25:
+            return None
+        return no_vig.no_vig_probabilities[group.index(market)] * 100.0
     
     def _calculate_edge(self, probability: float, odds: Optional[float]) -> Optional[float]:
         """
@@ -699,20 +752,15 @@ class SmartBetFinder:
         )
     
     def find_value_bets(self, analysis_results: Dict, 
-                        home_team: str = None, away_team: str = None,
-                        min_edge: float = 3.0) -> List[SmartBet]:
+                        home_team: str = None,
+                        away_team: str = None) -> List[SmartBet]:
         """
-        Finde Value Bets aus allen Märkten
-        
-        VERBESSERT: Nutzt echte Odds wenn verfügbar
+        Finde Value Bets aus allen Märkten.
+
+        Der gemeinsame Standard nutzt ausschließlich den risikoadjustierten
+        Erwartungswert; eine feste PP-Schwelle ist nicht über Quoten
+        vergleichbar.
         """
-        if (
-            isinstance(min_edge, bool)
-            or not isinstance(min_edge, (int, float))
-            or not math.isfinite(min_edge)
-            or min_edge < 0
-        ):
-            raise ValueError("min_edge must be finite and non-negative")
         value_bets = []
         
         # Sammle alle Wahrscheinlichkeiten
@@ -750,7 +798,12 @@ class SmartBetFinder:
                 continue
 
             overround = self._market_overround(market, market_odds, bookmaker)
-            if overround is None:
+            no_vig_probability = self._no_vig_market_probability(
+                market,
+                market_odds,
+                bookmaker,
+            )
+            if overround is None or no_vig_probability is None:
                 continue
             haircut = float(validation['max_calibration_error']) * 100.0
             try:
@@ -765,8 +818,8 @@ class SmartBetFinder:
                 continue
 
             if (
-                metrics.risk_adjusted_edge >= min_edge
-                and metrics.risk_adjusted_expected_roi > 0.0
+                metrics.risk_adjusted_expected_roi
+                >= MINIMUM_RISK_ADJUSTED_ROI_PERCENT
                 and metrics.kelly_fraction > 0.0
             ):
                 kelly = round(metrics.kelly_fraction * 100.0, 2)
@@ -790,10 +843,9 @@ class SmartBetFinder:
                         metrics.edge,
                         is_real,
                     ),
-                    stake_recommendation=self._get_stake_recommendation(
-                        metrics.risk_adjusted_probability,
-                        metrics.risk_adjusted_edge,
-                        kelly,
+                    stake_recommendation=(
+                        "NO REAL-MONEY STAKE - Shadow quarter-Kelly reference "
+                        f"{kelly:.1f}%"
                     ),
                     risk_level=self._get_risk_level(
                         metrics.risk_adjusted_probability,
@@ -812,10 +864,14 @@ class SmartBetFinder:
                     point_edge=round(metrics.edge, 1),
                     point_expected_roi=round(metrics.expected_roi, 1),
                     market_overround=round(overround, 4),
+                    no_vig_market_probability=round(no_vig_probability, 1),
+                    model_market_gap=round(prob - no_vig_probability, 1),
                     kelly_stake=kelly,
-                    recommendation_type='VALUE_BET',
+                    recommendation_type='SHADOW_VALUE',
                     calibrated=True,
-                    actionable=True,
+                    actionable=False,
+                    price_passed=True,
+                    evidence_stage='SHADOW',
                 )
                 value_bets.append(bet)
         
@@ -855,6 +911,8 @@ class SmartBetFinder:
                     recommendation_type='EXPLORATORY_ESTIMATE',
                     calibrated=False,
                     actionable=False,
+                    price_passed=False,
+                    evidence_stage='RESEARCH',
                 )
                 high_conf_bets.append(bet)
         
@@ -1072,7 +1130,7 @@ def display_smart_bet(bet: SmartBet, rank: int = 1):
 
     with st.container():
         st.markdown(f"#### #{rank} {bet.market}: {bet.sub_market}")
-        if bet.recommendation_type == 'VALUE_BET':
+        if bet.recommendation_type in {'VALUE_BET', 'SHADOW_VALUE'}:
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("Model p", f"{bet.probability:.1f}%")
             col2.metric("Staking p", adjusted_probability_text)
@@ -1106,10 +1164,22 @@ def display_smart_bet(bet: SmartBet, rank: int = 1):
             and bet.calibration_haircut is not None
             else ""
         )
-        st.caption(f"{provenance}{calibration} | Risk: {bet.risk_level}")
+        st.caption(
+            f"{provenance}{calibration} | Risk: {bet.risk_level} | "
+            f"Evidenz: {bet.evidence_stage}"
+        )
+        if (
+            bet.no_vig_market_probability is not None
+            and bet.model_market_gap is not None
+        ):
+            st.caption(
+                f"No-Vig-Marktbenchmark {bet.no_vig_market_probability:.1f} % · "
+                f"Modellabstand {bet.model_market_gap:+.1f} pp. Der Benchmark "
+                "ist Diagnose und kein Modelleingang."
+            )
         st.write(bet.reasoning)
-        if bet.recommendation_type == 'VALUE_BET':
-            st.write(f"**Stake:** {bet.stake_recommendation}")
+        if bet.recommendation_type in {'VALUE_BET', 'SHADOW_VALUE'}:
+            st.write(f"**Shadow-Referenz:** {bet.stake_recommendation}")
 
 
 def render_smart_bet_finder(analysis_results: Dict, home_team: str = None, away_team: str = None):
@@ -1128,7 +1198,11 @@ def render_smart_bet_finder(analysis_results: Dict, home_team: str = None, away_
             bets = finder.find_value_bets(analysis_results, home_team, away_team)
             
             if bets:
-                st.success("One fixture-level candidate passed every gate.")
+                st.info(
+                    "Ein Kandidat hat Modell- und Preisprüfung bestanden. "
+                    "Er bleibt bis zur unabhängigen CLV-/ROI-Freigabe ein "
+                    "Shadow-Signal ohne Echtgeld-Einsatz."
+                )
                 for rank, bet in enumerate(bets, start=1):
                     display_smart_bet(bet, rank)
             else:

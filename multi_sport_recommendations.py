@@ -18,7 +18,15 @@ try:  # Managed-Automation-Runner hat kein scipy; der E-Sport-Pfad braucht es ni
 except ImportError:  # pragma: no cover - nur in Runner-Umgebungen ohne scipy
     nbinom = None
 
-from betting_math import BettingMathError, ValueMetrics, evaluate_market_price
+from betting_math import (
+    DEFAULT_KELLY_CAP,
+    DEFAULT_KELLY_FRACTION,
+    MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
+    BettingMathError,
+    ValueMetrics,
+    evaluate_market_price,
+    minimum_acceptable_odds,
+)
 from esports_elo import (
     ELO_UNCERTAINTY_MARGIN,
     expected_score,
@@ -26,14 +34,26 @@ from esports_elo import (
 )
 
 
-MINIMUM_EDGE_PERCENTAGE_POINTS = 4.0
-MINIMUM_EXPECTED_ROI_PERCENT = 3.0
-MAXIMUM_KELLY_FRACTION = 0.02
+# Edge remains a useful diagnostic, but it is not a universal release
+# threshold: the same probability-point gap has a different monetary value at
+# different prices. Risk-adjusted expected return is the shared price gate.
+MINIMUM_EXPECTED_ROI_PERCENT = MINIMUM_RISK_ADJUSTED_ROI_PERCENT
+MAXIMUM_KELLY_FRACTION = DEFAULT_KELLY_CAP
 # No honest model is 100% certain. Above this probability the dominant risk is
 # wrong input data (clock, score), not the model — display and evidence must
 # say so instead of printing a rounded "100.0 %".
 HIGH_PROBABILITY_DISPLAY_CAP = 99.5
 HIGH_PROBABILITY_EVIDENCE_THRESHOLD = 97.0
+EVIDENCE_RESEARCH = "RESEARCH"
+EVIDENCE_SHADOW = "SHADOW"
+EVIDENCE_RELEASED = "RELEASED"
+EVIDENCE_UNAVAILABLE = "UNAVAILABLE"
+EVIDENCE_LABELS = {
+    EVIDENCE_RESEARCH: "Forschung",
+    EVIDENCE_SHADOW: "Unabhängige Shadow-Prüfung",
+    EVIDENCE_RELEASED: "Echtgeld-freigegeben",
+    EVIDENCE_UNAVAILABLE: "Kein belastbares Modell",
+}
 
 
 @dataclass(frozen=True)
@@ -53,10 +73,25 @@ class RecommendationCandidate:
     expected_total: Optional[float]
     evidence: tuple[str, ...]
     blockers: tuple[str, ...] = ()
+    evidence_stage: str = EVIDENCE_RESEARCH
+
+    @property
+    def forecast_available(self) -> bool:
+        """Whether the price-independent model produced a concrete forecast."""
+        return (
+            self.model_probability is not None
+            and self.selection is not None
+            and 0.0 < self.model_probability < 100.0
+        )
 
     @property
     def model_ready(self) -> bool:
-        return not self.blockers and self.model_probability is not None
+        """Whether the forecast also passed every price-independent model gate."""
+        return self.forecast_available and not self.blockers
+
+    @property
+    def evidence_label(self) -> str:
+        return EVIDENCE_LABELS.get(self.evidence_stage, "Unbekannter Modellstand")
 
 
 @dataclass(frozen=True)
@@ -72,6 +107,10 @@ class PriceDecision:
     @property
     def actionable(self) -> bool:
         return self.status == "BET"
+
+    @property
+    def price_passed(self) -> bool:
+        return self.status in {"BET", "SHADOW", "RESEARCH"}
 
 
 def _finite_number(value: Any) -> Optional[float]:
@@ -98,10 +137,6 @@ def _event_key(item: dict, *fallback_parts: Any) -> str:
     return ":".join(str(part).strip() for part in fallback_parts if str(part).strip())
 
 
-def _ceil_price(value: float) -> float:
-    return math.ceil((value - 1e-12) * 100.0) / 100.0
-
-
 def format_probability_percent(probability: Any) -> str:
     """Format a model probability without ever printing a rounded 100 %."""
     number = _finite_number(probability)
@@ -124,13 +159,10 @@ def format_fair_odds(fair_odds: Any) -> str:
 
 
 def _minimum_market_odds(risk_adjusted_probability: float) -> Optional[float]:
-    probability = risk_adjusted_probability / 100.0
-    edge = MINIMUM_EDGE_PERCENTAGE_POINTS / 100.0
-    if probability <= edge:
-        return None
-    edge_price = 1.0 / (probability - edge)
-    roi_price = (1.0 + MINIMUM_EXPECTED_ROI_PERCENT / 100.0) / probability
-    return max(1.01, _ceil_price(max(edge_price, roi_price)))
+    return minimum_acceptable_odds(
+        risk_adjusted_probability,
+        minimum_expected_roi_percent=MINIMUM_EXPECTED_ROI_PERCENT,
+    )
 
 
 def _candidate(
@@ -146,6 +178,7 @@ def _candidate(
     model_name: str,
     expected_total: Optional[float],
     evidence: Sequence[str],
+    evidence_stage: str = EVIDENCE_RESEARCH,
 ) -> RecommendationCandidate:
     probability = min(100.0, max(0.0, float(model_probability)))
     haircut = min(probability, max(0.0, float(probability_haircut)))
@@ -174,6 +207,7 @@ def _candidate(
         model_name=model_name,
         expected_total=(round(expected_total, 2) if expected_total is not None else None),
         evidence=evidence_notes,
+        evidence_stage=evidence_stage,
         blockers=(
             ()
             if minimum_odds is not None
@@ -208,6 +242,7 @@ def no_bet_candidate(
         expected_total=None,
         evidence=(),
         blockers=tuple(blockers),
+        evidence_stage=EVIDENCE_UNAVAILABLE,
     )
 
 
@@ -642,6 +677,7 @@ def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
             f"Historie: {team1} {wins1}/{matches1}, {team2} {wins2}/{matches2}.",
             f"Konservativ: 150 ELO-Punkte Unsicherheitsmarge plus 5,0 Prozentpunkte Modellabschlag.",
         ),
+        evidence_stage=EVIDENCE_SHADOW,
     )
 
 
@@ -733,7 +769,7 @@ def evaluate_candidate_price(
             candidate.model_probability,
             quoted_odds,
             probability_haircut=candidate.probability_haircut,
-            kelly_fraction=0.25,
+            kelly_fraction=DEFAULT_KELLY_FRACTION,
             kelly_cap=MAXIMUM_KELLY_FRACTION,
         )
     except BettingMathError as exc:
@@ -748,11 +784,10 @@ def evaluate_candidate_price(
         )
 
     reasons = []
-    if metrics.risk_adjusted_edge < MINIMUM_EDGE_PERCENTAGE_POINTS:
-        reasons.append(
-            f"Risiko-Edge {metrics.risk_adjusted_edge:.1f} pp liegt unter {MINIMUM_EDGE_PERCENTAGE_POINTS:.1f} pp."
-        )
-    if metrics.risk_adjusted_expected_roi < MINIMUM_EXPECTED_ROI_PERCENT:
+    if (
+        metrics.risk_adjusted_expected_roi + 1e-9
+        < MINIMUM_EXPECTED_ROI_PERCENT
+    ):
         reasons.append(
             f"Risiko-EV {metrics.risk_adjusted_expected_roi:.1f} % liegt unter {MINIMUM_EXPECTED_ROI_PERCENT:.1f} %."
         )
@@ -763,18 +798,42 @@ def evaluate_candidate_price(
     if metrics.kelly_fraction <= 0:
         reasons.append("Das risikoadjustierte Kelly-Ergebnis ist nicht positiv.")
 
-    actionable = not reasons
-    stake_fraction = metrics.kelly_fraction if actionable else 0.0
+    price_passed = not reasons
+    released = candidate.evidence_stage == EVIDENCE_RELEASED
+    shadow = candidate.evidence_stage == EVIDENCE_SHADOW
+    status = (
+        "BET"
+        if price_passed and released
+        else "SHADOW"
+        if price_passed and shadow
+        else "RESEARCH"
+        if price_passed
+        else "NO_BET"
+    )
+    stake_fraction = metrics.kelly_fraction if status == "BET" else 0.0
     return PriceDecision(
-        status="BET" if actionable else "NO_BET",
+        status=status,
         candidate=candidate,
         quoted_odds=metrics.market_odds,
         metrics=metrics,
         stake_fraction=stake_fraction,
         stake_amount=round(balance * stake_fraction, 2),
         reasons=(
-            ("Alle Modell-, Preis-, Edge-, EV- und Einsatz-Gates bestanden.",)
-            if actionable
+            (
+                "Alle Modell-, Evidenz-, Preis-, Risiko-EV- und "
+                "Einsatz-Gates bestanden.",
+            )
+            if status == "BET"
+            else (
+                "Modell- und Preisprüfung bestanden; die unabhängige "
+                "Shadow-Evidenz reicht noch nicht für Echtgeld.",
+            )
+            if status == "SHADOW"
+            else (
+                "Der Preis wäre rechnerisch ausreichend, aber dieses Modell "
+                "ist noch im Forschungsstadium.",
+            )
+            if price_passed
             else tuple(reasons)
         ),
     )

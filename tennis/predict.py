@@ -9,8 +9,9 @@ issued when EVERY gate is green — the same discipline as football:
 2. experience     — both players >= MIN_ELO_MATCHES tracked matches
 3. serve data     — both players >= MIN_SERVE_GAMES tracked games
                     (otherwise the blend is not what was backtested)
-4. edge           — calibrated model vs the offered price >= MIN_EDGE
-5. price sanity   — no corrupt prices (<= 1.0)
+4. uncertainty    — selection-region calibration risk is deducted explicitly
+5. expected value — risk-adjusted EV against the offered price >= 3%
+6. price sanity   — no corrupt prices (<= 1.0)
 
 Nothing here knows the result.  Feed N1Bet prices manually (the app
 design requires manual price entry anyway) and the module tells you
@@ -21,7 +22,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import math
 from typing import Dict, List, Optional, Tuple
+
+from betting_math import (
+    MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
+    BettingMathError,
+    evaluate_market_price,
+)
 
 from .backtest import MIN_ELO_MATCHES, MIN_SERVE_GAMES
 from .data_loader import normalize_player_name
@@ -29,11 +37,14 @@ from .model_state import ModelState
 from .simulator import MatchMarkets, simulate_match
 
 ALLOWED_SURFACES = ("Hard",)       # backtest evidence: clay/grass negative
-MIN_EDGE = 0.12                    # calibrated edge vs offered price
-# side markets (over/under sets, set handicap): distributions are
-# calibration-tested but ROI is NOT backtestable (no historical side
-# prices) -> harder threshold than the winner market
-SIDE_MARKET_MIN_EDGE = 0.15
+MIN_EXPECTED_ROI = MINIMUM_RISK_ADJUSTED_ROI_PERCENT / 100.0
+# The selected ATP-Hard backtest region was materially overconfident. This
+# explicit deduction is conservative model risk, not a claimed confidence
+# interval. It is separate from the offered price.
+WINNER_PROBABILITY_HAIRCUT = 0.15
+# Set markets passed calibration checks but have no historical price/ROI
+# benchmark. They remain Shadow-only with a separate uncertainty deduction.
+SIDE_MARKET_PROBABILITY_HAIRCUT = 0.10
 
 
 @dataclass
@@ -102,14 +113,14 @@ def predict_match(
     best_of: int = 3,
     odds_a: Optional[float] = None,
     odds_b: Optional[float] = None,
-    min_edge: float = MIN_EDGE,
+    minimum_expected_roi: float = MIN_EXPECTED_ROI,
     tour: str = "ATP",
     indoor: Optional[bool] = None,
 ) -> TennisPrediction:
     """Full prediction + gate evaluation for one fixture.
 
     ``player_a`` / ``player_b`` may be any spelling — normalised here.
-    Prices are optional: without them no edge gate is evaluated (the
+    Prices are optional: without them no price/EV gate is evaluated (the
     prediction itself is always computed).
 
     ``indoor`` selects the environment for Hard matches (pure indoor
@@ -122,6 +133,13 @@ def predict_match(
     """
     tour = str(tour or "ATP").upper()
     is_wta = tour == "WTA"
+    if (
+        isinstance(minimum_expected_roi, bool)
+        or not isinstance(minimum_expected_roi, (int, float))
+        or not math.isfinite(float(minimum_expected_roi))
+        or not 0.0 <= float(minimum_expected_roi) <= 1.0
+    ):
+        raise ValueError("minimum_expected_roi must be between 0 and 1")
     key_a = normalize_player_name(player_a)
     key_b = normalize_player_name(player_b)
     surface_model = surface if surface in ("Hard", "Clay", "Grass", "Carpet") else None
@@ -200,21 +218,48 @@ def predict_match(
     recommended_odds = 0.0
     if odds_a is not None and odds_b is not None:
         prices_ok = odds_a > 1.0 and odds_b > 1.0
-        implied_a = 1.0 / odds_a if prices_ok else 0.0
-        implied_b = 1.0 / odds_b if prices_ok else 0.0
-        edge_a = p_cal - implied_a if prices_ok else 0.0
-        edge_b = (1.0 - p_cal) - implied_b if prices_ok else 0.0
-        if edge_a >= edge_b and edge_a >= min_edge:
-            recommended_side, recommended_edge, recommended_odds = "A", edge_a, odds_a
-        elif edge_b > edge_a and edge_b >= min_edge:
-            recommended_side, recommended_edge, recommended_odds = "B", edge_b, odds_b
+        metrics_a = metrics_b = None
+        if prices_ok:
+            try:
+                metrics_a = evaluate_market_price(
+                    p_cal * 100.0,
+                    odds_a,
+                    probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
+                )
+                metrics_b = evaluate_market_price(
+                    (1.0 - p_cal) * 100.0,
+                    odds_b,
+                    probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
+                )
+            except BettingMathError:
+                prices_ok = False
+                metrics_a = metrics_b = None
+        roi_a = (
+            metrics_a.risk_adjusted_expected_roi / 100.0
+            if metrics_a is not None
+            else float("-inf")
+        )
+        roi_b = (
+            metrics_b.risk_adjusted_expected_roi / 100.0
+            if metrics_b is not None
+            else float("-inf")
+        )
+        if roi_a >= roi_b and roi_a >= minimum_expected_roi:
+            recommended_side = "A"
+            recommended_edge = metrics_a.risk_adjusted_edge / 100.0
+            recommended_odds = odds_a
+        elif roi_b > roi_a and roi_b >= minimum_expected_roi:
+            recommended_side = "B"
+            recommended_edge = metrics_b.risk_adjusted_edge / 100.0
+            recommended_odds = odds_b
         gates.append(
             GateResult(
-                "Quote/Edge",
-                prices_ok and (edge_a >= min_edge or edge_b >= min_edge),
+                "Quote/Risiko-EV",
+                prices_ok and max(roi_a, roi_b) >= minimum_expected_roi,
                 (
-                    f"Edge {player_a}: {edge_a:+.1%}, {player_b}: {edge_b:+.1%} "
-                    f"(min. {min_edge:+.0%})"
+                    f"Nach {WINNER_PROBABILITY_HAIRCUT:+.0%} Modellabschlag: "
+                    f"EV {player_a} {roi_a:+.1%}, {player_b} {roi_b:+.1%} "
+                    f"(min. {minimum_expected_roi:+.1%})"
                     if prices_ok
                     else "unplausible Quote"
                 ),

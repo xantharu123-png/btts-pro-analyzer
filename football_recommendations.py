@@ -7,12 +7,16 @@ import math
 from typing import Any, Mapping, Optional
 
 from bet_finder_candidates import build_probability_candidate
-from multi_sport_recommendations import RecommendationCandidate
+from multi_sport_recommendations import (
+    EVIDENCE_RESEARCH,
+    EVIDENCE_SHADOW,
+    RecommendationCandidate,
+)
 
 
 PREMATCH_MAX_AGE_SECONDS = 6 * 3600
 LIVE_MAX_AGE_SECONDS = 120
-FOOTBALL_RECOMMENDATIONS_VERSION = 2
+FOOTBALL_RECOMMENDATIONS_VERSION = 3
 
 
 def _finite(value: Any) -> Optional[float]:
@@ -58,7 +62,17 @@ def prematch_btts_candidate(
 
     home = str(row.get("Home") or "Heimteam")
     away = str(row.get("Away") or "Auswärtsteam")
-    probability = _finite(row.get("BTTS_num", row.get("BTTS %")))
+    btts_yes_probability = _finite(row.get("BTTS_num", row.get("BTTS %")))
+    if btts_yes_probability is not None and 0.0 <= btts_yes_probability <= 100.0:
+        if btts_yes_probability >= 50.0:
+            selection = "Ja"
+            probability = btts_yes_probability
+        else:
+            selection = "Nein"
+            probability = 100.0 - btts_yes_probability
+    else:
+        selection = "keine Auswahl"
+        probability = None
     quality = _finite(row.get("Quality_num", row.get("Data Quality")))
     ml_probability = _finite(analysis.get("ml_probability"))
     statistical_probability = _finite(analysis.get("statistical_probability"))
@@ -87,7 +101,9 @@ def prematch_btts_candidate(
     if not validated_model_available or details.get("ml_active") is not True:
         blockers.append("Das chronologisch validierte BTTS-Modell ist für dieses Spiel nicht aktiv.")
     if probability is None or probability < 58.0:
-        model_vetoes.append("Die BTTS-Modellwahrscheinlichkeit liegt unter 58 %.")
+        model_vetoes.append(
+            "Keine BTTS-Auswahl erreicht 58 % Modellwahrscheinlichkeit."
+        )
     if quality is None or quality < 70.0:
         model_vetoes.append("Der Evidenzscore liegt unter 70 %.")
     if min(venue_samples) < 5 or min(form_samples) < 5:
@@ -101,6 +117,12 @@ def prematch_btts_candidate(
     haircut = min(20.0, max(10.0, 10.0 + quality_penalty + spread_penalty))
     fixture_key = row.get("_fixture_id") or f"{row.get('_fixture_date')}:{home}:{away}"
     evidence = (
+        (
+            f"BTTS Ja {btts_yes_probability:.1f} %; ausgewählt wird "
+            f"{selection} mit {probability:.1f} %."
+            if btts_yes_probability is not None and probability is not None
+            else "BTTS-Wahrscheinlichkeit fehlt."
+        ),
         f"Evidenzscore {quality:.1f} %." if quality is not None else "Evidenzscore fehlt.",
         f"Venue-Stichprobe {venue_samples[0]}/{venue_samples[1]}, Form {form_samples[0]}/{form_samples[1]}.",
         f"ML/Statistik-Abstand {spread:.1f} Prozentpunkte." if spread is not None else "Modellabstand nicht berechenbar.",
@@ -115,13 +137,14 @@ def prematch_btts_candidate(
         sport="Fußball",
         event_label=f"{home} vs {away}",
         market="Beide Teams treffen",
-        selection="Ja",
+        selection=selection,
         model_probability=probability,
         probability_haircut=haircut,
         model_name="Walk-forward BTTS + statistischer Konsistenzcheck",
         evidence=evidence,
         blockers=blockers,
         expected_total=_finite(row.get("xG Total")),
+        evidence_stage=EVIDENCE_SHADOW,
     )
 
 
@@ -186,6 +209,7 @@ def live_football_candidate(
         model_name="Restspiel-Poisson mit Live-xG/Prematch-Prior",
         evidence=evidence,
         blockers=blockers,
+        evidence_stage=EVIDENCE_RESEARCH,
     )
 
 
@@ -255,4 +279,5 @@ def red_card_candidate(
         model_name="Platzverweis-Wirkungsmodell",
         evidence=evidence,
         blockers=blockers,
+        evidence_stage=EVIDENCE_SHADOW,
     )

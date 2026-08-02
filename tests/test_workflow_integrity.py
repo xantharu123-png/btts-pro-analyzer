@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pandas as pd
 import pytest
 
 import app
+from betting_math import BETTING_POLICY_VERSION
 from advanced_analyzer import calculate_evidence_score
 from alternative_markets import PreMatchAlternativeAnalyzer
 from alternative_markets_tab_extended import _api_football_items, _market_scope_signature
@@ -44,6 +46,40 @@ def test_live_recommendation_snapshot_age_requires_timezone_and_freshness():
         now=now,
     ) == 181
     assert app._snapshot_age_seconds("2026-07-20T10:00:00", now=now) is None
+
+
+def test_persisted_football_signal_keeps_point_probability_and_haircut_separate(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        app,
+        "prematch_btts_candidate",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            model_ready=True,
+            model_probability=64.0,
+            probability_haircut=12.0,
+            evidence_stage="SHADOW",
+            selection="Ja",
+        ),
+    )
+    frame = pd.DataFrame(
+        [
+            {
+                "Home": "A",
+                "Away": "B",
+                "League": "BL1",
+                "Date": "2026-08-03",
+                "_analysis": {"details": {"ml_active": True}},
+            }
+        ]
+    )
+
+    signal = app._persist_prematch(frame)["signals"][0]
+
+    assert signal["p"] == pytest.approx(0.64)
+    assert signal["haircut"] == pytest.approx(0.12)
+    assert signal["evidence_stage"] == "SHADOW"
+    assert signal["policy_version"] == BETTING_POLICY_VERSION
 
 
 def test_multi_sport_fetches_only_the_selected_basketball_scope(monkeypatch):
@@ -180,10 +216,27 @@ def test_multi_sport_release_is_fail_closed_during_shadow_ramp_up():
     blocker = app._multi_sport_release_blockers(
         "E-Sport",
         {"status": "upcoming"},
-        esports_release={"ready": False, "settled": 5, "required": 100},
+        esports_release={"ready": False, "settled": 5, "required": 300},
     )
     assert blocker
-    assert "5/100" in blocker[0]
+    assert "5/300" in blocker[0]
+
+
+def test_esport_calibration_alone_never_unlocks_real_money():
+    blocker = app._multi_sport_release_blockers(
+        "E-Sport",
+        {"status": "upcoming"},
+        esports_release={
+            "ready": False,
+            "calibration_ready": True,
+            "price_evidence_ready": False,
+            "settled": 300,
+            "required": 300,
+        },
+    )
+
+    assert blocker
+    assert "CLV" in blocker[0]
 
 
 def test_multi_sport_live_esport_is_separate_from_prematch_release():

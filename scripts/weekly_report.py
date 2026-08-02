@@ -9,9 +9,8 @@ Nur Karten, bei denen ALLE Modell-Gates gruen sind, werden als wettbar
 gelistet.  WTA bleibt Shadow-only (kein Edge) und taucht daher nie in
 der Wettliste auf - nur als Info-Zeile.
 
-Mindestquote = 1 / (p - MIN_EDGE). Nur wetten, wenn die Buchmacher-
-Quote mindestens diesen Preis erreicht; der Edge ist als absolute
-Wahrscheinlichkeitsdifferenz definiert.
+Mindestquote = (1 + Mindest-Risiko-EV) / (p - Modellabschlag).
+Die Quote entscheidet nur über den Preis, nicht über die Prognose.
 """
 
 from __future__ import annotations
@@ -26,11 +25,22 @@ from html import escape
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from betting_math import (  # noqa: E402
+    MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
+    minimum_acceptable_odds,
+)
+from tennis.predict import (  # noqa: E402
+    SIDE_MARKET_PROBABILITY_HAIRCUT,
+    WINNER_PROBABILITY_HAIRCUT,
+)
+
 DB = ROOT / "tennis" / "data" / "tennis_shadow.db"
 WATCH_JSON = ROOT / "tennis" / "data" / "calibration_watch_latest.json"
 REPORTS = ROOT / "reports"
 
-MIN_EDGE = 0.15          # Mindest-Edge gegen die Buchmacher-Quote
 WATCH_MAX_AGE_DAYS = 8   # danach gilt das Waechter-Ergebnis als veraltet
 
 # (Label, Key in markets_json) - Reihenfolge = Spaltenreihenfolge
@@ -90,17 +100,29 @@ def load_watch() -> tuple[dict | None, str]:
     return data, ""
 
 
-def _minimum_odds(p: float | None) -> float | None:
-    if p is None or p <= MIN_EDGE or p > 1.0:
+def _minimum_odds(
+    p: float | None,
+    probability_haircut: float = SIDE_MARKET_PROBABILITY_HAIRCUT,
+) -> float | None:
+    if p is None or not 0.0 <= p <= 1.0:
         return None
-    return 1.0 / (p - MIN_EDGE)
+    return minimum_acceptable_odds(
+        p * 100.0,
+        probability_haircut=probability_haircut * 100.0,
+        minimum_expected_roi_percent=MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
+    )
 
 
-def _fmt_odds(p: float | None) -> str:
+def _fmt_odds(p: float | None, market_key: str) -> str:
     if not p or p <= 0:
         return "&ndash;"
     fair = 1.0 / p
-    minq = _minimum_odds(p)
+    haircut = (
+        WINNER_PROBABILITY_HAIRCUT
+        if market_key in {"p_a_cal", "p_b_cal"}
+        else SIDE_MARKET_PROBABILITY_HAIRCUT
+    )
+    minq = _minimum_odds(p, haircut)
     if minq is None:
         return f"&ndash;<span class='fair'>fair {fair:,.2f}</span>".replace(",", " ").replace(".", ",")
     return f"<b>{minq:,.2f}</b><span class='fair'>fair {fair:,.2f}</span>".replace(",", " ").replace(".", ",")
@@ -166,7 +188,10 @@ def render(cards: list[dict], green: list[dict], watch: dict | None,
                     lbl = escape(d)
                 rows.append(f"<tr class='day'><td colspan='{3 + len(MARKETS)}'>{lbl}</td></tr>")
                 last_day = d
-            cells = "".join(f"<td>{_fmt_odds(mk.get(key))}</td>" for _, key in MARKETS)
+            cells = "".join(
+                f"<td>{_fmt_odds(mk.get(key), key)}</td>"
+                for _, key in MARKETS
+            )
             p_cal = c.get("p_cal")
             p_txt = f"{p_cal * 100:.0f} %".replace(".", ",") if p_cal is not None else "&ndash;"
             tour = escape(c.get("tour") or "")
@@ -222,7 +247,8 @@ Zeitraum {day_from.strftime('%d.%m.')}&ndash;{day_to.strftime('%d.%m.%Y')} &midd
 alle Zeiten lokal</p>
 {watch_html}
 <div class="box rule"><b>Wettregel:</b> Die Zahl in <b>fett</b> ist die
-<b>Mindestquote</b> (fair + {MIN_EDGE:.0%} Edge). Nur wetten, wenn die Quote beim
+<b>Mindestquote</b> nach explizitem Modellabschlag und mindestens
+{MINIMUM_RISK_ADJUSTED_ROI_PERCENT:.1f}% Risiko-EV. Nur wetten, wenn die Quote beim
 Buchmacher <b>&ge; Mindestquote</b> liegt &mdash; darunter ist die Wette
 langfristig Verlustgesch&auml;ft. <i>fair</i> = reine Modell-Wahrscheinlichkeit (1/p).</div>
 <h2>Karten mit gr&uuml;nen Gates</h2>

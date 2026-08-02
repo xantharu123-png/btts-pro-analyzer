@@ -176,8 +176,17 @@ class SmartBetFinderTests(unittest.TestCase):
         self.assertGreater(bets[0].point_edge, 30)
         self.assertLessEqual(bets[0].kelly_stake, 2.0)
         self.assertTrue(bets[0].calibrated)
-        self.assertTrue(bets[0].actionable)
+        self.assertEqual(bets[0].recommendation_type, "SHADOW_VALUE")
+        self.assertFalse(bets[0].actionable)
+        self.assertTrue(bets[0].price_passed)
+        self.assertEqual(bets[0].evidence_stage, "SHADOW")
         self.assertEqual(bets[0].bookmaker, "TestBook")
+        self.assertAlmostEqual(
+            bets[0].no_vig_market_probability,
+            46.2,
+            places=1,
+        )
+        self.assertAlmostEqual(bets[0].model_market_gap, 33.8, places=1)
 
     def test_value_bet_requires_exact_fixture_binding(self):
         finder = SmartBetFinder()

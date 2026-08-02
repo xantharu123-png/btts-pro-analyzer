@@ -8,7 +8,10 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
+from betting_math import BETTING_POLICY_VERSION
 from ev_signal_sources import esports_signals, list_signals, tennis_signals
+from tennis.predict import WINNER_PROBABILITY_HAIRCUT
+from tennis.shadow import TENNIS_POLICY_VERSION
 
 TENNIS_SCHEMA = """
 CREATE TABLE predictions (
@@ -16,7 +19,7 @@ CREATE TABLE predictions (
     match_date TEXT, tour TEXT, tournament TEXT,
     player_a TEXT, player_b TEXT, p_cal REAL, settled INTEGER DEFAULT 0,
     verdict TEXT DEFAULT 'WETTE', recommended_side TEXT DEFAULT 'A',
-    scheduled_start_utc TEXT
+    scheduled_start_utc TEXT, policy_version TEXT
 );
 """
 
@@ -36,9 +39,12 @@ def _tennis_db(rows, tmp: Path) -> Path:
     conn.execute(TENNIS_SCHEMA)
     conn.executemany(
         "INSERT INTO predictions (match_date, tour, tournament, player_a,"
-        " player_b, p_cal, settled, scheduled_start_utc)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [tuple(row) + (f"{row[0]}T23:59:59Z",) for row in rows],
+        " player_b, p_cal, settled, scheduled_start_utc, policy_version)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            tuple(row) + (f"{row[0]}T23:59:59Z", TENNIS_POLICY_VERSION)
+            for row in rows
+        ],
     )
     conn.commit()
     conn.close()
@@ -54,7 +60,10 @@ def _esports_db(rows, tmp: Path) -> Path:
         " team1, team2, selection, status, model_probability,"
         " risk_adjusted_probability)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [tuple(row) + (row[-1],) for row in rows],
+        [
+            tuple(row) + (row[-1],) if len(row) == 8 else tuple(row)
+            for row in rows
+        ],
     )
     conn.commit()
     conn.close()
@@ -79,6 +88,12 @@ class TennisSignalTests(unittest.TestCase):
         self.assertEqual(len(signals), 1)
         side_a = signals[0]
         self.assertAlmostEqual(side_a.probability, 0.6)
+        self.assertAlmostEqual(
+            side_a.probability_haircut,
+            WINNER_PROBABILITY_HAIRCUT,
+        )
+        self.assertEqual(side_a.evidence_stage, "SHADOW")
+        self.assertEqual(side_a.policy_version, TENNIS_POLICY_VERSION)
         self.assertIn("Sieg Spieler A", side_a.label)
         self.assertIn("Test Open", side_a.detail)
 
@@ -106,6 +121,25 @@ class TennisSignalTests(unittest.TestCase):
     def test_missing_db_returns_empty(self):
         self.assertEqual(
             tennis_signals(db_path=self.tmp / "fehlt.db", today="2099-01-01"),
+            [],
+        )
+
+    def test_old_tennis_price_policy_is_excluded(self):
+        db = _tennis_db(
+            [("2099-01-01", "ATP", "Test Open", "A", "B", 0.60, 0)],
+            self.tmp,
+        )
+        conn = sqlite3.connect(db)
+        try:
+            conn.execute(
+                "UPDATE predictions SET policy_version='legacy-edge-policy'"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        self.assertEqual(
+            tennis_signals(db_path=db, today="2099-01-01"),
             [],
         )
 
@@ -161,6 +195,30 @@ class EsportsSignalTests(unittest.TestCase):
         self.assertEqual(len(signals), 1)
         self.assertAlmostEqual(signals[0].probability, 0.61)
 
+    def test_esports_signal_keeps_point_probability_and_model_haircut_separate(self):
+        db = _esports_db(
+            [
+                (
+                    "m3",
+                    "2026-07-31",
+                    "LOL",
+                    "A",
+                    "B",
+                    "A",
+                    "upcoming",
+                    60.0,
+                    52.0,
+                )
+            ],
+            self.tmp,
+        )
+
+        signal = esports_signals(db_path=db, require_released=False)[0]
+
+        self.assertAlmostEqual(signal.probability, 0.60)
+        self.assertAlmostEqual(signal.probability_haircut, 0.08)
+        self.assertEqual(signal.evidence_stage, "SHADOW")
+
     def test_non_upcoming_and_invalid_are_excluded(self):
         db = _esports_db(
             [
@@ -203,7 +261,7 @@ class ListSignalsTests(unittest.TestCase):
                 today="2099-01-01",
                 require_esports_release=False,
             )
-        # One released tennis side + one E-Sport signal.
+        # One tennis Shadow price signal + one E-Sport signal.
         self.assertEqual(len(signals), 2)
         self.assertEqual(len({s.key for s in signals}), 2)
 
@@ -219,8 +277,19 @@ class FootballSignalTests(unittest.TestCase):
     def _write(self, name: str, signals: list, finished_at: str) -> None:
         import json
 
+        normalized = [
+            {
+                "haircut": 0.10,
+                "evidence_stage": "SHADOW",
+                "policy_version": BETTING_POLICY_VERSION,
+                **row,
+            }
+            if isinstance(row, dict)
+            else row
+            for row in signals
+        ]
         (self.tmp / f"{name}.json").write_text(
-            json.dumps({"finished_at": finished_at, "signals": signals}),
+            json.dumps({"finished_at": finished_at, "signals": normalized}),
             encoding="utf-8",
         )
 
@@ -254,6 +323,8 @@ class FootballSignalTests(unittest.TestCase):
         btts = next(s for s in signals if "BTTS" in s.label)
         self.assertIn("⚽ FC A vs FC B", btts.label)
         self.assertAlmostEqual(btts.probability, 0.64)
+        self.assertAlmostEqual(btts.probability_haircut, 0.10)
+        self.assertEqual(btts.evidence_stage, "SHADOW")
         self.assertIn("Fußball-Scan · BTTS", btts.detail)
         red = next(s for s in signals if "Nächstes Tor" in s.label)
         self.assertAlmostEqual(red.probability, 0.58)
@@ -270,6 +341,28 @@ class FootballSignalTests(unittest.TestCase):
             [{"home": "A", "away": "B", "market": "BTTS Ja", "p": 0.6}],
             old,
         )
+        self.assertEqual(football_signals(jobs_dir=self.tmp, now=now), [])
+
+    def test_legacy_football_price_policy_is_excluded(self):
+        from datetime import datetime
+
+        from ev_signal_sources import football_signals
+
+        now = datetime.now().astimezone()
+        self._write(
+            "prematch",
+            [
+                {
+                    "home": "A",
+                    "away": "B",
+                    "market": "BTTS Ja",
+                    "p": 0.60,
+                    "policy_version": "legacy-edge-policy",
+                }
+            ],
+            now.isoformat(),
+        )
+
         self.assertEqual(football_signals(jobs_dir=self.tmp, now=now), [])
 
     def test_invalid_rows_are_skipped(self):

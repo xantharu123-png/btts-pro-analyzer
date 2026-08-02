@@ -1,8 +1,10 @@
 import math
+from dataclasses import replace
 
 import pytest
 
 from multi_sport_recommendations import (
+    EVIDENCE_RELEASED,
     basketball_total_candidate,
     build_candidate,
     esports_match_winner_candidate,
@@ -95,7 +97,10 @@ def test_basketball_model_rejects_stale_or_mistyped_lines():
 
 
 def test_price_gate_rejects_short_quote_and_accepts_only_sufficient_value():
-    candidate = basketball_total_candidate(_basketball_game(), 225.5)
+    candidate = replace(
+        basketball_total_candidate(_basketball_game(), 225.5),
+        evidence_stage=EVIDENCE_RELEASED,
+    )
 
     rejected = evaluate_candidate_price(
         candidate,
@@ -113,7 +118,6 @@ def test_price_gate_rejects_short_quote_and_accepts_only_sufficient_value():
     assert rejected.status == "NO_BET"
     assert rejected.stake_amount == 0
     assert accepted.status == "BET"
-    assert accepted.metrics.risk_adjusted_edge >= 4.0
     assert accepted.metrics.risk_adjusted_expected_roi >= 3.0
     assert accepted.stake_amount == 10.0
     assert math.isclose(accepted.stake_fraction, 0.02)
@@ -173,8 +177,9 @@ def test_esports_live_series_uses_history_uncertainty_before_price_gate():
         bankroll=500,
         quote_confirmed=True,
     )
-    assert decision.status == "BET"
-    assert decision.stake_amount > 2.0
+    assert decision.status == "SHADOW"
+    assert decision.stake_amount == 0.0
+    assert decision.metrics.kelly_fraction > 0.0
 
 
 def test_esports_history_gate_blocks_small_samples():

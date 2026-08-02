@@ -8,12 +8,12 @@
 | Repository | `xantharu123-png/btts-pro-analyzer` |
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
-| Basis vor diesem Audit | `b8c800b` |
+| Basis vor diesem Policy-Audit | `9a47a86` |
 | Aktive Cloud-App | `https://betboypro.streamlit.app/` |
 | Alte Streamlit-URL | nicht mehr aktiv |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 500 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 515 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -27,15 +27,20 @@ Quoten-Nachahmer.
 
 Der verbindliche Ablauf lautet:
 
-1. Das Modell bildet eine Wahrscheinlichkeit ohne Buchmacherquote.
+1. Das Modell bildet eine Punktwahrscheinlichkeit ohne Buchmacherquote.
 2. Datenherkunft, Aktualität, Stichprobe und zeitliche Validierung werden
    geprüft.
 3. H2H, Ausfälle, Wetter und bei Bedarf bestätigte Aufstellungen werden als
    Kontextgates angewendet.
-4. Nicht belastbare Kandidaten enden in `NICHT WETTEN`.
-5. Erst nach der Modellfreigabe wird die exakte N1Bet-Quote als Preis erfasst.
-6. Eine Wette wird nur bei positivem risikoadjustiertem Value freigegeben.
-7. Pro Suche werden höchstens wenige, klar begründete Auswahlen angezeigt.
+4. Die quotenfreie Prognose bleibt sichtbar, auch wenn ein Modellgate oder
+   später die Preisprüfung scheitert.
+5. Erst danach wird die exakte N1Bet-Quote als Preis erfasst.
+6. Die Preisprüfung verwendet eine explizit konservative Wahrscheinlichkeit
+   und mindestens 3 % risikoadjustierten EV; ein fixer Prozentpunkt-Edge ist
+   kein universelles Gate.
+7. `RESEARCH`, `SHADOW` und `RELEASED` sind getrennte Evidenzstufen. Nur
+   `RELEASED` darf einen Echtgeld-Einsatz erzeugen.
+8. Pro Suche werden höchstens wenige, klar begründete Auswahlen angezeigt.
 
 Eine niedrige Quote ist kein Sicherheitsbeweis. Die Quote darf das Modell nicht
 erzeugen, bleibt aber nach Entfernung der Buchmachermarge ein wichtiger
@@ -52,6 +57,10 @@ deutlich ehrlicher als zuvor:
   automatisch zurückgesetzt.
 - Shadow sammelt produktionsgleiche, versionsmarkierte Evidenz.
 - Nicht unabhängig validierte Modelle dürfen keine Wettempfehlung ausgeben.
+- Kein aktiver Scanner verwendet noch einen festen Edge-Grenzwert als
+  universelle Freigaberegel.
+- Punktprognose, Modellabschlag, Preisstatus und Evidenzstufe bleiben auch beim
+  Wechsel in den Wett-Check getrennt.
 - Smartphone und Tablet sind ohne horizontalen Seitenüberlauf bedienbar.
 - Alle 51 Fußballligen kommen aus einem gemeinsamen Katalog.
 
@@ -63,6 +72,33 @@ Out-of-sample-Evidenz, Closing-Line-Vergleich und korrektem Settlement abhängig
 
 ### Freigaben und Mathematik
 
+- Prognose, Unsicherheitsmodell, Buchmacherpreis und Echtgeldfreigabe sind
+  vier getrennte Zustände.
+- Die frühere globale 4-Prozentpunkte-Edge-Schwelle und die aktiven
+  Tennis-Schwellen von 12/15 Prozentpunkten wurden aus den Produktgates
+  entfernt. Edge bleibt ein Diagnosewert.
+- Der gemeinsame Preisstandard ist jetzt:
+
+```text
+konservatives p = max(0, Modell-p - expliziter Haircut)
+Risiko-EV = konservatives p * Quote - 1
+Mindestquote = (1 + 0,03) / konservatives p
+```
+
+- Favoriten und Longshots werden dadurch in derselben Geldeinheit verglichen.
+  Ein Prozentpunkt Edge entspricht bei Quote 2,00 etwa 2 % ROI, bei Quote
+  6,00 dagegen etwa 6 % ROI.
+- Der Wett-Check übernimmt Punktwahrscheinlichkeit und modellzugehörigen
+  Haircut gemeinsam. Der frühere doppelte Abschlag bei Fußball/E-Sport und
+  der zu kleine Standardabschlag bei Tennis sind beseitigt.
+- Alte Fußball- und Tennis-Preissignale werden über Policy-Versionen
+  fail-closed ausgesperrt.
+- Der manuelle Wett-Check meldet `PREIS OK`, nicht mehr `JA`. Er ist eine
+  Rechenhilfe und keine Modell- oder Echtgeldfreigabe.
+- Der Smart-Bet-Finder liefert nach bestandenem Preisgate nur
+  `SHADOW_VALUE`; Einsatz und `actionable=True` sind entfernt.
+- Der Challenge-Ledger erzwingt wie die Auswahlengine mindestens 3 %
+  konservativen EV pro Leg. Der frühere interne 2-%-Bypass ist geschlossen.
 - `freemode` ist standardmäßig `False`.
 - Ein Modell-Veto bleibt auch im Research-Modus ein Veto.
 - Live-Fußball bleibt blockiert, bis eine unabhängige Live-Kalibrierung
@@ -71,13 +107,10 @@ Out-of-sample-Evidenz, Closing-Line-Vergleich und korrektem Settlement abhängig
   Shadow-Evidenz vorliegt.
 - Multi-Sport entfernt keine Blocker mehr, um trotzdem eine Empfehlung
   anzuzeigen.
-- Der Wett-Check übernimmt nur freigegebene beziehungsweise freigabefähige
-  Signale.
-- Die Tennis-Mindestquote verwendet jetzt bei absolutem Probability-Edge:
-
-```text
-Mindestquote = 1 / (p - Mindest-Edge)
-```
+- Der Wett-Check zeigt die Evidenzstufe jedes übernommenen Signals und erzeugt
+  daraus selbst keine Freigabe.
+- BTTS wählt jetzt quotenfrei die wahrscheinlichere Seite `Ja` oder `Nein`;
+  der Scanner ist nicht mehr strukturell auf `BTTS Ja` beschränkt.
 
 - Tennis-Kalibrierung wird immer in derselben alphabetischen Orientierung
   angewendet, in der sie trainiert wurde. Das Ergebnis bleibt beim Vertauschen
@@ -86,6 +119,11 @@ Mindestquote = 1 / (p - Mindest-Edge)
   sieht dadurch keine Information aus demselben Match.
 - Fehlende beobachtete Märkte ergeben im Kalibrierungswächter
   `insufficient`, niemals ein falsches `ok`.
+- Der exakte Tennis-Produktionsreplay bewertet beide Buchmacherseiten nach
+  Haircut und Risiko-EV. ATP Hard mit Serve-Gate ergab 2021-22 bei 195 Picks
+  +2,45 % ROI (95-%-Intervall -22,33 bis +27,23 %) und 2023-24 bei 142 Picks
+  +9,78 % (95-%-Intervall -19,52 bis +39,09 %). Beide Intervalle enthalten
+  deutliche Verluste; Tennis bleibt daher zwingend Shadow.
 
 ### Jobs, Sitzungen und Challenge
 
@@ -136,8 +174,10 @@ Mindestquote = 1 / (p - Mindest-Edge)
   Teamzuordnung.
 - Offene E-Sport-Zeilen werden fair rotiert; ein temporär fehlendes Ergebnis
   wird nicht automatisch als Void entsorgt.
-- E-Sport-Freigabe verlangt mindestens 100 saubere Settlements, begrenzte
-  Kalibrierungsabweichung und akzeptablen risikoadjustierten Brier Score.
+- E-Sport-Freigabe verlangt mindestens 300 saubere Settlements. Trefferquote
+  und Brier allein reichen nicht mehr: Ohne zeitgestempelte Eröffnungs- und
+  Schlussquoten, CLV und Rendite-Konfidenzintervall bleibt
+  `price_evidence_ready=False`.
 - Rotkarten-Signale prüfen endliche, normierte 1X2-Wahrscheinlichkeiten,
   exakt einen Platzverweis und nachvollziehbare Ereignisreihenfolge.
 - Pro Rotkarten-Fixture wird nur ein unabhängiger Snapshot für die
@@ -161,20 +201,20 @@ Mindestquote = 1 / (p - Mindest-Edge)
 
 | Bereich | Zweck | Aktueller Status |
 |---|---|---|
-| Spiele | BTTS-Prematch-Wettfinder | strikt; Quote erst nach Modellprüfung |
-| Märkte | Tore, Ecken, Karten und kombinierte Märkte | marktweise Walk-forward-Gates; kein Gate, keine Wette |
-| Live | BTTS, Resttor, Teamtor | Datenfinder aktiv; Wettempfehlung bis Live-Kalibrierung blockiert |
-| Wett-Check | N1Bet-Preis- und EV-Entscheid | nur konditional auf freigegebene Modellwahrscheinlichkeit |
+| Spiele | BTTS-Prematch-Wettfinder | `SHADOW`; Prognose bleibt bei schlechtem Preis sichtbar |
+| Märkte | Tore, Ecken, Karten und kombinierte Märkte | `SHADOW`; marktweise Walk-forward-Gates |
+| Live | BTTS, Resttor, Teamtor | `RESEARCH`; bis unabhängige Live-Kalibrierung blockiert |
+| Wett-Check | N1Bet-Preis- und EV-Rechner | reines Preisergebnis; keine eigene Freigabe |
 | System | Daten, Training, API-Status | administrativ; keine Wettfreigabe |
-| 15K Challenge | bis zu drei Legs, Zielquote 2,00-3,00 | Ledger korrekt; weiterhin sehr hohes Risiko |
-| Multi-Sport | Basketball, NHL, Cricket, Tennis, E-Sport | nicht validierte Kerne bleiben fail-closed |
-| Tennis | ATP/WTA und Tennis-Shadow | anspruchsvolle Pipeline; Live-Evidenz noch nicht abgerechnet |
+| 15K Challenge | bis zu drei Legs, Zielquote 2,00-3,00 | nur Shadow-Tickets; weiterhin sehr hohes Risiko |
+| Multi-Sport | Basketball, NHL, Cricket, Tennis, E-Sport | Research/Shadow; keine Echtgeldfreigabe |
+| Tennis | ATP/WTA und Tennis-Shadow | ATP Hard Shadow; WTA und ungeprüfte Märkte blockiert |
 
 Konkrete Blockaden:
 
 - Basketball braucht unabhängige OOS- und Closing-Line-Evidenz.
 - NHL braucht zusätzlich belastbare Goalie- und Lineup-Evidenz.
-- E-Sport bleibt bis zum Shadow-Release-Gate verborgen.
+- E-Sport bleibt bis zu Kalibrierungs- **und** Price-Evidence gesperrt.
 - Cricket besitzt noch keinen freigegebenen Modellkern.
 - Rotkarten-Live bleibt bis zu unabhängiger Shadow-Evidenz blockiert.
 
@@ -186,9 +226,11 @@ Konkrete Blockaden:
 | `config_loader.py` | INI, Umgebung und Streamlit-Secrets |
 | `league_catalog.py` | kanonischer 51-Ligen-Katalog |
 | `advanced_analyzer.py` | BTTS-Analyse und Modellensemble |
+| `betting_math.py` | kanonische Quote-, No-Vig-, Risiko-EV-, Mindestquote- und Kelly-Mathematik |
 | `challenge_engine.py` | Märkte, Validierung, Kontext und Ticketlogik |
 | `football_recommendations.py` | gemeinsame Freigabepolicy |
 | `bet_finder_ui.py` | N1Bet-Preisentscheidung |
+| `ev_signal_sources.py` | versionsgebundener Signalvertrag aus Punkt-p, Haircut und Evidenzstufe |
 | `scan_jobs.py` | sitzungsgebundene Hintergrundjobs |
 | `challenge_15k.py` | Challenge-Workflow und UI |
 | `challenge_store.py` | Challenge-Ledger und Transaktionen |
@@ -214,11 +256,16 @@ Break-even-Wahrscheinlichkeit = 1 / Quote
 Erwartungswert beziehungsweise ROI = p * Quote - 1
 Probability Edge = p - 1 / Quote
 Full Kelly = ((Quote - 1) * p - (1 - p)) / (Quote - 1)
+konservatives p = max(0, Modell-p - Haircut)
+Mindestquote bei 3 % Ziel-ROI = 1,03 / konservatives p
 ```
 
 Probability Edge und erwartete Rendite sind verschiedene Einheiten. Kelly ist
 nur so gut wie die kalibrierte Wahrscheinlichkeit. Bei unsicherem `p` wird mit
-einer konservativen Wahrscheinlichkeit und einem Kelly-Cap gerechnet.
+einer konservativen Wahrscheinlichkeit und einem Kelly-Cap gerechnet. Der
+Haircut ist ausdrücklich ein Robustheitsabschlag und kein behauptetes
+statistisches Konfidenzintervall. Ein Preisgate kann ein Shadow-Signal
+qualifizieren, aber niemals fehlende Out-of-sample-Evidenz ersetzen.
 
 ### 15K-Rechnung
 
@@ -246,8 +293,9 @@ Lokaler Snapshot nach dem Audit:
 | Bereich | Stand | Fachliche Aussage |
 |---|---|---|
 | Fußball CLV | 250 Fixtures, 230 bewertet, 0 Picks | kein CLV-/ROI-Urteil möglich |
-| Tennis | 64 Predictions, 0 abgerechnet, 0 Empfehlungen | keine Live-Evidenz |
-| Tennis Entwicklungsnachlauf | 909 ATP-Hard-Wetten, +8,2 % ROI, Bootstrap 95 % −2,3 bis +19,2 % | Hypothese; Intervall enthält null, kein später Holdout |
+| Tennis aktuelle DB | 144 Predictions, 38 abgerechnet, 0 Picks der aktuellen Policy | Brier 0,2382; kein Closing-Benchmark, keine Price-Evidence |
+| Tennis Policy-Replay 2021-22 | 195 ATP-Hard-Picks, +2,45 % ROI, 95 % −22,33 bis +27,23 % | Hypothese; Intervall enthält null |
+| Tennis Policy-Replay 2023-24 | 142 ATP-Hard-Picks, +9,78 % ROI, 95 % −19,52 bis +39,09 % | späteres Fenster ebenfalls nicht beweiskräftig |
 | E-Sport | 20 sauber klassifizierte Zeilen, 5 abgerechnet, 4 Treffer | n=5 ist bedeutungslos; Release bleibt gesperrt |
 | E-Sport risikoadjustiert | Ø p 38,9 %, Brier 0,3711 | aktuelles Release-Gate klar nicht erfüllt |
 | Rotkarten-Live | 0 unabhängige Shadow-Signale | keine Freigabe |
@@ -266,10 +314,11 @@ Wichtig zur jungen Stichprobe:
 - Die nächsten Schritte sind sammeln, Dropout-Gründe zählen und Versionen
   getrennt auswerten.
 
-Eine Freigabe darf frühestens nach mindestens 100 unabhängigen, vorab
-protokollierten und korrekt abgerechneten Picks diskutiert werden. Zusätzlich
-müssen Kalibrierung, Brier/Log Loss gegen einen No-Vig-Benchmark, positiver CLV
-und Unsicherheitsintervalle überzeugen. ROI allein reicht nicht.
+Eine Freigabe darf frühestens nach mindestens 300 unabhängigen, vorab
+protokollierten und korrekt abgerechneten Picks der **gleichen Modell- und
+Policy-Version** diskutiert werden. Zusätzlich müssen Kalibrierung, Brier/Log
+Loss gegen einen vollständigen No-Vig-Benchmark, positiver CLV und die unteren
+Konfidenzgrenzen von CLV und Rendite überzeugen. ROI allein reicht nicht.
 
 ## 8. Automationen
 
@@ -340,7 +389,7 @@ selbstständig erledigen, weil dafür die Providerkonten benötigt werden.
 Vollständiger Lauf:
 
 ```text
-487 passed
+515 passed
 5 subtests passed
 ```
 
@@ -357,7 +406,7 @@ getestet, nicht über den Codex-In-App-Browser:
 
 | Viewport | Ergebnis |
 |---|---|
-| 390 x 844 | kein horizontaler Seitenüberlauf; zwei Reihen mit 4 Touch-Zielen |
+| 390 x 844 | kein horizontaler Seitenüberlauf; zwei Reihen mit 4 Touch-Zielen; Ergebnis bis zum Ende scrollbar |
 | 820 x 1180 | Sidebar und Hauptinhalt ohne Überlauf; Bottom-Navigation korrekt verborgen |
 
 Zusätzlich verifiziert:
@@ -367,6 +416,11 @@ Zusätzlich verifiziert:
 - Multi-Sport zeigt Sportart und danach Liga.
 - Basketball zeigt ein Basketball-Beispiel.
 - Keine sichtbaren Button- oder Label-Überläufe in den geprüften Ansichten.
+- Wett-Check: drei Eingaben, Modellabschlag und Ergebnis in beiden Viewports
+  erreichbar; keine Streamlit-Exception.
+- Lokaler Edge-Kaltstart etwa 5,6 Sekunden, Navigation zum Wett-Check danach
+  etwa 0,65 Sekunden. Die Live-API war in der isolierten Browserprüfung nicht
+  erreichbar; dieser Test belegt daher UX und Laufzeit, keine Providerantwort.
 
 ## 12. Offene Prioritäten
 
@@ -380,7 +434,8 @@ Zusätzlich verifiziert:
 
 ### P1 - Evidenz
 
-1. Die eingefrorene Shadow-Policy über die beginnenden Ligen laufen lassen.
+1. Die eingefrorene, versionsmarkierte Risiko-EV-Policy über die beginnenden
+   Ligen laufen lassen.
 2. Dropout-Funnel nach Modell-, Kontext- und Preisgrund versionsweise
    auswerten.
 3. Keine Schwelle auf demselben Zeitraum wählen und beweisen.
@@ -409,8 +464,9 @@ git status --short
 git diff --check
 ```
 
-Die ungetrackte Datei `logs/pipeline_2026-07-31.log` ist bestehender Laufoutput
-und darf nicht committed oder gelöscht werden.
+Die ungetrackten Dateien `logs/pipeline_2026-07-31.log` und
+`logs/pipeline_2026-08-02.log` sind bestehender Laufoutput und dürfen nicht
+committed oder gelöscht werden.
 
 Verbindliche Übergaberegeln:
 

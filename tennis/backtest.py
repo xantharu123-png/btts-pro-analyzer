@@ -17,10 +17,11 @@ Protocol (strictly causal, same discipline as the football pipeline):
    (2-parameter logistic on logit(p), refit as history grows, applied
    only to future rows).  Raw ratings are range-compressed; the
    calibrator restores market-level sharpness without peeking.
-4. Pinnacle prices are de-vigged proportionally.  Both sides of the
-   market are evaluated; a bet is placed on the side with the larger
-   edge whenever it clears the threshold (never forced) AND both
-   players clear the experience gate.
+4. Pinnacle prices are de-vigged proportionally. Both raw prices are
+   retained. ``policy_summary`` replays the production rule exactly:
+   evaluate both sides after an explicit probability haircut and select
+   only the side with the larger risk-adjusted EV when it clears the
+   minimum ROI and experience gates.
 5. Only AFTER the prediction may a result move the state (WTA path:
    results from the odds file itself update the Elo, prediction first).
 
@@ -171,6 +172,8 @@ class BacktestRow:
     chosen_side: str
     chosen_edge: float
     chosen_odds: float
+    odds_w: float
+    odds_l: float
     bet_won: bool
     gated: bool
     y_alpha: int
@@ -186,6 +189,7 @@ class BacktestReport:
         return pd.DataFrame([r.__dict__ for r in self.rows])
 
     def summary(self, edge_thresholds=(0.0, 0.02, 0.05, 0.08, 0.10)) -> pd.DataFrame:
+        """Legacy diagnostic showing historical edge-threshold sensitivity."""
         frame = self.to_frame()
         out = []
         for thr in edge_thresholds:
@@ -207,6 +211,142 @@ class BacktestReport:
                 }
             )
         return pd.DataFrame(out)
+
+    def policy_summary(
+        self,
+        *,
+        probability_haircut: float,
+        minimum_expected_roi: float = 0.03,
+        allowed_surfaces: Optional[Tuple[str, ...]] = ("Hard",),
+        require_serve_model: bool = True,
+    ) -> Dict[str, Optional[float]]:
+        """Replay the exact two-sided production price policy.
+
+        ``probability_haircut`` and ``minimum_expected_roi`` are decimals.
+        By default the production model gates are also replayed: Hard court,
+        sufficient Elo experience, and an available serve-model estimate.
+        The confidence interval describes historical unit-stake returns, not
+        uncertainty in the model probability and not a future-profit promise.
+        """
+        for value, label, upper_bound in (
+            (probability_haircut, "probability_haircut", 1.0),
+            (minimum_expected_roi, "minimum_expected_roi", None),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or float(value) < 0.0
+                or (upper_bound is not None and float(value) > upper_bound)
+            ):
+                raise ValueError(f"{label} must be finite and non-negative")
+        if not isinstance(require_serve_model, bool):
+            raise ValueError("require_serve_model must be boolean")
+        if allowed_surfaces is not None:
+            if (
+                not isinstance(allowed_surfaces, tuple)
+                or not allowed_surfaces
+                or any(
+                    not isinstance(surface, str) or not surface.strip()
+                    for surface in allowed_surfaces
+                )
+            ):
+                raise ValueError("allowed_surfaces must be a non-empty tuple")
+            allowed_surfaces = tuple(
+                surface.strip() for surface in allowed_surfaces
+            )
+
+        frame = self.to_frame()
+        if frame.empty:
+            return {
+                "bets": 0,
+                "wins": 0,
+                "roi": None,
+                "roi_standard_error": None,
+                "roi_ci95_low": None,
+                "roi_ci95_high": None,
+                "avg_odds": None,
+                "avg_risk_ev": None,
+                "model_gate_rows": 0,
+                "probability_haircut": float(probability_haircut),
+                "minimum_expected_roi": float(minimum_expected_roi),
+            }
+
+        replay = frame[frame["gated"]].copy()
+        if allowed_surfaces is not None:
+            replay = replay[replay["surface"].isin(allowed_surfaces)]
+        if require_serve_model:
+            replay = replay[replay["p_serve"].notna()]
+        model_gate_rows = int(len(replay))
+        replay["risk_p_w"] = (
+            replay["p_cal"].astype(float) - float(probability_haircut)
+        ).clip(lower=0.0, upper=1.0)
+        replay["risk_p_l"] = (
+            1.0 - replay["p_cal"].astype(float) - float(probability_haircut)
+        ).clip(lower=0.0, upper=1.0)
+        replay["risk_ev_w"] = replay["risk_p_w"] * replay["odds_w"] - 1.0
+        replay["risk_ev_l"] = replay["risk_p_l"] * replay["odds_l"] - 1.0
+        replay["policy_side"] = replay.apply(
+            lambda row: "W" if row["risk_ev_w"] >= row["risk_ev_l"] else "L",
+            axis=1,
+        )
+        replay["policy_risk_ev"] = replay[["risk_ev_w", "risk_ev_l"]].max(axis=1)
+        replay = replay[
+            replay["policy_risk_ev"] + 1e-12 >= float(minimum_expected_roi)
+        ].copy()
+        if replay.empty:
+            return {
+                "bets": 0,
+                "wins": 0,
+                "roi": None,
+                "roi_standard_error": None,
+                "roi_ci95_low": None,
+                "roi_ci95_high": None,
+                "avg_odds": None,
+                "avg_risk_ev": None,
+                "model_gate_rows": model_gate_rows,
+                "probability_haircut": float(probability_haircut),
+                "minimum_expected_roi": float(minimum_expected_roi),
+            }
+
+        replay["policy_odds"] = replay.apply(
+            lambda row: row["odds_w"] if row["policy_side"] == "W" else row["odds_l"],
+            axis=1,
+        )
+        replay["policy_won"] = replay["policy_side"] == "W"
+        returns = replay.apply(
+            lambda row: (
+                row["policy_odds"] - 1.0 if row["policy_won"] else -1.0
+            ),
+            axis=1,
+        )
+        roi = float(returns.mean())
+        standard_error = (
+            float(returns.std(ddof=1) / math.sqrt(len(returns)))
+            if len(returns) >= 2
+            else None
+        )
+        return {
+            "bets": int(len(replay)),
+            "wins": int(replay["policy_won"].sum()),
+            "roi": round(roi, 6),
+            "roi_standard_error": (
+                round(standard_error, 6) if standard_error is not None else None
+            ),
+            "roi_ci95_low": (
+                round(roi - 1.96 * standard_error, 6)
+                if standard_error is not None else None
+            ),
+            "roi_ci95_high": (
+                round(roi + 1.96 * standard_error, 6)
+                if standard_error is not None else None
+            ),
+            "avg_odds": round(float(replay["policy_odds"].mean()), 4),
+            "avg_risk_ev": round(float(replay["policy_risk_ev"].mean()), 6),
+            "model_gate_rows": model_gate_rows,
+            "probability_haircut": float(probability_haircut),
+            "minimum_expected_roi": float(minimum_expected_roi),
+        }
 
     def calibration(self) -> Dict[str, float]:
         frame = self.to_frame()
@@ -500,6 +640,8 @@ def run_backtest(
                     chosen_side=chosen_side,
                     chosen_edge=round(chosen_edge, 4),
                     chosen_odds=chosen_odds,
+                    odds_w=float(row.PSW),
+                    odds_l=float(row.PSL),
                     bet_won=chosen_side == "W",
                     gated=gated,
                     y_alpha=1 if alpha_first_is_w else 0,

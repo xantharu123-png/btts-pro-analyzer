@@ -5,9 +5,10 @@ E-Sport-Shadow-DB) und formt sie zu wählbaren Signalen für den
 Erwartungswert-Check.  Kein Scan, keine API — nur lokale DB-Lektüre,
 fail-safe bei fehlenden oder kaputten Dateien.
 
-Ehrlichkeit: Die Signale kommen aus Shadow-Modellen.  Sie liefern die
-Wahrscheinlichkeit; ob gewettet wird, entscheidet allein der Preis-Check
-(Quote vs. Wahrscheinlichkeit).
+Ehrlichkeit: Die Signale kommen aus Shadow-Modellen. Sie liefern die
+Wahrscheinlichkeit für eine zusätzliche Preisprüfung. Ein bestandener
+Preis-Check ist noch keine Echtgeld-Freigabe; dafür braucht das jeweilige
+Modell unabhängige ROI- und CLV-Evidenz.
 """
 
 from __future__ import annotations
@@ -19,7 +20,10 @@ from pathlib import Path
 from typing import List, Optional, Union
 from zoneinfo import ZoneInfo
 
+from betting_math import BETTING_POLICY_VERSION
 from scan_jobs import JOBS_DIR, load_persisted
+from tennis.predict import WINNER_PROBABILITY_HAIRCUT
+from tennis.shadow import TENNIS_POLICY_VERSION
 
 TENNIS_DB = Path(__file__).resolve().parent / "tennis" / "data" / "tennis_shadow.db"
 ESPORTS_DB = Path(__file__).resolve().parent / "esports_shadow.db"
@@ -40,7 +44,20 @@ class ModelSignal:
     key: str            # stabiler, eindeutiger Schlüssel
     label: str          # Anzeige in der Auswahl
     probability: float  # 0..1
+    probability_haircut: float  # absolute Modellunsicherheit, 0..1
+    evidence_stage: str
+    policy_version: str
     detail: str         # Quelle/Kontext für die Transparenz-Zeile
+
+    def __post_init__(self) -> None:
+        if not _valid_probability(self.probability):
+            raise ValueError("Model signal probability must be between 0 and 1")
+        if not _valid_haircut(self.probability_haircut, self.probability):
+            raise ValueError("Model signal haircut is invalid")
+        if self.evidence_stage not in {"RESEARCH", "SHADOW", "RELEASED"}:
+            raise ValueError("Model signal evidence stage is invalid")
+        if not str(self.policy_version).strip():
+            raise ValueError("Model signal policy version is required")
 
 
 def _valid_probability(value: object) -> bool:
@@ -49,6 +66,27 @@ def _valid_probability(value: object) -> bool:
         and isinstance(value, (int, float))
         and value == value  # NaN-Wache
         and 0.0 < value < 1.0
+    )
+
+
+def _normalized_probability(value: object) -> Optional[float]:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or value != value
+    ):
+        return None
+    normalized = float(value) / 100.0 if value > 1.0 else float(value)
+    return normalized if _valid_probability(normalized) else None
+
+
+def _valid_haircut(value: object, probability: float) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and value == value
+        and 0.0 <= float(value) < 1.0
+        and float(value) <= probability
     )
 
 
@@ -72,7 +110,7 @@ def tennis_signals(
     today: Optional[str] = None,
     now: Optional[datetime] = None,
 ) -> List[ModelSignal]:
-    """Return only open, fully released tennis price decisions."""
+    """Return open tennis Shadow signals from the current price policy."""
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
@@ -86,8 +124,9 @@ def tennis_signals(
            WHERE settled = 0 AND match_date >= ?
              AND verdict = 'WETTE'
              AND recommended_side IN ('A', 'B')
+             AND policy_version = ?
            ORDER BY match_date, id""",
-        (today,),
+        (today, TENNIS_POLICY_VERSION),
     )
     signals: List[ModelSignal] = []
     for row in rows:
@@ -103,7 +142,7 @@ def tennis_signals(
         p_a = float(row["p_cal"])
         detail = (
             f"Tennis-Shadow · {row['tour']} · {row['tournament']} · "
-            f"{row['match_date']}"
+            f"{row['match_date']} · Policy {TENNIS_POLICY_VERSION}"
         )
         side = row["recommended_side"]
         player = row["player_a"] if side == "A" else row["player_b"]
@@ -116,6 +155,9 @@ def tennis_signals(
                     f"Sieg {player}"
                 ),
                 probability=probability,
+                probability_haircut=WINNER_PROBABILITY_HAIRCUT,
+                evidence_stage="SHADOW",
+                policy_version=TENNIS_POLICY_VERSION,
                 detail=detail,
             )
         )
@@ -132,29 +174,34 @@ def esports_signals(
     model_probability liegt in Prozent vor (55.27 = 55,27 %); Bruchwerte
     (0.55) werden der Robustheit halber auch akzeptiert.
     """
+    released = False
     if require_released:
         try:
             from esports_shadow import EsportsShadowLog
 
             if not EsportsShadowLog(db_path).release_status()["ready"]:
                 return []
+            released = True
         except (OSError, sqlite3.Error, ValueError):
             return []
     rows = _read_rows(
         db_path,
         """SELECT match_id, game, team1, team2, selection,
-                  risk_adjusted_probability
+                  model_probability, risk_adjusted_probability
            FROM esports_shadow_predictions
            WHERE status = 'upcoming' AND settled = 0
            ORDER BY logged_at DESC""",
     )
     signals: List[ModelSignal] = []
     for row in rows:
-        raw = row["risk_adjusted_probability"]
-        if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw != raw:
+        probability = _normalized_probability(row["model_probability"])
+        risk_probability = _normalized_probability(
+            row["risk_adjusted_probability"]
+        )
+        if probability is None or risk_probability is None:
             continue
-        prob = raw / 100.0 if raw > 1.0 else float(raw)
-        if not _valid_probability(prob):
+        haircut = probability - risk_probability
+        if haircut < -1e-9 or not _valid_haircut(max(0.0, haircut), probability):
             continue
         signals.append(
             ModelSignal(
@@ -163,8 +210,14 @@ def esports_signals(
                     f"🎮 {row['game']} · {row['team1']} vs {row['team2']} · "
                     f"Sieg {row['selection']}"
                 ),
-                probability=prob,
-                detail="E-Sport-Shadow · Pre-Match-Modell",
+                probability=probability,
+                probability_haircut=max(0.0, haircut),
+                evidence_stage="RELEASED" if released else "SHADOW",
+                policy_version=BETTING_POLICY_VERSION,
+                detail=(
+                    "E-Sport-Pre-Match-Modell · "
+                    f"{'Freigegeben' if released else 'Shadow'}"
+                ),
             )
         )
     return signals
@@ -219,6 +272,14 @@ def football_signals(
             probability = row.get("p")
             if not _valid_probability(probability):
                 continue
+            haircut = row.get("haircut")
+            if not _valid_haircut(haircut, float(probability)):
+                continue
+            evidence_stage = str(row.get("evidence_stage") or "").upper()
+            if evidence_stage not in {"RESEARCH", "SHADOW", "RELEASED"}:
+                continue
+            if row.get("policy_version") != BETTING_POLICY_VERSION:
+                continue
             home, away, market = row.get("home"), row.get("away"), row.get("market")
             if not home or not away or not market:
                 continue
@@ -227,7 +288,13 @@ def football_signals(
                     key=f"football-{name}-{len(signals)}",
                     label=f"⚽ {home} vs {away} · {market}",
                     probability=float(probability),
-                    detail=f"{source} · Stand {finished.strftime('%d.%m. %H:%M')}",
+                    probability_haircut=float(haircut),
+                    evidence_stage=evidence_stage,
+                    policy_version=BETTING_POLICY_VERSION,
+                    detail=(
+                        f"{source} · {evidence_stage} · Stand "
+                        f"{finished.strftime('%d.%m. %H:%M')}"
+                    ),
                 )
             )
     return signals

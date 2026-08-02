@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Optional, Sequence
 
 from multi_sport_recommendations import (
+    EVIDENCE_RESEARCH,
     RecommendationCandidate,
     _candidate,
     _finite_number,
@@ -25,6 +26,7 @@ def build_probability_candidate(
     blockers: Sequence[str] = (),
     line: Optional[float] = None,
     expected_total: Optional[float] = None,
+    evidence_stage: str = EVIDENCE_RESEARCH,
 ) -> RecommendationCandidate:
     """Build a generic candidate and fail closed on invalid model inputs."""
     normalized_blockers = [
@@ -64,6 +66,7 @@ def build_probability_candidate(
             expected_total=expected_total,
             evidence=tuple(str(reason) for reason in evidence),
             blockers=tuple(dict.fromkeys(normalized_blockers)),
+            evidence_stage=evidence_stage,
         )
 
     return _candidate(
@@ -78,6 +81,7 @@ def build_probability_candidate(
         model_name=str(model_name).strip() or "Unbenanntes Modell",
         expected_total=expected_total,
         evidence=evidence,
+        evidence_stage=evidence_stage,
     )
 
 

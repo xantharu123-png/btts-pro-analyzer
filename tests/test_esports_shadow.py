@@ -205,7 +205,8 @@ class EsportsShadowLogTests(unittest.TestCase):
             log.log_predictions([_match()])
             status = log.release_status()
             self.assertFalse(status["ready"])
-            self.assertEqual(status["required"], 100)
+            self.assertEqual(status["required"], 300)
+            self.assertFalse(status["price_evidence_ready"])
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ import streamlit as st
 import scan_jobs
 from bet_finder_ui import render_price_decision
 from bet_finder_candidates import build_probability_candidate
+from multi_sport_recommendations import EVIDENCE_SHADOW
 from ui_components import render_empty_state, scan_progress_fragment
 from challenge_15k import ChallengeDataProvider, scan_daily_challenge
 from config_loader import load_app_config
@@ -17,8 +18,8 @@ from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 
 
 DEFAULT_LEAGUES = [78, 39, 140]
-MARKET_WORKFLOW_VERSION = 4
-MARKET_SNAPSHOT_VERSION = 3
+MARKET_WORKFLOW_VERSION = 5
+MARKET_SNAPSHOT_VERSION = 4
 MARKET_MAX_AGE_MINUTES = 20
 ZURICH_TIMEZONE = ZoneInfo("Europe/Zurich")
 
@@ -129,6 +130,7 @@ def _strict_market_candidate(candidate):
         evidence=evidence,
         blockers=blockers,
         expected_total=candidate.expected_home_goals + candidate.expected_away_goals,
+        evidence_stage=EVIDENCE_SHADOW,
     )
 
 
@@ -277,7 +279,8 @@ def create_alternative_markets_tab_extended() -> None:
             [
                 "Ligen, Datum und Prüfumfang wählen, dann „Wetten finden“ klicken.",
                 "Das Modell prüft alle freigegebenen Märkte quotenfrei.",
-                "Erst die exakte N1Bet-Quote entscheidet über WETTEN oder NICHT WETTEN.",
+                "Die exakte N1Bet-Quote entscheidet nur über den Preisstatus; "
+                "die Shadow-Evidenz bleibt davon getrennt.",
             ],
             duration_hint="Dauer: je nach Ligaanzahl etwa 30–90 Sekunden.",
         )

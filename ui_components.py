@@ -14,10 +14,6 @@ import scan_jobs
 
 SHADOW_DB_PATH = Path(__file__).resolve().parent / "shadow_clv.db"
 
-# Preis-Gate der App: mindestens 4,0 pp risikoadjustierte Edge.
-EDGE_GATE_PP = 4.0
-EDGE_STRONG_PP = 6.0
-
 _JARGON_REPLACEMENTS = (
     ("das Walk-forward-Gate", "die Walk-forward-Prüfung"),
     ("das Walk-Forward-Gate", "die Walk-forward-Prüfung"),
@@ -39,18 +35,14 @@ def plain_german(text: str) -> str:
 
 
 def edge_class(edge_pp: Optional[float]) -> str:
-    """Traffic-light class for a risk-adjusted edge in percentage points."""
+    """Edge is diagnostic; only a negative break-even gap is colored red."""
     if edge_pp is None:
         return "bb-edge-none"
-    if edge_pp >= EDGE_STRONG_PP:
-        return "bb-edge-strong"
-    if edge_pp >= EDGE_GATE_PP:
-        return "bb-edge-ok"
-    return "bb-edge-weak"
+    return "bb-edge-none" if edge_pp >= 0.0 else "bb-edge-weak"
 
 
 def edge_badge_html(edge_pp: Optional[float], *, label: str = "Edge") -> str:
-    """Colored edge badge; green/amber follows the app's own 4/6 pp gates."""
+    """Render the probability gap without presenting it as the wager gate."""
     css_class = edge_class(edge_pp)
     value = "k. A." if edge_pp is None else f"{edge_pp:.1f} pp"
     return (
@@ -130,7 +122,7 @@ def _example_ticket_html(
         '<span class="bb-empty-example-tag">Beispiel (illustrativ)</span>'
         '<div class="bb-empty-example-line">Team A vs Team B</div>'
         '<div class="bb-empty-example-pick">Beide treffen: Ja @ 1,95 — '
-        "Modell 62 %, Mindestquote 1,79</div>"
+        "Modell 62 %, konservativ 52 %, Mindestquote 1,99</div>"
         "</div>"
     )
 

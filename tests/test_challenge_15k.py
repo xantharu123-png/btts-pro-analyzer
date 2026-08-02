@@ -633,7 +633,7 @@ class ChallengeTicketTests(unittest.TestCase):
     def test_ticket_uses_at_most_three_unique_fixtures_and_target_odds(self):
         candidates = [
             candidate("1:BTTS", 1, 0.70),
-            candidate("2:BTTS", 2, 0.68),
+            candidate("2:BTTS", 2, 0.69),
             candidate("3:BTTS", 3, 0.65),
         ]
 
@@ -648,7 +648,7 @@ class ChallengeTicketTests(unittest.TestCase):
         self.assertGreaterEqual(ticket.total_odds, 2.0)
         self.assertLessEqual(ticket.total_odds, 3.0)
         self.assertAlmostEqual(ticket.model_dependency_factor, 0.97)
-        self.assertLess(ticket.joint_probability, 0.70 * 0.68)
+        self.assertLess(ticket.joint_probability, 0.70 * 0.69)
 
     def test_negative_value_single_leg_cannot_hide_in_ticket(self):
         candidates = [
@@ -702,7 +702,7 @@ class ChallengeTicketTests(unittest.TestCase):
 
     def test_ticket_rejects_repeated_team_across_different_fixtures(self):
         first = candidate("1:BTTS", 1, 0.70)
-        second = candidate("2:BTTS", 2, 0.68)
+        second = candidate("2:BTTS", 2, 0.69)
         second.home_team_id = first.away_team_id
 
         self.assertEqual(select_model_ticket([first, second]), ())
@@ -725,7 +725,7 @@ class ChallengeTicketTests(unittest.TestCase):
         self.assertIsNone(ticket)
 
     def test_challenge_stake_is_separate_from_kelly_reference(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.68)]
+        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
 
         self.assertIsNotNone(ticket)
@@ -744,7 +744,7 @@ class ChallengeTicketTests(unittest.TestCase):
 
 class ChallengeLedgerTests(unittest.TestCase):
     def test_place_and_win_are_cent_accurate_and_idempotent(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.68)]
+        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
         self.assertIsNotNone(ticket)
 
@@ -770,7 +770,7 @@ class ChallengeLedgerTests(unittest.TestCase):
             self.assertEqual(ledger.settings()["current_balance"], expected_balance)
 
     def test_only_one_non_void_ticket_per_day(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.68)]
+        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
         self.assertIsNotNone(ticket)
 
@@ -792,7 +792,7 @@ class ChallengeLedgerTests(unittest.TestCase):
                 )
 
     def test_open_ticket_blocks_new_placement_even_on_another_date(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.68)]
+        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
         self.assertIsNotNone(ticket)
 
@@ -830,7 +830,7 @@ class ChallengeLedgerTests(unittest.TestCase):
             self.assertGreater(second_id, ticket_id)
 
     def test_ledger_recomputes_ticket_math_quote_age_and_challenge_cap(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.68)]
+        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
         self.assertIsNotNone(ticket)
 
@@ -857,6 +857,32 @@ class ChallengeLedgerTests(unittest.TestCase):
                     "2026-07-14",
                     ticket,
                     stake + 0.01,
+                    datetime.now(timezone.utc).isoformat(),
+                )
+
+    def test_ledger_cannot_bypass_three_percent_leg_value_gate(self):
+        candidates = [
+            candidate("1:BTTS", 1, 0.70),
+            candidate("2:BTTS", 2, 0.80),
+        ]
+        legacy_ticket = select_quoted_ticket(
+            candidates,
+            {
+                "1:BTTS": 1.025 / 0.70,
+                "2:BTTS": 1.50,
+            },
+            minimum_leg_roi=0.02,
+        )
+        self.assertIsNotNone(legacy_ticket)
+        self.assertLess(legacy_ticket.legs[0].expected_roi, 0.03)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            with self.assertRaisesRegex(ValueError, "value gate"):
+                ledger.place_ticket(
+                    "2026-07-14",
+                    legacy_ticket,
+                    ticket_stake(legacy_ticket, 100.0),
                     datetime.now(timezone.utc).isoformat(),
                 )
 
@@ -887,7 +913,7 @@ class ChallengeLedgerTests(unittest.TestCase):
             self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
 
     def test_transactions_reconcile_exactly_with_current_balance(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.68)]
+        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
         ticket = select_quoted_ticket(
             candidates,
             {"1:BTTS": 1.50, "2:BTTS": 1.50},
@@ -946,7 +972,7 @@ def _result_fixture(fixture_id, home, away, status="FT"):
 
 def _placed_ticket(ledger, fixture_ids=(1, 2)):
     candidates = [
-        candidate(f"{fid}:BTTS", fid, 0.70 - idx * 0.02)
+        candidate(f"{fid}:BTTS", fid, 0.70 - idx * 0.01)
         for idx, fid in enumerate(fixture_ids)
     ]
     ticket = select_quoted_ticket(

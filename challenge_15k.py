@@ -17,11 +17,13 @@ import streamlit as st
 
 import scan_jobs
 
+from betting_math import minimum_acceptable_odds
 from challenge_engine import (
     ChallengeCandidate,
     COUNT_MARKET_KINDS,
     CROSS_LEG_MODEL_FACTOR,
     MARKET_BY_KEY,
+    MIN_LEG_EXPECTED_ROI,
     TARGET_ODDS_MAX,
     TARGET_ODDS_MIN,
     MarketSpec,
@@ -49,8 +51,8 @@ from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 3
-CHALLENGE_WORKSPACE_VERSION = 3
+CHALLENGE_SNAPSHOT_VERSION = 4
+CHALLENGE_WORKSPACE_VERSION = 4
 CHALLENGE_TIMEZONE = ZoneInfo("Europe/Zurich")
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
 API_TAIL_DAYS = 7  # Frische-Tail: API-FT-Ergebnisse über die CSV-Historie legen
@@ -1693,7 +1695,7 @@ def _shortlist_frame(shortlist: list[ChallengeCandidate]) -> pd.DataFrame:
                 "Modell %": round(candidate.probability * 100, 1),
                 "Konservativ %": round(candidate.conservative_probability * 100, 1),
                 "Evidenz": candidate.evidence_score,
-                "Mindestquote": round(candidate.model_price, 2),
+                "Mindestquote": round(candidate.minimum_odds, 2),
             }
             for candidate in shortlist
         ]
@@ -1724,7 +1726,7 @@ def _render_candidate_context(candidate: ChallengeCandidate) -> None:
         "Wetter",
         f"{weather.get('temperature_c', 'n/a')} °C",
     )
-    checks[3].metric("Mindestquote", f"{candidate.model_price:.2f}")
+    checks[3].metric("Mindestquote", f"{candidate.minimum_odds:.2f}")
     lineup_display = (context.get("lineups") or {}).get("display") or {}
     if lineup_display:
         with st.expander("Bestätigte Aufstellungen", expanded=False):
@@ -1802,8 +1804,9 @@ def _render_price_check(
                 _shortlist_frame(base_shortlist), width="stretch", hide_index=True
             )
             st.caption(
-                "Mindestquote = die fairste Quote, die das Modell nach konservativem "
-                "Abschlag noch akzeptiert. Zahlt N1Bet WENIGER als die Mindestquote, "
+                "Mindestquote = der erste Preis, der nach konservativem "
+                "Modellabschlag mindestens 3 % Risiko-EV erreicht. Zahlt N1Bet "
+                "WENIGER als die Mindestquote, "
                 "ist es keine Wette — egal wie „sicher“ sich der Tipp anfühlt. "
                 "Zahlt N1Bet mehr, entsteht ein Preis-Check."
             )
@@ -1817,11 +1820,19 @@ def _render_price_check(
             f"{candidate.home_team} vs {candidate.away_team}: {candidate.selection}"
             for candidate in preview
         )
-        preview_price = (
-            math.prod(candidate.model_price for candidate in preview)
-            / (CROSS_LEG_MODEL_FACTOR ** max(0, len(preview) - 1))
+        dependency_factor = CROSS_LEG_MODEL_FACTOR ** max(0, len(preview) - 1)
+        preview_probability = (
+            math.prod(candidate.conservative_probability for candidate in preview)
+            * dependency_factor
         )
-        st.info(f"Quotenfreie Modellkombination: {preview_text} | Mindestquote kombiniert {preview_price:.2f}")
+        preview_price = minimum_acceptable_odds(
+            preview_probability * 100.0,
+            minimum_expected_roi_percent=MIN_LEG_EXPECTED_ROI * 100.0,
+        )
+        st.info(
+            f"Quotenfreie Modellkombination: {preview_text} | "
+            f"Mindestquote kombiniert {preview_price:.2f}"
+        )
 
     st.subheader("N1Bet-Preisprüfung")
     current_quote_result = st.session_state.get("challenge_quote_result")
@@ -1962,12 +1973,14 @@ def _render_price_check(
     if stake <= 0:
         st.error("NICHT WETTEN: Kein verfügbares Guthaben für einen Einsatz.")
         return
-    st.success(
-        f"WETTEN: {len(ticket.legs)} Spiel(e) @ Gesamtquote {ticket.total_odds:.2f} | "
-        f"Challenge-Einsatz {stake:.2f} €"
+    st.info(
+        f"SHADOW-TICKET: {len(ticket.legs)} Spiel(e) @ Gesamtquote "
+        f"{ticket.total_odds:.2f} | simulierter Challenge-Einsatz "
+        f"{stake:.2f} €. Die Preisprüfung ist bestanden; eine "
+        "Echtgeldfreigabe benötigt noch unabhängige CLV-/ROI-Evidenz."
     )
     if st.button(
-        f"Ticket mit {stake:.2f} € eintragen",
+        f"Shadow-Ticket mit {stake:.2f} € eintragen",
         width="stretch",
         key="challenge_place_ticket",
     ):
@@ -1979,7 +1992,7 @@ def _render_price_check(
                 quote_result["checked_at"],
             )
             st.session_state.pop("challenge_quote_result", None)
-            st.success(f"Ticket #{ticket_id} eingetragen.")
+            st.success(f"Shadow-Ticket #{ticket_id} eingetragen.")
             st.rerun()
         except ValueError as exc:
             st.warning(str(exc))
@@ -1994,8 +2007,9 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         st.warning("Wetter-Key fehlt. Der strikte Kontext-Gate wird daher keine Tipps freigeben.")
     st.caption(
         "Freigabe erst, wenn Modell, Walk-forward, H2H, Ausfälle, Wetter und "
-        "bestätigte Startaufstellungen passen. Danach entscheidet allein der "
-        "N1Bet-Preis."
+        "bestätigte Startaufstellungen passen. Danach prüft der N1Bet-Preis "
+        "den Value. Bis zum unabhängigen Evidenznachweis bleibt das Ergebnis "
+        "ein Shadow-Ticket ohne Echtgeld-Einsatz."
     )
 
     controls = st.columns(2)
@@ -2045,7 +2059,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         )
 
     if st.button(
-        "Challenge-Wetten finden",
+        "Challenge-Kandidaten finden",
         type="primary",
         width="stretch",
         key="run_challenge_scan",
@@ -2080,7 +2094,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         render_empty_state(
             "So funktioniert die Challenge-Suche",
             [
-                "Spieltag und Ligen wählen, dann „Challenge-Wetten finden“ klicken.",
+                "Spieltag und Ligen wählen, dann „Challenge-Kandidaten finden“ klicken.",
                 "Das Modell prüft quotenfrei bis zu drei streng gefilterte Spiele.",
                 "Erst danach entscheidet der N1Bet-Preis über eine Freigabe.",
             ],
@@ -2152,7 +2166,7 @@ def render_challenge_15k() -> None:
     st.caption(
         f"Einsatzanteil {settings['stake_fraction'] * 100:.0f} % | "
         "Tageszielquote 2,00-3,00 | maximal drei verschiedene Spiele | "
-        "Buchmacherpreise erst nach der Modellfreigabe"
+        "Shadow-Phase: Buchmacherpreise erst nach der Modellfreigabe"
     )
     challenge_views = ["Wettfinder", "Verlauf", "Konto"]
     if st.session_state.get("challenge_workspace") not in challenge_views:

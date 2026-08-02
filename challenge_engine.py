@@ -17,7 +17,13 @@ import re
 import unicodedata
 from typing import Any, Iterable, Optional
 
-from betting_math import BettingMathError, evaluate_market_price, validate_decimal_odds
+from betting_math import (
+    MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
+    BettingMathError,
+    evaluate_market_price,
+    minimum_acceptable_odds,
+    validate_decimal_odds,
+)
 
 
 TARGET_BALANCE = 15_000.0
@@ -48,7 +54,7 @@ CALIBRATION_MIN_SAMPLES = 100
 CALIBRATION_REFIT_NEW_SAMPLES = 60
 CALIBRATION_BIN_COUNT = 10
 CALIBRATION_SHRINKAGE = 25.0
-MIN_LEG_EXPECTED_ROI = 0.02
+MIN_LEG_EXPECTED_ROI = MINIMUM_RISK_ADJUSTED_ROI_PERCENT / 100.0
 
 # Expected-Goals-Hybrid: Stärken werden aus Toren UND xG geschätzt.
 # xG hat pro Spiel deutlich weniger Varianz als Tore; Inverse-Varianz-Logik
@@ -125,6 +131,15 @@ class ChallengeCandidate:
     @property
     def eligible(self) -> bool:
         return self.base_eligible and self.context.get("passed") is True
+
+    @property
+    def minimum_odds(self) -> float:
+        """First offered price meeting the shared leg ROI threshold."""
+        price = minimum_acceptable_odds(
+            self.conservative_probability * 100.0,
+            minimum_expected_roi_percent=MIN_LEG_EXPECTED_ROI * 100.0,
+        )
+        return price if price is not None else math.inf
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -2147,13 +2162,19 @@ def select_model_ticket(
             if not _independent_fixture_set(legs):
                 continue
             dependency_factor = CROSS_LEG_MODEL_FACTOR ** max(0, size - 1)
-            model_total = math.prod(leg.model_price for leg in legs) / dependency_factor
-            if not odds_min <= model_total <= odds_max:
-                continue
             joint = (
                 math.prod(leg.conservative_probability for leg in legs)
                 * dependency_factor
             )
+            minimum_total = minimum_acceptable_odds(
+                joint * 100.0,
+                minimum_expected_roi_percent=MIN_LEG_EXPECTED_ROI * 100.0,
+            )
+            if (
+                minimum_total is None
+                or not odds_min <= minimum_total <= odds_max
+            ):
+                continue
             average_evidence = _mean(leg.evidence_score for leg in legs)
             options.append((joint, average_evidence, -size, legs))
     if not options:
@@ -2167,7 +2188,7 @@ def select_quoted_ticket(
     *,
     odds_min: float = TARGET_ODDS_MIN,
     odds_max: float = TARGET_ODDS_MAX,
-    minimum_ticket_roi: float = 0.03,
+    minimum_ticket_roi: float = MIN_LEG_EXPECTED_ROI,
     minimum_leg_roi: float = MIN_LEG_EXPECTED_ROI,
     now: Optional[datetime] = None,
 ) -> Optional[QuotedTicket]:

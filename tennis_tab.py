@@ -7,7 +7,7 @@ German inside an expander.  No jargon, no duplicated verdicts.
 Data flow:
 - predictions arrive via scripts/tennis_daily.py (scheduled every
   morning) and live in tennis/data/tennis_shadow.db
-- the user types the two N1Bet prices; the edge gate is evaluated
+- the user types the two N1Bet prices; the risk-adjusted EV gate is evaluated
   from the STORED calibrated probability (no model reload needed)
 - settlement is manual (winner + optional retirement note) until the
   weekly stats refresh can confirm results automatically
@@ -31,9 +31,19 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 import scan_jobs
+from betting_math import (
+    MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
+    BettingMathError,
+    evaluate_market_price,
+    minimum_acceptable_odds,
+)
 from ui_components import scan_progress_fragment
 from tennis import shadow
-from tennis.predict import MIN_EDGE, SIDE_MARKET_MIN_EDGE
+from tennis.predict import (
+    MIN_EXPECTED_ROI,
+    SIDE_MARKET_PROBABILITY_HAIRCUT,
+    WINNER_PROBABILITY_HAIRCUT,
+)
 from tennis.shadow import SIDE_MARKETS
 
 DB_PATH = shadow.DB_PATH
@@ -152,24 +162,55 @@ def _update_price_check(
     p_cal: float,
     model_gates_ok: bool,
 ) -> dict:
-    """Evaluate the edge gate from the stored probability and persist it."""
+    """Evaluate the shared risk-adjusted EV gate and persist the Shadow pick."""
     shadow.ensure_schema()
     prices_ok = odds_a > 1.0 and odds_b > 1.0
-    edge_a = p_cal - 1.0 / odds_a if prices_ok else 0.0
-    edge_b = (1.0 - p_cal) - 1.0 / odds_b if prices_ok else 0.0
+    metrics_a = metrics_b = None
+    if prices_ok:
+        try:
+            metrics_a = evaluate_market_price(
+                p_cal * 100.0,
+                odds_a,
+                probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
+            )
+            metrics_b = evaluate_market_price(
+                (1.0 - p_cal) * 100.0,
+                odds_b,
+                probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
+            )
+        except BettingMathError:
+            prices_ok = False
+            metrics_a = metrics_b = None
+    edge_a = (
+        metrics_a.risk_adjusted_edge / 100.0 if metrics_a is not None else 0.0
+    )
+    edge_b = (
+        metrics_b.risk_adjusted_edge / 100.0 if metrics_b is not None else 0.0
+    )
+    risk_ev_a = (
+        metrics_a.risk_adjusted_expected_roi / 100.0
+        if metrics_a is not None
+        else float("-inf")
+    )
+    risk_ev_b = (
+        metrics_b.risk_adjusted_expected_roi / 100.0
+        if metrics_b is not None
+        else float("-inf")
+    )
     side = edge = 0.0
     verdict = "KEINE WETTE"
     if prices_ok and model_gates_ok:
-        if edge_a >= edge_b and edge_a >= MIN_EDGE:
+        if risk_ev_a >= risk_ev_b and risk_ev_a >= MIN_EXPECTED_ROI:
             side, edge = "A", edge_a
-        elif edge_b > edge_a and edge_b >= MIN_EDGE:
+        elif risk_ev_b > risk_ev_a and risk_ev_b >= MIN_EXPECTED_ROI:
             side, edge = "B", edge_b
         if side:
             verdict = "WETTE"
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
             "UPDATE predictions SET odds_a=?, odds_b=?, recommended_side=?, "
-            "recommended_edge=?, verdict=?, price_checked_utc=? WHERE id=?",
+            "recommended_edge=?, verdict=?, price_checked_utc=?, policy_version=? "
+            "WHERE id=?",
             (
                 odds_a,
                 odds_b,
@@ -177,6 +218,7 @@ def _update_price_check(
                 edge or None,
                 verdict,
                 time.time(),
+                shadow.TENNIS_POLICY_VERSION,
                 row_id,
             ),
         )
@@ -184,6 +226,8 @@ def _update_price_check(
         "prices_ok": prices_ok,
         "edge_a": edge_a,
         "edge_b": edge_b,
+        "risk_ev_a": risk_ev_a,
+        "risk_ev_b": risk_ev_b,
         "side": side,
         "verdict": verdict,
     }
@@ -238,6 +282,10 @@ def _render_shadow_summary() -> None:
         "danach werden Ergebnis, Kalibrierung und eine startzeitnahe "
         "N1Bet-Referenzquote verglichen. "
         "Das prüft das Modell, garantiert aber keinen Gewinn."
+    )
+    st.caption(
+        f"Aktuelle Auswahl-Policy: {summary.get('policy_version', 'unbekannt')}. "
+        "Empfehlungs-ROI und CLV werden nicht mit älteren Policies vermischt."
     )
     evidence_cols = st.columns(2)
     clv = summary.get("clv")
@@ -324,8 +372,11 @@ def _render_side_markets(row: dict, markets: dict, model_gates_ok: bool) -> None
     if not available:
         return
 
-    st.markdown("**Satz-Märkte** (kalibriert, Schwelle "
-                f"{SIDE_MARKET_MIN_EDGE:+.0%} Edge — härter als Sieger-Markt)")
+    st.markdown(
+        "**Satz-Märkte** (Shadow-only; expliziter "
+        f"{SIDE_MARKET_PROBABILITY_HAIRCUT:+.0%} Modellabschlag und mindestens "
+        f"{MIN_EXPECTED_ROI:+.0%} Risiko-EV)"
+    )
     tracked = {
         b["market"]: b
         for b in shadow.side_bets_for([row["id"]])
@@ -339,7 +390,14 @@ def _render_side_markets(row: dict, markets: dict, model_gates_ok: bool) -> None
         if code in tracked:
             b = tracked[code]
             cols[1].markdown(f"**{b['odds']:.2f}**")
-            cols[2].markdown(f"Edge {b['edge']:+.1%}")
+            tracked_metrics = evaluate_market_price(
+                b["model_p"] * 100.0,
+                b["odds"],
+                probability_haircut=SIDE_MARKET_PROBABILITY_HAIRCUT * 100.0,
+            )
+            cols[2].markdown(
+                f"EV {tracked_metrics.risk_adjusted_expected_roi / 100.0:+.1%}"
+            )
             cols[3].caption("getrackt ✓")
             window, _ = _closing_window_state(row)
             if b.get("closing_checked_utc"):
@@ -375,12 +433,18 @@ def _render_side_markets(row: dict, markets: dict, model_gates_ok: bool) -> None
             step=0.01, format="%.2f", key=f"side_odds_{code}_{row['id']}",
             label_visibility="collapsed",
         )
-        edge = p - 1.0 / odds
-        ok = edge >= SIDE_MARKET_MIN_EDGE and model_gates_ok
-        cols[2].markdown(f"**{edge:+.1%}**" if ok else f"{edge:+.1%}")
+        price_metrics = evaluate_market_price(
+            p * 100.0,
+            odds,
+            probability_haircut=SIDE_MARKET_PROBABILITY_HAIRCUT * 100.0,
+        )
+        risk_ev = price_metrics.risk_adjusted_expected_roi / 100.0
+        adjusted_edge = price_metrics.risk_adjusted_edge / 100.0
+        ok = risk_ev >= MIN_EXPECTED_ROI and model_gates_ok
+        cols[2].markdown(f"**{risk_ev:+.1%}**" if ok else f"{risk_ev:+.1%}")
         if cols[3].button("Track", key=f"side_track_{code}_{row['id']}",
                           disabled=not ok, use_container_width=True):
-            shadow.store_side_bet(row["id"], code, p, odds, edge)
+            shadow.store_side_bet(row["id"], code, p, odds, adjusted_edge)
             st.rerun()
 
 
@@ -453,6 +517,15 @@ def _render_match_card(row: dict) -> None:
     )
     with st.container(border=True):
         st.markdown(f"**{header}**")
+        likely_player = (
+            row["player_a"] if row["p_cal"] >= 0.5 else row["player_b"]
+        )
+        likely_probability = max(row["p_cal"], 1.0 - row["p_cal"])
+        st.caption(
+            f"Quotenfreie Prognose: {likely_player} ist mit "
+            f"{likely_probability:.1%} wahrscheinlicher. Eine Quote ändert "
+            "diese Prognose nicht, sondern nur die Wettentscheidung."
+        )
         st.caption(
             f"{row['tour']} · {row.get('tournament') or 'Turnier?'} · "
             f"{row.get('surface') or 'Belag?'} · Best of {row.get('best_of') or 3} · "
@@ -488,39 +561,65 @@ def _render_match_card(row: dict) -> None:
                 model_gates_ok,
             )
             st.session_state[f"price_result_{row['id']}"] = result
-        min_a = 1.0 / (row["p_cal"] - MIN_EDGE) if row["p_cal"] > MIN_EDGE else None
+        min_a = minimum_acceptable_odds(
+            row["p_cal"] * 100.0,
+            probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
+            minimum_expected_roi_percent=MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
+        )
         p_b = 1.0 - row["p_cal"]
-        min_b = 1.0 / (p_b - MIN_EDGE) if p_b > MIN_EDGE else None
+        min_b = minimum_acceptable_odds(
+            p_b * 100.0,
+            probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
+            minimum_expected_roi_percent=MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
+        )
         st.caption(
             f"Mindestquote für {row['player_a']}: "
             f"{min_a:.2f}" if min_a is not None else
-            f"Für {row['player_a']} ist die Edge-Schwelle rechnerisch nicht erreichbar."
+            f"Für {row['player_a']} bleibt nach Modellabschlag keine positive Preisbasis."
         )
         st.caption(
             f"Mindestquote für {row['player_b']}: "
             f"{min_b:.2f}" if min_b is not None else
-            f"Für {row['player_b']} ist die Edge-Schwelle rechnerisch nicht erreichbar."
+            f"Für {row['player_b']} bleibt nach Modellabschlag keine positive Preisbasis."
         )
 
         result = st.session_state.get(f"price_result_{row['id']}")
         if row.get("verdict") and row.get("odds_a") and result is None:
             result = {
                 "prices_ok": True,
-                "edge_a": row["p_cal"] - 1.0 / row["odds_a"],
-                "edge_b": (1 - row["p_cal"]) - 1.0 / row["odds_b"],
                 "side": row.get("recommended_side"),
                 "verdict": row["verdict"],
             }
+            restored_a = evaluate_market_price(
+                row["p_cal"] * 100.0,
+                row["odds_a"],
+                probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
+            )
+            restored_b = evaluate_market_price(
+                (1.0 - row["p_cal"]) * 100.0,
+                row["odds_b"],
+                probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
+            )
+            result.update(
+                {
+                    "edge_a": restored_a.risk_adjusted_edge / 100.0,
+                    "edge_b": restored_b.risk_adjusted_edge / 100.0,
+                    "risk_ev_a": restored_a.risk_adjusted_expected_roi / 100.0,
+                    "risk_ev_b": restored_b.risk_adjusted_expected_roi / 100.0,
+                }
+            )
         if result:
             if result["verdict"] == "WETTE" and model_gates_ok:
                 name = row["player_a"] if result["side"] == "A" else row["player_b"]
-                selected_p = row["p_cal"] if result["side"] == "A" else 1.0 - row["p_cal"]
-                selected_odds = odds_a if result["side"] == "A" else odds_b
-                expected_roi = selected_p * selected_odds - 1.0
+                risk_ev = (
+                    result["risk_ev_a"]
+                    if result["side"] == "A"
+                    else result["risk_ev_b"]
+                )
                 st.success(
-                    f"WETTE: {name} — Edge {max(result['edge_a'], result['edge_b']):+.1%} "
-                    f"(Schwelle {MIN_EDGE:+.0%}), Modell-EV {expected_roi:+.1%}. "
-                    "Shadow-Protokoll, noch kein Echtgeld."
+                    f"SHADOW-WETTE: {name} — Risiko-EV {risk_ev:+.1%} "
+                    f"nach {WINNER_PROBABILITY_HAIRCUT:+.0%} Modellabschlag. "
+                    "Noch keine Echtgeldfreigabe."
                 )
             else:
                 reasons = []
@@ -528,12 +627,20 @@ def _render_match_card(row: dict) -> None:
                     reasons.append("Modell-Prüfung nicht bestanden (Details unten)")
                 if not result.get("prices_ok"):
                     reasons.append("Quote unplausibel")
-                elif max(result["edge_a"], result["edge_b"]) < MIN_EDGE:
+                elif max(
+                    result.get("risk_ev_a", float("-inf")),
+                    result.get("risk_ev_b", float("-inf")),
+                ) < MIN_EXPECTED_ROI:
                     reasons.append(
-                        f"Edge zu klein: {max(result['edge_a'], result['edge_b']):+.1%} "
-                        f"(Schwelle {MIN_EDGE:+.0%})"
+                        "Preis zu niedrig: maximaler Risiko-EV "
+                        f"{max(result.get('risk_ev_a', float('-inf')), result.get('risk_ev_b', float('-inf'))):+.1%} "
+                        f"(erforderlich {MIN_EXPECTED_ROI:+.1%})"
                     )
-                st.error("KEINE WETTE — " + "; ".join(reasons))
+                st.error(
+                    "KEINE WETTE ZU DIESER QUOTE — die quotenfreie Prognose "
+                    f"bleibt {likely_player} ({likely_probability:.1%}). "
+                    + "; ".join(reasons)
+                )
 
         _render_winner_closing_capture(row)
         _render_side_markets(row, markets, model_gates_ok)

@@ -28,6 +28,8 @@ DB_PATH = Path(__file__).resolve().parent / "data" / "tennis_shadow.db"
 # Options: 'ball_served' | 'one_set' | 'match_completed'
 RETIREMENT_RULE = "one_set"
 CLOSING_WINDOW_SECONDS = 60 * 60
+TENNIS_MODEL_VERSION = "elo-serve-platt-v2"
+TENNIS_POLICY_VERSION = "risk-ev-haircut-v3"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS predictions (
@@ -60,7 +62,9 @@ CREATE TABLE IF NOT EXISTS predictions (
     closing_odds_a REAL,
     closing_odds_b REAL,
     closing_checked_utc REAL,
-    pnl REAL
+    pnl REAL,
+    model_version TEXT,
+    policy_version TEXT
 );
 CREATE TABLE IF NOT EXISTS side_bets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,7 +79,8 @@ CREATE TABLE IF NOT EXISTS side_bets (
     settled INTEGER DEFAULT 0,
     result TEXT,                   -- '2:0' | '2:1' | '1:2' | '0:2' | 'ret'
     won INTEGER,
-    pnl REAL
+    pnl REAL,
+    policy_version TEXT
 );
 """
 
@@ -85,10 +90,13 @@ _PREDICTION_MIGRATIONS = {
     "fixture_source": "TEXT",
     "price_checked_utc": "REAL",
     "closing_checked_utc": "REAL",
+    "model_version": "TEXT",
+    "policy_version": "TEXT",
 }
 _SIDE_BET_MIGRATIONS = {
     "closing_odds": "REAL",
     "closing_checked_utc": "REAL",
+    "policy_version": "TEXT",
 }
 
 # set markets offered in the UI; distributions calibration-tested on
@@ -122,9 +130,17 @@ def store_side_bet(prediction_id: int, market: str, model_p: float,
         raise ValueError(f"unknown side market {market!r}")
     with _connect() as conn:
         cur = conn.execute(
-            "INSERT INTO side_bets (created_utc, prediction_id, market, model_p, odds, edge)"
-            " VALUES (?,?,?,?,?,?)",
-            (time.time(), prediction_id, market, model_p, odds, edge),
+            "INSERT INTO side_bets (created_utc, prediction_id, market, model_p, "
+            "odds, edge, policy_version) VALUES (?,?,?,?,?,?,?)",
+            (
+                time.time(),
+                prediction_id,
+                market,
+                model_p,
+                odds,
+                edge,
+                TENNIS_POLICY_VERSION,
+            ),
         )
         return int(cur.lastrowid)
 
@@ -136,8 +152,9 @@ def side_bets_for(prediction_ids: List[int]) -> List[Dict]:
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            f"SELECT * FROM side_bets WHERE prediction_id IN ({marks}) ORDER BY id",
-            prediction_ids,
+            f"SELECT * FROM side_bets WHERE prediction_id IN ({marks}) "
+            "AND policy_version=? ORDER BY id",
+            [*prediction_ids, TENNIS_POLICY_VERSION],
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -291,16 +308,20 @@ def record_side_closing_price(
 def side_bet_summary() -> Dict:
     with _connect() as conn:
         total, settled = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(settled),0) FROM side_bets"
+            "SELECT COUNT(*), COALESCE(SUM(settled),0) FROM side_bets "
+            "WHERE policy_version=?",
+            (TENNIS_POLICY_VERSION,),
         ).fetchone()
         row = conn.execute(
             "SELECT COUNT(*), COALESCE(SUM(pnl),0), AVG(pnl) FROM side_bets "
-            "WHERE settled=1 AND won IS NOT NULL"
+            "WHERE settled=1 AND won IS NOT NULL AND policy_version=?",
+            (TENNIS_POLICY_VERSION,),
         ).fetchone()
         clv = conn.execute(
             "SELECT COUNT(*), AVG(odds / closing_odds - 1.0) FROM side_bets "
             "WHERE settled=1 AND odds>1.0 AND closing_odds>1.0 "
-            "AND closing_checked_utc IS NOT NULL"
+            "AND closing_checked_utc IS NOT NULL AND policy_version=?",
+            (TENNIS_POLICY_VERSION,),
         ).fetchone()
     return {
         "side_bets": total,
@@ -405,8 +426,9 @@ def store_prediction(
                 created_utc, match_date, provider_event_id, scheduled_start_utc,
                 fixture_source, tour, tournament, surface, best_of,
                 player_a, player_b, p_raw, p_cal, markets_json, gates_json,
-                verdict, recommended_side, recommended_edge, odds_a, odds_b
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                verdict, recommended_side, recommended_edge, odds_a, odds_b,
+                model_version, policy_version
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 time.time(),
@@ -429,6 +451,8 @@ def store_prediction(
                 prediction.recommended_edge,
                 odds_a,
                 odds_b,
+                TENNIS_MODEL_VERSION,
+                TENNIS_POLICY_VERSION,
             ),
         )
         return int(cur.lastrowid)
@@ -497,11 +521,14 @@ def summary() -> Dict:
         ).fetchone()
         recommended_total = conn.execute(
             "SELECT COUNT(*) FROM predictions "
-            "WHERE recommended_side IN ('A', 'B')"
+            "WHERE recommended_side IN ('A', 'B') AND policy_version=?",
+            (TENNIS_POLICY_VERSION,),
         ).fetchone()[0]
         reco = conn.execute(
             "SELECT COUNT(*), COALESCE(SUM(pnl),0), AVG(pnl) FROM predictions "
-            "WHERE settled=1 AND recommended_side IS NOT NULL AND pnl IS NOT NULL"
+            "WHERE settled=1 AND recommended_side IS NOT NULL AND pnl IS NOT NULL "
+            "AND policy_version=?",
+            (TENNIS_POLICY_VERSION,),
         ).fetchone()
         clv = conn.execute(
             """
@@ -514,13 +541,15 @@ def summary() -> Dict:
             FROM predictions
             WHERE settled=1
               AND recommended_side IN ('A', 'B')
+              AND policy_version=?
               AND closing_checked_utc IS NOT NULL
               AND (
                   (recommended_side='A' AND odds_a>1.0 AND closing_odds_a>1.0)
                   OR
                   (recommended_side='B' AND odds_b>1.0 AND closing_odds_b>1.0)
               )
-            """
+            """,
+            (TENNIS_POLICY_VERSION,),
         ).fetchone()
         brier = conn.execute(
             """
@@ -575,4 +604,5 @@ def summary() -> Dict:
         "benchmark_market_brier": (
             round(benchmark[2], 4) if benchmark[0] else None
         ),
+        "policy_version": TENNIS_POLICY_VERSION,
     }

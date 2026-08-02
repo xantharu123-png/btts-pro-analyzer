@@ -81,7 +81,7 @@ SETTLE_GRACE = timedelta(hours=2)
 FT_STATUSES = {"FT"}
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
 SHADOW_MODEL_VERSION = "challenge-engine-2026-08-01"
-SHADOW_POLICY_VERSION = "shadow-price-gate-v2"
+SHADOW_POLICY_VERSION = "shadow-risk-ev-v3"
 
 # Tor-basierte Märkte mit eindeutigem Buchmacher-Pendant (Bet365 via API-Football).
 # Nur diese Märkte werden geloggt: Settlement braucht Endstände, Ecken/Karten-
