@@ -16,7 +16,7 @@
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 556 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 557 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -108,6 +108,10 @@ Mindestquote = (1 + 0,03) / konservatives p
 - Der Wett-Check übernimmt Punktwahrscheinlichkeit und modellzugehörigen
   Haircut gemeinsam. Der frühere doppelte Abschlag bei Fußball/E-Sport und
   der zu kleine Standardabschlag bei Tennis sind beseitigt.
+- Automatisch übernommene Prozentwerte passen exakt auf 0,1-Prozentpunkt-
+  Kontrollen. Für die Anzeige wird Modell-p abgerundet, der Haircut
+  aufgerundet und die Mindestquote aus diesen konservativen UI-Werten neu
+  berechnet.
 - Alte Fußball- und Tennis-Preissignale werden über Policy-Versionen
   fail-closed ausgesperrt.
 - Der manuelle Wett-Check meldet `PREIS OK`, nicht mehr `JA`. Er ist eine
@@ -505,7 +509,7 @@ VPS-Härtung, verifiziert am 2. August 2026:
 Vollständiger Lauf:
 
 ```text
-556 passed
+557 passed
 5 subtests passed
 ```
 

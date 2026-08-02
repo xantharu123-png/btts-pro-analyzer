@@ -13,10 +13,12 @@ selbst ein, denn der Preis entscheidet.
 from __future__ import annotations
 
 from datetime import datetime
+import math
 from zoneinfo import ZoneInfo
 
 import streamlit as st
 
+from betting_math import minimum_acceptable_odds
 from ev_calculator import (
     DEFAULT_PROBABILITY_UNCERTAINTY,
     MIN_EXPECTED_ROI_FOR_BET,
@@ -29,7 +31,7 @@ from ev_calculator import (
     expected_value,
     verdict,
 )
-from ev_signal_sources import list_signals
+from ev_signal_sources import ModelSignal, list_signals
 
 _MANUAL = "manual"
 _ZURICH_TZ = ZoneInfo("Europe/Zurich")
@@ -59,6 +61,21 @@ def _fmt_start(value: str | None) -> str:
     return parsed.astimezone(_ZURICH_TZ).strftime("%d.%m. %H:%M")
 
 
+def _signal_inputs(signal: ModelSignal) -> tuple[float, float, float | None]:
+    """Quantize conservatively to the exact 0.1-point UI controls."""
+    probability_pct = math.floor(
+        signal.probability * 1000.0 + 1e-12
+    ) / 10.0
+    haircut_pct = math.ceil(
+        signal.probability_haircut * 1000.0 - 1e-12
+    ) / 10.0
+    minimum = minimum_acceptable_odds(
+        probability_pct,
+        probability_haircut=haircut_pct,
+    )
+    return probability_pct, haircut_pct, minimum
+
+
 def render_ev_checker(scope: str | None = None) -> None:
     st.markdown(
         "Prüfe den Preis einer bereits begründeten Prognose: Die Quote ist "
@@ -80,10 +97,11 @@ def render_ev_checker(scope: str | None = None) -> None:
     if automatic:
         st.markdown("### Automatische Vorauswahl")
         for signal in automatic:
-            conservative = signal.probability - signal.probability_haircut
+            probability_pct, haircut_pct, minimum_odds = _signal_inputs(signal)
+            conservative = (probability_pct - haircut_pct) / 100.0
             minimum = (
-                f"{signal.minimum_odds:.2f}".replace(".", ",")
-                if signal.minimum_odds is not None
+                f"{minimum_odds:.2f}".replace(".", ",")
+                if minimum_odds is not None
                 else "offen"
             )
             st.markdown(f"**{signal.label}**")
@@ -97,11 +115,9 @@ def render_ev_checker(scope: str | None = None) -> None:
     def _apply_signal() -> None:
         signal = by_key.get(st.session_state.get("ev_signal_choice"))
         if signal is not None:
-            st.session_state["ev_prob"] = round(signal.probability * 100, 1)
-            st.session_state["ev_uncertainty"] = round(
-                signal.probability_haircut * 100,
-                1,
-            )
+            probability_pct, haircut_pct, _minimum = _signal_inputs(signal)
+            st.session_state["ev_prob"] = probability_pct
+            st.session_state["ev_uncertainty"] = haircut_pct
         else:
             st.session_state["ev_uncertainty"] = (
                 DEFAULT_PROBABILITY_UNCERTAINTY * 100.0
@@ -125,11 +141,12 @@ def render_ev_checker(scope: str | None = None) -> None:
     )
     chosen = by_key.get(choice)
     if chosen is not None:
-        prob_text = f"{chosen.probability * 100:.1f}".replace(".", ",")
-        haircut_text = f"{chosen.probability_haircut * 100:.1f}".replace(".", ",")
+        chosen_probability, chosen_haircut, chosen_minimum = _signal_inputs(chosen)
+        prob_text = f"{chosen_probability:.1f}".replace(".", ",")
+        haircut_text = f"{chosen_haircut:.1f}".replace(".", ",")
         minimum_text = (
-            f" · Mindestquote {chosen.minimum_odds:.2f}".replace(".", ",")
-            if chosen.minimum_odds is not None
+            f" · Mindestquote {chosen_minimum:.2f}".replace(".", ",")
+            if chosen_minimum is not None
             else ""
         )
         st.caption(
@@ -154,7 +171,7 @@ def render_ev_checker(scope: str | None = None) -> None:
             "Punktprognose (in %)",
             min_value=0.0,
             max_value=100.0,
-            step=0.5,
+            step=0.1,
             format="%.1f",
             key="ev_prob",
             help="Wie wahrscheinlich ist die Wette DEINER ehrlichen "
@@ -175,7 +192,7 @@ def render_ev_checker(scope: str | None = None) -> None:
         "Modell-Unsicherheitsabschlag",
         min_value=0.0,
         max_value=40.0,
-        step=0.5,
+        step=0.1,
         key="ev_uncertainty",
         help=(
             "Absolute Prozentpunkte, die vor der Einsatzentscheidung von der "
