@@ -55,6 +55,18 @@ class ModelState:
         a, b = (self.cal_wta_a, self.cal_wta_b) if str(tour).upper() == "WTA" else (self.cal_a, self.cal_b)
         return _sigmoid(a * _logit(p) + b)
 
+    def calibrate_match(
+        self,
+        p_a: float,
+        player_a_key: str,
+        player_b_key: str,
+        tour: str = "ATP",
+    ) -> float:
+        """Apply the alphabetically trained calibrator without side-order bias."""
+        if player_a_key <= player_b_key:
+            return self.calibrate(p_a, tour=tour)
+        return 1.0 - self.calibrate(1.0 - p_a, tour=tour)
+
 
 def build_state(
     stats_years: Optional[Iterable[int]] = None,

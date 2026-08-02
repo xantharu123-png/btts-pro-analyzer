@@ -5,6 +5,56 @@
 
 ---
 
+## Audit-Nachtrag vom 2. August 2026
+
+Die unten stehenden Phase-1-Zahlen sind Entwicklungsresultate, kein
+Gewinnnachweis. Ein erneuter Lauf mit dem aktuellen Produktionscode, den
+produktiven Gates und dem in der App tatsächlich verwendeten rohen
+Probability-Edge ergab auf dem lokal verfügbaren Zeitraum 2019 sowie
+2021–2024:
+
+| Metrik | Aktueller Nachlauf |
+|---|---:|
+| ATP Hard, Edge ≥ 12 %, Serve- und Erfahrungs-Gate | 909 Wetten |
+| Flat-Stake ROI | +8,2 % |
+| Bootstrap-Intervall 95 % | −2,3 % bis +19,2 % |
+| Jahres-ROI 2019 / 2021 / 2022 / 2023 / 2024 | +15,4 / +8,9 / −9,4 / −15,8 / +34,9 % |
+| Brier Modell / de-viggter Pinnacle-Schlussmarkt | 0,2121 / 0,2014 |
+
+Die Schwelle, Belagwahl, Decay- und Indoor-Logik wurden anhand dieses
+Entwicklungszeitraums gewählt. Damit ist er **kein unangetasteter Holdout**.
+Der lokale Quotencache endet 2024; der Abruf der 2025/2026-Dateien war beim
+Audit nicht verfügbar. Die ausgewählte Edge-Stichprobe ist zudem deutlich
+überkonfident: durchschnittlich 51,5 % Modellwahrscheinlichkeit bei 37,1 %
+realisierter Trefferquote. Die große Sicherheitsmarge fängt einen Teil davon
+ab, heilt aber keine falsche Wahrscheinlichkeit.
+
+Zwei frühere Aussagen werden deshalb ausdrücklich korrigiert:
+
+1. Ein größerer Buchmacher-Overround macht N1Bet nicht automatisch „weicher“
+   oder günstiger. Mehr Marge ist zunächst ein schlechterer Preis. Nutzbar
+   wäre nur ein tatsächlicher Preisfehler, der diese Marge überkompensiert.
+2. Probability-Edge und erwarteter ROI sind nicht dieselbe Zahl:
+
+```text
+Probability-Edge = p - 1 / Quote
+Erwarteter ROI = p * Quote - 1 = Quote * Probability-Edge
+```
+
+Der Shadow-Ansatz bleibt fachlich richtig, wurde aber technisch gehärtet:
+Event-ID, Quelle und UTC-Startzeit werden gespeichert; gestartete oder zeitlich
+nicht verifizierbare Spiele verschwinden aus Tennis und Wett-Check; rote
+Modell-Gates können keine Empfehlung mehr persistieren; CLV zählt nur mit
+einer zeitgestempelten N1Bet-Referenzquote aus den letzten 60 Minuten vor dem
+angesetzten Start. Eindeutig normale ESPN-Finals werden automatisch
+abgerechnet, Aufgaben und unklare Endstände bleiben manuell. Modell-Brier und
+de-viggter Referenzmarkt-Brier werden auf derselben Stichprobe verglichen.
+
+**Aktuelles Urteil:** interessante ATP-Hard-Hypothese, weiterhin Shadow. Weder
+ROI noch CLV oder künftiger Gewinn sind bislang live bewiesen.
+
+---
+
 ## 1. Datenarchitektur (zwei getrennte Ebenen)
 
 | Ebene | Quelle | Inhalt | Regel |
@@ -54,9 +104,14 @@ Jahres-Stabilität Hard ≥12 %: 2019 +16,4 % · 2021 +11,9 % · 2022 −5,3 % �
 
 ## 5. Ehrliches Fazit (Wettexperten-Urteil)
 
-1. **Das Modell ist jetzt wirklich gut kalibriert** (95 % der Markt-Schärfe) — das war am Anfang nicht so, und das war echte Detektivarbeit, kein Schönfärben.
+1. **Die Kalibrierung wurde deutlich verbessert, bleibt aber schwächer als der
+   Markt.** Ein Verhältnis der beiden Brier Scores ist kein belastbares Maß
+   für „95 % Markt-Schärfe“.
 2. **Breakeven bis leicht positiv gegen Pinnacle-SCHLUSSquoten** auf Hard bei hohem Edge. Gegen die schärfste Linie der Welt ist das ein respektables Ergebnis — aber es ist NICHT stabil über die Jahre (2022/23 negativ). Keine Gewinn-Garantie.
-3. **Die Geld-These:** Wir wetten nicht gegen Pinnacle-Schluss, sondern gegen **N1Bet-Eröffnungslinien** (weicher Buchmacher, 5–8 % Marge statt ~2 %). Historische N1Bet-Linien existieren nicht → Beweis nur live führbar.
+3. **Die zu prüfende Preis-These:** Historische N1Bet-Linien existieren nicht.
+   Eine höhere N1Bet-Marge ist zunächst ein Nachteil und kein Edge. Nur live
+   dokumentierte Fehlpreise und startzeitnahe Referenzquoten können zeigen, ob
+   N1Bet trotz Marge schlagbare Preise anbietet.
 4. **Empfohlene Live-Gates v1 (ALLE müssen grün sein):** Hard-Court only · Edge ≥ 12 % (kalibriert) · beide Spieler ≥ 20 Elo-Matches + ≥ 60 Service-Games · kein RET-verletzter Spieler zuletzt · CLV-Tracking Pflicht.
 5. **Clay & Grass bleiben No-Bet**, bis die Samples besser sind — Disziplin vor Volumen.
 

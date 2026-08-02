@@ -14,14 +14,16 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Union
+from zoneinfo import ZoneInfo
 
 from scan_jobs import JOBS_DIR, load_persisted
 
 TENNIS_DB = Path(__file__).resolve().parent / "tennis" / "data" / "tennis_shadow.db"
 ESPORTS_DB = Path(__file__).resolve().parent / "esports_shadow.db"
+ZURICH_TZ = ZoneInfo("Europe/Zurich")
 
 # Maximales Signal-Alter je Fußball-Quelle: Prematch-Spiele liegen in der
 # Zukunft (24 h tragbar); Live- und Platzverweis-Märkte sind nach Spielende
@@ -68,13 +70,18 @@ def _read_rows(db_path: Union[str, Path], query: str, params: tuple = ()) -> lis
 def tennis_signals(
     db_path: Union[str, Path] = TENNIS_DB,
     today: Optional[str] = None,
+    now: Optional[datetime] = None,
 ) -> List[ModelSignal]:
     """Return only open, fully released tennis price decisions."""
-    today = today or date.today().isoformat()
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    today = today or current.astimezone(ZURICH_TZ).date().isoformat()
     rows = _read_rows(
         db_path,
         """SELECT id, match_date, tour, tournament, player_a, player_b,
-                  p_cal, verdict, recommended_side
+                  p_cal, verdict, recommended_side, scheduled_start_utc
            FROM predictions
            WHERE settled = 0 AND match_date >= ?
              AND verdict = 'WETTE'
@@ -84,6 +91,13 @@ def tennis_signals(
     )
     signals: List[ModelSignal] = []
     for row in rows:
+        scheduled = _parse_iso(row["scheduled_start_utc"])
+        if scheduled is None:
+            continue
+        if scheduled.tzinfo is None:
+            scheduled = scheduled.replace(tzinfo=timezone.utc)
+        if scheduled.astimezone(timezone.utc) <= current:
+            continue
         if not _valid_probability(row["p_cal"]):
             continue
         p_a = float(row["p_cal"])

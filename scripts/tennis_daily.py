@@ -20,17 +20,19 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import sys
 import unicodedata
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tennis.data_loader import DEFAULT_CACHE_DIR  # noqa: E402
+from tennis.data_loader import DEFAULT_CACHE_DIR, normalize_player_name  # noqa: E402
 from tennis.model_state import load_state  # noqa: E402
 from tennis.predict import predict_match  # noqa: E402
 from tennis import shadow  # noqa: E402
@@ -42,6 +44,7 @@ HEADERS = {
     "Accept": "application/json",
     "Referer": "https://www.sofascore.com/",
 }
+ZURICH_TZ = ZoneInfo("Europe/Zurich")
 
 # sponsor/broadcast name (normalized substring) -> official tournament
 # name in the ManTennisData table.  Extend weekly as new events appear;
@@ -62,6 +65,32 @@ def _norm(text: str) -> str:
     text = unicodedata.normalize("NFKD", str(text or ""))
     text = "".join(c for c in text if not unicodedata.combining(c))
     return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
+
+
+def _start_metadata(value, fallback_date: str) -> tuple[str | None, str]:
+    """Return (UTC ISO timestamp, Zurich match date) for a provider value."""
+    if value in (None, ""):
+        return None, fallback_date
+    try:
+        if isinstance(value, (int, float)):
+            start = datetime.fromtimestamp(float(value), timezone.utc)
+        else:
+            start = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+        start = start.astimezone(timezone.utc)
+    except (TypeError, ValueError, OSError):
+        return None, fallback_date
+    start_utc = start.isoformat(timespec="seconds").replace("+00:00", "Z")
+    return start_utc, start.astimezone(ZURICH_TZ).date().isoformat()
+
+
+def _default_scan_date(now: datetime | None = None) -> str:
+    current = now or datetime.now(ZURICH_TZ)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=ZURICH_TZ)
+    local_day = current.astimezone(ZURICH_TZ).date()
+    return (local_day + timedelta(days=1)).isoformat()
 
 
 def tournament_surface_map(year: int) -> dict:
@@ -109,13 +138,17 @@ def fetch_fixtures_sofascore(date: str) -> list:
         category = (tournament.get("category") or {}).get("slug", "")
         if category not in ("atp", "wta"):
             continue
+        start_utc, match_date = _start_metadata(ev.get("startTimestamp"), date)
         fixtures.append(
             {
                 "tour": category.upper(),
                 "tournament": tournament.get("name", ""),
                 "player_a": ev.get("homeTeam", {}).get("name", ""),
                 "player_b": ev.get("awayTeam", {}).get("name", ""),
-                "match_date": date,
+                "match_date": match_date,
+                "provider_event_id": str(ev.get("id") or ""),
+                "scheduled_start_utc": start_utc,
+                "fixture_source": "SofaScore",
             }
         )
     return fixtures
@@ -123,19 +156,9 @@ def fetch_fixtures_sofascore(date: str) -> list:
 
 def fetch_fixtures_espn(date: str) -> list:
     """ESPN scoreboard fallback (tournaments with nested match lists)."""
-    yyyymmdd = date.replace("-", "")
     fixtures = []
     for tour in ("atp", "wta"):
-        url = (
-            "https://site.api.espn.com/apis/site/v2/sports/tennis/"
-            f"{tour}/scoreboard?dates={yyyymmdd}&limit=400"
-        )
-        try:
-            response = requests.get(url, headers=HEADERS, timeout=20)
-            response.raise_for_status()
-            events = response.json().get("events", [])
-        except (requests.RequestException, ValueError):
-            continue
+        events = _fetch_espn_events(tour, date)
         want_slug = "mens-singles" if tour == "atp" else "womens-singles"
         for ev in events:
             for grouping in ev.get("groupings", []):
@@ -151,7 +174,7 @@ def fetch_fixtures_espn(date: str) -> list:
                     ]
                     if len(names) != 2 or not all(names):
                         continue
-                    match_date = str(comp.get("date", ""))[:10] or date
+                    start_utc, match_date = _start_metadata(comp.get("date"), date)
                     fixtures.append(
                         {
                             "tour": tour.upper(),
@@ -159,9 +182,174 @@ def fetch_fixtures_espn(date: str) -> list:
                             "player_a": names[0],
                             "player_b": names[1],
                             "match_date": match_date,
+                            "provider_event_id": str(comp.get("id") or ""),
+                            "scheduled_start_utc": start_utc,
+                            "fixture_source": "ESPN",
                         }
                     )
     return fixtures
+
+
+def _fetch_espn_events(tour: str, date: str) -> list:
+    yyyymmdd = date.replace("-", "")
+    url = (
+        "https://site.api.espn.com/apis/site/v2/sports/tennis/"
+        f"{tour}/scoreboard?dates={yyyymmdd}&limit=400"
+    )
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=20)
+        response.raise_for_status()
+        return response.json().get("events", [])
+    except (requests.RequestException, ValueError):
+        return []
+
+
+def fetch_results_espn(date: str, tour: str) -> list:
+    """Return unambiguous normal finals for one tour/date."""
+    tour_slug = str(tour).lower()
+    want_slug = "mens-singles" if tour_slug == "atp" else "womens-singles"
+    results = []
+    for event in _fetch_espn_events(tour_slug, date):
+        for grouping in event.get("groupings", []):
+            if grouping.get("grouping", {}).get("slug") != want_slug:
+                continue
+            for comp in grouping.get("competitions", []):
+                status_type = comp.get("status", {}).get("type", {})
+                status_blob = json.dumps(
+                    {
+                        "status": comp.get("status", {}),
+                        "notes": comp.get("notes", []),
+                    },
+                    ensure_ascii=False,
+                ).casefold()
+                abnormal_tokens = (
+                    "retired",
+                    "retirement",
+                    "ret.",
+                    "ret'd",
+                    "walkover",
+                    "w/o",
+                    "defaulted",
+                    "abandoned",
+                )
+                if (
+                    status_type.get("state") != "post"
+                    or status_type.get("completed") is not True
+                    or status_type.get("name") != "STATUS_FINAL"
+                    or any(token in status_blob for token in abnormal_tokens)
+                ):
+                    continue
+                competitors = comp.get("competitors", [])
+                winners = [
+                    item for item in competitors if item.get("winner") is True
+                ]
+                names = [
+                    item.get("athlete", {}).get("displayName")
+                    for item in competitors
+                ]
+                if len(competitors) != 2 or len(winners) != 1 or not all(names):
+                    continue
+                winner_sets = sum(
+                    1
+                    for line in winners[0].get("linescores", [])
+                    if line.get("winner") is True
+                )
+                loser = next(
+                    item
+                    for item in competitors
+                    if item.get("winner") is not True
+                )
+                loser_sets = sum(
+                    1
+                    for line in loser.get("linescores", [])
+                    if line.get("winner") is True
+                )
+                if winner_sets < 2:
+                    continue
+                start_utc, match_date = _start_metadata(comp.get("date"), date)
+                if match_date != date:
+                    continue
+                results.append(
+                    {
+                        "provider_event_id": str(comp.get("id") or ""),
+                        "match_date": match_date,
+                        "scheduled_start_utc": start_utc,
+                        "player_a": names[0],
+                        "player_b": names[1],
+                        "winner": winners[0].get("athlete", {}).get("displayName"),
+                        "winner_sets": winner_sets,
+                        "loser_sets": loser_sets,
+                    }
+                )
+    return results
+
+
+def auto_settle_completed(today: str | None = None) -> int:
+    """Settle old normal finals; retirements and ambiguous rows stay manual."""
+    local_today = today or datetime.now(ZURICH_TZ).date().isoformat()
+    pending = [
+        row
+        for row in shadow.pending_predictions()
+        if row["match_date"] < local_today
+        and not any(
+            "TBD" in str(player).upper()
+            for player in (row["player_a"], row["player_b"])
+        )
+    ]
+    if not pending:
+        return 0
+
+    result_cache = {}
+    settled = 0
+    for row in pending:
+        cache_key = (row["match_date"], str(row["tour"]).upper())
+        if cache_key not in result_cache:
+            result_cache[cache_key] = fetch_results_espn(*cache_key)
+        row_players = {
+            normalize_player_name(row["player_a"]),
+            normalize_player_name(row["player_b"]),
+        }
+        match = None
+        event_id = str(row.get("provider_event_id") or "")
+        if event_id:
+            match = next(
+                (
+                    result
+                    for result in result_cache[cache_key]
+                    if result["provider_event_id"] == event_id
+                ),
+                None,
+            )
+        if match is None:
+            match = next(
+                (
+                    result
+                    for result in result_cache[cache_key]
+                    if {
+                        normalize_player_name(result["player_a"]),
+                        normalize_player_name(result["player_b"]),
+                    }
+                    == row_players
+                ),
+                None,
+            )
+        if match is None:
+            continue
+        winner_key = normalize_player_name(match["winner"])
+        if winner_key == normalize_player_name(row["player_a"]):
+            winner = row["player_a"]
+            set_result = f"{match['winner_sets']}:{match['loser_sets']}"
+        elif winner_key == normalize_player_name(row["player_b"]):
+            winner = row["player_b"]
+            set_result = f"{match['loser_sets']}:{match['winner_sets']}"
+        else:
+            continue
+        shadow.settle(row["id"], winner)
+        for bet in shadow.side_bets_for([row["id"]]):
+            if not bet["settled"]:
+                shadow.settle_side_bet(bet["id"], set_result)
+        settled += 1
+    return settled
 
 
 def fetch_fixtures(date: str) -> list:
@@ -178,10 +366,10 @@ def fetch_fixtures(date: str) -> list:
 
 
 def main() -> None:
-    date = sys.argv[1] if len(sys.argv) > 1 else (
-        datetime.now(timezone.utc) + timedelta(days=1)
-    ).strftime("%Y-%m-%d")
+    date = sys.argv[1] if len(sys.argv) > 1 else _default_scan_date()
     print(f"=== TENNIS DAILY SCAN {date} ===")
+    settled = auto_settle_completed()
+    print(f"Automatisch abgerechnet (normale ESPN-Finals): {settled}")
 
     try:
         state = load_state()
@@ -218,7 +406,13 @@ def main() -> None:
             indoor=indoor,
         )
         row_id = shadow.store_prediction(
-            fx["match_date"], fx["tour"], fx["tournament"], pred
+            fx["match_date"],
+            fx["tour"],
+            fx["tournament"],
+            pred,
+            provider_event_id=fx.get("provider_event_id") or None,
+            scheduled_start_utc=fx.get("scheduled_start_utc"),
+            fixture_source=fx.get("fixture_source"),
         )
         if row_id > 0:
             stored += 1

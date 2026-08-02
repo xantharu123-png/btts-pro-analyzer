@@ -149,7 +149,7 @@ def predict_match(
         if p_serve is not None
         else p_elo
     )
-    p_cal = state.calibrate(p_raw, tour=tour)
+    p_cal = state.calibrate_match(p_raw, key_a, key_b, tour=tour)
 
     # --- gates ---------------------------------------------------------------
     matches_a = state.elo.overall.matches(key_a)

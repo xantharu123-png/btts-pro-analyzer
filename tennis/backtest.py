@@ -462,10 +462,13 @@ def run_backtest(
             p_alpha_raw = p_model if alpha_first_is_w else 1.0 - p_model
             p_market_alpha = implied_w if alpha_first_is_w else implied_l
 
-            # 3) walk-forward recalibration: applied BEFORE scoring this
-            #    row, trained only on already-scored rows
-            p_cal = cal.predict(p_model) if recalibrate else p_model
-            p_alpha_cal = p_cal if alpha_first_is_w else 1.0 - p_cal
+            # 3) walk-forward recalibration: the calibrator is trained in
+            #    alphabetical orientation, so prediction must use that same
+            #    orientation before converting back to winner/loser order.
+            p_alpha_cal = (
+                cal.predict(p_alpha_raw) if recalibrate else p_alpha_raw
+            )
+            p_cal = p_alpha_cal if alpha_first_is_w else 1.0 - p_alpha_cal
 
             gated = (
                 elo.overall.matches(w_key) >= min_elo_matches

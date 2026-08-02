@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ev_signal_sources import esports_signals, list_signals, tennis_signals
@@ -14,7 +15,8 @@ CREATE TABLE predictions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     match_date TEXT, tour TEXT, tournament TEXT,
     player_a TEXT, player_b TEXT, p_cal REAL, settled INTEGER DEFAULT 0,
-    verdict TEXT DEFAULT 'WETTE', recommended_side TEXT DEFAULT 'A'
+    verdict TEXT DEFAULT 'WETTE', recommended_side TEXT DEFAULT 'A',
+    scheduled_start_utc TEXT
 );
 """
 
@@ -34,8 +36,9 @@ def _tennis_db(rows, tmp: Path) -> Path:
     conn.execute(TENNIS_SCHEMA)
     conn.executemany(
         "INSERT INTO predictions (match_date, tour, tournament, player_a,"
-        " player_b, p_cal, settled) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        rows,
+        " player_b, p_cal, settled, scheduled_start_utc)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [tuple(row) + (f"{row[0]}T23:59:59Z",) for row in rows],
     )
     conn.commit()
     conn.close()
@@ -105,6 +108,27 @@ class TennisSignalTests(unittest.TestCase):
             tennis_signals(db_path=self.tmp / "fehlt.db", today="2099-01-01"),
             [],
         )
+
+    def test_started_match_is_excluded_from_wett_check(self):
+        db = _tennis_db(
+            [("2099-01-01", "ATP", "T", "A", "B", 0.6, 0)],
+            self.tmp,
+        )
+        conn = sqlite3.connect(db)
+        try:
+            conn.execute(
+                "UPDATE predictions SET scheduled_start_utc=?",
+                ("2099-01-01T18:30:00Z",),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        signals = tennis_signals(
+            db_path=db,
+            today="2099-01-01",
+            now=datetime(2099, 1, 1, 18, 30, tzinfo=timezone.utc),
+        )
+        self.assertEqual(signals, [])
 
 
 class EsportsSignalTests(unittest.TestCase):

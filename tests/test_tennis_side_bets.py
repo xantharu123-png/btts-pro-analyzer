@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from tennis import shadow
@@ -26,18 +28,32 @@ def _prediction_id() -> int:
         def market_summary(self):
             return {"over_2_5_sets": 0.55}
 
-    return shadow.store_prediction("2030-01-01", "ATP", "Test Open", _Pred())
+    return shadow.store_prediction(
+        "2030-01-01",
+        "ATP",
+        "Test Open",
+        _Pred(),
+        scheduled_start_utc="2030-01-01T12:00:00Z",
+    )
 
 
 class TestSideBets:
     def test_store_and_settle_win(self, tmp_db):
         pid = _prediction_id()
         bet_id = shadow.store_side_bet(pid, "over_2_5_sets", 0.55, 2.10, 0.074)
+        captured = datetime(2030, 1, 1, 11, 30, tzinfo=timezone.utc).timestamp()
+        shadow.record_side_closing_price(
+            bet_id,
+            2.00,
+            captured_utc=captured,
+        )
         shadow.settle_side_bet(bet_id, "2:1")
         summary = shadow.side_bet_summary()
         assert summary["side_bets"] == 1
         assert summary["settled"] == 1
         assert summary["units"] == pytest.approx(1.10, abs=0.01)
+        assert summary["clv_samples"] == 1
+        assert summary["clv"] == pytest.approx(0.05, abs=0.001)
 
     def test_under_loses_on_three_sets(self, tmp_db):
         pid = _prediction_id()

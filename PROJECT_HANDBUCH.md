@@ -13,7 +13,7 @@
 | Alte Streamlit-URL | nicht mehr aktiv |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 487 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 500 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -79,6 +79,9 @@ Out-of-sample-Evidenz, Closing-Line-Vergleich und korrektem Settlement abhängig
 Mindestquote = 1 / (p - Mindest-Edge)
 ```
 
+- Tennis-Kalibrierung wird immer in derselben alphabetischen Orientierung
+  angewendet, in der sie trainiert wurde. Das Ergebnis bleibt beim Vertauschen
+  der Spieler exakt komplementär.
 - Tennis-Gegnerwerte werden vor beiden Match-Updates eingefroren. Der Verlierer
   sieht dadurch keine Information aus demselben Match.
 - Fehlende beobachtete Märkte ergeben im Kalibrierungswächter
@@ -112,6 +115,21 @@ Mindestquote = 1 / (p - Mindest-Edge)
 - Regulation-Wetten werden nur bei Providerstatus `FT` abgerechnet, nicht
   versehentlich nach Verlängerung oder Elfmeterschießen.
 - Modell- und Policy-Version werden in jeder neuen Prediction gespeichert.
+- Tennis speichert Provider-Event-ID, Quelle und exakte UTC-Startzeit.
+  Gestartete oder zeitlich unverifizierbare Spiele verschwinden fail-closed
+  sowohl aus dem Tennis-Wettfinder als auch aus dem Wett-Check.
+- Alte Tennis-Matches erscheinen nur noch im ausdrücklich getrennten
+  Shadow-Abrechnungsbereich und nicht als Wettvorschlag.
+- Der Tennis-Tageslauf rechnet eindeutig normale ESPN-Finals inklusive
+  getrackter Satzmärkte automatisch ab. Aufgaben, Walkover und unklare
+  Ergebnisse bleiben fail-closed zur manuellen Prüfung.
+- Ein Tennis-Preis-Edge darf bei einem roten Modell-Gate keine Empfehlung mehr
+  persistieren.
+- Tennis-CLV zählt nur mit einer zeitgestempelten N1Bet-Referenzquote aus den
+  letzten 60 Minuten vor dem angesetzten Start. Nachträgliche Quoten bei der
+  Ergebnisabrechnung sind ausgeschlossen.
+- Tennis zeigt Modell- und de-viggten N1Bet-Brier auf derselben Stichprobe
+  startzeitnaher Referenzquoten; ROI allein ist kein Freigabekriterium.
 - Die KIMI-Bedingung verwendet jetzt direkt den kanonischen Projektcode und
   dieselben Zeitfenster wie der Runner.
 - E-Sport verlangt ein explizites 0:0-Prematch-Ereignis und eine eindeutige
@@ -229,6 +247,7 @@ Lokaler Snapshot nach dem Audit:
 |---|---|---|
 | Fußball CLV | 250 Fixtures, 230 bewertet, 0 Picks | kein CLV-/ROI-Urteil möglich |
 | Tennis | 64 Predictions, 0 abgerechnet, 0 Empfehlungen | keine Live-Evidenz |
+| Tennis Entwicklungsnachlauf | 909 ATP-Hard-Wetten, +8,2 % ROI, Bootstrap 95 % −2,3 bis +19,2 % | Hypothese; Intervall enthält null, kein später Holdout |
 | E-Sport | 20 sauber klassifizierte Zeilen, 5 abgerechnet, 4 Treffer | n=5 ist bedeutungslos; Release bleibt gesperrt |
 | E-Sport risikoadjustiert | Ø p 38,9 %, Brier 0,3711 | aktuelles Release-Gate klar nicht erfüllt |
 | Rotkarten-Live | 0 unabhängige Shadow-Signale | keine Freigabe |

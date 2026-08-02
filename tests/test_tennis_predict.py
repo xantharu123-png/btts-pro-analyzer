@@ -80,6 +80,13 @@ class TestPredictGates:
         assert pred2.verdict == "WETTE"
         assert pred2.recommended_side == "A"
 
+    def test_calibration_is_invariant_when_players_are_swapped(self):
+        state = _synthetic_state()
+        state.cal_a, state.cal_b = 0.8, 0.2
+        forward = predict_match(state, "Hero H.", "Grinder G.", "Hard", 3)
+        reverse = predict_match(state, "Grinder G.", "Hero H.", "Hard", 3)
+        assert forward.p_a_cal + reverse.p_a_cal == pytest.approx(1.0, abs=1e-4)
+
     def test_corrupt_prices_blocked(self):
         state = _synthetic_state()
         pred = predict_match(

@@ -23,8 +23,10 @@ import json
 import sqlite3
 import subprocess
 import sys
-from datetime import date, datetime
+import time
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 
@@ -36,33 +38,128 @@ from tennis.shadow import SIDE_MARKETS
 
 DB_PATH = shadow.DB_PATH
 DAILY_SCRIPT = Path(__file__).resolve().parent / "scripts" / "tennis_daily.py"
+ZURICH_TZ = ZoneInfo("Europe/Zurich")
 
 
 # --------------------------------------------------------------------- helpers
 
 
-def _load_predictions(date_from: str | None = None) -> list[dict]:
+def _load_predictions(
+    date_from: str | None = None,
+    *,
+    unsettled_only: bool = False,
+) -> list[dict]:
     if not DB_PATH.exists():
         return []
+    shadow.ensure_schema()
     query = "SELECT * FROM predictions"
+    clauses = []
     params: tuple = ()
     if date_from:
-        query += " WHERE match_date >= ?"
+        clauses.append("match_date >= ?")
         params = (date_from,)
+    if unsettled_only:
+        clauses.append("settled=0")
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY match_date, tour, tournament, id"
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         return [dict(r) for r in conn.execute(query, params).fetchall()]
 
 
-def _update_price_check(row_id: int, odds_a: float, odds_b: float, p_cal: float) -> dict:
+def _parse_start_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _zurich_today(now_utc: datetime | None = None) -> str:
+    current = now_utc or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current.astimezone(ZURICH_TZ).date().isoformat()
+
+
+def _prematch_visibility(
+    row: dict,
+    now_utc: datetime | None = None,
+) -> tuple[bool, str | None]:
+    """Only a verified fixture whose scheduled start is ahead is actionable."""
+    if int(row.get("settled") or 0):
+        return False, "bereits abgerechnet"
+    start = _parse_start_utc(row.get("scheduled_start_utc"))
+    if start is None:
+        return False, "Startzeit nicht verifiziert"
+    current = now_utc or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    if start <= current.astimezone(timezone.utc):
+        return False, "angesetzte Startzeit erreicht"
+    return True, None
+
+
+def _split_prematch_rows(
+    rows: list[dict],
+    now_utc: datetime | None = None,
+) -> tuple[list[dict], list[tuple[dict, str]]]:
+    visible = []
+    hidden = []
+    for row in rows:
+        allowed, reason = _prematch_visibility(row, now_utc)
+        if allowed:
+            visible.append(row)
+        else:
+            hidden.append((row, reason or "nicht mehr startbar"))
+    return visible, hidden
+
+
+def _format_start_local(value: str | None) -> str:
+    start = _parse_start_utc(value)
+    if start is None:
+        return "Startzeit nicht verifiziert"
+    return start.astimezone(ZURICH_TZ).strftime("%d.%m.%Y, %H:%M Uhr")
+
+
+def _closing_window_state(
+    row: dict,
+    now_utc: datetime | None = None,
+) -> tuple[str, float | None]:
+    start = _parse_start_utc(row.get("scheduled_start_utc"))
+    if start is None:
+        return "unverified", None
+    current = now_utc or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    lead = (start - current.astimezone(timezone.utc)).total_seconds()
+    if lead < 0:
+        return "closed", lead
+    if lead > shadow.CLOSING_WINDOW_SECONDS:
+        return "early", lead
+    return "open", lead
+
+
+def _update_price_check(
+    row_id: int,
+    odds_a: float,
+    odds_b: float,
+    p_cal: float,
+    model_gates_ok: bool,
+) -> dict:
     """Evaluate the edge gate from the stored probability and persist it."""
+    shadow.ensure_schema()
     prices_ok = odds_a > 1.0 and odds_b > 1.0
     edge_a = p_cal - 1.0 / odds_a if prices_ok else 0.0
     edge_b = (1.0 - p_cal) - 1.0 / odds_b if prices_ok else 0.0
     side = edge = 0.0
     verdict = "KEINE WETTE"
-    if prices_ok:
+    if prices_ok and model_gates_ok:
         if edge_a >= edge_b and edge_a >= MIN_EDGE:
             side, edge = "A", edge_a
         elif edge_b > edge_a and edge_b >= MIN_EDGE:
@@ -72,8 +169,16 @@ def _update_price_check(row_id: int, odds_a: float, odds_b: float, p_cal: float)
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
             "UPDATE predictions SET odds_a=?, odds_b=?, recommended_side=?, "
-            "recommended_edge=?, verdict=? WHERE id=?",
-            (odds_a, odds_b, side or None, edge or None, verdict, row_id),
+            "recommended_edge=?, verdict=?, price_checked_utc=? WHERE id=?",
+            (
+                odds_a,
+                odds_b,
+                side or None,
+                edge or None,
+                verdict,
+                time.time(),
+                row_id,
+            ),
         )
     return {
         "prices_ok": prices_ok,
@@ -129,10 +234,29 @@ def _render_shadow_summary() -> None:
         delta=f"{roi:+.1%} ROI" if roi is not None else None,
     )
     st.caption(
-        "Shadow-Phase: Das Modell zeigt, was es spielen würde. Erst wenn die "
-        "Bilanz über Wochen gegen die N1Bet-Schlussquoten stimmt (CLV), wird "
-        "über Echtgeld gesprochen."
+        "Shadow bedeutet: Entscheidung und Quote werden vor dem Start eingefroren, "
+        "danach werden Ergebnis, Kalibrierung und eine startzeitnahe "
+        "N1Bet-Referenzquote verglichen. "
+        "Das prüft das Modell, garantiert aber keinen Gewinn."
     )
+    evidence_cols = st.columns(2)
+    clv = summary.get("clv")
+    evidence_cols[0].metric(
+        f"Sieger-CLV (n={summary.get('clv_samples', 0)})",
+        f"{clv:+.1%}" if clv is not None else "Noch offen",
+    )
+    brier = summary.get("brier")
+    evidence_cols[1].metric(
+        f"Brier Score (n={summary.get('brier_samples', 0)})",
+        f"{brier:.3f}" if brier is not None else "Noch offen",
+    )
+    if summary.get("benchmark_samples"):
+        st.caption(
+            "Brier auf identischer CLV-Stichprobe, kleiner ist besser: "
+            f"Modell {summary['benchmark_model_brier']:.3f} · "
+            f"N1Bet-Referenzmarkt {summary['benchmark_market_brier']:.3f} · "
+            f"n={summary['benchmark_samples']}."
+        )
     side = shadow.side_bet_summary()
     if side["side_bets"]:
         cols = st.columns(4)
@@ -144,6 +268,13 @@ def _render_shadow_summary() -> None:
             "Satz-Markt Bilanz (Units)",
             side["units"],
             delta=f"{roi:+.1%} ROI" if roi is not None else None,
+        )
+        side_clv = side.get("clv")
+        st.caption(
+            f"Satz-Markt CLV: {side_clv:+.1%} "
+            f"(n={side.get('clv_samples', 0)})"
+            if side_clv is not None
+            else "Satz-Markt CLV: noch keine startzeitnahe Referenzquote."
         )
 
 
@@ -210,6 +341,34 @@ def _render_side_markets(row: dict, markets: dict, model_gates_ok: bool) -> None
             cols[1].markdown(f"**{b['odds']:.2f}**")
             cols[2].markdown(f"Edge {b['edge']:+.1%}")
             cols[3].caption("getrackt ✓")
+            window, _ = _closing_window_state(row)
+            if b.get("closing_checked_utc"):
+                st.caption(
+                    f"Startzeitnahe Referenzquote gespeichert: "
+                    f"{b['closing_odds']:.2f}"
+                )
+            elif window == "open":
+                closing_cols = st.columns([3, 1])
+                closing_odds = closing_cols[0].number_input(
+                    f"N1Bet-Referenzquote {label}",
+                    min_value=1.01,
+                    max_value=50.0,
+                    value=float(b["odds"]),
+                    step=0.01,
+                    format="%.2f",
+                    key=f"side_closing_capture_{b['id']}",
+                )
+                if closing_cols[1].button(
+                    "Referenz speichern",
+                    key=f"side_closing_btn_{b['id']}",
+                    use_container_width=True,
+                ):
+                    try:
+                        shadow.record_side_closing_price(b["id"], closing_odds)
+                    except (KeyError, ValueError) as exc:
+                        st.error(str(exc))
+                    else:
+                        st.rerun()
             continue
         odds = cols[1].number_input(
             "N1Bet", min_value=1.01, max_value=50.0, value=round(fair, 2),
@@ -223,6 +382,64 @@ def _render_side_markets(row: dict, markets: dict, model_gates_ok: bool) -> None
                           disabled=not ok, use_container_width=True):
             shadow.store_side_bet(row["id"], code, p, odds, edge)
             st.rerun()
+
+
+def _render_winner_closing_capture(row: dict) -> None:
+    if row.get("recommended_side") not in ("A", "B"):
+        return
+    if row.get("closing_checked_utc"):
+        st.caption(
+            "Startzeitnahe N1Bet-Referenzquoten gespeichert: "
+            f"{row['closing_odds_a']:.2f} / {row['closing_odds_b']:.2f}."
+        )
+        return
+
+    window, lead = _closing_window_state(row)
+    if window == "early":
+        minutes = max(int((lead or 0) // 60), 0)
+        st.caption(
+            f"CLV-Referenz wird in den letzten 60 Minuten vor dem angesetzten "
+            f"Start erfasst (noch ca. {minutes} Min.)."
+        )
+        return
+    if window != "open":
+        return
+
+    with st.expander("Startzeitnahe N1Bet-Referenzquote erfassen"):
+        st.caption(
+            "Nur jetzt vor dem angesetzten Start speichern. Diese Preise werden "
+            "später nicht rückwirkend ergänzt."
+        )
+        cols = st.columns([1, 1, 1])
+        closing_a = cols[0].number_input(
+            f"Referenz {row['player_a']}",
+            min_value=1.01,
+            max_value=50.0,
+            value=float(row.get("odds_a") or 1.50),
+            step=0.01,
+            format="%.2f",
+            key=f"closing_capture_a_{row['id']}",
+        )
+        closing_b = cols[1].number_input(
+            f"Referenz {row['player_b']}",
+            min_value=1.01,
+            max_value=50.0,
+            value=float(row.get("odds_b") or 2.60),
+            step=0.01,
+            format="%.2f",
+            key=f"closing_capture_b_{row['id']}",
+        )
+        if cols[2].button(
+            "Referenz speichern",
+            key=f"closing_capture_btn_{row['id']}",
+            use_container_width=True,
+        ):
+            try:
+                shadow.record_closing_prices(row["id"], closing_a, closing_b)
+            except (KeyError, ValueError) as exc:
+                st.error(str(exc))
+            else:
+                st.rerun()
 
 
 def _render_match_card(row: dict) -> None:
@@ -239,7 +456,8 @@ def _render_match_card(row: dict) -> None:
         st.caption(
             f"{row['tour']} · {row.get('tournament') or 'Turnier?'} · "
             f"{row.get('surface') or 'Belag?'} · Best of {row.get('best_of') or 3} · "
-            f"{row['match_date']}"
+            f"{_format_start_local(row.get('scheduled_start_utc'))} · "
+            f"{row.get('fixture_source') or 'Quelle unbekannt'}"
         )
 
         price_cols = st.columns([1, 1, 1])
@@ -262,8 +480,27 @@ def _render_match_card(row: dict) -> None:
             key=f"odds_b_{row['id']}",
         )
         if price_cols[2].button("Preis prüfen", key=f"check_{row['id']}", use_container_width=True):
-            result = _update_price_check(row["id"], odds_a, odds_b, row["p_cal"])
+            result = _update_price_check(
+                row["id"],
+                odds_a,
+                odds_b,
+                row["p_cal"],
+                model_gates_ok,
+            )
             st.session_state[f"price_result_{row['id']}"] = result
+        min_a = 1.0 / (row["p_cal"] - MIN_EDGE) if row["p_cal"] > MIN_EDGE else None
+        p_b = 1.0 - row["p_cal"]
+        min_b = 1.0 / (p_b - MIN_EDGE) if p_b > MIN_EDGE else None
+        st.caption(
+            f"Mindestquote für {row['player_a']}: "
+            f"{min_a:.2f}" if min_a is not None else
+            f"Für {row['player_a']} ist die Edge-Schwelle rechnerisch nicht erreichbar."
+        )
+        st.caption(
+            f"Mindestquote für {row['player_b']}: "
+            f"{min_b:.2f}" if min_b is not None else
+            f"Für {row['player_b']} ist die Edge-Schwelle rechnerisch nicht erreichbar."
+        )
 
         result = st.session_state.get(f"price_result_{row['id']}")
         if row.get("verdict") and row.get("odds_a") and result is None:
@@ -277,9 +514,13 @@ def _render_match_card(row: dict) -> None:
         if result:
             if result["verdict"] == "WETTE" and model_gates_ok:
                 name = row["player_a"] if result["side"] == "A" else row["player_b"]
+                selected_p = row["p_cal"] if result["side"] == "A" else 1.0 - row["p_cal"]
+                selected_odds = odds_a if result["side"] == "A" else odds_b
+                expected_roi = selected_p * selected_odds - 1.0
                 st.success(
                     f"WETTE: {name} — Edge {max(result['edge_a'], result['edge_b']):+.1%} "
-                    f"(Schwelle {MIN_EDGE:+.0%}). Shadow-Protokoll, noch kein Echtgeld."
+                    f"(Schwelle {MIN_EDGE:+.0%}), Modell-EV {expected_roi:+.1%}. "
+                    "Shadow-Protokoll, noch kein Echtgeld."
                 )
             else:
                 reasons = []
@@ -287,13 +528,14 @@ def _render_match_card(row: dict) -> None:
                     reasons.append("Modell-Prüfung nicht bestanden (Details unten)")
                 if not result.get("prices_ok"):
                     reasons.append("Quote unplausibel")
-                elif result.get("verdict") != "WETTE":
+                elif max(result["edge_a"], result["edge_b"]) < MIN_EDGE:
                     reasons.append(
                         f"Edge zu klein: {max(result['edge_a'], result['edge_b']):+.1%} "
                         f"(Schwelle {MIN_EDGE:+.0%})"
                     )
                 st.error("KEINE WETTE — " + "; ".join(reasons))
 
+        _render_winner_closing_capture(row)
         _render_side_markets(row, markets, model_gates_ok)
 
         with st.expander("Prüfungen & alle Märkte"):
@@ -303,16 +545,38 @@ def _render_match_card(row: dict) -> None:
 
 
 def _render_settlement(open_rows: list[dict]) -> None:
-    today = date.today().isoformat()
+    today = _zurich_today()
     due = [r for r in open_rows if r["match_date"] < today]
     if due:
-        st.subheader("Abrechnung Sieger-Markt (gestern und älter)")
-    for row in due:
-        with st.container(border=True):
-            st.markdown(
-                f"**{row['player_a']} vs {row['player_b']}** · {row['match_date']} · "
-                f"{row.get('tournament') or ''}"
-            )
+        st.subheader(
+            f"Shadow-Abrechnung ({len(due)}) – keine Wettvorschläge"
+        )
+        st.caption(
+            "Diese Spiele sind beendet oder älter und erscheinen nur, damit das "
+            "vorab gespeicherte Modell ehrlich abgerechnet wird. Hier nichts mehr wetten."
+        )
+        settlement_dates = sorted(
+            {row["match_date"] for row in due},
+            reverse=True,
+        )
+        selected_date = st.selectbox(
+            "Abrechnungstag",
+            settlement_dates,
+            key="tennis_settlement_date",
+        )
+        visible_due = [
+            row for row in due if row["match_date"] == selected_date
+        ]
+    else:
+        selected_date = None
+        visible_due = []
+    for row in visible_due:
+        label = (
+            f"{row['player_a']} vs {row['player_b']} · "
+            f"{row['match_date']}"
+        )
+        with st.expander(label):
+            st.caption(row.get("tournament") or "Turnier unbekannt")
             cols = st.columns([2, 2, 1])
             winner_choice = cols[0].radio(
                 "Wer hat gewonnen?",
@@ -328,33 +592,70 @@ def _render_settlement(open_rows: list[dict]) -> None:
                 ),
                 key=f"settle_mode_{row['id']}",
             )
+            if row.get("recommended_side"):
+                if row.get("closing_checked_utc"):
+                    st.caption(
+                        "Pre-Match-Referenz dokumentiert: "
+                        f"{row['closing_odds_a']:.2f} / {row['closing_odds_b']:.2f}"
+                    )
+                else:
+                    st.caption(
+                        "Keine zeitgestempelte Pre-Match-Referenzquote vorhanden; "
+                        "dieses Match zählt nicht zur CLV-Stichprobe."
+                    )
             if cols[2].button("Abrechnen", key=f"settle_btn_{row['id']}"):
                 if mode == "Normal beendet":
-                    shadow.settle(row["id"], winner_choice)
+                    shadow.settle(
+                        row["id"],
+                        winner_choice,
+                    )
                 elif mode.startswith("Aufgabe nach"):
-                    shadow.settle(row["id"], winner_choice, ret=True, ret_set=2)
+                    shadow.settle(
+                        row["id"],
+                        winner_choice,
+                        ret=True,
+                        ret_set=2,
+                    )
                 else:
-                    shadow.settle(row["id"], winner_choice, ret=True, ret_set=0)
+                    shadow.settle(
+                        row["id"],
+                        winner_choice,
+                        ret=True,
+                        ret_set=0,
+                    )
                 st.rerun()
 
     # ---- side bets: settled from the SET SCORE (any retirement = void) ----
-    open_sides = [b for b in shadow.open_side_bets() if b["match_date"] < today]
+    open_sides = [
+        b for b in shadow.open_side_bets()
+        if b["match_date"] < today
+        and (selected_date is None or b["match_date"] == selected_date)
+    ]
     if open_sides:
-        st.subheader("Abrechnung Satz-Märkte (gestern und älter)")
+        st.subheader("Shadow-Abrechnung Satz-Märkte")
         by_match: dict[int, list[dict]] = {}
         for b in open_sides:
             by_match.setdefault(b["prediction_id"], []).append(b)
         for pred_id, bets in by_match.items():
             first = bets[0]
-            with st.container(border=True):
-                st.markdown(
-                    f"**{first['player_a']} vs {first['player_b']}** · {first['match_date']}"
-                )
+            label = (
+                f"{first['player_a']} vs {first['player_b']} · "
+                f"{first['match_date']}"
+            )
+            with st.expander(label):
                 st.caption(
                     "Offen: " + ", ".join(
                         f"{SIDE_MARKETS[b['market']]['label']} @ {b['odds']:.2f}" for b in bets
                     )
                 )
+                missing_clv = sum(
+                    1 for bet in bets if not bet.get("closing_checked_utc")
+                )
+                if missing_clv:
+                    st.caption(
+                        f"{missing_clv} Satzmarkt-Tipp(s) ohne zeitgestempelte "
+                        "Pre-Match-Referenz; nicht Teil der CLV-Stichprobe."
+                    )
                 cols = st.columns([3, 1])
                 result = cols[0].radio(
                     f"Satzergebnis aus Sicht {first['player_a']}?",
@@ -363,8 +664,11 @@ def _render_settlement(open_rows: list[dict]) -> None:
                 )
                 if cols[1].button("Abrechnen", key=f"side_settle_btn_{pred_id}"):
                     code = "ret" if result.startswith("Aufgabe") else result
-                    for b in bets:
-                        shadow.settle_side_bet(b["id"], code)
+                    for bet in bets:
+                        shadow.settle_side_bet(
+                            bet["id"],
+                            code,
+                        )
                     st.rerun()
 
 
@@ -399,13 +703,28 @@ def render_tennis_page() -> None:
         with st.expander("Letzter Scan-Verlauf"):
             st.text(st.session_state["tennis_scan_output"])
 
-    rows = _load_predictions(date_from=date.today().isoformat())
-    if not rows:
-        st.info(
-            "Noch keine Tennis-Vorhersagen gespeichert. Ein Klick auf "
-            "»Tennis-Vorhersagen aktualisieren« holt die Spiele von morgen "
-            "ins Shadow-Protokoll."
+    raw_rows = _load_predictions(
+        date_from=_zurich_today(),
+        unsettled_only=True,
+    )
+    rows, hidden_rows = _split_prematch_rows(raw_rows)
+    if hidden_rows:
+        st.warning(
+            f"{len(hidden_rows)} Einträge ausgeblendet: angesetzte Startzeit "
+            "erreicht oder Startzeit nicht verifiziert. Keine Pre-Match-Wette mehr."
         )
+    if not rows:
+        if raw_rows:
+            st.info(
+                "Aktuell gibt es keine verifizierte, noch nicht gestartete "
+                "Tennis-Auswahl."
+            )
+        else:
+            st.info(
+                "Noch keine Tennis-Vorhersagen gespeichert. Ein Klick auf "
+                "»Tennis-Vorhersagen aktualisieren« holt die Spiele von morgen "
+                "ins Shadow-Protokoll."
+            )
     else:
         current_date = None
         for row in rows:
@@ -414,4 +733,4 @@ def render_tennis_page() -> None:
                 st.markdown(f"**{current_date}**")
             _render_match_card(row)
 
-    _render_settlement(_load_predictions())
+    _render_settlement(_load_predictions(unsettled_only=True))

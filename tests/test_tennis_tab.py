@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import tempfile
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -30,6 +30,8 @@ def _make_db(with_prediction: bool) -> Path:
             CREATE TABLE IF NOT EXISTS predictions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 created_utc REAL, match_date TEXT, tour TEXT, tournament TEXT,
+                provider_event_id TEXT, scheduled_start_utc TEXT,
+                fixture_source TEXT,
                 surface TEXT, best_of INTEGER, player_a TEXT, player_b TEXT,
                 p_raw REAL, p_cal REAL, markets_json TEXT, gates_json TEXT,
                 verdict TEXT, recommended_side TEXT, recommended_edge REAL,
@@ -48,13 +50,16 @@ def _make_db(with_prediction: bool) -> Path:
             markets = {"expected_games": 24.1, "p_tiebreak": 0.4, "over_2_5_sets": 0.5}
             conn.execute(
                 "INSERT INTO predictions (created_utc, match_date, tour, tournament,"
-                " surface, best_of, player_a, player_b, p_raw, p_cal, markets_json,"
-                " gates_json, settled) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0)",
+                " scheduled_start_utc, fixture_source, surface, best_of, player_a,"
+                " player_b, p_raw, p_cal, markets_json, gates_json, settled)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
                 (
                     1.0,
                     date.today().isoformat(),
                     "ATP",
                     "Test Open",
+                    (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+                    "Test",
                     "Hard",
                     3,
                     "Alpha A.",
@@ -85,6 +90,36 @@ def _run_price_check() -> None:
     from tests.test_tennis_tab import _make_db
 
     tmp = _make_db(with_prediction=True)
+    shadow.DB_PATH = tmp
+    tennis_tab.DB_PATH = tmp
+    tennis_tab.render_tennis_page()
+
+
+def _run_closing_capture() -> None:
+    import sqlite3
+    from datetime import datetime, timedelta, timezone
+
+    import tennis_tab
+    from tennis import shadow
+    from tests.test_tennis_tab import _make_db
+
+    tmp = _make_db(with_prediction=True)
+    start = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+    conn = sqlite3.connect(tmp)
+    try:
+        conn.execute(
+            """
+            UPDATE predictions
+            SET scheduled_start_utc=?, verdict='WETTE',
+                recommended_side='A', recommended_edge=0.20,
+                odds_a=2.00, odds_b=4.00
+            WHERE id=1
+            """,
+            (start,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
     shadow.DB_PATH = tmp
     tennis_tab.DB_PATH = tmp
     tennis_tab.render_tennis_page()
@@ -128,3 +163,55 @@ def test_daily_scan_propagates_nonzero_exit_code():
     with patch.object(tennis_tab.subprocess, "run", return_value=failed):
         with pytest.raises(RuntimeError, match="Code 2"):
             tennis_tab._run_daily_scan()
+
+
+def test_closing_reference_is_captured_before_start():
+    at = AppTest.from_function(_run_closing_capture)
+    at.run(timeout=60)
+    assert len(at.exception) == 0
+    at.button(key="closing_capture_btn_1").click().run(timeout=60)
+    assert len(at.exception) == 0
+    assert len(at.error) == 0
+
+
+def test_prematch_visibility_is_fail_closed():
+    import tennis_tab
+
+    now = datetime(2030, 1, 1, 18, 25, tzinfo=timezone.utc)
+    base = {"settled": 0}
+
+    assert tennis_tab._prematch_visibility(
+        {**base, "scheduled_start_utc": "2030-01-01T18:30:00Z"},
+        now,
+    )[0]
+    assert not tennis_tab._prematch_visibility(
+        {**base, "scheduled_start_utc": "2030-01-01T18:25:00Z"},
+        now,
+    )[0]
+    assert not tennis_tab._prematch_visibility(
+        {**base, "scheduled_start_utc": None},
+        now,
+    )[0]
+    assert not tennis_tab._prematch_visibility(
+        {**base, "settled": 1, "scheduled_start_utc": "2030-01-02T18:25:00Z"},
+        now,
+    )[0]
+
+
+def test_failed_model_gate_cannot_be_stored_as_recommendation():
+    import tennis_tab
+    from tennis import shadow
+
+    tmp = _make_db(with_prediction=True)
+    shadow.DB_PATH = tmp
+    tennis_tab.DB_PATH = tmp
+
+    result = tennis_tab._update_price_check(1, 2.0, 4.0, 0.75, False)
+    assert result["verdict"] == "KEINE WETTE"
+    assert not result["side"]
+    with sqlite3.connect(tmp) as conn:
+        verdict, side = conn.execute(
+            "SELECT verdict, recommended_side FROM predictions WHERE id=1"
+        ).fetchone()
+    assert verdict == "KEINE WETTE"
+    assert side is None
