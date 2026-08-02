@@ -177,15 +177,16 @@ def _validate_scan_inputs(
 
 def _segmented(label: str, options: list[str], key: str, default: str) -> str:
     if hasattr(st, "segmented_control"):
-        value = st.segmented_control(
-            label,
-            options,
-            default=default,
-            key=key,
-            selection_mode="single",
-        )
+        kwargs: dict[str, Any] = {
+            "key": key,
+            "selection_mode": "single",
+        }
+        if key not in st.session_state:
+            kwargs["default"] = default
+        value = st.segmented_control(label, options, **kwargs)
         return value or default
-    return st.radio(label, options, index=options.index(default), horizontal=True, key=key)
+    index = None if key in st.session_state else options.index(default)
+    return st.radio(label, options, index=index, horizontal=True, key=key) or default
 
 
 def _format_time(value: Optional[str]) -> str:

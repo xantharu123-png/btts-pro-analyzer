@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 from challenge_15k import (
     ChallengeDataProvider,
     _auto_recheck_scope_allowed,
+    _segmented,
     _shortlist_counts,
     scan_daily_challenge,
 )
@@ -130,6 +131,30 @@ def confirmed_lineups(home_team_id=10, away_team_id=11):
 
 
 class ChallengeProbabilityTests(unittest.TestCase):
+    def test_segmented_omits_default_when_session_value_already_exists(self):
+        fake_streamlit = Mock()
+        fake_streamlit.session_state = {"mode": "B"}
+        fake_streamlit.segmented_control.return_value = "B"
+
+        with patch("challenge_15k.st", fake_streamlit):
+            self.assertEqual(_segmented("Mode", ["A", "B"], "mode", "A"), "B")
+
+        kwargs = fake_streamlit.segmented_control.call_args.kwargs
+        self.assertNotIn("default", kwargs)
+
+    def test_segmented_supplies_default_for_new_session_key(self):
+        fake_streamlit = Mock()
+        fake_streamlit.session_state = {}
+        fake_streamlit.segmented_control.return_value = "A"
+
+        with patch("challenge_15k.st", fake_streamlit):
+            self.assertEqual(_segmented("Mode", ["A", "B"], "mode", "A"), "A")
+
+        self.assertEqual(
+            fake_streamlit.segmented_control.call_args.kwargs["default"],
+            "A",
+        )
+
     def test_shortlist_counts_markets_and_unique_games_separately(self):
         markets = [
             candidate("1:BTTS", 1, 0.70),
