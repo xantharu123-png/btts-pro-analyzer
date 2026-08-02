@@ -19,4 +19,4 @@ install -m 0644 "${APP_DIR}"/deploy/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl restart betboy-app.service
 
-echo "BetBoy updated to $(git -C "${APP_DIR}" rev-parse --short HEAD)"
+echo "BetBoy updated to $(runuser -u betboy -- git -C "${APP_DIR}" rev-parse --short HEAD)"
