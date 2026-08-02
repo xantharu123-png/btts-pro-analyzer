@@ -8,7 +8,12 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from challenge_15k import ChallengeDataProvider, scan_daily_challenge
+from challenge_15k import (
+    ChallengeDataProvider,
+    _auto_recheck_scope_allowed,
+    _shortlist_counts,
+    scan_daily_challenge,
+)
 from challenge_engine import (
     ChallengeCandidate,
     MARKET_BY_KEY,
@@ -125,6 +130,15 @@ def confirmed_lineups(home_team_id=10, away_team_id=11):
 
 
 class ChallengeProbabilityTests(unittest.TestCase):
+    def test_shortlist_counts_markets_and_unique_games_separately(self):
+        markets = [
+            candidate("1:BTTS", 1, 0.70),
+            candidate("1:OVER_25", 1, 0.68),
+            candidate("2:HOME_OVER_05", 2, 0.72),
+        ]
+
+        self.assertEqual(_shortlist_counts(markets), (3, 2))
+
     def test_score_matrix_is_normalized(self):
         matrix = score_matrix(1.4, 1.1)
 
@@ -1331,6 +1345,11 @@ class CountSettlementTests(unittest.TestCase):
 
 
 class AutoRecheckTests(unittest.TestCase):
+    def test_periodic_recheck_rejects_oversized_league_scope(self):
+        self.assertTrue(_auto_recheck_scope_allowed(list(range(1, 13))))
+        self.assertFalse(_auto_recheck_scope_allowed(list(range(1, 14))))
+        self.assertFalse(_auto_recheck_scope_allowed([]))
+
     def test_eligible_only_in_waiting_state_today(self):
         from challenge_15k import _auto_recheck_eligible, _challenge_today
 

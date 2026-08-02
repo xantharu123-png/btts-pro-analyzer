@@ -1845,7 +1845,8 @@ def extract_lineup_display(
 
     Liefert pro Seite Formation, Coach und 11 Spielernamen — nur für Teams
     mit vollständigem, eindeutigem Startblock. Unvollständige Seiten fehlen
-    einfach; die Anzeige ist Information, kein Gate.
+    einfach. Diese Funktion rendert nur; das separate Aufstellungs-Gate wird
+    in ``apply_candidate_context`` ausgewertet.
     """
     if not isinstance(lineups, list):
         return {}
@@ -1912,10 +1913,9 @@ def apply_candidate_context(
 ) -> ChallengeCandidate:
     """Attach non-price context as veto gates without altering probability.
 
-    Mit require_lineups=False werden Aufstellungen nur noch erfasst und
-    angezeigt, sperren die Freigabe aber nicht (Nutzervorgabe der
-    15K-Challenge). Der Shadow-Modus bleibt mit dem Standard strikt,
-    damit die CLV-Beweisführung vergleichbar bleibt.
+    ``require_lineups`` ist eine explizite Policy-Option für andere Aufrufer.
+    Die 15K-Challenge und der Shadow-CLV-Lauf verwenden den strikten Standard:
+    Ohne bestätigte Startelf beider Teams gibt es keine Freigabe.
     """
     now_utc = now or datetime.now(timezone.utc)
     if now_utc.tzinfo is None:

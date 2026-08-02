@@ -33,8 +33,9 @@ Der verbindliche Ablauf lautet:
 1. Das Modell bildet eine Punktwahrscheinlichkeit ohne Buchmacherquote.
 2. Datenherkunft, Aktualität, Stichprobe und zeitliche Validierung werden
    geprüft.
-3. H2H, Ausfälle, Wetter und bei Bedarf bestätigte Aufstellungen werden als
-   Kontextgates angewendet.
+3. H2H, Ausfälle und Wetter werden als Kontextgates angewendet. In der
+   15K-Challenge und im Shadow-CLV-Lauf sind bestätigte Startaufstellungen
+   beider Teams ebenfalls ein verbindliches Gate.
 4. Die quotenfreie Prognose bleibt sichtbar, auch wenn ein Modellgate oder
    später die Preisprüfung scheitert.
 5. Erst danach wird die exakte N1Bet-Quote als Preis erfasst.
@@ -44,6 +45,11 @@ Der verbindliche Ablauf lautet:
 7. `RESEARCH`, `SHADOW` und `RELEASED` sind getrennte Evidenzstufen. Nur
    `RELEASED` darf einen Echtgeld-Einsatz erzeugen.
 8. Pro Suche werden höchstens wenige, klar begründete Auswahlen angezeigt.
+
+Ein 15K-Vollscan über alle 51 Ligen muss in der Oberfläche ausdrücklich
+bestätigt werden. Automatische Kontext-Nachprüfungen sind auf höchstens zwölf
+ausgewählte Ligen begrenzt, damit ein offener Browser-Tab nicht alle zwölf
+Minuten den kompletten Provider-Ligakatalog erneut abfragt.
 
 Eine niedrige Quote ist kein Sicherheitsbeweis. Die Quote darf das Modell nicht
 erzeugen, bleibt aber nach Entfernung der Buchmachermarge ein wichtiger
