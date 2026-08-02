@@ -1,0 +1,19 @@
+[Unit]
+Description=BetBoy due football Shadow and CLV work
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=betboy
+Group=betboy
+WorkingDirectory=/opt/betboy/app
+EnvironmentFile=-/etc/betboy/betboy.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONUTF8=1
+ExecStart=/opt/betboy/venv/bin/python scripts/run_football_shadow_due.py
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+TimeoutStartSec=15min

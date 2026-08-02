@@ -1,0 +1,11 @@
+[Unit]
+Description=Run BetBoy E-Sport Shadow twice daily
+
+[Timer]
+OnCalendar=*-*-* 08:23:00
+OnCalendar=*-*-* 20:23:00
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

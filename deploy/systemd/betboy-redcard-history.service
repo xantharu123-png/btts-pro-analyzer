@@ -1,0 +1,19 @@
+[Unit]
+Description=Extend BetBoy red-card history and pattern report
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=betboy
+Group=betboy
+WorkingDirectory=/opt/betboy/app
+EnvironmentFile=-/etc/betboy/betboy.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONUTF8=1
+ExecStart=/opt/betboy/venv/bin/python redcard_history_harvester.py --budget 350 --report
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+TimeoutStartSec=2h

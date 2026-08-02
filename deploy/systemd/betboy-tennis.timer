@@ -1,0 +1,10 @@
+[Unit]
+Description=Run BetBoy tennis pipeline daily
+
+[Timer]
+OnCalendar=*-*-* 07:17:00
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

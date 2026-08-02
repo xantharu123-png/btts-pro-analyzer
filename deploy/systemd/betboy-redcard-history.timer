@@ -1,0 +1,10 @@
+[Unit]
+Description=Run BetBoy red-card history harvest daily
+
+[Timer]
+OnCalendar=*-*-* 05:41:00
+AccuracySec=2min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
