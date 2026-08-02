@@ -477,17 +477,31 @@ class ChallengeProviderTests(unittest.TestCase):
         provider.upcoming_fixtures.return_value = [None, valid, valid]
         provider.completed_history.return_value = []
         provider.coverage.return_value = {"injuries": True, "lineups": True}
+        progress_updates = []
 
         snapshot = scan_daily_challenge(
             provider,
             [39],
             datetime.now().date(),
             8,
+            progress_cb=lambda fraction, text: progress_updates.append(
+                (fraction, text)
+            ),
         )
 
         self.assertEqual(snapshot["fixtures_found"], 1)
         self.assertTrue(any("ungültige Einträge" in error for error in snapshot["errors"]))
         self.assertTrue(any("doppelter Provider-Eintrag" in error for error in snapshot["errors"]))
+        fractions = [fraction for fraction, _text in progress_updates]
+        self.assertGreaterEqual(len(fractions), 8)
+        self.assertEqual(fractions, sorted(fractions))
+        self.assertEqual(fractions[-1], 1.0)
+        self.assertTrue(
+            any("Liga 1/1" in text for _fraction, text in progress_updates)
+        )
+        self.assertTrue(
+            any("modelliert" in text for _fraction, text in progress_updates)
+        )
 
 
 class ChallengeContextTests(unittest.TestCase):

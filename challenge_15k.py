@@ -773,14 +773,14 @@ def _run_challenge_scan_worker(
     max_fixtures: int,
     progress_cb=None,
 ) -> dict[str, Any]:
-    """Hintergrund-Hülle für scan_jobs: scan_daily_challenge ist st-frei;
-    der Fortschritts-Callback meldet Start und Ende."""
-    if progress_cb:
-        progress_cb(0.0, "Quotenfreie Modelle, Validierung und Kontext werden geprüft...")
-    result = scan_daily_challenge(provider, league_ids, search_date, max_fixtures)
-    if progress_cb:
-        progress_cb(1.0, "Challenge-Scan fertig")
-    return result
+    """Run the Streamlit-free scan with real phase progress."""
+    return scan_daily_challenge(
+        provider,
+        league_ids,
+        search_date,
+        max_fixtures,
+        progress_cb=progress_cb,
+    )
 
 
 @st.fragment(run_every=2)
@@ -790,12 +790,40 @@ def _challenge_scan_fragment() -> None:
     job = scan_jobs.get_job(_challenge_job_key())
     state = job.get("state")
     if state == "running":
-        st.progress(
-            min(max(float(job.get("progress") or 0.0), 0.0), 1.0),
-            text=job.get("progress_text") or "Challenge-Scan läuft...",
+        fraction = min(
+            max(float(job.get("progress") or 0.0), 0.0),
+            1.0,
         )
+        display_fraction = min(fraction, 0.99)
+        percentage = int(round(display_fraction * 100.0))
+        progress_text = job.get("progress_text") or "Challenge-Scan läuft..."
+        st.progress(
+            display_fraction,
+            text=f"{percentage} % · {progress_text}",
+        )
+        elapsed_text = ""
+        try:
+            started_at = datetime.fromisoformat(str(job.get("started_at") or ""))
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+            elapsed_seconds = max(
+                0,
+                int(
+                    (
+                        datetime.now(timezone.utc)
+                        - started_at.astimezone(timezone.utc)
+                    ).total_seconds()
+                ),
+            )
+            elapsed_text = (
+                f" · Laufzeit {elapsed_seconds // 60:02d}:"
+                f"{elapsed_seconds % 60:02d}"
+            )
+        except (TypeError, ValueError):
+            pass
         st.caption(
-            "Challenge-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht."
+            "Challenge-Scan läuft im Hintergrund"
+            f"{elapsed_text} · ein Seitenwechsel unterbricht ihn nicht."
         )
     elif state in {"done", "error"}:
         st.rerun()
@@ -1026,15 +1054,32 @@ def scan_daily_challenge(
     league_ids: list[int],
     search_date: date,
     max_fixtures: int,
+    *,
+    progress_cb=None,
 ) -> dict[str, Any]:
     """Run one explicit, quota-aware daily challenge scan."""
     _validate_scan_inputs(league_ids, search_date, max_fixtures)
+    if progress_cb:
+        progress_cb(
+            0.01,
+            f"Scan für {len(league_ids)} Ligen wird vorbereitet",
+        )
     fixtures: list[dict[str, Any]] = []
     histories: dict[int, list[dict[str, Any]]] = {}
     coverage: dict[int, dict[str, bool]] = {}
     seasons: dict[int, int] = {}
 
-    for league_id in league_ids:
+    league_total = len(league_ids)
+    for league_index, league_id in enumerate(league_ids):
+        league_name = ALTERNATIVE_MARKET_LEAGUES.get(
+            league_id,
+            f"Liga {league_id}",
+        )
+        if progress_cb:
+            progress_cb(
+                0.03 + 0.45 * league_index / league_total,
+                f"Liga {league_index + 1}/{league_total}: {league_name}",
+            )
         season = current_season_start_year_for_id(league_id, search_date)
         seasons[league_id] = season
         upcoming = provider.upcoming_fixtures(league_id, season, search_date)
@@ -1071,7 +1116,14 @@ def scan_daily_challenge(
                     provider.errors.append(f"xG Liga {league_id}: Annotation fehlgeschlagen ({exc})")
             histories[league_id] = history or []
             coverage[league_id] = provider.coverage(league_id, season)
+        if progress_cb:
+            progress_cb(
+                0.03 + 0.45 * (league_index + 1) / league_total,
+                f"Liga {league_index + 1}/{league_total} geladen",
+            )
 
+    if progress_cb:
+        progress_cb(0.50, "Spiele werden bereinigt und sortiert")
     fixtures.sort(key=lambda item: _fixture_kickoff(item) or datetime.max.replace(tzinfo=timezone.utc))
     unique_fixtures: list[dict[str, Any]] = []
     seen_fixture_ids: set[int] = set()
@@ -1085,26 +1137,47 @@ def scan_daily_challenge(
     fixtures = unique_fixtures
     fixtures = fixtures[:max_fixtures]
 
-    validations = {
-        league_id: _cached_market_validation(
+    history_items = [
+        (league_id, history)
+        for league_id, history in histories.items()
+        if history
+    ]
+    validations: dict[int, dict[str, Any]] = {}
+    history_total = len(history_items)
+    for history_index, (league_id, history) in enumerate(history_items):
+        if progress_cb:
+            progress_cb(
+                0.52 + 0.09 * history_index / max(1, history_total),
+                f"Walk-forward-Validierung {history_index + 1}/{history_total}",
+            )
+        validations[league_id] = _cached_market_validation(
             league_id,
             seasons[league_id],
             history,
         )
-        for league_id, history in histories.items()
-        if history
-    }
-    calibrations = {
-        league_id: _cached_market_calibration(
+    if progress_cb:
+        progress_cb(0.61, "Wahrscheinlichkeiten werden kalibriert")
+    calibrations: dict[int, dict[str, Any]] = {}
+    for history_index, (league_id, history) in enumerate(history_items):
+        if progress_cb:
+            progress_cb(
+                0.61 + 0.09 * history_index / max(1, history_total),
+                f"Kalibrierung {history_index + 1}/{history_total}",
+            )
+        calibrations[league_id] = _cached_market_calibration(
             league_id,
             seasons[league_id],
             history,
         )
-        for league_id, history in histories.items()
-        if history
-    }
+    if progress_cb:
+        progress_cb(
+            0.70,
+            f"{len(fixtures)} Spiele werden mathematisch modelliert",
+        )
     all_candidates: list[ChallengeCandidate] = []
-    for fixture in fixtures:
+    fixture_total = len(fixtures)
+    progress_stride = max(1, fixture_total // 20)
+    for fixture_index, fixture in enumerate(fixtures):
         league_id = fixture.get("league", {}).get("id")
         all_candidates.extend(
             build_fixture_candidates(
@@ -1114,9 +1187,22 @@ def scan_daily_challenge(
                 calibrations.get(league_id, {}),
             )
         )
+        if progress_cb and (
+            (fixture_index + 1) % progress_stride == 0
+            or fixture_index + 1 == fixture_total
+        ):
+            progress_cb(
+                0.70 + 0.14 * (fixture_index + 1) / max(1, fixture_total),
+                f"Spiel {fixture_index + 1}/{fixture_total} modelliert",
+            )
 
     base_candidates = [candidate for candidate in all_candidates if candidate.base_eligible]
     context_fixture_ids = _ranked_fixture_ids(base_candidates)
+    if progress_cb:
+        progress_cb(
+            0.85,
+            f"Live-Kontext für {len(context_fixture_ids)} Top-Spiele",
+        )
     injuries = provider.injuries_by_fixture(context_fixture_ids) if context_fixture_ids else {}
     details = provider.details_by_fixture(context_fixture_ids) if context_fixture_ids else {}
     fixture_by_id = {
@@ -1125,7 +1211,13 @@ def scan_daily_challenge(
     }
     h2h_by_fixture: dict[int, Optional[list[dict[str, Any]]]] = {}
     weather_by_fixture: dict[int, Optional[dict[str, Any]]] = {}
-    for fixture_id in context_fixture_ids:
+    context_total = len(context_fixture_ids)
+    for context_index, fixture_id in enumerate(context_fixture_ids):
+        if progress_cb:
+            progress_cb(
+                0.88 + 0.08 * context_index / max(1, context_total),
+                f"H2H und Wetter {context_index + 1}/{context_total}",
+            )
         fixture = fixture_by_id[fixture_id]
         teams = fixture.get("teams", {})
         h2h_by_fixture[fixture_id] = provider.h2h(
@@ -1134,6 +1226,8 @@ def scan_daily_challenge(
         )
         weather_by_fixture[fixture_id] = provider.weather(fixture)
 
+    if progress_cb:
+        progress_cb(0.96, "Kontextgates werden angewendet")
     contextualized: list[ChallengeCandidate] = []
     for candidate in base_candidates:
         if candidate.fixture_id not in context_fixture_ids:
@@ -1172,6 +1266,11 @@ def scan_daily_challenge(
         reasons = candidate.blocked_reasons or candidate.context.get("blocked_reasons", [])
         for reason in set(reasons):
             blocked_counts[reason] = blocked_counts.get(reason, 0) + 1
+    if progress_cb:
+        progress_cb(
+            1.0,
+            f"Fertig: {len(fixtures)} Spiele, {len(shortlist)} Freigaben",
+        )
     return {
         "version": CHALLENGE_SNAPSHOT_VERSION,
         "scanned_at": datetime.now(timezone.utc).isoformat(),
