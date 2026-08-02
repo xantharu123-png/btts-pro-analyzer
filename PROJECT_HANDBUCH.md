@@ -9,11 +9,13 @@
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor diesem Policy-Audit | `9a47a86` |
-| Aktive Cloud-App | `https://betboypro.streamlit.app/` |
-| Alte Streamlit-URL | nicht mehr aktiv |
+| Verifizierter VPS-Funktionsstand | `ccc0ac9` |
+| Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
+| Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
+| Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 515 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 519 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -63,6 +65,12 @@ deutlich ehrlicher als zuvor:
   Wechsel in den Wett-Check getrennt.
 - Smartphone und Tablet sind ohne horizontalen Seitenüberlauf bedienbar.
 - Alle 51 Fußballligen kommen aus einem gemeinsamen Katalog.
+- App, Shadow-Jobs und kanonische Laufzeitdaten liegen auf einem gehärteten
+  persistenten VPS; der PC oder KIMI müssen dafür nicht eingeschaltet sein.
+- KIMI- und Windows-Doppelstarter sind deaktiviert. Nur der VPS schreibt die
+  kanonischen Shadow-Datenbanken.
+- Transaktionale SQLite-Backups laufen täglich; ein vollständiger
+  Test-Restore aller zwölf enthaltenen Datenbanken wurde verifiziert.
 
 Trotzdem ist **kein Markt als profitabel bewiesen**. Testgrün beweist
 Softwareverträge, nicht Wettvorteil. Echtgeldfreigaben bleiben von sauberer
@@ -240,12 +248,23 @@ Konkrete Blockaden:
 | `esports_shadow.py` | E-Sport-Evidenz und Release-Status |
 | `redcard_signal_log.py` | Rotkarten-Shadow und Settlement |
 | `multi_sport_recommendations.py` | Basketball-, NHL- und E-Sport-Kandidaten |
+| `scripts/run_football_shadow_due.py` | API-schonender Football-Fälligkeitsrunner |
+| `scripts/backup_runtime_databases.py` | transaktionales SQLite-Backup und Retention |
+| `deploy/systemd/*` | App-, Worker- und Timer-Units |
+| `deploy/bootstrap_server.sh` | Ubuntu-Härtung und Erstinstallation |
+| `deploy/update_server.sh` | reproduzierbares Fast-Forward-Deployment |
 
-Die lokale Prozessisolation ist verbessert, ersetzt aber noch keine echte
-Produktionsarchitektur. Ohne Login existiert keine stabile Benutzer-ID. Ein
-neuer Browser- oder Cloud-Prozess kann deshalb eine neue Challenge-Sitzung
-beginnen. Dauerhafte, geräteübergreifende Konten benötigen weiterhin eine
-gültige PostgreSQL-Verbindung und Authentifizierung.
+Die aktuelle Produktionsarchitektur ist bewusst ein einzelner persistenter
+VPS: Caddy vor einer loopback-gebundenen Streamlit-App, systemd-Worker und
+kanonische SQLite-Ledger im selben Dateisystem. Das ist für den heutigen
+Single-User-Betrieb einfacher und konsistenter als ein vorschneller
+Datenbankumbau.
+
+Ohne Login existiert weiterhin keine stabile Benutzer-ID. Ein neuer Browser
+kann deshalb eine neue Challenge-Sitzung beginnen. Dauerhafte
+geräteübergreifende Konten benötigen Authentifizierung und ein dazu passendes
+transaktionales Ledger; PostgreSQL ist dafür eine mögliche spätere Umsetzung,
+aber kein Selbstzweck.
 
 ## 6. Wettmathematik
 
@@ -288,18 +307,19 @@ visualisieren, aber niemals als realistische oder sichere Challenge verkaufen.
 
 ## 7. Shadow- und Evidenzstand
 
-Lokaler Snapshot nach dem Audit:
+Kanonischer VPS-Snapshot nach Migration und ersten Produktionsläufen am
+2. August 2026:
 
 | Bereich | Stand | Fachliche Aussage |
 |---|---|---|
-| Fußball CLV | 250 Fixtures, 230 bewertet, 0 Picks | kein CLV-/ROI-Urteil möglich |
+| Fußball CLV | bestehender Verlauf migriert; 58 neue Fixtures geplant, 9 im ersten VPS-Fenster bewertet, 0 Picks | Lauf fehlerfrei; kein CLV-/ROI-Urteil möglich |
 | Tennis aktuelle DB | 144 Predictions, 38 abgerechnet, 0 Picks der aktuellen Policy | Brier 0,2382; kein Closing-Benchmark, keine Price-Evidence |
 | Tennis Policy-Replay 2021-22 | 195 ATP-Hard-Picks, +2,45 % ROI, 95 % −22,33 bis +27,23 % | Hypothese; Intervall enthält null |
 | Tennis Policy-Replay 2023-24 | 142 ATP-Hard-Picks, +9,78 % ROI, 95 % −19,52 bis +39,09 % | späteres Fenster ebenfalls nicht beweiskräftig |
-| E-Sport | 20 sauber klassifizierte Zeilen, 5 abgerechnet, 4 Treffer | n=5 ist bedeutungslos; Release bleibt gesperrt |
-| E-Sport risikoadjustiert | Ø p 38,9 %, Brier 0,3711 | aktuelles Release-Gate klar nicht erfüllt |
+| E-Sport | 32 Predictions, 18 abgerechnet, 13 Treffer, 14 offen | Roh-Trefferquote 72,2 % bei kleiner Stichprobe; keine Echtgeldfreigabe |
+| E-Sport risikoadjustiert | Ø p 37,4 %, Brier 0,3188 | keine Opening-/Closing-Price-Evidence; Release bleibt gesperrt |
 | Rotkarten-Live | 0 unabhängige Shadow-Signale | keine Freigabe |
-| Rotkarten-Historie | 1.132 Fälle | Entwicklungsdaten, kein unabhängiger Holdout |
+| Rotkarten-Historie | 1.199 Fälle aus 7.010 Spielen; Backlog 2.011 | Entwicklungsdaten, kein unabhängiger Holdout |
 | 15K | keine belastbare Echtgeldhistorie | kein Erfolgsnachweis |
 
 Wichtig zur jungen Stichprobe:
@@ -322,35 +342,40 @@ Konfidenzgrenzen von CLV und Rendite überzeugen. ROI allein reicht nicht.
 
 ## 8. Automationen
 
-| Automation | Status nach Bereinigung |
-|---|---|
-| Windows `BetBoy Tennis Daily`, 07:17 | aktiv, aktueller Projektpfad |
-| KIMI Tennis Daily, ebenfalls 07:17 | deaktiviert, um Doppelverarbeitung zu verhindern |
-| KIMI Fußball CLV, Bedingung alle 10 Minuten | aktiv; feuert nur bei fälliger Arbeit |
-| KIMI wöchentlicher CLV-Bericht | aktiv; aktueller Pfad, Versionen getrennt |
-| KIMI Statistik-Backfill | deaktiviert; `.backfill_complete` vorhanden |
-| KIMI First-Pick-Watcher | deaktiviert; reines Monitoring ohne Wettfinder-Nutzen |
-| KIMI E-Sport Shadow | aktiv, aktueller Projektpfad |
-| KIMI Rotkarten-Harvest | aktiv, aktueller Projektpfad |
+| VPS-Automation | Zeitplan Europe/Zurich | Verifizierter Status |
+|---|---|---|
+| Fußball Shadow/CLV | Fälligkeitsprüfung alle 10 Minuten | erfolgreich; maximal 60 fällige Fixtures |
+| Rotkarten-Settlement | alle 30 Minuten | erfolgreich; aktuell 0 offene Signale |
+| E-Sport Shadow | 08:23 und 20:23 | erfolgreich; Scan und Settlement |
+| SQLite-Backup | täglich 03:17 | erfolgreich; 14 Tage lokale Aufbewahrung |
+| Rotkarten-Historie | täglich 05:41 | erfolgreich; Budget 350 Provider-Calls |
+| Tennis-Pipeline | täglich 07:17 | erfolgreich; montags zusätzlich Wächter und Wochenreport |
 
-Der CLV-Runner und seine Bedingung verwenden nun beide
-`betboy-app\shadow_clv_automation.py`. Der Standard umfasst alle 51 Ligen und
-höchstens 60 fällige Fixtures pro Lauf. Die alte Asset-Kopie in KIMIs
-Automation-Verzeichnis ist nicht mehr Ausführungsquelle.
+Alle sechs Timer und `betboy-app.service` sind in systemd `enabled`; nach einem
+Neustart laufen sie ohne Benutzeraktion weiter. Der Football-Runner prüft vor
+jedem Start, ob tatsächlich Arbeit fällig ist.
 
-Es fehlt weiterhin ein zentraler API-Budgetmanager über Streamlit, KIMI und
-Windows. Das Pro-Limit von API-Football muss deshalb betrieblich beobachtet
-werden, ohne daraus ein Nutzer-Monitoringprodukt zu machen.
+Der lokale Windows-Task `BetBoy Tennis Daily` und **alle** BetBoy-Automationen
+in KIMI sind deaktiviert. Ihre Definitionen wurden nicht gelöscht. Vor der
+KIMI-Bereinigung liegt ein Backup unter
+`C:\tmp\kimi-betboy-automations-before-vps-20260802`.
+
+App und Worker teilen weiterhin dasselbe API-Football-Tageslimit. Weil nur der
+VPS automatisch schreibt, ist die frühere Mehrfachausführung beseitigt; ein
+zentraler Budget-Arbiter zwischen interaktiven Scans und systemd-Jobs bleibt
+dennoch eine P2-Aufgabe.
 
 ## 9. API- und Datenstand
 
-API-Football war beim Audit als Pro-Abo aktiv:
+API-Football wurde vom VPS live gegen den Provider geprüft:
 
 | Merkmal | Stand |
 |---|---|
+| HTTP-/Kontostatus | 200, keine Providerfehler, aktiv |
 | Plan | Pro |
 | Laufzeit laut Providerprüfung | bis 19. Oktober 2026 |
 | Tageslimit | 7.500 Requests |
+| Stand nach allen Inbetriebnahmetests am 02.08. | 1.441 Requests verbraucht |
 
 API-Football ist die zentrale Quelle für Fixtures, Ergebnisse, Live-Daten,
 Kontext, Statistiken und Referenzquoten. Das Abo liefert Datenqualität und
@@ -361,10 +386,19 @@ nicht nötig. Historische CSV-Daten kommen überwiegend von
 football-data.co.uk. Ein zweites Abo sollte erst aktiviert werden, wenn eine
 konkrete fehlende Datenart und ein messbarer Nutzen feststehen.
 
-Die Cloud meldete zuletzt einen lokalen Datenbankersatz, weil der alte
-Supabase-Pooler-Zugang ungültig war. Der Code fällt funktionsfähig lokal zurück,
-aber echte Persistenz, Konten und geräteübergreifende Challenge-Stände sind
-damit nicht gelöst.
+Der alte Supabase-Pooler-Zugang bleibt ungültig und wird nicht mehr für den
+Single-User-Produktionsbetrieb benötigt. Kanonische SQLite-Daten liegen
+persistent unter `/opt/betboy/app` auf dem VPS. Die vorhandenen Laufzeitdaten
+wurden über den verschlüsselten SSH-Kanal übertragen und die Einzeldateien per
+SHA-256 geprüft. Alle zwölf vom Backup erfassten Datenbanken bestanden
+`PRAGMA quick_check` und wurden erfolgreich aus dem ersten Backup
+wiederhergestellt.
+
+Das löst Neustartpersistenz und zentrale Shadow-Daten, aber noch keine
+Mehrbenutzer-Authentifizierung oder gerätegetrennte Konten. Ein unabhängiges
+Offsite-Backup beziehungsweise OVH Automatic Backup muss im OVH-Panel separat
+aktiviert und verifiziert werden; das lokale Backup auf demselben VPS allein
+schützt nicht vor vollständigem Serververlust.
 
 ## 10. Sicherheit
 
@@ -384,12 +418,23 @@ Extern erforderliche Schritte:
 Rotation kommt vor Historienbereinigung. Diese Schritte kann der Code nicht
 selbstständig erledigen, weil dafür die Providerkonten benötigt werden.
 
+VPS-Härtung, verifiziert am 2. August 2026:
+
+- SSH nur für `ubuntu` mit ED25519-Schlüssel; Passwort-, Keyboard-Interactive-
+  und Root-Login sind effektiv deaktiviert.
+- UFW erlaubt eingehend nur 22/TCP, 80/TCP und 443/TCP; Fail2ban ist aktiv.
+- Streamlit lauscht nur auf `127.0.0.1:8501`; Caddy terminiert öffentliches
+  HTTPS und erzwingt HTTP-zu-HTTPS.
+- `config.ini` gehört `betboy:betboy` und hat Modus `600`; Laufzeitordner
+  haben Modus `700`. Schlüssel wurden nicht committed oder protokolliert.
+- Ubuntu-Sicherheitsupdates, Zeitzone Europe/Zurich und 2 GB Swap sind aktiv.
+
 ## 11. Test- und UX-Nachweis
 
 Vollständiger Lauf:
 
 ```text
-515 passed
+519 passed
 5 subtests passed
 ```
 
@@ -406,8 +451,8 @@ getestet, nicht über den Codex-In-App-Browser:
 
 | Viewport | Ergebnis |
 |---|---|
-| 390 x 844 | kein horizontaler Seitenüberlauf; zwei Reihen mit 4 Touch-Zielen; Ergebnis bis zum Ende scrollbar |
-| 820 x 1180 | Sidebar und Hauptinhalt ohne Überlauf; Bottom-Navigation korrekt verborgen |
+| 390 x 844 | öffentliche VPS-App HTTP 200; kein horizontaler Überlauf; keine Edge-Konsolenfehler |
+| 820 x 1180 | öffentliche VPS-App HTTP 200; kein horizontaler Überlauf; keine Edge-Konsolenfehler |
 
 Zusätzlich verifiziert:
 
@@ -418,16 +463,19 @@ Zusätzlich verifiziert:
 - Keine sichtbaren Button- oder Label-Überläufe in den geprüften Ansichten.
 - Wett-Check: drei Eingaben, Modellabschlag und Ergebnis in beiden Viewports
   erreichbar; keine Streamlit-Exception.
-- Lokaler Edge-Kaltstart etwa 5,6 Sekunden, Navigation zum Wett-Check danach
-  etwa 0,65 Sekunden. Die Live-API war in der isolierten Browserprüfung nicht
-  erreichbar; dieser Test belegt daher UX und Laufzeit, keine Providerantwort.
+- Die echte VPS-App zeigt im normalen installierten Microsoft Edge
+  `Statistisches Modell aktiv` und `Live-API aktiv (Pro)`.
+- HTTPS liefert 200, HTTP leitet permanent auf HTTPS um.
+- Backup-Erstellung und Test-Restore aller zwölf enthaltenen SQLite-Dateien
+  wurden auf dem VPS ausgeführt.
 
 ## 12. Offene Prioritäten
 
 ### P0 - extern und vor ernsthafter Echtgeldnutzung
 
 1. Alle historisch exponierten Secrets rotieren.
-2. Gültiges dauerhaftes PostgreSQL/Supabase-Projekt anbinden.
+2. Unabhängiges Offsite-/OVH-Backup aktivieren und einen Wiederanlauf nach
+   vollständigem VPS-Verlust testen.
 3. Authentifizierung und stabile `user_id` für Konten und Ledger einführen.
 4. N1Bet-Regeln für Void, Verlängerung, Early Payout und Marktlinien
    schriftlich gegen die Settlement-Implementierung prüfen.
@@ -445,9 +493,11 @@ Zusätzlich verifiziert:
 ### P2 - Betrieb
 
 1. API-Budget zentralisieren.
-2. Cloud-Persistenz und Neustartverhalten testen.
-3. Nach jedem Push die echte Streamlit-App auf Commitstand und Mobilansicht
+2. PostgreSQL erst einführen, wenn Mehrbenutzerbetrieb oder horizontale
+   Skalierung den zusätzlichen Fehlerraum rechtfertigt.
+3. Nach jedem Push die echte VPS-App auf Commitstand und Mobilansicht
    prüfen.
+4. Backup-Restore regelmäßig wiederholen und systemd-Fehler aktiv alarmieren.
 
 ## 13. Betrieb und Übergabe
 
@@ -456,6 +506,28 @@ Lokale App:
 ```powershell
 .\.codex_test_venv\Scripts\python.exe -m streamlit run app.py
 ```
+
+Produktion:
+
+```text
+URL: https://vps-a30a123f.vps.ovh.net/
+App: /opt/betboy/app
+Venv: /opt/betboy/venv
+Backups: /var/backups/betboy
+```
+
+Update nach einem Push:
+
+```bash
+ssh -i C:\Users\miros\.ssh\betboy_ovh_ed25519 ubuntu@141.95.41.27
+sudo /opt/betboy/app/deploy/update_server.sh
+systemctl --failed
+systemctl list-timers --all 'betboy-*'
+```
+
+Der VPS ist die einzige kanonische schreibende Instanz. Lokale/KIMI-Runner
+dürfen nicht parallel reaktiviert werden, solange ihre Datenbanken nicht
+explizit auf eine gemeinsame transaktionale Datenquelle umgestellt sind.
 
 Vor einem Commit:
 

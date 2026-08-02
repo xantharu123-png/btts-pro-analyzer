@@ -2,8 +2,9 @@
 
 The production VPS runs one public Streamlit app and all evidence jobs from
 the same persistent checkout. Runtime SQLite files remain untracked but are
-backed up transactionally every night. OVH's daily VPS backup is the second
-recovery layer.
+backed up transactionally every night. If OVH Automatic Backup or another
+off-site backup is enabled in the provider panel, it becomes the required
+second recovery layer; the on-server archive alone is not disaster recovery.
 
 ## Layout
 
