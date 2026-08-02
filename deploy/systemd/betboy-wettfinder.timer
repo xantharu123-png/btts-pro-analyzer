@@ -1,0 +1,10 @@
+[Unit]
+Description=Check due BetBoy candidate work hourly
+
+[Timer]
+OnCalendar=*-*-* *:07:00
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

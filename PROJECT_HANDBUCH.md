@@ -16,7 +16,7 @@
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 543 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 556 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -77,6 +77,9 @@ deutlich ehrlicher als zuvor:
 - Transaktionale SQLite-Backups laufen täglich; jedes neue Archiv wird
   automatisch wiederhergestellt und per SQLite geprüft. Der aktuelle Lauf
   verifizierte 14 von 14 Datenbanken.
+- Ein stündlich geweckter, aber ereignisgesteuerter Wettfinder verdichtet
+  quotenfrei höchstens drei noch nicht gestartete Kandidaten. Ein teurer
+  Fußballscan läuft nur, wenn sein Anpfiff-Fenster tatsächlich fällig ist.
 
 Trotzdem ist **kein Markt als profitabel bewiesen**. Testgrün beweist
 Softwareverträge, nicht Wettvorteil. Echtgeldfreigaben bleiben von sauberer
@@ -166,6 +169,23 @@ Mindestquote = (1 + 0,03) / konservatives p
   Log-Wachstum und ein Shadow-Einsatz oberhalb dieser Referenz werden
   ausdrücklich gewarnt.
 - Eine finale Challenge-Freigabe verlangt bestätigte Startaufstellungen.
+- `wettfinder_automation.py` führt keinen blinden Rundumscan aus. Für Fußball
+  gelten je nach Entfernung zum nächsten bekannten Anpfiff 12 Stunden,
+  2 Stunden oder 45 Minuten Mindestabstand; der systemd-Stundentakt ist nur
+  die Fälligkeitsprüfung.
+- Der automatische Wettfinder verwendet für Fußball den strengen
+  15K-Kontextpfad der fünf xG-validierten Topligen. Tennis und E-Sport werden
+  aus ihren bestehenden persistierten Modellläufen übernommen, nicht erneut
+  per API gescannt. Bis 23:00 Europe/Zurich bleibt der aktuelle Spieltag
+  aktiv; danach wird der Folgetag vorbereitet, damit Abendspiele nicht kurz
+  vor Anpfiff aus dem Lauf fallen.
+- Basketball, NHL und Cricket erzeugen im automatischen Lauf bewusst keinen
+  Kandidaten, solange kein unabhängig validierter Modell- und Settlementpfad
+  existiert.
+- Die Auswahl wird ohne angebotene Quote nach Evidenzstufe und konservativer
+  Wahrscheinlichkeit sortiert, pro Event dedupliziert und auf drei begrenzt.
+  Jeder Eintrag bleibt `PRICE_REQUIRED`; die exakte N1Bet-Quote wird erst
+  manuell im Wett-Check erfasst.
 
 ### Shadow und Settlement
 
@@ -201,6 +221,9 @@ Mindestquote = (1 + 0,03) / konservatives p
   dieselben Zeitfenster wie der Runner.
 - E-Sport verlangt ein explizites 0:0-Prematch-Ereignis und eine eindeutige
   Teamzuordnung.
+- E-Sport-Signale mit alter Modellversion, fehlender Startzeit oder bereits
+  erreichtem Anpfiff werden aus dem automatischen Wettfinder und Wett-Check
+  fail-closed entfernt.
 - Offene E-Sport-Zeilen werden fair rotiert; ein temporär fehlendes Ergebnis
   wird nicht automatisch als Void entsorgt.
 - E-Sport-Freigabe verlangt mindestens 300 saubere Settlements. Trefferquote
@@ -233,7 +256,7 @@ Mindestquote = (1 + 0,03) / konservatives p
 | Spiele | BTTS-Prematch-Wettfinder | `SHADOW`; Prognose bleibt bei schlechtem Preis sichtbar |
 | Märkte | Tore, Ecken, Karten und kombinierte Märkte | `SHADOW`; marktweise Walk-forward-Gates |
 | Live | BTTS, Resttor, Teamtor | `RESEARCH`; bis unabhängige Live-Kalibrierung blockiert |
-| Wett-Check | N1Bet-Preis- und EV-Rechner | reines Preisergebnis; keine eigene Freigabe |
+| Wett-Check | automatische Top-3-Vorauswahl plus N1Bet-Preis- und EV-Rechner | Kandidaten bleiben `PRICE_REQUIRED`; keine eigene Echtgeldfreigabe |
 | System | Daten, Training, API-Status | administrativ; keine Wettfreigabe |
 | 15K Challenge | bis zu drei Legs, Zielquote 2,00-3,00 | nur Shadow-Tickets; weiterhin sehr hohes Risiko |
 | Multi-Sport | Basketball, NHL, Cricket, Tennis, E-Sport | Research/Shadow; keine Echtgeldfreigabe |
@@ -262,6 +285,7 @@ Konkrete Blockaden:
 | `football_recommendations.py` | gemeinsame Freigabepolicy |
 | `bet_finder_ui.py` | N1Bet-Preisentscheidung |
 | `ev_signal_sources.py` | versionsgebundener Signalvertrag aus Punkt-p, Haircut und Evidenzstufe |
+| `wettfinder_automation.py` | ereignisgesteuerte, quotenfreie Top-3-Verdichtung |
 | `scan_jobs.py` | sitzungsgebundene Hintergrundjobs |
 | `challenge_15k.py` | Challenge-Workflow und UI |
 | `challenge_store.py` | Challenge-Ledger und Transaktionen |
@@ -379,6 +403,7 @@ Konfidenzgrenzen von CLV und Rendite überzeugen. ROI allein reicht nicht.
 
 | VPS-Automation | Zeitplan Europe/Zurich | Verifizierter Status |
 |---|---|---|
+| Automatischer Wettfinder | stündlich um Minute 07 | Fälligkeitsprüfung; Fußball ereignisgesteuert, Tennis/E-Sport aus bestehenden Läufen |
 | Fußball Shadow/CLV | Fälligkeitsprüfung alle 10 Minuten | erfolgreich; maximal 60 fällige Fixtures |
 | Rotkarten-Settlement | alle 30 Minuten | erfolgreich; aktuell 0 offene Signale |
 | E-Sport Shadow | 08:23 und 20:23 | erfolgreich; Scan und Settlement |
@@ -386,9 +411,10 @@ Konfidenzgrenzen von CLV und Rendite überzeugen. ROI allein reicht nicht.
 | Rotkarten-Historie | täglich 05:41 | erfolgreich; Budget 350 Provider-Calls |
 | Tennis-Pipeline | täglich 07:17 | erfolgreich; montags zusätzlich Wächter und Wochenreport |
 
-Alle sechs Timer und `betboy-app.service` sind in systemd `enabled`; nach einem
-Neustart laufen sie ohne Benutzeraktion weiter. Der Football-Runner prüft vor
-jedem Start, ob tatsächlich Arbeit fällig ist.
+Alle sieben Timer und `betboy-app.service` sind in systemd `enabled`; nach
+einem Neustart laufen sie ohne Benutzeraktion weiter. Sowohl der
+Football-Shadow-Runner als auch der automatische Wettfinder prüfen vor teurer
+Arbeit, ob tatsächlich ein Ereignisfenster fällig ist.
 
 Der lokale Windows-Task `BetBoy Tennis Daily` und **alle** BetBoy-Automationen
 in KIMI sind deaktiviert. Ihre Definitionen wurden nicht gelöscht. Vor der
@@ -479,7 +505,7 @@ VPS-Härtung, verifiziert am 2. August 2026:
 Vollständiger Lauf:
 
 ```text
-543 passed
+556 passed
 5 subtests passed
 ```
 
@@ -572,6 +598,8 @@ ssh -i C:\Users\miros\.ssh\betboy_ovh_ed25519 ubuntu@141.95.41.27
 sudo /opt/betboy/app/deploy/update_server.sh
 systemctl --failed
 systemctl list-timers --all 'betboy-*'
+sudo systemctl start betboy-wettfinder.service
+journalctl -u betboy-wettfinder.service -n 50 --no-pager
 ```
 
 Der VPS ist die einzige kanonische schreibende Instanz. Lokale/KIMI-Runner

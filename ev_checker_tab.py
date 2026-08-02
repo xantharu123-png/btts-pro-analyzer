@@ -5,12 +5,15 @@ ein Team, du kaufst eine Wahrscheinlichkeit zu einem Preis.  Drei Eingaben
 (Quote, eigene Einschätzung in %, Einsatz) liefern Break-even, Edge,
 Erwartungswert in CHF und ein klares PREIS OK / KNAPP / NEIN.
 
-Optional befüllt ein gespeichertes Modell-Signal (Tennis- oder
-E-Sport-Shadow) die Prozent-Einschätzung vor — die Quote tippst du immer
+Optional befüllt der automatische Wettfinder oder ein gespeichertes
+Modell-Signal die Prozent-Einschätzung vor. Die Quote tippst du immer
 selbst ein, denn der Preis entscheidet.
 """
 
 from __future__ import annotations
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 
@@ -29,6 +32,7 @@ from ev_calculator import (
 from ev_signal_sources import list_signals
 
 _MANUAL = "manual"
+_ZURICH_TZ = ZoneInfo("Europe/Zurich")
 
 
 def _fmt_pct(value: float, digits: int = 1) -> str:
@@ -41,6 +45,18 @@ def _fmt_pp(value: float) -> str:
 
 def _fmt_chf(value: float) -> str:
     return f"{value:+.2f} CHF".replace(".", ",")
+
+
+def _fmt_start(value: str | None) -> str:
+    if not value:
+        return "Startzeit offen"
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return "Startzeit offen"
+    if parsed.tzinfo is None:
+        return "Startzeit offen"
+    return parsed.astimezone(_ZURICH_TZ).strftime("%d.%m. %H:%M")
 
 
 def render_ev_checker(scope: str | None = None) -> None:
@@ -56,6 +72,27 @@ def render_ev_checker(scope: str | None = None) -> None:
 
     signals = list_signals(scope=scope)
     by_key = {signal.key: signal for signal in signals}
+    automatic = [
+        signal
+        for signal in signals
+        if signal.source == "automated_wettfinder"
+    ]
+    if automatic:
+        st.markdown("### Automatische Vorauswahl")
+        for signal in automatic:
+            conservative = signal.probability - signal.probability_haircut
+            minimum = (
+                f"{signal.minimum_odds:.2f}".replace(".", ",")
+                if signal.minimum_odds is not None
+                else "offen"
+            )
+            st.markdown(f"**{signal.label}**")
+            st.caption(
+                f"{_fmt_start(signal.scheduled_start)} · "
+                f"Konservativ {_fmt_pct(conservative)} · "
+                f"N1Bet-Mindestquote {minimum} · "
+                f"{signal.evidence_stage} · Preis noch eingeben"
+            )
 
     def _apply_signal() -> None:
         signal = by_key.get(st.session_state.get("ev_signal_choice"))
@@ -90,10 +127,15 @@ def render_ev_checker(scope: str | None = None) -> None:
     if chosen is not None:
         prob_text = f"{chosen.probability * 100:.1f}".replace(".", ",")
         haircut_text = f"{chosen.probability_haircut * 100:.1f}".replace(".", ",")
+        minimum_text = (
+            f" · Mindestquote {chosen.minimum_odds:.2f}".replace(".", ",")
+            if chosen.minimum_odds is not None
+            else ""
+        )
         st.caption(
             f"Übernommen: **{prob_text} % Punktprognose**, "
             f"**{haircut_text} Prozentpunkte Modellabschlag** · "
-            f"Evidenz {chosen.evidence_stage} — {chosen.detail}."
+            f"Evidenz {chosen.evidence_stage}{minimum_text} — {chosen.detail}."
         )
 
     col_odds, col_prob, col_stake = st.columns(3)

@@ -111,6 +111,7 @@ systemctl reload ssh
 
 systemctl enable --now betboy-app.service
 systemctl enable --now \
+    betboy-wettfinder.timer \
     betboy-football-shadow.timer \
     betboy-tennis.timer \
     betboy-esports.timer \

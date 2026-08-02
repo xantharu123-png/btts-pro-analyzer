@@ -9,6 +9,25 @@ from scripts import backup_runtime_databases as backup
 from scripts import run_football_shadow_due as football_job
 
 
+def test_wettfinder_timer_is_installed_and_enabled_by_deploy_scripts():
+    root = Path(__file__).resolve().parents[1]
+    service = (
+        root / "deploy" / "systemd" / "betboy-wettfinder.service"
+    ).read_text(encoding="utf-8")
+    timer = (
+        root / "deploy" / "systemd" / "betboy-wettfinder.timer"
+    ).read_text(encoding="utf-8")
+    update = (root / "deploy" / "update_server.sh").read_text(encoding="utf-8")
+    bootstrap = (root / "deploy" / "bootstrap_server.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "wettfinder_automation.py" in service
+    assert "OnCalendar=*-*-* *:07:00" in timer
+    assert "enable --now betboy-wettfinder.timer" in update
+    assert "betboy-wettfinder.timer" in bootstrap
+
+
 def test_football_job_skips_when_no_work_is_due(monkeypatch, capsys):
     called = False
 

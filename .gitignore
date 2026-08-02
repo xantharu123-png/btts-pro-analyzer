@@ -26,3 +26,4 @@ models/
 scan_jobs/
 challenge_sessions/
 runtime_reports/
+runtime_state/

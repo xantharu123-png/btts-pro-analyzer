@@ -9,9 +9,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from betting_math import BETTING_POLICY_VERSION
-from ev_signal_sources import esports_signals, list_signals, tennis_signals
+from esports_shadow import ESPORTS_MODEL_VERSION
+from ev_signal_sources import (
+    automated_wettfinder_signals,
+    esports_signals,
+    list_signals,
+    tennis_model_signals,
+    tennis_signals,
+)
 from tennis.predict import WINNER_PROBABILITY_HAIRCUT
-from tennis.shadow import TENNIS_POLICY_VERSION
+from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION
 
 TENNIS_SCHEMA = """
 CREATE TABLE predictions (
@@ -19,7 +26,8 @@ CREATE TABLE predictions (
     match_date TEXT, tour TEXT, tournament TEXT,
     player_a TEXT, player_b TEXT, p_cal REAL, settled INTEGER DEFAULT 0,
     verdict TEXT DEFAULT 'WETTE', recommended_side TEXT DEFAULT 'A',
-    scheduled_start_utc TEXT, policy_version TEXT
+    scheduled_start_utc TEXT, policy_version TEXT,
+    gates_json TEXT, model_version TEXT
 );
 """
 
@@ -28,7 +36,7 @@ CREATE TABLE esports_shadow_predictions (
     match_id TEXT, logged_at TEXT, game TEXT, team1 TEXT, team2 TEXT,
     selection TEXT, status TEXT, model_probability REAL,
     risk_adjusted_probability REAL, settled INTEGER DEFAULT 0,
-    hit INTEGER
+    hit INTEGER, scheduled_at TEXT, model_version TEXT
 );
 """
 
@@ -58,10 +66,13 @@ def _esports_db(rows, tmp: Path) -> Path:
     conn.executemany(
         "INSERT INTO esports_shadow_predictions (match_id, logged_at, game,"
         " team1, team2, selection, status, model_probability,"
-        " risk_adjusted_probability)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " risk_adjusted_probability, scheduled_at, model_version)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
-            tuple(row) + (row[-1],) if len(row) == 8 else tuple(row)
+            (
+                (tuple(row) + (row[-1],) if len(row) == 8 else tuple(row))
+                + ("2099-01-01T12:00:00+00:00", ESPORTS_MODEL_VERSION)
+            )
             for row in rows
         ],
     )
@@ -164,6 +175,77 @@ class TennisSignalTests(unittest.TestCase):
         )
         self.assertEqual(signals, [])
 
+    def test_model_signal_chooses_the_more_likely_side_without_price(self):
+        import json
+
+        db = _tennis_db(
+            [("2099-01-01", "ATP", "T", "A", "B", 0.62, 0)],
+            self.tmp,
+        )
+        connection = sqlite3.connect(db)
+        try:
+            connection.execute(
+                """
+                UPDATE predictions
+                SET gates_json=?, model_version=?,
+                    verdict='WETTE', recommended_side='B'
+                """,
+                (
+                    json.dumps(
+                        {
+                            "Belag": {"passed": True},
+                            "Aufschlag-Daten": {"passed": True},
+                            "Quote/Risiko-EV": {"passed": True},
+                        }
+                    ),
+                    TENNIS_MODEL_VERSION,
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        signals = tennis_model_signals(
+            db_path=db,
+            today="2099-01-01",
+        )
+
+        self.assertEqual(len(signals), 1)
+        self.assertIn("Sieg A", signals[0].label)
+        self.assertNotIn("Sieg B", signals[0].label)
+        self.assertEqual(signals[0].source, "tennis_model")
+        self.assertIn("quotenfrei", signals[0].detail)
+
+    def test_model_signal_requires_every_non_price_gate(self):
+        import json
+
+        db = _tennis_db(
+            [("2099-01-01", "ATP", "T", "A", "B", 0.62, 0)],
+            self.tmp,
+        )
+        connection = sqlite3.connect(db)
+        try:
+            connection.execute(
+                "UPDATE predictions SET gates_json=?, model_version=?",
+                (
+                    json.dumps(
+                        {
+                            "Belag": {"passed": True},
+                            "Aufschlag-Daten": {"passed": False},
+                        }
+                    ),
+                    TENNIS_MODEL_VERSION,
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.assertEqual(
+            tennis_model_signals(db_path=db, today="2099-01-01"),
+            [],
+        )
+
 
 class EsportsSignalTests(unittest.TestCase):
     def setUp(self):
@@ -233,6 +315,45 @@ class EsportsSignalTests(unittest.TestCase):
             [],
         )
 
+    def test_started_esports_match_is_excluded(self):
+        db = _esports_db(
+            [("m6", "2026-07-31", "LOL", "A", "B", "A", "upcoming", 60.0)],
+            self.tmp,
+        )
+        connection = sqlite3.connect(db)
+        try:
+            connection.execute(
+                "UPDATE esports_shadow_predictions SET scheduled_at=?",
+                ("2030-01-01T12:00:00+00:00",),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        signals = esports_signals(
+            db_path=db,
+            require_released=False,
+            now=datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc),
+        )
+        self.assertEqual(signals, [])
+
+    def test_old_esports_model_is_excluded(self):
+        db = _esports_db(
+            [("m7", "2026-07-31", "LOL", "A", "B", "A", "upcoming", 60.0)],
+            self.tmp,
+        )
+        connection = sqlite3.connect(db)
+        try:
+            connection.execute(
+                "UPDATE esports_shadow_predictions SET model_version='legacy'"
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.assertEqual(
+            esports_signals(db_path=db, require_released=False),
+            [],
+        )
+
     def test_missing_db_returns_empty(self):
         self.assertEqual(esports_signals(db_path=self.tmp / "fehlt.db"), [])
 
@@ -260,10 +381,96 @@ class ListSignalsTests(unittest.TestCase):
                 esports_db=esports_db,
                 today="2099-01-01",
                 require_esports_release=False,
+                automated_path=tmp / "missing-wettfinder.json",
             )
         # One tennis Shadow price signal + one E-Sport signal.
         self.assertEqual(len(signals), 2)
         self.assertEqual(len({s.key for s in signals}), 2)
+
+    def test_fresh_automatic_artifact_replaces_raw_shadow_pool(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            minimum_odds = 1.99
+            artifact = tmp / "wettfinder.json"
+            artifact.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "generated_at": "2030-01-01T10:00:00+00:00",
+                        "betting_policy_version": BETTING_POLICY_VERSION,
+                        "bookmaker_data_used": False,
+                        "quote_required": True,
+                        "candidates": [
+                            {
+                                "key": "tennis-auto-1",
+                                "label": "Tennis - A vs B - Sieg A",
+                                "probability": 0.60,
+                                "probability_haircut": 0.08,
+                                "minimum_odds": minimum_odds,
+                                "evidence_stage": "SHADOW",
+                                "policy_version": TENNIS_POLICY_VERSION,
+                                "scheduled_start": "2030-01-01T15:00:00+00:00",
+                                "status": "PRICE_REQUIRED",
+                                "detail": "Automatisch verdichtet",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            # 1.03 / 0.52 = 1.9807, first cent is 1.99.
+            signals = automated_wettfinder_signals(
+                artifact,
+                now=datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc),
+            )
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].source, "automated_wettfinder")
+        self.assertEqual(signals[0].minimum_odds, 1.99)
+
+    def test_automatic_artifact_rejects_stale_or_started_candidates(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            document = {
+                "version": 1,
+                "generated_at": "2030-01-01T06:00:00+00:00",
+                "betting_policy_version": BETTING_POLICY_VERSION,
+                "bookmaker_data_used": False,
+                "quote_required": True,
+                "candidates": [
+                    {
+                        "key": "tennis-auto-2",
+                        "label": "Tennis - A vs B - Sieg A",
+                        "probability": 0.60,
+                        "probability_haircut": 0.08,
+                        "minimum_odds": 1.99,
+                        "evidence_stage": "SHADOW",
+                        "policy_version": TENNIS_POLICY_VERSION,
+                        "scheduled_start": "2030-01-01T15:00:00+00:00",
+                        "status": "PRICE_REQUIRED",
+                        "detail": "Automatisch verdichtet",
+                    }
+                ],
+            }
+            artifact.write_text(json.dumps(document), encoding="utf-8")
+            now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+            self.assertEqual(
+                automated_wettfinder_signals(artifact, now=now),
+                [],
+            )
+
+            document["generated_at"] = "2030-01-01T10:00:00+00:00"
+            document["candidates"][0]["scheduled_start"] = (
+                "2030-01-01T10:30:00+00:00"
+            )
+            artifact.write_text(json.dumps(document), encoding="utf-8")
+            self.assertEqual(
+                automated_wettfinder_signals(artifact, now=now),
+                [],
+            )
 
 
 class FootballSignalTests(unittest.TestCase):

@@ -1123,6 +1123,14 @@ def scan_daily_challenge(
         "scanned_at": datetime.now(timezone.utc).isoformat(),
         "scope": _scope_signature(league_ids, search_date, max_fixtures),
         "search_date": search_date.isoformat(),
+        "fixture_kickoffs": [
+            kickoff.isoformat()
+            for kickoff in (
+                _fixture_kickoff(fixture)
+                for fixture in fixtures
+            )
+            if kickoff is not None
+        ],
         "fixtures_found": len(fixtures),
         "fixtures_modeled": len({candidate.fixture_id for candidate in all_candidates}),
         "base_candidates": len(base_candidates),
