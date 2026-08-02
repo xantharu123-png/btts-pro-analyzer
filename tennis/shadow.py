@@ -22,6 +22,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from price_ledger import (
+    PriceLedger,
+    PriceLedgerError,
+    PriceLedgerIntegrityError,
+    PriceQuote,
+)
+
 DB_PATH = Path(__file__).resolve().parent / "data" / "tennis_shadow.db"
 
 # ASSUMPTION — verify against N1Bet T&Cs before real-money bets.
@@ -55,6 +62,8 @@ CREATE TABLE IF NOT EXISTS predictions (
     odds_a REAL,
     odds_b REAL,
     price_checked_utc REAL,
+    entry_quote_id_a INTEGER,
+    entry_quote_id_b INTEGER,
     settled INTEGER DEFAULT 0,
     actual_winner TEXT,
     ret_flag INTEGER DEFAULT 0,
@@ -62,6 +71,8 @@ CREATE TABLE IF NOT EXISTS predictions (
     closing_odds_a REAL,
     closing_odds_b REAL,
     closing_checked_utc REAL,
+    closing_quote_id_a INTEGER,
+    closing_quote_id_b INTEGER,
     pnl REAL,
     model_version TEXT,
     policy_version TEXT
@@ -74,8 +85,10 @@ CREATE TABLE IF NOT EXISTS side_bets (
     model_p REAL NOT NULL,
     odds REAL NOT NULL,
     edge REAL NOT NULL,
+    entry_quote_id INTEGER,
     closing_odds REAL,
     closing_checked_utc REAL,
+    closing_quote_id INTEGER,
     settled INTEGER DEFAULT 0,
     result TEXT,                   -- '2:0' | '2:1' | '1:2' | '0:2' | 'ret'
     won INTEGER,
@@ -84,18 +97,42 @@ CREATE TABLE IF NOT EXISTS side_bets (
 );
 """
 
+_CLOSING_TRIGGERS = """
+CREATE TRIGGER IF NOT EXISTS tennis_closing_prices_frozen
+BEFORE UPDATE OF closing_odds_a, closing_odds_b, closing_checked_utc,
+                 closing_quote_id_a, closing_quote_id_b
+ON predictions
+WHEN OLD.closing_quote_id_a IS NOT NULL OR OLD.closing_quote_id_b IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'tennis closing prices are frozen');
+END;
+CREATE TRIGGER IF NOT EXISTS tennis_side_closing_price_frozen
+BEFORE UPDATE OF closing_odds, closing_checked_utc, closing_quote_id
+ON side_bets
+WHEN OLD.closing_quote_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'tennis side closing price is frozen');
+END;
+"""
+
 _PREDICTION_MIGRATIONS = {
     "provider_event_id": "TEXT",
     "scheduled_start_utc": "TEXT",
     "fixture_source": "TEXT",
     "price_checked_utc": "REAL",
+    "entry_quote_id_a": "INTEGER",
+    "entry_quote_id_b": "INTEGER",
     "closing_checked_utc": "REAL",
+    "closing_quote_id_a": "INTEGER",
+    "closing_quote_id_b": "INTEGER",
     "model_version": "TEXT",
     "policy_version": "TEXT",
 }
 _SIDE_BET_MIGRATIONS = {
     "closing_odds": "REAL",
     "closing_checked_utc": "REAL",
+    "entry_quote_id": "INTEGER",
+    "closing_quote_id": "INTEGER",
     "policy_version": "TEXT",
 }
 
@@ -123,22 +160,182 @@ SIDE_MARKETS = {
 }
 
 
+def _capture_datetime(value: Optional[float]) -> datetime:
+    captured = time.time() if value is None else float(value)
+    if not math.isfinite(captured):
+        raise ValueError("price capture time must be finite")
+    return datetime.fromtimestamp(captured, timezone.utc)
+
+
+def _prediction_price_context(
+    prediction_id: int,
+) -> dict[str, str]:
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT provider_event_id, scheduled_start_utc, fixture_source,
+                   tour, tournament, player_a, player_b, settled
+            FROM predictions WHERE id=?
+            """,
+            (prediction_id,),
+        ).fetchone()
+    if row is None:
+        raise KeyError(f"prediction {prediction_id} not found")
+    if row["settled"]:
+        raise ValueError("settled prediction cannot receive a price")
+    if not row["scheduled_start_utc"]:
+        raise ValueError("verified scheduled start is required for price evidence")
+    return {
+        "event_id": str(
+            row["provider_event_id"] or f"tennis-prediction-{prediction_id}"
+        ),
+        "event_name": f"{row['player_a']} vs {row['player_b']}",
+        "scheduled_start": str(row["scheduled_start_utc"]),
+        "tour": str(row["tour"] or ""),
+        "tournament": str(row["tournament"] or ""),
+        "fixture_source": str(row["fixture_source"] or ""),
+        "player_a": str(row["player_a"]),
+        "player_b": str(row["player_b"]),
+    }
+
+
+def _append_price_quotes(
+    quotes: list[PriceQuote],
+    *,
+    recorded_at: datetime,
+) -> list[int]:
+    try:
+        observations = PriceLedger(DB_PATH).append_many(
+            quotes,
+            now=recorded_at,
+        )
+    except (PriceLedgerError, PriceLedgerIntegrityError) as exc:
+        raise ValueError(str(exc)) from exc
+    return [observation.id for observation in observations]
+
+
+def record_entry_prices(
+    prediction_id: int,
+    odds_a: float,
+    odds_b: float,
+    *,
+    captured_utc: Optional[float] = None,
+) -> tuple[int, int]:
+    """Append both N1Bet match-winner prices before updating the current pointer."""
+    if (
+        not math.isfinite(odds_a)
+        or not math.isfinite(odds_b)
+        or odds_a <= 1.0
+        or odds_b <= 1.0
+    ):
+        raise ValueError("entry odds must be greater than 1.0")
+    captured = _capture_datetime(captured_utc)
+    context = _prediction_price_context(prediction_id)
+    start = _scheduled_start_epoch(context["scheduled_start"])
+    if captured.timestamp() > start:
+        raise ValueError("entry price cannot be captured after scheduled start")
+    common = {
+        "sport": "TENNIS",
+        "event_id": context["event_id"],
+        "event_name": context["event_name"],
+        "scheduled_start": context["scheduled_start"],
+        "market_key": "MATCH_WINNER",
+        "market_name": "Match winner",
+        "phase": "ENTRY",
+        "source": "MANUAL",
+        "captured_at": captured,
+        "model_ref": TENNIS_POLICY_VERSION,
+        "metadata": {
+            "prediction_id": prediction_id,
+            "tour": context["tour"],
+            "tournament": context["tournament"],
+            "fixture_source": context["fixture_source"],
+        },
+    }
+    observation_ids = _append_price_quotes(
+        [
+            PriceQuote(
+                **common,
+                selection_key="A",
+                selection_name=context["player_a"],
+                decimal_odds=odds_a,
+            ),
+            PriceQuote(
+                **common,
+                selection_key="B",
+                selection_name=context["player_b"],
+                decimal_odds=odds_b,
+            ),
+        ],
+        recorded_at=datetime.now(timezone.utc),
+    )
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE predictions
+            SET odds_a=?, odds_b=?, price_checked_utc=?,
+                entry_quote_id_a=?, entry_quote_id_b=?
+            WHERE id=?
+            """,
+            (
+                odds_a,
+                odds_b,
+                captured.timestamp(),
+                observation_ids[0],
+                observation_ids[1],
+                prediction_id,
+            ),
+        )
+    return observation_ids[0], observation_ids[1]
+
+
 def store_side_bet(prediction_id: int, market: str, model_p: float,
                    odds: float, edge: float) -> int:
     """Track one side-market bet (price checked in the UI)."""
     if market not in SIDE_MARKETS:
         raise ValueError(f"unknown side market {market!r}")
+    if not math.isfinite(odds) or odds <= 1.0:
+        raise ValueError("entry odds must be greater than 1.0")
+    captured = datetime.now(timezone.utc)
+    context = _prediction_price_context(prediction_id)
+    observation_id = _append_price_quotes(
+        [
+            PriceQuote(
+                sport="TENNIS",
+                event_id=context["event_id"],
+                event_name=context["event_name"],
+                scheduled_start=context["scheduled_start"],
+                market_key=market,
+                market_name=SIDE_MARKETS[market]["label"],
+                selection_key=market,
+                selection_name=SIDE_MARKETS[market]["label"],
+                decimal_odds=odds,
+                phase="ENTRY",
+                source="MANUAL",
+                captured_at=captured,
+                model_ref=TENNIS_POLICY_VERSION,
+                metadata={
+                    "prediction_id": prediction_id,
+                    "tour": context["tour"],
+                    "tournament": context["tournament"],
+                },
+            )
+        ],
+        recorded_at=captured,
+    )[0]
     with _connect() as conn:
         cur = conn.execute(
             "INSERT INTO side_bets (created_utc, prediction_id, market, model_p, "
-            "odds, edge, policy_version) VALUES (?,?,?,?,?,?,?)",
+            "odds, edge, entry_quote_id, policy_version) VALUES (?,?,?,?,?,?,?,?)",
             (
-                time.time(),
+                captured.timestamp(),
                 prediction_id,
                 market,
                 model_p,
                 odds,
                 edge,
+                observation_id,
                 TENNIS_POLICY_VERSION,
             ),
         )
@@ -190,19 +387,19 @@ def settle_side_bet(
         if row is None:
             raise KeyError(f"side bet {bet_id} not found")
         market, odds = row
-        if closing_odds is not None and (
-            not math.isfinite(closing_odds) or closing_odds <= 1.0
-        ):
-            raise ValueError("closing odds must be greater than 1.0")
+        if closing_odds is not None:
+            raise ValueError(
+                "record closing odds before settlement with "
+                "record_side_closing_price"
+            )
         if result == "ret":
             won, pnl = None, 0.0
         else:
             won = 1 if result in SIDE_MARKETS[market]["wins_on"] else 0
             pnl = (odds - 1.0) if won else -1.0
         conn.execute(
-            "UPDATE side_bets SET settled=1, result=?, won=?, pnl=?, "
-            "closing_odds=COALESCE(?, closing_odds) WHERE id=?",
-            (result, won, pnl, closing_odds, bet_id),
+            "UPDATE side_bets SET settled=1, result=?, won=?, pnl=? WHERE id=?",
+            (result, won, pnl, bet_id),
         )
 
 
@@ -246,31 +443,86 @@ def record_closing_prices(
         or closing_b <= 1.0
     ):
         raise ValueError("closing odds must be greater than 1.0")
-    captured = time.time() if captured_utc is None else float(captured_utc)
+    captured_dt = _capture_datetime(captured_utc)
+    captured = captured_dt.timestamp()
     with _connect() as conn:
         row = conn.execute(
             """
-            SELECT scheduled_start_utc, settled, recommended_side
+            SELECT scheduled_start_utc, settled, recommended_side,
+                   closing_quote_id_a, closing_quote_id_b
             FROM predictions WHERE id=?
             """,
             (prediction_id,),
         ).fetchone()
         if row is None:
             raise KeyError(f"prediction {prediction_id} not found")
-        scheduled, settled, side = row
+        scheduled, settled, side, quote_id_a, quote_id_b = row
         if settled:
             raise ValueError("settled prediction cannot receive a closing price")
         if side not in ("A", "B"):
             raise ValueError("closing price requires a released shadow bet")
+        if quote_id_a is not None or quote_id_b is not None:
+            raise ValueError("closing prices are already frozen")
         _validate_closing_capture(scheduled, captured)
-        conn.execute(
-            """
-            UPDATE predictions
-            SET closing_odds_a=?, closing_odds_b=?, closing_checked_utc=?
-            WHERE id=?
-            """,
-            (closing_a, closing_b, captured, prediction_id),
-        )
+    context = _prediction_price_context(prediction_id)
+    common = {
+        "sport": "TENNIS",
+        "event_id": context["event_id"],
+        "event_name": context["event_name"],
+        "scheduled_start": context["scheduled_start"],
+        "market_key": "MATCH_WINNER",
+        "market_name": "Match winner",
+        "phase": "CLOSING",
+        "source": "MANUAL",
+        "captured_at": captured_dt,
+        "model_ref": TENNIS_POLICY_VERSION,
+        "metadata": {
+            "prediction_id": prediction_id,
+            "tour": context["tour"],
+            "tournament": context["tournament"],
+        },
+    }
+    observation_ids = _append_price_quotes(
+        [
+            PriceQuote(
+                **common,
+                selection_key="A",
+                selection_name=context["player_a"],
+                decimal_odds=closing_a,
+            ),
+            PriceQuote(
+                **common,
+                selection_key="B",
+                selection_name=context["player_b"],
+                decimal_odds=closing_b,
+            ),
+        ],
+        recorded_at=datetime.now(timezone.utc),
+    )
+    try:
+        with _connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE predictions SET
+                    closing_odds_a=?, closing_odds_b=?, closing_checked_utc=?,
+                    closing_quote_id_a=?, closing_quote_id_b=?
+                WHERE id=?
+                  AND closing_quote_id_a IS NULL
+                  AND closing_quote_id_b IS NULL
+                """,
+                (
+                    closing_a,
+                    closing_b,
+                    captured,
+                    observation_ids[0],
+                    observation_ids[1],
+                    prediction_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("closing prices are already frozen")
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("closing prices are already frozen") from exc
 
 
 def record_side_closing_price(
@@ -282,11 +534,13 @@ def record_side_closing_price(
     """Freeze one side-market reference price shortly before start."""
     if not math.isfinite(closing_odds) or closing_odds <= 1.0:
         raise ValueError("closing odds must be greater than 1.0")
-    captured = time.time() if captured_utc is None else float(captured_utc)
+    captured_dt = _capture_datetime(captured_utc)
+    captured = captured_dt.timestamp()
     with _connect() as conn:
         row = conn.execute(
             """
-            SELECT p.scheduled_start_utc, s.settled
+            SELECT p.scheduled_start_utc, s.settled, s.prediction_id,
+                   s.market, s.closing_quote_id
             FROM side_bets s
             JOIN predictions p ON p.id=s.prediction_id
             WHERE s.id=?
@@ -295,14 +549,53 @@ def record_side_closing_price(
         ).fetchone()
         if row is None:
             raise KeyError(f"side bet {bet_id} not found")
-        scheduled, settled = row
+        scheduled, settled, prediction_id, market, quote_id = row
         if settled:
             raise ValueError("settled side bet cannot receive a closing price")
+        if quote_id is not None:
+            raise ValueError("closing price is already frozen")
         _validate_closing_capture(scheduled, captured)
-        conn.execute(
-            "UPDATE side_bets SET closing_odds=?, closing_checked_utc=? WHERE id=?",
-            (closing_odds, captured, bet_id),
-        )
+    context = _prediction_price_context(prediction_id)
+    observation_id = _append_price_quotes(
+        [
+            PriceQuote(
+                sport="TENNIS",
+                event_id=context["event_id"],
+                event_name=context["event_name"],
+                scheduled_start=context["scheduled_start"],
+                market_key=market,
+                market_name=SIDE_MARKETS[market]["label"],
+                selection_key=market,
+                selection_name=SIDE_MARKETS[market]["label"],
+                decimal_odds=closing_odds,
+                phase="CLOSING",
+                source="MANUAL",
+                captured_at=captured_dt,
+                model_ref=TENNIS_POLICY_VERSION,
+                metadata={
+                    "prediction_id": prediction_id,
+                    "side_bet_id": bet_id,
+                    "tour": context["tour"],
+                    "tournament": context["tournament"],
+                },
+            )
+        ],
+        recorded_at=datetime.now(timezone.utc),
+    )[0]
+    try:
+        with _connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE side_bets
+                SET closing_odds=?, closing_checked_utc=?, closing_quote_id=?
+                WHERE id=? AND closing_quote_id IS NULL
+                """,
+                (closing_odds, captured, observation_id, bet_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("closing price is already frozen")
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("closing price is already frozen") from exc
 
 
 def side_bet_summary() -> Dict:
@@ -314,12 +607,14 @@ def side_bet_summary() -> Dict:
         ).fetchone()
         row = conn.execute(
             "SELECT COUNT(*), COALESCE(SUM(pnl),0), AVG(pnl) FROM side_bets "
-            "WHERE settled=1 AND won IS NOT NULL AND policy_version=?",
+            "WHERE settled=1 AND won IS NOT NULL AND entry_quote_id IS NOT NULL "
+            "AND policy_version=?",
             (TENNIS_POLICY_VERSION,),
         ).fetchone()
         clv = conn.execute(
             "SELECT COUNT(*), AVG(odds / closing_odds - 1.0) FROM side_bets "
             "WHERE settled=1 AND odds>1.0 AND closing_odds>1.0 "
+            "AND entry_quote_id IS NOT NULL AND closing_quote_id IS NOT NULL "
             "AND closing_checked_utc IS NOT NULL AND policy_version=?",
             (TENNIS_POLICY_VERSION,),
         ).fetchone()
@@ -350,6 +645,7 @@ def _connect() -> sqlite3.Connection:
     for name, sql_type in _SIDE_BET_MIGRATIONS.items():
         if name not in side_columns:
             conn.execute(f"ALTER TABLE side_bets ADD COLUMN {name} {sql_type}")
+    conn.executescript(_CLOSING_TRIGGERS)
     return conn
 
 
@@ -471,6 +767,10 @@ def settle(prediction_id: int, actual_winner: str, ret: bool = False,
            ret_set: Optional[int] = None,
            closing_a: Optional[float] = None, closing_b: Optional[float] = None) -> None:
     """Settle one prediction.  ``actual_winner`` must equal player_a or player_b."""
+    if closing_a is not None or closing_b is not None:
+        raise ValueError(
+            "record closing odds before settlement with record_closing_prices"
+        )
     with _connect() as conn:
         row = conn.execute(
             "SELECT player_a, player_b, recommended_side, odds_a, odds_b FROM predictions WHERE id=?",
@@ -481,12 +781,6 @@ def settle(prediction_id: int, actual_winner: str, ret: bool = False,
         player_a, player_b, side, odds_a, odds_b = row
         if actual_winner not in (player_a, player_b):
             raise ValueError("actual_winner must match one of the stored players")
-        for price in (closing_a, closing_b):
-            if price is not None and (
-                not math.isfinite(price) or price <= 1.0
-            ):
-                raise ValueError("closing odds must be greater than 1.0")
-
         pnl: Optional[float] = None
         if side:
             odds = odds_a if side == "A" else odds_b
@@ -506,11 +800,16 @@ def settle(prediction_id: int, actual_winner: str, ret: bool = False,
             """
             UPDATE predictions
             SET settled=1, actual_winner=?, ret_flag=?, ret_set=?,
-                closing_odds_a=COALESCE(?, closing_odds_a),
-                closing_odds_b=COALESCE(?, closing_odds_b), pnl=?
+                pnl=?
             WHERE id=?
             """,
-            (actual_winner, 1 if ret else 0, ret_set, closing_a, closing_b, pnl, prediction_id),
+            (
+                actual_winner,
+                1 if ret else 0,
+                ret_set,
+                pnl,
+                prediction_id,
+            ),
         )
 
 
@@ -521,12 +820,15 @@ def summary() -> Dict:
         ).fetchone()
         recommended_total = conn.execute(
             "SELECT COUNT(*) FROM predictions "
-            "WHERE recommended_side IN ('A', 'B') AND policy_version=?",
+            "WHERE recommended_side IN ('A', 'B') "
+            "AND entry_quote_id_a IS NOT NULL AND entry_quote_id_b IS NOT NULL "
+            "AND policy_version=?",
             (TENNIS_POLICY_VERSION,),
         ).fetchone()[0]
         reco = conn.execute(
             "SELECT COUNT(*), COALESCE(SUM(pnl),0), AVG(pnl) FROM predictions "
             "WHERE settled=1 AND recommended_side IS NOT NULL AND pnl IS NOT NULL "
+            "AND entry_quote_id_a IS NOT NULL AND entry_quote_id_b IS NOT NULL "
             "AND policy_version=?",
             (TENNIS_POLICY_VERSION,),
         ).fetchone()
@@ -543,6 +845,10 @@ def summary() -> Dict:
               AND recommended_side IN ('A', 'B')
               AND policy_version=?
               AND closing_checked_utc IS NOT NULL
+              AND entry_quote_id_a IS NOT NULL
+              AND entry_quote_id_b IS NOT NULL
+              AND closing_quote_id_a IS NOT NULL
+              AND closing_quote_id_b IS NOT NULL
               AND (
                   (recommended_side='A' AND odds_a>1.0 AND closing_odds_a>1.0)
                   OR
@@ -584,6 +890,10 @@ def summary() -> Dict:
               AND closing_odds_a>1.0
               AND closing_odds_b>1.0
               AND closing_checked_utc IS NOT NULL
+              AND entry_quote_id_a IS NOT NULL
+              AND entry_quote_id_b IS NOT NULL
+              AND closing_quote_id_a IS NOT NULL
+              AND closing_quote_id_b IS NOT NULL
             """
         ).fetchone()
     return {

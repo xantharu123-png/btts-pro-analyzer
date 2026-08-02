@@ -32,9 +32,11 @@ TARGET_ODDS_MAX = 3.0
 MAX_TICKET_LEGS = 3
 DEFAULT_CHALLENGE_STAKE_FRACTION = 0.25
 MIN_CHALLENGE_STAKE_FRACTION = 0.05
-MAX_CHALLENGE_STAKE_FRACTION = 1.0
+MAX_CHALLENGE_STAKE_FRACTION = 0.25
 KELLY_REFERENCE_CAP = 0.25
+MAX_RISK_MANAGED_STAKE_FRACTION = 0.05
 CROSS_LEG_MODEL_FACTOR = 0.97
+SAME_LEAGUE_MODEL_FACTOR = 0.985
 
 MIN_LEAGUE_MATCHES = 24
 MIN_VENUE_MATCHES = 5
@@ -153,6 +155,7 @@ class QuotedLeg:
     candidate: ChallengeCandidate
     odds: float
     expected_roi: float
+    quote_observation_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +166,7 @@ class QuotedTicket:
     expected_roi: float
     stake_fraction: float
     model_dependency_factor: float
+    dependence_floor_probability: float
 
     @property
     def potential_multiplier(self) -> float:
@@ -2132,6 +2136,38 @@ def _independent_fixture_set(candidates: Iterable[ChallengeCandidate]) -> bool:
     return len(set(team_ids)) == len(team_ids)
 
 
+def ticket_dependency_factor(
+    candidates: Iterable[ChallengeCandidate],
+) -> float:
+    """Policy haircut for shared model risk across accumulator legs."""
+    items = tuple(candidates)
+    if not items:
+        raise ValueError("A ticket needs at least one candidate")
+    same_league_pairs = sum(
+        1
+        for first, second in combinations(items, 2)
+        if first.league_id == second.league_id
+    )
+    return (
+        CROSS_LEG_MODEL_FACTOR ** max(0, len(items) - 1)
+        * SAME_LEAGUE_MODEL_FACTOR ** same_league_pairs
+    )
+
+
+def dependence_floor_probability(
+    candidates: Iterable[ChallengeCandidate],
+) -> float:
+    """Frechet lower bound using only conservative marginal probabilities."""
+    items = tuple(candidates)
+    if not items:
+        raise ValueError("A ticket needs at least one candidate")
+    return max(
+        0.0,
+        sum(candidate.conservative_probability for candidate in items)
+        - (len(items) - 1),
+    )
+
+
 def select_model_ticket(
     candidates: Iterable[ChallengeCandidate],
     odds_min: float = TARGET_ODDS_MIN,
@@ -2161,7 +2197,7 @@ def select_model_ticket(
         for legs in combinations(board, size):
             if not _independent_fixture_set(legs):
                 continue
-            dependency_factor = CROSS_LEG_MODEL_FACTOR ** max(0, size - 1)
+            dependency_factor = ticket_dependency_factor(legs)
             joint = (
                 math.prod(leg.conservative_probability for leg in legs)
                 * dependency_factor
@@ -2186,6 +2222,7 @@ def select_quoted_ticket(
     candidates: Iterable[ChallengeCandidate],
     odds_by_candidate: dict[str, float],
     *,
+    quote_observation_ids: Optional[dict[str, int]] = None,
     odds_min: float = TARGET_ODDS_MIN,
     odds_max: float = TARGET_ODDS_MAX,
     minimum_ticket_roi: float = MIN_LEG_EXPECTED_ROI,
@@ -2216,7 +2253,10 @@ def select_quoted_ticket(
         or minimum_leg_roi < 0.0
     ):
         raise ValueError("ROI thresholds must be finite and non-negative")
-    priced: list[tuple[ChallengeCandidate, float, float]] = []
+    observation_ids = quote_observation_ids or {}
+    if not isinstance(observation_ids, dict):
+        raise ValueError("quote_observation_ids must be a mapping")
+    priced: list[tuple[ChallengeCandidate, float, float, Optional[int]]] = []
     for candidate in candidates:
         if not candidate_is_credible(candidate) or not _future_candidate(candidate, now_utc):
             continue
@@ -2236,7 +2276,21 @@ def select_quoted_ticket(
             continue
         if metrics.risk_adjusted_expected_roi < minimum_leg_roi * 100.0:
             continue
-        priced.append((candidate, odds, metrics.risk_adjusted_expected_roi / 100.0))
+        observation_id = observation_ids.get(candidate.candidate_id)
+        if observation_id is not None and (
+            isinstance(observation_id, bool)
+            or not isinstance(observation_id, int)
+            or observation_id <= 0
+        ):
+            raise ValueError("quote observation IDs must be positive integers")
+        priced.append(
+            (
+                candidate,
+                odds,
+                metrics.risk_adjusted_expected_roi / 100.0,
+                observation_id,
+            )
+        )
 
     options: list[QuotedTicket] = []
     for size in range(1, MAX_TICKET_LEGS + 1):
@@ -2247,7 +2301,7 @@ def select_quoted_ticket(
             total_odds = math.prod(entry[1] for entry in entries)
             if not odds_min <= total_odds <= odds_max:
                 continue
-            dependency_factor = CROSS_LEG_MODEL_FACTOR ** max(0, size - 1)
+            dependency_factor = ticket_dependency_factor(candidates_in_ticket)
             joint_probability = (
                 math.prod(
                     candidate.conservative_probability for candidate in candidates_in_ticket
@@ -2265,7 +2319,12 @@ def select_quoted_ticket(
                 kelly_cap=KELLY_REFERENCE_CAP,
             )
             legs = tuple(
-                QuotedLeg(candidate=entry[0], odds=entry[1], expected_roi=entry[2])
+                QuotedLeg(
+                    candidate=entry[0],
+                    odds=entry[1],
+                    expected_roi=entry[2],
+                    quote_observation_id=entry[3],
+                )
                 for entry in entries
             )
             options.append(
@@ -2276,6 +2335,10 @@ def select_quoted_ticket(
                     expected_roi=round(expected_roi, 6),
                     stake_fraction=round(metrics.kelly_fraction, 6),
                     model_dependency_factor=round(dependency_factor, 6),
+                    dependence_floor_probability=round(
+                        dependence_floor_probability(candidates_in_ticket),
+                        6,
+                    ),
                 )
             )
     if not options:
@@ -2297,7 +2360,7 @@ def _stake_fraction(value: Any, label: str) -> float:
         or fraction < MIN_CHALLENGE_STAKE_FRACTION
         or fraction > MAX_CHALLENGE_STAKE_FRACTION
     ):
-        raise ValueError(f"{label} must be between 5% and 100%")
+        raise ValueError(f"{label} must be between 5% and 25%")
     return fraction
 
 
@@ -2341,6 +2404,48 @@ def kelly_reference_stake(ticket: QuotedTicket, available_balance: float) -> flo
     )
 
 
+def risk_managed_ticket_stake(
+    ticket: QuotedTicket,
+    available_balance: float,
+) -> float:
+    """Return quarter-Kelly with an additional 5% single-ticket hard cap."""
+    balance = _finite_nonnegative(available_balance)
+    if balance is None:
+        raise ValueError("Available balance must be finite and non-negative")
+    fraction = _finite_nonnegative(ticket.stake_fraction)
+    if fraction is None or fraction > KELLY_REFERENCE_CAP:
+        raise ValueError("Ticket Kelly fraction is invalid")
+    fraction = min(fraction, MAX_RISK_MANAGED_STAKE_FRACTION)
+    return float(
+        Decimal(str(balance * fraction)).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_FLOOR,
+        )
+    )
+
+
+def expected_log_growth(
+    ticket: QuotedTicket,
+    stake_fraction: float,
+) -> float:
+    """Expected log-bankroll growth for one repeated ticket policy."""
+    fraction = _finite_nonnegative(stake_fraction)
+    if fraction is None or fraction >= 1.0:
+        raise ValueError("Stake fraction must be finite and below 100%")
+    probability = _finite_nonnegative(ticket.joint_probability)
+    odds = _finite_nonnegative(ticket.total_odds)
+    if probability is None or probability > 1.0 or odds is None or odds <= 1.0:
+        raise ValueError("Ticket probability and odds are invalid")
+    if fraction == 0.0:
+        return 0.0
+    win_multiplier = 1.0 + fraction * (odds - 1.0)
+    loss_multiplier = 1.0 - fraction
+    return (
+        probability * math.log(win_multiplier)
+        + (1.0 - probability) * math.log(loss_multiplier)
+    )
+
+
 def consecutive_wins_to_target(
     current_balance: float,
     target_balance: float,
@@ -2371,12 +2476,14 @@ __all__ = [
     "CROSS_LEG_MODEL_FACTOR",
     "DEFAULT_CHALLENGE_STAKE_FRACTION",
     "KELLY_REFERENCE_CAP",
+    "MAX_RISK_MANAGED_STAKE_FRACTION",
     "MARKET_BY_KEY",
     "MARKET_SPECS",
     "MAX_CHALLENGE_STAKE_FRACTION",
     "MAX_TICKET_LEGS",
     "MIN_CHALLENGE_STAKE_FRACTION",
     "QuotedTicket",
+    "SAME_LEAGUE_MODEL_FACTOR",
     "TARGET_BALANCE",
     "TARGET_ODDS_MAX",
     "TARGET_ODDS_MIN",
@@ -2385,6 +2492,8 @@ __all__ = [
     "build_fixture_candidates",
     "candidate_is_credible",
     "consecutive_wins_to_target",
+    "dependence_floor_probability",
+    "expected_log_growth",
     "fixture_market_probabilities",
     "market_outcome",
     "market_probability",
@@ -2393,6 +2502,8 @@ __all__ = [
     "select_quoted_ticket",
     "select_shortlist",
     "kelly_reference_stake",
+    "risk_managed_ticket_stake",
     "ticket_stake",
+    "ticket_dependency_factor",
     "validate_league_markets",
 ]

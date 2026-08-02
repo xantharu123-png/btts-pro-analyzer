@@ -17,12 +17,17 @@ import streamlit as st
 
 import scan_jobs
 
+from api_budget import (
+    APIBudgetError,
+    APIBudgetPriority,
+    api_football_get,
+)
 from betting_math import minimum_acceptable_odds
 from challenge_engine import (
     ChallengeCandidate,
     COUNT_MARKET_KINDS,
-    CROSS_LEG_MODEL_FACTOR,
     MARKET_BY_KEY,
+    MAX_CHALLENGE_STAKE_FRACTION,
     MIN_LEG_EXPECTED_ROI,
     TARGET_ODDS_MAX,
     TARGET_ODDS_MIN,
@@ -30,15 +35,17 @@ from challenge_engine import (
     apply_candidate_context,
     build_fixture_candidates,
     consecutive_wins_to_target,
+    expected_log_growth,
     extract_lineup_display,
     fit_market_calibration,
-    kelly_reference_stake,
     market_outcome,
     market_specs,
     select_model_ticket,
     select_quoted_ticket,
     select_shortlist,
+    risk_managed_ticket_stake,
     ticket_stake,
+    ticket_dependency_factor,
     validate_league_markets,
 )
 from challenge_store import ChallengeLedger
@@ -47,12 +54,18 @@ from ui_components import milestone_bar_html, plain_german, render_empty_state
 from football_data_history import fetch_history as fetch_stat_history
 from football_data_history import merge_api_tail
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
+from price_ledger import (
+    PriceLedger,
+    PriceLedgerError,
+    PriceLedgerIntegrityError,
+    PriceQuote,
+)
 from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 4
-CHALLENGE_WORKSPACE_VERSION = 4
+CHALLENGE_SNAPSHOT_VERSION = 5
+CHALLENGE_WORKSPACE_VERSION = 5
 CHALLENGE_TIMEZONE = ZoneInfo("Europe/Zurich")
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
 API_TAIL_DAYS = 7  # Frische-Tail: API-FT-Ergebnisse über die CSV-Historie legen
@@ -257,18 +270,22 @@ class ChallengeDataProvider:
         path: str,
         params: dict[str, Any],
         label: str,
+        *,
+        priority: APIBudgetPriority | str = APIBudgetPriority.RECOMMENDATION,
     ) -> Optional[list[dict[str, Any]]]:
         self._rate_limit()
         try:
-            response = requests.get(
+            response = api_football_get(
                 f"{self.base_url}/{path}",
                 headers=self.headers,
                 params=params,
                 timeout=20,
+                priority=priority,
+                label=label,
             )
             response.raise_for_status()
             payload = response.json()
-        except (requests.RequestException, ValueError) as exc:
+        except (APIBudgetError, requests.RequestException, ValueError) as exc:
             self.errors.append(f"{label}: {exc}")
             return None
         if not isinstance(payload, dict):
@@ -330,6 +347,7 @@ class ChallengeDataProvider:
                 "timezone": "Europe/Zurich",
             },
             f"FT-Tail Liga {league_id}",
+            priority=APIBudgetPriority.BACKGROUND,
         )
 
     def completed_history(
@@ -361,6 +379,7 @@ class ChallengeDataProvider:
                 "fixtures",
                 {"league": league_id, "season": season, "status": "FT"},
                 f"Historie Liga {league_id}",
+                priority=APIBudgetPriority.BACKGROUND,
             ) or []
         if (
             len(history) < MIN_HISTORY_GAMES
@@ -377,6 +396,7 @@ class ChallengeDataProvider:
                     "fixtures",
                     {"league": league_id, "season": season - 1, "status": "FT"},
                     f"Vorsaison Liga {league_id}",
+                    priority=APIBudgetPriority.BACKGROUND,
                 )
             if previous:
                 history = list(previous) + list(history)
@@ -475,6 +495,19 @@ class ChallengeDataProvider:
                 if result[fixture_id] is not None:
                     result[fixture_id].append(entry)
         return result
+
+    def _background_football_get(
+        self,
+        path: str,
+        params: dict[str, Any],
+        label: str,
+    ) -> Optional[list[dict[str, Any]]]:
+        return self._football_get(
+            path,
+            params,
+            label,
+            priority=APIBudgetPriority.BACKGROUND,
+        )
 
     def details_by_fixture(self, fixture_ids: list[int]) -> dict[int, Optional[dict[str, Any]]]:
         result: dict[int, Optional[dict[str, Any]]] = {fixture_id: None for fixture_id in fixture_ids}
@@ -968,7 +1001,7 @@ def scan_daily_challenge(
                         history,
                         league_id,
                         season,
-                        provider._football_get,
+                        provider._background_football_get,
                         max_new_calls=XG_MAX_NEW_CALLS_PER_SCAN,
                     )
                     if xg_stats.get("coverage", 0.0) < 0.5:
@@ -1366,7 +1399,7 @@ def _render_progress(ledger: ChallengeLedger) -> dict[str, Any]:
         ("Guthaben", _format_euro(current)),
         ("Ziel", _format_euro(target)),
         ("Noch offen", _format_euro(max(0.0, target - current))),
-        ("Challenge-Einsatz", _format_euro(current * stake_fraction)),
+        ("Shadow-Einsatz", _format_euro(current * stake_fraction)),
     )
     stats_html = "".join(
         '<div class="bb-challenge-stat">'
@@ -1396,7 +1429,7 @@ def _render_account(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     stake_percent = st.slider(
         "Einsatzanteil je Ticket (%)",
         min_value=5,
-        max_value=100,
+        max_value=int(MAX_CHALLENGE_STAKE_FRACTION * 100),
         value=int(round(settings["stake_fraction"] * 100)),
         step=5,
         key="challenge_stake_percent",
@@ -1438,8 +1471,11 @@ def _render_account(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         f"{wins_at_three} Siege" if wins_at_three is not None else "nicht erreichbar",
     )
     projection[2].metric("Saldo nach Verlust", _format_euro(loss_balance))
-    if stake_percent == 100:
-        st.warning("100 % Roll-over: Eine verlorene Wette setzt das Challenge-Guthaben auf 0 €.")
+    if stake_percent == int(MAX_CHALLENGE_STAKE_FRACTION * 100):
+        st.warning(
+            "25 % je Ticket ist bereits eine extreme Challenge-Simulation. "
+            "Es ist keine professionelle Echtgeld-Einsatzempfehlung."
+        )
 
     st.divider()
     balance = st.number_input(
@@ -1820,7 +1856,7 @@ def _render_price_check(
             f"{candidate.home_team} vs {candidate.away_team}: {candidate.selection}"
             for candidate in preview
         )
-        dependency_factor = CROSS_LEG_MODEL_FACTOR ** max(0, len(preview) - 1)
+        dependency_factor = ticket_dependency_factor(preview)
         preview_probability = (
             math.prod(candidate.conservative_probability for candidate in preview)
             * dependency_factor
@@ -1899,13 +1935,72 @@ def _render_price_check(
                 + "; ".join(implausible_entries)
                 + ". Dezimalquoten müssen über 1,00 liegen; 0 bedeutet Markt nicht verfügbar."
             )
-        ticket = select_quoted_ticket(shortlist, odds_by_candidate)
+        checked_at = datetime.now(timezone.utc)
+        valid_price_candidates = [
+            candidate
+            for candidate in shortlist
+            if odds_by_candidate.get(candidate.candidate_id, 0.0) > 1.0
+        ]
+        price_ledger = PriceLedger(ledger.db_path)
+        price_error = None
+        try:
+            observations = price_ledger.append_many(
+                (
+                    PriceQuote(
+                        sport="FOOTBALL",
+                        event_id=str(candidate.fixture_id),
+                        event_name=(
+                            f"{candidate.home_team} vs {candidate.away_team}"
+                        ),
+                        scheduled_start=candidate.kickoff,
+                        market_key=candidate.market_key,
+                        market_name=candidate.market,
+                        selection_key=candidate.candidate_id,
+                        selection_name=candidate.selection,
+                        decimal_odds=odds_by_candidate[candidate.candidate_id],
+                        phase="ENTRY",
+                        source="MANUAL",
+                        captured_at=checked_at,
+                        line=MARKET_BY_KEY[candidate.market_key].threshold,
+                        model_ref=(
+                            f"challenge-snapshot-v{CHALLENGE_SNAPSHOT_VERSION}:"
+                            f"{snapshot['scanned_at']}"
+                        ),
+                        metadata={
+                            "candidate_id": candidate.candidate_id,
+                            "league_id": candidate.league_id,
+                        },
+                    )
+                    for candidate in valid_price_candidates
+                ),
+                now=checked_at,
+            )
+        except (PriceLedgerError, PriceLedgerIntegrityError) as exc:
+            observations = []
+            price_error = str(exc)
+            st.error(f"PREIS NICHT GESPEICHERT: {exc}")
+        observation_ids = {
+            candidate.candidate_id: observation.id
+            for candidate, observation in zip(
+                valid_price_candidates,
+                observations,
+            )
+        }
+        ticket = (
+            select_quoted_ticket(
+                shortlist,
+                odds_by_candidate,
+                quote_observation_ids=observation_ids,
+            )
+            if len(observations) == len(valid_price_candidates)
+            else None
+        )
         st.session_state["challenge_quote_result"] = {
             "snapshot_time": snapshot["scanned_at"],
-            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "checked_at": checked_at.isoformat(),
             "ticket": ticket,
         }
-        if ticket is None:
+        if ticket is None and price_error is None:
             st.error(
                 "NICHT WETTEN: Keine Kombination erfüllt Zielquote, Einzel-Value und Mindest-EV gemeinsam."
             )
@@ -1938,12 +2033,16 @@ def _render_price_check(
     st.dataframe(pd.DataFrame(final_rows), width="stretch", hide_index=True)
     if len(ticket.legs) > 1:
         st.caption(
-            f"Zusätzlicher Kombi-Modellfehlerabschlag: Faktor {ticket.model_dependency_factor:.3f}."
+            f"Zusätzlicher Kombi-Modellfehlerabschlag: Faktor "
+            f"{ticket.model_dependency_factor:.3f}. "
+            f"Abhängigkeitsfreie Fréchet-Stressgrenze: "
+            f"{ticket.dependence_floor_probability * 100:.1f} %."
         )
     current_balance = settings["current_balance"]
     stake_fraction = settings["stake_fraction"]
     stake = ticket_stake(ticket, current_balance, stake_fraction)
-    kelly_stake = kelly_reference_stake(ticket, current_balance)
+    risk_stake = risk_managed_ticket_stake(ticket, current_balance)
+    log_growth = expected_log_growth(ticket, stake_fraction)
     win_balance = current_balance - stake + stake * ticket.total_odds
     loss_balance = current_balance - stake
     wins_remaining = consecutive_wins_to_target(
@@ -1953,18 +2052,28 @@ def _render_price_check(
         stake_fraction,
     )
     stake_metrics = st.columns(4)
-    stake_metrics[0].metric("Challenge-Einsatz", _format_euro(stake))
+    stake_metrics[0].metric("Shadow-Einsatz", _format_euro(stake))
     stake_metrics[1].metric("Saldo bei Gewinn", _format_euro(win_balance))
     stake_metrics[2].metric("Saldo bei Verlust", _format_euro(loss_balance))
-    stake_metrics[3].metric("¼-Kelly-Referenz", _format_euro(kelly_stake))
+    stake_metrics[3].metric("Risikoreferenz", _format_euro(risk_stake))
     if wins_remaining is not None and wins_remaining > 0:
         path_probability = ticket.joint_probability ** wins_remaining
         st.caption(
             f"Bei unveränderter Quote wären {wins_remaining} Siege in Folge bis zum Ziel nötig. "
             f"Modellpfad unter identischer Trefferchance: {path_probability * 100:.3f} %."
         )
-    if stake_fraction >= 1.0:
-        st.warning("All-in-Stufe: Eine Niederlage beendet die Challenge mit 0 € Guthaben.")
+    if log_growth <= 0.0:
+        st.warning(
+            "Der gewählte Shadow-Einsatz hat bei dieser Quote und "
+            "Trefferwahrscheinlichkeit negatives erwartetes Log-Wachstum. "
+            "Er ist mathematisch überzogen; die Risikoreferenz ist maßgeblich."
+        )
+    elif stake > risk_stake:
+        st.warning(
+            "Der Shadow-Einsatz liegt über der 5-%-gedeckelten "
+            "Viertel-Kelly-Risikoreferenz. Das beschleunigt nur die Simulation, "
+            "nicht den nachgewiesenen Vorteil."
+        )
     if stale:
         st.warning(
             "PREIS ERFORDERLICH: Die geprüften N1Bet-Preise sind älter als 10 Minuten. Erneut prüfen."
@@ -1975,7 +2084,7 @@ def _render_price_check(
         return
     st.info(
         f"SHADOW-TICKET: {len(ticket.legs)} Spiel(e) @ Gesamtquote "
-        f"{ticket.total_odds:.2f} | simulierter Challenge-Einsatz "
+        f"{ticket.total_odds:.2f} | simulierter Shadow-Einsatz "
         f"{stake:.2f} €. Die Preisprüfung ist bestanden; eine "
         "Echtgeldfreigabe benötigt noch unabhängige CLV-/ROI-Evidenz."
     )

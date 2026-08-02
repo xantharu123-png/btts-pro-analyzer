@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 
+from api_budget import APIBudgetError, APIBudgetPriority, api_football_get
 from season_utils import current_season_start_year_for_id
 
 
@@ -150,6 +151,13 @@ class PreMatchAlternativeAnalyzer:
             time.sleep(1.0 - elapsed)
         self.last_request = time.monotonic()
 
+    def _get(self, url: str, **kwargs):
+        return api_football_get(
+            url,
+            priority=APIBudgetPriority.RECOMMENDATION,
+            **kwargs,
+        )
+
     def _response_data(self, response, label: str, expected_type):
         if response.status_code != 200:
             self.errors[label] = f"HTTP {response.status_code}"
@@ -219,7 +227,7 @@ class PreMatchAlternativeAnalyzer:
 
         self._rate_limit()
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/teams/statistics",
                 headers=self.headers,
                 params={'team': team_id, 'league': league_id, 'season': season},
@@ -228,7 +236,7 @@ class PreMatchAlternativeAnalyzer:
             data = self._response_data(response, f'team_{team_id}', dict)
             if data is None:
                 return self._empty_team_stats()
-        except (requests.RequestException, ValueError):
+        except (APIBudgetError, requests.RequestException, ValueError):
             return self._empty_team_stats()
 
         fixtures_data = data.get('fixtures')
@@ -330,7 +338,7 @@ class PreMatchAlternativeAnalyzer:
             return self.cache[cache_key]
         self._rate_limit()
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/fixtures/statistics",
                 headers=self.headers,
                 params={'fixture': fixture_id},
@@ -343,7 +351,7 @@ class PreMatchAlternativeAnalyzer:
             )
             if entries is None:
                 return None
-        except (requests.RequestException, ValueError):
+        except (APIBudgetError, requests.RequestException, ValueError):
             return None
 
         by_team = {}
@@ -420,7 +428,7 @@ class PreMatchAlternativeAnalyzer:
             params.update({'league': league_id, 'season': season})
         self._rate_limit()
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
                 params=params,
@@ -433,7 +441,7 @@ class PreMatchAlternativeAnalyzer:
             )
             if fixtures is None:
                 return self._empty_corner_stats()
-        except (requests.RequestException, ValueError):
+        except (APIBudgetError, requests.RequestException, ValueError):
             return self._empty_corner_stats()
 
         corners_for = []

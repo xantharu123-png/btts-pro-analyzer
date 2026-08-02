@@ -182,7 +182,9 @@ class CompletedHistoryMergeTest(unittest.TestCase):
         tail = [api_entry(9001, NOW - timedelta(days=1), "Newcastle", "West Ham", 601, 602)]
         provider = ChallengeDataProvider("test-key", None)
         provider._football_get = Mock(
-            side_effect=lambda endpoint, params, label: tail if "Tail" in label else None
+            side_effect=lambda endpoint, params, label, **_kwargs: (
+                tail if "Tail" in label else None
+            )
         )
 
         def fake_stat_history(league_id, season, upcoming):
@@ -201,7 +203,7 @@ class CompletedHistoryMergeTest(unittest.TestCase):
     def test_completed_history_falls_back_to_full_api_without_csv(self):
         provider = ChallengeDataProvider("test-key", None)
         provider._football_get = Mock(
-            side_effect=lambda endpoint, params, label: (
+            side_effect=lambda endpoint, params, label, **_kwargs: (
                 [api_entry(1, NOW, "A", "B", 1, 2)] if params.get("season") == 2025 else None
             )
         )

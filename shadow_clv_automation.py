@@ -29,6 +29,11 @@ sys.path.insert(0, str(PROJECT_DIR))
 
 import requests  # noqa: E402
 
+from api_budget import (  # noqa: E402
+    APIBudgetError,
+    APIBudgetPriority,
+    api_football_get,
+)
 from betting_math import BettingMathError, evaluate_market_price  # noqa: E402
 from challenge_engine import (  # noqa: E402
     KELLY_REFERENCE_CAP,
@@ -251,19 +256,26 @@ class ShadowProvider:
         self.weather_key = weather_key
         self._last_request = 0.0
 
-    def _get(self, path: str, params: dict, label: str):
+    def _get(
+        self,
+        path: str,
+        params: dict,
+        label: str,
+        *,
+        priority: APIBudgetPriority | str = APIBudgetPriority.RECOMMENDATION,
+    ):
         elapsed = time.monotonic() - self._last_request
         if elapsed < 0.5:
             time.sleep(0.5 - elapsed)
         self._last_request = time.monotonic()
         try:
-            response = requests.get(
+            response = api_football_get(
                 f"{self.base_url}/{path}", headers=self.headers,
-                params=params, timeout=20,
+                params=params, timeout=20, priority=priority, label=label,
             )
             response.raise_for_status()
             payload = response.json()
-        except (requests.RequestException, ValueError) as exc:
+        except (APIBudgetError, requests.RequestException, ValueError) as exc:
             errors.append(f"{label}: {exc}")
             return None
         if not isinstance(payload, dict) or payload.get("errors"):
@@ -288,12 +300,14 @@ class ShadowProvider:
             return []
         return self._get(
             "fixtures", {"ids": "-".join(str(i) for i in ids[:20])}, "Fixture-Details",
+            priority=APIBudgetPriority.CRITICAL,
         ) or []
 
     def ft_history(self, league_id: int, season: int):
         return self._get(
             "fixtures", {"league": league_id, "season": season, "status": "FT"},
             f"Historie Liga {league_id}",
+            priority=APIBudgetPriority.BACKGROUND,
         )
 
     def ft_tail(self, league_id: int, season: int, from_date, to_date):
@@ -309,6 +323,7 @@ class ShadowProvider:
                 "timezone": "Europe/Zurich",
             },
             f"FT-Tail Liga {league_id}",
+            priority=APIBudgetPriority.BACKGROUND,
         )
 
     def coverage(self, league_id: int, season: int) -> dict:
@@ -336,8 +351,18 @@ class ShadowProvider:
             return data[0]
         return None
 
-    def odds(self, fixture_id: int):
-        return self._get("odds", {"fixture": fixture_id}, f"Quoten {fixture_id}")
+    def odds(
+        self,
+        fixture_id: int,
+        *,
+        priority: APIBudgetPriority | str = APIBudgetPriority.RECOMMENDATION,
+    ):
+        return self._get(
+            "odds",
+            {"fixture": fixture_id},
+            f"Quoten {fixture_id}",
+            priority=priority,
+        )
 
     def weather(self, fixture: dict):
         if not self.weather_key:
@@ -678,7 +703,13 @@ def step_closing(tracker: CLVTracker, provider: ShadowProvider, now: datetime) -
             if str(market_type) in _QUOTE_BETS
             else ("BTTS_YES" if str(selection).strip() == "Ja" else "BTTS_NO")
         )
-        quote = _market_quote(provider.odds(fixture_id), market_key)
+        quote = _market_quote(
+            provider.odds(
+                fixture_id,
+                priority=APIBudgetPriority.CRITICAL,
+            ),
+            market_key,
+        )
         if quote is None:
             errors.append(f"Closing {fixture_id}: {BOOKMAKER_NAME}-Quote {market_key} fehlt")
             continue

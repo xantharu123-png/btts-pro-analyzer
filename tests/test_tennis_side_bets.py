@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -28,12 +28,13 @@ def _prediction_id() -> int:
         def market_summary(self):
             return {"over_2_5_sets": 0.55}
 
+    start = datetime.now(timezone.utc) + timedelta(minutes=30)
     return shadow.store_prediction(
-        "2030-01-01",
+        start.date().isoformat(),
         "ATP",
         "Test Open",
         _Pred(),
-        scheduled_start_utc="2030-01-01T12:00:00Z",
+        scheduled_start_utc=start.isoformat(),
     )
 
 
@@ -41,7 +42,7 @@ class TestSideBets:
     def test_store_and_settle_win(self, tmp_db):
         pid = _prediction_id()
         bet_id = shadow.store_side_bet(pid, "over_2_5_sets", 0.55, 2.10, 0.074)
-        captured = datetime(2030, 1, 1, 11, 30, tzinfo=timezone.utc).timestamp()
+        captured = datetime.now(timezone.utc).timestamp()
         shadow.record_side_closing_price(
             bet_id,
             2.00,
@@ -89,4 +90,4 @@ class TestSideBets:
         rows = shadow.open_side_bets()
         assert len(rows) == 1
         assert rows[0]["player_a"] == "Alpha A."
-        assert rows[0]["match_date"] == "2030-01-01"
+        assert rows[0]["match_date"] == datetime.now(timezone.utc).date().isoformat()

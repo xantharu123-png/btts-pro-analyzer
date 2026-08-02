@@ -18,9 +18,11 @@ from challenge_engine import (
     build_fixture_candidates,
     candidate_is_credible,
     consecutive_wins_to_target,
+    expected_log_growth,
     kelly_reference_stake,
     market_outcome,
     score_matrix,
+    risk_managed_ticket_stake,
     select_model_ticket,
     select_quoted_ticket,
     select_shortlist,
@@ -29,6 +31,7 @@ from challenge_engine import (
 )
 from challenge_store import ChallengeLedger
 from football_data_history import parse_history_csv
+from price_ledger import PriceLedger, PriceQuote
 
 
 def fixture(
@@ -647,8 +650,9 @@ class ChallengeTicketTests(unittest.TestCase):
         self.assertEqual(len({leg.candidate.fixture_id for leg in ticket.legs}), len(ticket.legs))
         self.assertGreaterEqual(ticket.total_odds, 2.0)
         self.assertLessEqual(ticket.total_odds, 3.0)
-        self.assertAlmostEqual(ticket.model_dependency_factor, 0.97)
+        self.assertAlmostEqual(ticket.model_dependency_factor, 0.95545)
         self.assertLess(ticket.joint_probability, 0.70 * 0.69)
+        self.assertAlmostEqual(ticket.dependence_floor_probability, 0.39)
 
     def test_negative_value_single_leg_cannot_hide_in_ticket(self):
         candidates = [
@@ -734,15 +738,94 @@ class ChallengeTicketTests(unittest.TestCase):
         capped_ticket = replace(ticket, stake_fraction=0.02)
         self.assertEqual(ticket_stake(capped_ticket, 101.25, 0.25), 25.31)
         self.assertEqual(kelly_reference_stake(capped_ticket, 101.25), 2.02)
+        self.assertEqual(risk_managed_ticket_stake(capped_ticket, 101.25), 2.02)
+        self.assertLess(expected_log_growth(ticket, 0.25), 0.0)
 
     def test_rollover_growth_projection_matches_target_math(self):
-        self.assertEqual(consecutive_wins_to_target(100, 15_000, 2.0, 1.0), 8)
-        self.assertEqual(consecutive_wins_to_target(100, 15_000, 3.0, 1.0), 5)
-        self.assertEqual(consecutive_wins_to_target(100, 15_000, 2.0, 0.5), 13)
-        self.assertEqual(consecutive_wins_to_target(15_000, 15_000, 2.0, 1.0), 0)
+        self.assertEqual(consecutive_wins_to_target(100, 15_000, 2.0, 0.25), 23)
+        self.assertEqual(consecutive_wins_to_target(100, 15_000, 3.0, 0.25), 13)
+        self.assertEqual(consecutive_wins_to_target(100, 15_000, 2.0, 0.10), 53)
+        self.assertEqual(consecutive_wins_to_target(15_000, 15_000, 2.0, 0.25), 0)
 
 
 class ChallengeLedgerTests(unittest.TestCase):
+    def test_placed_ticket_has_verified_append_only_n1bet_price_ids(self):
+        candidates = [
+            candidate("1:BTTS", 1, 0.70),
+            candidate("2:BTTS", 2, 0.69),
+        ]
+        ticket = select_quoted_ticket(
+            candidates,
+            {"1:BTTS": 1.50, "2:BTTS": 1.50},
+        )
+        self.assertIsNotNone(ticket)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "challenge.db"
+            ledger = ChallengeLedger(db_path)
+            ticket_id = ledger.place_ticket(
+                "2026-07-14",
+                ticket,
+                ticket_stake(ticket, 100.0),
+                datetime.now(timezone.utc).isoformat(),
+            )
+            stored = ledger.get_ticket(ticket_id)
+            observation_ids = [
+                leg["quote_observation_id"] for leg in stored["legs"]
+            ]
+            self.assertTrue(all(value > 0 for value in observation_ids))
+            prices = PriceLedger(db_path)
+            self.assertEqual(prices.verify_chain(), (True, None))
+            self.assertEqual(
+                [prices.get(value).bookmaker for value in observation_ids],
+                ["N1Bet", "N1Bet"],
+            )
+
+    def test_ticket_rejects_quote_observation_from_another_candidate(self):
+        candidates = [
+            candidate("1:BTTS", 1, 0.70),
+            candidate("2:BTTS", 2, 0.69),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "challenge.db"
+            ledger = ChallengeLedger(db_path)
+            captured = datetime.now(timezone.utc)
+            price_ledger = PriceLedger(db_path)
+            observations = price_ledger.append_many(
+                [
+                    PriceQuote(
+                        sport="FOOTBALL",
+                        event_id=str(item.fixture_id),
+                        event_name=f"{item.home_team} vs {item.away_team}",
+                        scheduled_start=item.kickoff,
+                        market_key=item.market_key,
+                        market_name=item.market,
+                        selection_key=item.candidate_id,
+                        selection_name=item.selection,
+                        decimal_odds=1.50,
+                        captured_at=captured,
+                    )
+                    for item in candidates
+                ],
+                now=captured,
+            )
+            ticket = select_quoted_ticket(
+                candidates,
+                {"1:BTTS": 1.50, "2:BTTS": 1.50},
+                quote_observation_ids={
+                    "1:BTTS": observations[1].id,
+                    "2:BTTS": observations[0].id,
+                },
+            )
+            self.assertIsNotNone(ticket)
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                ledger.place_ticket(
+                    "2026-07-14",
+                    ticket,
+                    ticket_stake(ticket, 100.0),
+                    captured.isoformat(),
+                )
+
     def test_place_and_win_are_cent_accurate_and_idempotent(self):
         candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
@@ -798,8 +881,8 @@ class ChallengeLedgerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             ledger = ChallengeLedger(Path(tmp) / "challenge.db")
-            ledger.set_stake_fraction(0.5)
-            stake = ticket_stake(ticket, 100.0, 0.5)
+            ledger.set_stake_fraction(0.25)
+            stake = ticket_stake(ticket, 100.0, 0.25)
             ticket_id = ledger.place_ticket(
                 "2026-07-14",
                 ticket,
@@ -886,7 +969,7 @@ class ChallengeLedgerTests(unittest.TestCase):
                     datetime.now(timezone.utc).isoformat(),
                 )
 
-    def test_legacy_database_migrates_to_full_rollover_default(self):
+    def test_legacy_database_migrates_to_capped_shadow_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "legacy.db"
             with closing(sqlite3.connect(db_path)) as connection:
@@ -908,7 +991,7 @@ class ChallengeLedgerTests(unittest.TestCase):
 
             ledger = ChallengeLedger(db_path)
 
-            self.assertEqual(ledger.settings()["stake_fraction"], 1.0)
+            self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
             ledger.set_stake_fraction(0.25)
             self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
 

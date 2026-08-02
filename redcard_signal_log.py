@@ -355,7 +355,10 @@ def main() -> None:
         from config_loader import load_app_config
 
         config = load_app_config()
-        api = APIFootball(config.api_football_key)
+        api = APIFootball(
+            config.api_football_key,
+            budget_priority="critical",
+        )
         result = settle_open_signals(api, max_fixtures=args.max)
         print(f"Settlement: {result}")
     if args.stats or not (args.settle or args.stats):

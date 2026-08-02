@@ -19,8 +19,6 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-import requests
-
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config_loader import load_app_config
@@ -208,7 +206,7 @@ class RedCardHistoryHarvester:
         self.calls_used = 0
 
     def _get(self, endpoint: str, params: Dict) -> List[Dict]:
-        response = requests.get(
+        response = self.api._get(
             f"{self.api.base_url}/{endpoint}",
             headers=self.api.headers,
             params=params,
@@ -391,7 +389,10 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_app_config()
-    api = APIFootball(cfg.api_football_key)
+    api = APIFootball(
+        cfg.api_football_key,
+        budget_priority="background",
+    )
     conn = connect()
     harvester = RedCardHistoryHarvester(api, conn)
 

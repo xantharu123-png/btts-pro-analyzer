@@ -17,6 +17,7 @@ import requests
 import streamlit as st
 
 import league_catalog as _league_catalog
+from api_budget import APIBudgetPriority, api_football_get
 
 
 _REQUIRED_LEAGUE_CATALOG_VERSION = 2
@@ -33,7 +34,7 @@ _REQUIRED_ANALYZER_MODULE_VERSION = 3
 if getattr(_advanced_analyzer, "ANALYZER_MODULE_VERSION", 0) < _REQUIRED_ANALYZER_MODULE_VERSION:
     _advanced_analyzer = importlib.reload(_advanced_analyzer)
 
-_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 4
+_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 5
 if getattr(_challenge_15k, "CHALLENGE_WORKSPACE_VERSION", 0) < _REQUIRED_CHALLENGE_WORKSPACE_VERSION:
     _challenge_15k = importlib.reload(_challenge_15k)
 
@@ -827,10 +828,12 @@ def _api_football_health(api_key: str) -> dict:
     """
     checked_at = datetime.now().astimezone().isoformat()
     try:
-        response = requests.get(
+        response = api_football_get(
             "https://v3.football.api-sports.io/status",
             headers={"x-apisports-key": api_key},
             timeout=8,
+            priority=APIBudgetPriority.RECOMMENDATION,
+            label="account status",
         )
         payload = response.json()
     except Exception as exc:

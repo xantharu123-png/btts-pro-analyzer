@@ -14,6 +14,11 @@ import os
 import math
 from datetime import datetime, timezone
 
+from api_budget import (
+    APIBudgetError,
+    APIBudgetPriority,
+    api_football_get,
+)
 from betting_math import (
     MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
     BettingMathError,
@@ -217,13 +222,20 @@ class OddsAPIClient:
         params = {'fixture': fixture_id}
         
         try:
-            response = requests.get(url, headers=headers, params=params, timeout=10)
+            response = api_football_get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=10,
+                priority=APIBudgetPriority.RECOMMENDATION,
+                label=f"odds fixture {fixture_id}",
+            )
             if response.status_code == 200:
                 data = response.json()
                 if not isinstance(data, dict) or data.get('errors'):
                     return {}
                 return self._parse_api_football_odds(data.get('response', []))
-        except (requests.RequestException, ValueError):
+        except (APIBudgetError, requests.RequestException, ValueError):
             pass
         
         return {}

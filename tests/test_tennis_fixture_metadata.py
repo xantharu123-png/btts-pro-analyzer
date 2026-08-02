@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from scripts import tennis_daily
 from tennis import shadow
@@ -215,22 +215,33 @@ def test_duplicate_scan_backfills_fixture_metadata(tmp_path, monkeypatch):
 
 def test_shadow_summary_reports_clv_and_brier(tmp_path, monkeypatch):
     monkeypatch.setattr(shadow, "DB_PATH", tmp_path / "tennis.db")
+    start = datetime.now(timezone.utc) + timedelta(minutes=30)
     row_id = shadow.store_prediction(
-        "2030-01-02",
+        start.date().isoformat(),
         "ATP",
         "Test Open",
         _RecommendedPrediction(),
         odds_a=2.20,
         odds_b=1.80,
-        scheduled_start_utc="2030-01-02T12:00:00Z",
+        scheduled_start_utc=start.isoformat(),
     )
-    captured = datetime(2030, 1, 2, 11, 30, tzinfo=timezone.utc).timestamp()
+    shadow.record_entry_prices(row_id, 2.20, 1.80)
+    captured = datetime.now(timezone.utc).timestamp()
     shadow.record_closing_prices(
         row_id,
         2.00,
         1.90,
         captured_utc=captured,
     )
+    import pytest
+
+    with pytest.raises(ValueError, match="already frozen"):
+        shadow.record_closing_prices(
+            row_id,
+            2.05,
+            1.85,
+            captured_utc=captured,
+        )
     shadow.settle(row_id, "Alpha")
 
     summary = shadow.summary()

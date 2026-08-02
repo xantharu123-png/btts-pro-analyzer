@@ -1,8 +1,12 @@
 """Tests for the red-card history harvester's pure extraction logic."""
 
 import unittest
+import sqlite3
 
-from redcard_history_harvester import extract_dismissal_case
+from redcard_history_harvester import (
+    RedCardHistoryHarvester,
+    extract_dismissal_case,
+)
 
 
 def _fixture(home_id=10, away_id=20, home_goals=2, away_goals=1):
@@ -95,6 +99,48 @@ class HarvesterExtractionTests(unittest.TestCase):
 
         self.assertIsNotNone(case)
         self.assertEqual(case["red_minute"], 44)
+
+
+class HarvesterQuotaRoutingTests(unittest.TestCase):
+    def test_provider_calls_use_the_budgeted_api_wrapper(self):
+        calls = []
+
+        class FakeResponse:
+            @staticmethod
+            def json():
+                return {"errors": [], "response": [{"fixture": {"id": 7}}]}
+
+        class FakeAPI:
+            base_url = "https://v3.football.api-sports.io"
+            headers = {"x-apisports-key": "test-key"}
+
+            @staticmethod
+            def _get(url, **kwargs):
+                calls.append((url, kwargs))
+                return FakeResponse()
+
+        connection = sqlite3.connect(":memory:")
+        try:
+            harvester = RedCardHistoryHarvester(FakeAPI(), connection)
+            result = harvester._get("fixtures", {"league": 78})
+        finally:
+            connection.close()
+
+        self.assertEqual(result, [{"fixture": {"id": 7}}])
+        self.assertEqual(harvester.calls_used, 1)
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "https://v3.football.api-sports.io/fixtures",
+                    {
+                        "headers": {"x-apisports-key": "test-key"},
+                        "params": {"league": 78},
+                        "timeout": 20,
+                    },
+                )
+            ],
+        )
 
 
 if __name__ == "__main__":

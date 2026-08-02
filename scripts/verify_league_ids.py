@@ -8,8 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import requests
-
+from api_budget import APIBudgetPriority, api_football_get
 from config_loader import load_app_config
 
 
@@ -22,9 +21,11 @@ def main() -> int:
         return 1
     headers = {"x-apisports-key": key}
     for lid in ids:
-        r = requests.get(
+        r = api_football_get(
             "https://v3.football.api-sports.io/leagues",
             headers=headers, params={"id": lid}, timeout=15,
+            priority=APIBudgetPriority.BACKGROUND,
+            label=f"verify league {lid}",
         )
         data = r.json()
         resp = data.get("response") or []

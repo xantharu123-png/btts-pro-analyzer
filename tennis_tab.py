@@ -23,7 +23,6 @@ import json
 import sqlite3
 import subprocess
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -206,18 +205,21 @@ def _update_price_check(
             side, edge = "B", edge_b
         if side:
             verdict = "WETTE"
+    if prices_ok:
+        shadow.record_entry_prices(
+            row_id,
+            odds_a,
+            odds_b,
+        )
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
-            "UPDATE predictions SET odds_a=?, odds_b=?, recommended_side=?, "
-            "recommended_edge=?, verdict=?, price_checked_utc=?, policy_version=? "
+            "UPDATE predictions SET recommended_side=?, "
+            "recommended_edge=?, verdict=?, policy_version=? "
             "WHERE id=?",
             (
-                odds_a,
-                odds_b,
                 side or None,
                 edge or None,
                 verdict,
-                time.time(),
                 shadow.TENNIS_POLICY_VERSION,
                 row_id,
             ),

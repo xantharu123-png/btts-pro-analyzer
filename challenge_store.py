@@ -12,9 +12,9 @@ import sqlite3
 from typing import Any
 
 from challenge_engine import (
-    CROSS_LEG_MODEL_FACTOR,
     DEFAULT_CHALLENGE_STAKE_FRACTION,
     KELLY_REFERENCE_CAP,
+    MARKET_BY_KEY,
     MAX_CHALLENGE_STAKE_FRACTION,
     MIN_CHALLENGE_STAKE_FRACTION,
     MIN_LEG_EXPECTED_ROI,
@@ -23,8 +23,17 @@ from challenge_engine import (
     TARGET_ODDS_MAX,
     TARGET_ODDS_MIN,
     candidate_is_credible,
+    dependence_floor_probability,
+    ticket_dependency_factor,
 )
 from betting_math import BettingMathError, evaluate_market_price, validate_decimal_odds
+from price_ledger import (
+    BOOKMAKER,
+    PriceLedger,
+    PriceLedgerError,
+    PriceLedgerIntegrityError,
+    PriceQuote,
+)
 
 
 DEFAULT_CHALLENGE_DB = Path(__file__).with_name("challenge_15k.db")
@@ -86,8 +95,8 @@ class ChallengeLedger:
                     starting_balance_cents INTEGER NOT NULL CHECK (starting_balance_cents >= 0),
                     current_balance_cents INTEGER NOT NULL CHECK (current_balance_cents >= 0),
                     target_balance_cents INTEGER NOT NULL CHECK (target_balance_cents > 0),
-                    stake_fraction_bps INTEGER NOT NULL DEFAULT 10000
-                        CHECK (stake_fraction_bps BETWEEN 500 AND 10000),
+                    stake_fraction_bps INTEGER NOT NULL DEFAULT 2500
+                        CHECK (stake_fraction_bps BETWEEN 500 AND 2500),
                     updated_at TEXT NOT NULL
                 )
                 """
@@ -100,10 +109,21 @@ class ChallengeLedger:
                 connection.execute(
                     """
                     ALTER TABLE challenge_settings
-                    ADD COLUMN stake_fraction_bps INTEGER NOT NULL DEFAULT 10000
+                    ADD COLUMN stake_fraction_bps INTEGER NOT NULL DEFAULT 2500
                         CHECK (stake_fraction_bps BETWEEN 500 AND 10000)
                     """
                 )
+            connection.execute(
+                """
+                UPDATE challenge_settings
+                SET stake_fraction_bps=?
+                WHERE stake_fraction_bps>?
+                """,
+                (
+                    int(MAX_CHALLENGE_STAKE_FRACTION * 10_000),
+                    int(MAX_CHALLENGE_STAKE_FRACTION * 10_000),
+                ),
+            )
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS challenge_tickets (
@@ -194,6 +214,7 @@ class ChallengeLedger:
                     (now, kind, amount_cents, current_cents, note),
                 )
             connection.commit()
+        PriceLedger(self.db_path)
 
     def settings(self) -> dict[str, Any]:
         with closing(self._connect()) as connection:
@@ -316,7 +337,7 @@ class ChallengeLedger:
             or fraction < Decimal(str(MIN_CHALLENGE_STAKE_FRACTION))
             or fraction > Decimal(str(MAX_CHALLENGE_STAKE_FRACTION))
         ):
-            raise ValueError("Stake fraction must be between 5% and 100%")
+            raise ValueError("Stake fraction must be between 5% and 25%")
         basis_points = int(
             (fraction * Decimal("10000")).quantize(
                 Decimal("1"),
@@ -337,7 +358,10 @@ class ChallengeLedger:
         return self.settings()
 
     @staticmethod
-    def _ticket_legs(ticket: QuotedTicket) -> list[dict[str, Any]]:
+    def _ticket_legs(
+        ticket: QuotedTicket,
+        quote_observation_ids: list[int],
+    ) -> list[dict[str, Any]]:
         return [
             {
                 "candidate_id": leg.candidate.candidate_id,
@@ -351,9 +375,89 @@ class ChallengeLedger:
                 "evidence_score": leg.candidate.evidence_score,
                 "odds": leg.odds,
                 "expected_roi": leg.expected_roi,
+                "quote_observation_id": quote_observation_ids[index],
             }
-            for leg in ticket.legs
+            for index, leg in enumerate(ticket.legs)
         ]
+
+    def _verified_quote_observation_ids(
+        self,
+        ticket: QuotedTicket,
+        *,
+        quote_time: datetime,
+        now: datetime,
+    ) -> list[int]:
+        ledger = PriceLedger(self.db_path)
+        chain_valid, bad_id = ledger.verify_chain()
+        if not chain_valid:
+            raise PriceLedgerIntegrityError(
+                f"price hash chain is invalid at observation {bad_id}"
+            )
+        observation_ids: list[int] = []
+        for leg in ticket.legs:
+            candidate = leg.candidate
+            observation_id = leg.quote_observation_id
+            if observation_id is None:
+                spec = MARKET_BY_KEY.get(candidate.market_key)
+                observation = ledger.append(
+                    PriceQuote(
+                        sport="FOOTBALL",
+                        event_id=str(candidate.fixture_id),
+                        event_name=(
+                            f"{candidate.home_team} vs {candidate.away_team}"
+                        ),
+                        scheduled_start=candidate.kickoff,
+                        market_key=candidate.market_key,
+                        market_name=candidate.market,
+                        selection_key=candidate.candidate_id,
+                        selection_name=candidate.selection,
+                        decimal_odds=leg.odds,
+                        phase="ENTRY",
+                        source="MANUAL",
+                        captured_at=quote_time,
+                        line=spec.threshold if spec is not None else None,
+                        model_ref="challenge-engine-v5",
+                        metadata={
+                            "candidate_id": candidate.candidate_id,
+                            "league_id": candidate.league_id,
+                        },
+                    ),
+                    now=now,
+                )
+                observation_id = observation.id
+            observation = ledger.get(observation_id)
+            expected_start = _utc_datetime(candidate.kickoff, "kickoff")
+            observed_start = _utc_datetime(
+                observation.scheduled_start,
+                "scheduled_start",
+            )
+            observed_capture = _utc_datetime(
+                observation.captured_at,
+                "captured_at",
+            )
+            if (
+                observation.bookmaker != BOOKMAKER
+                or observation.sport != "FOOTBALL"
+                or observation.event_id != str(candidate.fixture_id)
+                or observation.event_name
+                != f"{candidate.home_team} vs {candidate.away_team}"
+                or observation.market_key != candidate.market_key
+                or observation.selection_key != candidate.candidate_id
+                or observation.phase != "ENTRY"
+                or not math.isclose(
+                    observation.decimal_odds,
+                    leg.odds,
+                    rel_tol=0.0,
+                    abs_tol=5e-7,
+                )
+                or observed_start != expected_start
+                or abs((observed_capture - quote_time).total_seconds()) > 1.0
+            ):
+                raise ValueError(
+                    "Ticket price does not match its append-only N1Bet observation"
+                )
+            observation_ids.append(observation_id)
+        return observation_ids
 
     def place_ticket(
         self,
@@ -385,10 +489,15 @@ class ChallengeLedger:
         except BettingMathError as exc:
             raise ValueError("Ticket contains invalid decimal odds") from exc
         derived_total_odds = math.prod(leg_odds)
-        dependency_factor = CROSS_LEG_MODEL_FACTOR ** max(0, len(ticket.legs) - 1)
+        dependency_factor = ticket_dependency_factor(
+            leg.candidate for leg in ticket.legs
+        )
         derived_joint_probability = (
             math.prod(leg.candidate.conservative_probability for leg in ticket.legs)
             * dependency_factor
+        )
+        derived_dependence_floor = dependence_floor_probability(
+            leg.candidate for leg in ticket.legs
         )
         derived_expected_roi = derived_joint_probability * derived_total_odds - 1.0
         derived_leg_rois = [
@@ -422,6 +531,7 @@ class ChallengeLedger:
                 ticket.joint_probability,
                 ticket.expected_roi,
                 ticket.model_dependency_factor,
+                ticket.dependence_floor_probability,
                 ticket.stake_fraction,
             )
             if any(isinstance(value, bool) for value in ticket_fields):
@@ -441,6 +551,11 @@ class ChallengeLedger:
                 math.isclose(
                     float(ticket.model_dependency_factor),
                     dependency_factor,
+                    abs_tol=5e-7,
+                ),
+                math.isclose(
+                    float(ticket.dependence_floor_probability),
+                    derived_dependence_floor,
                     abs_tol=5e-7,
                 ),
                 math.isclose(
@@ -477,7 +592,19 @@ class ChallengeLedger:
         ):
             raise ValueError("Every ticket leg must still be pre-match")
 
-        legs_json = json.dumps(self._ticket_legs(ticket), ensure_ascii=False, separators=(",", ":"))
+        try:
+            quote_observation_ids = self._verified_quote_observation_ids(
+                ticket,
+                quote_time=quote_time,
+                now=now_dt,
+            )
+        except (PriceLedgerError, PriceLedgerIntegrityError) as exc:
+            raise ValueError(str(exc)) from exc
+        legs_json = json.dumps(
+            self._ticket_legs(ticket, quote_observation_ids),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
         now = now_dt.isoformat()
 
         with closing(self._connect()) as connection:

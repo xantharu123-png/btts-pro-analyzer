@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
+from api_budget import APIBudgetPriority, api_football_get
 from season_utils import (
     current_season_start_year,
     current_season_start_year_for_id,
@@ -20,8 +21,18 @@ from league_catalog import ANALYZER_LEAGUE_IDS
 class APIFootball:
     """API-Football wrapper for the canonical 48-league catalog."""
     
-    def __init__(self, api_key: str):
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        budget_priority: APIBudgetPriority | str = APIBudgetPriority.RECOMMENDATION,
+    ):
         self.api_key = api_key
+        self.budget_priority = (
+            budget_priority
+            if isinstance(budget_priority, APIBudgetPriority)
+            else APIBudgetPriority(str(budget_priority).strip().lower())
+        )
         self.base_url = 'https://v3.football.api-sports.io'
         self.headers = {
             'x-apisports-key': api_key  # CORRECTED
@@ -130,6 +141,13 @@ class APIFootball:
             time.sleep(self.min_request_interval - elapsed)
         self.last_request_time = time.time()
 
+    def _get(self, url: str, **kwargs):
+        return api_football_get(
+            url,
+            priority=self.budget_priority,
+            **kwargs,
+        )
+
     def _request(self, endpoint: str, params: Dict) -> Dict:
         """Rate-limitter Roh-GET: volles Provider-Payload-Dict ({} bei Fehler).
 
@@ -139,7 +157,7 @@ class APIFootball:
         self.last_error = None
         self._rate_limit()
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/{endpoint}",
                 headers=self.headers,
                 params=params,
@@ -196,7 +214,7 @@ class APIFootball:
         end_date = today + timedelta(days=days_ahead)
         
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
                 params={
@@ -274,7 +292,7 @@ class APIFootball:
         self._rate_limit()
         
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
                 params={'live': 'all'},
@@ -311,7 +329,7 @@ class APIFootball:
         self._rate_limit()
         
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/fixtures/statistics",
                 headers=self.headers,
                 params={'fixture': fixture_id},
@@ -436,7 +454,7 @@ class APIFootball:
         self._rate_limit()
         
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/teams/statistics",
                 headers=self.headers,
                 params={
@@ -586,7 +604,7 @@ class APIFootball:
             return empty
         self._rate_limit()
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
                 params={
@@ -647,7 +665,7 @@ class APIFootball:
             return []
         self._rate_limit()
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/fixtures/events",
                 headers=self.headers,
                 params={'fixture': fixture_id},
@@ -673,7 +691,7 @@ class APIFootball:
             return []
         self._rate_limit()
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/leagues",
                 headers=self.headers,
                 params={'team': team_id},
@@ -708,7 +726,7 @@ class APIFootball:
         self._rate_limit()
         
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/fixtures/headtohead",
                 headers=self.headers,
                 params={
@@ -750,7 +768,7 @@ class APIFootball:
         self._rate_limit()
         
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
                 params={
@@ -845,7 +863,7 @@ class APIFootball:
             if league_id is not None:
                 params['league'] = league_id
                 params['season'] = season
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
                 params=params,

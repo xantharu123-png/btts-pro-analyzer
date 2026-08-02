@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import sqlite3
 
+from api_budget import APIBudgetPriority, api_football_get
 from config_loader import load_app_config
 from season_utils import current_season_start_year
 from league_catalog import ANALYZER_LEAGUE_IDS
@@ -266,7 +267,7 @@ class DataEngine:
         try:
             self._rate_limit()
             
-            response = requests.get(
+            response = api_football_get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
                 params={
@@ -274,7 +275,9 @@ class DataEngine:
                     'season': season,
                     'status': 'FT'
                 },
-                timeout=30
+                timeout=30,
+                priority=APIBudgetPriority.BACKGROUND,
+                label=f"historical fixtures {league_code}",
             )
             
             if response.status_code != 200:

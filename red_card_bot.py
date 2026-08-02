@@ -11,6 +11,7 @@ import requests
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from api_budget import APIBudgetPriority, api_football_get
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 
 
@@ -119,6 +120,13 @@ class RedCardBotEnhanced:
         self.errors.append({'operation': operation, 'message': str(message)})
         if not self.streamlit_mode:
             print(f"WARNING: {operation}: {message}")
+
+    def _get(self, url: str, **kwargs):
+        return api_football_get(
+            url,
+            priority=APIBudgetPriority.RECOMMENDATION,
+            **kwargs,
+        )
 
     def _response_items(self, response, operation: str) -> Optional[List[Dict]]:
         if response.status_code != 200:
@@ -237,7 +245,7 @@ class RedCardBotEnhanced:
             self._record_error('live_stats', 'invalid identifiers')
             return None
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/fixtures/statistics",
                 headers=self.headers,
                 params={'fixture': fixture_id},
@@ -349,7 +357,7 @@ class RedCardBotEnhanced:
             self._record_error('live_matches', 'invalid league scope')
             return []
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
                 params={'live': 'all'},
@@ -393,7 +401,7 @@ class RedCardBotEnhanced:
         fixture_id, _, home_team_id, away_team_id = identity
         
         try:
-            response = requests.get(
+            response = self._get(
                 f"{self.base_url}/fixtures/events",
                 headers=self.headers,
                 params={'fixture': fixture_id},

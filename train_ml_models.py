@@ -22,6 +22,11 @@ import os
 import time
 from typing import Optional
 
+from api_budget import (
+    APIBudgetError,
+    APIBudgetPriority,
+    api_football_get,
+)
 # Import our V3 engine
 from betboy_v3_ml_engine import (
     BetBoyV3Predictor,
@@ -63,7 +68,7 @@ class HistoricalDataCollector:
         print(f"Collecting {league_id} season {season}...")
         
         try:
-            response = requests.get(
+            response = api_football_get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
                 params={
@@ -71,7 +76,9 @@ class HistoricalDataCollector:
                     'season': season,
                     'status': 'FT'  # Nur beendete Spiele
                 },
-                timeout=30
+                timeout=30,
+                priority=APIBudgetPriority.BACKGROUND,
+                label=f"training history {league_id}/{season}",
             )
             
             if response.status_code != 200:
@@ -92,7 +99,12 @@ class HistoricalDataCollector:
             print(f"   Found {len(fixtures)} fixtures")
             return self._parse_fixtures(fixtures, league_id)
                 
-        except (requests.RequestException, ValueError, TypeError) as exc:
+        except (
+            APIBudgetError,
+            requests.RequestException,
+            ValueError,
+            TypeError,
+        ) as exc:
             self.last_error = type(exc).__name__
             print(f"WARNING: {exc}")
             return pd.DataFrame()

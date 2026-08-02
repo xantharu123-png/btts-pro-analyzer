@@ -29,6 +29,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
+from api_budget import APIBudgetPriority, api_football_get
 from football_data_history import _current_team_mapping, _normalized_team_name
 
 XG_CACHE_PATH = Path(__file__).resolve().with_name("xg_cache.db")
@@ -564,8 +565,6 @@ def annotate_history(
 
 
 def _provider_fetch(api_key: str) -> FetchList:
-    import requests
-
     headers = {"x-apisports-key": api_key}
     base_url = "https://v3.football.api-sports.io"
     last_request = [0.0]
@@ -576,8 +575,13 @@ def _provider_fetch(api_key: str) -> FetchList:
             time.sleep(0.5 - elapsed)
         last_request[0] = time.monotonic()
         try:
-            response = requests.get(
-                f"{base_url}/{path}", headers=headers, params=params, timeout=20
+            response = api_football_get(
+                f"{base_url}/{path}",
+                headers=headers,
+                params=params,
+                timeout=20,
+                priority=APIBudgetPriority.BACKGROUND,
+                label=label,
             )
             response.raise_for_status()
             payload = response.json()
