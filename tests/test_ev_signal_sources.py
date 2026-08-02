@@ -11,6 +11,7 @@ from pathlib import Path
 from betting_math import BETTING_POLICY_VERSION
 from esports_shadow import ESPORTS_MODEL_VERSION
 from ev_signal_sources import (
+    AUTOMATED_WETTFINDER_VERSION,
     automated_wettfinder_signals,
     esports_signals,
     list_signals,
@@ -397,7 +398,7 @@ class ListSignalsTests(unittest.TestCase):
             artifact.write_text(
                 json.dumps(
                     {
-                        "version": 1,
+                        "version": AUTOMATED_WETTFINDER_VERSION,
                         "generated_at": "2030-01-01T10:00:00+00:00",
                         "betting_policy_version": BETTING_POLICY_VERSION,
                         "bookmaker_data_used": False,
@@ -435,7 +436,7 @@ class ListSignalsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact = Path(tmpdir) / "wettfinder.json"
             document = {
-                "version": 1,
+                "version": AUTOMATED_WETTFINDER_VERSION,
                 "generated_at": "2030-01-01T06:00:00+00:00",
                 "betting_policy_version": BETTING_POLICY_VERSION,
                 "bookmaker_data_used": False,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import math
@@ -71,6 +72,7 @@ DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
 API_TAIL_DAYS = 7  # Frische-Tail: API-FT-Ergebnisse über die CSV-Historie legen
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
 MAX_CONTEXT_FIXTURES = 20
+MAX_DISCOVERY_MARKETS_PER_FIXTURE = 8
 # Safety-Ventil, kein Modell-Limit: Alle gültigen Provider-Fixtures der
 # gewählten Ligen werden modelliert. Die zusätzlichen Pflichtkontext-Checks
 # bleiben über MAX_CONTEXT_FIXTURES gedeckelt.
@@ -724,6 +726,46 @@ def _candidate_rank(candidate: ChallengeCandidate) -> tuple[float, float, float]
     )
 
 
+def _discovery_candidate_pool(
+    candidates: list[ChallengeCandidate],
+    fixture_ids: list[int],
+) -> list[ChallengeCandidate]:
+    """Keep a diverse, bounded market pool for later fixture-only refreshes."""
+    allowed = set(fixture_ids)
+    per_fixture: dict[int, int] = {}
+    selected: list[ChallengeCandidate] = []
+    for candidate in sorted(candidates, key=_candidate_rank, reverse=True):
+        if candidate.fixture_id not in allowed:
+            continue
+        count = per_fixture.get(candidate.fixture_id, 0)
+        if count >= MAX_DISCOVERY_MARKETS_PER_FIXTURE:
+            continue
+        selected.append(candidate)
+        per_fixture[candidate.fixture_id] = count + 1
+    return selected
+
+
+def _ranked_fixture_ids(
+    candidates: list[ChallengeCandidate],
+    *,
+    limit: int = MAX_CONTEXT_FIXTURES,
+) -> list[int]:
+    """Rank fixtures by their strongest price-independent market."""
+    best_by_fixture: dict[int, ChallengeCandidate] = {}
+    for candidate in candidates:
+        current = best_by_fixture.get(candidate.fixture_id)
+        if current is None or _candidate_rank(candidate) > _candidate_rank(current):
+            best_by_fixture[candidate.fixture_id] = candidate
+    return [
+        candidate.fixture_id
+        for candidate in sorted(
+            best_by_fixture.values(),
+            key=_candidate_rank,
+            reverse=True,
+        )[:limit]
+    ]
+
+
 def _run_challenge_scan_worker(
     provider: "ChallengeDataProvider",
     league_ids: list[int],
@@ -1074,15 +1116,7 @@ def scan_daily_challenge(
         )
 
     base_candidates = [candidate for candidate in all_candidates if candidate.base_eligible]
-    best_by_fixture: dict[int, ChallengeCandidate] = {}
-    for candidate in base_candidates:
-        current = best_by_fixture.get(candidate.fixture_id)
-        if current is None or _candidate_rank(candidate) > _candidate_rank(current):
-            best_by_fixture[candidate.fixture_id] = candidate
-    context_fixture_ids = [
-        candidate.fixture_id
-        for candidate in sorted(best_by_fixture.values(), key=_candidate_rank, reverse=True)[:MAX_CONTEXT_FIXTURES]
-    ]
+    context_fixture_ids = _ranked_fixture_ids(base_candidates)
     injuries = provider.injuries_by_fixture(context_fixture_ids) if context_fixture_ids else {}
     details = provider.details_by_fixture(context_fixture_ids) if context_fixture_ids else {}
     fixture_by_id = {
@@ -1129,6 +1163,10 @@ def scan_daily_challenge(
     shortlist = select_shortlist(contextualized, max_candidates=3)
     model_ticket = select_model_ticket(shortlist)
     base_shortlist = sorted(base_candidates, key=_candidate_rank, reverse=True)[:10]
+    discovery_candidates = _discovery_candidate_pool(
+        base_candidates,
+        context_fixture_ids,
+    )
     blocked_counts: dict[str, int] = {}
     for candidate in all_candidates:
         reasons = candidate.blocked_reasons or candidate.context.get("blocked_reasons", [])
@@ -1154,7 +1192,124 @@ def scan_daily_challenge(
         "approved_candidates": len(shortlist),
         "shortlist": shortlist,
         "base_shortlist": base_shortlist,
+        "discovery_candidates": discovery_candidates,
         "model_ticket": model_ticket,
+        "blocked_counts": blocked_counts,
+        "errors": list(provider.errors),
+    }
+
+
+def refresh_discovered_candidates(
+    provider: ChallengeDataProvider,
+    candidates: list[ChallengeCandidate],
+    search_date: date,
+    *,
+    now: Optional[datetime] = None,
+    max_candidates: int = 3,
+) -> dict[str, Any]:
+    """Refresh only persisted candidate fixtures, never the full league pool."""
+    if not isinstance(search_date, date) or isinstance(search_date, datetime):
+        raise ValueError("search_date must be a date")
+    if (
+        isinstance(max_candidates, bool)
+        or not isinstance(max_candidates, int)
+        or not 1 <= max_candidates <= 6
+    ):
+        raise ValueError("max_candidates must be an integer between 1 and 6")
+    if not isinstance(candidates, list) or any(
+        not isinstance(candidate, ChallengeCandidate) for candidate in candidates
+    ):
+        raise ValueError("candidates must contain ChallengeCandidate objects")
+
+    refreshed = [deepcopy(candidate) for candidate in candidates]
+    base_candidates = [
+        candidate for candidate in refreshed if candidate.base_eligible
+    ]
+    checked_at = now or datetime.now(timezone.utc)
+    if checked_at.tzinfo is None:
+        checked_at = checked_at.replace(tzinfo=timezone.utc)
+    else:
+        checked_at = checked_at.astimezone(timezone.utc)
+    fixture_ids = _ranked_fixture_ids(base_candidates)
+    if not fixture_ids:
+        return {
+            "checked_at": checked_at.isoformat(),
+            "fixture_ids": [],
+            "shortlist": [],
+            "candidates": [],
+            "blocked_counts": {},
+            "errors": list(provider.errors),
+        }
+
+    details = provider.details_by_fixture(fixture_ids)
+    injuries = provider.injuries_by_fixture(fixture_ids)
+    coverage: dict[int, dict[str, bool]] = {}
+    for candidate in base_candidates:
+        if candidate.fixture_id not in fixture_ids or candidate.league_id in coverage:
+            continue
+        season = current_season_start_year_for_id(candidate.league_id, search_date)
+        coverage[candidate.league_id] = provider.coverage(
+            candidate.league_id,
+            season,
+        )
+
+    representative = {
+        candidate.fixture_id: candidate
+        for candidate in sorted(base_candidates, key=_candidate_rank)
+        if candidate.fixture_id in fixture_ids
+    }
+    h2h_by_fixture: dict[int, Optional[list[dict[str, Any]]]] = {}
+    weather_by_fixture: dict[int, Optional[dict[str, Any]]] = {}
+    for fixture_id, candidate in representative.items():
+        h2h_by_fixture[fixture_id] = provider.h2h(
+            candidate.home_team_id,
+            candidate.away_team_id,
+        )
+        detail = details.get(fixture_id)
+        weather_by_fixture[fixture_id] = (
+            provider.weather(detail) if isinstance(detail, dict) else None
+        )
+
+    contextualized: list[ChallengeCandidate] = []
+    for candidate in base_candidates:
+        if candidate.fixture_id not in fixture_ids:
+            continue
+        detail = details.get(candidate.fixture_id)
+        league_coverage = coverage.get(candidate.league_id, {})
+        apply_candidate_context(
+            candidate,
+            h2h_fixtures=h2h_by_fixture.get(candidate.fixture_id),
+            injuries=injuries.get(candidate.fixture_id),
+            injury_coverage=bool(league_coverage.get("injuries")),
+            weather=weather_by_fixture.get(candidate.fixture_id),
+            lineups=(
+                detail.get("lineups")
+                if isinstance(detail, dict)
+                and league_coverage.get("lineups") is True
+                else None
+            ),
+            now=checked_at,
+            require_lineups=True,
+        )
+        contextualized.append(candidate)
+
+    shortlist = select_shortlist(
+        contextualized,
+        max_candidates=max_candidates,
+    )
+    blocked_counts: dict[str, int] = {}
+    for candidate in contextualized:
+        reasons = candidate.blocked_reasons or candidate.context.get(
+            "blocked_reasons",
+            [],
+        )
+        for reason in set(reasons):
+            blocked_counts[reason] = blocked_counts.get(reason, 0) + 1
+    return {
+        "checked_at": checked_at.isoformat(),
+        "fixture_ids": fixture_ids,
+        "shortlist": shortlist,
+        "candidates": contextualized,
         "blocked_counts": blocked_counts,
         "errors": list(provider.errors),
     }
@@ -2352,4 +2507,9 @@ def render_challenge_15k() -> None:
     )
 
 
-__all__ = ["ChallengeDataProvider", "render_challenge_15k", "scan_daily_challenge"]
+__all__ = [
+    "ChallengeDataProvider",
+    "refresh_discovered_candidates",
+    "render_challenge_15k",
+    "scan_daily_challenge",
+]

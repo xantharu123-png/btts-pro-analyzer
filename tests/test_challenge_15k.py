@@ -10,9 +10,12 @@ from unittest.mock import Mock, patch
 
 from challenge_15k import (
     ChallengeDataProvider,
+    MAX_DISCOVERY_MARKETS_PER_FIXTURE,
     _auto_recheck_scope_allowed,
+    _discovery_candidate_pool,
     _segmented,
     _shortlist_counts,
+    refresh_discovered_candidates,
     scan_daily_challenge,
 )
 from challenge_engine import (
@@ -131,6 +134,28 @@ def confirmed_lineups(home_team_id=10, away_team_id=11):
 
 
 class ChallengeProbabilityTests(unittest.TestCase):
+    def test_daily_discovery_pool_limits_markets_per_fixture(self):
+        fixture_one = [
+            candidate(
+                f"1:MARKET_{index}",
+                1,
+                0.60 + index / 1000.0,
+            )
+            for index in range(MAX_DISCOVERY_MARKETS_PER_FIXTURE + 3)
+        ]
+        fixture_two = [candidate("2:BTTS", 2, 0.65)]
+
+        pool = _discovery_candidate_pool(
+            fixture_one + fixture_two,
+            [1, 2],
+        )
+
+        self.assertEqual(
+            sum(item.fixture_id == 1 for item in pool),
+            MAX_DISCOVERY_MARKETS_PER_FIXTURE,
+        )
+        self.assertTrue(any(item.fixture_id == 2 for item in pool))
+
     def test_segmented_omits_default_when_session_value_already_exists(self):
         fake_streamlit = Mock()
         fake_streamlit.session_state = {"mode": "B"}
@@ -466,6 +491,76 @@ class ChallengeProviderTests(unittest.TestCase):
 
 
 class ChallengeContextTests(unittest.TestCase):
+    def test_targeted_refresh_uses_only_persisted_candidate_fixtures(self):
+        now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(minutes=50),
+        )
+        item.context = {}
+
+        class FixtureOnlyProvider:
+            def __init__(self):
+                self.errors = []
+
+            def details_by_fixture(self, fixture_ids):
+                self.fixture_ids = fixture_ids
+                detail = fixture(
+                    1,
+                    now + timedelta(minutes=50),
+                    10,
+                    11,
+                )
+                detail["lineups"] = confirmed_lineups()
+                return {1: detail}
+
+            @staticmethod
+            def injuries_by_fixture(fixture_ids):
+                return {fixture_id: [] for fixture_id in fixture_ids}
+
+            @staticmethod
+            def coverage(_league_id, _season):
+                return {"injuries": True, "lineups": True}
+
+            @staticmethod
+            def h2h(_home_team_id, _away_team_id):
+                return [
+                    fixture(
+                        100 + index,
+                        now - timedelta(days=30 + index),
+                        10,
+                        11,
+                        1,
+                        1,
+                    )
+                    for index in range(3)
+                ]
+
+            @staticmethod
+            def weather(_fixture):
+                return {
+                    "status": "ok",
+                    "temperature_c": 16,
+                    "wind_mps": 2,
+                    "rain_3h_mm": 0,
+                    "snow_3h_mm": 0,
+                }
+
+        provider = FixtureOnlyProvider()
+        result = refresh_discovered_candidates(
+            provider,
+            [item],
+            now.date(),
+            now=now,
+        )
+
+        self.assertEqual(provider.fixture_ids, [1])
+        self.assertEqual(result["fixture_ids"], [1])
+        self.assertEqual(len(result["shortlist"]), 1)
+        self.assertTrue(result["shortlist"][0].eligible)
+
     def test_all_context_gates_pass_without_changing_probability(self):
         item = candidate("1:BTTS", 1, 0.70)
         original_probability = item.conservative_probability

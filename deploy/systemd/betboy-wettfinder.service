@@ -1,5 +1,5 @@
 [Unit]
-Description=BetBoy event-driven maximum-three candidate finder
+Description=BetBoy daily discovery and targeted candidate refresh
 After=network-online.target
 Wants=network-online.target
 

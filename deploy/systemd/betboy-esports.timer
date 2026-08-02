@@ -1,9 +1,8 @@
 [Unit]
-Description=Run BetBoy E-Sport Shadow twice daily
+Description=Run BetBoy E-Sport daily discovery
 
 [Timer]
 OnCalendar=*-*-* 08:23:00
-OnCalendar=*-*-* 20:23:00
 AccuracySec=1min
 Persistent=true
 

@@ -23,9 +23,26 @@ def test_wettfinder_timer_is_installed_and_enabled_by_deploy_scripts():
     )
 
     assert "wettfinder_automation.py" in service
-    assert "OnCalendar=*-*-* *:07:00" in timer
-    assert "enable --now betboy-wettfinder.timer" in update
+    assert "OnCalendar=*-*-* *:07,37:00" in timer
+    assert (
+        "enable --now betboy-wettfinder.timer betboy-esports.timer"
+        in update
+    )
+    assert (
+        "restart betboy-wettfinder.timer betboy-esports.timer"
+        in update
+    )
     assert "betboy-wettfinder.timer" in bootstrap
+
+
+def test_esports_broad_discovery_runs_once_daily():
+    root = Path(__file__).resolve().parents[1]
+    timer = (
+        root / "deploy" / "systemd" / "betboy-esports.timer"
+    ).read_text(encoding="utf-8")
+
+    assert timer.count("OnCalendar=") == 1
+    assert "OnCalendar=*-*-* 08:23:00" in timer
 
 
 def test_football_job_skips_when_no_work_is_due(monkeypatch, capsys):

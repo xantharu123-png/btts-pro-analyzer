@@ -8,15 +8,15 @@
 | Repository | `xantharu123-png/btts-pro-analyzer` |
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
-| Basis vor diesem Nachaudit | `e07c4ab` |
-| Fachlicher Kerncommit | `116b2f1` |
-| Verifizierter VPS-Funktionsstand | `b38ce05` (Wettfinder und Präzisionsfix) |
+| Basis vor diesem Tages-Scan-Umbau | `f23bc5a` |
+| Fachlicher Kernstand | tägliche 51-Ligen-Discovery plus gezielter Fixture-Kontext (diese Revision) |
+| Verifizierter VPS-Funktionsstand | `f23bc5a` vor Deployment dieser Revision |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 557 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 566 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -46,10 +46,13 @@ Der verbindliche Ablauf lautet:
    `RELEASED` darf einen Echtgeld-Einsatz erzeugen.
 8. Pro Suche werden höchstens wenige, klar begründete Auswahlen angezeigt.
 
-Ein 15K-Vollscan über alle 51 Ligen muss in der Oberfläche ausdrücklich
-bestätigt werden. Automatische Kontext-Nachprüfungen sind auf höchstens zwölf
-ausgewählte Ligen begrenzt, damit ein offener Browser-Tab nicht alle zwölf
-Minuten den kompletten Provider-Ligakatalog erneut abfragt.
+Ein manueller 15K-Vollscan über alle 51 Ligen muss in der Oberfläche
+ausdrücklich bestätigt werden. Der serverseitige Wettfinder führt pro
+Zieldatum genau eine vollständige Discovery über alle 51 Ligen aus. Seine
+halbstündlichen Aufwachpunkte durchsuchen danach keine Ligen erneut, sondern
+prüfen nur bereits gespeicherte Kandidaten-Fixtures im Zwei-Stunden-Fenster
+vor dem Anpfiff. Die ältere Browser-Nachprüfung bleibt zusätzlich auf höchstens
+zwölf ausgewählte Ligen begrenzt, solange die 15K-Seite offen ist.
 
 Eine niedrige Quote ist kein Sicherheitsbeweis. Die Quote darf das Modell nicht
 erzeugen, bleibt aber nach Entfernung der Buchmachermarge ein wichtiger
@@ -83,9 +86,11 @@ deutlich ehrlicher als zuvor:
 - Transaktionale SQLite-Backups laufen täglich; jedes neue Archiv wird
   automatisch wiederhergestellt und per SQLite geprüft. Der aktuelle Lauf
   verifizierte 14 von 14 Datenbanken.
-- Ein stündlich geweckter, aber ereignisgesteuerter Wettfinder verdichtet
-  quotenfrei höchstens drei noch nicht gestartete Kandidaten. Ein teurer
-  Fußballscan läuft nur, wenn sein Anpfiff-Fenster tatsächlich fällig ist.
+- Der automatische Wettfinder entdeckt pro Zieldatum einmal alle Spiele aus
+  allen 51 Fußballligen und persistiert einen mathematisch bestandenen
+  Tagespool. Danach werden nur konkrete Kandidaten-Fixtures kurz vor Anpfiff
+  mit H2H, Ausfällen, Wetter und Aufstellungen aktualisiert. Öffentlich
+  erscheinen weiterhin quotenfrei höchstens drei noch nicht gestartete Events.
 
 Trotzdem ist **kein Markt als profitabel bewiesen**. Testgrün beweist
 Softwareverträge, nicht Wettvorteil. Echtgeldfreigaben bleiben von sauberer
@@ -179,19 +184,25 @@ Mindestquote = (1 + 0,03) / konservatives p
   Log-Wachstum und ein Shadow-Einsatz oberhalb dieser Referenz werden
   ausdrücklich gewarnt.
 - Eine finale Challenge-Freigabe verlangt bestätigte Startaufstellungen.
-- `wettfinder_automation.py` führt keinen blinden Rundumscan aus. Für Fußball
-  gelten je nach Entfernung zum nächsten bekannten Anpfiff 12 Stunden,
-  2 Stunden oder 45 Minuten Mindestabstand; der systemd-Stundentakt ist nur
-  die Fälligkeitsprüfung.
-- Der automatische Wettfinder verwendet für Fußball den strengen
-  15K-Kontextpfad der fünf xG-validierten Topligen. Tennis und E-Sport werden
-  aus ihren bestehenden persistierten Modellläufen übernommen, nicht erneut
-  per API gescannt. Bis 23:00 Europe/Zurich bleibt der aktuelle Spieltag
-  aktiv; danach wird der Folgetag vorbereitet, damit Abendspiele nicht kurz
-  vor Anpfiff aus dem Lauf fallen.
-- Basketball, NHL und Cricket erzeugen im automatischen Lauf bewusst keinen
-  Kandidaten, solange kein unabhängig validierter Modell- und Settlementpfad
-  existiert.
+- `wettfinder_automation.py` trennt Discovery und Kontext strikt. Eine
+  Discovery läuft höchstens einmal pro Zieldatum über den gemeinsamen
+  51-Ligen-Katalog und modelliert bis zu 400 eindeutige Fixtures. Ein
+  fehlerhafter Tageslauf darf erst nach zwei Stunden erneut versucht werden.
+- Der persistierte Fußball-Tagespool enthält höchstens 20 Events und höchstens
+  acht mathematisch bestandene Märkte pro Event. Alle 30 Minuten wird nur
+  geprüft, welche dieser exakten Fixture-IDs in den nächsten zwei Stunden
+  starten. Ausschließlich diese IDs erhalten neue H2H-, Ausfall-, Coverage-,
+  Wetter- und Aufstellungsabfragen; Spielplan- und Ligascans sind in diesem
+  Pfad ausgeschlossen.
+- Kontext gilt im automatischen Wettfinder höchstens 75 Minuten als frisch.
+  Die öffentliche Auswahl wird eventweise dedupliziert und bleibt auf maximal
+  drei Vorschläge begrenzt. Bis 23:00 Europe/Zurich bleibt der aktuelle
+  Spieltag aktiv; danach wird einmal der Folgetag vorbereitet.
+- Tennis und E-Sport werden aus ihren eigenen täglichen, persistierten
+  Modellläufen übernommen. Basketball und NHL bleiben in ihren vorhandenen
+  validierten Live-Pfaden ereignisgetrieben; ein künstlicher täglicher
+  Prematch-Kandidat wird nicht erzeugt. Cricket bleibt ohne validiertes Modell
+  blockiert.
 - Die Auswahl wird ohne angebotene Quote nach Evidenzstufe und konservativer
   Wahrscheinlichkeit sortiert, pro Event dedupliziert und auf drei begrenzt.
   Jeder Eintrag bleibt `PRICE_REQUIRED`; die exakte N1Bet-Quote wird erst
@@ -295,7 +306,7 @@ Konkrete Blockaden:
 | `football_recommendations.py` | gemeinsame Freigabepolicy |
 | `bet_finder_ui.py` | N1Bet-Preisentscheidung |
 | `ev_signal_sources.py` | versionsgebundener Signalvertrag aus Punkt-p, Haircut und Evidenzstufe |
-| `wettfinder_automation.py` | ereignisgesteuerte, quotenfreie Top-3-Verdichtung |
+| `wettfinder_automation.py` | tägliche 51-Ligen-Discovery, Fixture-Kontext-Refresh und quotenfreie Top-3-Verdichtung |
 | `scan_jobs.py` | sitzungsgebundene Hintergrundjobs |
 | `challenge_15k.py` | Challenge-Workflow und UI |
 | `challenge_store.py` | Challenge-Ledger und Transaktionen |
@@ -413,18 +424,19 @@ Konfidenzgrenzen von CLV und Rendite überzeugen. ROI allein reicht nicht.
 
 | VPS-Automation | Zeitplan Europe/Zurich | Verifizierter Status |
 |---|---|---|
-| Automatischer Wettfinder | stündlich um Minute 07 | Fälligkeitsprüfung; Fußball ereignisgesteuert, Tennis/E-Sport aus bestehenden Läufen |
+| Automatischer Wettfinder | alle 30 Minuten um Minute 07/37 | Fußball-Discovery einmal je Zieldatum über 51 Ligen; danach nur exakte Kandidaten-Fixtures |
 | Fußball Shadow/CLV | Fälligkeitsprüfung alle 10 Minuten | erfolgreich; maximal 60 fällige Fixtures |
 | Rotkarten-Settlement | alle 30 Minuten | erfolgreich; aktuell 0 offene Signale |
-| E-Sport Shadow | 08:23 und 20:23 | erfolgreich; Scan und Settlement |
+| E-Sport Shadow | täglich 08:23 | Scan und Settlement einmal täglich |
 | SQLite-Backup | täglich 03:17 | erfolgreich; Restore und `quick_check` automatisch, 14 Tage lokal |
 | Rotkarten-Historie | täglich 05:41 | erfolgreich; Budget 350 Provider-Calls |
 | Tennis-Pipeline | täglich 07:17 | erfolgreich; montags zusätzlich Wächter und Wochenreport |
 
 Alle sieben Timer und `betboy-app.service` sind in systemd `enabled`; nach
-einem Neustart laufen sie ohne Benutzeraktion weiter. Sowohl der
-Football-Shadow-Runner als auch der automatische Wettfinder prüfen vor teurer
-Arbeit, ob tatsächlich ein Ereignisfenster fällig ist.
+einem Neustart laufen sie ohne Benutzeraktion weiter. Der automatische
+Wettfinder darf in seinen Zwischenläufen ausschließlich den persistierten
+Tagespool lesen und konkrete Fixture-IDs nachprüfen. Der Football-Shadow-Runner
+prüft ebenfalls vor teurer Arbeit, ob ein Ereignisfenster fällig ist.
 
 Der lokale Windows-Task `BetBoy Tennis Daily` und **alle** BetBoy-Automationen
 in KIMI sind deaktiviert. Ihre Definitionen wurden nicht gelöscht. Vor der

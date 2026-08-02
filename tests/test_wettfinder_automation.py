@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
+from challenge_engine import ChallengeCandidate, ValidationMetrics
 from config_loader import AppConfig
 from ev_signal_sources import ModelSignal
+from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from wettfinder_automation import (
+    _default_football_scan,
+    football_context_due_fixture_ids,
     football_due,
     load_state,
     run_wettfinder,
@@ -73,6 +77,45 @@ def _football_snapshot(now: datetime) -> dict:
     }
 
 
+def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
+    validation = ValidationMetrics(
+        300,
+        0.15,
+        0.20,
+        0.25,
+        0.04,
+        True,
+        calibration_bins=4,
+        min_bin_size=30,
+        max_calibration_error=0.06,
+    )
+    return ChallengeCandidate(
+        candidate_id="fixture-1-btts",
+        fixture_id=1,
+        league_id=39,
+        league_name="Test League",
+        kickoff=kickoff.isoformat(),
+        home_team_id=10,
+        away_team_id=11,
+        home_team="FC Alpha",
+        away_team="FC Beta",
+        market_key="BTTS_YES",
+        market="Beide Teams treffen",
+        selection="Ja",
+        probability=0.72,
+        conservative_probability=0.63,
+        probability_haircut_pp=9.0,
+        model_price=1.0 / 0.63,
+        evidence_score=84.0,
+        model_spread_pp=3.2,
+        expected_home_goals=1.5,
+        expected_away_goals=1.2,
+        venue_samples=(10, 10),
+        form_samples=(6, 6),
+        validation=validation,
+    )
+
+
 def test_target_date_switches_at_2300_zurich():
     before = datetime(2030, 1, 1, 21, 59, tzinfo=UTC)
     after = datetime(2030, 1, 1, 22, 0, tzinfo=UTC)
@@ -81,7 +124,7 @@ def test_target_date_switches_at_2300_zurich():
     assert target_search_date(after) == date(2030, 1, 2)
 
 
-def test_football_due_uses_event_distance_instead_of_blind_hourly_scan():
+def test_football_discovery_runs_only_once_for_current_target_date():
     search_date = date(2030, 1, 1)
     previous = {
         "status": "completed",
@@ -102,25 +145,59 @@ def test_football_due_uses_event_distance_instead_of_blind_hourly_scan():
     )
 
     assert far.due is False
-    assert far.minimum_gap == timedelta(hours=12)
-    assert near.due is True
-    assert near.minimum_gap == timedelta(minutes=45)
+    assert far.reason == "daily_discovery_current"
+    assert near.due is False
+    assert near.reason == "daily_discovery_current"
 
 
-def test_football_due_never_rescans_when_all_known_events_started():
-    search_date = date(2030, 1, 1)
-    decision = football_due(
-        {
-            "status": "completed",
-            "search_date": search_date.isoformat(),
-            "last_attempt_at": "2030-01-01T10:00:00+00:00",
-            "fixture_kickoffs": ["2030-01-01T11:00:00+00:00"],
-        },
-        now=datetime(2030, 1, 1, 12, 0, tzinfo=UTC),
-        search_date=search_date,
+def test_context_due_uses_only_near_persisted_fixture_ids():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    near = _challenge_candidate(now + timedelta(minutes=80)).to_dict()
+    far = _challenge_candidate(now + timedelta(hours=4)).to_dict()
+    far["fixture_id"] = 2
+    far["candidate_id"] = "fixture-2-btts"
+    state = {
+        "discovery_candidates": [near, far],
+        "context_checks": {},
+    }
+
+    assert football_context_due_fixture_ids(state, now=now) == [1]
+
+    state["context_checks"] = {"1": now.isoformat()}
+    assert football_context_due_fixture_ids(
+        state,
+        now=now + timedelta(minutes=10),
+    ) == []
+
+
+def test_default_football_discovery_scans_all_configured_leagues(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(
+        "wettfinder_automation.ChallengeDataProvider",
+        lambda *_args, **_kwargs: object(),
     )
-    assert decision.due is False
-    assert decision.reason == "all_known_events_started"
+
+    def fake_scan(_provider, league_ids, search_date, max_fixtures):
+        captured.update(
+            league_ids=league_ids,
+            search_date=search_date,
+            max_fixtures=max_fixtures,
+        )
+        return {}
+
+    monkeypatch.setattr(
+        "wettfinder_automation.scan_daily_challenge",
+        fake_scan,
+    )
+
+    _default_football_scan(
+        date(2030, 1, 2),
+        AppConfig(api_football_key="test"),
+    )
+
+    assert captured["league_ids"] == list(ALTERNATIVE_MARKET_LEAGUES)
+    assert len(captured["league_ids"]) == 51
 
 
 def test_selection_is_probability_first_deduplicated_and_maximum_three():
@@ -183,8 +260,58 @@ def test_runner_reuses_persisted_models_and_skips_not_due_football(tmp_path):
     assert first["bookmaker_data_used"] is False
     assert first["quote_required"] is True
     assert len(first["candidates"]) == 2
-    assert second["sources"]["football"]["due_reason"] == "event_window_not_due"
+    assert second["sources"]["football"]["due_reason"] == "daily_discovery_current"
     assert load_state(state_path)["generated_at"] == second["generated_at"]
+
+
+def test_runner_refreshes_only_daily_pool_fixture_without_rescanning(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    state_path = tmp_path / "wettfinder.json"
+    scan_calls = 0
+    refresh_calls = []
+    pool_candidate = _challenge_candidate(now + timedelta(minutes=80))
+
+    def football_scan(_search_date):
+        nonlocal scan_calls
+        scan_calls += 1
+        return {
+            "scanned_at": now.isoformat(),
+            "fixtures_found": 1,
+            "fixtures_modeled": 1,
+            "fixture_kickoffs": [pool_candidate.kickoff],
+            "shortlist": [],
+            "discovery_candidates": [pool_candidate],
+            "errors": [],
+        }
+
+    def context_refresh(candidates, _search_date, checked_at):
+        refresh_calls.append(
+            ([candidate.fixture_id for candidate in candidates], checked_at)
+        )
+        for item in candidates:
+            item.context = {"passed": True, "blocked_reasons": []}
+        return {
+            "shortlist": candidates[:1],
+            "errors": [],
+            "blocked_counts": {},
+        }
+
+    common = {
+        "state_path": state_path,
+        "config": AppConfig(api_football_key="test"),
+        "football_scanner": football_scan,
+        "football_context_refresher": context_refresh,
+        "tennis_loader": lambda **_kwargs: [],
+        "esports_loader": lambda **_kwargs: [],
+    }
+    run_wettfinder(now=now, **common)
+    refreshed = run_wettfinder(now=now + timedelta(minutes=30), **common)
+    run_wettfinder(now=now + timedelta(minutes=40), **common)
+
+    assert scan_calls == 1
+    assert refresh_calls == [([1], now + timedelta(minutes=30))]
+    assert refreshed["sources"]["football"]["context_status"] == "refreshed"
+    assert len(refreshed["candidates"]) == 1
 
 
 def test_runner_fails_closed_without_api_key_but_still_writes_state(tmp_path):
@@ -199,5 +326,5 @@ def test_runner_fails_closed_without_api_key_but_still_writes_state(tmp_path):
     assert document["sources"]["football"]["status"] == "degraded"
     assert document["candidates"] == []
     assert document["sources"]["basketball"]["status"] == (
-        "blocked_no_validated_model"
+        "live_only_no_prematch_model"
     )

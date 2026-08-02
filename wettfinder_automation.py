@@ -1,16 +1,17 @@
-"""Event-driven, bookmaker-independent candidate selection for BetBoy.
+"""Daily discovery plus fixture-only context refresh for BetBoy.
 
-The hourly systemd timer calls this module, but an hourly wake-up is not an
-hourly full scan. Football is recalculated only when its event window is due.
-Tennis and E-sport reuse their existing persisted model runs. The resulting
-artifact contains at most three probability-ranked, price-pending candidates;
-it never fetches or invents a bookmaker quote.
+One broad football discovery scans every configured league once per target
+date. Later timer wake-ups never repeat that league scan: they refresh only
+persisted candidate fixtures inside the pre-match context window. Tennis and
+E-sport reuse their own daily persisted model runs. The public artifact keeps
+at most three probability-ranked, price-pending candidates and never fetches
+or invents a bookmaker quote.
 """
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import date, datetime, timedelta, timezone
 import json
 import math
@@ -21,34 +22,32 @@ from zoneinfo import ZoneInfo
 
 from betting_math import BETTING_POLICY_VERSION, minimum_acceptable_odds
 from challenge_15k import (
-    DEFAULT_CHALLENGE_LEAGUES,
     MAX_SCAN_FIXTURES,
     ChallengeDataProvider,
+    refresh_discovered_candidates,
     scan_daily_challenge,
 )
+from challenge_engine import ChallengeCandidate, ValidationMetrics
 from config_loader import AppConfig, load_app_config
 from ev_signal_sources import (
     ModelSignal,
     esports_signals,
     tennis_model_signals,
 )
+from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 
 
 ROOT = Path(__file__).resolve().parent
 STATE_PATH = ROOT / "runtime_state" / "wettfinder_latest.json"
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATION_VERSION = 1
-SELECTION_POLICY_VERSION = "probability-first-v1"
+AUTOMATION_VERSION = 2
+SELECTION_POLICY_VERSION = "daily-discovery-context-refresh-v2"
 MAX_AUTOMATIC_CANDIDATES = 3
 TOMORROW_SCAN_HOUR = 23
 ERROR_RETRY = timedelta(hours=2)
-EMPTY_RETRY = timedelta(hours=12)
-FAR_EVENT_RETRY = timedelta(hours=12)
-MEDIUM_EVENT_RETRY = timedelta(hours=2)
-NEAR_EVENT_RETRY = timedelta(minutes=45)
-NEAR_EVENT_WINDOW = timedelta(hours=2)
-MEDIUM_EVENT_WINDOW = timedelta(hours=6)
-FOOTBALL_CANDIDATE_MAX_AGE = timedelta(hours=2)
+FOOTBALL_CONTEXT_WINDOW = timedelta(hours=2)
+FOOTBALL_CONTEXT_MIN_GAP = timedelta(minutes=25)
+FOOTBALL_CONTEXT_MAX_AGE = timedelta(minutes=75)
 
 
 @dataclass(frozen=True)
@@ -90,7 +89,7 @@ def football_due(
     now: Optional[datetime] = None,
     search_date: Optional[date] = None,
 ) -> FootballDueDecision:
-    """Decide whether the expensive football context scan is actually due."""
+    """Decide whether the once-per-target-date league discovery is due."""
     current = _utc(now)
     target = search_date or target_search_date(current)
     if not isinstance(previous, dict):
@@ -115,37 +114,9 @@ def football_due(
             minimum_gap=ERROR_RETRY,
         )
 
-    parsed_kickoffs = [
-        parsed
-        for parsed in (
-            _parse_iso(item) for item in (previous.get("fixture_kickoffs") or [])
-        )
-        if parsed is not None
-    ]
-    future_kickoffs = sorted(item for item in parsed_kickoffs if item > current)
-    if parsed_kickoffs and not future_kickoffs:
-        return FootballDueDecision(False, "all_known_events_started")
-    if not future_kickoffs:
-        return FootballDueDecision(
-            age >= EMPTY_RETRY,
-            "retry_empty_schedule" if age >= EMPTY_RETRY else "empty_backoff",
-            minimum_gap=EMPTY_RETRY,
-        )
-
-    next_kickoff = future_kickoffs[0]
-    until_kickoff = next_kickoff - current
-    if until_kickoff <= NEAR_EVENT_WINDOW:
-        gap = NEAR_EVENT_RETRY
-    elif until_kickoff <= MEDIUM_EVENT_WINDOW:
-        gap = MEDIUM_EVENT_RETRY
-    else:
-        gap = FAR_EVENT_RETRY
-    due = age >= gap
     return FootballDueDecision(
-        due,
-        "event_window_due" if due else "event_window_not_due",
-        next_kickoff=next_kickoff,
-        minimum_gap=gap,
+        False,
+        "daily_discovery_current",
     )
 
 
@@ -174,7 +145,63 @@ def _minimum_price(probability: float, haircut: float) -> Optional[float]:
         return None
 
 
-def _football_candidate_record(candidate: object) -> Optional[dict[str, Any]]:
+_CHALLENGE_CANDIDATE_FIELDS = {
+    field.name for field in fields(ChallengeCandidate)
+}
+_VALIDATION_FIELDS = {field.name for field in fields(ValidationMetrics)}
+
+
+def _challenge_candidate_payload(
+    candidate: object,
+    *,
+    keep_context: bool = False,
+) -> Optional[dict[str, Any]]:
+    """Serialize a model candidate without trusting derived properties."""
+    if not isinstance(candidate, ChallengeCandidate) or not candidate.base_eligible:
+        return None
+    payload = candidate.to_dict()
+    payload.pop("base_eligible", None)
+    payload.pop("eligible", None)
+    if not keep_context:
+        payload["context"] = {}
+    return payload
+
+
+def _challenge_candidate_from_payload(
+    payload: object,
+) -> Optional[ChallengeCandidate]:
+    """Strictly rebuild a persisted daily candidate for a fresh context pass."""
+    if not isinstance(payload, dict):
+        return None
+    raw = {
+        name: payload.get(name)
+        for name in _CHALLENGE_CANDIDATE_FIELDS
+    }
+    validation_payload = raw.get("validation")
+    if not isinstance(validation_payload, dict):
+        return None
+    if set(validation_payload) - _VALIDATION_FIELDS:
+        return None
+    try:
+        raw["validation"] = ValidationMetrics(**validation_payload)
+        raw["venue_samples"] = tuple(raw.get("venue_samples") or ())
+        raw["form_samples"] = tuple(raw.get("form_samples") or ())
+        raw["reasons"] = list(raw.get("reasons") or [])
+        raw["blocked_reasons"] = list(raw.get("blocked_reasons") or [])
+        raw["context"] = {}
+        candidate = ChallengeCandidate(**raw)
+    except (TypeError, ValueError):
+        return None
+    if not candidate.base_eligible:
+        return None
+    return candidate
+
+
+def _football_candidate_record(
+    candidate: object,
+    *,
+    context_checked_at: Optional[datetime] = None,
+) -> Optional[dict[str, Any]]:
     probability = _finite_probability(_value(candidate, "probability"))
     conservative = _finite_probability(
         _value(candidate, "conservative_probability")
@@ -209,6 +236,9 @@ def _football_candidate_record(candidate: object) -> Optional[dict[str, Any]]:
         detail_parts.append(f"Modellstreuung {float(spread):.1f} PP")
     return {
         "key": f"wettfinder-football-{candidate_id}",
+        "candidate_id": candidate_id,
+        "fixture_id": _value(candidate, "fixture_id"),
+        "league_id": _value(candidate, "league_id"),
         "sport": "Fussball",
         "event": event,
         "event_identity": f"football:{_value(candidate, 'fixture_id')}",
@@ -225,6 +255,11 @@ def _football_candidate_record(candidate: object) -> Optional[dict[str, Any]]:
         "status": "PRICE_REQUIRED",
         "source": "football_challenge",
         "detail": " - ".join(detail_parts),
+        "context_checked_at": (
+            _utc(context_checked_at).isoformat()
+            if context_checked_at is not None
+            else None
+        ),
     }
 
 
@@ -347,10 +382,27 @@ def _football_state_from_snapshot(
     attempted_at: datetime,
     search_date: date,
 ) -> dict[str, Any]:
+    scanned_at = _parse_iso(snapshot.get("scanned_at")) or attempted_at
+    discovery_values = (
+        snapshot.get("discovery_candidates")
+        or snapshot.get("base_shortlist")
+        or []
+    )
+    discovery_payloads = [
+        payload
+        for payload in (
+            _challenge_candidate_payload(candidate)
+            for candidate in discovery_values
+        )
+        if payload is not None
+    ]
     records = [
         record
         for record in (
-            _football_candidate_record(candidate)
+            _football_candidate_record(
+                candidate,
+                context_checked_at=scanned_at,
+            )
             for candidate in (snapshot.get("shortlist") or [])
         )
         if record is not None
@@ -362,14 +414,23 @@ def _football_state_from_snapshot(
     ][:20]
     fixtures_found = int(snapshot.get("fixtures_found") or 0)
     degraded = fixtures_found == 0 and bool(errors)
-    scanned_at = _parse_iso(snapshot.get("scanned_at")) or attempted_at
+    context_checks = {
+        str(payload["fixture_id"]): scanned_at.isoformat()
+        for payload in discovery_payloads
+        if isinstance(payload.get("fixture_id"), int)
+    }
     return {
         "status": "degraded" if degraded else "completed",
         "search_date": search_date.isoformat(),
         "last_attempt_at": attempted_at.isoformat(),
+        "last_discovery_at": scanned_at.isoformat() if not degraded else None,
         "last_success_at": scanned_at.isoformat() if not degraded else None,
         "fixture_kickoffs": _fixture_kickoffs(snapshot),
         "fixtures_found": fixtures_found,
+        "fixtures_modeled": int(snapshot.get("fixtures_modeled") or 0),
+        "discovery_candidates": discovery_payloads,
+        "discovery_candidate_count": len(discovery_payloads),
+        "context_checks": context_checks,
         "approved_candidates": len(records),
         "candidates": records,
         "errors": errors,
@@ -397,10 +458,121 @@ def _failed_football_state(
         }
     )
     state.setdefault("fixture_kickoffs", [])
+    state.setdefault("discovery_candidates", [])
+    state.setdefault("discovery_candidate_count", 0)
+    state.setdefault("context_checks", {})
     state.setdefault("candidates", [])
     state.setdefault("fixtures_found", 0)
+    state.setdefault("fixtures_modeled", 0)
     state.setdefault("approved_candidates", 0)
     return state
+
+
+def football_context_due_fixture_ids(
+    state: object,
+    *,
+    now: Optional[datetime] = None,
+) -> list[int]:
+    """Return only persisted shortlist fixtures needing fresh pre-match context."""
+    if not isinstance(state, dict):
+        return []
+    current = _utc(now)
+    checks = state.get("context_checks")
+    checks = checks if isinstance(checks, dict) else {}
+    due: dict[int, datetime] = {}
+    for payload in state.get("discovery_candidates") or []:
+        if not isinstance(payload, dict):
+            continue
+        fixture_id = payload.get("fixture_id")
+        kickoff = _parse_iso(payload.get("kickoff"))
+        if (
+            isinstance(fixture_id, bool)
+            or not isinstance(fixture_id, int)
+            or fixture_id <= 0
+            or kickoff is None
+            or not current < kickoff <= current + FOOTBALL_CONTEXT_WINDOW
+        ):
+            continue
+        last_check = _parse_iso(checks.get(str(fixture_id)))
+        if (
+            last_check is not None
+            and timedelta(0) <= current - last_check < FOOTBALL_CONTEXT_MIN_GAP
+        ):
+            continue
+        due[fixture_id] = kickoff
+    return [
+        fixture_id
+        for fixture_id, _kickoff in sorted(
+            due.items(),
+            key=lambda item: (item[1], item[0]),
+        )[:20]
+    ]
+
+
+def _discovered_candidates_for_fixtures(
+    state: object,
+    fixture_ids: list[int],
+) -> list[ChallengeCandidate]:
+    if not isinstance(state, dict):
+        return []
+    allowed = set(fixture_ids)
+    candidates: list[ChallengeCandidate] = []
+    for payload in state.get("discovery_candidates") or []:
+        if not isinstance(payload, dict) or payload.get("fixture_id") not in allowed:
+            continue
+        candidate = _challenge_candidate_from_payload(payload)
+        if candidate is not None:
+            candidates.append(candidate)
+    return candidates
+
+
+def _merge_context_refresh(
+    state: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    fixture_ids: list[int],
+    checked_at: datetime,
+) -> dict[str, Any]:
+    refreshed = dict(state)
+    allowed = set(fixture_ids)
+    retained = [
+        row
+        for row in (state.get("candidates") or [])
+        if isinstance(row, dict) and row.get("fixture_id") not in allowed
+    ]
+    new_records = [
+        record
+        for record in (
+            _football_candidate_record(
+                candidate,
+                context_checked_at=checked_at,
+            )
+            for candidate in (result.get("shortlist") or [])
+        )
+        if record is not None
+    ]
+    checks = dict(state.get("context_checks") or {})
+    for fixture_id in fixture_ids:
+        checks[str(fixture_id)] = checked_at.isoformat()
+    errors = [
+        str(error)
+        for error in (
+            list(state.get("errors") or [])
+            + list(result.get("errors") or [])
+        )
+        if str(error).strip()
+    ]
+    refreshed.update(
+        {
+            "last_context_at": checked_at.isoformat(),
+            "context_checks": checks,
+            "candidates": retained + new_records,
+            "approved_candidates": len(retained) + len(new_records),
+            "last_blocked_counts": dict(result.get("blocked_counts") or {}),
+            "errors": list(dict.fromkeys(errors))[-20:],
+        }
+    )
+    return refreshed
 
 
 def _active_football_candidates(
@@ -410,10 +582,20 @@ def _active_football_candidates(
 ) -> list[dict[str, Any]]:
     if not isinstance(state, dict):
         return []
-    scanned = _parse_iso(state.get("last_success_at"))
-    if scanned is None or now - scanned > FOOTBALL_CANDIDATE_MAX_AGE:
-        return []
-    return select_candidates(state.get("candidates") or [], now=now, limit=10)
+    current = _utc(now)
+    fresh = []
+    for row in state.get("candidates") or []:
+        if not isinstance(row, dict):
+            continue
+        checked = _parse_iso(row.get("context_checked_at"))
+        if (
+            checked is None
+            or current - checked < timedelta(0)
+            or current - checked > FOOTBALL_CONTEXT_MAX_AGE
+        ):
+            continue
+        fresh.append(row)
+    return select_candidates(fresh, now=current, limit=10)
 
 
 def load_state(path: str | Path = STATE_PATH) -> dict[str, Any]:
@@ -466,9 +648,30 @@ def _default_football_scan(
     )
     return scan_daily_challenge(
         provider,
-        list(DEFAULT_CHALLENGE_LEAGUES),
+        list(ALTERNATIVE_MARKET_LEAGUES),
         search_date,
         MAX_SCAN_FIXTURES,
+    )
+
+
+def _default_football_context_refresh(
+    candidates: list[ChallengeCandidate],
+    search_date: date,
+    current: datetime,
+    config: AppConfig,
+) -> dict[str, Any]:
+    if not config.api_football_key:
+        raise RuntimeError("API_FOOTBALL_KEY is not configured")
+    provider = ChallengeDataProvider(
+        config.api_football_key,
+        config.weather_key,
+    )
+    return refresh_discovered_candidates(
+        provider,
+        candidates,
+        search_date,
+        now=current,
+        max_candidates=6,
     )
 
 
@@ -478,11 +681,17 @@ def run_wettfinder(
     state_path: str | Path = STATE_PATH,
     config: Optional[AppConfig] = None,
     football_scanner: Optional[Callable[[date], dict[str, Any]]] = None,
+    football_context_refresher: Optional[
+        Callable[
+            [list[ChallengeCandidate], date, datetime],
+            dict[str, Any],
+        ]
+    ] = None,
     tennis_loader: Callable[..., list[ModelSignal]] = tennis_model_signals,
     esports_loader: Callable[..., list[ModelSignal]] = esports_signals,
     force_football: bool = False,
 ) -> dict[str, Any]:
-    """Run one due check and persist the maximum-three candidate artifact."""
+    """Run daily discovery if due, then refresh only near candidate fixtures."""
     current = _utc(now)
     target = target_search_date(current)
     previous = load_state(state_path)
@@ -514,6 +723,63 @@ def run_wettfinder(
                 error=f"{type(exc).__name__}: {exc}",
             )
 
+    context_fixture_ids = football_context_due_fixture_ids(
+        football_state,
+        now=current,
+    )
+    context_status = "not_due"
+    if context_fixture_ids:
+        context_candidates = _discovered_candidates_for_fixtures(
+            football_state,
+            context_fixture_ids,
+        )
+        if not context_candidates:
+            context_status = "invalid_daily_pool"
+            football_state = dict(football_state)
+            football_state["status"] = "degraded"
+            football_state["errors"] = list(
+                dict.fromkeys(
+                    list(football_state.get("errors") or [])
+                    + ["Persistierter Fußball-Tagespool ist ungültig"]
+                )
+            )[-20:]
+        else:
+            try:
+                app_config = config or load_app_config()
+                refresher = football_context_refresher or (
+                    lambda pool, scan_date, checked_at: (
+                        _default_football_context_refresh(
+                            pool,
+                            scan_date,
+                            checked_at,
+                            app_config,
+                        )
+                    )
+                )
+                refresh_result = refresher(
+                    context_candidates,
+                    target,
+                    current,
+                )
+                if not isinstance(refresh_result, dict):
+                    raise RuntimeError("football context refresher returned no document")
+                football_state = _merge_context_refresh(
+                    football_state,
+                    refresh_result,
+                    fixture_ids=context_fixture_ids,
+                    checked_at=current,
+                )
+                context_status = "refreshed"
+            except Exception as exc:
+                context_status = "degraded"
+                football_state = dict(football_state)
+                football_state["errors"] = list(
+                    dict.fromkeys(
+                        list(football_state.get("errors") or [])
+                        + [f"Context {type(exc).__name__}: {exc}"[:500]]
+                    )
+                )[-20:]
+
     source_rows: list[dict[str, Any]] = _active_football_candidates(
         football_state,
         now=current,
@@ -522,6 +788,9 @@ def run_wettfinder(
         "football": {
             "status": football_state.get("status", "idle"),
             "due_reason": "forced" if force_football else due.reason,
+            "discovery_scope": len(ALTERNATIVE_MARKET_LEAGUES),
+            "context_status": context_status,
+            "context_fixture_count": len(context_fixture_ids),
             "candidate_count": len(source_rows),
             "search_date": target.isoformat(),
         }
@@ -554,11 +823,18 @@ def run_wettfinder(
                 "error": f"{type(exc).__name__}: {exc}"[:500],
             }
 
-    for unsupported in ("basketball", "ice_hockey", "cricket"):
-        source_status[unsupported] = {
-            "status": "blocked_no_validated_model",
-            "candidate_count": 0,
-        }
+    source_status["basketball"] = {
+        "status": "live_only_no_prematch_model",
+        "candidate_count": 0,
+    }
+    source_status["ice_hockey"] = {
+        "status": "live_only_no_prematch_model",
+        "candidate_count": 0,
+    }
+    source_status["cricket"] = {
+        "status": "blocked_no_validated_model",
+        "candidate_count": 0,
+    }
 
     candidates = select_candidates(source_rows, now=current)
     document = {
@@ -603,6 +879,12 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "candidate_count": len(document["candidates"]),
                 "football_status": document["sources"]["football"]["status"],
                 "football_due_reason": document["sources"]["football"]["due_reason"],
+                "football_context_status": document["sources"]["football"][
+                    "context_status"
+                ],
+                "football_discovery_scope": document["sources"]["football"][
+                    "discovery_scope"
+                ],
                 "bookmaker_data_used": False,
             },
             ensure_ascii=True,

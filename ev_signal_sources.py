@@ -34,7 +34,7 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 1
+AUTOMATED_WETTFINDER_VERSION = 2
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 
 # Maximales Signal-Alter je Fußball-Quelle: Prematch-Spiele liegen in der

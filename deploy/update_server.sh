@@ -17,7 +17,8 @@ runuser -u betboy -- env PIP_NO_CACHE_DIR=1 \
 install -m 0644 "${APP_DIR}"/deploy/systemd/*.service /etc/systemd/system/
 install -m 0644 "${APP_DIR}"/deploy/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now betboy-wettfinder.timer
+systemctl enable --now betboy-wettfinder.timer betboy-esports.timer
+systemctl restart betboy-wettfinder.timer betboy-esports.timer
 systemctl restart betboy-app.service
 
 echo "BetBoy updated to $(runuser -u betboy -- git -C "${APP_DIR}" rev-parse --short HEAD)"
