@@ -10,7 +10,7 @@
 | Branch | `main` |
 | Basis vor diesem Nachaudit | `e07c4ab` |
 | Fachlicher Kerncommit | `116b2f1` |
-| Verifizierter VPS-Funktionsstand | `bacb6fc` |
+| Verifizierter VPS-Funktionsstand | `b38ce05` (Wettfinder und Präzisionsfix) |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
