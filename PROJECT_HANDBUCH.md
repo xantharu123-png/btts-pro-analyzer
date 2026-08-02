@@ -8,14 +8,15 @@
 | Repository | `xantharu123-png/btts-pro-analyzer` |
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
-| Basis vor diesem Policy-Audit | `9a47a86` |
-| Verifizierter VPS-Funktionsstand | `ccc0ac9` |
+| Basis vor diesem Nachaudit | `e07c4ab` |
+| Fachlicher Kerncommit | `116b2f1` |
+| Verifizierter VPS-Funktionsstand | `bacb6fc` |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 519 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 543 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -69,8 +70,13 @@ deutlich ehrlicher als zuvor:
   persistenten VPS; der PC oder KIMI müssen dafür nicht eingeschaltet sein.
 - KIMI- und Windows-Doppelstarter sind deaktiviert. Nur der VPS schreibt die
   kanonischen Shadow-Datenbanken.
-- Transaktionale SQLite-Backups laufen täglich; ein vollständiger
-  Test-Restore aller zwölf enthaltenen Datenbanken wurde verifiziert.
+- Alle API-Football-Aufrufe teilen einen atomaren, priorisierten
+  Tagesbudget-Governor.
+- Manuell geprüfte N1Bet-Preise in 15K und Tennis erhalten einen
+  append-only Nachweis mit Hash-Kette.
+- Transaktionale SQLite-Backups laufen täglich; jedes neue Archiv wird
+  automatisch wiederhergestellt und per SQLite geprüft. Der aktuelle Lauf
+  verifizierte 14 von 14 Datenbanken.
 
 Trotzdem ist **kein Markt als profitabel bewiesen**. Testgrün beweist
 Softwareverträge, nicht Wettvorteil. Echtgeldfreigaben bleiben von sauberer
@@ -107,6 +113,10 @@ Mindestquote = (1 + 0,03) / konservatives p
   `SHADOW_VALUE`; Einsatz und `actionable=True` sind entfernt.
 - Der Challenge-Ledger erzwingt wie die Auswahlengine mindestens 3 %
   konservativen EV pro Leg. Der frühere interne 2-%-Bypass ist geschlossen.
+- Kombis erhalten zusätzlich einen Modellrisiko-Abschlag pro weiterem Leg
+  und pro Paar aus derselben Liga. Die App zeigt außerdem die
+  annahmenfreie Fréchet-Untergrenze als Stresswert; sie ist keine
+  Trefferprognose.
 - `freemode` ist standardmäßig `False`.
 - Ein Modell-Veto bleibt auch im Research-Modus ein Veto.
 - Live-Fußball bleibt blockiert, bis eine unabhängige Live-Kalibrierung
@@ -119,6 +129,10 @@ Mindestquote = (1 + 0,03) / konservatives p
   daraus selbst keine Freigabe.
 - BTTS wählt jetzt quotenfrei die wahrscheinlichere Seite `Ja` oder `Nein`;
   der Scanner ist nicht mehr strukturell auf `BTTS Ja` beschränkt.
+- Gültig eingegebene N1Bet-Preise in 15K werden vor der Ticketauswahl
+  protokolliert, also auch dann, wenn der Kandidat das Preisgate nicht
+  besteht. Ein später gebuchtes Ticket referenziert exakt diese
+  Preisbeobachtungs-IDs.
 
 - Tennis-Kalibrierung wird immer in derselben alphabetischen Orientierung
   angewendet, in der sie trainiert wurde. Das Ergebnis bleibt beim Vertauschen
@@ -145,9 +159,12 @@ Mindestquote = (1 + 0,03) / konservatives p
 - Ein Verlust bleibt ein Verlust. Es gibt keinen automatischen Neustart auf
   100 Euro.
 - Manuelle Kapitalzufuhr wird getrennt als externe Finanzierung ausgewiesen.
-- Der Standard-Einsatzanteil ist 25 %, nicht 2 Euro und nicht automatisch
-  All-in. Im Konto kann 5-100 % gewählt werden; 100 % wird ausdrücklich als
-  Totalverlustrisiko markiert.
+- Der Shadow-Einsatz ist auf 5-25 % begrenzt; bestehende Sitzungen oberhalb
+  25 % wurden serverseitig geklemmt. All-in ist nicht mehr auswählbar.
+- Neben der Challenge-Simulation zeigt die App eine separate
+  Viertel-Kelly-Risikoreferenz mit hartem 5-%-Cap. Negatives erwartetes
+  Log-Wachstum und ein Shadow-Einsatz oberhalb dieser Referenz werden
+  ausdrücklich gewarnt.
 - Eine finale Challenge-Freigabe verlangt bestätigte Startaufstellungen.
 
 ### Shadow und Settlement
@@ -174,6 +191,10 @@ Mindestquote = (1 + 0,03) / konservatives p
 - Tennis-CLV zählt nur mit einer zeitgestempelten N1Bet-Referenzquote aus den
   letzten 60 Minuten vor dem angesetzten Start. Nachträgliche Quoten bei der
   Ergebnisabrechnung sind ausgeschlossen.
+- Tennis speichert Entry- und Closing-Preise als N1Bet-Nachweis-IDs. Closing
+  wird vor dem Start eingefroren; Datenbank-Trigger verhindern spätere
+  Änderungen. Alte Quoten ohne neue Nachweis-ID zählen nicht als aktuelle
+  Preis- oder CLV-Evidenz.
 - Tennis zeigt Modell- und de-viggten N1Bet-Brier auf derselben Stichprobe
   startzeitnaher Referenzquoten; ROI allein ist kein Freigabekriterium.
 - Die KIMI-Bedingung verwendet jetzt direkt den kanonischen Projektcode und
@@ -232,9 +253,11 @@ Konkrete Blockaden:
 |---|---|
 | `app.py` | Streamlit-Einstieg, Navigation und Scanner-Orchestrierung |
 | `config_loader.py` | INI, Umgebung und Streamlit-Secrets |
+| `api_budget.py` | prozessübergreifender API-Football-Tagesbudget-Governor |
 | `league_catalog.py` | kanonischer 51-Ligen-Katalog |
 | `advanced_analyzer.py` | BTTS-Analyse und Modellensemble |
 | `betting_math.py` | kanonische Quote-, No-Vig-, Risiko-EV-, Mindestquote- und Kelly-Mathematik |
+| `price_ledger.py` | append-only N1Bet-Preisnachweise mit Hash-Kette |
 | `challenge_engine.py` | Märkte, Validierung, Kontext und Ticketlogik |
 | `football_recommendations.py` | gemeinsame Freigabepolicy |
 | `bet_finder_ui.py` | N1Bet-Preisentscheidung |
@@ -249,7 +272,7 @@ Konkrete Blockaden:
 | `redcard_signal_log.py` | Rotkarten-Shadow und Settlement |
 | `multi_sport_recommendations.py` | Basketball-, NHL- und E-Sport-Kandidaten |
 | `scripts/run_football_shadow_due.py` | API-schonender Football-Fälligkeitsrunner |
-| `scripts/backup_runtime_databases.py` | transaktionales SQLite-Backup und Retention |
+| `scripts/backup_runtime_databases.py` | SQLite-Backup, Restore-Prüfung und Retention |
 | `deploy/systemd/*` | App-, Worker- und Timer-Units |
 | `deploy/bootstrap_server.sh` | Ubuntu-Härtung und Erstinstallation |
 | `deploy/update_server.sh` | reproduzierbares Fast-Forward-Deployment |
@@ -277,6 +300,9 @@ Probability Edge = p - 1 / Quote
 Full Kelly = ((Quote - 1) * p - (1 - p)) / (Quote - 1)
 konservatives p = max(0, Modell-p - Haircut)
 Mindestquote bei 3 % Ziel-ROI = 1,03 / konservatives p
+Kombi-p = Produkt der konservativen Leg-p * Modellrisiko-Faktor
+Fréchet-Untergrenze = max(0, Summe der Leg-p - (Anzahl Legs - 1))
+Log-Wachstum = p * ln(1 + f * (Quote - 1)) + (1 - p) * ln(1 - f)
 ```
 
 Probability Edge und erwartete Rendite sind verschiedene Einheiten. Kelly ist
@@ -285,6 +311,13 @@ einer konservativen Wahrscheinlichkeit und einem Kelly-Cap gerechnet. Der
 Haircut ist ausdrücklich ein Robustheitsabschlag und kein behauptetes
 statistisches Konfidenzintervall. Ein Preisgate kann ein Shadow-Signal
 qualifizieren, aber niemals fehlende Out-of-sample-Evidenz ersetzen.
+
+Der aktuelle Kombi-Modellrisiko-Faktor ist eine vorsichtige Policy:
+`0,97` pro weiterem Leg und zusätzlich `0,985` pro Leg-Paar aus derselben
+Liga. Das ist kein empirisch bewiesenes Korrelationsmodell. Die
+Fréchet-Untergrenze ist dagegen mathematisch annahmenfrei, häufig aber null
+und deshalb nur ein Stresswert. Für eine konkrete Einsatzquote wird das
+erwartete Log-Wachstum separat berechnet.
 
 ### 15K-Rechnung
 
@@ -301,8 +334,10 @@ liegt die Chance auf 16 Siege in Folge nur bei ungefähr 0,0001 %. Verluste,
 Korrelationen, Limits und schwankende Quoten machen den Pfad zusätzlich
 schwieriger.
 
-Der Einsatzregler ist deshalb eine Risikowahl, keine Optimierung. 100 % Einsatz
-kann das Konto mit einer Niederlage auf null setzen. Die App darf das Ziel
+Der Einsatzregler ist deshalb eine Shadow-Risikowahl, keine Optimierung. Die
+App begrenzt ihn auf 25 %. Für eine reale Risikoreferenz verwendet sie
+Viertel-Kelly und höchstens 5 % des Guthabens. Auch diese Referenz ist nur so
+gut wie die geschätzte Wahrscheinlichkeit. Die App darf das Ziel
 visualisieren, aber niemals als realistische oder sichere Challenge verkaufen.
 
 ## 7. Shadow- und Evidenzstand
@@ -347,7 +382,7 @@ Konfidenzgrenzen von CLV und Rendite überzeugen. ROI allein reicht nicht.
 | Fußball Shadow/CLV | Fälligkeitsprüfung alle 10 Minuten | erfolgreich; maximal 60 fällige Fixtures |
 | Rotkarten-Settlement | alle 30 Minuten | erfolgreich; aktuell 0 offene Signale |
 | E-Sport Shadow | 08:23 und 20:23 | erfolgreich; Scan und Settlement |
-| SQLite-Backup | täglich 03:17 | erfolgreich; 14 Tage lokale Aufbewahrung |
+| SQLite-Backup | täglich 03:17 | erfolgreich; Restore und `quick_check` automatisch, 14 Tage lokal |
 | Rotkarten-Historie | täglich 05:41 | erfolgreich; Budget 350 Provider-Calls |
 | Tennis-Pipeline | täglich 07:17 | erfolgreich; montags zusätzlich Wächter und Wochenreport |
 
@@ -360,10 +395,14 @@ in KIMI sind deaktiviert. Ihre Definitionen wurden nicht gelöscht. Vor der
 KIMI-Bereinigung liegt ein Backup unter
 `C:\tmp\kimi-betboy-automations-before-vps-20260802`.
 
-App und Worker teilen weiterhin dasselbe API-Football-Tageslimit. Weil nur der
-VPS automatisch schreibt, ist die frühere Mehrfachausführung beseitigt; ein
-zentraler Budget-Arbiter zwischen interaktiven Scans und systemd-Jobs bleibt
-dennoch eine P2-Aufgabe.
+App und Worker teilen dasselbe API-Football-Tageslimit über
+`runtime_state/api_budget.db`. Jede Anfrage wird vor dem Provideraufruf atomar
+reserviert. Hintergrundarbeit stoppt bei geschätzten 2.500 Rest-Calls,
+interaktive Empfehlungen bei 750 und kritisches Closing/Settlement bei 50.
+Provider-Header und `/status` können die konservative Restschätzung nur
+absenken, nicht innerhalb desselben UTC-Tages künstlich erhöhen. Der
+Rotkarten-Harvester läuft ebenfalls über diesen Governor; sein eigenes
+350-Call-Lauflimit bleibt eine zusätzliche Grenze.
 
 ## 9. API- und Datenstand
 
@@ -375,7 +414,7 @@ API-Football wurde vom VPS live gegen den Provider geprüft:
 | Plan | Pro |
 | Laufzeit laut Providerprüfung | bis 19. Oktober 2026 |
 | Tageslimit | 7.500 Requests |
-| Prüfpunkt 02.08., 13:37 Europe/Zurich | 1.441 Requests verbraucht; laufende Jobs erhöhen den Wert |
+| Prüfpunkt 02.08., ca. 15:11 Europe/Zurich | 1.523 Requests verbraucht, 5.977 verbleibend |
 
 API-Football ist die zentrale Quelle für Fixtures, Ergebnisse, Live-Daten,
 Kontext, Statistiken und Referenzquoten. Das Abo liefert Datenqualität und
@@ -390,15 +429,21 @@ Der alte Supabase-Pooler-Zugang bleibt ungültig und wird nicht mehr für den
 Single-User-Produktionsbetrieb benötigt. Kanonische SQLite-Daten liegen
 persistent unter `/opt/betboy/app` auf dem VPS. Die vorhandenen Laufzeitdaten
 wurden über den verschlüsselten SSH-Kanal übertragen und die Einzeldateien per
-SHA-256 geprüft. Alle zwölf vom Backup erfassten Datenbanken bestanden
-`PRAGMA quick_check` und wurden erfolgreich aus dem ersten Backup
-wiederhergestellt.
+SHA-256 geprüft. Der aktuelle Produktionslauf erfasste 14 Datenbanken. Alle
+14 wurden aus dem ZIP zurückgelesen und bestanden `PRAGMA quick_check`; diese
+Restore-Prüfung ist jetzt Teil jedes neuen Backup-Laufs.
 
 Das löst Neustartpersistenz und zentrale Shadow-Daten, aber noch keine
 Mehrbenutzer-Authentifizierung oder gerätegetrennte Konten. Ein unabhängiges
 Offsite-Backup beziehungsweise OVH Automatic Backup muss im OVH-Panel separat
 aktiviert und verifiziert werden; das lokale Backup auf demselben VPS allein
 schützt nicht vor vollständigem Serververlust.
+
+Die Preis-Hash-Kette erkennt normale Updates, Löschungen und partielle
+Manipulation. Sie ist jedoch weder extern signiert noch unveränderbarer
+WORM-Speicher: Ein Angreifer mit Root- und Codezugriff könnte Daten und
+Hash-Kette gemeinsam neu schreiben. Für stärkere Beweiskraft muss der tägliche
+Kopf-Hash künftig außerhalb des VPS verankert werden.
 
 ## 10. Sicherheit
 
@@ -434,7 +479,7 @@ VPS-Härtung, verifiziert am 2. August 2026:
 Vollständiger Lauf:
 
 ```text
-519 passed
+543 passed
 5 subtests passed
 ```
 
@@ -457,6 +502,8 @@ getestet, nicht über den Codex-In-App-Browser:
 Zusätzlich verifiziert:
 
 - 15K zeigt bei 100 Euro Startguthaben standardmäßig 25 Euro Einsatz.
+- Der 15K-Einsatzregler hat in Produktion exakt Maximum 25; alter
+  100-%-/All-in-Text ist nicht mehr vorhanden.
 - Alle acht Arbeitsbereiche bleiben direkt erreichbar.
 - Multi-Sport zeigt Sportart und danach Liga.
 - Basketball zeigt ein Basketball-Beispiel.
@@ -466,16 +513,17 @@ Zusätzlich verifiziert:
 - Die echte VPS-App zeigt im normalen installierten Microsoft Edge
   `Statistisches Modell aktiv` und `Live-API aktiv (Pro)`.
 - HTTPS liefert 200, HTTP leitet permanent auf HTTPS um.
-- Backup-Erstellung und Test-Restore aller zwölf enthaltenen SQLite-Dateien
-  wurden auf dem VPS ausgeführt.
+- Backup-Erstellung und Test-Restore aller 14 enthaltenen SQLite-Dateien
+  wurden auf dem VPS ausgeführt; der Job prüft dies künftig automatisch.
 
 ## 12. Offene Prioritäten
 
 ### P0 - extern und vor ernsthafter Echtgeldnutzung
 
 1. Alle historisch exponierten Secrets rotieren.
-2. Unabhängiges Offsite-/OVH-Backup aktivieren und einen Wiederanlauf nach
-   vollständigem VPS-Verlust testen.
+2. Unabhängiges Offsite-/OVH-Backup aktivieren, den Preisledger-Kopf-Hash
+   extern verankern und einen Wiederanlauf nach vollständigem VPS-Verlust
+   testen.
 3. Authentifizierung und stabile `user_id` für Konten und Ledger einführen.
 4. N1Bet-Regeln für Void, Verlängerung, Early Payout und Marktlinien
    schriftlich gegen die Settlement-Implementierung prüfen.
@@ -492,12 +540,13 @@ Zusätzlich verifiziert:
 
 ### P2 - Betrieb
 
-1. API-Budget zentralisieren.
-2. PostgreSQL erst einführen, wenn Mehrbenutzerbetrieb oder horizontale
+1. PostgreSQL erst einführen, wenn Mehrbenutzerbetrieb oder horizontale
    Skalierung den zusätzlichen Fehlerraum rechtfertigt.
-3. Nach jedem Push die echte VPS-App auf Commitstand und Mobilansicht
+2. Nach jedem Push die echte VPS-App auf Commitstand und Mobilansicht
    prüfen.
-4. Backup-Restore regelmäßig wiederholen und systemd-Fehler aktiv alarmieren.
+3. Systemd-, Backup- und Quota-Fehler an einen externen Kanal alarmieren.
+4. Bei einer Änderung des API-Plans die drei Budgetreserven bewusst neu
+   festlegen und testen.
 
 ## 13. Betrieb und Übergabe
 
