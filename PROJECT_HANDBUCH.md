@@ -9,8 +9,8 @@
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor diesem Tages-Scan-Umbau | `f23bc5a` |
-| Fachlicher Kernstand | tägliche 51-Ligen-Discovery plus gezielter Fixture-Kontext (diese Revision) |
-| Verifizierter VPS-Funktionsstand | `f23bc5a` vor Deployment dieser Revision |
+| Fachlicher Kernstand | `ac5c021` - tägliche 51-Ligen-Discovery plus gezielter Fixture-Kontext |
+| Verifizierter VPS-Funktionsstand | `ac5c021` |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
@@ -200,9 +200,8 @@ Mindestquote = (1 + 0,03) / konservatives p
   Spieltag aktiv; danach wird einmal der Folgetag vorbereitet.
 - Tennis und E-Sport werden aus ihren eigenen täglichen, persistierten
   Modellläufen übernommen. Basketball und NHL bleiben in ihren vorhandenen
-  validierten Live-Pfaden ereignisgetrieben; ein künstlicher täglicher
-  Prematch-Kandidat wird nicht erzeugt. Cricket bleibt ohne validiertes Modell
-  blockiert.
+  Live-Pfaden ereignisgetrieben; ein künstlicher täglicher Prematch-Kandidat
+  wird nicht erzeugt. Cricket bleibt ohne validiertes Modell blockiert.
 - Die Auswahl wird ohne angebotene Quote nach Evidenzstufe und konservativer
   Wahrscheinlichkeit sortiert, pro Event dedupliziert und auf drei begrenzt.
   Jeder Eintrag bleibt `PRICE_REQUIRED`; die exakte N1Bet-Quote wird erst
@@ -432,6 +431,16 @@ Konfidenzgrenzen von CLV und Rendite überzeugen. ROI allein reicht nicht.
 | Rotkarten-Historie | täglich 05:41 | erfolgreich; Budget 350 Provider-Calls |
 | Tennis-Pipeline | täglich 07:17 | erfolgreich; montags zusätzlich Wächter und Wochenreport |
 
+Produktionsverifikation am 2. August 2026: Der erste Artefakt-v2-Lauf
+verarbeitete den Discovery-Scope mit 51 Ligen, fand und modellierte die zwei
+noch ausstehenden Fixtures, speicherte drei mathematische Discovery-Märkte und
+prüfte den Kontext beider Events. Fußball blieb wegen der strengen Gates bei
+null Freigaben; die öffentliche Top 3 kam aus dem persistierten
+E-Sport-Shadowlauf. Der direkte Folgelauf brauchte rund drei Sekunden, meldete
+`daily_discovery_current` und `context_status=not_due` und verbrauchte keinen
+weiteren API-Football-Aufruf. Das verifiziert den Scheduling-Vertrag, nicht die
+Profitabilität eines Modells.
+
 Alle sieben Timer und `betboy-app.service` sind in systemd `enabled`; nach
 einem Neustart laufen sie ohne Benutzeraktion weiter. Der automatische
 Wettfinder darf in seinen Zwischenläufen ausschließlich den persistierten
@@ -463,6 +472,7 @@ API-Football wurde vom VPS live gegen den Provider geprüft:
 | Laufzeit laut Providerprüfung | bis 19. Oktober 2026 |
 | Tageslimit | 7.500 Requests |
 | Prüfpunkt 02.08., ca. 15:11 Europe/Zurich | 1.523 Requests verbraucht, 5.977 verbleibend |
+| Prüfpunkt 02.08., 22:39 nach 51-Ligen-Lauf | konservativ 2.188 verbraucht, 5.312 verbleibend |
 
 API-Football ist die zentrale Quelle für Fixtures, Ergebnisse, Live-Daten,
 Kontext, Statistiken und Referenzquoten. Das Abo liefert Datenqualität und
