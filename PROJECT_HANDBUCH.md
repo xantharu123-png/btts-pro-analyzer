@@ -312,7 +312,7 @@ Kanonischer VPS-Snapshot nach Migration und ersten Produktionsläufen am
 
 | Bereich | Stand | Fachliche Aussage |
 |---|---|---|
-| Fußball CLV | bestehender Verlauf migriert; 58 neue Fixtures geplant, 9 im ersten VPS-Fenster bewertet, 0 Picks | Lauf fehlerfrei; kein CLV-/ROI-Urteil möglich |
+| Fußball CLV | bestehender Verlauf migriert; 58 neue Fixtures geplant, 12 in den ersten drei VPS-Läufen bewertet, 0 Picks | Läufe fehlerfrei; kein CLV-/ROI-Urteil möglich |
 | Tennis aktuelle DB | 144 Predictions, 38 abgerechnet, 0 Picks der aktuellen Policy | Brier 0,2382; kein Closing-Benchmark, keine Price-Evidence |
 | Tennis Policy-Replay 2021-22 | 195 ATP-Hard-Picks, +2,45 % ROI, 95 % −22,33 bis +27,23 % | Hypothese; Intervall enthält null |
 | Tennis Policy-Replay 2023-24 | 142 ATP-Hard-Picks, +9,78 % ROI, 95 % −19,52 bis +39,09 % | späteres Fenster ebenfalls nicht beweiskräftig |
@@ -375,7 +375,7 @@ API-Football wurde vom VPS live gegen den Provider geprüft:
 | Plan | Pro |
 | Laufzeit laut Providerprüfung | bis 19. Oktober 2026 |
 | Tageslimit | 7.500 Requests |
-| Stand nach allen Inbetriebnahmetests am 02.08. | 1.441 Requests verbraucht |
+| Prüfpunkt 02.08., 13:37 Europe/Zurich | 1.441 Requests verbraucht; laufende Jobs erhöhen den Wert |
 
 API-Football ist die zentrale Quelle für Fixtures, Ergebnisse, Live-Daten,
 Kontext, Statistiken und Referenzquoten. Das Abo liefert Datenqualität und
