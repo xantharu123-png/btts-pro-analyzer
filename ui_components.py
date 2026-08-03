@@ -269,8 +269,9 @@ def scan_progress_fragment(job_key: str, label: str) -> None:
         render_scan_progress(job, label)
         return
     if state == "done":
-        if not st.session_state.get(completion_key):
-            st.session_state[completion_key] = True
+        completion_frame = int(st.session_state.get(completion_key) or 0)
+        if completion_frame < 2:
+            st.session_state[completion_key] = completion_frame + 1
             render_scan_progress(
                 {
                     **job,
