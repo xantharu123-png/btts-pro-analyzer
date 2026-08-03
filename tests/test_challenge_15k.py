@@ -189,6 +189,20 @@ class ChallengeProbabilityTests(unittest.TestCase):
 
         self.assertEqual(_shortlist_counts(markets), (3, 2))
 
+    def test_shortlist_keeps_only_one_market_per_game(self):
+        markets = [
+            candidate("1:BTTS", 1, 0.74),
+            candidate("1:OVER_25", 1, 0.73),
+            candidate("2:HOME_OVER_05", 2, 0.72),
+            candidate("3:UNDER_35", 3, 0.71),
+        ]
+
+        shortlist = select_shortlist(markets, max_candidates=3)
+
+        self.assertEqual(len(shortlist), 3)
+        self.assertEqual([item.fixture_id for item in shortlist], [1, 2, 3])
+        self.assertEqual(shortlist[0].candidate_id, "1:BTTS")
+
     def test_score_matrix_is_normalized(self):
         matrix = score_matrix(1.4, 1.1)
 
@@ -574,6 +588,53 @@ class ChallengeContextTests(unittest.TestCase):
         self.assertEqual(result["fixture_ids"], [1])
         self.assertEqual(len(result["shortlist"]), 1)
         self.assertTrue(result["shortlist"][0].eligible)
+
+    def test_targeted_refresh_does_not_require_unpublished_lineups(self):
+        now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(hours=5),
+        )
+        provider = Mock()
+        provider.errors = []
+        provider.details_by_fixture.return_value = {
+            1: fixture(1, now + timedelta(hours=5), 10, 11)
+        }
+        provider.injuries_by_fixture.return_value = {1: []}
+        provider.coverage.return_value = {"injuries": True, "lineups": True}
+        provider.h2h.return_value = [
+            fixture(
+                100 + index,
+                now - timedelta(days=30 + index),
+                10,
+                11,
+                1,
+                1,
+            )
+            for index in range(3)
+        ]
+        provider.weather.return_value = {
+            "status": "ok",
+            "temperature_c": 16,
+            "wind_mps": 2,
+            "rain_3h_mm": 0,
+            "snow_3h_mm": 0,
+        }
+
+        result = refresh_discovered_candidates(
+            provider,
+            [item],
+            now.date(),
+            now=now,
+        )
+
+        self.assertEqual(len(result["shortlist"]), 1)
+        refreshed = result["shortlist"][0]
+        self.assertTrue(refreshed.context["passed"])
+        self.assertEqual(refreshed.context["lineups"]["status"], "pending")
+        self.assertFalse(refreshed.context["lineups"]["required"])
 
     def test_all_context_gates_pass_without_changing_probability(self):
         item = candidate("1:BTTS", 1, 0.70)

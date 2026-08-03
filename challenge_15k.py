@@ -53,7 +53,6 @@ from challenge_store import ChallengeLedger
 from config_loader import load_app_config
 from ui_components import (
     milestone_bar_html,
-    plain_german,
     render_empty_state,
     scan_progress_fragment,
 )
@@ -70,7 +69,7 @@ from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 5
+CHALLENGE_SNAPSHOT_VERSION = 6
 CHALLENGE_WORKSPACE_VERSION = 5
 CHALLENGE_TIMEZONE = ZoneInfo("Europe/Zurich")
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
@@ -86,9 +85,9 @@ QUOTE_MAX_AGE_MINUTES = 10
 SNAPSHOT_MAX_AGE_MINUTES = 20
 XG_MAX_NEW_CALLS_PER_SCAN = 12
 # Auto-Nachprüfung: Die App wartet selbst auf frischen Pflichtkontext
-# (H2H-Lage, Ausfälle, Wetter und bestätigte Startaufstellungen), statt dass
-# der Nutzer den ganzen Tag manuell neu scannt. Läuft nur, solange die Seite
-# offen ist und noch kein Kandidat freigegeben wurde.
+# (H2H-Lage, Ausfälle und Wetter), statt dass der Nutzer den ganzen Tag
+# manuell neu scannt. Aufstellungen werden später nur zur Anzeige ergänzt.
+# Läuft nur, solange die Seite offen ist und noch kein Kandidat freigegeben wurde.
 AUTO_RECHECK_WINDOW_MINUTES = 80
 AUTO_RECHECK_MIN_GAP_MINUTES = 12
 AUTO_RECHECK_POLL_SECONDS = 180
@@ -908,9 +907,11 @@ def _refresh_lineup_displays(provider: "ChallengeDataProvider", snapshot: dict[s
 def _lineup_refresh_tick(
     snapshot: dict[str, Any], api_football_key: str, weather_key: Optional[str]
 ) -> None:
-    """Nach der Freigabe: holt bestätigte Aufstellungen nach, sobald sie
-    veröffentlicht sind (ca. 60 Minuten vor Anpfiff). Nur Anzeige —
-    Gates, Shortlist und Preise bleiben unberührt."""
+    """Holt bestätigte Aufstellungen nach, sobald sie veröffentlicht sind.
+
+    Das ist nur eine Anzeigeaktualisierung; Modell, Shortlist und Preise
+    bleiben unverändert.
+    """
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(minutes=5)
     window_end = now + timedelta(minutes=75)
@@ -937,7 +938,7 @@ def _lineup_refresh_tick(
     provider = ChallengeDataProvider(api_football_key, weather_key)
     updated = _refresh_lineup_displays(provider, snapshot)
     if updated:
-        st.toast("Aufstellungsanzeige aktualisiert; das Pflichtgate war bereits erfüllt.")
+        st.toast("Bestätigte Aufstellungen wurden ergänzt.")
         st.rerun()
 
 
@@ -952,15 +953,14 @@ def _challenge_auto_recheck_fragment(
     """Wartet an Stelle des Nutzers auf frischen Pflichtkontext.
 
     Sobald Shortlist-Spiele ins Fenster rutschen, prüft die App H2H,
-    Ausfälle, Wetter und bestätigte Startaufstellungen erneut. Das läuft nur,
-    solange nichts freigegeben ist und die Seite offen bleibt.
+    Ausfälle und Wetter erneut. Das läuft nur, solange nichts freigegeben
+    ist und die Seite offen bleibt.
     """
     snapshot = st.session_state.get("challenge_snapshot")
     if not isinstance(snapshot, dict):
         return
     if snapshot.get("shortlist"):
-        # Nach der strikten Freigabe ist kein Gate-Rescan mehr nötig. Fehlende
-        # Namen/Formation können für die Anzeige nachgeladen werden.
+        # Fehlende Namen und Formationen werden nur für die Anzeige nachgeladen.
         _lineup_refresh_tick(snapshot, api_football_key, weather_key)
         return
     if not _auto_recheck_eligible(snapshot, search_date):
@@ -1204,7 +1204,7 @@ def scan_daily_challenge(
                 if isinstance(detail, dict) and league_coverage.get("lineups") is True
                 else None
             ),
-            require_lineups=True,
+            require_lineups=False,
         )
         contextualized.append(candidate)
 
@@ -1342,7 +1342,7 @@ def refresh_discovered_candidates(
                 else None
             ),
             now=checked_at,
-            require_lineups=True,
+            require_lineups=False,
         )
         contextualized.append(candidate)
 
@@ -2022,6 +2022,8 @@ def _render_candidate_context(candidate: ChallengeCandidate) -> None:
                         for index, name in enumerate(info.get("starters", []), start=1)
                     )
                 )
+    else:
+        st.caption("Aufstellungen: noch nicht veröffentlicht")
 
 
 def _render_price_check(
@@ -2033,64 +2035,25 @@ def _render_price_check(
     if not shortlist:
         found = snapshot.get("fixtures_found", 0)
         modeled = snapshot.get("fixtures_modeled", 0)
-        base_shortlist = snapshot.get("base_shortlist") or []
-        if base_shortlist:
-            market_count, fixture_count = _shortlist_counts(base_shortlist)
-            fixture_label = (
-                "einem Spiel" if fixture_count == 1 else f"{fixture_count} Spielen"
-            )
-            st.warning(
-                f"NOCH KEINE WETTFREIGABE - {market_count} mathematisch "
-                f"vorgefilterte Märkte aus {fixture_label}. Es fehlen noch "
-                "Pflichtdaten (H2H, Ausfälle, Wetter oder bestätigte "
-                "Startaufstellungen). Erst danach wird der N1Bet-Preis geprüft."
+        if found <= 0:
+            reason = "Für diesen Spieltag wurden keine verwertbaren Spiele gefunden."
+        elif modeled <= 0:
+            reason = (
+                "Für die gefundenen Spiele reicht die Statistik nicht für eine "
+                "belastbare Modellbewertung."
             )
         else:
-            st.error("KEINE WETTE HEUTE — kein Kandidat besteht alle Prüfkriterien.")
+            reason = (
+                "Keines der modellierten Spiele besteht Modell, Walk-forward, "
+                "H2H, Ausfall- und Wetterprüfung gemeinsam."
+            )
+        st.warning("Heute keine belastbare 15K-Empfehlung.")
         st.caption(
-            f"{found} Spiele gefunden; {modeled} davon lieferten genug gültige "
-            "Statistik für eine Modellbewertung. Ligakalender und Provider-Abdeckung "
-            "können diese Zahl verkleinern. Fehlende Evidenz wird nicht geschätzt."
+            f"{reason} Geprüft: {found} Spiele, davon {modeled} modelliert."
         )
-        if snapshot.get("blocked_counts"):
-            with st.expander("Warum wurden Kandidaten abgelehnt?"):
-                st.caption(
-                    "Jedes Spiel wird auf mehreren Märkten geprüft und kann mehrere "
-                    "Ablehnungsgründe gleichzeitig haben. Die Tabelle zählt, wie oft "
-                    "jeder Grund vorkam — reine Diagnose, keine Handlungsaufforderung."
-                )
-                audit = pd.DataFrame(
-                    [
-                        {"Grund": plain_german(reason), "Anzahl": count}
-                        for reason, count in sorted(
-                            snapshot["blocked_counts"].items(),
-                            key=lambda item: item[1],
-                            reverse=True,
-                        )[:10]
-                    ]
-                )
-                st.dataframe(audit, width="stretch", hide_index=True)
-        if base_shortlist:
-            st.subheader("Mathematische Vorfilterung - noch keine Empfehlung")
-            st.caption(
-                "Ein Spiel kann hier mit mehreren Märkten erscheinen. Diese Zeilen sind "
-                "keine Wetttipps: Sie bestehen nur Modell, Walk-forward-Validierung und "
-                "Evidenz. H2H, Ausfälle, Wetter und bestätigte Startaufstellungen sind "
-                "verbindliche Veto-Gates. Erst wenn alle passen, folgt die N1Bet-Preisprüfung."
-            )
-            st.dataframe(
-                _shortlist_frame(base_shortlist), width="stretch", hide_index=True
-            )
-            st.caption(
-                "Mindestquote = der erste Preis, der nach konservativem "
-                "Modellabschlag mindestens 3 % Risiko-EV erreicht. Zahlt N1Bet "
-                "WENIGER als die Mindestquote, "
-                "ist es keine Wette — egal wie „sicher“ sich der Tipp anfühlt. "
-                "Zahlt N1Bet mehr, entsteht ein Preis-Check."
-            )
         return
 
-    st.subheader("Modell-Shortlist")
+    st.subheader("Tagesempfehlungen")
     st.dataframe(_shortlist_frame(shortlist), width="stretch", hide_index=True)
     preview = snapshot.get("model_ticket") or ()
     if preview:
@@ -2355,13 +2318,10 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         st.error("API-Football-Key fehlt.")
         return
     if not config.weather_key:
-        st.warning("Wetter-Key fehlt. Der strikte Kontext-Gate wird daher keine Tipps freigeben.")
+        st.warning("Wetter-Key fehlt. Ohne Wetterprüfung gibt es keine Empfehlung.")
     st.caption(
-        "Freigabe erst, wenn Modell, Walk-forward, H2H, Ausfälle und Wetter "
-        "passen sowie bestätigte Startaufstellungen vollständig vorliegen. "
-        "Danach prüft der N1Bet-Preis "
-        "den Value. Bis zum unabhängigen Evidenznachweis bleibt das Ergebnis "
-        "ein Shadow-Ticket ohne Echtgeld-Einsatz."
+        "Modell, Walk-forward, H2H, Ausfälle und Wetter entscheiden über die "
+        "Tagesempfehlung. Danach prüft der N1Bet-Preis den Value."
     )
 
     controls = st.columns(2)
@@ -2384,7 +2344,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     max_fixtures = MAX_SCAN_FIXTURES
     controls[1].caption(
         "Alle Spiele der gewählten Ligen werden modelliert; "
-        "Pflichtkontext inklusive Aufstellungen für höchstens 20 Spiele."
+        "H2H, Ausfälle und Wetter für die besten 20 Spiele geprüft."
     )
 
     available_ids = list(ALTERNATIVE_MARKET_LEAGUES)
@@ -2462,7 +2422,10 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         st.warning("Datum, Liga oder Prüfumfang wurden seit dem Ergebnis geändert. Wetten neu suchen.")
         return
 
-    st.caption(f"Datenstand: {_format_time(snapshot.get('scanned_at'))}")
+    st.caption(
+        f"Datenstand: {_format_time(snapshot.get('scanned_at'))} · "
+        f"{snapshot.get('fixtures_found', 0)} Spiele geprüft"
+    )
     try:
         scanned_at = datetime.fromisoformat(snapshot["scanned_at"]).astimezone(timezone.utc)
         snapshot_age = (
@@ -2480,29 +2443,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         st.info(
             "Wartezustand: Der Datenstand ist älter, aber noch ohne Wettfreigabe. "
             "Die Auto-Prüfung scannt selbstständig neu, sobald frischer Pflichtkontext "
-            "(H2H, Ausfälle, Wetter und bestätigte Startaufstellungen) für "
-            "Shortlist-Spiele verfügbar wird."
-        )
-    counts = st.columns(4)
-    counts[0].metric("Gefunden", snapshot["fixtures_found"])
-    counts[1].metric("Modelliert", snapshot["fixtures_modeled"])
-    counts[2].metric("Kontext-Spiele (max. 20)", snapshot["context_fixtures"])
-    counts[3].metric("Freigegeben", snapshot["approved_candidates"])
-    if snapshot.get("errors"):
-        st.warning(
-            f"{len(snapshot['errors'])} Provider- oder Coverage-Meldungen wurden protokolliert."
-        )
-        st.caption(
-            "Fehlende Pflichtdaten sperren den betroffenen Kandidaten. Rein optionale "
-            "Hinweise, etwa geringe xG-Abdeckung, sind transparent sichtbar, sperren "
-            "aber nicht automatisch. Maßgeblich sind die ausgewiesenen Ablehnungsgründe."
-        )
-        st.dataframe(
-            pd.DataFrame(
-                {"Provider-Meldung": snapshot["errors"][:8]}
-            ),
-            width="stretch",
-            hide_index=True,
+            "(H2H, Ausfälle und Wetter) für Shortlist-Spiele verfügbar wird."
         )
     _render_price_check(snapshot, ledger, settings)
     if _auto_recheck_eligible(snapshot, search_date):

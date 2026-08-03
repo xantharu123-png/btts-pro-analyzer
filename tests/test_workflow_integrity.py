@@ -38,6 +38,9 @@ def test_full_league_scans_have_no_confirmation_or_provider_warning():
     assert "full_scan_confirmed" not in challenge_source
     assert "Provider-Aufrufe" not in challenge_source
     assert "Provider-Aufrufe" not in app_source
+    assert "NOCH KEINE WETTFREIGABE" not in challenge_source
+    assert "Mathematische Vorfilterung" not in challenge_source
+    assert "Provider- oder Coverage-Meldungen" not in challenge_source
 
 
 def test_red_card_monitor_uses_the_full_canonical_league_scope():

@@ -1913,9 +1913,10 @@ def apply_candidate_context(
 ) -> ChallengeCandidate:
     """Attach non-price context as veto gates without altering probability.
 
-    ``require_lineups`` ist eine explizite Policy-Option für andere Aufrufer.
-    Die 15K-Challenge und der Shadow-CLV-Lauf verwenden den strikten Standard:
-    Ohne bestätigte Startelf beider Teams gibt es keine Freigabe.
+    ``require_lineups`` ist eine explizite Policy-Option für den jeweiligen
+    Workflow. Tagesmodelle können Aufstellungen ergänzend anzeigen, während
+    ein unmittelbar vor Anpfiff laufender Workflow sie verpflichtend machen
+    kann.
     """
     now_utc = now or datetime.now(timezone.utc)
     if now_utc.tzinfo is None:
@@ -1985,6 +1986,8 @@ def apply_candidate_context(
     )
     if lineup_reason and require_lineups:
         blocked.append(lineup_reason)
+    if not require_lineups and not lineup_passed:
+        lineup_summary = {**lineup_summary, "status": "pending"}
     lineup_summary = {
         **lineup_summary,
         "required": require_lineups,
@@ -2015,7 +2018,7 @@ def select_shortlist(
     candidates: Iterable[ChallengeCandidate],
     max_candidates: int = 6,
 ) -> list[ChallengeCandidate]:
-    """Select a small price-independent board for the later quote check."""
+    """Select distinct fixtures for the later quote check."""
     if (
         isinstance(max_candidates, bool)
         or not isinstance(max_candidates, int)
@@ -2032,12 +2035,12 @@ def select_shortlist(
         reverse=True,
     )
     selected: list[ChallengeCandidate] = []
-    per_fixture: dict[int, int] = {}
+    selected_fixtures: set[int] = set()
     for candidate in eligible:
-        if per_fixture.get(candidate.fixture_id, 0) >= 2:
+        if candidate.fixture_id in selected_fixtures:
             continue
         selected.append(candidate)
-        per_fixture[candidate.fixture_id] = per_fixture.get(candidate.fixture_id, 0) + 1
+        selected_fixtures.add(candidate.fixture_id)
         if len(selected) >= max_candidates:
             break
     return selected
