@@ -33,7 +33,9 @@ Der verbindliche Ablauf lautet:
 1. Das Modell bildet eine Punktwahrscheinlichkeit ohne Buchmacherquote.
 2. Datenherkunft, Aktualität, Stichprobe und zeitliche Validierung werden
    geprüft.
-3. H2H, Ausfälle und Wetter werden als Kontextgates angewendet. In der
+3. Ausfälle und Wetter werden als Pflichtkontext angewendet. H2H ist nur ein
+   konservativer Gegencheck: Fehlende oder kleine Direktvergleichsstichproben
+   sind neutral und können weder freigeben noch blockieren. In der
    15K-Challenge und im Shadow-CLV-Lauf sind bestätigte Startaufstellungen
    beider Teams ebenfalls ein verbindliches Gate.
 4. Die quotenfreie Prognose bleibt sichtbar, auch wenn ein Modellgate oder
@@ -164,6 +166,29 @@ Mindestquote = (1 + 0,03) / konservatives p
   +2,45 % ROI (95-%-Intervall -22,33 bis +27,23 %) und 2023-24 bei 142 Picks
   +9,78 % (95-%-Intervall -19,52 bis +39,09 %). Beide Intervalle enthalten
   deutliche Verluste; Tennis bleibt daher zwingend Shadow.
+
+### H2H-Policy-Audit vom 3. August 2026
+
+- Die frühere Regel blockierte fehlende H2H-Daten vollständig und entschied
+  bereits anhand von drei Direktduellen. Bei einer tatsächlich korrekten
+  70-%-Prognose hätte bloßes Binomialrauschen in rund 21,6 % der Fälle ein
+  falsches Veto erzeugt.
+- Fehlendes H2H und weniger als sechs aktuelle, marktspezifisch auswertbare
+  Direktduelle sind jetzt neutral. Neue UEFA-Paarungen werden dadurch nicht
+  mehr allein wegen fehlender gemeinsamer Historie ausgeschlossen.
+- Ein H2H-Veto ist nur noch innerhalb eines Drei-Jahres-Fensters möglich. Die
+  obere 95-%-Wilson-Grenze der beobachteten Trefferquote muss trotz eines
+  zusätzlichen Abstands von zehn Prozentpunkten unter der konservativen
+  Modellwahrscheinlichkeit liegen.
+- H2H erhöht niemals Wahrscheinlichkeit, Rang oder Einsatz. Es kann bei
+  starker Gegenbeobachtung nur ein Veto auslösen.
+- Eckball- und Karten-H2H benötigt echte Statistiken des jeweiligen Markts.
+  Vorhandene Torergebnisse dürfen dafür kein bestandenes Gate vortäuschen.
+- Historisch vertauschtes Heimrecht wird vor Teamtor-, Eckball- und
+  Kartenauswertungen auf die heutige Heim-/Auswärtsorientierung gedreht.
+- Die H2H-Policy ist mathematisch konservativer, aber noch kein empirisch
+  bewiesener Vorteil. Vor Echtgeldfreigabe bleibt eine versionsgetrennte
+  Walk-forward-Ablation mit und ohne H2H-Veto Pflicht.
 
 ### Jobs, Sitzungen und Challenge
 
@@ -606,8 +631,11 @@ Zusätzlich verifiziert:
    Ligen laufen lassen.
 2. Dropout-Funnel nach Modell-, Kontext- und Preisgrund versionsweise
    auswerten.
-3. Keine Schwelle auf demselben Zeitraum wählen und beweisen.
-4. Erst nach ausreichender Stichprobe CLV, Kalibrierung und No-Vig-Benchmark
+3. H2H-Veto per zeitlich sauberer Ablation gegen dieselben Picks ohne H2H
+   vergleichen; die Policy nur behalten, wenn sie out-of-sample Kalibrierung
+   oder Log-Loss verbessert.
+4. Keine Schwelle auf demselben Zeitraum wählen und beweisen.
+5. Erst nach ausreichender Stichprobe CLV, Kalibrierung und No-Vig-Benchmark
    beurteilen.
 
 ### P2 - Betrieb

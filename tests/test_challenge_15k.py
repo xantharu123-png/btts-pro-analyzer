@@ -984,8 +984,14 @@ class ChallengeContextTests(unittest.TestCase):
 
         self.assertTrue(item.eligible)
 
-    def test_missing_h2h_blocks_candidate(self):
-        item = candidate("1:BTTS", 1, 0.70)
+    def test_missing_h2h_is_neutral_instead_of_blocking_candidate(self):
+        now = datetime.now(timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(days=1),
+        )
 
         apply_candidate_context(
             item,
@@ -999,11 +1005,207 @@ class ChallengeContextTests(unittest.TestCase):
                 "rain_3h_mm": 0,
                 "snow_3h_mm": 0,
             },
-            lineups=None,
+            lineups=confirmed_lineups(),
+            now=now,
+        )
+
+        self.assertTrue(item.eligible)
+        self.assertEqual(item.context["h2h"]["status"], "neutral")
+        self.assertEqual(item.context["h2h"]["matches"], 0)
+        self.assertFalse(
+            any("H2H" in reason for reason in item.context["blocked_reasons"])
+        )
+
+    def test_three_contradictory_h2h_matches_are_too_few_for_a_veto(self):
+        now = datetime.now(timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(days=1),
+        )
+        h2h = [
+            fixture(100 + index, now - timedelta(days=30 + index), 10, 11, 0, 0)
+            for index in range(3)
+        ]
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=h2h,
+            injuries=[],
+            injury_coverage=True,
+            weather={
+                "status": "ok",
+                "temperature_c": 12,
+                "wind_mps": 3,
+                "rain_3h_mm": 0,
+                "snow_3h_mm": 0,
+            },
+            lineups=confirmed_lineups(),
+            now=now,
+        )
+
+        self.assertTrue(item.eligible)
+        self.assertEqual(item.context["h2h"]["status"], "neutral")
+        self.assertEqual(item.context["h2h"]["matches"], 3)
+        self.assertEqual(item.context["h2h"]["hits"], 0)
+
+    def test_six_recent_strongly_contradictory_h2h_matches_veto(self):
+        now = datetime.now(timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(days=1),
+        )
+        h2h = [
+            fixture(100 + index, now - timedelta(days=30 + index), 10, 11, 0, 0)
+            for index in range(6)
+        ]
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=h2h,
+            injuries=[],
+            injury_coverage=True,
+            weather={
+                "status": "ok",
+                "temperature_c": 12,
+                "wind_mps": 3,
+                "rain_3h_mm": 0,
+                "snow_3h_mm": 0,
+            },
+            lineups=confirmed_lineups(),
+            now=now,
         )
 
         self.assertFalse(item.eligible)
-        self.assertIn("H2H-Stichprobe fehlt", item.context["blocked_reasons"])
+        self.assertEqual(item.context["h2h"]["status"], "blocked")
+        self.assertLess(
+            item.context["h2h"]["upper_confidence_bound"],
+            item.context["h2h"]["veto_threshold"],
+        )
+        self.assertIn(
+            "Aktuelles H2H widerspricht der Auswahl statistisch deutlich",
+            item.context["blocked_reasons"],
+        )
+
+    def test_h2h_older_than_three_years_is_not_used_for_a_veto(self):
+        now = datetime.now(timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(days=1),
+        )
+        h2h = [
+            fixture(
+                100 + index,
+                now - timedelta(days=4 * 365 + index),
+                10,
+                11,
+                0,
+                0,
+            )
+            for index in range(6)
+        ]
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=h2h,
+            injuries=[],
+            injury_coverage=True,
+            weather={
+                "status": "ok",
+                "temperature_c": 12,
+                "wind_mps": 3,
+                "rain_3h_mm": 0,
+                "snow_3h_mm": 0,
+            },
+            lineups=confirmed_lineups(),
+            now=now,
+        )
+
+        self.assertTrue(item.eligible)
+        self.assertEqual(item.context["h2h"]["status"], "neutral")
+        self.assertEqual(item.context["h2h"]["meetings_considered"], 0)
+
+    def test_count_market_h2h_without_count_stats_is_neutral(self):
+        now = datetime.now(timezone.utc)
+        item = candidate(
+            "1:CORNERS_OVER_9_5",
+            1,
+            0.70,
+            kickoff=now + timedelta(days=1),
+        )
+        item.market_key = "CORNERS_OVER_9_5"
+        h2h = [
+            fixture(100 + index, now - timedelta(days=30 + index), 10, 11, 2, 1)
+            for index in range(10)
+        ]
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=h2h,
+            injuries=[],
+            injury_coverage=True,
+            weather={
+                "status": "ok",
+                "temperature_c": 12,
+                "wind_mps": 3,
+                "rain_3h_mm": 0,
+                "snow_3h_mm": 0,
+            },
+            lineups=confirmed_lineups(),
+            now=now,
+        )
+
+        self.assertTrue(item.eligible)
+        self.assertEqual(item.context["h2h"]["status"], "neutral")
+        self.assertEqual(item.context["h2h"]["meetings_considered"], 10)
+        self.assertEqual(item.context["h2h"]["matches"], 0)
+
+    def test_count_h2h_flips_historical_home_and_away_roles(self):
+        now = datetime.now(timezone.utc)
+        item = candidate(
+            "1:HOME_CORNERS_OVER_5_5",
+            1,
+            0.70,
+            kickoff=now + timedelta(days=1),
+        )
+        item.market_key = "HOME_CORNERS_OVER_5_5"
+        h2h = [
+            fixture(
+                100 + index,
+                now - timedelta(days=30 + index),
+                11,
+                10,
+                1,
+                2,
+                stats={"corners_home": 2, "corners_away": 7},
+            )
+            for index in range(6)
+        ]
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=h2h,
+            injuries=[],
+            injury_coverage=True,
+            weather={
+                "status": "ok",
+                "temperature_c": 12,
+                "wind_mps": 3,
+                "rain_3h_mm": 0,
+                "snow_3h_mm": 0,
+            },
+            lineups=confirmed_lineups(),
+            now=now,
+        )
+
+        self.assertTrue(item.eligible)
+        self.assertEqual(item.context["h2h"]["status"], "passed")
+        self.assertEqual(item.context["h2h"]["hits"], 6)
 
     def test_missing_lineups_block_inside_the_final_hour(self):
         now = datetime.now(timezone.utc)

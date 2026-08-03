@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_FLOOR
 from itertools import combinations
 import math
@@ -41,7 +41,13 @@ SAME_LEAGUE_MODEL_FACTOR = 0.985
 MIN_LEAGUE_MATCHES = 24
 MIN_VENUE_MATCHES = 5
 MIN_FORM_MATCHES = 5
-MIN_H2H_MATCHES = 3
+# H2H is only a conservative contradiction guard. Missing meetings never
+# block a candidate; a veto needs a recent, market-specific sample whose
+# uncertainty interval still sits materially below the model estimate.
+MIN_H2H_VETO_MATCHES = 6
+H2H_MAX_AGE_DAYS = 3 * 365 + 1
+H2H_CONFIDENCE_Z = 1.959963984540054
+H2H_MATERIAL_GAP = 0.10
 MIN_VALIDATION_MATCHES = 200
 MIN_CALIBRATION_BINS = 3
 MIN_CALIBRATION_BIN_SIZE = 20
@@ -608,10 +614,12 @@ def market_probability(matrix: dict[tuple[int, int], float], spec: MarketSpec) -
     )
 
 
-def _fixture_market_outcome(spec: MarketSpec, fixture: dict[str, Any]) -> Optional[bool]:
+def _fixture_market_counts(
+    spec: MarketSpec,
+    fixture: dict[str, Any],
+) -> Optional[tuple[int, int]]:
     if spec.kind not in COUNT_MARKET_KINDS:
-        score = _fixture_score(fixture)
-        return market_outcome(spec, *score) if score is not None else None
+        return _fixture_score(fixture)
     stats = fixture.get("challenge_stats") or {}
     if spec.kind in {"corner_total", "team_corners"}:
         home_value = stats.get("corners_home")
@@ -628,7 +636,12 @@ def _fixture_market_outcome(spec: MarketSpec, fixture: dict[str, Any]) -> Option
         or away_value < 0
     ):
         return None
-    return market_outcome(spec, home_value, away_value)
+    return home_value, away_value
+
+
+def _fixture_market_outcome(spec: MarketSpec, fixture: dict[str, Any]) -> Optional[bool]:
+    counts = _fixture_market_counts(spec, fixture)
+    return market_outcome(spec, *counts) if counts is not None else None
 
 
 def _team_observations(
@@ -1703,22 +1716,36 @@ def build_fixture_candidates(
     return candidates
 
 
-def _h2h_scores(
+def _relevant_h2h_fixtures(
     fixtures: Iterable[dict[str, Any]],
     current_home_team_id: int,
     current_away_team_id: int,
-) -> list[tuple[int, int]]:
-    # Sort by kickoff descending instead of trusting provider delivery order,
-    # so "last 10" always means the ten most recent completed meetings.
+    *,
+    before: Optional[datetime] = None,
+    max_age_days: Optional[int] = None,
+) -> list[dict[str, Any]]:
+    before_utc = before
+    if before_utc is not None:
+        if before_utc.tzinfo is None:
+            before_utc = before_utc.replace(tzinfo=timezone.utc)
+        else:
+            before_utc = before_utc.astimezone(timezone.utc)
+    cutoff = (
+        before_utc - timedelta(days=max_age_days)
+        if before_utc is not None and max_age_days is not None
+        else None
+    )
     ordered = sorted(
         (fixture for fixture in fixtures if isinstance(fixture, dict)),
         key=lambda item: _fixture_datetime(item) or datetime.min.replace(tzinfo=timezone.utc),
         reverse=True,
     )
-    scores: list[tuple[int, int]] = []
+    relevant: list[dict[str, Any]] = []
     for fixture in ordered:
-        score = _fixture_score(fixture)
-        if score is None:
+        played_at = _fixture_datetime(fixture)
+        if before_utc is not None and (played_at is None or played_at >= before_utc):
+            continue
+        if cutoff is not None and played_at is not None and played_at < cutoff:
             continue
         teams = fixture.get("teams")
         if not isinstance(teams, dict):
@@ -1731,11 +1758,96 @@ def _h2h_scores(
         historical_away = away.get("id")
         if {historical_home, historical_away} != {current_home_team_id, current_away_team_id}:
             continue
+        relevant.append(fixture)
+        if len(relevant) >= 10:
+            break
+    return relevant
+
+
+def _h2h_scores(
+    fixtures: Iterable[dict[str, Any]],
+    current_home_team_id: int,
+    current_away_team_id: int,
+    *,
+    before: Optional[datetime] = None,
+    max_age_days: Optional[int] = None,
+) -> list[tuple[int, int]]:
+    # Provider order is not trusted. Scores are also re-oriented so the tuple
+    # always represents today's home team followed by today's away team.
+    relevant = _relevant_h2h_fixtures(
+        fixtures,
+        current_home_team_id,
+        current_away_team_id,
+        before=before,
+        max_age_days=max_age_days,
+    )
+    scores: list[tuple[int, int]] = []
+    for fixture in relevant:
+        score = _fixture_score(fixture)
+        if score is None:
+            continue
+        teams = fixture["teams"]
+        historical_home = teams["home"].get("id")
         if historical_home == current_home_team_id:
             scores.append(score)
         else:
             scores.append((score[1], score[0]))
-    return scores[:10]
+    return scores
+
+
+def _h2h_market_outcomes(
+    spec: MarketSpec,
+    fixtures: Iterable[dict[str, Any]],
+    current_home_team_id: int,
+    current_away_team_id: int,
+    *,
+    before: datetime,
+) -> tuple[list[dict[str, Any]], list[bool]]:
+    relevant = _relevant_h2h_fixtures(
+        fixtures,
+        current_home_team_id,
+        current_away_team_id,
+        before=before,
+        max_age_days=H2H_MAX_AGE_DAYS,
+    )
+    outcomes: list[bool] = []
+    for fixture in relevant:
+        counts = _fixture_market_counts(spec, fixture)
+        if counts is None:
+            continue
+        historical_home = fixture["teams"]["home"].get("id")
+        oriented = counts if historical_home == current_home_team_id else (counts[1], counts[0])
+        outcomes.append(market_outcome(spec, *oriented))
+    return relevant, outcomes
+
+
+def _wilson_upper_bound(
+    hits: int,
+    observations: int,
+    *,
+    z: float = H2H_CONFIDENCE_Z,
+) -> Optional[float]:
+    """Upper endpoint of a Wilson interval for a Bernoulli hit rate."""
+    if observations <= 0:
+        return None
+    if hits < 0 or hits > observations:
+        raise ValueError("hits must be between zero and observations")
+    proportion = hits / observations
+    z_squared = z * z
+    denominator = 1.0 + z_squared / observations
+    center = (proportion + z_squared / (2.0 * observations)) / denominator
+    radius = (
+        z
+        * math.sqrt(
+            (
+                proportion * (1.0 - proportion)
+                + z_squared / (4.0 * observations)
+            )
+            / observations
+        )
+        / denominator
+    )
+    return min(1.0, center + radius)
 
 
 def _injury_summary(
@@ -1952,38 +2064,48 @@ def apply_candidate_context(
 
     blocked: list[str] = []
     spec = MARKET_BY_KEY[candidate.market_key]
-    scores = _h2h_scores(
+    relevant_h2h, h2h_outcomes = _h2h_market_outcomes(
+        spec,
         h2h_fixtures or [],
         candidate.home_team_id,
         candidate.away_team_id,
+        before=kickoff,
     )
-    descriptive_h2h = spec.kind in COUNT_MARKET_KINDS
-    count_outcomes = [
-        _fixture_market_outcome(spec, fixture)
-        for fixture in (h2h_fixtures or [])
-        if _fixture_market_outcome(spec, fixture) is not None
-    ]
-    if descriptive_h2h and len(count_outcomes) < MIN_H2H_MATCHES:
-        hits = None
-        h2h_rate = None
-        h2h_passed = len(scores) >= MIN_H2H_MATCHES
+    h2h_observations = len(h2h_outcomes)
+    hits = sum(int(value) for value in h2h_outcomes) if h2h_outcomes else None
+    h2h_rate = (
+        (hits + 1.0) / (h2h_observations + 2.0)
+        if hits is not None
+        else None
+    )
+    h2h_upper = (
+        _wilson_upper_bound(hits, h2h_observations)
+        if hits is not None
+        else None
+    )
+    h2h_veto_threshold = max(
+        0.0,
+        candidate.conservative_probability - H2H_MATERIAL_GAP,
+    )
+    h2h_contradicts = (
+        h2h_observations >= MIN_H2H_VETO_MATCHES
+        and h2h_upper is not None
+        and h2h_upper < h2h_veto_threshold
+    )
+    if h2h_contradicts:
+        h2h_status = "blocked"
+        h2h_reason = "Aktuelles H2H widerspricht der Auswahl statistisch deutlich"
+        blocked.append(h2h_reason)
+    elif h2h_observations < MIN_H2H_VETO_MATCHES:
+        h2h_status = "neutral"
+        h2h_reason = (
+            "Keine aktuellen marktspezifischen Direktduelle"
+            if h2h_observations == 0
+            else "H2H-Stichprobe ist zu klein für ein belastbares Veto"
+        )
     else:
-        outcomes = (
-            [bool(value) for value in count_outcomes]
-            if descriptive_h2h
-            else [market_outcome(spec, *score) for score in scores]
-        )
-        hits = sum(int(value) for value in outcomes)
-        h2h_rate = (hits + 1.0) / (len(outcomes) + 2.0) if outcomes else None
-        h2h_passed = (
-            len(outcomes) >= MIN_H2H_MATCHES
-            and h2h_rate is not None
-            and h2h_rate + 0.20 >= candidate.conservative_probability
-        )
-    if not h2h_passed:
-        blocked.append(
-            "H2H-Stichprobe fehlt" if len(scores) < MIN_H2H_MATCHES else "H2H widerspricht der Auswahl deutlich"
-        )
+        h2h_status = "passed"
+        h2h_reason = "Aktuelles H2H liefert kein statistisch belastbares Veto"
 
     injuries_passed, injuries_summary, injuries_reason = _injury_summary(
         injuries,
@@ -2017,13 +2139,25 @@ def apply_candidate_context(
 
     lineup_ok = lineup_passed or not require_lineups
     candidate.context = {
-        "passed": h2h_passed and injuries_passed and weather_passed and lineup_ok,
+        "passed": (not h2h_contradicts) and injuries_passed and weather_passed and lineup_ok,
         "h2h": {
-            "status": "passed" if h2h_passed else "blocked",
-            "matches": len(scores),
+            "status": h2h_status,
+            "matches": h2h_observations,
+            "meetings_considered": len(relevant_h2h),
             "hits": hits,
             "smoothed_hit_rate": round(h2h_rate, 4) if h2h_rate is not None else None,
-            "descriptive_only": descriptive_h2h and h2h_rate is None,
+            "upper_confidence_bound": (
+                round(h2h_upper, 4) if h2h_upper is not None else None
+            ),
+            "veto_threshold": (
+                round(h2h_veto_threshold, 4)
+                if h2h_observations >= MIN_H2H_VETO_MATCHES
+                else None
+            ),
+            "minimum_veto_matches": MIN_H2H_VETO_MATCHES,
+            "max_age_days": H2H_MAX_AGE_DAYS,
+            "descriptive_only": h2h_status == "neutral",
+            "reason": h2h_reason,
         },
         "injuries": injuries_summary,
         "weather": weather_summary,

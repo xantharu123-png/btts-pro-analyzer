@@ -90,7 +90,7 @@ XG_MAX_NEW_CALLS_PER_SCAN = 12
 CONTINENTAL_LEAGUE_IDS = frozenset({2, 3, 848})
 DOMESTIC_HISTORY_LAST_FIXTURES = 60
 # Auto-Nachprüfung: Die App wartet selbst auf frischen Pflichtkontext
-# (H2H-Lage, Ausfälle und Wetter), statt dass der Nutzer den ganzen Tag
+# (Ausfälle und Wetter; H2H ergänzend), statt dass der Nutzer den ganzen Tag
 # manuell neu scannt. Aufstellungen werden später nur zur Anzeige ergänzt.
 # Läuft nur, solange die Seite offen ist und noch kein Kandidat freigegeben wurde.
 AUTO_RECHECK_WINDOW_MINUTES = 80
@@ -99,16 +99,10 @@ AUTO_RECHECK_POLL_SECONDS = 180
 MAX_AUTO_RECHECK_LEAGUES = 12
 
 
-def _challenge_model_signature() -> str:
-    engine_path = Path(__file__).resolve().with_name("challenge_engine.py")
-    try:
-        engine_hash = hashlib.sha256(engine_path.read_bytes()).hexdigest()[:20]
-    except OSError:
-        engine_hash = "unknown"
-    return f"challenge-engine:{engine_hash}"
-
-
-CHALLENGE_MODEL_SIGNATURE = _challenge_model_signature()
+# Explicitly bump this value only when probability, validation or calibration
+# semantics change. Context-only policy edits must not invalidate the costly
+# walk-forward artifacts.
+CHALLENGE_MODEL_SIGNATURE = "challenge-engine:9d0d520bdaed83095d75"
 
 
 def _challenge_today(now: Optional[datetime] = None) -> date:
@@ -1313,8 +1307,8 @@ def _challenge_auto_recheck_fragment(
 ) -> None:
     """Wartet an Stelle des Nutzers auf frischen Pflichtkontext.
 
-    Sobald Shortlist-Spiele ins Fenster rutschen, prüft die App H2H,
-    Ausfälle und Wetter erneut. Das läuft nur, solange nichts freigegeben
+    Sobald Shortlist-Spiele ins Fenster rutschen, prüft die App Ausfälle,
+    Wetter und ergänzendes H2H erneut. Das läuft nur, solange nichts freigegeben
     ist und die Seite offen bleibt.
     """
     snapshot = st.session_state.get("challenge_snapshot")
@@ -2518,14 +2512,17 @@ def _render_candidate_context(candidate: ChallengeCandidate) -> None:
     weather = context.get("weather", {})
     checks = st.columns(4)
     h2h_hits = h2h.get("hits")
-    h2h_value = (
-        f"{h2h_hits}/{h2h.get('matches', 0)}"
-        if h2h_hits is not None
-        else f"geprüft ({h2h.get('matches', 0)})"
-    )
+    h2h_matches = int(h2h.get("matches") or 0)
+    if h2h.get("status") == "neutral":
+        h2h_value = f"Neutral ({h2h_matches})"
+    elif h2h_hits is not None:
+        h2h_value = f"{h2h_hits}/{h2h_matches}"
+    else:
+        h2h_value = "n/a"
     checks[0].metric(
         "H2H",
         h2h_value,
+        help=h2h.get("reason"),
     )
     checks[1].metric(
         "Ausfälle H/A",
@@ -2580,8 +2577,8 @@ def _render_price_check(
             )
         else:
             reason = (
-                "Keines der modellierten Spiele besteht Modell, Walk-forward, "
-                "H2H, Ausfall- und Wetterprüfung gemeinsam."
+                "Keines der modellierten Spiele besteht Modell, Walk-forward "
+                "und sämtliche belastbaren Kontextprüfungen gemeinsam."
             )
         day_label = _recommendation_day_label(snapshot.get("search_date"))
         st.warning(f"{day_label} keine belastbare 15K-Empfehlung.")
@@ -2868,8 +2865,9 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     if not config.weather_key:
         st.warning("Wetter-Key fehlt. Ohne Wetterprüfung gibt es keine Empfehlung.")
     st.caption(
-        "Modell, Walk-forward, H2H, Ausfälle und Wetter entscheiden über die "
-        "Tagesempfehlung. Danach prüft der N1Bet-Preis den Value."
+        "Modell, Walk-forward, Ausfälle und Wetter entscheiden. H2H kann nur "
+        "mit belastbarer Gegenstichprobe ein Veto auslösen. Danach folgt der "
+        "N1Bet-Preischeck."
     )
 
     controls = st.columns(2)
@@ -2991,7 +2989,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         st.info(
             "Wartezustand: Der Datenstand ist älter, aber noch ohne Wettfreigabe. "
             "Die Auto-Prüfung scannt selbstständig neu, sobald frischer Pflichtkontext "
-            "(H2H, Ausfälle und Wetter) für Shortlist-Spiele verfügbar wird."
+            "(Ausfälle und Wetter; H2H ergänzend) für Shortlist-Spiele verfügbar wird."
         )
     _render_price_check(snapshot, ledger, settings)
     if _auto_recheck_eligible(snapshot, search_date):
