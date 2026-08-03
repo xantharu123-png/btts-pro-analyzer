@@ -3,7 +3,7 @@ import sqlite3
 import tempfile
 import unittest
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -13,6 +13,8 @@ from challenge_15k import (
     MAX_DISCOVERY_MARKETS_PER_FIXTURE,
     _auto_recheck_scope_allowed,
     _discovery_candidate_pool,
+    _recommendation_day_label,
+    _render_price_check,
     _segmented,
     _shortlist_counts,
     refresh_discovered_candidates,
@@ -188,6 +190,48 @@ class ChallengeProbabilityTests(unittest.TestCase):
         ]
 
         self.assertEqual(_shortlist_counts(markets), (3, 2))
+
+    def test_recommendation_day_label_uses_scanned_date(self):
+        today = date(2030, 1, 1)
+
+        self.assertEqual(
+            _recommendation_day_label("2030-01-01", today=today),
+            "Heute",
+        )
+        self.assertEqual(
+            _recommendation_day_label("2030-01-02", today=today),
+            "Morgen",
+        )
+        self.assertEqual(
+            _recommendation_day_label("2030-01-04", today=today),
+            "Am 04.01.2030",
+        )
+        self.assertEqual(
+            _recommendation_day_label("ungültig", today=today),
+            "Für den gewählten Spieltag",
+        )
+
+    def test_empty_recommendation_uses_snapshot_day(self):
+        fake_streamlit = Mock()
+        snapshot = {
+            "shortlist": [],
+            "search_date": "2030-01-02",
+            "fixtures_found": 19,
+            "fixtures_modeled": 8,
+        }
+
+        with (
+            patch("challenge_15k.st", fake_streamlit),
+            patch(
+                "challenge_15k._challenge_today",
+                return_value=date(2030, 1, 1),
+            ),
+        ):
+            _render_price_check(snapshot, Mock(), {})
+
+        fake_streamlit.warning.assert_called_once_with(
+            "Morgen keine belastbare 15K-Empfehlung."
+        )
 
     def test_shortlist_keeps_only_one_market_per_game(self):
         markets = [

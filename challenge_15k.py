@@ -1952,6 +1952,24 @@ def _format_kickoff(raw: str) -> str:
         return str(raw or "?")
 
 
+def _recommendation_day_label(
+    raw_search_date: Any,
+    *,
+    today: Optional[date] = None,
+) -> str:
+    """Return the day label for the date that was actually scanned."""
+    try:
+        scanned_date = date.fromisoformat(str(raw_search_date))
+    except (TypeError, ValueError):
+        return "Für den gewählten Spieltag"
+    reference = today or _challenge_today()
+    if scanned_date == reference:
+        return "Heute"
+    if scanned_date == reference + timedelta(days=1):
+        return "Morgen"
+    return f"Am {scanned_date.strftime('%d.%m.%Y')}"
+
+
 def _shortlist_frame(shortlist: list[ChallengeCandidate]) -> pd.DataFrame:
     return pd.DataFrame(
         [
@@ -2047,7 +2065,8 @@ def _render_price_check(
                 "Keines der modellierten Spiele besteht Modell, Walk-forward, "
                 "H2H, Ausfall- und Wetterprüfung gemeinsam."
             )
-        st.warning("Heute keine belastbare 15K-Empfehlung.")
+        day_label = _recommendation_day_label(snapshot.get("search_date"))
+        st.warning(f"{day_label} keine belastbare 15K-Empfehlung.")
         st.caption(
             f"{reason} Geprüft: {found} Spiele, davon {modeled} modelliert."
         )
