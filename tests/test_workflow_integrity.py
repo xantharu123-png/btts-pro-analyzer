@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -26,6 +27,17 @@ class _ProgressStub:
 
     def caption(self, _value):
         return None
+
+
+def test_full_league_scans_have_no_confirmation_or_provider_warning():
+    root = Path(__file__).resolve().parents[1]
+    challenge_source = (root / "challenge_15k.py").read_text(encoding="utf-8")
+    app_source = (root / "app.py").read_text(encoding="utf-8")
+
+    assert "challenge_confirm_full_league_scan" not in challenge_source
+    assert "full_scan_confirmed" not in challenge_source
+    assert "Provider-Aufrufe" not in challenge_source
+    assert "Provider-Aufrufe" not in app_source
 
 
 def test_red_card_monitor_uses_the_full_canonical_league_scope():

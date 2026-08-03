@@ -315,11 +315,7 @@ def create_alternative_markets_tab_extended() -> None:
                 "Die exakte N1Bet-Quote entscheidet nur über den Preisstatus; "
                 "die Shadow-Evidenz bleibt davon getrennt.",
             ],
-            duration_hint=(
-                "Dauer: provider- und cacheabhängig. Ein kalter Vollscan kann "
-                "deutlich länger als 90 Sekunden dauern; solange neue "
-                "Fortschrittsmeldungen eintreffen, läuft er weiter."
-            ),
+            duration_hint="Dauer: abhängig von Spielplan und Datenbestand.",
         )
         return
     if snapshot.get("version") != MARKET_SNAPSHOT_VERSION:

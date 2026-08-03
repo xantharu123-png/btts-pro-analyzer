@@ -1582,10 +1582,6 @@ def render_matches(analyzer) -> None:
         )
     elif league_scope == all_scope_label:
         selected_leagues = available_leagues
-        st.caption(
-            f"{len(selected_leagues)} konfigurierte Ligen; diese Suche benötigt "
-            "entsprechend mehr Provider-Aufrufe."
-        )
     else:
         selected_leagues = st.multiselect(
             "Ligen auswählen",
@@ -1659,11 +1655,7 @@ def render_matches(analyzer) -> None:
                 "Die exakte N1Bet-Quote prüft danach nur den Preis; die "
                 "Evidenzstufe bleibt separat sichtbar.",
             ],
-            duration_hint=(
-                "Dauer: provider- und cacheabhängig. Ein kalter Vollscan kann "
-                "mehrere Minuten dauern; solange neue Fortschrittsmeldungen "
-                "eintreffen, läuft er weiter."
-            ),
+            duration_hint="Dauer: abhängig von Spielplan und Datenbestand.",
         )
         return
     if snapshot.get("version") != PREMATCH_SNAPSHOT_VERSION:
@@ -2588,10 +2580,6 @@ def _render_data_management(analyzer) -> None:
     )
     if scope == all_scope_label:
         selected = available
-        st.caption(
-            f"{len(selected)} konfigurierte Ligen; vollständige Datenupdates "
-            "benötigen entsprechend mehr Provider-Aufrufe."
-        )
     else:
         defaults = [code for code in ["BL1", "PL", "PD"] if code in available]
         selected = st.multiselect(

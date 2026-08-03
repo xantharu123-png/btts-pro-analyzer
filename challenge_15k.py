@@ -966,11 +966,6 @@ def _challenge_auto_recheck_fragment(
     if not _auto_recheck_eligible(snapshot, search_date):
         return
     if not _auto_recheck_scope_allowed(league_ids):
-        st.caption(
-            "Der Vollscan wird zum Schutz des API-Kontingents nicht automatisch "
-            f"wiederholt. Für automatische Nachprüfungen höchstens "
-            f"{MAX_AUTO_RECHECK_LEAGUES} Ligen gezielt auswählen."
-        )
         return
     if scan_jobs.get_job(_challenge_job_key()).get("state") == "running":
         return
@@ -2402,22 +2397,11 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         "challenge_league_scope_v2",
         all_scope_label,
     )
-    full_scan_confirmed = True
     if league_scope == favorite_scope_label:
         selected_leagues = favorites
         st.caption(", ".join(ALTERNATIVE_MARKET_LEAGUES[item] for item in selected_leagues))
     elif league_scope == all_scope_label:
         selected_leagues = available_ids
-        st.warning(
-            f"Vollscan über {len(selected_leagues)} Ligen: deutlich mehr Provider-Aufrufe "
-            "und uneinheitliche Saison-/Kontextabdeckung. Die mathematischen und "
-            "fachlichen Gates bleiben für jede Liga unverändert streng."
-        )
-        full_scan_confirmed = st.checkbox(
-            f"{len(selected_leagues)}-Ligen-Vollscan bewusst starten",
-            value=False,
-            key="challenge_confirm_full_league_scan",
-        )
     else:
         selected_leagues = st.multiselect(
             "Ligen auswählen",
@@ -2432,7 +2416,6 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         type="primary",
         width="stretch",
         key="run_challenge_scan",
-        disabled=not full_scan_confirmed,
     ):
         if not selected_leagues:
             st.warning("Mindestens eine Liga auswählen.")
@@ -2468,11 +2451,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
                 "Das Modell prüft quotenfrei bis zu drei streng gefilterte Spiele.",
                 "Erst danach entscheidet der N1Bet-Preis über eine Freigabe.",
             ],
-            duration_hint=(
-                "Dauer: provider- und cacheabhängig. Ein kalter 51-Ligen-Vollscan "
-                "kann mehrere Minuten dauern; solange neue Fortschrittsmeldungen "
-                "eintreffen, läuft er weiter."
-            ),
+            duration_hint="Dauer: abhängig von Spielplan und Datenbestand.",
         )
         return
     if snapshot.get("version") != CHALLENGE_SNAPSHOT_VERSION:

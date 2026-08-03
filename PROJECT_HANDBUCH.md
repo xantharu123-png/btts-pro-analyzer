@@ -16,7 +16,7 @@
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 572 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 573 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -46,9 +46,9 @@ Der verbindliche Ablauf lautet:
    `RELEASED` darf einen Echtgeld-Einsatz erzeugen.
 8. Pro Suche werden höchstens wenige, klar begründete Auswahlen angezeigt.
 
-Ein manueller 15K-Vollscan über alle 51 Ligen muss in der Oberfläche
-ausdrücklich bestätigt werden. Der serverseitige Wettfinder führt pro
-Zieldatum genau eine vollständige Discovery über alle 51 Ligen aus. Seine
+Ein manueller 15K-Vollscan über alle 51 Ligen startet ohne zusätzliche
+Bestätigungsstufe. Der serverseitige Wettfinder führt pro Zieldatum genau eine
+vollständige Discovery über alle 51 Ligen aus. Seine
 halbstündlichen Aufwachpunkte durchsuchen danach keine Ligen erneut, sondern
 prüfen nur bereits gespeicherte Kandidaten-Fixtures im Zwei-Stunden-Fenster
 vor dem Anpfiff. Die ältere Browser-Nachprüfung bleibt zusätzlich auf höchstens
