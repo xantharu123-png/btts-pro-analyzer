@@ -12,6 +12,7 @@ module-level helpers, constants, or imports.
 
 from streamlit.testing.v1 import AppTest
 
+import ui_components
 from ui_components import _example_ticket_html, plain_german
 
 
@@ -186,6 +187,36 @@ def test_plain_german_replaces_model_jargon():
         "Markt hat das Walk-forward-Gate nicht bestanden"
     )
     assert plain_german("normaler Text") == "normaler Text"
+
+
+def test_shared_scan_progress_shows_percentage_phase_and_elapsed_time(
+    monkeypatch,
+):
+    rendered = {}
+    monkeypatch.setattr(
+        ui_components.st,
+        "progress",
+        lambda value, text=None: rendered.update(value=value, text=text),
+    )
+    monkeypatch.setattr(
+        ui_components.st,
+        "caption",
+        lambda text: rendered.update(caption=text),
+    )
+
+    ui_components.render_scan_progress(
+        {
+            "progress": 0.39,
+            "progress_text": "Liga 5/51",
+            "started_at": "2026-08-03T06:00:00+00:00",
+        },
+        "Markt-Scan",
+    )
+
+    assert rendered["value"] == 0.39
+    assert rendered["text"] == "39 % · Markt-Scan: Liga 5/51"
+    assert "Laufzeit" in rendered["caption"]
+    assert "Seitenwechsel" in rendered["caption"]
 
 
 def test_empty_state_supports_sport_specific_escaped_example():

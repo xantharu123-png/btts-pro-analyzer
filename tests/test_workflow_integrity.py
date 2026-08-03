@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 import app
+import alternative_markets_tab_extended as market_tab
 from betting_math import BETTING_POLICY_VERSION
 from advanced_analyzer import calculate_evidence_score
 from alternative_markets import PreMatchAlternativeAnalyzer
@@ -17,7 +18,7 @@ from red_card_bot import RED_CARD_MONITORED_LEAGUE_IDS, RedCardBotEnhanced
 
 
 class _ProgressStub:
-    def progress(self, _value):
+    def progress(self, _value, **_kwargs):
         return None
 
     def empty(self):
@@ -35,6 +36,68 @@ def test_red_card_monitor_uses_the_full_canonical_league_scope():
 def test_app_formats_new_league_codes_from_existing_catalog_symbols():
     assert app._league_label_for_code("NOR1") == "Norway: Eliteserien"
     assert app._league_label_for_code("unknown") == "UNKNOWN"
+
+
+def test_market_worker_forwards_detailed_progress(monkeypatch):
+    updates = []
+    provider = object()
+    monkeypatch.setattr(
+        market_tab,
+        "ChallengeDataProvider",
+        lambda *_args: provider,
+    )
+
+    def fake_scan(
+        received_provider,
+        league_ids,
+        search_date,
+        max_fixtures,
+        *,
+        progress_cb=None,
+    ):
+        assert received_provider is provider
+        assert league_ids == [78, 39]
+        assert max_fixtures == 400
+        progress_cb(0.25, "Liga 1/2")
+        progress_cb(1.0, "Fertig")
+        return {"search_date": search_date.isoformat()}
+
+    monkeypatch.setattr(market_tab, "scan_daily_challenge", fake_scan)
+    result = market_tab._run_market_scan_worker(
+        "api-key",
+        None,
+        [78, 39],
+        datetime.now().date(),
+        400,
+        {"league_ids": [39, 78]},
+        progress_cb=lambda fraction, text: updates.append((fraction, text)),
+    )
+
+    assert updates == [(0.25, "Liga 1/2"), (1.0, "Fertig")]
+    assert result["scope"] == {"league_ids": [39, 78]}
+
+
+def test_multi_sport_worker_reports_real_phases(monkeypatch):
+    monkeypatch.setattr(
+        app,
+        "_fetch_multi_sport_snapshot",
+        lambda _sport, _detail: {"items": [{}, {}]},
+    )
+    updates = []
+
+    result = app._run_multi_sport_worker(
+        "Basketball",
+        "NBA",
+        progress_cb=lambda fraction, text: updates.append((fraction, text)),
+    )
+
+    assert [fraction for fraction, _text in updates] == [
+        0.05,
+        0.25,
+        0.90,
+        1.0,
+    ]
+    assert result["snapshot"]["items"] == [{}, {}]
 
 
 def test_live_recommendation_snapshot_age_requires_timezone_and_freshness():
@@ -435,6 +498,19 @@ def test_prematch_scan_collects_before_probability_filter(monkeypatch):
         "BL1", days_ahead=7, min_probability=0
     )
     assert result.iloc[0]["BTTS_num"] == pytest.approx(42.0)
+
+    updates = []
+    app._scan_prematch(
+        analyzer,
+        ["BL1"],
+        7,
+        progress_cb=lambda fraction, text: updates.append((fraction, text)),
+    )
+    fractions = [fraction for fraction, _text in updates]
+    assert fractions == sorted(fractions)
+    assert fractions[0] == 0.01
+    assert fractions[-1] == 1.0
+    assert any("Liga 1/1" in text for _fraction, text in updates)
 
 
 def test_scope_signatures_are_order_independent():

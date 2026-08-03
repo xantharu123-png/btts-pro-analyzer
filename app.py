@@ -62,7 +62,7 @@ red_card_candidate = _football_recommendations.red_card_candidate
 
 from bet_finder_ui import render_price_decision
 from betting_math import BETTING_POLICY_VERSION
-from ui_components import plain_german, render_empty_state
+from ui_components import plain_german, render_empty_state, render_scan_progress
 from config_loader import load_app_config
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
 from multi_sport_recommendations import EVIDENCE_RELEASED, build_candidate
@@ -1180,16 +1180,13 @@ def _persist_live(snapshot: dict) -> Optional[dict]:
 
 
 @st.fragment(run_every=2)
-def _scan_job_progress_fragment(job_key: str, note: str) -> None:
+def _scan_job_progress_fragment(job_key: str, label: str) -> None:
     """Pollt einen laufenden Hintergrund-Scan; bei Abschluss Voll-Rerun,
     damit der Hauptlauf das Ergebnis in den session_state übernimmt."""
     job = scan_jobs.get_job(job_key)
     state = job.get("state")
     if state == "running":
-        fraction = job.get("progress") or 0.0
-        text = job.get("progress_text") or "Scan läuft..."
-        st.progress(min(max(float(fraction), 0.0), 1.0), text=text)
-        st.caption(note)
+        render_scan_progress(job, label)
     elif state in {"done", "error"}:
         st.rerun()
 
@@ -1215,12 +1212,15 @@ def _scan_prematch(
     status = None if progress_cb else st.empty()
     collected = []
     total = max(len(leagues), 1)
+    if progress_cb:
+        progress_cb(0.01, f"{len(leagues)} Ligen werden vorbereitet")
     try:
         for index, league_code in enumerate(leagues):
             if progress_cb:
                 progress_cb(
-                    index / total,
-                    f"Analysiere {league_code} ({index + 1}/{len(leagues)})",
+                    0.03 + 0.92 * index / total,
+                    f"Liga {index + 1}/{len(leagues)}: "
+                    f"{_league_label_for_code(league_code)}",
                 )
             else:
                 status.caption(f"Analysiere {league_code} ({index + 1}/{len(leagues)})")
@@ -1234,15 +1234,26 @@ def _scan_prematch(
                 league_results["League"] = league_code
                 collected.append(league_results)
             if progress_cb:
-                progress_cb((index + 1) / total, f"{league_code} fertig")
+                progress_cb(
+                    0.03 + 0.92 * (index + 1) / total,
+                    f"Liga {index + 1}/{len(leagues)} abgeschlossen",
+                )
             else:
-                progress.progress((index + 1) / total)
+                fraction = (index + 1) / total
+                progress.progress(
+                    fraction,
+                    text=f"{int(round(fraction * 100))} % · "
+                    f"Liga {index + 1}/{len(leagues)}",
+                )
     finally:
         if status is not None:
             status.empty()
         if progress is not None:
             progress.empty()
-    return _prepare_results(collected)
+    result = _prepare_results(collected)
+    if progress_cb:
+        progress_cb(1.0, f"Fertig: {len(result)} Spiele modelliert")
+    return result
 
 
 def _analysis_for_row(row: pd.Series) -> dict:
@@ -1565,21 +1576,23 @@ def render_matches(analyzer) -> None:
     )
 
     available_leagues = list(analyzer.engine.LEAGUES_CONFIG)
-    league_scope = _segmented(
-        "Ligen",
-        ["Favoriten", "Auswahl", "Alle"],
-        "prematch_league_scope",
-        "Favoriten",
-    )
     defaults = [code for code in DEFAULT_PREMATCH_LEAGUES if code in available_leagues]
     if not defaults:
         defaults = available_leagues[: min(3, len(available_leagues))]
-    if league_scope == "Favoriten":
+    all_scope_label = f"Alle ({len(available_leagues)})"
+    favorite_scope_label = f"Favoriten ({len(defaults)})"
+    league_scope = _segmented(
+        "Ligen",
+        [all_scope_label, favorite_scope_label, "Auswahl"],
+        "prematch_league_scope_v2",
+        all_scope_label,
+    )
+    if league_scope == favorite_scope_label:
         selected_leagues = defaults
         st.caption(
             ", ".join(_league_label_for_code(code) for code in selected_leagues)
         )
-    elif league_scope == "Alle":
+    elif league_scope == all_scope_label:
         selected_leagues = available_leagues
         st.caption(
             f"{len(selected_leagues)} konfigurierte Ligen; diese Suche benötigt "
@@ -1623,7 +1636,7 @@ def render_matches(analyzer) -> None:
     if job["state"] == "running":
         _scan_job_progress_fragment(
             _job_key("prematch"),
-            "BTTS-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht.",
+            "BTTS-Scan",
         )
     elif job["state"] == "done":
         results = job.get("result")
@@ -1769,6 +1782,8 @@ def _scan_live_football(analyzer, config=None, progress_cb=None) -> dict:
     if not config.api_football_key:
         raise ValueError("API-Football-Key fehlt")
 
+    if progress_cb:
+        progress_cb(0.03, "Live-Spielplan wird geladen")
     api = APIFootball(config.api_football_key)
     scanner = UltraLiveScanner(analyzer, api)
     all_matches = api.get_live_matches()
@@ -1778,6 +1793,11 @@ def _scan_live_football(analyzer, config=None, progress_cb=None) -> dict:
         for match in all_matches
         if match.get("league", {}).get("id") in supported_ids
     ]
+    if progress_cb:
+        progress_cb(
+            0.12,
+            f"{len(matches)} unterstützte Live-Spiele gefunden",
+        )
 
     analyses = []
     skipped = 0
@@ -1792,13 +1812,15 @@ def _scan_live_football(analyzer, config=None, progress_cb=None) -> dict:
             skipped += 1
         if progress_cb:
             progress_cb(
-                (index + 1) / total,
-                f"Live-Spiel {index + 1} von {len(matches)} wird analysiert...",
+                0.12 + 0.83 * (index + 1) / total,
+                f"Live-Spiel {index + 1}/{len(matches)} analysiert",
             )
         else:
+            fraction = (index + 1) / total
             progress.progress(
-                (index + 1) / total,
-                text=f"Live-Spiel {index + 1} von {len(matches)} wird analysiert...",
+                fraction,
+                text=f"{int(round(fraction * 100))} % · "
+                f"Live-Spiel {index + 1}/{len(matches)}",
             )
     if progress is not None:
         progress.empty()
@@ -1811,6 +1833,8 @@ def _scan_live_football(analyzer, config=None, progress_cb=None) -> dict:
             f"{insufficient} von {len(matches)} Live-Spielen ohne verwertbare "
             "Live-Statistik (kleinere Ligen ohne Provider-Coverage)."
         )
+    if progress_cb:
+        progress_cb(1.0, f"Fertig: {len(analyses)} Live-Analysen")
     return {
         "version": LIVE_SNAPSHOT_VERSION,
         "scanned_at": scanned_at,
@@ -1894,7 +1918,7 @@ def _render_live_football(analyzer) -> None:
     if job["state"] == "running":
         _scan_job_progress_fragment(
             _job_key("live"),
-            "Live-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht.",
+            "Live-Scan",
         )
     elif job["state"] == "done":
         st.session_state["live_football_snapshot"] = job.get("result")
@@ -2143,6 +2167,8 @@ def _scan_red_cards(
     RedCardBotEnhanced = red_card_module.RedCardBotEnhanced
 
     scanned_at = datetime.now().astimezone().isoformat()
+    if progress_cb:
+        progress_cb(0.03, "Live-Spielplan wird geladen")
     # Hintergrund-tauglich: im Worker streamlit_mode=False, weil der Bot
     # sonst st.session_state ohne Session-Kontext anfasst.
     finder = RedCardBotEnhanced(
@@ -2150,6 +2176,11 @@ def _scan_red_cards(
         streamlit_mode=streamlit_mode,
     )
     live_matches = finder.get_live_matches(league_ids)
+    if progress_cb:
+        progress_cb(
+            0.15,
+            f"{len(live_matches)} Live-Spiele werden geprüft",
+        )
     cards = []
     total = max(len(live_matches), 1)
     for index, match in enumerate(live_matches):
@@ -2165,9 +2196,11 @@ def _scan_red_cards(
             cards.append(entry)
         if progress_cb:
             progress_cb(
-                (index + 1) / total,
-                f"Spiel {index + 1} von {len(live_matches)} auf Platzverweise geprüft",
+                0.15 + 0.80 * (index + 1) / total,
+                f"Spiel {index + 1}/{len(live_matches)} auf Platzverweise geprüft",
             )
+    if progress_cb:
+        progress_cb(1.0, f"Fertig: {len(cards)} Platzverweise gefunden")
     return {
         "version": RED_CARD_SNAPSHOT_VERSION,
         "scanned_at": scanned_at,
@@ -2310,7 +2343,7 @@ def _render_red_cards(analyzer) -> None:
     if job["state"] == "running":
         _scan_job_progress_fragment(
             _job_key("red_cards"),
-            "Platzverweis-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht.",
+            "Platzverweis-Scan",
         )
     elif job["state"] == "done":
         red_card_snapshot = job.get("result")
@@ -2472,7 +2505,10 @@ def _render_model_validation(analyzer) -> None:
 
 
 def _run_data_refresh(analyzer, leagues: list[str], force: bool) -> int:
-    progress = st.progress(0)
+    progress = st.progress(
+        0.01,
+        text=f"1 % · {len(leagues)} Ligen werden vorbereitet",
+    )
     status = st.empty()
     refreshed = 0
     total = max(len(leagues), 1)
@@ -2481,7 +2517,12 @@ def _run_data_refresh(analyzer, leagues: list[str], force: bool) -> int:
             status.caption(f"Lade {league_code} ({index + 1}/{len(leagues)})")
             analyzer.engine.fetch_league_matches(league_code, force_refresh=force)
             refreshed += 1
-            progress.progress((index + 1) / total)
+            fraction = (index + 1) / total
+            progress.progress(
+                fraction,
+                text=f"{int(round(fraction * 100))} % · "
+                f"Liga {index + 1}/{len(leagues)} aktualisiert",
+            )
     finally:
         status.empty()
         progress.empty()
@@ -2491,7 +2532,10 @@ def _run_data_refresh(analyzer, leagues: list[str], force: bool) -> int:
 def _smart_refresh(analyzer, leagues: list[str]) -> int:
     connection = _get_db_connection("btts_data.db")
     refreshed = 0
-    progress = st.progress(0)
+    progress = st.progress(
+        0.01,
+        text=f"1 % · {len(leagues)} Ligen werden geprüft",
+    )
     status = st.empty()
     try:
         cursor = connection.cursor()
@@ -2515,7 +2559,12 @@ def _smart_refresh(analyzer, leagues: list[str]) -> int:
             if not is_current:
                 analyzer.engine.fetch_league_matches(league_code, force_refresh=False)
                 refreshed += 1
-            progress.progress((index + 1) / total)
+            fraction = (index + 1) / total
+            progress.progress(
+                fraction,
+                text=f"{int(round(fraction * 100))} % · "
+                f"Liga {index + 1}/{len(leagues)} geprüft",
+            )
     finally:
         connection.close()
         status.empty()
@@ -2535,13 +2584,14 @@ def _training_match_count() -> int:
 
 def _render_data_management(analyzer) -> None:
     available = list(analyzer.engine.LEAGUES_CONFIG)
+    all_scope_label = f"Alle ({len(available)})"
     scope = _segmented(
         "Datenumfang",
-        ["Auswahl", "Alle"],
-        "data_league_scope",
-        "Auswahl",
+        [all_scope_label, "Auswahl"],
+        "data_league_scope_v2",
+        all_scope_label,
     )
-    if scope == "Alle":
+    if scope == all_scope_label:
         selected = available
         st.caption(
             f"{len(selected)} konfigurierte Ligen; vollständige Datenupdates "
@@ -2564,7 +2614,11 @@ def _render_data_management(analyzer) -> None:
         key="smart_data_refresh",
     )
     full = refresh_columns[1].button(
-        "Auswahl komplett neu laden",
+        (
+            "Alle Ligen komplett neu laden"
+            if scope == all_scope_label
+            else "Auswahl komplett neu laden"
+        ),
         use_container_width=True,
         key="full_data_refresh",
     )
@@ -2787,9 +2841,14 @@ def _run_multi_sport_worker(
 ) -> dict:
     """Hintergrund-Worker für den Multi-Sport-Scan (thread-sicher, kein st.*)."""
     if progress_cb:
-        progress_cb(0.1, f"{sport}-Daten werden geladen …")
+        progress_cb(0.05, "wird vorbereitet")
+        progress_cb(0.25, "Provider wird abgefragt")
     snapshot = _fetch_multi_sport_snapshot(sport, detail_filter)
     if progress_cb:
+        progress_cb(
+            0.90,
+            f"{len(snapshot.get('items') or [])} Ereignisse werden ausgewertet",
+        )
         progress_cb(1.0, "Fertig")
     return {
         "scope_key": _multi_sport_scope_key(sport, detail_filter),
@@ -2918,7 +2977,7 @@ def render_multi_sport() -> None:
     if job["state"] == "running":
         _scan_job_progress_fragment(
             _job_key("multi_sport"),
-            f"{sport}-Scan läuft im Hintergrund — ein Seitenwechsel unterbricht ihn nicht.",
+            f"{sport}-Scan",
         )
     elif job["state"] == "done":
         result = job.get("result") or {}

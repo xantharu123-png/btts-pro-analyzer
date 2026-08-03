@@ -149,17 +149,14 @@ def _run_market_scan_worker(
     zurückgegeben — ändert der Nutzer die Auswahl während des Scans,
     erkennt die Seite das wie bisher am Scope-Vergleich.
     """
-    if progress_cb:
-        progress_cb(0.05, "Spiele und Kontext werden geladen …")
     provider = ChallengeDataProvider(api_football_key, weather_key)
     challenge_snapshot = scan_daily_challenge(
         provider,
         league_ids,
         search_date,
         max_fixtures,
+        progress_cb=progress_cb,
     )
-    if progress_cb:
-        progress_cb(1.0, "Fertig")
     return {"scope": scope, "challenge": challenge_snapshot}
 
 
@@ -173,20 +170,24 @@ def create_alternative_markets_tab_extended() -> None:
         return
 
     st.subheader("Wett-Suche")
-    league_scope = _segmented(
-        "Ligen",
-        ["Favoriten", "Auswahl", "Alle"],
-        "market_league_scope",
-        "Favoriten",
-    )
     available_ids = list(ALTERNATIVE_MARKET_LEAGUES)
     favorites = [league_id for league_id in DEFAULT_LEAGUES if league_id in available_ids]
-    if league_scope == "Favoriten":
+    all_scope_label = f"Alle ({len(available_ids)})"
+    favorite_scope_label = f"Favoriten ({len(favorites)})"
+    league_scope = _segmented(
+        "Ligen",
+        [all_scope_label, favorite_scope_label, "Auswahl"],
+        "market_league_scope_v2",
+        all_scope_label,
+    )
+    if league_scope == favorite_scope_label:
         selected_leagues = favorites
         st.caption(", ".join(ALTERNATIVE_MARKET_LEAGUES[item] for item in selected_leagues))
-    elif league_scope == "Alle":
+    elif league_scope == all_scope_label:
         selected_leagues = available_ids
-        st.caption(f"{len(selected_leagues)} Ligen")
+        st.caption(
+            f"{len(selected_leagues)} konfigurierte Ligen werden vollständig durchsucht."
+        )
     else:
         selected_leagues = st.multiselect(
             "Ligen auswählen",

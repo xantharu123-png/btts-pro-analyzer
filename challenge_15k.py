@@ -51,7 +51,12 @@ from challenge_engine import (
 )
 from challenge_store import ChallengeLedger
 from config_loader import load_app_config
-from ui_components import milestone_bar_html, plain_german, render_empty_state
+from ui_components import (
+    milestone_bar_html,
+    plain_german,
+    render_empty_state,
+    render_scan_progress,
+)
 from football_data_history import fetch_history as fetch_stat_history
 from football_data_history import merge_api_tail
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
@@ -790,41 +795,7 @@ def _challenge_scan_fragment() -> None:
     job = scan_jobs.get_job(_challenge_job_key())
     state = job.get("state")
     if state == "running":
-        fraction = min(
-            max(float(job.get("progress") or 0.0), 0.0),
-            1.0,
-        )
-        display_fraction = min(fraction, 0.99)
-        percentage = int(round(display_fraction * 100.0))
-        progress_text = job.get("progress_text") or "Challenge-Scan läuft..."
-        st.progress(
-            display_fraction,
-            text=f"{percentage} % · {progress_text}",
-        )
-        elapsed_text = ""
-        try:
-            started_at = datetime.fromisoformat(str(job.get("started_at") or ""))
-            if started_at.tzinfo is None:
-                started_at = started_at.replace(tzinfo=timezone.utc)
-            elapsed_seconds = max(
-                0,
-                int(
-                    (
-                        datetime.now(timezone.utc)
-                        - started_at.astimezone(timezone.utc)
-                    ).total_seconds()
-                ),
-            )
-            elapsed_text = (
-                f" · Laufzeit {elapsed_seconds // 60:02d}:"
-                f"{elapsed_seconds % 60:02d}"
-            )
-        except (TypeError, ValueError):
-            pass
-        st.caption(
-            "Challenge-Scan läuft im Hintergrund"
-            f"{elapsed_text} · ein Seitenwechsel unterbricht ihn nicht."
-        )
+        render_scan_progress(job, "15K-Scan")
     elif state in {"done", "error"}:
         st.rerun()
 
@@ -2435,22 +2406,24 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
 
     available_ids = list(ALTERNATIVE_MARKET_LEAGUES)
     favorites = [league_id for league_id in DEFAULT_CHALLENGE_LEAGUES if league_id in available_ids]
+    all_scope_label = f"Alle ({len(available_ids)})"
+    favorite_scope_label = f"Favoriten ({len(favorites)})"
     league_scope = _segmented(
         "Ligen",
-        ["Favoriten", "Auswahl", "Alle"],
-        "challenge_league_scope",
-        "Favoriten",
+        [all_scope_label, favorite_scope_label, "Auswahl"],
+        "challenge_league_scope_v2",
+        all_scope_label,
     )
     full_scan_confirmed = True
-    if league_scope == "Favoriten":
+    if league_scope == favorite_scope_label:
         selected_leagues = favorites
         st.caption(", ".join(ALTERNATIVE_MARKET_LEAGUES[item] for item in selected_leagues))
-    elif league_scope == "Alle":
+    elif league_scope == all_scope_label:
         selected_leagues = available_ids
         st.warning(
             f"Vollscan über {len(selected_leagues)} Ligen: deutlich mehr Provider-Aufrufe "
-            "und uneinheitliche Saison-/Kontextabdeckung. Mehr Ligen machen eine Auswahl "
-            "nicht sicherer; für die Challenge sind die xG-validierten Favoriten empfohlen."
+            "und uneinheitliche Saison-/Kontextabdeckung. Die mathematischen und "
+            "fachlichen Gates bleiben für jede Liga unverändert streng."
         )
         full_scan_confirmed = st.checkbox(
             f"{len(selected_leagues)}-Ligen-Vollscan bewusst starten",

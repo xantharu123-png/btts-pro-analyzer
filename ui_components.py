@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import math
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -207,6 +208,47 @@ def milestone_bar_html(
     )
 
 
+def render_scan_progress(job: dict[str, Any], label: str) -> None:
+    """Render one consistent, time-aware progress state for every scanner."""
+    fraction = min(
+        max(float(job.get("progress") or 0.0), 0.0),
+        1.0,
+    )
+    display_fraction = min(fraction, 0.99)
+    percentage = int(round(display_fraction * 100.0))
+    detail = str(job.get("progress_text") or "Scan läuft").strip()
+    st.progress(
+        display_fraction,
+        text=f"{percentage} % · {label}: {detail}",
+    )
+
+    elapsed_text = ""
+    try:
+        started_at = datetime.fromisoformat(str(job.get("started_at") or ""))
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        elapsed_seconds = max(
+            0,
+            int(
+                (
+                    datetime.now(timezone.utc)
+                    - started_at.astimezone(timezone.utc)
+                ).total_seconds()
+            ),
+        )
+        elapsed_text = (
+            f" · Laufzeit {elapsed_seconds // 60:02d}:"
+            f"{elapsed_seconds % 60:02d}"
+        )
+    except (TypeError, ValueError):
+        pass
+
+    st.caption(
+        f"{label} läuft im Hintergrund{elapsed_text} · "
+        "ein Seitenwechsel unterbricht ihn nicht."
+    )
+
+
 @st.fragment(run_every=2)
 def scan_progress_fragment(job_key: str, label: str) -> None:
     """Pollt einen Hintergrund-Scan und zeigt Fortschritt, bis er fertig ist.
@@ -218,13 +260,7 @@ def scan_progress_fragment(job_key: str, label: str) -> None:
     job = scan_jobs.get_job(job_key)
     state = job.get("state")
     if state == "running":
-        progress = float(job.get("progress") or 0.0)
-        st.progress(min(max(progress, 0.0), 1.0))
-        detail = job.get("progress_text") or "Scan läuft …"
-        st.caption(
-            f"🔍 {label}: {detail} — läuft im Hintergrund, "
-            "Seitenwechsel unterbricht den Scan nicht."
-        )
+        render_scan_progress(job, label)
         return
     if state in ("done", "error"):
         # Ergebnis liegt bereit → Haupt-Render einsammeln lassen.

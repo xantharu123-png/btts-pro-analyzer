@@ -16,7 +16,7 @@
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 566 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 569 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -168,6 +168,13 @@ Mindestquote = (1 + 0,03) / konservatives p
 ### Jobs, Sitzungen und Challenge
 
 - Jobs besitzen Sitzungs-Scope, Generation-ID, Timeout und atomare JSON-Writes.
+- Spiele, Märkte, 15K und Datenverwaltung starten einheitlich mit
+  `Alle (51)`. Kleinere Favoriten-Sets bleiben als ausdrücklich gezählte,
+  optionale Auswahl verfügbar.
+- Hintergrundscanner zeigen denselben echten Fortschrittsvertrag: Prozentwert,
+  aktuelle Liga beziehungsweise Arbeitsphase und verstrichene Laufzeit.
+  Markt- und 15K-Scans reichen dafür den gemeinsamen Liga-, Validierungs-,
+  Modellierungs- und Kontextfortschritt bis in die Oberfläche durch.
 - Ein alter Thread kann keinen neueren Lauf mehr überschreiben.
 - Analyzer-Zugriffe aus Hintergrundthreads sind serialisiert.
 - Persistierte Scanner-Signale sind sitzungsgebunden.
