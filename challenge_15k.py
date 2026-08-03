@@ -9,7 +9,6 @@ import math
 from pathlib import Path
 import time
 from typing import Any, Optional
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -51,6 +50,7 @@ from challenge_engine import (
 )
 from challenge_store import ChallengeLedger
 from config_loader import load_app_config
+from date_context import ZURICH_TIMEZONE, german_day_label, zurich_today
 from ui_components import (
     milestone_bar_html,
     render_empty_state,
@@ -71,7 +71,7 @@ from xg_backfill import annotate_history as annotate_history_xg
 
 CHALLENGE_SNAPSHOT_VERSION = 6
 CHALLENGE_WORKSPACE_VERSION = 5
-CHALLENGE_TIMEZONE = ZoneInfo("Europe/Zurich")
+CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
 API_TAIL_DAYS = 7  # Frische-Tail: API-FT-Ergebnisse über die CSV-Historie legen
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
@@ -101,10 +101,7 @@ def _challenge_today(now: Optional[datetime] = None) -> date:
     derived from the same zone, otherwise a UTC server picks the wrong match
     day between 00:00 and 02:00 Swiss time.
     """
-    reference = now or datetime.now(timezone.utc)
-    if reference.tzinfo is None:
-        reference = reference.replace(tzinfo=timezone.utc)
-    return reference.astimezone(CHALLENGE_TIMEZONE).date()
+    return zurich_today(now)
 
 
 def _positive_integer(value: Any) -> Optional[int]:
@@ -1958,16 +1955,10 @@ def _recommendation_day_label(
     today: Optional[date] = None,
 ) -> str:
     """Return the day label for the date that was actually scanned."""
-    try:
-        scanned_date = date.fromisoformat(str(raw_search_date))
-    except (TypeError, ValueError):
-        return "Für den gewählten Spieltag"
-    reference = today or _challenge_today()
-    if scanned_date == reference:
-        return "Heute"
-    if scanned_date == reference + timedelta(days=1):
-        return "Morgen"
-    return f"Am {scanned_date.strftime('%d.%m.%Y')}"
+    return german_day_label(
+        raw_search_date,
+        today=today or _challenge_today(),
+    )
 
 
 def _shortlist_frame(shortlist: list[ChallengeCandidate]) -> pd.DataFrame:

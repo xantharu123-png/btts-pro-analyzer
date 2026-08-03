@@ -13,7 +13,7 @@ from sklearn.preprocessing import StandardScaler
 import sqlite3
 import os
 from typing import Dict, List, Tuple, Optional
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import pickle
 from pathlib import Path
 import math
@@ -1313,7 +1313,12 @@ class AdvancedBTTSAnalyzer:
     # UPCOMING MATCHES METHODS
     # =============================================
     
-    def get_upcoming_matches(self, league_code: str, days_ahead: int = 7) -> List[Dict]:
+    def get_upcoming_matches(
+        self,
+        league_code: str,
+        days_ahead: int = 7,
+        start_date: Optional[date] = None,
+    ) -> List[Dict]:
         """Get upcoming matches using API-Football"""
         if not self.api_football_key:
             print("WARNING: API-Football key not available")
@@ -1324,7 +1329,11 @@ class AdvancedBTTSAnalyzer:
             api = APIFootball(self.api_football_key)
             
             print(f"Fetching upcoming fixtures for {league_code}...")
-            fixtures = api.get_upcoming_fixtures(league_code, days_ahead)
+            fixtures = api.get_upcoming_fixtures(
+                league_code,
+                days_ahead,
+                start_date=start_date,
+            )
             
             if fixtures:
                 print(f"Found {len(fixtures)} upcoming matches")
@@ -1352,12 +1361,21 @@ class AdvancedBTTSAnalyzer:
             print(f"ERROR: Could not fetch fixtures: {e}")
             return []
     
-    def analyze_upcoming_matches(self, league_code: str, days_ahead: int = 7,
-                                min_probability: float = 60.0) -> pd.DataFrame:
+    def analyze_upcoming_matches(
+        self,
+        league_code: str,
+        days_ahead: int = 7,
+        min_probability: float = 60.0,
+        start_date: Optional[date] = None,
+    ) -> pd.DataFrame:
         """Analyze upcoming matches and return non-actionable model estimates."""
         print(f"\nAnalyzing upcoming matches for {league_code}...")
         
-        matches = self.get_upcoming_matches(league_code, days_ahead)
+        matches = self.get_upcoming_matches(
+            league_code,
+            days_ahead,
+            start_date=start_date,
+        )
         
         if not matches:
             print("No upcoming matches found")

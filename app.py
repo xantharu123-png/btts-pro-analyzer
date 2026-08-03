@@ -6,7 +6,7 @@ import math
 import sqlite3
 import threading
 from dataclasses import asdict, replace
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from pathlib import Path
 
@@ -64,6 +64,7 @@ from bet_finder_ui import render_price_decision
 from betting_math import BETTING_POLICY_VERSION
 from ui_components import plain_german, render_empty_state, scan_progress_fragment
 from config_loader import load_app_config
+from date_context import german_date_window, zurich_today
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
 from multi_sport_recommendations import EVIDENCE_RELEASED, build_candidate
 
@@ -116,7 +117,7 @@ PAGE_SCAN_JOBS = {
     "Multi-Sport": ("multi_sport",),
 }
 
-PREMATCH_SNAPSHOT_VERSION = 3
+PREMATCH_SNAPSHOT_VERSION = 4
 LIVE_SNAPSHOT_VERSION = 4
 RED_CARD_SNAPSHOT_VERSION = 3
 DEFAULT_PREMATCH_LEAGUES = ("BL1", "PL", "PD")
@@ -264,11 +265,33 @@ def _snapshot_age_seconds(
     return (reference.astimezone() - timestamp.astimezone()).total_seconds()
 
 
-def _scope_signature(leagues: list[str], days_ahead: int) -> dict:
+def _scope_signature(
+    leagues: list[str],
+    days_ahead: int,
+    search_date: Optional[date] = None,
+) -> dict:
+    start_date = search_date or zurich_today()
+    if isinstance(start_date, datetime) or not isinstance(start_date, date):
+        raise ValueError("search_date must be a date")
     return {
         "leagues": sorted(str(league) for league in leagues),
         "days_ahead": int(days_ahead),
+        "start_date": start_date.isoformat(),
     }
+
+
+def _prematch_window_label(
+    scope: object,
+    *,
+    today: Optional[date] = None,
+) -> str:
+    if not isinstance(scope, dict):
+        return "unbekannt"
+    return german_date_window(
+        scope.get("start_date"),
+        scope.get("days_ahead"),
+        today=today or zurich_today(),
+    )
 
 
 def _percent_series(series: pd.Series) -> pd.Series:
@@ -1193,9 +1216,16 @@ def _prepare_results(results: list[pd.DataFrame]) -> pd.DataFrame:
 
 @_serialized_analyzer()
 def _scan_prematch(
-    analyzer, leagues: list[str], days_ahead: int, progress_cb=None
+    analyzer,
+    leagues: list[str],
+    days_ahead: int,
+    search_date: Optional[date] = None,
+    progress_cb=None,
 ) -> pd.DataFrame:
     # Hintergrund-tauglich: mit progress_cb keinerlei st.*-Aufrufe.
+    scan_start = search_date or zurich_today()
+    if isinstance(scan_start, datetime) or not isinstance(scan_start, date):
+        raise ValueError("search_date must be a date")
     progress = None if progress_cb else st.progress(0)
     status = None if progress_cb else st.empty()
     collected = []
@@ -1216,6 +1246,7 @@ def _scan_prematch(
                 league_code,
                 days_ahead=days_ahead,
                 min_probability=0,
+                start_date=scan_start,
             )
             if league_results is not None and not league_results.empty:
                 league_results = league_results.copy()
@@ -1536,6 +1567,7 @@ def render_matches(analyzer) -> None:
         st.error("API-Football-Key fehlt. Konfiguration unter System prüfen.")
         return
 
+    search_date = zurich_today()
     st.subheader("Filter")
     filter_columns = st.columns(3)
     min_probability = filter_columns[0].slider(
@@ -1605,12 +1637,19 @@ def render_matches(analyzer) -> None:
             st.info("Der BTTS-Scan läuft bereits im Hintergrund.")
         else:
             st.session_state["prematch_pending_scope"] = _scope_signature(
-                selected_leagues, days_ahead
+                selected_leagues,
+                days_ahead,
+                search_date,
             )
             scan_jobs.start_job(
                 _job_key("prematch"),
                 _scan_prematch,
-                args=(analyzer, list(selected_leagues), days_ahead),
+                args=(
+                    analyzer,
+                    list(selected_leagues),
+                    days_ahead,
+                    search_date,
+                ),
                 persist_name="prematch",
                 persist_fn=_persist_prematch,
                 persist_scope=_session_scope_id(),
@@ -1629,7 +1668,7 @@ def render_matches(analyzer) -> None:
             "scanned_at": datetime.now().astimezone().isoformat(),
             "scope": st.session_state.pop(
                 "prematch_pending_scope",
-                _scope_signature(selected_leagues, days_ahead),
+                _scope_signature(selected_leagues, days_ahead, search_date),
             ),
             "results": results,
         }
@@ -1638,7 +1677,11 @@ def render_matches(analyzer) -> None:
         st.session_state["all_results"] = results
         scan_jobs.clear_job(_job_key("prematch"))
         if results.empty:
-            st.error("NICHT WETTEN: Für diese Auswahl wurden keine kommenden Spiele gefunden.")
+            window_label = _prematch_window_label(snapshot.get("scope"))
+            st.error(
+                f"NICHT WETTEN: Im Zeitraum {window_label} wurden für diese "
+                "Auswahl keine kommenden Spiele gefunden."
+            )
         else:
             st.success(f"{len(results)} Spiele geprüft — Ergebnis:")
     elif job["state"] == "error":
@@ -1661,14 +1704,18 @@ def render_matches(analyzer) -> None:
     if snapshot.get("version") != PREMATCH_SNAPSHOT_VERSION:
         st.warning("Dieses Prematch-Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
         return
-    current_scope = _scope_signature(selected_leagues, days_ahead)
+    current_scope = _scope_signature(selected_leagues, days_ahead, search_date)
     if snapshot.get("scope") != current_scope:
         st.warning("Liga oder Zeitraum wurden seit dem Ergebnis geändert. Wetten neu suchen.")
         return
     results = snapshot.get("results")
-    st.caption(f"Datenstand: {_format_snapshot_time(snapshot.get('scanned_at'))}")
+    window_label = _prematch_window_label(snapshot.get("scope"))
+    st.caption(
+        f"Datenstand: {_format_snapshot_time(snapshot.get('scanned_at'))} · "
+        f"Suchzeitraum: {window_label}"
+    )
     if not isinstance(results, pd.DataFrame) or results.empty:
-        st.info("Dieser Snapshot enthält keine kommenden Spiele.")
+        st.info(f"Im Zeitraum {window_label} wurden keine kommenden Spiele gefunden.")
         return
     _render_prematch_results(
         results,

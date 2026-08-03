@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -11,7 +11,11 @@ import alternative_markets_tab_extended as market_tab
 from betting_math import BETTING_POLICY_VERSION
 from advanced_analyzer import calculate_evidence_score
 from alternative_markets import PreMatchAlternativeAnalyzer
-from alternative_markets_tab_extended import _api_football_items, _market_scope_signature
+from alternative_markets_tab_extended import (
+    _api_football_items,
+    _market_result_day_label,
+    _market_scope_signature,
+)
 from api_football import APIFootball
 from config_loader import AppConfig
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
@@ -507,10 +511,19 @@ def test_prematch_scan_collects_before_probability_filter(monkeypatch):
     monkeypatch.setattr(app.st, "progress", lambda _value: _ProgressStub())
     monkeypatch.setattr(app.st, "empty", _ProgressStub)
 
-    result = app._scan_prematch(analyzer, ["BL1"], 7)
+    search_date = date(2030, 1, 2)
+    result = app._scan_prematch(
+        analyzer,
+        ["BL1"],
+        7,
+        search_date,
+    )
 
     analyzer.analyze_upcoming_matches.assert_called_once_with(
-        "BL1", days_ahead=7, min_probability=0
+        "BL1",
+        days_ahead=7,
+        min_probability=0,
+        start_date=search_date,
     )
     assert result.iloc[0]["BTTS_num"] == pytest.approx(42.0)
 
@@ -519,6 +532,7 @@ def test_prematch_scan_collects_before_probability_filter(monkeypatch):
         analyzer,
         ["BL1"],
         7,
+        search_date,
         progress_cb=lambda fraction, text: updates.append((fraction, text)),
     )
     fractions = [fraction for fraction, _text in updates]
@@ -529,13 +543,68 @@ def test_prematch_scan_collects_before_probability_filter(monkeypatch):
 
 
 def test_scope_signatures_are_order_independent():
-    assert app._scope_signature(["PL", "BL1"], 7) == app._scope_signature(
-        ["BL1", "PL"], 7
+    search_date = date(2030, 1, 2)
+    assert app._scope_signature(
+        ["PL", "BL1"],
+        7,
+        search_date,
+    ) == app._scope_signature(
+        ["BL1", "PL"],
+        7,
+        search_date,
+    )
+    assert app._scope_signature(["PL"], 7, search_date) == {
+        "leagues": ["PL"],
+        "days_ahead": 7,
+        "start_date": "2030-01-02",
+    }
+    assert app._scope_signature(
+        ["PL"],
+        7,
+        search_date,
+    ) != app._scope_signature(
+        ["PL"],
+        7,
+        date(2030, 1, 3),
+    )
+    assert (
+        app._prematch_window_label(
+            app._scope_signature(["PL"], 7, search_date),
+            today=search_date,
+        )
+        == "Heute (02.01.2030) bis 09.01.2030"
     )
     assert _market_scope_signature([78, 39], pd.Timestamp("2026-07-11").date()) == {
         "league_ids": [39, 78],
         "date": "2026-07-11",
     }
+    assert (
+        _market_result_day_label(
+            {"scope": {"date": "2030-01-03"}},
+            today=search_date,
+        )
+        == "Morgen"
+    )
+
+
+def test_api_football_uses_explicit_scan_window():
+    api = APIFootball("test-key")
+    response = Mock()
+    response.raise_for_status = Mock()
+    response.json.return_value = {"errors": [], "response": []}
+    api._get = Mock(return_value=response)
+
+    result = api.get_upcoming_fixtures(
+        "PL",
+        7,
+        start_date=date(2030, 1, 2),
+    )
+
+    assert result == []
+    params = api._get.call_args.kwargs["params"]
+    assert params["from"] == "2030-01-02"
+    assert params["to"] == "2030-01-09"
+    assert params["season"] == 2029
 
 
 def test_api_football_http_200_provider_error_is_not_treated_as_empty_success():

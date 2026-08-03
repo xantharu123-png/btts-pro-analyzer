@@ -2,7 +2,6 @@
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -14,6 +13,7 @@ from multi_sport_recommendations import EVIDENCE_SHADOW
 from ui_components import render_empty_state, scan_progress_fragment
 from challenge_15k import ChallengeDataProvider, scan_daily_challenge
 from config_loader import load_app_config
+from date_context import german_day_label, zurich_today
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 
 
@@ -21,7 +21,6 @@ DEFAULT_LEAGUES = [78, 39, 140]
 MARKET_WORKFLOW_VERSION = 5
 MARKET_SNAPSHOT_VERSION = 4
 MARKET_MAX_AGE_MINUTES = 20
-ZURICH_TIMEZONE = ZoneInfo("Europe/Zurich")
 
 
 def _segmented(label: str, options: list[str], key: str, default: str) -> str:
@@ -44,6 +43,16 @@ def _market_scope_signature(leagues: list[int], search_date) -> dict:
     }
 
 
+def _market_result_day_label(
+    snapshot: dict,
+    *,
+    today=None,
+) -> str:
+    scope = snapshot.get("scope")
+    raw_date = scope.get("date") if isinstance(scope, dict) else None
+    return german_day_label(raw_date, today=today or _zurich_today())
+
+
 def _format_snapshot_time(value: Optional[str]) -> str:
     if not value:
         return "n/a"
@@ -54,7 +63,7 @@ def _format_snapshot_time(value: Optional[str]) -> str:
 
 
 def _zurich_today():
-    return datetime.now(ZURICH_TIMEZONE).date()
+    return zurich_today()
 
 
 def _snapshot_age_minutes(value: Optional[str]) -> Optional[float]:
@@ -336,13 +345,18 @@ def create_alternative_markets_tab_extended() -> None:
         )
         return
 
-    st.caption(f"Datenstand: {_format_snapshot_time(snapshot.get('scanned_at'))}")
+    result_day = _market_result_day_label(snapshot)
+    st.caption(
+        f"Datenstand: {_format_snapshot_time(snapshot.get('scanned_at'))} · "
+        f"Spieltag: {result_day}"
+    )
     shortlist = snapshot.get("shortlist")
     shortlist = shortlist if isinstance(shortlist, list) else []
     if not shortlist:
         st.error(
-            "KEINE WETTE — kein Spiel besteht alle Prüfkriterien "
-            "(Modell, Kalibrierung, Direktvergleich, Ausfälle, Wetter, Aufstellung)."
+            f"{result_day} keine belastbare Markt-Empfehlung — kein Spiel "
+            "besteht Modell, Kalibrierung, Direktvergleich, Ausfall- und "
+            "Wetterprüfung gemeinsam."
         )
     else:
         candidates = [_strict_market_candidate(candidate) for candidate in shortlist]
@@ -388,5 +402,6 @@ def create_alternative_markets_tab_extended() -> None:
 __all__ = [
     "_api_football_items",
     "_market_scope_signature",
+    "_market_result_day_label",
     "create_alternative_markets_tab_extended",
 ]

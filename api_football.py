@@ -8,10 +8,11 @@ Season selection is dynamic.
 import math
 import requests
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from api_budget import APIBudgetPriority, api_football_get
+from date_context import ZURICH_TIMEZONE
 from season_utils import (
     current_season_start_year,
     current_season_start_year_for_id,
@@ -180,7 +181,13 @@ class APIFootball:
             return {}
         return payload if isinstance(payload, dict) else {}
     
-    def get_upcoming_fixtures(self, league_code: str, days_ahead: int = 7) -> List[Dict]:
+    def get_upcoming_fixtures(
+        self,
+        league_code: str,
+        days_ahead: int = 7,
+        *,
+        start_date: Optional[date] = None,
+    ) -> List[Dict]:
         """
         ✅ NOW INSIDE THE CLASS! 
         Get upcoming fixtures for a league
@@ -199,6 +206,13 @@ class APIFootball:
             or isinstance(days_ahead, bool)
             or not isinstance(days_ahead, int)
             or not 1 <= days_ahead <= 30
+            or (
+                start_date is not None
+                and (
+                    isinstance(start_date, datetime)
+                    or not isinstance(start_date, date)
+                )
+            )
         ):
             self.last_error = "upcoming fixtures: invalid request parameters"
             return []
@@ -210,8 +224,8 @@ class APIFootball:
         self._rate_limit()
         
         # Calculate date range
-        today = datetime.now()
-        end_date = today + timedelta(days=days_ahead)
+        first_day = start_date or datetime.now(ZURICH_TIMEZONE).date()
+        end_date = first_day + timedelta(days=days_ahead)
         
         try:
             response = self._get(
@@ -219,8 +233,8 @@ class APIFootball:
                 headers=self.headers,
                 params={
                     'league': league_id,
-                    'season': current_season_start_year(league_code),
-                    'from': today.strftime('%Y-%m-%d'),
+                    'season': current_season_start_year(league_code, first_day),
+                    'from': first_day.isoformat(),
                     'to': end_date.strftime('%Y-%m-%d'),
                     'status': 'NS'  # Not Started
                 },

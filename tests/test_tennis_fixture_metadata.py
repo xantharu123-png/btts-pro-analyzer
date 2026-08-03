@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from scripts import tennis_daily
 from tennis import shadow
+from tennis_tab import _next_tennis_scan_date
 
 
 class _Response:
@@ -174,6 +175,10 @@ def test_espn_results_accept_only_complete_normal_finals(monkeypatch):
 def test_default_scan_date_uses_zurich_calendar():
     now = datetime(2030, 1, 1, 23, 30, tzinfo=timezone.utc)
     assert tennis_daily._default_scan_date(now) == "2030-01-03"
+
+
+def test_tennis_empty_state_uses_exact_next_scan_date():
+    assert _next_tennis_scan_date(today_value="2030-01-02").isoformat() == "2030-01-03"
 
 
 def test_duplicate_scan_backfills_fixture_metadata(tmp_path, monkeypatch):

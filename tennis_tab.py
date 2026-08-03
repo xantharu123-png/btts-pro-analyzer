@@ -23,7 +23,7 @@ import json
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -94,6 +94,15 @@ def _zurich_today(now_utc: datetime | None = None) -> str:
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     return current.astimezone(ZURICH_TZ).date().isoformat()
+
+
+def _next_tennis_scan_date(
+    now_utc: datetime | None = None,
+    *,
+    today_value: str | None = None,
+) -> date:
+    local_today = today_value or _zurich_today(now_utc)
+    return date.fromisoformat(local_today) + timedelta(days=1)
 
 
 def _prematch_visibility(
@@ -812,10 +821,8 @@ def render_tennis_page() -> None:
         with st.expander("Letzter Scan-Verlauf"):
             st.text(st.session_state["tennis_scan_output"])
 
-    raw_rows = _load_predictions(
-        date_from=_zurich_today(),
-        unsettled_only=True,
-    )
+    today = _zurich_today()
+    raw_rows = _load_predictions(date_from=today, unsettled_only=True)
     rows, hidden_rows = _split_prematch_rows(raw_rows)
     if hidden_rows:
         st.warning(
@@ -829,10 +836,11 @@ def render_tennis_page() -> None:
                 "Tennis-Auswahl."
             )
         else:
+            target_date = _next_tennis_scan_date(today_value=today)
             st.info(
                 "Noch keine Tennis-Vorhersagen gespeichert. Ein Klick auf "
-                "»Tennis-Vorhersagen aktualisieren« holt die Spiele von morgen "
-                "ins Shadow-Protokoll."
+                "»Tennis-Vorhersagen aktualisieren« holt die Spiele für den "
+                f"{target_date.strftime('%d.%m.%Y')} ins Shadow-Protokoll."
             )
     else:
         current_date = None
