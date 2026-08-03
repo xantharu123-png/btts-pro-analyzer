@@ -70,6 +70,26 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 "base_candidates": snapshot["base_candidates"],
                 "approved_candidates": snapshot["approved_candidates"],
+                "blocked_counts": snapshot["blocked_counts"],
+                "base_shortlist": [
+                    {
+                        "fixture_id": candidate.fixture_id,
+                        "match": f"{candidate.home_team} vs {candidate.away_team}",
+                        "market_key": candidate.market_key,
+                        "conservative_probability": round(
+                            candidate.conservative_probability,
+                            6,
+                        ),
+                        "h2h_status": (candidate.context.get("h2h") or {}).get(
+                            "status"
+                        ),
+                        "blocked_reasons": candidate.context.get(
+                            "blocked_reasons",
+                            [],
+                        ),
+                    }
+                    for candidate in snapshot["base_shortlist"]
+                ],
                 "elapsed_seconds": round(monotonic() - started, 1),
                 "provider_errors": snapshot["errors"],
             },
