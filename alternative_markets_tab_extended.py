@@ -382,6 +382,13 @@ def create_alternative_markets_tab_extended() -> None:
         summary[0].metric("Gefunden", snapshot.get("fixtures_found", 0))
         summary[1].metric("Modelliert", snapshot.get("fixtures_modeled", 0))
         summary[2].metric("Freigegeben", len(shortlist))
+        continental = int(snapshot.get("continental_fixtures_found") or 0)
+        if continental:
+            st.caption(
+                f"UEFA-Qualifikation: {continental} gefunden, "
+                f"{int(snapshot.get('continental_fallback_modeled') or 0)} "
+                "mit Heimatliga-Historie modelliert."
+            )
         blocked_counts = snapshot.get("blocked_counts")
         if isinstance(blocked_counts, dict) and blocked_counts:
             blocked_frame = pd.DataFrame(

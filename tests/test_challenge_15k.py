@@ -456,6 +456,65 @@ class FootballDataBoundaryTests(unittest.TestCase):
 
 
 class ChallengeProviderTests(unittest.TestCase):
+    def test_domestic_history_uses_current_league_and_drops_other_competitions(self):
+        target_day = date(2026, 8, 4)
+        kickoff = datetime(2026, 8, 4, 18, tzinfo=timezone.utc)
+        domestic = [
+            fixture(
+                100 + index,
+                kickoff - timedelta(days=10 + index),
+                1,
+                20 + index,
+                2,
+                1,
+                league_id=113,
+            )
+            for index in range(6)
+        ]
+        other = fixture(
+            999,
+            kickoff - timedelta(days=2),
+            1,
+            2,
+            1,
+            1,
+            league_id=2,
+        )
+        provider = ChallengeDataProvider("test-key", None)
+        provider._football_get = Mock(
+            side_effect=[
+                [
+                    {
+                        "league": {"id": 113, "name": "Allsvenskan", "type": "League"},
+                        "country": {"name": "Sweden"},
+                        "seasons": [
+                            {
+                                "year": 2026,
+                                "start": "2026-03-01",
+                                "end": "2026-11-30",
+                                "current": True,
+                            }
+                        ],
+                    },
+                    {
+                        "league": {"id": 2, "name": "Champions League", "type": "Cup"},
+                        "country": {"name": "World"},
+                        "seasons": [{"year": 2026, "current": True}],
+                    },
+                ],
+                domestic + [other],
+            ]
+        )
+
+        result = provider.domestic_team_history(1, target_day, kickoff)
+
+        self.assertEqual(result["league_id"], 113)
+        self.assertEqual(result["season"], 2026)
+        self.assertEqual(len(result["fixtures"]), 6)
+        self.assertTrue(
+            all(item["league"]["id"] == 113 for item in result["fixtures"])
+        )
+
     @patch("challenge_15k.requests.get")
     def test_current_season_plan_error_is_localized_and_not_treated_as_empty(self, get):
         response = Mock()
@@ -559,6 +618,95 @@ class ChallengeProviderTests(unittest.TestCase):
         )
         self.assertTrue(
             any("modelliert" in text for _fraction, text in progress_updates)
+        )
+
+    @patch("challenge_15k._cached_market_calibration", return_value={})
+    @patch("challenge_15k._cached_market_validation")
+    @patch("challenge_15k.annotate_history_xg", return_value={"coverage": 1.0})
+    def test_uefa_scan_uses_domestic_team_history_for_sparse_qualifier(
+        self,
+        _annotate,
+        validation,
+        _calibration,
+    ):
+        target_day = date(2026, 8, 4)
+        kickoff = datetime(2026, 8, 4, 18, tzinfo=timezone.utc)
+        upcoming = fixture(900, kickoff, 1, 2, league_id=2)
+        league_history = [
+            fixture(
+                1000 + index,
+                kickoff - timedelta(days=200 - index),
+                100 + index % 6,
+                200 + index % 6,
+                1 + index % 3,
+                index % 2,
+                league_id=2,
+            )
+            for index in range(30)
+        ]
+        home_history = [
+            fixture(
+                2000 + index,
+                kickoff - timedelta(days=8 + index),
+                1,
+                300 + index,
+                2,
+                1,
+                league_id=113,
+            )
+            for index in range(8)
+        ]
+        away_history = [
+            fixture(
+                3000 + index,
+                kickoff - timedelta(days=8 + index),
+                400 + index,
+                2,
+                1,
+                1,
+                league_id=332,
+            )
+            for index in range(8)
+        ]
+        validation.return_value = {
+            spec.key: credible_validation()
+            for spec in MARKET_SPECS
+        }
+        provider = Mock()
+        provider.errors = []
+        provider.upcoming_fixtures.return_value = [upcoming]
+        provider.completed_history.return_value = league_history
+        provider.coverage.return_value = {"injuries": False, "lineups": False}
+        provider.domestic_team_history.side_effect = [
+            {"league_id": 113, "season": 2026, "fixtures": home_history},
+            {"league_id": 332, "season": 2026, "fixtures": away_history},
+        ]
+        provider.injuries_by_fixture.return_value = {900: []}
+        provider.details_by_fixture.return_value = {900: upcoming}
+        provider.h2h.return_value = []
+        provider.weather.return_value = {
+            "temperature_c": 20.0,
+            "wind_kmh": 5.0,
+            "precipitation_mm": 0.0,
+        }
+
+        snapshot = scan_daily_challenge(
+            provider,
+            [2],
+            target_day,
+            8,
+        )
+
+        self.assertEqual(snapshot["fixtures_found"], 1)
+        self.assertEqual(snapshot["fixtures_modeled"], 1)
+        self.assertEqual(snapshot["continental_fixtures_found"], 1)
+        self.assertEqual(snapshot["continental_fallback_modeled"], 1)
+        self.assertEqual(snapshot["continental_fallback_failed"], 0)
+        self.assertTrue(
+            all(
+                not candidate.market_key.startswith(("CORNERS_", "YELLOW_"))
+                for candidate in snapshot["base_shortlist"]
+            )
         )
 
 

@@ -32,12 +32,14 @@ from challenge_engine import (
     TARGET_ODDS_MAX,
     TARGET_ODDS_MIN,
     MarketSpec,
+    ValidationMetrics,
     apply_candidate_context,
     build_fixture_candidates,
     consecutive_wins_to_target,
     expected_log_growth,
     extract_lineup_display,
     fit_market_calibration,
+    fixture_market_probabilities,
     market_outcome,
     market_specs,
     select_model_ticket,
@@ -48,6 +50,7 @@ from challenge_engine import (
     ticket_dependency_factor,
     validate_league_markets,
 )
+from challenge_model_cache import load_model_artifact, save_model_artifact
 from challenge_store import ChallengeLedger
 from config_loader import load_app_config
 from date_context import ZURICH_TIMEZONE, german_day_label, zurich_today
@@ -58,7 +61,7 @@ from ui_components import (
 )
 from football_data_history import fetch_history as fetch_stat_history
 from football_data_history import merge_api_tail
-from league_catalog import ALTERNATIVE_MARKET_LEAGUES
+from league_catalog import ALTERNATIVE_MARKET_LEAGUES, LEAGUE_BY_ID
 from price_ledger import (
     PriceLedger,
     PriceLedgerError,
@@ -69,7 +72,7 @@ from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 6
+CHALLENGE_SNAPSHOT_VERSION = 7
 CHALLENGE_WORKSPACE_VERSION = 5
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
@@ -84,6 +87,8 @@ MAX_SCAN_FIXTURES = 400
 QUOTE_MAX_AGE_MINUTES = 10
 SNAPSHOT_MAX_AGE_MINUTES = 20
 XG_MAX_NEW_CALLS_PER_SCAN = 12
+CONTINENTAL_LEAGUE_IDS = frozenset({2, 3, 848})
+DOMESTIC_HISTORY_LAST_FIXTURES = 60
 # Auto-Nachprüfung: Die App wartet selbst auf frischen Pflichtkontext
 # (H2H-Lage, Ausfälle und Wetter), statt dass der Nutzer den ganzen Tag
 # manuell neu scannt. Aufstellungen werden später nur zur Anzeige ergänzt.
@@ -92,6 +97,18 @@ AUTO_RECHECK_WINDOW_MINUTES = 80
 AUTO_RECHECK_MIN_GAP_MINUTES = 12
 AUTO_RECHECK_POLL_SECONDS = 180
 MAX_AUTO_RECHECK_LEAGUES = 12
+
+
+def _challenge_model_signature() -> str:
+    engine_path = Path(__file__).resolve().with_name("challenge_engine.py")
+    try:
+        engine_hash = hashlib.sha256(engine_path.read_bytes()).hexdigest()[:20]
+    except OSError:
+        engine_hash = "unknown"
+    return f"challenge-engine:{engine_hash}"
+
+
+CHALLENGE_MODEL_SIGNATURE = _challenge_model_signature()
 
 
 def _challenge_today(now: Optional[datetime] = None) -> date:
@@ -178,6 +195,182 @@ def _validate_scan_inputs(
         )
 
 
+def _continental_team_history(
+    provider: "ChallengeDataProvider",
+    fixture: dict[str, Any],
+    search_date: date,
+) -> Optional[dict[str, Any]]:
+    kickoff = _fixture_kickoff(fixture)
+    teams = fixture.get("teams")
+    if kickoff is None or not isinstance(teams, dict):
+        return None
+    team_ids: list[int] = []
+    for side in ("home", "away"):
+        team = teams.get(side)
+        if not isinstance(team, dict):
+            return None
+        team_id = _positive_integer(team.get("id"))
+        if team_id is None:
+            return None
+        team_ids.append(team_id)
+
+    combined: list[dict[str, Any]] = []
+    profiles: list[tuple[int, int]] = []
+    for team_id in team_ids:
+        profile = provider.domestic_team_history(team_id, search_date, kickoff)
+        if not isinstance(profile, dict):
+            return None
+        league_id = _positive_integer(profile.get("league_id"))
+        season = _positive_integer(profile.get("season"))
+        if league_id is None or season is None:
+            return None
+        fixtures = profile.get("fixtures")
+        if not isinstance(fixtures, list) or not fixtures:
+            return None
+        profiles.append((league_id, season))
+        combined.extend(item for item in fixtures if isinstance(item, dict))
+
+    unique: dict[int, dict[str, Any]] = {}
+    for item in combined:
+        fixture_data = item.get("fixture")
+        if not isinstance(fixture_data, dict):
+            continue
+        fixture_id = _positive_integer(fixture_data.get("id"))
+        if fixture_id is not None:
+            unique[fixture_id] = item
+    if not unique:
+        return None
+    return {
+        "fixtures": sorted(
+            unique.values(),
+            key=lambda item: _fixture_kickoff(item)
+            or datetime.min.replace(tzinfo=timezone.utc),
+        ),
+        "profiles": tuple(profiles),
+    }
+
+
+def _conservative_validation_map(
+    validation_maps: list[dict[str, ValidationMetrics]],
+) -> dict[str, ValidationMetrics]:
+    """Require every source league and retain the weakest metric per gate."""
+    if not validation_maps:
+        return {}
+    combined: dict[str, ValidationMetrics] = {}
+    for spec in market_specs():
+        metrics = [
+            validation.get(spec.key)
+            for validation in validation_maps
+        ]
+        if any(not isinstance(metric, ValidationMetrics) for metric in metrics):
+            continue
+        valid_metrics = [metric for metric in metrics if metric is not None]
+        weakest = min(
+            valid_metrics,
+            key=lambda metric: (
+                metric.relative_improvement
+                if metric.relative_improvement is not None
+                else -math.inf
+            ),
+        )
+        worst_calibration = max(
+            valid_metrics,
+            key=lambda metric: (
+                metric.max_calibration_error
+                if metric.max_calibration_error is not None
+                else math.inf
+            ),
+        )
+        raw_brier_values = [
+            metric.raw_brier_score
+            for metric in valid_metrics
+            if metric.raw_brier_score is not None
+        ]
+        combined[spec.key] = ValidationMetrics(
+            observations=min(metric.observations for metric in valid_metrics),
+            brier_score=weakest.brier_score,
+            baseline_brier_score=weakest.baseline_brier_score,
+            relative_improvement=min(
+                metric.relative_improvement
+                if metric.relative_improvement is not None
+                else -math.inf
+                for metric in valid_metrics
+            ),
+            expected_calibration_error=max(
+                metric.expected_calibration_error
+                if metric.expected_calibration_error is not None
+                else math.inf
+                for metric in valid_metrics
+            ),
+            passed=all(metric.passed is True for metric in valid_metrics),
+            calibration_bins=min(
+                metric.calibration_bins for metric in valid_metrics
+            ),
+            min_bin_size=min(metric.min_bin_size for metric in valid_metrics),
+            max_calibration_error=worst_calibration.max_calibration_error,
+            max_error_bin_size=worst_calibration.max_error_bin_size,
+            max_error_bin_mean_probability=(
+                worst_calibration.max_error_bin_mean_probability
+            ),
+            raw_brier_score=max(raw_brier_values) if raw_brier_values else None,
+        )
+    return combined
+
+
+def _conservative_calibration_map(
+    calibration_maps: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Use the lowest calibrated probability across both source leagues."""
+    if not calibration_maps:
+        return {}
+    combined: dict[str, Any] = {}
+    for spec in market_specs():
+        curves = [
+            calibration.get(spec.key)
+            for calibration in calibration_maps
+        ]
+        if any(curve is None or not callable(curve) for curve in curves):
+            continue
+
+        def conservative_curve(
+            probability: float,
+            source_curves: tuple[Any, ...] = tuple(curves),
+        ) -> float:
+            return min(
+                [float(probability)]
+                + [float(curve(probability)) for curve in source_curves]
+            )
+
+        combined[spec.key] = conservative_curve
+    return combined
+
+
+def _transfer_probe_validation_map() -> dict[str, ValidationMetrics]:
+    """Optimistic validation used only to decide which source leagues to test.
+
+    The probe can only widen the expensive-validation shortlist. Final
+    candidates are rebuilt exclusively with real source-league metrics.
+    """
+    probe = ValidationMetrics(
+        observations=300,
+        brier_score=0.15,
+        baseline_brier_score=0.20,
+        relative_improvement=0.25,
+        expected_calibration_error=0.0,
+        passed=True,
+        calibration_bins=4,
+        min_bin_size=30,
+        max_calibration_error=0.0,
+        max_error_bin_size=30,
+        max_error_bin_mean_probability=0.5,
+        raw_brier_score=0.15,
+    )
+    return {
+        spec.key: probe
+        for spec in market_specs()
+    }
+
+
 def _segmented(label: str, options: list[str], key: str, default: str) -> str:
     if hasattr(st, "segmented_control"):
         kwargs: dict[str, Any] = {
@@ -230,26 +423,49 @@ def _challenge_job_key() -> str:
     return scan_jobs.scoped_key("challenge_15k", scope)
 
 
-@st.cache_data(ttl=6 * 3600, max_entries=32, show_spinner=False)
+@st.cache_data(ttl=6 * 3600, max_entries=64, show_spinner=False)
+def _cached_market_artifact(
+    league_id: int,
+    season: int,
+    history: list[dict[str, Any]],
+):
+    cached = load_model_artifact(
+        CHALLENGE_MODEL_SIGNATURE,
+        league_id,
+        season,
+        history,
+    )
+    if cached is not None:
+        return cached
+    validation = validate_league_markets(history)
+    calibration = fit_market_calibration(history)
+    save_model_artifact(
+        CHALLENGE_MODEL_SIGNATURE,
+        league_id,
+        season,
+        history,
+        validation,
+        calibration,
+    )
+    return validation, calibration
+
+
+@st.cache_data(ttl=6 * 3600, max_entries=64, show_spinner=False)
 def _cached_market_validation(
     league_id: int,
     season: int,
     history: list[dict[str, Any]],
 ):
-    """Cache expensive walk-forward results; history content is part of the key."""
-    del league_id, season
-    return validate_league_markets(history)
+    return _cached_market_artifact(league_id, season, history)[0]
 
 
-@st.cache_data(ttl=6 * 3600, max_entries=32, show_spinner=False)
+@st.cache_data(ttl=6 * 3600, max_entries=64, show_spinner=False)
 def _cached_market_calibration(
     league_id: int,
     season: int,
     history: list[dict[str, Any]],
 ):
-    """Kalibrierungskarten pro Liga; Cache-Schlüssel ist der Historieninhalt."""
-    del league_id, season
-    return fit_market_calibration(history)
+    return _cached_market_artifact(league_id, season, history)[1]
 
 
 class ChallengeDataProvider:
@@ -263,6 +479,9 @@ class ChallengeDataProvider:
         self.errors: list[str] = []
         self._last_request = 0.0
         self._weather_cache: dict[tuple[str, str], Optional[dict[str, Any]]] = {}
+        self._domestic_history_cache: dict[
+            tuple[int, str], Optional[dict[str, Any]]
+        ] = {}
 
     def _rate_limit(self) -> None:
         elapsed = time.monotonic() - self._last_request
@@ -406,6 +625,151 @@ class ChallengeDataProvider:
             if previous:
                 history = list(previous) + list(history)
         return history or None
+
+    def domestic_team_history(
+        self,
+        team_id: int,
+        search_date: date,
+        before: datetime,
+    ) -> Optional[dict[str, Any]]:
+        """Return recent results from the team's current domestic league.
+
+        Continental qualifiers do not contain enough same-competition team
+        history for many clubs. The UEFA competition remains the goal-
+        environment prior; this method supplies only team-level form and
+        home/away observations. Both domestic source leagues are validated
+        separately before a candidate can pass.
+        """
+        valid_team_id = _positive_integer(team_id)
+        if (
+            valid_team_id is None
+            or not isinstance(search_date, date)
+            or isinstance(search_date, datetime)
+            or not isinstance(before, datetime)
+            or before.tzinfo is None
+        ):
+            return None
+        cache_key = (valid_team_id, search_date.isoformat())
+        if cache_key in self._domestic_history_cache:
+            return self._domestic_history_cache[cache_key]
+
+        league_entries = self._football_get(
+            "leagues",
+            {"team": valid_team_id},
+            f"Heimatliga Team {valid_team_id}",
+        )
+        recent = self._football_get(
+            "fixtures",
+            {
+                "team": valid_team_id,
+                "last": DOMESTIC_HISTORY_LAST_FIXTURES,
+                "status": "FT",
+                "timezone": "Europe/Zurich",
+            },
+            f"Teamhistorie {valid_team_id}",
+        )
+        if league_entries is None or recent is None:
+            self._domestic_history_cache[cache_key] = None
+            return None
+
+        recent_by_league: dict[int, list[dict[str, Any]]] = {}
+        for fixture in recent:
+            league = fixture.get("league")
+            teams = fixture.get("teams")
+            kickoff = _fixture_kickoff(fixture)
+            if (
+                not isinstance(league, dict)
+                or not isinstance(teams, dict)
+                or kickoff is None
+                or kickoff >= before.astimezone(timezone.utc)
+            ):
+                continue
+            league_id = _positive_integer(league.get("id"))
+            home = teams.get("home")
+            away = teams.get("away")
+            if (
+                league_id is None
+                or not isinstance(home, dict)
+                or not isinstance(away, dict)
+                or valid_team_id not in {home.get("id"), away.get("id")}
+            ):
+                continue
+            goals = fixture.get("goals")
+            if (
+                not isinstance(goals, dict)
+                or isinstance(goals.get("home"), bool)
+                or isinstance(goals.get("away"), bool)
+                or not isinstance(goals.get("home"), int)
+                or not isinstance(goals.get("away"), int)
+                or goals.get("home") < 0
+                or goals.get("away") < 0
+            ):
+                continue
+            recent_by_league.setdefault(league_id, []).append(fixture)
+
+        candidates: list[tuple[tuple[int, int, int, int], int, int]] = []
+        for entry in league_entries:
+            league = entry.get("league")
+            if not isinstance(league, dict) or league.get("type") != "League":
+                continue
+            league_id = _positive_integer(league.get("id"))
+            if league_id is None or league_id in CONTINENTAL_LEAGUE_IDS:
+                continue
+            country = entry.get("country")
+            country_name = (
+                country.get("name")
+                if isinstance(country, dict)
+                else str(country or "")
+            )
+            if str(country_name).strip().casefold() == "world":
+                continue
+            seasons = entry.get("seasons")
+            if not isinstance(seasons, list):
+                continue
+            for season in seasons:
+                if not isinstance(season, dict):
+                    continue
+                year = _positive_integer(season.get("year"))
+                if year is None:
+                    continue
+                contains_date = False
+                try:
+                    start = date.fromisoformat(str(season.get("start")))
+                    end = date.fromisoformat(str(season.get("end")))
+                    contains_date = start <= search_date <= end
+                except (TypeError, ValueError):
+                    pass
+                is_current = season.get("current") is True
+                if not contains_date and not is_current:
+                    continue
+                sample = len(recent_by_league.get(league_id, []))
+                score = (
+                    int(contains_date),
+                    int(is_current),
+                    sample,
+                    int(league_id in LEAGUE_BY_ID),
+                )
+                candidates.append((score, league_id, year))
+
+        if not candidates:
+            self._domestic_history_cache[cache_key] = None
+            return None
+        _score, league_id, season = max(candidates, key=lambda item: item[0])
+        fixtures = sorted(
+            recent_by_league.get(league_id, []),
+            key=lambda item: _fixture_kickoff(item)
+            or datetime.min.replace(tzinfo=timezone.utc),
+        )
+        if not fixtures:
+            self._domestic_history_cache[cache_key] = None
+            return None
+        result = {
+            "league_id": league_id,
+            "season": season,
+            "fixtures": fixtures,
+        }
+        self._domestic_history_cache[cache_key] = result
+        return result
 
     def coverage(self, league_id: int, season: int) -> dict[str, bool]:
         data = self._football_get(
@@ -1120,9 +1484,156 @@ def scan_daily_challenge(
             seasons[league_id],
             history,
         )
+
+    fixture_team_histories: dict[int, list[dict[str, Any]]] = {}
+    fixture_domestic_profiles: dict[int, tuple[tuple[int, int], ...]] = {}
+    continental_fixture_ids = {
+        fixture["fixture"]["id"]
+        for fixture in fixtures
+        if fixture.get("league", {}).get("id") in CONTINENTAL_LEAGUE_IDS
+    }
+    fallback_targets = []
+    for fixture in fixtures:
+        league_id = fixture.get("league", {}).get("id")
+        if league_id not in CONTINENTAL_LEAGUE_IDS:
+            continue
+        if fixture_market_probabilities(
+            fixture,
+            histories.get(league_id, []),
+        ) is None:
+            fallback_targets.append(fixture)
+
+    fallback_failed: set[int] = set()
+    for fallback_index, fixture in enumerate(fallback_targets):
+        fixture_id = fixture["fixture"]["id"]
+        if progress_cb:
+            progress_cb(
+                0.70 + 0.04 * fallback_index / max(1, len(fallback_targets)),
+                (
+                    "Heimatliga-Historie für UEFA-Spiel "
+                    f"{fallback_index + 1}/{len(fallback_targets)}"
+                ),
+            )
+        fallback_data = _continental_team_history(
+            provider,
+            fixture,
+            search_date,
+        )
+        league_id = fixture.get("league", {}).get("id")
+        team_history = (
+            fallback_data.get("fixtures")
+            if isinstance(fallback_data, dict)
+            else None
+        )
+        profiles = (
+            fallback_data.get("profiles")
+            if isinstance(fallback_data, dict)
+            else None
+        )
+        if (
+            isinstance(team_history, list)
+            and team_history
+            and isinstance(profiles, tuple)
+            and len(profiles) == 2
+            and fixture_market_probabilities(
+                fixture,
+                histories.get(league_id, []),
+                team_history=team_history,
+            )
+            is not None
+        ):
+            fixture_team_histories[fixture_id] = team_history
+            fixture_domestic_profiles[fixture_id] = profiles
+        else:
+            fallback_failed.add(fixture_id)
+
+    fixture_by_id = {
+        fixture["fixture"]["id"]: fixture
+        for fixture in fixtures
+    }
+    transfer_probe = _transfer_probe_validation_map()
+    validation_target_fixture_ids: set[int] = set()
+    for fixture_id, team_history in fixture_team_histories.items():
+        fixture = fixture_by_id[fixture_id]
+        league_id = fixture.get("league", {}).get("id")
+        probe_candidates = build_fixture_candidates(
+            fixture,
+            histories.get(league_id, []),
+            transfer_probe,
+            {},
+            team_history=team_history,
+        )
+        if any(candidate.base_eligible for candidate in probe_candidates):
+            validation_target_fixture_ids.add(fixture_id)
+
+    domestic_requests: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    for fixture_id, profiles in fixture_domestic_profiles.items():
+        if fixture_id not in validation_target_fixture_ids:
+            continue
+        fixture = fixture_by_id[fixture_id]
+        for profile in set(profiles):
+            domestic_requests.setdefault(profile, []).append(fixture)
+
+    domestic_validations: dict[tuple[int, int], dict[str, ValidationMetrics]] = {}
+    domestic_calibrations: dict[tuple[int, int], dict[str, Any]] = {}
+    domestic_total = len(domestic_requests)
+    for domestic_index, ((league_id, season), source_fixtures) in enumerate(
+        domestic_requests.items()
+    ):
+        if progress_cb:
+            progress_cb(
+                0.74 + 0.08 * domestic_index / max(1, domestic_total),
+                (
+                    "Heimatliga-Validierung "
+                    f"{domestic_index + 1}/{domestic_total}"
+                ),
+            )
+        if (
+            seasons.get(league_id) == season
+            and histories.get(league_id)
+        ):
+            history = histories[league_id]
+            validation = validations.get(league_id, {})
+            calibration = calibrations.get(league_id, {})
+        else:
+            history = provider.completed_history(
+                league_id,
+                season,
+                source_fixtures,
+            ) or []
+            validation = (
+                _cached_market_validation(league_id, season, history)
+                if history
+                else {}
+            )
+            calibration = (
+                _cached_market_calibration(league_id, season, history)
+                if history
+                else {}
+            )
+        domestic_validations[(league_id, season)] = validation
+        domestic_calibrations[(league_id, season)] = calibration
+
+    fixture_validations: dict[int, dict[str, ValidationMetrics]] = {}
+    fixture_calibrations: dict[int, dict[str, Any]] = {}
+    for fixture_id, profiles in fixture_domestic_profiles.items():
+        unique_profiles = list(dict.fromkeys(profiles))
+        fixture_validations[fixture_id] = _conservative_validation_map(
+            [
+                domestic_validations.get(profile, {})
+                for profile in unique_profiles
+            ]
+        )
+        fixture_calibrations[fixture_id] = _conservative_calibration_map(
+            [
+                domestic_calibrations.get(profile, {})
+                for profile in unique_profiles
+            ]
+        )
+
     if progress_cb:
         progress_cb(
-            0.70,
+            0.82,
             f"{len(fixtures)} Spiele werden mathematisch modelliert",
         )
     all_candidates: list[ChallengeCandidate] = []
@@ -1130,20 +1641,36 @@ def scan_daily_challenge(
     progress_stride = max(1, fixture_total // 20)
     for fixture_index, fixture in enumerate(fixtures):
         league_id = fixture.get("league", {}).get("id")
-        all_candidates.extend(
-            build_fixture_candidates(
-                fixture,
-                histories.get(league_id, []),
-                validations.get(league_id, {}),
-                calibrations.get(league_id, {}),
-            )
+        fixture_id = fixture["fixture"]["id"]
+        validation = (
+            fixture_validations.get(fixture_id, {})
+            if fixture_id in fixture_team_histories
+            else validations.get(league_id, {})
         )
+        calibration = (
+            fixture_calibrations.get(fixture_id, {})
+            if fixture_id in fixture_team_histories
+            else calibrations.get(league_id, {})
+        )
+        fixture_candidates = build_fixture_candidates(
+            fixture,
+            histories.get(league_id, []),
+            validation,
+            calibration,
+            team_history=fixture_team_histories.get(fixture_id),
+        )
+        if fixture_id in fixture_team_histories:
+            for candidate in fixture_candidates:
+                candidate.reasons.append(
+                    "Teamform und Heim/Auswärts-Stichprobe aus den jeweiligen Heimatligen"
+                )
+        all_candidates.extend(fixture_candidates)
         if progress_cb and (
             (fixture_index + 1) % progress_stride == 0
             or fixture_index + 1 == fixture_total
         ):
             progress_cb(
-                0.70 + 0.14 * (fixture_index + 1) / max(1, fixture_total),
+                0.82 + 0.02 * (fixture_index + 1) / max(1, fixture_total),
                 f"Spiel {fixture_index + 1}/{fixture_total} modelliert",
             )
 
@@ -1156,10 +1683,6 @@ def scan_daily_challenge(
         )
     injuries = provider.injuries_by_fixture(context_fixture_ids) if context_fixture_ids else {}
     details = provider.details_by_fixture(context_fixture_ids) if context_fixture_ids else {}
-    fixture_by_id = {
-        fixture["fixture"]["id"]: fixture
-        for fixture in fixtures
-    }
     h2h_by_fixture: dict[int, Optional[list[dict[str, Any]]]] = {}
     weather_by_fixture: dict[int, Optional[dict[str, Any]]] = {}
     context_total = len(context_fixture_ids)
@@ -1237,6 +1760,10 @@ def scan_daily_challenge(
         ],
         "fixtures_found": len(fixtures),
         "fixtures_modeled": len({candidate.fixture_id for candidate in all_candidates}),
+        "continental_fixtures_found": len(continental_fixture_ids),
+        "continental_fallback_modeled": len(fixture_team_histories),
+        "continental_fallback_failed": len(fallback_failed),
+        "continental_validation_fixtures": len(validation_target_fixture_ids),
         "base_candidates": len(base_candidates),
         "context_fixtures": len(context_fixture_ids),
         "approved_candidates": len(shortlist),
@@ -2061,6 +2588,17 @@ def _render_price_check(
         st.caption(
             f"{reason} Geprüft: {found} Spiele, davon {modeled} modelliert."
         )
+        continental = int(snapshot.get("continental_fixtures_found") or 0)
+        fallback_modeled = int(snapshot.get("continental_fallback_modeled") or 0)
+        fallback_failed = int(snapshot.get("continental_fallback_failed") or 0)
+        if continental:
+            detail = (
+                f"UEFA-Qualifikation: {continental} Spiele gefunden, "
+                f"{fallback_modeled} mit Heimatliga-Historie modelliert"
+            )
+            if fallback_failed:
+                detail += f", {fallback_failed} ohne ausreichende Teamstichprobe"
+            st.caption(detail + ".")
         return
 
     st.subheader("Tagesempfehlungen")

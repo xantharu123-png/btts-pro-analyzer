@@ -735,6 +735,7 @@ def _league_goal_means(fixtures: Iterable[dict[str, Any]], before: datetime) -> 
 def _fixture_model(
     fixture: dict[str, Any],
     league_history: Iterable[dict[str, Any]],
+    team_history: Optional[Iterable[dict[str, Any]]] = None,
 ) -> Optional[dict[str, Any]]:
     kickoff = _fixture_datetime(fixture)
     teams = fixture.get("teams", {})
@@ -744,15 +745,16 @@ def _fixture_model(
         return None
 
     history = list(league_history)
+    observations = list(team_history) if team_history is not None else history
     league_means = _league_goal_means(history, kickoff)
     if league_means is None:
         return None
     league_home, league_away, league_sample = league_means
 
-    home_venue = _team_observations(history, home_id, kickoff, venue="home", limit=12)
-    away_venue = _team_observations(history, away_id, kickoff, venue="away", limit=12)
-    home_form = _team_observations(history, home_id, kickoff, venue=None, limit=6)
-    away_form = _team_observations(history, away_id, kickoff, venue=None, limit=6)
+    home_venue = _team_observations(observations, home_id, kickoff, venue="home", limit=12)
+    away_venue = _team_observations(observations, away_id, kickoff, venue="away", limit=12)
+    home_form = _team_observations(observations, home_id, kickoff, venue=None, limit=6)
+    away_form = _team_observations(observations, away_id, kickoff, venue=None, limit=6)
     if min(len(home_venue), len(away_venue)) < MIN_VENUE_MATCHES:
         return None
     if min(len(home_form), len(away_form)) < MIN_FORM_MATCHES:
@@ -963,6 +965,7 @@ def _fixture_count_model(
     fixture: dict[str, Any],
     league_history: Iterable[dict[str, Any]],
     family: str,
+    team_history: Optional[Iterable[dict[str, Any]]] = None,
 ) -> Optional[dict[str, Any]]:
     kickoff = _fixture_datetime(fixture)
     teams = fixture.get("teams", {})
@@ -971,21 +974,22 @@ def _fixture_count_model(
     if kickoff is None or not isinstance(home_id, int) or not isinstance(away_id, int):
         return None
     history = list(league_history)
+    observations = list(team_history) if team_history is not None else history
     league_means = _league_count_means(history, kickoff, family)
     if league_means is None:
         return None
     league_home, league_away, league_sample = league_means
     home_venue = _team_count_observations(
-        history, home_id, kickoff, family=family, venue="home", limit=12
+        observations, home_id, kickoff, family=family, venue="home", limit=12
     )
     away_venue = _team_count_observations(
-        history, away_id, kickoff, family=family, venue="away", limit=12
+        observations, away_id, kickoff, family=family, venue="away", limit=12
     )
     home_form = _team_count_observations(
-        history, home_id, kickoff, family=family, venue=None, limit=6
+        observations, home_id, kickoff, family=family, venue=None, limit=6
     )
     away_form = _team_count_observations(
-        history, away_id, kickoff, family=family, venue=None, limit=6
+        observations, away_id, kickoff, family=family, venue=None, limit=6
     )
     if min(len(home_venue), len(away_venue)) < MIN_VENUE_MATCHES:
         return None
@@ -1071,9 +1075,12 @@ def fixture_market_probabilities(
     fixture: dict[str, Any],
     league_history: Iterable[dict[str, Any]],
     calibration: Optional[dict[str, MarketCalibration]] = None,
+    *,
+    team_history: Optional[Iterable[dict[str, Any]]] = None,
 ) -> Optional[dict[str, Any]]:
     history = list(league_history)
-    model = _fixture_model(fixture, history)
+    observations = list(team_history) if team_history is not None else None
+    model = _fixture_model(fixture, history, observations)
     if model is None:
         return None
     active_matrix = score_matrix(*model["active_lambdas"])
@@ -1092,7 +1099,12 @@ def fixture_market_probabilities(
         ("corners", CORNER_MARKET_SPECS),
         ("yellow", YELLOW_MARKET_SPECS),
     ):
-        count_model = _fixture_count_model(fixture, history, family)
+        count_model = _fixture_count_model(
+            fixture,
+            history,
+            family,
+            team_history=observations,
+        )
         if count_model is None:
             continue
         model["count_models"][family] = count_model
@@ -1563,10 +1575,17 @@ def build_fixture_candidates(
     league_history: Iterable[dict[str, Any]],
     validation: dict[str, ValidationMetrics],
     calibration: Optional[dict[str, MarketCalibration]] = None,
+    *,
+    team_history: Optional[Iterable[dict[str, Any]]] = None,
 ) -> list[ChallengeCandidate]:
     """Build price-independent candidates for one fixture."""
     identity = _fixture_identity(fixture)
-    model = fixture_market_probabilities(fixture, league_history, calibration)
+    model = fixture_market_probabilities(
+        fixture,
+        league_history,
+        calibration,
+        team_history=team_history,
+    )
     if identity is None or model is None:
         return []
 
