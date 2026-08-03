@@ -2468,7 +2468,11 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
                 "Das Modell prüft quotenfrei bis zu drei streng gefilterte Spiele.",
                 "Erst danach entscheidet der N1Bet-Preis über eine Freigabe.",
             ],
-            duration_hint="Dauer: je nach Ligaanzahl etwa 30–90 Sekunden.",
+            duration_hint=(
+                "Dauer: provider- und cacheabhängig. Ein kalter 51-Ligen-Vollscan "
+                "kann mehrere Minuten dauern; solange neue Fortschrittsmeldungen "
+                "eintreffen, läuft er weiter."
+            ),
         )
         return
     if snapshot.get("version") != CHALLENGE_SNAPSHOT_VERSION:

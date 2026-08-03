@@ -239,7 +239,7 @@ def create_alternative_markets_tab_extended() -> None:
         if scan_jobs.get_job(job_key)["state"] == "running":
             st.info("Der Markt-Scan läuft bereits im Hintergrund.")
         else:
-            scan_jobs.start_job(
+            started = scan_jobs.start_job(
                 job_key,
                 _run_market_scan_worker,
                 args=(
@@ -251,13 +251,27 @@ def create_alternative_markets_tab_extended() -> None:
                     dict(scope),
                 ),
             )
+            if started:
+                st.session_state["market_pending_scope"] = dict(scope)
 
     job = scan_jobs.get_job(job_key)
     if job["state"] == "running":
+        active_scope = st.session_state.get("market_pending_scope")
+        active_leagues = (
+            active_scope.get("league_ids")
+            if isinstance(active_scope, dict)
+            else None
+        )
+        if isinstance(active_leagues, list):
+            st.caption(
+                f"Aktiver Auftrag: {len(active_leagues)} Ligen am "
+                f"{active_scope.get('date', search_date.isoformat())}."
+            )
         scan_progress_fragment(job_key, "Markt-Scan")
     elif job["state"] == "done":
         result = job.get("result") or {}
         challenge_snapshot = result.get("challenge") or {}
+        st.session_state.pop("market_pending_scope", None)
         st.session_state["market_bet_finder_snapshot"] = {
             "version": MARKET_SNAPSHOT_VERSION,
             "scanned_at": challenge_snapshot.get("scanned_at"),
@@ -270,7 +284,25 @@ def create_alternative_markets_tab_extended() -> None:
         }
         scan_jobs.clear_job(job_key)
     elif job["state"] == "error":
-        st.error(f"Markt-Wettfinder fehlgeschlagen: {job.get('error')}")
+        failed_scope = st.session_state.pop("market_pending_scope", None)
+        failed_leagues = (
+            failed_scope.get("league_ids")
+            if isinstance(failed_scope, dict)
+            else None
+        )
+        scope_label = (
+            f" für {len(failed_leagues)} Ligen"
+            if isinstance(failed_leagues, list)
+            else ""
+        )
+        st.error(
+            f"Markt-Wettfinder{scope_label} technisch abgebrochen: "
+            f"{job.get('error')}"
+        )
+        st.caption(
+            "Es wurde keine Wettentscheidung aus diesem unvollständigen Lauf übernommen. "
+            "Die Suche kann direkt neu gestartet werden."
+        )
         scan_jobs.clear_job(job_key)
 
     snapshot = st.session_state.get("market_bet_finder_snapshot")
@@ -283,7 +315,11 @@ def create_alternative_markets_tab_extended() -> None:
                 "Die exakte N1Bet-Quote entscheidet nur über den Preisstatus; "
                 "die Shadow-Evidenz bleibt davon getrennt.",
             ],
-            duration_hint="Dauer: je nach Ligaanzahl etwa 30–90 Sekunden.",
+            duration_hint=(
+                "Dauer: provider- und cacheabhängig. Ein kalter Vollscan kann "
+                "deutlich länger als 90 Sekunden dauern; solange neue "
+                "Fortschrittsmeldungen eintreffen, läuft er weiter."
+            ),
         )
         return
     if snapshot.get("version") != MARKET_SNAPSHOT_VERSION:

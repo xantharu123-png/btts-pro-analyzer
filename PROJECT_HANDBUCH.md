@@ -16,7 +16,7 @@
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 570 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 572 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -167,7 +167,11 @@ Mindestquote = (1 + 0,03) / konservatives p
 
 ### Jobs, Sitzungen und Challenge
 
-- Jobs besitzen Sitzungs-Scope, Generation-ID, Timeout und atomare JSON-Writes.
+- Jobs besitzen Sitzungs-Scope, Generation-ID, Stillstands-Timeout und atomare
+  JSON-Writes. Das Timeout begrenzt fehlende Fortschrittsmeldungen, nicht die
+  gesunde Gesamtlaufzeit eines kalten Vollscans. Ein verworfener Worker stoppt
+  beim nächsten Fortschrittspunkt kooperativ und kann keinen Neustart
+  überschreiben.
 - Spiele, Märkte, 15K und Datenverwaltung starten einheitlich mit
   `Alle (51)`. Kleinere Favoriten-Sets bleiben als ausdrücklich gezählte,
   optionale Auswahl verfügbar.

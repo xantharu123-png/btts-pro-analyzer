@@ -159,6 +159,42 @@ class ScanJobTests(unittest.TestCase):
         time.sleep(0.2)
         self.assertEqual(scan_jobs.get_job("test")["result"], "new")
 
+    def test_progress_extends_inactivity_timeout(self):
+        def active(progress_cb=None):
+            for step in range(4):
+                time.sleep(0.02)
+                progress_cb((step + 1) / 5, f"Schritt {step + 1}")
+            return "healthy"
+
+        self.assertTrue(
+            scan_jobs.start_job("test", active, timeout_seconds=0.035)
+        )
+        current = _wait_for_state("test", {"done", "error"})
+        self.assertEqual(current["state"], "done")
+        self.assertEqual(current["result"], "healthy")
+
+    def test_timeout_keeps_last_phase_and_stops_on_next_callback(self):
+        reached_after_timeout = []
+
+        def stalled(progress_cb=None):
+            progress_cb(0.4, "Liga 20/51")
+            time.sleep(0.08)
+            progress_cb(0.5, "soll nicht mehr erscheinen")
+            reached_after_timeout.append(True)
+
+        self.assertTrue(
+            scan_jobs.start_job("test", stalled, timeout_seconds=0.03)
+        )
+        time.sleep(0.04)
+        current = scan_jobs.get_job("test")
+        self.assertEqual(current["state"], "error")
+        self.assertEqual(current["progress"], 0.4)
+        self.assertEqual(current["progress_text"], "Liga 20/51")
+        self.assertIn("keine Fortschrittsmeldung", current["error"])
+        self.assertIn("40 %", current["error"])
+        time.sleep(0.06)
+        self.assertEqual(reached_after_timeout, [])
+
 
 class RunningPagesTests(unittest.TestCase):
     """Seiten-Rädchen: running_pages bildet laufende Jobs auf Seiten ab."""

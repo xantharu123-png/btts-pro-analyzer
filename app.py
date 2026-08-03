@@ -1659,7 +1659,11 @@ def render_matches(analyzer) -> None:
                 "Die exakte N1Bet-Quote prüft danach nur den Preis; die "
                 "Evidenzstufe bleibt separat sichtbar.",
             ],
-            duration_hint="Dauer: je nach Ligaanzahl etwa 30–90 Sekunden.",
+            duration_hint=(
+                "Dauer: provider- und cacheabhängig. Ein kalter Vollscan kann "
+                "mehrere Minuten dauern; solange neue Fortschrittsmeldungen "
+                "eintreffen, läuft er weiter."
+            ),
         )
         return
     if snapshot.get("version") != PREMATCH_SNAPSHOT_VERSION:
@@ -2356,7 +2360,10 @@ def _render_red_cards(analyzer) -> None:
                 "Die exakte Quote entscheidet über den Preisstatus, nicht über "
                 "die zugrunde liegende Prognose.",
             ],
-            duration_hint="Dauer: je nach Ligaanzahl etwa 30–90 Sekunden.",
+            duration_hint=(
+                "Dauer: abhängig von Zahl und Zustand der Live-Spiele. Der Lauf "
+                "wird nur bei technischem Stillstand abgebrochen."
+            ),
         )
         return
     if snapshot.get("version") != RED_CARD_SNAPSHOT_VERSION:

@@ -23,6 +23,10 @@ _LOCK = threading.Lock()
 _JOBS: Dict[str, Dict[str, Any]] = {}
 
 
+class _ScanJobCancelled(RuntimeError):
+    """Internal cooperative stop after a job was cleared or timed out."""
+
+
 def _now() -> str:
     return datetime.now().astimezone().isoformat()
 
@@ -49,14 +53,32 @@ def _expire_locked(key: str) -> None:
     job = _JOBS.get(key)
     if not job or job.get("state") != "running":
         return
-    deadline = job.get("_deadline_monotonic")
-    if isinstance(deadline, (int, float)) and time.monotonic() > deadline:
+    timeout = job.get("_inactivity_timeout_seconds")
+    last_activity = job.get("_last_activity_monotonic")
+    if (
+        isinstance(timeout, (int, float))
+        and isinstance(last_activity, (int, float))
+        and time.monotonic() - last_activity > timeout
+    ):
+        progress = min(max(float(job.get("progress") or 0.0), 0.0), 1.0)
+        progress_text = str(job.get("progress_text") or "keine Phase gemeldet")
+        if timeout >= 120 and float(timeout).is_integer():
+            duration = f"{int(timeout // 60)} Minuten"
+        else:
+            duration = f"{timeout:g} Sekunden"
         _JOBS[key] = {
             "state": "error",
             "started_at": job.get("started_at"),
             "finished_at": _now(),
-            "error": "TimeoutError: Der Scan hat sein Zeitlimit ueberschritten.",
+            "error": (
+                f"TimeoutError: Seit {duration} kam keine Fortschrittsmeldung. "
+                f"Zuletzt {int(round(progress * 100))} %: {progress_text}."
+            ),
             "generation": job.get("generation"),
+            "progress": progress,
+            "progress_text": progress_text,
+            "last_progress_at": job.get("last_progress_at"),
+            "timeout_seconds": timeout,
         }
 
 
@@ -89,6 +111,8 @@ def start_job(
 
     ``fn`` receives ``progress_cb(fraction, text)``. A generation token keeps
     an expired or cleared worker from overwriting a later run with the same key.
+    ``timeout_seconds`` is a maximum period without a progress callback, not a
+    cap on the healthy total runtime.
     """
     try:
         timeout = float(timeout_seconds)
@@ -98,17 +122,21 @@ def start_job(
         raise ValueError("timeout_seconds must be a positive finite number")
 
     generation = uuid.uuid4().hex
+    started_at = _now()
+    started_monotonic = time.monotonic()
     with _LOCK:
         _expire_locked(key)
         if _JOBS.get(key, {}).get("state") == "running":
             return False
         _JOBS[key] = {
             "state": "running",
-            "started_at": _now(),
+            "started_at": started_at,
             "generation": generation,
-            "_deadline_monotonic": time.monotonic() + timeout,
+            "_inactivity_timeout_seconds": timeout,
+            "_last_activity_monotonic": started_monotonic,
             "progress": 0.0,
             "progress_text": "Starte...",
+            "last_progress_at": started_at,
         }
 
     call_kwargs = dict(kwargs or {})
@@ -124,17 +152,21 @@ def start_job(
         with _LOCK:
             job = _JOBS.get(key)
             if not _is_current_running(job):
-                return
+                raise _ScanJobCancelled
             try:
                 job["progress"] = min(max(float(fraction), 0.0), 1.0)
             except (TypeError, ValueError, OverflowError):
                 pass
             if message:
                 job["progress_text"] = str(message)
+            job["_last_activity_monotonic"] = time.monotonic()
+            job["last_progress_at"] = _now()
 
     def _run() -> None:
         try:
             result = fn(*args, progress_cb=_progress_cb, **call_kwargs)
+        except _ScanJobCancelled:
+            return
         except Exception as exc:
             with _LOCK:
                 current = _JOBS.get(key)
@@ -159,6 +191,8 @@ def start_job(
                 "started_at": current.get("started_at"),
                 "finished_at": _now(),
                 "progress": 1.0,
+                "progress_text": "Abgeschlossen",
+                "last_progress_at": current.get("last_progress_at"),
                 "result": result,
                 "generation": generation,
             }
