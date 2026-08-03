@@ -62,7 +62,7 @@ red_card_candidate = _football_recommendations.red_card_candidate
 
 from bet_finder_ui import render_price_decision
 from betting_math import BETTING_POLICY_VERSION
-from ui_components import plain_german, render_empty_state, render_scan_progress
+from ui_components import plain_german, render_empty_state, scan_progress_fragment
 from config_loader import load_app_config
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
 from multi_sport_recommendations import EVIDENCE_RELEASED, build_candidate
@@ -1179,18 +1179,6 @@ def _persist_live(snapshot: dict) -> Optional[dict]:
     return {"signals": rows}
 
 
-@st.fragment(run_every=2)
-def _scan_job_progress_fragment(job_key: str, label: str) -> None:
-    """Pollt einen laufenden Hintergrund-Scan; bei Abschluss Voll-Rerun,
-    damit der Hauptlauf das Ergebnis in den session_state übernimmt."""
-    job = scan_jobs.get_job(job_key)
-    state = job.get("state")
-    if state == "running":
-        render_scan_progress(job, label)
-    elif state in {"done", "error"}:
-        st.rerun()
-
-
 def _prepare_results(results: list[pd.DataFrame]) -> pd.DataFrame:
     if not results:
         return pd.DataFrame()
@@ -1634,7 +1622,7 @@ def render_matches(analyzer) -> None:
 
     job = scan_jobs.get_job(_job_key("prematch"))
     if job["state"] == "running":
-        _scan_job_progress_fragment(
+        scan_progress_fragment(
             _job_key("prematch"),
             "BTTS-Scan",
         )
@@ -1916,7 +1904,7 @@ def _render_live_football(analyzer) -> None:
 
     job = scan_jobs.get_job(_job_key("live"))
     if job["state"] == "running":
-        _scan_job_progress_fragment(
+        scan_progress_fragment(
             _job_key("live"),
             "Live-Scan",
         )
@@ -2341,7 +2329,7 @@ def _render_red_cards(analyzer) -> None:
 
     job = scan_jobs.get_job(_job_key("red_cards"))
     if job["state"] == "running":
-        _scan_job_progress_fragment(
+        scan_progress_fragment(
             _job_key("red_cards"),
             "Platzverweis-Scan",
         )
@@ -2975,7 +2963,7 @@ def render_multi_sport() -> None:
 
     job = scan_jobs.get_job(_job_key("multi_sport"))
     if job["state"] == "running":
-        _scan_job_progress_fragment(
+        scan_progress_fragment(
             _job_key("multi_sport"),
             f"{sport}-Scan",
         )

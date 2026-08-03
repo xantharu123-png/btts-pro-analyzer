@@ -219,6 +219,33 @@ def test_shared_scan_progress_shows_percentage_phase_and_elapsed_time(
     assert "Seitenwechsel" in rendered["caption"]
 
 
+def test_shared_scan_progress_shows_explicit_completion(monkeypatch):
+    rendered = {}
+    monkeypatch.setattr(
+        ui_components.st,
+        "progress",
+        lambda value, text=None: rendered.update(value=value, text=text),
+    )
+    monkeypatch.setattr(
+        ui_components.st,
+        "caption",
+        lambda text: rendered.update(caption=text),
+    )
+
+    ui_components.render_scan_progress(
+        {
+            "state": "done",
+            "progress": 1.0,
+            "progress_text": "Abgeschlossen",
+        },
+        "Markt-Scan",
+    )
+
+    assert rendered["value"] == 1.0
+    assert rendered["text"] == "100 % · Markt-Scan: Abgeschlossen"
+    assert rendered["caption"].startswith("Markt-Scan abgeschlossen")
+
+
 def test_empty_state_supports_sport_specific_escaped_example():
     rendered = _example_ticket_html(
         ("Spieler <A>", "Sieg & Satzvorsprung @ 2,10"),

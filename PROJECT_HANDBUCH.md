@@ -16,7 +16,7 @@
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 569 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 570 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -174,7 +174,10 @@ Mindestquote = (1 + 0,03) / konservatives p
 - Hintergrundscanner zeigen denselben echten Fortschrittsvertrag: Prozentwert,
   aktuelle Liga beziehungsweise Arbeitsphase und verstrichene Laufzeit.
   Markt- und 15K-Scans reichen dafür den gemeinsamen Liga-, Validierungs-,
-  Modellierungs- und Kontextfortschritt bis in die Oberfläche durch.
+  Modellierungs- und Kontextfortschritt bis in die Oberfläche durch. Die
+  Oberfläche fragt den Job alle 0,5 Sekunden ab und zeigt auch bei sehr
+  schnellen Cache-Treffern sichtbar `100 % · Abgeschlossen`, bevor das
+  Ergebnis erscheint.
 - Ein alter Thread kann keinen neueren Lauf mehr überschreiben.
 - Analyzer-Zugriffe aus Hintergrundthreads sind serialisiert.
 - Persistierte Scanner-Signale sind sitzungsgebunden.

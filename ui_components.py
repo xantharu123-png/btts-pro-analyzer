@@ -214,9 +214,11 @@ def render_scan_progress(job: dict[str, Any], label: str) -> None:
         max(float(job.get("progress") or 0.0), 0.0),
         1.0,
     )
-    display_fraction = min(fraction, 0.99)
+    is_complete = job.get("state") == "done"
+    display_fraction = 1.0 if is_complete else min(fraction, 0.99)
     percentage = int(round(display_fraction * 100.0))
-    detail = str(job.get("progress_text") or "Scan läuft").strip()
+    default_detail = "Abgeschlossen" if is_complete else "Scan läuft"
+    detail = str(job.get("progress_text") or default_detail).strip()
     st.progress(
         display_fraction,
         text=f"{percentage} % · {label}: {detail}",
@@ -243,25 +245,44 @@ def render_scan_progress(job: dict[str, Any], label: str) -> None:
     except (TypeError, ValueError):
         pass
 
-    st.caption(
-        f"{label} läuft im Hintergrund{elapsed_text} · "
-        "ein Seitenwechsel unterbricht ihn nicht."
-    )
+    if is_complete:
+        st.caption(f"{label} abgeschlossen{elapsed_text} · Ergebnis wird geladen.")
+    else:
+        st.caption(
+            f"{label} läuft im Hintergrund{elapsed_text} · "
+            "ein Seitenwechsel unterbricht ihn nicht."
+        )
 
 
-@st.fragment(run_every=2)
+@st.fragment(run_every=0.5)
 def scan_progress_fragment(job_key: str, label: str) -> None:
     """Pollt einen Hintergrund-Scan und zeigt Fortschritt, bis er fertig ist.
 
-    Läuft als eigenes Fragment alle 2 s: Der Seitenwechsel des Nutzers bricht
-    den Job nicht ab (er lebt in scan_jobs), und bei Abschluss wird genau ein
-    voller Rerun ausgelöst, damit die Seite das Ergebnis einsammelt.
+    Das kurze Abschlussbild verhindert, dass schnelle oder gecachte Scans von
+    einem Zwischenstand direkt zum Ergebnis springen, ohne 100 % zu zeigen.
     """
     job = scan_jobs.get_job(job_key)
     state = job.get("state")
+    completion_key = f"_scan_progress_completion::{job_key}"
     if state == "running":
+        st.session_state.pop(completion_key, None)
         render_scan_progress(job, label)
         return
-    if state in ("done", "error"):
-        # Ergebnis liegt bereit → Haupt-Render einsammeln lassen.
+    if state == "done":
+        if not st.session_state.get(completion_key):
+            st.session_state[completion_key] = True
+            render_scan_progress(
+                {
+                    **job,
+                    "state": "done",
+                    "progress": 1.0,
+                    "progress_text": "Abgeschlossen",
+                },
+                label,
+            )
+            return
+        st.session_state.pop(completion_key, None)
+        st.rerun()
+    if state == "error":
+        st.session_state.pop(completion_key, None)
         st.rerun()

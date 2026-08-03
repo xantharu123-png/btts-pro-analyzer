@@ -55,7 +55,7 @@ from ui_components import (
     milestone_bar_html,
     plain_german,
     render_empty_state,
-    render_scan_progress,
+    scan_progress_fragment,
 )
 from football_data_history import fetch_history as fetch_stat_history
 from football_data_history import merge_api_tail
@@ -786,18 +786,6 @@ def _run_challenge_scan_worker(
         max_fixtures,
         progress_cb=progress_cb,
     )
-
-
-@st.fragment(run_every=2)
-def _challenge_scan_fragment() -> None:
-    """Pollt den Hintergrund-Challenge-Scan; bei Abschluss Voll-Rerun,
-    damit der Hauptlauf den Snapshot übernimmt."""
-    job = scan_jobs.get_job(_challenge_job_key())
-    state = job.get("state")
-    if state == "running":
-        render_scan_progress(job, "15K-Scan")
-    elif state in {"done", "error"}:
-        st.rerun()
 
 
 def _candidate_kickoff(candidate: ChallengeCandidate) -> Optional[datetime]:
@@ -2462,7 +2450,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
 
     job = scan_jobs.get_job(_challenge_job_key())
     if job["state"] == "running":
-        _challenge_scan_fragment()
+        scan_progress_fragment(_challenge_job_key(), "15K-Scan")
     elif job["state"] == "done":
         st.session_state["challenge_snapshot"] = job.get("result")
         st.session_state.pop("challenge_quote_result", None)
