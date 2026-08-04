@@ -601,22 +601,27 @@ def record_side_closing_price(
 def side_bet_summary() -> Dict:
     with _connect() as conn:
         total, settled = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(settled),0) FROM side_bets "
-            "WHERE policy_version=?",
-            (TENNIS_POLICY_VERSION,),
+            "SELECT COUNT(*), COALESCE(SUM(s.settled),0) FROM side_bets s "
+            "JOIN predictions p ON p.id=s.prediction_id "
+            "WHERE s.policy_version=? AND p.model_version=?",
+            (TENNIS_POLICY_VERSION, TENNIS_MODEL_VERSION),
         ).fetchone()
         row = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(pnl),0), AVG(pnl) FROM side_bets "
-            "WHERE settled=1 AND won IS NOT NULL AND entry_quote_id IS NOT NULL "
-            "AND policy_version=?",
-            (TENNIS_POLICY_VERSION,),
+            "SELECT COUNT(*), COALESCE(SUM(s.pnl),0), AVG(s.pnl) "
+            "FROM side_bets s JOIN predictions p ON p.id=s.prediction_id "
+            "WHERE s.settled=1 AND s.won IS NOT NULL "
+            "AND s.entry_quote_id IS NOT NULL "
+            "AND s.policy_version=? AND p.model_version=?",
+            (TENNIS_POLICY_VERSION, TENNIS_MODEL_VERSION),
         ).fetchone()
         clv = conn.execute(
-            "SELECT COUNT(*), AVG(odds / closing_odds - 1.0) FROM side_bets "
-            "WHERE settled=1 AND odds>1.0 AND closing_odds>1.0 "
-            "AND entry_quote_id IS NOT NULL AND closing_quote_id IS NOT NULL "
-            "AND closing_checked_utc IS NOT NULL AND policy_version=?",
-            (TENNIS_POLICY_VERSION,),
+            "SELECT COUNT(*), AVG(s.odds / s.closing_odds - 1.0) "
+            "FROM side_bets s JOIN predictions p ON p.id=s.prediction_id "
+            "WHERE s.settled=1 AND s.odds>1.0 AND s.closing_odds>1.0 "
+            "AND s.entry_quote_id IS NOT NULL AND s.closing_quote_id IS NOT NULL "
+            "AND s.closing_checked_utc IS NOT NULL "
+            "AND s.policy_version=? AND p.model_version=?",
+            (TENNIS_POLICY_VERSION, TENNIS_MODEL_VERSION),
         ).fetchone()
     return {
         "side_bets": total,
@@ -626,6 +631,8 @@ def side_bet_summary() -> Dict:
         "roi": round(row[2] or 0.0, 4) if row[0] else None,
         "clv_samples": clv[0],
         "clv": round(clv[1], 4) if clv[0] else None,
+        "policy_version": TENNIS_POLICY_VERSION,
+        "model_version": TENNIS_MODEL_VERSION,
     }
 
 
@@ -658,8 +665,16 @@ def ensure_schema() -> None:
 def already_stored(match_date: str, player_a: str, player_b: str) -> bool:
     with _connect() as conn:
         row = conn.execute(
-            "SELECT 1 FROM predictions WHERE match_date=? AND player_a=? AND player_b=?",
-            (match_date, player_a, player_b),
+            "SELECT 1 FROM predictions "
+            "WHERE match_date=? AND player_a=? AND player_b=? "
+            "AND model_version=? AND policy_version=?",
+            (
+                match_date,
+                player_a,
+                player_b,
+                TENNIS_MODEL_VERSION,
+                TENNIS_POLICY_VERSION,
+            ),
         ).fetchone()
     return row is not None
 
@@ -686,14 +701,27 @@ def store_prediction(
                 SELECT id FROM predictions
                 WHERE provider_event_id=?
                   AND (fixture_source=? OR fixture_source IS NULL)
+                  AND model_version=? AND policy_version=?
                 """,
-                (provider_event_id, fixture_source),
+                (
+                    provider_event_id,
+                    fixture_source,
+                    TENNIS_MODEL_VERSION,
+                    TENNIS_POLICY_VERSION,
+                ),
             ).fetchone()
         if existing is None:
             existing = conn.execute(
                 "SELECT id FROM predictions "
-                "WHERE match_date=? AND player_a=? AND player_b=?",
-                (match_date, prediction.player_a, prediction.player_b),
+                "WHERE match_date=? AND player_a=? AND player_b=? "
+                "AND model_version=? AND policy_version=?",
+                (
+                    match_date,
+                    prediction.player_a,
+                    prediction.player_b,
+                    TENNIS_MODEL_VERSION,
+                    TENNIS_POLICY_VERSION,
+                ),
             ).fetchone()
         if existing:
             # Schedules can move after the first scan. Model outputs stay frozen,
@@ -816,21 +844,23 @@ def settle(prediction_id: int, actual_winner: str, ret: bool = False,
 def summary() -> Dict:
     with _connect() as conn:
         total, settled = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(settled),0) FROM predictions"
+            "SELECT COUNT(*), COALESCE(SUM(settled),0) FROM predictions "
+            "WHERE model_version=?",
+            (TENNIS_MODEL_VERSION,),
         ).fetchone()
         recommended_total = conn.execute(
             "SELECT COUNT(*) FROM predictions "
             "WHERE recommended_side IN ('A', 'B') "
             "AND entry_quote_id_a IS NOT NULL AND entry_quote_id_b IS NOT NULL "
-            "AND policy_version=?",
-            (TENNIS_POLICY_VERSION,),
+            "AND model_version=? AND policy_version=?",
+            (TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION),
         ).fetchone()[0]
         reco = conn.execute(
             "SELECT COUNT(*), COALESCE(SUM(pnl),0), AVG(pnl) FROM predictions "
             "WHERE settled=1 AND recommended_side IS NOT NULL AND pnl IS NOT NULL "
             "AND entry_quote_id_a IS NOT NULL AND entry_quote_id_b IS NOT NULL "
-            "AND policy_version=?",
-            (TENNIS_POLICY_VERSION,),
+            "AND model_version=? AND policy_version=?",
+            (TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION),
         ).fetchone()
         clv = conn.execute(
             """
@@ -843,7 +873,7 @@ def summary() -> Dict:
             FROM predictions
             WHERE settled=1
               AND recommended_side IN ('A', 'B')
-              AND policy_version=?
+              AND model_version=? AND policy_version=?
               AND closing_checked_utc IS NOT NULL
               AND entry_quote_id_a IS NOT NULL
               AND entry_quote_id_b IS NOT NULL
@@ -855,7 +885,7 @@ def summary() -> Dict:
                   (recommended_side='B' AND odds_b>1.0 AND closing_odds_b>1.0)
               )
             """,
-            (TENNIS_POLICY_VERSION,),
+            (TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION),
         ).fetchone()
         brier = conn.execute(
             """
@@ -865,7 +895,9 @@ def summary() -> Dict:
             )
             FROM predictions
             WHERE settled=1 AND actual_winner IN (player_a, player_b)
-            """
+              AND model_version=?
+            """,
+            (TENNIS_MODEL_VERSION,),
         ).fetchone()
         benchmark = conn.execute(
             """
@@ -894,7 +926,9 @@ def summary() -> Dict:
               AND entry_quote_id_b IS NOT NULL
               AND closing_quote_id_a IS NOT NULL
               AND closing_quote_id_b IS NOT NULL
-            """
+              AND model_version=?
+            """,
+            (TENNIS_MODEL_VERSION,),
         ).fetchone()
     return {
         "predictions": total,
@@ -915,4 +949,5 @@ def summary() -> Dict:
             round(benchmark[2], 4) if benchmark[0] else None
         ),
         "policy_version": TENNIS_POLICY_VERSION,
+        "model_version": TENNIS_MODEL_VERSION,
     }

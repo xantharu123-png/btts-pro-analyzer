@@ -218,6 +218,38 @@ def test_duplicate_scan_backfills_fixture_metadata(tmp_path, monkeypatch):
     assert row["fixture_source"] == "ESPN"
 
 
+def test_new_model_version_is_not_hidden_by_legacy_fixture(tmp_path, monkeypatch):
+    monkeypatch.setattr(shadow, "DB_PATH", tmp_path / "tennis.db")
+    first = shadow.store_prediction(
+        "2030-01-02",
+        "ATP",
+        "Test Open",
+        _Prediction(),
+        provider_event_id="espn-42",
+        fixture_source="ESPN",
+    )
+    with shadow._connect() as conn:
+        conn.execute(
+            "UPDATE predictions SET model_version='legacy-model' WHERE id=?",
+            (first,),
+        )
+
+    assert not shadow.already_stored("2030-01-02", "Alpha", "Beta")
+    current = shadow.store_prediction(
+        "2030-01-02",
+        "ATP",
+        "Test Open",
+        _Prediction(),
+        provider_event_id="espn-42",
+        fixture_source="ESPN",
+    )
+
+    assert current > 0
+    assert current != first
+    assert shadow.already_stored("2030-01-02", "Alpha", "Beta")
+    assert len(shadow.pending_predictions()) == 2
+
+
 def test_shadow_summary_reports_clv_and_brier(tmp_path, monkeypatch):
     monkeypatch.setattr(shadow, "DB_PATH", tmp_path / "tennis.db")
     start = datetime.now(timezone.utc) + timedelta(minutes=30)
@@ -258,6 +290,33 @@ def test_shadow_summary_reports_clv_and_brier(tmp_path, monkeypatch):
     assert summary["benchmark_samples"] == 1
     assert summary["benchmark_model_brier"] == 0.16
     assert summary["benchmark_market_brier"] == 0.263
+
+
+def test_shadow_summary_excludes_legacy_model_from_every_metric(tmp_path, monkeypatch):
+    monkeypatch.setattr(shadow, "DB_PATH", tmp_path / "tennis.db")
+    start = datetime.now(timezone.utc) + timedelta(minutes=30)
+    row_id = shadow.store_prediction(
+        start.date().isoformat(),
+        "ATP",
+        "Test Open",
+        _RecommendedPrediction(),
+        odds_a=2.20,
+        odds_b=1.80,
+        scheduled_start_utc=start.isoformat(),
+    )
+    with shadow._connect() as conn:
+        conn.execute(
+            "UPDATE predictions SET model_version='legacy-model' WHERE id=?",
+            (row_id,),
+        )
+
+    summary = shadow.summary()
+
+    assert summary["predictions"] == 0
+    assert summary["recommended_bets"] == 0
+    assert summary["clv_samples"] == 0
+    assert summary["brier_samples"] == 0
+    assert summary["model_version"] == shadow.TENNIS_MODEL_VERSION
 
 
 def test_auto_settlement_matches_event_and_settles_side_market(

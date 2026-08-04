@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from esports_shadow import EsportsShadowLog
+from esports_shadow import ESPORTS_MODEL_VERSION, EsportsShadowLog
 
 
 def _history(team_id, opponent_id, wins, losses, start_id):
@@ -146,6 +146,26 @@ class EsportsShadowLogTests(unittest.TestCase):
             self.assertEqual(summary["predictions"], 1)      # not 2
             self.assertEqual(summary["live_records"], 1)     # visible, but outside
             self.assertIsNone(summary["hit_rate"])           # legacy live hit ignored
+
+    def test_summary_never_mixes_an_old_prematch_model_version(self):
+        import sqlite3
+        from contextlib import closing
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "shadow.db"
+            log = EsportsShadowLog(db)
+            log.log_predictions([_match(55)])
+            with closing(sqlite3.connect(db)) as con:
+                con.execute(
+                    "UPDATE esports_shadow_predictions SET model_version='legacy-v1' "
+                    "WHERE match_id=55"
+                )
+                con.commit()
+
+            summary = log.summary()
+
+            self.assertEqual(summary["predictions"], 0)
+            self.assertEqual(summary["model_version"], ESPORTS_MODEL_VERSION)
 
     def test_age_alone_never_voids_an_unresolved_row(self):
         import sqlite3

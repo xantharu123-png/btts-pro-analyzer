@@ -160,7 +160,7 @@ class ShadowConditionTest(unittest.TestCase):
             )
             connection.execute(
                 "INSERT INTO shadow_meta (key, value) VALUES (?, ?)",
-                ("schedule:2026-08-01", "loaded"),
+                (shadow._schedule_marker(shadow._zurich_time(now).date()), "loaded"),
             )
             if fixture_due:
                 connection.execute(
@@ -186,6 +186,109 @@ class ShadowConditionTest(unittest.TestCase):
             db_path = Path(folder) / "shadow.db"
             self._database(db_path, now, fixture_due=False)
             self.assertFalse(shadow._shadow_work_due(now, db_path))
+
+    def test_legacy_schedule_marker_does_not_hide_new_model_run(self):
+        now = datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as folder:
+            db_path = Path(folder) / "shadow.db"
+            self._database(db_path, now, fixture_due=False)
+            connection = sqlite3.connect(db_path)
+            try:
+                connection.execute("DELETE FROM shadow_meta")
+                connection.execute(
+                    "INSERT INTO shadow_meta (key, value) VALUES (?, ?)",
+                    ("schedule:2026-08-01", "legacy"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            self.assertTrue(shadow._shadow_work_due(now, db_path))
+
+    def test_artifact_counts_only_current_model_and_policy(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db_path = Path(folder) / "shadow.db"
+            connection = sqlite3.connect(db_path)
+            try:
+                connection.execute(
+                    "CREATE TABLE predictions (result TEXT, closing_odds REAL, "
+                    "model_version TEXT, policy_version TEXT)"
+                )
+                connection.executemany(
+                    "INSERT INTO predictions VALUES (?, ?, ?, ?)",
+                    (
+                        (
+                            None,
+                            None,
+                            shadow.SHADOW_MODEL_VERSION,
+                            shadow.SHADOW_POLICY_VERSION,
+                        ),
+                        (None, None, "legacy-model", "legacy-policy"),
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            original = shadow.SHADOW_DB
+            shadow.SHADOW_DB = db_path
+            try:
+                self.assertEqual(shadow._counts(), (1, 1))
+            finally:
+                shadow.SHADOW_DB = original
+
+
+class ShadowVersionLifecycleTest(unittest.TestCase):
+    def test_cache_path_changes_with_model_version(self):
+        with tempfile.TemporaryDirectory() as folder:
+            original_dir = shadow.CACHE_DIR
+            original_version = shadow.SHADOW_MODEL_VERSION
+            shadow.CACHE_DIR = Path(folder)
+            try:
+                current = shadow._cache_path("validation", 39, 2030, "2030-01-01")
+                shadow.SHADOW_MODEL_VERSION = "next-model"
+                changed = shadow._cache_path("validation", 39, 2030, "2030-01-01")
+            finally:
+                shadow.CACHE_DIR = original_dir
+                shadow.SHADOW_MODEL_VERSION = original_version
+
+        self.assertNotEqual(current.name, changed.name)
+
+    def test_legacy_prediction_does_not_block_current_model(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db_path = Path(folder) / "shadow.db"
+            connection = sqlite3.connect(db_path)
+            try:
+                connection.execute(
+                    "CREATE TABLE predictions (fixture_id INTEGER, "
+                    "model_version TEXT, policy_version TEXT)"
+                )
+                connection.execute(
+                    "INSERT INTO predictions VALUES (?, ?, ?)",
+                    (42, "legacy-model", "legacy-policy"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            original = shadow.SHADOW_DB
+            shadow.SHADOW_DB = db_path
+            try:
+                self.assertFalse(shadow._current_prediction_exists(42))
+                connection = shadow._connect()
+                try:
+                    connection.execute(
+                        "INSERT INTO predictions VALUES (?, ?, ?)",
+                        (
+                            42,
+                            shadow.SHADOW_MODEL_VERSION,
+                            shadow.SHADOW_POLICY_VERSION,
+                        ),
+                    )
+                    connection.commit()
+                finally:
+                    connection.close()
+                self.assertTrue(shadow._current_prediction_exists(42))
+            finally:
+                shadow.SHADOW_DB = original
 
 
 if __name__ == "__main__":

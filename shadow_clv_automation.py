@@ -85,8 +85,8 @@ EVAL_FINAL_RETRY_MINUTES = 30  # Kontext-gesperrte Fixtures werden bis -30 min e
 SETTLE_GRACE = timedelta(hours=2)
 FT_STATUSES = {"FT"}
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
-SHADOW_MODEL_VERSION = "challenge-engine-2026-08-01"
-SHADOW_POLICY_VERSION = "shadow-risk-ev-v3"
+SHADOW_MODEL_VERSION = "challenge-engine-2026-08-05"
+SHADOW_POLICY_VERSION = "shadow-risk-ev-v4"
 
 # Tor-basierte Märkte mit eindeutigem Buchmacher-Pendant (Bet365 via API-Football).
 # Nur diese Märkte werden geloggt: Settlement braucht Endstände, Ecken/Karten-
@@ -121,6 +121,13 @@ errors: list[str] = []
 
 def _utc_iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
+
+
+def _schedule_marker(target_date: date) -> str:
+    return (
+        f"schedule:{target_date.isoformat()}:"
+        f"{SHADOW_MODEL_VERSION}:{SHADOW_POLICY_VERSION}"
+    )
 
 
 def _shadow_work_due(now: datetime, db_path: Path = SHADOW_DB) -> bool:
@@ -162,7 +169,7 @@ def _shadow_work_due(now: datetime, db_path: Path = SHADOW_DB) -> bool:
             if closing_due:
                 return True
 
-            schedule_marker = f"schedule:{zurich_now.date().isoformat()}"
+            schedule_marker = _schedule_marker(zurich_now.date())
             schedule_loaded = (
                 "shadow_meta" in tables
                 and connection.execute(
@@ -477,7 +484,9 @@ def _meta_set(connection, key: str, value: str) -> None:
 
 def _cache_path(kind: str, league_id: int, season: int, day: str) -> Path:
     CACHE_DIR.mkdir(exist_ok=True)
-    return CACHE_DIR / f"{kind}_{league_id}_{season}_{day}.pkl"
+    return CACHE_DIR / (
+        f"{kind}_{SHADOW_MODEL_VERSION}_{league_id}_{season}_{day}.pkl"
+    )
 
 
 def _cached_history(provider, league_id, season, fixture, day):
@@ -727,7 +736,7 @@ def step_closing(tracker: CLVTracker, provider: ShadowProvider, now: datetime) -
 def step_schedule(provider: ShadowProvider, league_ids: list[int], zurich_today: date,
                   force: bool) -> int:
     with _connect() as connection:
-        marker = f"schedule:{zurich_today.isoformat()}"
+        marker = _schedule_marker(zurich_today)
         if _meta_get(connection, marker) and not force:
             return 0
         loaded = 0
@@ -754,6 +763,20 @@ def step_schedule(provider: ShadowProvider, league_ids: list[int], zurich_today:
         _meta_set(connection, marker, _utc_iso(datetime.now(timezone.utc)))
         connection.commit()
     return loaded
+
+
+def _current_prediction_exists(fixture_id: int) -> bool:
+    connection = _connect()
+    try:
+        row = connection.execute(
+            """SELECT 1 FROM predictions
+               WHERE fixture_id = ? AND model_version = ? AND policy_version = ?
+               LIMIT 1""",
+            (fixture_id, SHADOW_MODEL_VERSION, SHADOW_POLICY_VERSION),
+        ).fetchone()
+    finally:
+        connection.close()
+    return row is not None
 
 
 def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
@@ -811,12 +834,7 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
         logged = False
         existing = False
         if pick is not None:
-            with _connect() as connection:
-                existing = connection.execute(
-                    """SELECT COUNT(*) FROM predictions
-                       WHERE fixture_id = ?""",
-                    (fixture_id,),
-                ).fetchone()[0]
+            existing = _current_prediction_exists(fixture_id)
             if not existing:
                 try:
                     tracker.record_prediction(
@@ -884,20 +902,31 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
 # --------------------------------------------------------------------------
 
 def _counts() -> tuple[int, int]:
-    with _connect() as connection:
+    connection = _connect()
+    try:
         open_count = connection.execute(
-            "SELECT COUNT(*) FROM predictions WHERE result IS NULL",
+            """SELECT COUNT(*) FROM predictions
+               WHERE result IS NULL AND model_version = ? AND policy_version = ?""",
+            (SHADOW_MODEL_VERSION, SHADOW_POLICY_VERSION),
         ).fetchone()[0]
         pending_closing = connection.execute(
             """SELECT COUNT(*) FROM predictions
-               WHERE closing_odds IS NULL AND result IS NULL""",
+               WHERE closing_odds IS NULL AND result IS NULL
+                 AND model_version = ? AND policy_version = ?""",
+            (SHADOW_MODEL_VERSION, SHADOW_POLICY_VERSION),
         ).fetchone()[0]
+    finally:
+        connection.close()
     return open_count, pending_closing
 
 
 def _recent(tracker: CLVTracker) -> list[dict]:
     recent = []
-    for item in tracker.get_recent_predictions(10):
+    for item in tracker.get_recent_predictions(
+        10,
+        model_version=SHADOW_MODEL_VERSION,
+        policy_version=SHADOW_POLICY_VERSION,
+    ):
         recent.append({
             "match": f"{item['home_team']} vs {item['away_team']}",
             "prediction": item["prediction"],
@@ -974,8 +1003,16 @@ def run(ctx):
     scheduled = step_schedule(provider, league_ids, zurich_today, force_schedule)
     evaluation = step_evaluate(tracker, provider, now, zurich_today, max_fixtures)
 
-    stats_30 = tracker.get_clv_statistics(days=30)
-    stats_all = tracker.get_clv_statistics(days=36500)
+    stats_30 = tracker.get_clv_statistics(
+        days=30,
+        model_version=SHADOW_MODEL_VERSION,
+        policy_version=SHADOW_POLICY_VERSION,
+    )
+    stats_all = tracker.get_clv_statistics(
+        days=36500,
+        model_version=SHADOW_MODEL_VERSION,
+        policy_version=SHADOW_POLICY_VERSION,
+    )
     open_count, pending_closing = _counts()
 
     artifact = {
@@ -998,6 +1035,8 @@ def run(ctx):
         "verdict": _verdict(stats_all, stats_30),
         "reference_bookmaker": BOOKMAKER_NAME,
         "quote_source": QUOTE_SOURCE,
+        "model_version": SHADOW_MODEL_VERSION,
+        "policy_version": SHADOW_POLICY_VERSION,
     }
     wrapper = {"artifact": artifact}
     output_file = os.environ.get("DAIMON_BLUEPRINT_AUTOMATION_OUTPUT_FILE")

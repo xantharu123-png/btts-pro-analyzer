@@ -90,4 +90,23 @@ class TestSideBets:
         rows = shadow.open_side_bets()
         assert len(rows) == 1
         assert rows[0]["player_a"] == "Alpha A."
-        assert rows[0]["match_date"] == datetime.now(timezone.utc).date().isoformat()
+        with shadow._connect() as conn:
+            expected_date = conn.execute(
+                "SELECT match_date FROM predictions WHERE id=?",
+                (pid,),
+            ).fetchone()[0]
+        assert rows[0]["match_date"] == expected_date
+
+    def test_summary_excludes_side_bets_from_legacy_model(self, tmp_db):
+        pid = _prediction_id()
+        shadow.store_side_bet(pid, "over_2_5_sets", 0.55, 2.10, 0.074)
+        with shadow._connect() as conn:
+            conn.execute(
+                "UPDATE predictions SET model_version='legacy-model' WHERE id=?",
+                (pid,),
+            )
+
+        summary = shadow.side_bet_summary()
+
+        assert summary["side_bets"] == 0
+        assert summary["model_version"] == shadow.TENNIS_MODEL_VERSION

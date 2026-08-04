@@ -267,13 +267,17 @@ class EsportsShadowLog:
             connection.commit()
         return settled
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(self, model_version: str = ESPORTS_MODEL_VERSION) -> Dict[str, Any]:
         """Pre-match calibration numbers.
 
         The measured population is status = 'upcoming' rows only (E1);
         live records stay in the table for transparency but never enter
-        the rates.  Voided rows (hit NULL) are excluded from scoring.
+        the rates. Voided rows (hit NULL) are excluded from scoring, and
+        calibration never mixes model generations.
         """
+        version = str(model_version or "").strip()
+        if not version:
+            raise ValueError("model_version is required")
         with closing(self._connect()) as connection:
             totals = connection.execute(
                 """
@@ -297,8 +301,9 @@ class EsportsShadowLog:
                                 * (risk_adjusted_probability / 100.0 - hit)
                            END) AS risk_brier
                 FROM esports_shadow_predictions
-                WHERE status = 'upcoming'
-                """
+                WHERE status = 'upcoming' AND model_version = ?
+                """,
+                (version,),
             ).fetchone()
             live_n = connection.execute(
                 """
@@ -338,6 +343,7 @@ class EsportsShadowLog:
             "open": total - scored_n - voided_n,
             "voided": voided_n,
             "live_records": int(live_n or 0),
+            "model_version": version,
         }
 
     def release_status(self) -> Dict[str, Any]:

@@ -298,17 +298,36 @@ class CLVTracker:
                 datetime.now(timezone.utc).isoformat(), prediction_id,
             ))
 
-    def get_clv_statistics(self, days: int = 30) -> Dict:
+    def get_clv_statistics(
+        self,
+        days: int = 30,
+        *,
+        model_version: Optional[str] = None,
+        policy_version: Optional[str] = None,
+    ) -> Dict:
         if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= 36500:
             raise ValueError("days must be an integer between 1 and 36500")
+        version_filters = {
+            "model_version": model_version,
+            "policy_version": policy_version,
+        }
+        for field, value in version_filters.items():
+            if value is not None and not str(value).strip():
+                raise ValueError(f"{field} must be non-empty when provided")
         date_filter = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        clauses = ["created_at > ?", "result IS NOT NULL"]
+        params: list[object] = [date_filter]
+        for field, value in version_filters.items():
+            if value is not None:
+                clauses.append(f"{field} = ?")
+                params.append(str(value).strip())
         with self._connect() as conn:
-            rows = conn.execute('''
+            rows = conn.execute(f'''
                 SELECT odds, closing_odds, result, profit, quoted_at,
                        closing_quoted_at, fixture_kickoff
                 FROM predictions
-                WHERE created_at > ? AND result IS NOT NULL
-            ''', (date_filter,)).fetchall()
+                WHERE {' AND '.join(clauses)}
+            ''', tuple(params)).fetchall()
 
         if not rows:
             return {
@@ -367,19 +386,41 @@ class CLVTracker:
             'roi': round(total_profit / len(valid_rows) * 100.0, 1),
         }
 
-    def get_recent_predictions(self, limit: int = 10) -> List[Dict]:
+    def get_recent_predictions(
+        self,
+        limit: int = 10,
+        *,
+        model_version: Optional[str] = None,
+        policy_version: Optional[str] = None,
+    ) -> List[Dict]:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
             raise ValueError("limit must be an integer between 1 and 1000")
+        version_filters = {
+            "model_version": model_version,
+            "policy_version": policy_version,
+        }
+        clauses = []
+        params: list[object] = []
+        for field, value in version_filters.items():
+            if value is not None:
+                text = str(value).strip()
+                if not text:
+                    raise ValueError(f"{field} must be non-empty when provided")
+                clauses.append(f"{field} = ?")
+                params.append(text)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
         with self._connect() as conn:
-            rows = conn.execute('''
+            rows = conn.execute(f'''
                 SELECT id, fixture_id, home_team, away_team, market_type,
                        prediction, odds, closing_odds, result, profit, created_at,
                        bookmaker, quote_source, quoted_at, closing_quoted_at,
                        fixture_kickoff
                 FROM predictions
+                {where}
                 ORDER BY created_at DESC
                 LIMIT ?
-            ''', (limit,)).fetchall()
+            ''', tuple(params)).fetchall()
 
         predictions = []
         for row in rows:

@@ -34,7 +34,7 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 2
+AUTOMATED_WETTFINDER_VERSION = 3
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 
 # Maximales Signal-Alter je Fußball-Quelle: Prematch-Spiele liegen in der
@@ -169,9 +169,9 @@ def tennis_signals(
            WHERE settled = 0 AND match_date >= ?
              AND verdict = 'WETTE'
              AND recommended_side IN ('A', 'B')
-             AND policy_version = ?
+             AND model_version = ? AND policy_version = ?
            ORDER BY match_date, id""",
-        (today, TENNIS_POLICY_VERSION),
+        (today, TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION),
     )
     signals: List[ModelSignal] = []
     for row in rows:

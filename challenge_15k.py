@@ -28,6 +28,8 @@ from challenge_engine import (
     COUNT_MARKET_KINDS,
     MARKET_BY_KEY,
     MAX_CHALLENGE_STAKE_FRACTION,
+    MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
+    MODEL_SCOPE_SAME_COMPETITION,
     MIN_LEG_EXPECTED_ROI,
     TARGET_ODDS_MAX,
     TARGET_ODDS_MIN,
@@ -72,7 +74,7 @@ from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 7
+CHALLENGE_SNAPSHOT_VERSION = 8
 CHALLENGE_WORKSPACE_VERSION = 5
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
@@ -1652,6 +1654,11 @@ def scan_daily_challenge(
             validation,
             calibration,
             team_history=fixture_team_histories.get(fixture_id),
+            model_scope=(
+                MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED
+                if fixture_id in fixture_team_histories
+                else MODEL_SCOPE_SAME_COMPETITION
+            ),
         )
         if fixture_id in fixture_team_histories:
             for candidate in fixture_candidates:
@@ -2596,6 +2603,16 @@ def _render_price_check(
             if fallback_failed:
                 detail += f", {fallback_failed} ohne ausreichende Teamstichprobe"
             st.caption(detail + ".")
+        transfer_blocked = sum(
+            count
+            for reason, count in (snapshot.get("blocked_counts") or {}).items()
+            if "Heimatliga-Transfermodell" in str(reason)
+        )
+        if transfer_blocked:
+            st.caption(
+                "UEFA-Heimatliga-Modelle bleiben Forschungssignale, bis ihr "
+                "Transfer zwischen unterschiedlich starken Ligen validiert ist."
+            )
         return
 
     st.subheader("Tagesempfehlungen")

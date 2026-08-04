@@ -17,6 +17,9 @@ from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
 
+RED_CARD_MODEL_VERSION = "red-card-impact-2026-08-05"
+
+
 @dataclass
 class RedCardPrediction:
     """Vorhersage nach Roter Karte"""

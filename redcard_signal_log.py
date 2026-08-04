@@ -25,7 +25,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from red_card_impact_predictor import RED_CARD_MODEL_VERSION
+
 DB_PATH = Path(__file__).resolve().parent / "redcard_signals.db"
+RED_CARD_POLICY_VERSION = "next-goal-shadow-v1"
 
 FINISHED_STATUSES = {"FT", "AET", "PEN"}
 
@@ -75,6 +78,8 @@ CREATE TABLE IF NOT EXISTS signals (
     outcome TEXT,
     settled_at TEXT,
     brier REAL,
+    model_version TEXT,
+    policy_version TEXT,
     UNIQUE(fixture_id, minute)
 );
 """
@@ -84,6 +89,12 @@ def _connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    existing = {
+        row[1] for row in conn.execute("PRAGMA table_info(signals)")
+    }
+    for column in ("model_version", "policy_version"):
+        if column not in existing:
+            conn.execute(f"ALTER TABLE signals ADD COLUMN {column} TEXT")
     return conn
 
 
@@ -160,8 +171,8 @@ def log_signal(entry: Dict[str, Any], db_path: Path = DB_PATH) -> bool:
                    (ts_utc, fixture_id, home, away, minute, red_side,
                     red_card_minute, score_home, score_away,
                     p_opponent, p_red_team, p_no_goal, data_quality,
-                    context_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    context_json, model_version, policy_version)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     datetime.now(timezone.utc).isoformat(),
                     fixture_id,
@@ -177,6 +188,8 @@ def log_signal(entry: Dict[str, Any], db_path: Path = DB_PATH) -> bool:
                     p_no_goal,
                     prediction.get("data_quality"),
                     json.dumps(context, ensure_ascii=False),
+                    RED_CARD_MODEL_VERSION,
+                    RED_CARD_POLICY_VERSION,
                 ),
             )
             conn.commit()
@@ -300,19 +313,38 @@ def settle_open_signals(
     return stats
 
 
-def settlement_stats(db_path: Path = DB_PATH) -> Dict[str, Any]:
+def settlement_stats(
+    db_path: Path = DB_PATH,
+    *,
+    model_version: str = RED_CARD_MODEL_VERSION,
+    policy_version: str = RED_CARD_POLICY_VERSION,
+) -> Dict[str, Any]:
+    model = str(model_version or "").strip()
+    policy = str(policy_version or "").strip()
+    if not model or not policy:
+        raise ValueError("model_version and policy_version are required")
+    version_where = "model_version = ? AND policy_version = ?"
+    version_params = (model, policy)
     conn = _connect(db_path)
     try:
-        total = conn.execute("SELECT COUNT(*) FROM signals").fetchone()[0]
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM signals WHERE {version_where}",
+            version_params,
+        ).fetchone()[0]
         open_count = conn.execute(
-            "SELECT COUNT(*) FROM signals WHERE status = 'open'"
+            f"SELECT COUNT(*) FROM signals WHERE status = 'open' AND {version_where}",
+            version_params,
         ).fetchone()[0]
         settled = conn.execute(
-            "SELECT COUNT(*) FROM signals WHERE status = 'settled'"
+            f"SELECT COUNT(*) FROM signals WHERE status = 'settled' AND {version_where}",
+            version_params,
         ).fetchone()[0]
         rows = conn.execute(
-            """SELECT outcome, COUNT(*) AS n, AVG(brier) AS brier
-               FROM signals WHERE status = 'settled' GROUP BY outcome"""
+            f"""SELECT outcome, COUNT(*) AS n, AVG(brier) AS brier
+                FROM signals
+                WHERE status = 'settled' AND {version_where}
+                GROUP BY outcome""",
+            version_params,
         ).fetchall()
         by_outcome = {
             row["outcome"]: {"n": row["n"], "brier": round(row["brier"] or 0.0, 4)}
@@ -320,8 +352,10 @@ def settlement_stats(db_path: Path = DB_PATH) -> Dict[str, Any]:
         }
         # Top-Auswahl-Trefferquote: wie oft traf die hoechste Wahrscheinlichkeit
         top_rows = conn.execute(
-            """SELECT p_opponent, p_red_team, p_no_goal, outcome
-               FROM signals WHERE status = 'settled'"""
+            f"""SELECT p_opponent, p_red_team, p_no_goal, outcome
+                FROM signals
+                WHERE status = 'settled' AND {version_where}""",
+            version_params,
         ).fetchall()
         hits = 0
         for row in top_rows:
@@ -338,6 +372,8 @@ def settlement_stats(db_path: Path = DB_PATH) -> Dict[str, Any]:
             "settled": settled,
             "top_pick_hit_rate": round(hits / settled, 4) if settled else None,
             "by_outcome": by_outcome,
+            "model_version": model,
+            "policy_version": policy,
         }
     finally:
         conn.close()

@@ -5,9 +5,9 @@ Standalone - laeuft ohne Kimi/Agent (Windows-Aufgabenplanung).
 Liest die Shadow-DB und das letzte Kalibrierungs-Waechter-Ergebnis,
 rendert reports/weekly_<datum>.html (+ reports/weekly_latest.html).
 
-Nur Karten, bei denen ALLE Modell-Gates gruen sind, werden als wettbar
-gelistet.  WTA bleibt Shadow-only (kein Edge) und taucht daher nie in
-der Wettliste auf - nur als Info-Zeile.
+Nur Karten der aktuellen Modell- und Policy-Version, bei denen ALLE
+Modell-Gates gruen sind, werden als Shadow-Kandidaten gelistet. WTA bleibt
+Shadow-only (kein Edge) und taucht daher nie in der Kandidatenliste auf.
 
 Mindestquote = (1 + Mindest-Risiko-EV) / (p - Modellabschlag).
 Die Quote entscheidet nur über den Preis, nicht über die Prognose.
@@ -36,6 +36,7 @@ from tennis.predict import (  # noqa: E402
     SIDE_MARKET_PROBABILITY_HAIRCUT,
     WINNER_PROBABILITY_HAIRCUT,
 )
+from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION  # noqa: E402
 
 DB = ROOT / "tennis" / "data" / "tennis_shadow.db"
 WATCH_JSON = ROOT / "tennis" / "data" / "calibration_watch_latest.json"
@@ -68,8 +69,14 @@ def load_cards(day_from: date, days: int) -> list[dict]:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM predictions WHERE match_date BETWEEN ? AND ? "
+            "AND model_version=? AND policy_version=? "
             "ORDER BY match_date, tournament, player_a",
-            (day_from.isoformat(), day_to.isoformat()),
+            (
+                day_from.isoformat(),
+                day_to.isoformat(),
+                TENNIS_MODEL_VERSION,
+                TENNIS_POLICY_VERSION,
+            ),
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -168,8 +175,7 @@ def render(cards: list[dict], green: list[dict], watch: dict | None,
         cards_html = (
             "<div class='box warn'><b>Keine Karte mit komplett gr&uuml;nen Gates "
             "im Zeitraum.</b> Das ist normal und gewollt - das Modell wettet nur, "
-            "wenn Belag, Erfahrung und Aufschlag-Daten alle passen. "
-            "<b>Keine Karte = keine Wette.</b></div>"
+            "wenn Belag, Erfahrung und Aufschlag-Daten alle passen.</div>"
         )
     else:
         header = "".join(f"<th>{lbl}</th>" for lbl, _ in MARKETS)
@@ -246,18 +252,19 @@ def render(cards: list[dict], green: list[dict], watch: dict | None,
 Zeitraum {day_from.strftime('%d.%m.')}&ndash;{day_to.strftime('%d.%m.%Y')} &middot;
 alle Zeiten lokal</p>
 {watch_html}
-<div class="box rule"><b>Wettregel:</b> Die Zahl in <b>fett</b> ist die
+<div class="box rule"><b>Shadow-Preischeck:</b> Die Zahl in <b>fett</b> ist die
 <b>Mindestquote</b> nach explizitem Modellabschlag und mindestens
-{MINIMUM_RISK_ADJUSTED_ROI_PERCENT:.1f}% Risiko-EV. Nur wetten, wenn die Quote beim
-Buchmacher <b>&ge; Mindestquote</b> liegt &mdash; darunter ist die Wette
-langfristig Verlustgesch&auml;ft. <i>fair</i> = reine Modell-Wahrscheinlichkeit (1/p).</div>
-<h2>Karten mit gr&uuml;nen Gates</h2>
+{MINIMUM_RISK_ADJUSTED_ROI_PERCENT:.1f}% Risiko-EV. Eine Quote unter dieser
+Grenze scheitert am Preisgate. Gr&uuml;ne Gates sind weiterhin keine
+Echtgeldfreigabe. <i>fair</i> = reine Modell-Wahrscheinlichkeit (1/p).</div>
+<h2>Karten mit gr&uuml;nen Modell-Gates</h2>
 {info}
 <div class="tablewrap">{cards_html}</div>
 <p class="foot">Erinnerung: N1Bet-Aufgaberegel pr&uuml;fen (Annahme: 1 Satz gespielt
 = Wette gilt) &middot; Games-M&auml;rkte werden bewusst nicht angeboten
 (Over-/Favoriten-Bias im Kalibrierungs-Test) &middot; Quellen: ManTennisData,
-tennis-data.co.uk, Tennis Abstract, ESPN.</p>
+tennis-data.co.uk, Tennis Abstract, ESPN &middot; Status: Shadow, keine
+Echtgeldfreigabe.</p>
 </div></body></html>"""
 
 

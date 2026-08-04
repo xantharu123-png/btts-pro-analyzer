@@ -4,19 +4,19 @@
 
 | Feld | Verifizierter Stand |
 |---|---|
-| Auditzeitraum | 1./2. August 2026 |
+| Auditzeitraum | 1. bis 5. August 2026 |
 | Repository | `xantharu123-png/btts-pro-analyzer` |
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
-| Basis vor diesem Tages-Scan-Umbau | `f23bc5a` |
-| Fachlicher Kernstand | `ac5c021` - tägliche 51-Ligen-Discovery plus gezielter Fixture-Kontext |
-| Verifizierter VPS-Funktionsstand | `ac5c021` |
+| Basis vor dem Ultra-Audit vom 5. August | `23b93c2` |
+| Fachlicher Kernstand | Ultra-Audit: Transfer-Gates und versionsreine Evidenz |
+| Verifizierter VPS-Funktionsstand | wird nach Deployment dieses Auditstands aktualisiert |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 573 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 606 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -35,9 +35,10 @@ Der verbindliche Ablauf lautet:
    geprüft.
 3. Ausfälle und Wetter werden als Pflichtkontext angewendet. H2H ist nur ein
    konservativer Gegencheck: Fehlende oder kleine Direktvergleichsstichproben
-   sind neutral und können weder freigeben noch blockieren. In der
-   15K-Challenge und im Shadow-CLV-Lauf sind bestätigte Startaufstellungen
-   beider Teams ebenfalls ein verbindliches Gate.
+   sind neutral und können weder freigeben noch blockieren. Im Fußball-Shadow-
+   Lauf kurz vor Anpfiff sind bestätigte Startaufstellungen beider Teams ein
+   verbindliches Gate. Im täglichen 15K-Vorlauf sind sie Zusatzinformation;
+   dort bleibt jede Ausgabe ausdrücklich `SHADOW` und keine Echtgeldfreigabe.
 4. Die quotenfreie Prognose bleibt sichtbar, auch wenn ein Modellgate oder
    später die Preisprüfung scheitert.
 5. Erst danach wird die exakte N1Bet-Quote als Preis erfasst.
@@ -190,6 +191,43 @@ Mindestquote = (1 + 0,03) / konservatives p
   bewiesener Vorteil. Vor Echtgeldfreigabe bleibt eine versionsgetrennte
   Walk-forward-Ablation mit und ohne H2H-Veto Pflicht.
 
+### Ultra-Audit vom 5. August 2026
+
+- Der UEFA-Fallback kann Teamhistorie aus den jeweiligen Heimatligen laden und
+  modellieren. Diese Rohwerte sind zwischen unterschiedlich starken Ligen aber
+  nicht direkt vergleichbar. Eine nationale Offensivrate aus Liga A ist keine
+  kalibrierte Stärke relativ zu Liga B.
+- Jeder solche Wettbewerbstransfer trägt deshalb jetzt den expliziten Scope
+  `cross_competition_unvalidated` und wird vor Kontext, Preisprüfung und Top-3-
+  Auswahl gesperrt. Die Spiele werden weiterhin gefunden und als Forschung
+  gezählt, verbrauchen aber keine der 20 teuren Kontextpositionen.
+- Auch ein künstlich perfekter H2H-, Ausfall-, Wetter- und Aufstellungskontext
+  kann dieses Transfer-Veto nicht überstimmen. Eine spätere Freigabe benötigt
+  ein separat walk-forward-validiertes, ligenübergreifendes Clubstärkemodell.
+- Der automatische Wettfinder akzeptiert Fußball nur noch als echtes
+  `ChallengeCandidate`-Objekt und prüft den vollständigen Credibility-Vertrag
+  unmittelbar vor der Ausgabe erneut. Unbekannte Evidenzstufen werden
+  fail-closed verworfen.
+- Writer und Reader des Wettfinder-Artefakts verwenden gemeinsam Version 3.
+  Alte Artefakte werden nicht still als aktuelle Empfehlungen weitergereicht.
+- Fußball-CLV-Kennzahlen, offene Counts und letzte Predictions werden nur aus
+  exakt derselben Modell- und Policy-Version gebildet. Modellabhängige Caches
+  sowie Tagesmarker tragen die Modellversion; eine alte Prediction desselben
+  Fixtures blockiert keinen neuen, getrennten Shadow-Jahrgang.
+- Tennis-Kennzahlen, Preis-Signale und Wochenberichte sind modell- und
+  policygebunden. Ein alter Datensatz kann eine aktuelle Prognose desselben
+  Matches nicht mehr verschlucken; historische offene Zeilen bleiben trotzdem
+  für korrektes Settlement erhalten.
+- E-Sport-Kalibrierung und Rotkarten-Statistik mischen keine alten
+  Modellgenerationen mehr in den aktuellen Evidenzstand.
+- Aktive Versionen dieses Audits sind Fußball
+  `challenge-engine-2026-08-05` / `shadow-risk-ev-v4`, Tennis
+  `elo-serve-platt-v2` / `risk-ev-haircut-v3`, E-Sport `subgraph-elo-v2` und
+  Rotkarte `red-card-impact-2026-08-05` / `next-goal-shadow-v1`.
+- Ergebnis des Audits ist eine strengere und reproduzierbarere Pipeline, kein
+  Profitabilitätsbeweis. Aktuelle Versionszähler können nach dem Wechsel wieder
+  bei null beginnen; alte Daten bleiben Historie und werden nicht umetikettiert.
+
 ### Jobs, Sitzungen und Challenge
 
 - Jobs besitzen Sitzungs-Scope, Generation-ID, Stillstands-Timeout und atomare
@@ -222,7 +260,10 @@ Mindestquote = (1 + 0,03) / konservatives p
   Viertel-Kelly-Risikoreferenz mit hartem 5-%-Cap. Negatives erwartetes
   Log-Wachstum und ein Shadow-Einsatz oberhalb dieser Referenz werden
   ausdrücklich gewarnt.
-- Eine finale Challenge-Freigabe verlangt bestätigte Startaufstellungen.
+- Die tägliche 15K-Ausgabe verlangt Modell, Walk-forward, H2H, Ausfälle und
+  Wetter. Aufstellungen werden angezeigt, wenn sie bereits vorliegen, blockieren
+  den täglichen Shadow-Vorlauf aber nicht. Der Fußball-CLV-Lauf kurz vor Anpfiff
+  verlangt sie weiterhin verbindlich.
 - `wettfinder_automation.py` trennt Discovery und Kontext strikt. Eine
   Discovery läuft höchstens einmal pro Zieldatum über den gemeinsamen
   51-Ligen-Katalog und modelliert bis zu 400 eindeutige Fixtures. Ein
@@ -576,7 +617,7 @@ VPS-Härtung, verifiziert am 2. August 2026:
 Vollständiger Lauf:
 
 ```text
-557 passed
+606 passed
 5 subtests passed
 ```
 
@@ -637,6 +678,18 @@ Zusätzlich verifiziert:
 4. Keine Schwelle auf demselben Zeitraum wählen und beweisen.
 5. Erst nach ausreichender Stichprobe CLV, Kalibrierung und No-Vig-Benchmark
    beurteilen.
+6. Für UEFA- und andere ligenübergreifende Duelle ein zeitlich sauberes
+   Clubstärkemodell mit gemeinsamen Gegnern oder hierarchischem Liga-Rating
+   entwickeln und separat out-of-sample validieren.
+7. Die heutige Ausfallregel aus bloßen Spieleranzahlen durch vorab verfügbare,
+   versionsmarkierte Spielerstärke und erwartete Minuten ersetzen. Sechs
+   Reservisten dürfen nicht schwerer wiegen als ein fehlender Schlüsselspieler.
+8. Wettergrenzen und die Kombi-Abschläge `0,97` beziehungsweise `0,985` per
+   vorregistrierter Ablation prüfen; bis dahin bleiben sie konservative
+   Heuristiken und keine geschätzten Korrelationen.
+9. Vor einer späteren Tennis-, E-Sport-, Basketball-, NHL- oder Rotkarten-
+   Freigabe pro Sport und Markt eigene Kalibrierung, No-Vig-Benchmark, CLV,
+   Renditeintervall und korrektes Settlement nachweisen.
 
 ### P2 - Betrieb
 

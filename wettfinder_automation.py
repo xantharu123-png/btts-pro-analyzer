@@ -27,9 +27,14 @@ from challenge_15k import (
     refresh_discovered_candidates,
     scan_daily_challenge,
 )
-from challenge_engine import ChallengeCandidate, ValidationMetrics
+from challenge_engine import (
+    ChallengeCandidate,
+    ValidationMetrics,
+    candidate_is_credible,
+)
 from config_loader import AppConfig, load_app_config
 from ev_signal_sources import (
+    AUTOMATED_WETTFINDER_VERSION,
     ModelSignal,
     esports_signals,
     tennis_model_signals,
@@ -40,8 +45,8 @@ from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 ROOT = Path(__file__).resolve().parent
 STATE_PATH = ROOT / "runtime_state" / "wettfinder_latest.json"
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATION_VERSION = 2
-SELECTION_POLICY_VERSION = "daily-discovery-context-refresh-v2"
+AUTOMATION_VERSION = AUTOMATED_WETTFINDER_VERSION
+SELECTION_POLICY_VERSION = "daily-discovery-context-refresh-v3"
 MAX_AUTOMATIC_CANDIDATES = 3
 TOMORROW_SCAN_HOUR = 23
 ERROR_RETRY = timedelta(hours=2)
@@ -202,6 +207,10 @@ def _football_candidate_record(
     *,
     context_checked_at: Optional[datetime] = None,
 ) -> Optional[dict[str, Any]]:
+    if not isinstance(candidate, ChallengeCandidate):
+        return None
+    if not candidate_is_credible(candidate):
+        return None
     probability = _finite_probability(_value(candidate, "probability"))
     conservative = _finite_probability(
         _value(candidate, "conservative_probability")
@@ -312,9 +321,13 @@ def select_candidates(
 ) -> list[dict[str, Any]]:
     """Select probability-first candidates without offered-odds input."""
     current = _utc(now)
+    stage_rank = {"RELEASED": 2, "SHADOW": 1, "RESEARCH": 0}
     valid: list[dict[str, Any]] = []
     for row in candidates:
         if not isinstance(row, dict) or row.get("status") != "PRICE_REQUIRED":
+            continue
+        evidence_stage = str(row.get("evidence_stage") or "")
+        if evidence_stage not in stage_rank:
             continue
         probability = _finite_probability(row.get("probability"))
         conservative = _finite_probability(row.get("conservative_probability"))
@@ -336,7 +349,6 @@ def select_candidates(
             continue
         valid.append(dict(row))
 
-    stage_rank = {"RELEASED": 2, "SHADOW": 1, "RESEARCH": 0}
     valid.sort(
         key=lambda row: (
             -stage_rank.get(str(row.get("evidence_stage")), -1),
@@ -428,6 +440,24 @@ def _football_state_from_snapshot(
         "fixture_kickoffs": _fixture_kickoffs(snapshot),
         "fixtures_found": fixtures_found,
         "fixtures_modeled": int(snapshot.get("fixtures_modeled") or 0),
+        "base_candidates": int(snapshot.get("base_candidates") or 0),
+        "blocked_counts": {
+            str(reason): int(count)
+            for reason, count in (snapshot.get("blocked_counts") or {}).items()
+            if str(reason).strip()
+            and isinstance(count, int)
+            and not isinstance(count, bool)
+            and count > 0
+        },
+        "continental_fixtures_found": int(
+            snapshot.get("continental_fixtures_found") or 0
+        ),
+        "continental_fallback_modeled": int(
+            snapshot.get("continental_fallback_modeled") or 0
+        ),
+        "continental_fallback_failed": int(
+            snapshot.get("continental_fallback_failed") or 0
+        ),
         "discovery_candidates": discovery_payloads,
         "discovery_candidate_count": len(discovery_payloads),
         "context_checks": context_checks,

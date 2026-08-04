@@ -48,6 +48,11 @@ MIN_H2H_VETO_MATCHES = 6
 H2H_MAX_AGE_DAYS = 3 * 365 + 1
 H2H_CONFIDENCE_Z = 1.959963984540054
 H2H_MATERIAL_GAP = 0.10
+MODEL_SCOPE_SAME_COMPETITION = "same_competition"
+MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED = "cross_competition_unvalidated"
+UNVALIDATED_TRANSFER_REASON = (
+    "Heimatliga-Transfermodell ist fuer UEFA-Duelle nicht validiert"
+)
 MIN_VALIDATION_MATCHES = 200
 MIN_CALIBRATION_BINS = 3
 MIN_CALIBRATION_BIN_SIZE = 20
@@ -128,6 +133,7 @@ class ChallengeCandidate:
     expected_market_home: Optional[float] = None
     expected_market_away: Optional[float] = None
     expected_unit: Optional[str] = None
+    model_scope: str = MODEL_SCOPE_SAME_COMPETITION
     reasons: list[str] = field(default_factory=list)
     blocked_reasons: list[str] = field(default_factory=list)
     context: dict[str, Any] = field(default_factory=dict)
@@ -1590,8 +1596,14 @@ def build_fixture_candidates(
     calibration: Optional[dict[str, MarketCalibration]] = None,
     *,
     team_history: Optional[Iterable[dict[str, Any]]] = None,
+    model_scope: str = MODEL_SCOPE_SAME_COMPETITION,
 ) -> list[ChallengeCandidate]:
     """Build price-independent candidates for one fixture."""
+    if model_scope not in {
+        MODEL_SCOPE_SAME_COMPETITION,
+        MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
+    }:
+        raise ValueError("model_scope is invalid")
     identity = _fixture_identity(fixture)
     model = fixture_market_probabilities(
         fixture,
@@ -1653,6 +1665,8 @@ def build_fixture_candidates(
         evidence = min(100.0, sample_score + form_score + agreement_score + freshness_score + validation_score)
 
         blocked: list[str] = []
+        if model_scope != MODEL_SCOPE_SAME_COMPETITION:
+            blocked.append(UNVALIDATED_TRANSFER_REASON)
         if not 0.58 <= active <= 0.92:
             blocked.append("Modellwahrscheinlichkeit außerhalb des Challenge-Korridors")
         if conservative < 0.55:
@@ -1709,6 +1723,7 @@ def build_fixture_candidates(
                     if expected_market_away is not None else None
                 ),
                 expected_unit=expected_unit,
+                model_scope=model_scope,
                 reasons=reasons,
                 blocked_reasons=blocked,
             )
@@ -2063,6 +2078,9 @@ def apply_candidate_context(
         return candidate
 
     blocked: list[str] = []
+    transfer_validated = candidate.model_scope == MODEL_SCOPE_SAME_COMPETITION
+    if not transfer_validated:
+        blocked.append(UNVALIDATED_TRANSFER_REASON)
     spec = MARKET_BY_KEY[candidate.market_key]
     relevant_h2h, h2h_outcomes = _h2h_market_outcomes(
         spec,
@@ -2139,7 +2157,18 @@ def apply_candidate_context(
 
     lineup_ok = lineup_passed or not require_lineups
     candidate.context = {
-        "passed": (not h2h_contradicts) and injuries_passed and weather_passed and lineup_ok,
+        "passed": (
+            transfer_validated
+            and (not h2h_contradicts)
+            and injuries_passed
+            and weather_passed
+            and lineup_ok
+        ),
+        "model_transfer": {
+            "status": "passed" if transfer_validated else "blocked",
+            "scope": candidate.model_scope,
+            "reason": None if transfer_validated else UNVALIDATED_TRANSFER_REASON,
+        },
         "h2h": {
             "status": h2h_status,
             "matches": h2h_observations,
@@ -2202,6 +2231,8 @@ def select_shortlist(
 def candidate_is_credible(candidate: ChallengeCandidate) -> bool:
     """Validate the complete candidate contract again at selection time."""
     if not isinstance(candidate, ChallengeCandidate):
+        return False
+    if candidate.model_scope != MODEL_SCOPE_SAME_COMPETITION:
         return False
     if (
         not isinstance(candidate.blocked_reasons, list)
@@ -2638,11 +2669,14 @@ __all__ = [
     "MAX_CHALLENGE_STAKE_FRACTION",
     "MAX_TICKET_LEGS",
     "MIN_CHALLENGE_STAKE_FRACTION",
+    "MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED",
+    "MODEL_SCOPE_SAME_COMPETITION",
     "QuotedTicket",
     "SAME_LEAGUE_MODEL_FACTOR",
     "TARGET_BALANCE",
     "TARGET_ODDS_MAX",
     "TARGET_ODDS_MIN",
+    "UNVALIDATED_TRANSFER_REASON",
     "ValidationMetrics",
     "apply_candidate_context",
     "build_fixture_candidates",

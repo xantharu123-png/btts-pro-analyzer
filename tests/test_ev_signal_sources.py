@@ -48,10 +48,15 @@ def _tennis_db(rows, tmp: Path) -> Path:
     conn.execute(TENNIS_SCHEMA)
     conn.executemany(
         "INSERT INTO predictions (match_date, tour, tournament, player_a,"
-        " player_b, p_cal, settled, scheduled_start_utc, policy_version)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " player_b, p_cal, settled, scheduled_start_utc, policy_version,"
+        " model_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
-            tuple(row) + (f"{row[0]}T23:59:59Z", TENNIS_POLICY_VERSION)
+            tuple(row)
+            + (
+                f"{row[0]}T23:59:59Z",
+                TENNIS_POLICY_VERSION,
+                TENNIS_MODEL_VERSION,
+            )
             for row in rows
         ],
     )
@@ -146,6 +151,23 @@ class TennisSignalTests(unittest.TestCase):
             conn.execute(
                 "UPDATE predictions SET policy_version='legacy-edge-policy'"
             )
+            conn.commit()
+        finally:
+            conn.close()
+
+        self.assertEqual(
+            tennis_signals(db_path=db, today="2099-01-01"),
+            [],
+        )
+
+    def test_old_tennis_model_is_excluded_from_price_signals(self):
+        db = _tennis_db(
+            [("2099-01-01", "ATP", "Test Open", "A", "B", 0.60, 0)],
+            self.tmp,
+        )
+        conn = sqlite3.connect(db)
+        try:
+            conn.execute("UPDATE predictions SET model_version='legacy-model'")
             conn.commit()
         finally:
             conn.close()

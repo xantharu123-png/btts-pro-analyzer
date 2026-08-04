@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
-from challenge_engine import ChallengeCandidate, ValidationMetrics
+from challenge_engine import (
+    MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
+    ChallengeCandidate,
+    ValidationMetrics,
+)
 from config_loader import AppConfig
-from ev_signal_sources import ModelSignal
+from ev_signal_sources import AUTOMATED_WETTFINDER_VERSION, ModelSignal
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from wettfinder_automation import (
+    AUTOMATION_VERSION,
     _default_football_scan,
+    _football_candidate_record,
     football_context_due_fixture_ids,
     football_due,
     load_state,
@@ -50,6 +56,8 @@ def _candidate(
 
 
 def _football_snapshot(now: datetime) -> dict:
+    candidate = _challenge_candidate(datetime(2030, 1, 1, 15, 0, tzinfo=UTC))
+    candidate.context = {"passed": True, "blocked_reasons": []}
     return {
         "scanned_at": now.isoformat(),
         "fixtures_found": 2,
@@ -57,22 +65,7 @@ def _football_snapshot(now: datetime) -> dict:
             "2030-01-01T15:00:00+00:00",
             "2030-01-01T18:00:00+00:00",
         ],
-        "shortlist": [
-            {
-                "candidate_id": "fixture-1-over",
-                "fixture_id": 1,
-                "league_name": "Test League",
-                "kickoff": "2030-01-01T15:00:00+00:00",
-                "home_team": "FC Alpha",
-                "away_team": "FC Beta",
-                "market": "Tore",
-                "selection": "Ueber 1.5",
-                "probability": 0.72,
-                "conservative_probability": 0.63,
-                "evidence_score": 84.0,
-                "model_spread_pp": 3.2,
-            }
-        ],
+        "shortlist": [candidate],
         "errors": [],
     }
 
@@ -114,6 +107,10 @@ def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
         form_samples=(6, 6),
         validation=validation,
     )
+
+
+def test_automation_writer_and_reader_share_one_artifact_version():
+    assert AUTOMATION_VERSION == AUTOMATED_WETTFINDER_VERSION
 
 
 def test_target_date_switches_at_2300_zurich():
@@ -218,6 +215,24 @@ def test_selection_is_probability_first_deduplicated_and_maximum_three():
     assert all("offered_odds" not in row for row in selected)
 
 
+def test_selection_rejects_unknown_evidence_stage():
+    row = _candidate("unknown", probability=0.75, haircut=0.08)
+    row["evidence_stage"] = "TRUST_ME"
+
+    assert select_candidates(
+        [row],
+        now=datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
+    ) == []
+
+
+def test_football_record_rejects_unvalidated_cross_competition_model():
+    candidate = _challenge_candidate(datetime(2030, 1, 1, 15, 0, tzinfo=UTC))
+    candidate.context = {"passed": True, "blocked_reasons": []}
+    candidate.model_scope = MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED
+
+    assert _football_candidate_record(candidate) is None
+
+
 def test_runner_reuses_persisted_models_and_skips_not_due_football(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     state_path = tmp_path / "wettfinder.json"
@@ -278,6 +293,11 @@ def test_runner_refreshes_only_daily_pool_fixture_without_rescanning(tmp_path):
             "scanned_at": now.isoformat(),
             "fixtures_found": 1,
             "fixtures_modeled": 1,
+            "base_candidates": 2,
+            "blocked_counts": {"Transfer nicht validiert": 4},
+            "continental_fixtures_found": 1,
+            "continental_fallback_modeled": 1,
+            "continental_fallback_failed": 0,
             "fixture_kickoffs": [pool_candidate.kickoff],
             "shortlist": [],
             "discovery_candidates": [pool_candidate],
@@ -309,6 +329,10 @@ def test_runner_refreshes_only_daily_pool_fixture_without_rescanning(tmp_path):
     run_wettfinder(now=now + timedelta(minutes=40), **common)
 
     assert scan_calls == 1
+    assert refreshed["football"]["base_candidates"] == 2
+    assert refreshed["football"]["blocked_counts"] == {
+        "Transfer nicht validiert": 4
+    }
     assert refresh_calls == [([1], now + timedelta(minutes=30))]
     assert refreshed["sources"]["football"]["context_status"] == "refreshed"
     assert len(refreshed["candidates"]) == 1

@@ -24,6 +24,8 @@ from challenge_engine import (
     ChallengeCandidate,
     MARKET_BY_KEY,
     MARKET_SPECS,
+    MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
+    UNVALIDATED_TRANSFER_REASON,
     ValidationMetrics,
     apply_candidate_context,
     build_fixture_candidates,
@@ -629,8 +631,8 @@ class ChallengeProviderTests(unittest.TestCase):
         validation,
         _calibration,
     ):
-        target_day = date(2026, 8, 4)
-        kickoff = datetime(2026, 8, 4, 18, tzinfo=timezone.utc)
+        target_day = date(2030, 8, 4)
+        kickoff = datetime(2030, 8, 4, 18, tzinfo=timezone.utc)
         upcoming = fixture(900, kickoff, 1, 2, league_id=2)
         league_history = [
             fixture(
@@ -702,6 +704,11 @@ class ChallengeProviderTests(unittest.TestCase):
         self.assertEqual(snapshot["continental_fixtures_found"], 1)
         self.assertEqual(snapshot["continental_fallback_modeled"], 1)
         self.assertEqual(snapshot["continental_fallback_failed"], 0)
+        self.assertEqual(snapshot["approved_candidates"], 0)
+        self.assertEqual(snapshot["base_candidates"], 0)
+        self.assertEqual(snapshot["context_fixtures"], 0)
+        self.assertEqual(snapshot["base_shortlist"], [])
+        self.assertGreater(snapshot["blocked_counts"][UNVALIDATED_TRANSFER_REASON], 0)
         self.assertTrue(
             all(
                 not candidate.market_key.startswith(("CORNERS_", "YELLOW_"))
@@ -711,6 +718,38 @@ class ChallengeProviderTests(unittest.TestCase):
 
 
 class ChallengeContextTests(unittest.TestCase):
+    def test_unvalidated_cross_competition_transfer_cannot_be_recommended(self):
+        now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(hours=3),
+        )
+        item.model_scope = MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=[],
+            injuries=[],
+            injury_coverage=True,
+            weather={
+                "status": "ok",
+                "temperature_c": 18.0,
+                "wind_mps": 2.0,
+                "rain_3h_mm": 0.0,
+                "snow_3h_mm": 0.0,
+            },
+            lineups=None,
+            now=now,
+            require_lineups=False,
+        )
+
+        self.assertFalse(item.context["passed"])
+        self.assertEqual(item.context["model_transfer"]["status"], "blocked")
+        self.assertIn(UNVALIDATED_TRANSFER_REASON, item.context["blocked_reasons"])
+        self.assertFalse(candidate_is_credible(item))
+
     def test_targeted_refresh_uses_only_persisted_candidate_fixtures(self):
         now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
         item = candidate(

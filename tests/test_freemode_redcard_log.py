@@ -6,6 +6,7 @@ import unittest
 
 from football_recommendations import red_card_candidate
 from redcard_signal_log import (
+    RED_CARD_POLICY_VERSION,
     _first_goal_after,
     _connect,
     log_signal,
@@ -157,6 +158,24 @@ class RedCardSignalLogTests(unittest.TestCase):
         later["prediction_minute"] = 70
         self.assertTrue(log_signal(first, db_path=self.db))
         self.assertFalse(log_signal(later, db_path=self.db))
+
+    def test_statistics_exclude_legacy_model_generations(self):
+        from red_card_impact_predictor import RED_CARD_MODEL_VERSION
+
+        self.assertTrue(log_signal(_entry(), db_path=self.db))
+        conn = _connect(self.db)
+        conn.execute(
+            "UPDATE signals SET status='settled', outcome='opponent', brier=0.1, "
+            "model_version='legacy-model', policy_version='legacy-policy'"
+        )
+        conn.commit()
+        conn.close()
+
+        stats = settlement_stats(db_path=self.db)
+
+        self.assertEqual(stats["settled"], 0)
+        self.assertEqual(stats["model_version"], RED_CARD_MODEL_VERSION)
+        self.assertEqual(stats["policy_version"], RED_CARD_POLICY_VERSION)
 
     def test_stoppage_extra_orders_goals_chronologically(self):
         first = _first_goal_after(
