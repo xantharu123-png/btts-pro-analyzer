@@ -3154,9 +3154,9 @@ def _render_automated_daily_selection() -> None:
     else:
         league_text = f"VPS-Lauf {plain_german(status.football_status)}"
     st.caption(
-        f"{target_label} | Vollscan {_format_stand(scan_time)} | {league_text} | "
-        f"{status.fixtures_found} Spiele gefunden | "
-        f"{status.fixtures_modeled} modelliert | "
+        f"{target_label} · Letzter Vollscan: {_format_stand(scan_time)} · "
+        f"{league_text} · {status.fixtures_found} Spiele · "
+        f"{status.fixtures_modeled} modelliert · "
         f"{status.approved_candidates} Fußball-Auswahlen"
     )
 
