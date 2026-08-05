@@ -38,7 +38,7 @@ _REQUIRED_CHALLENGE_WORKSPACE_VERSION = 6
 if getattr(_challenge_15k, "CHALLENGE_WORKSPACE_VERSION", 0) < _REQUIRED_CHALLENGE_WORKSPACE_VERSION:
     _challenge_15k = importlib.reload(_challenge_15k)
 
-_REQUIRED_MARKET_WORKFLOW_VERSION = 6
+_REQUIRED_MARKET_WORKFLOW_VERSION = 7
 if getattr(_alternative_markets, "MARKET_WORKFLOW_VERSION", 0) < _REQUIRED_MARKET_WORKFLOW_VERSION:
     _alternative_markets = importlib.reload(_alternative_markets)
 
@@ -147,6 +147,12 @@ FINDER_SPORT_OPTIONS = (
     "Eishockey",
     "E-Sport",
 )
+FOOTBALL_SEARCH_HORIZONS = {
+    "Heute": 0,
+    "3 Tage voraus": 3,
+    "7 Tage voraus": 7,
+    "14 Tage voraus": 14,
+}
 MULTI_SPORT_FILTER_OPTIONS = {
     "Basketball": ("Alle Ligen", "NBA", "EuroLeague"),
     "E-Sport": ("Alle Spiele", "CS2", "LoL", "Dota2", "Valorant"),
@@ -3197,7 +3203,20 @@ def render_wettfinder() -> None:
         )
 
     search_date = None
-    if sport in {"Fußball", "Tennis"}:
+    search_end_date = None
+    if sport == "Fußball":
+        with controls[1]:
+            horizon_label = st.selectbox(
+                "Zeitraum",
+                list(FOOTBALL_SEARCH_HORIZONS),
+                index=2,
+                key="finder_football_horizon",
+            )
+        search_date = zurich_today()
+        search_end_date = search_date + timedelta(
+            days=FOOTBALL_SEARCH_HORIZONS[horizon_label]
+        )
+    elif sport == "Tennis":
         with controls[1]:
             day = _segmented(
                 "Spieltag",
@@ -3217,6 +3236,7 @@ def render_wettfinder() -> None:
         create_alternative_markets_tab_extended(
             market_scope=market_scope,
             search_date=search_date,
+            search_end_date=search_end_date,
             embedded=True,
         )
     elif sport == "Tennis":

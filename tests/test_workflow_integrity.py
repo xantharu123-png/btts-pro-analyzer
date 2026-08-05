@@ -72,6 +72,15 @@ def test_automatic_target_label_uses_the_actual_scan_date(monkeypatch):
     assert app._automatic_target_label("2030-01-03") == "03.01.2030"
 
 
+def test_shared_football_finder_offers_a_fourteen_day_horizon():
+    assert app.FOOTBALL_SEARCH_HORIZONS == {
+        "Heute": 0,
+        "3 Tage voraus": 3,
+        "7 Tage voraus": 7,
+        "14 Tage voraus": 14,
+    }
+
+
 def test_full_league_scans_have_no_confirmation_or_provider_warning():
     root = Path(__file__).resolve().parents[1]
     challenge_source = (root / "challenge_15k.py").read_text(encoding="utf-8")
@@ -111,22 +120,26 @@ def test_market_worker_forwards_detailed_progress(monkeypatch):
         search_date,
         max_fixtures,
         *,
+        search_end_date=None,
         progress_cb=None,
     ):
         assert received_provider is provider
         assert league_ids == [78, 39]
-        assert max_fixtures == 400
+        assert max_fixtures == 1200
+        assert search_end_date == search_date + timedelta(days=7)
         progress_cb(0.25, "Liga 1/2")
         progress_cb(1.0, "Fertig")
         return {"search_date": search_date.isoformat()}
 
     monkeypatch.setattr(market_tab, "scan_daily_challenge", fake_scan)
+    search_date = datetime.now().date()
     result = market_tab._run_market_scan_worker(
         "api-key",
         None,
         [78, 39],
-        datetime.now().date(),
-        400,
+        search_date,
+        search_date + timedelta(days=7),
+        1200,
         {"league_ids": [39, 78]},
         progress_cb=lambda fraction, text: updates.append((fraction, text)),
     )
@@ -616,6 +629,16 @@ def test_scope_signatures_are_order_independent():
     assert _market_scope_signature([78, 39], pd.Timestamp("2026-07-11").date()) == {
         "league_ids": [39, 78],
         "date": "2026-07-11",
+        "end_date": "2026-07-11",
+    }
+    assert _market_scope_signature(
+        [78, 39],
+        date(2026, 7, 11),
+        date(2026, 7, 25),
+    ) == {
+        "league_ids": [39, 78],
+        "date": "2026-07-11",
+        "end_date": "2026-07-25",
     }
     assert (
         _market_result_day_label(
@@ -623,6 +646,18 @@ def test_scope_signatures_are_order_independent():
             today=search_date,
         )
         == "Morgen"
+    )
+    assert (
+        _market_result_day_label(
+            {
+                "scope": {
+                    "date": "2030-01-02",
+                    "end_date": "2030-01-09",
+                }
+            },
+            today=search_date,
+        )
+        == "02.01.2030 bis 09.01.2030"
     )
 
 

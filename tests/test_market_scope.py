@@ -29,6 +29,7 @@ def test_market_worker_forwards_selected_market_kinds(monkeypatch):
         search_date,
         max_fixtures,
         *,
+        search_end_date,
         market_kinds,
         progress_cb=None,
     ):
@@ -36,6 +37,7 @@ def test_market_worker_forwards_selected_market_kinds(monkeypatch):
             provider=received_provider,
             leagues=league_ids,
             date=search_date,
+            end_date=search_end_date,
             max_fixtures=max_fixtures,
             market_kinds=market_kinds,
         )
@@ -47,7 +49,8 @@ def test_market_worker_forwards_selected_market_kinds(monkeypatch):
         None,
         [78],
         date(2030, 1, 2),
-        400,
+        date(2030, 1, 9),
+        1200,
         {"league_ids": [78]},
         frozenset({"btts"}),
     )
@@ -56,6 +59,7 @@ def test_market_worker_forwards_selected_market_kinds(monkeypatch):
         "provider": provider,
         "leagues": [78],
         "date": date(2030, 1, 2),
-        "max_fixtures": 400,
+        "end_date": date(2030, 1, 9),
+        "max_fixtures": 1200,
         "market_kinds": {"btts"},
     }

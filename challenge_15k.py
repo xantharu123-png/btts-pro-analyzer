@@ -84,7 +84,9 @@ MAX_DISCOVERY_MARKETS_PER_FIXTURE = 8
 # Safety-Ventil, kein Modell-Limit: Alle gültigen Provider-Fixtures der
 # gewählten Ligen werden modelliert. Die zusätzlichen Pflichtkontext-Checks
 # bleiben über MAX_CONTEXT_FIXTURES gedeckelt.
-MAX_SCAN_FIXTURES = 400
+MAX_SCAN_FIXTURES = 1200
+MAX_SCAN_HORIZON_DAYS = 14
+WEATHER_CONTEXT_HORIZON_DAYS = 5
 QUOTE_MAX_AGE_MINUTES = 10
 SNAPSHOT_MAX_AGE_MINUTES = 20
 XG_MAX_NEW_CALLS_PER_SCAN = 12
@@ -171,6 +173,7 @@ def _validate_scan_inputs(
     league_ids: list[int],
     search_date: date,
     max_fixtures: int,
+    search_end_date: Optional[date] = None,
 ) -> None:
     if not isinstance(league_ids, list) or not league_ids:
         raise ValueError("league_ids must be a non-empty list")
@@ -180,6 +183,15 @@ def _validate_scan_inputs(
         raise ValueError("league_ids must not contain duplicates")
     if not isinstance(search_date, date) or isinstance(search_date, datetime):
         raise ValueError("search_date must be a date")
+    end_date = search_end_date or search_date
+    if not isinstance(end_date, date) or isinstance(end_date, datetime):
+        raise ValueError("search_end_date must be a date")
+    horizon_days = (end_date - search_date).days
+    if not 0 <= horizon_days <= MAX_SCAN_HORIZON_DAYS:
+        raise ValueError(
+            "search_end_date must be between search_date and "
+            f"{MAX_SCAN_HORIZON_DAYS} days later"
+        )
     if (
         isinstance(max_fixtures, bool)
         or not isinstance(max_fixtures, int)
@@ -394,12 +406,21 @@ def _format_euro(value: float) -> str:
     return text.replace(",", "_").replace(".", ",").replace("_", ".") + " €"
 
 
-def _scope_signature(league_ids: list[int], search_date: date, max_fixtures: int) -> dict[str, Any]:
-    return {
+def _scope_signature(
+    league_ids: list[int],
+    search_date: date,
+    max_fixtures: int,
+    search_end_date: Optional[date] = None,
+) -> dict[str, Any]:
+    scope = {
         "league_ids": sorted(int(league_id) for league_id in league_ids),
         "date": search_date.isoformat(),
         "max_fixtures": int(max_fixtures),
     }
+    end_date = search_end_date or search_date
+    if end_date != search_date:
+        scope["end_date"] = end_date.isoformat()
+    return scope
 
 
 CHALLENGE_SESSIONS_DIR = Path(__file__).resolve().parent / "challenge_sessions"
@@ -545,6 +566,27 @@ class ChallengeDataProvider:
                 "status": "NS",
             },
             f"Fixtures Liga {league_id}",
+        )
+
+    def upcoming_fixtures_range(
+        self,
+        league_id: int,
+        season: int,
+        start_date: date,
+        end_date: date,
+    ) -> Optional[list[dict[str, Any]]]:
+        """Fetch an inclusive fixture window in one provider request."""
+        return self._football_get(
+            "fixtures",
+            {
+                "league": league_id,
+                "season": season,
+                "from": start_date.isoformat(),
+                "to": end_date.isoformat(),
+                "timezone": "Europe/Zurich",
+                "status": "NS",
+            },
+            f"Fixtures Liga {league_id} {start_date.isoformat()} bis {end_date.isoformat()}",
         )
 
     def recent_ft_results(
@@ -1359,17 +1401,42 @@ def _challenge_auto_recheck_fragment(
     st.rerun()
 
 
+def _league_season_segments(
+    league_id: int,
+    start_date: date,
+    end_date: date,
+) -> list[tuple[int, date, date]]:
+    """Split a short search window whenever the provider season changes."""
+    segments: list[tuple[int, date, date]] = []
+    segment_start = start_date
+    segment_season = current_season_start_year_for_id(league_id, start_date)
+    current = start_date + timedelta(days=1)
+    while current <= end_date:
+        season = current_season_start_year_for_id(league_id, current)
+        if season != segment_season:
+            segments.append(
+                (segment_season, segment_start, current - timedelta(days=1))
+            )
+            segment_start = current
+            segment_season = season
+        current += timedelta(days=1)
+    segments.append((segment_season, segment_start, end_date))
+    return segments
+
+
 def scan_daily_challenge(
     provider: ChallengeDataProvider,
     league_ids: list[int],
     search_date: date,
     max_fixtures: int,
     *,
+    search_end_date: Optional[date] = None,
     market_kinds: Optional[set[str]] = None,
     progress_cb=None,
 ) -> dict[str, Any]:
-    """Run one explicit, quota-aware daily challenge scan."""
-    _validate_scan_inputs(league_ids, search_date, max_fixtures)
+    """Run one explicit, quota-aware scan over at most fourteen days."""
+    end_date = search_end_date or search_date
+    _validate_scan_inputs(league_ids, search_date, max_fixtures, end_date)
     supported_market_kinds = {spec.kind for spec in market_specs()}
     selected_market_kinds = (
         {str(kind).strip() for kind in market_kinds if str(kind).strip()}
@@ -1387,9 +1454,9 @@ def scan_daily_challenge(
             f"Scan für {len(league_ids)} Ligen wird vorbereitet",
         )
     fixtures: list[dict[str, Any]] = []
-    histories: dict[int, list[dict[str, Any]]] = {}
-    coverage: dict[int, dict[str, bool]] = {}
-    seasons: dict[int, int] = {}
+    histories: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    coverage: dict[tuple[int, int], dict[str, bool]] = {}
+    fixture_competitions: dict[int, tuple[int, int]] = {}
 
     league_total = len(league_ids)
     for league_index, league_id in enumerate(league_ids):
@@ -1402,42 +1469,69 @@ def scan_daily_challenge(
                 0.03 + 0.45 * league_index / league_total,
                 f"Liga {league_index + 1}/{league_total}: {league_name}",
             )
-        season = current_season_start_year_for_id(league_id, search_date)
-        seasons[league_id] = season
-        upcoming = provider.upcoming_fixtures(league_id, season, search_date)
-        if upcoming is None:
-            continue
-        valid_upcoming = [
-            fixture
-            for fixture in upcoming
-            if _valid_upcoming_fixture(fixture, league_id)
-        ]
-        invalid_count = len(upcoming) - len(valid_upcoming)
-        if invalid_count:
-            provider.errors.append(
-                f"Fixtures Liga {league_id}: {invalid_count} ungültige Einträge verworfen"
-            )
-        fixtures.extend(valid_upcoming)
-        if valid_upcoming:
-            history = provider.completed_history(league_id, season, valid_upcoming)
-            if history:
-                try:
-                    xg_stats = annotate_history_xg(
-                        history,
-                        league_id,
-                        season,
-                        provider._background_football_get,
-                        max_new_calls=XG_MAX_NEW_CALLS_PER_SCAN,
-                    )
-                    if xg_stats.get("coverage", 0.0) < 0.5:
-                        provider.errors.append(
-                            f"xG Liga {league_id}: nur {xg_stats.get('annotated', 0)}/"
-                            f"{xg_stats.get('total', 0)} Spiele mit xG — Tormodell dominant"
+        for season, segment_start, segment_end in _league_season_segments(
+            league_id,
+            search_date,
+            end_date,
+        ):
+            if segment_start == segment_end:
+                upcoming = provider.upcoming_fixtures(
+                    league_id,
+                    season,
+                    segment_start,
+                )
+            else:
+                upcoming = provider.upcoming_fixtures_range(
+                    league_id,
+                    season,
+                    segment_start,
+                    segment_end,
+                )
+            if upcoming is None:
+                continue
+            valid_upcoming = [
+                fixture
+                for fixture in upcoming
+                if _valid_upcoming_fixture(fixture, league_id)
+            ]
+            invalid_count = len(upcoming) - len(valid_upcoming)
+            if invalid_count:
+                provider.errors.append(
+                    f"Fixtures Liga {league_id}: {invalid_count} ungültige Einträge verworfen"
+                )
+            fixtures.extend(valid_upcoming)
+            for fixture in valid_upcoming:
+                fixture_competitions[fixture["fixture"]["id"]] = (
+                    league_id,
+                    season,
+                )
+            if valid_upcoming:
+                history = provider.completed_history(
+                    league_id,
+                    season,
+                    valid_upcoming,
+                )
+                if history:
+                    try:
+                        xg_stats = annotate_history_xg(
+                            history,
+                            league_id,
+                            season,
+                            provider._background_football_get,
+                            max_new_calls=XG_MAX_NEW_CALLS_PER_SCAN,
                         )
-                except Exception as exc:  # xG ist optional, der Scan läuft ohne weiter
-                    provider.errors.append(f"xG Liga {league_id}: Annotation fehlgeschlagen ({exc})")
-            histories[league_id] = history or []
-            coverage[league_id] = provider.coverage(league_id, season)
+                        if xg_stats.get("coverage", 0.0) < 0.5:
+                            provider.errors.append(
+                                f"xG Liga {league_id}: nur {xg_stats.get('annotated', 0)}/"
+                                f"{xg_stats.get('total', 0)} Spiele mit xG — Tormodell dominant"
+                            )
+                    except Exception as exc:  # xG ist optional, der Scan läuft ohne weiter
+                        provider.errors.append(
+                            f"xG Liga {league_id}: Annotation fehlgeschlagen ({exc})"
+                        )
+                competition = (league_id, season)
+                histories[competition] = history or []
+                coverage[competition] = provider.coverage(league_id, season)
         if progress_cb:
             progress_cb(
                 0.03 + 0.45 * (league_index + 1) / league_total,
@@ -1457,38 +1551,45 @@ def scan_daily_challenge(
         seen_fixture_ids.add(fixture_id)
         unique_fixtures.append(fixture)
     fixtures = unique_fixtures
+    if len(fixtures) > max_fixtures:
+        provider.errors.append(
+            f"Fixture-Limit erreicht: {len(fixtures)} gefunden, "
+            f"nur die ersten {max_fixtures} modelliert"
+        )
     fixtures = fixtures[:max_fixtures]
 
     history_items = [
-        (league_id, history)
-        for league_id, history in histories.items()
+        (competition, history)
+        for competition, history in histories.items()
         if history
     ]
-    validations: dict[int, dict[str, Any]] = {}
+    validations: dict[tuple[int, int], dict[str, Any]] = {}
     history_total = len(history_items)
-    for history_index, (league_id, history) in enumerate(history_items):
+    for history_index, (competition, history) in enumerate(history_items):
+        league_id, season = competition
         if progress_cb:
             progress_cb(
                 0.52 + 0.09 * history_index / max(1, history_total),
                 f"Walk-forward-Validierung {history_index + 1}/{history_total}",
             )
-        validations[league_id] = _cached_market_validation(
+        validations[competition] = _cached_market_validation(
             league_id,
-            seasons[league_id],
+            season,
             history,
         )
     if progress_cb:
         progress_cb(0.61, "Wahrscheinlichkeiten werden kalibriert")
-    calibrations: dict[int, dict[str, Any]] = {}
-    for history_index, (league_id, history) in enumerate(history_items):
+    calibrations: dict[tuple[int, int], dict[str, Any]] = {}
+    for history_index, (competition, history) in enumerate(history_items):
+        league_id, season = competition
         if progress_cb:
             progress_cb(
                 0.61 + 0.09 * history_index / max(1, history_total),
                 f"Kalibrierung {history_index + 1}/{history_total}",
             )
-        calibrations[league_id] = _cached_market_calibration(
+        calibrations[competition] = _cached_market_calibration(
             league_id,
-            seasons[league_id],
+            season,
             history,
         )
 
@@ -1504,9 +1605,10 @@ def scan_daily_challenge(
         league_id = fixture.get("league", {}).get("id")
         if league_id not in CONTINENTAL_LEAGUE_IDS:
             continue
+        competition = fixture_competitions.get(fixture["fixture"]["id"])
         if fixture_market_probabilities(
             fixture,
-            histories.get(league_id, []),
+            histories.get(competition, []),
         ) is None:
             fallback_targets.append(fixture)
 
@@ -1521,10 +1623,16 @@ def scan_daily_challenge(
                     f"{fallback_index + 1}/{len(fallback_targets)}"
                 ),
             )
+        kickoff = _fixture_kickoff(fixture)
+        fixture_search_date = (
+            kickoff.astimezone(CHALLENGE_TIMEZONE).date()
+            if kickoff is not None
+            else search_date
+        )
         fallback_data = _continental_team_history(
             provider,
             fixture,
-            search_date,
+            fixture_search_date,
         )
         league_id = fixture.get("league", {}).get("id")
         team_history = (
@@ -1544,7 +1652,7 @@ def scan_daily_challenge(
             and len(profiles) == 2
             and fixture_market_probabilities(
                 fixture,
-                histories.get(league_id, []),
+                histories.get(fixture_competitions.get(fixture_id), []),
                 team_history=team_history,
             )
             is not None
@@ -1562,10 +1670,10 @@ def scan_daily_challenge(
     validation_target_fixture_ids: set[int] = set()
     for fixture_id, team_history in fixture_team_histories.items():
         fixture = fixture_by_id[fixture_id]
-        league_id = fixture.get("league", {}).get("id")
+        competition = fixture_competitions.get(fixture_id)
         probe_candidates = build_fixture_candidates(
             fixture,
-            histories.get(league_id, []),
+            histories.get(competition, []),
             transfer_probe,
             {},
             team_history=team_history,
@@ -1595,13 +1703,11 @@ def scan_daily_challenge(
                     f"{domestic_index + 1}/{domestic_total}"
                 ),
             )
-        if (
-            seasons.get(league_id) == season
-            and histories.get(league_id)
-        ):
-            history = histories[league_id]
-            validation = validations.get(league_id, {})
-            calibration = calibrations.get(league_id, {})
+        competition = (league_id, season)
+        if histories.get(competition):
+            history = histories[competition]
+            validation = validations.get(competition, {})
+            calibration = calibrations.get(competition, {})
         else:
             history = provider.completed_history(
                 league_id,
@@ -1647,21 +1753,21 @@ def scan_daily_challenge(
     fixture_total = len(fixtures)
     progress_stride = max(1, fixture_total // 20)
     for fixture_index, fixture in enumerate(fixtures):
-        league_id = fixture.get("league", {}).get("id")
         fixture_id = fixture["fixture"]["id"]
+        competition = fixture_competitions.get(fixture_id)
         validation = (
             fixture_validations.get(fixture_id, {})
             if fixture_id in fixture_team_histories
-            else validations.get(league_id, {})
+            else validations.get(competition, {})
         )
         calibration = (
             fixture_calibrations.get(fixture_id, {})
             if fixture_id in fixture_team_histories
-            else calibrations.get(league_id, {})
+            else calibrations.get(competition, {})
         )
         fixture_candidates = build_fixture_candidates(
             fixture,
-            histories.get(league_id, []),
+            histories.get(competition, []),
             validation,
             calibration,
             team_history=fixture_team_histories.get(fixture_id),
@@ -1694,7 +1800,20 @@ def scan_daily_challenge(
         ]
 
     base_candidates = [candidate for candidate in all_candidates if candidate.base_eligible]
-    context_fixture_ids = _ranked_fixture_ids(base_candidates)
+    context_candidates = base_candidates
+    deferred_context_fixture_ids: set[int] = set()
+    if end_date > search_date:
+        context_deadline = datetime.now(timezone.utc) + timedelta(
+            days=WEATHER_CONTEXT_HORIZON_DAYS
+        )
+        context_candidates = []
+        for candidate in base_candidates:
+            kickoff = _candidate_kickoff(candidate)
+            if kickoff is not None and kickoff <= context_deadline:
+                context_candidates.append(candidate)
+            else:
+                deferred_context_fixture_ids.add(candidate.fixture_id)
+    context_fixture_ids = _ranked_fixture_ids(context_candidates)
     if progress_cb:
         progress_cb(
             0.85,
@@ -1724,14 +1843,22 @@ def scan_daily_challenge(
     contextualized: list[ChallengeCandidate] = []
     for candidate in base_candidates:
         if candidate.fixture_id not in context_fixture_ids:
+            reason = (
+                "Pflichtkontext liegt noch außerhalb des Fünf-Tage-Fensters"
+                if candidate.fixture_id in deferred_context_fixture_ids
+                else "Nicht in der begrenzten Kontext-Shortlist"
+            )
             candidate.context = {
                 "passed": False,
-                "blocked_reasons": ["Nicht in der begrenzten Kontext-Shortlist"],
+                "blocked_reasons": [reason],
             }
             contextualized.append(candidate)
             continue
         detail = details.get(candidate.fixture_id) or {}
-        league_coverage = coverage.get(candidate.league_id, {})
+        league_coverage = coverage.get(
+            fixture_competitions.get(candidate.fixture_id),
+            {},
+        )
         apply_candidate_context(
             candidate,
             h2h_fixtures=h2h_by_fixture.get(candidate.fixture_id),
@@ -1767,8 +1894,14 @@ def scan_daily_challenge(
     return {
         "version": CHALLENGE_SNAPSHOT_VERSION,
         "scanned_at": datetime.now(timezone.utc).isoformat(),
-        "scope": _scope_signature(league_ids, search_date, max_fixtures),
+        "scope": _scope_signature(
+            league_ids,
+            search_date,
+            max_fixtures,
+            end_date,
+        ),
         "search_date": search_date.isoformat(),
+        "search_end_date": end_date.isoformat(),
         "market_kinds": (
             sorted(selected_market_kinds)
             if selected_market_kinds is not None
@@ -1790,6 +1923,7 @@ def scan_daily_challenge(
         "continental_validation_fixtures": len(validation_target_fixture_ids),
         "base_candidates": len(base_candidates),
         "context_fixtures": len(context_fixture_ids),
+        "deferred_context_fixtures": len(deferred_context_fixture_ids),
         "approved_candidates": len(shortlist),
         "shortlist": shortlist,
         "base_shortlist": base_shortlist,

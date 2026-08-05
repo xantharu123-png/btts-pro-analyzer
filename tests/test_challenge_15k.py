@@ -11,8 +11,10 @@ from unittest.mock import Mock, patch
 from challenge_15k import (
     ChallengeDataProvider,
     MAX_DISCOVERY_MARKETS_PER_FIXTURE,
+    MAX_SCAN_FIXTURES,
     _auto_recheck_scope_allowed,
     _discovery_candidate_pool,
+    _league_season_segments,
     _recommendation_day_label,
     _render_price_check,
     _segmented,
@@ -551,6 +553,49 @@ class ChallengeProviderTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertIn("ungültige Einträge", provider.errors[0])
 
+    @patch("challenge_15k.requests.get")
+    def test_fixture_range_uses_one_inclusive_provider_request(self, get):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"errors": [], "response": []}
+        get.return_value = response
+        provider = ChallengeDataProvider("test-key", None)
+        provider._rate_limit = lambda: None
+
+        result = provider.upcoming_fixtures_range(
+            39,
+            2026,
+            date(2026, 8, 5),
+            date(2026, 8, 19),
+        )
+
+        self.assertEqual(result, [])
+        params = get.call_args.kwargs["params"]
+        self.assertEqual(params["from"], "2026-08-05")
+        self.assertEqual(params["to"], "2026-08-19")
+        self.assertNotIn("date", params)
+
+    @patch("challenge_15k.current_season_start_year_for_id")
+    def test_range_is_split_at_a_provider_season_boundary(self, season_for_day):
+        start = date(2030, 6, 29)
+        season_for_day.side_effect = (
+            lambda _league_id, day: 2029 if day < date(2030, 7, 1) else 2030
+        )
+
+        segments = _league_season_segments(
+            39,
+            start,
+            date(2030, 7, 3),
+        )
+
+        self.assertEqual(
+            segments,
+            [
+                (2029, date(2030, 6, 29), date(2030, 6, 30)),
+                (2030, date(2030, 7, 1), date(2030, 7, 3)),
+            ],
+        )
+
     def test_coverage_never_falls_back_to_a_different_season(self):
         provider = ChallengeDataProvider("test-key", None)
         provider._football_get = Mock(return_value=[{
@@ -576,13 +621,23 @@ class ChallengeProviderTests(unittest.TestCase):
             ([39, 39], datetime.now().date(), 8),
             ([39], datetime.now(timezone.utc), 8),
             ([39], datetime.now().date(), True),
-            ([39], datetime.now().date(), 401),
+            ([39], datetime.now().date(), MAX_SCAN_FIXTURES + 1),
         )
         for league_ids, search_date, max_fixtures in invalid_requests:
             with self.subTest(league_ids=league_ids, max_fixtures=max_fixtures):
                 with self.assertRaises(ValueError):
                     scan_daily_challenge(provider, league_ids, search_date, max_fixtures)
         provider.upcoming_fixtures.assert_not_called()
+
+        with self.assertRaises(ValueError):
+            scan_daily_challenge(
+                provider,
+                [39],
+                datetime.now().date(),
+                8,
+                search_end_date=datetime.now().date() + timedelta(days=15),
+            )
+        provider.upcoming_fixtures_range.assert_not_called()
 
     def test_scan_drops_malformed_and_duplicate_upcoming_fixtures(self):
         provider = Mock()
@@ -621,6 +676,41 @@ class ChallengeProviderTests(unittest.TestCase):
         self.assertTrue(
             any("modelliert" in text for _fraction, text in progress_updates)
         )
+
+    def test_range_scan_fetches_each_league_once_and_keeps_window_scope(self):
+        provider = Mock()
+        provider.errors = []
+        search_date = datetime.now().date()
+        search_end_date = search_date + timedelta(days=7)
+        upcoming = fixture(
+            901,
+            datetime.now(timezone.utc) + timedelta(days=1),
+            10,
+            11,
+        )
+        provider.upcoming_fixtures_range.return_value = [upcoming]
+        provider.completed_history.return_value = []
+        provider.coverage.return_value = {"injuries": True, "lineups": True}
+
+        snapshot = scan_daily_challenge(
+            provider,
+            [39],
+            search_date,
+            8,
+            search_end_date=search_end_date,
+        )
+
+        provider.upcoming_fixtures_range.assert_called_once_with(
+            39,
+            unittest.mock.ANY,
+            search_date,
+            search_end_date,
+        )
+        provider.upcoming_fixtures.assert_not_called()
+        self.assertEqual(snapshot["fixtures_found"], 1)
+        self.assertEqual(snapshot["search_date"], search_date.isoformat())
+        self.assertEqual(snapshot["search_end_date"], search_end_date.isoformat())
+        self.assertEqual(snapshot["scope"]["end_date"], search_end_date.isoformat())
 
     @patch("challenge_15k._cached_market_calibration", return_value={})
     @patch("challenge_15k._cached_market_validation")

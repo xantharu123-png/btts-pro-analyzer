@@ -11,15 +11,19 @@ from bet_finder_ui import render_price_decision
 from bet_finder_candidates import build_probability_candidate
 from multi_sport_recommendations import EVIDENCE_SHADOW
 from ui_components import scan_progress_fragment
-from challenge_15k import ChallengeDataProvider, scan_daily_challenge
+from challenge_15k import (
+    MAX_SCAN_FIXTURES,
+    ChallengeDataProvider,
+    scan_daily_challenge,
+)
 from config_loader import load_app_config
 from date_context import german_day_label, zurich_today
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 
 
 DEFAULT_LEAGUES = [78, 39, 140]
-MARKET_WORKFLOW_VERSION = 6
-MARKET_SNAPSHOT_VERSION = 5
+MARKET_WORKFLOW_VERSION = 7
+MARKET_SNAPSHOT_VERSION = 6
 MARKET_MAX_AGE_MINUTES = 20
 FOOTBALL_MARKET_SCOPES = {
     "Beste Märkte": None,
@@ -46,10 +50,16 @@ def _segmented(label: str, options: list[str], key: str, default: str) -> str:
     return st.radio(label, options, index=options.index(default), horizontal=True, key=key)
 
 
-def _market_scope_signature(leagues: list[int], search_date) -> dict:
+def _market_scope_signature(
+    leagues: list[int],
+    search_date,
+    search_end_date=None,
+) -> dict:
+    end_date = search_end_date or search_date
     return {
         "league_ids": sorted(int(league_id) for league_id in leagues),
         "date": search_date.isoformat(),
+        "end_date": end_date.isoformat(),
     }
 
 
@@ -60,7 +70,15 @@ def _market_result_day_label(
 ) -> str:
     scope = snapshot.get("scope")
     raw_date = scope.get("date") if isinstance(scope, dict) else None
-    return german_day_label(raw_date, today=today or _zurich_today())
+    raw_end_date = scope.get("end_date") if isinstance(scope, dict) else None
+    try:
+        start_date = datetime.fromisoformat(str(raw_date)).date()
+        end_date = datetime.fromisoformat(str(raw_end_date or raw_date)).date()
+    except (TypeError, ValueError):
+        return german_day_label(raw_date, today=today or _zurich_today())
+    if start_date == end_date:
+        return german_day_label(start_date, today=today or _zurich_today())
+    return f"{start_date:%d.%m.%Y} bis {end_date:%d.%m.%Y}"
 
 
 def _format_snapshot_time(value: Optional[str]) -> str:
@@ -158,6 +176,7 @@ def _run_market_scan_worker(
     weather_key: Optional[str],
     league_ids: list[int],
     search_date,
+    search_end_date,
     max_fixtures: int,
     scope: dict,
     market_kinds: Optional[frozenset[str]] = None,
@@ -178,6 +197,7 @@ def _run_market_scan_worker(
         league_ids,
         search_date,
         max_fixtures,
+        search_end_date=search_end_date,
         **scan_kwargs,
     )
     return {"scope": scope, "challenge": challenge_snapshot}
@@ -187,6 +207,7 @@ def create_alternative_markets_tab_extended(
     *,
     market_scope: str = "Beste Märkte",
     search_date=None,
+    search_end_date=None,
     embedded: bool = False,
 ) -> None:
     """Find up to three fully gated football-market candidates."""
@@ -232,31 +253,37 @@ def create_alternative_markets_tab_extended(
         )
 
     if search_date is None:
-        date_mode = _segmented(
-            "Datum",
-            ["Heute", "Morgen", "Auswahl"],
-            "market_date_mode",
-            "Heute",
+        horizon_label = st.selectbox(
+            "Zeitraum",
+            ["Heute", "3 Tage voraus", "7 Tage voraus", "14 Tage voraus"],
+            index=2,
+            key="market_horizon",
         )
-        if date_mode == "Heute":
-            search_date = _zurich_today()
-        elif date_mode == "Morgen":
-            search_date = _zurich_today() + timedelta(days=1)
-        else:
-            search_date = st.date_input(
-                "Spieldatum", _zurich_today(), key="market_custom_date"
-            )
+        horizon_days = {
+            "Heute": 0,
+            "3 Tage voraus": 3,
+            "7 Tage voraus": 7,
+            "14 Tage voraus": 14,
+        }[horizon_label]
+        search_date = _zurich_today()
+        search_end_date = search_date + timedelta(days=horizon_days)
+    elif search_end_date is None:
+        search_end_date = search_date
 
     # Kein künstliches Limit mehr: ALLE Spiele der gewählten Ligen werden
     # modelliert (reine Lokalrechnung, keine Provider-Zusatzkosten).
     # Teure Live-Kontext-Checks (H2H, Wetter, Aufstellung) laufen nur für
-    # die Top-Kandidaten — 400 ist das technische Sicherheitsventil.
-    max_fixtures = 400
+    # die Top-Kandidaten; MAX_SCAN_FIXTURES ist nur das technische Sicherheitsventil.
+    max_fixtures = MAX_SCAN_FIXTURES
     st.caption(
-        "Alle Spiele der gewählten Ligen werden modelliert; Live-Kontext "
-        "(H2H, Wetter, Aufstellung) nur für die Top-Kandidaten."
+        "Alle Spiele im Zeitraum werden modelliert; H2H, Ausfälle und Wetter "
+        "nur für die aussichtsreichsten Spiele im verfügbaren Kontextfenster."
     )
-    scope = _market_scope_signature(selected_leagues, search_date)
+    scope = _market_scope_signature(
+        selected_leagues,
+        search_date,
+        search_end_date,
+    )
     scope["max_fixtures"] = max_fixtures
     scope["market_scope"] = market_scope
     scope["market_kinds"] = (
@@ -274,6 +301,11 @@ def create_alternative_markets_tab_extended(
         st.warning("Mindestens eine Liga auswählen.")
     elif find_bets and search_date < _zurich_today():
         st.error("NICHT WETTEN: Das gewählte Datum liegt in der Vergangenheit.")
+    elif find_bets and (
+        search_end_date < search_date
+        or search_end_date > search_date + timedelta(days=14)
+    ):
+        st.error("Der Suchzeitraum darf höchstens 14 Tage voraus reichen.")
     elif find_bets:
         if scan_jobs.get_job(job_key)["state"] == "running":
             st.info("Der Markt-Scan läuft bereits im Hintergrund.")
@@ -286,6 +318,7 @@ def create_alternative_markets_tab_extended(
                     config.weather_key,
                     list(selected_leagues),
                     search_date,
+                    search_end_date,
                     max_fixtures,
                     dict(scope),
                     selected_market_kinds,
@@ -303,9 +336,11 @@ def create_alternative_markets_tab_extended(
             else None
         )
         if isinstance(active_leagues, list):
+            active_start = active_scope.get("date", search_date.isoformat())
+            active_end = active_scope.get("end_date", active_start)
             st.caption(
-                f"Aktiver Auftrag: {len(active_leagues)} Ligen am "
-                f"{active_scope.get('date', search_date.isoformat())}."
+                f"Aktiver Auftrag: {len(active_leagues)} Ligen · "
+                f"{active_start} bis {active_end}."
             )
         scan_progress_fragment(job_key, "Markt-Scan")
     elif job["state"] == "done":
@@ -319,6 +354,10 @@ def create_alternative_markets_tab_extended(
             "shortlist": challenge_snapshot.get("shortlist", [])[:3],
             "fixtures_found": challenge_snapshot.get("fixtures_found", 0),
             "fixtures_modeled": challenge_snapshot.get("fixtures_modeled", 0),
+            "deferred_context_fixtures": challenge_snapshot.get(
+                "deferred_context_fixtures",
+                0,
+            ),
             "continental_fixtures_found": challenge_snapshot.get(
                 "continental_fixtures_found", 0
             ),
@@ -353,7 +392,7 @@ def create_alternative_markets_tab_extended(
 
     snapshot = st.session_state.get("market_bet_finder_snapshot")
     if not isinstance(snapshot, dict):
-        st.info(f"Noch keine Suche für {market_scope} an diesem Spieltag.")
+        st.info(f"Noch keine Suche für {market_scope} in diesem Zeitraum.")
         return
     if snapshot.get("version") != MARKET_SNAPSHOT_VERSION:
         st.warning("Dieses Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
@@ -376,7 +415,7 @@ def create_alternative_markets_tab_extended(
     result_day = _market_result_day_label(snapshot)
     st.caption(
         f"Datenstand: {_format_snapshot_time(snapshot.get('scanned_at'))} · "
-        f"Spieltag: {result_day}"
+        f"Zeitraum: {result_day}"
     )
     shortlist = snapshot.get("shortlist")
     shortlist = shortlist if isinstance(shortlist, list) else []
@@ -411,6 +450,12 @@ def create_alternative_markets_tab_extended(
         summary[0].metric("Gefunden", snapshot.get("fixtures_found", 0))
         summary[1].metric("Modelliert", snapshot.get("fixtures_modeled", 0))
         summary[2].metric("Freigegeben", len(shortlist))
+        deferred_context = int(snapshot.get("deferred_context_fixtures") or 0)
+        if deferred_context:
+            st.caption(
+                f"{deferred_context} spätere Spiele wurden modelliert, aber noch nicht "
+                "ohne belastbaren Pflichtkontext freigegeben."
+            )
         continental = int(snapshot.get("continental_fixtures_found") or 0)
         if continental:
             st.caption(
