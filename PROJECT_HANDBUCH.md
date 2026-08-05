@@ -9,14 +9,15 @@
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor dem Ultra-Audit vom 5. August | `23b93c2` |
-| Fachlicher Kernstand | Ultra-Audit plus sportzentraler Wettfinder und vereinfachte Navigation |
-| Verifizierter VPS-Funktionsstand | `origin/main` per Fast-Forward; Dienst und HTTPS am 5. August geprüft |
+| Aktueller Produktionscommit | `bc6b97e` (`Extend multi-day search across sports`) |
+| Fachlicher Kernstand | Ultra-Audit plus sportzentraler Wettfinder, automatische Tagesauswahl und sportübergreifende Mehrtagessuche |
+| Verifizierter VPS-Funktionsstand | `bc6b97e`; App und Wettfinder-Timer aktiv, HTTPS 200 und 0 fehlgeschlagene systemd-Units am 5. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 612 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 632 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -57,6 +58,14 @@ prüfen nur bereits gespeicherte Kandidaten-Fixtures im Zwei-Stunden-Fenster
 vor dem Anpfiff. Die ältere Browser-Nachprüfung bleibt zusätzlich auf höchstens
 zwölf ausgewählte Ligen begrenzt, solange die 15K-Seite offen ist.
 
+Die manuelle `Eigene Suche` ist nicht auf Fußball beschränkt. Fußball, Tennis,
+Basketball, Eishockey, Cricket und E-Sport verwenden denselben Zeitraum:
+`Heute`, `3 Tage voraus`, `7 Tage voraus` oder `14 Tage voraus`; Standard sind
+sieben Tage. Das Ende bedeutet jeweils den Kalendertag in Europe/Zurich und
+wird inklusive durchsucht. Alle gefundenen Termine werden zunächst
+preisunabhängig erfasst. Eine Terminliste allein ist aber keine Empfehlung:
+Sport-/Marktpfade ohne validiertes Prematch-Modell bleiben fail-closed.
+
 Eine niedrige Quote ist kein Sicherheitsbeweis. Die Quote darf das Modell nicht
 erzeugen, bleibt aber nach Entfernung der Buchmachermarge ein wichtiger
 Marktbenchmark und der tatsächlich bezahlte Preis.
@@ -94,6 +103,12 @@ deutlich ehrlicher als zuvor:
   Tagespool. Danach werden nur konkrete Kandidaten-Fixtures kurz vor Anpfiff
   mit H2H, Ausfällen, Wetter und Aufstellungen aktualisiert. Öffentlich
   erscheinen weiterhin quotenfrei höchstens drei noch nicht gestartete Events.
+- Die automatische Tagesauswahl ist direkt im Wettfinder sichtbar. Sie nennt
+  Zieldatum, Zeitpunkt des letzten echten 51-Ligen-Vollscans, gefundene und
+  modellierte Spiele sowie die Zahl bestandener Fußball-Auswahlen. Ein leerer
+  Fußball-Pool wird nicht als fehlender Scan dargestellt.
+- Die manuelle Suche kann für alle sechs Sportarten bis 14 Tage voraus laufen;
+  Ergebnis-Caches sind an Sport, Filter, Start- und Enddatum gebunden.
 
 Trotzdem ist **kein Markt als profitabel bewiesen**. Testgrün beweist
 Softwareverträge, nicht Wettvorteil. Echtgeldfreigaben bleiben von sauberer
@@ -229,6 +244,48 @@ Mindestquote = (1 + 0,03) / konservatives p
   Profitabilitätsbeweis. Aktuelle Versionszähler können nach dem Wechsel wieder
   bei null beginnen; alte Daten bleiben Historie und werden nicht umetikettiert.
 
+### Automatische Auswahl und Mehrtagessuche vom 5. August 2026
+
+- Der persistierte VPS-Wettfinder ist jetzt im Produkt sichtbar. Sein Artefakt
+  wird vor der Anzeige erneut auf Version, aktuelle Preis-Policy,
+  Preisunabhängigkeit, zukünftigen Startzeitpunkt und höchstens drei Kandidaten
+  geprüft. Nur `PRICE_REQUIRED`-Zeilen ohne eingebettete Buchmacherquote werden
+  übernommen.
+- Die Anzeige trennt den Zielspieltag vom Zeitpunkt des letzten Vollscans.
+  `Letzter Vollscan` stammt aus `last_discovery_at`, nicht aus einem späteren
+  Artefakt-Refresh. Dadurch kann ein Kontextlauf nicht fälschlich wie eine neue
+  51-Ligen-Discovery aussehen.
+- Die gemeinsame manuelle Zeitraumwahl umfasst Fußball, Tennis, Basketball,
+  Eishockey, Cricket und E-Sport. Erlaubt sind heute sowie 3, 7 oder 14 Tage
+  voraus. Umgekehrte oder längere Intervalle werden zentral abgelehnt.
+- Fußball lädt und modelliert alle Fixtures der ausgewählten 51 Ligen im
+  Zeitraum. Teure Live-Kontexte bleiben auf die aussichtsreichsten Kandidaten
+  begrenzt und werden nicht für chancenlose Rohtermine verschwendet.
+- Tennis führt den bestehenden täglichen, zeitlich sauberen Modelllauf für
+  jeden Kalendertag des Intervalls einzeln aus. Anzeige und Datenbankabfrage
+  verwenden dieselben inklusiven Start-/Endgrenzen.
+- Basketball lädt kommende NBA-Termine tageweise über ESPN und den
+  EuroLeague-Spielplan über die offizielle EuroLeague-API. Eishockey verwendet
+  den offiziellen wöchentlichen NHL-Spielplan. Alle Termine werden vor der
+  Anzeige auf Europe/Zurich und das gewählte Intervall begrenzt.
+- Cricket unterstützt kommende Termine über den konfigurierten RapidAPI-
+  beziehungsweise CricketData-Pfad. Ohne Schlüssel oder gültige Abdeckung
+  bleibt die Ausgabe leer und nennt den Providerfehler; es werden keine
+  Begegnungen erfunden.
+- E-Sport paginiert PandaScore-Termine bis zur Intervallgrenze. Die
+  Datumsfilterung erfolgt vor teuren Teamhistorien. Pro Spieltyp werden nur die
+  drei zeitlich nächsten Begegnungen tief modelliert; weitere echte Termine
+  bleiben als Spielplan sichtbar, werden aber nicht als modelliert ausgegeben.
+- Kommende Basketball- und NHL-Spiele werden gefunden, erhalten aber noch
+  keine Prematch-Wettempfehlung: Die vorhandenen validierten Rechenpfade sind
+  live-score-/clock-abhängig. Cricket besitzt weiterhin keinen validierten
+  Kandidatenkern. Diese Grenzen sind bewusst fail-closed.
+- Produktionsnachweis im normalen Microsoft Edge: `E-Sport`, `3 Tage voraus`,
+  `CS2` lieferte am 5. August 100 kommende Ereignisse, davon 3 mit
+  Teamhistorie modelliert, Quelle PandaScore. Der direkte VPS-Providerlauf
+  benötigte 1,68 Sekunden. Die Oberfläche zeigte danach die quotenfreie
+  Prognose samt Shadow-Blocker und Mindestquote korrekt an.
+
 ### Jobs, Sitzungen und Challenge
 
 - Jobs besitzen Sitzungs-Scope, Generation-ID, Stillstands-Timeout und atomare
@@ -346,9 +403,13 @@ Mindestquote = (1 + 0,03) / konservatives p
 - Die früheren Seiten `Spiele`, `Märkte`, `Wett-Check`, `Multi-Sport` und
   `Tennis` sind aus der Navigation entfernt. Ihre fachlichen Funktionen liegen
   jetzt im gemeinsamen Wettfinder oder in `Meine Tipps`.
-- Der Wettfinder beginnt mit der Sportart. Fußball ergänzt Spieltag und
-  Wettart; Tennis verwendet denselben Spieltag; Basketball, Eishockey und
-  E-Sport öffnen direkt ihren passenden Finder.
+- Der Wettfinder zeigt zuerst die automatische, persistierte Tagesauswahl samt
+  dezentem Zeitpunkt des letzten echten Vollscans. Danach folgt die manuelle
+  `Eigene Suche`.
+- Die manuelle Suche beginnt mit Sportart und Zeitraum. Fußball, Tennis,
+  Basketball, Eishockey, Cricket und E-Sport teilen `Heute`, `3 Tage voraus`,
+  `7 Tage voraus` und `14 Tage voraus`; sieben Tage sind der Standard.
+  Sportartspezifische Felder erscheinen erst danach und bleiben flach.
 - Die Fußball-Wettarten `Beste Märkte`, `Ergebnis`, `Tore`, `Beide treffen`,
   `Ecken` und `Karten` filtern den vollständigen Kandidatenpool vor der
   Kontext-Shortlist. Es handelt sich nicht nur um einen Anzeige-Filter auf
@@ -374,7 +435,7 @@ Mindestquote = (1 + 0,03) / konservatives p
 
 | Bereich | Zweck | Aktueller Status |
 |---|---|---|
-| Wettfinder | Fußball, Tennis, Basketball, Eishockey und E-Sport; Fußball inklusive BTTS, Ergebnis, Tore, Ecken und Karten | je Modell `RESEARCH`/`SHADOW`/`RELEASED`; maximal drei Kandidaten und Inline-Preischeck |
+| Wettfinder | Fußball, Tennis, Basketball, Eishockey, Cricket und E-Sport; gemeinsamer Suchhorizont bis 14 Tage; Fußball inklusive BTTS, Ergebnis, Tore, Ecken und Karten | je Modell `RESEARCH`/`SHADOW`/`RELEASED`; maximal drei Empfehlungen und Inline-Preischeck; zusätzliche Termine sind keine Tipps |
 | Live | BTTS, Resttor, Teamtor | `RESEARCH`; bis unabhängige Live-Kalibrierung blockiert |
 | 15K | bis zu drei Legs, Zielquote 2,00-3,00 | nur Shadow-Tickets; weiterhin sehr hohes Risiko |
 | Meine Tipps | aktive preisgeprüfte Tipps sowie Fußball-/15K-/Tennis-Verlauf | sitzungsisoliert; Research und No-Bet werden nicht als Tipp gespeichert |
@@ -406,15 +467,19 @@ Konkrete Blockaden:
 | `my_tips.py` | aktive Tipps, manueller Abschluss und gemeinsame Verlaufsnavigation |
 | `ev_signal_sources.py` | versionsgebundener Signalvertrag aus Punkt-p, Haircut und Evidenzstufe |
 | `wettfinder_automation.py` | tägliche 51-Ligen-Discovery, Fixture-Kontext-Refresh und quotenfreie Top-3-Verdichtung |
+| `alternative_markets_tab_extended.py` | Fußball-Wettarten und manuelle Intervallsuche bis 14 Tage |
 | `scan_jobs.py` | sitzungsgebundene Hintergrundjobs |
 | `challenge_15k.py` | Challenge-Workflow und UI |
 | `challenge_store.py` | Challenge-Ledger und Transaktionen |
 | `shadow_clv_automation.py` | Fußball-Shadow, Closing und Settlement |
 | `clv_tracker.py` | versionsmarkierter CLV-Ledger |
-| `tennis/*` | Tennis-Modell, Kalibrierung und Shadow |
+| `tennis_tab.py`, `tennis/*` | Tennis-Intervallsuche, Modell, Kalibrierung und Shadow |
 | `esports_shadow.py` | E-Sport-Evidenz und Release-Status |
 | `redcard_signal_log.py` | Rotkarten-Shadow und Settlement |
-| `multi_sport_recommendations.py` | Basketball-, NHL- und E-Sport-Kandidaten |
+| `multi_sport_recommendations.py` | fail-closed Basketball-, NHL-, Cricket- und E-Sport-Kandidatenlogik |
+| `scanners/basketball_scanner.py` | NBA-, EuroLeague- und NHL-Spielpläne sowie bestehende Live-Daten |
+| `scanners/cricket_scanner.py` | kommende Cricket-Termine und bestehende Live-Daten |
+| `scanners/esports_scanner.py` | PandaScore-Spielpläne, Paginierung und begrenzte Teamhistorien |
 | `scripts/run_football_shadow_due.py` | API-schonender Football-Fälligkeitsrunner |
 | `scripts/backup_runtime_databases.py` | SQLite-Backup, Restore-Prüfung und Retention |
 | `deploy/systemd/*` | App-, Worker- und Timer-Units |
@@ -486,17 +551,18 @@ visualisieren, aber niemals als realistische oder sichere Challenge verkaufen.
 
 ## 7. Shadow- und Evidenzstand
 
-Kanonischer VPS-Snapshot nach Migration und ersten Produktionsläufen am
-2. August 2026:
+Kanonischer VPS-Evidenzstand mit ausdrücklich datierten Prüfpunkten. Die
+Zähler verschiedener Modelle wurden nicht künstlich auf denselben Zeitpunkt
+umetikettiert:
 
 | Bereich | Stand | Fachliche Aussage |
 |---|---|---|
-| Fußball CLV | bestehender Verlauf migriert; 58 neue Fixtures geplant, 12 in den ersten drei VPS-Läufen bewertet, 0 Picks | Läufe fehlerfrei; kein CLV-/ROI-Urteil möglich |
-| Tennis aktuelle DB | 144 Predictions, 38 abgerechnet, 0 Picks der aktuellen Policy | Brier 0,2382; kein Closing-Benchmark, keine Price-Evidence |
+| Fußball CLV, Stand 02.08. | bestehender Verlauf migriert; 58 neue Fixtures geplant, 12 in den ersten drei VPS-Läufen bewertet, 0 Picks | Läufe fehlerfrei; kein CLV-/ROI-Urteil möglich |
+| Tennis aktuelle DB, Stand 02.08. | 144 Predictions, 38 abgerechnet, 0 Picks der aktuellen Policy | Brier 0,2382; kein Closing-Benchmark, keine Price-Evidence |
 | Tennis Policy-Replay 2021-22 | 195 ATP-Hard-Picks, +2,45 % ROI, 95 % −22,33 bis +27,23 % | Hypothese; Intervall enthält null |
 | Tennis Policy-Replay 2023-24 | 142 ATP-Hard-Picks, +9,78 % ROI, 95 % −19,52 bis +39,09 % | späteres Fenster ebenfalls nicht beweiskräftig |
-| E-Sport | 32 Predictions, 18 abgerechnet, 13 Treffer, 14 offen | Roh-Trefferquote 72,2 % bei kleiner Stichprobe; keine Echtgeldfreigabe |
-| E-Sport risikoadjustiert | Ø p 37,4 %, Brier 0,3188 | keine Opening-/Closing-Price-Evidence; Release bleibt gesperrt |
+| E-Sport, Stand 05.08. | 58 Prematch-Prognosen, 20 abgerechnet, 13 Treffer, 37 offen, 1 void | Roh-Trefferquote 65,0 % bei sehr kleiner Stichprobe; keine Echtgeldfreigabe |
+| E-Sport risikoadjustiert, Stand 05.08. | Ø p 37,1 %, Brier 0,3041; Kalibrierungsabstand 27,9 Prozentpunkte | 20/300 Fälle; keine Opening-/Closing-Price-Evidence; Release bleibt gesperrt |
 | Rotkarten-Live | 0 unabhängige Shadow-Signale | keine Freigabe |
 | Rotkarten-Historie | 1.199 Fälle aus 7.010 Spielen; Backlog 2.011 | Entwicklungsdaten, kein unabhängiger Holdout |
 | 15K | keine belastbare Echtgeldhistorie | kein Erfolgsnachweis |
@@ -523,7 +589,7 @@ Konfidenzgrenzen von CLV und Rendite überzeugen. ROI allein reicht nicht.
 
 | VPS-Automation | Zeitplan Europe/Zurich | Verifizierter Status |
 |---|---|---|
-| Automatischer Wettfinder | alle 30 Minuten um Minute 07/37 | Fußball-Discovery einmal je Zieldatum über 51 Ligen; danach nur exakte Kandidaten-Fixtures |
+| Automatischer Wettfinder | alle 30 Minuten um Minute 07/37 | Fußball-Discovery einmal je Zieldatum über 51 Ligen; danach nur exakte Kandidaten-Fixtures; Status und Top-Auswahl im Wettfinder sichtbar |
 | Fußball Shadow/CLV | Fälligkeitsprüfung alle 10 Minuten | erfolgreich; maximal 60 fällige Fixtures |
 | Rotkarten-Settlement | alle 30 Minuten | erfolgreich; aktuell 0 offene Signale |
 | E-Sport Shadow | täglich 08:23 | Scan und Settlement einmal täglich |
@@ -540,6 +606,21 @@ E-Sport-Shadowlauf. Der direkte Folgelauf brauchte rund drei Sekunden, meldete
 `daily_discovery_current` und `context_status=not_due` und verbrauchte keinen
 weiteren API-Football-Aufruf. Das verifiziert den Scheduling-Vertrag, nicht die
 Profitabilität eines Modells.
+
+Erneute Produktionsverifikation am 5. August 2026: Artefaktversion 3 war um
+11:37 Europe/Zurich aktuell und bezog sich auf den 5. August. Der letzte echte
+51-Ligen-Vollscan stammte von 01:49, fand 13 Spiele, modellierte alle 13 und
+gab 0 Fußball-Auswahlen frei. Der kombinierte öffentliche Pool enthielt drei
+noch nicht gestartete E-Sport-Shadow-Kandidaten. Die UI zeigt diese Tatsachen
+getrennt: `Letzter Vollscan`, `51/51 Ligen geprüft`, gefunden, modelliert und
+Fußball-Auswahlen. Die exakte N1Bet-Quote bleibt anschließend manuell.
+
+Die neue 14-Tage-Auswahl ist ein **manueller Prematch-Suchbereich**, kein neuer
+stündlicher Vollscan aller Sportarten. Automatisiert laufen derzeit Fußball,
+Tennis und E-Sport gemäß Tabelle. Basketball, NHL und Cricket besitzen zwar
+echte kommende Spielpläne im Finder, aber noch keinen automatisierten
+Prematch-Evidenzlauf, weil dafür zuerst ein validierter Modell- und
+Settlementvertrag benötigt wird.
 
 Alle sieben Timer und `betboy-app.service` sind in systemd `enabled`; nach
 einem Neustart laufen sie ohne Benutzeraktion weiter. Der automatische
@@ -577,6 +658,20 @@ API-Football wurde vom VPS live gegen den Provider geprüft:
 API-Football ist die zentrale Quelle für Fixtures, Ergebnisse, Live-Daten,
 Kontext, Statistiken und Referenzquoten. Das Abo liefert Datenqualität und
 Abdeckung, aber keinen garantierten Wettvorteil.
+
+Weitere Prematch-Provider, geprüft am 5. August 2026:
+
+| Sport | Quelle | Produktionsstand |
+|---|---|---|
+| E-Sport | PandaScore | Schlüssel vorhanden; CS2-Dreitagesfenster live verifiziert |
+| Basketball NBA | ESPN Scoreboard | schlüssellos; kommende Termine werden tageweise geladen |
+| Basketball EuroLeague | offizielle EuroLeague-API | schlüssellos; Saisonspielplan wird datumsgefiltert |
+| Eishockey NHL | offizielle NHL Schedule API | schlüssellos; Wochenpläne werden bis zum Enddatum verfolgt |
+| Cricket | RapidAPI Cricbuzz oder CricketData | aktuell kein Schlüssel auf Produktion; Finder bleibt transparent leer |
+
+Providerabdeckung und Modellfreigabe sind getrennt. Ein korrekt geladener
+NBA-, EuroLeague-, NHL- oder Cricket-Termin beweist weder eine kalibrierte
+Wahrscheinlichkeit noch einen Wettvorteil.
 
 Ein separater football-data.org-Schlüssel ist im aktuellen Produktionspfad
 nicht nötig. Historische CSV-Daten kommen überwiegend von
@@ -637,7 +732,7 @@ VPS-Härtung, verifiziert am 2. August 2026:
 Vollständiger Lauf:
 
 ```text
-612 passed
+632 passed
 5 subtests passed
 ```
 
@@ -667,8 +762,14 @@ Zusätzlich verifiziert:
 - Die Hauptnavigation enthält exakt vier Arbeitsbereiche.
 - Der Fußball-Wettartwechsel erreicht einen eigenen Markt-Scope; Ecken und
   BTTS sind keine separaten Seiten mehr.
-- Der Sportwechsel öffnet Tennis, Basketball, Eishockey und E-Sport im
-  gemeinsamen Wettfinder.
+- Der Sportwechsel öffnet Tennis, Basketball, Eishockey, Cricket und E-Sport
+  im gemeinsamen Wettfinder.
+- Fußball, Tennis, Basketball, Eishockey, Cricket und E-Sport zeigen denselben
+  Zeitraumwähler mit `Heute`, `3 Tage voraus`, `7 Tage voraus` und
+  `14 Tage voraus`; Standard ist `7 Tage voraus`.
+- Der gemeinsame Zeitraum und die sportartspezifischen Folgefelder wurden bei
+  1440 Pixel Desktopbreite und 390 Pixel Smartphonebreite ohne horizontalen
+  Überlauf geprüft.
 - Keine sichtbaren Button- oder Label-Überläufe in den geprüften Ansichten.
 - N1Bet-Preisprüfung bleibt direkt am Kandidaten erreichbar; ein bestandener
   Preis wird nur für `BET` oder `SHADOW` unter `Meine Tipps` abgelegt.
@@ -681,7 +782,8 @@ Zusätzlich verifiziert:
 
 Produktionsverifikation des Ultra-Audits am 5. August 2026:
 
-- Auditcode `b30ee1f` wurde per Fast-Forward auf den VPS übernommen;
+- Auditcode `b30ee1f` und die folgenden Produktänderungen bis `bc6b97e` wurden
+  per Fast-Forward auf den VPS übernommen;
   `betboy-app.service` ist aktiv, HTTPS antwortet mit 200, null systemd-Units
   sind fehlgeschlagen und alle sieben Timer sind geladen.
 - Der erzwungene Wettfinderlauf endete erfolgreich nach rund 101 Sekunden und
@@ -692,6 +794,11 @@ Produktionsverifikation des Ultra-Audits am 5. August 2026:
   fehlende Kalenderspiele ausgegeben.
 - Fußball-Wettfinder und `15K` zeigen in Smartphone und Tablet jeweils
   `Alle (51)`. Kein Buttontext lief aus seinem Container.
+- Der echte Produktionslauf `E-Sport` / `3 Tage voraus` / `CS2` zeigte
+  100 anstehende Ereignisse, 3 tief modellierte Teamhistorien, PandaScore als
+  Quelle und anschließend eine quotenfreie Prognose mit Shadow-Blocker. Der
+  Test lief in der installierten Microsoft-Edge-Engine, nicht in einer
+  Browsererweiterung.
 
 ## 12. Offene Prioritäten
 
@@ -726,9 +833,16 @@ Produktionsverifikation des Ultra-Audits am 5. August 2026:
 8. Wettergrenzen und die Kombi-Abschläge `0,97` beziehungsweise `0,985` per
    vorregistrierter Ablation prüfen; bis dahin bleiben sie konservative
    Heuristiken und keine geschätzten Korrelationen.
-9. Vor einer späteren Tennis-, E-Sport-, Basketball-, NHL- oder Rotkarten-
-   Freigabe pro Sport und Markt eigene Kalibrierung, No-Vig-Benchmark, CLV,
-   Renditeintervall und korrektes Settlement nachweisen.
+9. Vor einer späteren Tennis-, E-Sport-, Basketball-, NHL-, Cricket- oder
+   Rotkarten-Freigabe pro Sport und Markt eigene Kalibrierung,
+   No-Vig-Benchmark, CLV, Renditeintervall und korrektes Settlement nachweisen.
+10. Für Basketball, NHL und Cricket eigene leak-freie Prematch-Modelle bauen.
+    Die vorhandenen Basketball-/NHL-Rechenpfade benötigen Live-Score und Uhr
+    und dürfen nicht durch Nullstände in scheinbare Prematch-Modelle verwandelt
+    werden.
+11. Erst nach einem validierten Modell- und Settlementvertrag die tägliche
+    automatische Auswahl auf weitere Sportarten ausdehnen. Reines regelmäßiges
+    Laden von Spielplänen ohne Wettkandidaten ist kein Produktziel.
 
 ### P2 - Betrieb
 
@@ -739,6 +853,9 @@ Produktionsverifikation des Ultra-Audits am 5. August 2026:
 3. Systemd-, Backup- und Quota-Fehler an einen externen Kanal alarmieren.
 4. Bei einer Änderung des API-Plans die drei Budgetreserven bewusst neu
    festlegen und testen.
+5. Ein Cricket-Datenabo erst aktivieren, wenn das Prematch-Modell definiert ist
+   und ein Coverage-Test den konkreten Mehrwert gegenüber den vorhandenen
+   Quellen belegt.
 
 ## 13. Betrieb und Übergabe
 
@@ -755,6 +872,7 @@ URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
+Verifizierter Commit: bc6b97e
 ```
 
 Update nach einem Push:
