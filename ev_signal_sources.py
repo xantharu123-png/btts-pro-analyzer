@@ -59,6 +59,10 @@ class ModelSignal:
     scheduled_start: Optional[str] = None
     minimum_odds: Optional[float] = None
     source: str = "persisted_model"
+    sport: Optional[str] = None
+    event_label: Optional[str] = None
+    market: Optional[str] = None
+    selection: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not _valid_probability(self.probability):
@@ -82,6 +86,22 @@ class ModelSignal:
             raise ValueError("Model signal minimum odds are invalid")
         if not str(self.source).strip():
             raise ValueError("Model signal source is required")
+
+
+@dataclass(frozen=True)
+class AutomatedWettfinderStatus:
+    """Validated scan facts shown next to the automated recommendations."""
+
+    generated_at: datetime
+    target_search_date: Optional[str]
+    football_search_date: Optional[str]
+    last_discovery_at: Optional[datetime]
+    football_status: str
+    discovery_scope: int
+    fixtures_found: int
+    fixtures_modeled: int
+    approved_candidates: int
+    candidate_count: int
 
 
 def _valid_probability(value: object) -> bool:
@@ -467,6 +487,106 @@ def football_signals(
     return signals
 
 
+def _non_negative_int(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    return number if number >= 0 else 0
+
+
+def _load_automated_wettfinder_document(
+    path: Union[str, Path] = AUTOMATED_WETTFINDER_PATH,
+    *,
+    now: Optional[datetime] = None,
+    max_age: timedelta = AUTOMATED_WETTFINDER_MAX_AGE,
+) -> Optional[tuple[dict, datetime, list]]:
+    """Load one fresh, policy-compatible systemd artifact."""
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    try:
+        document = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    if (
+        not isinstance(document, dict)
+        or document.get("version") != AUTOMATED_WETTFINDER_VERSION
+        or document.get("betting_policy_version") != BETTING_POLICY_VERSION
+        or document.get("bookmaker_data_used") is not False
+        or document.get("quote_required") is not True
+    ):
+        return None
+    generated = _parse_iso(document.get("generated_at"))
+    if generated is None or generated.tzinfo is None:
+        return None
+    generated = generated.astimezone(timezone.utc)
+    age = current - generated
+    if age.total_seconds() < 0 or age > max_age:
+        return None
+    candidates = document.get("candidates")
+    if not isinstance(candidates, list) or len(candidates) > 3:
+        return None
+    return document, generated, candidates
+
+
+def automated_wettfinder_status(
+    path: Union[str, Path] = AUTOMATED_WETTFINDER_PATH,
+    *,
+    now: Optional[datetime] = None,
+    max_age: timedelta = AUTOMATED_WETTFINDER_MAX_AGE,
+) -> Optional[AutomatedWettfinderStatus]:
+    """Return validated scan facts even when no market passed every gate."""
+    loaded = _load_automated_wettfinder_document(
+        path,
+        now=now,
+        max_age=max_age,
+    )
+    if loaded is None:
+        return None
+    document, generated, candidates = loaded
+    football = document.get("football")
+    if not isinstance(football, dict):
+        football = {}
+    sources = document.get("sources")
+    football_source = sources.get("football") if isinstance(sources, dict) else {}
+    if not isinstance(football_source, dict):
+        football_source = {}
+    last_discovery = _parse_iso(football.get("last_discovery_at"))
+    if last_discovery is not None:
+        if last_discovery.tzinfo is None:
+            last_discovery = None
+        else:
+            last_discovery = last_discovery.astimezone(timezone.utc)
+    return AutomatedWettfinderStatus(
+        generated_at=generated,
+        target_search_date=(
+            str(document.get("target_search_date"))
+            if document.get("target_search_date")
+            else None
+        ),
+        football_search_date=(
+            str(football.get("search_date"))
+            if football.get("search_date")
+            else None
+        ),
+        last_discovery_at=last_discovery,
+        football_status=str(football.get("status") or "unknown"),
+        discovery_scope=_non_negative_int(
+            football_source.get("discovery_scope")
+        ),
+        fixtures_found=_non_negative_int(football.get("fixtures_found")),
+        fixtures_modeled=_non_negative_int(football.get("fixtures_modeled")),
+        approved_candidates=_non_negative_int(
+            football.get("approved_candidates")
+        ),
+        candidate_count=len(candidates),
+    )
+
+
 def automated_wettfinder_signals(
     path: Union[str, Path] = AUTOMATED_WETTFINDER_PATH,
     *,
@@ -478,28 +598,14 @@ def automated_wettfinder_signals(
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     current = current.astimezone(timezone.utc)
-    try:
-        document = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
+    loaded = _load_automated_wettfinder_document(
+        path,
+        now=current,
+        max_age=max_age,
+    )
+    if loaded is None:
         return []
-    if (
-        not isinstance(document, dict)
-        or document.get("version") != AUTOMATED_WETTFINDER_VERSION
-        or document.get("betting_policy_version") != BETTING_POLICY_VERSION
-        or document.get("bookmaker_data_used") is not False
-        or document.get("quote_required") is not True
-    ):
-        return []
-    generated = _parse_iso(document.get("generated_at"))
-    if generated is None or generated.tzinfo is None:
-        return []
-    generated = generated.astimezone(timezone.utc)
-    age = current - generated
-    if age.total_seconds() < 0 or age > max_age:
-        return []
-    candidates = document.get("candidates")
-    if not isinstance(candidates, list) or len(candidates) > 3:
-        return []
+    _document, _generated, candidates = loaded
 
     signals: List[ModelSignal] = []
     current_policies = _current_automated_policies()
@@ -539,6 +645,10 @@ def automated_wettfinder_signals(
         key = str(row.get("key") or "").strip()
         label = str(row.get("label") or "").strip()
         detail = str(row.get("detail") or "").strip()
+        sport = str(row.get("sport") or "").strip() or None
+        event_label = str(row.get("event") or "").strip() or label
+        market = str(row.get("market") or "").strip() or "Auswahl"
+        selection = str(row.get("selection") or "").strip() or label
         stage = str(row.get("evidence_stage") or "").upper()
         policy = str(row.get("policy_version") or "").strip()
         if (
@@ -563,6 +673,10 @@ def automated_wettfinder_signals(
                     ),
                     minimum_odds=float(supplied_minimum),
                     source="automated_wettfinder",
+                    sport=sport,
+                    event_label=event_label,
+                    market=market,
+                    selection=selection,
                 )
             )
         except ValueError:

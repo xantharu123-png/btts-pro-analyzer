@@ -13,6 +13,7 @@ from esports_shadow import ESPORTS_MODEL_VERSION
 from ev_signal_sources import (
     AUTOMATED_WETTFINDER_VERSION,
     automated_wettfinder_signals,
+    automated_wettfinder_status,
     esports_signals,
     list_signals,
     tennis_model_signals,
@@ -425,10 +426,24 @@ class ListSignalsTests(unittest.TestCase):
                         "betting_policy_version": BETTING_POLICY_VERSION,
                         "bookmaker_data_used": False,
                         "quote_required": True,
+                        "target_search_date": "2030-01-01",
+                        "football": {
+                            "status": "completed",
+                            "search_date": "2030-01-01",
+                            "last_discovery_at": "2030-01-01T09:45:00+00:00",
+                            "fixtures_found": 13,
+                            "fixtures_modeled": 12,
+                            "approved_candidates": 1,
+                        },
+                        "sources": {"football": {"discovery_scope": 51}},
                         "candidates": [
                             {
                                 "key": "tennis-auto-1",
                                 "label": "Tennis - A vs B - Sieg A",
+                                "sport": "Tennis",
+                                "event": "A vs B",
+                                "market": "Match Winner",
+                                "selection": "Sieg A",
                                 "probability": 0.60,
                                 "probability_haircut": 0.08,
                                 "minimum_odds": minimum_odds,
@@ -448,9 +463,59 @@ class ListSignalsTests(unittest.TestCase):
                 artifact,
                 now=datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc),
             )
+            status = automated_wettfinder_status(
+                artifact,
+                now=datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc),
+            )
         self.assertEqual(len(signals), 1)
         self.assertEqual(signals[0].source, "automated_wettfinder")
         self.assertEqual(signals[0].minimum_odds, 1.99)
+        self.assertEqual(signals[0].event_label, "A vs B")
+        self.assertEqual(signals[0].market, "Match Winner")
+        self.assertEqual(signals[0].selection, "Sieg A")
+        self.assertIsNotNone(status)
+        self.assertEqual(status.discovery_scope, 51)
+        self.assertEqual(status.fixtures_found, 13)
+        self.assertEqual(status.fixtures_modeled, 12)
+        self.assertEqual(status.approved_candidates, 1)
+
+    def test_automatic_status_survives_an_empty_recommendation_list(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            artifact.write_text(
+                json.dumps(
+                    {
+                        "version": AUTOMATED_WETTFINDER_VERSION,
+                        "generated_at": "2030-01-01T10:00:00+00:00",
+                        "betting_policy_version": BETTING_POLICY_VERSION,
+                        "bookmaker_data_used": False,
+                        "quote_required": True,
+                        "target_search_date": "2030-01-01",
+                        "football": {
+                            "status": "completed",
+                            "search_date": "2030-01-01",
+                            "last_discovery_at": "2030-01-01T09:45:00+00:00",
+                            "fixtures_found": 13,
+                            "fixtures_modeled": 13,
+                            "approved_candidates": 0,
+                        },
+                        "sources": {"football": {"discovery_scope": 51}},
+                        "candidates": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            status = automated_wettfinder_status(
+                artifact,
+                now=datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc),
+            )
+        self.assertIsNotNone(status)
+        self.assertEqual(status.discovery_scope, 51)
+        self.assertEqual(status.fixtures_found, 13)
+        self.assertEqual(status.fixtures_modeled, 13)
+        self.assertEqual(status.candidate_count, 0)
 
     def test_automatic_artifact_rejects_stale_or_started_candidates(self):
         import json

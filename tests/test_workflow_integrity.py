@@ -18,6 +18,7 @@ from alternative_markets_tab_extended import (
 )
 from api_football import APIFootball
 from config_loader import AppConfig
+from ev_signal_sources import ModelSignal
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from red_card_bot import RED_CARD_MONITORED_LEAGUE_IDS, RedCardBotEnhanced
 
@@ -31,6 +32,44 @@ class _ProgressStub:
 
     def caption(self, _value):
         return None
+
+
+def test_automatic_server_signal_becomes_a_price_check_candidate():
+    signal = ModelSignal(
+        key="server-1",
+        label="A vs B: Sieg A",
+        probability=0.65,
+        probability_haircut=0.05,
+        evidence_stage="SHADOW",
+        policy_version=BETTING_POLICY_VERSION,
+        detail="Servermodell",
+        scheduled_start="2030-01-01T15:00:00+00:00",
+        minimum_odds=1.72,
+        source="automated_wettfinder",
+        sport="Fußball",
+        event_label="A vs B",
+        market="Doppelte Chance",
+        selection="1X",
+    )
+
+    candidate = app._automated_signal_candidate(signal)
+
+    assert candidate.event_key == "server-1"
+    assert candidate.sport == "Fußball"
+    assert candidate.event_label == "A vs B"
+    assert candidate.market == "Doppelte Chance"
+    assert candidate.selection == "1X"
+    assert candidate.model_probability == 65.0
+    assert candidate.risk_adjusted_probability == 60.0
+    assert candidate.minimum_odds == 1.72
+
+
+def test_automatic_target_label_uses_the_actual_scan_date(monkeypatch):
+    monkeypatch.setattr(app, "zurich_today", lambda: date(2030, 1, 1))
+
+    assert app._automatic_target_label("2030-01-01") == "Heute"
+    assert app._automatic_target_label("2030-01-02") == "Morgen"
+    assert app._automatic_target_label("2030-01-03") == "03.01.2030"
 
 
 def test_full_league_scans_have_no_confirmation_or_provider_warning():

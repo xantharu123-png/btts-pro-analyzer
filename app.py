@@ -62,11 +62,20 @@ red_card_candidate = _football_recommendations.red_card_candidate
 
 from bet_finder_ui import render_price_decision
 from betting_math import BETTING_POLICY_VERSION
+from ev_signal_sources import (
+    ModelSignal,
+    automated_wettfinder_signals,
+    automated_wettfinder_status,
+)
 from ui_components import plain_german, scan_progress_fragment
 from config_loader import load_app_config
 from date_context import german_date_window, zurich_today
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
-from multi_sport_recommendations import EVIDENCE_RELEASED, build_candidate
+from multi_sport_recommendations import (
+    EVIDENCE_RELEASED,
+    RecommendationCandidate,
+    build_candidate,
+)
 
 
 PAGE_INFO = {
@@ -3086,8 +3095,99 @@ def render_multi_sport(preselected_sport: Optional[str] = None) -> None:
     )
 
 
+def _automated_signal_candidate(signal: ModelSignal) -> RecommendationCandidate:
+    probability = signal.probability * 100.0
+    haircut = signal.probability_haircut * 100.0
+    adjusted = probability - haircut
+    return RecommendationCandidate(
+        event_key=signal.key,
+        sport=signal.sport or "Sport",
+        event_label=signal.event_label or signal.label,
+        market=signal.market or "Auswahl",
+        selection=signal.selection or signal.label,
+        line=None,
+        model_probability=round(probability, 2),
+        risk_adjusted_probability=round(adjusted, 2),
+        probability_haircut=round(haircut, 2),
+        fair_odds=round(100.0 / probability, 3),
+        minimum_odds=signal.minimum_odds,
+        model_name=signal.detail,
+        expected_total=None,
+        evidence=(
+            signal.detail,
+            "Automatischer VPS-Lauf ohne Buchmacherquote.",
+        ),
+        blockers=(
+            ()
+            if signal.minimum_odds is not None
+            else ("Keine belastbare Mindestquote berechenbar.",)
+        ),
+        evidence_stage=signal.evidence_stage,
+    )
+
+
+def _automatic_target_label(value: Optional[str]) -> str:
+    try:
+        target = date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return "Spieltag unbekannt"
+    today = zurich_today()
+    if target == today:
+        return "Heute"
+    if target == today + timedelta(days=1):
+        return "Morgen"
+    return target.strftime("%d.%m.%Y")
+
+
+def _render_automated_daily_selection() -> None:
+    st.subheader("Automatische Tagesauswahl")
+    status = automated_wettfinder_status()
+    signals = automated_wettfinder_signals()
+    if status is None:
+        st.warning("Noch kein aktueller VPS-Tageslauf verfügbar.")
+        return
+
+    target_label = _automatic_target_label(status.target_search_date)
+    scan_time = status.last_discovery_at or status.generated_at
+    if status.football_status == "completed":
+        league_text = f"{status.discovery_scope}/{status.discovery_scope} Ligen geprüft"
+    else:
+        league_text = f"VPS-Lauf {plain_german(status.football_status)}"
+    st.caption(
+        f"{target_label} | Vollscan {_format_stand(scan_time)} | {league_text} | "
+        f"{status.fixtures_found} Spiele gefunden | "
+        f"{status.fixtures_modeled} modelliert | "
+        f"{status.approved_candidates} Fußball-Auswahlen"
+    )
+
+    if not signals:
+        st.info(
+            f"Für {target_label.lower()} besteht aktuell keine automatische Auswahl, "
+            "die alle Modell- und Datengates erfüllt."
+        )
+        return
+
+    by_key = {signal.key: signal for signal in signals}
+    selected_key = st.selectbox(
+        "Vorschlag",
+        list(by_key),
+        format_func=lambda key: by_key[key].label,
+        key="automated_finder_signal",
+    )
+    selected = by_key[selected_key]
+    render_price_decision(
+        _automated_signal_candidate(selected),
+        key=f"automated_{selected.key}",
+        bankroll_key="automated_finder_bankroll",
+        save_source="Automatischer Wettfinder",
+    )
+
+
 def render_wettfinder() -> None:
     """One sport-first entry point for every pre-match finder."""
+    _render_automated_daily_selection()
+    st.divider()
+    st.subheader("Eigene Suche")
     controls = st.columns(3)
     with controls[0]:
         sport = st.selectbox(
