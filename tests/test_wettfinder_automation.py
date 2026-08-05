@@ -14,6 +14,7 @@ from wettfinder_automation import (
     AUTOMATION_VERSION,
     _default_football_scan,
     _football_candidate_record,
+    _signal_record,
     football_context_due_fixture_ids,
     football_due,
     load_state,
@@ -111,6 +112,32 @@ def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
 
 def test_automation_writer_and_reader_share_one_artifact_version():
     assert AUTOMATION_VERSION == AUTOMATED_WETTFINDER_VERSION
+
+
+def test_persisted_model_signal_keeps_event_market_and_selection_separate():
+    signal = ModelSignal(
+        key="esports-1",
+        label="CS2 · Alpha vs Beta · Sieg Alpha",
+        probability=0.65,
+        probability_haircut=0.05,
+        evidence_stage="SHADOW",
+        policy_version="test-policy",
+        detail="Testmodell",
+        scheduled_start="2030-01-01T15:00:00+00:00",
+        minimum_odds=1.72,
+        sport="E-Sport",
+        event_label="CS2 · Alpha vs Beta",
+        market="Match Winner",
+        selection="Sieg Alpha",
+    )
+
+    record = _signal_record(signal)
+
+    assert record is not None
+    assert record["sport"] == "E-Sport"
+    assert record["event"] == "CS2 · Alpha vs Beta"
+    assert record["market"] == "Match Winner"
+    assert record["selection"] == "Sieg Alpha"
 
 
 def test_target_date_switches_at_2300_zurich():

@@ -233,6 +233,10 @@ def tennis_signals(
                 scheduled_start=scheduled.astimezone(timezone.utc).isoformat(),
                 minimum_odds=minimum_odds,
                 source="tennis_shadow",
+                sport="Tennis",
+                event_label=f"{row['player_a']} vs {row['player_b']}",
+                market="Match Winner",
+                selection=f"Sieg {player}",
             )
         )
     return signals
@@ -316,6 +320,10 @@ def tennis_model_signals(
                 scheduled_start=scheduled.isoformat(),
                 minimum_odds=minimum_odds,
                 source="tennis_model",
+                sport="Tennis",
+                event_label=f"{row['player_a']} vs {row['player_b']}",
+                market="Match Winner",
+                selection=f"Sieg {player}",
             )
         )
     return signals
@@ -400,6 +408,10 @@ def esports_signals(
                 scheduled_start=scheduled.isoformat(),
                 minimum_odds=minimum_odds,
                 source="esports_shadow",
+                sport="E-Sport",
+                event_label=f"{row['game']} · {row['team1']} vs {row['team2']}",
+                market="Match Winner",
+                selection=f"Sieg {row['selection']}",
             )
         )
     return signals

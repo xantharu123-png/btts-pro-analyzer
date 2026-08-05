@@ -283,23 +283,28 @@ def _signal_record(signal: ModelSignal) -> Optional[dict[str, Any]]:
     minimum_odds = _minimum_price(probability, haircut)
     if minimum_odds is None:
         return None
-    if signal.key.startswith("tennis-"):
+    if signal.sport:
+        sport = signal.sport
+    elif signal.key.startswith("tennis-"):
         sport = "Tennis"
     elif signal.key.startswith("esports-"):
         sport = "E-Sport"
     else:
         sport = "Modell"
+    event_label = signal.event_label or signal.label
+    market = signal.market or "Match Winner"
+    selection = signal.selection or signal.label
     scheduled = _parse_iso(signal.scheduled_start)
     if signal.scheduled_start is not None and scheduled is None:
         return None
     return {
         "key": signal.key,
         "sport": sport,
-        "event": signal.label,
+        "event": event_label,
         "event_identity": f"{sport.lower()}:{signal.key}",
         "label": signal.label,
-        "market": "Match Winner",
-        "selection": signal.label,
+        "market": market,
+        "selection": selection,
         "probability": probability,
         "probability_haircut": haircut,
         "conservative_probability": conservative,

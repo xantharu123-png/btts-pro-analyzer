@@ -114,6 +114,10 @@ class TennisSignalTests(unittest.TestCase):
         self.assertEqual(side_a.policy_version, TENNIS_POLICY_VERSION)
         self.assertIn("Sieg Spieler A", side_a.label)
         self.assertIn("Test Open", side_a.detail)
+        self.assertEqual(side_a.sport, "Tennis")
+        self.assertEqual(side_a.event_label, "Spieler A vs Spieler B")
+        self.assertEqual(side_a.market, "Match Winner")
+        self.assertEqual(side_a.selection, "Sieg Spieler A")
 
     def test_settled_and_past_matches_are_excluded(self):
         db = _tennis_db(
@@ -239,6 +243,8 @@ class TennisSignalTests(unittest.TestCase):
         self.assertNotIn("Sieg B", signals[0].label)
         self.assertEqual(signals[0].source, "tennis_model")
         self.assertIn("quotenfrei", signals[0].detail)
+        self.assertEqual(signals[0].event_label, "A vs B")
+        self.assertEqual(signals[0].selection, "Sieg A")
 
     def test_model_signal_requires_every_non_price_gate(self):
         import json
@@ -291,6 +297,13 @@ class EsportsSignalTests(unittest.TestCase):
         self.assertAlmostEqual(signals[0].probability, 0.5527)
         self.assertIn("LOL", signals[0].label)
         self.assertIn("Sieg Team Eins", signals[0].label)
+        self.assertEqual(signals[0].sport, "E-Sport")
+        self.assertEqual(
+            signals[0].event_label,
+            "LOL · Team Eins vs Team Zwei",
+        )
+        self.assertEqual(signals[0].market, "Match Winner")
+        self.assertEqual(signals[0].selection, "Sieg Team Eins")
 
     def test_fraction_probability_is_accepted(self):
         db = _esports_db(
