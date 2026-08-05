@@ -1023,7 +1023,7 @@ def _render_sidebar(analyzer) -> str:
         elif analyzer:
             st.markdown(
                 '<div class="bb-status"><span class="bb-dot warn"></span>'
-                "Statistisches Modell aktiv</div>",
+                "Statistikmodell aktiv; ML gesperrt</div>",
                 unsafe_allow_html=True,
             )
         else:

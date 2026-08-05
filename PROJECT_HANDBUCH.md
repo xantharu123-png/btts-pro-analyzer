@@ -10,7 +10,7 @@
 | Branch | `main` |
 | Basis vor dem Ultra-Audit vom 5. August | `23b93c2` |
 | Fachlicher Kernstand | Ultra-Audit: Transfer-Gates und versionsreine Evidenz |
-| Verifizierter VPS-Funktionsstand | wird nach Deployment dieses Auditstands aktualisiert |
+| Verifizierter VPS-Funktionsstand | `origin/main` per Fast-Forward; Dienst und HTTPS am 5. August geprüft |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
@@ -630,12 +630,13 @@ New-Item -ItemType Directory -Path .pytest_tmp -Force
 ```
 
 Edge wurde direkt per Playwright mit der installierten normalen Edge-Engine
-getestet, nicht über den Codex-In-App-Browser:
+getestet, nicht über den Codex-In-App-Browser. Am 5. August wurden alle acht
+Arbeitsbereiche in beiden Viewports erneut einzeln aufgerufen:
 
 | Viewport | Ergebnis |
 |---|---|
-| 390 x 844 | öffentliche VPS-App HTTP 200; kein horizontaler Überlauf; keine Edge-Konsolenfehler |
-| 820 x 1180 | öffentliche VPS-App HTTP 200; kein horizontaler Überlauf; keine Edge-Konsolenfehler |
+| 390 x 844 | HTTP 200; 8/8 Bereiche; 8/8 Navigationsziele; kein horizontaler Überlauf, keine Exception, keine Konsolenfehler |
+| 820 x 1180 | HTTP 200; 8/8 Bereiche; 8/8 Navigationsziele; kein horizontaler Überlauf, keine Exception, keine Konsolenfehler |
 
 Zusätzlich verifiziert:
 
@@ -649,10 +650,25 @@ Zusätzlich verifiziert:
 - Wett-Check: drei Eingaben, Modellabschlag und Ergebnis in beiden Viewports
   erreichbar; keine Streamlit-Exception.
 - Die echte VPS-App zeigt im normalen installierten Microsoft Edge
-  `Statistisches Modell aktiv` und `Live-API aktiv (Pro)`.
+  `Statistikmodell aktiv; ML gesperrt` und `Live-API aktiv (Pro)`. Damit ist
+  das aktive Basismodell nicht mehr mit dem gesperrten optionalen ML verwechselt.
 - HTTPS liefert 200, HTTP leitet permanent auf HTTPS um.
 - Backup-Erstellung und Test-Restore aller 14 enthaltenen SQLite-Dateien
   wurden auf dem VPS ausgeführt; der Job prüft dies künftig automatisch.
+
+Produktionsverifikation des Ultra-Audits am 5. August 2026:
+
+- Auditcode `b30ee1f` wurde per Fast-Forward auf den VPS übernommen;
+  `betboy-app.service` ist aktiv, HTTPS antwortet mit 200, null systemd-Units
+  sind fehlgeschlagen und alle sieben Timer sind geladen.
+- Der erzwungene Wettfinderlauf endete erfolgreich nach rund 101 Sekunden und
+  schrieb Artefaktversion 3 für den 5. August.
+- Der Lauf fand 13 Spiele und modellierte alle 13. Darunter waren fünf
+  UEFA-Qualifikationsspiele; alle fünf erhielten Heimatliga-Historie. Diese
+  Fälle wurden am unvalidierten Wettbewerbstransfer blockiert und nicht als
+  fehlende Kalenderspiele ausgegeben.
+- `Spiele`, `Märkte` und `15K Challenge` zeigen in Smartphone und Tablet
+  jeweils `Alle (51)`. Kein Buttontext lief aus seinem Container.
 
 ## 12. Offene Prioritäten
 
