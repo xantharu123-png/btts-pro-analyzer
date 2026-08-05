@@ -6,7 +6,7 @@ import math
 import sqlite3
 import threading
 from dataclasses import asdict, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 from pathlib import Path
 
@@ -34,11 +34,11 @@ _REQUIRED_ANALYZER_MODULE_VERSION = 3
 if getattr(_advanced_analyzer, "ANALYZER_MODULE_VERSION", 0) < _REQUIRED_ANALYZER_MODULE_VERSION:
     _advanced_analyzer = importlib.reload(_advanced_analyzer)
 
-_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 5
+_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 6
 if getattr(_challenge_15k, "CHALLENGE_WORKSPACE_VERSION", 0) < _REQUIRED_CHALLENGE_WORKSPACE_VERSION:
     _challenge_15k = importlib.reload(_challenge_15k)
 
-_REQUIRED_MARKET_WORKFLOW_VERSION = 5
+_REQUIRED_MARKET_WORKFLOW_VERSION = 6
 if getattr(_alternative_markets, "MARKET_WORKFLOW_VERSION", 0) < _REQUIRED_MARKET_WORKFLOW_VERSION:
     _alternative_markets = importlib.reload(_alternative_markets)
 
@@ -62,7 +62,7 @@ red_card_candidate = _football_recommendations.red_card_candidate
 
 from bet_finder_ui import render_price_decision
 from betting_math import BETTING_POLICY_VERSION
-from ui_components import plain_german, render_empty_state, scan_progress_fragment
+from ui_components import plain_german, scan_progress_fragment
 from config_loader import load_app_config
 from date_context import german_date_window, zurich_today
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
@@ -70,51 +70,45 @@ from multi_sport_recommendations import EVIDENCE_RELEASED, build_candidate
 
 
 PAGE_INFO = {
-    "Spiele": (
-        "Spiele Wettfinder",
-        "Bis zu drei geprüfte Spiel-Auswahlen; die N1Bet-Quote entscheidet erst danach über den Preis.",
-    ),
-    "Märkte": (
-        "Markt Wettfinder",
-        "Für den Spieltag bis zu drei konkrete Markt-Auswahlen finden und anschließend den N1Bet-Preis prüfen.",
+    "Wettfinder": (
+        "Wettfinder",
+        "Bis zu drei modellgeprüfte Auswahlen. Die N1Bet-Quote wird erst danach bewertet.",
     ),
     "Live": (
         "Live Wettfinder",
-        "Frische Live-Daten in eine konkrete Prognose mit klarer Modell- und Preisprüfung übersetzen.",
+        "Aktuelle Spieldaten werden in konkrete Live-Auswahlen mit direktem Preischeck übersetzt.",
     ),
-    "Wett-Check": (
-        "Wett-Check (Erwartungswert)",
-        "Modell-Signal oder eigene Annahme mit N1Bet-Quote prüfen: "
-        "Break-even, Risiko-EV und reines Preisergebnis.",
-    ),
-    "System": (
-        "Wettfinder-System",
-        "Validierung, Datenbestand und Modelltraining für die Wettfinder verwalten.",
-    ),
-    "15K Challenge": (
+    "15K": (
         "15K Challenge",
-        "Bis zu drei streng geprüfte Spiele; N1Bet-Preise kommen erst nach der Modellfreigabe hinzu.",
+        "Bis zu drei streng geprüfte Spiele für das nächste Challenge-Ticket.",
     ),
-    "Multi-Sport": (
-        "Multi-Sport Wettfinder",
-        "Basketball, Eishockey, Cricket, Tennis und E-Sport (CS2, LoL, Dota 2, Valorant): "
-        "Modell zuerst, N1Bet-Preis danach — wetten nur bei positivem risikoadjustiertem Value.",
+    "Meine Tipps": (
+        "Meine Tipps",
+        "Aktive preisgeprüfte Tipps, 15K-Tickets und Tennis-Verlauf an einem Ort.",
     ),
-    "Tennis": (
-        "Tennis Wettfinder",
-        "Tägliche Modell-Vorhersagen (Shadow); N1Bet-Preis manuell prüfen — Wette nur wenn alle Prüfungen grün sind.",
+    "Einstellungen": (
+        "Einstellungen",
+        "Modelle, Datenbestand und Challenge-Konto verwalten.",
     ),
+}
+
+MAIN_PAGES = ("Wettfinder", "Live", "15K", "Meine Tipps")
+LEGACY_PAGE_ALIASES = {
+    "Spiele": "Wettfinder",
+    "Märkte": "Wettfinder",
+    "Wett-Check": "Wettfinder",
+    "Multi-Sport": "Wettfinder",
+    "Tennis": "Wettfinder",
+    "15K Challenge": "15K",
 }
 
 # Seiten mit Hintergrund-Scans: Läuft einer dieser Jobs, dreht in der
 # Sidebar neben dem Seitennamen ein Rädchen (CSS, siehe _scan_spinner_css).
 PAGE_SCAN_JOBS = {
-    "Spiele": ("prematch",),
+    "Wettfinder": ("prematch", "markets", "tennis", "multi_sport"),
     "Live": ("live", "red_cards"),
-    "15K Challenge": ("challenge_15k",),
-    "Märkte": ("markets",),
-    "Tennis": ("tennis",),
-    "Multi-Sport": ("multi_sport",),
+    "15K": ("challenge_15k",),
+    "Meine Tipps": (),
 }
 
 PREMATCH_SNAPSHOT_VERSION = 4
@@ -135,6 +129,13 @@ MULTI_SPORT_OPTIONS = (
     "Eishockey",
     "Tennis",
     "Cricket",
+    "E-Sport",
+)
+FINDER_SPORT_OPTIONS = (
+    "Fußball",
+    "Tennis",
+    "Basketball",
+    "Eishockey",
     "E-Sport",
 )
 MULTI_SPORT_FILTER_OPTIONS = {
@@ -807,7 +808,7 @@ def _apply_app_styles() -> None:
 
         @media (max-width: 430px) {
             [data-testid="stMain"] .block-container {
-                padding-bottom: calc(8.5rem + env(safe-area-inset-bottom, 0px)) !important;
+                padding-bottom: calc(6.25rem + env(safe-area-inset-bottom, 0px)) !important;
             }
 
             .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] {
@@ -951,7 +952,7 @@ def _scan_spinner_css(running_pages: set) -> str:
     Seite, deren Hintergrund-Scan läuft. Greift der Selektor nach einer
     Streamlit-DOM-Änderung nicht mehr, fehlt schlicht das Rädchen — die
     Caption-Zeile darunter bleibt als Fallback."""
-    order = list(PAGE_INFO)
+    order = list(MAIN_PAGES)
     rules = []
     for page in sorted(running_pages):
         if page not in order:
@@ -992,13 +993,24 @@ def _render_sidebar(analyzer) -> str:
     with st.sidebar:
         st.markdown("## BetBoy")
         st.caption("Wettfinder")
-        if st.session_state.get("workspace") not in PAGE_INFO:
-            st.session_state["workspace"] = "Spiele"
+        previous_workspace = st.session_state.get("workspace")
+        if previous_workspace == "System":
+            st.session_state["workspace"] = "Wettfinder"
+            st.session_state["settings_open"] = True
+        elif previous_workspace in LEGACY_PAGE_ALIASES:
+            st.session_state["workspace"] = LEGACY_PAGE_ALIASES[previous_workspace]
+        elif previous_workspace not in MAIN_PAGES:
+            st.session_state["workspace"] = "Wettfinder"
+
+        def _close_settings() -> None:
+            st.session_state["settings_open"] = False
+
         workspace = st.radio(
             "Arbeitsbereich",
-            list(PAGE_INFO),
+            list(MAIN_PAGES),
             label_visibility="collapsed",
             key="workspace",
+            on_change=_close_settings,
         )
         st.session_state.setdefault("_nav_running_pages", frozenset())
         running_scan_pages = scan_jobs.running_pages(
@@ -1009,64 +1021,24 @@ def _render_sidebar(analyzer) -> str:
             st.markdown(
                 _scan_spinner_css(running_scan_pages), unsafe_allow_html=True
             )
-            st.caption("Scanner läuft: " + ", ".join(sorted(running_scan_pages)))
+            st.caption("Suche läuft: " + ", ".join(sorted(running_scan_pages)))
         _sidebar_scan_poller()
 
         st.divider()
-        st.caption("SYSTEMSTATUS")
-        if analyzer and analyzer.model_trained:
-            st.markdown(
-                '<div class="bb-status"><span class="bb-dot"></span>'
-                "Validiertes ML aktiv</div>",
-                unsafe_allow_html=True,
-            )
-        elif analyzer:
-            st.markdown(
-                '<div class="bb-status"><span class="bb-dot warn"></span>'
-                "Statistikmodell aktiv; ML gesperrt</div>",
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                '<div class="bb-status"><span class="bb-dot error"></span>'
-                "Analyzer nicht bereit</div>",
-                unsafe_allow_html=True,
-            )
-
-        config = load_app_config(st)
-        if config.api_football_key:
-            api_health = _api_football_health(config.api_football_key)
-            api_state = api_health["label"]
-            api_class = "bb-dot" if api_health["state"] == "active" else "bb-dot error"
-        else:
-            api_health = {"state": "missing", "detail": ""}
-            api_state = "Live-API fehlt"
-            api_class = "bb-dot warn"
-        st.markdown(
-            f'<div class="bb-status"><span class="{api_class}"></span>{api_state}</div>',
-            unsafe_allow_html=True,
-        )
-        checked_at = api_health.get("checked_at")
-        if checked_at:
-            st.caption(f"API geprüft: {_format_stand(datetime.fromisoformat(checked_at))}")
-        stats_stand = _stats_freshness()
-        if stats_stand is not None:
-            st.caption(f"Datenstand: {_format_stand(stats_stand)}")
-        if api_health.get("detail") and api_health["state"] in {"suspended", "error"}:
-            st.caption(api_health["detail"])
-
-        if analyzer and analyzer.engine.database_warning:
-            st.markdown(
-                '<div class="bb-status"><span class="bb-dot warn"></span>'
-                "Datenbank: lokaler Ersatz</div>",
-                unsafe_allow_html=True,
-            )
-
-        st.divider()
-        st.caption(
-            "Quoten sind nur Preise. Modellwahrscheinlichkeiten entstehen unabhängig davon."
-        )
-    return workspace
+        settings_open = bool(st.session_state.get("settings_open"))
+        if st.button(
+            "Zurück" if settings_open else "Einstellungen",
+            icon=(
+                ":material/arrow_back:"
+                if settings_open
+                else ":material/settings:"
+            ),
+            key="toggle_settings",
+            use_container_width=True,
+        ):
+            st.session_state["settings_open"] = not settings_open
+            st.rerun()
+    return "Einstellungen" if st.session_state.get("settings_open") else workspace
 
 
 def _persist_prematch(results) -> Optional[dict]:
@@ -1537,6 +1509,7 @@ def _render_prematch_results(
             candidate,
             key=f"prematch_{candidate.event_key}_{scanned_at}",
             bankroll_key="football_bet_finder_bankroll",
+            save_source="Fußball BTTS",
         )
 
     with st.expander(f"Alle {len(candidate_rows)} geprüften Spiele mit Einzelgründen"):
@@ -1564,7 +1537,7 @@ def _render_prematch_results(
 
 def render_matches(analyzer) -> None:
     if analyzer is None:
-        st.error("API-Football-Key fehlt. Konfiguration unter System prüfen.")
+        st.error("API-Football-Key fehlt. Konfiguration unter Einstellungen prüfen.")
         return
 
     search_date = zurich_today()
@@ -1690,16 +1663,7 @@ def render_matches(analyzer) -> None:
 
     snapshot = st.session_state.get("prematch_snapshot")
     if not isinstance(snapshot, dict):
-        render_empty_state(
-            "So funktioniert die BTTS-Suche",
-            [
-                "Mindestwerte und Ligen wählen, dann „BTTS-Wetten finden“ klicken.",
-                "Das Modell filtert quotenfrei bis zu drei geprüfte Auswahlen.",
-                "Die exakte N1Bet-Quote prüft danach nur den Preis; die "
-                "Evidenzstufe bleibt separat sichtbar.",
-            ],
-            duration_hint="Dauer: abhängig von Spielplan und Datenbestand.",
-        )
+        st.info("Noch keine BTTS-Suche für diese Auswahl.")
         return
     if snapshot.get("version") != PREMATCH_SNAPSHOT_VERSION:
         st.warning("Dieses Prematch-Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
@@ -1877,14 +1841,9 @@ def _scan_live_football(analyzer, config=None, progress_cb=None) -> dict:
     }
 
 
-def _render_live_football(analyzer) -> None:
-    st.subheader("Live-Wetten")
-    market = _segmented(
-        "Live-Markt",
-        list(LIVE_MARKET_OPTIONS),
-        "live_market",
-        "Noch ein Tor",
-    )
+def _render_live_football(analyzer, market: str) -> None:
+    if market not in LIVE_MARKET_OPTIONS:
+        raise ValueError("Unbekannter Live-Markt")
     market_notes = {
         "BTTS": "Beide Teams treffen bis zum Spielende; der aktuelle Spielstand zählt mit.",
         "Noch ein Tor": (
@@ -1895,8 +1854,7 @@ def _render_live_football(analyzer) -> None:
     }
     st.caption(market_notes[market])
 
-    filter_columns = st.columns(2)
-    minimum_probability = filter_columns[0].slider(
+    minimum_probability = st.slider(
         "Min. Modellwahrscheinlichkeit (%)",
         0,
         100,
@@ -1904,19 +1862,7 @@ def _render_live_football(analyzer) -> None:
         key=f"live_min_probability_{market}",
         help="Lokaler Filter auf den aktuellen Live-Snapshot; löst keinen neuen Provider-Abruf aus.",
     )
-    if st.session_state.get("live_min_quality") not in LIVE_DATA_BASIS_OPTIONS:
-        st.session_state["live_min_quality"] = LIVE_DATA_BASIS_OPTIONS[0]
-    minimum_quality = filter_columns[1].selectbox(
-        "Live-Datenbasis",
-        LIVE_DATA_BASIS_OPTIONS,
-        index=0,
-        key="live_min_quality",
-        help=(
-            "Streng verlangt für beide Teams Live-xG, einen Prematch-Prior und einen "
-            "verwertbaren Platzverweisstand. Basis lässt auch Schätzungen mit nur einer "
-            "vollständigen Datenquelle zu."
-        ),
-    )
+    minimum_quality = LIVE_DATA_BASIS_OPTIONS[0]
     if st.session_state.get("live_snapshot_invalidated_by_red_card"):
         st.warning(
             "Seit dem letzten Live-Datenstand wurde ein neuer Platzverweis erkannt. "
@@ -1933,7 +1879,7 @@ def _render_live_football(analyzer) -> None:
         else:
             config = load_app_config(st)
             if not config.api_football_key:
-                st.error("API-Football-Key fehlt. Konfiguration unter System prüfen.")
+                st.error("API-Football-Key fehlt. Konfiguration unter Einstellungen prüfen.")
             else:
                 scan_jobs.start_job(
                     _job_key("live"),
@@ -1961,15 +1907,7 @@ def _render_live_football(analyzer) -> None:
 
     snapshot = st.session_state.get("live_football_snapshot")
     if not snapshot:
-        render_empty_state(
-            "So funktioniert die Live-Suche",
-            [
-                "Live-Markt und Datenbasis wählen, dann „Live-Wetten finden“ klicken.",
-                "Das Modell übersetzt frische Live-Daten in eine klare Entscheidung.",
-                "Ergebnis: Prognose, Preisstatus und Evidenzstufe getrennt.",
-            ],
-            duration_hint="Dauer: wenige Sekunden — Live-Daten liegen bereits vor.",
-        )
+        st.info("Noch keine Live-Suche für diese Wettart.")
         return
     if snapshot.get("version") != LIVE_SNAPSHOT_VERSION:
         st.warning("Dieses Live-Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
@@ -2031,6 +1969,7 @@ def _render_live_football(analyzer) -> None:
             candidate,
             key=f"live_{candidate.event_key}_{market}_{snapshot.get('scanned_at')}",
             bankroll_key="football_bet_finder_bankroll",
+            save_source="Fußball Live",
         )
 
         with st.expander("Live-Prüfdetails"):
@@ -2391,19 +2330,7 @@ def _render_red_cards(analyzer) -> None:
 
     snapshot = st.session_state.get("red_card_snapshot")
     if not snapshot:
-        render_empty_state(
-            "So funktioniert die Platzverweis-Suche",
-            [
-                "Filter wählen und die Suche starten.",
-                "Das Modell bewertet Spiele mit erhöhter Platzverweis-Wahrscheinlichkeit.",
-                "Die exakte Quote entscheidet über den Preisstatus, nicht über "
-                "die zugrunde liegende Prognose.",
-            ],
-            duration_hint=(
-                "Dauer: abhängig von Zahl und Zustand der Live-Spiele. Der Lauf "
-                "wird nur bei technischem Stillstand abgebrochen."
-            ),
-        )
+        st.info("Noch keine Platzverweis-Suche.")
         return
     if snapshot.get("version") != RED_CARD_SNAPSHOT_VERSION:
         st.warning("Dieses Platzverweis-Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
@@ -2472,6 +2399,7 @@ def _render_red_cards(analyzer) -> None:
         candidate,
         key=f"red_card_{candidate.event_key}_{snapshot.get('scanned_at')}",
         bankroll_key="football_bet_finder_bankroll",
+        save_source="Fußball Live Platzverweis",
     )
     with st.expander("Platzverweis-Prüfdetails"):
         st.caption(
@@ -2485,16 +2413,16 @@ def render_live(analyzer) -> None:
     if analyzer is None:
         st.error("Analyzer nicht bereit.")
         return
-    mode = _segmented(
-        "Live-Bereich",
-        ["Spiele", "Platzverweise"],
-        "live_workspace",
-        "Spiele",
+    market_label = st.selectbox(
+        "Wettart",
+        ["Noch ein Tor", "Team trifft noch", "Beide treffen", "Nach Platzverweis"],
+        key="live_market_choice",
     )
-    if mode == "Spiele":
-        _render_live_football(analyzer)
-    else:
+    if market_label == "Nach Platzverweis":
         _render_red_cards(analyzer)
+    else:
+        market = "BTTS" if market_label == "Beide treffen" else market_label
+        _render_live_football(analyzer, market)
 
 
 def _render_model_validation(analyzer) -> None:
@@ -2966,8 +2894,10 @@ def _multi_sport_release_blockers(
     )
 
 
-def render_multi_sport() -> None:
-    sport = st.selectbox(
+def render_multi_sport(preselected_sport: Optional[str] = None) -> None:
+    if preselected_sport is not None and preselected_sport not in MULTI_SPORT_OPTIONS:
+        raise ValueError(f"Unbekannte Sportart: {preselected_sport}")
+    sport = preselected_sport or st.selectbox(
         "Sportart",
         list(MULTI_SPORT_OPTIONS),
         key="multi_sport_selected_sport",
@@ -2980,9 +2910,6 @@ def render_multi_sport() -> None:
             list(filter_options),
             key=f"multi_sport_filter_{sport.lower().replace('-', '_')}",
         )
-    if sport == "E-Sport":
-        _render_esports_shadow_status()
-
     snapshots = st.session_state.get("multi_sport_snapshots")
     if not isinstance(snapshots, dict):
         snapshots = {}
@@ -3022,38 +2949,7 @@ def render_multi_sport() -> None:
 
     snapshot = snapshots.get(scope_key)
     if not snapshot:
-        illustrative_examples = {
-            "Basketball": (
-                "Team A vs Team B",
-                "Unter 225,5 @ 2,18 - Modell 58 %, konservativ 48 %, Mindestquote 2,15",
-            ),
-            "Eishockey": (
-                "Team A vs Team B",
-                "Unter 6,5 Tore @ 2,10 - Modell 60 %, konservativ 50 %, Mindestquote 2,06",
-            ),
-            "Cricket": (
-                "Team A vs Team B",
-                "Kein belastbares Innings-Modell - keine Wettfreigabe",
-            ),
-            "Tennis": (
-                "Spieler A vs Spieler B",
-                "Prematch-Tennis wird im eigenen Tennis-Bereich berechnet",
-            ),
-            "E-Sport": (
-                "Team A vs Team B",
-                "Team A gewinnt @ 1,90 - konservativ 56 %, Mindestquote 1,84",
-            ),
-        }
-        render_empty_state(
-            f"So funktioniert die {sport}-Suche",
-            [
-                "Sportart und Liga wählen, dann „Wettvorschläge aktualisieren“ klicken.",
-                "Das Modell berechnet quotenfreie Wahrscheinlichkeiten.",
-                "Wetten nur bei positivem risikoadjustiertem Value.",
-            ],
-            duration_hint="Dauer: wenige Sekunden bis etwa eine Minute.",
-            illustrative_example=illustrative_examples[sport],
-        )
+        st.info(f"Noch keine {sport}-Suche.")
         return
 
     snapshot_items = snapshot.get("items")
@@ -3186,7 +3082,106 @@ def render_multi_sport() -> None:
         candidate,
         key=f"multi_sport_{scope_key}_{selected_index}_{snapshot_token}",
         bankroll_key="multi_sport_bankroll",
+        save_source=f"{sport} Wettfinder",
     )
+
+
+def render_wettfinder() -> None:
+    """One sport-first entry point for every pre-match finder."""
+    controls = st.columns(3)
+    with controls[0]:
+        sport = st.selectbox(
+            "Sport",
+            list(FINDER_SPORT_OPTIONS),
+            key="finder_sport",
+        )
+
+    search_date = None
+    if sport in {"Fußball", "Tennis"}:
+        with controls[1]:
+            day = _segmented(
+                "Spieltag",
+                ["Heute", "Morgen"],
+                "finder_day",
+                "Heute",
+            )
+        search_date = zurich_today() + timedelta(days=1 if day == "Morgen" else 0)
+
+    if sport == "Fußball":
+        with controls[2]:
+            market_scope = st.selectbox(
+                "Wettart",
+                list(_alternative_markets.FOOTBALL_MARKET_SCOPES),
+                key="finder_football_market",
+            )
+        create_alternative_markets_tab_extended(
+            market_scope=market_scope,
+            search_date=search_date,
+            embedded=True,
+        )
+    elif sport == "Tennis":
+        from tennis_tab import render_tennis_finder
+
+        render_tennis_finder(search_date)
+    else:
+        render_multi_sport(preselected_sport=sport)
+
+
+def _render_system_status(analyzer) -> None:
+    st.subheader("Status")
+    if analyzer and analyzer.model_trained:
+        model_state = "Validiertes ML aktiv"
+        model_class = "bb-dot"
+    elif analyzer:
+        model_state = "Statistikmodell aktiv; ML gesperrt"
+        model_class = "bb-dot warn"
+    else:
+        model_state = "Analyzer nicht bereit"
+        model_class = "bb-dot error"
+    st.markdown(
+        f'<div class="bb-status"><span class="{model_class}"></span>{model_state}</div>',
+        unsafe_allow_html=True,
+    )
+
+    config = load_app_config(st)
+    if config.api_football_key:
+        api_health = _api_football_health(config.api_football_key)
+        api_class = "bb-dot" if api_health["state"] == "active" else "bb-dot error"
+        api_state = api_health["label"]
+    else:
+        api_health = {"state": "missing", "detail": ""}
+        api_class = "bb-dot warn"
+        api_state = "Live-API fehlt"
+    st.markdown(
+        f'<div class="bb-status"><span class="{api_class}"></span>{api_state}</div>',
+        unsafe_allow_html=True,
+    )
+    stats_stand = _stats_freshness()
+    if stats_stand is not None:
+        st.caption(f"Datenstand: {_format_stand(stats_stand)}")
+    if api_health.get("detail") and api_health["state"] in {"suspended", "error"}:
+        st.caption(api_health["detail"])
+
+
+def render_settings(analyzer) -> None:
+    section = st.selectbox(
+        "Bereich",
+        ["Modellvalidierung", "Datenbestand", "15K Konto"],
+        key="settings_section",
+    )
+    if section == "15K Konto":
+        from challenge_15k import render_challenge_account
+
+        render_challenge_account()
+        return
+    if analyzer is None:
+        st.error("Analyzer nicht bereit. API-Schlüssel in Secrets oder Environment prüfen.")
+        return
+    if section == "Modellvalidierung":
+        _render_model_validation(analyzer)
+    else:
+        _render_system_status(analyzer)
+        _render_data_management(analyzer)
 
 
 def _render_mobile_nav(workspace: str) -> None:
@@ -3196,18 +3191,15 @@ def _render_mobile_nav(workspace: str) -> None:
     before the next script run and only sets the same ``workspace`` key.
     """
     short_labels = {
-        "Spiele": ("Spiele", ":material/sports_soccer:"),
-        "Märkte": ("Märkte", ":material/trending_up:"),
+        "Wettfinder": ("Tipps", ":material/search:"),
         "Live": ("Live", ":material/bolt:"),
-        "Wett-Check": ("Check", ":material/calculate:"),
-        "System": ("System", ":material/settings:"),
-        "15K Challenge": ("15K", ":material/emoji_events:"),
-        "Multi-Sport": ("Multi", ":material/sports_basketball:"),
-        "Tennis": ("Tennis", ":material/sports_tennis:"),
+        "15K": ("15K", ":material/emoji_events:"),
+        "Meine Tipps": ("Meine", ":material/bookmarks:"),
     }
 
     def _go(page: str) -> None:
         st.session_state["workspace"] = page
+        st.session_state["settings_open"] = False
 
     with st.container(key="bb_bottomnav"):
         columns = st.columns(len(short_labels), gap="small")
@@ -3252,33 +3244,25 @@ def main() -> None:
     if st.session_state.get("analyzer_error"):
         st.error(f"Analyzer konnte nicht initialisiert werden: {st.session_state['analyzer_error']}")
 
-    if workspace == "Spiele":
-        render_matches(analyzer)
-    elif workspace == "Märkte":
-        create_alternative_markets_tab_extended()
+    if workspace == "Wettfinder":
+        render_wettfinder()
     elif workspace == "Live":
         render_live(analyzer)
-    elif workspace == "Wett-Check":
-        from ev_checker_tab import render_ev_checker
-
-        render_ev_checker(scope=session_scope_id)
-    elif workspace == "System":
-        render_model(analyzer)
-    elif workspace == "15K Challenge":
+    elif workspace == "15K":
         render_challenge_15k()
-    elif workspace == "Tennis":
-        from tennis_tab import render_tennis_page
+    elif workspace == "Meine Tipps":
+        from my_tips import render_my_tips
 
-        render_tennis_page()
+        render_my_tips()
     else:
-        render_multi_sport()
+        render_settings(analyzer)
 
     st.divider()
     st.caption(
         "Modellwahrscheinlichkeiten können falsch sein. Glücksspiel birgt finanzielles Risiko; "
         "kein Ergebnis ist garantiert."
     )
-    _render_mobile_nav(workspace)
+    _render_mobile_nav(st.session_state.get("workspace", "Wettfinder"))
 
 
 if __name__ == "__main__":

@@ -9,14 +9,14 @@
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor dem Ultra-Audit vom 5. August | `23b93c2` |
-| Fachlicher Kernstand | Ultra-Audit: Transfer-Gates und versionsreine Evidenz |
+| Fachlicher Kernstand | Ultra-Audit plus sportzentraler Wettfinder und vereinfachte Navigation |
 | Verifizierter VPS-Funktionsstand | `origin/main` per Fast-Forward; Dienst und HTTPS am 5. August geprüft |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 606 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 612 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -74,8 +74,8 @@ deutlich ehrlicher als zuvor:
 - Nicht unabhängig validierte Modelle dürfen keine Wettempfehlung ausgeben.
 - Kein aktiver Scanner verwendet noch einen festen Edge-Grenzwert als
   universelle Freigaberegel.
-- Punktprognose, Modellabschlag, Preisstatus und Evidenzstufe bleiben auch beim
-  Wechsel in den Wett-Check getrennt.
+- Punktprognose, Modellabschlag, Preisstatus und Evidenzstufe bleiben bei der
+  jetzt direkt am Tipp eingebauten Preisprüfung getrennt.
 - Smartphone und Tablet sind ohne horizontalen Seitenüberlauf bedienbar.
 - Alle 51 Fußballligen kommen aus einem gemeinsamen Katalog.
 - App, Shadow-Jobs und kanonische Laufzeitdaten liegen auf einem gehärteten
@@ -119,17 +119,18 @@ Mindestquote = (1 + 0,03) / konservatives p
 - Favoriten und Longshots werden dadurch in derselben Geldeinheit verglichen.
   Ein Prozentpunkt Edge entspricht bei Quote 2,00 etwa 2 % ROI, bei Quote
   6,00 dagegen etwa 6 % ROI.
-- Der Wett-Check übernimmt Punktwahrscheinlichkeit und modellzugehörigen
-  Haircut gemeinsam. Der frühere doppelte Abschlag bei Fußball/E-Sport und
-  der zu kleine Standardabschlag bei Tennis sind beseitigt.
+- Die gemeinsame Inline-Preisprüfung übernimmt Punktwahrscheinlichkeit und
+  modellzugehörigen Haircut gemeinsam. Der frühere doppelte Abschlag bei
+  Fußball/E-Sport und der zu kleine Standardabschlag bei Tennis sind beseitigt.
 - Automatisch übernommene Prozentwerte passen exakt auf 0,1-Prozentpunkt-
   Kontrollen. Für die Anzeige wird Modell-p abgerundet, der Haircut
   aufgerundet und die Mindestquote aus diesen konservativen UI-Werten neu
   berechnet.
 - Alte Fußball- und Tennis-Preissignale werden über Policy-Versionen
   fail-closed ausgesperrt.
-- Der manuelle Wett-Check meldet `PREIS OK`, nicht mehr `JA`. Er ist eine
-  Rechenhilfe und keine Modell- oder Echtgeldfreigabe.
+- Die interne manuelle Preisprüfung meldet `PREIS OK`, nicht mehr `JA`. Sie ist
+  eine Rechenhilfe und keine Modell- oder Echtgeldfreigabe; die frühere eigene
+  Navigationsseite existiert nicht mehr.
 - Der Smart-Bet-Finder liefert nach bestandenem Preisgate nur
   `SHADOW_VALUE`; Einsatz und `actionable=True` sind entfernt.
 - Der Challenge-Ledger erzwingt wie die Auswahlengine mindestens 3 %
@@ -144,9 +145,9 @@ Mindestquote = (1 + 0,03) / konservatives p
   nachgewiesen und explizit markiert ist.
 - Rotkarten-Prognosen bleiben nicht handlungsfähig, bis unabhängige
   Shadow-Evidenz vorliegt.
-- Multi-Sport entfernt keine Blocker mehr, um trotzdem eine Empfehlung
-  anzuzeigen.
-- Der Wett-Check zeigt die Evidenzstufe jedes übernommenen Signals und erzeugt
+- Die Multi-Sport-Modellpfade entfernen keine Blocker mehr, um trotzdem eine
+  Empfehlung anzuzeigen.
+- Die Inline-Preisprüfung zeigt die Evidenzstufe jedes Signals und erzeugt
   daraus selbst keine Freigabe.
 - BTTS wählt jetzt quotenfrei die wahrscheinlichere Seite `Ja` oder `Nein`;
   der Scanner ist nicht mehr strukturell auf `BTTS Ja` beschränkt.
@@ -235,7 +236,7 @@ Mindestquote = (1 + 0,03) / konservatives p
   gesunde Gesamtlaufzeit eines kalten Vollscans. Ein verworfener Worker stoppt
   beim nächsten Fortschrittspunkt kooperativ und kann keinen Neustart
   überschreiben.
-- Spiele, Märkte, 15K und Datenverwaltung starten einheitlich mit
+- Fußball-Wettfinder, 15K und Datenverwaltung starten einheitlich mit
   `Alle (51)`. Kleinere Favoriten-Sets bleiben als ausdrücklich gezählte,
   optionale Auswahl verfügbar.
 - Hintergrundscanner zeigen denselben echten Fortschrittsvertrag: Prozentwert,
@@ -284,8 +285,8 @@ Mindestquote = (1 + 0,03) / konservatives p
   wird nicht erzeugt. Cricket bleibt ohne validiertes Modell blockiert.
 - Die Auswahl wird ohne angebotene Quote nach Evidenzstufe und konservativer
   Wahrscheinlichkeit sortiert, pro Event dedupliziert und auf drei begrenzt.
-  Jeder Eintrag bleibt `PRICE_REQUIRED`; die exakte N1Bet-Quote wird erst
-  manuell im Wett-Check erfasst.
+  Jeder Eintrag bleibt `PRICE_REQUIRED`; die exakte N1Bet-Quote wird direkt
+  am ausgewählten Tipp erfasst.
 
 ### Shadow und Settlement
 
@@ -300,7 +301,7 @@ Mindestquote = (1 + 0,03) / konservatives p
 - Modell- und Policy-Version werden in jeder neuen Prediction gespeichert.
 - Tennis speichert Provider-Event-ID, Quelle und exakte UTC-Startzeit.
   Gestartete oder zeitlich unverifizierbare Spiele verschwinden fail-closed
-  sowohl aus dem Tennis-Wettfinder als auch aus dem Wett-Check.
+  sowohl aus dem Tennis-Wettfinder als auch aus internen Preis-Signalquellen.
 - Alte Tennis-Matches erscheinen nur noch im ausdrücklich getrennten
   Shadow-Abrechnungsbereich und nicht als Wettvorschlag.
 - Der Tennis-Tageslauf rechnet eindeutig normale ESPN-Finals inklusive
@@ -322,7 +323,7 @@ Mindestquote = (1 + 0,03) / konservatives p
 - E-Sport verlangt ein explizites 0:0-Prematch-Ereignis und eine eindeutige
   Teamzuordnung.
 - E-Sport-Signale mit alter Modellversion, fehlender Startzeit oder bereits
-  erreichtem Anpfiff werden aus dem automatischen Wettfinder und Wett-Check
+  erreichtem Anpfiff werden aus dem automatischen und interaktiven Wettfinder
   fail-closed entfernt.
 - Offene E-Sport-Zeilen werden fair rotiert; ein temporär fehlendes Ergebnis
   wird nicht automatisch als Void entsorgt.
@@ -337,30 +338,47 @@ Mindestquote = (1 + 0,03) / konservatives p
 
 ### UX
 
-- Auf schmalen Smartphones sind alle acht Bereiche direkt in zwei Reihen
-  erreichbar; es gibt kein verstecktes Untermenü.
-- Auf breiteren Smartphones stehen alle acht Ziele in einer Reihe.
+- Die Hauptnavigation besteht nur noch aus `Wettfinder`, `Live`, `15K` und
+  `Meine Tipps`. Auf Smartphones stehen diese vier Ziele in einer festen
+  Bottom-Navigation; auf Tablet und Desktop zusätzlich in der Seitenleiste.
+- `Einstellungen` ist kein fünfter Hauptbereich, sondern liegt separat hinter
+  dem Zahnrad beziehungsweise dem Zurück-Button.
+- Die früheren Seiten `Spiele`, `Märkte`, `Wett-Check`, `Multi-Sport` und
+  `Tennis` sind aus der Navigation entfernt. Ihre fachlichen Funktionen liegen
+  jetzt im gemeinsamen Wettfinder oder in `Meine Tipps`.
+- Der Wettfinder beginnt mit der Sportart. Fußball ergänzt Spieltag und
+  Wettart; Tennis verwendet denselben Spieltag; Basketball, Eishockey und
+  E-Sport öffnen direkt ihren passenden Finder.
+- Die Fußball-Wettarten `Beste Märkte`, `Ergebnis`, `Tore`, `Beide treffen`,
+  `Ecken` und `Karten` filtern den vollständigen Kandidatenpool vor der
+  Kontext-Shortlist. Es handelt sich nicht nur um einen Anzeige-Filter auf
+  einer bereits gekürzten Top-3-Liste.
+- Live verwendet eine einzige Wettart-Auswahl. Die technische Wahl der
+  Live-Datenbasis ist entfernt; das strenge Daten-Gate wird automatisch
+  angewendet.
+- Der separate Wett-Check ist entfernt. N1Bet-Quote und exakte Auswahl werden
+  unmittelbar am Modellkandidaten bestätigt.
+- Preisgeprüfte `BET`- und `SHADOW`-Tipps werden sitzungsisoliert unter
+  `Meine Tipps` gespeichert. `RESEARCH` und abgelehnte Preise erscheinen dort
+  nicht. 15K- und Tennis-Verläufe sind im selben Bereich erreichbar.
+- Die 15K-Seite enthält keinen verschachtelten Bereichsschalter mehr;
+  Verlauf liegt unter `Meine Tipps`, Kontoeinstellungen hinter dem Zahnrad.
 - Der aktive Bereich bleibt sichtbar.
 - Material-Icons ersetzen uneinheitliche Emoji-Navigation.
 - Genügend Bottom-Padding verhindert die Überlagerung des Inhalts.
-- Multi-Sport beginnt mit der Sportart und zeigt danach nur den zugehörigen
-  Liga-/Spiel-Filter.
-- Leerstaat-Beispiele sind sportabhängig. Basketball zeigt keine
-  Fußball-BTTS-Wette mehr.
+- Die früheren großen „So funktioniert ...“-Leerstaatkarten und illustrativen
+  Beispielwetten sind aus den produktiven Finderflächen entfernt.
 - Externe Team- und Markttexte werden im HTML-Beispiel escaped.
 
 ## 4. Arbeitsbereiche und Freigabestatus
 
 | Bereich | Zweck | Aktueller Status |
 |---|---|---|
-| Spiele | BTTS-Prematch-Wettfinder | `SHADOW`; Prognose bleibt bei schlechtem Preis sichtbar |
-| Märkte | Tore, Ecken, Karten und kombinierte Märkte | `SHADOW`; marktweise Walk-forward-Gates |
+| Wettfinder | Fußball, Tennis, Basketball, Eishockey und E-Sport; Fußball inklusive BTTS, Ergebnis, Tore, Ecken und Karten | je Modell `RESEARCH`/`SHADOW`/`RELEASED`; maximal drei Kandidaten und Inline-Preischeck |
 | Live | BTTS, Resttor, Teamtor | `RESEARCH`; bis unabhängige Live-Kalibrierung blockiert |
-| Wett-Check | automatische Top-3-Vorauswahl plus N1Bet-Preis- und EV-Rechner | Kandidaten bleiben `PRICE_REQUIRED`; keine eigene Echtgeldfreigabe |
-| System | Daten, Training, API-Status | administrativ; keine Wettfreigabe |
-| 15K Challenge | bis zu drei Legs, Zielquote 2,00-3,00 | nur Shadow-Tickets; weiterhin sehr hohes Risiko |
-| Multi-Sport | Basketball, NHL, Cricket, Tennis, E-Sport | Research/Shadow; keine Echtgeldfreigabe |
-| Tennis | ATP/WTA und Tennis-Shadow | ATP Hard Shadow; WTA und ungeprüfte Märkte blockiert |
+| 15K | bis zu drei Legs, Zielquote 2,00-3,00 | nur Shadow-Tickets; weiterhin sehr hohes Risiko |
+| Meine Tipps | aktive preisgeprüfte Tipps sowie Fußball-/15K-/Tennis-Verlauf | sitzungsisoliert; Research und No-Bet werden nicht als Tipp gespeichert |
+| Einstellungen | Daten, Training, API-Status und 15K-Konto | administrativ; keine Wettfreigabe |
 
 Konkrete Blockaden:
 
@@ -384,6 +402,8 @@ Konkrete Blockaden:
 | `challenge_engine.py` | Märkte, Validierung, Kontext und Ticketlogik |
 | `football_recommendations.py` | gemeinsame Freigabepolicy |
 | `bet_finder_ui.py` | N1Bet-Preisentscheidung |
+| `tip_store.py` | sitzungsisolierte Ablage preisgeprüfter `BET`-/`SHADOW`-Tipps |
+| `my_tips.py` | aktive Tipps, manueller Abschluss und gemeinsame Verlaufsnavigation |
 | `ev_signal_sources.py` | versionsgebundener Signalvertrag aus Punkt-p, Haircut und Evidenzstufe |
 | `wettfinder_automation.py` | tägliche 51-Ligen-Discovery, Fixture-Kontext-Refresh und quotenfreie Top-3-Verdichtung |
 | `scan_jobs.py` | sitzungsgebundene Hintergrundjobs |
@@ -617,7 +637,7 @@ VPS-Härtung, verifiziert am 2. August 2026:
 Vollständiger Lauf:
 
 ```text
-606 passed
+612 passed
 5 subtests passed
 ```
 
@@ -630,25 +650,28 @@ New-Item -ItemType Directory -Path .pytest_tmp -Force
 ```
 
 Edge wurde direkt per Playwright mit der installierten normalen Edge-Engine
-getestet, nicht über den Codex-In-App-Browser. Am 5. August wurden alle acht
-Arbeitsbereiche in beiden Viewports erneut einzeln aufgerufen:
+getestet, nicht über den Codex-In-App-Browser. Am 5. August wurden die neue
+Vierer-Navigation, der separate Einstellungsweg und die zentralen Finderpfade
+in beiden Viewports geprüft:
 
 | Viewport | Ergebnis |
 |---|---|
-| 390 x 844 | HTTP 200; 8/8 Bereiche; 8/8 Navigationsziele; kein horizontaler Überlauf, keine Exception, keine Konsolenfehler |
-| 820 x 1180 | HTTP 200; 8/8 Bereiche; 8/8 Navigationsziele; kein horizontaler Überlauf, keine Exception, keine Konsolenfehler |
+| 390 x 844 | vier Bottom-Navigationsziele sichtbar; Wettfinder, Meine Tipps, 15K und mobiler Zahnradweg bedienbar; kein horizontaler Überlauf, keine Exception, keine Konsolenfehler |
+| 820 x 1180 | exakt vier Sidebar-Ziele; Wettartwechsel auf Ecken, Sportwechsel auf Tennis und Zahnradweg bedienbar; kein horizontaler Überlauf, keine Exception, keine Konsolenfehler |
 
 Zusätzlich verifiziert:
 
 - 15K zeigt bei 100 Euro Startguthaben standardmäßig 25 Euro Einsatz.
 - Der 15K-Einsatzregler hat in Produktion exakt Maximum 25; alter
   100-%-/All-in-Text ist nicht mehr vorhanden.
-- Alle acht Arbeitsbereiche bleiben direkt erreichbar.
-- Multi-Sport zeigt Sportart und danach Liga.
-- Basketball zeigt ein Basketball-Beispiel.
+- Die Hauptnavigation enthält exakt vier Arbeitsbereiche.
+- Der Fußball-Wettartwechsel erreicht einen eigenen Markt-Scope; Ecken und
+  BTTS sind keine separaten Seiten mehr.
+- Der Sportwechsel öffnet Tennis, Basketball, Eishockey und E-Sport im
+  gemeinsamen Wettfinder.
 - Keine sichtbaren Button- oder Label-Überläufe in den geprüften Ansichten.
-- Wett-Check: drei Eingaben, Modellabschlag und Ergebnis in beiden Viewports
-  erreichbar; keine Streamlit-Exception.
+- N1Bet-Preisprüfung bleibt direkt am Kandidaten erreichbar; ein bestandener
+  Preis wird nur für `BET` oder `SHADOW` unter `Meine Tipps` abgelegt.
 - Die echte VPS-App zeigt im normalen installierten Microsoft Edge
   `Statistikmodell aktiv; ML gesperrt` und `Live-API aktiv (Pro)`. Damit ist
   das aktive Basismodell nicht mehr mit dem gesperrten optionalen ML verwechselt.
@@ -667,8 +690,8 @@ Produktionsverifikation des Ultra-Audits am 5. August 2026:
   UEFA-Qualifikationsspiele; alle fünf erhielten Heimatliga-Historie. Diese
   Fälle wurden am unvalidierten Wettbewerbstransfer blockiert und nicht als
   fehlende Kalenderspiele ausgegeben.
-- `Spiele`, `Märkte` und `15K Challenge` zeigen in Smartphone und Tablet
-  jeweils `Alle (51)`. Kein Buttontext lief aus seinem Container.
+- Fußball-Wettfinder und `15K` zeigen in Smartphone und Tablet jeweils
+  `Alle (51)`. Kein Buttontext lief aus seinem Container.
 
 ## 12. Offene Prioritäten
 

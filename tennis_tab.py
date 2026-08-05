@@ -244,9 +244,12 @@ def _update_price_check(
     }
 
 
-def _run_daily_scan() -> str:
+def _run_daily_scan(search_date: str | None = None) -> str:
+    command = [sys.executable, str(DAILY_SCRIPT)]
+    if search_date:
+        command.append(str(search_date))
     result = subprocess.run(
-        [sys.executable, str(DAILY_SCRIPT)],
+        command,
         capture_output=True,
         text=True,
         timeout=180,
@@ -262,11 +265,14 @@ def _run_daily_scan() -> str:
     return output
 
 
-def _run_tennis_scan_worker(progress_cb=None) -> str:
+def _run_tennis_scan_worker(
+    search_date: str | None = None,
+    progress_cb=None,
+) -> str:
     """Hintergrund-Worker für den Tennis-Tages-Scan (kein st.* im Thread)."""
     if progress_cb:
         progress_cb(0.1, "Tennis-Modell wird aktualisiert …")
-    output = _run_daily_scan()
+    output = _run_daily_scan(search_date)
     if progress_cb:
         progress_cb(1.0, "Fertig")
     return output
@@ -790,10 +796,15 @@ def _render_settlement(open_rows: list[dict]) -> None:
                     st.rerun()
 
 
-def render_tennis_page() -> None:
+def render_tennis_finder(search_date: date | str | None = None) -> None:
+    """Render only actionable pre-match tennis picks for one chosen day."""
     session_scope = scan_jobs.session_scope(st.session_state)
     job_key = scan_jobs.scoped_key("tennis", session_scope)
-    _render_shadow_summary()
+    selected_date = (
+        search_date.isoformat() if isinstance(search_date, date) else search_date
+    )
+    if selected_date is not None:
+        selected_date = str(selected_date)
 
     st.subheader("Tägliche Vorhersagen")
     if st.button(
@@ -805,7 +816,11 @@ def render_tennis_page() -> None:
         if scan_jobs.get_job(job_key)["state"] == "running":
             st.info("Der Tennis-Scan läuft bereits im Hintergrund.")
         else:
-            scan_jobs.start_job(job_key, _run_tennis_scan_worker)
+            scan_jobs.start_job(
+                job_key,
+                _run_tennis_scan_worker,
+                args=(selected_date,),
+            )
 
     job = scan_jobs.get_job(job_key)
     if job["state"] == "running":
@@ -822,7 +837,14 @@ def render_tennis_page() -> None:
             st.text(st.session_state["tennis_scan_output"])
 
     today = _zurich_today()
-    raw_rows = _load_predictions(date_from=today, unsettled_only=True)
+    raw_rows = _load_predictions(
+        date_from=selected_date or today,
+        unsettled_only=True,
+    )
+    if selected_date is not None:
+        raw_rows = [
+            row for row in raw_rows if row.get("match_date") == selected_date
+        ]
     rows, hidden_rows = _split_prematch_rows(raw_rows)
     if hidden_rows:
         st.warning(
@@ -836,11 +858,14 @@ def render_tennis_page() -> None:
                 "Tennis-Auswahl."
             )
         else:
-            target_date = _next_tennis_scan_date(today_value=today)
+            target_date = (
+                date.fromisoformat(selected_date)
+                if selected_date is not None
+                else _next_tennis_scan_date(today_value=today)
+            )
             st.info(
-                "Noch keine Tennis-Vorhersagen gespeichert. Ein Klick auf "
-                "»Tennis-Vorhersagen aktualisieren« holt die Spiele für den "
-                f"{target_date.strftime('%d.%m.%Y')} ins Shadow-Protokoll."
+                "Noch keine Tennis-Vorhersagen für den "
+                f"{target_date.strftime('%d.%m.%Y')}."
             )
     else:
         current_date = None
@@ -850,4 +875,57 @@ def render_tennis_page() -> None:
                 st.markdown(f"**{current_date}**")
             _render_match_card(row)
 
+
+def render_tennis_history() -> None:
+    """Render tennis decisions and settlement away from the finder surface."""
+    _render_shadow_summary()
+    settled_rows = [
+        row for row in _load_predictions() if int(row.get("settled") or 0)
+    ]
+    st.subheader("Verlauf")
+    if settled_rows:
+        history = []
+        for row in reversed(settled_rows[-100:]):
+            side = row.get("recommended_side")
+            selection = (
+                row.get("player_a")
+                if side == "A"
+                else row.get("player_b")
+                if side == "B"
+                else "Keine Wette"
+            )
+            odds = (
+                row.get("odds_a")
+                if side == "A"
+                else row.get("odds_b")
+                if side == "B"
+                else None
+            )
+            history.append(
+                {
+                    "Datum": row.get("match_date"),
+                    "Match": f"{row.get('player_a')} vs {row.get('player_b')}",
+                    "Tipp": selection,
+                    "Quote": odds,
+                    "Sieger": row.get("actual_winner"),
+                    "Bilanz": row.get("pnl"),
+                }
+            )
+        st.dataframe(history, use_container_width=True, hide_index=True)
+    else:
+        st.caption("Noch keine abgerechneten Tennis-Tipps.")
     _render_settlement(_load_predictions(unsettled_only=True))
+
+
+def render_tennis_page() -> None:
+    """Backward-compatible complete tennis workspace."""
+    _render_shadow_summary()
+    render_tennis_finder()
+    _render_settlement(_load_predictions(unsettled_only=True))
+
+
+__all__ = [
+    "render_tennis_finder",
+    "render_tennis_history",
+    "render_tennis_page",
+]

@@ -10,7 +10,7 @@ import scan_jobs
 from bet_finder_ui import render_price_decision
 from bet_finder_candidates import build_probability_candidate
 from multi_sport_recommendations import EVIDENCE_SHADOW
-from ui_components import render_empty_state, scan_progress_fragment
+from ui_components import scan_progress_fragment
 from challenge_15k import ChallengeDataProvider, scan_daily_challenge
 from config_loader import load_app_config
 from date_context import german_day_label, zurich_today
@@ -18,9 +18,19 @@ from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 
 
 DEFAULT_LEAGUES = [78, 39, 140]
-MARKET_WORKFLOW_VERSION = 5
-MARKET_SNAPSHOT_VERSION = 4
+MARKET_WORKFLOW_VERSION = 6
+MARKET_SNAPSHOT_VERSION = 5
 MARKET_MAX_AGE_MINUTES = 20
+FOOTBALL_MARKET_SCOPES = {
+    "Beste Märkte": None,
+    "Ergebnis": frozenset({"result", "double_chance"}),
+    "Tore": frozenset(
+        {"total", "team_total", "team_range", "result_total", "mixed_or"}
+    ),
+    "Beide treffen": frozenset({"btts"}),
+    "Ecken": frozenset({"corner_total", "team_corners"}),
+    "Karten": frozenset({"yellow_total", "team_yellow"}),
+}
 
 
 def _segmented(label: str, options: list[str], key: str, default: str) -> str:
@@ -150,6 +160,7 @@ def _run_market_scan_worker(
     search_date,
     max_fixtures: int,
     scope: dict,
+    market_kinds: Optional[frozenset[str]] = None,
     progress_cb=None,
 ) -> dict:
     """Hintergrund-Worker für den Markt-Scan (thread-sicher, kein st.*).
@@ -159,18 +170,29 @@ def _run_market_scan_worker(
     erkennt die Seite das wie bisher am Scope-Vergleich.
     """
     provider = ChallengeDataProvider(api_football_key, weather_key)
+    scan_kwargs = {"progress_cb": progress_cb}
+    if market_kinds is not None:
+        scan_kwargs["market_kinds"] = set(market_kinds)
     challenge_snapshot = scan_daily_challenge(
         provider,
         league_ids,
         search_date,
         max_fixtures,
-        progress_cb=progress_cb,
+        **scan_kwargs,
     )
     return {"scope": scope, "challenge": challenge_snapshot}
 
 
-def create_alternative_markets_tab_extended() -> None:
+def create_alternative_markets_tab_extended(
+    *,
+    market_scope: str = "Beste Märkte",
+    search_date=None,
+    embedded: bool = False,
+) -> None:
     """Find up to three fully gated football-market candidates."""
+    if market_scope not in FOOTBALL_MARKET_SCOPES:
+        raise ValueError(f"Unbekannte Fußball-Wettart: {market_scope}")
+    selected_market_kinds = FOOTBALL_MARKET_SCOPES[market_scope]
     session_scope = scan_jobs.session_scope(st.session_state)
     job_key = scan_jobs.scoped_key("markets", session_scope)
     config = load_app_config(st)
@@ -178,7 +200,8 @@ def create_alternative_markets_tab_extended() -> None:
         st.error("API-Football-Key fehlt.")
         return
 
-    st.subheader("Wett-Suche")
+    if not embedded:
+        st.subheader("Wett-Suche")
     available_ids = list(ALTERNATIVE_MARKET_LEAGUES)
     favorites = [league_id for league_id in DEFAULT_LEAGUES if league_id in available_ids]
     all_scope_label = f"Alle ({len(available_ids)})"
@@ -208,20 +231,21 @@ def create_alternative_markets_tab_extended() -> None:
             key="market_selected_leagues",
         )
 
-    date_mode = _segmented(
-        "Datum",
-        ["Heute", "Morgen", "Auswahl"],
-        "market_date_mode",
-        "Heute",
-    )
-    if date_mode == "Heute":
-        search_date = _zurich_today()
-    elif date_mode == "Morgen":
-        search_date = _zurich_today() + timedelta(days=1)
-    else:
-        search_date = st.date_input(
-            "Spieldatum", _zurich_today(), key="market_custom_date"
+    if search_date is None:
+        date_mode = _segmented(
+            "Datum",
+            ["Heute", "Morgen", "Auswahl"],
+            "market_date_mode",
+            "Heute",
         )
+        if date_mode == "Heute":
+            search_date = _zurich_today()
+        elif date_mode == "Morgen":
+            search_date = _zurich_today() + timedelta(days=1)
+        else:
+            search_date = st.date_input(
+                "Spieldatum", _zurich_today(), key="market_custom_date"
+            )
 
     # Kein künstliches Limit mehr: ALLE Spiele der gewählten Ligen werden
     # modelliert (reine Lokalrechnung, keine Provider-Zusatzkosten).
@@ -234,8 +258,14 @@ def create_alternative_markets_tab_extended() -> None:
     )
     scope = _market_scope_signature(selected_leagues, search_date)
     scope["max_fixtures"] = max_fixtures
+    scope["market_scope"] = market_scope
+    scope["market_kinds"] = (
+        sorted(selected_market_kinds)
+        if selected_market_kinds is not None
+        else None
+    )
     find_bets = st.button(
-        "Wetten finden",
+        "Tipps finden",
         type="primary",
         use_container_width=True,
         key="run_market_bet_finder",
@@ -258,6 +288,7 @@ def create_alternative_markets_tab_extended() -> None:
                     search_date,
                     max_fixtures,
                     dict(scope),
+                    selected_market_kinds,
                 ),
             )
             if started:
@@ -288,6 +319,12 @@ def create_alternative_markets_tab_extended() -> None:
             "shortlist": challenge_snapshot.get("shortlist", [])[:3],
             "fixtures_found": challenge_snapshot.get("fixtures_found", 0),
             "fixtures_modeled": challenge_snapshot.get("fixtures_modeled", 0),
+            "continental_fixtures_found": challenge_snapshot.get(
+                "continental_fixtures_found", 0
+            ),
+            "continental_fallback_modeled": challenge_snapshot.get(
+                "continental_fallback_modeled", 0
+            ),
             "blocked_counts": challenge_snapshot.get("blocked_counts", {}),
             "errors": challenge_snapshot.get("errors", []),
         }
@@ -316,16 +353,7 @@ def create_alternative_markets_tab_extended() -> None:
 
     snapshot = st.session_state.get("market_bet_finder_snapshot")
     if not isinstance(snapshot, dict):
-        render_empty_state(
-            "So funktioniert die Markt-Suche",
-            [
-                "Ligen, Datum und Prüfumfang wählen, dann „Wetten finden“ klicken.",
-                "Das Modell prüft alle freigegebenen Märkte quotenfrei.",
-                "Die exakte N1Bet-Quote entscheidet nur über den Preisstatus; "
-                "die Shadow-Evidenz bleibt davon getrennt.",
-            ],
-            duration_hint="Dauer: abhängig von Spielplan und Datenbestand.",
-        )
+        st.info(f"Noch keine Suche für {market_scope} an diesem Spieltag.")
         return
     if snapshot.get("version") != MARKET_SNAPSHOT_VERSION:
         st.warning("Dieses Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
@@ -375,6 +403,7 @@ def create_alternative_markets_tab_extended() -> None:
             candidate,
             key=f"market_{candidate.event_key}_{snapshot.get('scanned_at')}",
             bankroll_key="football_bet_finder_bankroll",
+            save_source="Fußball Prematch",
         )
 
     with st.expander("Suchprüfung"):
@@ -407,6 +436,7 @@ def create_alternative_markets_tab_extended() -> None:
 
 
 __all__ = [
+    "FOOTBALL_MARKET_SCOPES",
     "_api_football_items",
     "_market_scope_signature",
     "_market_result_day_label",

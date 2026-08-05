@@ -6,6 +6,7 @@ from typing import Optional
 
 import streamlit as st
 
+import scan_jobs
 from betting_math import MINIMUM_RISK_ADJUSTED_ROI_PERCENT
 from multi_sport_recommendations import (
     PriceDecision,
@@ -15,6 +16,7 @@ from multi_sport_recommendations import (
     format_probability_percent,
 )
 from ui_components import edge_badge_html, ev_badge_html, plain_german
+from tip_store import TipStore
 
 
 def _decimal_input(value: str):
@@ -33,6 +35,7 @@ def render_price_decision(
     key: str,
     bankroll_key: str = "shared_bet_finder_bankroll",
     price_source: str = "N1Bet",
+    save_source: Optional[str] = None,
 ) -> Optional[PriceDecision]:
     """Render one exact candidate and require a fresh manual bookmaker price."""
     selection = candidate.selection or "keine Auswahl"
@@ -109,12 +112,41 @@ def render_price_decision(
             use_container_width=True,
         )
 
-    decision = evaluate_candidate_price(
-        candidate,
-        _decimal_input(raw_odds),
-        bankroll=bankroll,
-        quote_confirmed=submitted and confirmed,
-    )
+    decision_state_key = f"bet_decision_{key}"
+    if submitted:
+        decision = evaluate_candidate_price(
+            candidate,
+            _decimal_input(raw_odds),
+            bankroll=bankroll,
+            quote_confirmed=confirmed,
+        )
+        st.session_state[decision_state_key] = decision
+        if save_source and confirmed:
+            try:
+                store = TipStore(
+                    scope_id=scan_jobs.session_scope(st.session_state)
+                )
+                if decision.status in {"BET", "SHADOW"}:
+                    store.save_decision(decision, source=save_source)
+                    st.toast("Unter Meine Tipps gespeichert.")
+                elif decision.quoted_odds is not None:
+                    store.archive_candidate(
+                        sport=candidate.sport,
+                        event_key=candidate.event_key,
+                        market=candidate.market,
+                        selection=candidate.selection or "keine Auswahl",
+                    )
+            except (OSError, ValueError) as exc:
+                st.warning(f"Tipp konnte nicht gespeichert werden: {exc}")
+    else:
+        decision = st.session_state.get(decision_state_key)
+        if not isinstance(decision, PriceDecision):
+            decision = evaluate_candidate_price(
+                candidate,
+                None,
+                bankroll=bankroll,
+                quote_confirmed=False,
+            )
     if decision.status == "PRICE_REQUIRED":
         st.info(
             f"PREIS ERFORDERLICH: {decision.reasons[0]} "

@@ -58,7 +58,6 @@ from config_loader import load_app_config
 from date_context import ZURICH_TIMEZONE, german_day_label, zurich_today
 from ui_components import (
     milestone_bar_html,
-    render_empty_state,
     scan_progress_fragment,
 )
 from football_data_history import fetch_history as fetch_stat_history
@@ -75,7 +74,7 @@ from xg_backfill import annotate_history as annotate_history_xg
 
 
 CHALLENGE_SNAPSHOT_VERSION = 8
-CHALLENGE_WORKSPACE_VERSION = 5
+CHALLENGE_WORKSPACE_VERSION = 6
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
 API_TAIL_DAYS = 7  # Frische-Tail: API-FT-Ergebnisse über die CSV-Historie legen
@@ -1366,10 +1365,22 @@ def scan_daily_challenge(
     search_date: date,
     max_fixtures: int,
     *,
+    market_kinds: Optional[set[str]] = None,
     progress_cb=None,
 ) -> dict[str, Any]:
     """Run one explicit, quota-aware daily challenge scan."""
     _validate_scan_inputs(league_ids, search_date, max_fixtures)
+    supported_market_kinds = {spec.kind for spec in market_specs()}
+    selected_market_kinds = (
+        {str(kind).strip() for kind in market_kinds if str(kind).strip()}
+        if market_kinds is not None
+        else None
+    )
+    if selected_market_kinds is not None:
+        unknown_market_kinds = selected_market_kinds - supported_market_kinds
+        if not selected_market_kinds or unknown_market_kinds:
+            unknown = ", ".join(sorted(unknown_market_kinds)) or "leere Auswahl"
+            raise ValueError(f"Unbekannter Markt-Scope: {unknown}")
     if progress_cb:
         progress_cb(
             0.01,
@@ -1675,6 +1686,13 @@ def scan_daily_challenge(
                 f"Spiel {fixture_index + 1}/{fixture_total} modelliert",
             )
 
+    if selected_market_kinds is not None:
+        all_candidates = [
+            candidate
+            for candidate in all_candidates
+            if MARKET_BY_KEY[candidate.market_key].kind in selected_market_kinds
+        ]
+
     base_candidates = [candidate for candidate in all_candidates if candidate.base_eligible]
     context_fixture_ids = _ranked_fixture_ids(base_candidates)
     if progress_cb:
@@ -1751,6 +1769,11 @@ def scan_daily_challenge(
         "scanned_at": datetime.now(timezone.utc).isoformat(),
         "scope": _scope_signature(league_ids, search_date, max_fixtures),
         "search_date": search_date.isoformat(),
+        "market_kinds": (
+            sorted(selected_market_kinds)
+            if selected_market_kinds is not None
+            else None
+        ),
         "fixture_kickoffs": [
             kickoff.isoformat()
             for kickoff in (
@@ -2967,15 +2990,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
 
     snapshot = st.session_state.get("challenge_snapshot")
     if not isinstance(snapshot, dict):
-        render_empty_state(
-            "So funktioniert die Challenge-Suche",
-            [
-                "Spieltag und Ligen wählen, dann „Challenge-Kandidaten finden“ klicken.",
-                "Das Modell prüft quotenfrei bis zu drei streng gefilterte Spiele.",
-                "Erst danach entscheidet der N1Bet-Preis über eine Freigabe.",
-            ],
-            duration_hint="Dauer: abhängig von Spielplan und Datenbestand.",
-        )
+        st.info("Noch keine 15K-Suche für diese Auswahl.")
         return
     if snapshot.get("version") != CHALLENGE_SNAPSHOT_VERSION:
         st.warning("Dieses Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
@@ -3020,7 +3035,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
 
 
 def render_challenge_15k() -> None:
-    """Render the complete challenge workspace."""
+    """Render the focused challenge finder without nested workspace tabs."""
     session_scope = scan_jobs.session_scope(st.session_state)
     ledger = _challenge_ledger(session_scope)
     _auto_settle_feedback(ledger)
@@ -3030,33 +3045,27 @@ def render_challenge_15k() -> None:
         "Tageszielquote 2,00-3,00 | maximal drei verschiedene Spiele | "
         "Shadow-Phase: Buchmacherpreise erst nach der Modellfreigabe"
     )
-    challenge_views = ["Wettfinder", "Verlauf", "Konto"]
-    if st.session_state.get("challenge_workspace") not in challenge_views:
-        st.session_state["challenge_workspace"] = "Wettfinder"
-    mode = _segmented(
-        "Challenge-Bereich",
-        challenge_views,
-        "challenge_workspace",
-        "Wettfinder",
-    )
-    if mode == "Wettfinder":
-        _render_analysis(ledger, settings)
-    elif mode == "Verlauf":
-        _render_history(ledger)
-    else:
-        _render_account(ledger, settings)
+    _render_analysis(ledger, settings)
 
-    st.divider()
-    st.caption(
-        "Aktiv freigabefähig: Endergebnis, doppelte Chance, BTTS, Gesamt- und Teamtore, "
-        "ausgewählte kombinierte Torwetten, Eckbälle und gelbe Karten. Jeder Markt benötigt sein "
-        "eigenes Walk-forward-Gate. Early Payout, Ganzzahl-Handicaps und Halbzeitmärkte bleiben ausgeschlossen."
-    )
+
+def render_challenge_history() -> None:
+    """Render challenge tickets in the shared records workspace."""
+    ledger = _challenge_ledger(scan_jobs.session_scope(st.session_state))
+    _auto_settle_feedback(ledger)
+    _render_history(ledger)
+
+
+def render_challenge_account() -> None:
+    """Render challenge bankroll controls in settings."""
+    ledger = _challenge_ledger(scan_jobs.session_scope(st.session_state))
+    _render_account(ledger, ledger.settings())
 
 
 __all__ = [
     "ChallengeDataProvider",
     "refresh_discovered_candidates",
+    "render_challenge_account",
     "render_challenge_15k",
+    "render_challenge_history",
     "scan_daily_challenge",
 ]
