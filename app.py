@@ -145,14 +145,17 @@ FINDER_SPORT_OPTIONS = (
     "Tennis",
     "Basketball",
     "Eishockey",
+    "Cricket",
     "E-Sport",
 )
-FOOTBALL_SEARCH_HORIZONS = {
+SEARCH_HORIZONS = {
     "Heute": 0,
     "3 Tage voraus": 3,
     "7 Tage voraus": 7,
     "14 Tage voraus": 14,
 }
+# Backward-compatible name for callers/tests from the football-only rollout.
+FOOTBALL_SEARCH_HORIZONS = SEARCH_HORIZONS
 MULTI_SPORT_FILTER_OPTIONS = {
     "Basketball": ("Alle Ligen", "NBA", "EuroLeague"),
     "E-Sport": ("Alle Spiele", "CS2", "LoL", "Dota2", "Valorant"),
@@ -2666,11 +2669,61 @@ def render_model(analyzer) -> None:
         _render_data_management(analyzer)
 
 
-def _multi_sport_scope_key(sport: str, detail_filter: Optional[str]) -> str:
-    return f"{sport}:{detail_filter or 'all'}"
+def _multi_sport_scope_key(
+    sport: str,
+    detail_filter: Optional[str],
+    search_date: Optional[date] = None,
+    search_end_date: Optional[date] = None,
+) -> str:
+    start_date = search_date or zurich_today()
+    end_date = search_end_date or start_date
+    return (
+        f"{sport}:{detail_filter or 'all'}:"
+        f"{start_date.isoformat()}:{end_date.isoformat()}"
+    )
+
+
+def _validate_multi_sport_window(
+    search_date: Optional[date],
+    search_end_date: Optional[date],
+) -> tuple[date, date]:
+    start_date = search_date or zurich_today()
+    end_date = search_end_date or start_date
+    if (
+        isinstance(start_date, datetime)
+        or not isinstance(start_date, date)
+        or isinstance(end_date, datetime)
+        or not isinstance(end_date, date)
+    ):
+        raise ValueError("Suchzeitraum muss aus Datumswerten bestehen")
+    if not 0 <= (end_date - start_date).days <= 14:
+        raise ValueError("Suchzeitraum darf höchstens 14 Tage voraus reichen")
+    return start_date, end_date
 
 
 def _multi_sport_event_label(sport: str, item: dict) -> str:
+    if item.get("status") == "upcoming":
+        raw_start = item.get("start_time") or item.get("begin_at")
+        try:
+            start = datetime.fromisoformat(str(raw_start).replace("Z", "+00:00"))
+            kickoff = start.astimezone().strftime("%d.%m., %H:%M")
+        except (TypeError, ValueError):
+            kickoff = "Termin offen"
+        if sport == "Eishockey":
+            matchup = (
+                f"{item.get('away_team', 'AWAY')} @ "
+                f"{item.get('home_team', 'HOME')}"
+            )
+        elif sport == "Tennis":
+            matchup = (
+                f"{item.get('player1', 'Spieler 1')} vs "
+                f"{item.get('player2', 'Spieler 2')}"
+            )
+        else:
+            home = item.get("home_team") or item.get("team1") or "Team 1"
+            away = item.get("away_team") or item.get("team2") or "Team 2"
+            matchup = f"{home} vs {away}"
+        return f"{matchup} | {kickoff}"
     if sport == "Basketball":
         return (
             f"{item.get('home_team', 'HOME')} vs {item.get('away_team', 'AWAY')} | "
@@ -2699,13 +2752,6 @@ def _multi_sport_event_label(sport: str, item: dict) -> str:
             f"{item.get('team1', 'Team 1')} vs {item.get('team2', 'Team 2')} | "
             f"{score} nach {item.get('current_over', 'n/a')} Over"
         )
-    if item.get("status") == "upcoming":
-        begin = str(item.get("begin_at") or "")
-        kickoff = begin[11:16] if len(begin) >= 16 else "offen"
-        return (
-            f"{item.get('team1', 'Team 1')} vs {item.get('team2', 'Team 2')} | "
-            f"Pre-Match · Anstoß {kickoff}"
-        )
     return (
         f"{item.get('team1', 'Team 1')} vs {item.get('team2', 'Team 2')} | "
         f"{item.get('team1_score', 'n/a')}:{item.get('team2_score', 'n/a')}"
@@ -2715,10 +2761,16 @@ def _multi_sport_event_label(sport: str, item: dict) -> str:
 def _fetch_multi_sport_snapshot(
     sport: str,
     detail_filter: Optional[str] = None,
+    search_date: Optional[date] = None,
+    search_end_date: Optional[date] = None,
 ) -> dict:
-    """Fetch only the provider selected by the user."""
+    """Fetch upcoming events for one sport and an explicit date window."""
     if sport not in MULTI_SPORT_OPTIONS:
         raise ValueError(f"Unbekannte Sportart: {sport}")
+    start_date, end_date = _validate_multi_sport_window(
+        search_date,
+        search_end_date,
+    )
     valid_filters = MULTI_SPORT_FILTER_OPTIONS.get(sport)
     if valid_filters:
         detail_filter = detail_filter or valid_filters[0]
@@ -2728,10 +2780,12 @@ def _fetch_multi_sport_snapshot(
         raise ValueError(f"{sport} unterstützt keinen Detailfilter")
 
     snapshot = {
-        "version": 2,
+        "version": 3,
         "scanned_at": datetime.now().astimezone().isoformat(),
         "sport": sport,
         "detail_filter": detail_filter,
+        "search_date": start_date.isoformat(),
+        "search_end_date": end_date.isoformat(),
         "items": [],
         "credentials_available": True,
         "errors": {},
@@ -2747,7 +2801,11 @@ def _fetch_multi_sport_snapshot(
                 "NBA": "NBA",
                 "EuroLeague": "Euroleague",
             }[detail_filter]
-            for game in scanner.scan_live_games(provider_filter):
+            for game in scanner.get_upcoming_games(
+                provider_filter,
+                start_date,
+                end_date,
+            ):
                 snapshot["items"].append(dict(game))
             for provider, message in scanner.errors.items():
                 snapshot["errors"][provider] = message
@@ -2760,21 +2818,35 @@ def _fetch_multi_sport_snapshot(
             from scanners.basketball_scanner import BasketballScanner
 
             scanner = BasketballScanner()
-            snapshot["items"] = scanner.get_live_nhl_games()
-            if scanner.errors.get("nhl"):
-                snapshot["errors"]["NHL"] = scanner.errors["nhl"]
+            snapshot["items"] = scanner.get_upcoming_nhl_games(
+                start_date,
+                end_date,
+            )
+            for provider, message in scanner.errors.items():
+                snapshot["errors"][provider] = message
         except Exception:
             snapshot["errors"]["NHL"] = "Provider nicht verfügbar"
         return snapshot
 
     if sport == "Tennis":
         try:
-            from scanners.tennis_scanner import TennisScanner
+            from scripts.tennis_daily import fetch_fixtures
 
-            scanner = TennisScanner()
-            snapshot["items"] = scanner.get_live_matches()
-            if scanner.last_error:
-                snapshot["errors"]["Tennis"] = scanner.last_error
+            total_days = (end_date - start_date).days + 1
+            for offset in range(total_days):
+                target_date = start_date + timedelta(days=offset)
+                for fixture in fetch_fixtures(target_date.isoformat()):
+                    snapshot["items"].append(
+                        {
+                            "match_id": fixture.get("provider_event_id"),
+                            "player1": fixture.get("player_a"),
+                            "player2": fixture.get("player_b"),
+                            "tournament": fixture.get("tournament"),
+                            "status": "upcoming",
+                            "start_time": fixture.get("scheduled_start_utc"),
+                            "source": fixture.get("fixture_source"),
+                        }
+                    )
         except Exception:
             snapshot["errors"]["Tennis"] = "Provider nicht verfügbar"
         return snapshot
@@ -2784,7 +2856,10 @@ def _fetch_multi_sport_snapshot(
             from scanners.cricket_scanner import CricketScanner
 
             scanner = CricketScanner()
-            snapshot["items"] = scanner.get_live_matches()
+            snapshot["items"] = scanner.get_upcoming_matches(
+                start_date,
+                end_date,
+            )
             if scanner.last_error:
                 snapshot["errors"]["Cricket"] = scanner.last_error
         except Exception:
@@ -2798,7 +2873,11 @@ def _fetch_multi_sport_snapshot(
         snapshot["credentials_available"] = bool(scanner.api_key)
         if scanner.api_key:
             provider_filter = "all" if detail_filter == "Alle Spiele" else detail_filter.lower()
-            for match in scanner.get_matches(provider_filter):
+            for match in scanner.get_upcoming_matches(
+                provider_filter,
+                start_date,
+                end_date,
+            ):
                 snapshot["items"].append(dict(match))
             for provider, message in scanner.errors.items():
                 snapshot["errors"][provider] = message
@@ -2810,13 +2889,24 @@ def _fetch_multi_sport_snapshot(
 def _run_multi_sport_worker(
     sport: str,
     detail_filter: Optional[str] = None,
+    search_date: Optional[date] = None,
+    search_end_date: Optional[date] = None,
     progress_cb=None,
 ) -> dict:
     """Hintergrund-Worker für den Multi-Sport-Scan (thread-sicher, kein st.*)."""
     if progress_cb:
         progress_cb(0.05, "wird vorbereitet")
         progress_cb(0.25, "Provider wird abgefragt")
-    snapshot = _fetch_multi_sport_snapshot(sport, detail_filter)
+    start_date, end_date = _validate_multi_sport_window(
+        search_date,
+        search_end_date,
+    )
+    snapshot = _fetch_multi_sport_snapshot(
+        sport,
+        detail_filter,
+        start_date,
+        end_date,
+    )
     if progress_cb:
         progress_cb(
             0.90,
@@ -2824,7 +2914,12 @@ def _run_multi_sport_worker(
         )
         progress_cb(1.0, "Fertig")
     return {
-        "scope_key": _multi_sport_scope_key(sport, detail_filter),
+        "scope_key": _multi_sport_scope_key(
+            sport,
+            detail_filter,
+            start_date,
+            end_date,
+        ),
         "snapshot": snapshot,
     }
 
@@ -2909,9 +3004,17 @@ def _multi_sport_release_blockers(
     )
 
 
-def render_multi_sport(preselected_sport: Optional[str] = None) -> None:
+def render_multi_sport(
+    preselected_sport: Optional[str] = None,
+    search_date: Optional[date] = None,
+    search_end_date: Optional[date] = None,
+) -> None:
     if preselected_sport is not None and preselected_sport not in MULTI_SPORT_OPTIONS:
         raise ValueError(f"Unbekannte Sportart: {preselected_sport}")
+    start_date, end_date = _validate_multi_sport_window(
+        search_date,
+        search_end_date,
+    )
     sport = preselected_sport or st.selectbox(
         "Sportart",
         list(MULTI_SPORT_OPTIONS),
@@ -2929,7 +3032,12 @@ def render_multi_sport(preselected_sport: Optional[str] = None) -> None:
     if not isinstance(snapshots, dict):
         snapshots = {}
         st.session_state["multi_sport_snapshots"] = snapshots
-    scope_key = _multi_sport_scope_key(sport, detail_filter)
+    scope_key = _multi_sport_scope_key(
+        sport,
+        detail_filter,
+        start_date,
+        end_date,
+    )
     if st.button(
         f"{sport}-Wettvorschläge aktualisieren",
         type="primary",
@@ -2942,7 +3050,7 @@ def render_multi_sport(preselected_sport: Optional[str] = None) -> None:
             scan_jobs.start_job(
                 _job_key("multi_sport"),
                 _run_multi_sport_worker,
-                args=(sport, detail_filter),
+                args=(sport, detail_filter, start_date, end_date),
             )
 
     job = scan_jobs.get_job(_job_key("multi_sport"))
@@ -2970,21 +3078,21 @@ def render_multi_sport(preselected_sport: Optional[str] = None) -> None:
     snapshot_items = snapshot.get("items")
     snapshot_items = snapshot_items if isinstance(snapshot_items, list) else []
     item_count = len(snapshot_items)
-    upcoming_count = sum(
-        1
-        for item in snapshot_items
-        if isinstance(item, dict) and item.get("status") == "upcoming"
-    )
-    if upcoming_count:
-        events_label = f"{item_count - upcoming_count} live · {upcoming_count} anstehend"
-    else:
-        events_label = f"{item_count} Live-Ereignisse"
+    events_label = f"{item_count} anstehende Ereignisse"
     caption_parts = [
         f"Datenstand: {_format_snapshot_time(snapshot.get('scanned_at'))}",
+        f"Zeitraum: {start_date:%d.%m.%Y} bis {end_date:%d.%m.%Y}",
         events_label,
     ]
     if detail_filter:
         caption_parts.append(f"Filter: {detail_filter}")
+    if sport == "E-Sport":
+        enriched_count = sum(
+            1
+            for item in snapshot_items
+            if isinstance(item, dict) and item.get("model_context_loaded") is True
+        )
+        caption_parts.append(f"{enriched_count} mit Teamhistorie modelliert")
     sources = sorted({
         str(item.get("source")).strip()
         for item in snapshot_items or []
@@ -3018,7 +3126,7 @@ def render_multi_sport(preselected_sport: Optional[str] = None) -> None:
     if not snapshot_items:
         if not missing_esports_key:
             st.error(
-                f"NICHT WETTEN: Keine laufenden {sport}-Ereignisse mit prüfbarem Markt."
+                f"NICHT WETTEN: Keine anstehenden {sport}-Ereignisse im Zeitraum."
             )
         return
 
@@ -3048,7 +3156,7 @@ def render_multi_sport(preselected_sport: Optional[str] = None) -> None:
         )
     snapshot_token = str(snapshot.get("scanned_at") or "snapshot").replace(":", "_")
     line_value = None
-    if sport in {"Basketball", "Eishockey"}:
+    if sport in {"Basketball", "Eishockey"} and not is_upcoming:
         line_label = (
             "N1Bet-Gesamtpunkte-Linie (x,5)"
             if sport == "Basketball"
@@ -3202,29 +3310,17 @@ def render_wettfinder() -> None:
             key="finder_sport",
         )
 
-    search_date = None
-    search_end_date = None
-    if sport == "Fußball":
-        with controls[1]:
-            horizon_label = st.selectbox(
-                "Zeitraum",
-                list(FOOTBALL_SEARCH_HORIZONS),
-                index=2,
-                key="finder_football_horizon",
-            )
-        search_date = zurich_today()
-        search_end_date = search_date + timedelta(
-            days=FOOTBALL_SEARCH_HORIZONS[horizon_label]
+    with controls[1]:
+        horizon_label = st.selectbox(
+            "Zeitraum",
+            list(SEARCH_HORIZONS),
+            index=2,
+            key="finder_search_horizon",
         )
-    elif sport == "Tennis":
-        with controls[1]:
-            day = _segmented(
-                "Spieltag",
-                ["Heute", "Morgen"],
-                "finder_day",
-                "Heute",
-            )
-        search_date = zurich_today() + timedelta(days=1 if day == "Morgen" else 0)
+    search_date = zurich_today()
+    search_end_date = search_date + timedelta(
+        days=SEARCH_HORIZONS[horizon_label]
+    )
 
     if sport == "Fußball":
         with controls[2]:
@@ -3242,9 +3338,13 @@ def render_wettfinder() -> None:
     elif sport == "Tennis":
         from tennis_tab import render_tennis_finder
 
-        render_tennis_finder(search_date)
+        render_tennis_finder(search_date, search_end_date)
     else:
-        render_multi_sport(preselected_sport=sport)
+        render_multi_sport(
+            preselected_sport=sport,
+            search_date=search_date,
+            search_end_date=search_end_date,
+        )
 
 
 def _render_system_status(analyzer) -> None:

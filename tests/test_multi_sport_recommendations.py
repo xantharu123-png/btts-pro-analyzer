@@ -79,6 +79,37 @@ def test_basketball_model_is_created_before_a_bookmaker_quote_exists():
     assert unconfirmed.metrics is None
 
 
+@pytest.mark.parametrize(
+    ("sport", "payload"),
+    [
+        (
+            "Basketball",
+            {
+                "status": "upcoming",
+                "game_id": "nba-future",
+                "home_team": "Alpha",
+                "away_team": "Beta",
+            },
+        ),
+        (
+            "Eishockey",
+            {
+                "status": "upcoming",
+                "game_id": "nhl-future",
+                "home_team": "Alpha",
+                "away_team": "Beta",
+            },
+        ),
+    ],
+)
+def test_upcoming_live_only_sports_fail_closed(sport, payload):
+    candidate = build_candidate(sport, payload, market_line=5.5)
+
+    assert not candidate.model_ready
+    assert candidate.model_probability is None
+    assert any("Pre-Match-Modell" in reason for reason in candidate.blockers)
+
+
 def test_total_models_reject_push_lines_instead_of_using_binary_ev_math():
     candidate = basketball_total_candidate(_basketball_game(), 225.0)
 

@@ -309,6 +309,18 @@ def _gamma_poisson_total_probability(
 
 
 def basketball_total_candidate(game: dict, market_line: Any) -> RecommendationCandidate:
+    if game.get("status") == "upcoming":
+        return no_bet_candidate(
+            "Basketball",
+            game,
+            [
+                "Für Basketball ist noch kein leakage-frei walk-forward-validiertes "
+                "Pre-Match-Modell freigegeben. Das vorhandene Totalmodell benötigt "
+                "einen verifizierten Live-Spielstand und eine Spieluhr."
+            ],
+            market="Pre-Match",
+            model_name="Pre-Match-Modell nicht freigegeben",
+        )
     league = str(game.get("league") or "").strip()
     league_key = league.casefold()
     baselines = {
@@ -410,6 +422,18 @@ def basketball_total_candidate(game: dict, market_line: Any) -> RecommendationCa
 
 
 def nhl_total_candidate(game: dict, market_line: Any) -> RecommendationCandidate:
+    if game.get("status") == "upcoming":
+        return no_bet_candidate(
+            "Eishockey",
+            game,
+            [
+                "Für NHL ist noch kein goalie- und lineup-sensitives, leakage-frei "
+                "walk-forward-validiertes Pre-Match-Modell freigegeben. Das vorhandene "
+                "Totalmodell benötigt einen verifizierten Live-Spielstand."
+            ],
+            market="Pre-Match",
+            model_name="Pre-Match-Modell nicht freigegeben",
+        )
     home = str(game.get("home_team") or "HOME").strip() or "HOME"
     away = str(game.get("away_team") or "AWAY").strip() or "AWAY"
     line = _half_line(market_line)

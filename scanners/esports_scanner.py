@@ -8,7 +8,9 @@ estimates anymore.
 
 import math
 import requests
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 try:  # Automation-Runner ohne streamlit: Secrets entfallen, config.ini/env greifen
     import streamlit as st
@@ -22,6 +24,9 @@ class EsportsScanner:
 
     MAX_LIVE_MATCHES_PER_GAME = 6
     MAX_UPCOMING_MATCHES_PER_GAME = 6
+    MAX_RANGE_MATCHES_PER_GAME = 100
+    MAX_RANGE_PAGES_PER_GAME = 5
+    MAX_ENRICHED_RANGE_MATCHES_PER_GAME = 3
 
     def __init__(self):
         self.pandascore_base = "https://api.pandascore.co"
@@ -40,15 +45,42 @@ class EsportsScanner:
         """Running matches from Pandascore."""
         return self._scan(game, ("running", "live"))
 
-    def get_upcoming_matches(self, game: str = "all") -> List[Dict]:
+    def get_upcoming_matches(
+        self,
+        game: str = "all",
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+    ) -> List[Dict]:
         """Not-yet-started matches from Pandascore, soonest first."""
-        return self._scan(game, ("upcoming", "upcoming"))
+        return self._scan(
+            game,
+            ("upcoming", "upcoming"),
+            start_date=start_date,
+            end_date=end_date,
+        )
 
-    def get_matches(self, game: str = "all") -> List[Dict]:
+    def get_matches(
+        self,
+        game: str = "all",
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+    ) -> List[Dict]:
         """Live plus upcoming matches in one bounded scan."""
-        return self._scan(game, ("running", "live"), ("upcoming", "upcoming"))
+        return self._scan(
+            game,
+            ("running", "live"),
+            ("upcoming", "upcoming"),
+            start_date=start_date,
+            end_date=end_date,
+        )
 
-    def _scan(self, game: str, *endpoints: tuple) -> List[Dict]:
+    def _scan(
+        self,
+        game: str,
+        *endpoints: tuple,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+    ) -> List[Dict]:
         self.errors = {}
         if not self.api_key:
             self.errors["credentials"] = "PandaScore key missing"
@@ -65,6 +97,8 @@ class EsportsScanner:
             self.errors['selection'] = 'Unsupported game'
             return []
 
+        window = self._utc_window(start_date, end_date)
+
         games_to_scan = list(games_map.keys()) if game == 'all' else [game]
         all_matches: List[Dict] = []
         for g in games_to_scan:
@@ -72,9 +106,64 @@ class EsportsScanner:
             for endpoint, status in endpoints:
                 error_key = g if len(endpoints) == 1 else f"{status}_{g}"
                 all_matches.extend(
-                    self._fetch_endpoint(api_game, g.upper(), endpoint, status, error_key)
+                    self._fetch_endpoint(
+                        api_game,
+                        g.upper(),
+                        endpoint,
+                        status,
+                        error_key,
+                        window=window,
+                    )
                 )
         return all_matches
+
+    @staticmethod
+    def _utc_window(
+        start_date: Optional[date],
+        end_date: Optional[date],
+    ) -> Optional[tuple[datetime, datetime]]:
+        if start_date is None and end_date is None:
+            return None
+        if start_date is None:
+            raise ValueError("end_date requires start_date")
+        end_value = end_date or start_date
+        if (
+            isinstance(start_date, datetime)
+            or not isinstance(start_date, date)
+            or isinstance(end_value, datetime)
+            or not isinstance(end_value, date)
+            or not 0 <= (end_value - start_date).days <= 14
+        ):
+            raise ValueError("Date window must span zero to fourteen days")
+        zurich = ZoneInfo("Europe/Zurich")
+        start = datetime.combine(start_date, time.min, tzinfo=zurich).astimezone(
+            timezone.utc
+        )
+        end = datetime.combine(
+            end_value + timedelta(days=1),
+            time.min,
+            tzinfo=zurich,
+        ).astimezone(timezone.utc)
+        return start, end
+
+    @staticmethod
+    def _match_in_window(
+        match: Dict,
+        window: Optional[tuple[datetime, datetime]],
+    ) -> bool:
+        if window is None:
+            return True
+        begin_at = match.get('begin_at') if isinstance(match, dict) else None
+        if not isinstance(begin_at, str):
+            return False
+        try:
+            kickoff = datetime.fromisoformat(begin_at.replace('Z', '+00:00'))
+        except ValueError:
+            return False
+        if kickoff.tzinfo is None:
+            kickoff = kickoff.replace(tzinfo=timezone.utc)
+        kickoff = kickoff.astimezone(timezone.utc)
+        return window[0] <= kickoff < window[1]
 
     def _fetch_endpoint(
         self,
@@ -83,42 +172,98 @@ class EsportsScanner:
         endpoint: str,
         status: str,
         error_key: str,
+        *,
+        window: Optional[tuple[datetime, datetime]] = None,
     ) -> List[Dict]:
         limit = (
             self.MAX_LIVE_MATCHES_PER_GAME
             if status == "live"
-            else self.MAX_UPCOMING_MATCHES_PER_GAME
+            else (
+                self.MAX_RANGE_MATCHES_PER_GAME
+                if window is not None
+                else self.MAX_UPCOMING_MATCHES_PER_GAME
+            )
         )
         url = f"{self.pandascore_base}/{api_game}/matches/{endpoint}"
-        try:
-            response = requests.get(
-                url,
-                headers=self.headers,
-                params={'per_page': limit, 'sort': 'begin_at'},
-                timeout=10,
-            )
-        except (requests.RequestException, ValueError) as exc:
-            self.errors[error_key] = type(exc).__name__
-            return []
-        if response.status_code != 200:
-            self.errors[error_key] = f"HTTP {response.status_code}"
-            return []
-        try:
-            matches = response.json()
-        except ValueError:
-            self.errors[error_key] = "Invalid provider payload"
-            return []
-        if not isinstance(matches, list):
-            self.errors[error_key] = "Invalid provider payload"
-            return []
+        matches = []
+        max_pages = self.MAX_RANGE_PAGES_PER_GAME if window is not None else 1
+        for page in range(1, max_pages + 1):
+            try:
+                response = requests.get(
+                    url,
+                    headers=self.headers,
+                    params={
+                        'per_page': limit,
+                        'page': page,
+                        'sort': 'begin_at',
+                    },
+                    timeout=10,
+                )
+            except (requests.RequestException, ValueError) as exc:
+                self.errors[error_key] = type(exc).__name__
+                break
+            if response.status_code != 200:
+                self.errors[error_key] = f"HTTP {response.status_code}"
+                break
+            try:
+                page_matches = response.json()
+            except ValueError:
+                self.errors[error_key] = "Invalid provider payload"
+                break
+            if not isinstance(page_matches, list):
+                self.errors[error_key] = "Invalid provider payload"
+                break
+            matches.extend(page_matches)
+            reached_window_end = False
+            if window is not None:
+                for match in page_matches:
+                    begin_at = match.get('begin_at') if isinstance(match, dict) else None
+                    if not isinstance(begin_at, str):
+                        continue
+                    try:
+                        kickoff = datetime.fromisoformat(begin_at.replace('Z', '+00:00'))
+                    except ValueError:
+                        continue
+                    if kickoff.tzinfo is None:
+                        kickoff = kickoff.replace(tzinfo=timezone.utc)
+                    if kickoff.astimezone(timezone.utc) >= window[1]:
+                        reached_window_end = True
+                        break
+            if len(page_matches) < limit or reached_window_end:
+                break
         formatted_matches: List[Dict] = []
-        for match in matches[:limit]:
-            formatted = self._format_match(match, game_label, status=status)
+        matching_index = 0
+        scoped_matches = matches if window is not None else matches[:limit]
+        for match in scoped_matches:
+            if status == "upcoming" and not self._match_in_window(match, window):
+                continue
+            enrich_history = not (
+                status == "upcoming"
+                and window is not None
+                and matching_index >= self.MAX_ENRICHED_RANGE_MATCHES_PER_GAME
+            )
+            if enrich_history:
+                formatted = self._format_match(match, game_label, status=status)
+            else:
+                formatted = self._format_match(
+                    match,
+                    game_label,
+                    status=status,
+                    enrich_history=False,
+                )
+            matching_index += 1
             if formatted:
                 formatted_matches.append(formatted)
         return formatted_matches
 
-    def _format_match(self, match: Dict, game: str, status: str = "live") -> Optional[Dict]:
+    def _format_match(
+        self,
+        match: Dict,
+        game: str,
+        status: str = "live",
+        *,
+        enrich_history: bool = True,
+    ) -> Optional[Dict]:
         """Format match with team stats.
 
         ``status`` is "live" (running match, verified scoreboard required)
@@ -207,7 +352,7 @@ class EsportsScanner:
 
             # Historical calls are useful only when the series model can consume them.
             game_slug = 'csgo' if game == 'CS2' else game.lower()
-            if can_estimate:
+            if can_estimate and enrich_history:
                 team1_history = self._get_team_history(team1_id, game_slug)[:20]
                 team2_history = self._get_team_history(team2_id, game_slug)[:20]
                 team1_stats = self._get_team_stats(team1_id, game_slug)
@@ -242,6 +387,7 @@ class EsportsScanner:
                 'team2_history': team2_history,
                 'status': status,
                 'begin_at': begin_at,
+                'model_context_loaded': bool(can_estimate and enrich_history),
                 'source': 'PandaScore',
             }
         except (AttributeError, KeyError, TypeError, ValueError):

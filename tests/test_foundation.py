@@ -1961,6 +1961,177 @@ class CrossSportMathTests(unittest.TestCase):
 
         self.assertEqual([game["gameCode"] for game in nearby], [1])
 
+    def test_basketball_upcoming_scan_covers_every_selected_day(self):
+        scanner = BasketballScanner.__new__(BasketballScanner)
+        scanner.nba_headers = {"User-Agent": "test"}
+        scanner.espn_nba_url = "https://espn.test/nba"
+        scanner.espn_euroleague_url = "https://espn.test/euroleague"
+        scanner.errors = {}
+
+        def response_for(day, game_id):
+            response = Mock(status_code=200)
+            response.json.return_value = {
+                "events": [{
+                    "id": f"event-{game_id}",
+                    "date": f"{day}T19:00:00Z",
+                    "competitions": [{
+                        "id": game_id,
+                        "date": f"{day}T19:00:00Z",
+                        "status": {"type": {"state": "pre"}},
+                        "competitors": [
+                            {
+                                "homeAway": "home",
+                                "team": {"abbreviation": f"H{game_id}"},
+                            },
+                            {
+                                "homeAway": "away",
+                                "team": {"abbreviation": f"A{game_id}"},
+                            },
+                        ],
+                    }],
+                }],
+            }
+            return response
+
+        with patch(
+            "scanners.basketball_scanner.requests.get",
+            side_effect=[
+                response_for("2030-01-01", 1),
+                response_for("2030-01-02", 2),
+            ],
+        ) as get:
+            games = scanner.get_upcoming_games(
+                "NBA",
+                date(2030, 1, 1),
+                date(2030, 1, 2),
+            )
+
+        self.assertEqual([game["game_id"] for game in games], [1, 2])
+        self.assertTrue(all(game["status"] == "upcoming" for game in games))
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(
+            [call.kwargs["params"]["dates"] for call in get.call_args_list],
+            ["20300101", "20300102"],
+        )
+
+    def test_euroleague_upcoming_scan_uses_official_schedule_shape(self):
+        scanner = BasketballScanner.__new__(BasketballScanner)
+        scanner.euroleague_games_base = "https://euroleague.test/v2"
+        scanner.errors = {}
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "data": [{
+                "id": "game-7",
+                "gameCode": 7,
+                "played": False,
+                "utcDate": "2030-01-03T19:30:00Z",
+                "local": {"club": {"code": "BAR"}},
+                "road": {"club": {"code": "OLY"}},
+                "venue": {"name": "Test Arena"},
+            }],
+        }
+
+        with patch(
+            "scanners.basketball_scanner.requests.get",
+            return_value=response,
+        ) as get:
+            games = scanner._get_upcoming_euroleague_games(
+                date(2030, 1, 1),
+                date(2030, 1, 7),
+            )
+
+        self.assertEqual(len(games), 1)
+        self.assertEqual(games[0]["home_team"], "BAR")
+        self.assertEqual(games[0]["away_team"], "OLY")
+        self.assertEqual(games[0]["source"], "EuroLeague")
+        self.assertIn("/seasons/E2029/games", get.call_args.args[0])
+
+    def test_nhl_upcoming_scan_uses_official_week_schedule(self):
+        scanner = BasketballScanner.__new__(BasketballScanner)
+        scanner.nhl_schedule_base = "https://nhl.test/schedule"
+        scanner.errors = {}
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "gameWeek": [{
+                "date": "2030-01-03",
+                "games": [{
+                    "id": 2030020001,
+                    "gameState": "FUT",
+                    "startTimeUTC": "2030-01-03T23:00:00Z",
+                    "homeTeam": {"abbrev": "TOR"},
+                    "awayTeam": {"abbrev": "MTL"},
+                    "venue": {"default": "Test Arena"},
+                }],
+            }],
+            "nextStartDate": "2030-01-10",
+        }
+
+        with patch(
+            "scanners.basketball_scanner.requests.get",
+            return_value=response,
+        ) as get:
+            games = scanner.get_upcoming_nhl_games(
+                date(2030, 1, 1),
+                date(2030, 1, 7),
+            )
+
+        self.assertEqual(len(games), 1)
+        self.assertEqual(games[0]["away_team"], "MTL")
+        self.assertEqual(games[0]["status"], "upcoming")
+        self.assertEqual(
+            get.call_args.args[0],
+            "https://nhl.test/schedule/2030-01-01",
+        )
+
+    def test_cricket_upcoming_scan_filters_requested_window(self):
+        scanner = CricketScanner.__new__(CricketScanner)
+        scanner.rapidapi_key = "test"
+        scanner.cricket_api_key = None
+        scanner.cricbuzz_base = "https://cricbuzz.test"
+        scanner.headers = {"X-RapidAPI-Key": "test"}
+        scanner.last_error = None
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "typeMatches": [{
+                "seriesMatches": [{
+                    "seriesAdWrapper": {
+                        "matches": [
+                            {
+                                "matchInfo": {
+                                    "matchId": 1,
+                                    "startDate": 1893528000000,
+                                    "team1": {"teamName": "Alpha"},
+                                    "team2": {"teamName": "Beta"},
+                                    "seriesName": "Test Series",
+                                    "matchFormat": "T20",
+                                }
+                            },
+                            {
+                                "matchInfo": {
+                                    "matchId": 2,
+                                    "startDate": 1894737600000,
+                                    "team1": {"teamName": "Gamma"},
+                                    "team2": {"teamName": "Delta"},
+                                }
+                            },
+                        ]
+                    }
+                }]
+            }]
+        }
+
+        with patch(
+            "scanners.cricket_scanner.requests.get",
+            return_value=response,
+        ):
+            games = scanner.get_upcoming_matches(
+                date(2030, 1, 1),
+                date(2030, 1, 8),
+            )
+
+        self.assertEqual([game["match_id"] for game in games], [1])
+        self.assertEqual(games[0]["status"], "upcoming")
+
     def test_live_card_model_rejects_fractional_provider_counts(self):
         result = CardPredictor().predict_cards(
             {"stats": {"yellow_cards_home": 1.5, "yellow_cards_away": 1}},
@@ -2199,6 +2370,116 @@ class CrossSportMathTests(unittest.TestCase):
         self.assertEqual(
             get.call_args.kwargs["params"]["per_page"],
             scanner.MAX_UPCOMING_MATCHES_PER_GAME,
+        )
+
+    def test_esports_upcoming_range_filters_before_model_history_calls(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        scanner.api_key = "test"
+        scanner.pandascore_base = "https://api.pandascore.co"
+        scanner.headers = {"Authorization": "Bearer test"}
+        scanner.errors = {}
+        scanner._stats_cache = {}
+        scanner._format_match = Mock(
+            side_effect=lambda match, game, status="live": {
+                "id": match["id"],
+                "status": status,
+            }
+        )
+        response = Mock(status_code=200)
+        response.json.return_value = [
+            {"id": 1, "begin_at": "2030-01-02T12:00:00Z"},
+            {"id": 2, "begin_at": "2030-02-02T12:00:00Z"},
+        ]
+
+        with patch(
+            "scanners.esports_scanner.requests.get",
+            return_value=response,
+        ) as get:
+            matches = scanner.get_upcoming_matches(
+                "cs2",
+                date(2030, 1, 1),
+                date(2030, 1, 8),
+            )
+
+        self.assertEqual(matches, [{"id": 1, "status": "upcoming"}])
+        self.assertEqual(scanner._format_match.call_count, 1)
+        self.assertEqual(
+            get.call_args.kwargs["params"]["per_page"],
+            scanner.MAX_RANGE_MATCHES_PER_GAME,
+        )
+
+    def test_esports_range_enriches_only_bounded_nearest_matches(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        scanner.api_key = "test"
+        scanner.pandascore_base = "https://api.pandascore.co"
+        scanner.headers = {"Authorization": "Bearer test"}
+        scanner.errors = {}
+        scanner._stats_cache = {}
+        scanner._format_match = Mock(
+            side_effect=lambda match, game, status="live", **kwargs: {
+                "id": match["id"],
+                "enriched": kwargs.get("enrich_history", True),
+            }
+        )
+        response = Mock(status_code=200)
+        response.json.return_value = [
+            {"id": index, "begin_at": f"2030-01-0{index}T12:00:00Z"}
+            for index in range(1, 6)
+        ]
+
+        with patch(
+            "scanners.esports_scanner.requests.get",
+            return_value=response,
+        ):
+            matches = scanner.get_upcoming_matches(
+                "cs2",
+                date(2030, 1, 1),
+                date(2030, 1, 8),
+            )
+
+        self.assertEqual(len(matches), 5)
+        self.assertEqual(
+            sum(1 for match in matches if match["enriched"]),
+            scanner.MAX_ENRICHED_RANGE_MATCHES_PER_GAME,
+        )
+
+    def test_esports_range_paginates_when_first_page_is_full(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        scanner.api_key = "test"
+        scanner.pandascore_base = "https://api.pandascore.co"
+        scanner.headers = {"Authorization": "Bearer test"}
+        scanner.errors = {}
+        scanner._stats_cache = {}
+        scanner._format_match = Mock(
+            side_effect=lambda match, game, status="live", **kwargs: {
+                "id": match["id"],
+            }
+        )
+        first_page = Mock(status_code=200)
+        first_page.json.return_value = [
+            {"id": index, "begin_at": "2030-01-02T12:00:00Z"}
+            for index in range(100)
+        ]
+        second_page = Mock(status_code=200)
+        second_page.json.return_value = [
+            {"id": 100, "begin_at": "2030-01-03T12:00:00Z"}
+        ]
+
+        with patch(
+            "scanners.esports_scanner.requests.get",
+            side_effect=[first_page, second_page],
+        ) as get:
+            matches = scanner.get_upcoming_matches(
+                "cs2",
+                date(2030, 1, 1),
+                date(2030, 1, 8),
+            )
+
+        self.assertEqual(len(matches), 101)
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(
+            [call.kwargs["params"]["page"] for call in get.call_args_list],
+            [1, 2],
         )
 
     def test_esports_combined_scan_covers_live_and_upcoming(self):

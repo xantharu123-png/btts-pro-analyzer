@@ -72,13 +72,31 @@ def test_automatic_target_label_uses_the_actual_scan_date(monkeypatch):
     assert app._automatic_target_label("2030-01-03") == "03.01.2030"
 
 
-def test_shared_football_finder_offers_a_fourteen_day_horizon():
-    assert app.FOOTBALL_SEARCH_HORIZONS == {
+def test_shared_finder_offers_every_sport_a_fourteen_day_horizon():
+    assert app.SEARCH_HORIZONS == {
         "Heute": 0,
         "3 Tage voraus": 3,
         "7 Tage voraus": 7,
         "14 Tage voraus": 14,
     }
+    assert app.FOOTBALL_SEARCH_HORIZONS is app.SEARCH_HORIZONS
+    assert set(app.FINDER_SPORT_OPTIONS) == {
+        "Fußball",
+        "Tennis",
+        "Basketball",
+        "Eishockey",
+        "Cricket",
+        "E-Sport",
+    }
+
+
+def test_multi_sport_window_rejects_reverse_and_overlong_ranges():
+    start = date(2030, 1, 1)
+
+    with pytest.raises(ValueError, match="höchstens 14 Tage"):
+        app._validate_multi_sport_window(start, start + timedelta(days=15))
+    with pytest.raises(ValueError, match="höchstens 14 Tage"):
+        app._validate_multi_sport_window(start, start - timedelta(days=1))
 
 
 def test_full_league_scans_have_no_confirmation_or_provider_warning():
@@ -149,16 +167,20 @@ def test_market_worker_forwards_detailed_progress(monkeypatch):
 
 
 def test_multi_sport_worker_reports_real_phases(monkeypatch):
+    start_date = date(2030, 1, 1)
+    end_date = start_date + timedelta(days=7)
     monkeypatch.setattr(
         app,
         "_fetch_multi_sport_snapshot",
-        lambda _sport, _detail: {"items": [{}, {}]},
+        lambda _sport, _detail, _start, _end: {"items": [{}, {}]},
     )
     updates = []
 
     result = app._run_multi_sport_worker(
         "Basketball",
         "NBA",
+        start_date,
+        end_date,
         progress_cb=lambda fraction, text: updates.append((fraction, text)),
     )
 
@@ -169,6 +191,7 @@ def test_multi_sport_worker_reports_real_phases(monkeypatch):
         1.0,
     ]
     assert result["snapshot"]["items"] == [{}, {}]
+    assert result["scope_key"].endswith("2030-01-01:2030-01-08")
 
 
 def test_live_recommendation_snapshot_age_requires_timezone_and_freshness():
@@ -225,23 +248,22 @@ def test_multi_sport_fetches_only_the_selected_basketball_scope(monkeypatch):
         def __init__(self):
             self.errors = {}
 
-        def scan_live_games(self, league):
-            calls.append(("basketball", league))
+        def get_upcoming_games(self, league, start_date, end_date):
+            calls.append(("basketball", league, start_date, end_date))
             return [
                 {
                     "home_team": "Home",
                     "away_team": "Away",
                     "league": league,
-                    "period": 2,
-                    "home_score": 42,
-                    "away_score": 40,
+                    "status": "upcoming",
+                    "start_time": "2030-01-02T19:00:00+01:00",
                 }
             ]
 
         def calculate_scoring_projection(self, _game):
             raise AssertionError("Legacy projection must not run")
 
-        def get_live_nhl_games(self):
+        def get_upcoming_nhl_games(self, _start_date, _end_date):
             raise AssertionError("NHL must not be fetched for Basketball")
 
     monkeypatch.setattr(
@@ -250,15 +272,22 @@ def test_multi_sport_fetches_only_the_selected_basketball_scope(monkeypatch):
         FakeBasketballScanner,
     )
 
-    snapshot = app._fetch_multi_sport_snapshot("Basketball", "NBA")
+    start_date = date(2030, 1, 1)
+    end_date = start_date + timedelta(days=7)
+    snapshot = app._fetch_multi_sport_snapshot(
+        "Basketball",
+        "NBA",
+        start_date,
+        end_date,
+    )
 
-    assert calls == [("basketball", "NBA")]
+    assert calls == [("basketball", "NBA", start_date, end_date)]
     assert snapshot["sport"] == "Basketball"
     assert snapshot["detail_filter"] == "NBA"
     assert len(snapshot["items"]) == 1
     assert "nhl" not in snapshot
-    assert app._multi_sport_event_label("Basketball", snapshot["items"][0]) == (
-        "Home vs Away | Q2 | 42:40"
+    assert "Home vs Away" in app._multi_sport_event_label(
+        "Basketball", snapshot["items"][0]
     )
 
 
@@ -271,19 +300,17 @@ def test_multi_sport_eishockey_does_not_run_basketball_scan(monkeypatch):
         def __init__(self):
             self.errors = {}
 
-        def scan_live_games(self, _league):
+        def get_upcoming_games(self, _league, _start_date, _end_date):
             raise AssertionError("Basketball must not be fetched for Eishockey")
 
-        def get_live_nhl_games(self):
+        def get_upcoming_nhl_games(self, start_date, end_date):
             calls.append("nhl")
             return [
                 {
                     "home_team": "ZSC",
                     "away_team": "SCB",
-                    "period": 1,
-                    "home_score": 1,
-                    "away_score": 0,
-                    "game_clock": "12:34",
+                    "status": "upcoming",
+                    "start_time": "2030-01-03T18:00:00+01:00",
                 }
             ]
 
@@ -293,12 +320,17 @@ def test_multi_sport_eishockey_does_not_run_basketball_scan(monkeypatch):
         FakeBasketballScanner,
     )
 
-    snapshot = app._fetch_multi_sport_snapshot("Eishockey")
+    snapshot = app._fetch_multi_sport_snapshot(
+        "Eishockey",
+        None,
+        date(2030, 1, 1),
+        date(2030, 1, 8),
+    )
 
     assert calls == ["nhl"]
     assert snapshot["sport"] == "Eishockey"
-    assert app._multi_sport_event_label("Eishockey", snapshot["items"][0]) == (
-        "SCB @ ZSC | P1 | 0:1"
+    assert "SCB @ ZSC" in app._multi_sport_event_label(
+        "Eishockey", snapshot["items"][0]
     )
 
 
@@ -312,15 +344,15 @@ def test_multi_sport_esports_filter_is_scoped_to_pandascore(monkeypatch):
             self.api_key = "configured"
             self.errors = {}
 
-        def get_matches(self, game):
-            calls.append(game)
+        def get_upcoming_matches(self, game, start_date, end_date):
+            calls.append((game, start_date, end_date))
             return [
                 {
                     "team1": "Alpha",
                     "team2": "Beta",
                     "game": "VALORANT",
-                    "team1_score": 1,
-                    "team2_score": 0,
+                    "status": "upcoming",
+                    "begin_at": "2030-01-04T12:00:00Z",
                 }
             ]
 
@@ -329,13 +361,20 @@ def test_multi_sport_esports_filter_is_scoped_to_pandascore(monkeypatch):
 
     monkeypatch.setattr(esports_scanner, "EsportsScanner", FakeEsportsScanner)
 
-    snapshot = app._fetch_multi_sport_snapshot("E-Sport", "Valorant")
+    start_date = date(2030, 1, 1)
+    end_date = date(2030, 1, 8)
+    snapshot = app._fetch_multi_sport_snapshot(
+        "E-Sport",
+        "Valorant",
+        start_date,
+        end_date,
+    )
 
-    assert calls == ["valorant"]
+    assert calls == [("valorant", start_date, end_date)]
     assert snapshot["sport"] == "E-Sport"
     assert snapshot["credentials_available"] is True
-    assert app._multi_sport_event_label("E-Sport", snapshot["items"][0]) == (
-        "Alpha vs Beta | 1:0"
+    assert "Alpha vs Beta" in app._multi_sport_event_label(
+        "E-Sport", snapshot["items"][0]
     )
 
 

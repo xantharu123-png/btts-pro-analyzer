@@ -56,6 +56,7 @@ ZURICH_TZ = ZoneInfo("Europe/Zurich")
 def _load_predictions(
     date_from: str | None = None,
     *,
+    date_to: str | None = None,
     unsettled_only: bool = False,
 ) -> list[dict]:
     if not DB_PATH.exists():
@@ -63,10 +64,13 @@ def _load_predictions(
     shadow.ensure_schema()
     query = "SELECT * FROM predictions"
     clauses = []
-    params: tuple = ()
+    params: list[str] = []
     if date_from:
         clauses.append("match_date >= ?")
-        params = (date_from,)
+        params.append(date_from)
+    if date_to:
+        clauses.append("match_date <= ?")
+        params.append(date_to)
     if unsettled_only:
         clauses.append("settled=0")
     if clauses:
@@ -74,7 +78,7 @@ def _load_predictions(
     query += " ORDER BY match_date, tour, tournament, id"
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        return [dict(r) for r in conn.execute(query, params).fetchall()]
+        return [dict(r) for r in conn.execute(query, tuple(params)).fetchall()]
 
 
 def _parse_start_utc(value: str | None) -> datetime | None:
@@ -267,15 +271,42 @@ def _run_daily_scan(search_date: str | None = None) -> str:
 
 def _run_tennis_scan_worker(
     search_date: str | None = None,
+    search_end_date: str | None = None,
     progress_cb=None,
 ) -> str:
-    """Hintergrund-Worker für den Tennis-Tages-Scan (kein st.* im Thread)."""
-    if progress_cb:
-        progress_cb(0.1, "Tennis-Modell wird aktualisiert …")
-    output = _run_daily_scan(search_date)
+    """Run the tennis model once for every day in a bounded search window."""
+    if search_date is None:
+        if search_end_date is not None:
+            raise ValueError("search_end_date benötigt search_date")
+        if progress_cb:
+            progress_cb(0.1, "Tennis-Modell wird aktualisiert …")
+        output = _run_daily_scan()
+        if progress_cb:
+            progress_cb(1.0, "Fertig")
+        return output
+
+    try:
+        start_date = date.fromisoformat(str(search_date))
+        end_date = date.fromisoformat(str(search_end_date or search_date))
+    except ValueError as exc:
+        raise ValueError("Ungültiger Tennis-Suchzeitraum") from exc
+    horizon = (end_date - start_date).days
+    if not 0 <= horizon <= 14:
+        raise ValueError("Tennis-Suchzeitraum darf höchstens 14 Tage umfassen")
+
+    outputs = []
+    total_days = horizon + 1
+    for index in range(total_days):
+        target_date = start_date + timedelta(days=index)
+        if progress_cb:
+            progress_cb(
+                0.05 + 0.90 * index / total_days,
+                f"Tennis {index + 1}/{total_days}: {target_date:%d.%m.%Y}",
+            )
+        outputs.append(_run_daily_scan(target_date.isoformat()))
     if progress_cb:
         progress_cb(1.0, "Fertig")
-    return output
+    return "\n\n".join(outputs)
 
 
 # ------------------------------------------------------------------- rendering
@@ -796,8 +827,11 @@ def _render_settlement(open_rows: list[dict]) -> None:
                     st.rerun()
 
 
-def render_tennis_finder(search_date: date | str | None = None) -> None:
-    """Render only actionable pre-match tennis picks for one chosen day."""
+def render_tennis_finder(
+    search_date: date | str | None = None,
+    search_end_date: date | str | None = None,
+) -> None:
+    """Render actionable pre-match tennis picks for a bounded date window."""
     session_scope = scan_jobs.session_scope(st.session_state)
     job_key = scan_jobs.scoped_key("tennis", session_scope)
     selected_date = (
@@ -805,8 +839,26 @@ def render_tennis_finder(search_date: date | str | None = None) -> None:
     )
     if selected_date is not None:
         selected_date = str(selected_date)
+    selected_end_date = (
+        search_end_date.isoformat()
+        if isinstance(search_end_date, date)
+        else search_end_date
+    )
+    if selected_end_date is not None:
+        selected_end_date = str(selected_end_date)
+    elif selected_date is not None:
+        selected_end_date = selected_date
 
-    st.subheader("Tägliche Vorhersagen")
+    if selected_date is not None:
+        try:
+            start_value = date.fromisoformat(selected_date)
+            end_value = date.fromisoformat(selected_end_date or selected_date)
+        except ValueError as exc:
+            raise ValueError("Ungültiger Tennis-Suchzeitraum") from exc
+        if not 0 <= (end_value - start_value).days <= 14:
+            raise ValueError("Tennis-Suchzeitraum darf höchstens 14 Tage umfassen")
+
+    st.subheader("Tennis-Vorhersagen")
     if st.button(
         "Tennis-Vorhersagen aktualisieren",
         type="primary",
@@ -819,7 +871,7 @@ def render_tennis_finder(search_date: date | str | None = None) -> None:
             scan_jobs.start_job(
                 job_key,
                 _run_tennis_scan_worker,
-                args=(selected_date,),
+                args=(selected_date, selected_end_date),
             )
 
     job = scan_jobs.get_job(job_key)
@@ -839,12 +891,9 @@ def render_tennis_finder(search_date: date | str | None = None) -> None:
     today = _zurich_today()
     raw_rows = _load_predictions(
         date_from=selected_date or today,
+        date_to=selected_end_date,
         unsettled_only=True,
     )
-    if selected_date is not None:
-        raw_rows = [
-            row for row in raw_rows if row.get("match_date") == selected_date
-        ]
     rows, hidden_rows = _split_prematch_rows(raw_rows)
     if hidden_rows:
         st.warning(
@@ -858,15 +907,22 @@ def render_tennis_finder(search_date: date | str | None = None) -> None:
                 "Tennis-Auswahl."
             )
         else:
-            target_date = (
-                date.fromisoformat(selected_date)
-                if selected_date is not None
-                else _next_tennis_scan_date(today_value=today)
-            )
-            st.info(
-                "Noch keine Tennis-Vorhersagen für den "
-                f"{target_date.strftime('%d.%m.%Y')}."
-            )
+            if selected_date is not None:
+                target_date = date.fromisoformat(selected_date)
+                target_end = date.fromisoformat(selected_end_date or selected_date)
+                target_label = (
+                    target_date.strftime("%d.%m.%Y")
+                    if target_date == target_end
+                    else (
+                        f"{target_date:%d.%m.%Y} bis "
+                        f"{target_end:%d.%m.%Y}"
+                    )
+                )
+            else:
+                target_label = _next_tennis_scan_date(
+                    today_value=today
+                ).strftime("%d.%m.%Y")
+            st.info(f"Noch keine Tennis-Vorhersagen für {target_label}.")
     else:
         current_date = None
         for row in rows:

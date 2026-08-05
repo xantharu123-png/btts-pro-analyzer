@@ -22,11 +22,13 @@ import requests
 import json
 import logging
 import math
-from datetime import datetime
+from datetime import date, datetime, timezone
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 from config_loader import load_app_config
 
 logger = logging.getLogger(__name__)
+SEARCH_TIMEZONE = ZoneInfo("Europe/Zurich")
 
 class CricketScanner:
     """
@@ -49,6 +51,208 @@ class CricketScanner:
         
         # Alternative: Public endpoints (may be rate limited)
         self.public_api = "https://api.cricapi.com/v1"
+
+    @staticmethod
+    def _date_window(start_date: date, end_date: date) -> tuple[date, date]:
+        if (
+            isinstance(start_date, datetime)
+            or not isinstance(start_date, date)
+            or isinstance(end_date, datetime)
+            or not isinstance(end_date, date)
+            or not 0 <= (end_date - start_date).days <= 14
+        ):
+            raise ValueError("Date window must span zero to fourteen days")
+        return start_date, end_date
+
+    @staticmethod
+    def _start_time(value) -> Optional[datetime]:
+        try:
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                timestamp = float(value)
+                if timestamp > 10_000_000_000:
+                    timestamp /= 1000.0
+                parsed = datetime.fromtimestamp(timestamp, timezone.utc)
+            elif isinstance(value, str) and value.strip():
+                parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+            else:
+                return None
+        except (TypeError, ValueError, OSError, OverflowError):
+            return None
+        return parsed.astimezone(timezone.utc)
+
+    def get_upcoming_matches(
+        self,
+        start_date: date,
+        end_date: date,
+    ) -> List[Dict]:
+        """Return scheduled cricket matches inside an inclusive date window."""
+        self._date_window(start_date, end_date)
+        self.last_error = None
+        if not self.rapidapi_key and not self.cricket_api_key:
+            self.last_error = "Cricket API key missing"
+            return []
+        if self.rapidapi_key:
+            try:
+                response = requests.get(
+                    f"{self.cricbuzz_base}/matches/v1/upcoming",
+                    headers=self.headers,
+                    timeout=10,
+                )
+                if response.status_code == 200:
+                    payload = response.json()
+                    matches = self._upcoming_from_cricbuzz(
+                        payload,
+                        start_date,
+                        end_date,
+                    )
+                    if matches or not self.cricket_api_key:
+                        return matches
+                else:
+                    self.last_error = f"Cricbuzz HTTP {response.status_code}"
+            except (requests.RequestException, ValueError) as exc:
+                self.last_error = f"Cricbuzz {type(exc).__name__}"
+        return self._get_upcoming_matches_alternative(start_date, end_date)
+
+    def _upcoming_from_cricbuzz(
+        self,
+        payload: Dict,
+        start_date: date,
+        end_date: date,
+    ) -> List[Dict]:
+        type_matches = payload.get('typeMatches', []) if isinstance(payload, dict) else None
+        if not isinstance(type_matches, list):
+            self.last_error = "Cricbuzz invalid upcoming payload"
+            return []
+        parsed_matches = []
+        seen = set()
+        for match_type in type_matches:
+            series_matches = (
+                match_type.get('seriesMatches', [])
+                if isinstance(match_type, dict)
+                else []
+            )
+            if not isinstance(series_matches, list):
+                continue
+            for series in series_matches:
+                wrapper = series.get('seriesAdWrapper', {}) if isinstance(series, dict) else {}
+                matches = wrapper.get('matches', []) if isinstance(wrapper, dict) else []
+                if not isinstance(matches, list):
+                    continue
+                for match in matches:
+                    parsed = self._parse_upcoming_match(match, source='Cricbuzz')
+                    if not parsed or parsed['match_id'] in seen:
+                        continue
+                    start = self._start_time(parsed.get('start_time'))
+                    if (
+                        start is None
+                        or not start_date
+                        <= start.astimezone(SEARCH_TIMEZONE).date()
+                        <= end_date
+                    ):
+                        continue
+                    seen.add(parsed['match_id'])
+                    parsed_matches.append(parsed)
+        return sorted(parsed_matches, key=lambda item: item.get('start_time') or '')
+
+    def _parse_upcoming_match(
+        self,
+        match: Dict,
+        *,
+        source: str,
+    ) -> Optional[Dict]:
+        if not isinstance(match, dict):
+            return None
+        info = match.get('matchInfo', match)
+        if not isinstance(info, dict):
+            return None
+        team1_data = info.get('team1', {})
+        team2_data = info.get('team2', {})
+        if source == 'CricketData':
+            teams = info.get('teams')
+            if not isinstance(teams, list) or len(teams) < 2:
+                return None
+            team1 = str(teams[0] or '').strip()
+            team2 = str(teams[1] or '').strip()
+            start = self._start_time(info.get('dateTimeGMT') or info.get('date'))
+            match_id = info.get('id')
+            tournament = str(info.get('name') or 'Unknown').strip() or 'Unknown'
+            match_format = str(info.get('matchType') or 'Unknown').strip() or 'Unknown'
+        else:
+            if not isinstance(team1_data, dict) or not isinstance(team2_data, dict):
+                return None
+            team1 = str(team1_data.get('teamName') or '').strip()
+            team2 = str(team2_data.get('teamName') or '').strip()
+            start = self._start_time(info.get('startDate'))
+            match_id = info.get('matchId')
+            tournament = str(info.get('seriesName') or 'Unknown').strip() or 'Unknown'
+            match_format = str(info.get('matchFormat') or 'Unknown').strip() or 'Unknown'
+        if (
+            not team1
+            or not team2
+            or team1.casefold() == team2.casefold()
+            or start is None
+            or isinstance(match_id, bool)
+            or not isinstance(match_id, (int, str))
+            or not str(match_id).strip()
+        ):
+            return None
+        return {
+            'match_id': match_id,
+            'format': match_format,
+            'tournament': tournament,
+            'team1': team1,
+            'team2': team2,
+            'status': 'upcoming',
+            'start_time': start.isoformat(),
+            'source': source,
+        }
+
+    def _get_upcoming_matches_alternative(
+        self,
+        start_date: date,
+        end_date: date,
+    ) -> List[Dict]:
+        if not self.cricket_api_key:
+            return []
+        try:
+            response = requests.get(
+                f"{self.public_api}/matches",
+                params={'apikey': self.cricket_api_key, 'offset': 0},
+                timeout=10,
+            )
+            if response.status_code != 200:
+                self.last_error = f"Cricket API HTTP {response.status_code}"
+                return []
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            self.last_error = type(exc).__name__
+            return []
+        rows = payload.get('data', []) if isinstance(payload, dict) else None
+        if not isinstance(rows, list):
+            self.last_error = "Cricket API invalid upcoming payload"
+            return []
+        matches = []
+        seen = set()
+        for row in rows:
+            if not isinstance(row, dict) or row.get('matchStarted') is True:
+                continue
+            parsed = self._parse_upcoming_match(row, source='CricketData')
+            if not parsed or parsed['match_id'] in seen:
+                continue
+            start = self._start_time(parsed.get('start_time'))
+            if (
+                start is None
+                or not start_date
+                <= start.astimezone(SEARCH_TIMEZONE).date()
+                <= end_date
+            ):
+                continue
+            seen.add(parsed['match_id'])
+            matches.append(parsed)
+        self.last_error = None
+        return sorted(matches, key=lambda item: item.get('start_time') or '')
     
     def get_live_matches(self) -> List[Dict]:
         """

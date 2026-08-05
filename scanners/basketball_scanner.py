@@ -16,13 +16,15 @@ import streamlit as st
 import requests
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 import time
 import re
 import math
 
 logger = logging.getLogger(__name__)
+SEARCH_TIMEZONE = ZoneInfo("Europe/Zurich")
 
 class BasketballScanner:
     """
@@ -52,6 +54,384 @@ class BasketballScanner:
         
         # NHL API
         self.nhl_api_url = "https://api-web.nhle.com/v1/scoreboard/now"
+        self.nhl_schedule_base = "https://api-web.nhle.com/v1/schedule"
+
+    @staticmethod
+    def _date_window(start_date: date, end_date: date) -> tuple[date, date]:
+        if (
+            isinstance(start_date, datetime)
+            or not isinstance(start_date, date)
+            or isinstance(end_date, datetime)
+            or not isinstance(end_date, date)
+            or not 0 <= (end_date - start_date).days <= 14
+        ):
+            raise ValueError("Date window must span zero to fourteen days")
+        return start_date, end_date
+
+    @staticmethod
+    def _localized_text(value) -> Optional[str]:
+        if isinstance(value, str):
+            text = value.strip()
+        elif isinstance(value, dict):
+            text = str(value.get('default') or '').strip()
+        else:
+            text = ''
+        return text or None
+
+    @staticmethod
+    def _event_start(value) -> Optional[datetime]:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def get_upcoming_games(
+        self,
+        league: str,
+        start_date: date,
+        end_date: date,
+    ) -> List[Dict]:
+        """Upcoming NBA/EuroLeague fixtures in an inclusive date window."""
+        self._date_window(start_date, end_date)
+        games = []
+        if league in {"NBA", "All"}:
+            games.extend(
+                self._get_espn_upcoming_basketball_games(
+                    self.espn_nba_url,
+                    "NBA",
+                    start_date,
+                    end_date,
+                )
+            )
+        if league in {"Euroleague", "All"}:
+            games.extend(
+                self._get_upcoming_euroleague_games(
+                    start_date,
+                    end_date,
+                )
+            )
+        return sorted(games, key=lambda item: item.get('start_time') or '')
+
+    def _get_upcoming_euroleague_games(
+        self,
+        start_date: date,
+        end_date: date,
+    ) -> List[Dict]:
+        """Upcoming EuroLeague fixtures from the official season schedule."""
+        season_codes = {
+            self._euroleague_season_code(
+                datetime.combine(day, datetime.min.time(), tzinfo=SEARCH_TIMEZONE)
+            )
+            for day in (start_date, end_date)
+        }
+        games = []
+        seen = set()
+        errors = []
+        for season_code in sorted(season_codes):
+            try:
+                response = requests.get(
+                    (
+                        f"{self.euroleague_games_base}/competitions/E/seasons/"
+                        f"{season_code}/games"
+                    ),
+                    params={'limit': 500},
+                    timeout=15,
+                )
+                if response.status_code != 200:
+                    errors.append(f"{season_code}: HTTP {response.status_code}")
+                    continue
+                payload = response.json()
+            except (requests.RequestException, ValueError) as exc:
+                errors.append(f"{season_code}: {type(exc).__name__}")
+                continue
+            rows = payload.get('data', []) if isinstance(payload, dict) else None
+            if not isinstance(rows, list):
+                errors.append(f"{season_code}: invalid payload")
+                continue
+            for row in rows:
+                if not isinstance(row, dict) or row.get('played') is True:
+                    continue
+                start = self._event_start(row.get('utcDate'))
+                if (
+                    start is None
+                    or not start_date
+                    <= start.astimezone(SEARCH_TIMEZONE).date()
+                    <= end_date
+                ):
+                    continue
+                local = row.get('local', {})
+                road = row.get('road', {})
+                local_club = local.get('club', {}) if isinstance(local, dict) else {}
+                road_club = road.get('club', {}) if isinstance(road, dict) else {}
+                home_team = (
+                    self._team_code(local_club, 'code')
+                    or self._team_code(local_club, 'abbreviatedName')
+                )
+                away_team = (
+                    self._team_code(road_club, 'code')
+                    or self._team_code(road_club, 'abbreviatedName')
+                )
+                game_id = row.get('id') or row.get('identifier') or row.get('gameCode')
+                if (
+                    not home_team
+                    or not away_team
+                    or home_team == away_team
+                    or isinstance(game_id, bool)
+                    or not isinstance(game_id, (int, str))
+                    or not str(game_id).strip()
+                    or str(game_id) in seen
+                ):
+                    continue
+                seen.add(str(game_id))
+                venue = row.get('venue', {})
+                venue_name = (
+                    self._localized_text(venue.get('name'))
+                    if isinstance(venue, dict)
+                    else self._localized_text(venue)
+                )
+                games.append({
+                    'league': 'Euroleague',
+                    'game_id': game_id,
+                    'home_team': home_team,
+                    'away_team': away_team,
+                    'status': 'upcoming',
+                    'start_time': start.isoformat(),
+                    'venue': venue_name or 'Unknown',
+                    'source': 'EuroLeague',
+                })
+        if errors:
+            self.errors['euroleague_schedule'] = '; '.join(errors[:4])
+        else:
+            self.errors.pop('euroleague_schedule', None)
+        return games
+
+    def _get_espn_upcoming_basketball_games(
+        self,
+        url: str,
+        league: str,
+        start_date: date,
+        end_date: date,
+    ) -> List[Dict]:
+        error_key = f"{league.casefold()}_schedule"
+        errors = []
+        games = []
+        seen = set()
+        total_days = (end_date - start_date).days + 1
+        for offset in range(total_days):
+            target_date = start_date + timedelta(days=offset)
+            try:
+                response = requests.get(
+                    url,
+                    headers={
+                        'User-Agent': self.nba_headers['User-Agent'],
+                        'Accept': 'application/json',
+                    },
+                    params={
+                        'dates': target_date.strftime('%Y%m%d'),
+                        'limit': 100,
+                    },
+                    timeout=10,
+                )
+                if response.status_code != 200:
+                    errors.append(f"{target_date}: HTTP {response.status_code}")
+                    continue
+                payload = response.json()
+            except (requests.RequestException, ValueError) as exc:
+                errors.append(f"{target_date}: {type(exc).__name__}")
+                continue
+            events = payload.get('events', []) if isinstance(payload, dict) else None
+            if not isinstance(events, list):
+                errors.append(f"{target_date}: invalid payload")
+                continue
+            for event in events:
+                competitions = event.get('competitions', []) if isinstance(event, dict) else []
+                if not isinstance(competitions, list):
+                    continue
+                for competition in competitions:
+                    parsed = self._parse_espn_upcoming_basketball_game(
+                        event,
+                        competition,
+                        league,
+                    )
+                    if not parsed or parsed['game_id'] in seen:
+                        continue
+                    start = self._event_start(parsed.get('start_time'))
+                    if (
+                        start is None
+                        or not start_date
+                        <= start.astimezone(SEARCH_TIMEZONE).date()
+                        <= end_date
+                    ):
+                        continue
+                    seen.add(parsed['game_id'])
+                    games.append(parsed)
+        if errors:
+            self.errors[error_key] = '; '.join(errors[:4])
+        else:
+            self.errors.pop(error_key, None)
+        return games
+
+    def _parse_espn_upcoming_basketball_game(
+        self,
+        event: Dict,
+        competition: Dict,
+        league: str,
+    ) -> Optional[Dict]:
+        if not isinstance(event, dict) or not isinstance(competition, dict):
+            return None
+        status = competition.get('status', {})
+        status_type = status.get('type', {}) if isinstance(status, dict) else {}
+        if not isinstance(status_type, dict) or status_type.get('state') != 'pre':
+            return None
+        competitors = competition.get('competitors', [])
+        if not isinstance(competitors, list) or len(competitors) != 2:
+            return None
+        sides = {
+            item.get('homeAway'): item
+            for item in competitors
+            if isinstance(item, dict) and item.get('homeAway') in {'home', 'away'}
+        }
+        home = sides.get('home')
+        away = sides.get('away')
+        if not isinstance(home, dict) or not isinstance(away, dict):
+            return None
+        home_data = home.get('team', {})
+        away_data = away.get('team', {})
+        home_team = (
+            self._team_code(home_data, 'abbreviation')
+            or self._team_code(home_data, 'displayName')
+        )
+        away_team = (
+            self._team_code(away_data, 'abbreviation')
+            or self._team_code(away_data, 'displayName')
+        )
+        game_id = competition.get('id') or event.get('id')
+        start = competition.get('date') or event.get('date')
+        if (
+            not home_team
+            or not away_team
+            or home_team == away_team
+            or isinstance(game_id, bool)
+            or not isinstance(game_id, (int, str))
+            or not str(game_id).strip()
+            or self._event_start(start) is None
+        ):
+            return None
+        venue = competition.get('venue', {})
+        return {
+            'league': league,
+            'game_id': game_id,
+            'home_team': home_team,
+            'away_team': away_team,
+            'status': 'upcoming',
+            'start_time': start,
+            'venue': (
+                str(venue.get('fullName') or 'Unknown').strip()
+                if isinstance(venue, dict)
+                else 'Unknown'
+            ) or 'Unknown',
+            'source': 'ESPN',
+        }
+
+    def get_upcoming_nhl_games(
+        self,
+        start_date: date,
+        end_date: date,
+    ) -> List[Dict]:
+        """Upcoming NHL fixtures using the league's official weekly schedule."""
+        self._date_window(start_date, end_date)
+        self.errors.pop('nhl_schedule', None)
+        cursor = start_date.isoformat()
+        visited = set()
+        games = []
+        seen = set()
+        errors = []
+        for _ in range(4):
+            if cursor in visited:
+                break
+            visited.add(cursor)
+            try:
+                response = requests.get(
+                    f"{self.nhl_schedule_base}/{cursor}",
+                    headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
+                    timeout=10,
+                )
+                if response.status_code != 200:
+                    errors.append(f"{cursor}: HTTP {response.status_code}")
+                    break
+                payload = response.json()
+            except (requests.RequestException, ValueError) as exc:
+                errors.append(f"{cursor}: {type(exc).__name__}")
+                break
+            weeks = payload.get('gameWeek', []) if isinstance(payload, dict) else None
+            if not isinstance(weeks, list):
+                errors.append(f"{cursor}: invalid payload")
+                break
+            for day_group in weeks:
+                day_games = day_group.get('games', []) if isinstance(day_group, dict) else []
+                if not isinstance(day_games, list):
+                    continue
+                for game in day_games:
+                    if not isinstance(game, dict) or game.get('gameState') not in {'FUT', 'PRE'}:
+                        continue
+                    start = self._event_start(game.get('startTimeUTC'))
+                    home = game.get('homeTeam', {})
+                    away = game.get('awayTeam', {})
+                    game_id = game.get('id')
+                    home_team = (
+                        self._localized_text(home.get('abbrev'))
+                        if isinstance(home, dict)
+                        else None
+                    )
+                    away_team = (
+                        self._localized_text(away.get('abbrev'))
+                        if isinstance(away, dict)
+                        else None
+                    )
+                    if (
+                        start is None
+                        or not start_date
+                        <= start.astimezone(SEARCH_TIMEZONE).date()
+                        <= end_date
+                        or not home_team
+                        or not away_team
+                        or home_team == away_team
+                        or not isinstance(game_id, int)
+                        or isinstance(game_id, bool)
+                        or game_id <= 0
+                        or game_id in seen
+                    ):
+                        continue
+                    seen.add(game_id)
+                    venue = game.get('venue', {})
+                    games.append({
+                        'league': 'NHL',
+                        'game_id': game_id,
+                        'home_team': home_team,
+                        'away_team': away_team,
+                        'status': 'upcoming',
+                        'start_time': start.isoformat(),
+                        'venue': self._localized_text(venue) or 'Unknown',
+                        'source': 'NHL',
+                    })
+            next_cursor = payload.get('nextStartDate') if isinstance(payload, dict) else None
+            if not isinstance(next_cursor, str):
+                break
+            try:
+                next_date = date.fromisoformat(next_cursor)
+            except ValueError:
+                break
+            if next_date > end_date:
+                break
+            cursor = next_cursor
+        if errors:
+            self.errors['nhl_schedule'] = '; '.join(errors[:4])
+        return sorted(games, key=lambda item: item.get('start_time') or '')
 
     @staticmethod
     def _whole_score(value) -> Optional[int]:

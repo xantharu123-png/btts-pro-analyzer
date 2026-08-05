@@ -165,6 +165,39 @@ def test_daily_scan_propagates_nonzero_exit_code():
             tennis_tab._run_daily_scan()
 
 
+def test_tennis_worker_scans_every_day_in_selected_window():
+    import tennis_tab
+
+    calls = []
+    updates = []
+    with patch.object(
+        tennis_tab,
+        "_run_daily_scan",
+        side_effect=lambda value=None: calls.append(value) or f"scan {value}",
+    ):
+        output = tennis_tab._run_tennis_scan_worker(
+            "2030-01-01",
+            "2030-01-04",
+            progress_cb=lambda fraction, text: updates.append((fraction, text)),
+        )
+
+    assert calls == [
+        "2030-01-01",
+        "2030-01-02",
+        "2030-01-03",
+        "2030-01-04",
+    ]
+    assert "scan 2030-01-04" in output
+    assert updates[-1] == (1.0, "Fertig")
+
+
+def test_tennis_worker_rejects_more_than_fourteen_days():
+    import tennis_tab
+
+    with pytest.raises(ValueError, match="höchstens 14 Tage"):
+        tennis_tab._run_tennis_scan_worker("2030-01-01", "2030-01-16")
+
+
 def test_closing_reference_is_captured_before_start():
     at = AppTest.from_function(_run_closing_capture)
     at.run(timeout=60)
