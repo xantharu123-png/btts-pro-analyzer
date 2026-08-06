@@ -9,15 +9,15 @@
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
-| Verifizierter Produktions-Funktionscommit | `fb140ba` (`Expose football scan gate diagnostics`) |
-| Fachlicher Kernstand | Ultra-Audit plus sportzentraler Wettfinder, automatische Tagesauswahl, sportübergreifende Mehrtagessuche und phasengenaue Fußball-Scan-Diagnose |
-| Verifizierter VPS-Funktionsstand | `fb140ba`; App aktiv, HTTPS 200 und 0 fehlgeschlagene systemd-Units am 6. August |
+| Verifizierter Produktions-Funktionscommit | `f61b496` (`Collapse secondary tennis markets`) |
+| Fachlicher Kernstand | Ultra-Audit plus sportzentraler Wettfinder, automatische Tagesauswahl, sportübergreifende Mehrtagessuche, phasengenaue Fußball-Diagnose und fail-closed Tennis-Zuordnung |
+| Verifizierter VPS-Funktionsstand | `f61b496`; App aktiv, HTTPS 200 und 0 fehlgeschlagene systemd-Units am 6. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 638 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 645 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -826,7 +826,7 @@ VPS-Härtung, verifiziert am 2. August 2026:
 Vollständiger Lauf:
 
 ```text
-638 passed
+645 passed
 5 subtests passed
 ```
 
@@ -913,6 +913,26 @@ Produktionsverifikation der Sperrketten-Diagnose am 6. August 2026:
   390 x 844 und 820 x 1180 geprüft: kein horizontaler Überlauf, keine
   JavaScript- oder Konsolenfehler.
 
+Produktionsverifikation des Tennis-Zuordnungsfixes am 6. August 2026:
+
+- Die Funktionscommits `0883677` und `f61b496` wurden per Fast-Forward auf den
+  VPS übernommen. App und Tennis-Timer sind aktiv, HTTPS antwortet mit 200 und
+  es gibt keine fehlgeschlagene systemd-Unit.
+- Der echte ESPN-Lauf lud 69 Fixture-Einträge und speicherte 36 entschiedene
+  Paarungen unter `elo-serve-platt-v3`. Alte v2-Karten werden in der aktuellen
+  Finderansicht nicht mit v3 gemischt.
+- `Shang Juncheng vs Luciano Darderi` steht in Produktion mit `Hard`, 190 zu
+  335 Matches, rund 329 zu 848 zeitgewichteten Service-Games sowie 61,09 % zu
+  38,91 %. Alle vier Modell-Gates sind grün.
+- Die installierte normale Microsoft-Edge-Engine bestätigte bei 1440 x 1000
+  und 390 x 844: leere N1Bet-Felder statt Platzhalterpreisen, sichtbarer
+  Modellstatus, sichtbarer Sperrstatus, standardmäßig eingeklappte Nebenmärkte,
+  kein horizontaler Überlauf und keine Konsolenfehler.
+- API-Football und football-data.org liefern keine Tennisdaten. Der aktuelle
+  Tennis-Spielplan kommt primär von SofaScore und auf dem VPS aus dem
+  ESPN-Fallback; Belag und Historie werden mit der lokalen ATP-Datenbasis
+  verbunden.
+
 ## 12. Offene Prioritäten
 
 ### P0 - extern und vor ernsthafter Echtgeldnutzung
@@ -985,7 +1005,7 @@ URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
-Verifizierter Funktionscommit: fb140ba
+Verifizierter Funktionscommit: f61b496
 ```
 
 Update nach einem Push:
