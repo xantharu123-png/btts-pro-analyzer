@@ -58,6 +58,7 @@ def _load_predictions(
     *,
     date_to: str | None = None,
     unsettled_only: bool = False,
+    current_only: bool = True,
 ) -> list[dict]:
     if not DB_PATH.exists():
         return []
@@ -65,6 +66,11 @@ def _load_predictions(
     query = "SELECT * FROM predictions"
     clauses = []
     params: list[str] = []
+    if current_only:
+        clauses.extend(("model_version=?", "policy_version=?"))
+        params.extend(
+            (shadow.TENNIS_MODEL_VERSION, shadow.TENNIS_POLICY_VERSION)
+        )
     if date_from:
         clauses.append("match_date >= ?")
         params.append(date_from)
@@ -381,8 +387,11 @@ def _render_gate_badges(gates: dict) -> None:
 
 
 def _render_market_sheet(markets: dict, best_of: int) -> None:
-    if not markets:
-        st.caption("Keine Markt-Daten (Aufschlag-Daten fehlen).")
+    if markets.get("expected_games") is None:
+        st.caption(
+            "Keine Satz- oder Tiebreak-Modellierung: Mindestens einem Spieler "
+            "fehlen ausreichend zugeordnete Aufschlagdaten."
+        )
         return
     cols = st.columns(4)
     cols[0].metric("Erwartete Games", markets.get("expected_games", "n/a"))
@@ -410,7 +419,7 @@ _SIDE_MARKET_KEYS = {
 
 def _render_side_markets(row: dict, markets: dict, model_gates_ok: bool) -> None:
     """Set markets with fair prices + manual N1Bet check + shadow tracking."""
-    if int(row.get("best_of") or 3) != 3:
+    if not model_gates_ok or int(row.get("best_of") or 3) != 3:
         return  # calibration was measured on Bo3; Bo5 stays out for now
     available = {
         code: markets[key]
@@ -477,19 +486,26 @@ def _render_side_markets(row: dict, markets: dict, model_gates_ok: bool) -> None
                         st.rerun()
             continue
         odds = cols[1].number_input(
-            "N1Bet", min_value=1.01, max_value=50.0, value=round(fair, 2),
+            "N1Bet", min_value=1.01, max_value=50.0, value=None,
             step=0.01, format="%.2f", key=f"side_odds_{code}_{row['id']}",
+            placeholder="Quote",
             label_visibility="collapsed",
         )
-        price_metrics = evaluate_market_price(
-            p * 100.0,
-            odds,
-            probability_haircut=SIDE_MARKET_PROBABILITY_HAIRCUT * 100.0,
-        )
-        risk_ev = price_metrics.risk_adjusted_expected_roi / 100.0
-        adjusted_edge = price_metrics.risk_adjusted_edge / 100.0
-        ok = risk_ev >= MIN_EXPECTED_ROI and model_gates_ok
-        cols[2].markdown(f"**{risk_ev:+.1%}**" if ok else f"{risk_ev:+.1%}")
+        if odds is None:
+            risk_ev = float("-inf")
+            adjusted_edge = 0.0
+            ok = False
+            cols[2].caption("Quote fehlt")
+        else:
+            price_metrics = evaluate_market_price(
+                p * 100.0,
+                odds,
+                probability_haircut=SIDE_MARKET_PROBABILITY_HAIRCUT * 100.0,
+            )
+            risk_ev = price_metrics.risk_adjusted_expected_roi / 100.0
+            adjusted_edge = price_metrics.risk_adjusted_edge / 100.0
+            ok = risk_ev >= MIN_EXPECTED_ROI
+            cols[2].markdown(f"**{risk_ev:+.1%}**" if ok else f"{risk_ev:+.1%}")
         if cols[3].button("Track", key=f"side_track_{code}_{row['id']}",
                           disabled=not ok, use_container_width=True):
             shadow.store_side_bet(row["id"], code, p, odds, adjusted_edge)
@@ -557,12 +573,19 @@ def _render_winner_closing_capture(row: dict) -> None:
 def _render_match_card(row: dict) -> None:
     gates = json.loads(row["gates_json"] or "{}")
     markets = json.loads(row["markets_json"] or "{}")
-    model_gates_ok = all(g.get("passed") for g in gates.values()) if gates else False
-
-    header = (
-        f"{row['player_a']} vs {row['player_b']} — "
-        f"{row['p_cal']:.0%} / {1 - row['p_cal']:.0%}"
+    model_gates = {
+        name: info for name, info in gates.items() if name != "Quote/Risiko-EV"
+    }
+    model_gates_ok = (
+        all(g.get("passed") for g in model_gates.values())
+        if model_gates
+        else False
     )
+    failed_gates = [
+        name for name, info in model_gates.items() if not info.get("passed")
+    ]
+
+    header = f"{row['player_a']} vs {row['player_b']}"
     with st.container(border=True):
         st.markdown(f"**{header}**")
         likely_player = (
@@ -570,15 +593,29 @@ def _render_match_card(row: dict) -> None:
         )
         likely_probability = max(row["p_cal"], 1.0 - row["p_cal"])
         st.caption(
-            f"Quotenfreie Prognose: {likely_player} ist mit "
-            f"{likely_probability:.1%} wahrscheinlicher. Eine Quote ändert "
-            "diese Prognose nicht, sondern nur die Wettentscheidung."
-        )
-        st.caption(
             f"{row['tour']} · {row.get('tournament') or 'Turnier?'} · "
             f"{row.get('surface') or 'Belag?'} · Best of {row.get('best_of') or 3} · "
             f"{_format_start_local(row.get('scheduled_start_utc'))} · "
             f"{row.get('fixture_source') or 'Quelle unbekannt'}"
+        )
+
+        if not model_gates_ok:
+            blockers = ", ".join(failed_gates) if failed_gates else "fehlende Prüfdaten"
+            st.error(f"KEINE EMPFEHLUNG — blockiert durch: {blockers}.")
+            st.caption(
+                "Die Modellrechnung ist unvollständig. Deshalb werden weder ein "
+                "Sieger-Prozentwert noch Mindestquoten oder eine Preisprüfung angezeigt."
+            )
+            with st.expander("Prüfdetails"):
+                _render_gate_badges(gates)
+                st.divider()
+                _render_market_sheet(markets, int(row.get("best_of") or 3))
+            return
+
+        st.info(
+            f"MODELL FREIGEGEBEN — statistisch wahrscheinlicher: {likely_player} "
+            f"({likely_probability:.1%}). Noch keine Wette: Zuerst beide "
+            "aktuellen N1Bet-Quoten eingeben."
         )
 
         price_cols = st.columns([1, 1, 1])
@@ -586,21 +623,29 @@ def _render_match_card(row: dict) -> None:
             f"N1Bet {row['player_a']}",
             min_value=1.01,
             max_value=50.0,
-            value=float(row["odds_a"]) if row.get("odds_a") else 1.50,
+            value=float(row["odds_a"]) if row.get("odds_a") else None,
             step=0.01,
             format="%.2f",
+            placeholder="Quote",
             key=f"odds_a_{row['id']}",
         )
         odds_b = price_cols[1].number_input(
             f"N1Bet {row['player_b']}",
             min_value=1.01,
             max_value=50.0,
-            value=float(row["odds_b"]) if row.get("odds_b") else 2.60,
+            value=float(row["odds_b"]) if row.get("odds_b") else None,
             step=0.01,
             format="%.2f",
+            placeholder="Quote",
             key=f"odds_b_{row['id']}",
         )
-        if price_cols[2].button("Preis prüfen", key=f"check_{row['id']}", use_container_width=True):
+        prices_entered = odds_a is not None and odds_b is not None
+        if price_cols[2].button(
+            "Preis prüfen",
+            key=f"check_{row['id']}",
+            disabled=not prices_entered,
+            use_container_width=True,
+        ):
             result = _update_price_check(
                 row["id"],
                 odds_a,
@@ -659,13 +704,15 @@ def _render_match_card(row: dict) -> None:
         if result:
             if result["verdict"] == "WETTE" and model_gates_ok:
                 name = row["player_a"] if result["side"] == "A" else row["player_b"]
+                selected_odds = odds_a if result["side"] == "A" else odds_b
                 risk_ev = (
                     result["risk_ev_a"]
                     if result["side"] == "A"
                     else result["risk_ev_b"]
                 )
                 st.success(
-                    f"SHADOW-WETTE: {name} — Risiko-EV {risk_ev:+.1%} "
+                    f"SHADOW-TIPP: Sieg {name} @ {selected_odds:.2f} — "
+                    f"Risiko-EV {risk_ev:+.1%} "
                     f"nach {WINNER_PROBABILITY_HAIRCUT:+.0%} Modellabschlag. "
                     "Noch keine Echtgeldfreigabe."
                 )
@@ -693,7 +740,7 @@ def _render_match_card(row: dict) -> None:
         _render_winner_closing_capture(row)
         _render_side_markets(row, markets, model_gates_ok)
 
-        with st.expander("Prüfungen & alle Märkte"):
+        with st.expander("Prüfdetails und weitere Märkte"):
             _render_gate_badges(gates)
             st.divider()
             _render_market_sheet(markets, int(row.get("best_of") or 3))

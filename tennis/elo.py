@@ -16,7 +16,7 @@ future: a match only enters the state AFTER its prediction was made
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Dict, Optional, Tuple
+from typing import Dict, FrozenSet, Optional, Tuple
 
 INITIAL_RATING = 1500.0
 SURFACES = ("Hard", "Clay", "Grass", "Carpet")
@@ -37,10 +37,18 @@ class _RatingTable:
         self._table: Dict[str, list] = defaultdict(_new_rating_entry)
 
     def rating(self, player: str) -> float:
-        return self._table[player][0]
+        entry = self._table.get(player)
+        return entry[0] if entry is not None else INITIAL_RATING
 
     def matches(self, player: str) -> int:
-        return self._table[player][1]
+        entry = self._table.get(player)
+        return entry[1] if entry is not None else 0
+
+    def known_players(self) -> FrozenSet[str]:
+        """Return players backed by at least one historical match."""
+        return frozenset(
+            player for player, (_, matches) in self._table.items() if matches > 0
+        )
 
     def update(self, winner: str, loser: str) -> Tuple[float, float]:
         """Register a result; returns the pre-update expected win prob."""
@@ -64,6 +72,10 @@ class SurfaceElo:
         table = self.by_surface.get(surface or "")
         if table is not None:
             table.update(winner, loser)
+
+    def known_players(self) -> FrozenSet[str]:
+        """Player keys with real history, excluding default-rating lookups."""
+        return self.overall.known_players()
 
     def _expected(self, ra: float, rb: float) -> float:
         return 1.0 / (1.0 + 10.0 ** ((rb - ra) / 400.0))

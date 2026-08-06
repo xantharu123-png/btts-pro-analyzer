@@ -64,7 +64,16 @@ class TestPredictGates:
         state = _synthetic_state()
         pred = predict_match(state, "Niemand A.", "Hero H.", "Hard", 3)
         assert not pred.gates[1].passed  # experience gate
+        assert not pred.gates[3].passed  # player identity gate
         assert pred.verdict == "KEINE WETTE"
+
+    def test_surname_first_provider_name_reuses_known_player_history(self):
+        state = _synthetic_state()
+        pred = predict_match(state, "Hero Hector", "Grinder G.", "Hard", 3)
+        assert pred.gates[1].passed
+        assert pred.gates[2].passed
+        assert pred.gates[3].passed
+        assert pred.p_a_cal > 0.7
 
     def test_edge_gate_needs_real_value(self):
         state = _synthetic_state()

@@ -28,7 +28,7 @@ import re
 import unicodedata
 from io import BytesIO
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Collection, Iterable, Optional
 
 import pandas as pd
 import requests
@@ -342,6 +342,35 @@ def normalize_player_name(value: object) -> str:
         surname = "o" + surname[2:]
     key = f"{surname} {initial}"
     return _NAME_KEY_ALIASES.get(key, key)
+
+
+def resolve_player_name_key(
+    value: object,
+    known_player_keys: Collection[str],
+) -> str:
+    """Resolve provider name order only when history proves the alternative.
+
+    Some scoreboards emit East Asian names surname-first (for example
+    ``Shang Juncheng``), while the historical feed stores ``Juncheng Shang``.
+    A global reversal would corrupt ordinary names. The fallback therefore
+    applies only to two-token names when the direct key is unknown and the
+    reversed key already exists in the model roster.
+    """
+    direct = normalize_player_name(value)
+    if not direct or direct in known_player_keys:
+        return direct
+
+    text = _strip_accents(str(value or "")).casefold().strip()
+    text = text.replace("'", "").replace("`", "")
+    parts = [
+        part
+        for part in re.sub(r"[^a-z\s]", " ", text).split()
+        if part and part not in _NAME_SUFFIXES
+    ]
+    if len(parts) != 2:
+        return direct
+    reversed_key = normalize_player_name(" ".join(reversed(parts)))
+    return reversed_key if reversed_key in known_player_keys else direct
 
 
 def add_normalized_names(frame: pd.DataFrame, winner_col: str, loser_col: str) -> pd.DataFrame:

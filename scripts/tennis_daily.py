@@ -58,6 +58,8 @@ TOURNAMENT_ALIASES = {
     "odlum brown": "Vancouver",
     "vanopen": "Vancouver",
     "memphis classic": "Memphis",
+    "national bank open": "Montreal",
+    "rogers cup": "Montreal",
 }
 
 
@@ -65,6 +67,38 @@ def _norm(text: str) -> str:
     text = unicodedata.normalize("NFKD", str(text or ""))
     text = "".join(c for c in text if not unicodedata.combining(c))
     return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
+
+
+def provider_surface(value: object) -> tuple[str | None, bool | None]:
+    """Translate an explicit scoreboard court description when available."""
+    normalized = _norm(str(value or ""))
+    if not normalized:
+        return None, None
+    if "indoor" in normalized:
+        indoor = True
+    elif "outdoor" in normalized:
+        indoor = False
+    else:
+        indoor = None
+    if "hard" in normalized or "acrylic" in normalized:
+        return "Hard", indoor
+    if "clay" in normalized or "sand" in normalized:
+        return "Clay", indoor
+    if "grass" in normalized:
+        return "Grass", indoor
+    if "carpet" in normalized:
+        return "Carpet", indoor
+    return None, indoor
+
+
+def merge_surface(
+    provider_value: str | None,
+    catalog_value: str | None,
+) -> str | None:
+    """Prefer explicit data, but fail closed when two sources disagree."""
+    if provider_value and catalog_value and provider_value != catalog_value:
+        return None
+    return provider_value or catalog_value
 
 
 def _start_metadata(value, fallback_date: str) -> tuple[str | None, str]:
@@ -139,6 +173,9 @@ def fetch_fixtures_sofascore(date: str) -> list:
         if category not in ("atp", "wta"):
             continue
         start_utc, match_date = _start_metadata(ev.get("startTimestamp"), date)
+        surface, indoor = provider_surface(
+            ev.get("groundType") or tournament.get("groundType")
+        )
         fixtures.append(
             {
                 "tour": category.upper(),
@@ -149,6 +186,8 @@ def fetch_fixtures_sofascore(date: str) -> list:
                 "provider_event_id": str(ev.get("id") or ""),
                 "scheduled_start_utc": start_utc,
                 "fixture_source": "SofaScore",
+                "surface": surface,
+                "indoor": indoor,
             }
         )
     return fixtures
@@ -175,6 +214,12 @@ def fetch_fixtures_espn(date: str) -> list:
                     if len(names) != 2 or not all(names):
                         continue
                     start_utc, match_date = _start_metadata(comp.get("date"), date)
+                    surface, indoor = provider_surface(
+                        comp.get("groundType")
+                        or comp.get("surface")
+                        or ev.get("groundType")
+                        or ev.get("surface")
+                    )
                     fixtures.append(
                         {
                             "tour": tour.upper(),
@@ -185,6 +230,8 @@ def fetch_fixtures_espn(date: str) -> list:
                             "provider_event_id": str(comp.get("id") or ""),
                             "scheduled_start_utc": start_utc,
                             "fixture_source": "ESPN",
+                            "surface": surface,
+                            "indoor": indoor,
                         }
                     )
     return fixtures
@@ -395,7 +442,13 @@ def main() -> None:
             fx["player_b"],
         ):
             continue  # qualifiers not yet decided — nothing to audit
-        surface, best_of, official, indoor = resolve_surface(fx["tournament"], surfaces)
+        catalog_surface, best_of, official, catalog_indoor = resolve_surface(
+            fx["tournament"], surfaces
+        )
+        surface = merge_surface(fx.get("surface"), catalog_surface)
+        indoor = fx.get("indoor")
+        if indoor is None:
+            indoor = catalog_indoor
         pred = predict_match(
             state,
             fx["player_a"],

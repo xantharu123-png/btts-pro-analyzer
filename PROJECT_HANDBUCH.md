@@ -238,7 +238,7 @@ Mindestquote = (1 + 0,03) / konservatives p
   Modellgenerationen mehr in den aktuellen Evidenzstand.
 - Aktive Versionen dieses Audits sind Fußball
   `challenge-engine-2026-08-05` / `shadow-risk-ev-v4`, Tennis
-  `elo-serve-platt-v2` / `risk-ev-haircut-v3`, E-Sport `subgraph-elo-v2` und
+  `elo-serve-platt-v3` / `risk-ev-haircut-v3`, E-Sport `subgraph-elo-v2` und
   Rotkarte `red-card-impact-2026-08-05` / `next-goal-shadow-v1`.
 - Ergebnis des Audits ist eine strengere und reproduzierbarere Pipeline, kein
   Profitabilitätsbeweis. Aktuelle Versionszähler können nach dem Wechsel wieder
@@ -341,6 +341,37 @@ Spiele, Marktprüfungen, bestandene Modellkandidaten, Kontext-Spiele und
 Freigaben. Optionale xG-Abdeckungshinweise werden von echten technischen
 Providerfehlern getrennt. Das UEFA-Gate und sämtliche mathematischen Schwellen
 wurden in diesem Änderungslauf nicht gelockert.
+
+### Tennis-Zuordnungs- und Empfehlungsfix vom 6. August 2026
+
+Der Produktionsfall `Shang Juncheng vs Luciano Darderi` deckte zwei gekoppelte
+Join-Fehler auf. ESPN lieferte den chinesischen Namen in der Reihenfolge
+`Shang Juncheng`, die historische ATP-Basis führt ihn als `Juncheng Shang`.
+Dadurch wurden Shang fälschlich null Matches und null Aufschlagspiele
+zugeordnet. Gleichzeitig wechselte der 2026er Referenzname des Montreal-Turniers
+auf die französische Bezeichnung; `National Bank Open presented by Rogers`
+wurde deshalb trotz bekanntem Hartplatz nicht getroffen.
+
+Behoben wurden:
+
+- eine roster-gestützte Namensauflösung, die eine Zweitoken-Reihenfolge nur
+  dann dreht, wenn diese Alternative bereits in der Historie existiert;
+- ein eigenes Identitäts-Gate und nicht mutierende Elo-Lookups für unbekannte
+  Spieler;
+- explizite Provider-Belagübernahme sowie Montreal-/Rogers-Aliasse;
+- Tennis-Modellversion `elo-serve-platt-v3`, damit fehlerhafte alte Karten
+  nicht mit korrigierten Vorhersagen vermischt werden;
+- eine fail-closed Karte: rote Modell-Gates zeigen `KEINE EMPFEHLUNG` und
+  verbergen Rohwahrscheinlichkeit, Mindestquoten und Preisfelder;
+- leere statt erfundener N1Bet-Standardquoten sowie ein eindeutiger
+  `SHADOW-TIPP: Sieg Spieler @ Quote` erst nach bestandenem Preischeck.
+
+Mit korrekt aufgelösten Daten besitzt der konkrete Fall 190 zu 335 historische
+Matches, rund 329 zu 848 zeitgewichtete Service-Games und den Belag `Hard`.
+Das Modell ergibt 61,09 % Shang zu 38,91 % Darderi. Die zuvor sichtbaren
+5 % zu 95 % waren ein unzulässiger Rohwert aus dem fehlgeschlagenen Join. Bei
+den damaligen Platzhalterpreisen 1,50 / 2,60 wäre auch die korrigierte Rechnung
+klar `KEINE WETTE`; echte N1Bet-Preise müssen künftig bewusst eingegeben werden.
 
 ### Jobs, Sitzungen und Challenge
 

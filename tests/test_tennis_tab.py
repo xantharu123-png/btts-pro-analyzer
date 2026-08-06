@@ -37,7 +37,8 @@ def _make_db(with_prediction: bool) -> Path:
                 verdict TEXT, recommended_side TEXT, recommended_edge REAL,
                 odds_a REAL, odds_b REAL, settled INTEGER DEFAULT 0,
                 actual_winner TEXT, ret_flag INTEGER DEFAULT 0, ret_set INTEGER,
-                closing_odds_a REAL, closing_odds_b REAL, pnl REAL
+                closing_odds_a REAL, closing_odds_b REAL, pnl REAL,
+                model_version TEXT, policy_version TEXT
             )
             """
         )
@@ -51,8 +52,8 @@ def _make_db(with_prediction: bool) -> Path:
             conn.execute(
                 "INSERT INTO predictions (created_utc, match_date, tour, tournament,"
                 " scheduled_start_utc, fixture_source, surface, best_of, player_a,"
-                " player_b, p_raw, p_cal, markets_json, gates_json, settled)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
+                " player_b, p_raw, p_cal, markets_json, gates_json, model_version,"
+                " policy_version, settled) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     1.0,
                     date.today().isoformat(),
@@ -68,6 +69,9 @@ def _make_db(with_prediction: bool) -> Path:
                     0.75,
                     json.dumps(markets),
                     json.dumps(gates),
+                    shadow.TENNIS_MODEL_VERSION,
+                    shadow.TENNIS_POLICY_VERSION,
+                    0,
                 ),
             )
     return tmp
@@ -125,6 +129,30 @@ def _run_closing_capture() -> None:
     tennis_tab.render_tennis_page()
 
 
+def _run_blocked_card() -> None:
+    import json
+    import sqlite3
+
+    import tennis_tab
+    from tennis import shadow
+    from tests.test_tennis_tab import _make_db
+
+    tmp = _make_db(with_prediction=True)
+    gates = {
+        "Belag": {"passed": False, "detail": "Unbekannt"},
+        "Erfahrung": {"passed": False, "detail": "0 / 335 Matches"},
+        "Aufschlag-Daten": {"passed": False, "detail": "0 / 850"},
+    }
+    with sqlite3.connect(tmp) as conn:
+        conn.execute(
+            "UPDATE predictions SET gates_json=?, markets_json=? WHERE id=1",
+            (json.dumps(gates), json.dumps({"p_a_cal": 0.05, "p_b_cal": 0.95})),
+        )
+    shadow.DB_PATH = tmp
+    tennis_tab.DB_PATH = tmp
+    tennis_tab.render_tennis_page()
+
+
 def test_empty_db_shows_friendly_empty_state():
     at = AppTest.from_function(_run_empty)
     at.run(timeout=60)
@@ -139,8 +167,10 @@ def test_price_check_edge_paths():
 
     # gift price on the 75% side -> WETTE
     at.number_input(key="odds_a_1").set_value(2.00)
+    at.number_input(key="odds_b_1").set_value(4.00)
+    at.run(timeout=60)
     at.button(key="check_1").click().run(timeout=60)
-    assert any("WETTE" in s.value for s in at.success)
+    assert any("SHADOW-TIPP" in s.value for s in at.success)
 
     # fair price -> KEINE WETTE (edge below 12% threshold)
     at.number_input(key="odds_a_1").set_value(1.40)
@@ -154,6 +184,20 @@ def test_match_card_shows_plain_gates_and_markets():
     # market metrics visible without any click
     labels = [m.label for m in at.metric]
     assert any("Vorhersagen gesamt" in label for label in labels)
+
+
+def test_blocked_card_hides_raw_probability_and_price_controls():
+    at = AppTest.from_function(_run_blocked_card)
+    at.run(timeout=60)
+    assert len(at.exception) == 0
+    assert any("KEINE EMPFEHLUNG" in error.value for error in at.error)
+    assert len(at.number_input) == 0
+    visible_text = " ".join(
+        element.value
+        for collection in (at.markdown, at.caption, at.error, at.info)
+        for element in collection
+    )
+    assert "95" not in visible_text
 
 
 def test_daily_scan_propagates_nonzero_exit_code():

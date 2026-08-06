@@ -177,6 +177,27 @@ def test_default_scan_date_uses_zurich_calendar():
     assert tennis_daily._default_scan_date(now) == "2030-01-03"
 
 
+def test_national_bank_open_resolves_to_current_montreal_hardcourt():
+    surfaces = {
+        "montreal": ("Hard", 3, "Omnium Banque National", False),
+    }
+    assert tennis_daily.resolve_surface(
+        "National Bank Open presented by Rogers", surfaces
+    ) == ("Hard", 3, "Omnium Banque National", False)
+
+
+def test_provider_surface_parses_explicit_court_and_environment():
+    assert tennis_daily.provider_surface("Hardcourt outdoor") == ("Hard", False)
+    assert tennis_daily.provider_surface("Red clay indoor") == ("Clay", True)
+    assert tennis_daily.provider_surface(None) == (None, None)
+
+
+def test_surface_sources_fail_closed_on_conflict():
+    assert tennis_daily.merge_surface("Hard", "Hard") == "Hard"
+    assert tennis_daily.merge_surface(None, "Clay") == "Clay"
+    assert tennis_daily.merge_surface("Hard", "Clay") is None
+
+
 def test_tennis_empty_state_uses_exact_next_scan_date():
     assert _next_tennis_scan_date(today_value="2030-01-02").isoformat() == "2030-01-03"
 

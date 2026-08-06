@@ -12,7 +12,11 @@ import math
 import pytest
 
 from tennis import simulator as sim
-from tennis.data_loader import _assert_odds_blind, normalize_player_name
+from tennis.data_loader import (
+    _assert_odds_blind,
+    normalize_player_name,
+    resolve_player_name_key,
+)
 from tennis.elo import SurfaceElo
 from tennis.serve_model import ServeReturnModel, _log5, TOUR_HOLD_AVG
 from tennis.backtest import WalkForwardCalibrator, _is_retired, _devig
@@ -153,6 +157,13 @@ class TestNormalize:
     )
     def test_sources_agree(self, raw, expected):
         assert normalize_player_name(raw) == expected
+
+    def test_surname_first_provider_name_uses_proven_historical_key(self):
+        known = frozenset({"shang j", "darderi l"})
+        assert resolve_player_name_key("Shang Juncheng", known) == "shang j"
+
+    def test_unknown_reversed_name_is_not_guessed(self):
+        assert resolve_player_name_key("Unknown Player", frozenset()) == "player u"
 
 
 # ------------------------------------------------------------ causal hygiene

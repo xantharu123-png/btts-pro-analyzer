@@ -32,7 +32,7 @@ from betting_math import (
 )
 
 from .backtest import MIN_ELO_MATCHES, MIN_SERVE_GAMES
-from .data_loader import normalize_player_name
+from .data_loader import resolve_player_name_key
 from .model_state import ModelState
 from .simulator import MatchMarkets, simulate_match
 
@@ -140,8 +140,11 @@ def predict_match(
         or not 0.0 <= float(minimum_expected_roi) <= 1.0
     ):
         raise ValueError("minimum_expected_roi must be between 0 and 1")
-    key_a = normalize_player_name(player_a)
-    key_b = normalize_player_name(player_b)
+    known_players = state.elo.known_players()
+    key_a = resolve_player_name_key(player_a, known_players)
+    key_b = resolve_player_name_key(player_b, known_players)
+    identity_a = key_a in known_players
+    identity_b = key_b in known_players
     surface_model = surface if surface in ("Hard", "Clay", "Grass", "Carpet") else None
     surface = surface if surface else "Unbekannt"
     if best_of not in (3, 5):
@@ -177,6 +180,20 @@ def predict_match(
         matches_a >= MIN_ELO_MATCHES and matches_b >= MIN_ELO_MATCHES,
         f"{player_a}: {matches_a} Matches, {player_b}: {matches_b} (min. {MIN_ELO_MATCHES})",
     )
+    identity = GateResult(
+        "Spieler-Zuordnung",
+        identity_a and identity_b,
+        (
+            "beide Spielernamen der historischen Datenbasis zugeordnet"
+            if identity_a and identity_b
+            else "nicht eindeutig gefunden: "
+            + ", ".join(
+                name
+                for name, found in ((player_a, identity_a), (player_b, identity_b))
+                if not found
+            )
+        ),
+    )
     if is_wta:
         # WTA release verdict, tested twice with real data:
         #  - Elo-only, 2019-2024:            Hard -0.7% ROI @ >=12% edge
@@ -197,6 +214,7 @@ def predict_match(
                 True,
                 "WTA: kein Boxscore-Feed — Elo-Modus",
             ),
+            identity,
         ]
     else:
         gates = [
@@ -211,6 +229,7 @@ def predict_match(
                 have_serve,
                 f"{serve_games_a:.0f} / {serve_games_b:.0f} Service-Games (min. {MIN_SERVE_GAMES:.0f})",
             ),
+            identity,
         ]
 
     recommended_side = None
