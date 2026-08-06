@@ -738,9 +738,10 @@ def _render_match_card(row: dict) -> None:
                 )
 
         _render_winner_closing_capture(row)
-        _render_side_markets(row, markets, model_gates_ok)
 
-        with st.expander("Prüfdetails und weitere Märkte"):
+        with st.expander("Weitere Märkte und Prüfdetails"):
+            _render_side_markets(row, markets, model_gates_ok)
+            st.divider()
             _render_gate_badges(gates)
             st.divider()
             _render_market_sheet(markets, int(row.get("best_of") or 3))
