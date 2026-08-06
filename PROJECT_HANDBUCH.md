@@ -9,15 +9,15 @@
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
-| Verifizierter Produktions-Funktionscommit | `f61b496` (`Collapse secondary tennis markets`) |
-| Fachlicher Kernstand | Ultra-Audit plus sportzentraler Wettfinder, automatische Tagesauswahl, sportübergreifende Mehrtagessuche, phasengenaue Fußball-Diagnose und fail-closed Tennis-Zuordnung |
-| Verifizierter VPS-Funktionsstand | `f61b496`; App aktiv, HTTPS 200 und 0 fehlgeschlagene systemd-Units am 6. August |
+| Verifizierter Produktions-Funktionscommit | `175523e` (`Add local N1Bet browser odds importer`) |
+| Fachlicher Kernstand | Ultra-Audit plus sportzentraler Wettfinder, automatische Tagesauswahl, sportübergreifende Mehrtagessuche, phasengenaue Fußball-Diagnose, fail-closed Tennis-Zuordnung und lokaler N1Bet-Preisimport |
+| Verifizierter VPS-Funktionsstand | `175523e`; App aktiv, HTTPS 200 und 0 fehlgeschlagene systemd-Units am 6. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 645 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 657 Tests, 5 Subtests und 3 JavaScript-Tests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -371,7 +371,42 @@ Matches, rund 329 zu 848 zeitgewichtete Service-Games und den Belag `Hard`.
 Das Modell ergibt 61,09 % Shang zu 38,91 % Darderi. Die zuvor sichtbaren
 5 % zu 95 % waren ein unzulässiger Rohwert aus dem fehlgeschlagenen Join. Bei
 den damaligen Platzhalterpreisen 1,50 / 2,60 wäre auch die korrigierte Rechnung
-klar `KEINE WETTE`; echte N1Bet-Preise müssen künftig bewusst eingegeben werden.
+klar `KEINE WETTE`; echte N1Bet-Preise müssen manuell oder über den lokalen
+Browser-Importer bestätigt werden.
+
+### Lokaler N1Bet-Preisimport vom 6. August 2026
+
+API-Football Pro wurde gegen seine aktuelle Buchmacherliste geprüft: Der
+Provider führt 33 Buchmacher, aber nicht N1Bet. Eine fremde Aggregatorquote
+darf deshalb nicht als N1Bet-Preis etikettiert werden. Der neue Importweg ist
+eine lokale Manifest-v3-Erweiterung für normales Chrome beziehungsweise Edge:
+
+- N1Bet-Content-Script liest ausschließlich sichtbare Dezimalquoten und legt
+  sie für höchstens 15 Minuten im lokalen Browser-Speicher ab;
+- ein BetBoy-Content-Script übergibt den Snapshot über eine unsichtbare
+  Streamlit-Komponente an die aktuelle Browser-Sitzung; Preise oder
+  Zugangsdaten werden nicht auf einen separaten Importserver übertragen;
+- Wettfinder, Live, Tennis und 15K besitzen eine gemeinsame kompakte
+  `N1Bet sync`-Zeile; die Erweiterung liegt unter Einstellungen als ZIP bereit;
+- der Python-Trust-Boundary akzeptiert nur HTTPS-Quellen von `n1bet.com`,
+  gültige Dezimalquoten und aktuelle Zeitstempel;
+- Pre-Match-Preise verfallen nach zehn Minuten, Live-Preise nach 60 Sekunden;
+- Ereignis, beide Teilnehmer, Markt, Auswahl, Team-Scope und Linie müssen
+  eindeutig passen. Konflikte, falsche Linien, Live-/Pre-Match-Verwechslungen
+  und mehrdeutige Treffer werden fail-closed verworfen;
+- eine manuell geänderte Quote wird niemals automatisch überschrieben;
+- der Import füllt nur den Preis. Die bestehende Auswahlbestätigung,
+  Modellfreigabe, Risiko-EV-Prüfung und Speicherung bleiben unverändert;
+- die Erweiterung liest weder Login noch Passwort oder Wettschein und kann
+  keine Wette platzieren.
+
+Der Entwicklungsstandort erhielt beim direkten Aufruf von N1Bet eine
+schweizerische HTTP-451-Sperrseite. Es wurde bewusst kein Geo-Block umgangen.
+Parser, Bridge, ZIP, Streamlit-Vorbelegung und strikte Zuordnung sind mit
+synthetischen N1Bet-DOM-/Payload-Fällen getestet; der abschließende reale
+Selektor-Abgleich muss einmal in einem Browser erfolgen, in dem die Seite
+rechtmäßig sichtbar ist. Bis zu diesem Test bleibt die manuelle Preiseingabe
+der verifizierte Rückfallweg.
 
 ### Jobs, Sitzungen und Challenge
 
@@ -826,8 +861,9 @@ VPS-Härtung, verifiziert am 2. August 2026:
 Vollständiger Lauf:
 
 ```text
-645 passed
+657 passed
 5 subtests passed
+3 JavaScript tests passed
 ```
 
 Reproduzierbarer Windows-Befehl:
@@ -933,6 +969,21 @@ Produktionsverifikation des Tennis-Zuordnungsfixes am 6. August 2026:
   ESPN-Fallback; Belag und Historie werden mit der lokalen ATP-Datenbasis
   verbunden.
 
+Produktionsverifikation des N1Bet-Browser-Imports am 6. August 2026:
+
+- Funktionscommit `175523e` wurde per Fast-Forward auf den VPS übernommen;
+  `betboy-app.service` ist aktiv, interne und öffentliche Health-Endpunkte
+  antworten mit `200 ok`, und es gibt keine fehlgeschlagene systemd-Unit.
+- Manifest, Content-Scripts, Streamlit-Bridge und der serverseitig erzeugte
+  Erweiterungsdownload sind im Produktions-Checkout vorhanden.
+- 657 Python-Tests, 5 Subtests und 3 JavaScript-Tests bestehen. Darunter sind
+  End-to-End-Vorbelegung des Streamlit-Preisfeldes, Quellen-/Altersprüfung,
+  Tennis-Sieger, Fußballmärkte, Team-Scope, Linien, Konflikte und Schutz einer
+  manuellen Eingabe.
+- Der echte N1Bet-DOM konnte aus dem Schweizer Entwicklungsnetz wegen HTTP 451
+  nicht geprüft werden. Produktion wird deshalb nicht als live-DOM-verifiziert
+  bezeichnet; dieser eine Browser-Abnahmeschritt bleibt offen.
+
 ## 12. Offene Prioritäten
 
 ### P0 - extern und vor ernsthafter Echtgeldnutzung
@@ -944,6 +995,9 @@ Produktionsverifikation des Tennis-Zuordnungsfixes am 6. August 2026:
 3. Authentifizierung und stabile `user_id` für Konten und Ledger einführen.
 4. N1Bet-Regeln für Void, Verlängerung, Early Payout und Marktlinien
    schriftlich gegen die Settlement-Implementierung prüfen.
+5. Den N1Bet-Importer einmal gegen die aktuell sichtbare echte N1Bet-Seite in
+   Chrome oder Edge abnehmen und bei Provider-DOM-Abweichungen nur die
+   Extraktionsselektoren anpassen; Match- und Sicherheitsgates nicht lockern.
 
 ### P1 - Evidenz
 
@@ -1005,7 +1059,7 @@ URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
-Verifizierter Funktionscommit: f61b496
+Verifizierter Funktionscommit: 175523e
 ```
 
 Update nach einem Push:
