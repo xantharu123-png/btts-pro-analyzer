@@ -10,6 +10,7 @@ from challenge_engine import (
 from config_loader import AppConfig
 from ev_signal_sources import AUTOMATED_WETTFINDER_VERSION, ModelSignal
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
+from market_consensus import parse_fixture_consensus
 from wettfinder_automation import (
     AUTOMATION_VERSION,
     _default_football_scan,
@@ -252,6 +253,21 @@ def test_selection_rejects_unknown_evidence_stage():
     ) == []
 
 
+def test_selection_never_leaks_tomorrow_into_today_artifact():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    today = _candidate("today", probability=0.68, haircut=0.07)
+    tomorrow = _candidate("tomorrow", probability=0.90, haircut=0.05)
+    tomorrow["scheduled_start"] = "2030-01-02T08:00:00+00:00"
+
+    selected = select_candidates(
+        [tomorrow, today],
+        now=now,
+        target_date=date(2030, 1, 1),
+    )
+
+    assert [row["key"] for row in selected] == ["today"]
+
+
 def test_football_record_rejects_unvalidated_cross_competition_model():
     candidate = _challenge_candidate(datetime(2030, 1, 1, 15, 0, tzinfo=UTC))
     candidate.context = {"passed": True, "blocked_reasons": []}
@@ -300,10 +316,59 @@ def test_runner_reuses_persisted_models_and_skips_not_due_football(tmp_path):
 
     assert calls == 1
     assert first["bookmaker_data_used"] is False
-    assert first["quote_required"] is True
+    assert first["quote_required"] is False
     assert len(first["candidates"]) == 2
     assert second["sources"]["football"]["due_reason"] == "daily_discovery_current"
     assert load_state(state_path)["generated_at"] == second["generated_at"]
+
+
+def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+
+    def quote_loader(rows):
+        payload = {
+            "response": [
+                {
+                    "fixture": {"id": 1},
+                    "update": now.isoformat(),
+                    "bookmakers": [
+                        {
+                            "name": name,
+                            "bets": [
+                                {
+                                    "name": "Both Teams Score",
+                                    "values": [{"value": "Yes", "odd": odds}],
+                                }
+                            ],
+                        }
+                        for name, odds in (
+                            ("Book A", "1.90"),
+                            ("Book B", "1.95"),
+                            ("Book C", "2.00"),
+                            ("Book D", "2.05"),
+                        )
+                    ],
+                }
+            ]
+        }
+        return parse_fixture_consensus(payload, rows, fetched_at=now), []
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _search_date: _football_snapshot(now),
+        football_quote_loader=quote_loader,
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    assert document["bookmaker_data_used"] is True
+    assert document["sources"]["football"]["reference_quote_count"] == 1
+    tip = document["candidates"][0]
+    assert tip["reference_price_status"] == "PLAYABLE"
+    assert tip["reference_quote"]["bookmaker_count"] == 4
+    assert tip["reference_quote"]["conservative_odds"] == 1.9375
 
 
 def test_runner_refreshes_only_daily_pool_fixture_without_rescanning(tmp_path):

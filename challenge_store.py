@@ -34,6 +34,12 @@ from price_ledger import (
     PriceLedgerIntegrityError,
     PriceQuote,
 )
+from market_consensus import (
+    MIN_REFERENCE_BOOKMAKERS,
+    REFERENCE_FETCH_MAX_AGE,
+    REFERENCE_QUOTE_MAX_AGE,
+    REFERENCE_SOURCE,
+)
 
 
 DEFAULT_CHALLENGE_DB = Path(__file__).with_name("challenge_15k.db")
@@ -360,7 +366,7 @@ class ChallengeLedger:
     @staticmethod
     def _ticket_legs(
         ticket: QuotedTicket,
-        quote_observation_ids: list[int],
+        quote_observation_ids: list[int | None],
     ) -> list[dict[str, Any]]:
         return [
             {
@@ -376,6 +382,12 @@ class ChallengeLedger:
                 "odds": leg.odds,
                 "expected_roi": leg.expected_roi,
                 "quote_observation_id": quote_observation_ids[index],
+                "quote_source": leg.quote_source,
+                "quoted_at": leg.quoted_at,
+                "fetched_at": leg.fetched_at,
+                "bookmaker_count": leg.bookmaker_count,
+                "reference_odds": leg.quote_low,
+                "best_observed_odds": leg.quote_high,
             }
             for index, leg in enumerate(ticket.legs)
         ]
@@ -386,16 +398,51 @@ class ChallengeLedger:
         *,
         quote_time: datetime,
         now: datetime,
-    ) -> list[int]:
-        ledger = PriceLedger(self.db_path)
-        chain_valid, bad_id = ledger.verify_chain()
-        if not chain_valid:
-            raise PriceLedgerIntegrityError(
-                f"price hash chain is invalid at observation {bad_id}"
-            )
-        observation_ids: list[int] = []
+    ) -> list[int | None]:
+        has_n1_price = any(leg.quote_source == BOOKMAKER for leg in ticket.legs)
+        ledger = PriceLedger(self.db_path) if has_n1_price else None
+        if ledger is not None:
+            chain_valid, bad_id = ledger.verify_chain()
+            if not chain_valid:
+                raise PriceLedgerIntegrityError(
+                    f"price hash chain is invalid at observation {bad_id}"
+                )
+        observation_ids: list[int | None] = []
         for leg in ticket.legs:
             candidate = leg.candidate
+            if leg.quote_source != BOOKMAKER:
+                if (
+                    leg.quote_source != REFERENCE_SOURCE
+                    or leg.quote_observation_id is not None
+                    or leg.bookmaker_count < MIN_REFERENCE_BOOKMAKERS
+                    or leg.quoted_at is None
+                    or leg.fetched_at is None
+                    or leg.quote_low is None
+                    or leg.quote_high is None
+                    or leg.quote_low > leg.quote_high
+                    or not math.isclose(
+                        leg.odds,
+                        leg.quote_low,
+                        rel_tol=0.0,
+                        abs_tol=5e-7,
+                    )
+                ):
+                    raise ValueError("Ticket reference price evidence is invalid")
+                reference_time = _utc_datetime(leg.quoted_at, "quoted_at")
+                fetched_time = _utc_datetime(leg.fetched_at, "fetched_at")
+                reference_age = now - reference_time
+                fetch_age = now - fetched_time
+                if (
+                    reference_age.total_seconds() < -60
+                    or reference_age > REFERENCE_QUOTE_MAX_AGE
+                    or fetch_age.total_seconds() < -60
+                    or fetch_age > REFERENCE_FETCH_MAX_AGE
+                ):
+                    raise ValueError("Ticket reference price is stale or from the future")
+                observation_ids.append(None)
+                continue
+            if ledger is None:
+                raise ValueError("N1Bet price ledger is unavailable")
             observation_id = leg.quote_observation_id
             if observation_id is None:
                 spec = MARKET_BY_KEY.get(candidate.market_key)
@@ -479,7 +526,12 @@ class ChallengeLedger:
         now_dt = datetime.now(timezone.utc)
         quote_time = _utc_datetime(quote_verified_at, "quote_verified_at")
         quote_age = (now_dt - quote_time).total_seconds()
-        if quote_age < -60 or quote_age > MAX_QUOTE_AGE_SECONDS:
+        quote_age_limit = (
+            int(REFERENCE_FETCH_MAX_AGE.total_seconds())
+            if any(leg.quote_source == REFERENCE_SOURCE for leg in ticket.legs)
+            else MAX_QUOTE_AGE_SECONDS
+        )
+        if quote_age < -60 or quote_age > quote_age_limit:
             raise ValueError("The verified quote is stale or from the future")
         if any(not candidate_is_credible(leg.candidate) for leg in ticket.legs):
             raise ValueError("Ticket contains an unverified candidate")

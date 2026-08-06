@@ -16,12 +16,13 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional, Union
 from zoneinfo import ZoneInfo
 
 from betting_math import BETTING_POLICY_VERSION, minimum_acceptable_odds
+from market_consensus import MarketConsensus
 from scan_jobs import JOBS_DIR, load_persisted
 from tennis.predict import WINNER_PROBABILITY_HAIRCUT
 from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION
@@ -34,8 +35,10 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 3
+AUTOMATED_WETTFINDER_VERSION = 4
+AUTOMATED_SELECTION_POLICY_VERSION = "daily-discovery-context-refresh-v4"
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
+AUTOMATED_TOMORROW_SCAN_HOUR = 23
 
 # Maximales Signal-Alter je Fußball-Quelle: Prematch-Spiele liegen in der
 # Zukunft (24 h tragbar); Live- und Platzverweis-Märkte sind nach Spielende
@@ -63,6 +66,7 @@ class ModelSignal:
     event_label: Optional[str] = None
     market: Optional[str] = None
     selection: Optional[str] = None
+    reference_quote: Optional[dict] = None
 
     def __post_init__(self) -> None:
         if not _valid_probability(self.probability):
@@ -86,6 +90,11 @@ class ModelSignal:
             raise ValueError("Model signal minimum odds are invalid")
         if not str(self.source).strip():
             raise ValueError("Model signal source is required")
+        if (
+            self.reference_quote is not None
+            and MarketConsensus.from_dict(self.reference_quote) is None
+        ):
+            raise ValueError("Model signal reference quote is invalid")
 
 
 @dataclass(frozen=True)
@@ -186,7 +195,7 @@ def tennis_signals(
         """SELECT id, match_date, tour, tournament, player_a, player_b,
                   p_cal, verdict, recommended_side, scheduled_start_utc
            FROM predictions
-           WHERE settled = 0 AND match_date >= ?
+           WHERE settled = 0 AND match_date = ?
              AND verdict = 'WETTE'
              AND recommended_side IN ('A', 'B')
              AND model_version = ? AND policy_version = ?
@@ -247,7 +256,7 @@ def tennis_model_signals(
     today: Optional[str] = None,
     now: Optional[datetime] = None,
 ) -> List[ModelSignal]:
-    """Return price-independent tennis candidates with all model gates green."""
+    """Return one local match day's tennis candidates with all model gates green."""
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
@@ -258,7 +267,7 @@ def tennis_model_signals(
         """SELECT id, match_date, tour, tournament, player_a, player_b,
                   p_cal, gates_json, scheduled_start_utc
            FROM predictions
-           WHERE settled = 0 AND match_date >= ?
+           WHERE settled = 0 AND match_date = ?
              AND model_version = ? AND policy_version = ?
            ORDER BY match_date, scheduled_start_utc, id""",
         (today, TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION),
@@ -528,8 +537,10 @@ def _load_automated_wettfinder_document(
         not isinstance(document, dict)
         or document.get("version") != AUTOMATED_WETTFINDER_VERSION
         or document.get("betting_policy_version") != BETTING_POLICY_VERSION
-        or document.get("bookmaker_data_used") is not False
-        or document.get("quote_required") is not True
+        or document.get("selection_policy_version")
+        != AUTOMATED_SELECTION_POLICY_VERSION
+        or not isinstance(document.get("bookmaker_data_used"), bool)
+        or document.get("quote_required") is not False
     ):
         return None
     generated = _parse_iso(document.get("generated_at"))
@@ -541,6 +552,22 @@ def _load_automated_wettfinder_document(
         return None
     candidates = document.get("candidates")
     if not isinstance(candidates, list) or len(candidates) > 3:
+        return None
+    try:
+        target = date.fromisoformat(str(document.get("target_search_date")))
+    except (TypeError, ValueError):
+        return None
+    local = current.astimezone(ZURICH_TZ)
+    expected_target = local.date() + timedelta(
+        days=local.hour >= AUTOMATED_TOMORROW_SCAN_HOUR
+    )
+    if target != expected_target:
+        return None
+    has_reference_quote = any(
+        isinstance(row, dict) and row.get("reference_quote") is not None
+        for row in candidates
+    )
+    if document["bookmaker_data_used"] is not has_reference_quote:
         return None
     return document, generated, candidates
 
@@ -617,7 +644,8 @@ def automated_wettfinder_signals(
     )
     if loaded is None:
         return []
-    _document, _generated, candidates = loaded
+    document, _generated, candidates = loaded
+    target_date = date.fromisoformat(str(document["target_search_date"]))
 
     signals: List[ModelSignal] = []
     current_policies = _current_automated_policies()
@@ -648,10 +676,12 @@ def automated_wettfinder_signals(
             continue
         scheduled_value = row.get("scheduled_start")
         scheduled = _parse_iso(scheduled_value)
-        if scheduled_value is not None and (
-            scheduled is None
+        if (
+            scheduled_value is None
+            or scheduled is None
             or scheduled.tzinfo is None
             or scheduled.astimezone(timezone.utc) <= current
+            or scheduled.astimezone(ZURICH_TZ).date() != target_date
         ):
             continue
         key = str(row.get("key") or "").strip()
@@ -661,6 +691,15 @@ def automated_wettfinder_signals(
         event_label = str(row.get("event") or "").strip() or label
         market = str(row.get("market") or "").strip() or "Auswahl"
         selection = str(row.get("selection") or "").strip() or label
+        reference_payload = row.get("reference_quote")
+        reference_quote = MarketConsensus.from_dict(reference_payload)
+        if reference_payload is not None and reference_quote is None:
+            continue
+        candidate_id = str(row.get("candidate_id") or "").strip()
+        if reference_quote is not None and (
+            not candidate_id or reference_quote.candidate_id != candidate_id
+        ):
+            continue
         stage = str(row.get("evidence_stage") or "").upper()
         policy = str(row.get("policy_version") or "").strip()
         if (
@@ -689,6 +728,11 @@ def automated_wettfinder_signals(
                     event_label=event_label,
                     market=market,
                     selection=selection,
+                    reference_quote=(
+                        reference_quote.to_dict()
+                        if reference_quote is not None
+                        else None
+                    ),
                 )
             )
         except ValueError:

@@ -11,6 +11,7 @@ from pathlib import Path
 from betting_math import BETTING_POLICY_VERSION
 from esports_shadow import ESPORTS_MODEL_VERSION
 from ev_signal_sources import (
+    AUTOMATED_SELECTION_POLICY_VERSION,
     AUTOMATED_WETTFINDER_VERSION,
     automated_wettfinder_signals,
     automated_wettfinder_status,
@@ -437,8 +438,9 @@ class ListSignalsTests(unittest.TestCase):
                         "version": AUTOMATED_WETTFINDER_VERSION,
                         "generated_at": "2030-01-01T10:00:00+00:00",
                         "betting_policy_version": BETTING_POLICY_VERSION,
+                        "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
                         "bookmaker_data_used": False,
-                        "quote_required": True,
+                        "quote_required": False,
                         "target_search_date": "2030-01-01",
                         "football": {
                             "status": "completed",
@@ -503,8 +505,9 @@ class ListSignalsTests(unittest.TestCase):
                         "version": AUTOMATED_WETTFINDER_VERSION,
                         "generated_at": "2030-01-01T10:00:00+00:00",
                         "betting_policy_version": BETTING_POLICY_VERSION,
+                        "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
                         "bookmaker_data_used": False,
-                        "quote_required": True,
+                        "quote_required": False,
                         "target_search_date": "2030-01-01",
                         "football": {
                             "status": "completed",
@@ -539,8 +542,10 @@ class ListSignalsTests(unittest.TestCase):
                 "version": AUTOMATED_WETTFINDER_VERSION,
                 "generated_at": "2030-01-01T06:00:00+00:00",
                 "betting_policy_version": BETTING_POLICY_VERSION,
+                "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
                 "bookmaker_data_used": False,
-                "quote_required": True,
+                "quote_required": False,
+                "target_search_date": "2030-01-01",
                 "candidates": [
                     {
                         "key": "tennis-auto-2",
@@ -564,6 +569,15 @@ class ListSignalsTests(unittest.TestCase):
             )
 
             document["generated_at"] = "2030-01-01T10:00:00+00:00"
+            document["candidates"][0]["scheduled_start"] = (
+                "2030-01-02T09:00:00+00:00"
+            )
+            artifact.write_text(json.dumps(document), encoding="utf-8")
+            self.assertEqual(
+                automated_wettfinder_signals(artifact, now=now),
+                [],
+            )
+
             document["candidates"][0]["scheduled_start"] = (
                 "2030-01-01T10:30:00+00:00"
             )

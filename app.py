@@ -34,11 +34,11 @@ _REQUIRED_ANALYZER_MODULE_VERSION = 3
 if getattr(_advanced_analyzer, "ANALYZER_MODULE_VERSION", 0) < _REQUIRED_ANALYZER_MODULE_VERSION:
     _advanced_analyzer = importlib.reload(_advanced_analyzer)
 
-_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 6
+_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 7
 if getattr(_challenge_15k, "CHALLENGE_WORKSPACE_VERSION", 0) < _REQUIRED_CHALLENGE_WORKSPACE_VERSION:
     _challenge_15k = importlib.reload(_challenge_15k)
 
-_REQUIRED_MARKET_WORKFLOW_VERSION = 7
+_REQUIRED_MARKET_WORKFLOW_VERSION = 8
 if getattr(_alternative_markets, "MARKET_WORKFLOW_VERSION", 0) < _REQUIRED_MARKET_WORKFLOW_VERSION:
     _alternative_markets = importlib.reload(_alternative_markets)
 
@@ -81,11 +81,11 @@ from multi_sport_recommendations import (
 PAGE_INFO = {
     "Wettfinder": (
         "Wettfinder",
-        "Bis zu drei modellgeprüfte Auswahlen. Die N1Bet-Quote wird erst danach bewertet.",
+        "Bis zu drei konkrete Tipps mit automatischem Marktvergleich und Mindestquote.",
     ),
     "Live": (
         "Live Wettfinder",
-        "Aktuelle Spieldaten werden in konkrete Live-Auswahlen mit direktem Preischeck übersetzt.",
+        "Aktuelle Spieldaten werden in konkrete Live-Auswahlen und klare Mindestquoten übersetzt.",
     ),
     "15K": (
         "15K Challenge",
@@ -93,7 +93,7 @@ PAGE_INFO = {
     ),
     "Meine Tipps": (
         "Meine Tipps",
-        "Aktive preisgeprüfte Tipps, 15K-Tickets und Tennis-Verlauf an einem Ort.",
+        "Gemerkte Tipps, 15K-Tickets und der transparente Ergebnisverlauf an einem Ort.",
     ),
     "Einstellungen": (
         "Einstellungen",
@@ -1538,8 +1538,8 @@ def _render_prematch_results(
     else:
         st.success(
             f"{len(ready_rows)} von {len(candidate_rows)} geprüften Spielen bestehen "
-            "die Modellprüfung. Nach der exakten N1Bet-Preisprüfung bleiben "
-            "sie bis zur unabhängigen ROI-/CLV-Freigabe Shadow-Signale."
+            "die Modellprüfung. Der automatische Marktvergleich bewertet danach, "
+            "ob der angebotene Preis die Mindestquote erreicht."
         )
         selectable_rows = ready_rows
 
@@ -3189,15 +3189,15 @@ def render_multi_sport(
     if is_upcoming:
         st.caption(
             "Pre-Match-Bewertung aus Team-Historien (Serienstand 0:0). "
-            "Lineups und N1Bet-Quote vor Abgabe prüfen."
+            "Lineups, Marktlinie und tatsächliche Quote vor Abgabe prüfen."
         )
     snapshot_token = str(snapshot.get("scanned_at") or "snapshot").replace(":", "_")
     line_value = None
     if sport in {"Basketball", "Eishockey"} and not is_upcoming:
         line_label = (
-            "N1Bet-Gesamtpunkte-Linie (x,5)"
+            "Buchmacher-Gesamtpunkte-Linie (x,5)"
             if sport == "Basketball"
-            else "N1Bet-Gesamttore-Linie (x,5)"
+            else "Buchmacher-Gesamttore-Linie (x,5)"
         )
         raw_line = st.text_input(
             line_label,
@@ -3205,7 +3205,7 @@ def render_multi_sport(
             key=f"multi_sport_line_{scope_key}_{selected_index}_{snapshot_token}",
         ).strip()
         if not raw_line:
-            st.info("Für diesen Markt zuerst die exakte N1Bet-Linie eintragen.")
+            st.info("Für diesen Markt zuerst die exakte angebotene Linie eintragen.")
             return
         try:
             line_value = float(raw_line.replace(",", "."))
@@ -3214,12 +3214,12 @@ def render_multi_sport(
         # A mistyped line changes the model probability itself, so the line
         # needs the same explicit bookmaker cross-check as the price.
         line_confirmed = st.checkbox(
-            f"Linie {raw_line} wurde unmittelbar mit N1Bet abgeglichen",
+            f"Linie {raw_line} wurde unmittelbar beim Buchmacher abgeglichen",
             value=False,
             key=f"multi_sport_line_confirmed_{scope_key}_{selected_index}_{snapshot_token}",
         )
         if not line_confirmed:
-            st.info("Bitte die N1Bet-Linie abgleichen und bestätigen.")
+            st.info("Bitte die angebotene Linie abgleichen und bestätigen.")
             return
 
     candidate = build_candidate(
@@ -3266,7 +3266,11 @@ def _automated_signal_candidate(signal: ModelSignal) -> RecommendationCandidate:
         expected_total=None,
         evidence=(
             signal.detail,
-            "Automatischer VPS-Lauf ohne Buchmacherquote.",
+            (
+                "Automatischer Mehrbuchmachervergleich liegt vor."
+                if signal.reference_quote is not None
+                else "Konkreter Modelltipp mit ausgewiesener Mindestquote."
+            ),
         ),
         blockers=(
             ()
@@ -3318,20 +3322,18 @@ def _render_automated_daily_selection() -> None:
         )
         return
 
-    by_key = {signal.key: signal for signal in signals}
-    selected_key = st.selectbox(
-        "Vorschlag",
-        list(by_key),
-        format_func=lambda key: by_key[key].label,
-        key="automated_finder_signal",
-    )
-    selected = by_key[selected_key]
-    render_price_decision(
-        _automated_signal_candidate(selected),
-        key=f"automated_{selected.key}",
-        bankroll_key="automated_finder_bankroll",
-        save_source="Automatischer Wettfinder",
-    )
+    st.success(f"{len(signals)} automatische Empfehlung(en) verfügbar.")
+    for index, selected in enumerate(signals, start=1):
+        st.markdown(f"### Tagestipp {index}")
+        render_price_decision(
+            _automated_signal_candidate(selected),
+            key=f"automated_{selected.key}",
+            bankroll_key="automated_finder_bankroll",
+            save_source="Automatischer Wettfinder",
+            reference_quote=selected.reference_quote,
+        )
+        if index < len(signals):
+            st.divider()
 
 
 def _render_selected_finder(
@@ -3455,14 +3457,9 @@ def _render_system_status(analyzer) -> None:
 def render_settings(analyzer) -> None:
     section = st.selectbox(
         "Bereich",
-        ["Modellvalidierung", "Datenbestand", "N1Bet Importer", "15K Konto"],
+        ["Modellvalidierung", "Datenbestand", "15K Konto"],
         key="settings_section",
     )
-    if section == "N1Bet Importer":
-        from n1_import_ui import render_n1_importer_settings
-
-        render_n1_importer_settings()
-        return
     if section == "15K Konto":
         from challenge_15k import render_challenge_account
 

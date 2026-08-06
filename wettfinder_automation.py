@@ -4,8 +4,9 @@ One broad football discovery scans every configured league once per target
 date. Later timer wake-ups never repeat that league scan: they refresh only
 persisted candidate fixtures inside the pre-match context window. Tennis and
 E-sport reuse their own daily persisted model runs. The public artifact keeps
-at most three probability-ranked, price-pending candidates and never fetches
-or invents a bookmaker quote.
+at most three probability-ranked candidates for exactly one local match day.
+Football prices are attached only afterwards from exact multi-bookmaker
+markets; a missing price never changes the model selection.
 """
 
 from __future__ import annotations
@@ -34,19 +35,25 @@ from challenge_engine import (
 )
 from config_loader import AppConfig, load_app_config
 from ev_signal_sources import (
+    AUTOMATED_SELECTION_POLICY_VERSION,
     AUTOMATED_WETTFINDER_VERSION,
     ModelSignal,
     esports_signals,
     tennis_model_signals,
 )
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
+from market_consensus import (
+    MarketConsensus,
+    fetch_football_consensus,
+    reference_price_status,
+)
 
 
 ROOT = Path(__file__).resolve().parent
 STATE_PATH = ROOT / "runtime_state" / "wettfinder_latest.json"
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
 AUTOMATION_VERSION = AUTOMATED_WETTFINDER_VERSION
-SELECTION_POLICY_VERSION = "daily-discovery-context-refresh-v3"
+SELECTION_POLICY_VERSION = AUTOMATED_SELECTION_POLICY_VERSION
 MAX_AUTOMATIC_CANDIDATES = 3
 TOMORROW_SCAN_HOUR = 23
 ERROR_RETRY = timedelta(hours=2)
@@ -248,6 +255,7 @@ def _football_candidate_record(
         "candidate_id": candidate_id,
         "fixture_id": _value(candidate, "fixture_id"),
         "league_id": _value(candidate, "league_id"),
+        "market_key": _value(candidate, "market_key"),
         "sport": "Fussball",
         "event": event,
         "event_identity": f"football:{_value(candidate, 'fixture_id')}",
@@ -322,10 +330,12 @@ def select_candidates(
     candidates: Iterable[dict[str, Any]],
     *,
     now: Optional[datetime] = None,
+    target_date: Optional[date] = None,
     limit: int = MAX_AUTOMATIC_CANDIDATES,
 ) -> list[dict[str, Any]]:
-    """Select probability-first candidates without offered-odds input."""
+    """Select probability-first candidates for exactly one Zurich match day."""
     current = _utc(now)
+    target = target_date or target_search_date(current)
     stage_rank = {"RELEASED": 2, "SHADOW": 1, "RESEARCH": 0}
     valid: list[dict[str, Any]] = []
     for row in candidates:
@@ -350,7 +360,11 @@ def select_candidates(
         kickoff = _parse_iso(row.get("scheduled_start"))
         if row.get("scheduled_start") is not None and kickoff is None:
             continue
-        if kickoff is not None and kickoff <= current:
+        if (
+            kickoff is None
+            or kickoff <= current
+            or kickoff.astimezone(ZURICH_TZ).date() != target
+        ):
             continue
         valid.append(dict(row))
 
@@ -722,6 +736,12 @@ def run_wettfinder(
             dict[str, Any],
         ]
     ] = None,
+    football_quote_loader: Optional[
+        Callable[
+            [list[dict[str, Any]]],
+            tuple[dict[str, MarketConsensus], list[str]],
+        ]
+    ] = None,
     tennis_loader: Callable[..., list[ModelSignal]] = tennis_model_signals,
     esports_loader: Callable[..., list[ModelSignal]] = esports_signals,
     force_football: bool = False,
@@ -832,7 +852,11 @@ def run_wettfinder(
     }
 
     for source_name, loader, kwargs in (
-        ("tennis", tennis_loader, {"now": current}),
+        (
+            "tennis",
+            tennis_loader,
+            {"now": current, "today": target.isoformat()},
+        ),
         (
             "esports",
             esports_loader,
@@ -872,13 +896,54 @@ def run_wettfinder(
     }
 
     candidates = select_candidates(source_rows, now=current)
+    football_price_rows = [
+        row
+        for row in candidates
+        if row.get("source") == "football_challenge"
+        and isinstance(row.get("fixture_id"), int)
+        and str(row.get("market_key") or "").strip()
+    ]
+    quote_errors: list[str] = []
+    reference_quotes: dict[str, MarketConsensus] = {}
+    if football_price_rows:
+        try:
+            if football_quote_loader is not None:
+                reference_quotes, quote_errors = football_quote_loader(
+                    football_price_rows
+                )
+            elif football_scanner is None and football_context_refresher is None:
+                app_config = config or load_app_config()
+                reference_quotes, quote_errors = fetch_football_consensus(
+                    app_config.api_football_key or "",
+                    football_price_rows,
+                    now=current,
+                )
+        except Exception as exc:
+            quote_errors = [f"{type(exc).__name__}: {exc}"[:500]]
+    for row in candidates:
+        candidate_id = str(row.get("candidate_id") or "")
+        quote = reference_quotes.get(candidate_id)
+        if quote is None:
+            row["reference_price_status"] = "UNAVAILABLE"
+            continue
+        row["reference_quote"] = quote.to_dict()
+        row["reference_price_status"] = reference_price_status(
+            quote,
+            row.get("minimum_odds"),
+            now=current,
+        ).code
+    if isinstance(source_status.get("football"), dict):
+        source_status["football"]["reference_quote_count"] = len(
+            reference_quotes
+        )
+        source_status["football"]["quote_errors"] = quote_errors[:10]
     document = {
         "version": AUTOMATION_VERSION,
         "generated_at": current.isoformat(),
         "betting_policy_version": BETTING_POLICY_VERSION,
         "selection_policy_version": SELECTION_POLICY_VERSION,
-        "bookmaker_data_used": False,
-        "quote_required": True,
+        "bookmaker_data_used": bool(reference_quotes),
+        "quote_required": False,
         "target_search_date": target.isoformat(),
         "football": football_state,
         "sources": source_status,
@@ -920,7 +985,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "football_discovery_scope": document["sources"]["football"][
                     "discovery_scope"
                 ],
-                "bookmaker_data_used": False,
+                "bookmaker_data_used": document["bookmaker_data_used"],
             },
             ensure_ascii=True,
         )

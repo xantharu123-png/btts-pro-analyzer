@@ -1,4 +1,4 @@
-"""Tennis tab: daily model predictions, manual N1Bet price check, settlement.
+"""Tennis tab: daily model tips, optional price check, settlement.
 
 UX discipline (same as football): one clear verdict per match —
 "WETTE" or "KEINE WETTE" — with the exact blocking reasons in plain
@@ -7,8 +7,9 @@ German inside an expander.  No jargon, no duplicated verdicts.
 Data flow:
 - predictions arrive via scripts/tennis_daily.py (scheduled every
   morning) and live in tennis/data/tennis_shadow.db
-- the user types the two N1Bet prices; the risk-adjusted EV gate is evaluated
-  from the STORED calibrated probability (no model reload needed)
+- the calibrated winner model produces a concrete selection and minimum price
+- an optional bookmaker price check evaluates the risk-adjusted EV from the
+  stored probability (no model reload needed)
 - settlement is manual (winner + optional retirement note) until the
   weekly stats refresh can confirm results automatically
 
@@ -25,7 +26,6 @@ import subprocess
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Mapping
 from zoneinfo import ZoneInfo
 
 import streamlit as st
@@ -45,8 +45,6 @@ from tennis.predict import (
     WINNER_PROBABILITY_HAIRCUT,
 )
 from tennis.shadow import SIDE_MARKETS
-from n1_import import N1ImportMatch, N1ImportTarget, N1WidgetBinding
-from n1_import_ui import render_n1_import_sync
 
 DB_PATH = shadow.DB_PATH
 DAILY_SCRIPT = Path(__file__).resolve().parent / "scripts" / "tennis_daily.py"
@@ -337,7 +335,7 @@ def _render_shadow_summary() -> None:
     st.caption(
         "Shadow bedeutet: Entscheidung und Quote werden vor dem Start eingefroren, "
         "danach werden Ergebnis, Kalibrierung und eine startzeitnahe "
-        "N1Bet-Referenzquote verglichen. "
+        "Startzeitnahe Referenzquote verglichen. "
         "Das prüft das Modell, garantiert aber keinen Gewinn."
     )
     st.caption(
@@ -359,7 +357,7 @@ def _render_shadow_summary() -> None:
         st.caption(
             "Brier auf identischer CLV-Stichprobe, kleiner ist besser: "
             f"Modell {summary['benchmark_model_brier']:.3f} · "
-            f"N1Bet-Referenzmarkt {summary['benchmark_market_brier']:.3f} · "
+            f"Referenzmarkt {summary['benchmark_market_brier']:.3f} · "
             f"n={summary['benchmark_samples']}."
         )
     side = shadow.side_bet_summary()
@@ -421,7 +419,7 @@ _SIDE_MARKET_KEYS = {
 
 
 def _render_side_markets(row: dict, markets: dict, model_gates_ok: bool) -> None:
-    """Set markets with fair prices + manual N1Bet check + shadow tracking."""
+    """Render calibrated set markets with an optional price check."""
     if not model_gates_ok or int(row.get("best_of") or 3) != 3:
         return  # calibration was measured on Bo3; Bo5 stays out for now
     available = {
@@ -468,7 +466,7 @@ def _render_side_markets(row: dict, markets: dict, model_gates_ok: bool) -> None
             elif window == "open":
                 closing_cols = st.columns([3, 1])
                 closing_odds = closing_cols[0].number_input(
-                    f"N1Bet-Referenzquote {label}",
+                    f"Startquote {label}",
                     min_value=1.01,
                     max_value=50.0,
                     value=float(b["odds"]),
@@ -489,7 +487,7 @@ def _render_side_markets(row: dict, markets: dict, model_gates_ok: bool) -> None
                         st.rerun()
             continue
         odds = cols[1].number_input(
-            "N1Bet", min_value=1.01, max_value=50.0, value=None,
+            "Buchmacherquote", min_value=1.01, max_value=50.0, value=None,
             step=0.01, format="%.2f", key=f"side_odds_{code}_{row['id']}",
             placeholder="Quote",
             label_visibility="collapsed",
@@ -520,7 +518,7 @@ def _render_winner_closing_capture(row: dict) -> None:
         return
     if row.get("closing_checked_utc"):
         st.caption(
-            "Startzeitnahe N1Bet-Referenzquoten gespeichert: "
+            "Startzeitnahe Referenzquoten gespeichert: "
             f"{row['closing_odds_a']:.2f} / {row['closing_odds_b']:.2f}."
         )
         return
@@ -536,7 +534,7 @@ def _render_winner_closing_capture(row: dict) -> None:
     if window != "open":
         return
 
-    with st.expander("Startzeitnahe N1Bet-Referenzquote erfassen"):
+    with st.expander("Startzeitnahe Referenzquote erfassen"):
         st.caption(
             "Nur jetzt vor dem angesetzten Start speichern. Diese Preise werden "
             "später nicht rückwirkend ergänzt."
@@ -573,52 +571,7 @@ def _render_winner_closing_capture(row: dict) -> None:
                 st.rerun()
 
 
-def _tennis_import_bindings(row: dict) -> tuple[N1WidgetBinding, N1WidgetBinding]:
-    header = f"{row['player_a']} vs {row['player_b']}"
-    participants = (row["player_a"], row["player_b"])
-    target_a = N1ImportTarget(
-        key=f"tennis:{row['id']}:a",
-        sport="Tennis",
-        event_name=header,
-        market="Match-Sieger",
-        selection=row["player_a"],
-        participants=participants,
-        scheduled_start=row.get("scheduled_start_utc"),
-    )
-    target_b = N1ImportTarget(
-        key=f"tennis:{row['id']}:b",
-        sport="Tennis",
-        event_name=header,
-        market="Match-Sieger",
-        selection=row["player_b"],
-        participants=participants,
-        scheduled_start=row.get("scheduled_start_utc"),
-    )
-    return (
-        N1WidgetBinding(target_a, f"odds_a_{row['id']}", "number"),
-        N1WidgetBinding(target_b, f"odds_b_{row['id']}", "number"),
-    )
-
-
-def _row_has_price_ready_model(row: dict) -> bool:
-    try:
-        gates = json.loads(row.get("gates_json") or "{}")
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return False
-    if not isinstance(gates, dict):
-        return False
-    model_gates = {
-        name: info
-        for name, info in gates.items()
-        if name != "Quote/Risiko-EV" and isinstance(info, dict)
-    }
-    return bool(model_gates) and all(info.get("passed") is True for info in model_gates.values())
-
-
-def _render_match_card(
-    row: dict,
-    import_matches: Mapping[str, N1ImportMatch] | None = None,
-) -> None:
+def _render_match_card(row: dict) -> None:
     gates = json.loads(row["gates_json"] or "{}")
     markets = json.loads(row["markets_json"] or "{}")
     model_gates = {
@@ -660,75 +613,6 @@ def _render_match_card(
                 _render_market_sheet(markets, int(row.get("best_of") or 3))
             return
 
-        st.info(
-            f"MODELL FREIGEGEBEN — statistisch wahrscheinlicher: {likely_player} "
-            f"({likely_probability:.1%}). Noch keine Wette: Zuerst beide "
-            "aktuellen N1Bet-Quoten eingeben."
-        )
-
-        odds_a_key = f"odds_a_{row['id']}"
-        odds_b_key = f"odds_b_{row['id']}"
-        import_matches = import_matches or {}
-
-        price_cols = st.columns([1, 1, 1])
-        odds_a_kwargs = {}
-        if odds_a_key not in st.session_state:
-            odds_a_kwargs["value"] = (
-                float(row["odds_a"]) if row.get("odds_a") else None
-            )
-        odds_a = price_cols[0].number_input(
-            f"N1Bet {row['player_a']}",
-            min_value=1.01,
-            max_value=50.0,
-            step=0.01,
-            format="%.2f",
-            placeholder="Quote",
-            key=odds_a_key,
-            **odds_a_kwargs,
-        )
-        odds_b_kwargs = {}
-        if odds_b_key not in st.session_state:
-            odds_b_kwargs["value"] = (
-                float(row["odds_b"]) if row.get("odds_b") else None
-            )
-        odds_b = price_cols[1].number_input(
-            f"N1Bet {row['player_b']}",
-            min_value=1.01,
-            max_value=50.0,
-            step=0.01,
-            format="%.2f",
-            placeholder="Quote",
-            key=odds_b_key,
-            **odds_b_kwargs,
-        )
-        imported_prices = [
-            match.quote.decimal_odds
-            for match in (
-                import_matches.get(f"tennis:{row['id']}:a"),
-                import_matches.get(f"tennis:{row['id']}:b"),
-            )
-            if match is not None
-        ]
-        if imported_prices:
-            st.caption(
-                "Automatisch erkannt: "
-                + " / ".join(f"{price:.2f}" for price in imported_prices)
-            )
-        prices_entered = odds_a is not None and odds_b is not None
-        if price_cols[2].button(
-            "Preis prüfen",
-            key=f"check_{row['id']}",
-            disabled=not prices_entered,
-            use_container_width=True,
-        ):
-            result = _update_price_check(
-                row["id"],
-                odds_a,
-                odds_b,
-                row["p_cal"],
-                model_gates_ok,
-            )
-            st.session_state[f"price_result_{row['id']}"] = result
         min_a = minimum_acceptable_odds(
             row["p_cal"] * 100.0,
             probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
@@ -740,16 +624,78 @@ def _render_match_card(
             probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
             minimum_expected_roi_percent=MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
         )
-        st.caption(
-            f"Mindestquote für {row['player_a']}: "
-            f"{min_a:.2f}" if min_a is not None else
-            f"Für {row['player_a']} bleibt nach Modellabschlag keine positive Preisbasis."
+        likely_minimum = min_a if row["p_cal"] >= 0.5 else min_b
+        conservative_probability = max(
+            0.0,
+            likely_probability - WINNER_PROBABILITY_HAIRCUT,
         )
-        st.caption(
-            f"Mindestquote für {row['player_b']}: "
-            f"{min_b:.2f}" if min_b is not None else
-            f"Für {row['player_b']} bleibt nach Modellabschlag keine positive Preisbasis."
+        minimum_text = (
+            f"{likely_minimum:.2f}"
+            if likely_minimum is not None
+            else "nicht belastbar"
         )
+        st.success(
+            f"TENNIS-TIPP: Sieg {likely_player} | nur ab Quote {minimum_text}"
+        )
+        metrics = st.columns(3)
+        metrics[0].metric("Modell", f"{likely_probability:.1%}")
+        metrics[1].metric("Konservativ", f"{conservative_probability:.1%}")
+        metrics[2].metric("Mindestquote", minimum_text)
+        st.caption(
+            "Der Tennis-Datenfeed liefert derzeit keine belastbare automatische "
+            "Mehrbuchmacherquote. Die konkrete Auswahl bleibt sichtbar; der "
+            "angebotene Preis muss mindestens die Mindestquote erreichen."
+        )
+
+        odds_a_key = f"odds_a_{row['id']}"
+        odds_b_key = f"odds_b_{row['id']}"
+        with st.expander("Eigene Buchmacherquote prüfen", expanded=False):
+            price_cols = st.columns([1, 1, 1])
+            odds_a_kwargs = {}
+            if odds_a_key not in st.session_state:
+                odds_a_kwargs["value"] = (
+                    float(row["odds_a"]) if row.get("odds_a") else None
+                )
+            odds_a = price_cols[0].number_input(
+                f"Quote {row['player_a']}",
+                min_value=1.01,
+                max_value=50.0,
+                step=0.01,
+                format="%.2f",
+                placeholder="Quote",
+                key=odds_a_key,
+                **odds_a_kwargs,
+            )
+            odds_b_kwargs = {}
+            if odds_b_key not in st.session_state:
+                odds_b_kwargs["value"] = (
+                    float(row["odds_b"]) if row.get("odds_b") else None
+                )
+            odds_b = price_cols[1].number_input(
+                f"Quote {row['player_b']}",
+                min_value=1.01,
+                max_value=50.0,
+                step=0.01,
+                format="%.2f",
+                placeholder="Quote",
+                key=odds_b_key,
+                **odds_b_kwargs,
+            )
+            prices_entered = odds_a is not None and odds_b is not None
+            if price_cols[2].button(
+                "Preis prüfen",
+                key=f"check_{row['id']}",
+                disabled=not prices_entered,
+                use_container_width=True,
+            ):
+                result = _update_price_check(
+                    row["id"],
+                    odds_a,
+                    odds_b,
+                    row["p_cal"],
+                    model_gates_ok,
+                )
+                st.session_state[f"price_result_{row['id']}"] = result
 
         result = st.session_state.get(f"price_result_{row['id']}")
         if row.get("verdict") and row.get("odds_a") and result is None:
@@ -786,10 +732,9 @@ def _render_match_card(
                     else result["risk_ev_b"]
                 )
                 st.success(
-                    f"SHADOW-TIPP: Sieg {name} @ {selected_odds:.2f} — "
-                    f"Risiko-EV {risk_ev:+.1%} "
-                    f"nach {WINNER_PROBABILITY_HAIRCUT:+.0%} Modellabschlag. "
-                    "Noch keine Echtgeldfreigabe."
+                    f"PREIS BESTANDEN: Sieg {name} @ {selected_odds:.2f} | "
+                    f"Risiko-EV {risk_ev:+.1%} nach "
+                    f"{WINNER_PROBABILITY_HAIRCUT:+.0%} Modellabschlag."
                 )
             else:
                 reasons = []
@@ -1047,22 +992,12 @@ def render_tennis_finder(
                 ).strftime("%d.%m.%Y")
             st.info(f"Noch keine Tennis-Vorhersagen für {target_label}.")
     else:
-        import_bindings = [
-            binding
-            for row in rows
-            if _row_has_price_ready_model(row)
-            for binding in _tennis_import_bindings(row)
-        ]
-        import_matches = render_n1_import_sync(
-            import_bindings,
-            key=f"tennis_{selected_date or today}_{selected_end_date or selected_date or today}",
-        )
         current_date = None
         for row in rows:
             if row["match_date"] != current_date:
                 current_date = row["match_date"]
                 st.markdown(f"**{current_date}**")
-            _render_match_card(row, import_matches)
+            _render_match_card(row)
 
 
 def render_tennis_history() -> None:

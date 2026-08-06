@@ -338,7 +338,7 @@ def basketball_total_candidate(game: dict, market_line: Any) -> RecommendationCa
     if baseline is None:
         blockers.append("Liga besitzt keinen freigegebenen Gesamtpunkte-Prior.")
     if line is None:
-        blockers.append("Die N1Bet-Gesamtlinie muss eine positive x,5-Linie sein.")
+        blockers.append("Die angebotene Gesamtlinie muss eine positive x,5-Linie sein.")
     period = _whole_non_negative(game.get("period"))
     home_score = _whole_non_negative(game.get("home_score"))
     away_score = _whole_non_negative(game.get("away_score"))
@@ -439,7 +439,7 @@ def nhl_total_candidate(game: dict, market_line: Any) -> RecommendationCandidate
     line = _half_line(market_line)
     blockers = []
     if line is None:
-        blockers.append("Die N1Bet-Torlinie muss eine positive x,5-Linie sein.")
+        blockers.append("Die angebotene Torlinie muss eine positive x,5-Linie sein.")
     period = _whole_non_negative(game.get("period"))
     home_score = _whole_non_negative(game.get("home_score"))
     away_score = _whole_non_negative(game.get("away_score"))
@@ -776,7 +776,7 @@ def evaluate_candidate_price(
             metrics=None,
             stake_fraction=0.0,
             stake_amount=0.0,
-            reasons=("Aktuelle N1Bet-Dezimalquote eingeben.",),
+            reasons=("Aktuelle Dezimalquote eingeben.",),
         )
     if quote_confirmed is not True:
         return PriceDecision(
@@ -786,7 +786,7 @@ def evaluate_candidate_price(
             metrics=None,
             stake_fraction=0.0,
             stake_amount=0.0,
-            reasons=("N1Bet-Linie und -Quote unmittelbar vor der Entscheidung bestätigen.",),
+            reasons=("Marktlinie und Quote unmittelbar vor der Entscheidung bestätigen.",),
         )
     try:
         metrics = evaluate_market_price(

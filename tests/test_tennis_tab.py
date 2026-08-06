@@ -170,7 +170,7 @@ def test_price_check_edge_paths():
     at.number_input(key="odds_b_1").set_value(4.00)
     at.run(timeout=60)
     at.button(key="check_1").click().run(timeout=60)
-    assert any("SHADOW-TIPP" in s.value for s in at.success)
+    assert any("PREIS BESTANDEN" in s.value for s in at.success)
 
     # fair price -> KEINE WETTE (edge below 12% threshold)
     at.number_input(key="odds_a_1").set_value(1.40)

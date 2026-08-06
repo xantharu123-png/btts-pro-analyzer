@@ -20,11 +20,16 @@ from challenge_15k import (
 from config_loader import load_app_config
 from date_context import german_day_label, zurich_today
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
+from market_consensus import (
+    deserialize_consensus_map,
+    fetch_football_consensus,
+    serialize_consensus_map,
+)
 
 
 DEFAULT_LEAGUES = [78, 39, 140]
-MARKET_WORKFLOW_VERSION = 7
-MARKET_SNAPSHOT_VERSION = 7
+MARKET_WORKFLOW_VERSION = 8
+MARKET_SNAPSHOT_VERSION = 8
 MARKET_MAX_AGE_MINUTES = 20
 FOOTBALL_MARKET_SCOPES = {
     "Beste Märkte": None,
@@ -190,7 +195,14 @@ def _run_market_scan_worker(
     erkennt die Seite das wie bisher am Scope-Vergleich.
     """
     provider = ChallengeDataProvider(api_football_key, weather_key)
-    scan_kwargs = {"progress_cb": progress_cb}
+
+    def model_progress(value: float, text: str) -> None:
+        if progress_cb:
+            progress_cb(min(0.90, max(0.0, float(value)) * 0.90), text)
+
+    scan_kwargs = {
+        "progress_cb": model_progress if progress_cb else None,
+    }
     if market_kinds is not None:
         scan_kwargs["market_kinds"] = set(market_kinds)
     challenge_snapshot = scan_daily_challenge(
@@ -201,6 +213,19 @@ def _run_market_scan_worker(
         search_end_date=search_end_date,
         **scan_kwargs,
     )
+    if progress_cb:
+        progress_cb(0.92, "Marktquoten der besten Tipps werden verglichen")
+    reference_quotes, quote_errors = fetch_football_consensus(
+        api_football_key,
+        challenge_snapshot.get("shortlist") or [],
+    )
+    challenge_snapshot["reference_quotes"] = serialize_consensus_map(
+        reference_quotes
+    )
+    challenge_snapshot["quote_errors"] = quote_errors
+    challenge_snapshot["price_checked_at"] = datetime.now(timezone.utc).isoformat()
+    if progress_cb:
+        progress_cb(1.0, "Tipps und Marktpreise sind bereit")
     return {"scope": scope, "challenge": challenge_snapshot}
 
 
@@ -353,6 +378,9 @@ def create_alternative_markets_tab_extended(
             "scanned_at": challenge_snapshot.get("scanned_at"),
             "scope": result.get("scope") or scope,
             "shortlist": challenge_snapshot.get("shortlist", [])[:3],
+            "reference_quotes": challenge_snapshot.get("reference_quotes", {}),
+            "quote_errors": challenge_snapshot.get("quote_errors", []),
+            "price_checked_at": challenge_snapshot.get("price_checked_at"),
             "fixtures_found": challenge_snapshot.get("fixtures_found", 0),
             "fixtures_modeled": challenge_snapshot.get("fixtures_modeled", 0),
             "market_candidates": challenge_snapshot.get("market_candidates", 0),
@@ -476,23 +504,33 @@ def create_alternative_markets_tab_extended(
             )
     else:
         candidates = [_strict_market_candidate(candidate) for candidate in shortlist]
-        options = list(range(len(candidates)))
-        selected = st.selectbox(
-            "Spiel auswählen",
-            options,
-            format_func=lambda index: (
-                f"{candidates[index].event_label} | "
-                f"{candidates[index].market}: {candidates[index].selection}"
-            ),
-            key="market_bet_candidate",
+        reference_quotes = deserialize_consensus_map(
+            snapshot.get("reference_quotes")
         )
-        candidate = candidates[selected]
-        render_price_decision(
-            candidate,
-            key=f"market_{candidate.event_key}_{snapshot.get('scanned_at')}",
-            bankroll_key="football_bet_finder_bankroll",
-            save_source="Fußball Prematch",
+        st.success(
+            f"{len(candidates)} konkrete Empfehlung(en) für {result_day}."
         )
+        for index, (candidate, raw_candidate) in enumerate(
+            zip(candidates, shortlist),
+            start=1,
+        ):
+            st.markdown(f"### Tipp {index}")
+            render_price_decision(
+                candidate,
+                key=f"market_{candidate.event_key}_{snapshot.get('scanned_at')}",
+                bankroll_key="football_bet_finder_bankroll",
+                save_source="Fußball Prematch",
+                reference_quote=reference_quotes.get(
+                    raw_candidate.candidate_id
+                ),
+            )
+            if index < len(candidates):
+                st.divider()
+        quote_errors = snapshot.get("quote_errors") or []
+        if quote_errors:
+            with st.expander("Quotenabdeckung"):
+                for error in quote_errors:
+                    st.write(f"- {error}")
 
     with st.expander("Suchprüfung", expanded=not shortlist):
         render_football_scan_diagnostics(snapshot, approved_count=len(shortlist))

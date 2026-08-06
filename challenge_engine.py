@@ -168,6 +168,12 @@ class QuotedLeg:
     odds: float
     expected_roi: float
     quote_observation_id: Optional[int] = None
+    quote_source: str = "N1Bet"
+    quoted_at: Optional[str] = None
+    fetched_at: Optional[str] = None
+    bookmaker_count: int = 1
+    quote_low: Optional[float] = None
+    quote_high: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -2410,13 +2416,14 @@ def select_quoted_ticket(
     odds_by_candidate: dict[str, float],
     *,
     quote_observation_ids: Optional[dict[str, int]] = None,
+    quote_metadata_by_candidate: Optional[dict[str, dict[str, Any]]] = None,
     odds_min: float = TARGET_ODDS_MIN,
     odds_max: float = TARGET_ODDS_MAX,
     minimum_ticket_roi: float = MIN_LEG_EXPECTED_ROI,
     minimum_leg_roi: float = MIN_LEG_EXPECTED_ROI,
     now: Optional[datetime] = None,
 ) -> Optional[QuotedTicket]:
-    """Return the strongest valid 1-3 leg ticket after manual price entry."""
+    """Return the strongest valid 1-3 leg ticket after a price observation."""
     try:
         odds_min = validate_decimal_odds(odds_min)
         odds_max = validate_decimal_odds(odds_max)
@@ -2443,7 +2450,23 @@ def select_quoted_ticket(
     observation_ids = quote_observation_ids or {}
     if not isinstance(observation_ids, dict):
         raise ValueError("quote_observation_ids must be a mapping")
-    priced: list[tuple[ChallengeCandidate, float, float, Optional[int]]] = []
+    quote_metadata = quote_metadata_by_candidate or {}
+    if not isinstance(quote_metadata, dict):
+        raise ValueError("quote_metadata_by_candidate must be a mapping")
+    priced: list[
+        tuple[
+            ChallengeCandidate,
+            float,
+            float,
+            Optional[int],
+            str,
+            Optional[str],
+            Optional[str],
+            int,
+            Optional[float],
+            Optional[float],
+        ]
+    ] = []
     for candidate in candidates:
         if not candidate_is_credible(candidate) or not _future_candidate(candidate, now_utc):
             continue
@@ -2470,12 +2493,59 @@ def select_quoted_ticket(
             or observation_id <= 0
         ):
             raise ValueError("quote observation IDs must be positive integers")
+        metadata = quote_metadata.get(candidate.candidate_id) or {}
+        if not isinstance(metadata, dict):
+            raise ValueError("quote metadata entries must be mappings")
+        quote_source = str(metadata.get("source") or "N1Bet").strip()
+        quoted_at = (
+            str(metadata.get("quoted_at")).strip()
+            if metadata.get("quoted_at")
+            else None
+        )
+        fetched_at = (
+            str(metadata.get("fetched_at")).strip()
+            if metadata.get("fetched_at")
+            else None
+        )
+        bookmaker_count = metadata.get("bookmaker_count", 1)
+        if (
+            not quote_source
+            or isinstance(bookmaker_count, bool)
+            or not isinstance(bookmaker_count, int)
+            or bookmaker_count <= 0
+        ):
+            raise ValueError("quote metadata is invalid")
+        try:
+            quote_low = (
+                validate_decimal_odds(metadata.get("quote_low"))
+                if metadata.get("quote_low") is not None
+                else None
+            )
+            quote_high = (
+                validate_decimal_odds(metadata.get("quote_high"))
+                if metadata.get("quote_high") is not None
+                else None
+            )
+        except BettingMathError as exc:
+            raise ValueError("quote metadata range is invalid") from exc
+        if (
+            quote_low is not None
+            and quote_high is not None
+            and not quote_low <= odds <= quote_high
+        ):
+            raise ValueError("ticket odds must lie inside the quoted market range")
         priced.append(
             (
                 candidate,
                 odds,
                 metrics.risk_adjusted_expected_roi / 100.0,
                 observation_id,
+                quote_source,
+                quoted_at,
+                fetched_at,
+                bookmaker_count,
+                quote_low,
+                quote_high,
             )
         )
 
@@ -2511,6 +2581,12 @@ def select_quoted_ticket(
                     odds=entry[1],
                     expected_roi=entry[2],
                     quote_observation_id=entry[3],
+                    quote_source=entry[4],
+                    quoted_at=entry[5],
+                    fetched_at=entry[6],
+                    bookmaker_count=entry[7],
+                    quote_low=entry[8],
+                    quote_high=entry[9],
                 )
                 for entry in entries
             )

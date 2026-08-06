@@ -14,6 +14,7 @@ from challenge_15k import (
     MAX_DISCOVERY_MARKETS_PER_FIXTURE,
     MAX_SCAN_FIXTURES,
     _auto_recheck_scope_allowed,
+    _automatic_challenge_ticket,
     _challenge_sports_for_selection,
     _discovery_candidate_pool,
     _league_season_segments,
@@ -51,6 +52,7 @@ from challenge_engine import (
 from challenge_store import ChallengeLedger
 from football_data_history import parse_history_csv
 from price_ledger import PriceLedger, PriceQuote
+from market_consensus import parse_fixture_consensus
 
 
 def fixture(
@@ -140,6 +142,35 @@ def confirmed_lineups(home_team_id=10, away_team_id=11):
             ],
         }
         for side, team_id in ((1, home_team_id), (2, away_team_id))
+    ]
+
+
+def reference_quote_for(item, now, odds=("2.05", "2.10", "2.15", "2.20")):
+    payload = {
+        "errors": [],
+        "response": [
+            {
+                "fixture": {"id": item.fixture_id},
+                "update": now.isoformat(),
+                "bookmakers": [
+                    {
+                        "name": f"Book {index}",
+                        "bets": [
+                            {
+                                "name": "Both Teams Score",
+                                "values": [
+                                    {"value": "Yes", "odd": value},
+                                ],
+                            }
+                        ],
+                    }
+                    for index, value in enumerate(odds, start=1)
+                ],
+            }
+        ],
+    }
+    return parse_fixture_consensus(payload, [item], fetched_at=now)[
+        item.candidate_id
     ]
 
 
@@ -2297,6 +2328,52 @@ class LineupRefreshTests(unittest.TestCase):
 
         self.assertEqual(updated, 0)
         self.assertEqual(provider.requests, [])
+
+
+class AutomaticReferenceTicketTests(unittest.TestCase):
+    def test_fresh_multi_book_reference_builds_and_persists_ticket(self):
+        now = datetime.now(timezone.utc)
+        item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))
+        quote = reference_quote_for(item, now)
+
+        ticket, statuses = _automatic_challenge_ticket(
+            [item],
+            {item.candidate_id: quote},
+            now=now,
+        )
+
+        self.assertIsNotNone(ticket)
+        self.assertEqual(statuses[item.candidate_id].code, "PLAYABLE")
+        self.assertEqual(ticket.legs[0].quote_source, quote.source)
+        self.assertAlmostEqual(ticket.legs[0].odds, quote.conservative_odds)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = ChallengeLedger(Path(tmpdir) / "challenge.db")
+            ticket_id = ledger.place_ticket(
+                now.date().isoformat(),
+                ticket,
+                25.0,
+                now.isoformat(),
+            )
+            stored = ledger.get_ticket(ticket_id)
+
+        self.assertIsNone(stored["legs"][0]["quote_observation_id"])
+        self.assertEqual(stored["legs"][0]["quote_source"], quote.source)
+        self.assertEqual(stored["legs"][0]["bookmaker_count"], 4)
+
+    def test_thin_reference_never_builds_15k_ticket(self):
+        now = datetime.now(timezone.utc)
+        item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))
+        quote = reference_quote_for(item, now, odds=("2.10", "2.15"))
+
+        ticket, statuses = _automatic_challenge_ticket(
+            [item],
+            {item.candidate_id: quote},
+            now=now,
+        )
+
+        self.assertIsNone(ticket)
+        self.assertEqual(statuses[item.candidate_id].code, "THIN")
 
 
 if __name__ == "__main__":

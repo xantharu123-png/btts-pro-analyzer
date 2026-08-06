@@ -158,7 +158,7 @@ def test_ready_candidate_renders_market_and_selection_as_heading():
     assert len(at.error) == 0
     assert len(at.success) >= 1
     assert "bestehen die Modellprüfung" in at.success[0].value
-    assert "Shadow-Signale" in at.success[0].value
+    assert "automatische Marktvergleich" in at.success[0].value
     headings = [header.value for header in at.subheader]
     assert any(":" in heading for heading in headings)
     assert all(heading.strip() != "Ja" for heading in headings)

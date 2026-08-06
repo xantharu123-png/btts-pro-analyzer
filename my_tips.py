@@ -62,7 +62,7 @@ def render_saved_tips() -> None:
             metrics[0].metric("Modell", f"{tip.model_probability:.1f} %")
             metrics[1].metric("Konservativ", f"{tip.risk_adjusted_probability:.1f} %")
             metrics[2].metric("Mindestquote", f"{tip.minimum_odds:.2f}")
-            metrics[3].metric("N1Bet", f"{tip.quoted_odds:.2f}")
+            metrics[3].metric("Quote", f"{tip.quoted_odds:.2f}")
             actions = st.columns(4)
             if actions[0].button(
                 "Gewonnen",

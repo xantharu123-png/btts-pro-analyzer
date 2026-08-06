@@ -31,8 +31,6 @@ from challenge_engine import (
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     MODEL_SCOPE_SAME_COMPETITION,
     MIN_LEG_EXPECTED_ROI,
-    TARGET_ODDS_MAX,
-    TARGET_ODDS_MIN,
     UNVALIDATED_TRANSFER_REASON,
     MarketSpec,
     ValidationMetrics,
@@ -64,20 +62,19 @@ from ui_components import (
 from football_data_history import fetch_history as fetch_stat_history
 from football_data_history import merge_api_tail
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, LEAGUE_BY_ID
-from price_ledger import (
-    PriceLedger,
-    PriceLedgerError,
-    PriceLedgerIntegrityError,
-    PriceQuote,
+from market_consensus import (
+    MarketConsensus,
+    deserialize_consensus_map,
+    fetch_football_consensus,
+    reference_price_status,
+    serialize_consensus_map,
 )
-from n1_import import N1ImportTarget, N1WidgetBinding
-from n1_import_ui import render_n1_import_sync
 from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 9
-CHALLENGE_WORKSPACE_VERSION = 6
+CHALLENGE_SNAPSHOT_VERSION = 10
+CHALLENGE_WORKSPACE_VERSION = 7
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
 CHALLENGE_SPORT_OPTIONS = (
@@ -100,7 +97,6 @@ MAX_DISCOVERY_MARKETS_PER_FIXTURE = 8
 MAX_SCAN_FIXTURES = 1200
 MAX_SCAN_HORIZON_DAYS = 14
 WEATHER_CONTEXT_HORIZON_DAYS = 5
-QUOTE_MAX_AGE_MINUTES = 10
 SNAPSHOT_MAX_AGE_MINUTES = 20
 XG_MAX_NEW_CALLS_PER_SCAN = 12
 CONTINENTAL_LEAGUE_IDS = frozenset({2, 3, 848})
@@ -1329,14 +1325,30 @@ def _run_challenge_scan_worker(
     max_fixtures: int,
     progress_cb=None,
 ) -> dict[str, Any]:
-    """Run the Streamlit-free scan with real phase progress."""
-    return scan_daily_challenge(
+    """Run the model scan, then price only the final shortlist."""
+    def model_progress(value: float, text: str) -> None:
+        if progress_cb:
+            progress_cb(min(0.90, max(0.0, float(value)) * 0.90), text)
+
+    snapshot = scan_daily_challenge(
         provider,
         league_ids,
         search_date,
         max_fixtures,
-        progress_cb=progress_cb,
+        progress_cb=model_progress if progress_cb else None,
     )
+    if progress_cb:
+        progress_cb(0.92, "Marktquoten der Tagesempfehlungen werden verglichen")
+    quotes, quote_errors = fetch_football_consensus(
+        provider.api_key,
+        snapshot.get("shortlist") or [],
+    )
+    snapshot["reference_quotes"] = serialize_consensus_map(quotes)
+    snapshot["quote_errors"] = quote_errors
+    snapshot["price_checked_at"] = datetime.now(timezone.utc).isoformat()
+    if progress_cb:
+        progress_cb(1.0, "Tagesempfehlungen und Marktpreise sind bereit")
+    return snapshot
 
 
 def _candidate_kickoff(candidate: ChallengeCandidate) -> Optional[datetime]:
@@ -2469,7 +2481,7 @@ def _render_progress(ledger: ChallengeLedger) -> dict[str, Any]:
         ("Guthaben", _format_euro(current)),
         ("Ziel", _format_euro(target)),
         ("Noch offen", _format_euro(max(0.0, target - current))),
-        ("Shadow-Einsatz", _format_euro(current * stake_fraction)),
+        ("Challenge-Einsatz", _format_euro(current * stake_fraction)),
     )
     stats_html = "".join(
         '<div class="bb-challenge-stat">'
@@ -3074,6 +3086,117 @@ def _render_candidate_context(candidate: ChallengeCandidate) -> None:
         st.caption("Aufstellungen: noch nicht veröffentlicht")
 
 
+def _automatic_challenge_ticket(
+    shortlist: list[ChallengeCandidate],
+    reference_quotes: dict[str, MarketConsensus],
+    *,
+    now: Optional[datetime] = None,
+):
+    """Build a ticket only from fresh, exact, conservative market prices."""
+    odds_by_candidate: dict[str, float] = {}
+    metadata_by_candidate: dict[str, dict[str, Any]] = {}
+    statuses = {}
+    for candidate in shortlist:
+        quote = reference_quotes.get(candidate.candidate_id)
+        status = reference_price_status(
+            quote,
+            candidate.minimum_odds,
+            now=now,
+        )
+        statuses[candidate.candidate_id] = status
+        if quote is None or status.usable_odds is None:
+            continue
+        odds_by_candidate[candidate.candidate_id] = status.usable_odds
+        metadata_by_candidate[candidate.candidate_id] = {
+            "source": quote.source,
+            "quoted_at": quote.quoted_at,
+            "fetched_at": quote.fetched_at,
+            "bookmaker_count": quote.bookmaker_count,
+            # The selected price is the lower quartile. The best price is
+            # retained only as transparent evidence, never for ticket math.
+            "quote_low": quote.conservative_odds,
+            "quote_high": quote.best_odds,
+        }
+    return (
+        select_quoted_ticket(
+            shortlist,
+            odds_by_candidate,
+            quote_metadata_by_candidate=metadata_by_candidate,
+            now=now,
+        ),
+        statuses,
+    )
+
+
+def _reference_quote_time(quote: MarketConsensus) -> str:
+    try:
+        timestamp = datetime.fromisoformat(str(quote.quoted_at)).astimezone(
+            CHALLENGE_TIMEZONE
+        )
+    except (TypeError, ValueError):
+        return "Zeit unbekannt"
+    return timestamp.strftime("%d.%m.%Y %H:%M")
+
+
+def _render_challenge_candidate(
+    candidate: ChallengeCandidate,
+    quote: Optional[MarketConsensus],
+    status,
+    index: int,
+) -> None:
+    st.markdown(f"### {index}. {candidate.market}: {candidate.selection}")
+    st.caption(f"{candidate.home_team} vs {candidate.away_team}")
+    summary = st.columns(4)
+    summary[0].metric("Modell", f"{candidate.probability * 100:.1f} %")
+    summary[1].metric(
+        "Konservativ",
+        f"{candidate.conservative_probability * 100:.1f} %",
+    )
+    summary[2].metric("Mindestquote", f"{candidate.minimum_odds:.2f}")
+    summary[3].metric(
+        "Marktbereich",
+        (
+            f"{quote.lowest_odds:.2f}-{quote.best_odds:.2f}"
+            if quote is not None
+            else "n/a"
+        ),
+    )
+    if status.code == "PLAYABLE" and quote is not None:
+        st.success(
+            f"TIPP PREISLICH SPIELBAR: konservative Referenzquote "
+            f"{quote.conservative_odds:.2f} bei {quote.bookmaker_count} "
+            "verglichenen Anbietern."
+        )
+    elif status.code == "BORDERLINE" and quote is not None:
+        st.warning(
+            f"TIPP, ABER PREIS KNAPP: Marktmedian {quote.consensus_odds:.2f}; "
+            f"nur einzelne Anbieter erreichen mindestens {candidate.minimum_odds:.2f}."
+        )
+    elif status.code == "TOO_LOW" and quote is not None:
+        st.info(
+            f"MODELLTIPP, DERZEIT NICHT ZU DIESER QUOTE: beste beobachtete "
+            f"Quote {quote.best_odds:.2f}, benötigt werden mindestens "
+            f"{candidate.minimum_odds:.2f}."
+        )
+    else:
+        reason = {
+            "THIN": "Zu wenige Anbieter für eine automatische Preisfreigabe",
+            "STALE": "Der Marktvergleich ist nicht mehr aktuell",
+            "UNAVAILABLE": "Dieser exakte Markt fehlt im Quotenfeed",
+            "INVALID_MINIMUM": "Die Mindestquote ist nicht belastbar",
+        }.get(status.code, "Keine automatische Preisfreigabe")
+        st.info(
+            f"MODELLTIPP: nur ab Quote {candidate.minimum_odds:.2f}. {reason}."
+        )
+    if quote is not None:
+        st.caption(
+            f"Mehrbuchmacher-Referenz von {_reference_quote_time(quote)} | "
+            f"Median {quote.consensus_odds:.2f}, konservativ "
+            f"{quote.conservative_odds:.2f}, Bestpreis {quote.best_odds:.2f}."
+        )
+    _render_candidate_context(candidate)
+
+
 def _render_price_check(
     snapshot: dict[str, Any],
     ledger: ChallengeLedger,
@@ -3099,26 +3222,22 @@ def _render_price_check(
         transfer_only = int(snapshot.get("transfer_only_candidates") or 0)
         if transfer_only:
             st.caption(
-                f"{transfer_only} Kandidaten bestanden alle übrigen Modellprüfungen, "
-                "bleiben aber am UEFA-Transfergate gesperrt. Das sind keine Tipps."
+                f"{transfer_only} Kandidaten bestehen die übrigen Prüfungen, "
+                "aber nicht das UEFA-Transfergate. Das sind keine Tipps."
             )
-        continental = int(snapshot.get("continental_fixtures_found") or 0)
-        fallback_modeled = int(snapshot.get("continental_fallback_modeled") or 0)
-        fallback_failed = int(snapshot.get("continental_fallback_failed") or 0)
-        if continental:
-            detail = (
-                f"UEFA-Qualifikation: {continental} Spiele gefunden, "
-                f"{fallback_modeled} mit Heimatliga-Historie modelliert"
-            )
-            if fallback_failed:
-                detail += f", {fallback_failed} ohne ausreichende Teamstichprobe"
-            st.caption(detail + ".")
         with st.expander("Prüfdetails", expanded=False):
             render_football_scan_diagnostics(snapshot, approved_count=0)
         return
 
+    reference_quotes = deserialize_consensus_map(snapshot.get("reference_quotes"))
+    ticket, statuses = _automatic_challenge_ticket(shortlist, reference_quotes)
+
     st.subheader("Tagesempfehlungen")
-    st.dataframe(_shortlist_frame(shortlist), width="stretch", hide_index=True)
+    st.caption(
+        "Das Modell bestimmt zuerst die Auswahl. Danach vergleicht die App "
+        "automatisch exakt passende Quoten mehrerer Buchmacher und verwendet "
+        "für die Entscheidung den konservativen unteren Marktbereich."
+    )
     preview = snapshot.get("model_ticket") or ()
     if preview:
         preview_text = " + ".join(
@@ -3134,214 +3253,73 @@ def _render_price_check(
             preview_probability * 100.0,
             minimum_expected_roi_percent=MIN_LEG_EXPECTED_ROI * 100.0,
         )
-        st.info(
-            f"Quotenfreie Modellkombination: {preview_text} | "
-            f"Mindestquote kombiniert {preview_price:.2f}"
-        )
+        if preview_price is not None:
+            st.info(
+                f"Quotenfreie Modellkombination: {preview_text} | "
+                f"Mindestquote kombiniert {preview_price:.2f}"
+            )
 
-    st.subheader("N1Bet-Preisprüfung")
-    current_quote_result = st.session_state.get("challenge_quote_result")
-    has_current_ticket = (
-        isinstance(current_quote_result, dict)
-        and current_quote_result.get("snapshot_time") == snapshot["scanned_at"]
-        and current_quote_result.get("ticket") is not None
-    )
-    if not has_current_ticket:
-        st.info(
-            "PREIS ERFORDERLICH: Für jede gewünschte Auswahl die aktuelle N1Bet-Quote eintragen; "
-            "0 lässt den Markt aus."
-        )
-    st.caption(
-        "Die Preise werden erst jetzt manuell ergänzt. Eine niedrige Quote erhöht keine "
-        "Modellwahrscheinlichkeit; ein negativer Einzel- oder Ticket-EV sperrt die Auswahl."
-    )
-    count_market_candidates = [
-        candidate
+    if any(
+        MARKET_BY_KEY[candidate.market_key].kind in COUNT_MARKET_KINDS
         for candidate in shortlist
-        if MARKET_BY_KEY[candidate.market_key].kind in COUNT_MARKET_KINDS
-    ]
-    if count_market_candidates:
-        st.warning(
-            "Ecken-/Kartenmärkte in der Shortlist: Das Modell rechnet mit API-Zählungen ab. "
-            "Buchmacherregeln (z. B. zweite Gelbe Karte, Karten für Trainer oder Bank, Karten "
-            "nach Abpfiff, zurückgenommene Ecken) können abweichen. Vor der Abgabe die "
-            "N1Bet-Marktregeln prüfen; bei Abweichung den Markt auslassen."
-        )
-    import_bindings = []
-    for candidate in shortlist:
-        market_spec = MARKET_BY_KEY[candidate.market_key]
-        import_bindings.append(
-            N1WidgetBinding(
-                target=N1ImportTarget(
-                    key=f"challenge:{candidate.candidate_id}",
-                    sport="Fußball",
-                    event_name=f"{candidate.home_team} vs {candidate.away_team}",
-                    market=candidate.market,
-                    selection=candidate.selection,
-                    participants=(candidate.home_team, candidate.away_team),
-                    line=market_spec.threshold,
-                    scheduled_start=candidate.kickoff,
-                ),
-                widget_key=f"challenge_odds_{candidate.candidate_id}",
-                value_kind="number",
-            )
-        )
-    import_matches = render_n1_import_sync(
-        import_bindings,
-        key=f"challenge_{snapshot['scanned_at']}",
-    )
-    odds_by_candidate: dict[str, float] = {}
-    for index, candidate in enumerate(shortlist, start=1):
-        st.markdown(
-            f"**{index}. {candidate.home_team} vs {candidate.away_team}**  \n"
-            f"{candidate.market}: {candidate.selection}"
-        )
-        _render_candidate_context(candidate)
-        imported_match = import_matches.get(f"challenge:{candidate.candidate_id}")
-        if imported_match is not None:
-            st.caption(
-                f"Automatisch erkannt: N1Bet {imported_match.quote.decimal_odds:.2f} | "
-                f"{imported_match.quote.captured_at.astimezone():%H:%M:%S}"
-            )
-        odds_by_candidate[candidate.candidate_id] = st.number_input(
-            "Aktuelle N1Bet-Quote",
-            min_value=0.0,
-            max_value=100.0,
-            value=0.0,
-            step=0.01,
-            format="%.2f",
-            key=f"challenge_odds_{candidate.candidate_id}",
-            help="0 bedeutet: Markt nicht verfügbar. Die Quote ist nur Preis, kein Sicherheitsmaß.",
-        )
-        st.divider()
-
-    if st.button(
-        "N1Bet-Preise prüfen",
-        type="primary",
-        width="stretch",
-        key="challenge_check_quotes",
     ):
-        implausible_entries = [
-            f"{candidate.home_team} vs {candidate.away_team} "
-            f"({odds_by_candidate.get(candidate.candidate_id, 0.0):.2f})"
-            for candidate in shortlist
-            if 0.0 < odds_by_candidate.get(candidate.candidate_id, 0.0) <= 1.0
-        ]
-        if implausible_entries:
-            st.warning(
-                "Ungültige Quote (kleiner oder gleich 1,00) eingegeben und ignoriert: "
-                + "; ".join(implausible_entries)
-                + ". Dezimalquoten müssen über 1,00 liegen; 0 bedeutet Markt nicht verfügbar."
-            )
-        checked_at = datetime.now(timezone.utc)
-        valid_price_candidates = [
-            candidate
-            for candidate in shortlist
-            if odds_by_candidate.get(candidate.candidate_id, 0.0) > 1.0
-        ]
-        price_ledger = PriceLedger(ledger.db_path)
-        price_error = None
-        try:
-            observations = price_ledger.append_many(
-                (
-                    PriceQuote(
-                        sport="FOOTBALL",
-                        event_id=str(candidate.fixture_id),
-                        event_name=(
-                            f"{candidate.home_team} vs {candidate.away_team}"
-                        ),
-                        scheduled_start=candidate.kickoff,
-                        market_key=candidate.market_key,
-                        market_name=candidate.market,
-                        selection_key=candidate.candidate_id,
-                        selection_name=candidate.selection,
-                        decimal_odds=odds_by_candidate[candidate.candidate_id],
-                        phase="ENTRY",
-                        source=(
-                            "N1BET_BROWSER_IMPORT"
-                            if (
-                                (match := import_matches.get(
-                                    f"challenge:{candidate.candidate_id}"
-                                )) is not None
-                                and math.isclose(
-                                    odds_by_candidate[candidate.candidate_id],
-                                    match.quote.decimal_odds,
-                                    abs_tol=1e-9,
-                                )
-                            )
-                            else "MANUAL"
-                        ),
-                        captured_at=checked_at,
-                        line=MARKET_BY_KEY[candidate.market_key].threshold,
-                        model_ref=(
-                            f"challenge-snapshot-v{CHALLENGE_SNAPSHOT_VERSION}:"
-                            f"{snapshot['scanned_at']}"
-                        ),
-                        metadata={
-                            "candidate_id": candidate.candidate_id,
-                            "league_id": candidate.league_id,
-                        },
-                    )
-                    for candidate in valid_price_candidates
-                ),
-                now=checked_at,
-            )
-        except (PriceLedgerError, PriceLedgerIntegrityError) as exc:
-            observations = []
-            price_error = str(exc)
-            st.error(f"PREIS NICHT GESPEICHERT: {exc}")
-        observation_ids = {
-            candidate.candidate_id: observation.id
-            for candidate, observation in zip(
-                valid_price_candidates,
-                observations,
-            )
-        }
-        ticket = (
-            select_quoted_ticket(
-                shortlist,
-                odds_by_candidate,
-                quote_observation_ids=observation_ids,
-            )
-            if len(observations) == len(valid_price_candidates)
-            else None
+        st.warning(
+            "Bei Ecken und Karten können Abrechnungsregeln zwischen Anbietern "
+            "abweichen. Auswahl und Linie müssen beim eigenen Anbieter identisch sein."
         )
-        st.session_state["challenge_quote_result"] = {
-            "snapshot_time": snapshot["scanned_at"],
-            "checked_at": checked_at.isoformat(),
-            "ticket": ticket,
-        }
-        if ticket is None and price_error is None:
-            st.error(
-                "NICHT WETTEN: Keine Kombination erfüllt Zielquote, Einzel-Value und Mindest-EV gemeinsam."
-            )
 
-    quote_result = st.session_state.get("challenge_quote_result")
-    if not isinstance(quote_result, dict) or quote_result.get("snapshot_time") != snapshot["scanned_at"]:
-        return
-    ticket = quote_result.get("ticket")
+    for index, candidate in enumerate(shortlist, start=1):
+        _render_challenge_candidate(
+            candidate,
+            reference_quotes.get(candidate.candidate_id),
+            statuses[candidate.candidate_id],
+            index,
+        )
+        if index < len(shortlist):
+            st.divider()
+
+    quote_errors = snapshot.get("quote_errors") or []
+    if quote_errors:
+        with st.expander("Quotenabdeckung"):
+            for error in quote_errors:
+                st.write(f"- {error}")
+
     if ticket is None:
+        st.warning(
+            "Aus den automatisch verfügbaren Preisen entsteht aktuell kein "
+            "15K-Ticket zwischen Quote 2,00 und 3,00. Die einzelnen "
+            "Modelltipps und ihre Mindestquoten bleiben gültig."
+        )
         return
-    checked_at = datetime.fromisoformat(quote_result["checked_at"])
-    quote_age = (datetime.now(timezone.utc) - checked_at.astimezone(timezone.utc)).total_seconds() / 60.0
-    stale = quote_age > QUOTE_MAX_AGE_MINUTES
 
-    st.subheader("Finales Ticket")
+    st.subheader("15K-Tagestipp")
     ticket_metrics = st.columns(4)
     ticket_metrics[0].metric("Spiele", len(ticket.legs))
     ticket_metrics[1].metric("Gesamtquote", f"{ticket.total_odds:.2f}")
-    ticket_metrics[2].metric("Konservativ", f"{ticket.joint_probability * 100:.1f} %")
+    ticket_metrics[2].metric(
+        "Konservativ",
+        f"{ticket.joint_probability * 100:.1f} %",
+    )
     ticket_metrics[3].metric("Modell-EV", f"{ticket.expected_roi * 100:.1f} %")
-    final_rows = [
-        {
-            "Match": f"{leg.candidate.home_team} vs {leg.candidate.away_team}",
-            "Empfehlung": f"{leg.candidate.market}: {leg.candidate.selection}",
-            "N1Bet": round(leg.odds, 2),
-            "Konservativ %": round(leg.candidate.conservative_probability * 100, 1),
-        }
-        for leg in ticket.legs
-    ]
-    st.dataframe(pd.DataFrame(final_rows), width="stretch", hide_index=True)
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "Match": (
+                        f"{leg.candidate.home_team} vs {leg.candidate.away_team}"
+                    ),
+                    "Empfehlung": (
+                        f"{leg.candidate.market}: {leg.candidate.selection}"
+                    ),
+                    "Referenzquote": round(leg.odds, 2),
+                    "Mindestquote": round(leg.candidate.minimum_odds, 2),
+                }
+                for leg in ticket.legs
+            ]
+        ),
+        width="stretch",
+        hide_index=True,
+    )
     if len(ticket.legs) > 1:
         st.caption(
             f"Zusätzlicher Kombi-Modellfehlerabschlag: Faktor "
@@ -3349,6 +3327,7 @@ def _render_price_check(
             f"Abhängigkeitsfreie Fréchet-Stressgrenze: "
             f"{ticket.dependence_floor_probability * 100:.1f} %."
         )
+
     current_balance = settings["current_balance"]
     stake_fraction = settings["stake_fraction"]
     stake = ticket_stake(ticket, current_balance, stake_fraction)
@@ -3363,44 +3342,41 @@ def _render_price_check(
         stake_fraction,
     )
     stake_metrics = st.columns(4)
-    stake_metrics[0].metric("Shadow-Einsatz", _format_euro(stake))
+    stake_metrics[0].metric("Challenge-Einsatz", _format_euro(stake))
     stake_metrics[1].metric("Saldo bei Gewinn", _format_euro(win_balance))
     stake_metrics[2].metric("Saldo bei Verlust", _format_euro(loss_balance))
     stake_metrics[3].metric("Risikoreferenz", _format_euro(risk_stake))
     if wins_remaining is not None and wins_remaining > 0:
         path_probability = ticket.joint_probability ** wins_remaining
         st.caption(
-            f"Bei unveränderter Quote wären {wins_remaining} Siege in Folge bis zum Ziel nötig. "
-            f"Modellpfad unter identischer Trefferchance: {path_probability * 100:.3f} %."
+            f"Bei unveränderter Quote wären {wins_remaining} Siege in Folge bis "
+            f"zum Ziel nötig. Modellpfad: {path_probability * 100:.4f} %."
         )
     if log_growth <= 0.0:
         st.warning(
-            "Der gewählte Shadow-Einsatz hat bei dieser Quote und "
-            "Trefferwahrscheinlichkeit negatives erwartetes Log-Wachstum. "
-            "Er ist mathematisch überzogen; die Risikoreferenz ist maßgeblich."
+            "Der Challenge-Einsatz besitzt negatives erwartetes Log-Wachstum. "
+            "Die kleinere Risikoreferenz ist mathematisch vorzuziehen."
         )
     elif stake > risk_stake:
         st.warning(
-            "Der Shadow-Einsatz liegt über der 5-%-gedeckelten "
-            "Viertel-Kelly-Risikoreferenz. Das beschleunigt nur die Simulation, "
-            "nicht den nachgewiesenen Vorteil."
+            "Der Challenge-Einsatz liegt über der gedeckelten Viertel-Kelly-"
+            "Risikoreferenz. Das erhöht die Schwankung und nicht den Modellvorteil."
         )
-    if stale:
-        st.warning(
-            "PREIS ERFORDERLICH: Die geprüften N1Bet-Preise sind älter als 10 Minuten. Erneut prüfen."
-        )
-        return
     if stake <= 0:
-        st.error("NICHT WETTEN: Kein verfügbares Guthaben für einen Einsatz.")
+        st.error("Kein verfügbares Challenge-Guthaben für diesen Tipp.")
         return
-    st.info(
-        f"SHADOW-TICKET: {len(ticket.legs)} Spiel(e) @ Gesamtquote "
-        f"{ticket.total_odds:.2f} | simulierter Shadow-Einsatz "
-        f"{stake:.2f} €. Die Preisprüfung ist bestanden; eine "
-        "Echtgeldfreigabe benötigt noch unabhängige CLV-/ROI-Evidenz."
+
+    st.success(
+        f"15K-TIPP: {len(ticket.legs)} Spiel(e) @ Gesamtquote "
+        f"{ticket.total_odds:.2f} | Challenge-Einsatz {stake:.2f} €. "
+        "Auswahl, Modell und konservativer Marktpreis bestehen die Prüfungen."
+    )
+    st.caption(
+        "Die App platziert keine Wette. Beim eigenen Anbieter müssen Auswahl, "
+        "Linie und mindestens die angezeigte Mindestquote übereinstimmen."
     )
     if st.button(
-        f"Shadow-Ticket mit {stake:.2f} € eintragen",
+        f"Challenge-Tipp mit {stake:.2f} € in den Verlauf übernehmen",
         width="stretch",
         key="challenge_place_ticket",
     ):
@@ -3409,10 +3385,9 @@ def _render_price_check(
                 snapshot["search_date"],
                 ticket,
                 stake,
-                quote_result["checked_at"],
+                snapshot.get("price_checked_at") or snapshot["scanned_at"],
             )
-            st.session_state.pop("challenge_quote_result", None)
-            st.success(f"Shadow-Ticket #{ticket_id} eingetragen.")
+            st.success(f"Challenge-Tipp #{ticket_id} eingetragen.")
             st.rerun()
         except ValueError as exc:
             st.warning(str(exc))
@@ -3427,8 +3402,8 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         st.warning("Wetter-Key fehlt. Ohne Wetterprüfung gibt es keine Empfehlung.")
     st.caption(
         "Modell, Walk-forward, Ausfälle und Wetter entscheiden. H2H kann nur "
-        "mit belastbarer Gegenstichprobe ein Veto auslösen. Danach folgt der "
-        "N1Bet-Preischeck."
+        "mit belastbarer Gegenstichprobe ein Veto auslösen. Danach vergleicht "
+        "die App automatisch die verfügbaren Marktquoten."
     )
 
     controls = st.columns(3)
@@ -3580,7 +3555,7 @@ def render_challenge_15k() -> None:
     st.caption(
         f"Einsatzanteil {settings['stake_fraction'] * 100:.0f} % | "
         "Tageszielquote 2,00-3,00 | maximal drei verschiedene Spiele | "
-        "Shadow-Phase: Buchmacherpreise erst nach der Modellfreigabe"
+        "automatischer Mehrbuchmacher-Preisvergleich nach der Modellprüfung"
     )
     _render_analysis(ledger, settings)
 

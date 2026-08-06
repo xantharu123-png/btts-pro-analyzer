@@ -10,19 +10,72 @@
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
 | Verifizierter Produktions-Funktionscommit | `175523e` (`Add local N1Bet browser odds importer`) |
-| Fachlicher Kernstand | Ultra-Audit plus sportzentraler Wettfinder, automatische Tagesauswahl, sportübergreifende Mehrtagessuche, phasengenaue Fußball-Diagnose, fail-closed Tennis-Zuordnung und lokaler N1Bet-Preisimport |
+| Fachlicher Kernstand | Consumer-Wettfinder mit automatischer Tagesauswahl, exaktem Mehrbuchmacher-Preisvergleich für Fußball, direktem Tennis-Tipp mit Mindestquote, automatischem 15K-Tagesticket und strikter Spieltagstrennung |
 | Verifizierter VPS-Funktionsstand | `175523e`; App aktiv, HTTPS 200 und 0 fehlgeschlagene systemd-Units am 6. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 657 Tests, 5 Subtests und 3 JavaScript-Tests bestanden |
+| Vollständiger Testlauf | 666 Tests, 5 Subtests und 3 JavaScript-Tests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
 enthält absichtlich keine Schlüssel, Passwörter oder Tokens. Ältere Berichte
 sind nur Historie, wenn sie diesem Handbuch widersprechen.
+
+### Produktumbau vom 6. August 2026: Tipp statt Browserimport
+
+Der lokale N1Bet-Browserimport ist **kein aktiver Produktpfad mehr**. Seine
+Dateien bleiben vorerst als getestete Rollback-Historie im Repository, werden
+aber weder von `app.py`, dem Wettfinder, Tennis noch der 15K Challenge
+importiert. Ein Nutzer muss keine Buchmacherseite, Erweiterung oder zweites
+Fenster offen halten.
+
+Der neue verbindliche Preisweg lautet:
+
+1. Das Modell und alle fachlichen Gates bestimmen quotenfrei die konkrete
+   Auswahl und ihre Mindestquote.
+2. Für exakt abbildbare Fußballmärkte lädt die App erst danach die Preise des
+   API-Football-Mehrbuchmacherfeeds.
+3. Ein Anbieter darf pro Markt nur einmal beitragen. Ab drei Anbietern gilt
+   der Vergleich als ausreichend breit.
+4. Für die Rechenfreigabe zählt nicht der werbewirksame Bestpreis, sondern das
+   untere Quartil aller beobachteten Preise. Minimum, Median und Bestpreis
+   werden nur transparent angezeigt.
+5. Abrufzeit und Provider-Zeitstempel werden getrennt validiert: Der Abruf darf
+   höchstens 90 Minuten, die letzte Provider-Beobachtung höchstens 24 Stunden
+   alt sein. Damit werden frisch abgerufene, aber einige Stunden unveränderte
+   Pre-Match-Märkte nicht fälschlich verworfen.
+6. Fehlt der exakte Markt oder ist der Vergleich zu dünn, bleibt die konkrete
+   Modellauswahl mit Mindestquote sichtbar. Es wird keine fremde oder
+   synthetische Quote erfunden.
+
+Automatisch exakt zuordenbar sind derzeit Endergebnis, Doppelte Chance, BTTS,
+Gesamttore, Teamtore, Gesamt-/Teamecken und Gesamt-/Teamkarten für die jeweils
+vom Provider angebotenen halben Linien. Team-Torbereiche wie `1-3`, kombinierte
+Resultat/Tor-Märkte und gemischte Oder-Märkte werden modelliert, aber niemals
+aus Einzelquoten synthetisiert.
+
+Ein Produktions-Smoketest am 6. August lieferte für ein reales Spiel 8 bis 14
+Anbieter. Von 80 exakt gemappten Modelllinien waren 72 im Feed vorhanden und
+59 durch mindestens drei Anbieter gedeckt. Ergebnis, Doppelte Chance, BTTS,
+Tor-, Teamtor- und Eckmärkte waren breit abgedeckt; Kartenmärkte waren deutlich
+dünner und bleiben bei weniger als drei Anbietern gesperrt.
+
+Tennis zeigt den exakten Match-Sieger-Tipp, Modellwahrscheinlichkeit,
+konservative Wahrscheinlichkeit und Mindestquote direkt. Der aktuelle
+Tennis-Datenfeed besitzt noch keinen belastbaren Mehrbuchmacherpreis; eine
+eigene Quote kann deshalb nur optional geprüft werden. E-Sport wird ebenso als
+konkreter Tipp mit Mindestquote ausgegeben. Basketball, Eishockey und Cricket
+bleiben Pre-Match fail-closed, solange kein eigenständig walk-forward-
+validiertes Modell vorliegt.
+
+Writer und Reader des VPS-Artefakts erzwingen gemeinsam genau einen Zürcher
+Spieltag. Ein Ereignis von morgen kann nicht mehr in einer mit `Heute`
+bezeichneten Auswahl erscheinen. Der Reader prüft zusätzlich Artefaktversion,
+Auswahlpolicy, Modellpolicy, Aktualität, Startzeit und die Konsistenz der
+eingebetteten Referenzquoten.
 
 ## 1. Produktziel
 
@@ -42,21 +95,25 @@ Der verbindliche Ablauf lautet:
    dort bleibt jede Ausgabe ausdrücklich `SHADOW` und keine Echtgeldfreigabe.
 4. Die quotenfreie Prognose bleibt sichtbar, auch wenn ein Modellgate oder
    später die Preisprüfung scheitert.
-5. Erst danach wird die exakte N1Bet-Quote als Preis erfasst.
+5. Erst danach wird, soweit exakt verfügbar, ein automatischer
+   Mehrbuchmacher-Referenzpreis erfasst. Der Preis erzeugt oder ändert keine
+   Prognose.
 6. Die Preisprüfung verwendet eine explizit konservative Wahrscheinlichkeit
    und mindestens 3 % risikoadjustierten EV; ein fixer Prozentpunkt-Edge ist
    kein universelles Gate.
-7. `RESEARCH`, `SHADOW` und `RELEASED` sind getrennte Evidenzstufen. Nur
+7. Der Nutzer sieht Auswahl und Mindestquote auch ohne automatische
+   Preisabdeckung; die App erfindet daraus keine Preisfreigabe.
+8. `RESEARCH`, `SHADOW` und `RELEASED` sind getrennte Evidenzstufen. Nur
    `RELEASED` darf einen Echtgeld-Einsatz erzeugen.
-8. Pro Suche werden höchstens wenige, klar begründete Auswahlen angezeigt.
+9. Pro Suche werden höchstens wenige, klar begründete Auswahlen angezeigt.
 
 Ein manueller 15K-Vollscan über alle 51 Ligen startet ohne zusätzliche
 Bestätigungsstufe. Der serverseitige Wettfinder führt pro Zieldatum genau eine
 vollständige Discovery über alle 51 Ligen aus. Seine
 halbstündlichen Aufwachpunkte durchsuchen danach keine Ligen erneut, sondern
 prüfen nur bereits gespeicherte Kandidaten-Fixtures im Zwei-Stunden-Fenster
-vor dem Anpfiff. Die ältere Browser-Nachprüfung bleibt zusätzlich auf höchstens
-zwölf ausgewählte Ligen begrenzt, solange die 15K-Seite offen ist.
+vor dem Anpfiff. Der automatische Preisvergleich wird ausschließlich für die
+finalen Kandidaten-Fixtures ausgeführt und wiederholt keinen 51-Ligen-Scan.
 
 Die manuelle `Eigene Suche` ist nicht auf Fußball beschränkt. Fußball, Tennis,
 Basketball, Eishockey, Cricket und E-Sport verwenden denselben Zeitraum:
@@ -93,8 +150,9 @@ deutlich ehrlicher als zuvor:
   kanonischen Shadow-Datenbanken.
 - Alle API-Football-Aufrufe teilen einen atomaren, priorisierten
   Tagesbudget-Governor.
-- Manuell geprüfte N1Bet-Preise in 15K und Tennis erhalten einen
-  append-only Nachweis mit Hash-Kette.
+- Automatische 15K-Referenzpreise tragen Quelle, Quellzeit, Abrufzeit,
+  Anbieterzahl, konservativen Preis und Bestpreis. Der Ledger validiert diese
+  Felder erneut, bevor ein Challenge-Tipp gespeichert wird.
 - Transaktionale SQLite-Backups laufen täglich; jedes neue Archiv wird
   automatisch wiederhergestellt und per SQLite geprüft. Der aktuelle Lauf
   verifizierte 14 von 14 Datenbanken.
@@ -102,7 +160,8 @@ deutlich ehrlicher als zuvor:
   allen 51 Fußballligen und persistiert einen mathematisch bestandenen
   Tagespool. Danach werden nur konkrete Kandidaten-Fixtures kurz vor Anpfiff
   mit H2H, Ausfällen, Wetter und Aufstellungen aktualisiert. Öffentlich
-  erscheinen weiterhin quotenfrei höchstens drei noch nicht gestartete Events.
+  erscheinen höchstens drei noch nicht gestartete Events. Exakt verfügbare
+  Fußballpreise werden nach der Auswahl automatisch angefügt.
 - Die automatische Tagesauswahl ist direkt im Wettfinder sichtbar. Sie nennt
   Zieldatum, Zeitpunkt des letzten echten 51-Ligen-Vollscans, gefundene und
   modellierte Spiele sowie die Zahl bestandener Fußball-Auswahlen. Ein leerer
@@ -224,8 +283,9 @@ Mindestquote = (1 + 0,03) / konservatives p
   `ChallengeCandidate`-Objekt und prüft den vollständigen Credibility-Vertrag
   unmittelbar vor der Ausgabe erneut. Unbekannte Evidenzstufen werden
   fail-closed verworfen.
-- Writer und Reader des Wettfinder-Artefakts verwenden gemeinsam Version 3.
-  Alte Artefakte werden nicht still als aktuelle Empfehlungen weitergereicht.
+- Writer und Reader des Wettfinder-Artefakts verwenden gemeinsam Version 4
+  und Auswahlpolicy `daily-discovery-context-refresh-v4`. Alte Artefakte
+  werden nicht still als aktuelle Empfehlungen weitergereicht.
 - Fußball-CLV-Kennzahlen, offene Counts und letzte Predictions werden nur aus
   exakt derselben Modell- und Policy-Version gebildet. Modellabhängige Caches
   sowie Tagesmarker tragen die Modellversion; eine alte Prediction desselben
@@ -371,10 +431,14 @@ Matches, rund 329 zu 848 zeitgewichtete Service-Games und den Belag `Hard`.
 Das Modell ergibt 61,09 % Shang zu 38,91 % Darderi. Die zuvor sichtbaren
 5 % zu 95 % waren ein unzulässiger Rohwert aus dem fehlgeschlagenen Join. Bei
 den damaligen Platzhalterpreisen 1,50 / 2,60 wäre auch die korrigierte Rechnung
-klar `KEINE WETTE`; echte N1Bet-Preise müssen manuell oder über den lokalen
-Browser-Importer bestätigt werden.
+klar `KEINE WETTE` gewesen. Der aktuelle Produktpfad zeigt stattdessen den
+konkreten Tennis-Tipp mit Mindestquote und benötigt keinen Browserimport.
 
-### Lokaler N1Bet-Preisimport vom 6. August 2026
+### Historischer N1Bet-Preisimport vom 6. August 2026 - stillgelegt
+
+Dieser Abschnitt dokumentiert den damaligen Versuch und ist **keine aktuelle
+Betriebsanleitung**. Der Importer wurde am selben Tag durch den oben
+beschriebenen Consumer-Preisweg aus allen aktiven Oberflächen entfernt.
 
 API-Football Pro wurde gegen seine aktuelle Buchmacherliste geprüft: Der
 Provider führt 33 Buchmacher, aber nicht N1Bet. Eine fremde Aggregatorquote
@@ -402,11 +466,10 @@ eine lokale Manifest-v3-Erweiterung für normales Chrome beziehungsweise Edge:
 
 Der Entwicklungsstandort erhielt beim direkten Aufruf von N1Bet eine
 schweizerische HTTP-451-Sperrseite. Es wurde bewusst kein Geo-Block umgangen.
-Parser, Bridge, ZIP, Streamlit-Vorbelegung und strikte Zuordnung sind mit
-synthetischen N1Bet-DOM-/Payload-Fällen getestet; der abschließende reale
-Selektor-Abgleich muss einmal in einem Browser erfolgen, in dem die Seite
-rechtmäßig sichtbar ist. Bis zu diesem Test bleibt die manuelle Preiseingabe
-der verifizierte Rückfallweg.
+Parser, Bridge, ZIP, Streamlit-Vorbelegung und strikte Zuordnung wurden mit
+synthetischen N1Bet-DOM-/Payload-Fällen getestet. Ein realer Selektor-Abgleich
+ist für das aktuelle Produkt nicht mehr erforderlich; die Dateien bleiben nur
+als nicht eingebundene Rollback-Historie erhalten.
 
 ### Jobs, Sitzungen und Challenge
 
@@ -464,8 +527,9 @@ der verifizierte Rückfallweg.
   wird nicht erzeugt. Cricket bleibt ohne validiertes Modell blockiert.
 - Die Auswahl wird ohne angebotene Quote nach Evidenzstufe und konservativer
   Wahrscheinlichkeit sortiert, pro Event dedupliziert und auf drei begrenzt.
-  Jeder Eintrag bleibt `PRICE_REQUIRED`; die exakte N1Bet-Quote wird direkt
-  am ausgewählten Tipp erfasst.
+  Erst danach werden exakte Fußball-Referenzpreise geladen. Tennis und E-Sport
+  bleiben konkrete Tipps mit Mindestquote, wenn kein passender Preisfeed
+  vorhanden ist.
 
 ### Shadow und Settlement
 
@@ -564,9 +628,9 @@ der verifizierte Rückfallweg.
 
 | Bereich | Zweck | Aktueller Status |
 |---|---|---|
-| Wettfinder | Fußball, Tennis, Basketball, Eishockey, Cricket und E-Sport; gemeinsamer Suchhorizont bis 14 Tage; Fußball inklusive BTTS, Ergebnis, Tore, Ecken und Karten | je Modell `RESEARCH`/`SHADOW`/`RELEASED`; maximal drei Empfehlungen und Inline-Preischeck; zusätzliche Termine sind keine Tipps |
+| Wettfinder | Fußball, Tennis, Basketball, Eishockey, Cricket und E-Sport; gemeinsamer Suchhorizont bis 14 Tage; Fußball inklusive BTTS, Ergebnis, Tore, Ecken und Karten | je Modell `RESEARCH`/`SHADOW`/`RELEASED`; maximal drei konkrete Tipps; automatische Fußball-Referenzquote, sonst Mindestquote |
 | Live | BTTS, Resttor, Teamtor | `RESEARCH`; bis unabhängige Live-Kalibrierung blockiert |
-| 15K | bis zu drei Legs, Zielquote 2,00-3,00 | nur Shadow-Tickets; weiterhin sehr hohes Risiko |
+| 15K | bis zu drei Legs, Zielquote 2,00-3,00, automatischer konservativer Mehrbuchmacherpreis | nur modell- und preisgeprüfte Challenge-Tipps; weiterhin sehr hohes Risiko |
 | Meine Tipps | aktive preisgeprüfte Tipps sowie Fußball-/15K-/Tennis-Verlauf | sitzungsisoliert; Research und No-Bet werden nicht als Tipp gespeichert |
 | Einstellungen | Daten, Training, API-Status und 15K-Konto | administrativ; keine Wettfreigabe |
 
@@ -588,14 +652,15 @@ Konkrete Blockaden:
 | `league_catalog.py` | kanonischer 51-Ligen-Katalog |
 | `advanced_analyzer.py` | BTTS-Analyse und Modellensemble |
 | `betting_math.py` | kanonische Quote-, No-Vig-, Risiko-EV-, Mindestquote- und Kelly-Mathematik |
-| `price_ledger.py` | append-only N1Bet-Preisnachweise mit Hash-Kette |
+| `price_ledger.py` | append-only Nachweise für den stillgelegten manuellen Preisweg |
+| `market_consensus.py` | exakte API-Football-Marktabbildung, Mehrbuchmacher-Konsens, Frische und Preisstatus |
 | `challenge_engine.py` | Märkte, Validierung, Kontext und Ticketlogik |
 | `football_recommendations.py` | gemeinsame Freigabepolicy |
-| `bet_finder_ui.py` | N1Bet-Preisentscheidung |
+| `bet_finder_ui.py` | kundenorientierte Tippkarte, Mindestquote und automatischer Preisstatus |
 | `tip_store.py` | sitzungsisolierte Ablage preisgeprüfter `BET`-/`SHADOW`-Tipps |
 | `my_tips.py` | aktive Tipps, manueller Abschluss und gemeinsame Verlaufsnavigation |
 | `ev_signal_sources.py` | versionsgebundener Signalvertrag aus Punkt-p, Haircut und Evidenzstufe |
-| `wettfinder_automation.py` | tägliche 51-Ligen-Discovery, Fixture-Kontext-Refresh und quotenfreie Top-3-Verdichtung |
+| `wettfinder_automation.py` | tägliche 51-Ligen-Discovery, Fixture-Kontext-Refresh, spieltagreine Top-3-Verdichtung und nachgelagerte Fußballpreise |
 | `alternative_markets_tab_extended.py` | Fußball-Wettarten und manuelle Intervallsuche bis 14 Tage |
 | `scan_jobs.py` | sitzungsgebundene Hintergrundjobs |
 | `challenge_15k.py` | Challenge-Workflow und UI |
@@ -901,8 +966,9 @@ Zusätzlich verifiziert:
   1440 Pixel Desktopbreite und 390 Pixel Smartphonebreite ohne horizontalen
   Überlauf geprüft.
 - Keine sichtbaren Button- oder Label-Überläufe in den geprüften Ansichten.
-- N1Bet-Preisprüfung bleibt direkt am Kandidaten erreichbar; ein bestandener
-  Preis wird nur für `BET` oder `SHADOW` unter `Meine Tipps` abgelegt.
+- Fußball-Tippkarten zeigen den automatischen Mehrbuchmacherstatus direkt.
+  Ein bestandener Preis wird nur für `BET` oder `SHADOW` unter `Meine Tipps`
+  abgelegt; ein Browserfenster ist dafür nicht erforderlich.
 - Die echte VPS-App zeigt im normalen installierten Microsoft Edge
   `Statistikmodell aktiv; ML gesperrt` und `Live-API aktiv (Pro)`. Damit ist
   das aktive Basismodell nicht mehr mit dem gesperrten optionalen ML verwechselt.
@@ -993,11 +1059,9 @@ Produktionsverifikation des N1Bet-Browser-Imports am 6. August 2026:
    extern verankern und einen Wiederanlauf nach vollständigem VPS-Verlust
    testen.
 3. Authentifizierung und stabile `user_id` für Konten und Ledger einführen.
-4. N1Bet-Regeln für Void, Verlängerung, Early Payout und Marktlinien
-   schriftlich gegen die Settlement-Implementierung prüfen.
-5. Den N1Bet-Importer einmal gegen die aktuell sichtbare echte N1Bet-Seite in
-   Chrome oder Edge abnehmen und bei Provider-DOM-Abweichungen nur die
-   Extraktionsselektoren anpassen; Match- und Sicherheitsgates nicht lockern.
+4. Die Regeln des tatsächlich verwendeten Anbieters für Void, Verlängerung,
+   Early Payout und Marktlinien schriftlich gegen die Settlement-
+   Implementierung prüfen. Der Referenzfeed ersetzt diese Regelprüfung nicht.
 
 ### P1 - Evidenz
 
