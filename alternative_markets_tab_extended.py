@@ -3,7 +3,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import pandas as pd
 import streamlit as st
 
 import scan_jobs
@@ -14,6 +13,8 @@ from ui_components import scan_progress_fragment
 from challenge_15k import (
     MAX_SCAN_FIXTURES,
     ChallengeDataProvider,
+    render_football_scan_diagnostics,
+    scan_no_result_copy,
     scan_daily_challenge,
 )
 from config_loader import load_app_config
@@ -23,7 +24,7 @@ from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 
 DEFAULT_LEAGUES = [78, 39, 140]
 MARKET_WORKFLOW_VERSION = 7
-MARKET_SNAPSHOT_VERSION = 6
+MARKET_SNAPSHOT_VERSION = 7
 MARKET_MAX_AGE_MINUTES = 20
 FOOTBALL_MARKET_SCOPES = {
     "Beste Märkte": None,
@@ -354,6 +355,10 @@ def create_alternative_markets_tab_extended(
             "shortlist": challenge_snapshot.get("shortlist", [])[:3],
             "fixtures_found": challenge_snapshot.get("fixtures_found", 0),
             "fixtures_modeled": challenge_snapshot.get("fixtures_modeled", 0),
+            "market_candidates": challenge_snapshot.get("market_candidates", 0),
+            "base_candidates": challenge_snapshot.get("base_candidates", 0),
+            "context_fixtures": challenge_snapshot.get("context_fixtures", 0),
+            "approved_candidates": challenge_snapshot.get("approved_candidates", 0),
             "deferred_context_fixtures": challenge_snapshot.get(
                 "deferred_context_fixtures",
                 0,
@@ -364,7 +369,36 @@ def create_alternative_markets_tab_extended(
             "continental_fallback_modeled": challenge_snapshot.get(
                 "continental_fallback_modeled", 0
             ),
+            "continental_fallback_failed": challenge_snapshot.get(
+                "continental_fallback_failed", 0
+            ),
+            "configured_market_definitions": challenge_snapshot.get(
+                "configured_market_definitions", 0
+            ),
+            "modeled_market_definitions": challenge_snapshot.get(
+                "modeled_market_definitions", 0
+            ),
+            "market_coverage": challenge_snapshot.get("market_coverage", []),
+            "model_blocked_counts": challenge_snapshot.get(
+                "model_blocked_counts", {}
+            ),
+            "context_blocked_counts": challenge_snapshot.get(
+                "context_blocked_counts", {}
+            ),
             "blocked_counts": challenge_snapshot.get("blocked_counts", {}),
+            "transfer_only_candidates": challenge_snapshot.get(
+                "transfer_only_candidates", 0
+            ),
+            "transfer_only_fixtures": challenge_snapshot.get(
+                "transfer_only_fixtures", 0
+            ),
+            "transfer_only_examples": challenge_snapshot.get(
+                "transfer_only_examples", []
+            ),
+            "coverage_notices": challenge_snapshot.get("coverage_notices", []),
+            "operational_errors": challenge_snapshot.get(
+                "operational_errors", []
+            ),
             "errors": challenge_snapshot.get("errors", []),
         }
         scan_jobs.clear_job(job_key)
@@ -420,11 +454,26 @@ def create_alternative_markets_tab_extended(
     shortlist = snapshot.get("shortlist")
     shortlist = shortlist if isinstance(shortlist, list) else []
     if not shortlist:
-        st.error(
-            f"{result_day} keine belastbare Markt-Empfehlung — kein Spiel "
-            "besteht Modell, Kalibrierung, Direktvergleich, Ausfall- und "
-            "Wetterprüfung gemeinsam."
+        headline, detail = scan_no_result_copy(
+            snapshot,
+            day_label=result_day,
+            recommendation_label="Markt-Empfehlung",
         )
+        st.error(headline)
+        st.caption(detail)
+        model_blockers = snapshot.get("model_blocked_counts") or {}
+        if isinstance(model_blockers, dict) and model_blockers:
+            reason, count = max(model_blockers.items(), key=lambda item: item[1])
+            st.caption(
+                f"Hauptsperre: {reason} ({count} Marktkandidaten; "
+                "Mehrfachsperren möglich)."
+            )
+        transfer_only = int(snapshot.get("transfer_only_candidates") or 0)
+        if transfer_only:
+            st.caption(
+                f"{transfer_only} Kandidaten bestanden alle übrigen Modellprüfungen, "
+                "bleiben aber am UEFA-Transfergate gesperrt. Das sind keine Tipps."
+            )
     else:
         candidates = [_strict_market_candidate(candidate) for candidate in shortlist]
         options = list(range(len(candidates)))
@@ -445,39 +494,8 @@ def create_alternative_markets_tab_extended(
             save_source="Fußball Prematch",
         )
 
-    with st.expander("Suchprüfung"):
-        summary = st.columns(3)
-        summary[0].metric("Gefunden", snapshot.get("fixtures_found", 0))
-        summary[1].metric("Modelliert", snapshot.get("fixtures_modeled", 0))
-        summary[2].metric("Freigegeben", len(shortlist))
-        deferred_context = int(snapshot.get("deferred_context_fixtures") or 0)
-        if deferred_context:
-            st.caption(
-                f"{deferred_context} spätere Spiele wurden modelliert, aber noch nicht "
-                "ohne belastbaren Pflichtkontext freigegeben."
-            )
-        continental = int(snapshot.get("continental_fixtures_found") or 0)
-        if continental:
-            st.caption(
-                f"UEFA-Qualifikation: {continental} gefunden, "
-                f"{int(snapshot.get('continental_fallback_modeled') or 0)} "
-                "mit Heimatliga-Historie modelliert."
-            )
-        blocked_counts = snapshot.get("blocked_counts")
-        if isinstance(blocked_counts, dict) and blocked_counts:
-            blocked_frame = pd.DataFrame(
-                [
-                    {"Sperrgrund": reason, "Kandidaten": count}
-                    for reason, count in sorted(
-                        blocked_counts.items(), key=lambda item: item[1], reverse=True
-                    )
-                ]
-            )
-            st.dataframe(blocked_frame, use_container_width=True, hide_index=True)
-        if snapshot.get("errors"):
-            st.warning(
-                "Einige Provider-Prüfungen waren unvollständig und wurden nicht freigegeben."
-            )
+    with st.expander("Suchprüfung", expanded=not shortlist):
+        render_football_scan_diagnostics(snapshot, approved_count=len(shortlist))
 
 
 __all__ = [

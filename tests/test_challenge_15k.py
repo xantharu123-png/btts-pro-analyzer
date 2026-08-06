@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from challenge_15k import (
     CHALLENGE_SPORT_OPTIONS,
@@ -19,9 +19,11 @@ from challenge_15k import (
     _league_season_segments,
     _recommendation_day_label,
     _render_price_check,
+    _scan_candidate_diagnostics,
     _segmented,
     _shortlist_counts,
     refresh_discovered_candidates,
+    scan_no_result_copy,
     scan_daily_challenge,
 )
 from challenge_engine import (
@@ -234,7 +236,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
         )
 
     def test_empty_recommendation_uses_snapshot_day(self):
-        fake_streamlit = Mock()
+        fake_streamlit = MagicMock()
         snapshot = {
             "shortlist": [],
             "search_date": "2030-01-02",
@@ -254,6 +256,58 @@ class ChallengeProbabilityTests(unittest.TestCase):
         fake_streamlit.warning.assert_called_once_with(
             "Morgen keine belastbare 15K-Empfehlung."
         )
+
+    def test_scan_diagnostics_separates_model_and_context_gates(self):
+        transfer_only = candidate("1:BTTS", 1, 0.70)
+        transfer_only.blocked_reasons = [UNVALIDATED_TRANSFER_REASON]
+        transfer_only.context = {}
+        multiply_blocked = candidate("2:BTTS", 2, 0.69)
+        multiply_blocked.blocked_reasons = [
+            UNVALIDATED_TRANSFER_REASON,
+            "Markt hat das Walk-forward-Gate nicht bestanden",
+        ]
+        multiply_blocked.context = {}
+        context_blocked = candidate("3:BTTS", 3, 0.68)
+        context_blocked.context = {
+            "passed": False,
+            "blocked_reasons": ["Wetterdaten fehlen"],
+        }
+
+        diagnostics = _scan_candidate_diagnostics(
+            [transfer_only, multiply_blocked, context_blocked]
+        )
+
+        self.assertEqual(diagnostics["market_candidates"], 3)
+        self.assertEqual(diagnostics["configured_market_definitions"], len(MARKET_SPECS))
+        self.assertEqual(diagnostics["modeled_market_definitions"], 1)
+        self.assertEqual(
+            diagnostics["model_blocked_counts"][UNVALIDATED_TRANSFER_REASON],
+            2,
+        )
+        self.assertEqual(
+            diagnostics["context_blocked_counts"]["Wetterdaten fehlen"],
+            1,
+        )
+        self.assertEqual(diagnostics["transfer_only_candidates"], 1)
+        self.assertEqual(diagnostics["transfer_only_fixtures"], 1)
+        self.assertEqual(diagnostics["transfer_only_examples"][0]["fixture_id"], 1)
+
+    def test_no_result_copy_does_not_claim_skipped_context_failed(self):
+        headline, detail = scan_no_result_copy(
+            {
+                "fixtures_found": 38,
+                "fixtures_modeled": 37,
+                "market_candidates": 1480,
+                "base_candidates": 0,
+                "context_fixtures": 0,
+            },
+            day_label="Heute",
+            recommendation_label="Markt-Empfehlung",
+        )
+
+        self.assertEqual(headline, "Heute keine belastbare Markt-Empfehlung.")
+        self.assertIn("1480 Marktkandidaten", detail)
+        self.assertIn("wurden deshalb nicht abgefragt", detail)
 
     def test_shortlist_keeps_only_one_market_per_game(self):
         markets = [
@@ -815,6 +869,9 @@ class ChallengeProviderTests(unittest.TestCase):
         self.assertEqual(snapshot["approved_candidates"], 0)
         self.assertEqual(snapshot["base_candidates"], 0)
         self.assertEqual(snapshot["context_fixtures"], 0)
+        self.assertEqual(snapshot["configured_market_definitions"], len(MARKET_SPECS))
+        self.assertEqual(snapshot["modeled_market_definitions"], 40)
+        self.assertGreater(snapshot["market_candidates"], 0)
         self.assertEqual(snapshot["base_shortlist"], [])
         self.assertGreater(snapshot["blocked_counts"][UNVALIDATED_TRANSFER_REASON], 0)
         self.assertTrue(

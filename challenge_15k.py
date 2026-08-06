@@ -33,6 +33,7 @@ from challenge_engine import (
     MIN_LEG_EXPECTED_ROI,
     TARGET_ODDS_MAX,
     TARGET_ODDS_MIN,
+    UNVALIDATED_TRANSFER_REASON,
     MarketSpec,
     ValidationMetrics,
     apply_candidate_context,
@@ -73,7 +74,7 @@ from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 8
+CHALLENGE_SNAPSHOT_VERSION = 9
 CHALLENGE_WORKSPACE_VERSION = 6
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
@@ -110,6 +111,35 @@ AUTO_RECHECK_WINDOW_MINUTES = 80
 AUTO_RECHECK_MIN_GAP_MINUTES = 12
 AUTO_RECHECK_POLL_SECONDS = 180
 MAX_AUTO_RECHECK_LEAGUES = 12
+
+MARKET_KIND_LABELS = {
+    "result": "Endergebnis",
+    "double_chance": "Doppelte Chance",
+    "btts": "Beide Teams treffen",
+    "total": "Gesamttore",
+    "team_total": "Teamtore",
+    "team_range": "Teamtore 1-3 / 2-4",
+    "result_total": "Resultat & Tore",
+    "mixed_or": "Gemischte Chance",
+    "corner_total": "Eckbälle gesamt",
+    "team_corners": "Team-Eckbälle",
+    "yellow_total": "Gelbe Karten gesamt",
+    "team_yellow": "Team-Karten",
+}
+MARKET_KIND_DETAILS = {
+    "result": "1 / X / 2",
+    "double_chance": "1X / X2 / 12",
+    "btts": "Ja / Nein",
+    "total": "Über / Unter 0,5 bis 4,5",
+    "team_total": "je Team Über / Unter 0,5 bis 2,5",
+    "team_range": "je Team 1-3 oder 2-4 Tore",
+    "result_total": "1X & U3,5 / X2 & U3,5 / 12 & Ü1,5",
+    "mixed_or": "BTTS / Heimsieg / Auswärtssieg ODER Ü2,5",
+    "corner_total": "Über / Unter 5,5 bis 11,5",
+    "team_corners": "je Team Über / Unter 2,5 bis 5,5",
+    "yellow_total": "Über / Unter 1,5 bis 4,5",
+    "team_yellow": "je Team Über / Unter 0,5 bis 2,5",
+}
 
 
 # Explicitly bump this value only when probability, validation or calibration
@@ -1146,6 +1176,110 @@ def _candidate_rank(candidate: ChallengeCandidate) -> tuple[float, float, float]
     )
 
 
+def _scan_candidate_diagnostics(
+    candidates: list[ChallengeCandidate],
+    selected_market_kinds: Optional[set[str]] = None,
+) -> dict[str, Any]:
+    """Describe every scan phase without implying that skipped gates failed."""
+    configured_specs = [
+        spec
+        for spec in market_specs()
+        if selected_market_kinds is None or spec.kind in selected_market_kinds
+    ]
+    configured_by_kind: dict[str, int] = {}
+    for spec in configured_specs:
+        configured_by_kind[spec.kind] = configured_by_kind.get(spec.kind, 0) + 1
+
+    modeled_keys_by_kind: dict[str, set[str]] = {}
+    candidate_counts_by_kind: dict[str, int] = {}
+    model_blocked_counts: dict[str, int] = {}
+    context_blocked_counts: dict[str, int] = {}
+    blocked_counts: dict[str, int] = {}
+    transfer_only: list[ChallengeCandidate] = []
+
+    for candidate in candidates:
+        spec = MARKET_BY_KEY.get(candidate.market_key)
+        if spec is not None:
+            modeled_keys_by_kind.setdefault(spec.kind, set()).add(candidate.market_key)
+            candidate_counts_by_kind[spec.kind] = (
+                candidate_counts_by_kind.get(spec.kind, 0) + 1
+            )
+
+        model_reasons = set(candidate.blocked_reasons)
+        context_reasons = set(candidate.context.get("blocked_reasons", []))
+        for reason in model_reasons:
+            model_blocked_counts[reason] = model_blocked_counts.get(reason, 0) + 1
+        if not model_reasons:
+            for reason in context_reasons:
+                context_blocked_counts[reason] = (
+                    context_blocked_counts.get(reason, 0) + 1
+                )
+        for reason in model_reasons or context_reasons:
+            blocked_counts[reason] = blocked_counts.get(reason, 0) + 1
+        if model_reasons == {UNVALIDATED_TRANSFER_REASON}:
+            transfer_only.append(candidate)
+
+    market_coverage = []
+    for kind in MARKET_KIND_LABELS:
+        configured = configured_by_kind.get(kind, 0)
+        if configured <= 0:
+            continue
+        market_coverage.append(
+            {
+                "kind": kind,
+                "label": MARKET_KIND_LABELS[kind],
+                "details": MARKET_KIND_DETAILS[kind],
+                "configured": configured,
+                "modeled": len(modeled_keys_by_kind.get(kind, set())),
+                "candidates": candidate_counts_by_kind.get(kind, 0),
+            }
+        )
+
+    transfer_only.sort(key=_candidate_rank, reverse=True)
+    return {
+        "market_candidates": len(candidates),
+        "configured_market_definitions": len(configured_specs),
+        "modeled_market_definitions": len(
+            {candidate.market_key for candidate in candidates}
+        ),
+        "market_coverage": market_coverage,
+        "model_blocked_counts": model_blocked_counts,
+        "context_blocked_counts": context_blocked_counts,
+        "blocked_counts": blocked_counts,
+        "transfer_only_candidates": len(transfer_only),
+        "transfer_only_fixtures": len(
+            {candidate.fixture_id for candidate in transfer_only}
+        ),
+        "transfer_only_examples": [
+            {
+                "fixture_id": candidate.fixture_id,
+                "kickoff": candidate.kickoff,
+                "match": f"{candidate.home_team} vs {candidate.away_team}",
+                "market": candidate.market,
+                "selection": candidate.selection,
+                "model_percent": round(candidate.probability * 100.0, 1),
+                "conservative_percent": round(
+                    candidate.conservative_probability * 100.0,
+                    1,
+                ),
+                "evidence": round(candidate.evidence_score, 1),
+            }
+            for candidate in transfer_only[:10]
+        ],
+    }
+
+
+def _split_provider_messages(errors: list[str]) -> tuple[list[str], list[str]]:
+    """Separate optional xG coverage notes from operational provider errors."""
+    coverage_notices = [
+        error
+        for error in errors
+        if str(error).startswith("xG Liga ") and "Tormodell dominant" in str(error)
+    ]
+    operational_errors = [error for error in errors if error not in coverage_notices]
+    return coverage_notices, operational_errors
+
+
 def _discovery_candidate_pool(
     candidates: list[ChallengeCandidate],
     fixture_ids: list[int],
@@ -1899,11 +2033,11 @@ def scan_daily_challenge(
         base_candidates,
         context_fixture_ids,
     )
-    blocked_counts: dict[str, int] = {}
-    for candidate in all_candidates:
-        reasons = candidate.blocked_reasons or candidate.context.get("blocked_reasons", [])
-        for reason in set(reasons):
-            blocked_counts[reason] = blocked_counts.get(reason, 0) + 1
+    diagnostics = _scan_candidate_diagnostics(
+        all_candidates,
+        selected_market_kinds,
+    )
+    coverage_notices, operational_errors = _split_provider_messages(provider.errors)
     if progress_cb:
         progress_cb(
             1.0,
@@ -1947,7 +2081,9 @@ def scan_daily_challenge(
         "base_shortlist": base_shortlist,
         "discovery_candidates": discovery_candidates,
         "model_ticket": model_ticket,
-        "blocked_counts": blocked_counts,
+        **diagnostics,
+        "coverage_notices": coverage_notices,
+        "operational_errors": operational_errors,
         "errors": list(provider.errors),
     }
 
@@ -2687,6 +2823,201 @@ def _shortlist_counts(shortlist: list[ChallengeCandidate]) -> tuple[int, int]:
     return len(shortlist), len({candidate.fixture_id for candidate in shortlist})
 
 
+def scan_no_result_copy(
+    snapshot: dict[str, Any],
+    *,
+    day_label: str,
+    recommendation_label: str,
+) -> tuple[str, str]:
+    """Explain the furthest completed gate instead of blaming skipped checks."""
+    found = int(snapshot.get("fixtures_found") or 0)
+    modeled = int(snapshot.get("fixtures_modeled") or 0)
+    market_candidates = int(snapshot.get("market_candidates") or 0)
+    base_candidates = int(snapshot.get("base_candidates") or 0)
+    context_fixtures = int(snapshot.get("context_fixtures") or 0)
+    deferred_context = int(snapshot.get("deferred_context_fixtures") or 0)
+    headline = f"{day_label} keine belastbare {recommendation_label}."
+
+    if found <= 0:
+        detail = "Im gewählten Zeitraum wurden keine verwertbaren Spiele gefunden."
+    elif modeled <= 0:
+        detail = (
+            f"{found} Spiele wurden gefunden, aber für keines reichte die Statistik "
+            "für eine Modellbewertung."
+        )
+    elif market_candidates > 0 and base_candidates <= 0:
+        detail = (
+            f"{market_candidates} Marktkandidaten aus {modeled} modellierten Spielen "
+            "scheiterten bereits an Modell- oder Walk-forward-Prüfungen. H2H, "
+            "Ausfälle und Wetter wurden deshalb nicht abgefragt."
+        )
+    elif base_candidates > 0 and context_fixtures <= 0 and deferred_context > 0:
+        detail = (
+            f"{base_candidates} Marktkandidaten bestanden die Modellprüfung, liegen "
+            "aber noch außerhalb des verfügbaren Kontextfensters."
+        )
+    elif base_candidates > 0:
+        detail = (
+            f"{base_candidates} Marktkandidaten bestanden die Modellprüfung; "
+            f"für {context_fixtures} Spiele wurde Live-Kontext geprüft. Dort blieb "
+            "keine Auswahl freigabefähig."
+        )
+    else:
+        detail = (
+            f"{found} Spiele wurden gefunden und {modeled} modelliert, aber es "
+            "entstand kein freigabefähiger Marktkandidat."
+        )
+    return headline, detail
+
+
+def render_football_scan_diagnostics(
+    snapshot: dict[str, Any],
+    *,
+    approved_count: Optional[int] = None,
+) -> None:
+    """Render the shared football gate and market coverage audit."""
+    approved = (
+        int(snapshot.get("approved_candidates") or 0)
+        if approved_count is None
+        else int(approved_count)
+    )
+    metric_values = (
+        ("Spiele gefunden", int(snapshot.get("fixtures_found") or 0)),
+        ("Spiele modelliert", int(snapshot.get("fixtures_modeled") or 0)),
+        ("Marktprüfungen", int(snapshot.get("market_candidates") or 0)),
+        ("Modell bestanden", int(snapshot.get("base_candidates") or 0)),
+        ("Kontext-Spiele", int(snapshot.get("context_fixtures") or 0)),
+        ("Freigegeben", approved),
+    )
+    for offset in range(0, len(metric_values), 3):
+        columns = st.columns(3)
+        for column, (label, value) in zip(columns, metric_values[offset : offset + 3]):
+            column.metric(label, value)
+
+    deferred_context = int(snapshot.get("deferred_context_fixtures") or 0)
+    if deferred_context:
+        st.caption(
+            f"{deferred_context} spätere Spiele liegen noch außerhalb des "
+            "verfügbaren Kontextfensters."
+        )
+    continental = int(snapshot.get("continental_fixtures_found") or 0)
+    if continental:
+        fallback_modeled = int(snapshot.get("continental_fallback_modeled") or 0)
+        fallback_failed = int(snapshot.get("continental_fallback_failed") or 0)
+        message = (
+            f"UEFA-Qualifikation: {continental} Spiele gefunden, "
+            f"{fallback_modeled} mit Heimatliga-Historie modelliert"
+        )
+        if fallback_failed:
+            message += f", {fallback_failed} ohne ausreichende Teamstichprobe"
+        st.caption(message + ".")
+
+    configured = int(snapshot.get("configured_market_definitions") or 0)
+    modeled = int(snapshot.get("modeled_market_definitions") or 0)
+    coverage = snapshot.get("market_coverage")
+    if isinstance(coverage, list) and coverage:
+        st.markdown("**Geprüfte Wettarten**")
+        st.caption(
+            f"{modeled} von {configured} konfigurierten Marktdefinitionen konnten "
+            "für mindestens ein Spiel berechnet werden."
+        )
+        coverage_frame = pd.DataFrame(
+            [
+                {
+                    "Wettart": item.get("label"),
+                    "Ausprägungen": item.get("details"),
+                    "Konfiguriert": item.get("configured", 0),
+                    "Berechnet": item.get("modeled", 0),
+                    "Prüfungen": item.get("candidates", 0),
+                }
+                for item in coverage
+            ]
+        )
+        st.dataframe(coverage_frame, width="stretch", hide_index=True)
+
+    model_blocked_counts = snapshot.get("model_blocked_counts")
+    if not isinstance(model_blocked_counts, dict):
+        model_blocked_counts = snapshot.get("blocked_counts")
+    if isinstance(model_blocked_counts, dict) and model_blocked_counts:
+        st.markdown("**Modell- und Validierungssperren**")
+        st.caption(
+            "Gezählt werden Marktkandidaten; ein Kandidat kann mehrere Sperrgründe haben."
+        )
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {"Sperrgrund": reason, "Marktkandidaten": count}
+                    for reason, count in sorted(
+                        model_blocked_counts.items(),
+                        key=lambda item: item[1],
+                        reverse=True,
+                    )
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+
+    context_blocked_counts = snapshot.get("context_blocked_counts")
+    if isinstance(context_blocked_counts, dict) and context_blocked_counts:
+        st.markdown("**Kontextsperren**")
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {"Sperrgrund": reason, "Marktkandidaten": count}
+                    for reason, count in sorted(
+                        context_blocked_counts.items(),
+                        key=lambda item: item[1],
+                        reverse=True,
+                    )
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+
+    transfer_only = int(snapshot.get("transfer_only_candidates") or 0)
+    transfer_examples = snapshot.get("transfer_only_examples")
+    if transfer_only and isinstance(transfer_examples, list):
+        st.markdown("**Nur am UEFA-Transfergate gesperrt - keine Empfehlungen**")
+        st.caption(
+            f"{transfer_only} Marktkandidaten bestanden die übrigen Modellprüfungen. "
+            "Ihr Heimatliga-Modell ist für UEFA-Duelle noch nicht historisch validiert; "
+            "der Live-Kontext wurde daher nicht geprüft."
+        )
+        if transfer_examples:
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Spiel": item.get("match"),
+                            "Markt": item.get("market"),
+                            "Auswahl": item.get("selection"),
+                            "Konservativ %": item.get("conservative_percent"),
+                            "Evidenz": item.get("evidence"),
+                        }
+                        for item in transfer_examples
+                    ]
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+
+    coverage_notices = snapshot.get("coverage_notices")
+    if isinstance(coverage_notices, list) and coverage_notices:
+        st.caption("Datenabdeckung: " + " | ".join(map(str, coverage_notices)))
+    operational_errors = snapshot.get("operational_errors")
+    if isinstance(operational_errors, list) and operational_errors:
+        st.warning(
+            f"{len(operational_errors)} technische Provider-Prüfungen waren unvollständig."
+        )
+        st.dataframe(
+            pd.DataFrame({"Provider-Meldung": operational_errors}),
+            width="stretch",
+            hide_index=True,
+        )
+
+
 def _render_candidate_context(candidate: ChallengeCandidate) -> None:
     context = candidate.context
     h2h = context.get("h2h", {})
@@ -2748,25 +3079,27 @@ def _render_price_check(
 ) -> None:
     shortlist: list[ChallengeCandidate] = snapshot["shortlist"]
     if not shortlist:
-        found = snapshot.get("fixtures_found", 0)
-        modeled = snapshot.get("fixtures_modeled", 0)
-        if found <= 0:
-            reason = "Für diesen Spieltag wurden keine verwertbaren Spiele gefunden."
-        elif modeled <= 0:
-            reason = (
-                "Für die gefundenen Spiele reicht die Statistik nicht für eine "
-                "belastbare Modellbewertung."
-            )
-        else:
-            reason = (
-                "Keines der modellierten Spiele besteht Modell, Walk-forward "
-                "und sämtliche belastbaren Kontextprüfungen gemeinsam."
-            )
         day_label = _recommendation_day_label(snapshot.get("search_date"))
-        st.warning(f"{day_label} keine belastbare 15K-Empfehlung.")
-        st.caption(
-            f"{reason} Geprüft: {found} Spiele, davon {modeled} modelliert."
+        headline, detail = scan_no_result_copy(
+            snapshot,
+            day_label=day_label,
+            recommendation_label="15K-Empfehlung",
         )
+        st.warning(headline)
+        st.caption(detail)
+        model_blockers = snapshot.get("model_blocked_counts") or {}
+        if isinstance(model_blockers, dict) and model_blockers:
+            reason, count = max(model_blockers.items(), key=lambda item: item[1])
+            st.caption(
+                f"Hauptsperre: {reason} ({count} Marktkandidaten; "
+                "Mehrfachsperren möglich)."
+            )
+        transfer_only = int(snapshot.get("transfer_only_candidates") or 0)
+        if transfer_only:
+            st.caption(
+                f"{transfer_only} Kandidaten bestanden alle übrigen Modellprüfungen, "
+                "bleiben aber am UEFA-Transfergate gesperrt. Das sind keine Tipps."
+            )
         continental = int(snapshot.get("continental_fixtures_found") or 0)
         fallback_modeled = int(snapshot.get("continental_fallback_modeled") or 0)
         fallback_failed = int(snapshot.get("continental_fallback_failed") or 0)
@@ -2778,16 +3111,8 @@ def _render_price_check(
             if fallback_failed:
                 detail += f", {fallback_failed} ohne ausreichende Teamstichprobe"
             st.caption(detail + ".")
-        transfer_blocked = sum(
-            count
-            for reason, count in (snapshot.get("blocked_counts") or {}).items()
-            if "Heimatliga-Transfermodell" in str(reason)
-        )
-        if transfer_blocked:
-            st.caption(
-                "UEFA-Heimatliga-Modelle bleiben Forschungssignale, bis ihr "
-                "Transfer zwischen unterschiedlich starken Ligen validiert ist."
-            )
+        with st.expander("Prüfdetails", expanded=False):
+            render_football_scan_diagnostics(snapshot, approved_count=0)
         return
 
     st.subheader("Tagesempfehlungen")

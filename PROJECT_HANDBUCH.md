@@ -4,20 +4,20 @@
 
 | Feld | Verifizierter Stand |
 |---|---|
-| Auditzeitraum | 1. bis 5. August 2026 |
+| Auditzeitraum | 1. bis 6. August 2026 |
 | Repository | `xantharu123-png/btts-pro-analyzer` |
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
-| Basis vor dem Ultra-Audit vom 5. August | `23b93c2` |
-| Aktueller Produktionscommit | `bc6b97e` (`Extend multi-day search across sports`) |
-| Fachlicher Kernstand | Ultra-Audit plus sportzentraler Wettfinder, automatische Tagesauswahl und sportübergreifende Mehrtagessuche |
-| Verifizierter VPS-Funktionsstand | `bc6b97e`; App und Wettfinder-Timer aktiv, HTTPS 200 und 0 fehlgeschlagene systemd-Units am 5. August |
+| Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
+| Aktueller Produktionsstand vor diesem Änderungslauf | `4dcfba3` (`Add all-sports selections to betting finders`) |
+| Fachlicher Kernstand | Ultra-Audit plus sportzentraler Wettfinder, automatische Tagesauswahl, sportübergreifende Mehrtagessuche und phasengenaue Fußball-Scan-Diagnose |
+| Verifizierter VPS-Funktionsstand vor diesem Änderungslauf | `4dcfba3`; App und Wettfinder-Timer aktiv |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 632 Tests und 5 Subtests bestanden |
+| Vollständiger Testlauf | 638 Tests und 5 Subtests bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -285,6 +285,62 @@ Mindestquote = (1 + 0,03) / konservatives p
   Teamhistorie modelliert, Quelle PandaScore. Der direkte VPS-Providerlauf
   benötigte 1,68 Sekunden. Die Oberfläche zeigte danach die quotenfreie
   Prognose samt Shadow-Blocker und Mindestquote korrekt an.
+
+### Sperrketten- und Markt-Audit vom 6. August 2026
+
+Der in Produktion angezeigte Lauf `Alle 51 Ligen`, `Heute`, `Beste Märkte`
+wurde mit demselben Provider und derselben Engine reproduziert. Das Ergebnis
+`38 gefunden`, `37 modelliert`, `0 freigegeben` war rechnerisch möglich, aber
+die bisherige Erklärung in der Oberfläche war falsch: H2H, Ausfälle und Wetter
+hatten nicht gemeinsam abgelehnt, sondern wurden gar nicht erreicht.
+
+Der tatsächliche Funnel des Laufs war:
+
+| Phase | Ergebnis |
+|---|---:|
+| Spiele gefunden | 38 |
+| Spiele modelliert | 37 |
+| UEFA-Spiele | 37 |
+| UEFA-Spiele mit Heimatliga-Fallback | 36 |
+| erzeugte Ergebnis-/Tormarkt-Kandidaten | 1.480 |
+| Kandidaten mit unvalidiertem UEFA-Transfer | 1.440 |
+| Kandidaten mit nicht bestandenem Walk-forward-Gate | 1.430 |
+| Kandidaten, die nur am UEFA-Transfergate scheiterten | 7 |
+| Spiele in der H2H-/Ausfall-/Wetterprüfung | 0 |
+| Freigaben | 0 |
+
+Die Sperrgründe überlappen; ihre Summen dürfen deshalb größer als 1.480 sein.
+36 UEFA-Partien wurden aus den jeweiligen Heimatligen modelliert. Dieser
+Domänenwechsel ist noch nicht historisch out-of-sample validiert und bleibt
+fail-closed. Das einzige im eigenen Wettbewerb modellierte Spiel scheiterte
+am eigenen Walk-forward-Gate. Die sieben nur am Transfergate gesperrten Märkte
+werden künftig als Diagnose und ausdrücklich **nicht als Tipps** ausgewiesen.
+
+Der Fußballkatalog enthält 90 exakt settelbare Marktdefinitionen:
+
+| Gruppe | Definitionen | Umfang |
+|---|---:|---|
+| Ergebnis | 3 | 1 / X / 2 |
+| Doppelte Chance | 3 | 1X / X2 / 12 |
+| Beide Teams treffen | 2 | Ja / Nein |
+| Gesamttore | 10 | Über / Unter 0,5 bis 4,5 |
+| Teamtore | 12 | je Team Über / Unter 0,5 bis 2,5 |
+| Team-Torbereiche | 4 | je Team 1-3 oder 2-4 Tore |
+| Resultat-/Tor-Kombinationen | 6 | drei UND- und drei ODER-Märkte |
+| Eckbälle | 30 | Gesamt und je Team |
+| Gelbe Karten | 20 | Gesamt und je Team |
+
+Im reproduzierten Lauf waren davon 40 Ergebnis-/Tordefinitionen für mindestens
+ein Spiel berechenbar. Ecken und Karten erzeugten mangels passender historischer
+Zählstatistik keine Kandidaten. Die Oberfläche zeigt nun `konfiguriert`,
+`berechnet` und die Zahl der tatsächlichen Prüfungen je Marktgruppe, statt
+diese Lücke zu verschweigen.
+
+Wettfinder und 15K verwenden dieselbe Diagnose. Beide unterscheiden jetzt
+Spiele, Marktprüfungen, bestandene Modellkandidaten, Kontext-Spiele und
+Freigaben. Optionale xG-Abdeckungshinweise werden von echten technischen
+Providerfehlern getrennt. Das UEFA-Gate und sämtliche mathematischen Schwellen
+wurden in diesem Änderungslauf nicht gelockert.
 
 ### Jobs, Sitzungen und Challenge
 
@@ -739,7 +795,7 @@ VPS-Härtung, verifiziert am 2. August 2026:
 Vollständiger Lauf:
 
 ```text
-632 passed
+638 passed
 5 subtests passed
 ```
 
