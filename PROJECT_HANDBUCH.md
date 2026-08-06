@@ -9,9 +9,9 @@
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
-| Verifizierter Produktions-Funktionscommit | `175523e` (`Add local N1Bet browser odds importer`) |
+| Verifizierter Produktions-Funktionscommit | `8d9b447` (`Add automatic reference odds and consumer tips`) |
 | Fachlicher Kernstand | Consumer-Wettfinder mit automatischer Tagesauswahl, exaktem Mehrbuchmacher-Preisvergleich für Fußball, direktem Tennis-Tipp mit Mindestquote, automatischem 15K-Tagesticket und strikter Spieltagstrennung |
-| Verifizierter VPS-Funktionsstand | `175523e`; App aktiv, HTTPS 200 und 0 fehlgeschlagene systemd-Units am 6. August |
+| Verifizierter VPS-Funktionsstand | `8d9b447`; App aktiv, HTTPS 200, Wettfinder-Timer aktiv/enabled und 0 fehlgeschlagene systemd-Units am 6. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
@@ -1050,6 +1050,35 @@ Produktionsverifikation des N1Bet-Browser-Imports am 6. August 2026:
   nicht geprüft werden. Produktion wird deshalb nicht als live-DOM-verifiziert
   bezeichnet; dieser eine Browser-Abnahmeschritt bleibt offen.
 
+Diese Verifikation beschreibt nur den damaligen Zwischenstand. Der
+Browserimport wurde mit `8d9b447` aus allen aktiven Nutzerpfaden entfernt und
+ist keine Produktvoraussetzung mehr.
+
+Produktionsverifikation des Consumer-Wettfinders am 6. August 2026:
+
+- Funktionscommit `8d9b447` wurde per Fast-Forward auf den VPS übernommen.
+  `betboy-app.service` ist aktiv, interne und öffentliche Health-Endpunkte
+  antworten mit HTTP 200, der Wettfinder-Timer ist aktiv und enabled, und es
+  gibt keine fehlgeschlagene systemd-Unit.
+- Der erzwungene erste Artefakt-v4-Lauf endete erfolgreich. Er durchsuchte alle
+  51 Fußballwettbewerbe, fand 38 Spiele und modellierte 37 davon. UEFA-Duelle
+  blieben wegen der noch nicht validierten ligenübergreifenden Übertragung
+  gesperrt; dies ist ein fachliches Fail-closed-Ergebnis und kein Scanfehler.
+- Das Artefakt trägt Version 4 und Auswahlpolicy
+  `daily-discovery-context-refresh-v4`. `target_search_date`, Fußball-Suchdatum
+  und alle drei ausgegebenen Kandidaten liegen ausschließlich am 6. August in
+  der Zeitzone Europe/Zurich. Der frühere Heute/Morgen-Leak ist damit auch in
+  Produktion ausgeschlossen.
+- Die drei aktuellen Tageskandidaten sind zwei Tennis-Match-Sieger und ein
+  E-Sport-Match-Sieger. Sie zeigen Auswahl, Modellwahrscheinlichkeit,
+  konservative Wahrscheinlichkeit und Mindestquote direkt. Weil kein
+  Fußballmarkt die fachlichen Gates passierte, enthält dieser konkrete Lauf
+  erwartungsgemäß noch keine automatische Fußball-Referenzquote.
+- Der vollständige Stand besteht 666 Python-Tests, 5 Subtests und 3
+  JavaScript-Tests. Die normale installierte Microsoft-Edge-Engine bestand die
+  sichtbare Abnahme bei 1440 x 1000, 820 x 1180 und 390 x 844 ohne horizontalen
+  Überlauf, ohne Konsolenfehler und ohne sichtbare N1Bet-Abhängigkeit.
+
 ## 12. Offene Prioritäten
 
 ### P0 - extern und vor ernsthafter Echtgeldnutzung
@@ -1123,7 +1152,7 @@ URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
-Verifizierter Funktionscommit: 175523e
+Verifizierter Funktionscommit: 8d9b447
 ```
 
 Update nach einem Push:
