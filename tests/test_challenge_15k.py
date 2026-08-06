@@ -872,6 +872,14 @@ class ChallengeProviderTests(unittest.TestCase):
         self.assertEqual(snapshot["configured_market_definitions"], len(MARKET_SPECS))
         self.assertEqual(snapshot["modeled_market_definitions"], 40)
         self.assertGreater(snapshot["market_candidates"], 0)
+        self.assertEqual(
+            sum(item["configured"] for item in snapshot["market_coverage"]),
+            len(MARKET_SPECS),
+        )
+        self.assertEqual(
+            sum(item["modeled"] for item in snapshot["market_coverage"]),
+            40,
+        )
         self.assertEqual(snapshot["base_shortlist"], [])
         self.assertGreater(snapshot["blocked_counts"][UNVALIDATED_TRANSFER_REASON], 0)
         self.assertTrue(

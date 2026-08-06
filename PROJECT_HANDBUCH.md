@@ -9,9 +9,9 @@
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
-| Aktueller Produktionsstand vor diesem Änderungslauf | `4dcfba3` (`Add all-sports selections to betting finders`) |
+| Verifizierter Produktions-Funktionscommit | `fb140ba` (`Expose football scan gate diagnostics`) |
 | Fachlicher Kernstand | Ultra-Audit plus sportzentraler Wettfinder, automatische Tagesauswahl, sportübergreifende Mehrtagessuche und phasengenaue Fußball-Scan-Diagnose |
-| Verifizierter VPS-Funktionsstand vor diesem Änderungslauf | `4dcfba3`; App und Wettfinder-Timer aktiv |
+| Verifizierter VPS-Funktionsstand | `fb140ba`; App aktiv, HTTPS 200 und 0 fehlgeschlagene systemd-Units am 6. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
@@ -863,6 +863,25 @@ Produktionsverifikation des Ultra-Audits am 5. August 2026:
   Test lief in der installierten Microsoft-Edge-Engine, nicht in einer
   Browsererweiterung.
 
+Produktionsverifikation der Sperrketten-Diagnose am 6. August 2026:
+
+- Funktionscommit `fb140ba` wurde per Fast-Forward auf den VPS übernommen;
+  `betboy-app.service` ist aktiv, HTTPS antwortet mit 200 und es gibt keine
+  fehlgeschlagene systemd-Unit.
+- Der echte Edge-Lauf verwendete `Sport: Alle`, `Zeitraum: Heute`,
+  `Beste Märkte` und `Alle 51`. Der Fortschritt zählte korrekt von Liga 1/51
+  über die UEFA-Heimatliga- und Validierungsphasen bis zum Ergebnis.
+- Nach rund drei Minuten zeigte Produktion 1.480 Marktprüfungen aus 37
+  modellierten Spielen und erklärte korrekt, dass kein Kandidat das
+  Modell-/Walk-forward-Stadium verließ. H2H, Ausfälle und Wetter wurden somit
+  nicht fälschlich als gescheiterte Prüfungen bezeichnet.
+- Die UEFA-Zeile wies 37 gefundene Spiele, 36 Heimatliga-Modelle und ein Spiel
+  ohne ausreichende Teamstichprobe aus. Die xG-Meldungen für Liga 848 und 165
+  erschienen als Datenabdeckung, nicht als angebliche technische Ablehnung.
+- Die lokale App wurde zusätzlich in der installierten Edge-Engine bei
+  390 x 844 und 820 x 1180 geprüft: kein horizontaler Überlauf, keine
+  JavaScript- oder Konsolenfehler.
+
 ## 12. Offene Prioritäten
 
 ### P0 - extern und vor ernsthafter Echtgeldnutzung
@@ -935,7 +954,7 @@ URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
-Verifizierter Commit: bc6b97e
+Verifizierter Funktionscommit: fb140ba
 ```
 
 Update nach einem Push:
