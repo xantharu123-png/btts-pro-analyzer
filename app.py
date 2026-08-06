@@ -2021,6 +2021,7 @@ def _render_live_football(analyzer, market: str) -> None:
             key=f"live_{candidate.event_key}_{market}_{snapshot.get('scanned_at')}",
             bankroll_key="football_bet_finder_bankroll",
             save_source="Fußball Live",
+            live_price=True,
         )
 
         with st.expander("Live-Prüfdetails"):
@@ -2451,6 +2452,7 @@ def _render_red_cards(analyzer) -> None:
         key=f"red_card_{candidate.event_key}_{snapshot.get('scanned_at')}",
         bankroll_key="football_bet_finder_bankroll",
         save_source="Fußball Live Platzverweis",
+        live_price=True,
     )
     with st.expander("Platzverweis-Prüfdetails"):
         st.caption(
@@ -3453,9 +3455,14 @@ def _render_system_status(analyzer) -> None:
 def render_settings(analyzer) -> None:
     section = st.selectbox(
         "Bereich",
-        ["Modellvalidierung", "Datenbestand", "15K Konto"],
+        ["Modellvalidierung", "Datenbestand", "N1Bet Importer", "15K Konto"],
         key="settings_section",
     )
+    if section == "N1Bet Importer":
+        from n1_import_ui import render_n1_importer_settings
+
+        render_n1_importer_settings()
+        return
     if section == "15K Konto":
         from challenge_15k import render_challenge_account
 

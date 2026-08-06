@@ -70,6 +70,8 @@ from price_ledger import (
     PriceLedgerIntegrityError,
     PriceQuote,
 )
+from n1_import import N1ImportTarget, N1WidgetBinding
+from n1_import_ui import render_n1_import_sync
 from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
@@ -3165,6 +3167,29 @@ def _render_price_check(
             "nach Abpfiff, zurückgenommene Ecken) können abweichen. Vor der Abgabe die "
             "N1Bet-Marktregeln prüfen; bei Abweichung den Markt auslassen."
         )
+    import_bindings = []
+    for candidate in shortlist:
+        market_spec = MARKET_BY_KEY[candidate.market_key]
+        import_bindings.append(
+            N1WidgetBinding(
+                target=N1ImportTarget(
+                    key=f"challenge:{candidate.candidate_id}",
+                    sport="Fußball",
+                    event_name=f"{candidate.home_team} vs {candidate.away_team}",
+                    market=candidate.market,
+                    selection=candidate.selection,
+                    participants=(candidate.home_team, candidate.away_team),
+                    line=market_spec.threshold,
+                    scheduled_start=candidate.kickoff,
+                ),
+                widget_key=f"challenge_odds_{candidate.candidate_id}",
+                value_kind="number",
+            )
+        )
+    import_matches = render_n1_import_sync(
+        import_bindings,
+        key=f"challenge_{snapshot['scanned_at']}",
+    )
     odds_by_candidate: dict[str, float] = {}
     for index, candidate in enumerate(shortlist, start=1):
         st.markdown(
@@ -3172,6 +3197,12 @@ def _render_price_check(
             f"{candidate.market}: {candidate.selection}"
         )
         _render_candidate_context(candidate)
+        imported_match = import_matches.get(f"challenge:{candidate.candidate_id}")
+        if imported_match is not None:
+            st.caption(
+                f"Automatisch erkannt: N1Bet {imported_match.quote.decimal_odds:.2f} | "
+                f"{imported_match.quote.captured_at.astimezone():%H:%M:%S}"
+            )
         odds_by_candidate[candidate.candidate_id] = st.number_input(
             "Aktuelle N1Bet-Quote",
             min_value=0.0,
@@ -3226,7 +3257,20 @@ def _render_price_check(
                         selection_name=candidate.selection,
                         decimal_odds=odds_by_candidate[candidate.candidate_id],
                         phase="ENTRY",
-                        source="MANUAL",
+                        source=(
+                            "N1BET_BROWSER_IMPORT"
+                            if (
+                                (match := import_matches.get(
+                                    f"challenge:{candidate.candidate_id}"
+                                )) is not None
+                                and math.isclose(
+                                    odds_by_candidate[candidate.candidate_id],
+                                    match.quote.decimal_odds,
+                                    abs_tol=1e-9,
+                                )
+                            )
+                            else "MANUAL"
+                        ),
                         captured_at=checked_at,
                         line=MARKET_BY_KEY[candidate.market_key].threshold,
                         model_ref=(

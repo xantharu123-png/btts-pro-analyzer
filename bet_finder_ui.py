@@ -15,6 +15,8 @@ from multi_sport_recommendations import (
     format_fair_odds,
     format_probability_percent,
 )
+from n1_import import N1ImportTarget, N1WidgetBinding, split_event_participants
+from n1_import_ui import render_n1_import_sync
 from ui_components import edge_badge_html, ev_badge_html, plain_german
 from tip_store import TipStore
 
@@ -36,6 +38,7 @@ def render_price_decision(
     bankroll_key: str = "shared_bet_finder_bankroll",
     price_source: str = "N1Bet",
     save_source: Optional[str] = None,
+    live_price: bool = False,
 ) -> Optional[PriceDecision]:
     """Render one exact candidate and require a fresh manual bookmaker price."""
     selection = candidate.selection or "keine Auswahl"
@@ -85,13 +88,41 @@ def render_price_decision(
                     st.write(f"- {reason}")
         return None
 
+    odds_widget_key = f"bet_odds_{key}"
+    import_target = N1ImportTarget(
+        key=f"candidate:{key}",
+        sport=candidate.sport,
+        event_name=candidate.event_label,
+        market=candidate.market,
+        selection=candidate.selection or "",
+        participants=split_event_participants(candidate.event_label),
+        line=candidate.line,
+        live=live_price,
+    )
+    import_matches = render_n1_import_sync(
+        (
+            N1WidgetBinding(
+                target=import_target,
+                widget_key=odds_widget_key,
+                value_kind="text",
+            ),
+        ),
+        key=f"price_{key}",
+    )
+    imported_match = import_matches.get(import_target.key)
+    if imported_match is not None:
+        st.caption(
+            f"Automatisch erkannt: N1Bet {imported_match.quote.decimal_odds:.2f} | "
+            f"{imported_match.quote.captured_at.astimezone():%H:%M:%S}"
+        )
+
     with st.form(f"bet_price_{key}", border=False):
         price_column, bankroll_column = st.columns(2)
         with price_column:
             raw_odds = st.text_input(
                 f"{price_source}-Quote für {candidate.selection}",
                 placeholder="z. B. 1,95",
-                key=f"bet_odds_{key}",
+                key=odds_widget_key,
             )
         with bankroll_column:
             bankroll = st.number_input(
@@ -127,7 +158,11 @@ def render_price_decision(
                     scope_id=scan_jobs.session_scope(st.session_state)
                 )
                 if decision.status in {"BET", "SHADOW"}:
-                    store.save_decision(decision, source=save_source)
+                    decision_source = save_source
+                    if imported_match is not None and decision.quoted_odds is not None:
+                        if abs(decision.quoted_odds - imported_match.quote.decimal_odds) < 1e-9:
+                            decision_source = f"{save_source} / N1Bet Browser-Import"
+                    store.save_decision(decision, source=decision_source)
                     st.toast("Unter Meine Tipps gespeichert.")
                 elif decision.quoted_odds is not None:
                     store.archive_candidate(

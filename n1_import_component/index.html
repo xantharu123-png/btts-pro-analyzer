@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BetBoy N1Bet Bridge</title>
+</head>
+<body>
+<script>
+(() => {
+  "use strict";
+
+  const CHANNEL = "BETBOY_N1_IMPORT";
+  let args = {};
+  let lastRequestFingerprint = "";
+  let responseTimer = null;
+
+  function streamlitMessage(type, extra = {}) {
+    window.parent.postMessage({
+      isStreamlitMessage: true,
+      type,
+      ...extra,
+    }, "*");
+  }
+
+  function setValue(value) {
+    streamlitMessage("streamlit:setComponentValue", { value });
+  }
+
+  function requestSnapshot(force) {
+    const fingerprint = JSON.stringify([
+      Number(args.syncNonce || 0),
+      Boolean(args.forceSync),
+      String(args.lastSeen || ""),
+      (args.targets || []).map((target) => target.key),
+    ]);
+    if (fingerprint === lastRequestFingerprint) return;
+    lastRequestFingerprint = fingerprint;
+    const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    window.parent.postMessage({
+      channel: CHANNEL,
+      type: "SNAPSHOT_REQUEST",
+      requestId,
+      force: Boolean(force),
+      targets: Array.isArray(args.targets) ? args.targets : [],
+    }, "*");
+
+    if (responseTimer) window.clearTimeout(responseTimer);
+    if (force) {
+      responseTimer = window.setTimeout(() => {
+        setValue({ status: "NO_EXTENSION", requestId });
+      }, 1400);
+    }
+  }
+
+  window.addEventListener("message", (event) => {
+    const message = event.data || {};
+    if (message.isStreamlitMessage && message.type === "streamlit:render") {
+      args = message.args || {};
+      streamlitMessage("streamlit:setFrameHeight", { height: 0 });
+      requestSnapshot(Boolean(args.forceSync));
+      return;
+    }
+    if (message.channel !== CHANNEL || message.type !== "SNAPSHOT_RESPONSE") return;
+    if (responseTimer) window.clearTimeout(responseTimer);
+    const snapshot = message.snapshot;
+    if (!snapshot || typeof snapshot !== "object") {
+      setValue({ status: "EMPTY", requestId: message.requestId || "" });
+      return;
+    }
+    if (
+      snapshot.capturedAt === String(args.lastSeen || "")
+      && !message.force
+    ) return;
+    setValue({
+      status: "OK",
+      requestId: message.requestId || "",
+      syncNonce: Number(args.syncNonce || 0),
+      snapshot,
+    });
+  });
+
+  streamlitMessage("streamlit:componentReady", { apiVersion: 1 });
+  streamlitMessage("streamlit:setFrameHeight", { height: 0 });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "BetBoy N1Bet Importer",
+  "version": "1.0.0",
+  "description": "Uebertraegt sichtbare N1Bet-Quoten lokal und eindeutig an BetBoy.",
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://n1bet.com/*",
+    "https://*.n1bet.com/*",
+    "https://vps-a30a123f.vps.ovh.net/*",
+    "https://btts-pro-analyzer-atnoeulcg3jzwkghckhbth.streamlit.app/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "BetBoy N1Bet Importer",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://n1bet.com/*",
+        "https://*.n1bet.com/*"
+      ],
+      "js": [
+        "shared.js",
+        "n1bet-content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://vps-a30a123f.vps.ovh.net/*",
+        "https://btts-pro-analyzer-atnoeulcg3jzwkghckhbth.streamlit.app/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "betboy-content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
