@@ -9,10 +9,12 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from challenge_15k import (
+    CHALLENGE_SPORT_OPTIONS,
     ChallengeDataProvider,
     MAX_DISCOVERY_MARKETS_PER_FIXTURE,
     MAX_SCAN_FIXTURES,
     _auto_recheck_scope_allowed,
+    _challenge_sports_for_selection,
     _discovery_candidate_pool,
     _league_season_segments,
     _recommendation_day_label,
@@ -140,6 +142,22 @@ def confirmed_lineups(home_team_id=10, away_team_id=11):
 
 
 class ChallengeProbabilityTests(unittest.TestCase):
+    def test_challenge_sport_dropdown_offers_all_shared_sports(self):
+        self.assertEqual(
+            CHALLENGE_SPORT_OPTIONS,
+            (
+                "Alle",
+                "Fußball",
+                "Tennis",
+                "Basketball",
+                "Eishockey",
+                "Cricket",
+                "E-Sport",
+            ),
+        )
+        self.assertEqual(_challenge_sports_for_selection("Alle"), ("Fußball",))
+        self.assertEqual(_challenge_sports_for_selection("Tennis"), ())
+
     def test_daily_discovery_pool_limits_markets_per_fixture(self):
         fixture_one = [
             candidate(

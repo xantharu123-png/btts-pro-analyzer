@@ -81,6 +81,7 @@ def test_shared_finder_offers_every_sport_a_fourteen_day_horizon():
     }
     assert app.FOOTBALL_SEARCH_HORIZONS is app.SEARCH_HORIZONS
     assert set(app.FINDER_SPORT_OPTIONS) == {
+        "Alle",
         "Fußball",
         "Tennis",
         "Basketball",
@@ -88,6 +89,30 @@ def test_shared_finder_offers_every_sport_a_fourteen_day_horizon():
         "Cricket",
         "E-Sport",
     }
+
+
+def test_all_finder_selection_expands_to_every_sport_once():
+    assert app._finder_sports_for_selection("Alle") == app.FINDER_SINGLE_SPORT_OPTIONS
+    assert app._finder_sports_for_selection("Tennis") == ("Tennis",)
+    assert len(set(app._finder_sports_for_selection("Alle"))) == 6
+
+    with pytest.raises(ValueError, match="Unbekannte Sportart"):
+        app._finder_sports_for_selection("Curling")
+
+
+def test_multi_sport_jobs_are_isolated_per_sport():
+    names = {app._multi_sport_job_name(sport) for sport in app.MULTI_SPORT_OPTIONS}
+
+    assert len(names) == len(app.MULTI_SPORT_OPTIONS)
+    assert "multi_sport_basketball" in names
+    assert "multi_sport_esport" in names
+
+
+def test_all_sports_ui_keeps_multi_sport_widget_keys_isolated():
+    source = Path(app.__file__).read_text(encoding="utf-8")
+
+    assert 'key=f"run_multi_sport_{sport_key}"' in source
+    assert 'bankroll_key=f"multi_sport_bankroll_{sport_key}"' in source
 
 
 def test_multi_sport_window_rejects_reverse_and_overlong_ranges():

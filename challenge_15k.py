@@ -77,6 +77,16 @@ CHALLENGE_SNAPSHOT_VERSION = 8
 CHALLENGE_WORKSPACE_VERSION = 6
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
+CHALLENGE_SPORT_OPTIONS = (
+    "Alle",
+    "Fußball",
+    "Tennis",
+    "Basketball",
+    "Eishockey",
+    "Cricket",
+    "E-Sport",
+)
+CHALLENGE_ENABLED_SPORTS = ("Fußball",)
 API_TAIL_DAYS = 7  # Frische-Tail: API-FT-Ergebnisse über die CSV-Historie legen
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
 MAX_CONTEXT_FIXTURES = 20
@@ -390,6 +400,14 @@ def _segmented(label: str, options: list[str], key: str, default: str) -> str:
         return value or default
     index = None if key in st.session_state else options.index(default)
     return st.radio(label, options, index=index, horizontal=True, key=key) or default
+
+
+def _challenge_sports_for_selection(sport: str) -> tuple[str, ...]:
+    if sport == "Alle":
+        return CHALLENGE_ENABLED_SPORTS
+    if sport not in CHALLENGE_SPORT_OPTIONS:
+        raise ValueError(f"Unbekannte Sportart: {sport}")
+    return (sport,) if sport in CHALLENGE_ENABLED_SPORTS else ()
 
 
 def _format_time(value: Optional[str]) -> str:
@@ -3044,8 +3062,14 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         "N1Bet-Preischeck."
     )
 
-    controls = st.columns(2)
+    controls = st.columns(3)
     with controls[0]:
+        sport_scope = st.selectbox(
+            "Sport",
+            list(CHALLENGE_SPORT_OPTIONS),
+            key="challenge_sport",
+        )
+    with controls[1]:
         date_mode = _segmented(
             "Spieltag",
             ["Heute", "Morgen"],
@@ -3062,10 +3086,20 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     # über MAX_CONTEXT_FIXTURES gedeckelt; MAX_SCAN_FIXTURES ist nur das
     # technische Sicherheitsventil.
     max_fixtures = MAX_SCAN_FIXTURES
-    controls[1].caption(
+    controls[2].caption(
         "Alle Spiele der gewählten Ligen werden modelliert; "
         "H2H, Ausfälle und Wetter für die besten 20 Spiele geprüft."
     )
+
+    enabled_sports = _challenge_sports_for_selection(sport_scope)
+    if not enabled_sports:
+        st.info(
+            f"{sport_scope} ist im Wettfinder verfügbar, besitzt aber noch "
+            "kein freigegebenes 15K-Ticketmodell."
+        )
+        return
+    if sport_scope == "Alle":
+        st.caption("Aktuell 15K-fähig: Fußball.")
 
     available_ids = list(ALTERNATIVE_MARKET_LEAGUES)
     favorites = [league_id for league_id in DEFAULT_CHALLENGE_LEAGUES if league_id in available_ids]

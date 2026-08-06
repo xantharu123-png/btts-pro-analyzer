@@ -410,6 +410,9 @@ Mindestquote = (1 + 0,03) / konservatives p
   Basketball, Eishockey, Cricket und E-Sport teilen `Heute`, `3 Tage voraus`,
   `7 Tage voraus` und `14 Tage voraus`; sieben Tage sind der Standard.
   Sportartspezifische Felder erscheinen erst danach und bleiben flach.
+- Die Sportauswahl `Alle` öffnet im Wettfinder alle sechs bestehenden Finder
+  in einer einzigen Tab-Ebene. Multi-Sport-Buttons, Hintergrundjobs,
+  Guthabenfelder und Ergebnisse sind dabei pro Sportart isoliert.
 - Die Fußball-Wettarten `Beste Märkte`, `Ergebnis`, `Tore`, `Beide treffen`,
   `Ecken` und `Karten` filtern den vollständigen Kandidatenpool vor der
   Kontext-Shortlist. Es handelt sich nicht nur um einen Anzeige-Filter auf
@@ -424,6 +427,10 @@ Mindestquote = (1 + 0,03) / konservatives p
   nicht. 15K- und Tennis-Verläufe sind im selben Bereich erreichbar.
 - Die 15K-Seite enthält keinen verschachtelten Bereichsschalter mehr;
   Verlauf liegt unter `Meine Tipps`, Kontoeinstellungen hinter dem Zahnrad.
+- Die 15K-Sportauswahl enthält ebenfalls `Alle` und dieselben sechs
+  Sportarten. `Alle` bedeutet dort strikt alle Modelle, die den vollständigen
+  15K-Ticketvertrag erfüllen; aktuell ist das nur Fußball. Nicht freigegebene
+  Sportarten erzeugen keine ersatzweisen oder versteckten Fußballtipps.
 - Der aktive Bereich bleibt sichtbar.
 - Material-Icons ersetzen uneinheitliche Emoji-Navigation.
 - Genügend Bottom-Padding verhindert die Überlagerung des Inhalts.

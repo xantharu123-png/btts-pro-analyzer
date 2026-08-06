@@ -114,7 +114,17 @@ LEGACY_PAGE_ALIASES = {
 # Seiten mit Hintergrund-Scans: Läuft einer dieser Jobs, dreht in der
 # Sidebar neben dem Seitennamen ein Rädchen (CSS, siehe _scan_spinner_css).
 PAGE_SCAN_JOBS = {
-    "Wettfinder": ("prematch", "markets", "tennis", "multi_sport"),
+    "Wettfinder": (
+        "prematch",
+        "markets",
+        "tennis",
+        "multi_sport",
+        "multi_sport_basketball",
+        "multi_sport_eishockey",
+        "multi_sport_tennis",
+        "multi_sport_cricket",
+        "multi_sport_esport",
+    ),
     "Live": ("live", "red_cards"),
     "15K": ("challenge_15k",),
     "Meine Tipps": (),
@@ -140,7 +150,7 @@ MULTI_SPORT_OPTIONS = (
     "Cricket",
     "E-Sport",
 )
-FINDER_SPORT_OPTIONS = (
+FINDER_SINGLE_SPORT_OPTIONS = (
     "Fußball",
     "Tennis",
     "Basketball",
@@ -148,6 +158,7 @@ FINDER_SPORT_OPTIONS = (
     "Cricket",
     "E-Sport",
 )
+FINDER_SPORT_OPTIONS = ("Alle", *FINDER_SINGLE_SPORT_OPTIONS)
 SEARCH_HORIZONS = {
     "Heute": 0,
     "3 Tage voraus": 3,
@@ -188,6 +199,28 @@ def _session_scope_id() -> str:
 
 def _job_key(name: str) -> str:
     return scan_jobs.scoped_key(name, _session_scope_id())
+
+
+def _finder_sports_for_selection(sport: str) -> tuple[str, ...]:
+    if sport == "Alle":
+        return FINDER_SINGLE_SPORT_OPTIONS
+    if sport not in FINDER_SINGLE_SPORT_OPTIONS:
+        raise ValueError(f"Unbekannte Sportart: {sport}")
+    return (sport,)
+
+
+def _multi_sport_job_name(sport: str) -> str:
+    key_parts = {
+        "Basketball": "basketball",
+        "Eishockey": "eishockey",
+        "Tennis": "tennis",
+        "Cricket": "cricket",
+        "E-Sport": "esport",
+    }
+    try:
+        return f"multi_sport_{key_parts[sport]}"
+    except KeyError as exc:
+        raise ValueError(f"Unbekannte Sportart: {sport}") from exc
 
 
 _ANALYZER_LOCKS_GUARD = threading.Lock()
@@ -3020,13 +3053,15 @@ def render_multi_sport(
         list(MULTI_SPORT_OPTIONS),
         key="multi_sport_selected_sport",
     )
+    job_key = _job_key(_multi_sport_job_name(sport))
+    sport_key = _multi_sport_job_name(sport).removeprefix("multi_sport_")
     detail_filter = None
     filter_options = MULTI_SPORT_FILTER_OPTIONS.get(sport)
     if filter_options:
         detail_filter = st.selectbox(
             "Liga" if sport == "Basketball" else "Spiel",
             list(filter_options),
-            key=f"multi_sport_filter_{sport.lower().replace('-', '_')}",
+            key=f"multi_sport_filter_{sport_key}",
         )
     snapshots = st.session_state.get("multi_sport_snapshots")
     if not isinstance(snapshots, dict):
@@ -3042,21 +3077,21 @@ def render_multi_sport(
         f"{sport}-Wettvorschläge aktualisieren",
         type="primary",
         use_container_width=True,
-        key="run_multi_sport",
+        key=f"run_multi_sport_{sport_key}",
     ):
-        if scan_jobs.get_job(_job_key("multi_sport"))["state"] == "running":
+        if scan_jobs.get_job(job_key)["state"] == "running":
             st.info(f"Der {sport}-Scan läuft bereits im Hintergrund.")
         else:
             scan_jobs.start_job(
-                _job_key("multi_sport"),
+                job_key,
                 _run_multi_sport_worker,
                 args=(sport, detail_filter, start_date, end_date),
             )
 
-    job = scan_jobs.get_job(_job_key("multi_sport"))
+    job = scan_jobs.get_job(job_key)
     if job["state"] == "running":
         scan_progress_fragment(
-            _job_key("multi_sport"),
+            job_key,
             f"{sport}-Scan",
         )
     elif job["state"] == "done":
@@ -3065,10 +3100,10 @@ def render_multi_sport(
         result_snapshot = result.get("snapshot")
         if result_scope and isinstance(result_snapshot, dict):
             snapshots[result_scope] = result_snapshot
-        scan_jobs.clear_job(_job_key("multi_sport"))
+        scan_jobs.clear_job(job_key)
     elif job["state"] == "error":
         st.error(f"{sport}-Suche fehlgeschlagen: {job.get('error')}")
-        scan_jobs.clear_job(_job_key("multi_sport"))
+        scan_jobs.clear_job(job_key)
 
     snapshot = snapshots.get(scope_key)
     if not snapshot:
@@ -3204,7 +3239,7 @@ def render_multi_sport(
     render_price_decision(
         candidate,
         key=f"multi_sport_{scope_key}_{selected_index}_{snapshot_token}",
-        bankroll_key="multi_sport_bankroll",
+        bankroll_key=f"multi_sport_bankroll_{sport_key}",
         save_source=f"{sport} Wettfinder",
     )
 
@@ -3297,6 +3332,32 @@ def _render_automated_daily_selection() -> None:
     )
 
 
+def _render_selected_finder(
+    sport: str,
+    search_date: date,
+    search_end_date: date,
+    football_market_scope: str,
+) -> None:
+    if sport == "Fußball":
+        create_alternative_markets_tab_extended(
+            market_scope=football_market_scope,
+            search_date=search_date,
+            search_end_date=search_end_date,
+            embedded=True,
+        )
+        return
+    if sport == "Tennis":
+        from tennis_tab import render_tennis_finder
+
+        render_tennis_finder(search_date, search_end_date)
+        return
+    render_multi_sport(
+        preselected_sport=sport,
+        search_date=search_date,
+        search_end_date=search_end_date,
+    )
+
+
 def render_wettfinder() -> None:
     """One sport-first entry point for every pre-match finder."""
     _render_automated_daily_selection()
@@ -3307,6 +3368,7 @@ def render_wettfinder() -> None:
         sport = st.selectbox(
             "Sport",
             list(FINDER_SPORT_OPTIONS),
+            index=1,
             key="finder_sport",
         )
 
@@ -3321,30 +3383,35 @@ def render_wettfinder() -> None:
     search_end_date = search_date + timedelta(
         days=SEARCH_HORIZONS[horizon_label]
     )
+    selected_sports = _finder_sports_for_selection(sport)
 
-    if sport == "Fußball":
+    football_market_scope = "Beste Märkte"
+    if "Fußball" in selected_sports:
         with controls[2]:
-            market_scope = st.selectbox(
-                "Wettart",
+            football_market_scope = st.selectbox(
+                "Wettart" if sport == "Fußball" else "Fußball-Wettart",
                 list(_alternative_markets.FOOTBALL_MARKET_SCOPES),
                 key="finder_football_market",
             )
-        create_alternative_markets_tab_extended(
-            market_scope=market_scope,
-            search_date=search_date,
-            search_end_date=search_end_date,
-            embedded=True,
-        )
-    elif sport == "Tennis":
-        from tennis_tab import render_tennis_finder
 
-        render_tennis_finder(search_date, search_end_date)
-    else:
-        render_multi_sport(
-            preselected_sport=sport,
-            search_date=search_date,
-            search_end_date=search_end_date,
-        )
+    if sport == "Alle":
+        sport_tabs = st.tabs(list(selected_sports))
+        for sport_tab, selected_sport in zip(sport_tabs, selected_sports):
+            with sport_tab:
+                _render_selected_finder(
+                    selected_sport,
+                    search_date,
+                    search_end_date,
+                    football_market_scope,
+                )
+        return
+
+    _render_selected_finder(
+        sport,
+        search_date,
+        search_end_date,
+        football_market_scope,
+    )
 
 
 def _render_system_status(analyzer) -> None:
