@@ -9,15 +9,15 @@
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
-| Verifizierter Produktions-Funktionscommit | `91009ef` (`Block impractical short-odds recommendations`) |
-| Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate inklusive Kurzquotenschutz, exaktem Mehrbuchmachervergleich für Fußball, verständlicher Preis-Ablehnungsdiagnose, preisoffener Tennis-/E-Sport-Modellanalyse, automatischem 15K-Tagesticket und strikter Spieltagstrennung |
-| Verifizierter VPS-Funktionsstand | `91009ef`; App aktiv, HTTPS 200, Wettfinder-/Tennis-/E-Sport-Timer aktiv und 0 fehlgeschlagene systemd-Units am 8. August |
+| Verifizierter Produktions-Funktionscommit | `434ba86` (`Persist and settle 15K challenge bankroll`) |
+| Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate inklusive Kurzquotenschutz, exaktem Mehrbuchmachervergleich für Fußball, verständlicher Preis-Ablehnungsdiagnose, preisoffener Tennis-/E-Sport-Modellanalyse sowie persistentem und vollständig abrechenbarem 15K-Konto |
+| Verifizierter VPS-Funktionsstand | `434ba86` enthalten; App aktiv, HTTPS 200, Wettfinder-/Tennis-/E-Sport-Timer aktiv und 0 fehlgeschlagene systemd-Units am 8. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 682 Tests und 5 Subtests bestanden; normale Edge-QA auf Desktop und Smartphone bestanden |
+| Vollständiger Testlauf | 690 Tests und 5 Subtests bestanden; normale Edge-QA auf Desktop und Smartphone bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -495,7 +495,9 @@ als nicht eingebundene Rollback-Historie erhalten.
 - Ein alter Thread kann keinen neueren Lauf mehr überschreiben.
 - Analyzer-Zugriffe aus Hintergrundthreads sind serialisiert.
 - Persistierte Scanner-Signale sind sitzungsgebunden.
-- Die Challenge verwendet pro Browser-Sitzung eine eigene lokale Ledger-Datei.
+- Die Challenge verwendet pro browserstabiler Konto-ID eine eigene lokale
+  Ledger-Datei. Ein Streamlit-Neustart oder neuer Websocket erzeugt dadurch im
+  selben Browser nicht mehr automatisch ein neues 100-Euro-Konto.
 - Jede Einzahlung, Korrektur, Einsatzbuchung und Abrechnung landet in einer
   append-orientierten Transaktionstabelle.
 - Ein Verlust bleibt ein Verlust. Es gibt keinen automatischen Neustart auf
@@ -618,6 +620,8 @@ als nicht eingebundene Rollback-Historie erhalten.
   nicht. 15K- und Tennis-Verläufe sind im selben Bereich erreichbar.
 - Die 15K-Seite enthält keinen verschachtelten Bereichsschalter mehr;
   Verlauf liegt unter `Meine Tipps`, Kontoeinstellungen hinter dem Zahnrad.
+  Eine offene Wette und ihre Ergebniswahl sind zusätzlich direkt auf der
+  15K-Seite sichtbar.
 - Die 15K-Sportauswahl enthält ebenfalls `Alle` und dieselben sechs
   Sportarten. `Alle` bedeutet dort strikt alle Modelle, die den vollständigen
   15K-Ticketvertrag erfüllen; aktuell ist das nur Fußball. Nicht freigegebene
@@ -691,11 +695,13 @@ kanonische SQLite-Ledger im selben Dateisystem. Das ist für den heutigen
 Single-User-Betrieb einfacher und konsistenter als ein vorschneller
 Datenbankumbau.
 
-Ohne Login existiert weiterhin keine stabile Benutzer-ID. Ein neuer Browser
-kann deshalb eine neue Challenge-Sitzung beginnen. Dauerhafte
-geräteübergreifende Konten benötigen Authentifizierung und ein dazu passendes
-transaktionales Ledger; PostgreSQL ist dafür eine mögliche spätere Umsetzung,
-aber kein Selbstzweck.
+Ohne Login existiert weiterhin keine geräteübergreifende Benutzer-ID. Die App
+erzeugt deshalb lokal im Browser eine zufällige 128-Bit-Konto-ID und verwendet
+sie nach Browser- und App-Neustarts erneut. Ein anderes Gerät, ein anderer
+Browser oder gelöschte Website-Daten beginnen weiterhin mit einem neuen Konto.
+Dauerhafte geräteübergreifende Konten benötigen Authentifizierung und ein dazu
+passendes transaktionales Ledger; PostgreSQL ist dafür eine mögliche spätere
+Umsetzung, aber kein Selbstzweck.
 
 ## 6. Wettmathematik
 
@@ -1217,9 +1223,40 @@ Verbindlicher Abdeckungsabgleich und letzter Quotenpfad am 8. August 2026:
   und dem produktionsgleichen Tennis-Policy-Replay identisch umgesetzt. Neue
   Policy- und Snapshot-Versionen verwerfen alte, inkompatible Empfehlungen und
   erzwingen im VPS-Lauf einen frischen Tagespool.
-- 682 Tests und 5 Subtests bestehen. Normales Microsoft Edge bestand erneut
+- 690 Tests und 5 Subtests bestehen. Normales Microsoft Edge bestand erneut
   1440 x 1000 und 390 x 844 mit allen sechs Tabs, korrekter Preisdiagnose,
   null horizontalem Überlauf und null Konsolenfehler.
+
+### 15K-Konto- und Abrechnungsreparatur vom 8. August 2026
+
+- Ursache des wiederholten 100-Euro-Stands war kein Rechenfehler im
+  Auszahlungsledger, sondern die zufällige Streamlit-Sitzung als Konto-ID. Jede
+  neue Sitzung zeigte deshalb eine andere leere Ledger-Datei. Der Speicher-Scope
+  kommt nun aus einer zufälligen browserlokalen 128-Bit-ID; Job-Scopes bleiben
+  weiterhin bewusst sitzungsspezifisch.
+- Beim offiziellen 15K-Tagestipp werden vor dem Speichern der tatsächlich
+  gespielte Einsatz und die tatsächliche Gesamtquote erfasst. Der Einsatz wird
+  sofort centgenau abgezogen. Ein Gewinn bucht `Einsatz × Gesamtquote`, ein
+  Verlust keine Auszahlung und ein Storno den Einsatz zurück.
+- Offene 15K-Wetten zeigen Auswahl, Einsatz, Quote und mögliche Auszahlung
+  direkt auf der 15K-Seite. `Gewonnen`, `Verloren` und `Storniert` werden dort
+  gewählt und mit `Ergebnis verbuchen` abgeschlossen; der Umweg über einen
+  versteckten Verlauf ist nicht mehr nötig.
+- Eine bereits gespielte, zuvor nicht gespeicherte Wette kann mit Datum,
+  Beschreibung, Einsatz, tatsächlicher Quote und Ergebnis nachgetragen werden.
+  Sie aktualisiert dasselbe Transaktionsledger, bleibt aber sichtbar als
+  `Nachgetragen` markiert und wird nicht als Modellnachweis ausgegeben.
+- Das Schema migriert bestehende Ledger automatisch um `played_odds` und
+  `entry_source`. Die tatsächliche Quote steuert die Auszahlung, während die
+  ursprüngliche Referenzquote getrennt erhalten bleibt.
+- Die Streamlit-1.59-Komponentenbrücke akzeptiert den aktuellen Rendervertrag,
+  bei dem Parent-Nachrichten kein `isStreamlitMessage`-Flag mehr tragen. Das
+  repariert neben der Konto-ID auch den vorhandenen N1-Import-Handshake.
+- 690 Tests und 5 Subtests bestehen. Normales Microsoft Edge verifizierte
+  25,00 Euro Einsatz bei Quote 2,40 als Guthabenpfad 100,00 → 135,00 Euro,
+  denselben Stand nach vollständigem Browser-Neustart, die direkte Abrechnung
+  einer offenen Wette sowie 390 × 844 ohne horizontalen Überlauf oder
+  Konsolenfehler.
 
 ## 12. Offene Prioritäten
 
@@ -1229,7 +1266,9 @@ Verbindlicher Abdeckungsabgleich und letzter Quotenpfad am 8. August 2026:
 2. Unabhängiges Offsite-/OVH-Backup aktivieren, den Preisledger-Kopf-Hash
    extern verankern und einen Wiederanlauf nach vollständigem VPS-Verlust
    testen.
-3. Authentifizierung und stabile `user_id` für Konten und Ledger einführen.
+3. Authentifizierung und eine geräteübergreifend stabile `user_id` für Konten
+   und Ledger einführen. Die heutige Browser-ID löst Neustarts auf demselben
+   Gerät, ersetzt aber kein Login.
 4. Die Regeln des tatsächlich verwendeten Anbieters für Void, Verlängerung,
    Early Payout und Marktlinien schriftlich gegen die Settlement-
    Implementierung prüfen. Der Referenzfeed ersetzt diese Regelprüfung nicht.
@@ -1294,7 +1333,7 @@ URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
-Verifizierter Funktionscommit: 91009ef
+Verifizierter Funktionscommit: 434ba86
 ```
 
 Update nach einem Push:
