@@ -3,10 +3,10 @@
 One broad football discovery scans every configured league once per target
 date. Later timer wake-ups never repeat that league scan: they refresh only
 persisted candidate fixtures inside the pre-match context window. Tennis and
-E-sport reuse their own daily persisted model runs. The public artifact keeps
-at most three probability-ranked candidates for exactly one local match day.
-Football prices are attached only afterwards from exact multi-bookmaker
-markets; a missing price never changes the model selection.
+E-sport reuse their own daily persisted model runs as internal evidence. The
+public artifact keeps at most three recommendations for exactly one local
+match day, and only after an exact multi-bookmaker price passes the final
+price gate.
 """
 
 from __future__ import annotations
@@ -55,6 +55,7 @@ ZURICH_TZ = ZoneInfo("Europe/Zurich")
 AUTOMATION_VERSION = AUTOMATED_WETTFINDER_VERSION
 SELECTION_POLICY_VERSION = AUTOMATED_SELECTION_POLICY_VERSION
 MAX_AUTOMATIC_CANDIDATES = 3
+MAX_AUTOMATIC_PRICE_CHECKS = 10
 TOMORROW_SCAN_HOUR = 23
 ERROR_RETRY = timedelta(hours=2)
 FOOTBALL_CONTEXT_WINDOW = timedelta(hours=2)
@@ -860,7 +861,7 @@ def run_wettfinder(
         (
             "esports",
             esports_loader,
-            {"now": current, "require_released": False},
+            {"now": current, "require_released": True},
         ),
     ):
         try:
@@ -895,10 +896,17 @@ def run_wettfinder(
         "candidate_count": 0,
     }
 
-    candidates = select_candidates(source_rows, now=current)
     football_price_rows = [
         row
-        for row in candidates
+        for row in select_candidates(
+            (
+                row
+                for row in source_rows
+                if row.get("source") == "football_challenge"
+            ),
+            now=current,
+            limit=MAX_AUTOMATIC_PRICE_CHECKS,
+        )
         if row.get("source") == "football_challenge"
         and isinstance(row.get("fixture_id"), int)
         and str(row.get("market_key") or "").strip()
@@ -920,21 +928,48 @@ def run_wettfinder(
                 )
         except Exception as exc:
             quote_errors = [f"{type(exc).__name__}: {exc}"[:500]]
-    for row in candidates:
+    price_status_counts: dict[str, int] = {}
+    playable_rows: list[dict[str, Any]] = []
+    for row in football_price_rows:
         candidate_id = str(row.get("candidate_id") or "")
         quote = reference_quotes.get(candidate_id)
         if quote is None:
-            row["reference_price_status"] = "UNAVAILABLE"
+            status_code = "UNAVAILABLE"
+            row["reference_price_status"] = status_code
+            price_status_counts[status_code] = (
+                price_status_counts.get(status_code, 0) + 1
+            )
             continue
         row["reference_quote"] = quote.to_dict()
-        row["reference_price_status"] = reference_price_status(
+        status_code = reference_price_status(
             quote,
             row.get("minimum_odds"),
             now=current,
         ).code
+        row["reference_price_status"] = status_code
+        price_status_counts[status_code] = (
+            price_status_counts.get(status_code, 0) + 1
+        )
+        if status_code == "PLAYABLE":
+            playable_rows.append(row)
+
+    candidates = select_candidates(
+        playable_rows,
+        now=current,
+        limit=MAX_AUTOMATIC_CANDIDATES,
+    )
+    for row in candidates:
+        row["status"] = "RECOMMENDED"
     if isinstance(source_status.get("football"), dict):
         source_status["football"]["reference_quote_count"] = len(
             reference_quotes
+        )
+        source_status["football"]["price_checked_count"] = len(
+            football_price_rows
+        )
+        source_status["football"]["price_status_counts"] = price_status_counts
+        source_status["football"]["published_recommendation_count"] = len(
+            candidates
         )
         source_status["football"]["quote_errors"] = quote_errors[:10]
     document = {
@@ -942,8 +977,8 @@ def run_wettfinder(
         "generated_at": current.isoformat(),
         "betting_policy_version": BETTING_POLICY_VERSION,
         "selection_policy_version": SELECTION_POLICY_VERSION,
-        "bookmaker_data_used": bool(reference_quotes),
-        "quote_required": False,
+        "bookmaker_data_used": bool(candidates),
+        "quote_required": True,
         "target_search_date": target.isoformat(),
         "football": football_state,
         "sources": source_status,

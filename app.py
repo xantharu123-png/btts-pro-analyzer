@@ -3266,11 +3266,7 @@ def _automated_signal_candidate(signal: ModelSignal) -> RecommendationCandidate:
         expected_total=None,
         evidence=(
             signal.detail,
-            (
-                "Automatischer Mehrbuchmachervergleich liegt vor."
-                if signal.reference_quote is not None
-                else "Konkreter Modelltipp mit ausgewiesener Mindestquote."
-            ),
+            "Automatischer Mehrbuchmachervergleich liegt vor.",
         ),
         blockers=(
             ()
@@ -3317,12 +3313,13 @@ def _render_automated_daily_selection() -> None:
 
     if not signals:
         st.info(
-            f"Für {target_label.lower()} besteht aktuell keine automatische Auswahl, "
-            "die alle Modell- und Datengates erfüllt."
+            f"Für {target_label.lower()} besteht aktuell kein preislich "
+            "freigegebener Tagestipp. Modelle ohne exakten spielbaren "
+            "Marktpreis werden nicht als Empfehlung angezeigt."
         )
         return
 
-    st.success(f"{len(signals)} automatische Empfehlung(en) verfügbar.")
+    st.success(f"{len(signals)} preislich freigegebene Tagestipps verfügbar.")
     for index, selected in enumerate(signals, start=1):
         st.markdown(f"### Tagestipp {index}")
         render_price_decision(

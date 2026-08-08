@@ -22,7 +22,7 @@ from typing import List, Optional, Union
 from zoneinfo import ZoneInfo
 
 from betting_math import BETTING_POLICY_VERSION, minimum_acceptable_odds
-from market_consensus import MarketConsensus
+from market_consensus import MarketConsensus, reference_price_status
 from scan_jobs import JOBS_DIR, load_persisted
 from tennis.predict import WINNER_PROBABILITY_HAIRCUT
 from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION
@@ -35,8 +35,8 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 4
-AUTOMATED_SELECTION_POLICY_VERSION = "daily-discovery-context-refresh-v4"
+AUTOMATED_WETTFINDER_VERSION = 5
+AUTOMATED_SELECTION_POLICY_VERSION = "price-gated-daily-recommendations-v5"
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 AUTOMATED_TOMORROW_SCAN_HOUR = 23
 
@@ -540,7 +540,7 @@ def _load_automated_wettfinder_document(
         or document.get("selection_policy_version")
         != AUTOMATED_SELECTION_POLICY_VERSION
         or not isinstance(document.get("bookmaker_data_used"), bool)
-        or document.get("quote_required") is not False
+        or document.get("quote_required") is not True
     ):
         return None
     generated = _parse_iso(document.get("generated_at"))
@@ -563,12 +563,29 @@ def _load_automated_wettfinder_document(
     )
     if target != expected_target:
         return None
-    has_reference_quote = any(
-        isinstance(row, dict) and row.get("reference_quote") is not None
-        for row in candidates
-    )
-    if document["bookmaker_data_used"] is not has_reference_quote:
+    if document["bookmaker_data_used"] is not bool(candidates):
         return None
+    for row in candidates:
+        if (
+            not isinstance(row, dict)
+            or row.get("status") != "RECOMMENDED"
+            or row.get("reference_price_status") != "PLAYABLE"
+        ):
+            return None
+        quote = MarketConsensus.from_dict(row.get("reference_quote"))
+        candidate_id = str(row.get("candidate_id") or "").strip()
+        if (
+            quote is None
+            or not candidate_id
+            or quote.candidate_id != candidate_id
+            or reference_price_status(
+                quote,
+                row.get("minimum_odds"),
+                now=current,
+            ).code
+            != "PLAYABLE"
+        ):
+            return None
     return document, generated, candidates
 
 
@@ -652,7 +669,7 @@ def automated_wettfinder_signals(
     for row in candidates:
         if (
             not isinstance(row, dict)
-            or row.get("status") != "PRICE_REQUIRED"
+            or row.get("status") != "RECOMMENDED"
             or any(
                 field in row
                 for field in ("offered_odds", "bookmaker_odds", "n1bet_odds")
@@ -691,14 +708,17 @@ def automated_wettfinder_signals(
         event_label = str(row.get("event") or "").strip() or label
         market = str(row.get("market") or "").strip() or "Auswahl"
         selection = str(row.get("selection") or "").strip() or label
-        reference_payload = row.get("reference_quote")
-        reference_quote = MarketConsensus.from_dict(reference_payload)
-        if reference_payload is not None and reference_quote is None:
+        reference_quote = MarketConsensus.from_dict(row.get("reference_quote"))
+        if reference_quote is None:
             continue
         candidate_id = str(row.get("candidate_id") or "").strip()
-        if reference_quote is not None and (
-            not candidate_id or reference_quote.candidate_id != candidate_id
-        ):
+        if not candidate_id or reference_quote.candidate_id != candidate_id:
+            continue
+        if reference_price_status(
+            reference_quote,
+            float(supplied_minimum),
+            now=current,
+        ).code != "PLAYABLE":
             continue
         stage = str(row.get("evidence_stage") or "").upper()
         policy = str(row.get("policy_version") or "").strip()
@@ -728,11 +748,7 @@ def automated_wettfinder_signals(
                     event_label=event_label,
                     market=market,
                     selection=selection,
-                    reference_quote=(
-                        reference_quote.to_dict()
-                        if reference_quote is not None
-                        else None
-                    ),
+                    reference_quote=reference_quote.to_dict(),
                 )
             )
         except ValueError:

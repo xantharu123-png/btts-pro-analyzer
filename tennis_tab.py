@@ -634,8 +634,9 @@ def _render_match_card(row: dict) -> None:
             if likely_minimum is not None
             else "nicht belastbar"
         )
-        st.success(
-            f"TENNIS-TIPP: Sieg {likely_player} | nur ab Quote {minimum_text}"
+        st.info(
+            f"MODELLANALYSE: {likely_player} ist wahrscheinlicher. "
+            "Noch keine Wettfreigabe ohne bestätigten Marktpreis."
         )
         metrics = st.columns(3)
         metrics[0].metric("Modell", f"{likely_probability:.1%}")
@@ -643,8 +644,8 @@ def _render_match_card(row: dict) -> None:
         metrics[2].metric("Mindestquote", minimum_text)
         st.caption(
             "Der Tennis-Datenfeed liefert derzeit keine belastbare automatische "
-            "Mehrbuchmacherquote. Die konkrete Auswahl bleibt sichtbar; der "
-            "angebotene Preis muss mindestens die Mindestquote erreichen."
+            "Mehrbuchmacherquote. Die Mindestquote ist deshalb nur die Schwelle "
+            "für eine spätere Preisprüfung und ausdrücklich noch kein Tipp."
         )
 
         odds_a_key = f"odds_a_{row['id']}"

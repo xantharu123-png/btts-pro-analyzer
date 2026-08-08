@@ -106,14 +106,14 @@ def _render_reference_price(
         )
     elif status.code == "BORDERLINE" and quote is not None:
         st.warning(
-            f"TIPP: {candidate.selection} | Preis knapp. Marktmedian "
-            f"{quote.consensus_odds:.2f}; Mindestquote "
-            f"{candidate.minimum_odds:.2f}."
+            f"KEINE WETTE: {candidate.selection} | Nur einzelne Anbieter "
+            f"erreichen {candidate.minimum_odds:.2f}; der konservative "
+            f"Marktpreis bestätigt die Auswahl nicht."
         )
     elif status.code == "TOO_LOW" and quote is not None:
         st.warning(
-            f"MODELLTIPP: {candidate.selection} | aktuell nicht preislich "
-            f"spielbar. Bestpreis {quote.best_odds:.2f}, Mindestquote "
+            f"KEINE WETTE: {candidate.selection} | Bestpreis "
+            f"{quote.best_odds:.2f}, benötigt werden mindestens "
             f"{candidate.minimum_odds:.2f}."
         )
     else:
@@ -124,8 +124,10 @@ def _render_reference_price(
             "INVALID_MINIMUM": "Mindestquote nicht belastbar",
         }.get(status.code, "keine automatische Preisfreigabe")
         st.info(
-            f"MODELLTIPP: {candidate.selection} | nur ab Quote "
-            f"{candidate.minimum_odds:.2f}. {reason}."
+            f"KEINE WETTFREIGABE: Das Modell bevorzugt "
+            f"{candidate.selection}, aber {reason}. Die rechnerische "
+            f"Mindestquote {candidate.minimum_odds:.2f} ist eine "
+            "Prüfschwelle, keine Empfehlung."
         )
 
     if quote is not None:

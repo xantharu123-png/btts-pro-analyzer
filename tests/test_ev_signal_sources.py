@@ -20,6 +20,7 @@ from ev_signal_sources import (
     tennis_model_signals,
     tennis_signals,
 )
+from market_consensus import parse_fixture_consensus
 from tennis.predict import WINNER_PROBABILITY_HAIRCUT
 from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION
 
@@ -42,6 +43,63 @@ CREATE TABLE esports_shadow_predictions (
     hit INTEGER, scheduled_at TEXT, model_version TEXT
 );
 """
+
+
+def _playable_automatic_candidate(
+    *,
+    generated_at: str = "2030-01-01T10:00:00+00:00",
+    scheduled_start: str = "2030-01-01T15:00:00+00:00",
+    odds: tuple[str, ...] = ("2.00", "2.02", "2.04", "2.06"),
+) -> dict:
+    candidate = {
+        "candidate_id": "1:BTTS_YES",
+        "fixture_id": 1,
+        "market_key": "BTTS_YES",
+        "key": "football-auto-1",
+        "label": "Fußball - A vs B - Beide Teams treffen: Ja",
+        "sport": "Fussball",
+        "event": "A vs B",
+        "market": "Beide Teams treffen",
+        "selection": "Ja",
+        "probability": 0.60,
+        "probability_haircut": 0.08,
+        "conservative_probability": 0.52,
+        "minimum_odds": 1.99,
+        "evidence_stage": "SHADOW",
+        "policy_version": BETTING_POLICY_VERSION,
+        "scheduled_start": scheduled_start,
+        "status": "RECOMMENDED",
+        "source": "football_challenge",
+        "detail": "Automatisch preisgeprüft",
+        "reference_price_status": "PLAYABLE",
+    }
+    payload = {
+        "response": [
+            {
+                "fixture": {"id": 1},
+                "update": generated_at,
+                "bookmakers": [
+                    {
+                        "name": f"Book {index}",
+                        "bets": [
+                            {
+                                "name": "Both Teams Score",
+                                "values": [{"value": "Yes", "odd": value}],
+                            }
+                        ],
+                    }
+                    for index, value in enumerate(odds, start=1)
+                ],
+            }
+        ]
+    }
+    fetched_at = datetime.fromisoformat(generated_at)
+    candidate["reference_quote"] = parse_fixture_consensus(
+        payload,
+        [candidate],
+        fetched_at=fetched_at,
+    )[candidate["candidate_id"]].to_dict()
+    return candidate
 
 
 def _tennis_db(rows, tmp: Path) -> Path:
@@ -430,8 +488,8 @@ class ListSignalsTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
-            minimum_odds = 1.99
             artifact = tmp / "wettfinder.json"
+            candidate = _playable_automatic_candidate()
             artifact.write_text(
                 json.dumps(
                     {
@@ -439,8 +497,8 @@ class ListSignalsTests(unittest.TestCase):
                         "generated_at": "2030-01-01T10:00:00+00:00",
                         "betting_policy_version": BETTING_POLICY_VERSION,
                         "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
-                        "bookmaker_data_used": False,
-                        "quote_required": False,
+                        "bookmaker_data_used": True,
+                        "quote_required": True,
                         "target_search_date": "2030-01-01",
                         "football": {
                             "status": "completed",
@@ -451,24 +509,7 @@ class ListSignalsTests(unittest.TestCase):
                             "approved_candidates": 1,
                         },
                         "sources": {"football": {"discovery_scope": 51}},
-                        "candidates": [
-                            {
-                                "key": "tennis-auto-1",
-                                "label": "Tennis - A vs B - Sieg A",
-                                "sport": "Tennis",
-                                "event": "A vs B",
-                                "market": "Match Winner",
-                                "selection": "Sieg A",
-                                "probability": 0.60,
-                                "probability_haircut": 0.08,
-                                "minimum_odds": minimum_odds,
-                                "evidence_stage": "SHADOW",
-                                "policy_version": TENNIS_POLICY_VERSION,
-                                "scheduled_start": "2030-01-01T15:00:00+00:00",
-                                "status": "PRICE_REQUIRED",
-                                "detail": "Automatisch verdichtet",
-                            }
-                        ],
+                        "candidates": [candidate],
                     }
                 ),
                 encoding="utf-8",
@@ -486,8 +527,9 @@ class ListSignalsTests(unittest.TestCase):
         self.assertEqual(signals[0].source, "automated_wettfinder")
         self.assertEqual(signals[0].minimum_odds, 1.99)
         self.assertEqual(signals[0].event_label, "A vs B")
-        self.assertEqual(signals[0].market, "Match Winner")
-        self.assertEqual(signals[0].selection, "Sieg A")
+        self.assertEqual(signals[0].market, "Beide Teams treffen")
+        self.assertEqual(signals[0].selection, "Ja")
+        self.assertIsNotNone(signals[0].reference_quote)
         self.assertIsNotNone(status)
         self.assertEqual(status.discovery_scope, 51)
         self.assertEqual(status.fixtures_found, 13)
@@ -507,7 +549,7 @@ class ListSignalsTests(unittest.TestCase):
                         "betting_policy_version": BETTING_POLICY_VERSION,
                         "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
                         "bookmaker_data_used": False,
-                        "quote_required": False,
+                        "quote_required": True,
                         "target_search_date": "2030-01-01",
                         "football": {
                             "status": "completed",
@@ -543,23 +585,10 @@ class ListSignalsTests(unittest.TestCase):
                 "generated_at": "2030-01-01T06:00:00+00:00",
                 "betting_policy_version": BETTING_POLICY_VERSION,
                 "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
-                "bookmaker_data_used": False,
-                "quote_required": False,
+                "bookmaker_data_used": True,
+                "quote_required": True,
                 "target_search_date": "2030-01-01",
-                "candidates": [
-                    {
-                        "key": "tennis-auto-2",
-                        "label": "Tennis - A vs B - Sieg A",
-                        "probability": 0.60,
-                        "probability_haircut": 0.08,
-                        "minimum_odds": 1.99,
-                        "evidence_stage": "SHADOW",
-                        "policy_version": TENNIS_POLICY_VERSION,
-                        "scheduled_start": "2030-01-01T15:00:00+00:00",
-                        "status": "PRICE_REQUIRED",
-                        "detail": "Automatisch verdichtet",
-                    }
-                ],
+                "candidates": [_playable_automatic_candidate()],
             }
             artifact.write_text(json.dumps(document), encoding="utf-8")
             now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
@@ -582,6 +611,40 @@ class ListSignalsTests(unittest.TestCase):
                 "2030-01-01T10:30:00+00:00"
             )
             artifact.write_text(json.dumps(document), encoding="utf-8")
+            self.assertEqual(
+                automated_wettfinder_signals(artifact, now=now),
+                [],
+            )
+
+    def test_automatic_artifact_rejects_missing_or_unplayable_price(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            base = {
+                "version": AUTOMATED_WETTFINDER_VERSION,
+                "generated_at": "2030-01-01T10:00:00+00:00",
+                "betting_policy_version": BETTING_POLICY_VERSION,
+                "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
+                "bookmaker_data_used": True,
+                "quote_required": True,
+                "target_search_date": "2030-01-01",
+            }
+            missing = _playable_automatic_candidate()
+            missing.pop("reference_quote")
+            base["candidates"] = [missing]
+            artifact.write_text(json.dumps(base), encoding="utf-8")
+            now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+            self.assertEqual(
+                automated_wettfinder_signals(artifact, now=now),
+                [],
+            )
+
+            too_low = _playable_automatic_candidate(
+                odds=("1.40", "1.42", "1.44", "1.46")
+            )
+            base["candidates"] = [too_low]
+            artifact.write_text(json.dumps(base), encoding="utf-8")
             self.assertEqual(
                 automated_wettfinder_signals(artifact, now=now),
                 [],

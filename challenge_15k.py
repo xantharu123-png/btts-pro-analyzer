@@ -1338,7 +1338,7 @@ def _run_challenge_scan_worker(
         progress_cb=model_progress if progress_cb else None,
     )
     if progress_cb:
-        progress_cb(0.92, "Marktquoten der Tagesempfehlungen werden verglichen")
+        progress_cb(0.92, "Marktquoten der Modellkandidaten werden verglichen")
     quotes, quote_errors = fetch_football_consensus(
         provider.api_key,
         snapshot.get("shortlist") or [],
@@ -1347,7 +1347,7 @@ def _run_challenge_scan_worker(
     snapshot["quote_errors"] = quote_errors
     snapshot["price_checked_at"] = datetime.now(timezone.utc).isoformat()
     if progress_cb:
-        progress_cb(1.0, "Tagesempfehlungen und Marktpreise sind bereit")
+        progress_cb(1.0, "Modell- und Preisprüfung ist abgeschlossen")
     return snapshot
 
 
@@ -3169,13 +3169,14 @@ def _render_challenge_candidate(
         )
     elif status.code == "BORDERLINE" and quote is not None:
         st.warning(
-            f"TIPP, ABER PREIS KNAPP: Marktmedian {quote.consensus_odds:.2f}; "
-            f"nur einzelne Anbieter erreichen mindestens {candidate.minimum_odds:.2f}."
+            f"KEINE WETTE: Nur einzelne Anbieter erreichen mindestens "
+            f"{candidate.minimum_odds:.2f}; der konservative Preis bestätigt "
+            "die Auswahl nicht."
         )
     elif status.code == "TOO_LOW" and quote is not None:
         st.info(
-            f"MODELLTIPP, DERZEIT NICHT ZU DIESER QUOTE: beste beobachtete "
-            f"Quote {quote.best_odds:.2f}, benötigt werden mindestens "
+            f"KEINE WETTE: Beste beobachtete Quote {quote.best_odds:.2f}, "
+            f"benötigt werden mindestens "
             f"{candidate.minimum_odds:.2f}."
         )
     else:
@@ -3186,7 +3187,8 @@ def _render_challenge_candidate(
             "INVALID_MINIMUM": "Die Mindestquote ist nicht belastbar",
         }.get(status.code, "Keine automatische Preisfreigabe")
         st.info(
-            f"MODELLTIPP: nur ab Quote {candidate.minimum_odds:.2f}. {reason}."
+            f"KEINE WETTFREIGABE: {reason}. Die Mindestquote "
+            f"{candidate.minimum_odds:.2f} ist nur eine Prüfschwelle."
         )
     if quote is not None:
         st.caption(
@@ -3232,11 +3234,11 @@ def _render_price_check(
     reference_quotes = deserialize_consensus_map(snapshot.get("reference_quotes"))
     ticket, statuses = _automatic_challenge_ticket(shortlist, reference_quotes)
 
-    st.subheader("Tagesempfehlungen")
+    st.subheader("Automatische Preisprüfung")
     st.caption(
-        "Das Modell bestimmt zuerst die Auswahl. Danach vergleicht die App "
-        "automatisch exakt passende Quoten mehrerer Buchmacher und verwendet "
-        "für die Entscheidung den konservativen unteren Marktbereich."
+        "Diese Modellkandidaten werden noch nicht als Tipps gewertet. Erst ein "
+        "exakt passender, konservativ spielbarer Mehrbuchmacherpreis kann daraus "
+        "einen 15K-Tagestipp machen."
     )
     preview = snapshot.get("model_ticket") or ()
     if preview:
@@ -3255,8 +3257,8 @@ def _render_price_check(
         )
         if preview_price is not None:
             st.info(
-                f"Quotenfreie Modellkombination: {preview_text} | "
-                f"Mindestquote kombiniert {preview_price:.2f}"
+                f"Quotenfreie Vorfilterung: {preview_text} | rechnerische "
+                f"Prüfschwelle kombiniert {preview_price:.2f}"
             )
 
     if any(
@@ -3286,9 +3288,8 @@ def _render_price_check(
 
     if ticket is None:
         st.warning(
-            "Aus den automatisch verfügbaren Preisen entsteht aktuell kein "
-            "15K-Ticket zwischen Quote 2,00 und 3,00. Die einzelnen "
-            "Modelltipps und ihre Mindestquoten bleiben gültig."
+            "Aktuell gibt es keinen 15K-Tagestipp: Kein automatisch geprüfter "
+            "Preis ergibt ein freigegebenes Ticket zwischen Quote 2,00 und 3,00."
         )
         return
 
