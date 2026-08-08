@@ -35,8 +35,8 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 5
-AUTOMATED_SELECTION_POLICY_VERSION = "price-gated-daily-recommendations-v5"
+AUTOMATED_WETTFINDER_VERSION = 6
+AUTOMATED_SELECTION_POLICY_VERSION = "multi-market-price-gated-recommendations-v6"
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 AUTOMATED_TOMORROW_SCAN_HOUR = 23
 

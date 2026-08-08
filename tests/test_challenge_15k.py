@@ -18,8 +18,10 @@ from challenge_15k import (
     _challenge_sports_for_selection,
     _discovery_candidate_pool,
     _league_season_segments,
+    _price_candidate_pool,
     _recommendation_day_label,
     _render_price_check,
+    _run_challenge_scan_worker,
     _scan_candidate_diagnostics,
     _segmented,
     _shortlist_counts,
@@ -245,6 +247,60 @@ class ChallengeProbabilityTests(unittest.TestCase):
         ]
 
         self.assertEqual(_shortlist_counts(markets), (3, 2))
+
+    def test_price_pool_keeps_alternative_markets_from_one_fixture(self):
+        favorite = candidate("1:RESULT_HOME", 1, 0.73)
+        favorite = replace(
+            favorite,
+            market_key="RESULT_HOME",
+            market="Endergebnis",
+            selection="Home 1",
+        )
+        alternative = candidate("1:TOTAL_UNDER_4_5", 1, 0.69)
+        alternative = replace(
+            alternative,
+            market_key="TOTAL_UNDER_4_5",
+            market="Gesamttore",
+            selection="Unter 4,5",
+        )
+
+        pool = _price_candidate_pool([favorite, alternative])
+
+        self.assertEqual(
+            [item.candidate_id for item in pool],
+            ["1:RESULT_HOME", "1:TOTAL_UNDER_4_5"],
+        )
+        self.assertEqual(len(select_shortlist(pool, max_candidates=3)), 1)
+
+    def test_scan_worker_prices_every_market_in_the_fixture_pool(self):
+        favorite = candidate("1:RESULT_HOME", 1, 0.73)
+        alternative = candidate("1:TOTAL_UNDER_4_5", 1, 0.69)
+        snapshot = {
+            "shortlist": [favorite],
+            "price_candidates": [favorite, alternative],
+        }
+        provider = Mock(api_key="test")
+
+        with (
+            patch("challenge_15k.scan_daily_challenge", return_value=snapshot),
+            patch(
+                "challenge_15k.fetch_football_consensus",
+                return_value=({}, []),
+            ) as fetch_quotes,
+        ):
+            result = _run_challenge_scan_worker(
+                provider,
+                [39],
+                date(2030, 1, 1),
+                20,
+            )
+
+        self.assertEqual(
+            fetch_quotes.call_args.args[1],
+            [favorite, alternative],
+        )
+        self.assertEqual(result["price_checked_markets"], 2)
+        self.assertEqual(result["price_checked_fixtures"], 1)
 
     def test_recommendation_day_label_uses_scanned_date(self):
         today = date(2030, 1, 1)

@@ -22,6 +22,7 @@ from wettfinder_automation import (
     load_state,
     run_wettfinder,
     select_candidates,
+    select_price_check_candidates,
     target_search_date,
 )
 
@@ -269,6 +270,25 @@ def test_selection_never_leaks_tomorrow_into_today_artifact():
     assert [row["key"] for row in selected] == ["today"]
 
 
+def test_price_pool_keeps_multiple_markets_for_the_same_fixture():
+    rows = [
+        _candidate("home-win", probability=0.78, haircut=0.08, event="match-1"),
+        _candidate("under-4-5", probability=0.72, haircut=0.07, event="match-1"),
+        _candidate("other", probability=0.68, haircut=0.07, event="match-2"),
+    ]
+
+    selected = select_price_check_candidates(
+        rows,
+        now=datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
+    )
+
+    assert [row["key"] for row in selected] == [
+        "home-win",
+        "under-4-5",
+        "other",
+    ]
+
+
 def test_football_record_rejects_unvalidated_cross_competition_model():
     candidate = _challenge_candidate(datetime(2030, 1, 1, 15, 0, tzinfo=UTC))
     candidate.context = {"passed": True, "blocked_reasons": []}
@@ -506,6 +526,100 @@ def test_runner_checks_full_football_pool_before_selecting_top_three(tmp_path):
 
     assert checked_ids == [1, 2, 3, 4]
     assert [row["fixture_id"] for row in document["candidates"]] == [4]
+
+
+def test_runner_rejects_only_the_too_cheap_market_not_the_fixture(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    base = _challenge_candidate(now + timedelta(hours=5))
+    home_win = replace(
+        base,
+        candidate_id="fixture-1-home",
+        market_key="RESULT_HOME",
+        market="Endergebnis",
+        selection="FC Alpha",
+        probability=0.82,
+        conservative_probability=0.73,
+        model_price=1.0 / 0.73,
+    )
+    under_goals = replace(
+        base,
+        candidate_id="fixture-1-under-4-5",
+        market_key="TOTAL_UNDER_4_5",
+        market="Gesamttore",
+        selection="Unter 4,5",
+        probability=0.78,
+        conservative_probability=0.69,
+        model_price=1.0 / 0.69,
+    )
+    for item in (home_win, under_goals):
+        item.context = {"passed": True, "blocked_reasons": []}
+
+    def scan(_search_date):
+        return {
+            "scanned_at": now.isoformat(),
+            "fixtures_found": 1,
+            "fixture_kickoffs": [home_win.kickoff],
+            "shortlist": [home_win, under_goals],
+            "errors": [],
+        }
+
+    checked_rows = []
+
+    def quote_loader(rows):
+        checked_rows.extend(rows)
+        payload = {
+            "response": [
+                {
+                    "fixture": {"id": 1},
+                    "update": now.isoformat(),
+                    "bookmakers": [
+                        {
+                            "name": f"Book {index}",
+                            "bets": [
+                                {
+                                    "name": "Match Winner",
+                                    "values": [
+                                        {"value": "Home", "odd": "1.25"}
+                                    ],
+                                },
+                                {
+                                    "name": "Goals Over/Under",
+                                    "values": [
+                                        {"value": "Under 4.5", "odd": "1.80"}
+                                    ],
+                                },
+                            ],
+                        }
+                        for index in range(1, 5)
+                    ],
+                }
+            ]
+        }
+        return parse_fixture_consensus(payload, rows, fetched_at=now), []
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=scan,
+        football_quote_loader=quote_loader,
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    assert [row["candidate_id"] for row in checked_rows] == [
+        "fixture-1-home",
+        "fixture-1-under-4-5",
+    ]
+    assert document["sources"]["football"]["price_checked_count"] == 2
+    assert document["sources"]["football"]["price_fixture_count"] == 1
+    assert document["sources"]["football"]["price_status_counts"] == {
+        "TOO_LOW": 1,
+        "PLAYABLE": 1,
+    }
+    assert [row["candidate_id"] for row in document["candidates"]] == [
+        "fixture-1-under-4-5"
+    ]
 
 
 def test_runner_refreshes_only_daily_pool_fixture_without_rescanning(tmp_path):

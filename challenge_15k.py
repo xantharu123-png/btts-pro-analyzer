@@ -36,6 +36,7 @@ from challenge_engine import (
     ValidationMetrics,
     apply_candidate_context,
     build_fixture_candidates,
+    candidate_is_credible,
     consecutive_wins_to_target,
     expected_log_growth,
     extract_lineup_display,
@@ -73,7 +74,7 @@ from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 10
+CHALLENGE_SNAPSHOT_VERSION = 11
 CHALLENGE_WORKSPACE_VERSION = 7
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
@@ -91,6 +92,7 @@ API_TAIL_DAYS = 7  # Frische-Tail: API-FT-Ergebnisse über die CSV-Historie lege
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
 MAX_CONTEXT_FIXTURES = 20
 MAX_DISCOVERY_MARKETS_PER_FIXTURE = 8
+MAX_PRICE_CHECK_FIXTURES = 10
 # Safety-Ventil, kein Modell-Limit: Alle gültigen Provider-Fixtures der
 # gewählten Ligen werden modelliert. Die zusätzlichen Pflichtkontext-Checks
 # bleiben über MAX_CONTEXT_FIXTURES gedeckelt.
@@ -1297,6 +1299,27 @@ def _discovery_candidate_pool(
     return selected
 
 
+def _price_candidate_pool(
+    candidates: list[ChallengeCandidate],
+    *,
+    max_fixtures: int = MAX_PRICE_CHECK_FIXTURES,
+) -> list[ChallengeCandidate]:
+    """Keep several credible markets per fixture until the price gate."""
+    if (
+        isinstance(max_fixtures, bool)
+        or not isinstance(max_fixtures, int)
+        or max_fixtures < 1
+    ):
+        raise ValueError("max_fixtures must be a positive integer")
+    eligible = [
+        candidate
+        for candidate in candidates
+        if candidate_is_credible(candidate)
+    ]
+    fixture_ids = _ranked_fixture_ids(eligible, limit=max_fixtures)
+    return _discovery_candidate_pool(eligible, fixture_ids)
+
+
 def _ranked_fixture_ids(
     candidates: list[ChallengeCandidate],
     *,
@@ -1339,12 +1362,21 @@ def _run_challenge_scan_worker(
     )
     if progress_cb:
         progress_cb(0.92, "Marktquoten der Modellkandidaten werden verglichen")
+    price_candidates = (
+        snapshot.get("price_candidates")
+        or snapshot.get("shortlist")
+        or []
+    )
     quotes, quote_errors = fetch_football_consensus(
         provider.api_key,
-        snapshot.get("shortlist") or [],
+        price_candidates,
     )
     snapshot["reference_quotes"] = serialize_consensus_map(quotes)
     snapshot["quote_errors"] = quote_errors
+    snapshot["price_checked_markets"] = len(price_candidates)
+    snapshot["price_checked_fixtures"] = len(
+        {candidate.fixture_id for candidate in price_candidates}
+    )
     snapshot["price_checked_at"] = datetime.now(timezone.utc).isoformat()
     if progress_cb:
         progress_cb(1.0, "Modell- und Preisprüfung ist abgeschlossen")
@@ -2040,8 +2072,9 @@ def scan_daily_challenge(
         )
         contextualized.append(candidate)
 
-    shortlist = select_shortlist(contextualized, max_candidates=3)
-    model_ticket = select_model_ticket(shortlist)
+    price_candidates = _price_candidate_pool(contextualized)
+    shortlist = select_shortlist(price_candidates, max_candidates=3)
+    model_ticket = select_model_ticket(price_candidates)
     base_shortlist = sorted(base_candidates, key=_candidate_rank, reverse=True)[:10]
     discovery_candidates = _discovery_candidate_pool(
         base_candidates,
@@ -2092,6 +2125,11 @@ def scan_daily_challenge(
         "deferred_context_fixtures": len(deferred_context_fixture_ids),
         "approved_candidates": len(shortlist),
         "shortlist": shortlist,
+        "price_candidates": price_candidates,
+        "price_candidate_count": len(price_candidates),
+        "price_fixture_count": len(
+            {candidate.fixture_id for candidate in price_candidates}
+        ),
         "base_shortlist": base_shortlist,
         "discovery_candidates": discovery_candidates,
         "model_ticket": model_ticket,
@@ -2196,10 +2234,8 @@ def refresh_discovered_candidates(
         )
         contextualized.append(candidate)
 
-    shortlist = select_shortlist(
-        contextualized,
-        max_candidates=max_candidates,
-    )
+    price_candidates = _price_candidate_pool(contextualized)
+    shortlist = select_shortlist(price_candidates, max_candidates=max_candidates)
     blocked_counts: dict[str, int] = {}
     for candidate in contextualized:
         reasons = candidate.blocked_reasons or candidate.context.get(
@@ -2212,6 +2248,7 @@ def refresh_discovered_candidates(
         "checked_at": checked_at.isoformat(),
         "fixture_ids": fixture_ids,
         "shortlist": shortlist,
+        "price_candidates": price_candidates,
         "candidates": contextualized,
         "blocked_counts": blocked_counts,
         "errors": list(provider.errors),
@@ -3231,8 +3268,14 @@ def _render_price_check(
             render_football_scan_diagnostics(snapshot, approved_count=0)
         return
 
+    price_candidates: list[ChallengeCandidate] = (
+        snapshot.get("price_candidates") or shortlist
+    )
     reference_quotes = deserialize_consensus_map(snapshot.get("reference_quotes"))
-    ticket, statuses = _automatic_challenge_ticket(shortlist, reference_quotes)
+    ticket, statuses = _automatic_challenge_ticket(
+        price_candidates,
+        reference_quotes,
+    )
 
     st.subheader("Automatische Preisprüfung")
     st.caption(
@@ -3263,7 +3306,7 @@ def _render_price_check(
 
     if any(
         MARKET_BY_KEY[candidate.market_key].kind in COUNT_MARKET_KINDS
-        for candidate in shortlist
+        for candidate in price_candidates
     ):
         st.warning(
             "Bei Ecken und Karten können Abrechnungsregeln zwischen Anbietern "

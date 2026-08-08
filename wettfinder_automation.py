@@ -55,7 +55,8 @@ ZURICH_TZ = ZoneInfo("Europe/Zurich")
 AUTOMATION_VERSION = AUTOMATED_WETTFINDER_VERSION
 SELECTION_POLICY_VERSION = AUTOMATED_SELECTION_POLICY_VERSION
 MAX_AUTOMATIC_CANDIDATES = 3
-MAX_AUTOMATIC_PRICE_CHECKS = 10
+MAX_AUTOMATIC_PRICE_FIXTURES = 10
+MAX_AUTOMATIC_MARKETS_PER_FIXTURE = 8
 TOMORROW_SCAN_HOUR = 23
 ERROR_RETRY = timedelta(hours=2)
 FOOTBALL_CONTEXT_WINDOW = timedelta(hours=2)
@@ -327,14 +328,13 @@ def _signal_record(signal: ModelSignal) -> Optional[dict[str, Any]]:
     }
 
 
-def select_candidates(
+def _ranked_candidates(
     candidates: Iterable[dict[str, Any]],
     *,
     now: Optional[datetime] = None,
     target_date: Optional[date] = None,
-    limit: int = MAX_AUTOMATIC_CANDIDATES,
 ) -> list[dict[str, Any]]:
-    """Select probability-first candidates for exactly one Zurich match day."""
+    """Validate and rank candidates for exactly one Zurich match day."""
     current = _utc(now)
     target = target_date or target_search_date(current)
     stage_rank = {"RELEASED": 2, "SHADOW": 1, "RESEARCH": 0}
@@ -377,6 +377,22 @@ def select_candidates(
             str(row.get("key") or ""),
         )
     )
+    return valid
+
+
+def select_candidates(
+    candidates: Iterable[dict[str, Any]],
+    *,
+    now: Optional[datetime] = None,
+    target_date: Optional[date] = None,
+    limit: int = MAX_AUTOMATIC_CANDIDATES,
+) -> list[dict[str, Any]]:
+    """Select one probability-first market per event after the price gate."""
+    valid = _ranked_candidates(
+        candidates,
+        now=now,
+        target_date=target_date,
+    )
     selected: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
     seen_events: set[str] = set()
@@ -390,6 +406,47 @@ def select_candidates(
         selected.append(row)
         if len(selected) >= limit:
             break
+    return selected
+
+
+def select_price_check_candidates(
+    candidates: Iterable[dict[str, Any]],
+    *,
+    now: Optional[datetime] = None,
+    target_date: Optional[date] = None,
+    max_fixtures: int = MAX_AUTOMATIC_PRICE_FIXTURES,
+    max_markets_per_fixture: int = MAX_AUTOMATIC_MARKETS_PER_FIXTURE,
+) -> list[dict[str, Any]]:
+    """Keep several valid markets per fixture until exact prices are known."""
+    for value, label in (
+        (max_fixtures, "max_fixtures"),
+        (max_markets_per_fixture, "max_markets_per_fixture"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(f"{label} must be a positive integer")
+
+    valid = _ranked_candidates(
+        candidates,
+        now=now,
+        target_date=target_date,
+    )
+    selected: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    fixture_counts: dict[str, int] = {}
+    for row in valid:
+        key = str(row.get("key") or "").strip()
+        fixture = str(row.get("event_identity") or key).strip()
+        if not key or not fixture or key in seen_keys:
+            continue
+        if fixture not in fixture_counts:
+            if len(fixture_counts) >= max_fixtures:
+                continue
+            fixture_counts[fixture] = 0
+        if fixture_counts[fixture] >= max_markets_per_fixture:
+            continue
+        seen_keys.add(key)
+        fixture_counts[fixture] += 1
+        selected.append(row)
     return selected
 
 
@@ -435,7 +492,11 @@ def _football_state_from_snapshot(
                 candidate,
                 context_checked_at=scanned_at,
             )
-            for candidate in (snapshot.get("shortlist") or [])
+            for candidate in (
+                snapshot.get("price_candidates")
+                or snapshot.get("shortlist")
+                or []
+            )
         )
         if record is not None
     ]
@@ -597,7 +658,12 @@ def _merge_context_refresh(
                 candidate,
                 context_checked_at=checked_at,
             )
-            for candidate in (result.get("shortlist") or [])
+            for candidate in (
+                result.get("price_candidates")
+                or result.get("candidates")
+                or result.get("shortlist")
+                or []
+            )
         )
         if record is not None
     ]
@@ -645,7 +711,7 @@ def _active_football_candidates(
         ):
             continue
         fresh.append(row)
-    return select_candidates(fresh, now=current, limit=10)
+    return select_price_check_candidates(fresh, now=current)
 
 
 def load_state(path: str | Path = STATE_PATH) -> dict[str, Any]:
@@ -896,21 +962,18 @@ def run_wettfinder(
         "candidate_count": 0,
     }
 
-    football_price_rows = [
-        row
-        for row in select_candidates(
-            (
-                row
-                for row in source_rows
-                if row.get("source") == "football_challenge"
-            ),
-            now=current,
-            limit=MAX_AUTOMATIC_PRICE_CHECKS,
-        )
-        if row.get("source") == "football_challenge"
-        and isinstance(row.get("fixture_id"), int)
-        and str(row.get("market_key") or "").strip()
-    ]
+    football_price_rows = select_price_check_candidates(
+        (
+            row
+            for row in source_rows
+            if row.get("source") == "football_challenge"
+            and isinstance(row.get("fixture_id"), int)
+            and not isinstance(row.get("fixture_id"), bool)
+            and row["fixture_id"] > 0
+            and str(row.get("market_key") or "").strip()
+        ),
+        now=current,
+    )
     quote_errors: list[str] = []
     reference_quotes: dict[str, MarketConsensus] = {}
     if football_price_rows:
@@ -966,6 +1029,9 @@ def run_wettfinder(
         )
         source_status["football"]["price_checked_count"] = len(
             football_price_rows
+        )
+        source_status["football"]["price_fixture_count"] = len(
+            {row["fixture_id"] for row in football_price_rows}
         )
         source_status["football"]["price_status_counts"] = price_status_counts
         source_status["football"]["published_recommendation_count"] = len(
