@@ -7,7 +7,7 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-import scan_jobs
+from account_identity import storage_scope
 from tip_store import SavedTip, TipStore
 
 
@@ -46,7 +46,7 @@ def _archive(store: TipStore, tip: SavedTip) -> None:
 
 
 def render_saved_tips() -> None:
-    store = TipStore(scope_id=scan_jobs.session_scope(st.session_state))
+    store = TipStore(scope_id=storage_scope(st.session_state))
     active = store.list_tips(active=True)
     st.subheader("Aktive Tipps")
     if not active:

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>BetBoy Konto-ID</title>
+</head>
+<body>
+<script>
+(() => {
+  "use strict";
+
+  const STORAGE_KEY = "betboy.account.v1";
+
+  function streamlitMessage(type, extra = {}) {
+    window.parent.postMessage({
+      isStreamlitMessage: true,
+      type,
+      ...extra,
+    }, "*");
+  }
+
+  function createId() {
+    const bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  }
+
+  function validId(value) {
+    return typeof value === "string" && /^[a-f0-9]{32}$/.test(value);
+  }
+
+  function accountId() {
+    let value = window.localStorage.getItem(STORAGE_KEY);
+    if (!validId(value)) {
+      value = createId();
+      window.localStorage.setItem(STORAGE_KEY, value);
+    }
+    return value;
+  }
+
+  window.addEventListener("message", (event) => {
+    const message = event.data || {};
+    if (event.source !== window.parent || message.type !== "streamlit:render") return;
+    streamlitMessage("streamlit:setFrameHeight", { height: 0 });
+    streamlitMessage("streamlit:setComponentValue", { value: accountId() });
+  });
+
+  streamlitMessage("streamlit:componentReady", { apiVersion: 1 });
+  streamlitMessage("streamlit:setFrameHeight", { height: 0 });
+})();
+</script>
+</body>
+</html>

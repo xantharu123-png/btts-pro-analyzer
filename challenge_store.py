@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import json
 import math
@@ -142,12 +142,29 @@ class ChallengeLedger:
                     stake_cents INTEGER NOT NULL CHECK (stake_cents > 0),
                     payout_cents INTEGER NOT NULL DEFAULT 0 CHECK (payout_cents >= 0),
                     total_odds REAL NOT NULL CHECK (total_odds > 1),
+                    played_odds REAL CHECK (played_odds IS NULL OR played_odds > 1),
                     joint_probability REAL NOT NULL CHECK (joint_probability >= 0 AND joint_probability <= 1),
                     expected_roi REAL NOT NULL,
-                    legs_json TEXT NOT NULL
+                    legs_json TEXT NOT NULL,
+                    entry_source TEXT NOT NULL DEFAULT 'MODEL'
                 )
                 """
             )
+            ticket_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(challenge_tickets)")
+            }
+            if "played_odds" not in ticket_columns:
+                connection.execute(
+                    "ALTER TABLE challenge_tickets ADD COLUMN played_odds REAL"
+                )
+            if "entry_source" not in ticket_columns:
+                connection.execute(
+                    """
+                    ALTER TABLE challenge_tickets
+                    ADD COLUMN entry_source TEXT NOT NULL DEFAULT 'MODEL'
+                    """
+                )
             connection.execute(
                 """
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_challenge_daily_ticket
@@ -512,6 +529,8 @@ class ChallengeLedger:
         ticket: QuotedTicket,
         stake: Any,
         quote_verified_at: str,
+        *,
+        played_odds: Any | None = None,
     ) -> int:
         stake_cents = _money_to_cents(stake, allow_zero=False)
         if not ticket.legs or len(ticket.legs) > 3:
@@ -625,6 +644,18 @@ class ChallengeLedger:
         if derived_expected_roi < MIN_LEG_EXPECTED_ROI:
             raise ValueError("Ticket expected ROI is below the challenge gate")
 
+        try:
+            actual_total_odds = validate_decimal_odds(
+                derived_total_odds if played_odds is None else played_odds
+            )
+        except BettingMathError as exc:
+            raise ValueError("The played ticket odds are invalid") from exc
+        actual_expected_roi = derived_joint_probability * actual_total_odds - 1.0
+        if not TARGET_ODDS_MIN <= actual_total_odds <= TARGET_ODDS_MAX:
+            raise ValueError("The played ticket odds are outside the challenge corridor")
+        if actual_expected_roi < MIN_LEG_EXPECTED_ROI:
+            raise ValueError("The played ticket odds do not clear the value gate")
+
         fixture_ids = [leg.candidate.fixture_id for leg in ticket.legs]
         if len(set(fixture_ids)) != len(fixture_ids):
             raise ValueError("Ticket legs must use different fixtures")
@@ -686,9 +717,9 @@ class ChallengeLedger:
                     """
                     INSERT INTO challenge_tickets (
                         analysis_date, created_at, quote_verified_at, status,
-                        stake_cents, total_odds, joint_probability,
-                        expected_roi, legs_json
-                    ) VALUES (?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)
+                        stake_cents, total_odds, played_odds, joint_probability,
+                        expected_roi, legs_json, entry_source
+                    ) VALUES (?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, 'MODEL')
                     """,
                     (
                         analysis_date,
@@ -696,6 +727,7 @@ class ChallengeLedger:
                         quote_verified_at,
                         stake_cents,
                         ticket.total_odds,
+                        actual_total_odds,
                         ticket.joint_probability,
                         ticket.expected_roi,
                         legs_json,
@@ -728,6 +760,144 @@ class ChallengeLedger:
                 connection.rollback()
                 raise
 
+    def record_manual_result(
+        self,
+        analysis_date: str,
+        description: str,
+        stake: Any,
+        total_odds: Any,
+        status: str,
+    ) -> int:
+        """Record a real past bet that was not saved before kickoff."""
+        stake_cents = _money_to_cents(stake, allow_zero=False)
+        normalized = str(status).upper()
+        if normalized not in {"WON", "LOST", "VOID"}:
+            raise ValueError("Settlement status must be WON, LOST, or VOID")
+        label = str(description or "").strip()
+        if not label or len(label) > 300:
+            raise ValueError("Description must contain 1 to 300 characters")
+        try:
+            analysis_day = datetime.fromisoformat(str(analysis_date)).date()
+        except (TypeError, ValueError) as exc:
+            raise ValueError("analysis_date must be an ISO calendar date") from exc
+        if str(analysis_day) != str(analysis_date):
+            raise ValueError("analysis_date must be an ISO calendar date")
+        if analysis_day > datetime.now(timezone.utc).date() + timedelta(days=1):
+            raise ValueError("A settled ticket cannot be recorded for a future date")
+        try:
+            actual_total_odds = validate_decimal_odds(total_odds)
+        except BettingMathError as exc:
+            raise ValueError("The played ticket odds are invalid") from exc
+
+        if normalized == "WON":
+            payout_cents = int(
+                (
+                    Decimal(stake_cents) * Decimal(str(actual_total_odds))
+                ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            )
+        elif normalized == "VOID":
+            payout_cents = stake_cents
+        else:
+            payout_cents = 0
+
+        now = datetime.now(timezone.utc).isoformat()
+        legs_json = json.dumps(
+            [{"manual": True, "label": label}],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        with closing(self._connect()) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                pending_count = connection.execute(
+                    "SELECT COUNT(*) FROM challenge_tickets WHERE status = 'PENDING'"
+                ).fetchone()[0]
+                if pending_count:
+                    raise ValueError(
+                        "An open ticket must be settled before a past ticket can be recorded"
+                    )
+                row = connection.execute(
+                    """
+                    SELECT current_balance_cents, stake_fraction_bps
+                    FROM challenge_settings WHERE id = 1
+                    """
+                ).fetchone()
+                if row is None or stake_cents > row["current_balance_cents"]:
+                    raise ValueError("Stake exceeds the available balance")
+                max_stake_cents = (
+                    int(row["current_balance_cents"])
+                    * int(row["stake_fraction_bps"])
+                    // 10_000
+                )
+                if stake_cents > max_stake_cents:
+                    raise ValueError("Stake exceeds the configured challenge limit")
+
+                cursor = connection.execute(
+                    """
+                    INSERT INTO challenge_tickets (
+                        analysis_date, created_at, quote_verified_at, settled_at,
+                        status, stake_cents, payout_cents, total_odds,
+                        played_odds, joint_probability, expected_roi, legs_json,
+                        entry_source
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 'MANUAL')
+                    """,
+                    (
+                        analysis_date,
+                        now,
+                        now,
+                        now,
+                        normalized,
+                        stake_cents,
+                        payout_cents,
+                        actual_total_odds,
+                        actual_total_odds,
+                        legs_json,
+                    ),
+                )
+                ticket_id = int(cursor.lastrowid)
+                balance_after_stake = int(row["current_balance_cents"]) - stake_cents
+                self._record_transaction(
+                    connection,
+                    created_at=now,
+                    kind="STAKE",
+                    amount_cents=-stake_cents,
+                    balance_after_cents=balance_after_stake,
+                    ticket_id=ticket_id,
+                    note=f"Manual ticket #{ticket_id} recorded",
+                )
+                final_balance = balance_after_stake + payout_cents
+                self._record_transaction(
+                    connection,
+                    created_at=now,
+                    kind={
+                        "WON": "PAYOUT",
+                        "LOST": "LOSS_SETTLED",
+                        "VOID": "VOID_REFUND",
+                    }[normalized],
+                    amount_cents=payout_cents,
+                    balance_after_cents=final_balance,
+                    ticket_id=ticket_id,
+                    note=f"Manual ticket #{ticket_id} settled {normalized}",
+                )
+                connection.execute(
+                    """
+                    UPDATE challenge_settings
+                    SET current_balance_cents = ?, updated_at = ?
+                    WHERE id = 1
+                    """,
+                    (final_balance, now),
+                )
+                connection.commit()
+                return ticket_id
+            except sqlite3.IntegrityError as exc:
+                connection.rollback()
+                raise ValueError(
+                    "For this date, a challenge ticket already exists"
+                ) from exc
+            except Exception:
+                connection.rollback()
+                raise
+
     def settle_ticket(self, ticket_id: int, status: str) -> dict[str, Any]:
         ticket_id = _positive_integer(ticket_id, "ticket_id")
         normalized = str(status).upper()
@@ -737,7 +907,10 @@ class ChallengeLedger:
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT status, stake_cents, total_odds FROM challenge_tickets WHERE id = ?",
+                """
+                SELECT status, stake_cents, total_odds, played_odds
+                FROM challenge_tickets WHERE id = ?
+                """,
                 (ticket_id,),
             ).fetchone()
             if row is None:
@@ -751,7 +924,7 @@ class ChallengeLedger:
                 payout_cents = int(
                     (
                         Decimal(row["stake_cents"])
-                        * Decimal(str(row["total_odds"]))
+                        * Decimal(str(row["played_odds"] or row["total_odds"]))
                     ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
                 )
             elif normalized == "VOID":
@@ -805,6 +978,8 @@ class ChallengeLedger:
 
     @staticmethod
     def _row_to_ticket(row: sqlite3.Row) -> dict[str, Any]:
+        reference_odds = float(row["total_odds"])
+        played_odds = float(row["played_odds"] or reference_odds)
         return {
             "id": row["id"],
             "analysis_date": row["analysis_date"],
@@ -814,10 +989,12 @@ class ChallengeLedger:
             "status": row["status"],
             "stake": _cents_to_money(row["stake_cents"]),
             "payout": _cents_to_money(row["payout_cents"]),
-            "total_odds": float(row["total_odds"]),
+            "total_odds": played_odds,
+            "reference_total_odds": reference_odds,
             "joint_probability": float(row["joint_probability"]),
             "expected_roi": float(row["expected_roi"]),
             "legs": json.loads(row["legs_json"]),
+            "entry_source": row["entry_source"],
         }
 
     def get_ticket(self, ticket_id: int) -> dict[str, Any]:

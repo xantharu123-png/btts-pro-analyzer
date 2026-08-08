@@ -17,6 +17,7 @@ import streamlit as st
 
 import scan_jobs
 
+from account_identity import storage_scope
 from api_budget import (
     APIBudgetError,
     APIBudgetPriority,
@@ -38,7 +39,6 @@ from challenge_engine import (
     build_fixture_candidates,
     candidate_is_credible,
     consecutive_wins_to_target,
-    expected_log_growth,
     extract_lineup_display,
     fit_market_calibration,
     fixture_market_probabilities,
@@ -75,7 +75,7 @@ from xg_backfill import annotate_history as annotate_history_xg
 
 
 CHALLENGE_SNAPSHOT_VERSION = 12
-CHALLENGE_WORKSPACE_VERSION = 7
+CHALLENGE_WORKSPACE_VERSION = 8
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
 CHALLENGE_SPORT_OPTIONS = (
@@ -476,7 +476,7 @@ CHALLENGE_SESSIONS_DIR = Path(__file__).resolve().parent / "challenge_sessions"
 
 @st.cache_resource
 def _challenge_ledger(session_scope: str) -> ChallengeLedger:
-    """Keep public Streamlit sessions out of each other's bankroll."""
+    """Keep browser accounts out of each other's bankroll."""
     account_id = hashlib.sha256(session_scope.encode("utf-8")).hexdigest()[:24]
     CHALLENGE_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
     return ChallengeLedger(CHALLENGE_SESSIONS_DIR / f"{account_id}.db")
@@ -2543,6 +2543,165 @@ def _render_progress(ledger: ChallengeLedger) -> dict[str, Any]:
     return settings
 
 
+CHALLENGE_RESULT_LABELS = {
+    "PENDING": "Offen",
+    "WON": "Gewonnen",
+    "LOST": "Verloren",
+    "VOID": "Storniert",
+}
+
+
+def _ticket_description(ticket: dict[str, Any]) -> str:
+    labels: list[str] = []
+    for leg in ticket.get("legs") or []:
+        if leg.get("manual"):
+            label = str(leg.get("label") or "Manuell nachgetragene Wette").strip()
+        else:
+            match = str(leg.get("match") or "Spiel").strip()
+            market = str(leg.get("market") or "Markt").strip()
+            selection = str(leg.get("selection") or "Auswahl").strip()
+            label = f"{match}: {market} - {selection}"
+        if label:
+            labels.append(label)
+    return " + ".join(labels) or "Wette ohne Beschreibung"
+
+
+def _render_ledger_notice() -> None:
+    notice = st.session_state.pop("challenge_ledger_notice", None)
+    if notice:
+        st.success(str(notice))
+
+
+def _render_pending_ticket_actions(
+    ledger: ChallengeLedger,
+    *,
+    key_prefix: str,
+) -> bool:
+    pending = ledger.pending_tickets()
+    if not pending:
+        return False
+
+    ticket = pending[0]
+    st.subheader("Offene 15K-Wette")
+    with st.container(border=True):
+        st.markdown(f"**{_ticket_description(ticket)}**")
+        st.caption(
+            f"Ticket #{ticket['id']} · {ticket['analysis_date']} · "
+            f"Einsatz {_format_euro(ticket['stake'])} · "
+            f"Gesamtquote {ticket['total_odds']:.2f} · "
+            f"mögliche Auszahlung {_format_euro(ticket['stake'] * ticket['total_odds'])}"
+        )
+        result = _segmented(
+            "Ergebnis",
+            ["Gewonnen", "Verloren", "Storniert"],
+            f"{key_prefix}_settlement",
+            "Gewonnen",
+        )
+        if st.button(
+            "Ergebnis verbuchen",
+            type="primary",
+            width="stretch",
+            key=f"{key_prefix}_settle_button",
+        ):
+            status = {
+                "Gewonnen": "WON",
+                "Verloren": "LOST",
+                "Storniert": "VOID",
+            }[result]
+            try:
+                settled = ledger.settle_ticket(int(ticket["id"]), status)
+                balance = ledger.settings()["current_balance"]
+                st.session_state["challenge_ledger_notice"] = (
+                    f"Ticket #{settled['id']} als {result.lower()} verbucht. "
+                    f"Neues Guthaben: {_format_euro(balance)}."
+                )
+                st.rerun()
+            except ValueError as exc:
+                st.warning(str(exc))
+    return True
+
+
+@st.dialog("Vergangene 15K-Wette nachtragen")
+def _render_manual_result_dialog(ledger: ChallengeLedger) -> None:
+    settings = ledger.settings()
+    if ledger.pending_tickets():
+        st.warning("Zuerst die offene 15K-Wette abrechnen.")
+        return
+    maximum_stake = round(
+        settings["current_balance"] * settings["stake_fraction"], 2
+    )
+    if maximum_stake < 0.01:
+        st.warning("Kein Challenge-Guthaben für eine Nachtragung verfügbar.")
+        return
+
+    with st.form("challenge_manual_result_form"):
+        bet_date = st.date_input(
+            "Wettdatum",
+            value=_challenge_today() - timedelta(days=1),
+            max_value=_challenge_today(),
+        )
+        description = st.text_input(
+            "Gespielte Wette",
+            placeholder="z. B. Team A - Team B: Über 1,5 Tore",
+            max_chars=300,
+        )
+        values = st.columns(2)
+        stake = values[0].number_input(
+            "Tatsächlicher Einsatz",
+            min_value=0.01,
+            max_value=maximum_stake,
+            value=maximum_stake,
+            step=1.0,
+            format="%.2f",
+        )
+        total_odds = values[1].number_input(
+            "Tatsächliche Gesamtquote",
+            min_value=1.01,
+            max_value=100.0,
+            value=2.0,
+            step=0.01,
+            format="%.2f",
+        )
+        result = st.radio(
+            "Ergebnis",
+            ["Gewonnen", "Verloren", "Storniert"],
+            horizontal=True,
+        )
+        submitted = st.form_submit_button(
+            "Wette nachtragen",
+            type="primary",
+            width="stretch",
+        )
+    st.caption(
+        "Die Nachtragung aktualisiert das Guthaben und bleibt im Verlauf als "
+        "manuell erfasst gekennzeichnet."
+    )
+    if not submitted:
+        return
+
+    status = {
+        "Gewonnen": "WON",
+        "Verloren": "LOST",
+        "Storniert": "VOID",
+    }[result]
+    try:
+        ticket_id = ledger.record_manual_result(
+            bet_date.isoformat(),
+            description,
+            stake,
+            total_odds,
+            status,
+        )
+        balance = ledger.settings()["current_balance"]
+        st.session_state["challenge_ledger_notice"] = (
+            f"Vergangene Wette #{ticket_id} als {result.lower()} nachgetragen. "
+            f"Neues Guthaben: {_format_euro(balance)}."
+        )
+        st.rerun(scope="app")
+    except ValueError as exc:
+        st.warning(str(exc))
+
+
 def _render_account(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     st.subheader("Challenge-Konto")
     stake_percent = st.slider(
@@ -2788,7 +2947,13 @@ def _render_history(ledger: ChallengeLedger) -> None:
             {
                 "ID": ticket["id"],
                 "Datum": ticket["analysis_date"],
-                "Status": ticket["status"],
+                "Status": CHALLENGE_RESULT_LABELS.get(ticket["status"], ticket["status"]),
+                "Wette": _ticket_description(ticket),
+                "Erfasst": (
+                    "Nachgetragen"
+                    if ticket.get("entry_source") == "MANUAL"
+                    else "15K-Tagestipp"
+                ),
                 "Legs": len(ticket["legs"]),
                 "Quote": round(ticket["total_odds"], 2),
                 "Einsatz €": ticket["stake"],
@@ -2799,33 +2964,7 @@ def _render_history(ledger: ChallengeLedger) -> None:
     )
     st.dataframe(frame, width="stretch", hide_index=True)
 
-    pending = ledger.pending_tickets()
-    if not pending:
-        return
-    selected_id = st.selectbox(
-        "Offenes Ticket",
-        [ticket["id"] for ticket in pending],
-        format_func=lambda ticket_id: next(
-            f"#{ticket['id']} | {ticket['analysis_date']} | {ticket['total_odds']:.2f}"
-            for ticket in pending
-            if ticket["id"] == ticket_id
-        ),
-        key="challenge_pending_ticket",
-    )
-    result = _segmented(
-        "Abrechnung",
-        ["Gewonnen", "Verloren", "Storniert"],
-        "challenge_settlement",
-        "Gewonnen",
-    )
-    if st.button("Ticket abrechnen", type="primary", width="stretch"):
-        status = {"Gewonnen": "WON", "Verloren": "LOST", "Storniert": "VOID"}[result]
-        try:
-            ledger.settle_ticket(selected_id, status)
-            st.success("Ticket abgerechnet.")
-            st.rerun()
-        except ValueError as exc:
-            st.warning(str(exc))
+    _render_pending_ticket_actions(ledger, key_prefix="challenge_history")
 
 
 def _format_kickoff(raw: str) -> str:
@@ -3374,19 +3513,66 @@ def _render_price_check(
 
     current_balance = settings["current_balance"]
     stake_fraction = settings["stake_fraction"]
-    stake = ticket_stake(ticket, current_balance, stake_fraction)
+    suggested_stake = ticket_stake(ticket, current_balance, stake_fraction)
     risk_stake = risk_managed_ticket_stake(ticket, current_balance)
-    log_growth = expected_log_growth(ticket, stake_fraction)
-    win_balance = current_balance - stake + stake * ticket.total_odds
-    loss_balance = current_balance - stake
+    if suggested_stake <= 0:
+        st.error("Kein verfügbares Challenge-Guthaben für diesen Tipp.")
+        return
+    if ledger.pending_tickets():
+        st.info(
+            "Dieser Tagestipp kann erst als gespielt markiert werden, wenn die "
+            "offene 15K-Wette oben abgerechnet ist."
+        )
+        return
+
+    entry_fingerprint = hashlib.sha256(
+        (
+            f"{snapshot['search_date']}:{current_balance:.2f}:"
+            + ":".join(leg.candidate.candidate_id for leg in ticket.legs)
+        ).encode("utf-8")
+    ).hexdigest()[:12]
+    entry_fields = st.columns(2)
+    played_stake = entry_fields[0].number_input(
+        "Tatsächlicher Einsatz",
+        min_value=0.01,
+        max_value=round(current_balance * stake_fraction, 2),
+        value=suggested_stake,
+        step=1.0,
+        format="%.2f",
+        key=f"challenge_played_stake_{entry_fingerprint}",
+    )
+    played_total_odds = entry_fields[1].number_input(
+        "Tatsächliche Gesamtquote",
+        min_value=1.01,
+        max_value=100.0,
+        value=round(ticket.total_odds, 2),
+        step=0.01,
+        format="%.2f",
+        key=f"challenge_played_odds_{entry_fingerprint}",
+    )
+    actual_fraction = played_stake / current_balance
+    log_growth = (
+        ticket.joint_probability
+        * math.log1p(actual_fraction * (played_total_odds - 1.0))
+        + (1.0 - ticket.joint_probability) * math.log1p(-actual_fraction)
+    )
+    played_expected_roi = ticket.joint_probability * played_total_odds - 1.0
+    price_is_valid = (
+        2.0 <= played_total_odds <= 3.0
+        and played_expected_roi >= MIN_LEG_EXPECTED_ROI
+    )
+    win_balance = (
+        current_balance - played_stake + played_stake * played_total_odds
+    )
+    loss_balance = current_balance - played_stake
     wins_remaining = consecutive_wins_to_target(
         current_balance,
         settings["target_balance"],
-        ticket.total_odds,
-        stake_fraction,
+        played_total_odds,
+        actual_fraction,
     )
     stake_metrics = st.columns(4)
-    stake_metrics[0].metric("Challenge-Einsatz", _format_euro(stake))
+    stake_metrics[0].metric("Challenge-Einsatz", _format_euro(played_stake))
     stake_metrics[1].metric("Saldo bei Gewinn", _format_euro(win_balance))
     stake_metrics[2].metric("Saldo bei Verlust", _format_euro(loss_balance))
     stake_metrics[3].metric("Risikoreferenz", _format_euro(risk_stake))
@@ -3401,37 +3587,45 @@ def _render_price_check(
             "Der Challenge-Einsatz besitzt negatives erwartetes Log-Wachstum. "
             "Die kleinere Risikoreferenz ist mathematisch vorzuziehen."
         )
-    elif stake > risk_stake:
+    elif played_stake > risk_stake:
         st.warning(
             "Der Challenge-Einsatz liegt über der gedeckelten Viertel-Kelly-"
             "Risikoreferenz. Das erhöht die Schwankung und nicht den Modellvorteil."
         )
-    if stake <= 0:
-        st.error("Kein verfügbares Challenge-Guthaben für diesen Tipp.")
-        return
-
     st.success(
         f"15K-TIPP: {len(ticket.legs)} Spiel(e) @ Gesamtquote "
-        f"{ticket.total_odds:.2f} | Challenge-Einsatz {stake:.2f} €. "
+        f"{ticket.total_odds:.2f} | empfohlener Einsatz {suggested_stake:.2f} €. "
         "Auswahl, Modell und konservativer Marktpreis bestehen die Prüfungen."
     )
     st.caption(
         "Die App platziert keine Wette. Beim eigenen Anbieter müssen Auswahl, "
         "Linie und mindestens die angezeigte Mindestquote übereinstimmen."
     )
+    if not price_is_valid:
+        st.warning(
+            "Diese tatsächliche Gesamtquote erfüllt den 15K-Korridor oder den "
+            "konservativen Value-Mindestwert nicht. Sie kann nicht als offizieller "
+            "15K-Tagestipp gespeichert werden."
+        )
     if st.button(
-        f"Challenge-Tipp mit {stake:.2f} € in den Verlauf übernehmen",
+        f"Als gespielt markieren und {played_stake:.2f} € abbuchen",
+        type="primary",
         width="stretch",
         key="challenge_place_ticket",
+        disabled=not price_is_valid,
     ):
         try:
             ticket_id = ledger.place_ticket(
                 snapshot["search_date"],
                 ticket,
-                stake,
+                played_stake,
                 snapshot.get("price_checked_at") or snapshot["scanned_at"],
+                played_odds=played_total_odds,
             )
-            st.success(f"Challenge-Tipp #{ticket_id} eingetragen.")
+            st.session_state["challenge_ledger_notice"] = (
+                f"Ticket #{ticket_id} als gespielt markiert. "
+                f"{_format_euro(played_stake)} Einsatz wurden vom Guthaben abgezogen."
+            )
             st.rerun()
         except ValueError as exc:
             st.warning(str(exc))
@@ -3592,28 +3786,36 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
 
 def render_challenge_15k() -> None:
     """Render the focused challenge finder without nested workspace tabs."""
-    session_scope = scan_jobs.session_scope(st.session_state)
-    ledger = _challenge_ledger(session_scope)
+    ledger = _challenge_ledger(storage_scope(st.session_state))
     _auto_settle_feedback(ledger)
+    _render_ledger_notice()
     settings = _render_progress(ledger)
     st.caption(
         f"Einsatzanteil {settings['stake_fraction'] * 100:.0f} % | "
         "Tageszielquote 2,00-3,00 | maximal drei verschiedene Spiele | "
         "automatischer Mehrbuchmacher-Preisvergleich nach der Modellprüfung"
     )
+    _render_pending_ticket_actions(ledger, key_prefix="challenge_main")
+    if st.button(
+        "Vergangene Wette nachtragen",
+        icon=":material/history:",
+        key="challenge_open_manual_result",
+    ):
+        _render_manual_result_dialog(ledger)
     _render_analysis(ledger, settings)
 
 
 def render_challenge_history() -> None:
     """Render challenge tickets in the shared records workspace."""
-    ledger = _challenge_ledger(scan_jobs.session_scope(st.session_state))
+    ledger = _challenge_ledger(storage_scope(st.session_state))
     _auto_settle_feedback(ledger)
+    _render_ledger_notice()
     _render_history(ledger)
 
 
 def render_challenge_account() -> None:
     """Render challenge bankroll controls in settings."""
-    ledger = _challenge_ledger(scan_jobs.session_scope(st.session_state))
+    ledger = _challenge_ledger(storage_scope(st.session_state))
     _render_account(ledger, ledger.settings())
 
 

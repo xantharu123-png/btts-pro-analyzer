@@ -55,7 +55,7 @@
 
   window.addEventListener("message", (event) => {
     const message = event.data || {};
-    if (message.isStreamlitMessage && message.type === "streamlit:render") {
+    if (event.source === window.parent && message.type === "streamlit:render") {
       args = message.args || {};
       streamlitMessage("streamlit:setFrameHeight", { height: 0 });
       requestSnapshot(Boolean(args.forceSync));

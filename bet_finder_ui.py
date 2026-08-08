@@ -7,7 +7,7 @@ from typing import Optional
 
 import streamlit as st
 
-import scan_jobs
+from account_identity import storage_scope
 from betting_math import MINIMUM_RISK_ADJUSTED_ROI_PERCENT
 from market_consensus import (
     MarketConsensus,
@@ -49,7 +49,7 @@ def _save_tip(
     source: str,
 ) -> Optional[str]:
     try:
-        store = TipStore(scope_id=scan_jobs.session_scope(st.session_state))
+        store = TipStore(scope_id=storage_scope(st.session_state))
         if decision.status in {"BET", "SHADOW"}:
             store.save_decision(decision, source=source)
             return "Unter Meine Tipps gespeichert."

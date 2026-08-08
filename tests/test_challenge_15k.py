@@ -1775,6 +1775,63 @@ class ChallengeLedgerTests(unittest.TestCase):
                 ledger.settle_ticket(ticket_id, "WON")
             self.assertEqual(ledger.settings()["current_balance"], expected_balance)
 
+    def test_played_odds_drive_the_real_payout(self):
+        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
+        ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
+        self.assertIsNotNone(ticket)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            ticket_id = ledger.place_ticket(
+                "2026-07-14",
+                ticket,
+                25.0,
+                datetime.now(timezone.utc).isoformat(),
+                played_odds=2.40,
+            )
+
+            stored = ledger.get_ticket(ticket_id)
+            self.assertEqual(stored["reference_total_odds"], 2.25)
+            self.assertEqual(stored["total_odds"], 2.40)
+            ledger.settle_ticket(ticket_id, "WON")
+            self.assertEqual(ledger.settings()["current_balance"], 135.0)
+
+    def test_manual_past_win_updates_balance_and_is_labeled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+
+            ticket_id = ledger.record_manual_result(
+                "2026-07-13",
+                "Frankreich vs Spanien: Über 5 Ecken",
+                25.0,
+                2.40,
+                "WON",
+            )
+
+            stored = ledger.get_ticket(ticket_id)
+            self.assertEqual(stored["entry_source"], "MANUAL")
+            self.assertEqual(stored["status"], "WON")
+            self.assertEqual(stored["payout"], 60.0)
+            self.assertEqual(stored["legs"][0]["label"], "Frankreich vs Spanien: Über 5 Ecken")
+            self.assertEqual(ledger.settings()["current_balance"], 135.0)
+            self.assertEqual(
+                sum(item["amount"] for item in ledger.transactions()),
+                135.0,
+            )
+
+    def test_manual_result_respects_challenge_stake_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+
+            with self.assertRaisesRegex(ValueError, "challenge limit"):
+                ledger.record_manual_result(
+                    "2026-07-13",
+                    "Zu hoher Einsatz",
+                    25.01,
+                    2.0,
+                    "WON",
+                )
+
     def test_only_one_non_void_ticket_per_day(self):
         candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
@@ -1910,6 +1967,24 @@ class ChallengeLedgerTests(unittest.TestCase):
                 connection.execute(
                     "INSERT INTO challenge_settings VALUES (1, 10000, 10000, 1500000, 'now')"
                 )
+                connection.execute(
+                    """
+                    CREATE TABLE challenge_tickets (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        analysis_date TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        quote_verified_at TEXT NOT NULL,
+                        settled_at TEXT,
+                        status TEXT NOT NULL,
+                        stake_cents INTEGER NOT NULL,
+                        payout_cents INTEGER NOT NULL DEFAULT 0,
+                        total_odds REAL NOT NULL,
+                        joint_probability REAL NOT NULL,
+                        expected_roi REAL NOT NULL,
+                        legs_json TEXT NOT NULL
+                    )
+                    """
+                )
                 connection.commit()
 
             ledger = ChallengeLedger(db_path)
@@ -1917,6 +1992,15 @@ class ChallengeLedgerTests(unittest.TestCase):
             self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
             ledger.set_stake_fraction(0.25)
             self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
+            with closing(sqlite3.connect(db_path)) as connection:
+                columns = {
+                    row[1]
+                    for row in connection.execute(
+                        "PRAGMA table_info(challenge_tickets)"
+                    )
+                }
+            self.assertIn("played_odds", columns)
+            self.assertIn("entry_source", columns)
 
     def test_transactions_reconcile_exactly_with_current_balance(self):
         candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]

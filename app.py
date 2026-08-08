@@ -17,6 +17,7 @@ import requests
 import streamlit as st
 
 import league_catalog as _league_catalog
+from account_identity import ensure_account_scope
 from api_budget import APIBudgetPriority, api_football_get
 
 
@@ -34,7 +35,7 @@ _REQUIRED_ANALYZER_MODULE_VERSION = 3
 if getattr(_advanced_analyzer, "ANALYZER_MODULE_VERSION", 0) < _REQUIRED_ANALYZER_MODULE_VERSION:
     _advanced_analyzer = importlib.reload(_advanced_analyzer)
 
-_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 7
+_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 8
 if getattr(_challenge_15k, "CHALLENGE_WORKSPACE_VERSION", 0) < _REQUIRED_CHALLENGE_WORKSPACE_VERSION:
     _challenge_15k = importlib.reload(_challenge_15k)
 
@@ -3544,6 +3545,7 @@ def main() -> None:
         initial_sidebar_state="auto",
     )
     _apply_app_styles()
+    ensure_account_scope(st)
     session_scope_id = _session_scope_id()
 
     try:

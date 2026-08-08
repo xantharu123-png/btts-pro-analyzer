@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import io
+from pathlib import Path
 import zipfile
 
 import pytest
@@ -19,6 +20,16 @@ from n1_import_component import extension_archive
 
 
 NOW = datetime(2026, 8, 6, 18, 30, tzinfo=timezone.utc)
+
+
+def test_bridge_accepts_current_streamlit_render_protocol():
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "n1_import_component"
+        / "index.html"
+    ).read_text(encoding="utf-8")
+
+    assert 'event.source === window.parent && message.type === "streamlit:render"' in source
 
 
 def _payload(*records, captured_at: datetime = NOW):
