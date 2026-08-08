@@ -29,6 +29,7 @@ from betting_math import (
     MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
     BettingMathError,
     evaluate_market_price,
+    minimum_recommendation_odds,
 )
 
 from .backtest import MIN_ELO_MATCHES, MIN_SERVE_GAMES
@@ -263,18 +264,38 @@ def predict_match(
             if metrics_b is not None
             else float("-inf")
         )
-        if roi_a >= roi_b and roi_a >= minimum_expected_roi:
-            recommended_side = "A"
-            recommended_edge = metrics_a.risk_adjusted_edge / 100.0
-            recommended_odds = odds_a
-        elif roi_b > roi_a and roi_b >= minimum_expected_roi:
-            recommended_side = "B"
-            recommended_edge = metrics_b.risk_adjusted_edge / 100.0
-            recommended_odds = odds_b
+        minimum_a = minimum_recommendation_odds(
+            p_cal * 100.0,
+            probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
+            minimum_expected_roi_percent=minimum_expected_roi * 100.0,
+        )
+        minimum_b = minimum_recommendation_odds(
+            (1.0 - p_cal) * 100.0,
+            probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
+            minimum_expected_roi_percent=minimum_expected_roi * 100.0,
+        )
+        options = []
+        if (
+            prices_ok
+            and minimum_a is not None
+            and odds_a + 1e-9 >= minimum_a
+            and roi_a >= minimum_expected_roi
+        ):
+            options.append((roi_a, "A", metrics_a, odds_a))
+        if (
+            prices_ok
+            and minimum_b is not None
+            and odds_b + 1e-9 >= minimum_b
+            and roi_b >= minimum_expected_roi
+        ):
+            options.append((roi_b, "B", metrics_b, odds_b))
+        if options:
+            _roi, recommended_side, selected_metrics, recommended_odds = max(options)
+            recommended_edge = selected_metrics.risk_adjusted_edge / 100.0
         gates.append(
             GateResult(
                 "Quote/Risiko-EV",
-                prices_ok and max(roi_a, roi_b) >= minimum_expected_roi,
+                bool(options),
                 (
                     f"Nach {WINNER_PROBABILITY_HAIRCUT:+.0%} Modellabschlag: "
                     f"EV {player_a} {roi_a:+.1%}, {player_b} {roi_b:+.1%} "

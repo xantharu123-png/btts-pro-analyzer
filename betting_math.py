@@ -12,9 +12,10 @@ from typing import Iterable, Optional
 
 
 MINIMUM_RISK_ADJUSTED_ROI_PERCENT = 3.0
+MINIMUM_RECOMMENDED_DECIMAL_ODDS = 1.20
 DEFAULT_KELLY_FRACTION = 0.25
 DEFAULT_KELLY_CAP = 0.02
-BETTING_POLICY_VERSION = "risk-ev-3pct-v1"
+BETTING_POLICY_VERSION = "risk-ev-3pct-min-odds-1.20-v2"
 
 
 class BettingMathError(ValueError):
@@ -123,6 +124,33 @@ def minimum_acceptable_odds(
     increment = float(price_increment)
     rounded_price = math.ceil((exact_price - 1e-12) / increment) * increment
     return max(1.0 + increment, round(rounded_price, 10))
+
+
+def minimum_recommendation_odds(
+    probability: float,
+    *,
+    probability_haircut: float = 0.0,
+    minimum_expected_roi_percent: float = MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
+    minimum_published_odds: float = MINIMUM_RECOMMENDED_DECIMAL_ODDS,
+    price_increment: float = 0.01,
+) -> Optional[float]:
+    """Return the stricter of the mathematical and publication thresholds.
+
+    The publication floor is a product-risk rule, not a claim about fair odds.
+    Very short prices remain available to model evaluation but cannot become a
+    visible recommendation merely because their estimated ROI clears the gate.
+    """
+
+    publication_floor = validate_decimal_odds(minimum_published_odds)
+    mathematical_minimum = minimum_acceptable_odds(
+        probability,
+        probability_haircut=probability_haircut,
+        minimum_expected_roi_percent=minimum_expected_roi_percent,
+        price_increment=price_increment,
+    )
+    if mathematical_minimum is None:
+        return None
+    return max(publication_floor, mathematical_minimum)
 
 
 def proportional_no_vig_market(odds: Iterable[float]) -> NoVigMarket:

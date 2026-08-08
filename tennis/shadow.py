@@ -36,7 +36,7 @@ DB_PATH = Path(__file__).resolve().parent / "data" / "tennis_shadow.db"
 RETIREMENT_RULE = "one_set"
 CLOSING_WINDOW_SECONDS = 60 * 60
 TENNIS_MODEL_VERSION = "elo-serve-platt-v3"
-TENNIS_POLICY_VERSION = "risk-ev-haircut-v3"
+TENNIS_POLICY_VERSION = "risk-ev-haircut-min-odds-v4"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS predictions (

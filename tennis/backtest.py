@@ -39,6 +39,8 @@ import hashlib
 import math
 import pandas as pd
 
+from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
+
 from .data_loader import load_atp_stats, load_market_odds, load_wta_ta_stats, add_normalized_names
 from .elo import SurfaceElo
 from .serve_model import (
@@ -217,6 +219,7 @@ class BacktestReport:
         *,
         probability_haircut: float,
         minimum_expected_roi: float = 0.03,
+        minimum_published_odds: float = MINIMUM_RECOMMENDED_DECIMAL_ODDS,
         allowed_surfaces: Optional[Tuple[str, ...]] = ("Hard",),
         require_serve_model: bool = True,
     ) -> Dict[str, Optional[float]]:
@@ -240,6 +243,13 @@ class BacktestReport:
                 or (upper_bound is not None and float(value) > upper_bound)
             ):
                 raise ValueError(f"{label} must be finite and non-negative")
+        if (
+            isinstance(minimum_published_odds, bool)
+            or not isinstance(minimum_published_odds, (int, float))
+            or not math.isfinite(float(minimum_published_odds))
+            or float(minimum_published_odds) <= 1.0
+        ):
+            raise ValueError("minimum_published_odds must be greater than 1.0")
         if not isinstance(require_serve_model, bool):
             raise ValueError("require_serve_model must be boolean")
         if allowed_surfaces is not None:
@@ -270,6 +280,7 @@ class BacktestReport:
                 "model_gate_rows": 0,
                 "probability_haircut": float(probability_haircut),
                 "minimum_expected_roi": float(minimum_expected_roi),
+                "minimum_published_odds": float(minimum_published_odds),
             }
 
         replay = frame[frame["gated"]].copy()
@@ -286,11 +297,25 @@ class BacktestReport:
         ).clip(lower=0.0, upper=1.0)
         replay["risk_ev_w"] = replay["risk_p_w"] * replay["odds_w"] - 1.0
         replay["risk_ev_l"] = replay["risk_p_l"] * replay["odds_l"] - 1.0
+        replay["eligible_risk_ev_w"] = replay["risk_ev_w"].where(
+            replay["odds_w"] + 1e-12 >= float(minimum_published_odds),
+            float("-inf"),
+        )
+        replay["eligible_risk_ev_l"] = replay["risk_ev_l"].where(
+            replay["odds_l"] + 1e-12 >= float(minimum_published_odds),
+            float("-inf"),
+        )
         replay["policy_side"] = replay.apply(
-            lambda row: "W" if row["risk_ev_w"] >= row["risk_ev_l"] else "L",
+            lambda row: (
+                "W"
+                if row["eligible_risk_ev_w"] >= row["eligible_risk_ev_l"]
+                else "L"
+            ),
             axis=1,
         )
-        replay["policy_risk_ev"] = replay[["risk_ev_w", "risk_ev_l"]].max(axis=1)
+        replay["policy_risk_ev"] = replay[
+            ["eligible_risk_ev_w", "eligible_risk_ev_l"]
+        ].max(axis=1)
         replay = replay[
             replay["policy_risk_ev"] + 1e-12 >= float(minimum_expected_roi)
         ].copy()
@@ -307,6 +332,7 @@ class BacktestReport:
                 "model_gate_rows": model_gate_rows,
                 "probability_haircut": float(probability_haircut),
                 "minimum_expected_roi": float(minimum_expected_roi),
+                "minimum_published_odds": float(minimum_published_odds),
             }
 
         replay["policy_odds"] = replay.apply(
@@ -346,6 +372,7 @@ class BacktestReport:
             "model_gate_rows": model_gate_rows,
             "probability_haircut": float(probability_haircut),
             "minimum_expected_roi": float(minimum_expected_roi),
+            "minimum_published_odds": float(minimum_published_odds),
         }
 
     def calibration(self) -> Dict[str, float]:

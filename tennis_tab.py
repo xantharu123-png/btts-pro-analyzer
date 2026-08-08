@@ -35,7 +35,7 @@ from betting_math import (
     MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
     BettingMathError,
     evaluate_market_price,
-    minimum_acceptable_odds,
+    minimum_recommendation_odds,
 )
 from ui_components import scan_progress_fragment
 from tennis import shadow
@@ -216,14 +216,34 @@ def _update_price_check(
         if metrics_b is not None
         else float("-inf")
     )
+    minimum_a = minimum_recommendation_odds(
+        p_cal * 100.0,
+        probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
+        minimum_expected_roi_percent=MIN_EXPECTED_ROI * 100.0,
+    )
+    minimum_b = minimum_recommendation_odds(
+        (1.0 - p_cal) * 100.0,
+        probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
+        minimum_expected_roi_percent=MIN_EXPECTED_ROI * 100.0,
+    )
     side = edge = 0.0
     verdict = "KEINE WETTE"
     if prices_ok and model_gates_ok:
-        if risk_ev_a >= risk_ev_b and risk_ev_a >= MIN_EXPECTED_ROI:
-            side, edge = "A", edge_a
-        elif risk_ev_b > risk_ev_a and risk_ev_b >= MIN_EXPECTED_ROI:
-            side, edge = "B", edge_b
-        if side:
+        options = []
+        if (
+            minimum_a is not None
+            and odds_a + 1e-9 >= minimum_a
+            and risk_ev_a >= MIN_EXPECTED_ROI
+        ):
+            options.append((risk_ev_a, "A", edge_a))
+        if (
+            minimum_b is not None
+            and odds_b + 1e-9 >= minimum_b
+            and risk_ev_b >= MIN_EXPECTED_ROI
+        ):
+            options.append((risk_ev_b, "B", edge_b))
+        if options:
+            _risk_ev, side, edge = max(options)
             verdict = "WETTE"
     if prices_ok:
         shadow.record_entry_prices(
@@ -250,6 +270,8 @@ def _update_price_check(
         "edge_b": edge_b,
         "risk_ev_a": risk_ev_a,
         "risk_ev_b": risk_ev_b,
+        "minimum_a": minimum_a,
+        "minimum_b": minimum_b,
         "side": side,
         "verdict": verdict,
     }
@@ -505,7 +527,16 @@ def _render_side_markets(row: dict, markets: dict, model_gates_ok: bool) -> None
             )
             risk_ev = price_metrics.risk_adjusted_expected_roi / 100.0
             adjusted_edge = price_metrics.risk_adjusted_edge / 100.0
-            ok = risk_ev >= MIN_EXPECTED_ROI
+            minimum_odds = minimum_recommendation_odds(
+                p * 100.0,
+                probability_haircut=SIDE_MARKET_PROBABILITY_HAIRCUT * 100.0,
+                minimum_expected_roi_percent=MIN_EXPECTED_ROI * 100.0,
+            )
+            ok = (
+                minimum_odds is not None
+                and odds + 1e-9 >= minimum_odds
+                and risk_ev >= MIN_EXPECTED_ROI
+            )
             cols[2].markdown(f"**{risk_ev:+.1%}**" if ok else f"{risk_ev:+.1%}")
         if cols[3].button("Track", key=f"side_track_{code}_{row['id']}",
                           disabled=not ok, use_container_width=True):
@@ -613,13 +644,13 @@ def _render_match_card(row: dict) -> None:
                 _render_market_sheet(markets, int(row.get("best_of") or 3))
             return
 
-        min_a = minimum_acceptable_odds(
+        min_a = minimum_recommendation_odds(
             row["p_cal"] * 100.0,
             probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
             minimum_expected_roi_percent=MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
         )
         p_b = 1.0 - row["p_cal"]
-        min_b = minimum_acceptable_odds(
+        min_b = minimum_recommendation_odds(
             p_b * 100.0,
             probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
             minimum_expected_roi_percent=MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
@@ -721,6 +752,8 @@ def _render_match_card(row: dict) -> None:
                     "edge_b": restored_b.risk_adjusted_edge / 100.0,
                     "risk_ev_a": restored_a.risk_adjusted_expected_roi / 100.0,
                     "risk_ev_b": restored_b.risk_adjusted_expected_roi / 100.0,
+                    "minimum_a": min_a,
+                    "minimum_b": min_b,
                 }
             )
         if result:
@@ -752,6 +785,18 @@ def _render_match_card(row: dict) -> None:
                         f"{max(result.get('risk_ev_a', float('-inf')), result.get('risk_ev_b', float('-inf'))):+.1%} "
                         f"(erforderlich {MIN_EXPECTED_ROI:+.1%})"
                     )
+                else:
+                    short_sides = []
+                    for side_name, offered, minimum in (
+                        (row["player_a"], odds_a, result.get("minimum_a")),
+                        (row["player_b"], odds_b, result.get("minimum_b")),
+                    ):
+                        if minimum is not None and offered + 1e-9 < minimum:
+                            short_sides.append(
+                                f"{side_name} {offered:.2f} < {minimum:.2f}"
+                            )
+                    if short_sides:
+                        reasons.append("Quote zu kurz: " + ", ".join(short_sides))
                 st.error(
                     "KEINE WETTE ZU DIESER QUOTE — die quotenfreie Prognose "
                     f"bleibt {likely_player} ({likely_probability:.1%}). "

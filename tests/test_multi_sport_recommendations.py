@@ -3,6 +3,7 @@ from dataclasses import replace
 
 import pytest
 
+from bet_finder_candidates import build_probability_candidate
 from multi_sport_recommendations import (
     EVIDENCE_RELEASED,
     basketball_total_candidate,
@@ -152,6 +153,38 @@ def test_price_gate_rejects_short_quote_and_accepts_only_sufficient_value():
     assert accepted.metrics.risk_adjusted_expected_roi >= 3.0
     assert accepted.stake_amount == 10.0
     assert math.isclose(accepted.stake_fraction, 0.02)
+
+
+def test_price_gate_rejects_short_odds_even_with_extreme_probability():
+    candidate = build_probability_candidate(
+        event_key="short-price",
+        sport="Fussball",
+        event_label="Alpha vs Beta",
+        market="Teamtore",
+        selection="Alpha ueber 0,5",
+        model_probability=99.0,
+        probability_haircut=0.0,
+        model_name="Testmodell",
+        evidence=("Test",),
+        evidence_stage=EVIDENCE_RELEASED,
+    )
+
+    assert candidate.minimum_odds == pytest.approx(1.20)
+    rejected = evaluate_candidate_price(
+        candidate,
+        1.19,
+        bankroll=500,
+        quote_confirmed=True,
+    )
+    accepted = evaluate_candidate_price(
+        candidate,
+        1.20,
+        bankroll=500,
+        quote_confirmed=True,
+    )
+
+    assert rejected.status == "NO_BET"
+    assert accepted.status == "BET"
 
 
 def test_nhl_model_uses_regulation_clock_and_explicit_risk_haircut():

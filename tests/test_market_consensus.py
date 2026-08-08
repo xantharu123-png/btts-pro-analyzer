@@ -152,6 +152,29 @@ def test_price_status_requires_fresh_multi_book_consensus_and_minimum_buffer():
     assert reference_price_status(thin, 1.80, now=now).code == "THIN"
 
 
+def test_price_status_never_publishes_an_extreme_short_price() -> None:
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    short = next(
+        iter(
+            parse_fixture_consensus(
+                _payload(
+                    now,
+                    values={
+                        "Book A": "1.05",
+                        "Book B": "1.06",
+                        "Book C": "1.07",
+                        "Book D": "1.08",
+                    },
+                ),
+                [_candidate()],
+                fetched_at=now,
+            ).values()
+        )
+    )
+
+    assert reference_price_status(short, 1.05, now=now).code == "TOO_LOW"
+
+
 def test_parser_rejects_wrong_fixture_and_provider_errors():
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     wrong = _candidate()

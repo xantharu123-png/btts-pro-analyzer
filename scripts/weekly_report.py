@@ -30,7 +30,7 @@ if str(ROOT) not in sys.path:
 
 from betting_math import (  # noqa: E402
     MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
-    minimum_acceptable_odds,
+    minimum_recommendation_odds,
 )
 from tennis.predict import (  # noqa: E402
     SIDE_MARKET_PROBABILITY_HAIRCUT,
@@ -113,7 +113,7 @@ def _minimum_odds(
 ) -> float | None:
     if p is None or not 0.0 <= p <= 1.0:
         return None
-    return minimum_acceptable_odds(
+    return minimum_recommendation_odds(
         p * 100.0,
         probability_haircut=probability_haircut * 100.0,
         minimum_expected_roi_percent=MINIMUM_RISK_ADJUSTED_ROI_PERCENT,

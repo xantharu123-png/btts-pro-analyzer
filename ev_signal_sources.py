@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 from zoneinfo import ZoneInfo
 
-from betting_math import BETTING_POLICY_VERSION, minimum_acceptable_odds
+from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
 from market_consensus import MarketConsensus, reference_price_status
 from scan_jobs import JOBS_DIR, load_persisted
 from tennis.predict import WINNER_PROBABILITY_HAIRCUT
@@ -35,8 +35,8 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 6
-AUTOMATED_SELECTION_POLICY_VERSION = "multi-market-price-gated-recommendations-v6"
+AUTOMATED_WETTFINDER_VERSION = 7
+AUTOMATED_SELECTION_POLICY_VERSION = "multi-market-min-published-odds-v7"
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 AUTOMATED_TOMORROW_SCAN_HOUR = 23
 
@@ -149,7 +149,7 @@ def _valid_haircut(value: object, probability: float) -> bool:
 
 def _minimum_odds(probability: float, haircut: float) -> Optional[float]:
     try:
-        return minimum_acceptable_odds(
+        return minimum_recommendation_odds(
             probability * 100.0,
             probability_haircut=haircut * 100.0,
         )

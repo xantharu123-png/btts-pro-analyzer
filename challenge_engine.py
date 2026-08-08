@@ -18,10 +18,12 @@ import unicodedata
 from typing import Any, Iterable, Optional
 
 from betting_math import (
+    MINIMUM_RECOMMENDED_DECIMAL_ODDS,
     MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
     BettingMathError,
     evaluate_market_price,
     minimum_acceptable_odds,
+    minimum_recommendation_odds,
     validate_decimal_odds,
 )
 
@@ -68,6 +70,7 @@ CALIBRATION_REFIT_NEW_SAMPLES = 60
 CALIBRATION_BIN_COUNT = 10
 CALIBRATION_SHRINKAGE = 25.0
 MIN_LEG_EXPECTED_ROI = MINIMUM_RISK_ADJUSTED_ROI_PERCENT / 100.0
+MIN_CHALLENGE_LEG_ODDS = max(MINIMUM_RECOMMENDED_DECIMAL_ODDS, 1.25)
 
 # Expected-Goals-Hybrid: Stärken werden aus Toren UND xG geschätzt.
 # xG hat pro Spiel deutlich weniger Varianz als Tore; Inverse-Varianz-Logik
@@ -148,10 +151,11 @@ class ChallengeCandidate:
 
     @property
     def minimum_odds(self) -> float:
-        """First offered price meeting the shared leg ROI threshold."""
-        price = minimum_acceptable_odds(
+        """First offered price meeting ROI and 15K leg-usefulness gates."""
+        price = minimum_recommendation_odds(
             self.conservative_probability * 100.0,
             minimum_expected_roi_percent=MIN_LEG_EXPECTED_ROI * 100.0,
+            minimum_published_odds=MIN_CHALLENGE_LEG_ODDS,
         )
         return price if price is not None else math.inf
 
@@ -2475,6 +2479,8 @@ def select_quoted_ticket(
             continue
         try:
             odds = validate_decimal_odds(raw_odds)
+            if odds + 1e-9 < MIN_CHALLENGE_LEG_ODDS:
+                continue
             metrics = evaluate_market_price(
                 candidate.conservative_probability * 100.0,
                 odds,

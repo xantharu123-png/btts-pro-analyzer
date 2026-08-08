@@ -5,9 +5,11 @@ from __future__ import annotations
 import pytest
 
 from betting_math import (
+    MINIMUM_RECOMMENDED_DECIMAL_ODDS,
     BettingMathError,
     evaluate_market_price,
     minimum_acceptable_odds,
+    minimum_recommendation_odds,
     proportional_no_vig_market,
 )
 
@@ -36,6 +38,14 @@ def test_minimum_price_applies_uncertainty_before_roi() -> None:
     assert price == pytest.approx(1.72)
     metrics = evaluate_market_price(70.0, price, probability_haircut=10.0)
     assert metrics.risk_adjusted_expected_roi >= 3.0
+
+
+def test_recommendation_price_keeps_short_odds_out_of_visible_tips() -> None:
+    mathematical = minimum_acceptable_odds(99.0)
+    published = minimum_recommendation_odds(99.0)
+
+    assert mathematical == pytest.approx(1.05)
+    assert published == pytest.approx(MINIMUM_RECOMMENDED_DECIMAL_ODDS)
 
 
 def test_no_vig_probabilities_are_normalized_complete_market_benchmark() -> None:

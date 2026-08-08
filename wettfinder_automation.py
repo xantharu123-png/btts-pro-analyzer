@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 from zoneinfo import ZoneInfo
 
-from betting_math import BETTING_POLICY_VERSION, minimum_acceptable_odds
+from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
 from challenge_15k import (
     MAX_SCAN_FIXTURES,
     ChallengeDataProvider,
@@ -151,7 +151,7 @@ def _finite_probability(value: object) -> Optional[float]:
 
 def _minimum_price(probability: float, haircut: float) -> Optional[float]:
     try:
-        return minimum_acceptable_odds(
+        return minimum_recommendation_odds(
             probability * 100.0,
             probability_haircut=haircut * 100.0,
         )
@@ -827,6 +827,12 @@ def run_wettfinder(
     previous = load_state(state_path)
     previous_football = previous.get("football")
     due = football_due(previous_football, now=current, search_date=target)
+    if previous and (
+        previous.get("version") != AUTOMATION_VERSION
+        or previous.get("betting_policy_version") != BETTING_POLICY_VERSION
+        or previous.get("selection_policy_version") != SELECTION_POLICY_VERSION
+    ):
+        due = FootballDueDecision(True, "recommendation_policy_changed")
     football_state = (
         dict(previous_football) if isinstance(previous_football, dict) else {}
     )

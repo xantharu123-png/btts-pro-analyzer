@@ -18,7 +18,11 @@ from typing import Any, Iterable, Mapping, Optional
 import requests
 
 from api_budget import APIBudgetError, APIBudgetPriority, api_football_get
-from betting_math import BettingMathError, validate_decimal_odds
+from betting_math import (
+    MINIMUM_RECOMMENDED_DECIMAL_ODDS,
+    BettingMathError,
+    validate_decimal_odds,
+)
 
 
 REFERENCE_SOURCE = "API-Football Mehrbuchmacher"
@@ -179,7 +183,10 @@ def reference_price_status(
             None,
         )
     try:
-        threshold = validate_decimal_odds(minimum_odds)
+        threshold = max(
+            validate_decimal_odds(minimum_odds),
+            MINIMUM_RECOMMENDED_DECIMAL_ODDS,
+        )
     except BettingMathError:
         return ReferencePriceStatus(
             "INVALID_MINIMUM",

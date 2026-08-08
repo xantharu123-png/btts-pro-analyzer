@@ -1535,6 +1535,27 @@ class ChallengeContextTests(unittest.TestCase):
 
 
 class ChallengeTicketTests(unittest.TestCase):
+    def test_challenge_rejects_legs_below_practical_odds_floor(self):
+        item = candidate("1:BTTS", 1, 0.95)
+
+        self.assertEqual(item.minimum_odds, 1.25)
+        self.assertIsNone(
+            select_quoted_ticket(
+                [item],
+                {"1:BTTS": 1.24},
+                odds_min=1.01,
+                odds_max=3.0,
+            )
+        )
+        self.assertIsNotNone(
+            select_quoted_ticket(
+                [item],
+                {"1:BTTS": 1.25},
+                odds_min=1.01,
+                odds_max=3.0,
+            )
+        )
+
     def test_ticket_uses_at_most_three_unique_fixtures_and_target_odds(self):
         candidates = [
             candidate("1:BTTS", 1, 0.70),

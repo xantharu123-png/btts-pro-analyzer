@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
-from betting_math import minimum_acceptable_odds
+from betting_math import minimum_recommendation_odds
 from ev_calculator import (
     DEFAULT_PROBABILITY_UNCERTAINTY,
     MIN_EXPECTED_ROI_FOR_BET,
@@ -69,7 +69,7 @@ def _signal_inputs(signal: ModelSignal) -> tuple[float, float, float | None]:
     haircut_pct = math.ceil(
         signal.probability_haircut * 1000.0 - 1e-12
     ) / 10.0
-    minimum = minimum_acceptable_odds(
+    minimum = minimum_recommendation_odds(
         probability_pct,
         probability_haircut=haircut_pct,
     )

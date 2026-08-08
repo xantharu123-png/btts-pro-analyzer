@@ -10,7 +10,7 @@
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
 | Verifizierter Produktions-Funktionscommit | `9486e0f` (`Explain automatic tip price rejections`) |
-| Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate, exaktem Mehrbuchmachervergleich für Fußball, verständlicher Preis-Ablehnungsdiagnose, preisoffener Tennis-/E-Sport-Modellanalyse, automatischem 15K-Tagesticket und strikter Spieltagstrennung |
+| Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate inklusive Kurzquotenschutz, exaktem Mehrbuchmachervergleich für Fußball, verständlicher Preis-Ablehnungsdiagnose, preisoffener Tennis-/E-Sport-Modellanalyse, automatischem 15K-Tagesticket und strikter Spieltagstrennung |
 | Verifizierter VPS-Funktionsstand | `9486e0f`; App aktiv, HTTPS 200, Wettfinder-Timer aktiv/enabled und 0 fehlgeschlagene systemd-Units am 8. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
@@ -1203,7 +1203,21 @@ Verbindlicher Abdeckungsabgleich und letzter Quotenpfad am 8. August 2026:
   Kalibrierungs- und Preisevidenz ein Shadow-Modell. Basketball und Eishockey
   besitzen nur nicht freigegebene Live-/Suchpfade, kein validiertes
   Prematch-Publishing. Cricket bleibt ohne validiertes Modell gesperrt.
-- 677 Tests und 5 Subtests bestehen. Normales Microsoft Edge bestand erneut
+- Das reine 3-%-Risiko-EV-Gate konnte bei extrem hoher Modellwahrscheinlichkeit
+  rechnerische Mindestquoten um `1,05` zulassen. Diese Mathematik bleibt für
+  Forschung und Diagnose unverändert; als sichtbare Produktempfehlung sind
+  solche Preise wegen ihrer asymmetrischen Verlustwirkung nicht mehr zulässig.
+- Normale Wettfinder-, Live-, Tennis- und Multi-Sport-Tipps benötigen jetzt
+  mindestens Dezimalquote `1,20`; jedes 15K-Leg mindestens `1,25`. Die
+  mathematisch berechnete EV-Mindestquote gilt weiterhin, falls sie höher ist.
+  Ein zu kurzer Markt sperrt nur diesen Markt. Andere Märkte desselben Spiels
+  bleiben im Mehrmarkt-Pool und können nach Preisprüfung nachrücken.
+- Die Regel ist in Kandidatenbau, automatischem Mehrbuchmacher-Publisher,
+  manueller Preisprüfung, 15K-Ticketauswahl, Tennis-Siegern, Tennis-Satzmärkten
+  und dem produktionsgleichen Tennis-Policy-Replay identisch umgesetzt. Neue
+  Policy- und Snapshot-Versionen verwerfen alte, inkompatible Empfehlungen und
+  erzwingen im VPS-Lauf einen frischen Tagespool.
+- 682 Tests und 5 Subtests bestehen. Normales Microsoft Edge bestand erneut
   1440 x 1000 und 390 x 844 mit allen sechs Tabs, korrekter Preisdiagnose,
   null horizontalem Überlauf und null Konsolenfehler.
 

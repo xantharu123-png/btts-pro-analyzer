@@ -61,6 +61,17 @@ class TennisPolicyReplayTests(unittest.TestCase):
         self.assertEqual(result["bets"], 0)
         self.assertIsNone(result["roi"])
 
+    def test_replay_excludes_positive_ev_prices_below_publication_floor(self):
+        report = BacktestReport(rows=[_row(p_cal=0.99, odds_w=1.10, odds_l=50.0)])
+
+        result = report.policy_summary(
+            probability_haircut=0.0,
+            minimum_expected_roi=0.03,
+        )
+
+        self.assertEqual(result["bets"], 0)
+        self.assertEqual(result["minimum_published_odds"], 1.20)
+
     def test_replay_rejects_invalid_policy_inputs(self):
         report = BacktestReport()
 

@@ -21,11 +21,12 @@ except ImportError:  # pragma: no cover - nur in Runner-Umgebungen ohne scipy
 from betting_math import (
     DEFAULT_KELLY_CAP,
     DEFAULT_KELLY_FRACTION,
+    MINIMUM_RECOMMENDED_DECIMAL_ODDS,
     MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
     BettingMathError,
     ValueMetrics,
     evaluate_market_price,
-    minimum_acceptable_odds,
+    minimum_recommendation_odds,
 )
 from esports_elo import (
     ELO_UNCERTAINTY_MARGIN,
@@ -159,7 +160,7 @@ def format_fair_odds(fair_odds: Any) -> str:
 
 
 def _minimum_market_odds(risk_adjusted_probability: float) -> Optional[float]:
-    return minimum_acceptable_odds(
+    return minimum_recommendation_odds(
         risk_adjusted_probability,
         minimum_expected_roi_percent=MINIMUM_EXPECTED_ROI_PERCENT,
     )
@@ -815,9 +816,13 @@ def evaluate_candidate_price(
         reasons.append(
             f"Risiko-EV {metrics.risk_adjusted_expected_roi:.1f} % liegt unter {MINIMUM_EXPECTED_ROI_PERCENT:.1f} %."
         )
-    if candidate.minimum_odds is None or metrics.market_odds + 1e-9 < candidate.minimum_odds:
+    effective_minimum = max(
+        candidate.minimum_odds or math.inf,
+        MINIMUM_RECOMMENDED_DECIMAL_ODDS,
+    )
+    if metrics.market_odds + 1e-9 < effective_minimum:
         reasons.append(
-            f"Quote {metrics.market_odds:.2f} liegt unter der Mindestquote {candidate.minimum_odds or math.inf:.2f}."
+            f"Quote {metrics.market_odds:.2f} liegt unter der Mindestquote {effective_minimum:.2f}."
         )
     if metrics.kelly_fraction <= 0:
         reasons.append("Das risikoadjustierte Kelly-Ergebnis ist nicht positiv.")
