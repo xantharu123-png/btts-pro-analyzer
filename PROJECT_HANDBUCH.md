@@ -9,15 +9,15 @@
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
-| Verifizierter Produktions-Funktionscommit | `9486e0f` (`Explain automatic tip price rejections`) |
+| Verifizierter Produktions-Funktionscommit | `91009ef` (`Block impractical short-odds recommendations`) |
 | Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate inklusive Kurzquotenschutz, exaktem Mehrbuchmachervergleich für Fußball, verständlicher Preis-Ablehnungsdiagnose, preisoffener Tennis-/E-Sport-Modellanalyse, automatischem 15K-Tagesticket und strikter Spieltagstrennung |
-| Verifizierter VPS-Funktionsstand | `9486e0f`; App aktiv, HTTPS 200, Wettfinder-Timer aktiv/enabled und 0 fehlgeschlagene systemd-Units am 8. August |
+| Verifizierter VPS-Funktionsstand | `91009ef`; App aktiv, HTTPS 200, Wettfinder-/Tennis-/E-Sport-Timer aktiv und 0 fehlgeschlagene systemd-Units am 8. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 671 Tests und 5 Subtests bestanden; normale Edge-QA auf Desktop und Smartphone bestanden |
+| Vollständiger Testlauf | 682 Tests und 5 Subtests bestanden; normale Edge-QA auf Desktop und Smartphone bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -1294,7 +1294,7 @@ URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
-Verifizierter Funktionscommit: 7706708
+Verifizierter Funktionscommit: 91009ef
 ```
 
 Update nach einem Push:
