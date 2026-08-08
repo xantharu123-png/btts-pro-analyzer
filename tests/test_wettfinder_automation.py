@@ -622,6 +622,65 @@ def test_runner_rejects_only_the_too_cheap_market_not_the_fixture(tmp_path):
     ]
 
 
+def test_runner_refreshes_runtime_clock_after_a_long_discovery(tmp_path):
+    started = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    scanned = started + timedelta(minutes=12)
+    context_done = scanned + timedelta(seconds=1)
+    completed = scanned + timedelta(minutes=1)
+    moments = iter((started, scanned, context_done, completed))
+
+    def clock():
+        return next(moments)
+
+    snapshot = _football_snapshot(scanned)
+    checked_rows = []
+
+    def quote_loader(rows):
+        checked_rows.extend(rows)
+        payload = {
+            "response": [
+                {
+                    "fixture": {"id": 1},
+                    "update": scanned.isoformat(),
+                    "bookmakers": [
+                        {
+                            "name": f"Book {index}",
+                            "bets": [
+                                {
+                                    "name": "Both Teams Score",
+                                    "values": [
+                                        {"value": "Yes", "odd": "1.95"}
+                                    ],
+                                }
+                            ],
+                        }
+                        for index in range(1, 5)
+                    ],
+                }
+            ]
+        }
+        return parse_fixture_consensus(
+            payload,
+            rows,
+            fetched_at=context_done,
+        ), []
+
+    document = run_wettfinder(
+        clock=clock,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _search_date: snapshot,
+        football_quote_loader=quote_loader,
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    assert len(checked_rows) == 1
+    assert document["generated_at"] == completed.isoformat()
+    assert document["sources"]["football"]["price_checked_count"] == 1
+    assert document["sources"]["football"]["price_fixture_count"] == 1
+
+
 def test_runner_refreshes_only_daily_pool_fixture_without_rescanning(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     state_path = tmp_path / "wettfinder.json"

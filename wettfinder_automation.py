@@ -695,6 +695,7 @@ def _active_football_candidates(
     state: object,
     *,
     now: datetime,
+    target_date: date,
 ) -> list[dict[str, Any]]:
     if not isinstance(state, dict):
         return []
@@ -711,7 +712,11 @@ def _active_football_candidates(
         ):
             continue
         fresh.append(row)
-    return select_price_check_candidates(fresh, now=current)
+    return select_price_check_candidates(
+        fresh,
+        now=current,
+        target_date=target_date,
+    )
 
 
 def load_state(path: str | Path = STATE_PATH) -> dict[str, Any]:
@@ -812,9 +817,12 @@ def run_wettfinder(
     tennis_loader: Callable[..., list[ModelSignal]] = tennis_model_signals,
     esports_loader: Callable[..., list[ModelSignal]] = esports_signals,
     force_football: bool = False,
+    clock: Optional[Callable[[], datetime]] = None,
 ) -> dict[str, Any]:
     """Run daily discovery if due, then refresh only near candidate fixtures."""
-    current = _utc(now)
+    runtime_clock = clock or (lambda: datetime.now(timezone.utc))
+    fixed_now = now is not None
+    current = _utc(now if fixed_now else runtime_clock())
     target = target_search_date(current)
     previous = load_state(state_path)
     previous_football = previous.get("football")
@@ -844,6 +852,9 @@ def run_wettfinder(
                 search_date=target,
                 error=f"{type(exc).__name__}: {exc}",
             )
+
+    if not fixed_now:
+        current = _utc(runtime_clock())
 
     context_fixture_ids = football_context_due_fixture_ids(
         football_state,
@@ -902,9 +913,13 @@ def run_wettfinder(
                     )
                 )[-20:]
 
+    if not fixed_now:
+        current = _utc(runtime_clock())
+
     source_rows: list[dict[str, Any]] = _active_football_candidates(
         football_state,
         now=current,
+        target_date=target,
     )
     source_status: dict[str, dict[str, Any]] = {
         "football": {
@@ -973,6 +988,7 @@ def run_wettfinder(
             and str(row.get("market_key") or "").strip()
         ),
         now=current,
+        target_date=target,
     )
     quote_errors: list[str] = []
     reference_quotes: dict[str, MarketConsensus] = {}
@@ -991,6 +1007,8 @@ def run_wettfinder(
                 )
         except Exception as exc:
             quote_errors = [f"{type(exc).__name__}: {exc}"[:500]]
+    if not fixed_now:
+        current = _utc(runtime_clock())
     price_status_counts: dict[str, int] = {}
     playable_rows: list[dict[str, Any]] = []
     for row in football_price_rows:
@@ -1019,6 +1037,7 @@ def run_wettfinder(
     candidates = select_candidates(
         playable_rows,
         now=current,
+        target_date=target,
         limit=MAX_AUTOMATIC_CANDIDATES,
     )
     for row in candidates:
