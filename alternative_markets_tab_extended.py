@@ -17,19 +17,21 @@ from challenge_15k import (
     scan_no_result_copy,
     scan_daily_challenge,
 )
+from challenge_engine import select_shortlist
 from config_loader import load_app_config
 from date_context import german_day_label, zurich_today
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from market_consensus import (
     deserialize_consensus_map,
     fetch_football_consensus,
+    reference_price_status,
     serialize_consensus_map,
 )
 
 
 DEFAULT_LEAGUES = [78, 39, 140]
-MARKET_WORKFLOW_VERSION = 8
-MARKET_SNAPSHOT_VERSION = 8
+MARKET_WORKFLOW_VERSION = 9
+MARKET_SNAPSHOT_VERSION = 9
 MARKET_MAX_AGE_MINUTES = 20
 FOOTBALL_MARKET_SCOPES = {
     "Beste Märkte": None,
@@ -40,6 +42,15 @@ FOOTBALL_MARKET_SCOPES = {
     "Beide treffen": frozenset({"btts"}),
     "Ecken": frozenset({"corner_total", "team_corners"}),
     "Karten": frozenset({"yellow_total", "team_yellow"}),
+}
+PRICE_STATUS_LABELS = {
+    "TOO_LOW": "unter der Mindestquote",
+    "UNAVAILABLE": "ohne exakt passende Marktquote",
+    "BORDERLINE": "nur bei einzelnen Anbietern ausreichend",
+    "THIN": "mit zu wenigen Vergleichsanbietern",
+    "STALE": "mit veraltetem Marktstand",
+    "INVALID_MINIMUM": "mit ungültiger Mindestquote",
+    "PLAYABLE": "preislich spielbar",
 }
 
 
@@ -94,6 +105,31 @@ def _format_snapshot_time(value: Optional[str]) -> str:
         return datetime.fromisoformat(value).astimezone().strftime("%d.%m.%Y %H:%M:%S")
     except (TypeError, ValueError):
         return str(value)
+
+
+def _price_check_summary(snapshot: dict) -> Optional[str]:
+    counts = snapshot.get("price_status_counts")
+    counts = counts if isinstance(counts, dict) else {}
+    parts = [
+        f"{counts[code]} {label}"
+        for code, label in PRICE_STATUS_LABELS.items()
+        if isinstance(counts.get(code), int) and counts[code] > 0
+    ]
+    if not parts:
+        return None
+    checked = snapshot.get("price_checked_count")
+    if isinstance(checked, bool) or not isinstance(checked, int) or checked < 1:
+        checked = sum(counts.values())
+    fixtures = snapshot.get("price_fixture_count")
+    fixture_text = (
+        f" aus {fixtures} {'Spiel' if fixtures == 1 else 'Spielen'}"
+        if isinstance(fixtures, int) and not isinstance(fixtures, bool) and fixtures > 0
+        else ""
+    )
+    return (
+        f"Preisprüfung: {checked} Modellmärkte{fixture_text} geprüft · "
+        + " · ".join(parts)
+    )
 
 
 def _zurich_today():
@@ -214,16 +250,52 @@ def _run_market_scan_worker(
         **scan_kwargs,
     )
     if progress_cb:
-        progress_cb(0.92, "Marktquoten der besten Tipps werden verglichen")
+        progress_cb(0.92, "Marktquoten der Modellkandidaten werden verglichen")
+    model_shortlist = list(challenge_snapshot.get("shortlist") or [])
+    price_candidates = list(
+        challenge_snapshot.get("price_candidates")
+        or model_shortlist
+    )
     reference_quotes, quote_errors = fetch_football_consensus(
         api_football_key,
-        challenge_snapshot.get("shortlist") or [],
+        price_candidates,
+    )
+    price_checked_at = datetime.now(timezone.utc)
+    price_status_counts: dict[str, int] = {}
+    playable_candidates = []
+    for candidate in price_candidates:
+        quote = reference_quotes.get(candidate.candidate_id)
+        status = reference_price_status(
+            quote,
+            candidate.minimum_odds,
+            now=price_checked_at,
+        )
+        price_status_counts[status.code] = (
+            price_status_counts.get(status.code, 0) + 1
+        )
+        if status.code == "PLAYABLE":
+            playable_candidates.append(candidate)
+
+    challenge_snapshot["model_shortlist"] = model_shortlist
+    challenge_snapshot["model_approved_candidates"] = len(model_shortlist)
+    challenge_snapshot["shortlist"] = select_shortlist(
+        playable_candidates,
+        max_candidates=3,
+    )
+    challenge_snapshot["approved_candidates"] = len(
+        challenge_snapshot["shortlist"]
     )
     challenge_snapshot["reference_quotes"] = serialize_consensus_map(
         reference_quotes
     )
     challenge_snapshot["quote_errors"] = quote_errors
-    challenge_snapshot["price_checked_at"] = datetime.now(timezone.utc).isoformat()
+    challenge_snapshot["price_checked_at"] = price_checked_at.isoformat()
+    challenge_snapshot["price_checked_count"] = len(price_candidates)
+    challenge_snapshot["price_fixture_count"] = len(
+        {candidate.fixture_id for candidate in price_candidates}
+    )
+    challenge_snapshot["price_status_counts"] = price_status_counts
+    challenge_snapshot["bookmaker_data_used"] = bool(reference_quotes)
     if progress_cb:
         progress_cb(1.0, "Tipps und Marktpreise sind bereit")
     return {"scope": scope, "challenge": challenge_snapshot}
@@ -381,6 +453,21 @@ def create_alternative_markets_tab_extended(
             "reference_quotes": challenge_snapshot.get("reference_quotes", {}),
             "quote_errors": challenge_snapshot.get("quote_errors", []),
             "price_checked_at": challenge_snapshot.get("price_checked_at"),
+            "price_checked_count": challenge_snapshot.get(
+                "price_checked_count", 0
+            ),
+            "price_fixture_count": challenge_snapshot.get(
+                "price_fixture_count", 0
+            ),
+            "price_status_counts": challenge_snapshot.get(
+                "price_status_counts", {}
+            ),
+            "bookmaker_data_used": challenge_snapshot.get(
+                "bookmaker_data_used", False
+            ),
+            "model_approved_candidates": challenge_snapshot.get(
+                "model_approved_candidates", 0
+            ),
             "fixtures_found": challenge_snapshot.get("fixtures_found", 0),
             "fixtures_modeled": challenge_snapshot.get("fixtures_modeled", 0),
             "market_candidates": challenge_snapshot.get("market_candidates", 0),
@@ -482,13 +569,20 @@ def create_alternative_markets_tab_extended(
     shortlist = snapshot.get("shortlist")
     shortlist = shortlist if isinstance(shortlist, list) else []
     if not shortlist:
-        headline, detail = scan_no_result_copy(
-            snapshot,
-            day_label=result_day,
-            recommendation_label="Markt-Empfehlung",
-        )
-        st.error(headline)
-        st.caption(detail)
+        price_summary = _price_check_summary(snapshot)
+        if price_summary:
+            st.error(
+                f"{result_day}: keine preislich freigegebene Markt-Empfehlung."
+            )
+            st.caption(price_summary)
+        else:
+            headline, detail = scan_no_result_copy(
+                snapshot,
+                day_label=result_day,
+                recommendation_label="Markt-Empfehlung",
+            )
+            st.error(headline)
+            st.caption(detail)
         model_blockers = snapshot.get("model_blocked_counts") or {}
         if isinstance(model_blockers, dict) and model_blockers:
             reason, count = max(model_blockers.items(), key=lambda item: item[1])
@@ -526,11 +620,11 @@ def create_alternative_markets_tab_extended(
             )
             if index < len(candidates):
                 st.divider()
-        quote_errors = snapshot.get("quote_errors") or []
-        if quote_errors:
-            with st.expander("Quotenabdeckung"):
-                for error in quote_errors:
-                    st.write(f"- {error}")
+    quote_errors = snapshot.get("quote_errors") or []
+    if quote_errors:
+        with st.expander("Quotenabdeckung"):
+            for error in quote_errors:
+                st.write(f"- {error}")
 
     with st.expander("Suchprüfung", expanded=not shortlist):
         render_football_scan_diagnostics(snapshot, approved_count=len(shortlist))

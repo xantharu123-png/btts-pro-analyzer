@@ -217,7 +217,7 @@ def test_market_worker_forwards_detailed_progress(monkeypatch):
     assert updates == [
         (0.225, "Liga 1/2"),
         (0.9, "Fertig"),
-        (0.92, "Marktquoten der besten Tipps werden verglichen"),
+        (0.92, "Marktquoten der Modellkandidaten werden verglichen"),
         (1.0, "Tipps und Marktpreise sind bereit"),
     ]
     assert result["scope"] == {"league_ids": [39, 78]}
