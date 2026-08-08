@@ -1174,6 +1174,39 @@ Produktionskorrektur der marktbezogenen Freigabe am 8. August 2026:
   390 x 844: korrekte Preisdiagnose, Sport- und 15K-Wechsel, null
   horizontaler Überlauf und null Konsolenfehler.
 
+Verbindlicher Abdeckungsabgleich und letzter Quotenpfad am 8. August 2026:
+
+- `Alle (51)` bedeutet alle 51 im BetBoy-Katalog konfigurierten
+  Fußballwettbewerbe, nicht jede weltweit bei API-Football vorhandene Liga.
+  Der automatische Tageslauf fragt alle 51 für genau seinen Zielspieltag ab.
+  Im verifizierten Lauf wurden 54 Spiele gefunden und 36 mit ausreichender
+  Historie modelliert. Fehlende oder ungültige Historie wird nicht erfunden.
+- Alle gültig modellierbaren Fußballspiele durchlaufen die lokale
+  Modellrechnung. Teurer Pflichtkontext bleibt auf die besten 20 Spiele
+  begrenzt; die automatische Preisprüfung auf die besten zehn Spiele mit
+  höchstens acht glaubwürdigen Märkten je Spiel. Somit bedeutet
+  `alle Spiele modelliert` nicht `jedes Spiel vollständig kontext- und
+  quotengeprüft`.
+- Der Audit fand nach der v6-Umstellung noch einen alten Pfad in `Eigene
+  Suche`: Dort wurden Preise weiterhin nur für die bereits auf einen Markt je
+  Spiel reduzierte Shortlist geladen. Commit `7706708` führt nun auch dort den
+  Mehrmarkt-Pool bis zum Preisgate, verwirft nur den konkreten zu billigen
+  Markt und wählt erst danach einen spielbaren Markt je Begegnung. Die drei
+  Fußballpfade Automatische Tagesauswahl, 15K und Eigene Suche verwenden damit
+  dieselbe Reihenfolge.
+- `Sport: Alle` im Wettfinder öffnet sechs Sport-Tabs. Es startet keinen
+  gemeinsamen automatischen Vollscan über alle Sportarten. Fußball ist
+  derzeit der einzige vollständig automatisierte Prematch-Empfehlungspfad.
+- Tennis läuft täglich und liefert persistierte Modell-/Shadow-Signale, besitzt
+  im automatischen Tagespublisher aber noch keinen exakten automatischen
+  Marktpreis. E-Sport läuft ebenfalls täglich, bleibt bis zur eigenen
+  Kalibrierungs- und Preisevidenz ein Shadow-Modell. Basketball und Eishockey
+  besitzen nur nicht freigegebene Live-/Suchpfade, kein validiertes
+  Prematch-Publishing. Cricket bleibt ohne validiertes Modell gesperrt.
+- 677 Tests und 5 Subtests bestehen. Normales Microsoft Edge bestand erneut
+  1440 x 1000 und 390 x 844 mit allen sechs Tabs, korrekter Preisdiagnose,
+  null horizontalem Überlauf und null Konsolenfehler.
+
 ## 12. Offene Prioritäten
 
 ### P0 - extern und vor ernsthafter Echtgeldnutzung
@@ -1247,7 +1280,7 @@ URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
-Verifizierter Funktionscommit: 1574e6c
+Verifizierter Funktionscommit: 7706708
 ```
 
 Update nach einem Push:
