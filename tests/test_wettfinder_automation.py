@@ -433,7 +433,7 @@ def test_runner_never_publishes_unpriced_or_too_low_model_candidates(tmp_path):
     )
 
     assert document["candidates"] == []
-    assert document["bookmaker_data_used"] is False
+    assert document["bookmaker_data_used"] is True
     assert document["sources"]["football"]["price_status_counts"] == {
         "TOO_LOW": 1
     }

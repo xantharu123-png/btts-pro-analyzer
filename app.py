@@ -63,6 +63,7 @@ red_card_candidate = _football_recommendations.red_card_candidate
 from bet_finder_ui import render_price_decision
 from betting_math import BETTING_POLICY_VERSION
 from ev_signal_sources import (
+    AutomatedWettfinderStatus,
     ModelSignal,
     automated_wettfinder_signals,
     automated_wettfinder_status,
@@ -3290,6 +3291,35 @@ def _automatic_target_label(value: Optional[str]) -> str:
     return target.strftime("%d.%m.%Y")
 
 
+_AUTOMATIC_PRICE_STATUS_LABELS = {
+    "TOO_LOW": "unter der Mindestquote",
+    "UNAVAILABLE": "ohne exakt passende Marktquote",
+    "BORDERLINE": "nur bei einzelnen Anbietern ausreichend",
+    "THIN": "mit zu wenigen Vergleichsanbietern",
+    "STALE": "mit veraltetem Marktstand",
+    "INVALID_MINIMUM": "mit ungültiger Mindestquote",
+    "PLAYABLE": "preislich spielbar",
+}
+
+
+def _automatic_price_summary(status: AutomatedWettfinderStatus) -> Optional[str]:
+    counts = dict(status.price_status_counts)
+    parts = [
+        f"{counts[code]} {_AUTOMATIC_PRICE_STATUS_LABELS[code]}"
+        for code in _AUTOMATIC_PRICE_STATUS_LABELS
+        if counts.get(code)
+    ]
+    if parts:
+        checked = status.price_checked_count or sum(counts.values())
+        return f"Preisprüfung: {checked} Modellmärkte geprüft · " + " · ".join(parts)
+    if status.approved_candidates > 0:
+        return (
+            "Preisprüfung: Modellkandidaten sind vorhanden, aber aktuell liegt "
+            "keine verwendbare exakte Marktquote vor."
+        )
+    return None
+
+
 def _render_automated_daily_selection() -> None:
     st.subheader("Automatische Tagesauswahl")
     status = automated_wettfinder_status()
@@ -3317,6 +3347,9 @@ def _render_automated_daily_selection() -> None:
             "freigegebener Tagestipp. Modelle ohne exakten spielbaren "
             "Marktpreis werden nicht als Empfehlung angezeigt."
         )
+        price_summary = _automatic_price_summary(status)
+        if price_summary:
+            st.caption(price_summary)
         return
 
     st.success(f"{len(signals)} preislich freigegebene Tagestipps verfügbar.")

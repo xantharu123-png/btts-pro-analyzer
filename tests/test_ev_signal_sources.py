@@ -548,7 +548,7 @@ class ListSignalsTests(unittest.TestCase):
                         "generated_at": "2030-01-01T10:00:00+00:00",
                         "betting_policy_version": BETTING_POLICY_VERSION,
                         "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
-                        "bookmaker_data_used": False,
+                        "bookmaker_data_used": True,
                         "quote_required": True,
                         "target_search_date": "2030-01-01",
                         "football": {
@@ -559,7 +559,17 @@ class ListSignalsTests(unittest.TestCase):
                             "fixtures_modeled": 13,
                             "approved_candidates": 0,
                         },
-                        "sources": {"football": {"discovery_scope": 51}},
+                        "sources": {
+                            "football": {
+                                "discovery_scope": 51,
+                                "price_checked_count": 3,
+                                "reference_quote_count": 1,
+                                "price_status_counts": {
+                                    "TOO_LOW": 1,
+                                    "UNAVAILABLE": 2,
+                                },
+                            }
+                        },
                         "candidates": [],
                     }
                 ),
@@ -574,6 +584,13 @@ class ListSignalsTests(unittest.TestCase):
         self.assertEqual(status.fixtures_found, 13)
         self.assertEqual(status.fixtures_modeled, 13)
         self.assertEqual(status.candidate_count, 0)
+        self.assertTrue(status.bookmaker_data_used)
+        self.assertEqual(status.price_checked_count, 3)
+        self.assertEqual(status.reference_quote_count, 1)
+        self.assertEqual(
+            dict(status.price_status_counts),
+            {"TOO_LOW": 1, "UNAVAILABLE": 2},
+        )
 
     def test_automatic_artifact_rejects_stale_or_started_candidates(self):
         import json

@@ -111,6 +111,10 @@ class AutomatedWettfinderStatus:
     fixtures_modeled: int
     approved_candidates: int
     candidate_count: int
+    bookmaker_data_used: bool
+    price_checked_count: int
+    reference_quote_count: int
+    price_status_counts: tuple[tuple[str, int], ...]
 
 
 def _valid_probability(value: object) -> bool:
@@ -518,6 +522,31 @@ def _non_negative_int(value: object) -> int:
     return number if number >= 0 else 0
 
 
+_AUTOMATED_PRICE_STATUS_CODES = frozenset(
+    {
+        "PLAYABLE",
+        "BORDERLINE",
+        "TOO_LOW",
+        "UNAVAILABLE",
+        "THIN",
+        "STALE",
+        "INVALID_MINIMUM",
+    }
+)
+
+
+def _price_status_counts(value: object) -> tuple[tuple[str, int], ...]:
+    if not isinstance(value, dict):
+        return ()
+    normalized = []
+    for raw_code, raw_count in value.items():
+        code = str(raw_code or "").strip().upper()
+        count = _non_negative_int(raw_count)
+        if code in _AUTOMATED_PRICE_STATUS_CODES and count > 0:
+            normalized.append((code, count))
+    return tuple(sorted(normalized))
+
+
 def _load_automated_wettfinder_document(
     path: Union[str, Path] = AUTOMATED_WETTFINDER_PATH,
     *,
@@ -563,7 +592,10 @@ def _load_automated_wettfinder_document(
     )
     if target != expected_target:
         return None
-    if document["bookmaker_data_used"] is not bool(candidates):
+    # Price evidence may reject every model candidate. A published candidate
+    # still requires bookmaker data, but zero candidates does not imply that
+    # no bookmaker price was observed.
+    if candidates and document["bookmaker_data_used"] is not True:
         return None
     for row in candidates:
         if (
@@ -640,6 +672,16 @@ def automated_wettfinder_status(
             football.get("approved_candidates")
         ),
         candidate_count=len(candidates),
+        bookmaker_data_used=document["bookmaker_data_used"],
+        price_checked_count=_non_negative_int(
+            football_source.get("price_checked_count")
+        ),
+        reference_quote_count=_non_negative_int(
+            football_source.get("reference_quote_count")
+        ),
+        price_status_counts=_price_status_counts(
+            football_source.get("price_status_counts")
+        ),
     )
 
 

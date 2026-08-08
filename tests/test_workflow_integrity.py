@@ -72,6 +72,33 @@ def test_automatic_target_label_uses_the_actual_scan_date(monkeypatch):
     assert app._automatic_target_label("2030-01-03") == "03.01.2030"
 
 
+def test_automatic_price_summary_explains_why_models_were_not_published():
+    status = SimpleNamespace(
+        price_status_counts=(("TOO_LOW", 1), ("UNAVAILABLE", 2)),
+        price_checked_count=3,
+        approved_candidates=3,
+    )
+
+    summary = app._automatic_price_summary(status)
+
+    assert summary == (
+        "Preisprüfung: 3 Modellmärkte geprüft · 1 unter der Mindestquote · "
+        "2 ohne exakt passende Marktquote"
+    )
+
+
+def test_automatic_price_summary_reports_pending_exact_prices():
+    status = SimpleNamespace(
+        price_status_counts=(),
+        price_checked_count=0,
+        approved_candidates=2,
+    )
+
+    assert "keine verwendbare exakte Marktquote" in app._automatic_price_summary(
+        status
+    )
+
+
 def test_shared_finder_offers_every_sport_a_fourteen_day_horizon():
     assert app.SEARCH_HORIZONS == {
         "Heute": 0,

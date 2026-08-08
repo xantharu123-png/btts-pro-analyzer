@@ -977,7 +977,9 @@ def run_wettfinder(
         "generated_at": current.isoformat(),
         "betting_policy_version": BETTING_POLICY_VERSION,
         "selection_policy_version": SELECTION_POLICY_VERSION,
-        "bookmaker_data_used": bool(candidates),
+        # A quote can be genuinely used to reject every candidate. Keep price
+        # evidence separate from the number of published recommendations.
+        "bookmaker_data_used": bool(reference_quotes),
         "quote_required": True,
         "target_search_date": target.isoformat(),
         "football": football_state,
