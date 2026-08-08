@@ -4,20 +4,20 @@
 
 | Feld | Verifizierter Stand |
 |---|---|
-| Auditzeitraum | 1. bis 6. August 2026 |
+| Auditzeitraum | 1. bis 8. August 2026 |
 | Repository | `xantharu123-png/btts-pro-analyzer` |
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
-| Verifizierter Produktions-Funktionscommit | `8d9b447` (`Add automatic reference odds and consumer tips`) |
-| Fachlicher Kernstand | Consumer-Wettfinder mit automatischer Tagesauswahl, exaktem Mehrbuchmacher-Preisvergleich für Fußball, direktem Tennis-Tipp mit Mindestquote, automatischem 15K-Tagesticket und strikter Spieltagstrennung |
-| Verifizierter VPS-Funktionsstand | `8d9b447`; App aktiv, HTTPS 200, Wettfinder-Timer aktiv/enabled und 0 fehlgeschlagene systemd-Units am 6. August |
+| Verifizierter Produktions-Funktionscommit | `d7fc216` (`Require playable prices for daily tips`) |
+| Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate, exaktem Mehrbuchmachervergleich für Fußball, preisoffener Tennis-/E-Sport-Modellanalyse, automatischem 15K-Tagesticket und strikter Spieltagstrennung |
+| Verifizierter VPS-Funktionsstand | `d7fc216`; App aktiv, HTTPS 200, Wettfinder-Timer aktiv/enabled und 0 fehlgeschlagene systemd-Units am 8. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 666 Tests, 5 Subtests und 3 JavaScript-Tests bestanden |
+| Vollständiger Testlauf | 669 Tests und 5 Subtests bestanden; normale Edge-QA auf Desktop und Smartphone bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -47,9 +47,11 @@ Der neue verbindliche Preisweg lautet:
    höchstens 90 Minuten, die letzte Provider-Beobachtung höchstens 24 Stunden
    alt sein. Damit werden frisch abgerufene, aber einige Stunden unveränderte
    Pre-Match-Märkte nicht fälschlich verworfen.
-6. Fehlt der exakte Markt oder ist der Vergleich zu dünn, bleibt die konkrete
-   Modellauswahl mit Mindestquote sichtbar. Es wird keine fremde oder
-   synthetische Quote erfunden.
+6. Fehlt der exakte Markt, ist der Vergleich zu dünn oder liegt der
+   konservative Marktpreis unter der Mindestquote, darf die Auswahl nicht als
+   Tagestipp erscheinen. In sportbezogenen Detailanalysen kann sie als
+   ausdrücklich unfreigegebene Modellanalyse sichtbar bleiben. Es wird keine
+   fremde oder synthetische Quote erfunden.
 
 Automatisch exakt zuordenbar sind derzeit Endergebnis, Doppelte Chance, BTTS,
 Gesamttore, Teamtore, Gesamt-/Teamecken und Gesamt-/Teamkarten für die jeweils
@@ -63,19 +65,21 @@ Anbieter. Von 80 exakt gemappten Modelllinien waren 72 im Feed vorhanden und
 Tor-, Teamtor- und Eckmärkte waren breit abgedeckt; Kartenmärkte waren deutlich
 dünner und bleiben bei weniger als drei Anbietern gesperrt.
 
-Tennis zeigt den exakten Match-Sieger-Tipp, Modellwahrscheinlichkeit,
-konservative Wahrscheinlichkeit und Mindestquote direkt. Der aktuelle
-Tennis-Datenfeed besitzt noch keinen belastbaren Mehrbuchmacherpreis; eine
-eigene Quote kann deshalb nur optional geprüft werden. E-Sport wird ebenso als
-konkreter Tipp mit Mindestquote ausgegeben. Basketball, Eishockey und Cricket
+Tennis zeigt Match-Sieger-Modellanalyse, Modellwahrscheinlichkeit,
+konservative Wahrscheinlichkeit und rechnerische Prüfschwelle. Der aktuelle
+Tennis-Datenfeed besitzt noch keinen belastbaren Mehrbuchmacherpreis; ohne
+bestätigten Preis ist dies ausdrücklich kein Tipp. Dasselbe gilt für E-Sport.
+Der normale PandaScore-Statistikfeed enthält keine Buchmacherquoten; ein
+separates Odds-Produkt wäre dafür nötig. Basketball, Eishockey und Cricket
 bleiben Pre-Match fail-closed, solange kein eigenständig walk-forward-
 validiertes Modell vorliegt.
 
 Writer und Reader des VPS-Artefakts erzwingen gemeinsam genau einen Zürcher
 Spieltag. Ein Ereignis von morgen kann nicht mehr in einer mit `Heute`
-bezeichneten Auswahl erscheinen. Der Reader prüft zusätzlich Artefaktversion,
-Auswahlpolicy, Modellpolicy, Aktualität, Startzeit und die Konsistenz der
-eingebetteten Referenzquoten.
+bezeichneten Auswahl erscheinen. Seit Artefaktversion 5 prüft der Reader
+zusätzlich zwingend Status `RECOMMENDED`, Preisstatus `PLAYABLE`, exakte
+Kandidatenzuordnung, Aktualität und Mindestquote. Ein Kandidat ohne
+Referenzquote kann nicht mehr durch den Reader gelangen.
 
 ## 1. Produktziel
 
@@ -283,8 +287,8 @@ Mindestquote = (1 + 0,03) / konservatives p
   `ChallengeCandidate`-Objekt und prüft den vollständigen Credibility-Vertrag
   unmittelbar vor der Ausgabe erneut. Unbekannte Evidenzstufen werden
   fail-closed verworfen.
-- Writer und Reader des Wettfinder-Artefakts verwenden gemeinsam Version 4
-  und Auswahlpolicy `daily-discovery-context-refresh-v4`. Alte Artefakte
+- Writer und Reader des Wettfinder-Artefakts verwenden gemeinsam Version 5
+  und Auswahlpolicy `price-gated-daily-recommendations-v5`. Alte Artefakte
   werden nicht still als aktuelle Empfehlungen weitergereicht.
 - Fußball-CLV-Kennzahlen, offene Counts und letzte Predictions werden nur aus
   exakt derselben Modell- und Policy-Version gebildet. Modellabhängige Caches
@@ -307,10 +311,10 @@ Mindestquote = (1 + 0,03) / konservatives p
 ### Automatische Auswahl und Mehrtagessuche vom 5. August 2026
 
 - Der persistierte VPS-Wettfinder ist jetzt im Produkt sichtbar. Sein Artefakt
-  wird vor der Anzeige erneut auf Version, aktuelle Preis-Policy,
-  Preisunabhängigkeit, zukünftigen Startzeitpunkt und höchstens drei Kandidaten
-  geprüft. Nur `PRICE_REQUIRED`-Zeilen ohne eingebettete Buchmacherquote werden
-  übernommen.
+  wird vor der Anzeige erneut auf Version, aktuelle Preis-Policy, zukünftigen
+  Startzeitpunkt und höchstens drei Kandidaten geprüft. Seit Version 5 werden
+  ausschließlich `RECOMMENDED`-Zeilen mit eingebetteter, frischer und
+  konservativ `PLAYABLE` bewerteter Mehrbuchmacherquote übernommen.
 - Die Anzeige trennt den Zielspieltag vom Zeitpunkt des letzten Vollscans.
   `Letzter Vollscan` stammt aus `last_discovery_at`, nicht aus einem späteren
   Artefakt-Refresh. Dadurch kann ein Kontextlauf nicht fälschlich wie eine neue
@@ -1079,6 +1083,38 @@ Produktionsverifikation des Consumer-Wettfinders am 6. August 2026:
   sichtbare Abnahme bei 1440 x 1000, 820 x 1180 und 390 x 844 ohne horizontalen
   Überlauf, ohne Konsolenfehler und ohne sichtbare N1Bet-Abhängigkeit.
 
+Produktionsverifikation des harten Preis-Publishing-Gates am 8. August 2026:
+
+- Ausgangsfehler war `DOTA2 · Level UP vs Team Lynx`: 68,15 %
+  Modellwahrscheinlichkeit wurden wegen 25,72 Prozentpunkten Unsicherheit auf
+  42,43 % konservativ reduziert. Daraus folgt rechnerisch die Mindestquote
+  2,43. Bei einer angebotenen Quote um 1,30 wären jedoch bereits der rohe
+  Modell-EV rund -11,4 % und der konservative EV rund -44,8 %. Die Rechnung
+  war korrekt, die Veröffentlichung als `Tagestipp` war falsch.
+- Ursache war die Reihenfolge: Zuerst wurden sportübergreifend drei
+  Modellkandidaten gewählt; erst danach wurde nur für die enthaltenen
+  Fußballmärkte eine Quote geladen. `TOO_LOW`, `UNAVAILABLE` und
+  Shadow-Kandidaten blieben dadurch sichtbar und belegten Plätze.
+- Artefaktversion 5 prüft nun zunächst bis zu zehn finale Fußballkandidaten
+  preislich. Nur ein frischer, exakt zugeordneter Mehrbuchmacherpreis mit
+  Status `PLAYABLE` gelangt anschließend in die maximal drei öffentlichen
+  Empfehlungen. `BORDERLINE`, `TOO_LOW`, `THIN`, `STALE` und `UNAVAILABLE`
+  werden nicht veröffentlicht.
+- Der Reader wiederholt das Preisgate unabhängig: `quote_required=true`,
+  Status `RECOMMENDED`, Preisstatus `PLAYABLE`, Kandidaten-ID, Mindestquote und
+  Preisalter müssen gemeinsam stimmen. Ein manipuliertes oder altes Artefakt
+  fällt geschlossen aus.
+- Der erste echte v5-Produktionslauf durchsuchte 51 Wettbewerbe, fand 58
+  Spiele, modellierte 39 und ließ drei Fußballkandidaten durch die fachlichen
+  Gates. Der aktuell fällige Preischeck ergab einmal `TOO_LOW`; veröffentlicht
+  wurden deshalb korrekt null Tagestipps. Level UP und alle unbepreisten
+  Tennis-/E-Sport-Kandidaten fehlen vollständig im öffentlichen Array.
+- Funktionscommit `d7fc216` läuft auf dem VPS. 669 Tests und 5 Subtests
+  bestehen. Die normale Microsoft-Edge-Engine bestätigte die Produktions-App
+  bei 1440 x 1000 und 390 x 844: strikter Leerzustand, kein `MODELLTIPP`, kein
+  falscher `Tagestipp 1`, null horizontaler Überlauf, null Konsolenfehler und
+  erfolgreicher Navigationswechsel `Meine Tipps` zurück zum `Wettfinder`.
+
 ## 12. Offene Prioritäten
 
 ### P0 - extern und vor ernsthafter Echtgeldnutzung
@@ -1152,7 +1188,7 @@ URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
-Verifizierter Funktionscommit: 8d9b447
+Verifizierter Funktionscommit: d7fc216
 ```
 
 Update nach einem Push:
