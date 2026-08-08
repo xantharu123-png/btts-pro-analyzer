@@ -9,15 +9,15 @@
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
-| Verifizierter Produktions-Funktionscommit | `d7fc216` (`Require playable prices for daily tips`) |
-| Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate, exaktem Mehrbuchmachervergleich für Fußball, preisoffener Tennis-/E-Sport-Modellanalyse, automatischem 15K-Tagesticket und strikter Spieltagstrennung |
-| Verifizierter VPS-Funktionsstand | `d7fc216`; App aktiv, HTTPS 200, Wettfinder-Timer aktiv/enabled und 0 fehlgeschlagene systemd-Units am 8. August |
+| Verifizierter Produktions-Funktionscommit | `9486e0f` (`Explain automatic tip price rejections`) |
+| Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate, exaktem Mehrbuchmachervergleich für Fußball, verständlicher Preis-Ablehnungsdiagnose, preisoffener Tennis-/E-Sport-Modellanalyse, automatischem 15K-Tagesticket und strikter Spieltagstrennung |
+| Verifizierter VPS-Funktionsstand | `9486e0f`; App aktiv, HTTPS 200, Wettfinder-Timer aktiv/enabled und 0 fehlgeschlagene systemd-Units am 8. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 669 Tests und 5 Subtests bestanden; normale Edge-QA auf Desktop und Smartphone bestanden |
+| Vollständiger Testlauf | 671 Tests und 5 Subtests bestanden; normale Edge-QA auf Desktop und Smartphone bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -529,11 +529,12 @@ als nicht eingebundene Rollback-Historie erhalten.
   Modellläufen übernommen. Basketball und NHL bleiben in ihren vorhandenen
   Live-Pfaden ereignisgetrieben; ein künstlicher täglicher Prematch-Kandidat
   wird nicht erzeugt. Cricket bleibt ohne validiertes Modell blockiert.
-- Die Auswahl wird ohne angebotene Quote nach Evidenzstufe und konservativer
-  Wahrscheinlichkeit sortiert, pro Event dedupliziert und auf drei begrenzt.
-  Erst danach werden exakte Fußball-Referenzpreise geladen. Tennis und E-Sport
-  bleiben konkrete Tipps mit Mindestquote, wenn kein passender Preisfeed
-  vorhanden ist.
+- Tennis und E-Sport bleiben interne Modellanalysen, solange kein exakt
+  zuordenbarer Preisfeed vorliegt. Sie dürfen ohne frischen spielbaren Preis
+  weder die öffentliche Top 3 belegen noch als konkrete Tagestipps erscheinen.
+- Für Fußball werden bis zu zehn fachlich freigegebene Kandidaten exakt
+  bepreist. Erst aus den Preisstatus-`PLAYABLE`-Zeilen werden eventweise
+  dedupliziert maximal drei öffentliche Tagestipps ausgewählt.
 
 ### Shadow und Settlement
 
@@ -1114,6 +1115,32 @@ Produktionsverifikation des harten Preis-Publishing-Gates am 8. August 2026:
   bei 1440 x 1000 und 390 x 844: strikter Leerzustand, kein `MODELLTIPP`, kein
   falscher `Tagestipp 1`, null horizontaler Überlauf, null Konsolenfehler und
   erfolgreicher Navigationswechsel `Meine Tipps` zurück zum `Wettfinder`.
+
+Produktionsabgleich der Preis-Ablehnungsdiagnose am 8. August 2026:
+
+- Das Feld `bookmaker_data_used` bedeutete bisher fälschlich
+  „mindestens ein Tipp veröffentlicht“. Dadurch stand es bei einer real
+  vorhandenen, aber zu niedrigen Quote auf `false`. Es bedeutet jetzt korrekt
+  „mindestens ein exakter Preisvergleich wurde verwendet“. Preis-Evidenz und
+  Veröffentlichungszahl sind getrennte Größen.
+- Der validierte Reader akzeptiert deshalb auch ein leeres Empfehlungsarray
+  mit echter Preis-Evidenz. Umgekehrt bleibt jeder veröffentlichte Kandidat
+  ohne `bookmaker_data_used=true`, `PLAYABLE`-Status und erneut validierte
+  Referenzquote gesperrt.
+- Die automatische Tagesauswahl nennt bei null Tipps nun den konkreten
+  Preisgrund: unter Mindestquote, exakt passender Markt nicht verfügbar, nur
+  einzelne Anbieter ausreichend, zu wenige Anbieter, veraltet oder ungültige
+  Mindestquote. Die Modell- und Kontextgates wurden nicht gelockert.
+- Der echte VPS-Folgelauf unter `9486e0f` verwendete den vorhandenen
+  51-Wettbewerbe-Tagespool ohne unnötigen Vollscan: 58 Spiele gefunden, 39
+  modelliert, drei fachlich bestandene Fußballmärkte, drei exakte
+  Mehrbuchmachervergleiche, alle drei `TOO_LOW`, null veröffentlichte Tipps.
+  Das Artefakt trägt korrekt `bookmaker_data_used=true`.
+- 671 Tests und 5 Subtests bestehen. Die normale installierte Edge-Engine
+  bestätigte bei 1440 x 1000 und 390 x 844 die sichtbare Zeile
+  `3 Modellmärkte geprüft · 3 unter der Mindestquote`, alle sechs Sport-Tabs,
+  den aktiven Wechsel Fußball/Tennis, die ehrliche 15K-`Alle`-Grenze, null
+  horizontalen Überlauf und null Konsolenfehler.
 
 ## 12. Offene Prioritäten
 
