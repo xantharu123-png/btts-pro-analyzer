@@ -1142,6 +1142,38 @@ Produktionsabgleich der Preis-Ablehnungsdiagnose am 8. August 2026:
   den aktiven Wechsel Fußball/Tennis, die ehrliche 15K-`Alle`-Grenze, null
   horizontalen Überlauf und null Konsolenfehler.
 
+Produktionskorrektur der marktbezogenen Freigabe am 8. August 2026:
+
+- Eine zu niedrige Quote sperrt ab Auswahlpolicy v6 nur noch den konkreten
+  Markt, nicht mehr die gesamte Begegnung. Beispiel: Ist `Sieg Bayern` zu
+  billig, bleiben fachlich bestandene Alternativen wie `Unter 4,5 Tore`,
+  Teamtore, Doppelte Chance, Ecken oder Karten für denselben Preisvergleich
+  erhalten.
+- Wettfinder und 15K halten bis zur Preisprüfung bis zu zehn Spiele mit
+  jeweils höchstens acht glaubwürdigen Märkten. API-Football wird weiterhin
+  nur einmal je Spiel abgefragt; alle exakten Märkte werden aus derselben
+  Antwort gelesen. Erst nach den Statuswerten `PLAYABLE`, `TOO_LOW`,
+  `UNAVAILABLE` und so weiter wird auf höchstens einen Markt je Spiel und drei
+  öffentliche Empfehlungen reduziert.
+- Der 15K-Worker verwendet denselben Mehrmarkt-Pool. Die sichtbare kompakte
+  Modell-Shortlist bleibt klein, die finale Ticketberechnung darf aber eine
+  spielbare Alternative desselben Spiels wählen, wenn der zunächst stärkste
+  Modellmarkt preislich ausscheidet.
+- Der erste v6-Vollscan deckte zusätzlich einen Laufzeituhrfehler auf: Bei
+  einem zwölf Minuten dauernden Scan blieb die interne Uhr auf der Startzeit
+  stehen und behandelte später geprüfte Kandidaten als Zukunftsdaten. Der
+  Runner aktualisiert die Echtzeit nun nach Discovery, Kontext und
+  Quotenabruf; das gewählte Spieltagsdatum bleibt dabei stabil.
+- Der korrigierte VPS-Lauf unter `1574e6c` verwendete den vorhandenen
+  51-Ligen-Tagespool: 54 Spiele gefunden, 36 modelliert, neun glaubwürdige
+  Märkte aus drei Spielen gespeichert und alle neun preisgeprüft. Acht waren
+  `TOO_LOW`, einer `UNAVAILABLE`, daher korrekt null Empfehlungen. Zuvor waren
+  wegen des Uhrfehlers nur drei Märkte aus einem Spiel geprüft worden.
+- 676 Tests und 5 Subtests bestehen. Die normale installierte
+  Microsoft-Edge-Engine bestätigte die Produktion bei 1440 x 1000 und
+  390 x 844: korrekte Preisdiagnose, Sport- und 15K-Wechsel, null
+  horizontaler Überlauf und null Konsolenfehler.
+
 ## 12. Offene Prioritäten
 
 ### P0 - extern und vor ernsthafter Echtgeldnutzung
@@ -1215,7 +1247,7 @@ URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
-Verifizierter Funktionscommit: d7fc216
+Verifizierter Funktionscommit: 1574e6c
 ```
 
 Update nach einem Push:
