@@ -4,14 +4,15 @@
 
 | Feld | Verifizierter Stand |
 |---|---|
-| Auditzeitraum | 1. bis 8. August 2026 |
+| Auditzeitraum | 1. bis 9. August 2026 |
 | Repository | `xantharu123-png/btts-pro-analyzer` |
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
 | Verifizierter Produktions-Funktionscommit | `434ba86` (`Persist and settle 15K challenge bankroll`) |
+| Verifizierte technische Ausgangsbasis dieser Aktualisierung | `7129e52` (`Document persistent 15K settlement flow`); lokal, GitHub und VPS identisch |
 | Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate inklusive Kurzquotenschutz, exaktem Mehrbuchmachervergleich für Fußball, verständlicher Preis-Ablehnungsdiagnose, preisoffener Tennis-/E-Sport-Modellanalyse sowie persistentem und vollständig abrechenbarem 15K-Konto |
-| Verifizierter VPS-Funktionsstand | `434ba86` enthalten; App aktiv, HTTPS 200, Wettfinder-/Tennis-/E-Sport-Timer aktiv und 0 fehlgeschlagene systemd-Units am 8. August |
+| Verifizierter VPS-Funktionsstand | Funktionsstand `434ba86` über Basis `7129e52`; App aktiv, HTTPS 200, alle 7 BetBoy-Timer aktiv und 0 fehlgeschlagene systemd-Units am 9. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
@@ -802,6 +803,11 @@ Konfidenzgrenzen von CLV und Rendite überzeugen. ROI allein reicht nicht.
 | Rotkarten-Historie | täglich 05:41 | erfolgreich; Budget 350 Provider-Calls |
 | Tennis-Pipeline | täglich 07:17 | erfolgreich; montags zusätzlich Wächter und Wochenreport |
 
+Livekontrolle am 9. August 2026: Alle sieben Timer waren mit jüngsten Läufen
+und nächsten Fälligkeiten in systemd gelistet. `betboy-app.service` war
+`active`, die öffentliche HTTPS-Adresse antwortete mit Status 200 und
+`systemctl --failed` enthielt keine Unit.
+
 Produktionsverifikation am 2. August 2026: Der erste Artefakt-v2-Lauf
 verarbeitete den Discovery-Scope mit 51 Ligen, fand und modellierte die zwei
 noch ausstehenden Fixtures, speicherte drei mathematische Discovery-Märkte und
@@ -1258,6 +1264,25 @@ Verbindlicher Abdeckungsabgleich und letzter Quotenpfad am 8. August 2026:
   einer offenen Wette sowie 390 × 844 ohne horizontalen Überlauf oder
   Konsolenfehler.
 
+### Wiederanlauf- und Produktionskontrolle vom 9. August 2026
+
+- Der vollständige PC-Absturz unterbrach weder einen offenen Codeumbau noch
+  Commit, Push oder Deployment. Vor dieser reinen Dokumentaktualisierung
+  zeigten lokales `HEAD`, `origin/main`, GitHub und der VPS identisch
+  `7129e52`; darin ist der 15K-Funktionscommit `434ba86` enthalten.
+- Die Produktions-App läuft unabhängig vom lokalen PC. Der Dienst war bei der
+  Kontrolle `active`, HTTPS lieferte Status 200, es gab 0 fehlgeschlagene
+  systemd-Units und alle sieben BetBoy-Timer hatten aktuelle beziehungsweise
+  geplante Läufe.
+- Im lokalen Arbeitsbaum existieren keine offenen Quellcodeänderungen. Nur die
+  bekannten Laufdateien `logs/pipeline_2026-07-31.log` und
+  `logs/pipeline_2026-08-02.log` bleiben absichtlich unversioniert.
+- Ein lokaler Streamlit-Testserver ist nach einem PC-Neustart erwartungsgemäß
+  beendet und für den VPS-Betrieb nicht erforderlich.
+- Status der 15K-Reparatur: technisch repariert, getestet und produktiv aktiv.
+  Eine vor der Reparatur nie gespeicherte Wette kann nicht rückwirkend erraten
+  werden und muss einmal über `Vergangene Wette nachtragen` erfasst werden.
+
 ## 12. Offene Prioritäten
 
 ### P0 - extern und vor ernsthafter Echtgeldnutzung
@@ -1333,7 +1358,9 @@ URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
+Verifizierte technische Basis: 7129e52
 Verifizierter Funktionscommit: 434ba86
+Letzte Livekontrolle: 9. August 2026
 ```
 
 Update nach einem Push:
