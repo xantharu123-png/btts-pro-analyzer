@@ -9,16 +9,16 @@
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
-| Verifizierter Produktions-Funktionscommit | `434ba86` (`Persist and settle 15K challenge bankroll`) |
-| Verifizierte technische Ausgangsbasis dieser Aktualisierung | `7129e52` (`Document persistent 15K settlement flow`); lokal, GitHub und VPS identisch |
-| Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate inklusive Kurzquotenschutz, exaktem Mehrbuchmachervergleich für Fußball, verständlicher Preis-Ablehnungsdiagnose, preisoffener Tennis-/E-Sport-Modellanalyse sowie persistentem und vollständig abrechenbarem 15K-Konto |
-| Verifizierter VPS-Funktionsstand | Funktionsstand `434ba86` über Basis `7129e52`; App aktiv, HTTPS 200, alle 7 BetBoy-Timer aktiv und 0 fehlgeschlagene systemd-Units am 9. August |
+| Verifizierter Produktions-Funktionscommit | `6a59f3e` (`Harden 15K stake policy and quote consensus`) |
+| Verifizierte technische Ausgangsbasis des Re-Audits | `deb35a3` (`Update handbook after production recovery check`) |
+| Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate inklusive Kurzquotenschutz, case-insensitivem Mehrbuchmachervergleich für Fußball, verständlicher Preis-Ablehnungsdiagnose, preisoffener Tennis-/E-Sport-Modellanalyse sowie persistentem 15K-Konto mit 5-%-Standard und bewusst wählbarem Hochrisikomodus |
+| Verifizierter VPS-Funktionsstand | Funktionsstand `6a59f3e`; App aktiv, HTTPS 200, alle 7 BetBoy-Timer aktiv und 0 fehlgeschlagene systemd-Units am 9. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 690 Tests und 5 Subtests bestanden; normale Edge-QA auf Desktop und Smartphone bestanden |
+| Vollständiger Testlauf | 693 Tests und 5 Subtests bestanden; normale Edge-QA auf Desktop und Smartphone bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 
 Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
@@ -504,8 +504,11 @@ als nicht eingebundene Rollback-Historie erhalten.
 - Ein Verlust bleibt ein Verlust. Es gibt keinen automatischen Neustart auf
   100 Euro.
 - Manuelle Kapitalzufuhr wird getrennt als externe Finanzierung ausgewiesen.
-- Der Shadow-Einsatz ist auf 5-25 % begrenzt; bestehende Sitzungen oberhalb
-  25 % wurden serverseitig geklemmt. All-in ist nicht mehr auswählbar.
+- Der Shadow-Einsatz ist auf 5-25 % begrenzt. 5 % ist der sichere
+  Produktstandard; 10-25 % müssen im Konto bewusst gewählt werden und werden
+  als aggressive Challenge-Simulation bezeichnet. Die Policy-v2-Migration
+  setzt alte implizite 25-%-Defaults einmalig auf 5 % zurück. All-in ist nicht
+  auswählbar, und der Ledger klemmt manipulierte Altwerte weiterhin defensiv.
 - Neben der Challenge-Simulation zeigt die App eine separate
   Viertel-Kelly-Risikoreferenz mit hartem 5-%-Cap. Negatives erwartetes
   Log-Wachstum und ein Shadow-Einsatz oberhalb dieser Referenz werden
@@ -736,24 +739,26 @@ erwartete Log-Wachstum separat berechnet.
 
 ### 15K-Rechnung
 
-Bei 100 Euro Startguthaben, 25 % Einsatzanteil und Ticketquote 2,50 wächst das
-Guthaben nach einem Gewinn um den Faktor:
+Bei 100 Euro Startguthaben, dem neuen 5-%-Standard und Ticketquote 2,50 wächst
+das Guthaben nach einem Gewinn um den Faktor:
 
 ```text
-1 + 0,25 * (2,50 - 1) = 1,375
+1 + 0,05 * (2,50 - 1) = 1,075
 ```
 
-Ohne einen einzigen Verlust wären 16 Gewinne nötig, um 15.000 Euro zu
-überschreiten. Das ist keine Prognose. Bei einer wahren Ticketchance von 42 %
-liegt die Chance auf 16 Siege in Folge nur bei ungefähr 0,0001 %. Verluste,
-Korrelationen, Limits und schwankende Quoten machen den Pfad zusätzlich
-schwieriger.
+Ohne einen einzigen Verlust wären damit 70 Gewinne nötig, um 15.000 Euro zu
+überschreiten. Der bewusst wählbare 25-%-Modus hat weiterhin Faktor 1,375 und
+benötigt rechnerisch 16 Gewinne. Das ist keine Prognose: Bei einer wahren
+Ticketchance von 42 % liegt bereits die Chance auf diese 16 Siege in Folge nur
+bei ungefähr 0,0001 %. Verluste, Korrelationen, Limits und schwankende Quoten
+machen beide Pfade zusätzlich schwieriger.
 
 Der Einsatzregler ist deshalb eine Shadow-Risikowahl, keine Optimierung. Die
-App begrenzt ihn auf 25 %. Für eine reale Risikoreferenz verwendet sie
-Viertel-Kelly und höchstens 5 % des Guthabens. Auch diese Referenz ist nur so
-gut wie die geschätzte Wahrscheinlichkeit. Die App darf das Ziel
-visualisieren, aber niemals als realistische oder sichere Challenge verkaufen.
+App startet bei 5 % und begrenzt die bewusste Hochrisikowahl auf 25 %. Für eine
+reale Risikoreferenz verwendet sie Viertel-Kelly und höchstens 5 % des
+Guthabens. Auch diese Referenz ist nur so gut wie die geschätzte
+Wahrscheinlichkeit. Die App darf das Ziel visualisieren, aber niemals als
+realistische oder sichere Challenge verkaufen.
 
 ## 7. Shadow- und Evidenzstand
 
@@ -1283,6 +1288,47 @@ Verbindlicher Abdeckungsabgleich und letzter Quotenpfad am 8. August 2026:
   Eine vor der Reparatur nie gespeicherte Wette kann nicht rückwirkend erraten
   werden und muss einmal über `Vergangene Wette nachtragen` erfasst werden.
 
+### Claude-Re-Audit und Randfall-Härtung vom 9. August 2026
+
+- Der Mehrbuchmacher-Parser dedupliziert Anbieter jetzt bereits beim Aufbau
+  mit normalisiertem, case-insensitivem Namen. Bei Feed-Dubletten wie `Bet365`
+  und `bet365` zählt der Anbieter einmal; die niedrigere der doppelten Quoten
+  bleibt als konservative Beobachtung erhalten. Build und Reload verwenden
+  damit denselben Identitätsvertrag.
+- Der maximale Einsatz wird zentral und wie im Ledger abgerundet. Dadurch kann
+  das UI bei krummen Centguthaben nicht mehr einen Cent mehr anbieten, als die
+  Buchung akzeptiert. Die tatsächliche Gesamtquote verwendet im UI dieselben
+  `TARGET_ODDS_MIN/MAX`-Konstanten wie der Ledger.
+- Eine freiwillige Eingabe unter 5 % kann die Gewinnpfad-Projektion nicht mehr
+  mit `ValueError` abbrechen. Der 5-%-Mindestwert gilt für die gespeicherte
+  Challenge-Policy, nicht für einen vorsichtiger eingegebenen realen Einsatz.
+- Neue Konten starten bei 5 %. Bestehende Policy-v1-Konten werden genau einmal
+  auf 5 % migriert; danach kann der Nutzer 10-25 % im Konto erneut bewusst
+  wählen. Lesen und Geldpfad begrenzen auch manipulierte Legacy-Werte weiterhin
+  hart auf 25 %.
+- Eine nachgetragene Alt-Wette verwendet den tatsächlich damaligen Einsatz und
+  wird deshalb nicht am heutigen Prozentregler gemessen. Sie darf das aktuell
+  verfügbare Guthaben nicht überschreiten, bleibt als `MANUAL` markiert und
+  zählt nie als Modell- oder Performanceevidenz. Eine lückenlose historische
+  Zwischenbankroll kann ohne damalige Buchungen weiterhin nicht rekonstruiert
+  werden.
+- Die isotone Kalibrierung bleibt absichtlich regularisiert: 25
+  Pseudo-Beobachtungen ziehen kleine Bins zur Modellidentität. Das ist keine
+  Behauptung vollständiger Bias-Korrektur. Eine Änderung dieser Schrumpfung
+  benötigt einen vorab festgelegten Out-of-sample-Vergleich von Brier,
+  Log-Loss und Stabilität; ein einzelnes synthetisches Beispiel ist dafür kein
+  belastbarer Tuningnachweis.
+- 693 Tests und 5 Subtests bestehen. Regressionstests decken nun explizit
+  1-%-Einsatz, Cent-Floor, 90-%-Legacywert, Policy-v2-Migration,
+  Buchmacher-Casing und historische Einsätze oberhalb des heutigen
+  Prozentstandards ab.
+- Normales Microsoft Edge verifizierte 1440 × 1000 und 390 × 844 ohne
+  horizontalen Überlauf: 5-%-Startwert, Warnung beim Wechsel auf 10 % und
+  Nachtragsfeld mit 5-Euro-Vorbelegung bei 100 Euro zulässigem Ist-Guthaben.
+  Der einzige blockierte Request war ein externes Material-Symbol von
+  `fonts.gstatic.com` durch die lokale Netzwerksandbox; es gab keinen
+  Seitenfehler und die relevanten Bedienelemente blieben sichtbar.
+
 ## 12. Offene Prioritäten
 
 ### P0 - extern und vor ernsthafter Echtgeldnutzung
@@ -1358,8 +1404,8 @@ URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
-Verifizierte technische Basis: 7129e52
-Verifizierter Funktionscommit: 434ba86
+Verifizierte technische Basis: deb35a3
+Verifizierter Funktionscommit: 6a59f3e
 Letzte Livekontrolle: 9. August 2026
 ```
 
