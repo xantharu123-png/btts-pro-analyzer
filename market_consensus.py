@@ -110,7 +110,7 @@ class MarketConsensus:
         if (
             quote.source != REFERENCE_SOURCE
             or quote.bookmaker_count != len(quote.points)
-            or len({point.bookmaker.casefold() for point in quote.points})
+            or len({_normalize(point.bookmaker) for point in quote.points})
             != len(quote.points)
             or not quote.points
         ):
@@ -348,7 +348,7 @@ def parse_fixture_consensus(
     if not isinstance(response, list):
         return {}
     fetched = _as_utc(fetched_at or datetime.now(timezone.utc))
-    quotes: dict[tuple[int, str, str], dict[str, float]] = {}
+    quotes: dict[tuple[int, str, str], dict[str, QuotePoint]] = {}
     updates: dict[int, list[datetime]] = {}
     fixture_ids: set[int] = set()
     for entry in response:
@@ -374,7 +374,8 @@ def parse_fixture_consensus(
             if not isinstance(bookmaker, Mapping):
                 continue
             bookmaker_name = str(bookmaker.get("name") or "").strip()
-            if _normalize(bookmaker_name) in EXCLUDED_BOOKMAKERS:
+            bookmaker_key = _normalize(bookmaker_name)
+            if bookmaker_key in EXCLUDED_BOOKMAKERS:
                 continue
             bets = bookmaker.get("bets")
             if not isinstance(bets, list):
@@ -394,9 +395,19 @@ def parse_fixture_consensus(
                         odds = validate_decimal_odds(value.get("odd"))
                     except BettingMathError:
                         continue
-                    quotes.setdefault((fixture_id, bet_name, value_name), {})[
-                        bookmaker_name
-                    ] = odds
+                    market_quotes = quotes.setdefault(
+                        (fixture_id, bet_name, value_name),
+                        {},
+                    )
+                    current = market_quotes.get(bookmaker_key)
+                    # A provider sometimes emits casing variants of the same
+                    # bookmaker. Count it once and retain the lower price so a
+                    # duplicate can never make the consensus more optimistic.
+                    if current is None or odds < current.odds:
+                        market_quotes[bookmaker_key] = QuotePoint(
+                            bookmaker=bookmaker_name,
+                            odds=odds,
+                        )
 
     result: dict[str, MarketConsensus] = {}
     for candidate in candidates:
@@ -419,8 +430,8 @@ def parse_fixture_consensus(
             {},
         )
         points = tuple(
-            QuotePoint(bookmaker=bookmaker, odds=odds)
-            for bookmaker, odds in sorted(raw.items(), key=lambda item: item[0].casefold())
+            point
+            for _, point in sorted(raw.items(), key=lambda item: item[0])
         )
         summary = _summary_prices(sorted(point.odds for point in points))
         if summary is None:

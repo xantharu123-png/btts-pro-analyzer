@@ -45,6 +45,23 @@ from market_consensus import (
 DEFAULT_CHALLENGE_DB = Path(__file__).with_name("challenge_15k.db")
 VALID_STATUSES = {"PENDING", "WON", "LOST", "VOID"}
 MAX_QUOTE_AGE_SECONDS = 10 * 60
+STAKE_POLICY_VERSION = 2
+MIN_STAKE_FRACTION_BPS = int(MIN_CHALLENGE_STAKE_FRACTION * 10_000)
+MAX_STAKE_FRACTION_BPS = int(MAX_CHALLENGE_STAKE_FRACTION * 10_000)
+
+
+def _bounded_stake_fraction_bps(value: Any) -> int:
+    """Fail safely to the minimum if persisted stake policy data is malformed."""
+    if isinstance(value, bool):
+        return MIN_STAKE_FRACTION_BPS
+    try:
+        basis_points = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return MIN_STAKE_FRACTION_BPS
+    return min(
+        MAX_STAKE_FRACTION_BPS,
+        max(MIN_STAKE_FRACTION_BPS, basis_points),
+    )
 
 
 def _money_to_cents(value: Any, *, allow_zero: bool = True) -> int:
@@ -101,8 +118,10 @@ class ChallengeLedger:
                     starting_balance_cents INTEGER NOT NULL CHECK (starting_balance_cents >= 0),
                     current_balance_cents INTEGER NOT NULL CHECK (current_balance_cents >= 0),
                     target_balance_cents INTEGER NOT NULL CHECK (target_balance_cents > 0),
-                    stake_fraction_bps INTEGER NOT NULL DEFAULT 2500
+                    stake_fraction_bps INTEGER NOT NULL DEFAULT 500
                         CHECK (stake_fraction_bps BETWEEN 500 AND 2500),
+                    stake_policy_version INTEGER NOT NULL DEFAULT 2
+                        CHECK (stake_policy_version >= 1),
                     updated_at TEXT NOT NULL
                 )
                 """
@@ -115,19 +134,43 @@ class ChallengeLedger:
                 connection.execute(
                     """
                     ALTER TABLE challenge_settings
-                    ADD COLUMN stake_fraction_bps INTEGER NOT NULL DEFAULT 2500
+                    ADD COLUMN stake_fraction_bps INTEGER NOT NULL DEFAULT 500
                         CHECK (stake_fraction_bps BETWEEN 500 AND 10000)
+                    """
+                )
+            if "stake_policy_version" not in setting_columns:
+                connection.execute(
+                    """
+                    ALTER TABLE challenge_settings
+                    ADD COLUMN stake_policy_version INTEGER NOT NULL DEFAULT 1
                     """
                 )
             connection.execute(
                 """
                 UPDATE challenge_settings
-                SET stake_fraction_bps=?
-                WHERE stake_fraction_bps>?
+                SET stake_fraction_bps=?, stake_policy_version=?
+                WHERE stake_policy_version<?
                 """,
                 (
-                    int(MAX_CHALLENGE_STAKE_FRACTION * 10_000),
-                    int(MAX_CHALLENGE_STAKE_FRACTION * 10_000),
+                    int(DEFAULT_CHALLENGE_STAKE_FRACTION * 10_000),
+                    STAKE_POLICY_VERSION,
+                    STAKE_POLICY_VERSION,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE challenge_settings
+                SET stake_fraction_bps=CASE
+                    WHEN stake_fraction_bps<? THEN ?
+                    WHEN stake_fraction_bps>? THEN ?
+                    ELSE stake_fraction_bps
+                END
+                """,
+                (
+                    MIN_STAKE_FRACTION_BPS,
+                    MIN_STAKE_FRACTION_BPS,
+                    MAX_STAKE_FRACTION_BPS,
+                    MAX_STAKE_FRACTION_BPS,
                 ),
             )
             connection.execute(
@@ -194,14 +237,16 @@ class ChallengeLedger:
                 """
                 INSERT OR IGNORE INTO challenge_settings (
                     id, starting_balance_cents, current_balance_cents,
-                    target_balance_cents, stake_fraction_bps, updated_at
-                ) VALUES (1, ?, ?, ?, ?, ?)
+                    target_balance_cents, stake_fraction_bps,
+                    stake_policy_version, updated_at
+                ) VALUES (1, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     default_cents,
                     default_cents,
                     target_cents,
                     int(DEFAULT_CHALLENGE_STAKE_FRACTION * 10_000),
+                    STAKE_POLICY_VERSION,
                     now,
                 ),
             )
@@ -261,7 +306,10 @@ class ChallengeLedger:
             "starting_balance": _cents_to_money(row["starting_balance_cents"]),
             "current_balance": _cents_to_money(row["current_balance_cents"]),
             "target_balance": _cents_to_money(row["target_balance_cents"]),
-            "stake_fraction": row["stake_fraction_bps"] / 10_000.0,
+            "stake_fraction": (
+                _bounded_stake_fraction_bps(row["stake_fraction_bps"])
+                / 10_000.0
+            ),
             "net_external_funding": _cents_to_money(external_funding_cents),
             "updated_at": row["updated_at"],
         }
@@ -372,10 +420,10 @@ class ChallengeLedger:
             connection.execute(
                 """
                 UPDATE challenge_settings
-                SET stake_fraction_bps = ?, updated_at = ?
+                SET stake_fraction_bps = ?, stake_policy_version = ?, updated_at = ?
                 WHERE id = 1
                 """,
-                (basis_points, now),
+                (basis_points, STAKE_POLICY_VERSION, now),
             )
             connection.commit()
         return self.settings()
@@ -710,7 +758,11 @@ class ChallengeLedger:
                 ).fetchone()
                 if row is None or stake_cents > row[0]:
                     raise ValueError("Stake exceeds the available balance")
-                max_stake_cents = row[0] * row[1] // 10_000
+                max_stake_cents = (
+                    int(row[0])
+                    * _bounded_stake_fraction_bps(row[1])
+                    // 10_000
+                )
                 if stake_cents > max_stake_cents:
                     raise ValueError("Stake exceeds the configured challenge limit")
                 cursor = connection.execute(
@@ -818,19 +870,12 @@ class ChallengeLedger:
                     )
                 row = connection.execute(
                     """
-                    SELECT current_balance_cents, stake_fraction_bps
+                    SELECT current_balance_cents
                     FROM challenge_settings WHERE id = 1
                     """
                 ).fetchone()
                 if row is None or stake_cents > row["current_balance_cents"]:
                     raise ValueError("Stake exceeds the available balance")
-                max_stake_cents = (
-                    int(row["current_balance_cents"])
-                    * int(row["stake_fraction_bps"])
-                    // 10_000
-                )
-                if stake_cents > max_stake_cents:
-                    raise ValueError("Stake exceeds the configured challenge limit")
 
                 cursor = connection.execute(
                     """

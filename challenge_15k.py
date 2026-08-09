@@ -32,12 +32,15 @@ from challenge_engine import (
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     MODEL_SCOPE_SAME_COMPETITION,
     MIN_LEG_EXPECTED_ROI,
+    TARGET_ODDS_MAX,
+    TARGET_ODDS_MIN,
     UNVALIDATED_TRANSFER_REASON,
     MarketSpec,
     ValidationMetrics,
     apply_candidate_context,
     build_fixture_candidates,
     candidate_is_credible,
+    challenge_stake_cap,
     consecutive_wins_to_target,
     extract_lineup_display,
     fit_market_calibration,
@@ -2627,12 +2630,19 @@ def _render_manual_result_dialog(ledger: ChallengeLedger) -> None:
     if ledger.pending_tickets():
         st.warning("Zuerst die offene 15K-Wette abrechnen.")
         return
-    maximum_stake = round(
-        settings["current_balance"] * settings["stake_fraction"], 2
+    suggested_stake = challenge_stake_cap(
+        settings["current_balance"],
+        settings["stake_fraction"],
     )
+    maximum_stake = float(settings["current_balance"])
     if maximum_stake < 0.01:
         st.warning("Kein Challenge-Guthaben für eine Nachtragung verfügbar.")
         return
+
+    st.caption(
+        "Für eine Nachtragung zählt der tatsächlich damals gespielte Einsatz. "
+        "Der heutige Einsatzanteil begrenzt nur neue 15K-Tickets."
+    )
 
     with st.form("challenge_manual_result_form"):
         bet_date = st.date_input(
@@ -2650,7 +2660,7 @@ def _render_manual_result_dialog(ledger: ChallengeLedger) -> None:
             "Tatsächlicher Einsatz",
             min_value=0.01,
             max_value=maximum_stake,
-            value=maximum_stake,
+            value=suggested_stake,
             step=1.0,
             format="%.2f",
         )
@@ -2749,10 +2759,12 @@ def _render_account(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         f"{wins_at_three} Siege" if wins_at_three is not None else "nicht erreichbar",
     )
     projection[2].metric("Saldo nach Verlust", _format_euro(loss_balance))
-    if stake_percent == int(MAX_CHALLENGE_STAKE_FRACTION * 100):
+    if stake_percent > 5:
         st.warning(
-            "25 % je Ticket ist bereits eine extreme Challenge-Simulation. "
-            "Es ist keine professionelle Echtgeld-Einsatzempfehlung."
+            f"{stake_percent} % je Ticket überschreitet die gedeckelte "
+            "Risikoreferenz. Das ist eine bewusst aggressive "
+            "Challenge-Simulation und keine professionelle "
+            "Echtgeld-Einsatzempfehlung."
         )
 
     st.divider()
@@ -3535,7 +3547,7 @@ def _render_price_check(
     played_stake = entry_fields[0].number_input(
         "Tatsächlicher Einsatz",
         min_value=0.01,
-        max_value=round(current_balance * stake_fraction, 2),
+        max_value=challenge_stake_cap(current_balance, stake_fraction),
         value=suggested_stake,
         step=1.0,
         format="%.2f",
@@ -3558,7 +3570,7 @@ def _render_price_check(
     )
     played_expected_roi = ticket.joint_probability * played_total_odds - 1.0
     price_is_valid = (
-        2.0 <= played_total_odds <= 3.0
+        TARGET_ODDS_MIN <= played_total_odds <= TARGET_ODDS_MAX
         and played_expected_roi >= MIN_LEG_EXPECTED_ROI
     )
     win_balance = (

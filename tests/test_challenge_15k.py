@@ -39,6 +39,7 @@ from challenge_engine import (
     apply_candidate_context,
     build_fixture_candidates,
     candidate_is_credible,
+    challenge_stake_cap,
     consecutive_wins_to_target,
     expected_log_growth,
     kelly_reference_stake,
@@ -1656,18 +1657,21 @@ class ChallengeTicketTests(unittest.TestCase):
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
 
         self.assertIsNotNone(ticket)
-        self.assertEqual(ticket_stake(ticket, 1000), 250.0)
+        self.assertEqual(ticket_stake(ticket, 1000), 50.0)
         self.assertEqual(ticket_stake(ticket, 1000, 0.25), 250.0)
         capped_ticket = replace(ticket, stake_fraction=0.02)
         self.assertEqual(ticket_stake(capped_ticket, 101.25, 0.25), 25.31)
         self.assertEqual(kelly_reference_stake(capped_ticket, 101.25), 2.02)
         self.assertEqual(risk_managed_ticket_stake(capped_ticket, 101.25), 2.02)
         self.assertLess(expected_log_growth(ticket, 0.25), 0.0)
+        self.assertEqual(challenge_stake_cap(100.05, 0.25), 25.01)
+        self.assertEqual(challenge_stake_cap(100.06, 0.05), 5.0)
 
     def test_rollover_growth_projection_matches_target_math(self):
         self.assertEqual(consecutive_wins_to_target(100, 15_000, 2.0, 0.25), 23)
         self.assertEqual(consecutive_wins_to_target(100, 15_000, 3.0, 0.25), 13)
         self.assertEqual(consecutive_wins_to_target(100, 15_000, 2.0, 0.10), 53)
+        self.assertEqual(consecutive_wins_to_target(100, 15_000, 2.5, 0.01), 337)
         self.assertEqual(consecutive_wins_to_target(15_000, 15_000, 2.0, 0.25), 0)
 
 
@@ -1782,6 +1786,7 @@ class ChallengeLedgerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            ledger.set_stake_fraction(0.25)
             ticket_id = ledger.place_ticket(
                 "2026-07-14",
                 ticket,
@@ -1819,18 +1824,46 @@ class ChallengeLedgerTests(unittest.TestCase):
                 135.0,
             )
 
-    def test_manual_result_respects_challenge_stake_cap(self):
+    def test_manual_result_respects_available_balance(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = ChallengeLedger(Path(tmp) / "challenge.db")
 
-            with self.assertRaisesRegex(ValueError, "challenge limit"):
+            with self.assertRaisesRegex(ValueError, "available balance"):
                 ledger.record_manual_result(
                     "2026-07-13",
                     "Zu hoher Einsatz",
-                    25.01,
+                    100.01,
                     2.0,
                     "WON",
                 )
+
+    def test_fractional_cent_ui_cap_matches_ledger_floor(self):
+        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
+        ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
+        self.assertIsNotNone(ticket)
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            ledger.set_balance(100.05)
+            ledger.set_stake_fraction(0.25)
+            maximum = challenge_stake_cap(
+                ledger.settings()["current_balance"],
+                ledger.settings()["stake_fraction"],
+            )
+            self.assertEqual(maximum, 25.01)
+            with self.assertRaisesRegex(ValueError, "challenge limit"):
+                ledger.place_ticket(
+                    "2026-07-13",
+                    ticket,
+                    25.02,
+                    datetime.now(timezone.utc).isoformat(),
+                )
+            ticket_id = ledger.place_ticket(
+                "2026-07-13",
+                ticket,
+                maximum,
+                datetime.now(timezone.utc).isoformat(),
+            )
+            self.assertGreater(ticket_id, 0)
 
     def test_only_one_non_void_ticket_per_day(self):
         candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
@@ -1989,7 +2022,7 @@ class ChallengeLedgerTests(unittest.TestCase):
 
             ledger = ChallengeLedger(db_path)
 
-            self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
+            self.assertEqual(ledger.settings()["stake_fraction"], 0.05)
             ledger.set_stake_fraction(0.25)
             self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
             with closing(sqlite3.connect(db_path)) as connection:
@@ -2002,6 +2035,59 @@ class ChallengeLedgerTests(unittest.TestCase):
             self.assertIn("played_odds", columns)
             self.assertIn("entry_source", columns)
 
+    def test_legacy_high_stake_policy_is_reset_and_defensively_capped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "legacy-high-risk.db"
+            with closing(sqlite3.connect(db_path)) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE challenge_settings (
+                        id INTEGER PRIMARY KEY,
+                        starting_balance_cents INTEGER NOT NULL,
+                        current_balance_cents INTEGER NOT NULL,
+                        target_balance_cents INTEGER NOT NULL,
+                        stake_fraction_bps INTEGER NOT NULL DEFAULT 2500
+                            CHECK (stake_fraction_bps BETWEEN 500 AND 10000),
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO challenge_settings
+                    VALUES (1, 10000, 10000, 1500000, 9000, 'now')
+                    """
+                )
+                connection.commit()
+
+            ledger = ChallengeLedger(db_path)
+            self.assertEqual(ledger.settings()["stake_fraction"], 0.05)
+
+            # The legacy CHECK still permits 90%. Every read and money path
+            # must nevertheless enforce the current hard maximum.
+            with closing(sqlite3.connect(db_path)) as connection:
+                connection.execute(
+                    "UPDATE challenge_settings SET stake_fraction_bps=9000 WHERE id=1"
+                )
+                connection.commit()
+            self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
+            candidates = [
+                candidate("1:BTTS", 1, 0.70),
+                candidate("2:BTTS", 2, 0.69),
+            ]
+            ticket = select_quoted_ticket(
+                candidates,
+                {"1:BTTS": 1.50, "2:BTTS": 1.50},
+            )
+            self.assertIsNotNone(ticket)
+            with self.assertRaisesRegex(ValueError, "challenge limit"):
+                ledger.place_ticket(
+                    "2026-07-13",
+                    ticket,
+                    25.01,
+                    datetime.now(timezone.utc).isoformat(),
+                )
+
     def test_transactions_reconcile_exactly_with_current_balance(self):
         candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
         ticket = select_quoted_ticket(
@@ -2012,7 +2098,7 @@ class ChallengeLedgerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             ledger = ChallengeLedger(Path(tmp) / "challenge.db")
-            self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
+            self.assertEqual(ledger.settings()["stake_fraction"], 0.05)
             stake = ticket_stake(ticket, 100.0)
             ticket_id = ledger.place_ticket(
                 "2026-07-14",
@@ -2031,7 +2117,7 @@ class ChallengeLedgerTests(unittest.TestCase):
             )
             self.assertEqual(
                 ledger.settings()["net_external_funding"],
-                105.0,
+                85.0,
             )
 
 
@@ -2119,7 +2205,7 @@ class AutoSettleTests(unittest.TestCase):
             self.assertEqual(summary["resets"], 0)
             self.assertEqual(ledger.get_ticket(ticket_id)["status"], "LOST")
             settings = ledger.settings()
-            self.assertEqual(settings["current_balance"], 75.0)
+            self.assertEqual(settings["current_balance"], 95.0)
             self.assertEqual(settings["starting_balance"], 100.0)
 
     def test_running_and_aet_games_stay_open(self):
@@ -2510,6 +2596,7 @@ class AutomaticReferenceTicketTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             ledger = ChallengeLedger(Path(tmpdir) / "challenge.db")
+            ledger.set_stake_fraction(0.25)
             ticket_id = ledger.place_ticket(
                 now.date().isoformat(),
                 ticket,

@@ -89,6 +89,31 @@ def test_consensus_uses_lower_quartile_not_best_quote():
     assert MarketConsensus.from_dict(quote.to_dict()) == quote
 
 
+def test_consensus_deduplicates_bookmaker_casing_conservatively():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    quote = parse_fixture_consensus(
+        _payload(
+            now,
+            values={
+                "Bet365": "1.92",
+                " bet365 ": "1.84",
+                "Pinnacle": "1.91",
+                "Unibet": "1.86",
+            },
+        ),
+        [_candidate()],
+        fetched_at=now,
+    )[_candidate()["candidate_id"]]
+
+    assert quote.bookmaker_count == 3
+    assert len({point.bookmaker.casefold() for point in quote.points}) == 3
+    bet365 = next(
+        point for point in quote.points if point.bookmaker.casefold() == "bet365"
+    )
+    assert bet365.odds == 1.84
+    assert MarketConsensus.from_dict(quote.to_dict()) == quote
+
+
 def test_price_status_requires_fresh_multi_book_consensus_and_minimum_buffer():
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     quote = next(

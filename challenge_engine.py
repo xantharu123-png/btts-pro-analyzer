@@ -32,7 +32,7 @@ TARGET_BALANCE = 15_000.0
 TARGET_ODDS_MIN = 2.0
 TARGET_ODDS_MAX = 3.0
 MAX_TICKET_LEGS = 3
-DEFAULT_CHALLENGE_STAKE_FRACTION = 0.25
+DEFAULT_CHALLENGE_STAKE_FRACTION = 0.05
 MIN_CHALLENGE_STAKE_FRACTION = 0.05
 MAX_CHALLENGE_STAKE_FRACTION = 0.25
 KELLY_REFERENCE_CAP = 0.25
@@ -2644,16 +2644,27 @@ def ticket_stake(
     The challenge fraction is a separate, explicit risk decision because a
     roll-over challenge cannot mathematically operate under a hidden 2% cap.
     """
-    balance = _finite_nonnegative(available_balance)
-    if balance is None:
-        raise ValueError("Available balance must be finite and non-negative")
     kelly_fraction = _finite_nonnegative(ticket.stake_fraction)
     if kelly_fraction is None or kelly_fraction > 1.0:
         raise ValueError("Ticket stake fraction must be finite and non-negative")
+    return challenge_stake_cap(available_balance, challenge_fraction)
+
+
+def challenge_stake_cap(
+    available_balance: float,
+    challenge_fraction: float = DEFAULT_CHALLENGE_STAKE_FRACTION,
+) -> float:
+    """Return the configured bankroll cap, rounded down exactly like the ledger."""
+    balance = _finite_nonnegative(available_balance)
+    if balance is None:
+        raise ValueError("Available balance must be finite and non-negative")
     fraction = _stake_fraction(challenge_fraction, "Challenge stake fraction")
-    stake = min(balance, balance * fraction)
+    stake = min(
+        Decimal(str(balance)),
+        Decimal(str(balance)) * Decimal(str(fraction)),
+    )
     return float(
-        Decimal(str(stake)).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
+        stake.quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
     )
 
 
@@ -2734,7 +2745,13 @@ def consecutive_wins_to_target(
         odds = validate_decimal_odds(decimal_odds)
     except BettingMathError as exc:
         raise ValueError("Decimal odds must be greater than 1") from exc
-    fraction = _stake_fraction(challenge_fraction, "Challenge stake fraction")
+    fraction = _finite_nonnegative(challenge_fraction)
+    if (
+        fraction is None
+        or fraction <= 0.0
+        or fraction > MAX_CHALLENGE_STAKE_FRACTION
+    ):
+        raise ValueError("Challenge stake fraction must be above 0% and at most 25%")
     win_multiplier = 1.0 + fraction * (odds - 1.0)
     raw_steps = math.log(target / current) / math.log(win_multiplier)
     return max(1, math.ceil(raw_steps - 1e-12))
@@ -2763,6 +2780,7 @@ __all__ = [
     "apply_candidate_context",
     "build_fixture_candidates",
     "candidate_is_credible",
+    "challenge_stake_cap",
     "consecutive_wins_to_target",
     "dependence_floor_probability",
     "expected_log_growth",
