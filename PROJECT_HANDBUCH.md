@@ -4,15 +4,16 @@
 
 | Feld | Verifizierter Stand |
 |---|---|
-| Auditzeitraum | 1. bis 9. August 2026 |
+| Auditzeitraum | 1. bis 10. August 2026 |
 | Repository | `xantharu123-png/btts-pro-analyzer` |
 | Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
 | Verifizierter Produktions-Funktionscommit | `6a59f3e` (`Harden 15K stake policy and quote consensus`) |
 | Verifizierte technische Ausgangsbasis des Re-Audits | `deb35a3` (`Update handbook after production recovery check`) |
+| Vor der PC-Übergabedokumentation verifizierter GitHub-/VPS-HEAD | `5fe7ef7` (`Document Claude re-audit hardening`) |
 | Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate inklusive Kurzquotenschutz, case-insensitivem Mehrbuchmachervergleich für Fußball, verständlicher Preis-Ablehnungsdiagnose, preisoffener Tennis-/E-Sport-Modellanalyse sowie persistentem 15K-Konto mit 5-%-Standard und bewusst wählbarem Hochrisikomodus |
-| Verifizierter VPS-Funktionsstand | Funktionsstand `6a59f3e`; App aktiv, HTTPS 200, alle 7 BetBoy-Timer aktiv und 0 fehlgeschlagene systemd-Units am 9. August |
+| Verifizierter VPS-Funktionsstand | Funktionsstand `6a59f3e`; Repository-HEAD `5fe7ef7`; App aktiv, Health `ok`, alle 7 BetBoy-Timer aktiv und 0 fehlgeschlagene systemd-Units am 10. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
@@ -20,10 +21,15 @@
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
 | Vollständiger Testlauf | 693 Tests und 5 Subtests bestanden; normale Edge-QA auf Desktop und Smartphone bestanden |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
+| Produkt- und Entscheidungsgrundlage | `PROJEKTBIBEL.md` |
+| PC-Wechsel-Runbook | `PC_WECHSEL_UEBERGABE.md` |
 
-Dieses Dokument ist die maßgebliche technische und fachliche Übergabe. Es
-enthält absichtlich keine Schlüssel, Passwörter oder Tokens. Ältere Berichte
-sind nur Historie, wenn sie diesem Handbuch widersprechen.
+Dieses Dokument ist die maßgebliche technische Übergabe. Die fachliche
+Produkt-, Mathematik-, UX- und Marketingleitplanke steht in
+`PROJEKTBIBEL.md`; die ausführbare Rechnerübernahme in
+`PC_WECHSEL_UEBERGABE.md`. Alle drei Dokumente enthalten absichtlich keine
+Schlüssel, Passwörter oder Tokens. Ältere Berichte sind nur Historie, wenn sie
+diesem Handbuch oder dem aktuellen Code widersprechen.
 
 ### Produktumbau vom 6. August 2026: Tipp statt Browserimport
 
@@ -808,10 +814,11 @@ Konfidenzgrenzen von CLV und Rendite überzeugen. ROI allein reicht nicht.
 | Rotkarten-Historie | täglich 05:41 | erfolgreich; Budget 350 Provider-Calls |
 | Tennis-Pipeline | täglich 07:17 | erfolgreich; montags zusätzlich Wächter und Wochenreport |
 
-Livekontrolle am 9. August 2026: Alle sieben Timer waren mit jüngsten Läufen
+Livekontrolle am 10. August 2026: Alle sieben Timer waren mit jüngsten Läufen
 und nächsten Fälligkeiten in systemd gelistet. `betboy-app.service` war
-`active`, die öffentliche HTTPS-Adresse antwortete mit Status 200 und
-`systemctl --failed` enthielt keine Unit.
+`active`, der Streamlit-Health-Endpunkt antwortete mit `ok`,
+`systemctl --failed` enthielt keine Unit und das jüngste sichtbare lokale
+Backup war `betboy-sqlite-20260810T011730Z.zip`.
 
 Produktionsverifikation am 2. August 2026: Der erste Artefakt-v2-Lauf
 verarbeitete den Discovery-Scope mit 51 Ligen, fand und modellierte die zwei
@@ -1391,10 +1398,15 @@ Verbindlicher Abdeckungsabgleich und letzter Quotenpfad am 8. August 2026:
 
 ## 13. Betrieb und Übergabe
 
+Für einen Rechnerwechsel gilt zusätzlich das vollständige Runbook
+`PC_WECHSEL_UEBERGABE.md`. Neue Entwickler und KI-Assistenten lesen zuerst
+`PROJEKTBIBEL.md`, dann das PC-Runbook und erst danach die technischen Details
+dieses Handbuchs.
+
 Lokale App:
 
 ```powershell
-.\.codex_test_venv\Scripts\python.exe -m streamlit run app.py
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
 Produktion:
@@ -1404,9 +1416,9 @@ URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
-Verifizierte technische Basis: deb35a3
 Verifizierter Funktionscommit: 6a59f3e
-Letzte Livekontrolle: 9. August 2026
+Repository-/VPS-HEAD vor Übergabedokumentation: 5fe7ef7
+Letzte Livekontrolle: 10. August 2026
 ```
 
 Update nach einem Push:
@@ -1431,9 +1443,18 @@ git status --short
 git diff --check
 ```
 
-Die ungetrackten Dateien `logs/pipeline_2026-07-31.log` und
-`logs/pipeline_2026-08-02.log` sind bestehender Laufoutput und dürfen nicht
-committed oder gelöscht werden.
+Die ungetrackten Dateien `AUDIT_BERICHT_2026-08-09.md`,
+`logs/pipeline_2026-07-31.log` und `logs/pipeline_2026-08-02.log` bleiben
+unangetastete lokale Historie. Die validierten Auditbefunde sind in diesem
+Handbuch und der Projektbibel enthalten; die Logs sind Laufoutput. Sie werden
+nicht versehentlich committed oder gelöscht.
+
+Ohne Login ist das persönliche Konto an die Browser-ID
+`betboy.account.v1` im `localStorage` gebunden. Ein neuer PC oder Browser zeigt
+deshalb standardmäßig ein neues Konto. Die alte Serverdatenbank bleibt
+vorhanden, ist ohne die bisherige Browser-ID aber nicht automatisch
+zugeordnet. Das alte Browserprofil darf nicht gelöscht werden, wenn die
+vollständige Historie noch übernommen werden soll.
 
 Verbindliche Übergaberegeln:
 
@@ -1446,3 +1467,18 @@ Verbindliche Übergaberegeln:
 - Monitoring darf intern Evidenz sammeln, ist aber nicht das Nutzerprodukt.
 - Junge Shadow-Daten werden gesammelt, nicht schöngeredet und nicht durch
   gelockerte Gates künstlich vergrößert.
+
+## 14. Dokumenthierarchie für die Übergabe
+
+| Reihenfolge | Dokument | Frage, die es beantwortet |
+|---|---|---|
+| 1 | `PROJEKTBIBEL.md` | Was ist BetBoy, welche Regeln gelten und wohin soll das Produkt? |
+| 2 | `PC_WECHSEL_UEBERGABE.md` | Wie wird ein neuer PC sicher und vollständig arbeitsfähig? |
+| 3 | `PROJECT_HANDBUCH.md` | Wie ist der aktuelle technische Stand entstanden und verifiziert? |
+| 4 | aktueller Code und Tests | Was ist tatsächlich implementiert? |
+| 5 | ältere Auditberichte | Warum wurde eine frühere Entscheidung getroffen oder verworfen? |
+
+Bei Widersprüchen zählen Implementierung und reproduzierbare Tests mehr als
+alte Chatbehauptungen. Der aktuelle `origin/main`-Stand muss vor jeder Arbeit
+gegen den lokalen Checkout und vor jedem Deployment gegen den VPS geprüft
+werden.
