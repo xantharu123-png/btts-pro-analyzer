@@ -13,8 +13,9 @@
 | Verifizierte technische Ausgangsbasis des Re-Audits | `deb35a3` (`Update handbook after production recovery check`) |
 | Vor der PC-Übergabedokumentation verifizierter GitHub-/VPS-HEAD | `5fe7ef7` (`Document Claude re-audit hardening`) |
 | Vor dem aktuellen Härtungspaket verifizierter lokaler/GitHub-/VPS-HEAD | `239c9ea38a6e396c916ee7cf36fe7ed396d4b11f` am 17. August; GitHub `main` wurde frisch abgefragt |
+| Verifizierter Härtungs-Funktionscommit | `9171bdb71ceae8ebbf5ae7404c6648f3d5c08a92` (`Harden Shadow evidence and trusted VPS deployment`), am 17. August kontrolliert gepusht und deployed |
 | Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate inklusive Kurzquotenschutz, case-insensitivem Mehrbuchmachervergleich für Fußball, verständlicher Preis-Ablehnungsdiagnose, preisoffener Tennis-/E-Sport-Modellanalyse sowie persistentem 15K-Konto mit 5-%-Standard und bewusst wählbarem Hochrisikomodus |
-| Verifizierter VPS-Funktionsstand | Normalboot und Repository-HEAD `239c9ea`; App aktiv, Health `ok`, alle 7 BetBoy-Timer aktiv/enabled und 0 fehlgeschlagene systemd-Units am 17. August |
+| Verifizierter VPS-Funktionsstand | Härtungs-Funktionscommit `9171bdb`; App aktiv/enabled, lokaler und öffentlicher Health `200 / ok`, alle 7 BetBoy-Timer aktiv/enabled, letzte Worker `success / 0` und 0 fehlgeschlagene systemd-Units am 17. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
@@ -166,8 +167,9 @@ deutlich ehrlicher als zuvor:
   Anbieterzahl, konservativen Preis und Bestpreis. Der Ledger validiert diese
   Felder erneut, bevor ein Challenge-Tipp gespeichert wird.
 - Transaktionale SQLite-Backups laufen täglich; jedes neue Archiv wird
-  automatisch wiederhergestellt und per SQLite geprüft. Der aktuelle Lauf
-  verifizierte 14 von 14 Datenbanken.
+  automatisch wiederhergestellt und per SQLite geprüft. Der aktuelle
+  Deploy-Recovery-Lauf verifizierte 82 von 82 Datenbanken; der historische
+  erste Restore-Nachweis umfasste 14.
 - Der automatische Wettfinder entdeckt pro Zieldatum einmal alle Spiele aus
   allen 51 Fußballligen und persistiert einen mathematisch bestandenen
   Tagespool. Danach werden nur konkrete Kandidaten-Fixtures kurz vor Anpfiff
@@ -808,18 +810,20 @@ Europe/Zurich. Jede SQLite-Datei wurde ausschließlich per URI `mode=ro` mit
 Kein Sport erfüllt damit die 300er Freigaberegel; nirgends liegt eine
 vollständige Entry-/Closing-Kohorte für belastbaren CLV, PnL oder ROI vor. Die
 Ausgangsbasis `239c9ea` enthielt bei Fußball noch die alte `<30`-Verdiktlogik.
-Dieses Härtungspaket setzt die Prüfstufe auf 300 eindeutige, versionsgleiche
-Fixtures mit gültigem Closing, erzwingt die Modell-/Policy-Version und sperrt
-die Auswertung bei fehlenden Integritätsmetadaten oder Doppelzeilen. Auch ab
-300 bleibt eine Echtgeldfreigabe ohne No-Vig-, Kalibrierungs-, Abhängigkeits-
-und Konfidenzprüfung ausdrücklich ausgeschlossen.
+Der produktiv aktive Härtungscommit `9171bdb` setzt die Prüfstufe auf 300
+eindeutige, versionsgleiche Fixtures mit gültigem Closing, erzwingt die
+Modell-/Policy-Version und sperrt die Auswertung bei fehlenden
+Integritätsmetadaten oder Doppelzeilen. Auch ab 300 bleibt eine
+Echtgeldfreigabe ohne No-Vig-, Kalibrierungs-, Abhängigkeits- und
+Konfidenzprüfung ausdrücklich ausgeschlossen.
 
 Wichtig zur jungen Stichprobe:
 
 - Die vorhandenen Fußball-Fixtures reichen vom 24. Juli bis 1. August.
-- Die **revidierte Evidenz-/Settlement-Härtung** ist lokal implementiert und
-  wird erst nach dem kontrollierten Deployment produktiv aktiv; bis dahin
-  bleibt der oben dokumentierte VPS-Stand maßgeblich.
+- Die **revidierte Evidenz-/Settlement-Härtung** ist seit dem kontrollierten
+  Deploy von `9171bdb` produktiv aktiv. Der partielle Unique-Index auf
+  `fixture_id`, `model_version` und `policy_version` wurde bei pausiertem
+  Football-Worker migriert und anschließend read-only verifiziert.
 - Viele große Ligen starten erst noch; bestätigte Aufstellungen fehlen weit vor
   dem Anpfiff erwartbar.
 - Null Picks sind derzeit kein Beweis für ein schlechtes Modell und kein Grund,
@@ -871,12 +875,27 @@ das automatische Backup `Standard` täglich um 12:02 UTC aktiv; sichtbar war
 ein Wiederherstellungspunkt vom 16. August 2026 um 12:02. Ein tatsächlicher
 Totalverlust-Restore wurde nicht durchgeführt und bleibt als DR-Nachweis offen.
 
-Der VPS-Worktree war beim Read-only-Audit nicht sauber: reguläre Läufe hatten
-`reports/weekly_latest.html` und `tennis/data/model_state.pkl` geändert sowie
-Tageslogs, Wochenreports und `tennis/data/calibration_watch_latest.json`
-erzeugt. Es wurde weder zurückgesetzt noch bereinigt. Vor dem nächsten Deploy
-müssen diese Laufzeitartefakte bewusst gesichert und aus dem Git-Updatepfad
-entkoppelt werden; ein erzwungener Reset wäre Datenverlust.
+Der VPS-Worktree war beim ersten Read-only-Audit nicht sauber: reguläre Läufe
+hatten zwei getrackte und 20 ungetrackte Laufzeitartefakte erzeugt. Vor dem
+Deploy wurden exakt diese 22 Dateien manifestiert, in ein Root-only-Archiv
+kopiert und bytegleich nach `runtime_state`/`runtime_reports` migriert. Erst bei
+gestoppten Schreibern wurden die 20 verifizierten Legacy-Duplikate entfernt und
+die zwei getrackten Pfade atomar aus dem vertrauenswürdig geladenen alten
+Commit wiederhergestellt. Nach dem Deploy war normales Git-Porcelain leer; die
+ignorierten kanonischen Laufzeitdaten blieben vorhanden.
+
+Der root-eigene Updater erzeugte nach dem Stop aller Datenbankschreiber
+`/var/backups/betboy-update/betboy-preupdate-20260817T104548Z-239c9ea38a6e.zip`
+(`root:root`, `0600`, 2.733.026 Bytes, SHA-256
+`b95419a741ec61b7416b98b75b63ec265e77d7c7b248703950be3dee88854507`).
+Das ZIP enthält 82 Datenbanken plus `MANIFEST.json`; CRC und updaterseitiges
+SQLite-`quick_check` bestanden. Der Manifest-Quellhash ist `239c9ea`.
+
+Post-Deploy-Live-QA mit Playwright bestätigte `Sport = Alle`, sechs gerenderte
+und anklickbare Sport-Tabs, korrekte sportartspezifische Panels, Desktop- und
+390-x-844-Darstellung ohne horizontalen Überlauf sowie 0 Konsolenfehler. Neun
+Streamlit-/Browser-Warnungen zu Feature-Policy und dem gleichursprünglichen
+Account-Identity-Iframe bleiben als separater Härtungshinweis bestehen.
 
 Der Tennis-Wächter meldete trotz Gesamtstatus `ok` für `over_21_5_games`
 `[DRIFT]` bei `n=9307`, RMS 0,0541 und maximalem Mid-Bias 0,0578. Das ist kein
@@ -913,10 +932,12 @@ Wettfinder darf in seinen Zwischenläufen ausschließlich den persistierten
 Tagespool lesen und konkrete Fixture-IDs nachprüfen. Der Football-Shadow-Runner
 prüft ebenfalls vor teurer Arbeit, ob ein Ereignisfenster fällig ist.
 
-Der lokale Windows-Task `BetBoy Tennis Daily` und **alle** BetBoy-Automationen
-in KIMI sind deaktiviert. Ihre Definitionen wurden nicht gelöscht. Vor der
-KIMI-Bereinigung liegt ein Backup unter
-`C:\tmp\kimi-betboy-automations-before-vps-20260802`.
+Auf dem alten PC waren der lokale Windows-Task `BetBoy Tennis Daily` und die
+BetBoy-Automationen in KIMI deaktiviert; der damalige Übergabestand nannte ein
+lokales Sicherungsverzeichnis, das auf diesem neuen PC nicht vorhanden ist.
+Die aktuelle Kontrolle am 17. August fand hier weder eine passende geplante
+Windows-Aufgabe noch einen laufenden BetBoy-Python-Prozess. Der VPS bleibt die
+einzige schreibende Instanz.
 
 App und Worker teilen dasselbe API-Football-Tageslimit über
 `runtime_state/api_budget.db`. Jede Anfrage wird vor dem Provideraufruf atomar
@@ -967,15 +988,18 @@ Der alte Supabase-Pooler-Zugang bleibt ungültig und wird nicht mehr für den
 Single-User-Produktionsbetrieb benötigt. Kanonische SQLite-Daten liegen
 persistent unter `/opt/betboy/app` auf dem VPS. Die vorhandenen Laufzeitdaten
 wurden über den verschlüsselten SSH-Kanal übertragen und die Einzeldateien per
-SHA-256 geprüft. Der aktuelle Produktionslauf erfasste 14 Datenbanken. Alle
-14 wurden aus dem ZIP zurückgelesen und bestanden `PRAGMA quick_check`; diese
-Restore-Prüfung ist jetzt Teil jedes neuen Backup-Laufs.
+SHA-256 geprüft. Der erste historische Restore-Nachweis umfasste 14
+Datenbanken. Der aktuelle Root-geschützte Deploy-Snapshot enthält 82
+Datenbanken plus Manifest; alle 82 bestanden die updaterseitige
+`PRAGMA quick_check`-Prüfung. Restore-Prüfung ist Teil jedes neuen
+Backup-Laufs.
 
 Das löst Neustartpersistenz und zentrale Shadow-Daten, aber noch keine
-Mehrbenutzer-Authentifizierung oder gerätegetrennte Konten. Ein unabhängiges
-Offsite-Backup beziehungsweise OVH Automatic Backup muss im OVH-Panel separat
-aktiviert und verifiziert werden; das lokale Backup auf demselben VPS allein
-schützt nicht vor vollständigem Serververlust.
+Mehrbenutzer-Authentifizierung oder gerätegetrennte Konten. Das OVH-Standard-
+Backup ist im Panel aktiv und ein Wiederherstellungspunkt war sichtbar. Offen
+bleiben eine unabhängige Offsite-/WORM-Kopie, Retentionsprüfung und ein echter
+Wiederanlauf nach vollständigem VPS-Verlust; lokale Archive auf demselben VPS
+allein sind kein Disaster Recovery.
 
 Die Preis-Hash-Kette erkennt normale Updates, Löschungen und partielle
 Manipulation. Sie ist jedoch weder extern signiert noch unveränderbarer
@@ -1001,17 +1025,24 @@ Extern erforderliche Schritte:
 Rotation kommt vor Historienbereinigung. Diese Schritte kann der Code nicht
 selbstständig erledigen, weil dafür die Providerkonten benötigt werden.
 
-VPS-Härtung, am 2. August eingerichtet und am 17. August 2026 read-only
-erneut verifiziert:
+VPS-Härtung, am 2. August eingerichtet und am 17. August 2026 erneut
+verifiziert und erweitert:
 
 - SSH nur für `ubuntu` mit ED25519-Schlüssel; Passwort-, Keyboard-Interactive-
   und Root-Login sind effektiv deaktiviert.
+- `authorized_keys` enthält nach atomarem Prune nur noch den neuen,
+  forwarding-gehärteten Schlüssel
+  `SHA256:AIawx5EsF/j6XhvIdmueox2yqSDQurgWSXB8e/RlRms`. Zwei alte unbeschränkte
+  Schlüssel wurden erst nach einem Root-only-Backup aller drei Zeilen entfernt;
+  zwei neue streng gepinnte Batch-Logins bestanden danach.
 - UFW erlaubt eingehend nur 22/TCP, 80/TCP und 443/TCP; Fail2ban ist aktiv.
 - Streamlit lauscht nur auf `127.0.0.1:8501`; Caddy terminiert öffentliches
   HTTPS und erzwingt HTTP-zu-HTTPS.
 - `config.ini` gehört `betboy:betboy` und hat Modus `600`; Laufzeitordner
   haben Modus `700`. Schlüssel wurden nicht committed oder protokolliert.
 - Ubuntu-Sicherheitsupdates, Zeitzone Europe/Zurich und 2 GB Swap sind aktiv.
+- Der Deploy läuft nur über die root-eigenen, hashgeprüften Wrapper; Checkout
+  und `.git` des Dienstbenutzers werden nicht als Root-Vertrauensquelle genutzt.
 
 ## 11. Test- und UX-Nachweis
 
@@ -1412,9 +1443,10 @@ Verbindlicher Abdeckungsabgleich und letzter Quotenpfad am 8. August 2026:
 ### P0 - extern und vor ernsthafter Echtgeldnutzung
 
 1. Alle historisch exponierten Secrets rotieren.
-2. Unabhängiges Offsite-/OVH-Backup aktivieren, den Preisledger-Kopf-Hash
-   extern verankern und einen Wiederanlauf nach vollständigem VPS-Verlust
-   testen.
+2. Das aktive OVH-Standardbackup auf Retention und Wiederherstellbarkeit
+   prüfen, zusätzlich eine unabhängige Offsite-/WORM-Kopie einrichten, den
+   Preisledger-Kopf-Hash extern verankern und einen Wiederanlauf nach
+   vollständigem VPS-Verlust testen.
 3. Authentifizierung und eine geräteübergreifend stabile `user_id` für Konten
    und Ledger einführen. Die heutige Browser-ID löst Neustarts auf demselben
    Gerät, ersetzt aber kein Login.
@@ -1486,17 +1518,20 @@ Produktion:
 URL: https://vps-a30a123f.vps.ovh.net/
 App: /opt/betboy/app
 Venv: /opt/betboy/venv
-Backups: /var/backups/betboy
-Verifizierter Funktionscommit: 6a59f3e
+Planmäßige SQLite-Backups: /var/backups/betboy
+Root-Deploy-Recovery: /var/backups/betboy-update
+Root-Runtime-Migration: /var/backups/betboy-migration-9171bdb
+Root-SSH-Recovery: /var/backups/betboy-ssh
+Verifizierter Härtungs-Funktionscommit: 9171bdb71ceae8ebbf5ae7404c6648f3d5c08a92
 Repository-/VPS-HEAD vor Übergabedokumentation: 5fe7ef7
-Aktuell verifizierter VPS-HEAD: 239c9ea38a6e396c916ee7cf36fe7ed396d4b11f
+Vor diesem reinen Dokumentationsnachweis verifizierter VPS-HEAD: 9171bdb71ceae8ebbf5ae7404c6648f3d5c08a92
 Letzte Livekontrolle: 17. August 2026
 ```
 
-Update nach einem Push. Vor der ersten Verwendung auf einem bestehenden VPS
-müssen die beiden geprüften Root-Tools einmalig nach dem Abschnitt
-`One-time migration of an existing VPS` in `deploy/README.md` installiert und
-die vorhandenen Units sowie Laufzeitpfade geprüft werden:
+Update nach einem Push. Die einmalige Bestands-VPS-Migration und Installation
+der beiden Root-Tools wurde am 17. August abgeschlossen. Auf einem weiteren
+bestehenden VPS muss vorher der Abschnitt `One-time migration of an existing
+VPS` in `deploy/README.md` vollständig durchgeführt werden:
 
 ```bash
 ssh betboy-vps

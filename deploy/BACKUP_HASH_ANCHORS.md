@@ -5,6 +5,48 @@ contents, credentials, account identifiers, or restore secrets.
 
 ## 2026-08-17
 
+### Root-protected updater recovery snapshot, 10:45 UTC
+
+- Archive:
+  `betboy-preupdate-20260817T104548Z-239c9ea38a6e.zip`
+- VPS path:
+  `/var/backups/betboy-update/betboy-preupdate-20260817T104548Z-239c9ea38a6e.zip`
+- Owner/mode: `root:root`, `0600`
+- Size: `2733026` bytes
+- SHA-256: `b95419a741ec61b7416b98b75b63ec265e77d7c7b248703950be3dee88854507`
+- ZIP members: `82` SQLite databases plus `MANIFEST.json`
+- Manifest source head:
+  `239c9ea38a6e396c916ee7cf36fe7ed396d4b11f`
+- Verification: the root updater created the archive only after all database
+  writers were stopped and verified inventory, per-file hashes, ZIP CRC and
+  SQLite `quick_check`. An independent post-deploy `zipfile.testzip()` returned
+  no bad member and confirmed 83 total members.
+
+### Root-protected runtime migration recovery copy, 10:43 UTC
+
+- Directory: `/var/backups/betboy-migration-9171bdb`, `root:root`, `0700`
+- Archive and external manifest are both `root:root`, `0600`.
+- Archive SHA-256:
+  `0a303a7a45d70fd293650bfb6677288184fc095076e0d27d5e24e44cb3f8b003`
+- Manifest SHA-256:
+  `00b0cc8d2095fd3c1a96aa56101b72bdb2c4c3cba27c2e97fb89e6eb5a0faf08`
+- Verification: after every writer was quiesced, all 22 legacy artifacts again
+  matched both the manifest and their migrated runtime destinations before any
+  legacy duplicate was removed.
+
+### SSH authorized-key recovery, 10:59 UTC
+
+- Backup:
+  `/var/backups/betboy-ssh/authorized_keys.pre-prune-20260817T105940Z-d861d647`
+- Owner/mode: `root:root`, `0600`
+- Size: `357` bytes
+- SHA-256: `770369de3b59fab49778e360c971705a59cbbef0a118ccd0c061cca82138d265`
+- Scope: public `authorized_keys` bytes immediately before removal of the two
+  old keys; no private key or passphrase is present.
+- Post-prune `authorized_keys` SHA-256:
+  `8bd63630dcd79db8a4fd9e105ce2f52bccbe8869b2b770df297d3f5441aaa64e`.
+  Exactly the new key remained and two fresh strict BatchMode logins succeeded.
+
 ### Pre-deployment SQLite snapshot, 09:16 UTC
 
 - Archive: `betboy-sqlite-20260817T091614Z.zip`

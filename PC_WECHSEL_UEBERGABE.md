@@ -6,18 +6,18 @@ Diese Anleitung bringt einen neuen Windows-PC in einen sicheren,
 reproduzierbaren BetBoy-Arbeitsstand. Der laufende Produktionsserver hängt
 nicht vom alten PC ab und arbeitet während des Wechsels weiter.
 
-Am 17. August 2026 wurde vor dem aktuellen Härtungspaket verifiziert:
+Am 17. August 2026 wurde nach dem kontrollierten Härtungsdeploy verifiziert:
 
 | Prüfung | Ergebnis |
 |---|---|
-| Lokaler Git-Stand | `239c9ea38a6e396c916ee7cf36fe7ed396d4b11f` |
-| GitHub `origin/main` | per frischem Remote-Abruf identisch |
-| VPS-Stand | identisch |
+| Härtungs-Funktionscommit | `9171bdb71ceae8ebbf5ae7404c6648f3d5c08a92` |
+| GitHub und VPS | Funktionscommit per vollständigem Hash identisch; ein späterer reiner Dokumentationscommit muss erneut per vollständigem Hash verglichen werden |
 | `betboy-app.service` | `active` |
-| Streamlit-Health | `ok` |
-| BetBoy-Timer | 7 aktiv und terminiert |
+| Streamlit-Health | lokal und öffentlich `200 / ok` |
+| BetBoy-Timer | exakt 7 aktiv und enabled; letzte Worker-Ergebnisse `success / 0` |
 | Fehlgeschlagene systemd-Units | 0 |
-| Letztes geprüftes Pre-Deploy-Backup | `betboy-sqlite-20260817T091614Z.zip`; 82/82 SQLite-Dateien bestanden Restore und `quick_check` |
+| Deploy-Recovery | Root-geschütztes `betboy-preupdate-20260817T104548Z-239c9ea38a6e.zip`; 82 Datenbanken plus Manifest, ZIP-CRC und updaterseitiges `quick_check` bestanden |
+| Gerenderte Live-UI | Playwright: `Sport = Alle`, sechs Sport-Tabs anklickbar, Desktop und 390 x 844 ohne horizontalen Überlauf, 0 Konsolenfehler; 9 Streamlit-/Browser-Warnungen sind im Handbuch eingeordnet |
 
 Nach jedem Commit gilt ausschließlich der frisch abgefragte vollständige
 `origin/main`-Hash. Hash und Produktionsstand werden nach einem Deploy erneut
@@ -31,7 +31,10 @@ verglichen; alte Chatangaben sind keine Betriebswahrheit.
 | Produktions-App | `/opt/betboy/app` auf VPS `141.95.41.27` | Nein |
 | Python-Venv Produktion | `/opt/betboy/venv` | Nein |
 | Runtime-Datenbanken | VPS unter `/opt/betboy/app` | Nein |
-| Server-Backups | `/var/backups/betboy` | Nein, aber Offsite-Kopie empfohlen |
+| Planmäßige SQLite-Backups | `/var/backups/betboy` | Nein, aber unabhängige Offsite-Kopie empfohlen |
+| Deploy-Recovery | `/var/backups/betboy-update` | Nein; Root-only, vor Updates erzeugt |
+| Runtime-Migrationssicherung | `/var/backups/betboy-migration-9171bdb` | Nein; Root-only, bis zum bestätigten DR-Entscheid erhalten |
+| SSH-Key-Recovery | `/var/backups/betboy-ssh` | Nein; Root-only, enthält nur öffentliche `authorized_keys`-Bytes |
 | Produktions-Secrets | `/etc/betboy/betboy.env` und ignorierte `config.ini` | Nein |
 | Lokale Entwicklungs-Secrets | alter PC, ignorierte Dateien | Nur sicher neu beziehen oder verschlüsselt übertragen |
 | Privater SSH-Schlüssel | altes Benutzerprofil `.ssh` | Besser neuen Schlüssel erzeugen |
@@ -215,8 +218,11 @@ Auf dem neuen PC:
 
 ```powershell
 New-Item -ItemType Directory -Force "$env:USERPROFILE\.ssh" | Out-Null
-ssh-keygen -t ed25519 -a 100 -f "$env:USERPROFILE\.ssh\betboy_ovh_ed25519" -C "betboy-new-pc"
-Get-Content "$env:USERPROFILE\.ssh\betboy_ovh_ed25519.pub"
+$stamp = Get-Date -Format yyyyMMdd-HHmmss
+$newKey = "$env:USERPROFILE\.ssh\betboy_ovh_ed25519_$stamp"
+if (Test-Path -LiteralPath $newKey) { throw "Schlüsseldatei existiert bereits: $newKey" }
+ssh-keygen -t ed25519 -a 100 -f $newKey -C "betboy-new-pc"
+Get-Content "$newKey.pub"
 ```
 
 Nur den Inhalt der `.pub`-Datei auf dem VPS unter
@@ -224,7 +230,7 @@ Nur den Inhalt der `.pub`-Datei auf dem VPS unter
 verfügbar ist:
 
 ```powershell
-ssh -i "$env:USERPROFILE\.ssh\betboy_ovh_ed25519" ubuntu@141.95.41.27
+ssh betboy-vps
 nano ~/.ssh/authorized_keys
 ```
 
@@ -232,11 +238,61 @@ Im Editor den **öffentlichen** Schlüssel des neuen PCs als neue Zeile
 einfügen. Den alten Eintrag erst entfernen, nachdem der neue Zugang in einem
 separaten Terminal erfolgreich getestet wurde.
 
-Auf dem neuen PC testen:
+Auf dem neuen PC den normalen ED25519-Hostfingerprint beim ersten Kontakt
+**out-of-band** gegen
+`SHA256:YiFROIss/l4MjHP8y5+zYmjBiN8dxJVZXRVQ7SU6Rgo` vergleichen. Nur bei
+exakter Übereinstimmung die OpenSSH-Frage mit `yes` bestätigen:
 
 ```powershell
-ssh -o BatchMode=yes -i "$env:USERPROFILE\.ssh\betboy_ovh_ed25519" ubuntu@141.95.41.27 "hostname"
+ssh -F NUL -o IdentitiesOnly=yes `
+  -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no `
+  -o StrictHostKeyChecking=ask -o HostKeyAlgorithms=ssh-ed25519 `
+  -i $newKey ubuntu@vps-a30a123f.vps.ovh.net "hostname"
 ```
+
+Danach den später in allen Runbooks verwendeten Alias einrichten. Einen bereits
+vorhandenen Alias nicht überschreiben, sondern zuerst manuell prüfen:
+
+```powershell
+$sshConfig = "$env:USERPROFILE\.ssh\config"
+if (Test-Path -LiteralPath $sshConfig) {
+    if (Select-String -LiteralPath $sshConfig -Pattern '^\s*Host\s+betboy-vps\s*$' -Quiet) {
+        throw 'Host betboy-vps existiert bereits; vorhandenen Block zuerst prüfen.'
+    }
+}
+$identityForConfig = $newKey.Replace('\', '/')
+@"
+Host betboy-vps
+    HostName vps-a30a123f.vps.ovh.net
+    User ubuntu
+    IdentityFile $identityForConfig
+    IdentitiesOnly yes
+    BatchMode yes
+    StrictHostKeyChecking yes
+    HostKeyAlgorithms ssh-ed25519
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    ForwardAgent no
+"@ | Add-Content -LiteralPath $sshConfig -Encoding utf8
+```
+
+Damit der Alias mit `BatchMode yes` und einem verschlüsselten Schlüssel
+funktioniert, den Windows-OpenSSH-Agent einmalig in einer als Administrator
+geöffneten PowerShell aktivieren und den Schlüssel anschließend in einer
+normalen PowerShell laden. Die Passphrase nur am sichtbaren OpenSSH-Prompt
+eingeben:
+
+```powershell
+# Einmalig als Administrator:
+Set-Service ssh-agent -StartupType Automatic
+Start-Service ssh-agent
+
+# Danach als normaler Benutzer:
+ssh-add $newKey
+ssh betboy-vps "id -un"
+```
+
+Erwartete Ausgabe: `ubuntu`.
 
 Falls der alte PC nicht mehr verfügbar ist, den Zugang über die OVH-Konsole
 beziehungsweise KVM/Recovery wiederherstellen. Der Server darf dafür nicht neu
@@ -248,10 +304,14 @@ installiert werden.
   `C:\Users\miros\.ssh\betboy_ovh_ed25519_20260814`; Fingerprint
   `SHA256:AIawx5EsF/j6XhvIdmueox2yqSDQurgWSXB8e/RlRms`.
 - Der öffentliche Schlüssel wurde per OVH-Rescue zusätzlich und atomar in
-  `/home/ubuntu/.ssh/authorized_keys` eingetragen. Vorher entstand die Sicherung
-  `/home/ubuntu/.ssh/authorized_keys.bak-20260817T083839Z`. Bestehende
-  Server-Schlüssel wurden nicht entfernt.
-- Zwei unabhängige Batch-Logins als `ubuntu` bestanden. Der normale
+  `/home/ubuntu/.ssh/authorized_keys` eingetragen. Nach erfolgreichem Deploy
+  wurden die zwei alten, unbeschränkten Schlüssel atomar entfernt. Ein
+  Root-only-Backup aller drei vorherigen Einträge liegt unter
+  `/var/backups/betboy-ssh/authorized_keys.pre-prune-20260817T105940Z-d861d647`
+  (`root:root`, Modus `0600`, SHA-256
+  `770369de3b59fab49778e360c971705a59cbbef0a118ccd0c061cca82138d265`).
+- Zwei unabhängige, streng gepinnte Batch-Logins als `ubuntu` bestanden nach
+  der Entfernung. Der normale
   Server-Hostfingerprint ist
   `SHA256:YiFROIss/l4MjHP8y5+zYmjBiN8dxJVZXRVQ7SU6Rgo`.
 - Der Alias `betboy-vps` verwendet ausschließlich den neuen Schlüssel,
@@ -259,15 +319,19 @@ installiert werden.
   und kein Agent-Forwarding. `ssh-agent` läuft automatisch.
 - OVH zeigt wieder `Aktiv` und Boot `LOCAL`. Das temporäre Rescue-Passwort wurde
   weder in Dateien noch in Git oder in diese Dokumentation übernommen.
-- Alte autorisierte Server-Schlüssel erst nach einer gesonderten Entscheidung
-  entfernen; sie sind derzeit bewusst als Rückfallebene erhalten.
+- `authorized_keys` enthält genau noch den neuen Schlüssel; Dateihash
+  `8bd63630dcd79db8a4fd9e105ce2f52bccbe8869b2b770df297d3f5441aaa64e`.
+  Er sperrt Agent-, Port- und X11-Forwarding, behält aber bewusst administrativen
+  Shell-/Command-Zugang.
 
 ### Nicht empfohlen: privaten Schlüssel kopieren
 
-Der vorhandene private Schlüssel liegt auf dem alten PC unter
-`C:\Users\miros\.ssh\betboy_ovh_ed25519`. Eine Kopie ist nur über einen
-verschlüsselten, kontrollierten Datenträger vertretbar. Niemals per E-Mail,
-Chat, GitHub oder unverschlüsseltem Cloudordner übertragen.
+Der derzeit allein autorisierte private Schlüssel liegt auf diesem PC unter
+`C:\Users\miros\.ssh\betboy_ovh_ed25519_20260814`. Für einen weiteren PC ist
+ein neuer, separat autorisierter Schlüssel sicherer als eine Kopie. Falls eine
+Kopie ausnahmsweise unvermeidlich ist, nur über einen verschlüsselten,
+kontrollierten Datenträger; niemals per E-Mail, Chat, GitHub oder
+unverschlüsseltem Cloudordner.
 
 ## 9. Tests auf dem neuen PC
 
@@ -329,6 +393,8 @@ systemctl is-active betboy-app.service
 systemctl list-timers --all 'betboy-*'
 systemctl --failed
 sudo ls -lt /var/backups/betboy | head
+sudo ls -lt /var/backups/betboy-update | head
+sudo ls -lt /var/backups/betboy-ssh | head
 ```
 
 Erwartung:
@@ -454,11 +520,15 @@ Testnachweis übernehmen.
 - [x] Python 3.12 und lokale Venv funktionieren.
 - [x] Tests sind grün oder Abweichungen sind dokumentiert.
 - [x] Neuer SSH-Schlüssel wurde autorisiert und zweimal getestet.
+- [x] Zwei alte Server-Schlüssel wurden nach Root-only-Backup entfernt; zwei
+  neue strikt gepinnte Logins bestanden anschließend.
 - [x] Privater Schlüssel wurde nicht unsicher übertragen.
 - [x] Produktions-Health liefert `ok`.
 - [x] App-Service und sieben Timer sind aktiv.
 - [x] Backup-Aktualität und jüngstes ZIP per CRC wurden geprüft.
 - [ ] Secrets liegen nur in sicheren, ignorierten Speicherorten.
 - [ ] Entscheidung zur alten Browser-/15K-Identität wurde getroffen.
-- [ ] Alte lokale/KIMI-Automationen bleiben deaktiviert.
+- [x] Keine lokale BetBoy-/KIMI-Aufgabe im Windows-Aufgabenplaner und kein
+  lokaler BetBoy-Python-Runner aktiv; der VPS bleibt die einzige schreibende
+  Instanz.
 - [x] `PROJEKTBIBEL.md` und `PROJECT_HANDBUCH.md` wurden gelesen.
