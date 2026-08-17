@@ -4,22 +4,23 @@
 
 | Feld | Verifizierter Stand |
 |---|---|
-| Auditzeitraum | 1. bis 10. August 2026 |
+| Auditzeitraum | 1. bis 17. August 2026 |
 | Repository | `xantharu123-png/btts-pro-analyzer` |
-| Lokaler Pfad | `C:\Users\miros\Desktop\BetBoy\betboy-app` |
+| Lokaler Pfad | `C:\Projekt\BetBoy\betboy-app` |
 | Branch | `main` |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
 | Verifizierter Produktions-Funktionscommit | `6a59f3e` (`Harden 15K stake policy and quote consensus`) |
 | Verifizierte technische Ausgangsbasis des Re-Audits | `deb35a3` (`Update handbook after production recovery check`) |
 | Vor der PC-Übergabedokumentation verifizierter GitHub-/VPS-HEAD | `5fe7ef7` (`Document Claude re-audit hardening`) |
+| Vor dem aktuellen Härtungspaket verifizierter lokaler/GitHub-/VPS-HEAD | `239c9ea38a6e396c916ee7cf36fe7ed396d4b11f` am 17. August; GitHub `main` wurde frisch abgefragt |
 | Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate inklusive Kurzquotenschutz, case-insensitivem Mehrbuchmachervergleich für Fußball, verständlicher Preis-Ablehnungsdiagnose, preisoffener Tennis-/E-Sport-Modellanalyse sowie persistentem 15K-Konto mit 5-%-Standard und bewusst wählbarem Hochrisikomodus |
-| Verifizierter VPS-Funktionsstand | Funktionsstand `6a59f3e`; Repository-HEAD `5fe7ef7`; App aktiv, Health `ok`, alle 7 BetBoy-Timer aktiv und 0 fehlgeschlagene systemd-Units am 10. August |
+| Verifizierter VPS-Funktionsstand | Normalboot und Repository-HEAD `239c9ea`; App aktiv, Health `ok`, alle 7 BetBoy-Timer aktiv/enabled und 0 fehlgeschlagene systemd-Units am 17. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 693 Tests und 5 Subtests bestanden; normale Edge-QA auf Desktop und Smartphone bestanden |
+| Vollständiger Testlauf | 730 Python-Tests, 5 Subtests und 3/3 JavaScript-Tests am 17. August isoliert bestanden; frühere Edge-QA ist unten separat datiert |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 | Produkt- und Entscheidungsgrundlage | `PROJEKTBIBEL.md` |
 | PC-Wechsel-Runbook | `PC_WECHSEL_UEBERGABE.md` |
@@ -309,7 +310,7 @@ Mindestquote = (1 + 0,03) / konservatives p
   Modellgenerationen mehr in den aktuellen Evidenzstand.
 - Aktive Versionen dieses Audits sind Fußball
   `challenge-engine-2026-08-05` / `shadow-risk-ev-v4`, Tennis
-  `elo-serve-platt-v3` / `risk-ev-haircut-v3`, E-Sport `subgraph-elo-v2` und
+  `elo-serve-platt-v3` / `risk-ev-haircut-min-odds-v4`, E-Sport `subgraph-elo-v2` und
   Rotkarte `red-card-impact-2026-08-05` / `next-goal-shadow-v1`.
 - Ergebnis des Audits ist eine strengere und reproduzierbarere Pipeline, kein
   Profitabilitätsbeweis. Aktuelle Versionszähler können nach dem Wechsel wieder
@@ -696,8 +697,8 @@ Konkrete Blockaden:
 | `scripts/run_football_shadow_due.py` | API-schonender Football-Fälligkeitsrunner |
 | `scripts/backup_runtime_databases.py` | SQLite-Backup, Restore-Prüfung und Retention |
 | `deploy/systemd/*` | App-, Worker- und Timer-Units |
-| `deploy/bootstrap_server.sh` | Ubuntu-Härtung und Erstinstallation |
-| `deploy/update_server.sh` | reproduzierbares Fast-Forward-Deployment |
+| `deploy/bootstrap_server.sh` | Vorlage für den root-eigenen, hashgebundenen Erstinstallations-Wrapper |
+| `deploy/update_server.sh` | Vorlage für den root-eigenen, hashgebundenen Fast-Forward-Updater; nie direkt aus dem Checkout mit `sudo` ausführen |
 
 Die aktuelle Produktionsarchitektur ist bewusst ein einzelner persistenter
 VPS: Caddy vor einer loopback-gebundenen Streamlit-App, systemd-Worker und
@@ -784,11 +785,41 @@ umetikettiert:
 | Rotkarten-Historie | 1.199 Fälle aus 7.010 Spielen; Backlog 2.011 | Entwicklungsdaten, kein unabhängiger Holdout |
 | 15K | keine belastbare Echtgeldhistorie | kein Erfolgsnachweis |
 
+Öffentliche Livekontrolle am 14. August 2026 um 15:38 Europe/Zurich, ohne
+SSH-/Datenbank- oder systemd-Audit: Tennis zeigte 237 Prognosen, 115
+Abrechnungen, 122 offene Fälle, 0 empfohlene Wetten, CLV `n=0` und Brier
+0,249. E-Sport stand bei 44/300 abgerechneten Prematch-Fällen. Der
+Fußball-Tageslauf hatte 51/51 Ligen geprüft, 34 Spiele gefunden, 18 modelliert
+und 10 Modell-Auswahlen erzeugt, aber 0 preislich freigegebene Tipps. Diese
+Oberflächenzähler belegen laufende Datensammlung, ersetzen jedoch nicht die
+oben datierten Detailauswertungen aus den kanonischen VPS-Datenbanken.
+
+Kanonischer Read-only-Audit der VPS-Datenbanken am 17. August 2026 um 10:47
+Europe/Zurich. Jede SQLite-Datei wurde ausschließlich per URI `mode=ro` mit
+`PRAGMA query_only=ON` und ohne Projektimporte geöffnet:
+
+| Aktive Modell-/Policy-Version | Aktueller Evidenzstand | Fachliche Aussage |
+|---|---|---|
+| Fußball `challenge-engine-2026-08-05` / `shadow-risk-ev-v4` | 0 versionsgleiche Prognosen/Picks, 0 Entry-Quotes, 0 Closings | 0/300; weder CLV, Brier, PnL noch ROI ableitbar. 948 unversionierte Fixtures, davon 898 evaluiert, sind keine Pick-Evidenz. |
+| Tennis `elo-serve-platt-v3` / `risk-ev-haircut-min-odds-v4` | 258 eindeutige Prognosen, 162 settled, 96 offen, 0 Empfehlungen, 0 Entry-/Closing-Quotes | Brier 0,2256; mittleres p(A) 50,93 % gegenüber 50,62 % tatsächlich; 10-%-Bin-ECE 0,0723 bei teils winzigen Randbins. Modell-Outcomes 162/300, aber preis-/CLV-fähige Kohorte 0/300. |
+| E-Sport `subgraph-elo-v2` | 230 Prognosen, 50 auswertbar plus 1 void, 179 offen; 33/50 Treffer | 66,0 %, Wilson-95-%-Intervall 52,15–77,56 %. Raw-Brier 0,2314, risikoadjustiert 0,3130 und ECE 0,2944; junge selektive Kohorte, deutlich unterkonfidente Risikowerte und keine Preis-/Closing-Spalten. 50/300. |
+| Rotkarte `red-card-impact-2026-08-05` / `next-goal-shadow-v1` | 0 versionsgleiche Signale | 0/300. Die 9.021 historischen Fixtures mit 1.594 Platzverweisfällen sind Backfill-/Entwicklungsdaten, keine unabhängige Shadow-Evidenz. |
+
+Kein Sport erfüllt damit die 300er Freigaberegel; nirgends liegt eine
+vollständige Entry-/Closing-Kohorte für belastbaren CLV, PnL oder ROI vor. Die
+Ausgangsbasis `239c9ea` enthielt bei Fußball noch die alte `<30`-Verdiktlogik.
+Dieses Härtungspaket setzt die Prüfstufe auf 300 eindeutige, versionsgleiche
+Fixtures mit gültigem Closing, erzwingt die Modell-/Policy-Version und sperrt
+die Auswertung bei fehlenden Integritätsmetadaten oder Doppelzeilen. Auch ab
+300 bleibt eine Echtgeldfreigabe ohne No-Vig-, Kalibrierungs-, Abhängigkeits-
+und Konfidenzprüfung ausdrücklich ausgeschlossen.
+
 Wichtig zur jungen Stichprobe:
 
 - Die vorhandenen Fußball-Fixtures reichen vom 24. Juli bis 1. August.
-- Die **revidierte produktionsgleiche Price-/Policy-Version** ist erst seit
-  diesem Audit aktiv.
+- Die **revidierte Evidenz-/Settlement-Härtung** ist lokal implementiert und
+  wird erst nach dem kontrollierten Deployment produktiv aktiv; bis dahin
+  bleibt der oben dokumentierte VPS-Stand maßgeblich.
 - Viele große Ligen starten erst noch; bestätigte Aufstellungen fehlen weit vor
   dem Anpfiff erwartbar.
 - Null Picks sind derzeit kein Beweis für ein schlechtes Modell und kein Grund,
@@ -796,10 +827,13 @@ Wichtig zur jungen Stichprobe:
 - Die nächsten Schritte sind sammeln, Dropout-Gründe zählen und Versionen
   getrennt auswerten.
 
-Eine Freigabe darf frühestens nach mindestens 300 unabhängigen, vorab
-protokollierten und korrekt abgerechneten Picks der **gleichen Modell- und
-Policy-Version** diskutiert werden. Zusätzlich müssen Kalibrierung, Brier/Log
-Loss gegen einen vollständigen No-Vig-Benchmark, positiver CLV und die unteren
+Eine Freigabe darf frühestens nach mindestens 300 eindeutigen Fixtures mit
+vorab protokolliertem Pick, gültigem Opening/Closing und korrekter Abrechnung
+der **gleichen Modell- und Policy-Version** diskutiert werden. Der Ledger
+erzwingt diese Fixture-/Versions-Eindeutigkeit; fehlende Integritätsmetadaten
+oder Doppelzeilen sperren die Prüfstufe. Zusätzlich müssen statistische
+Abhängigkeiten nach Liga, Team und Spieltag, Kalibrierung, Brier/Log Loss gegen
+einen vollständigen No-Vig-Benchmark, positiver CLV und die unteren
 Konfidenzgrenzen von CLV und Rendite überzeugen. ROI allein reicht nicht.
 
 ## 8. Automationen
@@ -819,6 +853,34 @@ und nächsten Fälligkeiten in systemd gelistet. `betboy-app.service` war
 `active`, der Streamlit-Health-Endpunkt antwortete mit `ok`,
 `systemctl --failed` enthielt keine Unit und das jüngste sichtbare lokale
 Backup war `betboy-sqlite-20260810T011730Z.zip`.
+
+Read-only-Livekontrolle am 17. August 2026 nach der SSH-Wiederherstellung:
+Normalboot, `betboy-app.service` active/enabled, alle exakt sieben Timer
+active/enabled, alle Oneshots mit `Result=success` und `ExecMainStatus=0`, keine
+fehlgeschlagene Unit sowie lokaler und öffentlicher Healthcheck `200 / ok`.
+Das unmittelbar vor dem Härtungsdeploy erzeugte Backup
+`betboy-sqlite-20260817T091614Z.zip` enthält 82 Einträge; CRC, isolierter
+Restore und `PRAGMA quick_check` bestanden für 82/82 Datenbanken. Zusätzlich
+wurden 22 veränderte Laufzeitartefakte in einem separaten hashgebundenen Archiv
+gesichert und bytegleich in `runtime_state`/`runtime_reports` übernommen. Die
+Hashwerte sind lokal in `deploy/BACKUP_HASH_ANCHORS.md` dokumentiert und nach
+dem Push extern überprüfbar; eine unabhängige, unveränderliche externe
+Verankerung bleibt offen. Im
+OVH-Manager ist zusätzlich
+das automatische Backup `Standard` täglich um 12:02 UTC aktiv; sichtbar war
+ein Wiederherstellungspunkt vom 16. August 2026 um 12:02. Ein tatsächlicher
+Totalverlust-Restore wurde nicht durchgeführt und bleibt als DR-Nachweis offen.
+
+Der VPS-Worktree war beim Read-only-Audit nicht sauber: reguläre Läufe hatten
+`reports/weekly_latest.html` und `tennis/data/model_state.pkl` geändert sowie
+Tageslogs, Wochenreports und `tennis/data/calibration_watch_latest.json`
+erzeugt. Es wurde weder zurückgesetzt noch bereinigt. Vor dem nächsten Deploy
+müssen diese Laufzeitartefakte bewusst gesichert und aus dem Git-Updatepfad
+entkoppelt werden; ein erzwungener Reset wäre Datenverlust.
+
+Der Tennis-Wächter meldete trotz Gesamtstatus `ok` für `over_21_5_games`
+`[DRIFT]` bei `n=9307`, RMS 0,0541 und maximalem Mid-Bias 0,0578. Das ist kein
+Betriebsfehler, muss aber vor einer fachlichen Freigabe untersucht werden.
 
 Produktionsverifikation am 2. August 2026: Der erste Artefakt-v2-Lauf
 verarbeitete den Discovery-Scope mit 51 Ligen, fand und modellierte die zwei
@@ -939,7 +1001,8 @@ Extern erforderliche Schritte:
 Rotation kommt vor Historienbereinigung. Diese Schritte kann der Code nicht
 selbstständig erledigen, weil dafür die Providerkonten benötigt werden.
 
-VPS-Härtung, verifiziert am 2. August 2026:
+VPS-Härtung, am 2. August eingerichtet und am 17. August 2026 read-only
+erneut verifiziert:
 
 - SSH nur für `ubuntu` mit ED25519-Schlüssel; Passwort-, Keyboard-Interactive-
   und Root-Login sind effektiv deaktiviert.
@@ -955,18 +1018,26 @@ VPS-Härtung, verifiziert am 2. August 2026:
 Vollständiger Lauf:
 
 ```text
-657 passed
+730 passed
 5 subtests passed
-3 JavaScript tests passed
+3/3 JavaScript tests passed
 ```
 
 Reproduzierbarer Windows-Befehl:
 
 ```powershell
 New-Item -ItemType Directory -Path .pytest_tmp -Force
-.\.codex_test_venv\Scripts\python.exe -m pytest -q `
+.\.venv\Scripts\python.exe -m pytest -q `
   -p no:cacheprovider --basetemp .pytest_tmp\full
 ```
+
+Der Lauf vom 17. August erfolgte in einer isolierten Kopie ohne Secrets,
+Laufzeitdatenbanken, Logs oder Git-Metadaten. Provider-Umgebungsvariablen waren
+entfernt und ausgehende Python-TCP-Verbindungen im Testprozess blockiert; eine
+betriebssystemweite Netzwerksandbox wurde nicht behauptet. Die beiden direkten
+Shadow-/CLV-Dateien sammelten 43 Tests; der breitere geänderte Härtungsumfang
+bestand 189 gezielte Tests. `pip check`, 11/11 ausgeführte
+`py_compile`-Kontrollen und `git diff --check` waren grün.
 
 Edge wurde direkt per Playwright mit der installierten normalen Edge-Engine
 getestet, nicht über den Codex-In-App-Browser. Am 5. August wurden die neue
@@ -1418,19 +1489,30 @@ Venv: /opt/betboy/venv
 Backups: /var/backups/betboy
 Verifizierter Funktionscommit: 6a59f3e
 Repository-/VPS-HEAD vor Übergabedokumentation: 5fe7ef7
-Letzte Livekontrolle: 10. August 2026
+Aktuell verifizierter VPS-HEAD: 239c9ea38a6e396c916ee7cf36fe7ed396d4b11f
+Letzte Livekontrolle: 17. August 2026
 ```
 
-Update nach einem Push:
+Update nach einem Push. Vor der ersten Verwendung auf einem bestehenden VPS
+müssen die beiden geprüften Root-Tools einmalig nach dem Abschnitt
+`One-time migration of an existing VPS` in `deploy/README.md` installiert und
+die vorhandenen Units sowie Laufzeitpfade geprüft werden:
 
 ```bash
-ssh -i C:\Users\miros\.ssh\betboy_ovh_ed25519 ubuntu@141.95.41.27
-sudo /opt/betboy/app/deploy/update_server.sh
+ssh betboy-vps
+sudo /usr/local/sbin/betboy-update <geprüfter-40-stelliger-origin-main-hash>
 systemctl --failed
 systemctl list-timers --all 'betboy-*'
-sudo systemctl start betboy-wettfinder.service
+systemctl show betboy-wettfinder.service -p Result -p ExecMainStatus
 journalctl -u betboy-wettfinder.service -n 50 --no-pager
 ```
+
+Die Dateien unter `/opt/betboy/app/deploy/` sind keine Root-Vertrauensquelle,
+weil der Checkout dem Dienstbenutzer gehört. Ein direkter `sudo`-Aufruf daraus
+ist verboten. Nach seiner einmaligen root-seitigen Installation lädt der
+Wrapper den explizit freigegebenen GitHub-`main`-Hash über die fest verdrahtete
+Repository-URL in root-eigenes Staging und installiert privilegierte Bytes nur
+aus dieser Quelle.
 
 Der VPS ist die einzige kanonische schreibende Instanz. Lokale/KIMI-Runner
 dürfen nicht parallel reaktiviert werden, solange ihre Datenbanken nicht

@@ -37,20 +37,19 @@ from api_budget import (  # noqa: E402
 from betting_math import BettingMathError, evaluate_market_price  # noqa: E402
 from challenge_engine import (  # noqa: E402
     KELLY_REFERENCE_CAP,
-    MARKET_BY_KEY,
     MIN_LEG_EXPECTED_ROI,
     apply_candidate_context,
     build_fixture_candidates,
     candidate_is_credible,
     fit_market_calibration,
-    market_outcome,
     validate_league_markets,
 )
-from clv_tracker import CLVTracker  # noqa: E402
+from clv_tracker import CLVTracker, DuplicatePredictionError  # noqa: E402
 from config_loader import load_app_config  # noqa: E402
 from football_data_history import fetch_history as fetch_stat_history  # noqa: E402
 from football_data_history import merge_api_tail  # noqa: E402
 from league_catalog import LEAGUES  # noqa: E402
+from runtime_paths import atomic_write_bytes, open_trusted_pickle  # noqa: E402
 from season_utils import current_season_start_year_for_id  # noqa: E402
 from xg_backfill import annotate_history as _annotate_xg  # noqa: E402
 
@@ -87,6 +86,7 @@ FT_STATUSES = {"FT"}
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
 SHADOW_MODEL_VERSION = "challenge-engine-2026-08-05"
 SHADOW_POLICY_VERSION = "shadow-risk-ev-v4"
+SHADOW_REVIEW_MIN_CLV_BETS = 300
 
 # Tor-basierte Märkte mit eindeutigem Buchmacher-Pendant (Bet365 via API-Football).
 # Nur diese Märkte werden geloggt: Settlement braucht Endstände, Ecken/Karten-
@@ -121,6 +121,21 @@ errors: list[str] = []
 
 def _utc_iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
+
+
+def _redacted_request_error(exc: requests.RequestException) -> str:
+    """Describe a provider failure without ever serializing its request URL.
+
+    OpenWeather authenticates through an ``appid`` query parameter.  Requests'
+    normal exception string includes the full URL and would therefore leak the
+    key into the Shadow artifact and systemd logs.
+    """
+
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int) and not isinstance(status_code, bool):
+        return f"{type(exc).__name__} (HTTP {status_code})"
+    return type(exc).__name__
 
 
 def _schedule_marker(target_date: date) -> str:
@@ -282,8 +297,14 @@ class ShadowProvider:
             )
             response.raise_for_status()
             payload = response.json()
-        except (APIBudgetError, requests.RequestException, ValueError) as exc:
+        except APIBudgetError as exc:
             errors.append(f"{label}: {exc}")
+            return None
+        except requests.RequestException as exc:
+            errors.append(f"{label}: {_redacted_request_error(exc)}")
+            return None
+        except ValueError as exc:
+            errors.append(f"{label}: {type(exc).__name__}")
             return None
         if not isinstance(payload, dict) or payload.get("errors"):
             errors.append(f"{label}: {payload.get('errors') if isinstance(payload, dict) else 'ungültige Antwort'}")
@@ -402,8 +423,11 @@ class ShadowProvider:
             )
             forecast_response.raise_for_status()
             forecasts = forecast_response.json().get("list")
-        except (requests.RequestException, ValueError, TypeError) as exc:
-            errors.append(f"Wetter {city}: {exc}")
+        except requests.RequestException as exc:
+            errors.append(f"Wetter {city}: {_redacted_request_error(exc)}")
+            return None
+        except (ValueError, TypeError) as exc:
+            errors.append(f"Wetter {city}: {type(exc).__name__}")
             return None
         if not isinstance(forecasts, list):
             return None
@@ -493,9 +517,15 @@ def _cached_history(provider, league_id, season, fixture, day):
     path = _cache_path("history", league_id, season, day)
     if path.exists():
         try:
-            with path.open("rb") as handle:
+            with open_trusted_pickle(path) as handle:
                 return pickle.load(handle)
-        except (pickle.PickleError, EOFError, OSError):
+        except (
+            pickle.PickleError,
+            EOFError,
+            OSError,
+            AttributeError,
+            ImportError,
+        ):
             path.unlink(missing_ok=True)
     history = fetch_stat_history(league_id, season, [fixture])
     if history:
@@ -534,8 +564,10 @@ def _cached_history(provider, league_id, season, fixture, day):
             _annotate_xg(history, league_id, season, provider._get, max_new_calls=8)
         except Exception as exc:  # xG ist optional, Shadow läuft ohne weiter
             errors.append(f"xG Liga {league_id}: Annotation fehlgeschlagen ({exc})")
-    with path.open("wb") as handle:
-        pickle.dump(history, handle)
+    atomic_write_bytes(
+        path,
+        pickle.dumps(history, protocol=pickle.HIGHEST_PROTOCOL),
+    )
     return history
 
 
@@ -543,13 +575,21 @@ def _cached_validation(league_id, season, history, day):
     path = _cache_path("validation", league_id, season, day)
     if path.exists():
         try:
-            with path.open("rb") as handle:
+            with open_trusted_pickle(path) as handle:
                 return pickle.load(handle)
-        except (pickle.PickleError, EOFError, OSError):
+        except (
+            pickle.PickleError,
+            EOFError,
+            OSError,
+            AttributeError,
+            ImportError,
+        ):
             path.unlink(missing_ok=True)
     validation = validate_league_markets(history)
-    with path.open("wb") as handle:
-        pickle.dump(validation, handle)
+    atomic_write_bytes(
+        path,
+        pickle.dumps(validation, protocol=pickle.HIGHEST_PROTOCOL),
+    )
     return validation
 
 
@@ -557,13 +597,21 @@ def _cached_calibration(league_id, season, history, day):
     path = _cache_path("calibration", league_id, season, day)
     if path.exists():
         try:
-            with path.open("rb") as handle:
+            with open_trusted_pickle(path) as handle:
                 return pickle.load(handle)
-        except (pickle.PickleError, EOFError, OSError):
+        except (
+            pickle.PickleError,
+            EOFError,
+            OSError,
+            AttributeError,
+            ImportError,
+        ):
             path.unlink(missing_ok=True)
     calibration = fit_market_calibration(history)
-    with path.open("wb") as handle:
-        pickle.dump(calibration, handle)
+    atomic_write_bytes(
+        path,
+        pickle.dumps(calibration, protocol=pickle.HIGHEST_PROTOCOL),
+    )
     return calibration
 
 
@@ -676,19 +724,22 @@ def step_settle(tracker: CLVTracker, provider: ShadowProvider, now: datetime) ->
             or home_goals < 0 or away_goals < 0
         ):
             continue
-        spec = MARKET_BY_KEY.get(str(market_type))
-        if spec is not None and spec.key in _QUOTE_BETS:
-            try:
-                won = market_outcome(spec, home_goals, away_goals)
-            except ValueError:
-                continue
-        else:
-            # Legacy-Zeilen (Marktlabel "Beide Teams treffen", Auswahl Ja/Nein)
-            both_scored = home_goals > 0 and away_goals > 0
-            won = both_scored if str(selection).strip() == "Ja" else not both_scored
+        try:
+            settled_result = tracker._result_for_score(
+                market_type,
+                selection,
+                home_goals,
+                away_goals,
+            )
+        except ValueError as exc:
+            errors.append(f"Settlement {prediction_id}: {exc}")
+            continue
         try:
             tracker.settle_prediction(
-                prediction_id, "Won" if won else "Lost", home_goals, away_goals,
+                prediction_id,
+                settled_result,
+                home_goals,
+                away_goals,
             )
             settled += 1
         except (ValueError, KeyError) as exc:
@@ -855,6 +906,12 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
                     )
                     result["logged"] += 1
                     logged = True
+                except DuplicatePredictionError:
+                    existing = _current_prediction_exists(fixture_id)
+                    if not existing:
+                        errors.append(
+                            f"Logging {fixture_id}: Duplicate ohne nachweisbaren Bestand"
+                        )
                 except ValueError as exc:
                     errors.append(f"Logging {fixture_id}: {exc}")
         elif credible and not quote_seen:
@@ -940,23 +997,76 @@ def _recent(tracker: CLVTracker) -> list[dict]:
     return recent
 
 
-def _verdict(stats_all: dict, stats_30: dict) -> str:
-    clv_bets = stats_all.get("clv_bets") or 0
-    avg_clv = stats_all.get("avg_clv")
-    if clv_bets < 30:
+def _verdict(stats_all: dict) -> str:
+    if stats_all.get("evidence_valid") is not True:
+        duplicate_value = stats_all.get("duplicate_fixture_groups")
+        invalid_value = stats_all.get("invalid_evidence_rows")
+        duplicate_groups = (
+            duplicate_value
+            if isinstance(duplicate_value, int)
+            and not isinstance(duplicate_value, bool)
+            and duplicate_value >= 0
+            else 0
+        )
+        invalid_rows = (
+            invalid_value
+            if isinstance(invalid_value, int)
+            and not isinstance(invalid_value, bool)
+            and invalid_value >= 0
+            else 0
+        )
+        if duplicate_groups > 0:
+            return (
+                "Shadow-Evidenz gesperrt: "
+                f"{duplicate_groups} doppelte Fixture-Gruppe(n) innerhalb derselben "
+                "Modell-/Policy-Version. Keine Freigabediskussion, bis die "
+                "unveränderten Quelldaten fachlich geprüft wurden."
+            )
+        if invalid_rows > 0:
+            return (
+                "Shadow-Evidenz gesperrt: "
+                f"{invalid_rows} abgerechnete Zeile(n) sind malformed oder haben "
+                "keine vollständig gültige Opening-/Closing-Provenienz. Keine "
+                "Freigabediskussion."
+            )
+        else:
+            return (
+                "Shadow-Evidenz gesperrt: Integritätsmetadaten fehlen oder sind "
+                "ungültig. Keine Freigabediskussion."
+            )
+
+    if stats_all.get("cohort_versioned") is not True:
         return (
-            f"Shadow-Phase: {clv_bets} abgerechnete Wetten mit gültigem Closing. "
-            "Ein belastbares CLV-Urteil braucht mindestens ~30, besser 100+ – "
-            "kein echtes Geld vor positivem CLV."
+            "Shadow-Evidenz gesperrt: Die Kohorte ist nicht eindeutig nach "
+            "Modell- und Policy-Version isoliert. Keine Freigabediskussion."
         )
-    direction = "positiv" if (avg_clv or 0) > 0 else "negativ"
+    clv_bets = stats_all.get("independent_clv_fixtures")
+    if isinstance(clv_bets, bool) or not isinstance(clv_bets, int) or clv_bets < 0:
+        return (
+            "Shadow-Evidenz gesperrt: Der Zähler eindeutiger Closing-Fixtures "
+            "fehlt oder ist ungültig. Keine Freigabediskussion."
+        )
+    avg_clv = stats_all.get("avg_clv")
+    if clv_bets < SHADOW_REVIEW_MIN_CLV_BETS:
+        return (
+            f"Shadow-Evidenzaufbau: {clv_bets}/{SHADOW_REVIEW_MIN_CLV_BETS} "
+            "eindeutige, abgerechnete Fixtures mit gültigem Closing. Vor "
+            f"{SHADOW_REVIEW_MIN_CLV_BETS} eindeutigen Fixtures derselben "
+            "Modell-/Policy-Version gibt es keine Freigabediskussion."
+        )
+
+    all_time_text = (
+        f"{float(avg_clv):+.2f} %"
+        if avg_clv is not None
+        else "nicht berechenbar"
+    )
     return (
-        f"CLV über {clv_bets} Wetten: {avg_clv:+.2f} % ({direction}). "
-        + (
-            "Das Modell schlägt die Closing Line im Schnitt – weiter beobachten."
-            if (avg_clv or 0) > 0
-            else "Das Modell schlägt die Closing Line nicht – kein echter Edge belegt."
-        )
+        f"Shadow-Prüfstufe erreicht: {clv_bets}/{SHADOW_REVIEW_MIN_CLV_BETS} "
+        f"eindeutige Fixtures mit gültigem Closing. Gesamt-CLV: {all_time_text}. "
+        "Die statistische Unabhängigkeit muss separat geprüft werden. Ein positiver "
+        "Mittelwert allein ist keine Echtgeldfreigabe; erforderlich sind "
+        "No-Vig-Benchmark, Kalibrierung sowie positive untere "
+        "Konfidenzgrenzen für CLV und Rendite."
     )
 
 
@@ -975,6 +1085,7 @@ def _extract_input(ctx) -> dict:
 
 def run(ctx):
     """Managed runner entrypoint: perform all due shadow-mode steps once."""
+    errors.clear()
     run_input = _extract_input(ctx)
     league_ids = run_input.get("league_ids") or [league.league_id for league in LEAGUES]
     league_ids = [int(value) for value in league_ids if _positive_int(value)] or [
@@ -1032,7 +1143,7 @@ def run(ctx):
         "pending_closing": pending_closing,
         "recent": _recent(tracker),
         "errors": errors[-15:],
-        "verdict": _verdict(stats_all, stats_30),
+        "verdict": _verdict(stats_all),
         "reference_bookmaker": BOOKMAKER_NAME,
         "quote_source": QUOTE_SOURCE,
         "model_version": SHADOW_MODEL_VERSION,

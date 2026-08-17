@@ -4,10 +4,11 @@ Ablauf (taeglich 07:17 lokal):
   1) Model-State neu bauen, wenn aelter als 7 Tage (rebuild_state.py --if-stale-days 7)
   2) Tages-Scan (tennis_daily.py) - idempotent, Doppel-Scan am selben Tag ist harmlos
   3) Montags: Kalibrierungs-Waechter (calibration_watch_runner.py)
-     -> Ergebnis nach tennis/data/calibration_watch_latest.json
-  4) Montags: Wochenreport (weekly_report.py) -> HTML + Browser oeffnet sich
+     -> Ergebnis nach runtime_state/tennis/calibration_watch_latest.json
+  4) Montags: Wochenreport (weekly_report.py)
+     -> runtime_reports/tennis/weekly_<datum>.html
 
-Logs: logs/pipeline_<datum>.log
+Logs: runtime_state/logs/pipeline_<datum>.log
 
 Flags fuer Tests: --skip-rebuild --skip-scan --skip-watch --skip-report
 --force-monday (Waechter/Report auch an anderen Wochentagen) --no-open
@@ -27,11 +28,20 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from runtime_paths import (  # noqa: E402
+    PIPELINE_LOG_DIR,
+    TENNIS_CALIBRATION_WATCH_PATH,
+    atomic_write_text,
+)
+
 os.chdir(str(ROOT))
 
 WINDOWS_VENV_PY = ROOT / ".codex_test_venv" / "Scripts" / "python.exe"
-LOG_DIR = ROOT / "logs"
-WATCH_JSON = ROOT / "tennis" / "data" / "calibration_watch_latest.json"
+LOG_DIR = PIPELINE_LOG_DIR
+WATCH_JSON = TENNIS_CALIBRATION_WATCH_PATH
 
 MAX_STATE_AGE_DAYS = 7
 WATCH_WEEKDAY = 0  # Montag: nach den Wochenend-Matches
@@ -87,7 +97,7 @@ def main() -> int:
     ap.add_argument("--no-open", action="store_true", help="Report nicht im Browser oeffnen")
     args = ap.parse_args()
 
-    LOG_DIR.mkdir(exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     log = logging.getLogger("pipeline")
     log.setLevel(logging.INFO)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
@@ -133,7 +143,7 @@ def main() -> int:
                         payload = None
         if payload is not None:
             payload["run_date"] = date.today().isoformat()
-            WATCH_JSON.write_text(json.dumps(payload), encoding="utf-8")
+            atomic_write_text(WATCH_JSON, json.dumps(payload))
             log.info("Waechter-Ergebnis gespeichert: status=%s n=%s",
                      payload.get("status"), payload.get("n_scored"))
             if payload.get("status") == "drift":

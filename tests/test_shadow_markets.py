@@ -6,6 +6,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -90,7 +91,49 @@ class MarketQuoteTest(unittest.TestCase):
         self.assertAlmostEqual(shadow._btts_quote(_odds_response(), "BTTS_YES"), 1.75)
 
 
+class ProviderSecretRedactionTest(unittest.TestCase):
+    def test_weather_http_error_never_leaks_query_string_api_key(self):
+        secret = "weather-secret-must-not-escape"
+        prepared = shadow.requests.Request(
+            "GET",
+            "https://api.openweathermap.org/geo/1.0/direct",
+            params={"q": "Zurich,CH", "appid": secret},
+        ).prepare()
+        response = shadow.requests.Response()
+        response.status_code = 401
+        response.url = prepared.url
+        response.request = prepared
+        fixture = {
+            "fixture": {
+                "date": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+                "venue": {"city": "Zurich"},
+            },
+            "league": {"country": "CH"},
+        }
+        previous_errors = list(shadow.errors)
+        shadow.errors.clear()
+        try:
+            with patch.object(shadow.requests, "get", return_value=response):
+                result = shadow.ShadowProvider("football-key", secret).weather(fixture)
+            serialized_errors = "\n".join(shadow.errors)
+        finally:
+            shadow.errors.clear()
+            shadow.errors.extend(previous_errors)
+
+        self.assertIsNone(result)
+        self.assertNotIn(secret, serialized_errors)
+        self.assertNotIn("appid", serialized_errors)
+        self.assertNotIn("openweathermap.org", serialized_errors)
+        self.assertIn("HTTP 401", serialized_errors)
+
+
 class QuoteMappingIntegrityTest(unittest.TestCase):
+    def test_tracker_release_allowlist_matches_exact_quoted_shadow_markets(self):
+        self.assertEqual(
+            shadow.CLVTracker.SHADOW_SETTLEABLE_MARKETS,
+            frozenset(shadow._QUOTE_BETS),
+        )
+
     def test_every_mapped_key_exists_in_engine_and_settles_on_goals(self):
         engine_keys = {spec.key for spec in MARKET_SPECS}
         for market_key in shadow._QUOTE_BETS:
@@ -289,6 +332,78 @@ class ShadowVersionLifecycleTest(unittest.TestCase):
                 self.assertTrue(shadow._current_prediction_exists(42))
             finally:
                 shadow.SHADOW_DB = original
+
+
+class ShadowVerdictTest(unittest.TestCase):
+    def test_positive_average_before_300_closings_stays_in_evidence_building(self):
+        verdict = shadow._verdict({
+            "clv_bets": 999,
+            "independent_clv_fixtures": 299,
+            "evidence_valid": True,
+            "cohort_versioned": True,
+            "duplicate_fixture_groups": 0,
+            "avg_clv": 4.5,
+        })
+
+        self.assertIn("299/300", verdict)
+        self.assertIn("Evidenzaufbau", verdict)
+        self.assertIn("keine Freigabediskussion", verdict)
+        for premature_claim in ("positiv", "schlägt", "Edge"):
+            self.assertNotIn(premature_claim, verdict)
+
+    def test_review_stage_does_not_label_one_window_as_a_trend(self):
+        verdict = shadow._verdict({
+            "clv_bets": 300,
+            "independent_clv_fixtures": 300,
+            "evidence_valid": True,
+            "cohort_versioned": True,
+            "duplicate_fixture_groups": 0,
+            "avg_clv": 1.25,
+        })
+
+        self.assertIn("Prüfstufe", verdict)
+        self.assertNotIn("Trend", verdict)
+        self.assertIn("keine Echtgeldfreigabe", verdict)
+        self.assertIn("No-Vig-Benchmark", verdict)
+        self.assertIn("Konfidenz", verdict)
+
+    def test_duplicate_fixture_evidence_blocks_review_even_above_threshold(self):
+        verdict = shadow._verdict({
+            "clv_bets": 999,
+            "independent_clv_fixtures": 999,
+            "evidence_valid": False,
+            "cohort_versioned": True,
+            "duplicate_fixture_groups": 1,
+            "avg_clv": 9.99,
+        })
+
+        self.assertIn("Evidenz gesperrt", verdict)
+        self.assertIn("doppelte Fixture", verdict)
+        self.assertIn("Keine Freigabediskussion", verdict)
+        self.assertNotIn("Prüfstufe erreicht", verdict)
+
+    def test_missing_integrity_metadata_never_falls_back_to_raw_row_count(self):
+        verdict = shadow._verdict({"clv_bets": 999, "avg_clv": 9.99})
+
+        self.assertIn("Evidenz gesperrt", verdict)
+        self.assertIn("Integritätsmetadaten", verdict)
+        self.assertNotIn("Prüfstufe erreicht", verdict)
+
+    def test_malformed_or_unproven_rows_block_review_above_threshold(self):
+        verdict = shadow._verdict({
+            "clv_bets": 300,
+            "independent_clv_fixtures": 300,
+            "evidence_valid": False,
+            "cohort_versioned": True,
+            "duplicate_fixture_groups": 0,
+            "invalid_evidence_rows": 1,
+            "avg_clv": 9.99,
+        })
+
+        self.assertIn("Evidenz gesperrt", verdict)
+        self.assertIn("Opening-/Closing-Provenienz", verdict)
+        self.assertIn("Keine Freigabediskussion", verdict)
+        self.assertNotIn("Prüfstufe erreicht", verdict)
 
 
 if __name__ == "__main__":

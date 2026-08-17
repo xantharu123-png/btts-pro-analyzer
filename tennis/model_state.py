@@ -4,6 +4,11 @@ Building Surface-Elo + serve/return ratings from 25+ years of stats
 takes about a minute — far too slow for a daily scan.  This module
 builds the state once, pickles it, and reloads it in milliseconds.
 
+SECURITY: pickle is executable Python input.  Until the state format is
+replaced, this module only loads a regular, non-symlink file owned by the
+service account or root (and not group/world writable on POSIX).  Never copy a
+model-state pickle from an untrusted PC or provider into the runtime path.
+
 Refresh policy: the upstream stats repo (ManTennisData) updates every
 few days.  A weekly state rebuild (plus an optional manual refresh)
 keeps ratings fresh; between rebuilds predictions use the persisted
@@ -24,12 +29,22 @@ from typing import Iterable, Optional, Tuple
 
 import pandas as pd
 
+from runtime_paths import (
+    PACKAGED_TENNIS_MODEL_STATE_PATH,
+    TENNIS_MODEL_STATE_PATH,
+    RuntimeArtifactTrustError,
+    atomic_write_bytes,
+    open_trusted_pickle,
+    validate_trusted_pickle_path,
+)
+
 from .backtest import run_backtest, WalkForwardCalibrator, _is_retired
 from .data_loader import load_atp_stats, load_market_odds, add_normalized_names
 from .elo import SurfaceElo
 from .serve_model import ServeReturnModel, is_tour_level
 
-DEFAULT_STATE_PATH = Path(__file__).resolve().parent / "data" / "model_state.pkl"
+DEFAULT_STATE_PATH = TENNIS_MODEL_STATE_PATH
+PACKAGED_STATE_PATH = PACKAGED_TENNIS_MODEL_STATE_PATH
 
 
 @dataclass
@@ -187,16 +202,36 @@ def build_state(
     )
 
 
-def save_state(state: ModelState, path: Path = DEFAULT_STATE_PATH) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "wb") as fh:
-        pickle.dump(state, fh)
-    return path
+def _state_path_for_read(path: Path | None) -> Path:
+    if path is not None:
+        return validate_trusted_pickle_path(Path(path))
+    if DEFAULT_STATE_PATH.is_symlink() or DEFAULT_STATE_PATH.exists():
+        return validate_trusted_pickle_path(DEFAULT_STATE_PATH)
+    return validate_trusted_pickle_path(PACKAGED_STATE_PATH)
 
 
-def load_state(path: Path = DEFAULT_STATE_PATH) -> ModelState:
-    with open(path, "rb") as fh:
+def save_state(state: ModelState, path: Path | None = None) -> Path:
+    path = Path(path) if path is not None else DEFAULT_STATE_PATH
+    if not isinstance(state, ModelState):
+        raise TypeError("state must be a ModelState")
+    if path.is_symlink():
+        raise RuntimeArtifactTrustError(
+            f"model-state target must not be a symlink: {path}"
+        )
+    if path.exists():
+        validate_trusted_pickle_path(path)
+    payload = pickle.dumps(state, protocol=pickle.HIGHEST_PROTOCOL)
+    return atomic_write_bytes(path, payload)
+
+
+def load_state(path: Path | None = None) -> ModelState:
+    path = _state_path_for_read(path)
+    with open_trusted_pickle(path) as fh:
         state = pickle.load(fh)
+    if not isinstance(state, ModelState):
+        raise RuntimeArtifactTrustError(
+            f"model-state pickle has an unexpected object type: {path}"
+        )
     # forward-migration for pickles written before constructor-parametrised
     # tour averages existed: default to the ATP constants
     serve = getattr(state, "serve", None)
@@ -210,5 +245,17 @@ def load_state(path: Path = DEFAULT_STATE_PATH) -> ModelState:
     return state
 
 
-def state_exists(path: Path = DEFAULT_STATE_PATH) -> bool:
-    return path.exists() and path.stat().st_size > 0
+def state_exists(path: Path | None = None) -> bool:
+    explicit = Path(path) if path is not None else None
+    if explicit is not None and not explicit.is_symlink() and not explicit.exists():
+        return False
+    if (
+        explicit is None
+        and not DEFAULT_STATE_PATH.is_symlink()
+        and not DEFAULT_STATE_PATH.exists()
+        and not PACKAGED_STATE_PATH.is_symlink()
+        and not PACKAGED_STATE_PATH.exists()
+    ):
+        return False
+    trusted_path = _state_path_for_read(explicit)
+    return trusted_path.stat().st_size > 0

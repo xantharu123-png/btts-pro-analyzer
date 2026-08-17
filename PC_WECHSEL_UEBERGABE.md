@@ -6,22 +6,22 @@ Diese Anleitung bringt einen neuen Windows-PC in einen sicheren,
 reproduzierbaren BetBoy-Arbeitsstand. Der laufende Produktionsserver hängt
 nicht vom alten PC ab und arbeitet während des Wechsels weiter.
 
-Am 10. August 2026 wurde verifiziert:
+Am 17. August 2026 wurde vor dem aktuellen Härtungspaket verifiziert:
 
 | Prüfung | Ergebnis |
 |---|---|
-| Lokaler Git-Stand | `5fe7ef7` vor Erstellung dieser Übergabedokumente |
-| GitHub `origin/main` | identisch |
+| Lokaler Git-Stand | `239c9ea38a6e396c916ee7cf36fe7ed396d4b11f` |
+| GitHub `origin/main` | per frischem Remote-Abruf identisch |
 | VPS-Stand | identisch |
 | `betboy-app.service` | `active` |
 | Streamlit-Health | `ok` |
 | BetBoy-Timer | 7 aktiv und terminiert |
 | Fehlgeschlagene systemd-Units | 0 |
-| Letztes sichtbares Backup | `betboy-sqlite-20260810T011730Z.zip` |
+| Letztes geprüftes Pre-Deploy-Backup | `betboy-sqlite-20260817T091614Z.zip`; 82/82 SQLite-Dateien bestanden Restore und `quick_check` |
 
-Nach dem Dokumentationscommit gilt der aktuelle `origin/main`-Hash. Der
-funktionale Produktstand bleibt `6a59f3e`; spätere Dokumentationscommits
-ändern keine Wettlogik.
+Nach jedem Commit gilt ausschließlich der frisch abgefragte vollständige
+`origin/main`-Hash. Hash und Produktionsstand werden nach einem Deploy erneut
+verglichen; alte Chatangaben sind keine Betriebswahrheit.
 
 ## 2. Was wo lebt
 
@@ -48,7 +48,7 @@ der Scheduler. Die sieben produktiven Jobs laufen per systemd auf dem VPS.
 Im aktuellen Repository:
 
 ```powershell
-Set-Location C:\Users\miros\Desktop\BetBoy\betboy-app
+Set-Location C:\Projekt\BetBoy\betboy-app
 git status --short --branch
 git fetch origin
 git rev-parse HEAD
@@ -242,6 +242,26 @@ Falls der alte PC nicht mehr verfügbar ist, den Zugang über die OVH-Konsole
 beziehungsweise KVM/Recovery wiederherstellen. Der Server darf dafür nicht neu
 installiert werden.
 
+### Auf diesem PC verifizierter Zugang am 17. August 2026
+
+- Aktiver verschlüsselter Schlüssel:
+  `C:\Users\miros\.ssh\betboy_ovh_ed25519_20260814`; Fingerprint
+  `SHA256:AIawx5EsF/j6XhvIdmueox2yqSDQurgWSXB8e/RlRms`.
+- Der öffentliche Schlüssel wurde per OVH-Rescue zusätzlich und atomar in
+  `/home/ubuntu/.ssh/authorized_keys` eingetragen. Vorher entstand die Sicherung
+  `/home/ubuntu/.ssh/authorized_keys.bak-20260817T083839Z`. Bestehende
+  Server-Schlüssel wurden nicht entfernt.
+- Zwei unabhängige Batch-Logins als `ubuntu` bestanden. Der normale
+  Server-Hostfingerprint ist
+  `SHA256:YiFROIss/l4MjHP8y5+zYmjBiN8dxJVZXRVQ7SU6Rgo`.
+- Der Alias `betboy-vps` verwendet ausschließlich den neuen Schlüssel,
+  `StrictHostKeyChecking yes`, `BatchMode yes`, nur Public-Key-Authentifizierung
+  und kein Agent-Forwarding. `ssh-agent` läuft automatisch.
+- OVH zeigt wieder `Aktiv` und Boot `LOCAL`. Das temporäre Rescue-Passwort wurde
+  weder in Dateien noch in Git oder in diese Dokumentation übernommen.
+- Alte autorisierte Server-Schlüssel erst nach einer gesonderten Entscheidung
+  entfernen; sie sind derzeit bewusst als Rückfallebene erhalten.
+
 ### Nicht empfohlen: privaten Schlüssel kopieren
 
 Der vorhandene private Schlüssel liegt auf dem alten PC unter
@@ -258,10 +278,14 @@ New-Item -ItemType Directory -Force .pytest_tmp | Out-Null
 .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp .pytest_tmp\full
 ```
 
-Erneut verifizierter Ausgangswert am 10. August 2026:
+Erneut verifizierter Ausgangswert am 17. August 2026 in einer isolierten Kopie
+ohne Secrets, Laufzeitdatenbanken und Logs. Provider-Umgebungsvariablen waren
+entfernt und ausgehende Python-TCP-Verbindungen im Testprozess blockiert; das
+war keine betriebssystemweite Netzwerksandbox:
 
 ```text
-693 passed, 5 subtests passed
+730 passed, 5 subtests passed
+3/3 JavaScript tests passed
 ```
 
 Optionaler JavaScript-Test mit installiertem Node.js:
@@ -291,10 +315,10 @@ Invoke-WebRequest -UseBasicParsing -Uri "https://vps-a30a123f.vps.ovh.net/_stcor
 
 Erwarteter Inhalt: `ok`.
 
-Serverprüfung:
+Serverprüfung mit dem auf diesem PC verifizierten Alias:
 
 ```powershell
-ssh -i "$env:USERPROFILE\.ssh\betboy_ovh_ed25519" ubuntu@141.95.41.27
+ssh betboy-vps
 ```
 
 Auf dem VPS:
@@ -329,11 +353,24 @@ git commit -m "Kurze sachliche Beschreibung"
 git push origin main
 ```
 
-Danach Produktion aktualisieren:
+Danach den gepushten vollständigen Hash erneut gegen GitHub prüfen. Vor dem
+**ersten** Einsatz auf einem bestehenden VPS müssen beide geprüften Root-Tools
+einmalig nach `One-time migration of an existing VPS` in `deploy/README.md`
+installiert und die vorhandenen Units sowie Laufzeitpfade geprüft werden. Erst
+danach den root-eigenen Updater aufrufen:
 
 ```powershell
-ssh -i "$env:USERPROFILE\.ssh\betboy_ovh_ed25519" ubuntu@141.95.41.27 "sudo /opt/betboy/app/deploy/update_server.sh"
+$target = (git rev-parse HEAD).Trim()
+$remote = ((git ls-remote origin refs/heads/main) -split '\s+')[0]
+if ($target -notmatch '^[0-9a-f]{40}$' -or $remote -ne $target) {
+    throw 'Lokaler HEAD und GitHub main sind nicht exakt identisch.'
+}
+ssh betboy-vps "sudo /usr/local/sbin/betboy-update $target"
 ```
+
+Niemals `sudo /opt/betboy/app/deploy/update_server.sh` ausführen. Checkout und
+`.git` sind absichtlich durch den unprivilegierten Dienstbenutzer beschreibbar
+und deshalb keine Root-Vertrauensquelle. Details stehen in `deploy/README.md`.
 
 Anschließend Hash, Service, Health und betroffene Nutzeroberfläche erneut
 prüfen. Ein lokaler Test oder erfolgreicher Push ist noch kein verifiziertes
@@ -409,17 +446,19 @@ Testnachweis übernehmen.
 
 ## 15. Abschlusscheckliste
 
-- [ ] GitHub-Zugang auf neuem PC funktioniert.
-- [ ] Repository wurde als `betboy-app` geklont.
-- [ ] `HEAD` entspricht `origin/main`.
-- [ ] Python 3.12 und lokale Venv funktionieren.
-- [ ] Tests sind grün oder Abweichungen sind dokumentiert.
-- [ ] Neuer SSH-Schlüssel wurde autorisiert und getestet.
-- [ ] Privater Schlüssel wurde nicht unsicher übertragen.
-- [ ] Produktions-Health liefert `ok`.
-- [ ] App-Service und sieben Timer sind aktiv.
-- [ ] Backup-Aktualität wurde geprüft.
+- [x] GitHub-Zugang und Schreibberechtigung wurden per Credential Manager und
+  erfolgreichem Push-Dry-Run geprüft; kein Token liegt in der Remote-URL.
+- [x] Repository wurde als `betboy-app` geklont.
+- [x] Ausgangs-`HEAD`, frisch abgefragtes GitHub `main` und VPS waren vor dem
+  Härtungscommit identisch.
+- [x] Python 3.12 und lokale Venv funktionieren.
+- [x] Tests sind grün oder Abweichungen sind dokumentiert.
+- [x] Neuer SSH-Schlüssel wurde autorisiert und zweimal getestet.
+- [x] Privater Schlüssel wurde nicht unsicher übertragen.
+- [x] Produktions-Health liefert `ok`.
+- [x] App-Service und sieben Timer sind aktiv.
+- [x] Backup-Aktualität und jüngstes ZIP per CRC wurden geprüft.
 - [ ] Secrets liegen nur in sicheren, ignorierten Speicherorten.
 - [ ] Entscheidung zur alten Browser-/15K-Identität wurde getroffen.
 - [ ] Alte lokale/KIMI-Automationen bleiben deaktiviert.
-- [ ] `PROJEKTBIBEL.md` und `PROJECT_HANDBUCH.md` wurden gelesen.
+- [x] `PROJEKTBIBEL.md` und `PROJECT_HANDBUCH.md` wurden gelesen.

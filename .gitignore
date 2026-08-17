@@ -10,6 +10,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .pytest_tmp/
+.venv/
 .codex_test_venv/
 .mypy_cache/
 .ruff_cache/
@@ -27,3 +28,9 @@ scan_jobs/
 challenge_sessions/
 runtime_reports/
 runtime_state/
+
+# Historische Ausgabepfade vor der Runtime-Trennung. Bereits versionierte
+# Evidenzdateien bleiben erhalten; neue Dateien an diesen Orten sind generiert.
+logs/pipeline_*.log
+reports/weekly_*.html
+tennis/data/calibration_watch_latest.json

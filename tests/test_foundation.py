@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import tomllib
 import unittest
+from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -1020,6 +1021,8 @@ class CLVTrackerTests(unittest.TestCase):
                 quote_source="API",
                 fixture_kickoff=kickoff_time,
                 quoted_at=opening_time,
+                model_version="test-model",
+                policy_version="test-policy",
             )
             with self.assertRaises(ValueError):
                 tracker.update_closing_odds(
@@ -1036,11 +1039,41 @@ class CLVTrackerTests(unittest.TestCase):
                 quote_source="API",
                 quoted_at=now,
             )
+            with self.assertRaisesRegex(ValueError, "immutable"):
+                tracker.update_closing_odds(
+                    prediction_id,
+                    1.7,
+                    bookmaker="Book A",
+                    quote_source="API",
+                    quoted_at=now + timedelta(seconds=1),
+                )
+            causal_now = datetime.now(timezone.utc)
+            with closing(sqlite3.connect(tracker.db_path)) as connection:
+                connection.execute(
+                    '''
+                    UPDATE predictions
+                    SET quoted_at = ?, created_at = ?, closing_quoted_at = ?,
+                        fixture_kickoff = ?
+                    WHERE id = ?
+                    ''',
+                    (
+                        (causal_now - timedelta(minutes=30)).isoformat(),
+                        (causal_now - timedelta(minutes=29)).isoformat(),
+                        (causal_now - timedelta(minutes=11)).isoformat(),
+                        (causal_now - timedelta(minutes=10)).isoformat(),
+                        prediction_id,
+                    ),
+                )
+                connection.commit()
             tracker.settle_prediction(prediction_id, "Won", 2, 1)
             with self.assertRaises(ValueError):
                 tracker.settle_prediction(prediction_id, "Lost", 2, 1)
 
-            stats = tracker.get_clv_statistics(days=10000)
+            stats = tracker.get_clv_statistics(
+                days=10000,
+                model_version="test-model",
+                policy_version="test-policy",
+            )
             self.assertEqual(stats["total_bets"], 1)
             self.assertEqual(stats["clv_bets"], 1)
             self.assertAlmostEqual(stats["avg_clv"], 11.11, places=2)
@@ -1061,6 +1094,8 @@ class CLVTrackerTests(unittest.TestCase):
                     bookmaker="",
                     quote_source="API",
                     fixture_kickoff=datetime.now(timezone.utc) + timedelta(minutes=10),
+                    model_version="test-model",
+                    policy_version="test-policy",
                 )
 
     def test_closing_quote_must_be_in_pre_kickoff_window(self):
@@ -1079,6 +1114,8 @@ class CLVTrackerTests(unittest.TestCase):
                 quote_source="API",
                 fixture_kickoff=now + timedelta(hours=1),
                 quoted_at=now,
+                model_version="test-model",
+                policy_version="test-policy",
             )
 
             with self.assertRaises(ValueError):
@@ -1108,6 +1145,8 @@ class CLVTrackerTests(unittest.TestCase):
                     quote_source="API",
                     fixture_kickoff=now + timedelta(hours=1),
                     quoted_at=now - timedelta(minutes=11),
+                    model_version="test-model",
+                    policy_version="test-policy",
                 )
 
     def test_future_closing_quote_and_boolean_score_are_rejected(self):
@@ -1126,6 +1165,8 @@ class CLVTrackerTests(unittest.TestCase):
                 quote_source="API",
                 fixture_kickoff=now + timedelta(minutes=10),
                 quoted_at=now,
+                model_version="test-model",
+                policy_version="test-policy",
             )
 
             with self.assertRaises(ValueError):
@@ -1155,6 +1196,8 @@ class CLVTrackerTests(unittest.TestCase):
                 quote_source="API A",
                 fixture_kickoff=now + timedelta(minutes=10),
                 quoted_at=now,
+                model_version="test-model",
+                policy_version="test-policy",
             )
 
             with self.assertRaises(ValueError):

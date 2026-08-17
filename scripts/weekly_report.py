@@ -3,7 +3,8 @@ mit komplett gruenen Gates.
 
 Standalone - laeuft ohne Kimi/Agent (Windows-Aufgabenplanung).
 Liest die Shadow-DB und das letzte Kalibrierungs-Waechter-Ergebnis,
-rendert reports/weekly_<datum>.html (+ reports/weekly_latest.html).
+rendert runtime_reports/tennis/weekly_<datum>.html
+(+ runtime_reports/tennis/weekly_latest.html).
 
 Nur Karten der aktuellen Modell- und Policy-Version, bei denen ALLE
 Modell-Gates gruen sind, werden als Shadow-Kandidaten gelistet. WTA bleibt
@@ -37,10 +38,17 @@ from tennis.predict import (  # noqa: E402
     WINNER_PROBABILITY_HAIRCUT,
 )
 from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION  # noqa: E402
+from runtime_paths import (  # noqa: E402
+    LEGACY_TENNIS_CALIBRATION_WATCH_PATH,
+    TENNIS_CALIBRATION_WATCH_PATH,
+    TENNIS_WEEKLY_REPORT_DIR,
+    atomic_write_text,
+)
 
 DB = ROOT / "tennis" / "data" / "tennis_shadow.db"
-WATCH_JSON = ROOT / "tennis" / "data" / "calibration_watch_latest.json"
-REPORTS = ROOT / "reports"
+WATCH_JSON = TENNIS_CALIBRATION_WATCH_PATH
+LEGACY_WATCH_JSON = LEGACY_TENNIS_CALIBRATION_WATCH_PATH
+REPORTS = TENNIS_WEEKLY_REPORT_DIR
 
 WATCH_MAX_AGE_DAYS = 8   # danach gilt das Waechter-Ergebnis als veraltet
 
@@ -91,17 +99,22 @@ def gates_all_green(card: dict) -> bool:
 
 def load_watch() -> tuple[dict | None, str]:
     """Return (watch_json, hinweis). hinweis == '' wenn frisch."""
-    if not WATCH_JSON.exists():
+    watch_path = WATCH_JSON if WATCH_JSON.exists() else LEGACY_WATCH_JSON
+    if not watch_path.exists():
         return None, "Noch kein W&auml;chter-Ergebnis vorhanden (l&auml;uft montags automatisch)."
     try:
-        data = json.loads(WATCH_JSON.read_text(encoding="utf-8"))
-    except ValueError:
+        data = json.loads(watch_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return None, "W&auml;chter-Datei korrupt."
+    if not isinstance(data, dict):
         return None, "W&auml;chter-Datei korrupt."
     run_date = data.get("run_date", "")
     try:
         age = (date.today() - date.fromisoformat(run_date[:10])).days
-    except ValueError:
-        age = 999
+    except (TypeError, ValueError):
+        return None, "W&auml;chter-Datum fehlt oder ist ung&uuml;ltig."
+    if age < 0:
+        return None, "W&auml;chter-Datum liegt in der Zukunft und ist ung&uuml;ltig."
     if age > WATCH_MAX_AGE_DAYS:
         return data, f"W&auml;chter-Ergebnis ist {age} Tage alt (vom {escape(run_date[:10])}) - veraltet."
     return data, ""
@@ -281,12 +294,12 @@ def main() -> int:
     watch, watch_note = load_watch()
 
     html = render(cards, green, watch, watch_note, day_from, args.days)
-    REPORTS.mkdir(exist_ok=True)
+    REPORTS.mkdir(parents=True, exist_ok=True)
     out = Path(args.out) if args.out else REPORTS / f"weekly_{day_from.isoformat()}.html"
-    out.write_text(html, encoding="utf-8")
+    atomic_write_text(out, html)
     latest = REPORTS / "weekly_latest.html"
     if out.resolve() != latest.resolve():
-        latest.write_text(html, encoding="utf-8")
+        atomic_write_text(latest, html)
 
     print(f"REPORT={out}")
     print(f"Karten: {len(cards)} | gruene Gates: {len(green)} | "

@@ -434,16 +434,20 @@ Die wichtigsten Umbauten des Projekts:
 
 ## 13. Aktueller Evidenzstand
 
-Softwareseitig bestehen 693 Python-Tests und 5 Subtests. Das belegt
-Implementierungsverträge, nicht Profitabilität.
+Die jeweils aktuelle, vollständig isolierte Testsuite belegt
+Implementierungsverträge, nicht Profitabilität. Der exakte Zähler und das
+Datum stehen im `PROJECT_HANDBUCH.md` und im PC-Wechsel-Runbook.
 
 Der bisherige Shadow-Stand ist jung und je Sport unterschiedlich. Fußball,
 Tennis, E-Sport und Rotkarten besitzen noch keine ausreichende unabhängige,
 versionsgleiche Stichprobe für eine seriöse Langfristbehauptung. Eine spätere
 Echtgeldfreigabe benötigt mindestens:
 
-- 300 unabhängige, vorab protokollierte und korrekt abgerechnete Picks je
-  Modell-/Policy-Version;
+- mindestens 300 eindeutige Fixtures mit vorab protokolliertem Pick, gültigem
+  Opening/Closing und korrekter Abrechnung je Modell-/Policy-Version;
+- eine separate Prüfung der statistischen Abhängigkeit, insbesondere Cluster
+  nach Liga, Team und Spieltag; Eindeutigkeit allein beweist Unabhängigkeit
+  nicht;
 - Kalibrierung, Brier Score und Log Loss gegen einen vollständigen No-Vig-
   Marktbenchmark;
 - positiven Closing-Line-Value mit überzeugender Untergrenze;
@@ -477,7 +481,9 @@ kompromittiert. Rotation kommt vor einer Bereinigung alter Git-Historie.
 ### P0: vor breiter Vermarktung
 
 1. Historisch exponierte Provider- und Telegram-Secrets rotieren.
-2. Offsite-/OVH-Backup aktivieren und Totalverlust-Restore testen.
+2. Das seit 16. August aktive OVH-Standardbackup auf Retention und
+   Wiederherstellbarkeit prüfen, einen Totalverlust-Restore testen und den
+   Backup-Hash extern verankern.
 3. Login und geräteübergreifende Benutzerkonten implementieren.
 4. Daten- und Quotenlizenzen für kommerzielle Nutzung klären.
 5. Datenschutz, Altersgrenzen, Länder- und Glücksspielrecht prüfen.
