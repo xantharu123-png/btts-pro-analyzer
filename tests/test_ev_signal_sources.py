@@ -506,6 +506,15 @@ class ListSignalsTests(unittest.TestCase):
                             "last_discovery_at": "2030-01-01T09:45:00+00:00",
                             "fixtures_found": 13,
                             "fixtures_modeled": 12,
+                            "base_fixture_count": 1,
+                            "context_fixtures": 1,
+                            "context_verified_fixtures": 1,
+                            "context_data_incomplete_fixtures": 0,
+                            "context_unchecked_fixtures": 0,
+                            "deferred_context_fixtures": 0,
+                            "context_scope_complete": True,
+                            "context_accounting_available": True,
+                            "context_fixture_statuses": {"1": "verified"},
                             "approved_candidates": 1,
                         },
                         "sources": {"football": {"discovery_scope": 51}},
@@ -536,6 +545,72 @@ class ListSignalsTests(unittest.TestCase):
         self.assertEqual(status.fixtures_modeled, 12)
         self.assertEqual(status.approved_candidates, 1)
 
+    def test_degraded_football_artifact_never_exposes_football_signal(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            artifact.write_text(
+                json.dumps(
+                    {
+                        "version": AUTOMATED_WETTFINDER_VERSION,
+                        "generated_at": "2030-01-01T10:00:00+00:00",
+                        "betting_policy_version": BETTING_POLICY_VERSION,
+                        "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
+                        "bookmaker_data_used": True,
+                        "quote_required": True,
+                        "target_search_date": "2030-01-01",
+                        "football": {
+                            "status": "degraded",
+                            "operational_error_count": 1,
+                        },
+                        "candidates": [_playable_automatic_candidate()],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            signals = automated_wettfinder_signals(
+                artifact,
+                now=datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(signals, [])
+
+    def test_football_signal_requires_verified_fixture_accounting(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            artifact.write_text(
+                json.dumps(
+                    {
+                        "version": AUTOMATED_WETTFINDER_VERSION,
+                        "generated_at": "2030-01-01T10:00:00+00:00",
+                        "betting_policy_version": BETTING_POLICY_VERSION,
+                        "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
+                        "bookmaker_data_used": True,
+                        "quote_required": True,
+                        "target_search_date": "2030-01-01",
+                        "football": {
+                            "status": "completed",
+                            "operational_error_count": 0,
+                            "context_scope_complete": True,
+                            "context_accounting_available": True,
+                        },
+                        "candidates": [_playable_automatic_candidate()],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            signals = automated_wettfinder_signals(
+                artifact,
+                now=datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(signals, [])
+
     def test_automatic_status_survives_an_empty_recommendation_list(self):
         import json
 
@@ -557,6 +632,20 @@ class ListSignalsTests(unittest.TestCase):
                             "last_discovery_at": "2030-01-01T09:45:00+00:00",
                             "fixtures_found": 13,
                             "fixtures_modeled": 13,
+                            "base_candidates": 5,
+                            "base_fixture_count": 2,
+                            "context_fixtures": 2,
+                            "context_verified_fixtures": 1,
+                            "context_data_incomplete_fixtures": 1,
+                            "context_unchecked_fixtures": 0,
+                            "deferred_context_fixtures": 0,
+                            "context_scope_complete": False,
+                            "context_fixture_statuses": {
+                                "1": "verified",
+                                "2": "data_incomplete",
+                            },
+                            "context_accounting_available": True,
+                            "operational_error_count": 0,
                             "approved_candidates": 0,
                         },
                         "sources": {
@@ -583,6 +672,14 @@ class ListSignalsTests(unittest.TestCase):
         self.assertEqual(status.discovery_scope, 51)
         self.assertEqual(status.fixtures_found, 13)
         self.assertEqual(status.fixtures_modeled, 13)
+        self.assertEqual(status.base_candidates, 5)
+        self.assertEqual(status.base_fixture_count, 2)
+        self.assertEqual(status.context_fixtures, 2)
+        self.assertEqual(status.context_verified_fixtures, 1)
+        self.assertEqual(status.context_data_incomplete_fixtures, 1)
+        self.assertFalse(status.context_scope_complete)
+        self.assertTrue(status.context_accounting_available)
+        self.assertEqual(status.operational_error_count, 0)
         self.assertEqual(status.candidate_count, 0)
         self.assertTrue(status.bookmaker_data_used)
         self.assertEqual(status.price_checked_count, 3)

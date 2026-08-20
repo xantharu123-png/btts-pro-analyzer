@@ -35,7 +35,7 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 7
+AUTOMATED_WETTFINDER_VERSION = 8
 AUTOMATED_SELECTION_POLICY_VERSION = "multi-market-min-published-odds-v7"
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 AUTOMATED_TOMORROW_SCAN_HOUR = 23
@@ -109,6 +109,16 @@ class AutomatedWettfinderStatus:
     discovery_scope: int
     fixtures_found: int
     fixtures_modeled: int
+    base_candidates: int
+    base_fixture_count: int
+    context_fixtures: int
+    context_verified_fixtures: int
+    context_data_incomplete_fixtures: int
+    context_unchecked_fixtures: int
+    deferred_context_fixtures: int
+    context_scope_complete: bool
+    context_accounting_available: bool
+    operational_error_count: int
     approved_candidates: int
     candidate_count: int
     bookmaker_data_used: bool
@@ -522,6 +532,68 @@ def _non_negative_int(value: object) -> int:
     return number if number >= 0 else 0
 
 
+_CONTEXT_FIXTURE_STATUSES = frozenset(
+    {"verified", "data_incomplete", "unchecked", "deferred"}
+)
+
+
+def _validated_football_context_statuses(
+    football: object,
+) -> Optional[dict[str, str]]:
+    """Validate the persisted per-fixture accounting before publication."""
+
+    if not isinstance(football, dict) or (
+        football.get("context_accounting_available") is not True
+    ):
+        return None
+    raw = football.get("context_fixture_statuses")
+    if not isinstance(raw, dict):
+        return None
+    statuses: dict[str, str] = {}
+    for raw_fixture_id, raw_status in raw.items():
+        fixture_id = str(raw_fixture_id)
+        if (
+            not fixture_id.isdigit()
+            or int(fixture_id) <= 0
+            or raw_status not in _CONTEXT_FIXTURE_STATUSES
+        ):
+            return None
+        statuses[fixture_id] = str(raw_status)
+    if len(statuses) != len(raw):
+        return None
+    expected_counts = {
+        "base_fixture_count": len(statuses),
+        "context_verified_fixtures": sum(
+            status == "verified" for status in statuses.values()
+        ),
+        "context_data_incomplete_fixtures": sum(
+            status == "data_incomplete" for status in statuses.values()
+        ),
+        "context_unchecked_fixtures": sum(
+            status == "unchecked" for status in statuses.values()
+        ),
+        "deferred_context_fixtures": sum(
+            status == "deferred" for status in statuses.values()
+        ),
+    }
+    if any(
+        _non_negative_int(football.get(field)) != expected
+        for field, expected in expected_counts.items()
+    ):
+        return None
+    if _non_negative_int(football.get("context_fixtures")) != (
+        expected_counts["context_verified_fixtures"]
+        + expected_counts["context_data_incomplete_fixtures"]
+    ):
+        return None
+    expected_complete = all(
+        status == "verified" for status in statuses.values()
+    )
+    if football.get("context_scope_complete") is not expected_complete:
+        return None
+    return statuses
+
+
 _AUTOMATED_PRICE_STATUS_CODES = frozenset(
     {
         "PLAYABLE",
@@ -649,6 +721,15 @@ def automated_wettfinder_status(
             last_discovery = None
         else:
             last_discovery = last_discovery.astimezone(timezone.utc)
+    base_candidates = _non_negative_int(football.get("base_candidates"))
+    context_scope_value = football.get("context_scope_complete")
+    context_statuses = _validated_football_context_statuses(football)
+    context_accounting_available = context_statuses is not None
+    context_scope_complete = (
+        context_scope_value is True
+        if isinstance(context_scope_value, bool)
+        else base_candidates == 0
+    )
     return AutomatedWettfinderStatus(
         generated_at=generated,
         target_search_date=(
@@ -668,6 +749,26 @@ def automated_wettfinder_status(
         ),
         fixtures_found=_non_negative_int(football.get("fixtures_found")),
         fixtures_modeled=_non_negative_int(football.get("fixtures_modeled")),
+        base_candidates=base_candidates,
+        base_fixture_count=_non_negative_int(football.get("base_fixture_count")),
+        context_fixtures=_non_negative_int(football.get("context_fixtures")),
+        context_verified_fixtures=_non_negative_int(
+            football.get("context_verified_fixtures")
+        ),
+        context_data_incomplete_fixtures=_non_negative_int(
+            football.get("context_data_incomplete_fixtures")
+        ),
+        context_unchecked_fixtures=_non_negative_int(
+            football.get("context_unchecked_fixtures")
+        ),
+        deferred_context_fixtures=_non_negative_int(
+            football.get("deferred_context_fixtures")
+        ),
+        context_scope_complete=context_scope_complete,
+        context_accounting_available=context_accounting_available,
+        operational_error_count=_non_negative_int(
+            football.get("operational_error_count")
+        ),
         approved_candidates=_non_negative_int(
             football.get("approved_candidates")
         ),
@@ -705,13 +806,38 @@ def automated_wettfinder_signals(
         return []
     document, _generated, candidates = loaded
     target_date = date.fromisoformat(str(document["target_search_date"]))
+    football_state = document.get("football")
+    football_state = football_state if isinstance(football_state, dict) else {}
+    football_context_statuses = _validated_football_context_statuses(
+        football_state
+    )
+    football_publishable = (
+        football_state.get("status") == "completed"
+        and _non_negative_int(football_state.get("operational_error_count")) == 0
+        and football_context_statuses is not None
+    )
 
     signals: List[ModelSignal] = []
     current_policies = _current_automated_policies()
     for row in candidates:
+        row_sport = str(row.get("sport") or "").strip().casefold().replace("ß", "ss")
+        row_is_football = (
+            row.get("source") == "football_challenge" or row_sport == "fussball"
+        )
+        row_fixture_id = row.get("fixture_id")
+        football_fixture_verified = (
+            isinstance(row_fixture_id, int)
+            and not isinstance(row_fixture_id, bool)
+            and football_context_statuses is not None
+            and football_context_statuses.get(str(row_fixture_id)) == "verified"
+        )
         if (
             not isinstance(row, dict)
             or row.get("status") != "RECOMMENDED"
+            or (
+                row_is_football
+                and (not football_publishable or not football_fixture_verified)
+            )
             or any(
                 field in row
                 for field in ("offered_odds", "bookmaker_odds", "n1bet_odds")

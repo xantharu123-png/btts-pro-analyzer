@@ -35,11 +35,11 @@ _REQUIRED_ANALYZER_MODULE_VERSION = 3
 if getattr(_advanced_analyzer, "ANALYZER_MODULE_VERSION", 0) < _REQUIRED_ANALYZER_MODULE_VERSION:
     _advanced_analyzer = importlib.reload(_advanced_analyzer)
 
-_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 8
+_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 9
 if getattr(_challenge_15k, "CHALLENGE_WORKSPACE_VERSION", 0) < _REQUIRED_CHALLENGE_WORKSPACE_VERSION:
     _challenge_15k = importlib.reload(_challenge_15k)
 
-_REQUIRED_MARKET_WORKFLOW_VERSION = 8
+_REQUIRED_MARKET_WORKFLOW_VERSION = 10
 if getattr(_alternative_markets, "MARKET_WORKFLOW_VERSION", 0) < _REQUIRED_MARKET_WORKFLOW_VERSION:
     _alternative_markets = importlib.reload(_alternative_markets)
 
@@ -83,7 +83,7 @@ from multi_sport_recommendations import (
 PAGE_INFO = {
     "Wettfinder": (
         "Wettfinder",
-        "Bis zu drei konkrete Tipps mit automatischem Marktvergleich und Mindestquote.",
+        "Konkrete Auswahlen – erst nach Qualitätsprüfung, Marktvergleich und Mindestquote.",
     ),
     "Live": (
         "Live Wettfinder",
@@ -3253,51 +3253,296 @@ def _automatic_price_summary(status: AutomatedWettfinderStatus) -> Optional[str]
     return None
 
 
+def _automatic_consumer_summary(
+    status: AutomatedWettfinderStatus,
+) -> tuple[str, str, bool]:
+    """Describe the automatic result without claiming more than it verified."""
+
+    found = status.fixtures_found
+    modeled = status.fixtures_modeled
+    approved = status.approved_candidates
+    base_fixtures = status.base_fixture_count
+    verified = status.context_verified_fixtures
+    pending = status.context_unchecked_fixtures + status.deferred_context_fixtures
+    unmodeled = max(found - modeled, 0)
+    run_complete = status.football_status == "completed" and getattr(
+        status,
+        "operational_error_count",
+        0,
+    ) == 0
+    evidence_parts = [
+        f"{found} {'Spiel' if found == 1 else 'Spiele'} gefunden",
+        f"{modeled} modelliert",
+    ]
+    if base_fixtures > 0:
+        evidence_parts.extend(
+            (
+                f"{base_fixtures} {'Spiel' if base_fixtures == 1 else 'Spiele'} "
+                "in der engeren Auswahl",
+                f"{verified} vollständig geprüft",
+            )
+        )
+    if run_complete:
+        evidence_parts.append(
+            f"{approved} "
+            f"{'vollständig bestätigte Auswahl' if approved == 1 else 'vollständig bestätigte Auswahlen'}"
+        )
+    else:
+        evidence_parts.append("Ergebnis nicht vollständig belegt")
+    if run_complete and approved > 0:
+        evidence_parts.append(
+            f"{status.price_checked_count} "
+            f"{'Preisprüfung' if status.price_checked_count == 1 else 'Preisprüfungen'}"
+        )
+    evidence = " · ".join(evidence_parts)
+
+    if not run_complete:
+        return (
+            evidence,
+            "Der automatische Lauf wurde nicht vollständig abgeschlossen. "
+            "BetBoy gibt deshalb kein Qualitätsurteil ab.",
+            True,
+        )
+    if found <= 0:
+        return (
+            evidence,
+            "Für den gewählten Spieltag wurden keine anstehenden Fußballspiele "
+            "gefunden.",
+            False,
+        )
+    if modeled <= 0:
+        return (
+            evidence,
+            "Die gefundenen Spiele konnten nicht belastbar modelliert werden. "
+            "BetBoy gibt deshalb kein Qualitätsurteil ab.",
+            True,
+        )
+    if approved > 0:
+        if status.price_checked_count > 0:
+            price_message = (
+                f"Bei {status.price_checked_count} Preisprüfungen war keine "
+                "aktuelle Vergleichsquote spielbar."
+            )
+        else:
+            price_message = (
+                "Für die bestätigten Auswahlen lag keine prüfbare aktuelle "
+                "Vergleichsquote vor."
+            )
+        coverage_notes = []
+        if unmodeled > 0:
+            coverage_notes.append(
+                f"{unmodeled} weitere gefundene "
+                f"{'Spiel konnte' if unmodeled == 1 else 'Spiele konnten'} "
+                "nicht modelliert werden."
+            )
+        if status.context_data_incomplete_fixtures > 0:
+            coverage_notes.append(
+                "Weitere Spiele konnten wegen unvollständiger Daten nicht "
+                "abschließend geprüft werden."
+            )
+        if pending > 0:
+            pending_label = (
+                "1 weiteres Spiel"
+                if pending == 1
+                else f"{pending} weitere Spiele"
+            )
+            coverage_notes.append(
+                f"Für {pending_label} "
+                f"{'steht' if pending == 1 else 'stehen'} die vollständige "
+                "Prüfung noch aus."
+            )
+        elif status.base_candidates > 0 and (
+            not status.context_accounting_available
+            or not status.context_scope_complete
+        ):
+            coverage_notes.append(
+                "Der vollständige Prüfumfang dieses Laufs ist nicht belegt."
+            )
+        return (
+            evidence,
+            " ".join(
+                [price_message, "Die Prognose bleibt davon unberührt."]
+                + coverage_notes
+            ),
+            bool(coverage_notes),
+        )
+    if status.context_data_incomplete_fixtures > 0:
+        return (
+            evidence,
+            "Ein Teil der benötigten Daten war nicht vollständig verfügbar. "
+            "Deshalb wurde kein Tipp freigegeben; das ist keine negative "
+            "Aussage über den möglichen Spielausgang.",
+            True,
+        )
+    if pending > 0:
+        pending_label = (
+            "1 weiteres Spiel"
+            if pending == 1
+            else f"{pending} weitere Spiele"
+        )
+        return (
+            evidence,
+            f"Unter den {verified} vollständig geprüften Spielen wurde keine "
+            f"Auswahl bestätigt. Für {pending_label} "
+            f"{'steht' if pending == 1 else 'stehen'} die vollständige "
+            "Prüfung noch aus. Die Quote war nicht der Ablehnungsgrund.",
+            True,
+        )
+    if status.base_candidates > 0 and (
+        not getattr(status, "context_accounting_available", False)
+        or not status.context_scope_complete
+    ):
+        return (
+            evidence,
+            "Der Umfang der vollständigen Kontextprüfung ist für diesen Lauf "
+            "nicht vollständig belegt. Deshalb gibt BetBoy kein abschließendes "
+            "Qualitätsurteil ab.",
+            True,
+        )
+    if status.base_candidates <= 0:
+        unmodeled_note = (
+            f" {unmodeled} weitere gefundene "
+            f"{'Spiel konnte' if unmodeled == 1 else 'Spiele konnten'} nicht "
+            "modelliert werden."
+            if unmodeled > 0
+            else ""
+        )
+        return (
+            evidence,
+            "Kein Spiel kam in die engere Auswahl. "
+            "Eine Quote wurde deshalb noch nicht geprüft."
+            + unmodeled_note,
+            unmodeled > 0,
+        )
+    return (
+        evidence,
+        f"Unter den {verified} vollständig geprüften Spielen wurde keine Auswahl "
+        "bestätigt. Die Quote war nicht der Ablehnungsgrund.",
+        False,
+    )
+
+
+def _is_football_sport(value: object) -> bool:
+    """Accept the canonical and legacy spelling used by persisted signals."""
+
+    normalized = str(value or "").strip().casefold().replace("ß", "ss")
+    return normalized == "fussball"
+
+
+def _partition_automated_signals(signals: list) -> tuple[list, list]:
+    football = [signal for signal in signals if _is_football_sport(signal.sport)]
+    other = [signal for signal in signals if not _is_football_sport(signal.sport)]
+    return football, other
+
+
+def _automatic_partial_scope_notice(
+    status: AutomatedWettfinderStatus,
+) -> Optional[str]:
+    pending = (
+        status.context_data_incomplete_fixtures
+        + status.context_unchecked_fixtures
+        + status.deferred_context_fixtures
+    )
+    unmodeled = max(status.fixtures_found - status.fixtures_modeled, 0)
+    if (
+        unmodeled <= 0
+        and pending <= 0
+        and status.context_accounting_available
+        and status.context_scope_complete
+    ):
+        return None
+    details = []
+    if unmodeled > 0:
+        details.append(
+            f"{unmodeled} weitere "
+            f"{'Spiel konnte' if unmodeled == 1 else 'Spiele konnten'} nicht "
+            "modelliert werden"
+        )
+    if pending > 0:
+        pending_label = (
+            "1 weiteres Spiel" if pending == 1 else f"{pending} weitere Spiele"
+        )
+        details.append(
+            f"für {pending_label} ist die vollständige "
+            "Prüfung nicht belegt"
+        )
+    if not status.context_accounting_available:
+        details.append("der vollständige Prüfumfang ist nicht belegt")
+    suffix = f" ({'; '.join(details)})." if details else "."
+    return (
+        "Die angezeigten Auswahlen stammen aus vollständig geprüften Spielen; "
+        "der gesamte Tagesumfang ist noch nicht vollständig geprüft" + suffix
+    )
+
+
 def _render_automated_daily_selection() -> None:
-    st.subheader("Automatische Tagesauswahl")
     status = automated_wettfinder_status()
     signals = automated_wettfinder_signals()
     if status is None:
-        st.info("Aktuell ist noch keine Tagesauswahl verfügbar.")
+        with st.expander("Automatischer Check", expanded=False):
+            st.caption("Separater planmäßiger Lauf, unabhängig von der Suche darunter.")
+            st.info("Aktuell ist noch kein Ergebnis verfügbar.")
         return
 
     target_label = _automatic_target_label(status.target_search_date)
-    scan_time = status.last_discovery_at or status.generated_at
-    st.caption(
-        f"{target_label} · Aktualisiert: {_format_stand(scan_time)}"
-    )
+    football_signals, other_signals = _partition_automated_signals(signals)
+    if status.football_status != "completed":
+        football_signals = []
+    with st.expander(
+        f"Automatischer Fußball-Check · {target_label}",
+        expanded=bool(football_signals),
+    ):
+        st.caption("Separater planmäßiger Lauf, unabhängig von der Suche darunter.")
+        time_parts = [f"Ergebnisstand: {_format_stand(status.generated_at)}"]
+        if status.last_discovery_at is not None:
+            time_parts.append(
+                f"Fußball geprüft: {_format_stand(status.last_discovery_at)}"
+            )
+        st.caption(" · ".join(time_parts))
 
-    if not signals:
-        if status.approved_candidates > 0:
-            st.info(
-                f"Für {target_label.lower()} gibt es interessante Auswahlen, "
-                "aber aktuell noch keinen spielbaren Tagestipp."
-            )
-            st.caption(
-                "Eine fehlende oder zu niedrige Quote verändert die Prognose nicht."
-            )
+        if not football_signals:
+            evidence, message, incomplete = _automatic_consumer_summary(status)
+            st.caption(evidence)
+            if incomplete:
+                st.warning(message)
+            else:
+                st.info(message)
         else:
+            partial_scope_notice = _automatic_partial_scope_notice(status)
+            if partial_scope_notice:
+                st.warning(partial_scope_notice)
             st.info(
-                f"Für {target_label.lower()} erfüllt aktuell keine Auswahl "
-                "alle Qualitätsregeln."
+                f"{len(football_signals)} Modell-Auswahl"
+                f"{'en' if len(football_signals) != 1 else ''} mit passender Vergleichsquote."
             )
-        return
+            for index, selected in enumerate(football_signals, start=1):
+                st.markdown(f"### Auswahl {index}")
+                render_price_decision(
+                    _automated_signal_candidate(selected),
+                    key=f"automated_{selected.key}",
+                    bankroll_key="automated_finder_bankroll",
+                    save_source="Automatischer Wettfinder",
+                    reference_quote=selected.reference_quote,
+                )
+                if index < len(football_signals):
+                    st.divider()
 
-    st.info(
-        f"{len(signals)} Modell-Auswahl"
-        f"{'en' if len(signals) != 1 else ''} mit passender Vergleichsquote."
-    )
-    for index, selected in enumerate(signals, start=1):
-        st.markdown(f"### Auswahl {index}")
-        render_price_decision(
-            _automated_signal_candidate(selected),
-            key=f"automated_{selected.key}",
-            bankroll_key="automated_finder_bankroll",
-            save_source="Automatischer Wettfinder",
-            reference_quote=selected.reference_quote,
-        )
-        if index < len(signals):
-            st.divider()
+    if other_signals:
+        with st.expander("Automatische Auswahlen · weitere Sportarten", expanded=True):
+            st.caption(
+                "Diese Auswahlen stammen aus den jeweils getrennten Sportmodellen."
+            )
+            for index, selected in enumerate(other_signals, start=1):
+                st.markdown(f"### Auswahl {index}")
+                render_price_decision(
+                    _automated_signal_candidate(selected),
+                    key=f"automated_other_{selected.key}",
+                    bankroll_key="automated_finder_bankroll",
+                    save_source="Automatischer Wettfinder",
+                    reference_quote=selected.reference_quote,
+                )
+                if index < len(other_signals):
+                    st.divider()
 
 
 def _render_selected_finder(
@@ -3338,6 +3583,9 @@ def render_wettfinder() -> None:
             list(FINDER_SPORT_OPTIONS),
             index=1,
             key="finder_sport",
+            format_func=lambda value: (
+                "Alle Bereiche (separate Suchen)" if value == "Alle" else value
+            ),
         )
 
     with controls[1]:
@@ -3363,6 +3611,10 @@ def render_wettfinder() -> None:
             )
 
     if sport == "Alle":
+        st.caption(
+            "Alle zeigt getrennte Sportbereiche. Jede Suche wird im jeweiligen "
+            "Tab separat gestartet; das Ergebnis gilt nur für diesen Sport."
+        )
         sport_tabs = st.tabs(list(selected_sports))
         for sport_tab, selected_sport in zip(sport_tabs, selected_sports):
             with sport_tab:

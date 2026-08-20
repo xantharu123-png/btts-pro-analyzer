@@ -220,19 +220,28 @@ def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypat
 
 
 def test_consumer_empty_state_contains_no_pipeline_diagnostics():
-    headline, detail = market_tab._consumer_no_tip_copy(
+    evidence, message, incomplete = market_tab._consumer_no_tip_copy(
         {
             "fixtures_found": 205,
             "fixtures_modeled": 144,
             "base_candidates": 119,
+            "base_fixture_count": 21,
+            "context_verified_fixtures": 20,
+            "context_unchecked_fixtures": 1,
             "model_blocked_counts": {"Walk-forward-Gate": 5947},
             "coverage_notices": ["xG Liga 39: 0/380"],
         },
         day_label="19.08.2026 bis 22.08.2026",
     )
 
-    visible = f"{headline} {detail}"
-    assert "aktuell kein passender Tipp" in visible
+    visible = f"{evidence} {message}"
+    assert "205 Spiele gefunden" in evidence
+    assert "144 modelliert" in evidence
+    assert "21 Spiele in der engeren Auswahl" in evidence
+    assert "20 vollständig geprüft" in evidence
+    assert "Für 1 weiteres Spiel" in message
+    assert "Quote war nicht der Ablehnungsgrund" in message
+    assert incomplete is True
     for internal_term in (
         "Walk-forward",
         "Marktkandidaten",
@@ -241,6 +250,152 @@ def test_consumer_empty_state_contains_no_pipeline_diagnostics():
         "Preisprüfung",
     ):
         assert internal_term not in visible
+
+
+def test_consumer_empty_state_distinguishes_model_zero_from_price_zero():
+    evidence, message, incomplete = market_tab._consumer_no_tip_copy(
+        {
+            "fixtures_found": 40,
+            "fixtures_modeled": 40,
+            "base_candidates": 0,
+            "base_fixture_count": 0,
+            "price_checked_count": 0,
+        },
+        day_label="Heute",
+    )
+
+    assert evidence == "Heute · 40 Spiele gefunden · 40 modelliert"
+    assert "engere Auswahl" in message
+    assert "Quote wurde deshalb noch nicht geprüft" in message
+    assert incomplete is False
+
+
+def test_consumer_empty_state_marks_missing_context_data_as_incomplete():
+    _, message, incomplete = market_tab._consumer_no_tip_copy(
+        {
+            "fixtures_found": 12,
+            "fixtures_modeled": 12,
+            "base_fixture_count": 3,
+            "context_verified_fixtures": 2,
+            "context_data_incomplete_fixtures": 1,
+        },
+        day_label="Heute",
+    )
+
+    assert incomplete is True
+    assert "benötigten Daten war nicht vollständig" in message
+    assert "negative Aussage" in message
+
+
+def test_consumer_empty_state_never_turns_provider_failure_into_empty_schedule():
+    evidence, message, incomplete = market_tab._consumer_no_tip_copy(
+        {
+            "fixtures_found": 0,
+            "fixtures_modeled": 0,
+            "operational_error_count": 3,
+        },
+        day_label="Heute",
+    )
+
+    assert evidence == "Heute · 0 Spiele gefunden · 0 modelliert"
+    assert "nicht vollständig abgeschlossen" in message
+    assert "keine anstehenden Spiele" not in message
+    assert incomplete is True
+
+
+def test_manual_scan_audit_is_sanitized_but_keeps_decision_counts():
+    payload = market_tab._market_audit_payload(
+        {
+            "scope": {"league_ids": [39], "date": "2030-01-02"},
+            "challenge": {
+                "scanned_at": "2030-01-02T10:00:00+00:00",
+                "fixtures_found": 5,
+                "fixtures_modeled": 4,
+                "base_fixture_count": 2,
+                "context_verified_fixtures": 1,
+                "context_data_incomplete_fixtures": 1,
+                "context_scope_complete": False,
+                "price_checked_at": "2030-01-02T10:01:00+00:00",
+                "model_blocked_counts": {"internal rule": 9},
+                "context_blocked_counts": {"internal context": 2},
+                "operational_errors": ["secret provider detail"],
+                "quote_errors": ["secret quote detail"],
+            },
+        }
+    )
+
+    assert payload is not None
+    assert payload["status"] == "data_incomplete"
+    assert payload["fixtures_found"] == 5
+    assert payload["context_verified_fixtures"] == 1
+    assert payload["operational_error_count"] == 1
+    assert payload["price_checked_at"] == "2030-01-02T10:01:00+00:00"
+    assert payload["model_blocked_counts"] == {"internal rule": 9}
+    assert "secret provider detail" not in repr(payload)
+    assert "secret quote detail" not in repr(payload)
+
+
+def test_manual_scan_audit_calls_unchecked_scope_partial():
+    payload = market_tab._market_audit_payload(
+        {
+            "scope": {},
+            "challenge": {
+                "context_scope_complete": False,
+                "context_unchecked_fixtures": 1,
+                "operational_errors": [],
+            },
+        }
+    )
+
+    assert payload is not None
+    assert payload["status"] == "partial"
+
+
+def test_manual_scan_audit_calls_unmodeled_fixture_scope_partial():
+    payload = market_tab._market_audit_payload(
+        {
+            "scope": {},
+            "challenge": {
+                "fixtures_found": 5,
+                "fixtures_modeled": 4,
+                "context_scope_complete": True,
+                "operational_errors": [],
+            },
+        }
+    )
+
+    assert payload is not None
+    assert payload["status"] == "partial"
+
+
+def test_partial_manual_scan_keeps_candidates_but_discloses_incomplete_scope():
+    message = market_tab._consumer_partial_scope_notice(
+        {"operational_error_count": 2},
+        has_candidates=True,
+    )
+
+    assert message is not None
+    assert "nur teilweise abgeschlossen" in message
+    assert "gesamte gewählte Suchumfang" in message
+    assert market_tab._consumer_partial_scope_notice(
+        {"operational_error_count": 2},
+        has_candidates=False,
+    ) is None
+
+
+def test_candidate_from_unchecked_context_scope_has_consumer_warning():
+    message = market_tab._consumer_partial_scope_notice(
+        {
+            "fixtures_found": 21,
+            "fixtures_modeled": 21,
+            "context_unchecked_fixtures": 1,
+            "context_scope_complete": False,
+        },
+        has_candidates=True,
+    )
+
+    assert message is not None
+    assert "gesamte gewählte Suchumfang ist nicht vollständig belegt" in message
 
 
 def test_public_market_renderer_does_not_render_internal_scan_diagnostics():

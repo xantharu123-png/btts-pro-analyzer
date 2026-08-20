@@ -321,6 +321,36 @@ def _run_too_low_price_card() -> None:
     )
 
 
+def _run_partial_manual_scan_zero() -> None:
+    from alternative_markets_tab_extended import _render_consumer_no_tip
+
+    _render_consumer_no_tip(
+        {
+            "fixtures_found": 205,
+            "fixtures_modeled": 144,
+            "base_fixture_count": 21,
+            "context_verified_fixtures": 20,
+            "context_unchecked_fixtures": 1,
+            "model_blocked_counts": {"Walk-forward-Gate": 5947},
+        },
+        day_label="Heute",
+    )
+
+
+def _run_complete_model_zero() -> None:
+    from alternative_markets_tab_extended import _render_consumer_no_tip
+
+    _render_consumer_no_tip(
+        {
+            "fixtures_found": 40,
+            "fixtures_modeled": 40,
+            "base_candidates": 0,
+            "base_fixture_count": 0,
+        },
+        day_label="Heute",
+    )
+
+
 def test_zero_ready_keeps_best_price_independent_forecast_visible():
     at = AppTest.from_function(_run_zero_ready)
     at.run(timeout=60)
@@ -400,6 +430,35 @@ def test_low_quote_changes_only_price_not_model_selection():
     assert "Prognose bleibt unverändert" in text
     assert "angebotene Preis ist zu niedrig" in text
     assert all(button.label != "Tipp merken" for button in at.button)
+
+
+def test_partial_manual_scan_renders_bounded_claim_with_compact_evidence():
+    at = AppTest.from_function(_run_partial_manual_scan_zero)
+    at.run(timeout=60)
+
+    assert len(at.exception) == 0
+    assert len(at.error) == 0
+    assert len(at.warning) == 1
+    assert "Für 1 weiteres Spiel" in at.warning[0].value
+    captions = " ".join(item.value for item in at.caption)
+    assert "205 Spiele gefunden" in captions
+    assert "144 modelliert" in captions
+    assert "20 vollständig geprüft" in captions
+    visible = captions + " " + at.warning[0].value
+    assert "Walk-forward" not in visible
+    assert "5947" not in visible
+
+
+def test_complete_model_zero_explains_that_no_quote_was_checked():
+    at = AppTest.from_function(_run_complete_model_zero)
+    at.run(timeout=60)
+
+    assert len(at.exception) == 0
+    assert len(at.error) == 0
+    assert len(at.warning) == 0
+    assert len(at.info) == 1
+    assert "Quote wurde deshalb noch nicht geprüft" in at.info[0].value
+    assert "40 Spiele gefunden" in " ".join(item.value for item in at.caption)
 
 
 def test_plain_german_replaces_model_jargon():

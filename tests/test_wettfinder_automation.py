@@ -16,6 +16,8 @@ from wettfinder_automation import (
     AUTOMATION_VERSION,
     _default_football_scan,
     _football_candidate_record,
+    _football_state_from_snapshot,
+    _merge_context_refresh,
     _signal_record,
     football_context_due_fixture_ids,
     football_due,
@@ -28,6 +30,91 @@ from wettfinder_automation import (
 
 
 UTC = timezone.utc
+
+
+def test_football_state_propagates_operational_failure_with_nonempty_schedule():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    state = _football_state_from_snapshot(
+        {
+            "scanned_at": now.isoformat(),
+            "fixtures_found": 5,
+            "fixtures_modeled": 4,
+            "errors": ["Liga 39 konnte nicht geladen werden"],
+            "operational_errors": ["Liga 39 konnte nicht geladen werden"],
+            "context_fixture_statuses": {},
+        },
+        attempted_at=now,
+        search_date=now.date(),
+    )
+
+    assert state["status"] == "degraded"
+    assert state["discovery_operational_error_count"] == 1
+    assert state["operational_error_count"] == 1
+    assert state["context_accounting_available"] is False
+
+
+def test_context_refresh_recomputes_coverage_from_per_fixture_statuses():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    state = {
+        "status": "completed",
+        "candidates": [],
+        "errors": [],
+        "context_checks": {},
+        "context_accounting_available": True,
+        "context_fixture_statuses": {
+            "1": "data_incomplete",
+            "2": "verified",
+        },
+    }
+    refreshed = _merge_context_refresh(
+        state,
+        {
+            "context_fixture_statuses": {"1": "verified"},
+            "operational_errors": [],
+            "errors": [],
+            "candidates": [],
+        },
+        fixture_ids=[1],
+        checked_at=now,
+    )
+
+    assert refreshed["context_verified_fixtures"] == 2
+    assert refreshed["context_data_incomplete_fixtures"] == 0
+    assert refreshed["context_scope_complete"] is True
+    assert refreshed["status"] == "completed"
+
+
+def test_context_refresh_never_hides_discovery_failure():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    state = {
+        "status": "degraded",
+        "last_discovery_at": None,
+        "discovery_operational_error_count": 1,
+        "context_operational_error_count": 0,
+        "operational_error_count": 1,
+        "candidates": [],
+        "errors": ["Liga konnte nicht geladen werden"],
+        "context_checks": {},
+        "context_accounting_available": True,
+        "context_fixture_statuses": {"1": "data_incomplete"},
+    }
+
+    refreshed = _merge_context_refresh(
+        state,
+        {
+            "context_fixture_statuses": {"1": "verified"},
+            "operational_errors": [],
+            "errors": [],
+            "candidates": [],
+        },
+        fixture_ids=[1],
+        checked_at=now,
+    )
+
+    assert refreshed["context_scope_complete"] is True
+    assert refreshed["discovery_operational_error_count"] == 1
+    assert refreshed["operational_error_count"] == 1
+    assert refreshed["status"] == "degraded"
 
 
 def _candidate(
@@ -65,6 +152,16 @@ def _football_snapshot(now: datetime) -> dict:
     return {
         "scanned_at": now.isoformat(),
         "fixtures_found": 2,
+        "fixtures_modeled": 2,
+        "base_candidates": 1,
+        "base_fixture_count": 1,
+        "context_fixtures": 1,
+        "context_verified_fixtures": 1,
+        "context_data_incomplete_fixtures": 0,
+        "context_unchecked_fixtures": 0,
+        "deferred_context_fixtures": 0,
+        "context_scope_complete": True,
+        "context_fixture_statuses": {"1": "verified"},
         "fixture_kickoffs": [
             "2030-01-01T15:00:00+00:00",
             "2030-01-01T18:00:00+00:00",
@@ -346,6 +443,80 @@ def test_runner_reuses_persisted_models_and_skips_not_due_football(tmp_path):
     assert load_state(state_path)["generated_at"] == second["generated_at"]
 
 
+def test_runner_never_publishes_candidate_from_degraded_football_scan(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+
+    def degraded_scan(_search_date):
+        snapshot = _football_snapshot(now)
+        snapshot["operational_errors"] = ["Eine Liga konnte nicht geladen werden"]
+        snapshot["errors"] = list(snapshot["operational_errors"])
+        return snapshot
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=degraded_scan,
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    assert document["football"]["status"] == "degraded"
+    assert document["football"]["operational_error_count"] == 1
+    assert document["sources"]["football"]["candidate_count"] == 0
+    assert document["sources"]["football"]["price_checked_count"] == 0
+    assert document["candidates"] == []
+
+
+def test_runner_prices_verified_fixture_even_when_later_fixtures_are_unchecked(
+    tmp_path,
+):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    candidate = _challenge_candidate(now + timedelta(hours=5))
+    candidate.context = {"passed": True, "blocked_reasons": []}
+    statuses = {"1": "verified"}
+    statuses.update({str(index): "unchecked" for index in range(2, 22)})
+
+    def scan(_search_date):
+        return {
+            "scanned_at": now.isoformat(),
+            "fixtures_found": 21,
+            "fixtures_modeled": 21,
+            "base_candidates": 21,
+            "base_fixture_count": 21,
+            "context_fixtures": 1,
+            "context_verified_fixtures": 1,
+            "context_data_incomplete_fixtures": 0,
+            "context_unchecked_fixtures": 20,
+            "deferred_context_fixtures": 0,
+            "context_scope_complete": False,
+            "context_fixture_statuses": statuses,
+            "fixture_kickoffs": [candidate.kickoff],
+            "shortlist": [candidate],
+            "errors": [],
+        }
+
+    checked = []
+
+    def quote_loader(rows):
+        checked.extend(row["fixture_id"] for row in rows)
+        return {}, []
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=scan,
+        football_quote_loader=quote_loader,
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    assert checked == [1]
+    assert document["football"]["context_scope_complete"] is False
+    assert document["sources"]["football"]["price_checked_count"] == 1
+
+
 def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
 
@@ -482,6 +653,18 @@ def test_runner_checks_full_football_pool_before_selecting_top_three(tmp_path):
         return {
             "scanned_at": now.isoformat(),
             "fixtures_found": 4,
+            "fixtures_modeled": 4,
+            "base_candidates": 4,
+            "base_fixture_count": 4,
+            "context_fixtures": 4,
+            "context_verified_fixtures": 4,
+            "context_data_incomplete_fixtures": 0,
+            "context_unchecked_fixtures": 0,
+            "deferred_context_fixtures": 0,
+            "context_scope_complete": True,
+            "context_fixture_statuses": {
+                str(candidate.fixture_id): "verified" for candidate in shortlist
+            },
             "fixture_kickoffs": [candidate.kickoff for candidate in shortlist],
             "shortlist": shortlist,
             "errors": [],
@@ -558,6 +741,16 @@ def test_runner_rejects_only_the_too_cheap_market_not_the_fixture(tmp_path):
         return {
             "scanned_at": now.isoformat(),
             "fixtures_found": 1,
+            "fixtures_modeled": 1,
+            "base_candidates": 2,
+            "base_fixture_count": 1,
+            "context_fixtures": 1,
+            "context_verified_fixtures": 1,
+            "context_data_incomplete_fixtures": 0,
+            "context_unchecked_fixtures": 0,
+            "deferred_context_fixtures": 0,
+            "context_scope_complete": True,
+            "context_fixture_statuses": {"1": "verified"},
             "fixture_kickoffs": [home_win.kickoff],
             "shortlist": [home_win, under_goals],
             "errors": [],
@@ -696,6 +889,14 @@ def test_runner_refreshes_only_daily_pool_fixture_without_rescanning(tmp_path):
             "fixtures_found": 1,
             "fixtures_modeled": 1,
             "base_candidates": 2,
+            "base_fixture_count": 1,
+            "context_fixtures": 0,
+            "context_verified_fixtures": 0,
+            "context_data_incomplete_fixtures": 0,
+            "context_unchecked_fixtures": 1,
+            "deferred_context_fixtures": 0,
+            "context_scope_complete": False,
+            "context_fixture_statuses": {"1": "unchecked"},
             "blocked_counts": {"Transfer nicht validiert": 4},
             "continental_fixtures_found": 1,
             "continental_fallback_modeled": 1,
@@ -714,6 +915,8 @@ def test_runner_refreshes_only_daily_pool_fixture_without_rescanning(tmp_path):
             item.context = {"passed": True, "blocked_reasons": []}
         return {
             "shortlist": candidates[:1],
+            "context_fixture_statuses": {"1": "verified"},
+            "operational_errors": [],
             "errors": [],
             "blocked_counts": {},
         }
@@ -730,6 +933,17 @@ def test_runner_refreshes_only_daily_pool_fixture_without_rescanning(tmp_path):
     refreshed = run_wettfinder(now=now + timedelta(minutes=30), **common)
     run_wettfinder(now=now + timedelta(minutes=40), **common)
 
+    def failed_context_refresh(*_args, **_kwargs):
+        raise RuntimeError("temporary context outage")
+
+    degraded = run_wettfinder(
+        now=now + timedelta(minutes=60),
+        **{
+            **common,
+            "football_context_refresher": failed_context_refresh,
+        },
+    )
+
     assert scan_calls == 1
     assert refreshed["football"]["base_candidates"] == 2
     assert refreshed["football"]["blocked_counts"] == {
@@ -741,6 +955,9 @@ def test_runner_refreshes_only_daily_pool_fixture_without_rescanning(tmp_path):
     assert refreshed["sources"]["football"]["price_status_counts"] == {
         "UNAVAILABLE": 1
     }
+    assert degraded["football"]["status"] == "degraded"
+    assert degraded["sources"]["football"]["status"] == "degraded"
+    assert degraded["sources"]["football"]["context_status"] == "degraded"
 
 
 def test_runner_fails_closed_without_api_key_but_still_writes_state(tmp_path):

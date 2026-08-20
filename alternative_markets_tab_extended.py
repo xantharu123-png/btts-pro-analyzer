@@ -28,8 +28,9 @@ from market_consensus import (
 
 
 DEFAULT_LEAGUES = [78, 39, 140]
-MARKET_WORKFLOW_VERSION = 9
-MARKET_SNAPSHOT_VERSION = 11
+MARKET_WORKFLOW_VERSION = 10
+MARKET_SNAPSHOT_VERSION = 12
+MARKET_AUDIT_VERSION = 1
 MARKET_MAX_AGE_MINUTES = 20
 FOOTBALL_MARKET_SCOPES = {
     "Beste Märkte": None,
@@ -131,18 +132,201 @@ def _price_check_summary(snapshot: dict) -> Optional[str]:
     )
 
 
-def _consumer_no_tip_copy(snapshot: dict, *, day_label: str) -> tuple[str, str]:
-    """Return a concise empty state without exposing pipeline diagnostics."""
+def _consumer_no_tip_copy(
+    snapshot: dict,
+    *,
+    day_label: str,
+) -> tuple[str, str, bool]:
+    """Return concise evidence and an honest empty-state conclusion."""
+
     found = int(snapshot.get("fixtures_found") or 0)
     modeled = int(snapshot.get("fixtures_modeled") or 0)
-    headline = f"{day_label}: aktuell kein passender Tipp."
-    if found <= 0:
-        detail = "Im gewählten Zeitraum wurden keine anstehenden Spiele gefunden."
+    base_fixtures = int(snapshot.get("base_fixture_count") or 0)
+    context_verified = int(snapshot.get("context_verified_fixtures") or 0)
+    context_incomplete = int(
+        snapshot.get("context_data_incomplete_fixtures") or 0
+    )
+    context_unchecked = int(snapshot.get("context_unchecked_fixtures") or 0)
+    context_deferred = int(snapshot.get("deferred_context_fixtures") or 0)
+    operational_errors = int(snapshot.get("operational_error_count") or 0)
+    unmodeled = max(found - modeled, 0)
+    unmodeled_note = (
+        f" {unmodeled} weitere gefundene "
+        f"{'Spiel konnte' if unmodeled == 1 else 'Spiele konnten'} nicht "
+        "modelliert werden."
+        if unmodeled > 0
+        else ""
+    )
+
+    evidence_parts = [
+        f"{found} {'Spiel' if found == 1 else 'Spiele'} gefunden",
+        f"{modeled} modelliert",
+    ]
+    if base_fixtures > 0:
+        evidence_parts.append(
+            f"{base_fixtures} {'Spiel' if base_fixtures == 1 else 'Spiele'} "
+            "in der engeren Auswahl"
+        )
+        evidence_parts.append(f"{context_verified} vollständig geprüft")
+    evidence = f"{day_label} · " + " · ".join(evidence_parts)
+
+    if operational_errors > 0:
+        message = (
+            "Die Prüfung konnte nicht vollständig abgeschlossen werden. "
+            "BetBoy gibt deshalb kein Qualitätsurteil ab."
+        )
+    elif found <= 0:
+        message = "Im gewählten Zeitraum wurden keine anstehenden Spiele gefunden."
     elif modeled <= 0:
-        detail = "Für die gefundenen Spiele reichen die verfügbaren Daten derzeit nicht aus."
+        message = (
+            "Die Prüfung konnte nicht vollständig abgeschlossen werden. "
+            "BetBoy gibt deshalb kein Qualitätsurteil ab."
+        )
+    elif context_incomplete > 0:
+        message = (
+            "Ein Teil der benötigten Daten war nicht vollständig verfügbar. "
+            "Deshalb wurde kein Tipp freigegeben; das ist keine negative "
+            "Aussage über den möglichen Spielausgang."
+            + unmodeled_note
+        )
+    elif context_unchecked > 0 or context_deferred > 0:
+        pending = context_unchecked + context_deferred
+        pending_label = (
+            "1 weiteres Spiel"
+            if pending == 1
+            else f"{pending} weitere Spiele"
+        )
+        message = (
+            f"Unter den {context_verified} vollständig geprüften Spielen wurde "
+            f"kein Tipp bestätigt. Für {pending_label} "
+            f"{'steht' if pending == 1 else 'stehen'} die vollständige "
+            "Prüfung noch aus. Die Quote war nicht der Ablehnungsgrund."
+            + unmodeled_note
+        )
+    elif base_fixtures <= 0:
+        message = (
+            "Kein Spiel kam in die engere Auswahl. "
+            "Eine Quote wurde deshalb noch nicht geprüft."
+            + unmodeled_note
+        )
     else:
-        detail = "Aktuell erfüllt keine Auswahl alle Voraussetzungen für einen Tipp."
-    return headline, detail
+        message = (
+            f"Unter den {context_verified} vollständig geprüften Spielen wurde "
+            "kein Tipp bestätigt. Die Quote war nicht der Ablehnungsgrund."
+            + unmodeled_note
+        )
+    incomplete = bool(
+        operational_errors > 0
+        or (found > 0 and modeled <= 0)
+        or unmodeled > 0
+        or context_incomplete > 0
+        or context_unchecked > 0
+        or context_deferred > 0
+    )
+    return evidence, message, incomplete
+
+
+def _market_audit_payload(result: object) -> Optional[dict]:
+    """Persist a server-only, sanitized proof of the latest manual scan."""
+
+    if not isinstance(result, dict):
+        return None
+    challenge = result.get("challenge")
+    if not isinstance(challenge, dict):
+        return None
+
+    def count(name: str) -> int:
+        value = challenge.get(name)
+        return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+    def count_map(name: str) -> dict[str, int]:
+        value = challenge.get(name)
+        if not isinstance(value, dict):
+            return {}
+        return {
+            str(key): item
+            for key, item in value.items()
+            if isinstance(item, int) and not isinstance(item, bool) and item >= 0
+        }
+
+    operational_errors = challenge.get("operational_errors")
+    operational_error_count = (
+        len(operational_errors) if isinstance(operational_errors, list) else 0
+    )
+    context_scope_complete = challenge.get("context_scope_complete") is True
+    if operational_error_count > 0 or count("context_data_incomplete_fixtures") > 0:
+        audit_status = "data_incomplete"
+    elif (
+        not context_scope_complete
+        or count("fixtures_modeled") < count("fixtures_found")
+    ):
+        audit_status = "partial"
+    else:
+        audit_status = "completed"
+    return {
+        "version": MARKET_AUDIT_VERSION,
+        "scanned_at": challenge.get("scanned_at"),
+        "scope": result.get("scope"),
+        "status": audit_status,
+        "fixtures_found": count("fixtures_found"),
+        "fixtures_modeled": count("fixtures_modeled"),
+        "base_candidates": count("base_candidates"),
+        "base_fixture_count": count("base_fixture_count"),
+        "context_fixtures": count("context_fixtures"),
+        "context_verified_fixtures": count("context_verified_fixtures"),
+        "context_data_incomplete_fixtures": count(
+            "context_data_incomplete_fixtures"
+        ),
+        "context_unchecked_fixtures": count("context_unchecked_fixtures"),
+        "deferred_context_fixtures": count("deferred_context_fixtures"),
+        "context_scope_complete": context_scope_complete,
+        "model_approved_candidates": count("model_approved_candidates"),
+        "price_checked_count": count("price_checked_count"),
+        "price_checked_at": challenge.get("price_checked_at"),
+        "approved_candidates": count("approved_candidates"),
+        "price_status_counts": count_map("price_status_counts"),
+        "model_blocked_counts": count_map("model_blocked_counts"),
+        "context_blocked_counts": count_map("context_blocked_counts"),
+        "coverage_notice_count": len(challenge.get("coverage_notices") or []),
+        "operational_error_count": operational_error_count,
+    }
+
+
+def _consumer_partial_scope_notice(
+    snapshot: dict,
+    *,
+    has_candidates: bool,
+) -> Optional[str]:
+    """Return one safe warning when only part of the requested scope ran."""
+
+    scope_incomplete = bool(
+        int(snapshot.get("operational_error_count") or 0) > 0
+        or int(snapshot.get("fixtures_modeled") or 0)
+        < int(snapshot.get("fixtures_found") or 0)
+        or int(snapshot.get("context_data_incomplete_fixtures") or 0) > 0
+        or int(snapshot.get("context_unchecked_fixtures") or 0) > 0
+        or int(snapshot.get("deferred_context_fixtures") or 0) > 0
+        or snapshot.get("context_scope_complete") is not True
+    )
+    if not has_candidates or not scope_incomplete:
+        return None
+    return (
+        "Die Suche wurde nur teilweise abgeschlossen. Die angezeigten "
+        "Auswahlen stammen aus erfolgreich geprüften Spielen; der gesamte "
+        "gewählte Suchumfang ist nicht vollständig belegt."
+    )
+
+
+def _render_consumer_no_tip(snapshot: dict, *, day_label: str) -> None:
+    evidence, message, incomplete = _consumer_no_tip_copy(
+        snapshot,
+        day_label=day_label,
+    )
+    st.caption(evidence)
+    if incomplete:
+        st.warning(message)
+    else:
+        st.info(message)
 
 
 def _zurich_today():
@@ -426,6 +610,8 @@ def create_alternative_markets_tab_extended(
                     dict(scope),
                     selected_market_kinds,
                 ),
+                persist_name="market_latest",
+                persist_fn=_market_audit_payload,
             )
             if started:
                 st.session_state["market_pending_scope"] = dict(scope)
@@ -465,7 +651,24 @@ def create_alternative_markets_tab_extended(
             "fixtures_modeled": challenge_snapshot.get("fixtures_modeled", 0),
             "market_candidates": challenge_snapshot.get("market_candidates", 0),
             "base_candidates": challenge_snapshot.get("base_candidates", 0),
+            "base_fixture_count": challenge_snapshot.get("base_fixture_count", 0),
             "context_fixtures": challenge_snapshot.get("context_fixtures", 0),
+            "context_verified_fixtures": challenge_snapshot.get(
+                "context_verified_fixtures",
+                0,
+            ),
+            "context_data_incomplete_fixtures": challenge_snapshot.get(
+                "context_data_incomplete_fixtures",
+                0,
+            ),
+            "context_unchecked_fixtures": challenge_snapshot.get(
+                "context_unchecked_fixtures",
+                0,
+            ),
+            "context_scope_complete": challenge_snapshot.get(
+                "context_scope_complete",
+                False,
+            ),
             "approved_candidates": challenge_snapshot.get("approved_candidates", 0),
             "deferred_context_fixtures": challenge_snapshot.get(
                 "deferred_context_fixtures",
@@ -507,6 +710,9 @@ def create_alternative_markets_tab_extended(
             "operational_errors": challenge_snapshot.get(
                 "operational_errors", []
             ),
+            "operational_error_count": len(
+                challenge_snapshot.get("operational_errors") or []
+            ),
             "errors": challenge_snapshot.get("errors", []),
         }
         scan_jobs.clear_job(job_key)
@@ -540,10 +746,15 @@ def create_alternative_markets_tab_extended(
         return
 
     result_day = _market_result_day_label(snapshot)
-    st.caption(
-        f"Datenstand: {_format_snapshot_time(snapshot.get('scanned_at'))} · "
-        f"Zeitraum: {result_day}"
-    )
+    stand_parts = [
+        f"Modellstand: {_format_snapshot_time(snapshot.get('scanned_at'))}",
+    ]
+    if int(snapshot.get("price_checked_count") or 0) > 0:
+        stand_parts.append(
+            f"Preisstand: {_format_snapshot_time(snapshot.get('price_checked_at'))}"
+        )
+    stand_parts.append(f"Zeitraum: {result_day}")
+    st.caption(" · ".join(stand_parts))
     shortlist = snapshot.get("shortlist")
     shortlist = shortlist if isinstance(shortlist, list) else []
     model_shortlist = snapshot.get("model_shortlist")
@@ -551,6 +762,12 @@ def create_alternative_markets_tab_extended(
     reference_quotes = deserialize_consensus_map(
         snapshot.get("reference_quotes")
     )
+    partial_scope_notice = _consumer_partial_scope_notice(
+        snapshot,
+        has_candidates=bool(shortlist or model_shortlist),
+    )
+    if partial_scope_notice:
+        st.warning(partial_scope_notice)
     if not shortlist:
         if model_shortlist:
             found_label = (
@@ -582,12 +799,10 @@ def create_alternative_markets_tab_extended(
                 if index < len(model_shortlist):
                     st.divider()
         else:
-            headline, detail = _consumer_no_tip_copy(
+            _render_consumer_no_tip(
                 snapshot,
                 day_label=result_day,
             )
-            st.info(headline)
-            st.caption(detail)
     else:
         candidates = [_strict_market_candidate(candidate) for candidate in shortlist]
         st.info(

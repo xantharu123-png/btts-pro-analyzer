@@ -38,6 +38,7 @@ from ev_signal_sources import (
     AUTOMATED_SELECTION_POLICY_VERSION,
     AUTOMATED_WETTFINDER_VERSION,
     ModelSignal,
+    _validated_football_context_statuses,
     esports_signals,
     tennis_model_signals,
 )
@@ -506,7 +507,36 @@ def _football_state_from_snapshot(
         if str(error).strip()
     ][:20]
     fixtures_found = int(snapshot.get("fixtures_found") or 0)
-    degraded = fixtures_found == 0 and bool(errors)
+    operational_values = snapshot.get("operational_errors")
+    if isinstance(operational_values, list):
+        operational_errors = [
+            str(error) for error in operational_values if str(error).strip()
+        ]
+    else:
+        operational_errors = [
+            error
+            for error in errors
+            if not (
+                error.startswith("xG Liga ")
+                and "Tormodell dominant" in error
+            )
+        ]
+    degraded = bool(operational_errors) or (fixtures_found == 0 and bool(errors))
+    context_fixture_statuses = snapshot.get("context_fixture_statuses")
+    context_accounting_available = isinstance(
+        context_fixture_statuses,
+        dict,
+    ) and all(
+        key in snapshot
+        for key in (
+            "base_fixture_count",
+            "context_verified_fixtures",
+            "context_data_incomplete_fixtures",
+            "context_unchecked_fixtures",
+            "deferred_context_fixtures",
+            "context_scope_complete",
+        )
+    )
     context_checks = {
         str(payload["fixture_id"]): scanned_at.isoformat()
         for payload in discovery_payloads
@@ -522,6 +552,30 @@ def _football_state_from_snapshot(
         "fixtures_found": fixtures_found,
         "fixtures_modeled": int(snapshot.get("fixtures_modeled") or 0),
         "base_candidates": int(snapshot.get("base_candidates") or 0),
+        "base_fixture_count": int(snapshot.get("base_fixture_count") or 0),
+        "context_fixtures": int(snapshot.get("context_fixtures") or 0),
+        "context_verified_fixtures": int(
+            snapshot.get("context_verified_fixtures") or 0
+        ),
+        "context_data_incomplete_fixtures": int(
+            snapshot.get("context_data_incomplete_fixtures") or 0
+        ),
+        "context_unchecked_fixtures": int(
+            snapshot.get("context_unchecked_fixtures") or 0
+        ),
+        "deferred_context_fixtures": int(
+            snapshot.get("deferred_context_fixtures") or 0
+        ),
+        "context_scope_complete": snapshot.get("context_scope_complete") is True,
+        "context_fixture_statuses": (
+            dict(context_fixture_statuses)
+            if context_accounting_available
+            else {}
+        ),
+        "context_accounting_available": context_accounting_available,
+        "discovery_operational_error_count": len(operational_errors),
+        "context_operational_error_count": 0,
+        "operational_error_count": len(operational_errors),
         "blocked_counts": {
             str(reason): int(count)
             for reason, count in (snapshot.get("blocked_counts") or {}).items()
@@ -568,6 +622,14 @@ def _failed_football_state(
             "errors": [str(error)[:500]],
         }
     )
+    discovery_error_count = max(
+        int(state.get("discovery_operational_error_count") or 0),
+        1,
+    )
+    context_error_count = int(state.get("context_operational_error_count") or 0)
+    state["discovery_operational_error_count"] = discovery_error_count
+    state["context_operational_error_count"] = context_error_count
+    state["operational_error_count"] = discovery_error_count + context_error_count
     state.setdefault("fixture_kickoffs", [])
     state.setdefault("discovery_candidates", [])
     state.setdefault("discovery_candidate_count", 0)
@@ -575,6 +637,16 @@ def _failed_football_state(
     state.setdefault("candidates", [])
     state.setdefault("fixtures_found", 0)
     state.setdefault("fixtures_modeled", 0)
+    state.setdefault("base_candidates", 0)
+    state.setdefault("base_fixture_count", 0)
+    state.setdefault("context_fixtures", 0)
+    state.setdefault("context_verified_fixtures", 0)
+    state.setdefault("context_data_incomplete_fixtures", 0)
+    state.setdefault("context_unchecked_fixtures", 0)
+    state.setdefault("deferred_context_fixtures", 0)
+    state.setdefault("context_scope_complete", False)
+    state.setdefault("context_fixture_statuses", {})
+    state.setdefault("context_accounting_available", False)
     state.setdefault("approved_candidates", 0)
     return state
 
@@ -678,6 +750,66 @@ def _merge_context_refresh(
         )
         if str(error).strip()
     ]
+    previous_statuses = state.get("context_fixture_statuses")
+    result_statuses = result.get("context_fixture_statuses")
+    accounting_available = (
+        state.get("context_accounting_available") is True
+        and isinstance(previous_statuses, dict)
+        and isinstance(result_statuses, dict)
+    )
+    if accounting_available:
+        merged_statuses = dict(previous_statuses)
+        merged_statuses.update(
+            {
+                str(fixture_id): status
+                for fixture_id, status in result_statuses.items()
+                if str(fixture_id).isdigit()
+                and status
+                in {"verified", "data_incomplete", "unchecked", "deferred"}
+            }
+        )
+        context_verified = sum(
+            status == "verified" for status in merged_statuses.values()
+        )
+        context_incomplete = sum(
+            status == "data_incomplete" for status in merged_statuses.values()
+        )
+        context_unchecked = sum(
+            status == "unchecked" for status in merged_statuses.values()
+        )
+        context_deferred = sum(
+            status == "deferred" for status in merged_statuses.values()
+        )
+        context_scope_complete = bool(merged_statuses) and all(
+            status == "verified" for status in merged_statuses.values()
+        )
+    else:
+        merged_statuses = {}
+        context_verified = 0
+        context_incomplete = 0
+        context_unchecked = 0
+        context_deferred = 0
+        context_scope_complete = False
+
+    refresh_operational_errors = result.get("operational_errors")
+    refresh_operational_error_count = (
+        len(refresh_operational_errors)
+        if isinstance(refresh_operational_errors, list)
+        else 0
+    )
+    previous_total_errors = int(state.get("operational_error_count") or 0)
+    discovery_operational_error_count = int(
+        state.get("discovery_operational_error_count")
+        or (
+            previous_total_errors
+            if state.get("status") == "degraded"
+            and not state.get("last_discovery_at")
+            else 0
+        )
+    )
+    total_operational_error_count = (
+        discovery_operational_error_count + refresh_operational_error_count
+    )
     refreshed.update(
         {
             "last_context_at": checked_at.isoformat(),
@@ -686,6 +818,29 @@ def _merge_context_refresh(
             "approved_candidates": len(retained) + len(new_records),
             "last_blocked_counts": dict(result.get("blocked_counts") or {}),
             "errors": list(dict.fromkeys(errors))[-20:],
+            "base_fixture_count": len(merged_statuses),
+            "context_fixtures": context_verified + context_incomplete,
+            "context_verified_fixtures": context_verified,
+            "context_data_incomplete_fixtures": context_incomplete,
+            "context_unchecked_fixtures": context_unchecked,
+            "deferred_context_fixtures": context_deferred,
+            "context_scope_complete": context_scope_complete,
+            "context_fixture_statuses": merged_statuses,
+            "context_accounting_available": accounting_available,
+            "discovery_operational_error_count": (
+                discovery_operational_error_count
+            ),
+            "context_operational_error_count": refresh_operational_error_count,
+            "operational_error_count": total_operational_error_count,
+            "status": (
+                "completed"
+                if accounting_available
+                and context_scope_complete
+                and total_operational_error_count == 0
+                else "degraded"
+                if total_operational_error_count > 0
+                else state.get("status", "completed")
+            ),
         }
     )
     return refreshed
@@ -912,6 +1067,22 @@ def run_wettfinder(
             except Exception as exc:
                 context_status = "degraded"
                 football_state = dict(football_state)
+                football_state["status"] = "degraded"
+                discovery_error_count = int(
+                    football_state.get("discovery_operational_error_count") or 0
+                )
+                context_error_count = int(
+                    football_state.get("context_operational_error_count") or 0
+                ) + 1
+                football_state["discovery_operational_error_count"] = (
+                    discovery_error_count
+                )
+                football_state["context_operational_error_count"] = (
+                    context_error_count
+                )
+                football_state["operational_error_count"] = (
+                    discovery_error_count + context_error_count
+                )
                 football_state["errors"] = list(
                     dict.fromkeys(
                         list(football_state.get("errors") or [])
@@ -927,6 +1098,19 @@ def run_wettfinder(
         now=current,
         target_date=target,
     )
+    context_statuses = _validated_football_context_statuses(football_state)
+    if (
+        football_state.get("status") != "completed"
+        or int(football_state.get("operational_error_count") or 0) > 0
+        or context_statuses is None
+    ):
+        source_rows = []
+    else:
+        source_rows = [
+            row
+            for row in source_rows
+            if context_statuses.get(str(row.get("fixture_id"))) == "verified"
+        ]
     source_status: dict[str, dict[str, Any]] = {
         "football": {
             "status": football_state.get("status", "idle"),

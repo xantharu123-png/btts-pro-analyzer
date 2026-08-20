@@ -75,8 +75,8 @@ from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 12
-CHALLENGE_WORKSPACE_VERSION = 8
+CHALLENGE_SNAPSHOT_VERSION = 13
+CHALLENGE_WORKSPACE_VERSION = 9
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
 CHALLENGE_SPORT_OPTIONS = (
@@ -1342,6 +1342,79 @@ def _ranked_fixture_ids(
     ]
 
 
+def _context_scope_facts(
+    candidates: list[ChallengeCandidate],
+    context_fixture_ids: list[int],
+    deferred_fixture_ids: set[int],
+) -> dict[str, Any]:
+    """Return consumer-safe facts about how much of the model pool was verified.
+
+    A strict context gate can be fail-closed without pretending that every
+    modeled fixture received H2H, injury and weather verification. These
+    counters deliberately contain no provider messages or model internals.
+    """
+
+    base_fixture_ids = {candidate.fixture_id for candidate in candidates}
+    selected_fixture_ids = set(context_fixture_ids) & base_fixture_ids
+    deferred_ids = set(deferred_fixture_ids) & base_fixture_ids
+
+    def data_is_complete(context: object) -> bool:
+        if not isinstance(context, dict):
+            return False
+        terminal_reasons = {"Spiel hat bereits begonnen", "Anstoßzeit ist ungültig"}
+        blocked_reasons = context.get("blocked_reasons")
+        if isinstance(blocked_reasons, list) and terminal_reasons.intersection(
+            str(reason) for reason in blocked_reasons
+        ):
+            return True
+        required_statuses = {
+            "model_transfer": {"passed", "blocked"},
+            "h2h": {"passed", "blocked", "neutral"},
+            "injuries": {"passed", "blocked"},
+            "weather": {"passed", "blocked"},
+        }
+        for section, allowed in required_statuses.items():
+            value = context.get(section)
+            if not isinstance(value, dict) or value.get("status") not in allowed:
+                return False
+        return True
+
+    incomplete_ids: set[int] = set()
+    for fixture_id in selected_fixture_ids:
+        fixture_candidates = [
+            candidate for candidate in candidates if candidate.fixture_id == fixture_id
+        ]
+        if not fixture_candidates or not all(
+            data_is_complete(candidate.context) for candidate in fixture_candidates
+        ):
+            incomplete_ids.add(fixture_id)
+
+    unchecked_ids = base_fixture_ids - selected_fixture_ids - deferred_ids
+    verified_ids = selected_fixture_ids - incomplete_ids
+    statuses = {
+        str(fixture_id): (
+            "verified"
+            if fixture_id in verified_ids
+            else "data_incomplete"
+            if fixture_id in incomplete_ids
+            else "deferred"
+            if fixture_id in deferred_ids
+            else "unchecked"
+        )
+        for fixture_id in sorted(base_fixture_ids)
+    }
+    return {
+        "base_fixture_count": len(base_fixture_ids),
+        "context_verified_fixtures": len(verified_ids),
+        "context_data_incomplete_fixtures": len(incomplete_ids),
+        "context_unchecked_fixtures": len(unchecked_ids),
+        "context_scope_complete": not (
+            incomplete_ids or unchecked_ids or deferred_ids
+        ),
+        "context_fixture_statuses": statuses,
+    }
+
+
 def _run_challenge_scan_worker(
     provider: "ChallengeDataProvider",
     league_ids: list[int],
@@ -2085,6 +2158,11 @@ def scan_daily_challenge(
         all_candidates,
         selected_market_kinds,
     )
+    context_scope_facts = _context_scope_facts(
+        contextualized,
+        context_fixture_ids,
+        deferred_context_fixture_ids,
+    )
     coverage_notices, operational_errors = _split_provider_messages(provider.errors)
     if progress_cb:
         progress_cb(
@@ -2124,6 +2202,7 @@ def scan_daily_challenge(
         "base_candidates": len(base_candidates),
         "context_fixtures": len(context_fixture_ids),
         "deferred_context_fixtures": len(deferred_context_fixture_ids),
+        **context_scope_facts,
         "approved_candidates": len(shortlist),
         "shortlist": shortlist,
         "price_candidates": price_candidates,
@@ -2245,6 +2324,8 @@ def refresh_discovered_candidates(
         )
         for reason in set(reasons):
             blocked_counts[reason] = blocked_counts.get(reason, 0) + 1
+    context_scope_facts = _context_scope_facts(contextualized, fixture_ids, set())
+    coverage_notices, operational_errors = _split_provider_messages(provider.errors)
     return {
         "checked_at": checked_at.isoformat(),
         "fixture_ids": fixture_ids,
@@ -2252,6 +2333,9 @@ def refresh_discovered_candidates(
         "price_candidates": price_candidates,
         "candidates": contextualized,
         "blocked_counts": blocked_counts,
+        **context_scope_facts,
+        "coverage_notices": coverage_notices,
+        "operational_errors": operational_errors,
         "errors": list(provider.errors),
     }
 

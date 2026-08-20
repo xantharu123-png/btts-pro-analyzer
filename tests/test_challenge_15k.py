@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 from challenge_15k import (
@@ -16,6 +17,7 @@ from challenge_15k import (
     _auto_recheck_scope_allowed,
     _automatic_challenge_ticket,
     _challenge_sports_for_selection,
+    _context_scope_facts,
     _discovery_candidate_pool,
     _league_season_segments,
     _price_candidate_pool,
@@ -56,6 +58,73 @@ from challenge_store import ChallengeLedger
 from football_data_history import parse_history_csv
 from price_ledger import PriceLedger, PriceQuote
 from market_consensus import parse_fixture_consensus
+
+
+def _complete_context() -> dict:
+    return {
+        "model_transfer": {"status": "passed"},
+        "h2h": {"status": "neutral"},
+        "injuries": {"status": "passed"},
+        "weather": {"status": "passed"},
+    }
+
+
+def test_context_scope_facts_never_claims_fixture_21_was_checked():
+    candidates = [
+        SimpleNamespace(fixture_id=fixture_id, context=_complete_context())
+        for fixture_id in range(1, 22)
+    ]
+
+    facts = _context_scope_facts(candidates, list(range(1, 21)), set())
+
+    assert facts == {
+        "base_fixture_count": 21,
+        "context_verified_fixtures": 20,
+        "context_data_incomplete_fixtures": 0,
+        "context_unchecked_fixtures": 1,
+        "context_scope_complete": False,
+        "context_fixture_statuses": {
+            **{str(fixture_id): "verified" for fixture_id in range(1, 21)},
+            "21": "unchecked",
+        },
+    }
+
+
+def test_context_scope_facts_separates_missing_data_from_model_rejection():
+    incomplete = _complete_context()
+    incomplete["weather"] = {"status": "unavailable"}
+
+    facts = _context_scope_facts(
+        [SimpleNamespace(fixture_id=7, context=incomplete)],
+        [7],
+        set(),
+    )
+
+    assert facts["context_verified_fixtures"] == 0
+    assert facts["context_data_incomplete_fixtures"] == 1
+    assert facts["context_unchecked_fixtures"] == 0
+    assert facts["context_scope_complete"] is False
+
+
+def test_context_scope_facts_counts_terminal_kickoff_rejection_as_checked():
+    facts = _context_scope_facts(
+        [
+            SimpleNamespace(
+                fixture_id=8,
+                context={
+                    "passed": False,
+                    "blocked_reasons": ["Spiel hat bereits begonnen"],
+                },
+            )
+        ],
+        [8],
+        set(),
+    )
+
+    assert facts["context_verified_fixtures"] == 1
+    assert facts["context_data_incomplete_fixtures"] == 0
+    assert facts["context_scope_complete"] is True
+    assert facts["context_fixture_statuses"] == {"8": "verified"}
 
 
 def fixture(

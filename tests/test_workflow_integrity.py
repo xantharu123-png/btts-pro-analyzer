@@ -106,6 +106,182 @@ def test_internal_price_summary_is_not_rendered_in_consumer_daily_selection():
     assert "VPS" not in source
     assert "Marktkandidaten" not in source
     assert "Tagestipp {index}" not in source
+    assert "status.generated_at" in source
+    assert "status.last_discovery_at" in source
+
+
+def test_automatic_signal_group_accepts_persisted_football_spelling():
+    assert app._is_football_sport("Fussball") is True
+    assert app._is_football_sport("Fußball") is True
+    assert app._is_football_sport(" fussball ") is True
+    assert app._is_football_sport("Tennis") is False
+
+
+def test_zero_football_does_not_drop_other_automatic_sports():
+    football, other = app._partition_automated_signals(
+        [
+            SimpleNamespace(sport="Tennis", key="tennis"),
+            SimpleNamespace(sport="E-Sport", key="esports"),
+        ]
+    )
+
+    assert football == []
+    assert [signal.key for signal in other] == ["tennis", "esports"]
+
+
+def test_automatic_candidate_from_partial_day_discloses_remaining_scope():
+    status = SimpleNamespace(
+        fixtures_found=21,
+        fixtures_modeled=21,
+        context_data_incomplete_fixtures=0,
+        context_unchecked_fixtures=1,
+        deferred_context_fixtures=0,
+        context_accounting_available=True,
+        context_scope_complete=False,
+    )
+
+    message = app._automatic_partial_scope_notice(status)
+
+    assert message is not None
+    assert "vollständig geprüften Spielen" in message
+    assert "1 weiteres Spiel" in message
+    assert "gesamte Tagesumfang" in message
+
+
+def test_automatic_summary_proves_model_zero_before_quote_check():
+    status = SimpleNamespace(
+        football_status="completed",
+        fixtures_found=40,
+        fixtures_modeled=37,
+        base_candidates=0,
+        base_fixture_count=0,
+        context_verified_fixtures=0,
+        context_data_incomplete_fixtures=0,
+        context_unchecked_fixtures=0,
+        deferred_context_fixtures=0,
+        context_scope_complete=True,
+        approved_candidates=0,
+        price_checked_count=0,
+        operational_error_count=0,
+    )
+
+    evidence, message, incomplete = app._automatic_consumer_summary(status)
+
+    assert evidence == (
+        "40 Spiele gefunden · 37 modelliert · 0 vollständig bestätigte Auswahlen"
+    )
+    assert "engere Auswahl" in message
+    assert "Quote wurde deshalb noch nicht geprüft" in message
+    assert "3 weitere gefundene Spiele konnten nicht modelliert werden" in message
+    assert incomplete is True
+
+
+def test_automatic_summary_never_turns_degraded_run_into_quality_rejection():
+    status = SimpleNamespace(
+        football_status="degraded",
+        fixtures_found=7,
+        fixtures_modeled=5,
+        base_candidates=1,
+        base_fixture_count=1,
+        context_verified_fixtures=0,
+        context_data_incomplete_fixtures=1,
+        context_unchecked_fixtures=0,
+        deferred_context_fixtures=0,
+        context_scope_complete=False,
+        approved_candidates=0,
+        price_checked_count=0,
+        operational_error_count=1,
+    )
+
+    _, message, incomplete = app._automatic_consumer_summary(status)
+
+    assert "nicht vollständig abgeschlossen" in message
+    assert "kein Qualitätsurteil" in message
+    assert incomplete is True
+
+
+def test_degraded_summary_never_calls_stale_candidate_fully_confirmed():
+    status = SimpleNamespace(
+        football_status="degraded",
+        fixtures_found=7,
+        fixtures_modeled=7,
+        base_candidates=1,
+        base_fixture_count=1,
+        context_verified_fixtures=1,
+        context_data_incomplete_fixtures=0,
+        context_unchecked_fixtures=0,
+        deferred_context_fixtures=0,
+        context_scope_complete=True,
+        approved_candidates=1,
+        price_checked_count=1,
+        operational_error_count=1,
+    )
+
+    evidence, message, incomplete = app._automatic_consumer_summary(status)
+
+    assert "1 vollständig bestätigte Auswahl" not in evidence
+    assert "Ergebnis nicht vollständig belegt" in evidence
+    assert "kein Qualitätsurteil" in message
+    assert incomplete is True
+
+
+def test_automatic_summary_keeps_confirmed_selection_when_other_game_is_pending():
+    status = SimpleNamespace(
+        football_status="completed",
+        fixtures_found=3,
+        fixtures_modeled=3,
+        base_candidates=3,
+        base_fixture_count=3,
+        context_verified_fixtures=2,
+        context_data_incomplete_fixtures=0,
+        context_unchecked_fixtures=1,
+        deferred_context_fixtures=0,
+        context_scope_complete=False,
+        context_accounting_available=True,
+        operational_error_count=0,
+        approved_candidates=1,
+        price_checked_count=1,
+    )
+
+    evidence, message, incomplete = app._automatic_consumer_summary(status)
+
+    assert "1 vollständig bestätigte Auswahl" in evidence
+    assert "1 Preisprüfung" in evidence
+    assert "keine Auswahl bestätigt" not in message
+    assert "keine aktuelle Vergleichsquote spielbar" in message
+    assert "1 weiteres Spiel" in message
+    assert incomplete is True
+
+
+def test_legacy_automatic_context_scope_is_unknown_without_zero_pending_claim():
+    status = SimpleNamespace(
+        football_status="completed",
+        fixtures_found=10,
+        fixtures_modeled=10,
+        base_candidates=4,
+        base_fixture_count=0,
+        context_verified_fixtures=0,
+        context_data_incomplete_fixtures=0,
+        context_unchecked_fixtures=0,
+        deferred_context_fixtures=0,
+        context_scope_complete=False,
+        context_accounting_available=False,
+        operational_error_count=0,
+        approved_candidates=0,
+        price_checked_count=0,
+    )
+
+    _, message, incomplete = app._automatic_consumer_summary(status)
+
+    assert "Umfang der vollständigen Kontextprüfung" in message
+    assert "0 weitere Spiele" not in message
+    assert incomplete is True
+
+
+def test_all_sports_copy_says_each_tab_is_a_separate_search():
+    source = inspect.getsource(app.render_wettfinder)
+    assert "getrennte Sportbereiche" in source
+    assert "Ergebnis gilt nur für diesen Sport" in source
 
 
 def test_public_navigation_exposes_no_admin_settings_or_training_route():
