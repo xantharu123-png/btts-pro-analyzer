@@ -2,13 +2,14 @@
 
 ## Status und Zweck
 
-Stand: 10. August 2026
+Stand: 20. August 2026
 
 Kanonisches Repository: `xantharu123-png/btts-pro-analyzer`
 
 Produktionsadresse: `https://vps-a30a123f.vps.ovh.net/`
 
-Funktionale Basis: `6a59f3e`
+Aktuell verifizierte funktionale Basis:
+`83b2d92a89b9aac746792ff70e54ed743e86c9d9`
 
 Vor der Übergabedokumentation verifizierter Repository- und VPS-Stand:
 `5fe7ef7`
@@ -41,12 +42,15 @@ Der Kernvertrag lautet:
 1. Sportdaten erzeugen eine quotenfreie Modellwahrscheinlichkeit.
 2. Datenqualität, Zeitbezug, Stichprobe, Kalibrierung und Kontext werden
    geprüft.
-3. Nur ein fachlich bestandener Kandidat gelangt zur Preisprüfung.
+3. Eine konservativ bestandene Prognose darf zur transparenten Preisprüfung
+   gelangen; Preisprüfung ist noch keine Tippfreigabe.
 4. Die Buchmacherquote verändert die Modellwahrscheinlichkeit nicht.
 5. Ein Preis entscheidet nur, ob die Auswahl zu diesem Preis mathematisch
    vertretbar ist.
-6. Ohne belastbare Modell-, Kontext- und Preisfreigabe gibt es keinen Tipp.
-7. Pro Suchlauf werden höchstens drei klare Auswahlen veröffentlicht.
+6. Fehlende oder zu niedrige Quote löscht die Modellprognose nicht.
+7. Ohne belastbare Modell-, Release-Kontext- und Preisfreigabe gibt es keinen
+   Tipp und keinen Einsatzvorschlag.
+8. Pro Suchlauf werden höchstens drei klare Auswahlen angezeigt.
 
 Das Produkt darf sagen:
 

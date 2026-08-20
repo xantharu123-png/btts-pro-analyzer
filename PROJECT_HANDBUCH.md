@@ -4,7 +4,7 @@
 
 | Feld | Verifizierter Stand |
 |---|---|
-| Auditzeitraum | 1. bis 17. August 2026 |
+| Auditzeitraum | 1. bis 20. August 2026 |
 | Repository | `xantharu123-png/btts-pro-analyzer` |
 | Lokaler Pfad | `C:\Projekt\BetBoy\betboy-app` |
 | Branch | `main` |
@@ -14,14 +14,15 @@
 | Vor der PC-Übergabedokumentation verifizierter GitHub-/VPS-HEAD | `5fe7ef7` (`Document Claude re-audit hardening`) |
 | Vor dem aktuellen Härtungspaket verifizierter lokaler/GitHub-/VPS-HEAD | `239c9ea38a6e396c916ee7cf36fe7ed396d4b11f` am 17. August; GitHub `main` wurde frisch abgefragt |
 | Verifizierter Härtungs-Funktionscommit | `9171bdb71ceae8ebbf5ae7404c6648f3d5c08a92` (`Harden Shadow evidence and trusted VPS deployment`), am 17. August kontrolliert gepusht und deployed |
-| Fachlicher Kernstand | Consumer-Wettfinder mit hartem Preis-Publishing-Gate inklusive Kurzquotenschutz, case-insensitivem Mehrbuchmachervergleich für Fußball, verständlicher Preis-Ablehnungsdiagnose, preisoffener Tennis-/E-Sport-Modellanalyse sowie persistentem 15K-Konto mit 5-%-Standard und bewusst wählbarem Hochrisikomodus |
-| Verifizierter VPS-Funktionsstand | Härtungs-Funktionscommit `9171bdb`; App aktiv/enabled, lokaler und öffentlicher Health `200 / ok`, alle 7 BetBoy-Timer aktiv/enabled, letzte Worker `success / 0` und 0 fehlgeschlagene systemd-Units am 17. August |
+| Verifizierter Forecast-/Preis-Funktionscommit | `83b2d92a89b9aac746792ff70e54ed743e86c9d9` (`Separate model forecasts from price and release gates`), am 20. August kontrolliert gepusht und deployed |
+| Fachlicher Kernstand | Consumer-Wettfinder mit höchstens drei berechneten Auswahlen; Modellprognose, Kontextverfügbarkeit, Marktpreis und strikte Tipp-/Einsatzfreigabe sind getrennte Zustände. Fehlende oder zu niedrige Quote löscht keine Prognose. UEFA-Heimatliga-Transfers bleiben bis zum unabhängigen Transfernachweis ausdrücklich Shadow ohne Einsatzvorschlag. |
+| Verifizierter VPS-Funktionsstand | Funktionscommit `83b2d92`; App aktiv/enabled, lokaler und öffentlicher Health `200 / ok`, alle 7 BetBoy-Timer aktiv/enabled, Tennis- und Wettfinder-Lauf `success / 0`, 0 fehlgeschlagene systemd-Units am 20. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 730 Python-Tests, 5 Subtests und 3/3 JavaScript-Tests am 17. August isoliert bestanden; frühere Edge-QA ist unten separat datiert |
+| Vollständiger Testlauf | 805 Python-Tests, 5 Subtests und 3/3 JavaScript-Tests am 20. August bestanden; Paket-, Syntax- und Diff-Prüfungen ebenfalls grün |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 | Produkt- und Entscheidungsgrundlage | `PROJEKTBIBEL.md` |
 | PC-Wechsel-Runbook | `PC_WECHSEL_UEBERGABE.md` |
@@ -32,6 +33,43 @@ Produkt-, Mathematik-, UX- und Marketingleitplanke steht in
 `PC_WECHSEL_UEBERGABE.md`. Alle drei Dokumente enthalten absichtlich keine
 Schlüssel, Passwörter oder Tokens. Ältere Berichte sind nur Historie, wenn sie
 diesem Handbuch oder dem aktuellen Code widersprechen.
+
+### Verifizierter Forecast-/Preis-Umbau vom 20. August 2026
+
+Der frühere pauschale UEFA-Transferblock erzeugte am 20. August trotz 39
+gefundener und 36 modellierter Spiele ein leeres Nutzerergebnis. Der Provider
+war dabei erreichbar; 1.440 UEFA-Marktkandidaten wurden konstruktiv am
+Transfergate gesperrt. Der Umbau entfernt dieses Gate nicht blind, sondern
+trennt vier fachliche Ebenen:
+
+1. Eine konservativ bestandene Heimatliga-Prognose darf als
+   `cross_competition_provisional_forecast` sichtbar werden.
+2. H2H, Verletzungen, Wetter und Aufstellungen werden je Fixture mit Status
+   und Zeitbezug gespeichert. Nicht verfügbare optionale Daten löschen die
+   Prognose nicht.
+3. Nur exakt abbildbare Märkte erhalten einen Mehrbuchmachervergleich; eine
+   fehlende oder zu niedrige Quote verändert die Prognose nicht.
+4. UEFA-Provisional sowie unvollständiger Release-Kontext bleiben strikt
+   `SHADOW`: kein 15K-Ticket, kein Einsatz und kein Ledger-Eintrag. Beide
+   Release-Felder müssen explizit wahr sein; fehlende Alt-/Teilfelder sind
+   fail-closed.
+
+Der erste natürliche Produktionslauf des Artefakts v9 endete am 20. August um
+14:09 CEST erfolgreich. Er fand 39 Spiele, modellierte 36, erzeugte 7
+Basiskandidaten und zeigte global genau drei Modell-Auswahlen. Zwei hatten eine
+passende Vergleichsquote, eine blieb trotz zu niedriger Quote sichtbar:
+
+| Spiel | Markt | Vorsichtige Prognose | Mindestquote | Vergleich | Status |
+|---|---|---:|---:|---:|---|
+| Kairat Almaty - Anderlecht | Doppelte Chance 1X | 61,1 % | 1,69 | 1,70 aus 12 Anbietern | Shadow, Preis passt |
+| Tromso - Brighton | Doppelte Chance 1X | 60,8 % | 1,70 | 2,30 aus 12 Anbietern | Shadow, Preis passt |
+| FK Crvena Zvezda - Plzen | Team 1 über 0,5 Tore | 74,2 % | 1,39 | Bestpreis 1,16 aus 8 Anbietern | Shadow, Preis zu niedrig |
+
+Die gerenderte Produktions-UI wurde mit Playwright auf Desktop und 390 x 844
+geprüft: genau drei verständliche Karten, keine technische Diagnosewand, keine
+Konsolenfehler. Neun Warnungen stammen aus nicht erkannten Streamlit-
+Feature-Policy-Einträgen beziehungsweise dem bestehenden Component-Iframe;
+sie beeinflussten den Lauf nicht.
 
 ### Produktumbau vom 6. August 2026: Tipp statt Browserimport
 
@@ -1049,7 +1087,7 @@ verifiziert und erweitert:
 Vollständiger Lauf:
 
 ```text
-730 passed
+805 passed
 5 subtests passed
 3/3 JavaScript tests passed
 ```
@@ -1062,9 +1100,12 @@ New-Item -ItemType Directory -Path .pytest_tmp -Force
   -p no:cacheprovider --basetemp .pytest_tmp\full
 ```
 
-Der Lauf vom 17. August erfolgte in einer isolierten Kopie ohne Secrets,
-Laufzeitdatenbanken, Logs oder Git-Metadaten. Provider-Umgebungsvariablen waren
-entfernt und ausgehende Python-TCP-Verbindungen im Testprozess blockiert; eine
+Der aktuelle Lauf vom 20. August erfolgte vor Commit und Deployment in der
+lokalen Arbeitskopie; kein Provider- oder Worker-Lauf wurde durch die Tests
+gestartet. Der zusätzliche isolierte Nachweis vom 17. August ohne Secrets,
+Laufzeitdatenbanken, Logs oder Git-Metadaten bleibt als frühere Evidenz gültig.
+Provider-Umgebungsvariablen waren dort entfernt und ausgehende Python-TCP-
+Verbindungen im Testprozess blockiert; eine
 betriebssystemweite Netzwerksandbox wurde nicht behauptet. Die beiden direkten
 Shadow-/CLV-Dateien sammelten 43 Tests; der breitere geänderte Härtungsumfang
 bestand 189 gezielte Tests. `pip check`, 11/11 ausgeführte
@@ -1522,10 +1563,10 @@ Planmäßige SQLite-Backups: /var/backups/betboy
 Root-Deploy-Recovery: /var/backups/betboy-update
 Root-Runtime-Migration: /var/backups/betboy-migration-9171bdb
 Root-SSH-Recovery: /var/backups/betboy-ssh
-Verifizierter Härtungs-Funktionscommit: 9171bdb71ceae8ebbf5ae7404c6648f3d5c08a92
+Verifizierter Forecast-/Preis-Funktionscommit: 83b2d92a89b9aac746792ff70e54ed743e86c9d9
 Repository-/VPS-HEAD vor Übergabedokumentation: 5fe7ef7
-Vor diesem reinen Dokumentationsnachweis verifizierter VPS-HEAD: 9171bdb71ceae8ebbf5ae7404c6648f3d5c08a92
-Letzte Livekontrolle: 17. August 2026
+Vor diesem Dokumentationsnachweis verifizierter VPS-Funktionsstand: 83b2d92a89b9aac746792ff70e54ed743e86c9d9
+Letzte Livekontrolle: 20. August 2026
 ```
 
 Update nach einem Push. Die einmalige Bestands-VPS-Migration und Installation

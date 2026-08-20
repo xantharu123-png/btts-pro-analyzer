@@ -6,18 +6,20 @@ Diese Anleitung bringt einen neuen Windows-PC in einen sicheren,
 reproduzierbaren BetBoy-Arbeitsstand. Der laufende Produktionsserver hängt
 nicht vom alten PC ab und arbeitet während des Wechsels weiter.
 
-Am 17. August 2026 wurde nach dem kontrollierten Härtungsdeploy verifiziert:
+Am 20. August 2026 wurde nach dem kontrollierten Forecast-/Preis-Deploy verifiziert:
 
 | Prüfung | Ergebnis |
 |---|---|
-| Härtungs-Funktionscommit | `9171bdb71ceae8ebbf5ae7404c6648f3d5c08a92` |
+| Aktueller Funktionscommit | `83b2d92a89b9aac746792ff70e54ed743e86c9d9` |
 | GitHub und VPS | Funktionscommit per vollständigem Hash identisch; ein späterer reiner Dokumentationscommit muss erneut per vollständigem Hash verglichen werden |
 | `betboy-app.service` | `active` |
 | Streamlit-Health | lokal und öffentlich `200 / ok` |
-| BetBoy-Timer | exakt 7 aktiv und enabled; letzte Worker-Ergebnisse `success / 0` |
+| BetBoy-Timer | exakt 7 aktiv und enabled; kontrollierter Tennis- und natürlicher Wettfinder-Lauf `success / 0` |
 | Fehlgeschlagene systemd-Units | 0 |
 | Deploy-Recovery | Root-geschütztes `betboy-preupdate-20260817T104548Z-239c9ea38a6e.zip`; 82 Datenbanken plus Manifest, ZIP-CRC und updaterseitiges `quick_check` bestanden |
-| Gerenderte Live-UI | Playwright: `Sport = Alle`, sechs Sport-Tabs anklickbar, Desktop und 390 x 844 ohne horizontalen Überlauf, 0 Konsolenfehler; 9 Streamlit-/Browser-Warnungen sind im Handbuch eingeordnet |
+| Automatisches v9-Artefakt | 39 Spiele gefunden, 36 modelliert, global 3 Modell-Auswahlen; 2 passende Vergleichsquoten und 1 zu niedrige Quote, die die Prognose nicht löschte |
+| Gerenderte Live-UI | Playwright: drei verständliche Auswahlkarten, Desktop und 390 x 844 ohne sichtbaren horizontalen Überlauf, 0 Konsolenfehler; 9 Streamlit-/Browser-Warnungen sind im Handbuch eingeordnet |
+| Lokale QA | 805 Python-Tests, 5 Subtests und 3/3 JavaScript-Tests; Paket-, Syntax- und Diff-Prüfungen grün |
 
 Nach jedem Commit gilt ausschließlich der frisch abgefragte vollständige
 `origin/main`-Hash. Hash und Produktionsstand werden nach einem Deploy erneut
