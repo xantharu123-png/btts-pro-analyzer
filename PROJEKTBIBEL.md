@@ -9,10 +9,10 @@ Kanonisches Repository: `xantharu123-png/btts-pro-analyzer`
 Produktionsadresse: `https://vps-a30a123f.vps.ovh.net/`
 
 Aktuell verifizierte funktionale Basis:
-`83b2d92a89b9aac746792ff70e54ed743e86c9d9`
+`f492385aab986112efbb13366b0a09a99a9c257a`
 
-Vor der Übergabedokumentation verifizierter Repository- und VPS-Stand:
-`5fe7ef7`
+Aktuell verifizierter GitHub- und VPS-Funktionsstand:
+`f492385aab986112efbb13366b0a09a99a9c257a`
 
 Diese Projektbibel erklärt, **warum BetBoy existiert, was das Produkt leisten
 darf, wie eine Empfehlung entsteht und welche fachlichen Grenzen niemals

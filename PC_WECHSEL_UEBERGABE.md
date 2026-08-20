@@ -6,31 +6,31 @@ Diese Anleitung bringt einen neuen Windows-PC in einen sicheren,
 reproduzierbaren BetBoy-Arbeitsstand. Der laufende Produktionsserver hängt
 nicht vom alten PC ab und arbeitet während des Wechsels weiter.
 
-Am 20. August 2026 wurde nach dem kontrollierten Forecast-/Preis-Deploy der
-folgende **Produktionsstand vor dem aktuellen lokalen Nutzwert-Umbau**
-verifiziert:
+Am 20. August 2026 wurde nach dem kontrollierten Nutzwert-Katalog-Deploy der
+folgende **aktuelle Produktionsstand** verifiziert:
 
 | Prüfung | Ergebnis |
 |---|---|
-| Aktueller Funktionscommit | `83b2d92a89b9aac746792ff70e54ed743e86c9d9` |
+| Aktueller Funktionscommit | `f492385aab986112efbb13366b0a09a99a9c257a` (`Prioritize useful diverse market forecasts`) |
 | GitHub und VPS | Funktionscommit per vollständigem Hash identisch; ein späterer reiner Dokumentationscommit muss erneut per vollständigem Hash verglichen werden |
 | `betboy-app.service` | `active` |
 | Streamlit-Health | lokal und öffentlich `200 / ok` |
 | BetBoy-Timer | exakt 7 aktiv und enabled; kontrollierter Tennis- und natürlicher Wettfinder-Lauf `success / 0` |
 | Fehlgeschlagene systemd-Units | 0 |
-| Deploy-Recovery | Root-geschütztes `betboy-preupdate-20260817T104548Z-239c9ea38a6e.zip`; 82 Datenbanken plus Manifest, ZIP-CRC und updaterseitiges `quick_check` bestanden |
-| Automatisches v9-Artefakt | 39 Spiele gefunden, 36 modelliert, global 3 Modell-Auswahlen; 2 passende Vergleichsquoten und 1 zu niedrige Quote, die die Prognose nicht löschte |
-| Gerenderte Live-UI | Playwright: drei verständliche Auswahlkarten, Desktop und 390 x 844 ohne sichtbaren horizontalen Überlauf, 0 Konsolenfehler; 9 Streamlit-/Browser-Warnungen sind im Handbuch eingeordnet |
+| Deploy-Recovery | Root-geschütztes `betboy-preupdate-20260820T191444Z-4b97bde9344a.zip`; Updater-Backup und Restore-Prüfung bestanden |
+| Automatisches v11-Artefakt | kontrollierter Wettfinder-Lauf `success / 0`; wegen des späten Zieldatums keine noch bevorstehenden Spiele, daher 0 Karten |
+| Siebentage-Live-Suche | um 22:26 CEST abgeschlossen; 366 Spiele gefunden, 285 modelliert, 20 priorisierte Spiele mit verfügbarem Kontext geprüft, 15 Modellprognosen, 15 Preisprüfungen, 0 operative Fehler; 0 strikt spielbare Tipps |
+| Gerenderte Live-UI | 3 hervorgehobene und 12 weitere Karten; keine breiten Team/Spiel-über-0,5- oder Team-unter-2,5-Basismärkte; 15 Kontextzeilen; Desktop 1280 und Mobil 390 x 844 ohne horizontalen Überlauf, 0 Konsolenfehler/-warnungen |
 
-Der danach entwickelte Nutzwert-Katalog ist in diesem Arbeitsstand **nur lokal
-verifiziert und noch nicht Bestandteil der obigen Live-Nachweise**. Er verwendet
-Automationsartefakt v11, zeigt bis zu 15 nützliche Fußball-Modellprognosen
-(3 hervorgehoben, weitere eingeklappt), hält breite Basisprognosen aus den
-Top-Auswahlen heraus und behandelt Quoten ausschließlich als Preishinweis. Die
-lokale QA dafür umfasst 828 Python-Tests, 23 Subtests und 3/3 JavaScript-Tests;
-der isolierte Lauf ohne Secrets/Laufzeitdaten sowie Paket-, Syntax- und
-Diff-Prüfungen waren grün. Erst ein kontrollierter Commit, Push, VPS-Deploy und
-ein neuer Live-Lauf dürfen diesen lokalen Stand als Produktion ausweisen.
+Der Nutzwert-Katalog verwendet Automationsartefakt v11, zeigt bis zu 15
+Fußball-Modellprognosen (3 hervorgehoben, weitere eingeklappt), hält breite
+Basisprognosen aus den Top-Auswahlen heraus und behandelt Quoten ausschließlich
+als Preishinweis. Die QA umfasst 828 Python-Tests, 23 Subtests und 3/3
+JavaScript-Tests; der isolierte Lauf ohne Secrets/Laufzeitdaten sowie Paket-,
+Syntax- und Diff-Prüfungen waren grün. Commit, Push, VPS-Deploy und ein echter
+Siebentage-Live-Lauf sind abgeschlossen. Der kalte Vollscan dauerte rund 66
+Minuten trotz 243/243 erfolgreichen Provideraufrufen; diese Performance-
+Optimierung ist offen und darf die mathematische Parität nicht verändern.
 
 Nach jedem Commit gilt ausschließlich der frisch abgefragte vollständige
 `origin/main`-Hash. Hash und Produktionsstand werden nach einem Deploy erneut

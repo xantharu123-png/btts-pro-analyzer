@@ -15,8 +15,9 @@
 | Vor dem aktuellen Härtungspaket verifizierter lokaler/GitHub-/VPS-HEAD | `239c9ea38a6e396c916ee7cf36fe7ed396d4b11f` am 17. August; GitHub `main` wurde frisch abgefragt |
 | Verifizierter Härtungs-Funktionscommit | `9171bdb71ceae8ebbf5ae7404c6648f3d5c08a92` (`Harden Shadow evidence and trusted VPS deployment`), am 17. August kontrolliert gepusht und deployed |
 | Verifizierter Forecast-/Preis-Funktionscommit | `83b2d92a89b9aac746792ff70e54ed743e86c9d9` (`Separate model forecasts from price and release gates`), am 20. August kontrolliert gepusht und deployed |
+| Verifizierter Nutzwert-Katalog-Funktionscommit | `f492385aab986112efbb13366b0a09a99a9c257a` (`Prioritize useful diverse market forecasts`), am 20. August kontrolliert gepusht, deployed und in der echten Produktions-UI geprüft |
 | Fachlicher Kernstand | Consumer-Wettfinder mit drei hervorgehobenen Top-Auswahlen und bis zu zwölf weiteren Modellprognosen; breite Basislinien werden nicht als Top-Auswahl beworben. Modellprognose, Kontextverfügbarkeit, Marktpreis und strikte Tipp-/Einsatzfreigabe sind getrennte Zustände. Fehlende oder zu niedrige Quote löscht oder verschiebt keine Prognose. UEFA-Heimatliga-Transfers bleiben bis zum unabhängigen Transfernachweis ausdrücklich Shadow ohne Einsatzvorschlag. |
-| Verifizierter VPS-Funktionsstand | Funktionscommit `83b2d92`; App aktiv/enabled, lokaler und öffentlicher Health `200 / ok`, alle 7 BetBoy-Timer aktiv/enabled, Tennis- und Wettfinder-Lauf `success / 0`, 0 fehlgeschlagene systemd-Units am 20. August |
+| Verifizierter VPS-Funktionsstand | Funktionscommit `f492385`; App aktiv/enabled, lokaler und öffentlicher Health `200 / ok`, alle 7 BetBoy-Timer aktiv/enabled, kontrollierter Artefakt-v11-Wettfinder-Lauf `success / 0`, 0 fehlgeschlagene systemd-Units am 20. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
@@ -71,11 +72,11 @@ Konsolenfehler. Neun Warnungen stammen aus nicht erkannten Streamlit-
 Feature-Policy-Einträgen beziehungsweise dem bestehenden Component-Iframe;
 sie beeinflussten den Lauf nicht.
 
-### Lokal verifizierter Nutzwert-Katalog vom 20. August 2026
+### Produktiv verifizierter Nutzwert-Katalog vom 20. August 2026
 
-Der nachfolgende Umbau ist in der lokalen Arbeitskopie vollständig getestet;
-der oben genannte Produktionsnachweis für Artefakt v9 bleibt bis zum
-kontrollierten Deployment die letzte Live-Evidenz:
+Der nachfolgende Umbau ist lokal vollständig getestet, als Funktionscommit
+`f492385aab986112efbb13366b0a09a99a9c257a` kontrolliert gepusht und über den
+root-eigenen Updater auf den VPS ausgerollt:
 
 - Breite Basislinien wie Team über 0,5, Team unter 2,5, Spiel über 0,5 sowie
   sehr großzügige Unter-/ODER-Märkte werden weiterhin berechnet, erscheinen
@@ -97,6 +98,50 @@ kontrollierten Deployment die letzte Live-Evidenz:
   berücksichtigt, noch offen oder nicht verfügbar waren.
 - Der Persistenzvertrag ist Artefakt v11; alte Katalogsemantik wird nicht als
   aktueller Lauf weiterverwendet.
+
+Ein kontrollierter Produktionslauf des automatischen Wettfinders endete um
+21:16 CEST mit `success / 0` und schrieb ein gültiges Artefakt v11. Da zu
+diesem späten Zeitpunkt für den Zieldatum-Check keine noch bevorstehenden
+Spiele übrig waren, enthielt dieses Artefakt erwartungsgemäß keine Karten. Der
+Lauf belegt den neuen Writer-/Reader- und Betriebsvertrag, nicht die inhaltliche
+Auswahlqualität.
+
+Der anschließende echte Siebentage-Lauf in der öffentlichen App endete um
+22:26 CEST und prüfte alle 51 konfigurierten Fußballligen vom 20. bis 27.
+August. Der serverseitige,
+sanitisierte Auditbeleg weist 366 gefundene und 285 modellierte Spiele aus. 100
+Spiele hatten grundsätzlich geeignete Märkte; 20 priorisierte Spiele wurden
+mit verfügbarem Kontext geprüft. Daraus entstanden 15 sichtbare
+Modellprognosen und 15 Preisprüfungen. Es gab 0 operative Fehler. Der Status
+`partial` ist korrekt, weil 68 grundsätzlich geeignete Spiele nicht in das
+begrenzte Kontextfenster gelangten und 12 noch außerhalb des Fünf-Tage-
+Kontextfensters lagen.
+
+Die drei hervorgehobenen Produktionskarten waren:
+
+| Spiel | Markt | Vorsichtige Prognose | Mindestquote | Preisstatus |
+|---|---|---:|---:|---|
+| Estoril - Rio Ave | Estoril Ecken über 3,5 | 59,7 % | 1,73 | zu wenige Vergleichsanbieter |
+| Gil Vicente - Casa Pia | Casa Pia Teamtore unter 1,5 | 59,7 % | 1,73 | Bestquote 1,17, zu niedrig |
+| Espanyol - Real Madrid | Gesamttore über 1,5 | 59,7 % | 1,73 | exakte Vergleichsquote noch offen |
+
+Weitere zwölf Modellprognosen blieben im eingeklappten Katalog sichtbar. Die
+früher dominierenden breiten Basismärkte Team/Spiel über 0,5 sowie Team unter
+2,5 erschienen in keiner der 15 öffentlichen Karten. Jede Karte zeigte eine
+kompakte Kontextzeile für H2H, Ausfälle, Wetter und Aufstellungen. Der
+Preisstatus veränderte weder Sichtbarkeit noch Modellreihenfolge; wegen zehn zu
+niedriger, drei zu dünner und zwei nicht verfügbarer Preisbelege gab es jedoch
+zu Recht 0 strikt spielbare Tipps und keinen Einsatzvorschlag.
+
+Die echte Produktions-UI bestand 1280 Pixel Desktopbreite und 390 x 844 Pixel
+Mobilbreite ohne horizontalen Überlauf sowie ohne Konsolenfehler oder
+-warnungen. Der kalte Siebentage-Lauf benötigte allerdings rund 66 Minuten.
+Alle 243 während des Laufes beobachteten Provideraufrufe endeten mit HTTP 200;
+die Laufzeit entsteht vor allem durch die doppelte kalte Walk-forward- und
+Kalibrierungsberechnung der 90 Märkte. Das ist ein offener P1-
+Performancepunkt. Eine spätere Masken-/Cache-Optimierung darf nur mit exakter
+Paritätsprüfung aller Marktwerte, Metriken und Kalibrierungsstichproben
+ausgerollt werden.
 
 ### Produktumbau vom 6. August 2026: Tipp statt Browserimport
 
@@ -1593,9 +1638,9 @@ Planmäßige SQLite-Backups: /var/backups/betboy
 Root-Deploy-Recovery: /var/backups/betboy-update
 Root-Runtime-Migration: /var/backups/betboy-migration-9171bdb
 Root-SSH-Recovery: /var/backups/betboy-ssh
-Verifizierter Forecast-/Preis-Funktionscommit: 83b2d92a89b9aac746792ff70e54ed743e86c9d9
+Verifizierter Nutzwert-Katalog-Funktionscommit: f492385aab986112efbb13366b0a09a99a9c257a
 Repository-/VPS-HEAD vor Übergabedokumentation: 5fe7ef7
-Vor diesem Dokumentationsnachweis verifizierter VPS-Funktionsstand: 83b2d92a89b9aac746792ff70e54ed743e86c9d9
+Vor diesem Dokumentationsnachweis verifizierter VPS-Funktionsstand: f492385aab986112efbb13366b0a09a99a9c257a
 Letzte Livekontrolle: 20. August 2026
 ```
 
