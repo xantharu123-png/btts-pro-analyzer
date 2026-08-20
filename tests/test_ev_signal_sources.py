@@ -13,6 +13,7 @@ from esports_shadow import ESPORTS_MODEL_VERSION
 from ev_signal_sources import (
     AUTOMATED_SELECTION_POLICY_VERSION,
     AUTOMATED_WETTFINDER_VERSION,
+    _load_automated_wettfinder_document,
     automated_wettfinder_forecasts,
     automated_wettfinder_signals,
     automated_wettfinder_status,
@@ -106,8 +107,8 @@ def _playable_automatic_candidate(
 def _model_automatic_candidate(**kwargs) -> dict:
     candidate = _playable_automatic_candidate(**kwargs)
     candidate["status"] = "MODEL_SELECTION"
-    candidate.pop("reference_price_status", None)
     candidate.pop("reference_quote", None)
+    candidate["reference_price_status"] = "UNAVAILABLE"
     return candidate
 
 
@@ -527,7 +528,9 @@ class ListSignalsTests(unittest.TestCase):
                             "approved_candidates": 1,
                         },
                         "sources": {"football": {"discovery_scope": 51}},
-                        "model_candidates": [],
+                        "model_candidates": [
+                            {**candidate, "status": "MODEL_SELECTION"}
+                        ],
                         "candidates": [candidate],
                     }
                 ),
@@ -542,6 +545,18 @@ class ListSignalsTests(unittest.TestCase):
                 artifact,
                 now=datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc),
             )
+            # Quote evidence expires after 90 minutes, while the model
+            # artifact remains valid for 150 minutes. The stale quote may
+            # remove the strict signal, never the model forecast.
+            stale_at = datetime(2030, 1, 1, 11, 31, tzinfo=timezone.utc)
+            stale_forecasts = automated_wettfinder_forecasts(
+                artifact,
+                now=stale_at,
+            )
+            stale_signals = automated_wettfinder_signals(
+                artifact,
+                now=stale_at,
+            )
         self.assertEqual(len(signals), 1)
         self.assertEqual(signals[0].source, "automated_wettfinder")
         self.assertEqual(signals[0].minimum_odds, 1.99)
@@ -554,6 +569,49 @@ class ListSignalsTests(unittest.TestCase):
         self.assertEqual(status.fixtures_found, 13)
         self.assertEqual(status.fixtures_modeled, 12)
         self.assertEqual(status.approved_candidates, 1)
+        self.assertEqual(len(stale_forecasts), 1)
+        self.assertEqual(stale_signals, [])
+
+    def test_automatic_artifact_rejects_strict_payload_mismatch(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            candidate = _playable_automatic_candidate()
+            model_candidate = {**candidate, "status": "MODEL_SELECTION"}
+            model_candidate["selection"] = "Nein"
+            artifact.write_text(
+                json.dumps(
+                    {
+                        "version": AUTOMATED_WETTFINDER_VERSION,
+                        "generated_at": "2030-01-01T10:00:00+00:00",
+                        "betting_policy_version": BETTING_POLICY_VERSION,
+                        "selection_policy_version": (
+                            AUTOMATED_SELECTION_POLICY_VERSION
+                        ),
+                        "bookmaker_data_used": True,
+                        "quote_required": True,
+                        "target_search_date": "2030-01-01",
+                        "model_candidates": [model_candidate],
+                        "candidates": [candidate],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertIsNone(
+                _load_automated_wettfinder_document(
+                    artifact,
+                    now=datetime(
+                        2030,
+                        1,
+                        1,
+                        10,
+                        30,
+                        tzinfo=timezone.utc,
+                    ),
+                )
+            )
 
     def test_model_selection_survives_without_a_bookmaker_quote(self):
         import json

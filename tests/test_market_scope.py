@@ -146,9 +146,9 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
     )["challenge"]
 
     assert checked == [favorite, alternative]
-    assert selection_pool == [alternative]
+    assert selection_pool == []
     assert result["model_shortlist"] == [favorite]
-    assert result["shortlist"] == [alternative]
+    assert result["shortlist"] == []
     assert result["price_checked_count"] == 2
     assert result["price_fixture_count"] == 1
     assert result["price_status_counts"] == {
@@ -231,7 +231,7 @@ def test_consumer_merge_keeps_priced_and_unpriced_forecasts_within_three():
         [same_fixture_model, unpriced_two, unpriced_three, overflow],
     )
 
-    assert displayed == [priced, unpriced_two, unpriced_three]
+    assert displayed == [same_fixture_model, unpriced_two, unpriced_three]
 
 
 def test_consumer_empty_state_contains_no_pipeline_diagnostics():

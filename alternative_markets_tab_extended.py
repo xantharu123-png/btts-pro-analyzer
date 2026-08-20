@@ -28,8 +28,8 @@ from market_consensus import (
 
 
 DEFAULT_LEAGUES = [78, 39, 140]
-MARKET_WORKFLOW_VERSION = 10
-MARKET_SNAPSHOT_VERSION = 12
+MARKET_WORKFLOW_VERSION = 11
+MARKET_SNAPSHOT_VERSION = 13
 MARKET_AUDIT_VERSION = 1
 MARKET_MAX_AGE_MINUTES = 20
 FOOTBALL_MARKET_SCOPES = {
@@ -444,13 +444,15 @@ def _merge_consumer_market_rows(
     *,
     limit: int = 3,
 ):
-    """Prefer priced fixtures and keep other model forecasts visible."""
+    """Keep the model-ranked display stable regardless of bookmaker price."""
 
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError("limit must be a positive integer")
     displayed = []
     seen_events = set()
-    for raw_candidate in [*(priced_rows or []), *(model_rows or [])]:
+    # The model order is authoritative. Priced rows only fill compatibility
+    # gaps in older snapshots and may never displace a stronger forecast.
+    for raw_candidate in [*(model_rows or []), *(priced_rows or [])]:
         fixture_id = getattr(raw_candidate, "fixture_id", None)
         identity = (
             f"fixture:{fixture_id}"
@@ -538,8 +540,15 @@ def _run_market_scan_worker(
 
     challenge_snapshot["model_shortlist"] = model_shortlist
     challenge_snapshot["model_approved_candidates"] = len(model_shortlist)
+    visible_candidate_ids = {
+        candidate.candidate_id for candidate in model_shortlist
+    }
     challenge_snapshot["shortlist"] = select_shortlist(
-        playable_candidates,
+        [
+            candidate
+            for candidate in playable_candidates
+            if candidate.candidate_id in visible_candidate_ids
+        ],
         max_candidates=3,
     )
     challenge_snapshot["approved_candidates"] = len(
@@ -832,8 +841,7 @@ def create_alternative_markets_tab_extended(
     if partial_scope_notice:
         st.warning(partial_scope_notice)
     # One price-passing market must not erase the other calculated forecasts.
-    # Prefer priced fixtures, then fill the same maximum-three view with model
-    # selections from different matches.
+    # Model ranking is authoritative; price only annotates those same cards.
     displayed_rows = _merge_consumer_market_rows(shortlist, model_shortlist)
 
     if not displayed_rows:

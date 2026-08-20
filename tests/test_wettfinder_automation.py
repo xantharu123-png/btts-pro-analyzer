@@ -10,7 +10,12 @@ from challenge_engine import (
     ValidationMetrics,
 )
 from config_loader import AppConfig
-from ev_signal_sources import AUTOMATED_WETTFINDER_VERSION, ModelSignal
+from ev_signal_sources import (
+    AUTOMATED_WETTFINDER_VERSION,
+    ModelSignal,
+    automated_wettfinder_forecasts,
+    automated_wettfinder_signals,
+)
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from market_consensus import parse_fixture_consensus
 from wettfinder_automation import (
@@ -216,7 +221,7 @@ def test_automation_writer_and_reader_share_one_artifact_version():
     assert AUTOMATION_VERSION == AUTOMATED_WETTFINDER_VERSION
 
 
-def test_one_model_ledger_keeps_strict_subset_and_global_limit_three():
+def test_one_model_ledger_is_ranked_without_price_priority_and_limited_to_three():
     strict_a = _candidate("strict-a", probability=0.66, haircut=0.05, event="A")
     strict_b = _candidate("strict-b", probability=0.64, haircut=0.05, event="B")
     forecast_same_event = _candidate(
@@ -232,7 +237,11 @@ def test_one_model_ledger_keeps_strict_subset_and_global_limit_three():
         target_date=date(2030, 1, 1),
     )
 
-    assert [row["key"] for row in ledger] == ["strict-a", "strict-b", "forecast-c"]
+    assert [row["key"] for row in ledger] == [
+        "forecast-a",
+        "forecast-c",
+        "forecast-d",
+    ]
     assert all(row["status"] == "MODEL_SELECTION" for row in ledger)
     assert strict_a["status"] == "PRICE_REQUIRED"
 
@@ -566,6 +575,7 @@ def test_runner_prices_verified_fixture_even_when_later_fixtures_are_unchecked(
 
 def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    state_path = tmp_path / "wettfinder.json"
 
     def quote_loader(rows):
         payload = {
@@ -597,7 +607,7 @@ def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
 
     document = run_wettfinder(
         now=now,
-        state_path=tmp_path / "wettfinder.json",
+        state_path=state_path,
         config=AppConfig(api_football_key="test"),
         football_scanner=lambda _search_date: _football_snapshot(now),
         football_quote_loader=quote_loader,
@@ -617,6 +627,11 @@ def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
     assert model_selection["reference_price_status"] == "PLAYABLE"
     assert tip["reference_quote"]["bookmaker_count"] == 4
     assert tip["reference_quote"]["conservative_odds"] == 1.9375
+    read_at = now + timedelta(minutes=30)
+    forecasts = automated_wettfinder_forecasts(state_path, now=read_at)
+    signals = automated_wettfinder_signals(state_path, now=read_at)
+    assert [row.key for row in forecasts] == [model_selection["key"]]
+    assert [row.key for row in signals] == [tip["key"]]
 
 
 def test_runner_never_publishes_unpriced_or_too_low_model_candidates(tmp_path):
@@ -689,6 +704,64 @@ def test_runner_never_publishes_unpriced_or_too_low_model_candidates(tmp_path):
         "TOO_LOW": 1
     }
     assert document["sources"]["esports"]["candidate_count"] == 1
+
+
+def test_runner_keeps_unmapped_forecast_out_of_quote_provider(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    unmapped = replace(
+        _challenge_candidate(now + timedelta(hours=5)),
+        candidate_id="fixture-1-home-range-1-3",
+        market_key="HOME_RANGE_1_3",
+        market="Team 1 Gesamttore",
+        selection="1-3 Tore",
+    )
+    unmapped.context = {"passed": True, "blocked_reasons": []}
+
+    def scan(_search_date):
+        return {
+            "scanned_at": now.isoformat(),
+            "fixtures_found": 1,
+            "fixtures_modeled": 1,
+            "base_candidates": 1,
+            "base_fixture_count": 1,
+            "context_fixtures": 1,
+            "context_verified_fixtures": 1,
+            "context_data_incomplete_fixtures": 0,
+            "context_unchecked_fixtures": 0,
+            "deferred_context_fixtures": 0,
+            "context_scope_complete": True,
+            "context_fixture_statuses": {"1": "verified"},
+            "fixture_kickoffs": [unmapped.kickoff],
+            "shortlist": [unmapped],
+            "forecast_shortlist": [unmapped],
+            "errors": [],
+        }
+
+    quote_calls = []
+
+    def quote_loader(rows):
+        quote_calls.append(list(rows))
+        return {}, []
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=scan,
+        football_quote_loader=quote_loader,
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    assert quote_calls == []
+    assert [
+        row["candidate_id"] for row in document["model_candidates"]
+    ] == ["fixture-1-home-range-1-3"]
+    assert document["model_candidates"][0]["reference_price_status"] == (
+        "UNAVAILABLE"
+    )
+    assert document["sources"]["football"]["price_checked_count"] == 0
+    assert document["candidates"] == []
 
 
 def test_runner_checks_full_football_pool_before_selecting_top_three(tmp_path):
@@ -768,7 +841,12 @@ def test_runner_checks_full_football_pool_before_selecting_top_three(tmp_path):
     )
 
     assert checked_ids == [1, 2, 3, 4]
-    assert [row["fixture_id"] for row in document["candidates"]] == [4]
+    assert [row["fixture_id"] for row in document["model_candidates"]] == [
+        1,
+        2,
+        3,
+    ]
+    assert document["candidates"] == []
 
 
 def test_runner_rejects_only_the_too_cheap_market_not_the_fixture(tmp_path):
@@ -870,9 +948,10 @@ def test_runner_rejects_only_the_too_cheap_market_not_the_fixture(tmp_path):
         "TOO_LOW": 1,
         "PLAYABLE": 1,
     }
-    assert [row["candidate_id"] for row in document["candidates"]] == [
-        "fixture-1-under-4-5"
+    assert [row["candidate_id"] for row in document["model_candidates"]] == [
+        "fixture-1-home"
     ]
+    assert document["candidates"] == []
 
 
 def test_runner_refreshes_runtime_clock_after_a_long_discovery(tmp_path):

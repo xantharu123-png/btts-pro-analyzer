@@ -19,6 +19,7 @@ from challenge_15k import (
     _challenge_sports_for_selection,
     _context_scope_facts,
     _discovery_candidate_pool,
+    _forecast_candidate_pool,
     _league_season_segments,
     _price_candidate_pool,
     _recommendation_day_label,
@@ -409,6 +410,27 @@ class ChallengeProbabilityTests(unittest.TestCase):
 
         self.assertEqual([item.candidate_id for item in pool], ["1:BTTS_YES"])
 
+    def test_forecast_pool_keeps_market_without_exact_quote_mapping(self):
+        mappable = candidate("1:BTTS_YES", 1, 0.70)
+        unmappable = replace(
+            candidate("2:HOME_RANGE_1_3", 2, 0.71),
+            market_key="HOME_RANGE_1_3",
+            market="Team 1 Gesamttore",
+            selection="1-3 Tore",
+        )
+
+        forecast_pool = _forecast_candidate_pool([unmappable, mappable])
+        price_pool = _price_candidate_pool([unmappable, mappable])
+
+        self.assertEqual(
+            [item.candidate_id for item in forecast_pool],
+            ["2:HOME_RANGE_1_3", "1:BTTS_YES"],
+        )
+        self.assertEqual(
+            [item.candidate_id for item in price_pool],
+            ["1:BTTS_YES"],
+        )
+
     def test_forecast_shortlist_keeps_provisional_but_release_shortlist_does_not(self):
         validated = candidate("1:BTTS", 1, 0.68)
         provisional = candidate("2:BTTS", 2, 0.72)
@@ -522,6 +544,63 @@ class ChallengeProbabilityTests(unittest.TestCase):
         self.assertIn("alle Voraussetzungen", detail)
         self.assertNotIn("Marktkandidaten", detail)
         self.assertNotIn("Walk-forward", detail)
+
+    def test_unmapped_forecast_is_rendered_without_ticket_or_stake(self):
+        fake_streamlit = MagicMock()
+        unmappable = replace(
+            candidate("2:HOME_RANGE_1_3", 2, 0.71),
+            market_key="HOME_RANGE_1_3",
+            market="Team 1 Gesamttore",
+            selection="1-3 Tore",
+        )
+        snapshot = {
+            "shortlist": [],
+            "forecast_shortlist": [unmappable],
+            "price_candidates": [],
+            "reference_quotes": {},
+        }
+
+        with patch("challenge_15k.st", fake_streamlit):
+            _render_price_check(snapshot, Mock(), {})
+
+        visible_markdown = " ".join(
+            str(call.args[0])
+            for call in fake_streamlit.markdown.call_args_list
+            if call.args
+        )
+        visible_info = " ".join(
+            str(call.args[0])
+            for call in fake_streamlit.info.call_args_list
+            if call.args
+        )
+        self.assertIn("Team 1 Gesamttore", visible_markdown)
+        self.assertIn("MODELL-AUSWAHL", visible_info)
+        self.assertIn("keine exakt passende Vergleichsquote", visible_info)
+        self.assertIn("kein Einsatz bewertet", visible_info)
+        fake_streamlit.success.assert_not_called()
+
+    def test_hidden_price_candidate_cannot_build_15k_ticket(self):
+        fake_streamlit = MagicMock()
+        visible = candidate("1:BTTS_YES", 1, 0.75)
+        hidden = candidate("2:BTTS_YES", 2, 0.65)
+        snapshot = {
+            "shortlist": [],
+            "forecast_shortlist": [visible],
+            "price_candidates": [hidden],
+            "reference_quotes": {},
+        }
+
+        with (
+            patch("challenge_15k.st", fake_streamlit),
+            patch(
+                "challenge_15k._automatic_challenge_ticket",
+                return_value=(None, {}),
+            ) as ticket_builder,
+        ):
+            _render_price_check(snapshot, Mock(), {})
+
+        self.assertEqual(ticket_builder.call_args.args[0], [])
+        fake_streamlit.success.assert_not_called()
 
     def test_scan_diagnostics_separates_model_and_context_gates(self):
         transfer_only = candidate("1:BTTS", 1, 0.70)

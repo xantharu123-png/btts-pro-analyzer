@@ -46,6 +46,7 @@ from ev_signal_sources import (
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from market_consensus import (
     MarketConsensus,
+    exact_market_target,
     fetch_football_consensus,
     reference_price_status,
 )
@@ -425,36 +426,23 @@ def build_model_selection_ledger(
     target_date: Optional[date] = None,
     limit: int = MAX_AUTOMATIC_CANDIDATES,
 ) -> list[dict[str, Any]]:
-    """Build one maximum-N display ledger with strict rows first."""
+    """Build the maximum-N display ledger independently of bookmaker price.
 
-    strict = select_candidates(
-        strict_rows,
-        now=now,
-        target_date=target_date,
-        limit=limit,
-    )
-    ledger = [dict(row) for row in strict]
-    occupied_events = {
-        str(row.get("event_identity") or row.get("key") or "").strip()
-        for row in ledger
-    }
-    remaining = limit - len(ledger)
-    if remaining > 0:
-        pool = [
-            row
-            for row in forecast_rows
-            if str(row.get("event_identity") or row.get("key") or "").strip()
-            not in occupied_events
-        ]
-        ledger.extend(
-            dict(row)
-            for row in select_candidates(
-                pool,
-                now=now,
-                target_date=target_date,
-                limit=remaining,
-            )
+    Strict rows are accepted for the existing call contract, but cannot affect
+    model ranking. A weaker PLAYABLE price must never hide a stronger forecast
+    whose quote is missing or below the price threshold.
+    """
+
+    del strict_rows
+    ledger = [
+        dict(row)
+        for row in select_candidates(
+            forecast_rows,
+            now=now,
+            target_date=target_date,
+            limit=limit,
         )
+    ]
     for row in ledger:
         row["status"] = "MODEL_SELECTION"
     return ledger
@@ -544,7 +532,8 @@ def _football_state_from_snapshot(
                 context_checked_at=scanned_at,
             )
             for candidate in (
-                snapshot.get("price_candidates")
+                snapshot.get("forecast_shortlist")
+                or snapshot.get("price_candidates")
                 or snapshot.get("shortlist")
                 or []
             )
@@ -781,7 +770,8 @@ def _merge_context_refresh(
                 context_checked_at=checked_at,
             )
             for candidate in (
-                result.get("price_candidates")
+                result.get("forecast_shortlist")
+                or result.get("price_candidates")
                 or result.get("candidates")
                 or result.get("shortlist")
                 or []
@@ -1218,15 +1208,24 @@ def run_wettfinder(
         "candidate_count": 0,
     }
 
+    football_model_rows = [
+        row
+        for row in source_rows
+        if row.get("source") == "football_challenge"
+        and isinstance(row.get("fixture_id"), int)
+        and not isinstance(row.get("fixture_id"), bool)
+        and row["fixture_id"] > 0
+        and str(row.get("market_key") or "").strip()
+    ]
+    # Every valid model row stays visible even when its exact bookmaker market
+    # cannot be mapped. Only the separate quote pool may reach the provider.
+    for row in football_model_rows:
+        row["reference_price_status"] = "UNAVAILABLE"
     football_price_rows = select_price_check_candidates(
         (
             row
-            for row in source_rows
-            if row.get("source") == "football_challenge"
-            and isinstance(row.get("fixture_id"), int)
-            and not isinstance(row.get("fixture_id"), bool)
-            and row["fixture_id"] > 0
-            and str(row.get("market_key") or "").strip()
+            for row in football_model_rows
+            if exact_market_target(row.get("market_key")) is not None
         ),
         now=current,
         target_date=target,
@@ -1252,23 +1251,35 @@ def run_wettfinder(
         current = _utc(runtime_clock())
     price_status_counts: dict[str, int] = {}
     playable_rows: list[dict[str, Any]] = []
+    football_model_by_id = {
+        str(row.get("candidate_id") or "").strip(): row
+        for row in football_model_rows
+        if str(row.get("candidate_id") or "").strip()
+    }
     for row in football_price_rows:
         candidate_id = str(row.get("candidate_id") or "")
+        model_row = football_model_by_id.get(candidate_id)
         quote = reference_quotes.get(candidate_id)
         if quote is None:
             status_code = "UNAVAILABLE"
             row["reference_price_status"] = status_code
+            if model_row is not None:
+                model_row["reference_price_status"] = status_code
             price_status_counts[status_code] = (
                 price_status_counts.get(status_code, 0) + 1
             )
             continue
         row["reference_quote"] = quote.to_dict()
+        if model_row is not None:
+            model_row["reference_quote"] = row["reference_quote"]
         status_code = reference_price_status(
             quote,
             row.get("minimum_odds"),
             now=current,
         ).code
         row["reference_price_status"] = status_code
+        if model_row is not None:
+            model_row["reference_price_status"] = status_code
         price_status_counts[status_code] = (
             price_status_counts.get(status_code, 0) + 1
         )
@@ -1288,19 +1299,29 @@ def run_wettfinder(
         and int(football_state.get("operational_error_count") or 0) == 0
         and context_statuses is not None
     )
-    candidates = select_candidates(
+    # There is one user-facing maximum-three ledger. Its probability-first
+    # order is entirely independent of bookmaker price.
+    model_candidates = build_model_selection_ledger(
         playable_rows if football_run_publishable else [],
+        [*football_model_rows, *non_football_rows],
         now=current,
         target_date=target,
         limit=MAX_AUTOMATIC_CANDIDATES,
     )
-    # There is one user-facing maximum-three ledger. Price-passing rows have
-    # priority, then the strongest remaining model forecasts fill free slots.
-    # This makes every strict row a subset of the same three cards instead of
-    # allowing two independent top-three lists to expand the UI to six.
-    model_candidates = build_model_selection_ledger(
-        candidates,
-        [*football_price_rows, *non_football_rows],
+    visible_keys = {
+        str(row.get("key") or "").strip()
+        for row in model_candidates
+        if str(row.get("key") or "").strip()
+    }
+    # A strict signal may only annotate one of those visible forecasts. Price
+    # can enable an action or stake, but never change the displayed Top 3.
+    candidates = select_candidates(
+        (
+            row
+            for row in playable_rows
+            if football_run_publishable
+            and str(row.get("key") or "").strip() in visible_keys
+        ),
         now=current,
         target_date=target,
         limit=MAX_AUTOMATIC_CANDIDATES,

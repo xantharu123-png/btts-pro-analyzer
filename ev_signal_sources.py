@@ -35,7 +35,7 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 9
+AUTOMATED_WETTFINDER_VERSION = 10
 AUTOMATED_SELECTION_POLICY_VERSION = "model-selection-price-separated-v8"
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 AUTOMATED_TOMORROW_SCAN_HOUR = 23
@@ -658,6 +658,44 @@ def _load_automated_wettfinder_document(
     model_candidates = document.get("model_candidates")
     if not isinstance(model_candidates, list) or len(model_candidates) > 3:
         return None
+    model_keys = [
+        str(row.get("key") or "").strip()
+        for row in model_candidates
+        if isinstance(row, dict)
+    ]
+    strict_keys = [
+        str(row.get("key") or "").strip()
+        for row in candidates
+        if isinstance(row, dict)
+    ]
+    if (
+        len(model_keys) != len(model_candidates)
+        or len(strict_keys) != len(candidates)
+        or any(not key for key in [*model_keys, *strict_keys])
+        or len(set(model_keys)) != len(model_keys)
+        or len(set(strict_keys)) != len(strict_keys)
+        or any(key not in model_keys for key in strict_keys)
+        or [key for key in model_keys if key in set(strict_keys)] != strict_keys
+    ):
+        return None
+    model_by_key = {
+        str(row.get("key") or "").strip(): row
+        for row in model_candidates
+    }
+    for strict_row in candidates:
+        model_row = model_by_key[str(strict_row.get("key") or "").strip()]
+        strict_decision = {
+            key: value
+            for key, value in strict_row.items()
+            if key != "status"
+        }
+        model_decision = {
+            key: value
+            for key, value in model_row.items()
+            if key != "status"
+        }
+        if strict_decision != model_decision:
+            return None
     try:
         target = date.fromisoformat(str(document.get("target_search_date")))
     except (TypeError, ValueError):
@@ -689,7 +727,7 @@ def _load_automated_wettfinder_document(
             or reference_price_status(
                 quote,
                 row.get("minimum_odds"),
-                now=current,
+                now=generated,
             ).code
             != "PLAYABLE"
         ):
@@ -736,10 +774,14 @@ def _load_automated_wettfinder_document(
             expected_status = reference_price_status(
                 quote,
                 supplied_minimum,
-                now=current,
+                now=generated,
             ).code
             if row.get("reference_price_status") != expected_status:
                 return None
+        elif row.get("source") == "football_challenge" and (
+            row.get("reference_price_status") != "UNAVAILABLE"
+        ):
+            return None
     return document, generated, candidates
 
 

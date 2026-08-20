@@ -79,8 +79,8 @@ from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 14
-CHALLENGE_WORKSPACE_VERSION = 9
+CHALLENGE_SNAPSHOT_VERSION = 15
+CHALLENGE_WORKSPACE_VERSION = 10
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
 CHALLENGE_SPORT_OPTIONS = (
@@ -1326,6 +1326,18 @@ def _price_candidate_pool(
     return _discovery_candidate_pool(eligible, fixture_ids)
 
 
+def _forecast_candidate_pool(
+    candidates: list[ChallengeCandidate],
+) -> list[ChallengeCandidate]:
+    """Return credible forecasts without requiring a quote-provider mapping."""
+
+    return [
+        candidate
+        for candidate in candidates
+        if candidate_is_forecast_credible(candidate)
+    ]
+
+
 def _ranked_fixture_ids(
     candidates: list[ChallengeCandidate],
     *,
@@ -2282,9 +2294,10 @@ def scan_daily_challenge(
         )
         contextualized.append(candidate)
 
+    forecast_candidates = _forecast_candidate_pool(contextualized)
     price_candidates = _price_candidate_pool(contextualized)
     forecast_shortlist = select_forecast_shortlist(
-        price_candidates,
+        forecast_candidates,
         max_candidates=3,
     )
     shortlist = select_shortlist(price_candidates, max_candidates=3)
@@ -2303,7 +2316,6 @@ def scan_daily_challenge(
         context_fixture_ids,
         deferred_context_fixture_ids,
     )
-    forecast_candidates = list(price_candidates)
     provisional_forecast_candidates = [
         candidate
         for candidate in forecast_candidates
@@ -2494,13 +2506,13 @@ def refresh_discovered_candidates(
         )
         contextualized.append(candidate)
 
+    forecast_candidates = _forecast_candidate_pool(contextualized)
     price_candidates = _price_candidate_pool(contextualized)
     forecast_shortlist = select_forecast_shortlist(
-        price_candidates,
+        forecast_candidates,
         max_candidates=max_candidates,
     )
     shortlist = select_shortlist(price_candidates, max_candidates=max_candidates)
-    forecast_candidates = list(price_candidates)
     provisional_forecast_candidates = [
         candidate
         for candidate in forecast_candidates
@@ -3660,7 +3672,10 @@ def _render_price_check(
     settings: dict[str, Any],
 ) -> None:
     shortlist: list[ChallengeCandidate] = snapshot["shortlist"]
-    if not shortlist:
+    displayed_candidates: list[ChallengeCandidate] = (
+        snapshot.get("forecast_shortlist") or shortlist
+    )
+    if not displayed_candidates:
         st.info("Für diesen Spieltag gibt es aktuell keinen 15K-Tipp.")
         st.caption(
             "Aktuell erfüllt keine Auswahl alle Voraussetzungen für einen "
@@ -3668,9 +3683,21 @@ def _render_price_check(
         )
         return
 
-    price_candidates: list[ChallengeCandidate] = (
+    all_price_candidates: list[ChallengeCandidate] = (
         snapshot.get("price_candidates") or shortlist
     )
+    price_candidates_by_id = {
+        candidate.candidate_id: candidate
+        for candidate in all_price_candidates
+    }
+    # A quote may annotate a visible forecast, but an invisible lower-ranked
+    # candidate must never become the actual ticket merely because its price
+    # happens to pass.
+    price_candidates = [
+        price_candidates_by_id[candidate.candidate_id]
+        for candidate in displayed_candidates
+        if candidate.candidate_id in price_candidates_by_id
+    ]
     reference_quotes = deserialize_consensus_map(snapshot.get("reference_quotes"))
     ticket, statuses = _automatic_challenge_ticket(
         price_candidates,
@@ -3691,14 +3718,20 @@ def _render_price_check(
             "abweichen. Auswahl und Linie müssen beim eigenen Anbieter identisch sein."
         )
 
-    for index, candidate in enumerate(shortlist, start=1):
+    for index, candidate in enumerate(displayed_candidates, start=1):
+        status = statuses.get(candidate.candidate_id)
+        if status is None:
+            status = reference_price_status(
+                reference_quotes.get(candidate.candidate_id),
+                candidate.minimum_odds,
+            )
         _render_challenge_candidate(
             candidate,
             reference_quotes.get(candidate.candidate_id),
-            statuses[candidate.candidate_id],
+            status,
             index,
         )
-        if index < len(shortlist):
+        if index < len(displayed_candidates):
             st.divider()
 
     if ticket is None:

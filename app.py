@@ -35,11 +35,11 @@ _REQUIRED_ANALYZER_MODULE_VERSION = 3
 if getattr(_advanced_analyzer, "ANALYZER_MODULE_VERSION", 0) < _REQUIRED_ANALYZER_MODULE_VERSION:
     _advanced_analyzer = importlib.reload(_advanced_analyzer)
 
-_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 9
+_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 10
 if getattr(_challenge_15k, "CHALLENGE_WORKSPACE_VERSION", 0) < _REQUIRED_CHALLENGE_WORKSPACE_VERSION:
     _challenge_15k = importlib.reload(_challenge_15k)
 
-_REQUIRED_MARKET_WORKFLOW_VERSION = 10
+_REQUIRED_MARKET_WORKFLOW_VERSION = 11
 if getattr(_alternative_markets, "MARKET_WORKFLOW_VERSION", 0) < _REQUIRED_MARKET_WORKFLOW_VERSION:
     _alternative_markets = importlib.reload(_alternative_markets)
 
@@ -3493,18 +3493,14 @@ def _render_automated_daily_selection() -> None:
     target_label = _automatic_target_label(status.target_search_date)
     football_signals, other_signals = _partition_automated_signals(signals)
     football_forecasts, other_forecasts = _partition_automated_signals(forecasts)
-    priced_keys = {signal.key for signal in signals}
-    football_forecasts = [
-        signal for signal in football_forecasts if signal.key not in priced_keys
-    ]
-    other_forecasts = [
-        signal for signal in other_forecasts if signal.key not in priced_keys
-    ]
     if status.football_status != "completed":
         football_signals = []
+    football_displayed = football_forecasts
+    other_displayed = other_forecasts
+    football_price_keys = {signal.key for signal in football_signals}
     with st.expander(
         f"Automatischer Fußball-Check · {target_label}",
-        expanded=bool(football_signals or football_forecasts),
+        expanded=bool(football_displayed),
     ):
         st.caption("Separater planmäßiger Lauf, unabhängig von der Suche darunter.")
         time_parts = [f"Ergebnisstand: {_format_stand(status.generated_at)}"]
@@ -3514,7 +3510,7 @@ def _render_automated_daily_selection() -> None:
             )
         st.caption(" · ".join(time_parts))
 
-        if not football_signals and not football_forecasts:
+        if not football_displayed:
             evidence, message, incomplete = _automatic_consumer_summary(status)
             st.caption(evidence)
             if incomplete:
@@ -3530,20 +3526,18 @@ def _render_automated_daily_selection() -> None:
                     "Der gesamte Tageslauf war nicht vollständig. Angezeigt werden "
                     "nur Auswahlen aus Spielen mit eigener vollständiger Prüfung."
                 )
-            if football_signals:
-                st.success(
-                    f"{len(football_signals)} automatisch berechnete "
-                    f"Wett-Auswahl{'en' if len(football_signals) != 1 else ''} "
-                    "mit passender Vergleichsquote."
-                )
-            elif football_forecasts:
-                st.info(
-                    f"{len(football_forecasts)} automatisch berechnete "
-                    f"Wett-Auswahl{'en' if len(football_forecasts) != 1 else ''}. "
-                    "Eine fehlende oder zu niedrige Quote ändert die Prognose nicht."
-                )
-            displayed = [*football_signals, *football_forecasts]
-            for index, selected in enumerate(displayed, start=1):
+            price_match_count = sum(
+                selected.key in football_price_keys
+                for selected in football_displayed
+            )
+            st.info(
+                f"{len(football_displayed)} automatisch berechnete "
+                f"Modell-Auswahl{'en' if len(football_displayed) != 1 else ''} · "
+                f"bei {price_match_count} "
+                f"{'passt die Quote' if price_match_count == 1 else 'passen die Quoten'}. "
+                "Fehlende oder niedrige Quoten ändern weder Auswahl noch Rangfolge."
+            )
+            for index, selected in enumerate(football_displayed, start=1):
                 st.markdown(f"### Berechnete Auswahl {index}")
                 render_price_decision(
                     _automated_signal_candidate(selected),
@@ -3553,10 +3547,9 @@ def _render_automated_daily_selection() -> None:
                     reference_quote=selected.reference_quote,
                     allow_manual_check=True,
                 )
-                if index < len(displayed):
+                if index < len(football_displayed):
                     st.divider()
 
-    other_displayed = [*other_signals, *other_forecasts]
     if other_displayed:
         with st.expander("Automatische Auswahlen · weitere Sportarten", expanded=True):
             st.caption(
