@@ -34,6 +34,7 @@ from football_data_history import _current_team_mapping, _normalized_team_name
 
 XG_CACHE_PATH = Path(__file__).resolve().with_name("xg_cache.db")
 SEASON_INDEX_MAX_AGE = timedelta(hours=6)
+INCOMPLETE_STATS_RETRY_AGE = timedelta(days=30)
 MAX_XG_VALUE = 12.0
 
 # fetch_list(path, params, label) -> Optional[list[dict]]  (wie ChallengeDataProvider._football_get)
@@ -226,10 +227,53 @@ def cached_stats(db_path: Path = XG_CACHE_PATH) -> dict[int, dict[str, tuple[flo
     return result
 
 
-def _cached_missing(db_path: Path) -> set[int]:
+def _recent_timestamp(value: object, *, max_age: timedelta) -> bool:
+    fetched_at = _fixture_datetime_utc(value)
+    if fetched_at is None:
+        return False
+    age = _utcnow() - fetched_at
+    return timedelta(0) <= age < max_age
+
+
+def _cached_missing(
+    db_path: Path,
+    *,
+    retry_age: timedelta = INCOMPLETE_STATS_RETRY_AGE,
+) -> set[int]:
     with closing(_connect(db_path)) as connection:
-        rows = connection.execute("SELECT fixture_id FROM xg_missing").fetchall()
-    return {int(row[0]) for row in rows}
+        rows = connection.execute(
+            "SELECT fixture_id, fetched_at FROM xg_missing"
+        ).fetchall()
+    return {
+        int(fixture_id)
+        for fixture_id, fetched_at in rows
+        if _recent_timestamp(fetched_at, max_age=retry_age)
+    }
+
+
+def _complete_or_recent_stats(
+    db_path: Path,
+    *,
+    retry_age: timedelta = INCOMPLETE_STATS_RETRY_AGE,
+) -> set[int]:
+    """Return complete rows plus recently checked partial rows.
+
+    A partial provider response is useful immediately, but it must not become
+    a permanent tombstone.  Old partial rows are retried at a bounded cadence.
+    """
+
+    with closing(_connect(db_path)) as connection:
+        rows = connection.execute(
+            "SELECT fixture_id, xg_home, xg_away, corners_home, corners_away,"
+            " yellow_home, yellow_away, fetched_at FROM xg_values"
+        ).fetchall()
+    protected: set[int] = set()
+    for row in rows:
+        fixture_id, *values, fetched_at = row
+        complete = all(value is not None for value in values)
+        if complete or _recent_timestamp(fetched_at, max_age=retry_age):
+            protected.add(int(fixture_id))
+    return protected
 
 
 def _parse_count(value: Any, *, maximum: int) -> Optional[int]:
@@ -302,14 +346,13 @@ def fetch_missing_xg(
     *,
     max_calls: int = 24,
     pause_seconds: float = 0.2,
+    retry_age: timedelta = INCOMPLETE_STATS_RETRY_AGE,
 ) -> dict[str, int]:
     """Hole Statistiken für Index-Einträge ohne Cache-Eintrag (quotenbewusst)."""
-    with closing(_connect(db_path)) as connection:
-        present = {
-            int(row[0])
-            for row in connection.execute("SELECT fixture_id FROM xg_values").fetchall()
-        }
-    missing_marked = _cached_missing(db_path)
+    if retry_age <= timedelta(0):
+        raise ValueError("retry_age must be positive")
+    present = _complete_or_recent_stats(db_path, retry_age=retry_age)
+    missing_marked = _cached_missing(db_path, retry_age=retry_age)
     todo = [
         entry
         for entry in fixtures
@@ -340,13 +383,25 @@ def fetch_missing_xg(
                 corners = extracted.get("corners") or (None, None)
                 yellow = extracted.get("yellow") or (None, None)
                 connection.execute(
-                    "INSERT OR REPLACE INTO xg_values (fixture_id, xg_home, xg_away,"
+                    "INSERT INTO xg_values (fixture_id, xg_home, xg_away,"
                     " corners_home, corners_away, yellow_home, yellow_away, fetched_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                    " ON CONFLICT(fixture_id) DO UPDATE SET"
+                    " xg_home=COALESCE(excluded.xg_home, xg_values.xg_home),"
+                    " xg_away=COALESCE(excluded.xg_away, xg_values.xg_away),"
+                    " corners_home=COALESCE(excluded.corners_home, xg_values.corners_home),"
+                    " corners_away=COALESCE(excluded.corners_away, xg_values.corners_away),"
+                    " yellow_home=COALESCE(excluded.yellow_home, xg_values.yellow_home),"
+                    " yellow_away=COALESCE(excluded.yellow_away, xg_values.yellow_away),"
+                    " fetched_at=excluded.fetched_at",
                     (
                         entry["id"], xg[0], xg[1], corners[0], corners[1],
                         yellow[0], yellow[1], _iso(_utcnow()),
                     ),
+                )
+                connection.execute(
+                    "DELETE FROM xg_missing WHERE fixture_id = ?",
+                    (entry["id"],),
                 )
                 stats["fetched"] += 1
             if pause_seconds > 0:

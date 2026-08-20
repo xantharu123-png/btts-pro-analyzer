@@ -66,6 +66,7 @@ from betting_math import BETTING_POLICY_VERSION
 from ev_signal_sources import (
     AutomatedWettfinderStatus,
     ModelSignal,
+    automated_wettfinder_forecasts,
     automated_wettfinder_signals,
     automated_wettfinder_status,
 )
@@ -83,7 +84,7 @@ from multi_sport_recommendations import (
 PAGE_INFO = {
     "Wettfinder": (
         "Wettfinder",
-        "Konkrete Auswahlen – erst nach Qualitätsprüfung, Marktvergleich und Mindestquote.",
+        "Berechnete Auswahlen nach Qualitätsprüfung; Marktpreis und Mindestquote werden getrennt bewertet.",
     ),
     "Live": (
         "Live Wettfinder",
@@ -3199,7 +3200,11 @@ def _automated_signal_candidate(signal: ModelSignal) -> RecommendationCandidate:
         expected_total=None,
         evidence=(
             signal.detail,
-            "Automatischer Mehrbuchmachervergleich liegt vor.",
+            (
+                "Automatischer Marktvergleich liegt vor."
+                if signal.reference_quote is not None
+                else "Modellprognose und Wettpreis werden getrennt bewertet."
+            ),
         ),
         blockers=(
             ()
@@ -3478,6 +3483,7 @@ def _automatic_partial_scope_notice(
 def _render_automated_daily_selection() -> None:
     status = automated_wettfinder_status()
     signals = automated_wettfinder_signals()
+    forecasts = automated_wettfinder_forecasts()
     if status is None:
         with st.expander("Automatischer Check", expanded=False):
             st.caption("Separater planmäßiger Lauf, unabhängig von der Suche darunter.")
@@ -3486,11 +3492,19 @@ def _render_automated_daily_selection() -> None:
 
     target_label = _automatic_target_label(status.target_search_date)
     football_signals, other_signals = _partition_automated_signals(signals)
+    football_forecasts, other_forecasts = _partition_automated_signals(forecasts)
+    priced_keys = {signal.key for signal in signals}
+    football_forecasts = [
+        signal for signal in football_forecasts if signal.key not in priced_keys
+    ]
+    other_forecasts = [
+        signal for signal in other_forecasts if signal.key not in priced_keys
+    ]
     if status.football_status != "completed":
         football_signals = []
     with st.expander(
         f"Automatischer Fußball-Check · {target_label}",
-        expanded=bool(football_signals),
+        expanded=bool(football_signals or football_forecasts),
     ):
         st.caption("Separater planmäßiger Lauf, unabhängig von der Suche darunter.")
         time_parts = [f"Ergebnisstand: {_format_stand(status.generated_at)}"]
@@ -3500,7 +3514,7 @@ def _render_automated_daily_selection() -> None:
             )
         st.caption(" · ".join(time_parts))
 
-        if not football_signals:
+        if not football_signals and not football_forecasts:
             evidence, message, incomplete = _automatic_consumer_summary(status)
             st.caption(evidence)
             if incomplete:
@@ -3511,37 +3525,55 @@ def _render_automated_daily_selection() -> None:
             partial_scope_notice = _automatic_partial_scope_notice(status)
             if partial_scope_notice:
                 st.warning(partial_scope_notice)
-            st.info(
-                f"{len(football_signals)} Modell-Auswahl"
-                f"{'en' if len(football_signals) != 1 else ''} mit passender Vergleichsquote."
-            )
-            for index, selected in enumerate(football_signals, start=1):
-                st.markdown(f"### Auswahl {index}")
+            if status.football_status != "completed" or status.operational_error_count:
+                st.warning(
+                    "Der gesamte Tageslauf war nicht vollständig. Angezeigt werden "
+                    "nur Auswahlen aus Spielen mit eigener vollständiger Prüfung."
+                )
+            if football_signals:
+                st.success(
+                    f"{len(football_signals)} automatisch berechnete "
+                    f"Wett-Auswahl{'en' if len(football_signals) != 1 else ''} "
+                    "mit passender Vergleichsquote."
+                )
+            elif football_forecasts:
+                st.info(
+                    f"{len(football_forecasts)} automatisch berechnete "
+                    f"Wett-Auswahl{'en' if len(football_forecasts) != 1 else ''}. "
+                    "Eine fehlende oder zu niedrige Quote ändert die Prognose nicht."
+                )
+            displayed = [*football_signals, *football_forecasts]
+            for index, selected in enumerate(displayed, start=1):
+                st.markdown(f"### Berechnete Auswahl {index}")
                 render_price_decision(
                     _automated_signal_candidate(selected),
                     key=f"automated_{selected.key}",
                     bankroll_key="automated_finder_bankroll",
                     save_source="Automatischer Wettfinder",
                     reference_quote=selected.reference_quote,
+                    allow_manual_check=True,
                 )
-                if index < len(football_signals):
+                if index < len(displayed):
                     st.divider()
 
-    if other_signals:
+    other_displayed = [*other_signals, *other_forecasts]
+    if other_displayed:
         with st.expander("Automatische Auswahlen · weitere Sportarten", expanded=True):
             st.caption(
-                "Diese Auswahlen stammen aus den jeweils getrennten Sportmodellen."
+                "Diese Auswahlen stammen aus den getrennten Tennis- und "
+                "E-Sport-Modellen. Preis und Prognose werden separat bewertet."
             )
-            for index, selected in enumerate(other_signals, start=1):
-                st.markdown(f"### Auswahl {index}")
+            for index, selected in enumerate(other_displayed, start=1):
+                st.markdown(f"### Berechnete Auswahl {index}")
                 render_price_decision(
                     _automated_signal_candidate(selected),
                     key=f"automated_other_{selected.key}",
                     bankroll_key="automated_finder_bankroll",
                     save_source="Automatischer Wettfinder",
                     reference_quote=selected.reference_quote,
+                    allow_manual_check=True,
                 )
-                if index < len(other_signals):
+                if index < len(other_displayed):
                     st.divider()
 
 

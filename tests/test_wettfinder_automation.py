@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 
 from challenge_engine import (
+    MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     ChallengeCandidate,
     ValidationMetrics,
@@ -19,6 +20,7 @@ from wettfinder_automation import (
     _football_state_from_snapshot,
     _merge_context_refresh,
     _signal_record,
+    build_model_selection_ledger,
     football_context_due_fixture_ids,
     football_due,
     load_state,
@@ -214,6 +216,27 @@ def test_automation_writer_and_reader_share_one_artifact_version():
     assert AUTOMATION_VERSION == AUTOMATED_WETTFINDER_VERSION
 
 
+def test_one_model_ledger_keeps_strict_subset_and_global_limit_three():
+    strict_a = _candidate("strict-a", probability=0.66, haircut=0.05, event="A")
+    strict_b = _candidate("strict-b", probability=0.64, haircut=0.05, event="B")
+    forecast_same_event = _candidate(
+        "forecast-a", probability=0.90, haircut=0.05, event="A"
+    )
+    forecast_c = _candidate("forecast-c", probability=0.80, haircut=0.05, event="C")
+    forecast_d = _candidate("forecast-d", probability=0.79, haircut=0.05, event="D")
+
+    ledger = build_model_selection_ledger(
+        [strict_a, strict_b],
+        [forecast_same_event, forecast_c, forecast_d],
+        now=datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
+        target_date=date(2030, 1, 1),
+    )
+
+    assert [row["key"] for row in ledger] == ["strict-a", "strict-b", "forecast-c"]
+    assert all(row["status"] == "MODEL_SELECTION" for row in ledger)
+    assert strict_a["status"] == "PRICE_REQUIRED"
+
+
 def test_persisted_model_signal_keeps_event_market_and_selection_separate():
     signal = ModelSignal(
         key="esports-1",
@@ -394,6 +417,25 @@ def test_football_record_rejects_unvalidated_cross_competition_model():
     assert _football_candidate_record(candidate) is None
 
 
+def test_football_record_keeps_provisional_uefa_forecast_in_shadow():
+    candidate = _challenge_candidate(datetime(2030, 1, 1, 15, 0, tzinfo=UTC))
+    candidate.model_scope = MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+    candidate.context = {
+        "passed": True,
+        "forecast_passed": True,
+        "release_eligible": False,
+        "blocked_reasons": [],
+        "model_transfer": {"status": "provisional"},
+    }
+
+    record = _football_candidate_record(candidate)
+
+    assert record is not None
+    assert record["evidence_stage"] == "SHADOW"
+    assert record["model_scope"] == MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+    assert "Transfer-Prüfphase" in record["detail"]
+
+
 def test_runner_reuses_persisted_models_and_skips_not_due_football(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     state_path = tmp_path / "wettfinder.json"
@@ -436,6 +478,10 @@ def test_runner_reuses_persisted_models_and_skips_not_due_football(tmp_path):
     assert first["bookmaker_data_used"] is False
     assert first["quote_required"] is True
     assert first["candidates"] == []
+    assert {row["sport"] for row in first["model_candidates"]} == {
+        "Fussball",
+        "Tennis",
+    }
     assert first["sources"]["football"]["price_status_counts"] == {
         "UNAVAILABLE": 1
     }
@@ -463,9 +509,10 @@ def test_runner_never_publishes_candidate_from_degraded_football_scan(tmp_path):
 
     assert document["football"]["status"] == "degraded"
     assert document["football"]["operational_error_count"] == 1
-    assert document["sources"]["football"]["candidate_count"] == 0
-    assert document["sources"]["football"]["price_checked_count"] == 0
+    assert document["sources"]["football"]["candidate_count"] == 1
+    assert document["sources"]["football"]["price_checked_count"] == 1
     assert document["candidates"] == []
+    assert [row["sport"] for row in document["model_candidates"]] == ["Fussball"]
 
 
 def test_runner_prices_verified_fixture_even_when_later_fixtures_are_unchecked(
@@ -561,9 +608,13 @@ def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
     assert document["bookmaker_data_used"] is True
     assert document["sources"]["football"]["reference_quote_count"] == 1
     tip = document["candidates"][0]
+    model_selection = document["model_candidates"][0]
     assert document["quote_required"] is True
     assert tip["status"] == "RECOMMENDED"
+    assert model_selection["status"] == "MODEL_SELECTION"
+    assert model_selection["candidate_id"] == tip["candidate_id"]
     assert tip["reference_price_status"] == "PLAYABLE"
+    assert model_selection["reference_price_status"] == "PLAYABLE"
     assert tip["reference_quote"]["bookmaker_count"] == 4
     assert tip["reference_quote"]["conservative_odds"] == 1.9375
 
@@ -624,6 +675,15 @@ def test_runner_never_publishes_unpriced_or_too_low_model_candidates(tmp_path):
     )
 
     assert document["candidates"] == []
+    assert {row["sport"] for row in document["model_candidates"]} == {
+        "Fussball",
+        "E-Sport",
+    }
+    football_model = next(
+        row for row in document["model_candidates"] if row["sport"] == "Fussball"
+    )
+    assert football_model["reference_price_status"] == "TOO_LOW"
+    assert football_model["reference_quote"]["bookmaker_count"] == 4
     assert document["bookmaker_data_used"] is True
     assert document["sources"]["football"]["price_status_counts"] == {
         "TOO_LOW": 1

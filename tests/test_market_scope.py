@@ -219,6 +219,21 @@ def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypat
     assert result["price_status_counts"] == {"TOO_LOW": 1}
 
 
+def test_consumer_merge_keeps_priced_and_unpriced_forecasts_within_three():
+    priced = SimpleNamespace(candidate_id="fixture-1-under", fixture_id=1)
+    same_fixture_model = SimpleNamespace(candidate_id="fixture-1-home", fixture_id=1)
+    unpriced_two = SimpleNamespace(candidate_id="fixture-2-home", fixture_id=2)
+    unpriced_three = SimpleNamespace(candidate_id="fixture-3-btts", fixture_id=3)
+    overflow = SimpleNamespace(candidate_id="fixture-4-over", fixture_id=4)
+
+    displayed = market_tab._merge_consumer_market_rows(
+        [priced],
+        [same_fixture_model, unpriced_two, unpriced_three, overflow],
+    )
+
+    assert displayed == [priced, unpriced_two, unpriced_three]
+
+
 def test_consumer_empty_state_contains_no_pipeline_diagnostics():
     evidence, message, incomplete = market_tab._consumer_no_tip_copy(
         {

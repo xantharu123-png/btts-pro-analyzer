@@ -35,8 +35,8 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 8
-AUTOMATED_SELECTION_POLICY_VERSION = "multi-market-min-published-odds-v7"
+AUTOMATED_WETTFINDER_VERSION = 9
+AUTOMATED_SELECTION_POLICY_VERSION = "model-selection-price-separated-v8"
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 AUTOMATED_TOMORROW_SCAN_HOUR = 23
 
@@ -121,6 +121,7 @@ class AutomatedWettfinderStatus:
     operational_error_count: int
     approved_candidates: int
     candidate_count: int
+    model_candidate_count: int
     bookmaker_data_used: bool
     price_checked_count: int
     reference_quote_count: int
@@ -654,6 +655,9 @@ def _load_automated_wettfinder_document(
     candidates = document.get("candidates")
     if not isinstance(candidates, list) or len(candidates) > 3:
         return None
+    model_candidates = document.get("model_candidates")
+    if not isinstance(model_candidates, list) or len(model_candidates) > 3:
+        return None
     try:
         target = date.fromisoformat(str(document.get("target_search_date")))
     except (TypeError, ValueError):
@@ -690,6 +694,52 @@ def _load_automated_wettfinder_document(
             != "PLAYABLE"
         ):
             return None
+    for row in model_candidates:
+        if (
+            not isinstance(row, dict)
+            or row.get("status") != "MODEL_SELECTION"
+            or any(
+                field in row
+                for field in ("offered_odds", "bookmaker_odds", "n1bet_odds")
+            )
+        ):
+            return None
+        probability = row.get("probability")
+        haircut = row.get("probability_haircut")
+        if not _valid_probability(probability) or not _valid_haircut(
+            haircut,
+            float(probability),
+        ):
+            return None
+        expected_minimum = _minimum_odds(float(probability), float(haircut))
+        supplied_minimum = row.get("minimum_odds")
+        if (
+            expected_minimum is None
+            or isinstance(supplied_minimum, bool)
+            or not isinstance(supplied_minimum, (int, float))
+            or abs(float(supplied_minimum) - expected_minimum) > 0.011
+        ):
+            return None
+        scheduled = _parse_iso(row.get("scheduled_start"))
+        if (
+            scheduled is None
+            or scheduled.astimezone(timezone.utc) <= current
+            or scheduled.astimezone(ZURICH_TZ).date() != target
+        ):
+            return None
+        quote_payload = row.get("reference_quote")
+        if quote_payload is not None:
+            quote = MarketConsensus.from_dict(quote_payload)
+            candidate_id = str(row.get("candidate_id") or "").strip()
+            if quote is None or not candidate_id or quote.candidate_id != candidate_id:
+                return None
+            expected_status = reference_price_status(
+                quote,
+                supplied_minimum,
+                now=current,
+            ).code
+            if row.get("reference_price_status") != expected_status:
+                return None
     return document, generated, candidates
 
 
@@ -773,6 +823,7 @@ def automated_wettfinder_status(
             football.get("approved_candidates")
         ),
         candidate_count=len(candidates),
+        model_candidate_count=len(document.get("model_candidates") or []),
         bookmaker_data_used=document["bookmaker_data_used"],
         price_checked_count=_non_negative_int(
             football_source.get("price_checked_count")
@@ -784,6 +835,110 @@ def automated_wettfinder_status(
             football_source.get("price_status_counts")
         ),
     )
+
+
+def automated_wettfinder_forecasts(
+    path: Union[str, Path] = AUTOMATED_WETTFINDER_PATH,
+    *,
+    now: Optional[datetime] = None,
+    max_age: timedelta = AUTOMATED_WETTFINDER_MAX_AGE,
+) -> List[ModelSignal]:
+    """Read up to three calculated model selections independently of price.
+
+    These rows are deliberately separate from ``automated_wettfinder_signals``:
+    a missing or too-low bookmaker quote must never erase a model forecast.
+    Football rows require a verified, candidate-specific context record even
+    when another league in the broad scan was incomplete. The evidence stage
+    remains authoritative, so a Shadow/Research selection cannot become an
+    Echtgeld tip through this API.
+    """
+
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    loaded = _load_automated_wettfinder_document(
+        path,
+        now=current,
+        max_age=max_age,
+    )
+    if loaded is None:
+        return []
+    document, _generated, _priced_candidates = loaded
+    rows = document.get("model_candidates")
+    if not isinstance(rows, list):
+        return []
+    football = document.get("football")
+    football = football if isinstance(football, dict) else {}
+    football_statuses = _validated_football_context_statuses(football)
+    football_context_available = football_statuses is not None
+    policies = _current_automated_policies()
+    forecasts: List[ModelSignal] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        normalized_sport = (
+            str(row.get("sport") or "").strip().casefold().replace("ß", "ss")
+        )
+        is_football = (
+            row.get("source") == "football_challenge"
+            or normalized_sport == "fussball"
+        )
+        fixture_id = row.get("fixture_id")
+        if is_football and (
+            not football_context_available
+            or isinstance(fixture_id, bool)
+            or not isinstance(fixture_id, int)
+            or football_statuses.get(str(fixture_id)) != "verified"
+        ):
+            continue
+        probability = row.get("probability")
+        haircut = row.get("probability_haircut")
+        minimum_odds = row.get("minimum_odds")
+        if (
+            not _valid_probability(probability)
+            or not _valid_haircut(haircut, float(probability))
+            or isinstance(minimum_odds, bool)
+            or not isinstance(minimum_odds, (int, float))
+        ):
+            continue
+        stage = str(row.get("evidence_stage") or "").upper()
+        policy = str(row.get("policy_version") or "").strip()
+        key = str(row.get("key") or "").strip()
+        label = str(row.get("label") or "").strip()
+        detail = str(row.get("detail") or "").strip()
+        scheduled = _parse_iso(row.get("scheduled_start"))
+        if (
+            stage not in {"RESEARCH", "SHADOW", "RELEASED"}
+            or policy not in policies
+            or not all((key, label, detail))
+            or scheduled is None
+        ):
+            continue
+        quote = MarketConsensus.from_dict(row.get("reference_quote"))
+        try:
+            forecasts.append(
+                ModelSignal(
+                    key=key,
+                    label=label,
+                    probability=float(probability),
+                    probability_haircut=float(haircut),
+                    evidence_stage=stage,
+                    policy_version=policy,
+                    detail=detail,
+                    scheduled_start=scheduled.astimezone(timezone.utc).isoformat(),
+                    minimum_odds=float(minimum_odds),
+                    source="automated_wettfinder_forecast",
+                    sport=str(row.get("sport") or "").strip() or None,
+                    event_label=str(row.get("event") or "").strip() or label,
+                    market=str(row.get("market") or "").strip() or "Auswahl",
+                    selection=str(row.get("selection") or "").strip() or label,
+                    reference_quote=quote.to_dict() if quote is not None else None,
+                )
+            )
+        except ValueError:
+            continue
+    return forecasts
 
 
 def automated_wettfinder_signals(

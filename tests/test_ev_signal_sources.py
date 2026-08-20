@@ -13,6 +13,7 @@ from esports_shadow import ESPORTS_MODEL_VERSION
 from ev_signal_sources import (
     AUTOMATED_SELECTION_POLICY_VERSION,
     AUTOMATED_WETTFINDER_VERSION,
+    automated_wettfinder_forecasts,
     automated_wettfinder_signals,
     automated_wettfinder_status,
     esports_signals,
@@ -99,6 +100,14 @@ def _playable_automatic_candidate(
         [candidate],
         fetched_at=fetched_at,
     )[candidate["candidate_id"]].to_dict()
+    return candidate
+
+
+def _model_automatic_candidate(**kwargs) -> dict:
+    candidate = _playable_automatic_candidate(**kwargs)
+    candidate["status"] = "MODEL_SELECTION"
+    candidate.pop("reference_price_status", None)
+    candidate.pop("reference_quote", None)
     return candidate
 
 
@@ -518,6 +527,7 @@ class ListSignalsTests(unittest.TestCase):
                             "approved_candidates": 1,
                         },
                         "sources": {"football": {"discovery_scope": 51}},
+                        "model_candidates": [],
                         "candidates": [candidate],
                     }
                 ),
@@ -545,6 +555,56 @@ class ListSignalsTests(unittest.TestCase):
         self.assertEqual(status.fixtures_modeled, 12)
         self.assertEqual(status.approved_candidates, 1)
 
+    def test_model_selection_survives_without_a_bookmaker_quote(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            artifact.write_text(
+                json.dumps(
+                    {
+                        "version": AUTOMATED_WETTFINDER_VERSION,
+                        "generated_at": "2030-01-01T10:00:00+00:00",
+                        "betting_policy_version": BETTING_POLICY_VERSION,
+                        "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
+                        "bookmaker_data_used": False,
+                        "quote_required": True,
+                        "target_search_date": "2030-01-01",
+                        "football": {
+                            "status": "completed",
+                            "operational_error_count": 0,
+                            "base_fixture_count": 1,
+                            "context_fixtures": 1,
+                            "context_verified_fixtures": 1,
+                            "context_data_incomplete_fixtures": 0,
+                            "context_unchecked_fixtures": 0,
+                            "deferred_context_fixtures": 0,
+                            "context_scope_complete": True,
+                            "context_accounting_available": True,
+                            "context_fixture_statuses": {"1": "verified"},
+                        },
+                        "sources": {"football": {"discovery_scope": 51}},
+                        "model_candidates": [_model_automatic_candidate()],
+                        "candidates": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            forecasts = automated_wettfinder_forecasts(
+                artifact,
+                now=datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc),
+            )
+            priced = automated_wettfinder_signals(
+                artifact,
+                now=datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertEqual(forecasts[0].selection, "Ja")
+        self.assertIsNone(forecasts[0].reference_quote)
+        self.assertEqual(priced, [])
+
     def test_degraded_football_artifact_never_exposes_football_signal(self):
         import json
 
@@ -564,6 +624,7 @@ class ListSignalsTests(unittest.TestCase):
                             "status": "degraded",
                             "operational_error_count": 1,
                         },
+                        "model_candidates": [],
                         "candidates": [_playable_automatic_candidate()],
                     }
                 ),
@@ -598,6 +659,7 @@ class ListSignalsTests(unittest.TestCase):
                             "context_scope_complete": True,
                             "context_accounting_available": True,
                         },
+                        "model_candidates": [],
                         "candidates": [_playable_automatic_candidate()],
                     }
                 ),
@@ -659,6 +721,7 @@ class ListSignalsTests(unittest.TestCase):
                                 },
                             }
                         },
+                        "model_candidates": [],
                         "candidates": [],
                     }
                 ),
@@ -702,6 +765,7 @@ class ListSignalsTests(unittest.TestCase):
                 "bookmaker_data_used": True,
                 "quote_required": True,
                 "target_search_date": "2030-01-01",
+                "model_candidates": [],
                 "candidates": [_playable_automatic_candidate()],
             }
             artifact.write_text(json.dumps(document), encoding="utf-8")
@@ -743,6 +807,7 @@ class ListSignalsTests(unittest.TestCase):
                 "bookmaker_data_used": True,
                 "quote_required": True,
                 "target_search_date": "2030-01-01",
+                "model_candidates": [],
             }
             missing = _playable_automatic_candidate()
             missing.pop("reference_quote")

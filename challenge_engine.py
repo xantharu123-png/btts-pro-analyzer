@@ -51,6 +51,9 @@ H2H_MAX_AGE_DAYS = 3 * 365 + 1
 H2H_CONFIDENCE_Z = 1.959963984540054
 H2H_MATERIAL_GAP = 0.10
 MODEL_SCOPE_SAME_COMPETITION = "same_competition"
+MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST = (
+    "cross_competition_provisional_forecast"
+)
 MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED = "cross_competition_unvalidated"
 UNVALIDATED_TRANSFER_REASON = (
     "Heimatliga-Transfermodell ist fuer UEFA-Duelle nicht validiert"
@@ -147,7 +150,12 @@ class ChallengeCandidate:
 
     @property
     def eligible(self) -> bool:
-        return self.base_eligible and self.context.get("passed") is True
+        return candidate_is_credible(self)
+
+    @property
+    def forecast_eligible(self) -> bool:
+        """Whether the candidate is a model forecast, not necessarily a tip."""
+        return candidate_is_forecast_credible(self)
 
     @property
     def minimum_odds(self) -> float:
@@ -163,6 +171,7 @@ class ChallengeCandidate:
         payload = asdict(self)
         payload["base_eligible"] = self.base_eligible
         payload["eligible"] = self.eligible
+        payload["forecast_eligible"] = self.forecast_eligible
         return payload
 
 
@@ -1611,6 +1620,7 @@ def build_fixture_candidates(
     """Build price-independent candidates for one fixture."""
     if model_scope not in {
         MODEL_SCOPE_SAME_COMPETITION,
+        MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
         MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     }:
         raise ValueError("model_scope is invalid")
@@ -1675,7 +1685,7 @@ def build_fixture_candidates(
         evidence = min(100.0, sample_score + form_score + agreement_score + freshness_score + validation_score)
 
         blocked: list[str] = []
-        if model_scope != MODEL_SCOPE_SAME_COMPETITION:
+        if model_scope == MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED:
             blocked.append(UNVALIDATED_TRANSFER_REASON)
         if not 0.58 <= active <= 0.92:
             blocked.append("Modellwahrscheinlichkeit außerhalb des Challenge-Korridors")
@@ -1880,13 +1890,28 @@ def _injury_summary(
     home_team_id: int,
     away_team_id: int,
     coverage_available: bool,
-) -> tuple[bool, dict[str, Any], Optional[str]]:
+) -> tuple[Optional[bool], dict[str, Any], Optional[str]]:
     if not coverage_available:
-        return False, {"status": "unavailable"}, "Verletzungsdaten werden für diese Liga nicht abgedeckt"
+        return None, {
+            "status": "unavailable",
+            "availability": "not_covered",
+            "coverage_available": False,
+            "reason": "Verletzungsdaten werden für diese Liga nicht abgedeckt",
+        }, None
     if injuries is None:
-        return False, {"status": "unavailable"}, "Verletzungsdaten konnten nicht verifiziert werden"
+        return None, {
+            "status": "unavailable",
+            "availability": "provider_unavailable",
+            "coverage_available": True,
+            "reason": "Verletzungsdaten konnten nicht verifiziert werden",
+        }, None
     if not isinstance(injuries, list) or any(not isinstance(entry, dict) for entry in injuries):
-        return False, {"status": "unavailable"}, "Verletzungsdaten sind ungültig"
+        return None, {
+            "status": "unavailable",
+            "availability": "invalid",
+            "coverage_available": True,
+            "reason": "Verletzungsdaten sind ungültig",
+        }, None
 
     summary: dict[int, dict[str, Any]] = {
         home_team_id: {"missing": set(), "questionable": set(), "names": []},
@@ -1896,7 +1921,12 @@ def _injury_summary(
         team = entry.get("team")
         player = entry.get("player")
         if not isinstance(team, dict) or not isinstance(player, dict):
-            return False, {"status": "unavailable"}, "Verletzungsdaten sind unvollständig"
+            return None, {
+                "status": "unavailable",
+                "availability": "invalid",
+                "coverage_available": True,
+                "reason": "Verletzungsdaten sind unvollständig",
+            }, None
         team_id = team.get("id")
         if team_id not in summary:
             continue
@@ -1910,41 +1940,132 @@ def _injury_summary(
         if name not in summary[team_id]["names"]:
             summary[team_id]["names"].append(name)
 
-    home_weight = len(summary[home_team_id]["missing"]) + 0.5 * len(summary[home_team_id]["questionable"])
-    away_weight = len(summary[away_team_id]["missing"]) + 0.5 * len(summary[away_team_id]["questionable"])
-    passed = max(home_weight, away_weight) <= 5 and abs(home_weight - away_weight) <= 3
+    material_vetoes: list[str] = []
+    for entry in injuries:
+        team = entry.get("team")
+        if not isinstance(team, dict) or team.get("id") not in summary:
+            continue
+        impact = entry.get("material_impact")
+        if not (
+            isinstance(impact, dict)
+            and impact.get("verified") is True
+            and impact.get("veto") is True
+        ):
+            continue
+        player = entry.get("player")
+        player_name = (
+            str(player.get("name") or player.get("id") or "unbekannt")
+            if isinstance(player, dict)
+            else "unbekannt"
+        )
+        if player_name not in material_vetoes:
+            material_vetoes.append(player_name)
+
+    passed = not material_vetoes
     public_summary = {
-        "status": "passed" if passed else "blocked",
+        "status": "observed" if passed else "blocked",
+        "availability": "available",
+        "coverage_available": True,
         "home_missing": len(summary[home_team_id]["missing"]),
         "home_questionable": len(summary[home_team_id]["questionable"]),
         "away_missing": len(summary[away_team_id]["missing"]),
         "away_questionable": len(summary[away_team_id]["questionable"]),
-        "home_names": summary[home_team_id]["names"][:8],
-        "away_names": summary[away_team_id]["names"][:8],
+        "home_names": summary[home_team_id]["names"],
+        "away_names": summary[away_team_id]["names"],
+        "material_impact_model": "explicit_verified_veto_only",
+        "material_vetoes": material_vetoes,
+        "reason": (
+            "Verifizierte materielle Spielerwirkung spricht gegen die Auswahl"
+            if material_vetoes
+            else (
+                "Ausfallliste beobachtet; ohne verifiziertes Spielerwirkungsmodell "
+                "kein Veto"
+            )
+        ),
     }
-    reason = None if passed else "Ausfalllage ist zu groß oder zu einseitig"
+    reason = (
+        "Verifizierte materielle Spielerwirkung spricht gegen die Auswahl"
+        if material_vetoes
+        else None
+    )
     return passed, public_summary, reason
 
 
-def _weather_summary(weather: Optional[dict[str, Any]]) -> tuple[bool, dict[str, Any], Optional[str]]:
+def _weather_market_direction(spec: MarketSpec) -> str:
+    """Classify only directions with a defensible scoring relationship."""
+    if spec.kind == "btts":
+        return "scoring_up" if spec.side == "yes" else "scoring_down"
+    if spec.kind in {"total", "team_total"}:
+        if spec.side == "over" or str(spec.side).endswith("_over"):
+            return "scoring_up"
+        if spec.side == "under" or str(spec.side).endswith("_under"):
+            return "scoring_down"
+    if spec.kind == "result_total":
+        if str(spec.side).endswith("_over"):
+            return "scoring_up"
+        if str(spec.side).endswith("_under"):
+            return "scoring_down"
+    return "neutral"
+
+
+def _weather_summary(
+    weather: Optional[dict[str, Any]],
+    spec: MarketSpec,
+) -> tuple[Optional[bool], dict[str, Any], Optional[str]]:
     if not isinstance(weather, dict) or weather.get("status") != "ok":
-        return False, {"status": "unavailable"}, "Wetter zum Anpfiff konnte nicht verifiziert werden"
+        return None, {
+            "status": "unavailable",
+            "availability": "provider_unavailable",
+            "reason": "Wetter zum Anpfiff konnte nicht verifiziert werden",
+        }, None
     temperature = _finite_number(weather.get("temperature_c"))
     wind = _finite_nonnegative(weather.get("wind_mps"))
     rain = _finite_nonnegative(weather.get("rain_3h_mm"))
     snow = _finite_nonnegative(weather.get("snow_3h_mm"))
     if temperature is None or wind is None or rain is None or snow is None:
-        return False, {"status": "unavailable"}, "Wetterdaten sind unvollständig"
-    adverse = temperature < 0.0 or temperature > 35.0 or wind >= 12.0 or rain >= 6.0 or snow >= 2.0
+        return None, {
+            "status": "unavailable",
+            "availability": "invalid",
+            "reason": "Wetterdaten sind unvollständig",
+        }, None
+    suppressive_extreme = wind >= 12.0 or rain >= 6.0 or snow >= 2.0
+    temperature_extreme = temperature < 0.0 or temperature > 35.0
+    market_direction = _weather_market_direction(spec)
+    veto = suppressive_extreme and market_direction == "scoring_up"
+    if veto:
+        status = "blocked"
+        market_effect = "adverse"
+    elif suppressive_extreme and market_direction == "scoring_down":
+        status = "observed"
+        market_effect = "aligned"
+    elif suppressive_extreme or temperature_extreme:
+        status = "observed"
+        market_effect = "neutral"
+    else:
+        status = "passed"
+        market_effect = "none"
     summary = {
-        "status": "blocked" if adverse else "passed",
+        "status": status,
+        "availability": "available",
         "temperature_c": round(temperature, 1),
         "wind_mps": round(wind, 1),
         "rain_3h_mm": round(rain, 1),
         "snow_3h_mm": round(snow, 1),
         "description": weather.get("description") or "n/a",
+        "forecast_at": weather.get("forecast_at"),
+        "market_direction": market_direction,
+        "market_effect": market_effect,
+        "veto_applied": veto,
     }
-    return (not adverse), summary, ("Wetter erhöht die Modellunsicherheit" if adverse else None)
+    return (
+        not veto,
+        summary,
+        (
+            "Extremwetter ist für diese torsteigernde Auswahl gegenläufig"
+            if veto
+            else None
+        ),
+    )
 
 
 def _lineup_summary(
@@ -2065,14 +2186,12 @@ def apply_candidate_context(
     weather: Optional[dict[str, Any]],
     lineups: Optional[list[dict[str, Any]]],
     now: Optional[datetime] = None,
-    require_lineups: bool = True,
+    require_lineups: bool = False,
 ) -> ChallengeCandidate:
     """Attach non-price context as veto gates without altering probability.
 
-    ``require_lineups`` ist eine explizite Policy-Option für den jeweiligen
-    Workflow. Tagesmodelle können Aufstellungen ergänzend anzeigen, während
-    ein unmittelbar vor Anpfiff laufender Workflow sie verpflichtend machen
-    kann.
+    ``require_lineups=True`` ist ein explizites Opt-in des jeweiligen
+    Workflows. Sonst bleiben Aufstellungen ergänzende Anzeige-Evidenz.
     """
     now_utc = now or datetime.now(timezone.utc)
     if now_utc.tzinfo is None:
@@ -2080,21 +2199,41 @@ def apply_candidate_context(
     else:
         now_utc = now_utc.astimezone(timezone.utc)
     kickoff = _parse_kickoff(candidate.kickoff)
+    checked_at = now_utc.isoformat()
     if kickoff is None:
-        candidate.context = {"passed": False, "blocked_reasons": ["Anstoßzeit ist ungültig"]}
+        candidate.context = {
+            "passed": False,
+            "forecast_passed": False,
+            "release_eligible": False,
+            "checked_at": checked_at,
+            "blocked_reasons": ["Anstoßzeit ist ungültig"],
+        }
         return candidate
     if kickoff <= now_utc:
-        candidate.context = {"passed": False, "blocked_reasons": ["Spiel hat bereits begonnen"]}
+        candidate.context = {
+            "passed": False,
+            "forecast_passed": False,
+            "release_eligible": False,
+            "checked_at": checked_at,
+            "blocked_reasons": ["Spiel hat bereits begonnen"],
+        }
         return candidate
 
     blocked: list[str] = []
-    transfer_validated = candidate.model_scope == MODEL_SCOPE_SAME_COMPETITION
-    if not transfer_validated:
+    release_validated = candidate.model_scope == MODEL_SCOPE_SAME_COMPETITION
+    forecast_supported = candidate.model_scope in {
+        MODEL_SCOPE_SAME_COMPETITION,
+        MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
+    }
+    if not forecast_supported:
         blocked.append(UNVALIDATED_TRANSFER_REASON)
     spec = MARKET_BY_KEY[candidate.market_key]
+    h2h_available = isinstance(h2h_fixtures, list) and all(
+        isinstance(item, dict) for item in h2h_fixtures
+    )
     relevant_h2h, h2h_outcomes = _h2h_market_outcomes(
         spec,
-        h2h_fixtures or [],
+        h2h_fixtures if h2h_available else [],
         candidate.home_team_id,
         candidate.away_team_id,
         before=kickoff,
@@ -2120,7 +2259,10 @@ def apply_candidate_context(
         and h2h_upper is not None
         and h2h_upper < h2h_veto_threshold
     )
-    if h2h_contradicts:
+    if not h2h_available:
+        h2h_status = "unavailable"
+        h2h_reason = "H2H-Daten konnten nicht verifiziert werden"
+    elif h2h_contradicts:
         h2h_status = "blocked"
         h2h_reason = "Aktuelles H2H widerspricht der Auswahl statistisch deutlich"
         blocked.append(h2h_reason)
@@ -2134,6 +2276,14 @@ def apply_candidate_context(
     else:
         h2h_status = "passed"
         h2h_reason = "Aktuelles H2H liefert kein statistisch belastbares Veto"
+    h2h_observed_at = max(
+        (
+            observed_at
+            for item in relevant_h2h
+            if (observed_at := _fixture_datetime(item)) is not None
+        ),
+        default=None,
+    )
 
     injuries_passed, injuries_summary, injuries_reason = _injury_summary(
         injuries,
@@ -2143,7 +2293,10 @@ def apply_candidate_context(
     )
     if injuries_reason:
         blocked.append(injuries_reason)
-    weather_passed, weather_summary, weather_reason = _weather_summary(weather)
+    weather_passed, weather_summary, weather_reason = _weather_summary(
+        weather,
+        spec,
+    )
     if weather_reason:
         blocked.append(weather_reason)
     lineup_passed, lineup_summary, lineup_reason = _lineup_summary(
@@ -2165,22 +2318,67 @@ def apply_candidate_context(
         ),
     }
 
+    injuries_summary = {**injuries_summary, "checked_at": checked_at}
+    weather_summary = {**weather_summary, "checked_at": checked_at}
+    lineup_summary = {**lineup_summary, "checked_at": checked_at}
+
     lineup_ok = lineup_passed or not require_lineups
+    forecast_passed = (
+        forecast_supported
+        and not blocked
+        and not h2h_contradicts
+        and injuries_passed is not False
+        and weather_passed is not False
+        and lineup_ok
+    )
+    release_context_complete = (
+        h2h_available
+        and injuries_passed is not None
+        and weather_passed is not None
+        and lineup_ok
+    )
+    release_eligible = (
+        release_validated
+        and forecast_passed
+        and release_context_complete
+    )
     candidate.context = {
-        "passed": (
-            transfer_validated
-            and (not h2h_contradicts)
-            and injuries_passed
-            and weather_passed
-            and lineup_ok
-        ),
+        "passed": forecast_passed,
+        "forecast_passed": forecast_passed,
+        "release_context_complete": release_context_complete,
+        "release_eligible": release_eligible,
+        "checked_at": checked_at,
         "model_transfer": {
-            "status": "passed" if transfer_validated else "blocked",
+            "status": (
+                "passed"
+                if release_validated
+                else "provisional"
+                if forecast_supported
+                else "blocked"
+            ),
             "scope": candidate.model_scope,
-            "reason": None if transfer_validated else UNVALIDATED_TRANSFER_REASON,
+            "release_eligible": release_validated,
+            "checked_at": checked_at,
+            "reason": (
+                None
+                if release_validated
+                else (
+                    "Konservativ validierte Heimatliga-Prognose; "
+                    "kein historisch freigegebenes UEFA-Transfermodell"
+                )
+                if forecast_supported
+                else UNVALIDATED_TRANSFER_REASON
+            ),
         },
         "h2h": {
             "status": h2h_status,
+            "availability": "available" if h2h_available else "provider_unavailable",
+            "checked_at": checked_at,
+            "latest_observed_at": (
+                h2h_observed_at.isoformat()
+                if h2h_observed_at is not None
+                else None
+            ),
             "matches": h2h_observations,
             "meetings_considered": len(relevant_h2h),
             "hits": hits,
@@ -2238,17 +2436,54 @@ def select_shortlist(
     return selected
 
 
-def candidate_is_credible(candidate: ChallengeCandidate) -> bool:
-    """Validate the complete candidate contract again at selection time."""
+def select_forecast_shortlist(
+    candidates: Iterable[ChallengeCandidate],
+    max_candidates: int = 6,
+) -> list[ChallengeCandidate]:
+    """Select distinct forecast fixtures without implying tip eligibility."""
+    if (
+        isinstance(max_candidates, bool)
+        or not isinstance(max_candidates, int)
+        or max_candidates < 1
+    ):
+        raise ValueError("max_candidates must be a positive integer")
+    eligible = [
+        candidate
+        for candidate in candidates
+        if candidate_is_forecast_credible(candidate)
+    ]
+    eligible.sort(
+        key=lambda candidate: (
+            candidate.conservative_probability,
+            candidate.evidence_score,
+            (
+                candidate.validation.relative_improvement
+                if candidate.validation
+                and candidate.validation.relative_improvement is not None
+                else -1.0
+            ),
+        ),
+        reverse=True,
+    )
+    selected: list[ChallengeCandidate] = []
+    selected_fixtures: set[int] = set()
+    for candidate in eligible:
+        if candidate.fixture_id in selected_fixtures:
+            continue
+        selected.append(candidate)
+        selected_fixtures.add(candidate.fixture_id)
+        if len(selected) >= max_candidates:
+            break
+    return selected
+
+
+def _candidate_model_contract_is_valid(candidate: ChallengeCandidate) -> bool:
+    """Re-check every price-independent numerical and validation gate."""
     if not isinstance(candidate, ChallengeCandidate):
-        return False
-    if candidate.model_scope != MODEL_SCOPE_SAME_COMPETITION:
         return False
     if (
         not isinstance(candidate.blocked_reasons, list)
         or candidate.blocked_reasons
-        or not isinstance(candidate.context, dict)
-        or candidate.context.get("passed") is not True
     ):
         return False
     if not _credible_validation(candidate.validation):
@@ -2313,6 +2548,70 @@ def candidate_is_credible(candidate: ChallengeCandidate) -> bool:
         ):
             return False
     return True
+
+
+def candidate_is_forecast_credible(candidate: ChallengeCandidate) -> bool:
+    """Accept a cleared model forecast without promoting it to a real tip.
+
+    A provisional UEFA forecast has passed the conservative validation maps
+    of both teams' domestic source leagues.  It remains outside the release
+    contract until the cross-competition transfer itself has been validated.
+    """
+    if not _candidate_model_contract_is_valid(candidate):
+        return False
+    if candidate.model_scope not in {
+        MODEL_SCOPE_SAME_COMPETITION,
+        MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
+    }:
+        return False
+    if not isinstance(candidate.context, dict):
+        return False
+    forecast_passed = candidate.context.get(
+        "forecast_passed",
+        candidate.context.get("passed"),
+    )
+    if forecast_passed is not True:
+        return False
+    model_transfer = candidate.context.get("model_transfer")
+    if candidate.model_scope == MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST:
+        if (
+            not isinstance(model_transfer, dict)
+            or model_transfer.get("status") != "provisional"
+            or candidate.context.get("release_eligible") is not False
+        ):
+            return False
+    elif (
+        isinstance(model_transfer, dict)
+        and model_transfer.get("status") != "passed"
+    ):
+        return False
+    context_blocked = candidate.context.get("blocked_reasons", [])
+    if not isinstance(context_blocked, list) or context_blocked:
+        return False
+    for section in ("model_transfer", "h2h", "injuries", "weather", "lineups"):
+        details = candidate.context.get(section)
+        if isinstance(details, dict) and details.get("status") == "blocked":
+            return False
+    lineups = candidate.context.get("lineups")
+    if (
+        isinstance(lineups, dict)
+        and lineups.get("required") is True
+        and lineups.get("status") != "passed"
+    ):
+        return False
+    return True
+
+
+def candidate_is_credible(candidate: ChallengeCandidate) -> bool:
+    """Validate the strict release/tip contract again at selection time."""
+    return (
+        candidate_is_forecast_credible(candidate)
+        and candidate.model_scope == MODEL_SCOPE_SAME_COMPETITION
+        and isinstance(candidate.context, dict)
+        and candidate.context.get("passed") is True
+        and candidate.context.get("release_context_complete") is True
+        and candidate.context.get("release_eligible") is True
+    )
 
 
 def _future_candidate(candidate: ChallengeCandidate, now: datetime) -> bool:
@@ -2768,6 +3067,7 @@ __all__ = [
     "MAX_CHALLENGE_STAKE_FRACTION",
     "MAX_TICKET_LEGS",
     "MIN_CHALLENGE_STAKE_FRACTION",
+    "MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST",
     "MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED",
     "MODEL_SCOPE_SAME_COMPETITION",
     "QuotedTicket",
@@ -2779,6 +3079,7 @@ __all__ = [
     "ValidationMetrics",
     "apply_candidate_context",
     "build_fixture_candidates",
+    "candidate_is_forecast_credible",
     "candidate_is_credible",
     "challenge_stake_cap",
     "consecutive_wins_to_target",
@@ -2793,6 +3094,7 @@ __all__ = [
     "select_shortlist",
     "kelly_reference_stake",
     "risk_managed_ticket_stake",
+    "select_forecast_shortlist",
     "ticket_stake",
     "ticket_dependency_factor",
     "validate_league_markets",

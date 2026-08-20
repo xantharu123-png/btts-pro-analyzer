@@ -378,9 +378,37 @@ def _strict_market_candidate(candidate):
     }.get(selection, selection)
     context = candidate.context if isinstance(candidate.context, dict) else {}
     h2h = context.get("h2h") if isinstance(context.get("h2h"), dict) else {}
+    injuries = (
+        context.get("injuries")
+        if isinstance(context.get("injuries"), dict)
+        else {}
+    )
+    weather = (
+        context.get("weather")
+        if isinstance(context.get("weather"), dict)
+        else {}
+    )
+    lineups = (
+        context.get("lineups")
+        if isinstance(context.get("lineups"), dict)
+        else {}
+    )
+    context_labels = {
+        "passed": "berücksichtigt",
+        "observed": "berücksichtigt",
+        "neutral": "ohne belastbares Veto",
+        "pending": "noch nicht bestätigt",
+        "unavailable": "derzeit nicht verfügbar",
+        "provisional": "in Prüfphase",
+    }
     evidence = tuple(candidate.reasons) + (
         f"Evidenzscore {candidate.evidence_score:.1f} %, Modellspanne {candidate.model_spread_pp:.1f} PP.",
-        f"H2H {h2h.get('matches', 0)} Spiele; Ausfälle, Wetter und Aufstellungen haben die Kontextgates bestanden.",
+        (
+            f"Kontext: H2H {context_labels.get(h2h.get('status'), 'geprüft')}; "
+            f"Ausfälle {context_labels.get(injuries.get('status'), 'geprüft')}; "
+            f"Wetter {context_labels.get(weather.get('status'), 'geprüft')}; "
+            f"Aufstellungen {context_labels.get(lineups.get('status'), 'geprüft')}."
+        ),
         "Markt hat das liga- und marktbezogene Walk-forward-Kalibrierungsgate bestanden.",
     )
     model_probability = candidate.probability * 100.0
@@ -402,12 +430,40 @@ def _strict_market_candidate(candidate):
         selection=selection,
         model_probability=model_probability,
         probability_haircut=effective_haircut,
-        model_name="Walk-forward Marktmodell + Kontext-Vetos",
+        model_name="Kalibriertes Marktmodell + Kontextprüfung",
         evidence=evidence,
         blockers=blockers,
         expected_total=candidate.expected_home_goals + candidate.expected_away_goals,
         evidence_stage=EVIDENCE_SHADOW,
     )
+
+
+def _merge_consumer_market_rows(
+    priced_rows,
+    model_rows,
+    *,
+    limit: int = 3,
+):
+    """Prefer priced fixtures and keep other model forecasts visible."""
+
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ValueError("limit must be a positive integer")
+    displayed = []
+    seen_events = set()
+    for raw_candidate in [*(priced_rows or []), *(model_rows or [])]:
+        fixture_id = getattr(raw_candidate, "fixture_id", None)
+        identity = (
+            f"fixture:{fixture_id}"
+            if isinstance(fixture_id, int) and not isinstance(fixture_id, bool)
+            else f"candidate:{getattr(raw_candidate, 'candidate_id', '')}"
+        )
+        if not identity or identity in seen_events:
+            continue
+        displayed.append(raw_candidate)
+        seen_events.add(identity)
+        if len(displayed) >= limit:
+            break
+    return displayed
 
 
 def _run_market_scan_worker(
@@ -448,7 +504,14 @@ def _run_market_scan_worker(
     )
     if progress_cb:
         progress_cb(0.92, "Marktquoten der Modellkandidaten werden verglichen")
-    model_shortlist = list(challenge_snapshot.get("shortlist") or [])
+    # The calculated forecast is a separate axis from bookmaker price and
+    # from the later release decision.  In particular, a provisional UEFA
+    # forecast must remain visible even when it is not an Echtgeld tip.
+    model_shortlist = list(
+        challenge_snapshot.get("forecast_shortlist")
+        or challenge_snapshot.get("shortlist")
+        or []
+    )
     price_candidates = list(
         challenge_snapshot.get("price_candidates")
         or model_shortlist
@@ -768,50 +831,42 @@ def create_alternative_markets_tab_extended(
     )
     if partial_scope_notice:
         st.warning(partial_scope_notice)
-    if not shortlist:
-        if model_shortlist:
+    # One price-passing market must not erase the other calculated forecasts.
+    # Prefer priced fixtures, then fill the same maximum-three view with model
+    # selections from different matches.
+    displayed_rows = _merge_consumer_market_rows(shortlist, model_shortlist)
+
+    if not displayed_rows:
+        _render_consumer_no_tip(
+            snapshot,
+            day_label=result_day,
+        )
+    else:
+        if shortlist:
+            priced_count = min(len(shortlist), len(displayed_rows))
+            st.info(
+                f"{priced_count} Modell-Auswahl"
+                f"{'en' if priced_count != 1 else ''} mit passender "
+                f"Vergleichsquote für {result_day}. Weitere berechnete "
+                "Auswahlen bleiben unabhängig vom Preis sichtbar."
+            )
+        else:
             found_label = (
                 "Eine interessante Auswahl gefunden"
-                if len(model_shortlist) == 1
-                else f"{len(model_shortlist)} interessante Auswahlen gefunden"
+                if len(displayed_rows) == 1
+                else f"{len(displayed_rows)} interessante Auswahlen gefunden"
             )
             st.info(f"{found_label} – aktuell noch kein spielbarer Tipp.")
-            st.caption(
-                "Die Quote bewertet den Wettpreis, nicht den möglichen "
-                "Spielausgang. Fehlt eine belastbare Vergleichsquote oder ist "
-                "sie zu niedrig, bleibt die Modell-Auswahl sichtbar."
-            )
-            for index, raw_candidate in enumerate(model_shortlist, start=1):
-                candidate = _strict_market_candidate(raw_candidate)
-                st.markdown(f"### Auswahl {index}")
-                render_price_decision(
-                    candidate,
-                    key=(
-                        f"market_model_{candidate.event_key}_"
-                        f"{snapshot.get('scanned_at')}"
-                    ),
-                    bankroll_key="football_bet_finder_bankroll",
-                    reference_quote=reference_quotes.get(
-                        raw_candidate.candidate_id
-                    ),
-                    allow_manual_check=True,
-                )
-                if index < len(model_shortlist):
-                    st.divider()
-        else:
-            _render_consumer_no_tip(
-                snapshot,
-                day_label=result_day,
-            )
-    else:
-        candidates = [_strict_market_candidate(candidate) for candidate in shortlist]
-        st.info(
-            f"{len(candidates)} Modell-Auswahl"
-            f"{'en' if len(candidates) != 1 else ''} mit passender "
-            f"Vergleichsquote für {result_day}."
+        st.caption(
+            "Die Quote bewertet den Wettpreis, nicht den möglichen "
+            "Spielausgang. Fehlt eine belastbare Vergleichsquote oder ist "
+            "sie zu niedrig, bleibt die Modell-Auswahl sichtbar."
         )
+        candidates = [
+            _strict_market_candidate(candidate) for candidate in displayed_rows
+        ]
         for index, (candidate, raw_candidate) in enumerate(
-            zip(candidates, shortlist),
+            zip(candidates, displayed_rows),
             start=1,
         ):
             st.markdown(f"### Auswahl {index}")

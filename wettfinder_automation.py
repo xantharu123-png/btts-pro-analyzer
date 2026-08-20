@@ -4,9 +4,10 @@ One broad football discovery scans every configured league once per target
 date. Later timer wake-ups never repeat that league scan: they refresh only
 persisted candidate fixtures inside the pre-match context window. Tennis and
 E-sport reuse their own daily persisted model runs as internal evidence. The
-public artifact keeps at most three recommendations for exactly one local
-match day, and only after an exact multi-bookmaker price passes the final
-price gate.
+public artifact keeps at most three calculated model selections for exactly
+one local match day independently of price.  A second, strict list contains
+only selections whose exact multi-bookmaker price passes the final price
+gate.  A price can reject playability, never erase the forecast.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from challenge_15k import (
 from challenge_engine import (
     ChallengeCandidate,
     ValidationMetrics,
-    candidate_is_credible,
+    candidate_is_forecast_credible,
 )
 from config_loader import AppConfig, load_app_config
 from ev_signal_sources import (
@@ -177,6 +178,7 @@ def _challenge_candidate_payload(
     payload = candidate.to_dict()
     payload.pop("base_eligible", None)
     payload.pop("eligible", None)
+    payload.pop("forecast_eligible", None)
     if not keep_context:
         payload["context"] = {}
     return payload
@@ -219,7 +221,7 @@ def _football_candidate_record(
 ) -> Optional[dict[str, Any]]:
     if not isinstance(candidate, ChallengeCandidate):
         return None
-    if not candidate_is_credible(candidate):
+    if not candidate_is_forecast_credible(candidate):
         return None
     probability = _finite_probability(_value(candidate, "probability"))
     conservative = _finite_probability(
@@ -253,6 +255,9 @@ def _football_candidate_record(
         detail_parts.append(f"Evidenz {float(evidence_score):.0f}/100")
     if isinstance(spread, (int, float)) and math.isfinite(float(spread)):
         detail_parts.append(f"Modellstreuung {float(spread):.1f} PP")
+    model_scope = str(_value(candidate, "model_scope") or "")
+    if model_scope == "cross_competition_provisional_forecast":
+        detail_parts.append("UEFA-Heimatliga-Modell in Transfer-Prüfphase")
     return {
         "key": f"wettfinder-football-{candidate_id}",
         "candidate_id": candidate_id,
@@ -275,6 +280,8 @@ def _football_candidate_record(
         "status": "PRICE_REQUIRED",
         "source": "football_challenge",
         "detail": " - ".join(detail_parts),
+        "model_scope": model_scope,
+        "context": dict(candidate.context),
         "context_checked_at": (
             _utc(context_checked_at).isoformat()
             if context_checked_at is not None
@@ -408,6 +415,49 @@ def select_candidates(
         if len(selected) >= limit:
             break
     return selected
+
+
+def build_model_selection_ledger(
+    strict_rows: Iterable[dict[str, Any]],
+    forecast_rows: Iterable[dict[str, Any]],
+    *,
+    now: Optional[datetime] = None,
+    target_date: Optional[date] = None,
+    limit: int = MAX_AUTOMATIC_CANDIDATES,
+) -> list[dict[str, Any]]:
+    """Build one maximum-N display ledger with strict rows first."""
+
+    strict = select_candidates(
+        strict_rows,
+        now=now,
+        target_date=target_date,
+        limit=limit,
+    )
+    ledger = [dict(row) for row in strict]
+    occupied_events = {
+        str(row.get("event_identity") or row.get("key") or "").strip()
+        for row in ledger
+    }
+    remaining = limit - len(ledger)
+    if remaining > 0:
+        pool = [
+            row
+            for row in forecast_rows
+            if str(row.get("event_identity") or row.get("key") or "").strip()
+            not in occupied_events
+        ]
+        ledger.extend(
+            dict(row)
+            for row in select_candidates(
+                pool,
+                now=now,
+                target_date=target_date,
+                limit=remaining,
+            )
+        )
+    for row in ledger:
+        row["status"] = "MODEL_SELECTION"
+    return ledger
 
 
 def select_price_check_candidates(
@@ -1093,24 +1143,25 @@ def run_wettfinder(
     if not fixed_now:
         current = _utc(runtime_clock())
 
-    source_rows: list[dict[str, Any]] = _active_football_candidates(
+    active_football_rows: list[dict[str, Any]] = _active_football_candidates(
         football_state,
         now=current,
         target_date=target,
     )
     context_statuses = _validated_football_context_statuses(football_state)
-    if (
-        football_state.get("status") != "completed"
-        or int(football_state.get("operational_error_count") or 0) > 0
-        or context_statuses is None
-    ):
-        source_rows = []
-    else:
-        source_rows = [
+    # A partial league scan must not erase a candidate whose own model and
+    # context record are complete.  Such rows remain model selections only;
+    # the strict priced-signal reader still blocks a degraded football run.
+    football_forecast_rows = (
+        []
+        if context_statuses is None
+        else [
             row
-            for row in source_rows
+            for row in active_football_rows
             if context_statuses.get(str(row.get("fixture_id"))) == "verified"
         ]
+    )
+    source_rows: list[dict[str, Any]] = list(football_forecast_rows)
     source_status: dict[str, dict[str, Any]] = {
         "football": {
             "status": football_state.get("status", "idle"),
@@ -1118,7 +1169,7 @@ def run_wettfinder(
             "discovery_scope": len(ALTERNATIVE_MARKET_LEAGUES),
             "context_status": context_status,
             "context_fixture_count": len(context_fixture_ids),
-            "candidate_count": len(source_rows),
+            "candidate_count": len(football_forecast_rows),
             "search_date": target.isoformat(),
         }
     }
@@ -1132,7 +1183,7 @@ def run_wettfinder(
         (
             "esports",
             esports_loader,
-            {"now": current, "require_released": True},
+            {"now": current, "require_released": False},
         ),
     ):
         try:
@@ -1224,8 +1275,32 @@ def run_wettfinder(
         if status_code == "PLAYABLE":
             playable_rows.append(row)
 
+    # Preserve the model result independently of bookmaker price. Football
+    # rows carry a quote when one was found (including TOO_LOW), while
+    # Tennis/E-Sport rows remain available for an explicit manual price check.
+    non_football_rows = [
+        row
+        for row in source_rows
+        if row.get("source") != "football_challenge"
+    ]
+    football_run_publishable = (
+        football_state.get("status") == "completed"
+        and int(football_state.get("operational_error_count") or 0) == 0
+        and context_statuses is not None
+    )
     candidates = select_candidates(
-        playable_rows,
+        playable_rows if football_run_publishable else [],
+        now=current,
+        target_date=target,
+        limit=MAX_AUTOMATIC_CANDIDATES,
+    )
+    # There is one user-facing maximum-three ledger. Price-passing rows have
+    # priority, then the strongest remaining model forecasts fill free slots.
+    # This makes every strict row a subset of the same three cards instead of
+    # allowing two independent top-three lists to expand the UI to six.
+    model_candidates = build_model_selection_ledger(
+        candidates,
+        [*football_price_rows, *non_football_rows],
         now=current,
         target_date=target,
         limit=MAX_AUTOMATIC_CANDIDATES,
@@ -1246,6 +1321,10 @@ def run_wettfinder(
         source_status["football"]["published_recommendation_count"] = len(
             candidates
         )
+        source_status["football"]["published_model_selection_count"] = sum(
+            row.get("source") == "football_challenge"
+            for row in model_candidates
+        )
         source_status["football"]["quote_errors"] = quote_errors[:10]
     document = {
         "version": AUTOMATION_VERSION,
@@ -1259,6 +1338,7 @@ def run_wettfinder(
         "target_search_date": target.isoformat(),
         "football": football_state,
         "sources": source_status,
+        "model_candidates": model_candidates,
         "candidates": candidates,
     }
     write_state(document, state_path)
@@ -1289,6 +1369,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "status": "ok",
                 "generated_at": document["generated_at"],
                 "candidate_count": len(document["candidates"]),
+                "model_candidate_count": len(document["model_candidates"]),
                 "football_status": document["sources"]["football"]["status"],
                 "football_due_reason": document["sources"]["football"]["due_reason"],
                 "football_context_status": document["sources"]["football"][

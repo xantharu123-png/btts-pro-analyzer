@@ -35,11 +35,13 @@ from challenge_engine import (
     ChallengeCandidate,
     MARKET_BY_KEY,
     MARKET_SPECS,
+    MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     UNVALIDATED_TRANSFER_REASON,
     ValidationMetrics,
     apply_candidate_context,
     build_fixture_candidates,
+    candidate_is_forecast_credible,
     candidate_is_credible,
     challenge_stake_cap,
     consecutive_wins_to_target,
@@ -48,6 +50,7 @@ from challenge_engine import (
     market_outcome,
     score_matrix,
     risk_managed_ticket_stake,
+    select_forecast_shortlist,
     select_model_ticket,
     select_quoted_ticket,
     select_shortlist,
@@ -64,8 +67,9 @@ def _complete_context() -> dict:
     return {
         "model_transfer": {"status": "passed"},
         "h2h": {"status": "neutral"},
-        "injuries": {"status": "passed"},
+        "injuries": {"status": "observed"},
         "weather": {"status": "passed"},
+        "lineups": {"status": "pending", "required": False},
     }
 
 
@@ -77,33 +81,35 @@ def test_context_scope_facts_never_claims_fixture_21_was_checked():
 
     facts = _context_scope_facts(candidates, list(range(1, 21)), set())
 
-    assert facts == {
-        "base_fixture_count": 21,
-        "context_verified_fixtures": 20,
-        "context_data_incomplete_fixtures": 0,
-        "context_unchecked_fixtures": 1,
-        "context_scope_complete": False,
-        "context_fixture_statuses": {
-            **{str(fixture_id): "verified" for fixture_id in range(1, 21)},
-            "21": "unchecked",
-        },
+    assert facts["base_fixture_count"] == 21
+    assert facts["context_verified_fixtures"] == 20
+    assert facts["context_data_incomplete_fixtures"] == 0
+    assert facts["context_unchecked_fixtures"] == 1
+    assert facts["context_scope_complete"] is False
+    assert facts["context_fixture_statuses"] == {
+        **{str(fixture_id): "verified" for fixture_id in range(1, 21)},
+        "21": "unchecked",
     }
+    assert facts["context_fixture_provenance"]["21"]["scope_status"] == "unchecked"
+    assert facts["context_fixture_provenance"]["21"]["checked_at"] is None
 
 
-def test_context_scope_facts_separates_missing_data_from_model_rejection():
-    incomplete = _complete_context()
-    incomplete["weather"] = {"status": "unavailable"}
+def test_context_scope_facts_treats_explicit_optional_unavailability_as_checked():
+    optional_unavailable = _complete_context()
+    optional_unavailable["weather"] = {"status": "unavailable"}
+    optional_unavailable["h2h"] = {"status": "unavailable"}
+    optional_unavailable["injuries"] = {"status": "unavailable"}
 
     facts = _context_scope_facts(
-        [SimpleNamespace(fixture_id=7, context=incomplete)],
+        [SimpleNamespace(fixture_id=7, context=optional_unavailable)],
         [7],
         set(),
     )
 
-    assert facts["context_verified_fixtures"] == 0
-    assert facts["context_data_incomplete_fixtures"] == 1
+    assert facts["context_verified_fixtures"] == 1
+    assert facts["context_data_incomplete_fixtures"] == 0
     assert facts["context_unchecked_fixtures"] == 0
-    assert facts["context_scope_complete"] is False
+    assert facts["context_scope_complete"] is True
 
 
 def test_context_scope_facts_counts_terminal_kickoff_rejection_as_checked():
@@ -125,6 +131,48 @@ def test_context_scope_facts_counts_terminal_kickoff_rejection_as_checked():
     assert facts["context_data_incomplete_fixtures"] == 0
     assert facts["context_scope_complete"] is True
     assert facts["context_fixture_statuses"] == {"8": "verified"}
+
+
+def test_context_scope_facts_persists_axis_status_and_timestamps():
+    context = _complete_context()
+    context["checked_at"] = "2030-01-01T12:00:00+00:00"
+    context["h2h"] = {
+        "status": "unavailable",
+        "availability": "provider_unavailable",
+        "checked_at": "2030-01-01T12:00:00+00:00",
+    }
+    context["weather"] = {
+        "status": "observed",
+        "availability": "available",
+        "checked_at": "2030-01-01T12:00:00+00:00",
+        "forecast_at": "2030-01-01T14:00:00+00:00",
+    }
+
+    facts = _context_scope_facts(
+        [
+            SimpleNamespace(
+                fixture_id=9,
+                model_scope=MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
+                context=context,
+            )
+        ],
+        [9],
+        set(),
+    )
+
+    provenance = facts["context_fixture_provenance"]["9"]
+    assert provenance["scope_status"] == "verified"
+    assert provenance["checked_at"] == "2030-01-01T12:00:00+00:00"
+    assert provenance["model_scopes"] == [
+        MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+    ]
+    assert provenance["axes"]["h2h"]["statuses"] == ["unavailable"]
+    assert provenance["axes"]["h2h"]["availability"] == [
+        "provider_unavailable"
+    ]
+    assert provenance["axes"]["weather"]["observed_at"] == (
+        "2030-01-01T14:00:00+00:00"
+    )
 
 
 def fixture(
@@ -186,7 +234,13 @@ def candidate(candidate_id, fixture_id, probability, *, kickoff=None, eligible=T
         form_samples=(6, 6),
         validation=validation,
     )
-    item.context = {"passed": eligible, "blocked_reasons": [] if eligible else ["blocked"]}
+    item.context = {
+        "passed": eligible,
+        "forecast_passed": eligible,
+        "release_context_complete": eligible,
+        "release_eligible": eligible,
+        "blocked_reasons": [] if eligible else ["blocked"],
+    }
     return item
 
 
@@ -341,6 +395,57 @@ class ChallengeProbabilityTests(unittest.TestCase):
             ["1:RESULT_HOME", "1:TOTAL_UNDER_4_5"],
         )
         self.assertEqual(len(select_shortlist(pool, max_candidates=3)), 1)
+
+    def test_price_pool_excludes_markets_without_an_exact_quote_mapping(self):
+        mappable = candidate("1:BTTS_YES", 1, 0.70)
+        unmappable = replace(
+            candidate("2:HOME_RANGE_1_3", 2, 0.71),
+            market_key="HOME_RANGE_1_3",
+            market="Team 1 Gesamttore",
+            selection="1-3 Tore",
+        )
+
+        pool = _price_candidate_pool([unmappable, mappable])
+
+        self.assertEqual([item.candidate_id for item in pool], ["1:BTTS_YES"])
+
+    def test_forecast_shortlist_keeps_provisional_but_release_shortlist_does_not(self):
+        validated = candidate("1:BTTS", 1, 0.68)
+        provisional = candidate("2:BTTS", 2, 0.72)
+        provisional.model_scope = MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+        provisional.context = {
+            "passed": True,
+            "forecast_passed": True,
+            "release_eligible": False,
+            "blocked_reasons": [],
+            "model_transfer": {"status": "provisional"},
+        }
+        weaker_same_fixture = candidate("2:BTTS_ALT", 2, 0.69)
+        weaker_same_fixture.model_scope = (
+            MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+        )
+        weaker_same_fixture.context = dict(provisional.context)
+
+        price_pool = _price_candidate_pool(
+            [validated, provisional, weaker_same_fixture]
+        )
+        forecast = select_forecast_shortlist(
+            price_pool,
+            max_candidates=3,
+        )
+
+        self.assertEqual(
+            {item.candidate_id for item in price_pool},
+            {"1:BTTS", "2:BTTS", "2:BTTS_ALT"},
+        )
+        self.assertEqual(
+            [item.candidate_id for item in forecast],
+            ["2:BTTS", "1:BTTS"],
+        )
+        self.assertEqual(
+            [item.candidate_id for item in select_shortlist(forecast, 3)],
+            ["1:BTTS"],
+        )
 
     def test_scan_worker_prices_every_market_in_the_fixture_pool(self):
         favorite = candidate("1:RESULT_HOME", 1, 0.73)
@@ -1028,8 +1133,15 @@ class ChallengeProviderTests(unittest.TestCase):
         self.assertEqual(snapshot["continental_fallback_modeled"], 1)
         self.assertEqual(snapshot["continental_fallback_failed"], 0)
         self.assertEqual(snapshot["approved_candidates"], 0)
-        self.assertEqual(snapshot["base_candidates"], 0)
-        self.assertEqual(snapshot["context_fixtures"], 0)
+        self.assertGreater(snapshot["base_candidates"], 0)
+        self.assertEqual(snapshot["context_fixtures"], 1)
+        self.assertEqual(snapshot["continental_provisional_scope_fixtures"], 1)
+        self.assertGreater(snapshot["forecast_candidates"], 0)
+        self.assertEqual(snapshot["forecast_fixture_count"], 1)
+        self.assertGreater(snapshot["provisional_forecast_candidates"], 0)
+        self.assertEqual(snapshot["provisional_forecast_fixtures"], 1)
+        self.assertEqual(len(snapshot["forecast_shortlist"]), 1)
+        self.assertGreater(snapshot["price_candidate_count"], 0)
         self.assertEqual(snapshot["configured_market_definitions"], len(MARKET_SPECS))
         self.assertEqual(snapshot["modeled_market_definitions"], 40)
         self.assertGreater(snapshot["market_candidates"], 0)
@@ -1041,13 +1153,48 @@ class ChallengeProviderTests(unittest.TestCase):
             sum(item["modeled"] for item in snapshot["market_coverage"]),
             40,
         )
-        self.assertEqual(snapshot["base_shortlist"], [])
-        self.assertGreater(snapshot["blocked_counts"][UNVALIDATED_TRANSFER_REASON], 0)
+        self.assertTrue(snapshot["base_shortlist"])
+        self.assertNotIn(UNVALIDATED_TRANSFER_REASON, snapshot["blocked_counts"])
+        forecast = snapshot["forecast_shortlist"][0]
+        self.assertEqual(
+            forecast.model_scope,
+            MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
+        )
+        self.assertTrue(candidate_is_forecast_credible(forecast))
+        self.assertFalse(candidate_is_credible(forecast))
+        self.assertFalse(forecast.context["release_eligible"])
+        self.assertEqual(
+            forecast.context["model_transfer"]["status"],
+            "provisional",
+        )
+        self.assertIsNotNone(snapshot["context_checked_at"])
         self.assertTrue(
             all(
                 not candidate.market_key.startswith(("CORNERS_", "YELLOW_"))
                 for candidate in snapshot["base_shortlist"]
             )
+        )
+
+        provider.domestic_team_history.side_effect = [
+            {"league_id": 113, "season": 2026, "fixtures": home_history},
+            {"league_id": 332, "season": 2026, "fixtures": away_history},
+        ]
+        with patch(
+            "challenge_15k._conservative_validation_map",
+            return_value={},
+        ):
+            unvalidated = scan_daily_challenge(
+                provider,
+                [2],
+                target_day,
+                8,
+            )
+
+        self.assertEqual(unvalidated["base_candidates"], 0)
+        self.assertEqual(unvalidated["forecast_shortlist"], [])
+        self.assertGreater(
+            unvalidated["blocked_counts"][UNVALIDATED_TRANSFER_REASON],
+            0,
         )
 
 
@@ -1082,7 +1229,236 @@ class ChallengeContextTests(unittest.TestCase):
         self.assertFalse(item.context["passed"])
         self.assertEqual(item.context["model_transfer"]["status"], "blocked")
         self.assertIn(UNVALIDATED_TRANSFER_REASON, item.context["blocked_reasons"])
+        self.assertFalse(candidate_is_forecast_credible(item))
         self.assertFalse(candidate_is_credible(item))
+
+    def test_provisional_transfer_is_forecast_credible_but_never_tip_credible(self):
+        now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(hours=3),
+        )
+        item.model_scope = MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=None,
+            injuries=None,
+            injury_coverage=False,
+            weather=None,
+            lineups=None,
+            now=now,
+            require_lineups=False,
+        )
+
+        self.assertTrue(item.context["forecast_passed"])
+        self.assertFalse(item.context["release_eligible"])
+        self.assertTrue(item.forecast_eligible)
+        self.assertFalse(item.eligible)
+        self.assertTrue(candidate_is_forecast_credible(item))
+        self.assertFalse(candidate_is_credible(item))
+        self.assertEqual(item.context["model_transfer"]["status"], "provisional")
+        self.assertEqual(item.context["h2h"]["status"], "unavailable")
+        self.assertEqual(item.context["injuries"]["status"], "unavailable")
+        self.assertEqual(item.context["weather"]["status"], "unavailable")
+        item.context["release_eligible"] = True
+        self.assertFalse(candidate_is_forecast_credible(item))
+        self.assertFalse(candidate_is_credible(item))
+
+    def test_h2h_provider_failure_is_explicit_unavailable_not_neutral(self):
+        now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(hours=3),
+        )
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=None,
+            injuries=[],
+            injury_coverage=True,
+            weather=None,
+            lineups=None,
+            now=now,
+            require_lineups=False,
+        )
+
+        self.assertTrue(candidate_is_forecast_credible(item))
+        self.assertFalse(candidate_is_credible(item))
+        self.assertFalse(item.context["release_context_complete"])
+        self.assertFalse(item.context["release_eligible"])
+        self.assertEqual(select_shortlist([item]), [])
+        self.assertEqual(select_forecast_shortlist([item]), [item])
+        quote = reference_quote_for(item, now)
+        ticket, statuses = _automatic_challenge_ticket(
+            [item],
+            {item.candidate_id: quote},
+            now=now,
+        )
+        self.assertEqual(statuses[item.candidate_id].code, "PLAYABLE")
+        self.assertIsNone(ticket)
+        self.assertEqual(item.context["h2h"]["status"], "unavailable")
+        self.assertEqual(
+            item.context["h2h"]["availability"],
+            "provider_unavailable",
+        )
+        self.assertEqual(item.context["h2h"]["matches"], 0)
+
+    def test_missing_release_flag_is_never_strictly_credible(self):
+        now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(hours=3),
+        )
+        apply_candidate_context(
+            item,
+            h2h_fixtures=[],
+            injuries=[],
+            injury_coverage=True,
+            weather={
+                "status": "ok",
+                "temperature_c": 18.0,
+                "wind_mps": 2.0,
+                "rain_3h_mm": 0.0,
+                "snow_3h_mm": 0.0,
+            },
+            lineups=None,
+            now=now,
+            require_lineups=False,
+        )
+
+        self.assertTrue(candidate_is_credible(item))
+        item.context.pop("release_context_complete")
+        self.assertTrue(candidate_is_forecast_credible(item))
+        self.assertFalse(candidate_is_credible(item))
+        item.context["release_context_complete"] = True
+        item.context.pop("release_eligible")
+        self.assertTrue(candidate_is_forecast_credible(item))
+        self.assertFalse(candidate_is_credible(item))
+        self.assertEqual(select_shortlist([item]), [])
+
+    def test_raw_injury_counts_are_observed_but_never_a_veto(self):
+        now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(hours=3),
+        )
+        injuries = [
+            {
+                "team": {"id": 10},
+                "player": {
+                    "id": 100 + index,
+                    "name": f"Player {index}",
+                    "type": "Missing Fixture",
+                },
+            }
+            for index in range(8)
+        ]
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=[],
+            injuries=injuries,
+            injury_coverage=True,
+            weather={
+                "status": "ok",
+                "temperature_c": 18.0,
+                "wind_mps": 2.0,
+                "rain_3h_mm": 0.0,
+                "snow_3h_mm": 0.0,
+            },
+            lineups=None,
+            now=now,
+            require_lineups=False,
+        )
+
+        self.assertTrue(candidate_is_credible(item))
+        self.assertTrue(item.context["release_context_complete"])
+        self.assertEqual(item.context["injuries"]["status"], "observed")
+        self.assertEqual(item.context["injuries"]["home_missing"], 8)
+        self.assertEqual(len(item.context["injuries"]["home_names"]), 8)
+        self.assertEqual(item.context["injuries"]["material_vetoes"], [])
+
+    def test_only_explicit_verified_material_injury_impact_can_veto(self):
+        now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(hours=3),
+        )
+
+        apply_candidate_context(
+            item,
+            h2h_fixtures=[],
+            injuries=[
+                {
+                    "team": {"id": 10},
+                    "player": {"id": 100, "name": "Key Player", "type": "Missing"},
+                    "material_impact": {"verified": True, "veto": True},
+                }
+            ],
+            injury_coverage=True,
+            weather=None,
+            lineups=None,
+            now=now,
+            require_lineups=False,
+        )
+
+        self.assertFalse(candidate_is_forecast_credible(item))
+        self.assertEqual(item.context["injuries"]["status"], "blocked")
+        self.assertEqual(item.context["injuries"]["material_vetoes"], ["Key Player"])
+
+    def test_suppressive_extreme_weather_blocks_over_but_not_under(self):
+        now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        over = candidate(
+            "1:TOTAL_OVER_2_5",
+            1,
+            0.70,
+            kickoff=now + timedelta(hours=3),
+        )
+        over.market_key = "TOTAL_OVER_2_5"
+        under = candidate(
+            "2:TOTAL_UNDER_2_5",
+            2,
+            0.70,
+            kickoff=now + timedelta(hours=3),
+        )
+        under.market_key = "TOTAL_UNDER_2_5"
+        extreme = {
+            "status": "ok",
+            "temperature_c": 12.0,
+            "wind_mps": 13.0,
+            "rain_3h_mm": 7.0,
+            "snow_3h_mm": 0.0,
+        }
+        for item in (over, under):
+            apply_candidate_context(
+                item,
+                h2h_fixtures=[],
+                injuries=[],
+                injury_coverage=True,
+                weather=extreme,
+                lineups=None,
+                now=now,
+                require_lineups=False,
+            )
+
+        self.assertFalse(candidate_is_forecast_credible(over))
+        self.assertEqual(over.context["weather"]["status"], "blocked")
+        self.assertEqual(over.context["weather"]["market_effect"], "adverse")
+        self.assertTrue(candidate_is_credible(under))
+        self.assertEqual(under.context["weather"]["status"], "observed")
+        self.assertEqual(under.context["weather"]["market_effect"], "aligned")
+        self.assertFalse(under.context["weather"]["veto_applied"])
 
     def test_targeted_refresh_uses_only_persisted_candidate_fixtures(self):
         now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
@@ -1256,6 +1632,7 @@ class ChallengeContextTests(unittest.TestCase):
             },
             lineups=forged_lineups,
             now=now,
+            require_lineups=True,
         )
 
         self.assertFalse(item.eligible)
@@ -1288,6 +1665,7 @@ class ChallengeContextTests(unittest.TestCase):
             },
             lineups=None,
             now=now,
+            require_lineups=True,
         )
 
         self.assertFalse(item.eligible)
@@ -1296,7 +1674,7 @@ class ChallengeContextTests(unittest.TestCase):
             item.context["blocked_reasons"],
         )
 
-    def test_lineups_optional_do_not_block_when_disabled(self):
+    def test_lineups_are_optional_without_explicit_opt_in(self):
         item = candidate("1:BTTS", 1, 0.70)
         now = datetime.now(timezone.utc)
         h2h = [
@@ -1319,7 +1697,6 @@ class ChallengeContextTests(unittest.TestCase):
             },
             lineups=None,
             now=now,
-            require_lineups=False,
         )
 
         self.assertTrue(item.eligible)
@@ -1602,6 +1979,7 @@ class ChallengeContextTests(unittest.TestCase):
             },
             lineups=[],
             now=now,
+            require_lineups=True,
         )
 
         self.assertFalse(item.eligible)

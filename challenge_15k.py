@@ -28,6 +28,7 @@ from challenge_engine import (
     COUNT_MARKET_KINDS,
     MARKET_BY_KEY,
     MAX_CHALLENGE_STAKE_FRACTION,
+    MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     MODEL_SCOPE_SAME_COMPETITION,
     MIN_LEG_EXPECTED_ROI,
@@ -38,6 +39,7 @@ from challenge_engine import (
     ValidationMetrics,
     apply_candidate_context,
     build_fixture_candidates,
+    candidate_is_forecast_credible,
     candidate_is_credible,
     challenge_stake_cap,
     consecutive_wins_to_target,
@@ -47,6 +49,7 @@ from challenge_engine import (
     market_outcome,
     market_specs,
     select_model_ticket,
+    select_forecast_shortlist,
     select_quoted_ticket,
     select_shortlist,
     risk_managed_ticket_stake,
@@ -67,6 +70,7 @@ from league_catalog import ALTERNATIVE_MARKET_LEAGUES, LEAGUE_BY_ID
 from market_consensus import (
     MarketConsensus,
     deserialize_consensus_map,
+    exact_market_target,
     fetch_football_consensus,
     reference_price_status,
     serialize_consensus_map,
@@ -75,7 +79,7 @@ from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 13
+CHALLENGE_SNAPSHOT_VERSION = 14
 CHALLENGE_WORKSPACE_VERSION = 9
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
@@ -1315,7 +1319,8 @@ def _price_candidate_pool(
     eligible = [
         candidate
         for candidate in candidates
-        if candidate_is_credible(candidate)
+        if candidate_is_forecast_credible(candidate)
+        and exact_market_target(candidate.market_key) is not None
     ]
     fixture_ids = _ranked_fixture_ids(eligible, limit=max_fixtures)
     return _discovery_candidate_pool(eligible, fixture_ids)
@@ -1368,16 +1373,26 @@ def _context_scope_facts(
         ):
             return True
         required_statuses = {
-            "model_transfer": {"passed", "blocked"},
-            "h2h": {"passed", "blocked", "neutral"},
-            "injuries": {"passed", "blocked"},
-            "weather": {"passed", "blocked"},
+            "model_transfer": {"passed", "provisional", "blocked"},
+            "h2h": {"passed", "blocked", "neutral", "unavailable"},
+            "injuries": {"passed", "observed", "blocked", "unavailable"},
+            "weather": {"passed", "observed", "blocked", "unavailable"},
         }
         for section, allowed in required_statuses.items():
             value = context.get(section)
             if not isinstance(value, dict) or value.get("status") not in allowed:
                 return False
-        return True
+        lineups = context.get("lineups")
+        if not isinstance(lineups, dict):
+            return False
+        if lineups.get("required") is True:
+            return lineups.get("status") in {"passed", "required_missing"}
+        return lineups.get("status") in {
+            "passed",
+            "pending",
+            "unavailable",
+            "required_missing",
+        }
 
     incomplete_ids: set[int] = set()
     for fixture_id in selected_fixture_ids:
@@ -1403,6 +1418,105 @@ def _context_scope_facts(
         )
         for fixture_id in sorted(base_fixture_ids)
     }
+
+    axis_sources = {
+        "model_transfer": "challenge_model",
+        "h2h": "api_football",
+        "injuries": "api_football",
+        "weather": "openweathermap",
+        "lineups": "api_football",
+    }
+    provenance: dict[str, Any] = {}
+    for fixture_id in sorted(base_fixture_ids):
+        fixture_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.fixture_id == fixture_id
+        ]
+        contexts = [
+            candidate.context
+            for candidate in fixture_candidates
+            if isinstance(candidate.context, dict)
+        ]
+        checked_values = sorted(
+            {
+                str(context.get("checked_at"))
+                for context in contexts
+                if isinstance(context.get("checked_at"), str)
+                and str(context.get("checked_at")).strip()
+            }
+        )
+        axes: dict[str, Any] = {}
+        for section, source in axis_sources.items():
+            values = [
+                context.get(section)
+                for context in contexts
+                if isinstance(context.get(section), dict)
+            ]
+            section_checked = sorted(
+                {
+                    str(value.get("checked_at"))
+                    for value in values
+                    if isinstance(value.get("checked_at"), str)
+                    and str(value.get("checked_at")).strip()
+                }
+            )
+            statuses_for_axis = sorted(
+                {
+                    str(value.get("status"))
+                    for value in values
+                    if isinstance(value.get("status"), str)
+                    and str(value.get("status")).strip()
+                }
+            )
+            axis: dict[str, Any] = {
+                "source": source,
+                "statuses": statuses_for_axis,
+                "checked_at": section_checked[-1] if section_checked else None,
+            }
+            availability = sorted(
+                {
+                    str(value.get("availability"))
+                    for value in values
+                    if isinstance(value.get("availability"), str)
+                    and str(value.get("availability")).strip()
+                }
+            )
+            if availability:
+                axis["availability"] = availability
+            observed_values = sorted(
+                {
+                    str(value.get(timestamp_key))
+                    for value in values
+                    for timestamp_key in ("latest_observed_at", "forecast_at")
+                    if isinstance(value.get(timestamp_key), str)
+                    and str(value.get(timestamp_key)).strip()
+                }
+            )
+            if observed_values:
+                axis["observed_at"] = observed_values[-1]
+            axes[section] = axis
+        provenance[str(fixture_id)] = {
+            "scope_status": statuses[str(fixture_id)],
+            "candidate_count": len(fixture_candidates),
+            "model_scopes": sorted(
+                {
+                    str(getattr(candidate, "model_scope", ""))
+                    for candidate in fixture_candidates
+                    if str(getattr(candidate, "model_scope", "")).strip()
+                }
+            ),
+            "checked_at": checked_values[-1] if checked_values else None,
+            "forecast_passed_candidates": sum(
+                context.get("forecast_passed", context.get("passed")) is True
+                for context in contexts
+            ),
+            "release_eligible_candidates": sum(
+                context.get("release_eligible") is True
+                for context in contexts
+            ),
+            "axes": axes,
+        }
     return {
         "base_fixture_count": len(base_fixture_ids),
         "context_verified_fixtures": len(verified_ids),
@@ -1412,6 +1526,7 @@ def _context_scope_facts(
             incomplete_ids or unchecked_ids or deferred_ids
         ),
         "context_fixture_statuses": statuses,
+        "context_fixture_provenance": provenance,
     }
 
 
@@ -2015,6 +2130,17 @@ def scan_daily_challenge(
                 for profile in unique_profiles
             ]
         )
+    provisional_fixture_ids = {
+        fixture_id
+        for fixture_id, profiles in fixture_domestic_profiles.items()
+        if fixture_id in fixture_team_histories
+        and len(profiles) == 2
+        and all(
+            bool(domestic_validations.get(profile))
+            for profile in profiles
+        )
+        and bool(fixture_validations.get(fixture_id))
+    }
 
     if progress_cb:
         progress_cb(
@@ -2044,7 +2170,9 @@ def scan_daily_challenge(
             calibration,
             team_history=fixture_team_histories.get(fixture_id),
             model_scope=(
-                MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED
+                MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+                if fixture_id in provisional_fixture_ids
+                else MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED
                 if fixture_id in fixture_team_histories
                 else MODEL_SCOPE_SAME_COMPETITION
             ),
@@ -2112,6 +2240,11 @@ def scan_daily_challenge(
 
     if progress_cb:
         progress_cb(0.96, "Kontextgates werden angewendet")
+    context_checked_at = (
+        datetime.now(timezone.utc)
+        if context_fixture_ids
+        else None
+    )
     contextualized: list[ChallengeCandidate] = []
     for candidate in base_candidates:
         if candidate.fixture_id not in context_fixture_ids:
@@ -2122,6 +2255,8 @@ def scan_daily_challenge(
             )
             candidate.context = {
                 "passed": False,
+                "forecast_passed": False,
+                "release_eligible": False,
                 "blocked_reasons": [reason],
             }
             contextualized.append(candidate)
@@ -2142,11 +2277,16 @@ def scan_daily_challenge(
                 if isinstance(detail, dict) and league_coverage.get("lineups") is True
                 else None
             ),
+            now=context_checked_at,
             require_lineups=False,
         )
         contextualized.append(candidate)
 
     price_candidates = _price_candidate_pool(contextualized)
+    forecast_shortlist = select_forecast_shortlist(
+        price_candidates,
+        max_candidates=3,
+    )
     shortlist = select_shortlist(price_candidates, max_candidates=3)
     model_ticket = select_model_ticket(price_candidates)
     base_shortlist = sorted(base_candidates, key=_candidate_rank, reverse=True)[:10]
@@ -2163,6 +2303,13 @@ def scan_daily_challenge(
         context_fixture_ids,
         deferred_context_fixture_ids,
     )
+    forecast_candidates = list(price_candidates)
+    provisional_forecast_candidates = [
+        candidate
+        for candidate in forecast_candidates
+        if candidate.model_scope
+        == MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+    ]
     coverage_notices, operational_errors = _split_provider_messages(provider.errors)
     if progress_cb:
         progress_cb(
@@ -2199,10 +2346,37 @@ def scan_daily_challenge(
         "continental_fallback_modeled": len(fixture_team_histories),
         "continental_fallback_failed": len(fallback_failed),
         "continental_validation_fixtures": len(validation_target_fixture_ids),
+        "continental_provisional_scope_fixtures": len(
+            {
+                candidate.fixture_id
+                for candidate in base_candidates
+                if candidate.model_scope
+                == MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+            }
+        ),
         "base_candidates": len(base_candidates),
         "context_fixtures": len(context_fixture_ids),
         "deferred_context_fixtures": len(deferred_context_fixture_ids),
+        "context_checked_at": (
+            context_checked_at.isoformat()
+            if context_checked_at is not None
+            else None
+        ),
         **context_scope_facts,
+        "forecast_candidates": len(forecast_candidates),
+        "forecast_fixture_count": len(
+            {candidate.fixture_id for candidate in forecast_candidates}
+        ),
+        "provisional_forecast_candidates": len(
+            provisional_forecast_candidates
+        ),
+        "provisional_forecast_fixtures": len(
+            {
+                candidate.fixture_id
+                for candidate in provisional_forecast_candidates
+            }
+        ),
+        "forecast_shortlist": forecast_shortlist,
         "approved_candidates": len(shortlist),
         "shortlist": shortlist,
         "price_candidates": price_candidates,
@@ -2257,6 +2431,12 @@ def refresh_discovered_candidates(
             "checked_at": checked_at.isoformat(),
             "fixture_ids": [],
             "shortlist": [],
+            "forecast_shortlist": [],
+            "price_candidates": [],
+            "forecast_candidates": 0,
+            "forecast_fixture_count": 0,
+            "provisional_forecast_candidates": 0,
+            "provisional_forecast_fixtures": 0,
             "candidates": [],
             "blocked_counts": {},
             "errors": list(provider.errors),
@@ -2315,7 +2495,18 @@ def refresh_discovered_candidates(
         contextualized.append(candidate)
 
     price_candidates = _price_candidate_pool(contextualized)
+    forecast_shortlist = select_forecast_shortlist(
+        price_candidates,
+        max_candidates=max_candidates,
+    )
     shortlist = select_shortlist(price_candidates, max_candidates=max_candidates)
+    forecast_candidates = list(price_candidates)
+    provisional_forecast_candidates = [
+        candidate
+        for candidate in forecast_candidates
+        if candidate.model_scope
+        == MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+    ]
     blocked_counts: dict[str, int] = {}
     for candidate in contextualized:
         reasons = candidate.blocked_reasons or candidate.context.get(
@@ -2330,7 +2521,21 @@ def refresh_discovered_candidates(
         "checked_at": checked_at.isoformat(),
         "fixture_ids": fixture_ids,
         "shortlist": shortlist,
+        "forecast_shortlist": forecast_shortlist,
         "price_candidates": price_candidates,
+        "forecast_candidates": len(forecast_candidates),
+        "forecast_fixture_count": len(
+            {candidate.fixture_id for candidate in forecast_candidates}
+        ),
+        "provisional_forecast_candidates": len(
+            provisional_forecast_candidates
+        ),
+        "provisional_forecast_fixtures": len(
+            {
+                candidate.fixture_id
+                for candidate in provisional_forecast_candidates
+            }
+        ),
         "candidates": contextualized,
         "blocked_counts": blocked_counts,
         **context_scope_facts,

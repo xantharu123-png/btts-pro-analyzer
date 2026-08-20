@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from challenge_engine import (  # noqa: E402
 )
 from xg_backfill import (  # noqa: E402
     annotate_history,
+    cached_stats,
     cached_xg,
     fetch_missing_xg,
     season_fixture_index,
@@ -353,6 +355,92 @@ class XgBackfillTest(unittest.TestCase):
             stats = fetch_missing_xg(index, provider, db, max_calls=5, pause_seconds=0)
             self.assertEqual(stats["unavailable"], 0)
             self.assertEqual(provider.calls, [])
+
+    def test_stale_missing_marker_is_retried(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "xg.db"
+            index = [{
+                "id": 802,
+                "date": BASE.isoformat(),
+                "home_id": 11,
+                "away_id": 12,
+                "home_name": "VfL Wolfsburg",
+                "away_name": "FC Augsburg",
+            }]
+            provider = FakeProvider([], {}, stats_without_xg={802})
+            fetch_missing_xg(index, provider, db, max_calls=5, pause_seconds=0)
+            connection = sqlite3.connect(db)
+            try:
+                connection.execute(
+                    "UPDATE xg_missing SET fetched_at='2000-01-01T00:00:00+00:00'"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            provider.stats_without_xg.clear()
+            provider.statistics[802] = _full_stats_payload(11, 12)
+            provider.calls.clear()
+
+            stats = fetch_missing_xg(
+                index,
+                provider,
+                db,
+                max_calls=5,
+                pause_seconds=0,
+            )
+
+            self.assertEqual(stats["fetched"], 1)
+            self.assertEqual(cached_xg(db)[802], (1.75, 0.90))
+            self.assertEqual(len(provider.calls), 1)
+
+    def test_stale_partial_row_is_retried_without_losing_existing_xg(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "xg.db"
+            index = [{
+                "id": 803,
+                "date": BASE.isoformat(),
+                "home_id": 11,
+                "away_id": 12,
+                "home_name": "VfL Wolfsburg",
+                "away_name": "FC Augsburg",
+            }]
+            provider = FakeProvider([], {803: _stats_payload(11, 12, 1.4, 0.8)})
+            fetch_missing_xg(index, provider, db, max_calls=5, pause_seconds=0)
+            connection = sqlite3.connect(db)
+            try:
+                connection.execute(
+                    "UPDATE xg_values SET fetched_at='2000-01-01T00:00:00+00:00'"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            full = _full_stats_payload(11, 12)
+            for block in full:
+                block["statistics"] = [
+                    item
+                    for item in block["statistics"]
+                    if item["type"] != "expected_goals"
+                ]
+            provider.statistics[803] = full
+            provider.calls.clear()
+
+            stats = fetch_missing_xg(
+                index,
+                provider,
+                db,
+                max_calls=5,
+                pause_seconds=0,
+            )
+
+            self.assertEqual(stats["fetched"], 1)
+            combined = cached_stats(db)[803]
+            self.assertEqual(combined["xg"], (1.4, 0.8))
+            self.assertEqual(combined["corners"], (6.0, 3.0))
+            self.assertEqual(combined["yellow"], (2.0, 4.0))
 
     def test_season_index_is_cached(self):
         import tempfile
