@@ -341,9 +341,13 @@ class ChallengeProbabilityTests(unittest.TestCase):
         ):
             _render_price_check(snapshot, Mock(), {})
 
-        fake_streamlit.warning.assert_called_once_with(
-            "Morgen keine belastbare 15K-Empfehlung."
+        fake_streamlit.info.assert_called_once_with(
+            "Für diesen Spieltag gibt es aktuell keinen 15K-Tipp."
         )
+        detail = fake_streamlit.caption.call_args.args[0]
+        self.assertIn("alle Voraussetzungen", detail)
+        self.assertNotIn("Marktkandidaten", detail)
+        self.assertNotIn("Walk-forward", detail)
 
     def test_scan_diagnostics_separates_model_and_context_gates(self):
         transfer_only = candidate("1:BTTS", 1, 0.70)

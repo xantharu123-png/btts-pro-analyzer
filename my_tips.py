@@ -117,7 +117,7 @@ def render_saved_tips() -> None:
 def render_my_tips() -> None:
     area = st.selectbox(
         "Bereich",
-        ["Wettfinder", "15K Challenge", "Tennis"],
+        ["Wettfinder", "15K Challenge"],
         key="my_tips_area",
     )
     if area == "Wettfinder":
@@ -126,10 +126,6 @@ def render_my_tips() -> None:
         from challenge_15k import render_challenge_history
 
         render_challenge_history()
-    else:
-        from tennis_tab import render_tennis_history
-
-        render_tennis_history()
 
 
 __all__ = ["render_my_tips", "render_saved_tips"]

@@ -16,7 +16,7 @@ from multi_sport_recommendations import PriceDecision
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "saved_tips.db"
 SETTLEMENT_RESULTS = frozenset({"WON", "LOST", "VOID"})
-SAVEABLE_DECISION_STATUSES = frozenset({"BET", "SHADOW"})
+SAVEABLE_DECISION_STATUSES = frozenset({"BET"})
 
 
 @dataclass(frozen=True)
@@ -105,6 +105,16 @@ class TipStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
             connection.executescript(_SCHEMA)
+            # Legacy UI versions allowed SHADOW rows into the consumer tip
+            # ledger. Preserve their bytes, but archive them so research data
+            # can never be presented or settled as a real user tip.
+            connection.execute(
+                """
+                UPDATE saved_tips SET archived=1
+                WHERE decision_status <> 'BET' OR evidence_stage <> 'RELEASED'
+                """
+            )
+            connection.commit()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path, timeout=30)
@@ -134,8 +144,10 @@ class TipStore:
             not isinstance(decision, PriceDecision)
             or decision.status not in SAVEABLE_DECISION_STATUSES
         ):
-            raise ValueError("Nur freigegebene oder Shadow-Tipps können gespeichert werden")
+            raise ValueError("Nur vollständig freigegebene Tipps können gespeichert werden")
         candidate = decision.candidate
+        if candidate.evidence_stage != "RELEASED":
+            raise ValueError("Nur vollständig freigegebene Tipps können gespeichert werden")
         if decision.quoted_odds is None:
             raise ValueError("Eine bestätigte Quote fehlt")
         timestamp = now or datetime.now(timezone.utc)
@@ -218,6 +230,8 @@ class TipStore:
         params: list[object] = [self.scope_id]
         if not include_archived:
             clauses.append("archived=0")
+            clauses.append("decision_status='BET'")
+            clauses.append("evidence_stage='RELEASED'")
         if active is True:
             clauses.append("result IS NULL")
         elif active is False:
@@ -249,6 +263,7 @@ class TipStore:
                 UPDATE saved_tips
                 SET result=?, settled_at=?, updated_at=?
                 WHERE id=? AND scope_id=? AND archived=0 AND result IS NULL
+                  AND decision_status='BET' AND evidence_stage='RELEASED'
                 """,
                 (
                     normalized,

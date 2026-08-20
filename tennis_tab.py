@@ -632,16 +632,10 @@ def _render_match_card(row: dict) -> None:
         )
 
         if not model_gates_ok:
-            blockers = ", ".join(failed_gates) if failed_gates else "fehlende Prüfdaten"
-            st.error(f"KEINE EMPFEHLUNG — blockiert durch: {blockers}.")
+            st.warning("AKTUELL KEINE BELASTBARE TENNIS-AUSWAHL.")
             st.caption(
-                "Die Modellrechnung ist unvollständig. Deshalb werden weder ein "
-                "Sieger-Prozentwert noch Mindestquoten oder eine Preisprüfung angezeigt."
+                "Für dieses Match reichen die verfügbaren Daten derzeit nicht aus."
             )
-            with st.expander("Prüfdetails"):
-                _render_gate_badges(gates)
-                st.divider()
-                _render_market_sheet(markets, int(row.get("best_of") or 3))
             return
 
         min_a = minimum_recommendation_odds(
@@ -666,17 +660,16 @@ def _render_match_card(row: dict) -> None:
             else "nicht belastbar"
         )
         st.info(
-            f"MODELLANALYSE: {likely_player} ist wahrscheinlicher. "
-            "Noch keine Wettfreigabe ohne bestätigten Marktpreis."
+            f"TENNIS-AUSWAHL: {likely_player} ist wahrscheinlicher. "
+            "Diese Auswahl wird noch geprüft und ist kein Tipp."
         )
         metrics = st.columns(3)
         metrics[0].metric("Modell", f"{likely_probability:.1%}")
-        metrics[1].metric("Konservativ", f"{conservative_probability:.1%}")
+        metrics[1].metric("Vorsichtige Prognose", f"{conservative_probability:.1%}")
         metrics[2].metric("Mindestquote", minimum_text)
         st.caption(
-            "Der Tennis-Datenfeed liefert derzeit keine belastbare automatische "
-            "Mehrbuchmacherquote. Die Mindestquote ist deshalb nur die Schwelle "
-            "für eine spätere Preisprüfung und ausdrücklich noch kein Tipp."
+            "Aktuell liegt kein automatischer Quotenvergleich vor. Die "
+            "Mindestquote dient nur zur Prüfung der eigenen Buchmacherquote."
         )
 
         odds_a_key = f"odds_a_{row['id']}"
@@ -760,57 +753,23 @@ def _render_match_card(row: dict) -> None:
             if result["verdict"] == "WETTE" and model_gates_ok:
                 name = row["player_a"] if result["side"] == "A" else row["player_b"]
                 selected_odds = odds_a if result["side"] == "A" else odds_b
-                risk_ev = (
-                    result["risk_ev_a"]
-                    if result["side"] == "A"
-                    else result["risk_ev_b"]
-                )
-                st.success(
-                    f"PREIS BESTANDEN: Sieg {name} @ {selected_odds:.2f} | "
-                    f"Risiko-EV {risk_ev:+.1%} nach "
-                    f"{WINNER_PROBABILITY_HAIRCUT:+.0%} Modellabschlag."
+                st.info(
+                    f"PASSENDE QUOTE: Sieg {name} @ {selected_odds:.2f}. "
+                    "Die Auswahl bleibt in Prüfung; es gibt keinen "
+                    "Einsatzvorschlag."
                 )
             else:
-                reasons = []
-                if not model_gates_ok:
-                    reasons.append("Modell-Prüfung nicht bestanden (Details unten)")
                 if not result.get("prices_ok"):
-                    reasons.append("Quote unplausibel")
-                elif max(
-                    result.get("risk_ev_a", float("-inf")),
-                    result.get("risk_ev_b", float("-inf")),
-                ) < MIN_EXPECTED_ROI:
-                    reasons.append(
-                        "Preis zu niedrig: maximaler Risiko-EV "
-                        f"{max(result.get('risk_ev_a', float('-inf')), result.get('risk_ev_b', float('-inf'))):+.1%} "
-                        f"(erforderlich {MIN_EXPECTED_ROI:+.1%})"
+                    st.info(
+                        "PREIS NOCH OFFEN: Bitte beide Buchmacherquoten prüfen. "
+                        "Die Tennis-Auswahl bleibt unverändert."
                     )
                 else:
-                    short_sides = []
-                    for side_name, offered, minimum in (
-                        (row["player_a"], odds_a, result.get("minimum_a")),
-                        (row["player_b"], odds_b, result.get("minimum_b")),
-                    ):
-                        if minimum is not None and offered + 1e-9 < minimum:
-                            short_sides.append(
-                                f"{side_name} {offered:.2f} < {minimum:.2f}"
-                            )
-                    if short_sides:
-                        reasons.append("Quote zu kurz: " + ", ".join(short_sides))
-                st.error(
-                    "KEINE WETTE ZU DIESER QUOTE — die quotenfreie Prognose "
-                    f"bleibt {likely_player} ({likely_probability:.1%}). "
-                    + "; ".join(reasons)
-                )
-
-        _render_winner_closing_capture(row)
-
-        with st.expander("Weitere Märkte und Prüfdetails"):
-            _render_side_markets(row, markets, model_gates_ok)
-            st.divider()
-            _render_gate_badges(gates)
-            st.divider()
-            _render_market_sheet(markets, int(row.get("best_of") or 3))
+                    st.info(
+                        f"QUOTE ZU NIEDRIG: Die Tennis-Auswahl bleibt "
+                        f"{likely_player} ({likely_probability:.1%}). Nur der "
+                        "angebotene Wettpreis reicht nicht aus."
+                    )
 
 
 def _render_settlement(open_rows: list[dict]) -> None:
@@ -990,18 +949,14 @@ def render_tennis_finder(
 
     job = scan_jobs.get_job(job_key)
     if job["state"] == "running":
-        scan_progress_fragment(job_key, "Tennis-Scan")
+        scan_progress_fragment(job_key, "Tennis-Suche")
     elif job["state"] == "done":
-        st.session_state["tennis_scan_output"] = job.get("result") or ""
+        st.session_state.pop("tennis_scan_output", None)
         scan_jobs.clear_job(job_key)
         st.rerun()
     elif job["state"] == "error":
-        st.error(f"Tennis-Scan fehlgeschlagen: {job.get('error')}")
+        st.error("Die Tennis-Suche konnte nicht abgeschlossen werden.")
         scan_jobs.clear_job(job_key)
-    if st.session_state.get("tennis_scan_output"):
-        with st.expander("Letzter Scan-Verlauf"):
-            st.text(st.session_state["tennis_scan_output"])
-
     today = _zurich_today()
     raw_rows = _load_predictions(
         date_from=selected_date or today,
@@ -1012,7 +967,8 @@ def render_tennis_finder(
     if hidden_rows:
         st.warning(
             f"{len(hidden_rows)} Einträge ausgeblendet: angesetzte Startzeit "
-            "erreicht oder Startzeit nicht verifiziert. Keine Pre-Match-Wette mehr."
+            "erreicht oder Startzeit nicht verifiziert. Diese Spiele werden "
+            "nicht mehr als Pre-Match-Auswahl gezeigt."
         )
     if not rows:
         if raw_rows:
@@ -1089,9 +1045,7 @@ def render_tennis_history() -> None:
 
 def render_tennis_page() -> None:
     """Backward-compatible complete tennis workspace."""
-    _render_shadow_summary()
     render_tennis_finder()
-    _render_settlement(_load_predictions(unsettled_only=True))
 
 
 __all__ = [

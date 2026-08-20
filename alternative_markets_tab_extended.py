@@ -13,8 +13,6 @@ from ui_components import scan_progress_fragment
 from challenge_15k import (
     MAX_SCAN_FIXTURES,
     ChallengeDataProvider,
-    render_football_scan_diagnostics,
-    scan_no_result_copy,
     scan_daily_challenge,
 )
 from challenge_engine import select_shortlist
@@ -31,7 +29,7 @@ from market_consensus import (
 
 DEFAULT_LEAGUES = [78, 39, 140]
 MARKET_WORKFLOW_VERSION = 9
-MARKET_SNAPSHOT_VERSION = 10
+MARKET_SNAPSHOT_VERSION = 11
 MARKET_MAX_AGE_MINUTES = 20
 FOOTBALL_MARKET_SCOPES = {
     "Beste Märkte": None,
@@ -108,6 +106,7 @@ def _format_snapshot_time(value: Optional[str]) -> str:
 
 
 def _price_check_summary(snapshot: dict) -> Optional[str]:
+    """Format internal scan diagnostics; never render this in consumer UI."""
     counts = snapshot.get("price_status_counts")
     counts = counts if isinstance(counts, dict) else {}
     parts = [
@@ -130,6 +129,20 @@ def _price_check_summary(snapshot: dict) -> Optional[str]:
         f"Preisprüfung: {checked} Modellmärkte{fixture_text} geprüft · "
         + " · ".join(parts)
     )
+
+
+def _consumer_no_tip_copy(snapshot: dict, *, day_label: str) -> tuple[str, str]:
+    """Return a concise empty state without exposing pipeline diagnostics."""
+    found = int(snapshot.get("fixtures_found") or 0)
+    modeled = int(snapshot.get("fixtures_modeled") or 0)
+    headline = f"{day_label}: aktuell kein passender Tipp."
+    if found <= 0:
+        detail = "Im gewählten Zeitraum wurden keine anstehenden Spiele gefunden."
+    elif modeled <= 0:
+        detail = "Für die gefundenen Spiele reichen die verfügbaren Daten derzeit nicht aus."
+    else:
+        detail = "Aktuell erfüllt keine Auswahl alle Voraussetzungen für einen Tipp."
+    return headline, detail
 
 
 def _zurich_today():
@@ -316,7 +329,7 @@ def create_alternative_markets_tab_extended(
     job_key = scan_jobs.scoped_key("markets", session_scope)
     config = load_app_config(st)
     if not config.api_football_key:
-        st.error("API-Football-Key fehlt.")
+        st.error("Die Fußball-Suche ist vorübergehend nicht verfügbar.")
         return
 
     if not embedded:
@@ -336,9 +349,7 @@ def create_alternative_markets_tab_extended(
         st.caption(", ".join(ALTERNATIVE_MARKET_LEAGUES[item] for item in selected_leagues))
     elif league_scope == all_scope_label:
         selected_leagues = available_ids
-        st.caption(
-            f"{len(selected_leagues)} konfigurierte Ligen werden vollständig durchsucht."
-        )
+        st.caption("Alle verfügbaren Fußballligen")
     else:
         selected_leagues = st.multiselect(
             "Ligen auswählen",
@@ -368,15 +379,9 @@ def create_alternative_markets_tab_extended(
     elif search_end_date is None:
         search_end_date = search_date
 
-    # Kein künstliches Limit mehr: ALLE Spiele der gewählten Ligen werden
-    # modelliert (reine Lokalrechnung, keine Provider-Zusatzkosten).
-    # Teure Live-Kontext-Checks (H2H, Wetter, Aufstellung) laufen nur für
-    # die Top-Kandidaten; MAX_SCAN_FIXTURES ist nur das technische Sicherheitsventil.
+    # Kein künstliches Limit mehr: Alle Spiele der gewählten Ligen werden
+    # modelliert. Technische Scan- und Gate-Details bleiben serverintern.
     max_fixtures = MAX_SCAN_FIXTURES
-    st.caption(
-        "Alle Spiele im Zeitraum werden modelliert; H2H, Ausfälle und Wetter "
-        "nur für die aussichtsreichsten Spiele im verfügbaren Kontextfenster."
-    )
     scope = _market_scope_signature(
         selected_leagues,
         search_date,
@@ -427,20 +432,7 @@ def create_alternative_markets_tab_extended(
 
     job = scan_jobs.get_job(job_key)
     if job["state"] == "running":
-        active_scope = st.session_state.get("market_pending_scope")
-        active_leagues = (
-            active_scope.get("league_ids")
-            if isinstance(active_scope, dict)
-            else None
-        )
-        if isinstance(active_leagues, list):
-            active_start = active_scope.get("date", search_date.isoformat())
-            active_end = active_scope.get("end_date", active_start)
-            st.caption(
-                f"Aktiver Auftrag: {len(active_leagues)} Ligen · "
-                f"{active_start} bis {active_end}."
-            )
-        scan_progress_fragment(job_key, "Markt-Scan")
+        scan_progress_fragment(job_key, "Fußball-Suche")
     elif job["state"] == "done":
         result = job.get("result") or {}
         challenge_snapshot = result.get("challenge") or {}
@@ -450,6 +442,7 @@ def create_alternative_markets_tab_extended(
             "scanned_at": challenge_snapshot.get("scanned_at"),
             "scope": result.get("scope") or scope,
             "shortlist": challenge_snapshot.get("shortlist", [])[:3],
+            "model_shortlist": challenge_snapshot.get("model_shortlist", [])[:3],
             "reference_quotes": challenge_snapshot.get("reference_quotes", {}),
             "quote_errors": challenge_snapshot.get("quote_errors", []),
             "price_checked_at": challenge_snapshot.get("price_checked_at"),
@@ -518,24 +511,11 @@ def create_alternative_markets_tab_extended(
         }
         scan_jobs.clear_job(job_key)
     elif job["state"] == "error":
-        failed_scope = st.session_state.pop("market_pending_scope", None)
-        failed_leagues = (
-            failed_scope.get("league_ids")
-            if isinstance(failed_scope, dict)
-            else None
-        )
-        scope_label = (
-            f" für {len(failed_leagues)} Ligen"
-            if isinstance(failed_leagues, list)
-            else ""
-        )
-        st.error(
-            f"Markt-Wettfinder{scope_label} technisch abgebrochen: "
-            f"{job.get('error')}"
-        )
+        st.session_state.pop("market_pending_scope", None)
+        st.error("Die Suche konnte nicht abgeschlossen werden.")
         st.caption(
-            "Es wurde keine Wettentscheidung aus diesem unvollständigen Lauf übernommen. "
-            "Die Suche kann direkt neu gestartet werden."
+            "Es wurde kein unvollständiges Ergebnis übernommen. Bitte die Suche "
+            "erneut starten."
         )
         scan_jobs.clear_job(job_key)
 
@@ -556,9 +536,7 @@ def create_alternative_markets_tab_extended(
         or snapshot_age < -1
         or snapshot_age > MARKET_MAX_AGE_MINUTES
     ):
-        st.error(
-            "NICHT WETTEN: Dieser Kontext-Datenstand ist älter als 20 Minuten oder zeitlich ungültig."
-        )
+        st.warning("Dieses Suchergebnis ist nicht mehr aktuell. Bitte erneut suchen.")
         return
 
     result_day = _market_result_day_label(snapshot)
@@ -568,47 +546,60 @@ def create_alternative_markets_tab_extended(
     )
     shortlist = snapshot.get("shortlist")
     shortlist = shortlist if isinstance(shortlist, list) else []
+    model_shortlist = snapshot.get("model_shortlist")
+    model_shortlist = model_shortlist if isinstance(model_shortlist, list) else []
+    reference_quotes = deserialize_consensus_map(
+        snapshot.get("reference_quotes")
+    )
     if not shortlist:
-        price_summary = _price_check_summary(snapshot)
-        if price_summary:
-            st.error(
-                f"{result_day}: keine preislich freigegebene Markt-Empfehlung."
+        if model_shortlist:
+            found_label = (
+                "Eine interessante Auswahl gefunden"
+                if len(model_shortlist) == 1
+                else f"{len(model_shortlist)} interessante Auswahlen gefunden"
             )
-            st.caption(price_summary)
+            st.info(f"{found_label} – aktuell noch kein spielbarer Tipp.")
+            st.caption(
+                "Die Quote bewertet den Wettpreis, nicht den möglichen "
+                "Spielausgang. Fehlt eine belastbare Vergleichsquote oder ist "
+                "sie zu niedrig, bleibt die Modell-Auswahl sichtbar."
+            )
+            for index, raw_candidate in enumerate(model_shortlist, start=1):
+                candidate = _strict_market_candidate(raw_candidate)
+                st.markdown(f"### Auswahl {index}")
+                render_price_decision(
+                    candidate,
+                    key=(
+                        f"market_model_{candidate.event_key}_"
+                        f"{snapshot.get('scanned_at')}"
+                    ),
+                    bankroll_key="football_bet_finder_bankroll",
+                    reference_quote=reference_quotes.get(
+                        raw_candidate.candidate_id
+                    ),
+                    allow_manual_check=True,
+                )
+                if index < len(model_shortlist):
+                    st.divider()
         else:
-            headline, detail = scan_no_result_copy(
+            headline, detail = _consumer_no_tip_copy(
                 snapshot,
                 day_label=result_day,
-                recommendation_label="Markt-Empfehlung",
             )
-            st.error(headline)
+            st.info(headline)
             st.caption(detail)
-        model_blockers = snapshot.get("model_blocked_counts") or {}
-        if isinstance(model_blockers, dict) and model_blockers:
-            reason, count = max(model_blockers.items(), key=lambda item: item[1])
-            st.caption(
-                f"Hauptsperre: {reason} ({count} Marktkandidaten; "
-                "Mehrfachsperren möglich)."
-            )
-        transfer_only = int(snapshot.get("transfer_only_candidates") or 0)
-        if transfer_only:
-            st.caption(
-                f"{transfer_only} Kandidaten bestanden alle übrigen Modellprüfungen, "
-                "bleiben aber am UEFA-Transfergate gesperrt. Das sind keine Tipps."
-            )
     else:
         candidates = [_strict_market_candidate(candidate) for candidate in shortlist]
-        reference_quotes = deserialize_consensus_map(
-            snapshot.get("reference_quotes")
-        )
-        st.success(
-            f"{len(candidates)} konkrete Empfehlung(en) für {result_day}."
+        st.info(
+            f"{len(candidates)} Modell-Auswahl"
+            f"{'en' if len(candidates) != 1 else ''} mit passender "
+            f"Vergleichsquote für {result_day}."
         )
         for index, (candidate, raw_candidate) in enumerate(
             zip(candidates, shortlist),
             start=1,
         ):
-            st.markdown(f"### Tipp {index}")
+            st.markdown(f"### Auswahl {index}")
             render_price_decision(
                 candidate,
                 key=f"market_{candidate.event_key}_{snapshot.get('scanned_at')}",
@@ -617,17 +608,10 @@ def create_alternative_markets_tab_extended(
                 reference_quote=reference_quotes.get(
                     raw_candidate.candidate_id
                 ),
+                allow_manual_check=True,
             )
             if index < len(candidates):
                 st.divider()
-    quote_errors = snapshot.get("quote_errors") or []
-    if quote_errors:
-        with st.expander("Quotenabdeckung"):
-            for error in quote_errors:
-                st.write(f"- {error}")
-
-    with st.expander("Suchprüfung", expanded=not shortlist):
-        render_football_scan_diagnostics(snapshot, approved_count=len(shortlist))
 
 
 __all__ = [

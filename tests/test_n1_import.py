@@ -349,7 +349,8 @@ def test_shared_tip_ui_no_longer_depends_on_browser_import():
     app.run(timeout=30)
     assert len(app.exception) == 0
     assert len(app.text_input) == 0
-    assert any("KEINE WETTFREIGABE" in info.value for info in app.info)
+    assert any("PREIS NOCH OFFEN" in info.value for info in app.info)
+    assert all("KEINE WETTFREIGABE" not in info.value for info in app.info)
     visible_text = " ".join(
         element.value
         for collection in (app.caption, app.info, app.success, app.warning)

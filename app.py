@@ -97,10 +97,6 @@ PAGE_INFO = {
         "Meine Tipps",
         "Gemerkte Tipps, 15K-Tickets und der transparente Ergebnisverlauf an einem Ort.",
     ),
-    "Einstellungen": (
-        "Einstellungen",
-        "Modelle, Datenbestand und Challenge-Konto verwalten.",
-    ),
 }
 
 MAIN_PAGES = ("Wettfinder", "Live", "15K", "Meine Tipps")
@@ -1043,28 +1039,26 @@ def _sidebar_scan_poller() -> None:
 
 
 def _render_sidebar(analyzer) -> str:
+    del analyzer  # Adminfunktionen sind nicht Teil der öffentlichen Navigation.
     with st.sidebar:
         st.markdown("## BetBoy")
         st.caption("Wettfinder")
         previous_workspace = st.session_state.get("workspace")
         if previous_workspace == "System":
             st.session_state["workspace"] = "Wettfinder"
-            st.session_state["settings_open"] = True
+            st.session_state["settings_open"] = False
         elif previous_workspace in LEGACY_PAGE_ALIASES:
             st.session_state["workspace"] = LEGACY_PAGE_ALIASES[previous_workspace]
         elif previous_workspace not in MAIN_PAGES:
             st.session_state["workspace"] = "Wettfinder"
-
-        def _close_settings() -> None:
-            st.session_state["settings_open"] = False
 
         workspace = st.radio(
             "Arbeitsbereich",
             list(MAIN_PAGES),
             label_visibility="collapsed",
             key="workspace",
-            on_change=_close_settings,
         )
+        st.session_state["settings_open"] = False
         st.session_state.setdefault("_nav_running_pages", frozenset())
         running_scan_pages = scan_jobs.running_pages(
             PAGE_SCAN_JOBS,
@@ -1077,21 +1071,7 @@ def _render_sidebar(analyzer) -> str:
             st.caption("Suche läuft: " + ", ".join(sorted(running_scan_pages)))
         _sidebar_scan_poller()
 
-        st.divider()
-        settings_open = bool(st.session_state.get("settings_open"))
-        if st.button(
-            "Zurück" if settings_open else "Einstellungen",
-            icon=(
-                ":material/arrow_back:"
-                if settings_open
-                else ":material/settings:"
-            ),
-            key="toggle_settings",
-            use_container_width=True,
-        ):
-            st.session_state["settings_open"] = not settings_open
-            st.rerun()
-    return "Einstellungen" if st.session_state.get("settings_open") else workspace
+    return workspace
 
 
 def _persist_prematch(results) -> Optional[dict]:
@@ -1590,7 +1570,7 @@ def _render_prematch_results(
 
 def render_matches(analyzer) -> None:
     if analyzer is None:
-        st.error("API-Football-Key fehlt. Konfiguration unter Einstellungen prüfen.")
+        st.error("Die Fußball-Suche ist vorübergehend nicht verfügbar.")
         return
 
     search_date = zurich_today()
@@ -1711,7 +1691,7 @@ def render_matches(analyzer) -> None:
         else:
             st.success(f"{len(results)} Spiele geprüft — Ergebnis:")
     elif job["state"] == "error":
-        st.error(f"Wettfinder fehlgeschlagen: {job.get('error')}")
+        st.error("Die BTTS-Suche konnte nicht abgeschlossen werden.")
         scan_jobs.clear_job(_job_key("prematch"))
 
     snapshot = st.session_state.get("prematch_snapshot")
@@ -1932,7 +1912,7 @@ def _render_live_football(analyzer, market: str) -> None:
         else:
             config = load_app_config(st)
             if not config.api_football_key:
-                st.error("API-Football-Key fehlt. Konfiguration unter Einstellungen prüfen.")
+                st.error("Die Live-Suche ist vorübergehend nicht verfügbar.")
             else:
                 scan_jobs.start_job(
                     _job_key("live"),
@@ -1955,7 +1935,7 @@ def _render_live_football(analyzer, market: str) -> None:
         st.session_state.pop("live_snapshot_invalidated_by_red_card", None)
         scan_jobs.clear_job(_job_key("live"))
     elif job["state"] == "error":
-        st.error(f"Live-Wettfinder fehlgeschlagen: {job.get('error')}")
+        st.error("Die Live-Suche konnte nicht abgeschlossen werden.")
         scan_jobs.clear_job(_job_key("live"))
 
     snapshot = st.session_state.get("live_football_snapshot")
@@ -2017,7 +1997,7 @@ def _render_live_football(analyzer, market: str) -> None:
             ),
             key=live_detail_key,
         )
-        candidate, item = candidate_items[selected]
+        candidate, _item = candidate_items[selected]
         render_price_decision(
             candidate,
             key=f"live_{candidate.event_key}_{market}_{snapshot.get('scanned_at')}",
@@ -2025,21 +2005,6 @@ def _render_live_football(analyzer, market: str) -> None:
             save_source="Fußball Live",
             live_price=True,
         )
-
-        with st.expander("Live-Prüfdetails"):
-            counts = st.columns(4)
-            counts[0].metric("Provider-Spiele", snapshot["provider_matches"])
-            counts[1].metric("Unterstützt", snapshot["supported_matches"])
-            counts[2].metric("Berechnet", len(analyses))
-            counts[3].metric("Kandidaten", len(candidate_items))
-            st.json(
-                {
-                    "Modell": item.get("breakdown", {}),
-                    "Restspiel": item.get("remaining_goals", {}),
-                    "Platzverweise": item.get("red_cards", {}),
-                },
-                expanded=False,
-            )
 
     # Live-Überblick: IMMER alle unterstützten Live-Spiele mit Modellwerten
     # zeigen — auch wenn kein Kandidat das Gate passiert. Volle Transparenz
@@ -2349,7 +2314,7 @@ def _render_red_cards(analyzer) -> None:
         key="run_red_card_scan",
     ):
         if not config.api_football_key:
-            st.error("API-Football-Key fehlt.")
+            st.error("Die Platzverweis-Suche ist vorübergehend nicht verfügbar.")
         elif scan_jobs.get_job(_job_key("red_cards"))["state"] == "running":
             st.info("Der Platzverweis-Scan läuft bereits im Hintergrund.")
         else:
@@ -2379,7 +2344,7 @@ def _render_red_cards(analyzer) -> None:
             )
         scan_jobs.clear_job(_job_key("red_cards"))
     elif job["state"] == "error":
-        st.error(f"Platzverweis-Wettfinder fehlgeschlagen: {job.get('error')}")
+        st.error("Die Platzverweis-Suche konnte nicht abgeschlossen werden.")
         scan_jobs.clear_job(_job_key("red_cards"))
 
     snapshot = st.session_state.get("red_card_snapshot")
@@ -2448,7 +2413,7 @@ def _render_red_cards(analyzer) -> None:
         ),
         key=detail_key,
     )
-    candidate, entry = candidate_entries[selected]
+    candidate, _entry = candidate_entries[selected]
     render_price_decision(
         candidate,
         key=f"red_card_{candidate.event_key}_{snapshot.get('scanned_at')}",
@@ -2456,13 +2421,6 @@ def _render_red_cards(analyzer) -> None:
         save_source="Fußball Live Platzverweis",
         live_price=True,
     )
-    with st.expander("Platzverweis-Prüfdetails"):
-        st.caption(
-            f"{snapshot['live_matches']} Live-Spiele geprüft | "
-            f"{len(snapshot['cards'])} Platzverweise bewertet"
-        )
-        _render_red_card_detail(entry)
-
 
 def render_live(analyzer) -> None:
     if analyzer is None:
@@ -3078,13 +3036,13 @@ def render_multi_sport(
         end_date,
     )
     if st.button(
-        f"{sport}-Wettvorschläge aktualisieren",
+        f"{sport}-Suche starten",
         type="primary",
         use_container_width=True,
         key=f"run_multi_sport_{sport_key}",
     ):
         if scan_jobs.get_job(job_key)["state"] == "running":
-            st.info(f"Der {sport}-Scan läuft bereits im Hintergrund.")
+            st.info(f"Die {sport}-Suche läuft bereits im Hintergrund.")
         else:
             scan_jobs.start_job(
                 job_key,
@@ -3096,7 +3054,7 @@ def render_multi_sport(
     if job["state"] == "running":
         scan_progress_fragment(
             job_key,
-            f"{sport}-Scan",
+            f"{sport}-Suche",
         )
     elif job["state"] == "done":
         result = job.get("result") or {}
@@ -3106,7 +3064,7 @@ def render_multi_sport(
             snapshots[result_scope] = result_snapshot
         scan_jobs.clear_job(job_key)
     elif job["state"] == "error":
-        st.error(f"{sport}-Suche fehlgeschlagen: {job.get('error')}")
+        st.error(f"Die {sport}-Suche konnte nicht abgeschlossen werden.")
         scan_jobs.clear_job(job_key)
 
     snapshot = snapshots.get(scope_key)
@@ -3125,20 +3083,6 @@ def render_multi_sport(
     ]
     if detail_filter:
         caption_parts.append(f"Filter: {detail_filter}")
-    if sport == "E-Sport":
-        enriched_count = sum(
-            1
-            for item in snapshot_items
-            if isinstance(item, dict) and item.get("model_context_loaded") is True
-        )
-        caption_parts.append(f"{enriched_count} mit Teamhistorie modelliert")
-    sources = sorted({
-        str(item.get("source")).strip()
-        for item in snapshot_items or []
-        if isinstance(item, dict) and str(item.get("source") or "").strip()
-    })
-    if sources:
-        caption_parts.append(f"Quelle: {', '.join(sources)}")
     st.caption(" | ".join(caption_parts))
 
     snapshot_age = _snapshot_age_seconds(snapshot.get("scanned_at"))
@@ -3146,27 +3090,14 @@ def render_multi_sport(
         "credentials_available"
     )
     if missing_esports_key:
-        st.error("NICHT WETTEN: Für E-Sport fehlt der PandaScore-Key.")
+        st.info("Die E-Sport-Suche ist vorübergehend nicht verfügbar.")
 
     if snapshot.get("errors"):
-        st.warning(f"Eine {sport}-Teilquelle war nicht vollständig verfügbar.")
-        with st.expander("Providerfehler"):
-            st.dataframe(
-                pd.DataFrame(
-                    [
-                        {"Provider": provider, "Fehler": message}
-                        for provider, message in snapshot["errors"].items()
-                    ]
-                ),
-                use_container_width=True,
-                hide_index=True,
-            )
+        st.caption(f"Ein Teil der {sport}-Daten ist derzeit nicht verfügbar.")
 
     if not snapshot_items:
         if not missing_esports_key:
-            st.error(
-                f"NICHT WETTEN: Keine anstehenden {sport}-Ereignisse im Zeitraum."
-            )
+            st.info(f"Keine anstehenden {sport}-Ereignisse im Zeitraum.")
         return
 
     selected_index = st.selectbox(
@@ -3239,7 +3170,7 @@ def render_multi_sport(
         candidate = replace(candidate, evidence_stage=EVIDENCE_RELEASED)
 
     if candidate.expected_total is not None:
-        st.caption(f"Posteriorer Total-Erwartungswert: {candidate.expected_total:.2f}")
+        st.caption(f"Erwartete Gesamtzahl: {candidate.expected_total:.2f}")
     render_price_decision(
         candidate,
         key=f"multi_sport_{scope_key}_{selected_index}_{snapshot_token}",
@@ -3304,6 +3235,7 @@ _AUTOMATIC_PRICE_STATUS_LABELS = {
 
 
 def _automatic_price_summary(status: AutomatedWettfinderStatus) -> Optional[str]:
+    """Format internal price diagnostics; never render this in consumer UI."""
     counts = dict(status.price_status_counts)
     parts = [
         f"{counts[code]} {_AUTOMATIC_PRICE_STATUS_LABELS[code]}"
@@ -3326,36 +3258,37 @@ def _render_automated_daily_selection() -> None:
     status = automated_wettfinder_status()
     signals = automated_wettfinder_signals()
     if status is None:
-        st.warning("Noch kein aktueller VPS-Tageslauf verfügbar.")
+        st.info("Aktuell ist noch keine Tagesauswahl verfügbar.")
         return
 
     target_label = _automatic_target_label(status.target_search_date)
     scan_time = status.last_discovery_at or status.generated_at
-    if status.football_status == "completed":
-        league_text = f"{status.discovery_scope}/{status.discovery_scope} Ligen geprüft"
-    else:
-        league_text = f"VPS-Lauf {plain_german(status.football_status)}"
     st.caption(
-        f"{target_label} · Letzter Vollscan: {_format_stand(scan_time)} · "
-        f"{league_text} · {status.fixtures_found} Spiele · "
-        f"{status.fixtures_modeled} modelliert · "
-        f"{status.approved_candidates} Fußball-Auswahlen"
+        f"{target_label} · Aktualisiert: {_format_stand(scan_time)}"
     )
 
     if not signals:
-        st.info(
-            f"Für {target_label.lower()} besteht aktuell kein preislich "
-            "freigegebener Tagestipp. Modelle ohne exakten spielbaren "
-            "Marktpreis werden nicht als Empfehlung angezeigt."
-        )
-        price_summary = _automatic_price_summary(status)
-        if price_summary:
-            st.caption(price_summary)
+        if status.approved_candidates > 0:
+            st.info(
+                f"Für {target_label.lower()} gibt es interessante Auswahlen, "
+                "aber aktuell noch keinen spielbaren Tagestipp."
+            )
+            st.caption(
+                "Eine fehlende oder zu niedrige Quote verändert die Prognose nicht."
+            )
+        else:
+            st.info(
+                f"Für {target_label.lower()} erfüllt aktuell keine Auswahl "
+                "alle Qualitätsregeln."
+            )
         return
 
-    st.success(f"{len(signals)} preislich freigegebene Tagestipps verfügbar.")
+    st.info(
+        f"{len(signals)} Modell-Auswahl"
+        f"{'en' if len(signals) != 1 else ''} mit passender Vergleichsquote."
+    )
     for index, selected in enumerate(signals, start=1):
-        st.markdown(f"### Tagestipp {index}")
+        st.markdown(f"### Auswahl {index}")
         render_price_decision(
             _automated_signal_candidate(selected),
             key=f"automated_{selected.key}",
@@ -3565,7 +3498,7 @@ def main() -> None:
     st.caption(caption)
 
     if st.session_state.get("analyzer_error"):
-        st.error(f"Analyzer konnte nicht initialisiert werden: {st.session_state['analyzer_error']}")
+        st.error("Die App konnte nicht vollständig gestartet werden.")
 
     if workspace == "Wettfinder":
         render_wettfinder()
@@ -3578,7 +3511,7 @@ def main() -> None:
 
         render_my_tips()
     else:
-        render_settings(analyzer)
+        st.error("Dieser Bereich ist nicht verfügbar.")
 
     st.divider()
     st.caption(

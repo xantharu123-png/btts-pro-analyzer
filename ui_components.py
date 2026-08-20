@@ -208,7 +208,12 @@ def milestone_bar_html(
     )
 
 
-def render_scan_progress(job: dict[str, Any], label: str) -> None:
+def render_scan_progress(
+    job: dict[str, Any],
+    label: str,
+    *,
+    show_internal_detail: bool = True,
+) -> None:
     """Render one consistent, time-aware progress state for every scanner."""
     fraction = min(
         max(float(job.get("progress") or 0.0), 0.0),
@@ -219,9 +224,12 @@ def render_scan_progress(job: dict[str, Any], label: str) -> None:
     percentage = int(round(display_fraction * 100.0))
     default_detail = "Abgeschlossen" if is_complete else "Scan läuft"
     detail = str(job.get("progress_text") or default_detail).strip()
+    progress_text = f"{percentage} % · {label}"
+    if show_internal_detail:
+        progress_text += f": {detail}"
     st.progress(
         display_fraction,
-        text=f"{percentage} % · {label}: {detail}",
+        text=progress_text,
     )
 
     elapsed_text = ""
@@ -255,7 +263,12 @@ def render_scan_progress(job: dict[str, Any], label: str) -> None:
 
 
 @st.fragment(run_every=0.5)
-def scan_progress_fragment(job_key: str, label: str) -> None:
+def scan_progress_fragment(
+    job_key: str,
+    label: str,
+    *,
+    show_internal_detail: bool = False,
+) -> None:
     """Pollt einen Hintergrund-Scan und zeigt Fortschritt, bis er fertig ist.
 
     Das kurze Abschlussbild verhindert, dass schnelle oder gecachte Scans von
@@ -266,7 +279,11 @@ def scan_progress_fragment(job_key: str, label: str) -> None:
     completion_key = f"_scan_progress_completion::{job_key}"
     if state == "running":
         st.session_state.pop(completion_key, None)
-        render_scan_progress(job, label)
+        render_scan_progress(
+            job,
+            label,
+            show_internal_detail=show_internal_detail,
+        )
         return
     if state == "done":
         completion_frame = int(st.session_state.get(completion_key) or 0)
@@ -280,6 +297,7 @@ def scan_progress_fragment(job_key: str, label: str) -> None:
                     "progress_text": "Abgeschlossen",
                 },
                 label,
+                show_internal_detail=show_internal_detail,
             )
             return
         st.session_state.pop(completion_key, None)

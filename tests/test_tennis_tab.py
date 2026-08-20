@@ -165,17 +165,21 @@ def test_price_check_edge_paths():
     at.run(timeout=60)
     assert len(at.exception) == 0
 
-    # gift price on the 75% side -> WETTE
+    # Ein guter Preis bleibt eine Shadow-Auswahl und wird nie zum Nutzertipp.
     at.number_input(key="odds_a_1").set_value(2.00)
     at.number_input(key="odds_b_1").set_value(4.00)
     at.run(timeout=60)
     at.button(key="check_1").click().run(timeout=60)
-    assert any("PREIS BESTANDEN" in s.value for s in at.success)
+    assert any("PASSENDE QUOTE" in info.value for info in at.info)
+    assert len(at.success) == 0
+    visible = " ".join(info.value for info in at.info)
+    assert "keinen Einsatzvorschlag" in visible
 
-    # fair price -> KEINE WETTE (edge below 12% threshold)
+    # Eine zu niedrige Quote ändert nur den Preisstatus.
     at.number_input(key="odds_a_1").set_value(1.40)
     at.button(key="check_1").click().run(timeout=60)
-    assert any("KEINE WETTE" in e.value for e in at.error)
+    assert any("QUOTE ZU NIEDRIG" in info.value for info in at.info)
+    assert len(at.error) == 0
 
 
 def test_match_card_shows_plain_gates_and_markets():
@@ -183,14 +187,16 @@ def test_match_card_shows_plain_gates_and_markets():
     at.run(timeout=60)
     # market metrics visible without any click
     labels = [m.label for m in at.metric]
-    assert any("Vorhersagen gesamt" in label for label in labels)
+    assert "Modell" in labels
+    assert "Vorsichtige Prognose" in labels
 
 
 def test_blocked_card_hides_raw_probability_and_price_controls():
     at = AppTest.from_function(_run_blocked_card)
     at.run(timeout=60)
     assert len(at.exception) == 0
-    assert any("KEINE EMPFEHLUNG" in error.value for error in at.error)
+    assert any("KEINE BELASTBARE TENNIS-AUSWAHL" in warning.value for warning in at.warning)
+    assert len(at.error) == 0
     assert len(at.number_input) == 0
     visible_text = " ".join(
         element.value
@@ -242,13 +248,11 @@ def test_tennis_worker_rejects_more_than_fourteen_days():
         tennis_tab._run_tennis_scan_worker("2030-01-01", "2030-01-16")
 
 
-def test_closing_reference_is_captured_before_start():
+def test_shadow_closing_capture_is_not_exposed_to_consumer():
     at = AppTest.from_function(_run_closing_capture)
     at.run(timeout=60)
     assert len(at.exception) == 0
-    at.button(key="closing_capture_btn_1").click().run(timeout=60)
-    assert len(at.exception) == 0
-    assert len(at.error) == 0
+    assert all(button.key != "closing_capture_btn_1" for button in at.button)
 
 
 def test_prematch_visibility_is_fail_closed():

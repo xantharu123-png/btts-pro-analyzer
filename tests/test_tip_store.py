@@ -1,11 +1,18 @@
 from datetime import datetime, timezone
+import sqlite3
 
 from bet_finder_candidates import build_probability_candidate
-from multi_sport_recommendations import EVIDENCE_SHADOW, evaluate_candidate_price
+import pytest
+
+from multi_sport_recommendations import (
+    EVIDENCE_RELEASED,
+    EVIDENCE_SHADOW,
+    evaluate_candidate_price,
+)
 from tip_store import TipStore
 
 
-def _decision(odds: float = 2.0):
+def _decision(odds: float = 2.0, *, evidence_stage: str = EVIDENCE_RELEASED):
     candidate = build_probability_candidate(
         event_key="fixture-17",
         sport="Fußball",
@@ -16,7 +23,7 @@ def _decision(odds: float = 2.0):
         probability_haircut=5.0,
         model_name="Testmodell",
         evidence=("Test",),
-        evidence_stage=EVIDENCE_SHADOW,
+        evidence_stage=evidence_stage,
     )
     return evaluate_candidate_price(
         candidate,
@@ -75,7 +82,7 @@ def test_rejected_price_is_not_a_saved_tip(tmp_path):
     try:
         store.save_decision(rejected, source="Test")
     except ValueError as exc:
-        assert "Shadow-Tipps" in str(exc)
+        assert "freigegebene Tipps" in str(exc)
     else:
         raise AssertionError("A rejected price must not be persisted")
 
@@ -88,3 +95,46 @@ def test_tip_records_are_isolated_by_session_scope(tmp_path):
 
     assert len(first_user.list_tips()) == 1
     assert second_user.list_tips() == []
+
+
+def test_shadow_selection_can_never_enter_the_consumer_tip_ledger(tmp_path):
+    store = TipStore(tmp_path / "tips.db")
+    shadow = _decision(2.0, evidence_stage=EVIDENCE_SHADOW)
+
+    assert shadow.status == "SHADOW"
+    with pytest.raises(ValueError, match="freigegebene Tipps"):
+        store.save_decision(shadow, source="Shadow")
+    assert store.list_tips() == []
+
+
+def test_legacy_shadow_rows_are_preserved_but_archived(tmp_path):
+    db_path = tmp_path / "tips.db"
+    store = TipStore(db_path)
+    identity = store._identity("Fußball", "legacy-1", "Sieger", "Heim")
+    timestamp = datetime(2030, 1, 1, tzinfo=timezone.utc).isoformat()
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO saved_tips (
+                scope_id, identity_key, created_at, updated_at, sport,
+                event_key, event_label, market, selection, model_probability,
+                risk_adjusted_probability, minimum_odds, quoted_odds,
+                decision_status, evidence_stage, stake_amount, source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "default", identity, timestamp, timestamp, "Fußball",
+                "legacy-1", "Alpha vs Beta", "Sieger", "Heim", 60.0,
+                55.0, 1.90, 2.00, "SHADOW", "SHADOW", 0.0, "Legacy",
+            ),
+        )
+
+    migrated = TipStore(db_path)
+
+    assert migrated.list_tips() == []
+    with sqlite3.connect(db_path) as connection:
+        archived = connection.execute(
+            "SELECT archived FROM saved_tips WHERE identity_key=?",
+            (identity,),
+        ).fetchone()[0]
+    assert archived == 1

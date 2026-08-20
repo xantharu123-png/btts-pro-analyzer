@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import logging
 from typing import Optional
 
 import streamlit as st
 
 from account_identity import storage_scope
-from betting_math import MINIMUM_RISK_ADJUSTED_ROI_PERCENT
 from market_consensus import (
     MarketConsensus,
     reference_price_status,
@@ -17,11 +16,12 @@ from multi_sport_recommendations import (
     PriceDecision,
     RecommendationCandidate,
     evaluate_candidate_price,
-    format_fair_odds,
     format_probability_percent,
 )
 from tip_store import TipStore
-from ui_components import edge_badge_html, ev_badge_html, plain_german
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _decimal_input(value: str):
@@ -34,15 +34,6 @@ def _decimal_input(value: str):
         return text
 
 
-def _quote_time(quote: MarketConsensus) -> str:
-    try:
-        return datetime.fromisoformat(str(quote.quoted_at)).astimezone().strftime(
-            "%d.%m.%Y %H:%M"
-        )
-    except (TypeError, ValueError):
-        return "Zeit unbekannt"
-
-
 def _save_tip(
     decision: PriceDecision,
     *,
@@ -50,7 +41,7 @@ def _save_tip(
 ) -> Optional[str]:
     try:
         store = TipStore(scope_id=storage_scope(st.session_state))
-        if decision.status in {"BET", "SHADOW"}:
+        if decision.status == "BET":
             store.save_decision(decision, source=source)
             return "Unter Meine Tipps gespeichert."
         if decision.quoted_odds is not None:
@@ -61,24 +52,18 @@ def _save_tip(
                 market=candidate.market,
                 selection=candidate.selection or "keine Auswahl",
             )
-    except (OSError, ValueError) as exc:
-        return f"Tipp konnte nicht gespeichert werden: {exc}"
+    except (OSError, ValueError):
+        LOGGER.exception("Consumer tip could not be persisted")
+        return "Tipp konnte nicht gespeichert werden. Bitte später erneut versuchen."
     return None
 
 
-def _render_decision_math(decision: PriceDecision) -> None:
-    if decision.metrics is None:
+def _render_stake_recommendation(decision: PriceDecision) -> None:
+    if decision.status != "BET" or decision.stake_fraction <= 0:
         return
-    st.markdown(
-        edge_badge_html(decision.metrics.risk_adjusted_edge, label="Risiko-Edge")
-        + ev_badge_html(
-            decision.metrics.risk_adjusted_expected_roi,
-            label="Risiko-EV",
-        )
-        + '<span class="bb-edge-badge bb-edge-none">'
-        '<span class="bb-edge-label">Einsatz</span> '
-        f"{decision.stake_fraction * 100:.2f} %</span>",
-        unsafe_allow_html=True,
+    st.caption(
+        f"Einsatzvorschlag: {decision.stake_amount:.2f} € "
+        f"({decision.stake_fraction * 100:.2f} % des Wettguthabens)"
     )
 
 
@@ -99,45 +84,47 @@ def _render_reference_price(
         )
 
     if status.code == "PLAYABLE" and quote is not None:
-        st.success(
-            f"TIPP: {candidate.selection} | konservative Referenzquote "
-            f"{quote.conservative_odds:.2f} | spielbar ab "
-            f"{candidate.minimum_odds:.2f}"
-        )
+        if decision is not None and decision.status == "BET":
+            st.success(
+                f"SPIELBARER TIPP: {candidate.selection} | aktuelle "
+                f"Vergleichsquote {quote.conservative_odds:.2f} | spielbar ab "
+                f"{candidate.minimum_odds:.2f}"
+            )
+        else:
+            st.info(
+                f"PASSENDE QUOTE: {candidate.selection} | die aktuelle "
+                f"Vergleichsquote {quote.conservative_odds:.2f} erreicht die "
+                f"Mindestquote von {candidate.minimum_odds:.2f}. Das Modell "
+                "sammelt noch Praxisergebnisse; daher kein Einsatzvorschlag."
+            )
     elif status.code == "BORDERLINE" and quote is not None:
-        st.warning(
-            f"KEINE WETTE: {candidate.selection} | Nur einzelne Anbieter "
-            f"erreichen {candidate.minimum_odds:.2f}; der konservative "
-            f"Marktpreis bestätigt die Auswahl nicht."
+        st.info(
+            f"PREIS NOCH OFFEN: {candidate.selection}. Nur einzelne Anbieter "
+            f"erreichen {candidate.minimum_odds:.2f}; der Preis ist deshalb "
+            "noch nicht zuverlässig bestätigt. Die Prognose bleibt unverändert."
         )
     elif status.code == "TOO_LOW" and quote is not None:
-        st.warning(
-            f"KEINE WETTE: {candidate.selection} | Bestpreis "
-            f"{quote.best_odds:.2f}, benötigt werden mindestens "
-            f"{candidate.minimum_odds:.2f}."
+        st.info(
+            f"QUOTE ZU NIEDRIG: {candidate.selection}. Die aktuell beobachtete "
+            f"Bestquote {quote.best_odds:.2f} liegt unter der benötigten "
+            f"Quote {candidate.minimum_odds:.2f}. Die Prognose bleibt "
+            "unverändert; nur der angebotene Preis ist zu niedrig."
         )
     else:
         reason = {
-            "THIN": "zu wenige Anbieter für einen belastbaren Vergleich",
-            "STALE": "Marktvergleich nicht mehr aktuell",
-            "UNAVAILABLE": "exakte Marktquote im Feed nicht verfügbar",
-            "INVALID_MINIMUM": "Mindestquote nicht belastbar",
-        }.get(status.code, "keine automatische Preisfreigabe")
+            "THIN": "Es liegen noch zu wenige Vergleichsquoten vor.",
+            "STALE": "Die Vergleichsquote ist nicht mehr aktuell.",
+            "UNAVAILABLE": "Aktuell liegt keine exakt passende Vergleichsquote vor.",
+            "INVALID_MINIMUM": "Die Mindestquote konnte nicht sicher berechnet werden.",
+        }.get(status.code, "Der Wettpreis kann noch nicht sicher bewertet werden.")
         st.info(
-            f"KEINE WETTFREIGABE: Das Modell bevorzugt "
-            f"{candidate.selection}, aber {reason}. Die rechnerische "
-            f"Mindestquote {candidate.minimum_odds:.2f} ist eine "
-            "Prüfschwelle, keine Empfehlung."
+            f"PREIS NOCH OFFEN: {candidate.selection}. {reason} Das ist keine "
+            "Aussage darüber, ob der mögliche "
+            "Spielausgang richtig oder falsch ist."
         )
 
-    if quote is not None:
-        st.caption(
-            f"{quote.bookmaker_count} Anbieter | Marktbereich "
-            f"{quote.lowest_odds:.2f}-{quote.best_odds:.2f} | Median "
-            f"{quote.consensus_odds:.2f} | Stand {_quote_time(quote)}"
-        )
-    if decision is not None:
-        _render_decision_math(decision)
+    if decision is not None and decision.status == "BET":
+        _render_stake_recommendation(decision)
     return decision
 
 
@@ -192,7 +179,11 @@ def _render_manual_check(
                 quote_confirmed=confirmed,
             )
             st.session_state[decision_state_key] = decision
-            if save_source and confirmed:
+            if (
+                save_source
+                and confirmed
+                and decision.status != "PRICE_REQUIRED"
+            ):
                 message = _save_tip(
                     decision,
                     source=f"{save_source} / eigene Quote",
@@ -209,25 +200,25 @@ def _render_manual_check(
                 f"Quote und exakte Auswahl bestätigen. Mindestquote "
                 f"{candidate.minimum_odds:.2f}."
             )
-        elif decision.actionable:
+        elif decision.status == "BET":
             st.success(
                 f"PREIS BESTANDEN: {candidate.selection} @ "
                 f"{decision.quoted_odds:.2f}"
             )
         elif decision.status in {"SHADOW", "RESEARCH"}:
             st.info(
-                f"PREIS BESTANDEN: {candidate.selection} @ "
-                f"{decision.quoted_odds:.2f}; Modellreife "
-                f"{candidate.evidence_label}."
+                f"PREIS PASST: {candidate.selection} @ "
+                f"{decision.quoted_odds:.2f}. Diese Auswahl wird noch "
+                "geprüft; deshalb gibt es keinen Einsatzvorschlag."
             )
         else:
-            st.error(
-                f"QUOTE ZU NIEDRIG: Die Prognose bleibt {candidate.selection}, "
-                f"aber mindestens {candidate.minimum_odds:.2f} wird benötigt."
+            st.info(
+                f"MODELL-AUSWAHL BLEIBT: {candidate.selection}. Die angebotene "
+                f"Quote reicht erst ab {candidate.minimum_odds:.2f} für eine "
+                "spielbare Preisbewertung."
             )
-            for reason in decision.reasons:
-                st.write(f"- {plain_german(reason)}")
-        _render_decision_math(decision)
+        if decision.status == "BET":
+            _render_stake_recommendation(decision)
         return decision
 
 
@@ -242,7 +233,7 @@ def render_price_decision(
     reference_quote: Optional[MarketConsensus | dict] = None,
     allow_manual_check: bool = False,
 ) -> Optional[PriceDecision]:
-    """Render a tip first; price evidence is automatic or optional detail."""
+    """Render one model selection while keeping forecast and price separate."""
     del live_price  # Kept for call-site compatibility.
     selection = candidate.selection or "keine Auswahl"
     st.subheader(f"{candidate.market}: {selection}")
@@ -255,7 +246,7 @@ def render_price_decision(
             format_probability_percent(candidate.model_probability),
         )
         metrics[1].metric(
-            "Konservativ",
+            "Vorsichtige Prognose",
             format_probability_percent(candidate.risk_adjusted_probability),
         )
         metrics[2].metric(
@@ -274,13 +265,6 @@ def render_price_decision(
             )
         else:
             st.error("KEINE BELASTBARE PROGNOSE.")
-        for reason in candidate.blockers:
-            st.write(f"- {plain_german(reason)}")
-        if candidate.evidence:
-            with st.expander("Prüfdetails"):
-                st.write(f"Modell: {candidate.model_name}")
-                for reason in candidate.evidence:
-                    st.write(f"- {reason}")
         return None
 
     quote = (
@@ -295,7 +279,11 @@ def render_price_decision(
         bankroll=bankroll,
     )
 
-    if automatic_decision is not None and save_source:
+    if (
+        automatic_decision is not None
+        and automatic_decision.status == "BET"
+        and save_source
+    ):
         if st.button(
             "Tipp merken",
             key=f"save_reference_{key}",
@@ -318,20 +306,6 @@ def render_price_decision(
             save_source=save_source,
         )
 
-    with st.expander("Analyse", expanded=False):
-        st.write(f"Modell: {candidate.model_name}")
-        st.write(f"Validierungsstand: {candidate.evidence_label}")
-        st.write(f"Modell-Fair-Quote: {format_fair_odds(candidate.fair_odds)}")
-        st.write(
-            f"Robustheitsabschlag: {candidate.probability_haircut:.1f} Prozentpunkte"
-        )
-        for reason in candidate.evidence:
-            st.write(f"- {reason}")
-        st.caption(
-            "Eine Quote verändert die Prognose nicht. Sie entscheidet nur, "
-            f"ob der risikobereinigte EV mindestens "
-            f"{MINIMUM_RISK_ADJUSTED_ROI_PERCENT:.1f} % erreicht."
-        )
     return manual_decision or automatic_decision
 
 

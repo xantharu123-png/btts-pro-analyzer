@@ -1,4 +1,5 @@
 from datetime import date, datetime, timezone
+import inspect
 from types import SimpleNamespace
 
 import alternative_markets_tab_extended as market_tab
@@ -158,3 +159,93 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
         "Preisprüfung: 2 Modellmärkte aus 1 Spiel geprüft · "
         "1 unter der Mindestquote · 1 preislich spielbar"
     )
+
+
+def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypatch):
+    candidate = SimpleNamespace(
+        candidate_id="fixture-7-home",
+        fixture_id=7,
+        minimum_odds=1.80,
+    )
+    snapshot = {
+        "shortlist": [candidate],
+        "price_candidates": [candidate],
+    }
+    now = datetime.now(timezone.utc).isoformat()
+    quote = MarketConsensus(
+        fixture_id=7,
+        candidate_id=candidate.candidate_id,
+        market_key="HOME",
+        bet_name="Winner",
+        value_name="Home",
+        consensus_odds=1.60,
+        conservative_odds=1.60,
+        lowest_odds=1.55,
+        best_odds=1.70,
+        bookmaker_count=3,
+        quoted_at=now,
+        fetched_at=now,
+        source="test",
+        points=(
+            QuotePoint("A", 1.55),
+            QuotePoint("B", 1.60),
+            QuotePoint("C", 1.70),
+        ),
+    )
+    monkeypatch.setattr(market_tab, "ChallengeDataProvider", lambda *_args: object())
+    monkeypatch.setattr(
+        market_tab,
+        "scan_daily_challenge",
+        lambda *_args, **_kwargs: snapshot,
+    )
+    monkeypatch.setattr(
+        market_tab,
+        "fetch_football_consensus",
+        lambda *_args, **_kwargs: ({candidate.candidate_id: quote}, []),
+    )
+
+    result = market_tab._run_market_scan_worker(
+        "api-key",
+        None,
+        [78],
+        date(2030, 1, 2),
+        date(2030, 1, 2),
+        1200,
+        {"league_ids": [78]},
+    )["challenge"]
+
+    assert result["model_shortlist"] == [candidate]
+    assert result["shortlist"] == []
+    assert result["price_status_counts"] == {"TOO_LOW": 1}
+
+
+def test_consumer_empty_state_contains_no_pipeline_diagnostics():
+    headline, detail = market_tab._consumer_no_tip_copy(
+        {
+            "fixtures_found": 205,
+            "fixtures_modeled": 144,
+            "base_candidates": 119,
+            "model_blocked_counts": {"Walk-forward-Gate": 5947},
+            "coverage_notices": ["xG Liga 39: 0/380"],
+        },
+        day_label="19.08.2026 bis 22.08.2026",
+    )
+
+    visible = f"{headline} {detail}"
+    assert "aktuell kein passender Tipp" in visible
+    for internal_term in (
+        "Walk-forward",
+        "Marktkandidaten",
+        "UEFA-Transfergate",
+        "xG Liga",
+        "Preisprüfung",
+    ):
+        assert internal_term not in visible
+
+
+def test_public_market_renderer_does_not_render_internal_scan_diagnostics():
+    source = inspect.getsource(market_tab.create_alternative_markets_tab_extended)
+    assert "render_football_scan_diagnostics" not in source
+    assert 'st.expander("Suchprüfung"' not in source
+    assert "Hauptsperre:" not in source
+    assert "job.get('error')" not in source

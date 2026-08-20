@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta, timezone
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -97,6 +98,47 @@ def test_automatic_price_summary_reports_pending_exact_prices():
     assert "keine verwendbare exakte Marktquote" in app._automatic_price_summary(
         status
     )
+
+
+def test_internal_price_summary_is_not_rendered_in_consumer_daily_selection():
+    source = inspect.getsource(app._render_automated_daily_selection)
+    assert "_automatic_price_summary" not in source
+    assert "VPS" not in source
+    assert "Marktkandidaten" not in source
+    assert "Tagestipp {index}" not in source
+
+
+def test_public_navigation_exposes_no_admin_settings_or_training_route():
+    sidebar_source = inspect.getsource(app._render_sidebar)
+    main_source = inspect.getsource(app.main)
+    assert "Einstellungen" not in sidebar_source
+    assert "toggle_settings" not in sidebar_source
+    assert "render_settings" not in main_source
+    assert "Modell neu trainieren" not in sidebar_source
+
+    challenge_source = inspect.getsource(app._challenge_15k.render_challenge_15k)
+    assert "Challenge-Konto einstellen" in challenge_source
+
+
+def test_shadow_tennis_history_is_not_a_consumer_tips_area():
+    import my_tips
+
+    source = inspect.getsource(my_tips.render_my_tips)
+    assert "Tennis" not in source
+    assert "render_tennis_history" not in source
+
+
+def test_consumer_multi_sport_and_live_views_hide_provider_diagnostics():
+    multi_source = inspect.getsource(app.render_multi_sport)
+    live_source = inspect.getsource(app._render_live_football)
+    red_card_source = inspect.getsource(app._render_red_cards)
+
+    assert "PandaScore-Key" not in multi_source
+    assert "Providerfehler" not in multi_source
+    assert 'snapshot["errors"].items()' not in multi_source
+    assert "Live-Prüfdetails" not in live_source
+    assert "st.json" not in live_source
+    assert "Platzverweis-Prüfdetails" not in red_card_source
 
 
 def test_shared_finder_offers_every_sport_a_fourteen_day_horizon():
