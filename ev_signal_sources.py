@@ -35,8 +35,12 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 10
-AUTOMATED_SELECTION_POLICY_VERSION = "model-selection-price-separated-v8"
+AUTOMATED_WETTFINDER_VERSION = 11
+AUTOMATED_SELECTION_POLICY_VERSION = "useful-selection-catalog-v9"
+MAX_AUTOMATED_FOOTBALL_CANDIDATES = 15
+MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT = 3
+MAX_AUTOMATED_MODEL_CANDIDATES = 21
+MAX_AUTOMATED_RECOMMENDATIONS = 3
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 AUTOMATED_TOMORROW_SCAN_HOUR = 23
 
@@ -67,6 +71,7 @@ class ModelSignal:
     market: Optional[str] = None
     selection: Optional[str] = None
     reference_quote: Optional[dict] = None
+    context_summary: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not _valid_probability(self.probability):
@@ -95,6 +100,12 @@ class ModelSignal:
             and MarketConsensus.from_dict(self.reference_quote) is None
         ):
             raise ValueError("Model signal reference quote is invalid")
+        if self.context_summary is not None and (
+            not isinstance(self.context_summary, str)
+            or not self.context_summary.strip()
+            or len(self.context_summary) > 300
+        ):
+            raise ValueError("Model signal context summary is invalid")
 
 
 @dataclass(frozen=True)
@@ -653,10 +664,33 @@ def _load_automated_wettfinder_document(
     if age.total_seconds() < 0 or age > max_age:
         return None
     candidates = document.get("candidates")
-    if not isinstance(candidates, list) or len(candidates) > 3:
+    if (
+        not isinstance(candidates, list)
+        or len(candidates) > MAX_AUTOMATED_RECOMMENDATIONS
+    ):
         return None
     model_candidates = document.get("model_candidates")
-    if not isinstance(model_candidates, list) or len(model_candidates) > 3:
+    if (
+        not isinstance(model_candidates, list)
+        or len(model_candidates) > MAX_AUTOMATED_MODEL_CANDIDATES
+    ):
+        return None
+    sport_counts: dict[str, int] = {}
+    for row in model_candidates:
+        if not isinstance(row, dict):
+            return None
+        sport = str(row.get("sport") or "").strip()
+        if not sport:
+            return None
+        normalized = sport.casefold().replace("ß", "ss")
+        sport_counts[normalized] = sport_counts.get(normalized, 0) + 1
+    if sport_counts.get("fussball", 0) > MAX_AUTOMATED_FOOTBALL_CANDIDATES:
+        return None
+    if any(
+        count > MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT
+        for sport, count in sport_counts.items()
+        if sport != "fussball"
+    ):
         return None
     model_keys = [
         str(row.get("key") or "").strip()
@@ -885,7 +919,7 @@ def automated_wettfinder_forecasts(
     now: Optional[datetime] = None,
     max_age: timedelta = AUTOMATED_WETTFINDER_MAX_AGE,
 ) -> List[ModelSignal]:
-    """Read up to three calculated model selections independently of price.
+    """Read the calculated model catalog independently of bookmaker price.
 
     These rows are deliberately separate from ``automated_wettfinder_signals``:
     a missing or too-low bookmaker quote must never erase a model forecast.
@@ -976,6 +1010,12 @@ def automated_wettfinder_forecasts(
                     market=str(row.get("market") or "").strip() or "Auswahl",
                     selection=str(row.get("selection") or "").strip() or label,
                     reference_quote=quote.to_dict() if quote is not None else None,
+                    context_summary=(
+                        str(row.get("context_summary")).strip()
+                        if isinstance(row.get("context_summary"), str)
+                        and str(row.get("context_summary")).strip()
+                        else None
+                    ),
                 )
             )
         except ValueError:
@@ -1114,6 +1154,12 @@ def automated_wettfinder_signals(
                     market=market,
                     selection=selection,
                     reference_quote=reference_quote.to_dict(),
+                    context_summary=(
+                        str(row.get("context_summary")).strip()
+                        if isinstance(row.get("context_summary"), str)
+                        and str(row.get("context_summary")).strip()
+                        else None
+                    ),
                 )
             )
         except ValueError:

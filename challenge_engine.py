@@ -449,6 +449,101 @@ MARKET_SPECS = market_specs()
 MARKET_BY_KEY = {spec.key: spec for spec in MARKET_SPECS}
 COUNT_MARKET_KINDS = {"corner_total", "team_corners", "yellow_total", "team_yellow"}
 GOAL_MARKET_SPECS = tuple(spec for spec in MARKET_SPECS if spec.kind not in COUNT_MARKET_KINDS)
+
+# Broad safety lines are useful calibration outputs, but poor consumer picks:
+# they mostly restate that a team will probably score at least once or stay
+# below an unusually generous ceiling.  They remain modeled and auditable,
+# but never occupy the public Top-Auswahlen.
+BASIC_FORECAST_KINDS = frozenset({"double_chance", "team_range", "mixed_or"})
+MAX_PUBLIC_SELECTIONS_PER_KIND = 3
+
+
+def market_is_basic_forecast(market_key: str) -> bool:
+    """Return whether a market is too broad for a consumer Top-Auswahl."""
+
+    spec = MARKET_BY_KEY.get(str(market_key or "").strip())
+    if spec is None:
+        return False
+    if spec.kind in BASIC_FORECAST_KINDS:
+        return True
+    side = str(spec.side or "")
+    threshold = spec.threshold
+    broad_lines = {
+        "total": {("over", 0.5), ("under", 4.5)},
+        "team_total": {("over", 0.5), ("under", 2.5)},
+        "corner_total": {("over", 5.5), ("under", 11.5)},
+        "team_corners": {("over", 2.5), ("under", 5.5)},
+        "yellow_total": {("over", 1.5), ("under", 4.5)},
+        "team_yellow": {("over", 0.5), ("under", 2.5)},
+    }
+    if spec.kind not in broad_lines or threshold is None:
+        return False
+    direction = "over" if side.endswith("over") else "under" if side.endswith("under") else ""
+    return (direction, float(threshold)) in broad_lines[spec.kind]
+
+
+def candidate_model_utility(candidate: ChallengeCandidate) -> float:
+    """Price-independent usefulness from demonstrated OOS model skill."""
+
+    if not isinstance(candidate, ChallengeCandidate):
+        return 0.0
+    improvement = (
+        candidate.validation.relative_improvement
+        if candidate.validation
+        and candidate.validation.relative_improvement is not None
+        else 0.0
+    )
+    evidence_weight = min(max(float(candidate.evidence_score) / 100.0, 0.0), 1.0)
+    return max(float(improvement), 0.0) * evidence_weight
+
+
+def candidate_selection_rank(
+    candidate: ChallengeCandidate,
+) -> tuple[float, float, float, float, float, float]:
+    """Canonical quote-free ranking shared by context and public selection."""
+
+    improvement = (
+        candidate.validation.relative_improvement
+        if candidate.validation
+        and candidate.validation.relative_improvement is not None
+        else -1.0
+    )
+    return (
+        candidate_model_utility(candidate),
+        float(candidate.evidence_score),
+        float(improvement),
+        -float(candidate.model_spread_pp),
+        -float(candidate.probability_haircut_pp),
+        float(candidate.conservative_probability),
+    )
+
+
+def candidate_context_summary(candidate: ChallengeCandidate) -> str:
+    """Return one compact consumer-safe status line for context inputs."""
+
+    context = candidate.context if isinstance(candidate.context, dict) else {}
+    labels = {
+        "passed": "berücksichtigt",
+        "observed": "berücksichtigt",
+        "neutral": "geprüft, kein belastbares Veto",
+        "pending": "noch offen",
+        "unavailable": "nicht verfügbar",
+        "provisional": "in Prüfung",
+        "required_missing": "noch offen",
+        "blocked": "spricht gegen die Auswahl",
+    }
+
+    def label(axis: str) -> str:
+        payload = context.get(axis)
+        status = payload.get("status") if isinstance(payload, dict) else None
+        return labels.get(str(status or ""), "nicht belegt")
+
+    return (
+        f"Kontext: H2H {label('h2h')} · "
+        f"Ausfälle {label('injuries')} · "
+        f"Wetter {label('weather')} · "
+        f"Aufstellungen {label('lineups')}"
+    )
 CORNER_MARKET_SPECS = tuple(
     spec for spec in MARKET_SPECS if spec.kind in {"corner_total", "team_corners"}
 )
@@ -2404,43 +2499,15 @@ def apply_candidate_context(
     return candidate
 
 
-def select_shortlist(
+def _select_public_candidates(
     candidates: Iterable[ChallengeCandidate],
-    max_candidates: int = 6,
+    *,
+    credible,
+    max_candidates: int,
+    basic_only: bool = False,
 ) -> list[ChallengeCandidate]:
-    """Select distinct fixtures for the later quote check."""
-    if (
-        isinstance(max_candidates, bool)
-        or not isinstance(max_candidates, int)
-        or max_candidates < 1
-    ):
-        raise ValueError("max_candidates must be a positive integer")
-    eligible = [candidate for candidate in candidates if candidate_is_credible(candidate)]
-    eligible.sort(
-        key=lambda candidate: (
-            candidate.conservative_probability,
-            candidate.evidence_score,
-            candidate.validation.relative_improvement if candidate.validation and candidate.validation.relative_improvement is not None else -1.0,
-        ),
-        reverse=True,
-    )
-    selected: list[ChallengeCandidate] = []
-    selected_fixtures: set[int] = set()
-    for candidate in eligible:
-        if candidate.fixture_id in selected_fixtures:
-            continue
-        selected.append(candidate)
-        selected_fixtures.add(candidate.fixture_id)
-        if len(selected) >= max_candidates:
-            break
-    return selected
+    """Select quote-free, fixture-distinct and market-diverse candidates."""
 
-
-def select_forecast_shortlist(
-    candidates: Iterable[ChallengeCandidate],
-    max_candidates: int = 6,
-) -> list[ChallengeCandidate]:
-    """Select distinct forecast fixtures without implying tip eligibility."""
     if (
         isinstance(max_candidates, bool)
         or not isinstance(max_candidates, int)
@@ -2450,31 +2517,113 @@ def select_forecast_shortlist(
     eligible = [
         candidate
         for candidate in candidates
-        if candidate_is_forecast_credible(candidate)
+        if credible(candidate)
+        and market_is_basic_forecast(candidate.market_key) is basic_only
     ]
     eligible.sort(
         key=lambda candidate: (
-            candidate.conservative_probability,
-            candidate.evidence_score,
-            (
-                candidate.validation.relative_improvement
-                if candidate.validation
-                and candidate.validation.relative_improvement is not None
-                else -1.0
-            ),
+            *(-value for value in candidate_selection_rank(candidate)),
+            candidate.candidate_id,
         ),
-        reverse=True,
     )
     selected: list[ChallengeCandidate] = []
     selected_fixtures: set[int] = set()
-    for candidate in eligible:
+    selected_ids: set[str] = set()
+    kind_counts: dict[str, int] = {}
+
+    def add(
+        candidate: ChallengeCandidate,
+        *,
+        enforce_kind_cap: bool = True,
+    ) -> bool:
         if candidate.fixture_id in selected_fixtures:
-            continue
+            return False
+        spec = MARKET_BY_KEY.get(candidate.market_key)
+        kind = spec.kind if spec is not None else "other"
+        if (
+            enforce_kind_cap
+            and kind_counts.get(kind, 0) >= MAX_PUBLIC_SELECTIONS_PER_KIND
+        ):
+            return False
         selected.append(candidate)
+        selected_ids.add(candidate.candidate_id)
         selected_fixtures.add(candidate.fixture_id)
+        kind_counts[kind] = kind_counts.get(kind, 0) + 1
+        return True
+
+    # The first three cards should explain different decisions rather than
+    # repeating the same market family three times.
+    featured_kinds: set[str] = set()
+    for candidate in eligible:
+        spec = MARKET_BY_KEY.get(candidate.market_key)
+        kind = spec.kind if spec is not None else "other"
+        if kind in featured_kinds:
+            continue
+        if add(candidate):
+            featured_kinds.add(kind)
+        if len(selected) >= min(3, max_candidates):
+            break
+
+    if len(selected) >= max_candidates:
+        return selected
+    for candidate in eligible:
+        if candidate.candidate_id in selected_ids:
+            continue
+        add(candidate)
         if len(selected) >= max_candidates:
             break
+    # Diversity is a presentation preference, never another hidden scarcity
+    # gate. If only one or two useful market kinds are validated today, keep
+    # filling with distinct fixtures instead of recreating the old three-card
+    # ceiling.
+    if len(selected) < max_candidates:
+        for candidate in eligible:
+            if candidate.candidate_id in selected_ids:
+                continue
+            add(candidate, enforce_kind_cap=False)
+            if len(selected) >= max_candidates:
+                break
     return selected
+
+
+def select_shortlist(
+    candidates: Iterable[ChallengeCandidate],
+    max_candidates: int = 6,
+) -> list[ChallengeCandidate]:
+    """Select meaningful release-credible fixtures for the quote gate."""
+
+    return _select_public_candidates(
+        candidates,
+        credible=candidate_is_credible,
+        max_candidates=max_candidates,
+    )
+
+
+def select_forecast_shortlist(
+    candidates: Iterable[ChallengeCandidate],
+    max_candidates: int = 6,
+) -> list[ChallengeCandidate]:
+    """Select meaningful forecasts without implying tip eligibility."""
+
+    return _select_public_candidates(
+        candidates,
+        credible=candidate_is_forecast_credible,
+        max_candidates=max_candidates,
+    )
+
+
+def select_basis_forecasts(
+    candidates: Iterable[ChallengeCandidate],
+    max_candidates: int = 10,
+) -> list[ChallengeCandidate]:
+    """Keep broad model outputs for audit without promoting them as picks."""
+
+    return _select_public_candidates(
+        candidates,
+        credible=candidate_is_forecast_credible,
+        max_candidates=max_candidates,
+        basic_only=True,
+    )
 
 
 def _candidate_model_contract_is_valid(candidate: ChallengeCandidate) -> bool:
@@ -3081,12 +3230,16 @@ __all__ = [
     "build_fixture_candidates",
     "candidate_is_forecast_credible",
     "candidate_is_credible",
+    "candidate_context_summary",
+    "candidate_model_utility",
+    "candidate_selection_rank",
     "challenge_stake_cap",
     "consecutive_wins_to_target",
     "dependence_floor_probability",
     "expected_log_growth",
     "fixture_market_probabilities",
     "market_outcome",
+    "market_is_basic_forecast",
     "market_probability",
     "score_matrix",
     "select_model_ticket",
@@ -3095,6 +3248,7 @@ __all__ = [
     "kelly_reference_stake",
     "risk_managed_ticket_stake",
     "select_forecast_shortlist",
+    "select_basis_forecasts",
     "ticket_stake",
     "ticket_dependency_factor",
     "validate_league_markets",

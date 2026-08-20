@@ -15,7 +15,7 @@ from challenge_15k import (
     ChallengeDataProvider,
     scan_daily_challenge,
 )
-from challenge_engine import select_shortlist
+from challenge_engine import candidate_context_summary, select_shortlist
 from config_loader import load_app_config
 from date_context import german_day_label, zurich_today
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
@@ -28,8 +28,10 @@ from market_consensus import (
 
 
 DEFAULT_LEAGUES = [78, 39, 140]
-MARKET_WORKFLOW_VERSION = 11
-MARKET_SNAPSHOT_VERSION = 13
+MARKET_WORKFLOW_VERSION = 12
+MARKET_SNAPSHOT_VERSION = 14
+MAX_CONSUMER_MARKET_SELECTIONS = 15
+FEATURED_CONSUMER_MARKET_SELECTIONS = 3
 MARKET_AUDIT_VERSION = 1
 MARKET_MAX_AGE_MINUTES = 20
 FOOTBALL_MARKET_SCOPES = {
@@ -167,7 +169,9 @@ def _consumer_no_tip_copy(
             f"{base_fixtures} {'Spiel' if base_fixtures == 1 else 'Spiele'} "
             "in der engeren Auswahl"
         )
-        evidence_parts.append(f"{context_verified} vollständig geprüft")
+        evidence_parts.append(
+            f"{context_verified} mit verfügbaren Kontextdaten geprüft"
+        )
     evidence = f"{day_label} · " + " · ".join(evidence_parts)
 
     if operational_errors > 0:
@@ -197,10 +201,11 @@ def _consumer_no_tip_copy(
             else f"{pending} weitere Spiele"
         )
         message = (
-            f"Unter den {context_verified} vollständig geprüften Spielen wurde "
+            f"Unter den {context_verified} mit verfügbaren Kontextdaten "
+            "geprüften Spielen wurde "
             f"kein Tipp bestätigt. Für {pending_label} "
-            f"{'steht' if pending == 1 else 'stehen'} die vollständige "
-            "Prüfung noch aus. Die Quote war nicht der Ablehnungsgrund."
+            f"{'steht' if pending == 1 else 'stehen'} weitere Prüfungen "
+            "noch aus. Die Quote war nicht der Ablehnungsgrund."
             + unmodeled_note
         )
     elif base_fixtures <= 0:
@@ -211,7 +216,8 @@ def _consumer_no_tip_copy(
         )
     else:
         message = (
-            f"Unter den {context_verified} vollständig geprüften Spielen wurde "
+            f"Unter den {context_verified} mit verfügbaren Kontextdaten "
+            "geprüften Spielen wurde "
             "kein Tipp bestätigt. Die Quote war nicht der Ablehnungsgrund."
             + unmodeled_note
         )
@@ -377,38 +383,9 @@ def _strict_market_candidate(candidate):
         "Auswärtssieg": candidate.away_team,
     }.get(selection, selection)
     context = candidate.context if isinstance(candidate.context, dict) else {}
-    h2h = context.get("h2h") if isinstance(context.get("h2h"), dict) else {}
-    injuries = (
-        context.get("injuries")
-        if isinstance(context.get("injuries"), dict)
-        else {}
-    )
-    weather = (
-        context.get("weather")
-        if isinstance(context.get("weather"), dict)
-        else {}
-    )
-    lineups = (
-        context.get("lineups")
-        if isinstance(context.get("lineups"), dict)
-        else {}
-    )
-    context_labels = {
-        "passed": "berücksichtigt",
-        "observed": "berücksichtigt",
-        "neutral": "ohne belastbares Veto",
-        "pending": "noch nicht bestätigt",
-        "unavailable": "derzeit nicht verfügbar",
-        "provisional": "in Prüfphase",
-    }
     evidence = tuple(candidate.reasons) + (
         f"Evidenzscore {candidate.evidence_score:.1f} %, Modellspanne {candidate.model_spread_pp:.1f} PP.",
-        (
-            f"Kontext: H2H {context_labels.get(h2h.get('status'), 'geprüft')}; "
-            f"Ausfälle {context_labels.get(injuries.get('status'), 'geprüft')}; "
-            f"Wetter {context_labels.get(weather.get('status'), 'geprüft')}; "
-            f"Aufstellungen {context_labels.get(lineups.get('status'), 'geprüft')}."
-        ),
+        candidate_context_summary(candidate),
         "Markt hat das liga- und marktbezogene Walk-forward-Kalibrierungsgate bestanden.",
     )
     model_probability = candidate.probability * 100.0
@@ -442,7 +419,7 @@ def _merge_consumer_market_rows(
     priced_rows,
     model_rows,
     *,
-    limit: int = 3,
+    limit: int = MAX_CONSUMER_MARKET_SELECTIONS,
 ):
     """Keep the model-ranked display stable regardless of bookmaker price."""
 
@@ -549,7 +526,7 @@ def _run_market_scan_worker(
             for candidate in playable_candidates
             if candidate.candidate_id in visible_candidate_ids
         ],
-        max_candidates=3,
+        max_candidates=FEATURED_CONSUMER_MARKET_SELECTIONS,
     )
     challenge_snapshot["approved_candidates"] = len(
         challenge_snapshot["shortlist"]
@@ -577,7 +554,7 @@ def create_alternative_markets_tab_extended(
     search_end_date=None,
     embedded: bool = False,
 ) -> None:
-    """Find up to three fully gated football-market candidates."""
+    """Find a compact Top 3 plus further calculated football forecasts."""
     if market_scope not in FOOTBALL_MARKET_SCOPES:
         raise ValueError(f"Unbekannte Fußball-Wettart: {market_scope}")
     selected_market_kinds = FOOTBALL_MARKET_SCOPES[market_scope]
@@ -699,8 +676,12 @@ def create_alternative_markets_tab_extended(
             "version": MARKET_SNAPSHOT_VERSION,
             "scanned_at": challenge_snapshot.get("scanned_at"),
             "scope": result.get("scope") or scope,
-            "shortlist": challenge_snapshot.get("shortlist", [])[:3],
-            "model_shortlist": challenge_snapshot.get("model_shortlist", [])[:3],
+            "shortlist": challenge_snapshot.get("shortlist", [])[
+                :FEATURED_CONSUMER_MARKET_SELECTIONS
+            ],
+            "model_shortlist": challenge_snapshot.get("model_shortlist", [])[
+                :MAX_CONSUMER_MARKET_SELECTIONS
+            ],
             "reference_quotes": challenge_snapshot.get("reference_quotes", {}),
             "quote_errors": challenge_snapshot.get("quote_errors", []),
             "price_checked_at": challenge_snapshot.get("price_checked_at"),
@@ -870,26 +851,47 @@ def create_alternative_markets_tab_extended(
             "Spielausgang. Fehlt eine belastbare Vergleichsquote oder ist "
             "sie zu niedrig, bleibt die Modell-Auswahl sichtbar."
         )
-        candidates = [
-            _strict_market_candidate(candidate) for candidate in displayed_rows
-        ]
-        for index, (candidate, raw_candidate) in enumerate(
-            zip(candidates, displayed_rows),
-            start=1,
-        ):
-            st.markdown(f"### Auswahl {index}")
-            render_price_decision(
-                candidate,
-                key=f"market_{candidate.event_key}_{snapshot.get('scanned_at')}",
-                bankroll_key="football_bet_finder_bankroll",
-                save_source="Fußball Prematch",
-                reference_quote=reference_quotes.get(
-                    raw_candidate.candidate_id
-                ),
-                allow_manual_check=True,
-            )
-            if index < len(candidates):
-                st.divider()
+        def render_rows(rows, *, start_index: int) -> None:
+            candidates = [_strict_market_candidate(candidate) for candidate in rows]
+            for offset, (candidate, raw_candidate) in enumerate(
+                zip(candidates, rows),
+            ):
+                index = start_index + offset
+                st.markdown(f"### Auswahl {index}")
+                st.caption(candidate_context_summary(raw_candidate))
+                render_price_decision(
+                    candidate,
+                    key=(
+                        f"market_{candidate.event_key}_"
+                        f"{snapshot.get('scanned_at')}"
+                    ),
+                    bankroll_key="football_bet_finder_bankroll",
+                    save_source="Fußball Prematch",
+                    reference_quote=reference_quotes.get(
+                        raw_candidate.candidate_id
+                    ),
+                    allow_manual_check=True,
+                )
+                if offset < len(candidates) - 1:
+                    st.divider()
+
+        featured_rows = displayed_rows[:FEATURED_CONSUMER_MARKET_SELECTIONS]
+        more_rows = displayed_rows[FEATURED_CONSUMER_MARKET_SELECTIONS:]
+        render_rows(featured_rows, start_index=1)
+        if more_rows:
+            with st.expander(
+                f"Weitere {len(more_rows)} Modellprognosen",
+                expanded=False,
+            ):
+                st.caption(
+                    "Diese Auswahlen erfüllen dieselben Modellregeln und sind "
+                    "niedriger eingestuft als die drei Top-Auswahlen. Hinweise "
+                    "zur Preisprüfung bleiben bei jeder Auswahl sichtbar."
+                )
+                render_rows(
+                    more_rows,
+                    start_index=FEATURED_CONSUMER_MARKET_SELECTIONS + 1,
+                )
 
 
 __all__ = [

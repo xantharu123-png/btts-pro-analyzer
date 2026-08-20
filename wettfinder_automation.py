@@ -4,10 +4,12 @@ One broad football discovery scans every configured league once per target
 date. Later timer wake-ups never repeat that league scan: they refresh only
 persisted candidate fixtures inside the pre-match context window. Tennis and
 E-sport reuse their own daily persisted model runs as internal evidence. The
-public artifact keeps at most three calculated model selections for exactly
-one local match day independently of price.  A second, strict list contains
-only selections whose exact multi-bookmaker price passes the final price
-gate.  A price can reject playability, never erase the forecast.
+public artifact keeps a bounded model catalog for exactly one local match day
+independently of price. The first three remain the compact featured block;
+additional model selections stay available below it. A second, strict list
+contains at most three selections whose exact multi-bookmaker price passes
+the final price gate. A price can reject playability, never erase or reorder
+the forecast catalog.
 """
 
 from __future__ import annotations
@@ -30,14 +32,22 @@ from challenge_15k import (
     scan_daily_challenge,
 )
 from challenge_engine import (
+    MARKET_BY_KEY,
     ChallengeCandidate,
     ValidationMetrics,
+    candidate_context_summary,
     candidate_is_forecast_credible,
+    candidate_selection_rank,
+    market_is_basic_forecast,
 )
 from config_loader import AppConfig, load_app_config
 from ev_signal_sources import (
     AUTOMATED_SELECTION_POLICY_VERSION,
     AUTOMATED_WETTFINDER_VERSION,
+    MAX_AUTOMATED_FOOTBALL_CANDIDATES,
+    MAX_AUTOMATED_MODEL_CANDIDATES,
+    MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT,
+    MAX_AUTOMATED_RECOMMENDATIONS,
     ModelSignal,
     _validated_football_context_statuses,
     esports_signals,
@@ -57,7 +67,12 @@ STATE_PATH = ROOT / "runtime_state" / "wettfinder_latest.json"
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
 AUTOMATION_VERSION = AUTOMATED_WETTFINDER_VERSION
 SELECTION_POLICY_VERSION = AUTOMATED_SELECTION_POLICY_VERSION
-MAX_AUTOMATIC_CANDIDATES = 3
+MAX_AUTOMATIC_FOOTBALL_CANDIDATES = MAX_AUTOMATED_FOOTBALL_CANDIDATES
+MAX_AUTOMATIC_OTHER_CANDIDATES_PER_SPORT = (
+    MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT
+)
+MAX_AUTOMATIC_CANDIDATES = MAX_AUTOMATED_MODEL_CANDIDATES
+MAX_AUTOMATIC_RECOMMENDATIONS = MAX_AUTOMATED_RECOMMENDATIONS
 MAX_AUTOMATIC_PRICE_FIXTURES = 10
 MAX_AUTOMATIC_MARKETS_PER_FIXTURE = 8
 TOMORROW_SCAN_HOUR = 23
@@ -224,6 +239,8 @@ def _football_candidate_record(
         return None
     if not candidate_is_forecast_credible(candidate):
         return None
+    if market_is_basic_forecast(candidate.market_key):
+        return None
     probability = _finite_probability(_value(candidate, "probability"))
     conservative = _finite_probability(
         _value(candidate, "conservative_probability")
@@ -259,6 +276,7 @@ def _football_candidate_record(
     model_scope = str(_value(candidate, "model_scope") or "")
     if model_scope == "cross_competition_provisional_forecast":
         detail_parts.append("UEFA-Heimatliga-Modell in Transfer-Prüfphase")
+    market_spec = MARKET_BY_KEY.get(str(_value(candidate, "market_key") or ""))
     return {
         "key": f"wettfinder-football-{candidate_id}",
         "candidate_id": candidate_id,
@@ -282,6 +300,9 @@ def _football_candidate_record(
         "source": "football_challenge",
         "detail": " - ".join(detail_parts),
         "model_scope": model_scope,
+        "market_kind": market_spec.kind if market_spec is not None else "other",
+        "selection_rank": list(candidate_selection_rank(candidate)),
+        "context_summary": candidate_context_summary(candidate),
         "context": dict(candidate.context),
         "context_checked_at": (
             _utc(context_checked_at).isoformat()
@@ -289,6 +310,106 @@ def _football_candidate_record(
             else None
         ),
     }
+
+
+def _first_present_candidate_list(
+    payload: object,
+    *field_names: str,
+) -> list:
+    """Use the first present schema field; an explicit empty list is final."""
+
+    if not isinstance(payload, dict):
+        return []
+    for field_name in field_names:
+        if field_name not in payload:
+            continue
+        value = payload.get(field_name)
+        return list(value) if isinstance(value, (list, tuple)) else []
+    return []
+
+
+def _football_record_selection_rank(row: object) -> Optional[tuple[float, ...]]:
+    if not isinstance(row, dict):
+        return None
+    raw = row.get("selection_rank")
+    if not isinstance(raw, (list, tuple)) or len(raw) != 6:
+        return None
+    values: list[float] = []
+    for value in raw:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            return None
+        values.append(float(value))
+    return tuple(values)
+
+
+def _select_football_record_catalog(
+    rows: Iterable[dict[str, Any]],
+    *,
+    limit: int = MAX_AUTOMATIC_FOOTBALL_CANDIDATES,
+) -> list[dict[str, Any]]:
+    """Rebuild the soft-diverse catalog after a context refresh."""
+
+    records = [dict(row) for row in rows if isinstance(row, dict)]
+    if not records:
+        return []
+    ranked_rows = [
+        (rank, row)
+        for row in records
+        if (rank := _football_record_selection_rank(row)) is not None
+    ]
+    # Old in-memory records are never mixed into the new schema in
+    # production, but preserving their order keeps the helper fail-safe.
+    if len(ranked_rows) != len(records):
+        return records[:limit]
+    ranked_rows.sort(
+        key=lambda item: (
+            *(-value for value in item[0]),
+            str(item[1].get("key") or ""),
+        )
+    )
+    ranked = [row for _rank, row in ranked_rows]
+    selected: list[dict[str, Any]] = []
+    selected_keys: set[str] = set()
+    selected_events: set[str] = set()
+    kind_counts: dict[str, int] = {}
+
+    def add(row: dict[str, Any], *, enforce_kind_cap: bool = True) -> bool:
+        key = str(row.get("key") or "").strip()
+        event = str(row.get("event_identity") or key).strip()
+        kind = str(row.get("market_kind") or "other").strip() or "other"
+        if not key or key in selected_keys or not event or event in selected_events:
+            return False
+        if enforce_kind_cap and kind_counts.get(kind, 0) >= 3:
+            return False
+        selected.append(row)
+        selected_keys.add(key)
+        selected_events.add(event)
+        kind_counts[kind] = kind_counts.get(kind, 0) + 1
+        return True
+
+    featured_kinds: set[str] = set()
+    for row in ranked:
+        kind = str(row.get("market_kind") or "other").strip() or "other"
+        if kind in featured_kinds:
+            continue
+        if add(row):
+            featured_kinds.add(kind)
+        if len(selected) >= min(3, limit):
+            break
+    for enforce_kind_cap in (True, False):
+        if len(selected) >= limit:
+            break
+        for row in ranked:
+            if str(row.get("key") or "").strip() in selected_keys:
+                continue
+            add(row, enforce_kind_cap=enforce_kind_cap)
+            if len(selected) >= limit:
+                break
+    return selected
 
 
 def _signal_record(signal: ModelSignal) -> Optional[dict[str, Any]]:
@@ -334,6 +455,7 @@ def _signal_record(signal: ModelSignal) -> Optional[dict[str, Any]]:
         "status": "PRICE_REQUIRED",
         "source": "tennis_shadow" if sport == "Tennis" else "esports_shadow",
         "detail": signal.detail,
+        "context_summary": signal.context_summary,
     }
 
 
@@ -342,6 +464,7 @@ def _ranked_candidates(
     *,
     now: Optional[datetime] = None,
     target_date: Optional[date] = None,
+    preserve_order: bool = False,
 ) -> list[dict[str, Any]]:
     """Validate and rank candidates for exactly one Zurich match day."""
     current = _utc(now)
@@ -378,14 +501,15 @@ def _ranked_candidates(
             continue
         valid.append(dict(row))
 
-    valid.sort(
-        key=lambda row: (
-            -stage_rank.get(str(row.get("evidence_stage")), -1),
-            -float(row["conservative_probability"]),
-            float(row["probability_haircut"]),
-            str(row.get("key") or ""),
+    if not preserve_order:
+        valid.sort(
+            key=lambda row: (
+                -stage_rank.get(str(row.get("evidence_stage")), -1),
+                -float(row["conservative_probability"]),
+                float(row["probability_haircut"]),
+                str(row.get("key") or ""),
+            )
         )
-    )
     return valid
 
 
@@ -394,13 +518,15 @@ def select_candidates(
     *,
     now: Optional[datetime] = None,
     target_date: Optional[date] = None,
-    limit: int = MAX_AUTOMATIC_CANDIDATES,
+    limit: int = MAX_AUTOMATIC_RECOMMENDATIONS,
+    preserve_order: bool = False,
 ) -> list[dict[str, Any]]:
-    """Select one probability-first market per event after the price gate."""
+    """Select one validated market per event, optionally preserving order."""
     valid = _ranked_candidates(
         candidates,
         now=now,
         target_date=target_date,
+        preserve_order=preserve_order,
     )
     selected: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
@@ -441,11 +567,50 @@ def build_model_selection_ledger(
             now=now,
             target_date=target_date,
             limit=limit,
+            preserve_order=True,
         )
     ]
     for row in ledger:
         row["status"] = "MODEL_SELECTION"
     return ledger
+
+
+def build_daily_forecast_catalog(
+    football_rows: Iterable[dict[str, Any]],
+    other_rows: Iterable[dict[str, Any]],
+    *,
+    now: Optional[datetime] = None,
+    target_date: Optional[date] = None,
+) -> list[dict[str, Any]]:
+    """Reserve catalog space for football and each validated other sport."""
+
+    football_catalog = select_candidates(
+        football_rows,
+        now=now,
+        target_date=target_date,
+        limit=MAX_AUTOMATIC_FOOTBALL_CANDIDATES,
+        preserve_order=True,
+    )
+    grouped_other: dict[str, list[dict[str, Any]]] = {}
+    for row in other_rows:
+        if not isinstance(row, dict):
+            continue
+        sport = str(row.get("sport") or "").strip()
+        if not sport:
+            continue
+        grouped_other.setdefault(sport, []).append(row)
+    other_catalog: list[dict[str, Any]] = []
+    for rows in grouped_other.values():
+        other_catalog.extend(
+            select_candidates(
+                rows,
+                now=now,
+                target_date=target_date,
+                limit=MAX_AUTOMATIC_OTHER_CANDIDATES_PER_SPORT,
+                preserve_order=True,
+            )
+        )
+    return [*football_catalog, *other_catalog]
 
 
 def select_price_check_candidates(
@@ -455,6 +620,7 @@ def select_price_check_candidates(
     target_date: Optional[date] = None,
     max_fixtures: int = MAX_AUTOMATIC_PRICE_FIXTURES,
     max_markets_per_fixture: int = MAX_AUTOMATIC_MARKETS_PER_FIXTURE,
+    preserve_order: bool = False,
 ) -> list[dict[str, Any]]:
     """Keep several valid markets per fixture until exact prices are known."""
     for value, label in (
@@ -468,6 +634,7 @@ def select_price_check_candidates(
         candidates,
         now=now,
         target_date=target_date,
+        preserve_order=preserve_order,
     )
     selected: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
@@ -511,10 +678,10 @@ def _football_state_from_snapshot(
     search_date: date,
 ) -> dict[str, Any]:
     scanned_at = _parse_iso(snapshot.get("scanned_at")) or attempted_at
-    discovery_values = (
-        snapshot.get("discovery_candidates")
-        or snapshot.get("base_shortlist")
-        or []
+    discovery_values = _first_present_candidate_list(
+        snapshot,
+        "discovery_candidates",
+        "base_shortlist",
     )
     discovery_payloads = [
         payload
@@ -531,15 +698,16 @@ def _football_state_from_snapshot(
                 candidate,
                 context_checked_at=scanned_at,
             )
-            for candidate in (
-                snapshot.get("forecast_shortlist")
-                or snapshot.get("price_candidates")
-                or snapshot.get("shortlist")
-                or []
+            for candidate in _first_present_candidate_list(
+                snapshot,
+                "forecast_shortlist",
+                "price_candidates",
+                "shortlist",
             )
         )
         if record is not None
     ]
+    records = _select_football_record_catalog(records)
     errors = [
         str(error)
         for error in (snapshot.get("errors") or [])
@@ -757,11 +925,16 @@ def _merge_context_refresh(
 ) -> dict[str, Any]:
     refreshed = dict(state)
     allowed = set(fixture_ids)
-    retained = [
-        row
-        for row in (state.get("candidates") or [])
-        if isinstance(row, dict) and row.get("fixture_id") not in allowed
+    existing_records = [
+        row for row in (state.get("candidates") or []) if isinstance(row, dict)
     ]
+    refreshed_candidates = _first_present_candidate_list(
+        result,
+        "forecast_shortlist",
+        "price_candidates",
+        "candidates",
+        "shortlist",
+    )
     new_records = [
         record
         for record in (
@@ -769,16 +942,33 @@ def _merge_context_refresh(
                 candidate,
                 context_checked_at=checked_at,
             )
-            for candidate in (
-                result.get("forecast_shortlist")
-                or result.get("price_candidates")
-                or result.get("candidates")
-                or result.get("shortlist")
-                or []
-            )
+            for candidate in refreshed_candidates
         )
         if record is not None
     ]
+    new_by_fixture: dict[int, list[dict[str, Any]]] = {}
+    for record in new_records:
+        fixture_id = record.get("fixture_id")
+        if isinstance(fixture_id, int) and not isinstance(fixture_id, bool):
+            new_by_fixture.setdefault(fixture_id, []).append(record)
+    merged_records: list[dict[str, Any]] = []
+    replaced_fixtures: set[int] = set()
+    for record in existing_records:
+        fixture_id = record.get("fixture_id")
+        if fixture_id not in allowed:
+            merged_records.append(record)
+            continue
+        if (
+            isinstance(fixture_id, int)
+            and fixture_id not in replaced_fixtures
+        ):
+            merged_records.extend(new_by_fixture.get(fixture_id, []))
+            replaced_fixtures.add(fixture_id)
+    for fixture_id in fixture_ids:
+        if fixture_id not in replaced_fixtures:
+            merged_records.extend(new_by_fixture.get(fixture_id, []))
+            replaced_fixtures.add(fixture_id)
+    merged_records = _select_football_record_catalog(merged_records)
     checks = dict(state.get("context_checks") or {})
     for fixture_id in fixture_ids:
         checks[str(fixture_id)] = checked_at.isoformat()
@@ -854,8 +1044,8 @@ def _merge_context_refresh(
         {
             "last_context_at": checked_at.isoformat(),
             "context_checks": checks,
-            "candidates": retained + new_records,
-            "approved_candidates": len(retained) + len(new_records),
+            "candidates": merged_records,
+            "approved_candidates": len(merged_records),
             "last_blocked_counts": dict(result.get("blocked_counts") or {}),
             "errors": list(dict.fromkeys(errors))[-20:],
             "base_fixture_count": len(merged_statuses),
@@ -907,11 +1097,13 @@ def _active_football_candidates(
         ):
             continue
         fresh.append(row)
-    return select_price_check_candidates(
+    valid = _ranked_candidates(
         fresh,
         now=current,
         target_date=target_date,
+        preserve_order=True,
     )
+    return _select_football_record_catalog(valid)
 
 
 def load_state(path: str | Path = STATE_PATH) -> dict[str, Any]:
@@ -987,7 +1179,7 @@ def _default_football_context_refresh(
         candidates,
         search_date,
         now=current,
-        max_candidates=6,
+        max_candidates=15,
     )
 
 
@@ -1229,6 +1421,7 @@ def run_wettfinder(
         ),
         now=current,
         target_date=target,
+        preserve_order=True,
     )
     quote_errors: list[str] = []
     reference_quotes: dict[str, MarketConsensus] = {}
@@ -1299,11 +1492,18 @@ def run_wettfinder(
         and int(football_state.get("operational_error_count") or 0) == 0
         and context_statuses is not None
     )
-    # There is one user-facing maximum-three ledger. Its probability-first
-    # order is entirely independent of bookmaker price.
+    # The model catalog is independent of bookmaker price. The first three
+    # remain the compact featured block; additional eligible forecasts stay
+    # available instead of being discarded.
+    forecast_catalog = build_daily_forecast_catalog(
+        football_model_rows,
+        non_football_rows,
+        now=current,
+        target_date=target,
+    )
     model_candidates = build_model_selection_ledger(
         playable_rows if football_run_publishable else [],
-        [*football_model_rows, *non_football_rows],
+        forecast_catalog,
         now=current,
         target_date=target,
         limit=MAX_AUTOMATIC_CANDIDATES,
@@ -1314,17 +1514,27 @@ def run_wettfinder(
         if str(row.get("key") or "").strip()
     }
     # A strict signal may only annotate one of those visible forecasts. Price
-    # can enable an action or stake, but never change the displayed Top 3.
+    # can enable an action or stake, but never change the displayed catalog.
+    playable_by_key = {
+        str(row.get("key") or "").strip(): row
+        for row in playable_rows
+        if str(row.get("key") or "").strip()
+    }
     candidates = select_candidates(
         (
-            row
-            for row in playable_rows
+            playable_by_key[key]
+            for key in (
+                str(row.get("key") or "").strip()
+                for row in model_candidates
+            )
             if football_run_publishable
-            and str(row.get("key") or "").strip() in visible_keys
+            and key in visible_keys
+            and key in playable_by_key
         ),
         now=current,
         target_date=target,
-        limit=MAX_AUTOMATIC_CANDIDATES,
+        limit=MAX_AUTOMATIC_RECOMMENDATIONS,
+        preserve_order=True,
     )
     for row in candidates:
         row["status"] = "RECOMMENDED"

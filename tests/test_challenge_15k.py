@@ -1,4 +1,5 @@
 from contextlib import closing
+from collections import Counter
 import sqlite3
 import tempfile
 import unittest
@@ -22,6 +23,7 @@ from challenge_15k import (
     _forecast_candidate_pool,
     _league_season_segments,
     _price_candidate_pool,
+    _ranked_fixture_ids,
     _recommendation_day_label,
     _render_price_check,
     _run_challenge_scan_worker,
@@ -42,16 +44,19 @@ from challenge_engine import (
     ValidationMetrics,
     apply_candidate_context,
     build_fixture_candidates,
+    candidate_context_summary,
     candidate_is_forecast_credible,
     candidate_is_credible,
     challenge_stake_cap,
     consecutive_wins_to_target,
     expected_log_growth,
     kelly_reference_stake,
+    market_is_basic_forecast,
     market_outcome,
     score_matrix,
     risk_managed_ticket_stake,
     select_forecast_shortlist,
+    select_basis_forecasts,
     select_model_ticket,
     select_quoted_ticket,
     select_shortlist,
@@ -340,6 +345,42 @@ class ChallengeProbabilityTests(unittest.TestCase):
         )
         self.assertTrue(any(item.fixture_id == 2 for item in pool))
 
+    def test_daily_discovery_pool_preserves_market_family_diversity(self):
+        high_probability_results = [
+            replace(
+                candidate(f"1:RESULT_{index}", 1, 0.90 - index / 1000),
+                market_key="RESULT_HOME",
+            )
+            for index in range(8)
+        ]
+        diverse = [
+            replace(candidate("1:BTTS", 1, 0.70), market_key="BTTS_YES"),
+            replace(
+                candidate("1:TOTAL", 1, 0.69),
+                market_key="TOTAL_OVER_2_5",
+            ),
+            replace(
+                candidate("1:CORNERS", 1, 0.68),
+                market_key="CORNERS_OVER_8_5",
+            ),
+            replace(
+                candidate("1:YELLOW", 1, 0.67),
+                market_key="YELLOW_OVER_2_5",
+            ),
+        ]
+
+        pool = _discovery_candidate_pool(
+            high_probability_results + diverse,
+            [1],
+        )
+        kinds = {MARKET_BY_KEY[item.market_key].kind for item in pool}
+
+        self.assertEqual(len(pool), MAX_DISCOVERY_MARKETS_PER_FIXTURE)
+        self.assertTrue(
+            {"result", "btts", "total", "corner_total", "yellow_total"}
+            <= kinds
+        )
+
     def test_segmented_omits_default_when_session_value_already_exists(self):
         fake_streamlit = Mock()
         fake_streamlit.session_state = {"mode": "B"}
@@ -373,7 +414,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
 
         self.assertEqual(_shortlist_counts(markets), (3, 2))
 
-    def test_price_pool_keeps_alternative_markets_from_one_fixture(self):
+    def test_price_pool_skips_broad_basis_market_from_one_fixture(self):
         favorite = candidate("1:RESULT_HOME", 1, 0.73)
         favorite = replace(
             favorite,
@@ -393,7 +434,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
 
         self.assertEqual(
             [item.candidate_id for item in pool],
-            ["1:RESULT_HOME", "1:TOTAL_UNDER_4_5"],
+            ["1:RESULT_HOME"],
         )
         self.assertEqual(len(select_shortlist(pool, max_candidates=3)), 1)
 
@@ -667,6 +708,184 @@ class ChallengeProbabilityTests(unittest.TestCase):
         self.assertEqual(len(shortlist), 3)
         self.assertEqual([item.fixture_id for item in shortlist], [1, 2, 3])
         self.assertEqual(shortlist[0].candidate_id, "1:BTTS")
+
+    def test_broad_safety_markets_are_basis_forecasts_not_top_selections(self):
+        broad_keys = {
+            "TOTAL_OVER_0_5",
+            "TOTAL_UNDER_4_5",
+            "HOME_OVER_0_5",
+            "AWAY_OVER_0_5",
+            "HOME_UNDER_2_5",
+            "AWAY_UNDER_2_5",
+            "HOME_RANGE_1_3",
+            "AWAY_RANGE_1_3",
+            "DC_1X",
+            "MIXED_BTTS_OR_OVER_2_5",
+            "CORNERS_OVER_5_5",
+            "HOME_YELLOW_OVER_0_5",
+        }
+        for market_key in broad_keys:
+            with self.subTest(market_key=market_key):
+                self.assertTrue(market_is_basic_forecast(market_key))
+
+        for market_key in {
+            "RESULT_HOME",
+            "BTTS_YES",
+            "TOTAL_OVER_2_5",
+            "HOME_OVER_1_5",
+            "CORNERS_OVER_8_5",
+            "YELLOW_OVER_2_5",
+        }:
+            with self.subTest(market_key=market_key):
+                self.assertFalse(market_is_basic_forecast(market_key))
+
+    def test_top_selection_excludes_trivial_high_probability_market(self):
+        broad = replace(
+            candidate("1:HOME_OVER_0_5", 1, 0.90),
+            market_key="HOME_OVER_0_5",
+            market="Team 1 Gesamttore",
+            selection="Über 0.5",
+        )
+        useful = replace(
+            candidate("2:BTTS_YES", 2, 0.66),
+            market_key="BTTS_YES",
+            market="Beide Teams treffen",
+            selection="Ja",
+        )
+
+        self.assertEqual(select_forecast_shortlist([broad, useful]), [useful])
+        self.assertEqual(select_basis_forecasts([broad, useful]), [broad])
+
+    def test_context_summary_discloses_missing_inputs_without_blocking_price(self):
+        item = candidate("1:BTTS_YES", 1, 0.70)
+        item.context.update(
+            {
+                "h2h": {"status": "neutral"},
+                "injuries": {"status": "observed"},
+                "weather": {"status": "unavailable"},
+                "lineups": {"status": "pending"},
+            }
+        )
+
+        summary = candidate_context_summary(item)
+
+        self.assertIn("H2H geprüft, kein belastbares Veto", summary)
+        self.assertIn("Ausfälle berücksichtigt", summary)
+        self.assertIn("Wetter nicht verfügbar", summary)
+        self.assertIn("Aufstellungen noch offen", summary)
+
+    def test_context_ranking_prefers_useful_market_over_trivial_probability(self):
+        broad = replace(
+            candidate("1:AWAY_UNDER_2_5", 1, 0.91),
+            market_key="AWAY_UNDER_2_5",
+            market="Team 2 Gesamttore",
+            selection="Unter 2.5",
+        )
+        useful = replace(
+            candidate("2:TOTAL_OVER_2_5", 2, 0.62),
+            market_key="TOTAL_OVER_2_5",
+            market="Gesamttore",
+            selection="Über 2.5",
+        )
+
+        self.assertEqual(_ranked_fixture_ids([broad, useful], limit=1), [2])
+
+    def test_oos_utility_ranks_two_core_markets_before_raw_probability(self):
+        high_probability_low_skill = replace(
+            candidate("1:RESULT_HOME", 1, 0.80),
+            market_key="RESULT_HOME",
+            validation=replace(
+                candidate("validation-a", 91, 0.70).validation,
+                relative_improvement=0.03,
+            ),
+        )
+        lower_probability_high_skill = replace(
+            candidate("2:BTTS_YES", 2, 0.65),
+            market_key="BTTS_YES",
+            validation=replace(
+                candidate("validation-b", 92, 0.70).validation,
+                relative_improvement=0.20,
+            ),
+        )
+
+        selected = select_forecast_shortlist(
+            [high_probability_low_skill, lower_probability_high_skill],
+            max_candidates=2,
+        )
+
+        self.assertEqual(
+            [item.candidate_id for item in selected],
+            ["2:BTTS_YES", "1:RESULT_HOME"],
+        )
+
+    def test_public_catalog_is_diverse_and_never_filled_with_basis_markets(self):
+        market_keys = [
+            "RESULT_HOME",
+            "RESULT_DRAW",
+            "RESULT_AWAY",
+            "BTTS_YES",
+            "BTTS_NO",
+            "BTTS_YES",
+            "TOTAL_OVER_2_5",
+            "TOTAL_UNDER_2_5",
+            "TOTAL_OVER_3_5",
+            "HOME_OVER_1_5",
+            "AWAY_OVER_1_5",
+            "HOME_UNDER_1_5",
+            "CORNERS_OVER_8_5",
+            "CORNERS_UNDER_8_5",
+            "CORNERS_OVER_9_5",
+            "HOME_OVER_0_5",
+        ]
+        pool = [
+            replace(
+                candidate(f"{index}:{market_key}", index, 0.80 - index / 200),
+                market_key=market_key,
+            )
+            for index, market_key in enumerate(market_keys, start=1)
+        ]
+
+        selected = select_forecast_shortlist(pool, max_candidates=15)
+        kinds = [MARKET_BY_KEY[item.market_key].kind for item in selected]
+
+        self.assertEqual(len(selected), 15)
+        self.assertEqual(len({item.fixture_id for item in selected}), 15)
+        self.assertTrue(all(count <= 3 for count in Counter(kinds).values()))
+        self.assertEqual(len(set(kinds[:3])), 3)
+        self.assertNotIn("HOME_OVER_0_5", {item.market_key for item in selected})
+
+    def test_diversity_prefill_never_exceeds_requested_maximum(self):
+        market_keys = [
+            "RESULT_HOME",
+            "BTTS_YES",
+            "TOTAL_OVER_2_5",
+            "CORNERS_OVER_8_5",
+        ]
+        pool = [
+            replace(
+                candidate(f"{index}:{market_key}", index, 0.75),
+                market_key=market_key,
+            )
+            for index, market_key in enumerate(market_keys, start=1)
+        ]
+
+        selected = select_forecast_shortlist(pool, max_candidates=3)
+
+        self.assertEqual(len(selected), 3)
+
+    def test_diversity_never_recreates_three_card_cap_for_one_market_kind(self):
+        pool = [
+            replace(
+                candidate(f"{index}:BTTS_YES", index, 0.80 - index / 100),
+                market_key="BTTS_YES",
+            )
+            for index in range(1, 11)
+        ]
+
+        selected = select_forecast_shortlist(pool, max_candidates=10)
+
+        self.assertEqual(len(selected), 10)
+        self.assertEqual(len({item.fixture_id for item in selected}), 10)
 
     def test_score_matrix_is_normalized(self):
         matrix = score_matrix(1.4, 1.1)

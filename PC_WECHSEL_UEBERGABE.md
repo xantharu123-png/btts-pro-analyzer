@@ -6,7 +6,9 @@ Diese Anleitung bringt einen neuen Windows-PC in einen sicheren,
 reproduzierbaren BetBoy-Arbeitsstand. Der laufende Produktionsserver hängt
 nicht vom alten PC ab und arbeitet während des Wechsels weiter.
 
-Am 20. August 2026 wurde nach dem kontrollierten Forecast-/Preis-Deploy verifiziert:
+Am 20. August 2026 wurde nach dem kontrollierten Forecast-/Preis-Deploy der
+folgende **Produktionsstand vor dem aktuellen lokalen Nutzwert-Umbau**
+verifiziert:
 
 | Prüfung | Ergebnis |
 |---|---|
@@ -19,7 +21,16 @@ Am 20. August 2026 wurde nach dem kontrollierten Forecast-/Preis-Deploy verifizi
 | Deploy-Recovery | Root-geschütztes `betboy-preupdate-20260817T104548Z-239c9ea38a6e.zip`; 82 Datenbanken plus Manifest, ZIP-CRC und updaterseitiges `quick_check` bestanden |
 | Automatisches v9-Artefakt | 39 Spiele gefunden, 36 modelliert, global 3 Modell-Auswahlen; 2 passende Vergleichsquoten und 1 zu niedrige Quote, die die Prognose nicht löschte |
 | Gerenderte Live-UI | Playwright: drei verständliche Auswahlkarten, Desktop und 390 x 844 ohne sichtbaren horizontalen Überlauf, 0 Konsolenfehler; 9 Streamlit-/Browser-Warnungen sind im Handbuch eingeordnet |
-| Lokale QA | 805 Python-Tests, 5 Subtests und 3/3 JavaScript-Tests; Paket-, Syntax- und Diff-Prüfungen grün |
+
+Der danach entwickelte Nutzwert-Katalog ist in diesem Arbeitsstand **nur lokal
+verifiziert und noch nicht Bestandteil der obigen Live-Nachweise**. Er verwendet
+Automationsartefakt v11, zeigt bis zu 15 nützliche Fußball-Modellprognosen
+(3 hervorgehoben, weitere eingeklappt), hält breite Basisprognosen aus den
+Top-Auswahlen heraus und behandelt Quoten ausschließlich als Preishinweis. Die
+lokale QA dafür umfasst 828 Python-Tests, 23 Subtests und 3/3 JavaScript-Tests;
+der isolierte Lauf ohne Secrets/Laufzeitdaten sowie Paket-, Syntax- und
+Diff-Prüfungen waren grün. Erst ein kontrollierter Commit, Push, VPS-Deploy und
+ein neuer Live-Lauf dürfen diesen lokalen Stand als Produktion ausweisen.
 
 Nach jedem Commit gilt ausschließlich der frisch abgefragte vollständige
 `origin/main`-Hash. Hash und Produktionsstand werden nach einem Deploy erneut

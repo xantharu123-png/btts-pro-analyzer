@@ -219,7 +219,7 @@ def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypat
     assert result["price_status_counts"] == {"TOO_LOW": 1}
 
 
-def test_consumer_merge_keeps_priced_and_unpriced_forecasts_within_three():
+def test_consumer_merge_keeps_model_order_beyond_featured_three():
     priced = SimpleNamespace(candidate_id="fixture-1-under", fixture_id=1)
     same_fixture_model = SimpleNamespace(candidate_id="fixture-1-home", fixture_id=1)
     unpriced_two = SimpleNamespace(candidate_id="fixture-2-home", fixture_id=2)
@@ -231,7 +231,51 @@ def test_consumer_merge_keeps_priced_and_unpriced_forecasts_within_three():
         [same_fixture_model, unpriced_two, unpriced_three, overflow],
     )
 
-    assert displayed == [same_fixture_model, unpriced_two, unpriced_three]
+    assert displayed == [
+        same_fixture_model,
+        unpriced_two,
+        unpriced_three,
+        overflow,
+    ]
+
+
+def test_market_worker_keeps_fully_checked_catalog_beyond_three(monkeypatch):
+    catalog = [
+        SimpleNamespace(
+            candidate_id=f"fixture-{index}-core",
+            fixture_id=index,
+            minimum_odds=1.80,
+        )
+        for index in range(1, 9)
+    ]
+    monkeypatch.setattr(market_tab, "ChallengeDataProvider", lambda *_args: object())
+    monkeypatch.setattr(
+        market_tab,
+        "scan_daily_challenge",
+        lambda *_args, **_kwargs: {
+            "forecast_shortlist": catalog,
+            "shortlist": [],
+            "price_candidates": [],
+        },
+    )
+    monkeypatch.setattr(
+        market_tab,
+        "fetch_football_consensus",
+        lambda *_args, **_kwargs: ({}, []),
+    )
+
+    result = market_tab._run_market_scan_worker(
+        "api-key",
+        None,
+        [78],
+        date(2030, 1, 2),
+        date(2030, 1, 2),
+        1200,
+        {"league_ids": [78]},
+    )["challenge"]
+
+    assert result["model_shortlist"] == catalog
+    assert result["shortlist"] == []
 
 
 def test_consumer_empty_state_contains_no_pipeline_diagnostics():
@@ -253,7 +297,7 @@ def test_consumer_empty_state_contains_no_pipeline_diagnostics():
     assert "205 Spiele gefunden" in evidence
     assert "144 modelliert" in evidence
     assert "21 Spiele in der engeren Auswahl" in evidence
-    assert "20 vollständig geprüft" in evidence
+    assert "20 mit verfügbaren Kontextdaten geprüft" in evidence
     assert "Für 1 weiteres Spiel" in message
     assert "Quote war nicht der Ablehnungsgrund" in message
     assert incomplete is True

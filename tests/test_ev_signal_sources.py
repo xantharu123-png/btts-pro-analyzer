@@ -8,7 +8,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from betting_math import BETTING_POLICY_VERSION
+from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
 from esports_shadow import ESPORTS_MODEL_VERSION
 from ev_signal_sources import (
     AUTOMATED_SELECTION_POLICY_VERSION,
@@ -110,6 +110,78 @@ def _model_automatic_candidate(**kwargs) -> dict:
     candidate.pop("reference_quote", None)
     candidate["reference_price_status"] = "UNAVAILABLE"
     return candidate
+
+
+def _automatic_model_row(
+    index: int,
+    *,
+    sport: str = "Fussball",
+    source: str = "football_challenge",
+    policy_version: str = BETTING_POLICY_VERSION,
+) -> dict:
+    row = _model_automatic_candidate()
+    row.update(
+        {
+            "candidate_id": f"{index}:BTTS_YES",
+            "fixture_id": index,
+            "key": f"automatic-model-{sport.casefold()}-{index}",
+            "label": f"{sport} - Spiel {index} - Beide treffen: Ja",
+            "sport": sport,
+            "event": f"Spiel {index}",
+            "source": source,
+            "policy_version": policy_version,
+            "context_summary": (
+                "Kontext: H2H berücksichtigt · Ausfälle berücksichtigt · "
+                "Wetter nicht verfügbar · Aufstellungen noch offen"
+            ),
+        }
+    )
+    return row
+
+
+def _automatic_document(
+    model_candidates: list[dict],
+    *,
+    candidates: list[dict] | None = None,
+) -> dict:
+    strict = list(candidates or [])
+    football_ids = [
+        int(row["fixture_id"])
+        for row in model_candidates
+        if str(row.get("sport") or "").casefold().replace("ß", "ss")
+        == "fussball"
+    ]
+    statuses = {str(fixture_id): "verified" for fixture_id in football_ids}
+    return {
+        "version": AUTOMATED_WETTFINDER_VERSION,
+        "generated_at": "2030-01-01T10:00:00+00:00",
+        "betting_policy_version": BETTING_POLICY_VERSION,
+        "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
+        "bookmaker_data_used": bool(strict),
+        "quote_required": True,
+        "target_search_date": "2030-01-01",
+        "football": {
+            "status": "completed",
+            "search_date": "2030-01-01",
+            "last_discovery_at": "2030-01-01T09:45:00+00:00",
+            "fixtures_found": len(football_ids),
+            "fixtures_modeled": len(football_ids),
+            "base_fixture_count": len(statuses),
+            "context_fixtures": len(statuses),
+            "context_verified_fixtures": len(statuses),
+            "context_data_incomplete_fixtures": 0,
+            "context_unchecked_fixtures": 0,
+            "deferred_context_fixtures": 0,
+            "context_scope_complete": True,
+            "context_accounting_available": True,
+            "context_fixture_statuses": statuses,
+            "operational_error_count": 0,
+            "approved_candidates": len(strict),
+        },
+        "sources": {"football": {"discovery_scope": 51}},
+        "model_candidates": model_candidates,
+        "candidates": strict,
+    }
 
 
 def _tennis_db(rows, tmp: Path) -> Path:
@@ -571,6 +643,146 @@ class ListSignalsTests(unittest.TestCase):
         self.assertEqual(status.approved_candidates, 1)
         self.assertEqual(len(stale_forecasts), 1)
         self.assertEqual(stale_signals, [])
+
+    def test_automatic_catalog_roundtrip_enforces_per_sport_caps(self):
+        import json
+
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+
+        def rows(
+            *,
+            football: int = 15,
+            tennis: int = 3,
+            esports: int = 3,
+            basketball: int = 0,
+        ) -> list[dict]:
+            catalog = [
+                _automatic_model_row(index)
+                for index in range(1, football + 1)
+            ]
+            catalog.extend(
+                _automatic_model_row(
+                    100 + index,
+                    sport="Tennis",
+                    source="tennis_shadow",
+                    policy_version=TENNIS_POLICY_VERSION,
+                )
+                for index in range(1, tennis + 1)
+            )
+            catalog.extend(
+                _automatic_model_row(
+                    200 + index,
+                    sport="E-Sport",
+                    source="esports_shadow",
+                    policy_version=(
+                        f"{BETTING_POLICY_VERSION}:{ESPORTS_MODEL_VERSION}"
+                    ),
+                )
+                for index in range(1, esports + 1)
+            )
+            catalog.extend(
+                _automatic_model_row(
+                    300 + index,
+                    sport="Basketball",
+                    source="basketball_model",
+                )
+                for index in range(1, basketball + 1)
+            )
+            return catalog
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+
+            accepted = rows()
+            artifact.write_text(
+                json.dumps(_automatic_document(accepted)),
+                encoding="utf-8",
+            )
+            self.assertIsNotNone(
+                _load_automated_wettfinder_document(artifact, now=now)
+            )
+            forecasts = automated_wettfinder_forecasts(artifact, now=now)
+            self.assertEqual(len(forecasts), 21)
+            self.assertIn("Wetter nicht verfügbar", forecasts[0].context_summary)
+
+            for rejected in (
+                rows(football=16, tennis=3, esports=2),
+                rows(football=15, tennis=4, esports=2),
+                rows(football=15, tennis=3, esports=3, basketball=1),
+            ):
+                artifact.write_text(
+                    json.dumps(_automatic_document(rejected)),
+                    encoding="utf-8",
+                )
+                self.assertIsNone(
+                    _load_automated_wettfinder_document(artifact, now=now)
+                )
+
+    def test_strict_rows_follow_model_order_even_when_probability_differs(self):
+        import json
+
+        def playable(index: int, probability: float) -> dict:
+            row = _playable_automatic_candidate()
+            candidate_id = f"{index}:BTTS_YES"
+            row.update(
+                {
+                    "candidate_id": candidate_id,
+                    "fixture_id": index,
+                    "key": f"football-auto-{index}",
+                    "label": f"Fußball - Spiel {index} - Beide treffen: Ja",
+                    "event": f"Spiel {index}",
+                    "probability": probability,
+                    "conservative_probability": probability - 0.08,
+                    "minimum_odds": minimum_recommendation_odds(
+                        probability * 100.0,
+                        probability_haircut=8.0,
+                    ),
+                }
+            )
+            row["reference_quote"]["candidate_id"] = candidate_id
+            return row
+
+        lower_probability_first = playable(1, 0.60)
+        higher_probability_second = playable(2, 0.70)
+        model_rows = [
+            {**lower_probability_first, "status": "MODEL_SELECTION"},
+            {**higher_probability_second, "status": "MODEL_SELECTION"},
+        ]
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            artifact.write_text(
+                json.dumps(
+                    _automatic_document(
+                        model_rows,
+                        candidates=[
+                            lower_probability_first,
+                            higher_probability_second,
+                        ],
+                    )
+                ),
+                encoding="utf-8",
+            )
+            self.assertIsNotNone(
+                _load_automated_wettfinder_document(artifact, now=now)
+            )
+
+            artifact.write_text(
+                json.dumps(
+                    _automatic_document(
+                        model_rows,
+                        candidates=[
+                            higher_probability_second,
+                            lower_probability_first,
+                        ],
+                    )
+                ),
+                encoding="utf-8",
+            )
+            self.assertIsNone(
+                _load_automated_wettfinder_document(artifact, now=now)
+            )
 
     def test_automatic_artifact_rejects_strict_payload_mismatch(self):
         import json

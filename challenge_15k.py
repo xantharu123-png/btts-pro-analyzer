@@ -41,13 +41,16 @@ from challenge_engine import (
     build_fixture_candidates,
     candidate_is_forecast_credible,
     candidate_is_credible,
+    candidate_selection_rank,
     challenge_stake_cap,
     consecutive_wins_to_target,
     extract_lineup_display,
     fit_market_calibration,
     fixture_market_probabilities,
     market_outcome,
+    market_is_basic_forecast,
     market_specs,
+    select_basis_forecasts,
     select_model_ticket,
     select_forecast_shortlist,
     select_quoted_ticket,
@@ -79,8 +82,8 @@ from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 15
-CHALLENGE_WORKSPACE_VERSION = 10
+CHALLENGE_SNAPSHOT_VERSION = 16
+CHALLENGE_WORKSPACE_VERSION = 11
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
 CHALLENGE_SPORT_OPTIONS = (
@@ -98,6 +101,9 @@ MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start
 MAX_CONTEXT_FIXTURES = 20
 MAX_DISCOVERY_MARKETS_PER_FIXTURE = 8
 MAX_PRICE_CHECK_FIXTURES = 10
+MAX_PUBLIC_FORECASTS = 15
+MAX_BASIC_FORECASTS = 10
+MAX_FEATURED_FORECASTS = 3
 # Safety-Ventil, kein Modell-Limit: Alle gültigen Provider-Fixtures der
 # gewählten Ligen werden modelliert. Die zusätzlichen Pflichtkontext-Checks
 # bleiben über MAX_CONTEXT_FIXTURES gedeckelt.
@@ -1168,16 +1174,14 @@ class ChallengeDataProvider:
         return result
 
 
-def _candidate_rank(candidate: ChallengeCandidate) -> tuple[float, float, float]:
-    validation_improvement = (
-        candidate.validation.relative_improvement
-        if candidate.validation and candidate.validation.relative_improvement is not None
-        else -1.0
-    )
+def _candidate_rank(
+    candidate: ChallengeCandidate,
+) -> tuple[float, float, float, float, float, float, float]:
+    """Rank context and discovery by usefulness before raw probability."""
+
     return (
-        candidate.conservative_probability,
-        candidate.evidence_score,
-        validation_improvement,
+        0.0 if market_is_basic_forecast(candidate.market_key) else 1.0,
+        *candidate_selection_rank(candidate),
     )
 
 
@@ -1292,15 +1296,36 @@ def _discovery_candidate_pool(
     """Keep a diverse, bounded market pool for later fixture-only refreshes."""
     allowed = set(fixture_ids)
     per_fixture: dict[int, int] = {}
+    kinds_by_fixture: dict[int, set[str]] = {}
+    selected_ids: set[str] = set()
     selected: list[ChallengeCandidate] = []
-    for candidate in sorted(candidates, key=_candidate_rank, reverse=True):
+    ranked = sorted(candidates, key=_candidate_rank, reverse=True)
+
+    def add(candidate: ChallengeCandidate, *, require_new_kind: bool) -> bool:
         if candidate.fixture_id not in allowed:
-            continue
+            return False
         count = per_fixture.get(candidate.fixture_id, 0)
         if count >= MAX_DISCOVERY_MARKETS_PER_FIXTURE:
-            continue
+            return False
+        spec = MARKET_BY_KEY.get(candidate.market_key)
+        kind = spec.kind if spec is not None else "other"
+        fixture_kinds = kinds_by_fixture.setdefault(candidate.fixture_id, set())
+        if require_new_kind and kind in fixture_kinds:
+            return False
         selected.append(candidate)
+        selected_ids.add(candidate.candidate_id)
         per_fixture[candidate.fixture_id] = count + 1
+        fixture_kinds.add(kind)
+        return True
+
+    # Preserve at least one strong option from each available market family
+    # before filling the remaining refresh slots by model rank.
+    for candidate in ranked:
+        add(candidate, require_new_kind=True)
+    for candidate in ranked:
+        if candidate.candidate_id in selected_ids:
+            continue
+        add(candidate, require_new_kind=False)
     return selected
 
 
@@ -1320,6 +1345,7 @@ def _price_candidate_pool(
         candidate
         for candidate in candidates
         if candidate_is_forecast_credible(candidate)
+        and not market_is_basic_forecast(candidate.market_key)
         and exact_market_target(candidate.market_key) is not None
     ]
     fixture_ids = _ranked_fixture_ids(eligible, limit=max_fixtures)
@@ -2298,9 +2324,16 @@ def scan_daily_challenge(
     price_candidates = _price_candidate_pool(contextualized)
     forecast_shortlist = select_forecast_shortlist(
         forecast_candidates,
-        max_candidates=3,
+        max_candidates=MAX_PUBLIC_FORECASTS,
     )
-    shortlist = select_shortlist(price_candidates, max_candidates=3)
+    basis_forecasts = select_basis_forecasts(
+        forecast_candidates,
+        max_candidates=MAX_BASIC_FORECASTS,
+    )
+    shortlist = select_shortlist(
+        price_candidates,
+        max_candidates=MAX_FEATURED_FORECASTS,
+    )
     model_ticket = select_model_ticket(price_candidates)
     base_shortlist = sorted(base_candidates, key=_candidate_rank, reverse=True)[:10]
     discovery_candidates = _discovery_candidate_pool(
@@ -2389,6 +2422,7 @@ def scan_daily_challenge(
             }
         ),
         "forecast_shortlist": forecast_shortlist,
+        "basis_forecasts": basis_forecasts,
         "approved_candidates": len(shortlist),
         "shortlist": shortlist,
         "price_candidates": price_candidates,
@@ -2412,7 +2446,7 @@ def refresh_discovered_candidates(
     search_date: date,
     *,
     now: Optional[datetime] = None,
-    max_candidates: int = 3,
+    max_candidates: int = MAX_PUBLIC_FORECASTS,
 ) -> dict[str, Any]:
     """Refresh only persisted candidate fixtures, never the full league pool."""
     if not isinstance(search_date, date) or isinstance(search_date, datetime):
@@ -2420,9 +2454,12 @@ def refresh_discovered_candidates(
     if (
         isinstance(max_candidates, bool)
         or not isinstance(max_candidates, int)
-        or not 1 <= max_candidates <= 6
+        or not 1 <= max_candidates <= MAX_PUBLIC_FORECASTS
     ):
-        raise ValueError("max_candidates must be an integer between 1 and 6")
+        raise ValueError(
+            "max_candidates must be an integer between 1 and "
+            f"{MAX_PUBLIC_FORECASTS}"
+        )
     if not isinstance(candidates, list) or any(
         not isinstance(candidate, ChallengeCandidate) for candidate in candidates
     ):
@@ -2512,7 +2549,14 @@ def refresh_discovered_candidates(
         forecast_candidates,
         max_candidates=max_candidates,
     )
-    shortlist = select_shortlist(price_candidates, max_candidates=max_candidates)
+    basis_forecasts = select_basis_forecasts(
+        forecast_candidates,
+        max_candidates=MAX_BASIC_FORECASTS,
+    )
+    shortlist = select_shortlist(
+        price_candidates,
+        max_candidates=min(max_candidates, MAX_FEATURED_FORECASTS),
+    )
     provisional_forecast_candidates = [
         candidate
         for candidate in forecast_candidates
@@ -2534,6 +2578,7 @@ def refresh_discovered_candidates(
         "fixture_ids": fixture_ids,
         "shortlist": shortlist,
         "forecast_shortlist": forecast_shortlist,
+        "basis_forecasts": basis_forecasts,
         "price_candidates": price_candidates,
         "forecast_candidates": len(forecast_candidates),
         "forecast_fixture_count": len(
@@ -3718,21 +3763,35 @@ def _render_price_check(
             "abweichen. Auswahl und Linie müssen beim eigenen Anbieter identisch sein."
         )
 
-    for index, candidate in enumerate(displayed_candidates, start=1):
-        status = statuses.get(candidate.candidate_id)
-        if status is None:
-            status = reference_price_status(
+    def render_rows(rows: list[ChallengeCandidate], *, start_index: int) -> None:
+        for offset, candidate in enumerate(rows):
+            index = start_index + offset
+            status = statuses.get(candidate.candidate_id)
+            if status is None:
+                status = reference_price_status(
+                    reference_quotes.get(candidate.candidate_id),
+                    candidate.minimum_odds,
+                )
+            _render_challenge_candidate(
+                candidate,
                 reference_quotes.get(candidate.candidate_id),
-                candidate.minimum_odds,
+                status,
+                index,
             )
-        _render_challenge_candidate(
-            candidate,
-            reference_quotes.get(candidate.candidate_id),
-            status,
-            index,
-        )
-        if index < len(displayed_candidates):
-            st.divider()
+            if offset < len(rows) - 1:
+                st.divider()
+
+    render_rows(displayed_candidates[:MAX_FEATURED_FORECASTS], start_index=1)
+    additional = displayed_candidates[MAX_FEATURED_FORECASTS:]
+    if additional:
+        with st.expander(
+            f"Weitere {len(additional)} Modellprognosen",
+            expanded=False,
+        ):
+            render_rows(
+                additional,
+                start_index=MAX_FEATURED_FORECASTS + 1,
+            )
 
     if ticket is None:
         st.warning(

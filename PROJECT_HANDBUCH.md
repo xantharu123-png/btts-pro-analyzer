@@ -15,14 +15,14 @@
 | Vor dem aktuellen Härtungspaket verifizierter lokaler/GitHub-/VPS-HEAD | `239c9ea38a6e396c916ee7cf36fe7ed396d4b11f` am 17. August; GitHub `main` wurde frisch abgefragt |
 | Verifizierter Härtungs-Funktionscommit | `9171bdb71ceae8ebbf5ae7404c6648f3d5c08a92` (`Harden Shadow evidence and trusted VPS deployment`), am 17. August kontrolliert gepusht und deployed |
 | Verifizierter Forecast-/Preis-Funktionscommit | `83b2d92a89b9aac746792ff70e54ed743e86c9d9` (`Separate model forecasts from price and release gates`), am 20. August kontrolliert gepusht und deployed |
-| Fachlicher Kernstand | Consumer-Wettfinder mit höchstens drei berechneten Auswahlen; Modellprognose, Kontextverfügbarkeit, Marktpreis und strikte Tipp-/Einsatzfreigabe sind getrennte Zustände. Fehlende oder zu niedrige Quote löscht keine Prognose. UEFA-Heimatliga-Transfers bleiben bis zum unabhängigen Transfernachweis ausdrücklich Shadow ohne Einsatzvorschlag. |
+| Fachlicher Kernstand | Consumer-Wettfinder mit drei hervorgehobenen Top-Auswahlen und bis zu zwölf weiteren Modellprognosen; breite Basislinien werden nicht als Top-Auswahl beworben. Modellprognose, Kontextverfügbarkeit, Marktpreis und strikte Tipp-/Einsatzfreigabe sind getrennte Zustände. Fehlende oder zu niedrige Quote löscht oder verschiebt keine Prognose. UEFA-Heimatliga-Transfers bleiben bis zum unabhängigen Transfernachweis ausdrücklich Shadow ohne Einsatzvorschlag. |
 | Verifizierter VPS-Funktionsstand | Funktionscommit `83b2d92`; App aktiv/enabled, lokaler und öffentlicher Health `200 / ok`, alle 7 BetBoy-Timer aktiv/enabled, Tennis- und Wettfinder-Lauf `success / 0`, 0 fehlgeschlagene systemd-Units am 20. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 805 Python-Tests, 5 Subtests und 3/3 JavaScript-Tests am 20. August bestanden; Paket-, Syntax- und Diff-Prüfungen ebenfalls grün |
+| Vollständiger Testlauf | 828 Python-Tests, 23 Subtests und 3/3 JavaScript-Tests am 20. August in isolierter Kopie bestanden; Paket-, Syntax- und Diff-Prüfungen ebenfalls grün |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 | Produkt- und Entscheidungsgrundlage | `PROJEKTBIBEL.md` |
 | PC-Wechsel-Runbook | `PC_WECHSEL_UEBERGABE.md` |
@@ -70,6 +70,33 @@ geprüft: genau drei verständliche Karten, keine technische Diagnosewand, keine
 Konsolenfehler. Neun Warnungen stammen aus nicht erkannten Streamlit-
 Feature-Policy-Einträgen beziehungsweise dem bestehenden Component-Iframe;
 sie beeinflussten den Lauf nicht.
+
+### Lokal verifizierter Nutzwert-Katalog vom 20. August 2026
+
+Der nachfolgende Umbau ist in der lokalen Arbeitskopie vollständig getestet;
+der oben genannte Produktionsnachweis für Artefakt v9 bleibt bis zum
+kontrollierten Deployment die letzte Live-Evidenz:
+
+- Breite Basislinien wie Team über 0,5, Team unter 2,5, Spiel über 0,5 sowie
+  sehr großzügige Unter-/ODER-Märkte werden weiterhin berechnet, erscheinen
+  aber nicht mehr als Top-Auswahl.
+- Die quotenfreie Rangfolge verwendet den nachgewiesenen Walk-forward-
+  Modellnutzen, Evidenz, Modellstreuung und Unsicherheitsabschlag. Eine hohe
+  rohe Wahrscheinlichkeit allein reicht nicht mehr für Platz eins.
+- Die ersten drei Karten bevorzugen unterschiedliche Marktfamilien. Wenn an
+  einem Spieltag nur eine belastbare Familie existiert, wird der Katalog
+  trotzdem mit weiteren verschiedenen Spielen aufgefüllt.
+- Bis zu 15 Fußballprognosen bleiben erhalten: drei hervorgehoben, bis zu
+  zwölf weitere eingeklappt. Tennis und E-Sport besitzen zusätzlich je drei
+  reservierte Katalogplätze und können nicht von Fußball verdrängt werden.
+- Preisstatus und Quote werden erst auf genau diese Modellreihenfolge
+  geschrieben. Sie dürfen weder eine Auswahl verdrängen noch die Rangfolge
+  verändern. Höchstens drei tatsächlich preis- und releasefreigegebene Zeilen
+  bilden weiterhin die strikte Tipp-/Einsatzliste.
+- Jede Fußballkarte nennt kompakt, ob H2H, Ausfälle, Wetter und Aufstellungen
+  berücksichtigt, noch offen oder nicht verfügbar waren.
+- Der Persistenzvertrag ist Artefakt v11; alte Katalogsemantik wird nicht als
+  aktueller Lauf weiterverwendet.
 
 ### Produktumbau vom 6. August 2026: Tipp statt Browserimport
 
@@ -212,8 +239,9 @@ deutlich ehrlicher als zuvor:
   allen 51 Fußballligen und persistiert einen mathematisch bestandenen
   Tagespool. Danach werden nur konkrete Kandidaten-Fixtures kurz vor Anpfiff
   mit H2H, Ausfällen, Wetter und Aufstellungen aktualisiert. Öffentlich
-  erscheinen höchstens drei noch nicht gestartete Events. Exakt verfügbare
-  Fußballpreise werden nach der Auswahl automatisch angefügt.
+  erscheinen bis zu drei hervorgehobene Top-Auswahlen und bis zu zwölf weitere
+  noch nicht gestartete Modellprognosen. Exakt verfügbare Fußballpreise werden
+  erst nach der Modellrangfolge als Hinweis angefügt.
 - Die automatische Tagesauswahl ist direkt im Wettfinder sichtbar. Sie nennt
   Zieldatum, Zeitpunkt des letzten echten 51-Ligen-Vollscans, gefundene und
   modellierte Spiele sowie die Zahl bestandener Fußball-Auswahlen. Ein leerer
@@ -575,16 +603,18 @@ als nicht eingebundene Rollback-Historie erhalten.
   Wetter- und Aufstellungsabfragen; Spielplan- und Ligascans sind in diesem
   Pfad ausgeschlossen.
 - Kontext gilt im automatischen Wettfinder höchstens 75 Minuten als frisch.
-  Die öffentliche Auswahl wird eventweise dedupliziert und bleibt auf maximal
-  drei Vorschläge begrenzt. Bis 23:00 Europe/Zurich bleibt der aktuelle
-  Spieltag aktiv; danach wird einmal der Folgetag vorbereitet.
+  Der öffentliche Modellkatalog wird eventweise dedupliziert und umfasst bis
+  zu 15 Fußballprognosen: drei hervorgehobene Top-Auswahlen plus bis zu zwölf
+  weitere. Bis 23:00 Europe/Zurich bleibt der aktuelle Spieltag aktiv; danach
+  wird einmal der Folgetag vorbereitet.
 - Tennis und E-Sport werden aus ihren eigenen täglichen, persistierten
   Modellläufen übernommen. Basketball und NHL bleiben in ihren vorhandenen
   Live-Pfaden ereignisgetrieben; ein künstlicher täglicher Prematch-Kandidat
   wird nicht erzeugt. Cricket bleibt ohne validiertes Modell blockiert.
-- Tennis und E-Sport bleiben interne Modellanalysen, solange kein exakt
-  zuordenbarer Preisfeed vorliegt. Sie dürfen ohne frischen spielbaren Preis
-  weder die öffentliche Top 3 belegen noch als konkrete Tagestipps erscheinen.
+- Tennis und E-Sport bleiben Modellanalysen, solange kein exakt zuordenbarer
+  Preisfeed vorliegt. Ihre Prognosen dürfen unabhängig vom Preis im
+  Modellkatalog erscheinen; ohne frischen spielbaren Preis dürfen sie jedoch
+  weder als konkrete Tagestipps noch mit Einsatzaktion veröffentlicht werden.
 - Für Fußball werden bis zu zehn fachlich freigegebene Kandidaten exakt
   bepreist. Erst aus den Preisstatus-`PLAYABLE`-Zeilen werden eventweise
   dedupliziert maximal drei öffentliche Tagestipps ausgewählt.
@@ -650,6 +680,10 @@ als nicht eingebundene Rollback-Historie erhalten.
 - Der Wettfinder zeigt zuerst die automatische, persistierte Tagesauswahl samt
   dezentem Zeitpunkt des letzten echten Vollscans. Danach folgt die manuelle
   `Eigene Suche`.
+- Fußball zeigt zuerst drei aussagekräftige Modell-Auswahlen und danach bis zu
+  zwölf weitere berechnete Prognosen. Breite Basisprognosen bleiben aus der
+  Top-Fläche entfernt; eine fehlende oder niedrige Quote verändert diese
+  Reihenfolge nicht.
 - Die manuelle Suche beginnt mit Sportart und Zeitraum. Fußball, Tennis,
   Basketball, Eishockey, Cricket und E-Sport teilen `Heute`, `3 Tage voraus`,
   `7 Tage voraus` und `14 Tage voraus`; sieben Tage sind der Standard.
@@ -688,7 +722,7 @@ als nicht eingebundene Rollback-Historie erhalten.
 
 | Bereich | Zweck | Aktueller Status |
 |---|---|---|
-| Wettfinder | Fußball, Tennis, Basketball, Eishockey, Cricket und E-Sport; gemeinsamer Suchhorizont bis 14 Tage; Fußball inklusive BTTS, Ergebnis, Tore, Ecken und Karten | je Modell `RESEARCH`/`SHADOW`/`RELEASED`; maximal drei konkrete Tipps; automatische Fußball-Referenzquote, sonst Mindestquote |
+| Wettfinder | Fußball, Tennis, Basketball, Eishockey, Cricket und E-Sport; gemeinsamer Suchhorizont bis 14 Tage; Fußball inklusive BTTS, Ergebnis, Tore, Ecken und Karten | drei hervorgehobene plus bis zu zwölf weitere Fußball-Modellprognosen; maximal drei konkrete preis-/releasefreigegebene Tipps; automatische Fußball-Referenzquote, sonst Mindestquote |
 | Live | BTTS, Resttor, Teamtor | `RESEARCH`; bis unabhängige Live-Kalibrierung blockiert |
 | 15K | bis zu drei Legs, Zielquote 2,00-3,00, automatischer konservativer Mehrbuchmacherpreis | nur modell- und preisgeprüfte Challenge-Tipps; weiterhin sehr hohes Risiko |
 | Meine Tipps | aktive preisgeprüfte Tipps sowie Fußball-/15K-/Tennis-Verlauf | sitzungsisoliert; Research und No-Bet werden nicht als Tipp gespeichert |
@@ -720,7 +754,7 @@ Konkrete Blockaden:
 | `tip_store.py` | sitzungsisolierte Ablage preisgeprüfter `BET`-/`SHADOW`-Tipps |
 | `my_tips.py` | aktive Tipps, manueller Abschluss und gemeinsame Verlaufsnavigation |
 | `ev_signal_sources.py` | versionsgebundener Signalvertrag aus Punkt-p, Haircut und Evidenzstufe |
-| `wettfinder_automation.py` | tägliche 51-Ligen-Discovery, Fixture-Kontext-Refresh, spieltagreine Top-3-Verdichtung und nachgelagerte Fußballpreise |
+| `wettfinder_automation.py` | tägliche 51-Ligen-Discovery, Fixture-Kontext-Refresh, quotenfreier Nutzwert-Katalog und nachgelagerte Fußballpreise |
 | `alternative_markets_tab_extended.py` | Fußball-Wettarten und manuelle Intervallsuche bis 14 Tage |
 | `scan_jobs.py` | sitzungsgebundene Hintergrundjobs |
 | `challenge_15k.py` | Challenge-Workflow und UI |
@@ -1087,8 +1121,8 @@ verifiziert und erweitert:
 Vollständiger Lauf:
 
 ```text
-805 passed
-5 subtests passed
+828 passed
+23 subtests passed
 3/3 JavaScript tests passed
 ```
 
@@ -1100,16 +1134,12 @@ New-Item -ItemType Directory -Path .pytest_tmp -Force
   -p no:cacheprovider --basetemp .pytest_tmp\full
 ```
 
-Der aktuelle Lauf vom 20. August erfolgte vor Commit und Deployment in der
-lokalen Arbeitskopie; kein Provider- oder Worker-Lauf wurde durch die Tests
-gestartet. Der zusätzliche isolierte Nachweis vom 17. August ohne Secrets,
-Laufzeitdatenbanken, Logs oder Git-Metadaten bleibt als frühere Evidenz gültig.
-Provider-Umgebungsvariablen waren dort entfernt und ausgehende Python-TCP-
-Verbindungen im Testprozess blockiert; eine
-betriebssystemweite Netzwerksandbox wurde nicht behauptet. Die beiden direkten
-Shadow-/CLV-Dateien sammelten 43 Tests; der breitere geänderte Härtungsumfang
-bestand 189 gezielte Tests. `pip check`, 11/11 ausgeführte
-`py_compile`-Kontrollen und `git diff --check` waren grün.
+Der aktuelle Lauf vom 20. August erfolgte vor Commit und Deployment in einer
+isolierten Kopie ohne Secrets, Laufzeitdatenbanken, Logs oder Git-Metadaten;
+kein Provider- oder Worker-Lauf wurde durch die Tests gestartet. Provider-
+Umgebungsvariablen waren entfernt und ausgehende Python-TCP-Verbindungen im
+Testprozess blockiert; eine betriebssystemweite Netzwerksandbox wird nicht
+behauptet. `pip check`, die Syntaxkontrollen und `git diff --check` waren grün.
 
 Edge wurde direkt per Playwright mit der installierten normalen Edge-Engine
 getestet, nicht über den Codex-In-App-Browser. Am 5. August wurden die neue

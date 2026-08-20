@@ -50,7 +50,9 @@ Der Kernvertrag lautet:
 6. Fehlende oder zu niedrige Quote löscht die Modellprognose nicht.
 7. Ohne belastbare Modell-, Release-Kontext- und Preisfreigabe gibt es keinen
    Tipp und keinen Einsatzvorschlag.
-8. Pro Suchlauf werden höchstens drei klare Auswahlen angezeigt.
+8. Pro Suchlauf stehen zuerst höchstens drei klare Top-Auswahlen. Bis zu zwölf
+   weitere berechnete Modellprognosen bleiben eingeklappt erreichbar, statt
+   nach Platz drei verworfen zu werden.
 
 Das Produkt darf sagen:
 
@@ -142,9 +144,11 @@ Modellüberschätzung negativen Erwartungswert besitzen. Eine hohe Quote ist
 ebenfalls kein Value-Beweis. Entscheidend sind konservatives p, Preis und
 Unsicherheit gemeinsam.
 
-Praktisch nutzlose Kurzquoten werden nicht veröffentlicht. Das verhindert
-Ausgaben wie „Topteam erzielt mindestens ein Tor“ zu 1,05 ohne sinnvollen
-Risiko-Ertrags-Beitrag.
+Breite Basisprognosen wie „Topteam erzielt mindestens ein Tor“ oder sehr
+großzügige Unter-Linien werden weiter berechnet, aber nicht als Top-Auswahl
+beworben. Die Einstufung erfolgt quotenfrei anhand des Markttyps und des
+nachgewiesenen Modellnutzens. Eine niedrige oder fehlende Quote darf eine
+inhaltlich aussagekräftige Modellprognose weder löschen noch herabstufen.
 
 ### 3.4 Evidenzstufen bleiben getrennt
 
@@ -192,7 +196,9 @@ Die App zeigt dezent:
 - geprüfte Ligen;
 - gefundene und modellierte Spiele;
 - Zahl bestandener Fußball-Auswahlen;
-- höchstens drei noch nicht gestartete Top-Auswahlen.
+- höchstens drei noch nicht gestartete Top-Auswahlen;
+- bis zu zwölf weitere berechnete Modellprognosen in einem kompakten
+  Zusatzbereich.
 
 ### 15K Challenge
 
@@ -363,7 +369,7 @@ KIMI-Automationen dürfen nicht parallel aktiviert werden.
 | `market_consensus.py` | exakte Fußball-Preiszuordnung und Konsens |
 | `challenge_engine.py` | 15K-Modell, Gates und Ticketkonstruktion |
 | `challenge_store.py` | transaktionales Challenge-Ledger |
-| `wettfinder_automation.py` | tägliche Discovery und Top-3-Artefakt |
+| `wettfinder_automation.py` | tägliche Discovery, quotenfreier Nutzwert-Katalog und separates Preisgate |
 | `shadow_clv_automation.py` | Fußball-Shadow, Closing und Settlement |
 | `tennis/*` | Tennis-Daten, Elo, Serve, Kalibrierung und Shadow |
 | `multi_sport_recommendations.py` | gemeinsame fail-closed Multisport-Policy |

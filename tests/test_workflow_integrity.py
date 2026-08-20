@@ -143,9 +143,9 @@ def test_automatic_candidate_from_partial_day_discloses_remaining_scope():
     message = app._automatic_partial_scope_notice(status)
 
     assert message is not None
-    assert "vollständig geprüften Spielen" in message
+    assert "Modell und verfügbare Kontextdaten geprüft" in message
     assert "1 weiteres Spiel" in message
-    assert "gesamte Tagesumfang" in message
+    assert "gesamten Tagesumfang" in message
 
 
 def test_automatic_summary_proves_model_zero_before_quote_check():

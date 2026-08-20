@@ -443,7 +443,7 @@ def test_partial_manual_scan_renders_bounded_claim_with_compact_evidence():
     captions = " ".join(item.value for item in at.caption)
     assert "205 Spiele gefunden" in captions
     assert "144 modelliert" in captions
-    assert "20 vollständig geprüft" in captions
+    assert "20 mit verfügbaren Kontextdaten geprüft" in captions
     visible = captions + " " + at.warning[0].value
     assert "Walk-forward" not in visible
     assert "5947" not in visible

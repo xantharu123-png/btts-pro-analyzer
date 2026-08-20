@@ -35,11 +35,11 @@ _REQUIRED_ANALYZER_MODULE_VERSION = 3
 if getattr(_advanced_analyzer, "ANALYZER_MODULE_VERSION", 0) < _REQUIRED_ANALYZER_MODULE_VERSION:
     _advanced_analyzer = importlib.reload(_advanced_analyzer)
 
-_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 10
+_REQUIRED_CHALLENGE_WORKSPACE_VERSION = 11
 if getattr(_challenge_15k, "CHALLENGE_WORKSPACE_VERSION", 0) < _REQUIRED_CHALLENGE_WORKSPACE_VERSION:
     _challenge_15k = importlib.reload(_challenge_15k)
 
-_REQUIRED_MARKET_WORKFLOW_VERSION = 11
+_REQUIRED_MARKET_WORKFLOW_VERSION = 12
 if getattr(_alternative_markets, "MARKET_WORKFLOW_VERSION", 0) < _REQUIRED_MARKET_WORKFLOW_VERSION:
     _alternative_markets = importlib.reload(_alternative_markets)
 
@@ -3284,7 +3284,7 @@ def _automatic_consumer_summary(
             (
                 f"{base_fixtures} {'Spiel' if base_fixtures == 1 else 'Spiele'} "
                 "in der engeren Auswahl",
-                f"{verified} vollständig geprüft",
+                f"{verified} mit verfügbaren Kontextdaten geprüft",
             )
         )
     if run_complete:
@@ -3387,10 +3387,11 @@ def _automatic_consumer_summary(
         )
         return (
             evidence,
-            f"Unter den {verified} vollständig geprüften Spielen wurde keine "
+            f"Unter den {verified} mit verfügbaren Kontextdaten geprüften "
+            "Spielen wurde keine "
             f"Auswahl bestätigt. Für {pending_label} "
-            f"{'steht' if pending == 1 else 'stehen'} die vollständige "
-            "Prüfung noch aus. Die Quote war nicht der Ablehnungsgrund.",
+            f"{'steht' if pending == 1 else 'stehen'} weitere Prüfungen "
+            "noch aus. Die Quote war nicht der Ablehnungsgrund.",
             True,
         )
     if status.base_candidates > 0 and (
@@ -3421,7 +3422,8 @@ def _automatic_consumer_summary(
         )
     return (
         evidence,
-        f"Unter den {verified} vollständig geprüften Spielen wurde keine Auswahl "
+        f"Unter den {verified} mit verfügbaren Kontextdaten geprüften Spielen "
+        "wurde keine Auswahl "
         "bestätigt. Die Quote war nicht der Ablehnungsgrund.",
         False,
     )
@@ -3475,8 +3477,9 @@ def _automatic_partial_scope_notice(
         details.append("der vollständige Prüfumfang ist nicht belegt")
     suffix = f" ({'; '.join(details)})." if details else "."
     return (
-        "Die angezeigten Auswahlen stammen aus vollständig geprüften Spielen; "
-        "der gesamte Tagesumfang ist noch nicht vollständig geprüft" + suffix
+        "Die angezeigten Auswahlen stammen aus Spielen, deren Modell und "
+        "verfügbare Kontextdaten geprüft wurden; für den gesamten Tagesumfang "
+        "stehen noch Prüfungen aus" + suffix
     )
 
 
@@ -3524,7 +3527,8 @@ def _render_automated_daily_selection() -> None:
             if status.football_status != "completed" or status.operational_error_count:
                 st.warning(
                     "Der gesamte Tageslauf war nicht vollständig. Angezeigt werden "
-                    "nur Auswahlen aus Spielen mit eigener vollständiger Prüfung."
+                    "nur Auswahlen aus Spielen mit eigener Modellprüfung und den "
+                    "dafür verfügbaren Kontextdaten."
                 )
             price_match_count = sum(
                 selected.key in football_price_keys
@@ -3537,18 +3541,32 @@ def _render_automated_daily_selection() -> None:
                 f"{'passt die Quote' if price_match_count == 1 else 'passen die Quoten'}. "
                 "Fehlende oder niedrige Quoten ändern weder Auswahl noch Rangfolge."
             )
-            for index, selected in enumerate(football_displayed, start=1):
-                st.markdown(f"### Berechnete Auswahl {index}")
-                render_price_decision(
-                    _automated_signal_candidate(selected),
-                    key=f"automated_{selected.key}",
-                    bankroll_key="automated_finder_bankroll",
-                    save_source="Automatischer Wettfinder",
-                    reference_quote=selected.reference_quote,
-                    allow_manual_check=True,
-                )
-                if index < len(football_displayed):
-                    st.divider()
+            def render_football_rows(rows, *, start_index: int) -> None:
+                for offset, selected in enumerate(rows):
+                    index = start_index + offset
+                    st.markdown(f"### Berechnete Auswahl {index}")
+                    if selected.context_summary:
+                        st.caption(selected.context_summary)
+                    render_price_decision(
+                        _automated_signal_candidate(selected),
+                        key=f"automated_{selected.key}",
+                        bankroll_key="automated_finder_bankroll",
+                        save_source="Automatischer Wettfinder",
+                        reference_quote=selected.reference_quote,
+                        allow_manual_check=True,
+                    )
+                    if offset < len(rows) - 1:
+                        st.divider()
+
+            featured = football_displayed[:3]
+            additional = football_displayed[3:]
+            render_football_rows(featured, start_index=1)
+            if additional:
+                with st.expander(
+                    f"Weitere {len(additional)} Modellprognosen",
+                    expanded=False,
+                ):
+                    render_football_rows(additional, start_index=4)
 
     if other_displayed:
         with st.expander("Automatische Auswahlen · weitere Sportarten", expanded=True):

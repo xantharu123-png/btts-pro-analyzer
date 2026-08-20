@@ -20,11 +20,13 @@ from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from market_consensus import parse_fixture_consensus
 from wettfinder_automation import (
     AUTOMATION_VERSION,
+    _active_football_candidates,
     _default_football_scan,
     _football_candidate_record,
     _football_state_from_snapshot,
     _merge_context_refresh,
     _signal_record,
+    build_daily_forecast_catalog,
     build_model_selection_ledger,
     football_context_due_fixture_ids,
     football_due,
@@ -124,6 +126,196 @@ def test_context_refresh_never_hides_discovery_failure():
     assert refreshed["status"] == "degraded"
 
 
+def test_context_refresh_replaces_fixture_without_changing_catalog_order():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    candidates = []
+    records = []
+    for fixture_id in (1, 2, 3, 4):
+        item = replace(
+            _challenge_candidate(now + timedelta(hours=5)),
+            fixture_id=fixture_id,
+            candidate_id=f"fixture-{fixture_id}-btts",
+            home_team=f"Home {fixture_id}",
+            away_team=f"Away {fixture_id}",
+        )
+        item.context = {
+            "passed": True,
+            "forecast_passed": True,
+            "release_context_complete": True,
+            "release_eligible": True,
+            "blocked_reasons": [],
+        }
+        candidates.append(item)
+        records.append(_football_candidate_record(item, context_checked_at=now))
+    refreshed_first = replace(candidates[0], probability=0.71)
+    state = {
+        "status": "completed",
+        "candidates": records,
+        "errors": [],
+        "context_checks": {},
+        "context_accounting_available": True,
+        "context_fixture_statuses": {
+            str(fixture_id): "verified" for fixture_id in (1, 2, 3, 4)
+        },
+    }
+
+    refreshed = _merge_context_refresh(
+        state,
+        {
+            "forecast_shortlist": [refreshed_first],
+            "context_fixture_statuses": {"1": "verified"},
+            "operational_errors": [],
+            "errors": [],
+        },
+        fixture_ids=[1],
+        checked_at=now + timedelta(minutes=30),
+    )
+
+    assert [row["fixture_id"] for row in refreshed["candidates"]] == [1, 2, 3, 4]
+    assert refreshed["approved_candidates"] == 4
+
+
+def test_context_refresh_reranks_new_stronger_fixture_into_full_catalog():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    records = []
+    statuses = {}
+    for fixture_id in range(1, 16):
+        item = replace(
+            _challenge_candidate(now + timedelta(hours=5)),
+            fixture_id=fixture_id,
+            candidate_id=f"fixture-{fixture_id}-btts",
+            home_team=f"Home {fixture_id}",
+            away_team=f"Away {fixture_id}",
+            validation=replace(
+                _challenge_candidate(now + timedelta(hours=5)).validation,
+                relative_improvement=0.20 - fixture_id / 1000,
+            ),
+        )
+        item.context = {
+            "passed": True,
+            "forecast_passed": True,
+            "release_context_complete": True,
+            "release_eligible": True,
+            "blocked_reasons": [],
+        }
+        records.append(_football_candidate_record(item, context_checked_at=now))
+        statuses[str(fixture_id)] = "verified"
+
+    stronger = replace(
+        _challenge_candidate(now + timedelta(hours=5)),
+        fixture_id=16,
+        candidate_id="fixture-16-btts",
+        home_team="Home 16",
+        away_team="Away 16",
+        validation=replace(
+            _challenge_candidate(now + timedelta(hours=5)).validation,
+            relative_improvement=0.30,
+        ),
+    )
+    stronger.context = {
+        "passed": True,
+        "forecast_passed": True,
+        "release_context_complete": True,
+        "release_eligible": True,
+        "blocked_reasons": [],
+    }
+    statuses["16"] = "data_incomplete"
+    state = {
+        "status": "completed",
+        "candidates": records,
+        "errors": [],
+        "context_checks": {},
+        "context_accounting_available": True,
+        "context_fixture_statuses": statuses,
+    }
+
+    refreshed = _merge_context_refresh(
+        state,
+        {
+            "forecast_shortlist": [stronger],
+            "context_fixture_statuses": {"16": "verified"},
+            "operational_errors": [],
+            "errors": [],
+        },
+        fixture_ids=[16],
+        checked_at=now + timedelta(minutes=30),
+    )
+
+    fixture_ids = [row["fixture_id"] for row in refreshed["candidates"]]
+    assert len(fixture_ids) == 15
+    assert fixture_ids[0] == 16
+    assert 15 not in fixture_ids
+
+
+def test_context_refresh_does_not_fall_back_to_basic_candidates():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    basic = replace(
+        _challenge_candidate(now + timedelta(hours=5)),
+        candidate_id="fixture-1-home-over-0-5",
+        market_key="HOME_OVER_0_5",
+        market="Team 1 Gesamttore",
+        selection="Über 0.5",
+    )
+    basic.context = {
+        "passed": True,
+        "forecast_passed": True,
+        "release_context_complete": True,
+        "release_eligible": True,
+        "blocked_reasons": [],
+    }
+    state = {
+        "status": "completed",
+        "candidates": [],
+        "errors": [],
+        "context_checks": {},
+        "context_accounting_available": True,
+        "context_fixture_statuses": {"1": "data_incomplete"},
+    }
+
+    refreshed = _merge_context_refresh(
+        state,
+        {
+            "forecast_shortlist": [],
+            "candidates": [basic],
+            "context_fixture_statuses": {"1": "verified"},
+            "operational_errors": [],
+            "errors": [],
+        },
+        fixture_ids=[1],
+        checked_at=now + timedelta(minutes=30),
+    )
+
+    assert refreshed["candidates"] == []
+
+
+def test_active_football_catalog_preserves_all_fifteen_positions():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    rows = []
+    for fixture_id in range(1, 16):
+        row = _candidate(
+            f"football-{fixture_id}",
+            probability=0.60 + fixture_id / 100,
+            haircut=0.05,
+            event=f"football-event-{fixture_id}",
+        )
+        row.update(
+            sport="Fussball",
+            fixture_id=fixture_id,
+            market_key="BTTS_YES",
+            source="football_challenge",
+            context_checked_at=now.isoformat(),
+        )
+        rows.append(row)
+
+    active = _active_football_candidates(
+        {"candidates": rows},
+        now=now,
+        target_date=date(2030, 1, 1),
+    )
+
+    assert [row["fixture_id"] for row in active] == list(range(1, 16))
+
+
 def _candidate(
     key: str,
     *,
@@ -221,7 +413,7 @@ def test_automation_writer_and_reader_share_one_artifact_version():
     assert AUTOMATION_VERSION == AUTOMATED_WETTFINDER_VERSION
 
 
-def test_one_model_ledger_is_ranked_without_price_priority_and_limited_to_three():
+def test_one_model_ledger_preserves_model_order_without_price_priority():
     strict_a = _candidate("strict-a", probability=0.66, haircut=0.05, event="A")
     strict_b = _candidate("strict-b", probability=0.64, haircut=0.05, event="B")
     forecast_same_event = _candidate(
@@ -232,18 +424,62 @@ def test_one_model_ledger_is_ranked_without_price_priority_and_limited_to_three(
 
     ledger = build_model_selection_ledger(
         [strict_a, strict_b],
-        [forecast_same_event, forecast_c, forecast_d],
+        [forecast_d, forecast_same_event, forecast_c],
         now=datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
         target_date=date(2030, 1, 1),
     )
 
     assert [row["key"] for row in ledger] == [
+        "forecast-d",
         "forecast-a",
         "forecast-c",
-        "forecast-d",
     ]
     assert all(row["status"] == "MODEL_SELECTION" for row in ledger)
     assert strict_a["status"] == "PRICE_REQUIRED"
+
+
+def test_daily_catalog_reserves_space_for_tennis_and_esports():
+    football = []
+    for index in range(15):
+        row = _candidate(
+            f"football-{index}",
+            probability=0.70,
+            haircut=0.05,
+            event=f"football-event-{index}",
+        )
+        row["sport"] = "Fussball"
+        football.append(row)
+    tennis = [
+        _candidate(
+            f"tennis-{index}",
+            probability=0.68,
+            haircut=0.05,
+            event=f"tennis-event-{index}",
+        )
+        for index in range(4)
+    ]
+    esports = []
+    for index in range(4):
+        row = _candidate(
+            f"esports-{index}",
+            probability=0.66,
+            haircut=0.05,
+            event=f"esports-event-{index}",
+        )
+        row["sport"] = "E-Sport"
+        esports.append(row)
+
+    catalog = build_daily_forecast_catalog(
+        football,
+        [*tennis, *esports],
+        now=datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
+        target_date=date(2030, 1, 1),
+    )
+
+    assert [row["sport"] for row in catalog].count("Fussball") == 15
+    assert [row["sport"] for row in catalog].count("Tennis") == 3
+    assert [row["sport"] for row in catalog].count("E-Sport") == 3
+    assert len(catalog) == 21
 
 
 def test_persisted_model_signal_keeps_event_market_and_selection_separate():
@@ -416,6 +652,73 @@ def test_price_pool_keeps_multiple_markets_for_the_same_fixture():
         "under-4-5",
         "other",
     ]
+
+
+def test_runner_prices_first_ten_catalog_fixtures_by_model_utility(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    base = _challenge_candidate(now + timedelta(hours=5))
+    catalog = []
+    for fixture_id in range(1, 13):
+        probability = 0.70 + fixture_id / 100.0
+        candidate = replace(
+            base,
+            fixture_id=fixture_id,
+            candidate_id=f"fixture-{fixture_id}-btts",
+            home_team=f"Home {fixture_id}",
+            away_team=f"Away {fixture_id}",
+            probability=probability,
+            conservative_probability=probability - 0.09,
+            model_price=1.0 / (probability - 0.09),
+            validation=replace(
+                base.validation,
+                relative_improvement=0.30 - fixture_id / 100.0,
+            ),
+        )
+        candidate.context = {"passed": True, "blocked_reasons": []}
+        catalog.append(candidate)
+
+    def scan(_search_date):
+        return {
+            "scanned_at": now.isoformat(),
+            "fixtures_found": 12,
+            "fixtures_modeled": 12,
+            "base_candidates": 12,
+            "base_fixture_count": 12,
+            "context_fixtures": 12,
+            "context_verified_fixtures": 12,
+            "context_data_incomplete_fixtures": 0,
+            "context_unchecked_fixtures": 0,
+            "deferred_context_fixtures": 0,
+            "context_scope_complete": True,
+            "context_fixture_statuses": {
+                str(candidate.fixture_id): "verified" for candidate in catalog
+            },
+            "fixture_kickoffs": [candidate.kickoff for candidate in catalog],
+            "forecast_shortlist": catalog,
+            "shortlist": catalog,
+            "errors": [],
+        }
+
+    checked_ids = []
+
+    def quote_loader(rows):
+        checked_ids.extend(row["fixture_id"] for row in rows)
+        return {}, []
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=scan,
+        football_quote_loader=quote_loader,
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    assert [row["fixture_id"] for row in document["model_candidates"]] == list(
+        range(1, 13)
+    )
+    assert checked_ids == list(range(1, 11))
 
 
 def test_football_record_rejects_unvalidated_cross_competition_model():
@@ -710,10 +1013,10 @@ def test_runner_keeps_unmapped_forecast_out_of_quote_provider(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     unmapped = replace(
         _challenge_candidate(now + timedelta(hours=5)),
-        candidate_id="fixture-1-home-range-1-3",
-        market_key="HOME_RANGE_1_3",
-        market="Team 1 Gesamttore",
-        selection="1-3 Tore",
+        candidate_id="fixture-1-result-total",
+        market_key="RESULT_TOTAL_1X_UNDER_3_5",
+        market="Resultat & Tore",
+        selection="1X & Unter 3.5",
     )
     unmapped.context = {"passed": True, "blocked_reasons": []}
 
@@ -756,7 +1059,7 @@ def test_runner_keeps_unmapped_forecast_out_of_quote_provider(tmp_path):
     assert quote_calls == []
     assert [
         row["candidate_id"] for row in document["model_candidates"]
-    ] == ["fixture-1-home-range-1-3"]
+    ] == ["fixture-1-result-total"]
     assert document["model_candidates"][0]["reference_price_status"] == (
         "UNAVAILABLE"
     )
@@ -764,7 +1067,7 @@ def test_runner_keeps_unmapped_forecast_out_of_quote_provider(tmp_path):
     assert document["candidates"] == []
 
 
-def test_runner_checks_full_football_pool_before_selecting_top_three(tmp_path):
+def test_runner_keeps_checked_catalog_beyond_featured_top_three(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     base = _challenge_candidate(now + timedelta(hours=5))
     shortlist = []
@@ -845,11 +1148,13 @@ def test_runner_checks_full_football_pool_before_selecting_top_three(tmp_path):
         1,
         2,
         3,
+        4,
     ]
-    assert document["candidates"] == []
+    assert [row["fixture_id"] for row in document["candidates"]] == [4]
+    assert document["candidates"][0]["reference_price_status"] == "PLAYABLE"
 
 
-def test_runner_rejects_only_the_too_cheap_market_not_the_fixture(tmp_path):
+def test_runner_never_uses_alternative_price_to_replace_model_pick(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     base = _challenge_candidate(now + timedelta(hours=5))
     home_win = replace(
@@ -940,13 +1245,11 @@ def test_runner_rejects_only_the_too_cheap_market_not_the_fixture(tmp_path):
 
     assert [row["candidate_id"] for row in checked_rows] == [
         "fixture-1-home",
-        "fixture-1-under-4-5",
     ]
-    assert document["sources"]["football"]["price_checked_count"] == 2
+    assert document["sources"]["football"]["price_checked_count"] == 1
     assert document["sources"]["football"]["price_fixture_count"] == 1
     assert document["sources"]["football"]["price_status_counts"] == {
         "TOO_LOW": 1,
-        "PLAYABLE": 1,
     }
     assert [row["candidate_id"] for row in document["model_candidates"]] == [
         "fixture-1-home"
