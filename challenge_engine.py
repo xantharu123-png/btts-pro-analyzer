@@ -11,6 +11,7 @@ from bisect import bisect_right
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_FLOOR
+from functools import lru_cache
 from itertools import combinations
 import math
 import re
@@ -734,6 +735,35 @@ def market_probability(matrix: dict[tuple[int, int], float], spec: MarketSpec) -
     )
 
 
+@lru_cache(maxsize=8)
+def _market_score_masks(
+    scores: tuple[tuple[int, int], ...],
+    specs: tuple[MarketSpec, ...],
+) -> tuple[tuple[tuple[int, int], ...], ...]:
+    """Cache settlement masks for the fixed goal/count grids and market catalog."""
+    return tuple(
+        tuple(
+            (home_count, away_count)
+            for home_count, away_count in scores
+            if market_outcome(spec, home_count, away_count)
+        )
+        for spec in specs
+    )
+
+
+def _market_probabilities(
+    matrix: dict[tuple[int, int], float],
+    specs: Iterable[MarketSpec],
+) -> dict[str, float]:
+    """Settle several markets without re-evaluating unchanged cell predicates."""
+    ordered_specs = tuple(specs)
+    masks = _market_score_masks(tuple(matrix), ordered_specs)
+    return {
+        spec.key: sum(matrix[score] for score in mask)
+        for spec, mask in zip(ordered_specs, masks)
+    }
+
+
 def _fixture_market_counts(
     spec: MarketSpec,
     fixture: dict[str, Any],
@@ -1219,11 +1249,14 @@ def fixture_market_probabilities(
     active_matrix = score_matrix(*model["active_lambdas"])
     season_matrix = score_matrix(*model["season_lambdas"])
     form_matrix = score_matrix(*model["form_lambdas"])
+    active_probabilities = _market_probabilities(active_matrix, GOAL_MARKET_SPECS)
+    season_probabilities = _market_probabilities(season_matrix, GOAL_MARKET_SPECS)
+    form_probabilities = _market_probabilities(form_matrix, GOAL_MARKET_SPECS)
     model["probabilities"] = {
         spec.key: (
-            market_probability(active_matrix, spec),
-            market_probability(season_matrix, spec),
-            market_probability(form_matrix, spec),
+            active_probabilities[spec.key],
+            season_probabilities[spec.key],
+            form_probabilities[spec.key],
         )
         for spec in GOAL_MARKET_SPECS
     }
@@ -1241,11 +1274,14 @@ def fixture_market_probabilities(
         if count_model is None:
             continue
         model["count_models"][family] = count_model
+        active_probabilities = _market_probabilities(count_model["active_matrix"], specs)
+        season_probabilities = _market_probabilities(count_model["season_matrix"], specs)
+        form_probabilities = _market_probabilities(count_model["form_matrix"], specs)
         for spec in specs:
             model["probabilities"][spec.key] = (
-                market_probability(count_model["active_matrix"], spec),
-                market_probability(count_model["season_matrix"], spec),
-                market_probability(count_model["form_matrix"], spec),
+                active_probabilities[spec.key],
+                season_probabilities[spec.key],
+                form_probabilities[spec.key],
             )
     if calibration:
         for market_key, values in model["probabilities"].items():
@@ -1499,15 +1535,15 @@ def _credible_validation(metric: Optional[ValidationMetrics]) -> bool:
     )
 
 
-def validate_league_markets(
+def _walk_forward_market_records(
     fixtures: Iterable[dict[str, Any]],
-) -> dict[str, ValidationMetrics]:
-    """Run an expanding-window, leakage-free market validation."""
+) -> dict[str, dict[str, list[Any]]]:
+    """Collect one expanding-window, leakage-free record set for all markets."""
     ordered = sorted(
         (fixture for fixture in fixtures if _fixture_datetime(fixture) and _fixture_score(fixture)),
         key=lambda item: _fixture_datetime(item),
     )
-    records: dict[str, dict[str, list[float]]] = {
+    records: dict[str, dict[str, list[Any]]] = {
         spec.key: {"probabilities": [], "outcomes": [], "baselines": [], "raw": []}
         for spec in MARKET_SPECS
     }
@@ -1568,6 +1604,12 @@ def validate_league_markets(
                     state["map"] = new_map
                     state["count"] = len(record["raw"])
 
+    return records
+
+
+def _validation_metrics_from_records(
+    records: dict[str, dict[str, list[Any]]],
+) -> dict[str, ValidationMetrics]:
     metrics: dict[str, ValidationMetrics] = {}
     for spec in MARKET_SPECS:
         record = records[spec.key]
@@ -1627,52 +1669,41 @@ def validate_league_markets(
     return metrics
 
 
-def fit_market_calibration(
-    fixtures: Iterable[dict[str, Any]],
+def _calibration_maps_from_records(
+    records: dict[str, dict[str, list[Any]]],
 ) -> dict[str, MarketCalibration]:
-    """Finale Kalibrierungskarten pro Markt für neue Kandidaten.
-
-    Nutzt denselben tagesgruppierten Walk-forward wie die Validierung, fittet
-    die Karte aber auf allen gesammelten Prädiktionen — für ein künftiges
-    Spiel ist das vollständig vergangenheitsbasiert (leakage-frei).
-    """
-    ordered = sorted(
-        (fixture for fixture in fixtures if _fixture_datetime(fixture) and _fixture_score(fixture)),
-        key=lambda item: _fixture_datetime(item),
-    )
-    raw_records: dict[str, dict[str, list[float]]] = {
-        spec.key: {"probabilities": [], "outcomes": []} for spec in MARKET_SPECS
-    }
-    prior: list[dict[str, Any]] = []
-    grouped: dict[datetime, list[dict[str, Any]]] = {}
-    for fixture in ordered:
-        played_at = _fixture_datetime(fixture)
-        if played_at is not None:
-            day = played_at.replace(hour=0, minute=0, second=0, microsecond=0)
-            grouped.setdefault(day, []).append(fixture)
-
-    for day in sorted(grouped):
-        day_fixtures = grouped[day]
-        for fixture in day_fixtures:
-            prediction = fixture_market_probabilities(fixture, prior)
-            if prediction is None:
-                continue
-            for spec in MARKET_SPECS:
-                probability_values = prediction["probabilities"].get(spec.key)
-                outcome_value = _fixture_market_outcome(spec, fixture)
-                if probability_values is None or outcome_value is None:
-                    continue
-                raw_records[spec.key]["probabilities"].append(probability_values[0])
-                raw_records[spec.key]["outcomes"].append(int(outcome_value))
-        prior.extend(day_fixtures)
-
     maps: dict[str, MarketCalibration] = {}
     for spec in MARKET_SPECS:
-        record = raw_records[spec.key]
-        curve = _fit_calibration_map(record["probabilities"], record["outcomes"])
+        record = records[spec.key]
+        curve = _fit_calibration_map(record["raw"], record["outcomes"])
         if curve is not None:
             maps[spec.key] = curve
     return maps
+
+
+def validate_league_markets(
+    fixtures: Iterable[dict[str, Any]],
+) -> dict[str, ValidationMetrics]:
+    """Run an expanding-window, leakage-free market validation."""
+    return _validation_metrics_from_records(_walk_forward_market_records(fixtures))
+
+
+def fit_market_calibration(
+    fixtures: Iterable[dict[str, Any]],
+) -> dict[str, MarketCalibration]:
+    """Fit final, leakage-free calibration maps for future candidates."""
+    return _calibration_maps_from_records(_walk_forward_market_records(fixtures))
+
+
+def build_market_model_artifact(
+    fixtures: Iterable[dict[str, Any]],
+) -> tuple[dict[str, ValidationMetrics], dict[str, MarketCalibration]]:
+    """Build validation and final calibration from one identical walk-forward pass."""
+    records = _walk_forward_market_records(fixtures)
+    return (
+        _validation_metrics_from_records(records),
+        _calibration_maps_from_records(records),
+    )
 
 
 def _fixture_identity(fixture: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -3228,6 +3259,7 @@ __all__ = [
     "ValidationMetrics",
     "apply_candidate_context",
     "build_fixture_candidates",
+    "build_market_model_artifact",
     "candidate_is_forecast_credible",
     "candidate_is_credible",
     "candidate_context_summary",

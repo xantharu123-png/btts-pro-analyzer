@@ -39,13 +39,13 @@ from challenge_engine import (
     ValidationMetrics,
     apply_candidate_context,
     build_fixture_candidates,
+    build_market_model_artifact,
     candidate_is_forecast_credible,
     candidate_is_credible,
     candidate_selection_rank,
     challenge_stake_cap,
     consecutive_wins_to_target,
     extract_lineup_display,
-    fit_market_calibration,
     fixture_market_probabilities,
     market_outcome,
     market_is_basic_forecast,
@@ -57,7 +57,6 @@ from challenge_engine import (
     select_shortlist,
     risk_managed_ticket_stake,
     ticket_stake,
-    validate_league_markets,
 )
 from challenge_model_cache import load_model_artifact, save_model_artifact
 from challenge_store import ChallengeLedger
@@ -512,8 +511,7 @@ def _cached_market_artifact(
     )
     if cached is not None:
         return cached
-    validation = validate_league_markets(history)
-    calibration = fit_market_calibration(history)
+    validation, calibration = build_market_model_artifact(history)
     save_model_artifact(
         CHALLENGE_MODEL_SIGNATURE,
         league_id,

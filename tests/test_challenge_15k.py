@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
+import challenge_15k
 from challenge_15k import (
     CHALLENGE_SPORT_OPTIONS,
     ChallengeDataProvider,
@@ -67,6 +68,60 @@ from challenge_store import ChallengeLedger
 from football_data_history import parse_history_csv
 from price_ledger import PriceLedger, PriceQuote
 from market_consensus import parse_fixture_consensus
+
+
+def test_cached_market_artifact_builds_and_saves_one_paired_cold_result():
+    history = [{"fixture": {"id": 1}}]
+    artifact = ({"market": "validation"}, {"market": "calibration"})
+
+    with (
+        patch("challenge_15k.load_model_artifact", return_value=None) as load_mock,
+        patch(
+            "challenge_15k.build_market_model_artifact",
+            return_value=artifact,
+        ) as build_mock,
+        patch("challenge_15k.save_model_artifact") as save_mock,
+    ):
+        result = challenge_15k._cached_market_artifact.__wrapped__(39, 2025, history)
+
+    assert result == artifact
+    load_mock.assert_called_once_with(
+        challenge_15k.CHALLENGE_MODEL_SIGNATURE,
+        39,
+        2025,
+        history,
+    )
+    build_mock.assert_called_once_with(history)
+    save_mock.assert_called_once_with(
+        challenge_15k.CHALLENGE_MODEL_SIGNATURE,
+        39,
+        2025,
+        history,
+        artifact[0],
+        artifact[1],
+    )
+
+
+def test_cached_market_artifact_reuses_persistent_hit_without_rebuilding():
+    history = [{"fixture": {"id": 1}}]
+    artifact = ({"market": "validation"}, {"market": "calibration"})
+
+    with (
+        patch("challenge_15k.load_model_artifact", return_value=artifact) as load_mock,
+        patch("challenge_15k.build_market_model_artifact") as build_mock,
+        patch("challenge_15k.save_model_artifact") as save_mock,
+    ):
+        result = challenge_15k._cached_market_artifact.__wrapped__(39, 2025, history)
+
+    assert result == artifact
+    load_mock.assert_called_once_with(
+        challenge_15k.CHALLENGE_MODEL_SIGNATURE,
+        39,
+        2025,
+        history,
+    )
+    build_mock.assert_not_called()
+    save_mock.assert_not_called()
 
 
 def _complete_context() -> dict:
