@@ -67,7 +67,13 @@ from challenge_engine import (
 from challenge_store import ChallengeLedger
 from football_data_history import parse_history_csv
 from price_ledger import PriceLedger, PriceQuote
-from market_consensus import parse_fixture_consensus
+from market_consensus import (
+    REFERENCE_SOURCE,
+    MarketConsensus,
+    QuotePoint,
+    parse_fixture_consensus,
+    serialize_consensus_map,
+)
 
 
 def test_cached_market_artifact_builds_and_saves_one_paired_cold_result():
@@ -697,6 +703,81 @@ class ChallengeProbabilityTests(unittest.TestCase):
 
         self.assertEqual(ticket_builder.call_args.args[0], [])
         fake_streamlit.success.assert_not_called()
+
+    def test_extreme_short_quote_moves_out_of_featured_challenge_rows(self):
+        fake_streamlit = MagicMock()
+        now = datetime.now(timezone.utc)
+        market_spec = MARKET_BY_KEY["AWAY_UNDER_1_5"]
+        extreme_short = replace(
+            candidate("1:AWAY_UNDER_1_5", 1, 0.576),
+            home_team="Sporting CP",
+            away_team="Alverca",
+            market_key=market_spec.key,
+            market=market_spec.market,
+            selection=market_spec.selection,
+            probability=0.741,
+            conservative_probability=0.576,
+        )
+        ordinary_unpriced = candidate("2:BTTS_YES", 2, 0.60)
+        quote = MarketConsensus(
+            fixture_id=extreme_short.fixture_id,
+            candidate_id=extreme_short.candidate_id,
+            market_key="AWAY_UNDER_1_5",
+            bet_name="Total - Away",
+            value_name="Under 1.5",
+            consensus_odds=1.14,
+            conservative_odds=1.14,
+            lowest_odds=1.12,
+            best_odds=1.17,
+            bookmaker_count=5,
+            quoted_at=now.isoformat(),
+            fetched_at=now.isoformat(),
+            source=REFERENCE_SOURCE,
+            points=tuple(
+                QuotePoint(f"Book {index}", odds)
+                for index, odds in enumerate(
+                    (1.12, 1.14, 1.14, 1.16, 1.17),
+                    start=1,
+                )
+            ),
+        )
+        self.assertEqual(extreme_short.market_key, "AWAY_UNDER_1_5")
+        self.assertEqual(
+            (extreme_short.home_team, extreme_short.away_team),
+            ("Sporting CP", "Alverca"),
+        )
+        self.assertAlmostEqual(extreme_short.probability, 0.741)
+        self.assertAlmostEqual(extreme_short.conservative_probability, 0.576)
+        self.assertEqual(extreme_short.minimum_odds, 1.79)
+        self.assertEqual(quote.conservative_odds, 1.14)
+        self.assertEqual(quote.best_odds, 1.17)
+        snapshot = {
+            "shortlist": [],
+            "forecast_shortlist": [extreme_short, ordinary_unpriced],
+            "price_candidates": [extreme_short, ordinary_unpriced],
+            "reference_quotes": serialize_consensus_map(
+                {extreme_short.candidate_id: quote}
+            ),
+        }
+        rendered = []
+
+        with (
+            patch("challenge_15k.st", fake_streamlit),
+            patch(
+                "challenge_15k._render_challenge_candidate",
+                side_effect=lambda item, *_args: rendered.append(item),
+            ),
+        ):
+            _render_price_check(snapshot, Mock(), {})
+
+        self.assertEqual(rendered, [ordinary_unpriced, extreme_short])
+        self.assertTrue(
+            any(
+                "Sehr kurze Quoten" in str(call.args[0])
+                for call in fake_streamlit.expander.call_args_list
+                if call.args
+            )
+        )
 
     def test_scan_diagnostics_separates_model_and_context_gates(self):
         transfer_only = candidate("1:BTTS", 1, 0.70)

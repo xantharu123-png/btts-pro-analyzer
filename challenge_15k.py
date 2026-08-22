@@ -18,6 +18,7 @@ import streamlit as st
 import scan_jobs
 
 from account_identity import storage_scope
+from bet_finder_ui import partition_consumer_forecasts
 from api_budget import (
     APIBudgetError,
     APIBudgetPriority,
@@ -3355,7 +3356,7 @@ def _shortlist_frame(shortlist: list[ChallengeCandidate]) -> pd.DataFrame:
                 "Modell %": round(candidate.probability * 100, 1),
                 "Konservativ %": round(candidate.conservative_probability * 100, 1),
                 "Evidenz": candidate.evidence_score,
-                "Mindestquote": round(candidate.minimum_odds, 2),
+                "Value-Grenze": round(candidate.minimum_odds, 2),
             }
             for candidate in shortlist
         ]
@@ -3567,7 +3568,7 @@ def _render_candidate_context(candidate: ChallengeCandidate) -> None:
     h2h = context.get("h2h", {})
     injuries = context.get("injuries", {})
     weather = context.get("weather", {})
-    checks = st.columns(4)
+    checks = st.columns(3)
     h2h_hits = h2h.get("hits")
     h2h_matches = int(h2h.get("matches") or 0)
     if h2h.get("status") == "neutral":
@@ -3589,7 +3590,6 @@ def _render_candidate_context(candidate: ChallengeCandidate) -> None:
         "Wetter",
         f"{weather.get('temperature_c', 'n/a')} °C",
     )
-    checks[3].metric("Mindestquote", f"{candidate.minimum_odds:.2f}")
     lineup_display = (context.get("lineups") or {}).get("display") or {}
     if lineup_display:
         with st.expander("Bestätigte Aufstellungen", expanded=False):
@@ -3672,7 +3672,14 @@ def _render_challenge_candidate(
         "Vorsichtige Prognose",
         f"{candidate.conservative_probability * 100:.1f} %",
     )
-    summary[2].metric("Mindestquote", f"{candidate.minimum_odds:.2f}")
+    summary[2].metric(
+        "Value-Grenze",
+        f"{candidate.minimum_odds:.2f}",
+        help=(
+            "Preis, ab dem die vorsichtige Modellrechnung den Zielwert erreicht; "
+            "keine erwartete oder übliche Buchmacherquote."
+        ),
+    )
     summary[3].metric(
         "Aktuelle Quote",
         f"{quote.conservative_odds:.2f}" if quote is not None else "offen",
@@ -3685,21 +3692,22 @@ def _render_challenge_candidate(
     elif status.code == "BORDERLINE" and quote is not None:
         st.info(
             f"MODELL-AUSWAHL BLEIBT: Nur einzelne Anbieter erreichen "
-            f"mindestens {candidate.minimum_odds:.2f}; der Preis ist deshalb "
+            f"die Value-Grenze {candidate.minimum_odds:.2f}; der Preis ist deshalb "
             "noch nicht zuverlässig bestätigt."
         )
     elif status.code == "TOO_LOW" and quote is not None:
         st.info(
             f"MODELL-AUSWAHL BLEIBT: Die beste beobachtete Quote "
-            f"{quote.best_odds:.2f} liegt unter der benötigten Quote "
-            f"{candidate.minimum_odds:.2f}. Nicht zu diesem Preis spielen."
+            f"{quote.best_odds:.2f} liegt unter der Value-Grenze "
+            f"{candidate.minimum_odds:.2f}. Die Grenze ist keine erwartete "
+            "Buchmacherquote. Nicht zu diesem Preis spielen."
         )
     else:
         reason = {
             "THIN": "Zu wenige Anbieter für eine automatische Preisfreigabe",
             "STALE": "Der Marktvergleich ist nicht mehr aktuell",
             "UNAVAILABLE": "Aktuell liegt keine exakt passende Vergleichsquote vor",
-            "INVALID_MINIMUM": "Die Mindestquote ist nicht belastbar",
+            "INVALID_MINIMUM": "Die Value-Grenze ist nicht belastbar",
         }.get(status.code, "Keine automatische Preisfreigabe")
         st.info(
             f"MODELL-AUSWAHL: {candidate.selection}. {reason}. Ohne "
@@ -3742,16 +3750,26 @@ def _render_price_check(
         if candidate.candidate_id in price_candidates_by_id
     ]
     reference_quotes = deserialize_consensus_map(snapshot.get("reference_quotes"))
+    primary_candidates, extreme_short_candidates = partition_consumer_forecasts(
+        displayed_candidates,
+        quote_for=lambda candidate: reference_quotes.get(candidate.candidate_id),
+    )
     ticket, statuses = _automatic_challenge_ticket(
         price_candidates,
         reference_quotes,
     )
 
     st.subheader("Auswahlen und Quoten")
-    st.caption(
-        "Diese Auswahlen sind noch keine Tipps. Erst eine passende aktuelle "
-        "Quote kann daraus einen 15K-Tagestipp machen."
-    )
+    if primary_candidates:
+        st.caption(
+            "Diese Auswahlen sind noch keine Tipps. Erst eine passende aktuelle "
+            "Quote kann daraus einen 15K-Tagestipp machen."
+        )
+    else:
+        st.info(
+            "Keine nützliche Hauptauswahl: Die berechneten Prognosen haben nur "
+            "bestätigte Extrem-Kurzquoten. Sie bleiben unten sichtbar."
+        )
     if any(
         MARKET_BY_KEY[candidate.market_key].kind in COUNT_MARKET_KINDS
         for candidate in price_candidates
@@ -3779,8 +3797,8 @@ def _render_price_check(
             if offset < len(rows) - 1:
                 st.divider()
 
-    render_rows(displayed_candidates[:MAX_FEATURED_FORECASTS], start_index=1)
-    additional = displayed_candidates[MAX_FEATURED_FORECASTS:]
+    render_rows(primary_candidates[:MAX_FEATURED_FORECASTS], start_index=1)
+    additional = primary_candidates[MAX_FEATURED_FORECASTS:]
     if additional:
         with st.expander(
             f"Weitere {len(additional)} Modellprognosen",
@@ -3789,6 +3807,21 @@ def _render_price_check(
             render_rows(
                 additional,
                 start_index=MAX_FEATURED_FORECASTS + 1,
+            )
+
+    if extreme_short_candidates:
+        with st.expander(
+            f"Sehr kurze Quoten – {len(extreme_short_candidates)} Modellprognosen",
+            expanded=False,
+        ):
+            st.caption(
+                "Kein Modellurteil wurde gelöscht. Diese Märkte liegen selbst "
+                "beim besten beobachteten Anbieter unter Quote 1,25 und belegen "
+                "deshalb keinen prominenten Wett-Auswahlplatz."
+            )
+            render_rows(
+                extreme_short_candidates,
+                start_index=len(primary_candidates) + 1,
             )
 
     if ticket is None:
@@ -3821,7 +3854,7 @@ def _render_price_check(
                         f"{leg.candidate.market}: {leg.candidate.selection}"
                     ),
                     "Referenzquote": round(leg.odds, 2),
-                    "Mindestquote": round(leg.candidate.minimum_odds, 2),
+                    "Value-Grenze": round(leg.candidate.minimum_odds, 2),
                 }
                 for leg in ticket.legs
             ]
@@ -3926,7 +3959,7 @@ def _render_price_check(
     )
     st.caption(
         "Die App platziert keine Wette. Beim eigenen Anbieter müssen Auswahl, "
-        "Linie und mindestens die angezeigte Mindestquote übereinstimmen."
+        "Linie und mindestens die angezeigte Value-Grenze übereinstimmen."
     )
     if not price_is_valid:
         st.warning(

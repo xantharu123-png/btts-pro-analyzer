@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Callable, Iterable, Optional, TypeVar
 
 import streamlit as st
 
 from account_identity import storage_scope
+from betting_math import EXTREME_SHORT_ODDS_CUTOFF
 from market_consensus import (
     MarketConsensus,
     reference_price_status,
@@ -22,6 +23,41 @@ from tip_store import TipStore
 
 
 LOGGER = logging.getLogger(__name__)
+_ForecastRow = TypeVar("_ForecastRow")
+
+
+def partition_consumer_forecasts(
+    rows: Iterable[_ForecastRow],
+    *,
+    quote_for: Callable[[_ForecastRow], Optional[MarketConsensus | dict]],
+    now=None,
+) -> tuple[list[_ForecastRow], list[_ForecastRow]]:
+    """Keep every forecast, but relegate confirmed extreme-short prices.
+
+    Missing, thin, stale, or merely below-value quotes stay in the primary
+    model order. Only a fresh TOO_LOW market whose best observed price is
+    below the existing public usefulness floor moves to the secondary group.
+    """
+
+    primary: list[_ForecastRow] = []
+    extreme_short: list[_ForecastRow] = []
+    for row in rows:
+        raw_quote = quote_for(row)
+        quote = (
+            raw_quote
+            if isinstance(raw_quote, MarketConsensus)
+            else MarketConsensus.from_dict(raw_quote)
+        )
+        minimum_odds = getattr(row, "minimum_odds", None)
+        is_extreme_short = False
+        if quote is not None and minimum_odds is not None:
+            status = reference_price_status(quote, minimum_odds, now=now)
+            is_extreme_short = (
+                status.code == "TOO_LOW"
+                and quote.best_odds < EXTREME_SHORT_ODDS_CUTOFF
+            )
+        (extreme_short if is_extreme_short else primary).append(row)
+    return primary, extreme_short
 
 
 def _decimal_input(value: str):
@@ -94,28 +130,29 @@ def _render_reference_price(
             st.info(
                 f"PASSENDE QUOTE: {candidate.selection} | die aktuelle "
                 f"Vergleichsquote {quote.conservative_odds:.2f} erreicht die "
-                f"Mindestquote von {candidate.minimum_odds:.2f}. Das Modell "
+                f"Value-Grenze von {candidate.minimum_odds:.2f}. Das Modell "
                 "sammelt noch Praxisergebnisse; daher kein Einsatzvorschlag."
             )
     elif status.code == "BORDERLINE" and quote is not None:
         st.info(
             f"PREIS NOCH OFFEN: {candidate.selection}. Nur einzelne Anbieter "
-            f"erreichen {candidate.minimum_odds:.2f}; der Preis ist deshalb "
+            f"erreichen die Value-Grenze {candidate.minimum_odds:.2f}; der Preis ist deshalb "
             "noch nicht zuverlässig bestätigt. Die Prognose bleibt unverändert."
         )
     elif status.code == "TOO_LOW" and quote is not None:
         st.info(
             f"QUOTE ZU NIEDRIG: {candidate.selection}. Die aktuell beobachtete "
             f"Bestquote {quote.best_odds:.2f} liegt unter der benötigten "
-            f"Quote {candidate.minimum_odds:.2f}. Die Prognose bleibt "
-            "unverändert; nur der angebotene Preis ist zu niedrig."
+            f"Value-Grenze {candidate.minimum_odds:.2f}. Die Prognose bleibt "
+            "unverändert; nur der angebotene Preis ist zu niedrig. Die "
+            "Value-Grenze ist keine erwartete Buchmacherquote."
         )
     else:
         reason = {
             "THIN": "Es liegen noch zu wenige Vergleichsquoten vor.",
             "STALE": "Die Vergleichsquote ist nicht mehr aktuell.",
             "UNAVAILABLE": "Aktuell liegt keine exakt passende Vergleichsquote vor.",
-            "INVALID_MINIMUM": "Die Mindestquote konnte nicht sicher berechnet werden.",
+            "INVALID_MINIMUM": "Die Value-Grenze konnte nicht sicher berechnet werden.",
         }.get(status.code, "Der Wettpreis kann noch nicht sicher bewertet werden.")
         st.info(
             f"PREIS NOCH OFFEN: {candidate.selection}. {reason} Das ist keine "
@@ -197,7 +234,7 @@ def _render_manual_check(
 
         if decision.status == "PRICE_REQUIRED":
             st.info(
-                f"Quote und exakte Auswahl bestätigen. Mindestquote "
+                f"Quote und exakte Auswahl bestätigen. Value-Grenze "
                 f"{candidate.minimum_odds:.2f}."
             )
         elif decision.status == "BET":
@@ -214,7 +251,8 @@ def _render_manual_check(
         else:
             st.info(
                 f"MODELL-AUSWAHL BLEIBT: {candidate.selection}. Die angebotene "
-                f"Quote reicht erst ab {candidate.minimum_odds:.2f} für eine "
+                f"Quote erreicht die Value-Grenze {candidate.minimum_odds:.2f} "
+                "noch nicht und reicht daher nicht für eine "
                 "spielbare Preisbewertung."
             )
         if decision.status == "BET":
@@ -250,11 +288,15 @@ def render_price_decision(
             format_probability_percent(candidate.risk_adjusted_probability),
         )
         metrics[2].metric(
-            "Mindestquote",
+            "Value-Grenze",
             (
                 f"{candidate.minimum_odds:.2f}"
                 if candidate.minimum_odds is not None
                 else "k. A."
+            ),
+            help=(
+                "Preis, ab dem die vorsichtige Modellrechnung den Zielwert "
+                "erreicht; keine erwartete oder übliche Buchmacherquote."
             ),
         )
 

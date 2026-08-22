@@ -429,6 +429,10 @@ def test_low_quote_changes_only_price_not_model_selection():
     assert "QUOTE ZU NIEDRIG" in text
     assert "Prognose bleibt unverändert" in text
     assert "angebotene Preis ist zu niedrig" in text
+    metric_labels = [metric.label for metric in at.metric]
+    assert "Value-Grenze" in metric_labels
+    assert "Mindestquote" not in metric_labels
+    assert "keine erwartete Buchmacherquote" in text
     assert all(button.label != "Tipp merken" for button in at.button)
 
 

@@ -3,6 +3,7 @@ import inspect
 from types import SimpleNamespace
 
 import alternative_markets_tab_extended as market_tab
+import bet_finder_ui
 from challenge_engine import market_specs
 from market_consensus import MarketConsensus, QuotePoint
 
@@ -237,6 +238,99 @@ def test_consumer_merge_keeps_model_order_beyond_featured_three():
         unpriced_three,
         overflow,
     ]
+
+
+def test_consumer_partition_relegates_only_confirmed_extreme_short_prices():
+    now = datetime.now(timezone.utc)
+    extreme = SimpleNamespace(
+        candidate_id="sporting-alverca-away-under-1-5",
+        minimum_odds=1.79,
+    )
+    missing = SimpleNamespace(candidate_id="missing-price", minimum_odds=1.80)
+    ordinary_too_low = SimpleNamespace(
+        candidate_id="ordinary-too-low",
+        minimum_odds=1.79,
+    )
+    exact_cutoff = SimpleNamespace(
+        candidate_id="exact-extreme-short-cutoff",
+        minimum_odds=1.79,
+    )
+    thin_short = SimpleNamespace(candidate_id="thin-short", minimum_odds=1.79)
+    stale_short = SimpleNamespace(candidate_id="stale-short", minimum_odds=1.79)
+
+    def quote(candidate, odds, best, *, fetched_at=now, prices=None):
+        if prices is None:
+            prices = (odds, odds, best, best)
+        return MarketConsensus(
+            fixture_id=1,
+            candidate_id=candidate.candidate_id,
+            market_key="AWAY_UNDER_1_5",
+            bet_name="Team Total",
+            value_name="Away Under 1.5",
+            consensus_odds=odds,
+            conservative_odds=odds,
+            lowest_odds=odds,
+            best_odds=best,
+            bookmaker_count=len(prices),
+            quoted_at=fetched_at.isoformat(),
+            fetched_at=fetched_at.isoformat(),
+            source="test",
+            points=tuple(
+                QuotePoint(chr(ord("A") + index), price)
+                for index, price in enumerate(prices)
+            ),
+        )
+
+    quotes = {
+        extreme.candidate_id: quote(extreme, 1.14, 1.17),
+        ordinary_too_low.candidate_id: quote(ordinary_too_low, 1.45, 1.51),
+        exact_cutoff.candidate_id: quote(exact_cutoff, 1.20, 1.25),
+        thin_short.candidate_id: quote(
+            thin_short,
+            1.14,
+            1.17,
+            prices=(1.14, 1.17),
+        ),
+        stale_short.candidate_id: quote(
+            stale_short,
+            1.14,
+            1.17,
+            fetched_at=now.replace(year=now.year - 1),
+        ),
+    }
+
+    primary, extreme_short = bet_finder_ui.partition_consumer_forecasts(
+        [
+            extreme,
+            missing,
+            ordinary_too_low,
+            exact_cutoff,
+            thin_short,
+            stale_short,
+        ],
+        quote_for=lambda candidate: quotes.get(candidate.candidate_id),
+        now=now,
+    )
+
+    assert primary == [
+        missing,
+        ordinary_too_low,
+        exact_cutoff,
+        thin_short,
+        stale_short,
+    ]
+    assert extreme_short == [extreme]
+    assert sorted(primary + extreme_short, key=lambda row: row.candidate_id) == sorted(
+        [
+            extreme,
+            missing,
+            ordinary_too_low,
+            exact_cutoff,
+            thin_short,
+            stale_short,
+        ],
+        key=lambda row: row.candidate_id,
+    )
 
 
 def test_market_worker_keeps_fully_checked_catalog_beyond_three(monkeypatch):

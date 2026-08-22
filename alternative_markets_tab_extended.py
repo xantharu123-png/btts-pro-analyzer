@@ -6,7 +6,7 @@ from typing import Optional
 import streamlit as st
 
 import scan_jobs
-from bet_finder_ui import render_price_decision
+from bet_finder_ui import partition_consumer_forecasts, render_price_decision
 from bet_finder_candidates import build_probability_candidate
 from multi_sport_recommendations import EVIDENCE_SHADOW
 from ui_components import scan_progress_fragment
@@ -822,8 +822,13 @@ def create_alternative_markets_tab_extended(
     if partial_scope_notice:
         st.warning(partial_scope_notice)
     # One price-passing market must not erase the other calculated forecasts.
-    # Model ranking is authoritative; price only annotates those same cards.
+    # Model ranking stays authoritative inside each presentation tier; only a
+    # confirmed extreme-short market moves out of the prominent consumer tier.
     displayed_rows = _merge_consumer_market_rows(shortlist, model_shortlist)
+    primary_rows, extreme_short_rows = partition_consumer_forecasts(
+        displayed_rows,
+        quote_for=lambda candidate: reference_quotes.get(candidate.candidate_id),
+    )
 
     if not displayed_rows:
         _render_consumer_no_tip(
@@ -832,18 +837,23 @@ def create_alternative_markets_tab_extended(
         )
     else:
         if shortlist:
-            priced_count = min(len(shortlist), len(displayed_rows))
+            priced_count = min(len(shortlist), len(primary_rows))
             st.info(
                 f"{priced_count} Modell-Auswahl"
                 f"{'en' if priced_count != 1 else ''} mit passender "
                 f"Vergleichsquote für {result_day}. Weitere berechnete "
                 "Auswahlen bleiben unabhängig vom Preis sichtbar."
             )
+        elif not primary_rows and extreme_short_rows:
+            st.info(
+                "Aktuell gibt es keine nützliche Hauptauswahl. "
+                "Modellprognosen mit sehr kurzen Quoten bleiben unten sichtbar."
+            )
         else:
             found_label = (
                 "Eine interessante Auswahl gefunden"
-                if len(displayed_rows) == 1
-                else f"{len(displayed_rows)} interessante Auswahlen gefunden"
+                if len(primary_rows) == 1
+                else f"{len(primary_rows)} interessante Auswahlen gefunden"
             )
             st.info(f"{found_label} – aktuell noch kein spielbarer Tipp.")
         st.caption(
@@ -875,8 +885,8 @@ def create_alternative_markets_tab_extended(
                 if offset < len(candidates) - 1:
                     st.divider()
 
-        featured_rows = displayed_rows[:FEATURED_CONSUMER_MARKET_SELECTIONS]
-        more_rows = displayed_rows[FEATURED_CONSUMER_MARKET_SELECTIONS:]
+        featured_rows = primary_rows[:FEATURED_CONSUMER_MARKET_SELECTIONS]
+        more_rows = primary_rows[FEATURED_CONSUMER_MARKET_SELECTIONS:]
         render_rows(featured_rows, start_index=1)
         if more_rows:
             with st.expander(
@@ -891,6 +901,20 @@ def create_alternative_markets_tab_extended(
                 render_rows(
                     more_rows,
                     start_index=FEATURED_CONSUMER_MARKET_SELECTIONS + 1,
+                )
+        if extreme_short_rows:
+            with st.expander(
+                f"Sehr kurze Quoten ({len(extreme_short_rows)})",
+                expanded=False,
+            ):
+                st.caption(
+                    "Diese Modellprognosen bleiben sichtbar. Die sehr kurze "
+                    "Quote macht die Prognose nicht falsch; sie wird nur nicht "
+                    "als nützliche Hauptauswahl hervorgehoben."
+                )
+                render_rows(
+                    extreme_short_rows,
+                    start_index=len(primary_rows) + 1,
                 )
 
 

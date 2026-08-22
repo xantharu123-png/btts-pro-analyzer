@@ -61,7 +61,7 @@ live_football_candidate = _football_recommendations.live_football_candidate
 prematch_btts_candidate = _football_recommendations.prematch_btts_candidate
 red_card_candidate = _football_recommendations.red_card_candidate
 
-from bet_finder_ui import render_price_decision
+from bet_finder_ui import partition_consumer_forecasts, render_price_decision
 from betting_math import BETTING_POLICY_VERSION
 from ev_signal_sources import (
     AutomatedWettfinderStatus,
@@ -84,11 +84,11 @@ from multi_sport_recommendations import (
 PAGE_INFO = {
     "Wettfinder": (
         "Wettfinder",
-        "Berechnete Auswahlen nach Qualitätsprüfung; Marktpreis und Mindestquote werden getrennt bewertet.",
+        "Berechnete Auswahlen nach Qualitätsprüfung; Marktpreis und Value-Grenze werden getrennt bewertet.",
     ),
     "Live": (
         "Live Wettfinder",
-        "Aktuelle Spieldaten werden in konkrete Live-Auswahlen und klare Mindestquoten übersetzt.",
+        "Aktuelle Spieldaten werden in konkrete Live-Auswahlen und klare Value-Grenzen übersetzt.",
     ),
     "15K": (
         "15K Challenge",
@@ -1522,7 +1522,7 @@ def _render_prematch_results(
         st.success(
             f"{len(ready_rows)} von {len(candidate_rows)} geprüften Spielen bestehen "
             "die Modellprüfung. Der automatische Marktvergleich bewertet danach, "
-            "ob der angebotene Preis die Mindestquote erreicht."
+            "ob der angebotene Preis die Value-Grenze erreicht."
         )
         selectable_rows = ready_rows
 
@@ -1558,7 +1558,7 @@ def _render_prematch_results(
                     "Spiel": item.event_label,
                     "Auswahl": item.selection,
                     "Modell %": item.model_probability,
-                    "Mindestquote": item.minimum_odds,
+                    "Value-Grenze": item.minimum_odds,
                     "Grund": "" if item.model_ready else plain_german(
                         item.blockers[0] if item.blockers else "Kriterien nicht erfüllt"
                     ),
@@ -3209,7 +3209,7 @@ def _automated_signal_candidate(signal: ModelSignal) -> RecommendationCandidate:
         blockers=(
             ()
             if signal.minimum_odds is not None
-            else ("Keine belastbare Mindestquote berechenbar.",)
+            else ("Keine belastbare Value-Grenze berechenbar.",)
         ),
         evidence_stage=signal.evidence_stage,
     )
@@ -3229,12 +3229,12 @@ def _automatic_target_label(value: Optional[str]) -> str:
 
 
 _AUTOMATIC_PRICE_STATUS_LABELS = {
-    "TOO_LOW": "unter der Mindestquote",
+    "TOO_LOW": "unter der Value-Grenze",
     "UNAVAILABLE": "ohne exakt passende Marktquote",
     "BORDERLINE": "nur bei einzelnen Anbietern ausreichend",
     "THIN": "mit zu wenigen Vergleichsanbietern",
     "STALE": "mit veraltetem Marktstand",
-    "INVALID_MINIMUM": "mit ungültiger Mindestquote",
+    "INVALID_MINIMUM": "mit ungültiger Value-Grenze",
     "PLAYABLE": "preislich spielbar",
 }
 
@@ -3498,12 +3498,15 @@ def _render_automated_daily_selection() -> None:
     football_forecasts, other_forecasts = _partition_automated_signals(forecasts)
     if status.football_status != "completed":
         football_signals = []
-    football_displayed = football_forecasts
+    football_displayed, football_extreme_short = partition_consumer_forecasts(
+        football_forecasts,
+        quote_for=lambda selected: selected.reference_quote,
+    )
     other_displayed = other_forecasts
     football_price_keys = {signal.key for signal in football_signals}
     with st.expander(
         f"Automatischer Fußball-Check · {target_label}",
-        expanded=bool(football_displayed),
+        expanded=bool(football_displayed or football_extreme_short),
     ):
         st.caption("Separater planmäßiger Lauf, unabhängig von der Suche darunter.")
         time_parts = [f"Ergebnisstand: {_format_stand(status.generated_at)}"]
@@ -3513,7 +3516,7 @@ def _render_automated_daily_selection() -> None:
             )
         st.caption(" · ".join(time_parts))
 
-        if not football_displayed:
+        if not football_displayed and not football_extreme_short:
             evidence, message, incomplete = _automatic_consumer_summary(status)
             st.caption(evidence)
             if incomplete:
@@ -3530,17 +3533,6 @@ def _render_automated_daily_selection() -> None:
                     "nur Auswahlen aus Spielen mit eigener Modellprüfung und den "
                     "dafür verfügbaren Kontextdaten."
                 )
-            price_match_count = sum(
-                selected.key in football_price_keys
-                for selected in football_displayed
-            )
-            st.info(
-                f"{len(football_displayed)} automatisch berechnete "
-                f"Modell-Auswahl{'en' if len(football_displayed) != 1 else ''} · "
-                f"bei {price_match_count} "
-                f"{'passt die Quote' if price_match_count == 1 else 'passen die Quoten'}. "
-                "Fehlende oder niedrige Quoten ändern weder Auswahl noch Rangfolge."
-            )
             def render_football_rows(rows, *, start_index: int) -> None:
                 for offset, selected in enumerate(rows):
                     index = start_index + offset
@@ -3558,15 +3550,54 @@ def _render_automated_daily_selection() -> None:
                     if offset < len(rows) - 1:
                         st.divider()
 
-            featured = football_displayed[:3]
-            additional = football_displayed[3:]
-            render_football_rows(featured, start_index=1)
+            if football_displayed:
+                price_match_count = sum(
+                    selected.key in football_price_keys
+                    for selected in football_displayed
+                )
+                st.info(
+                    f"{len(football_displayed)} automatisch berechnete "
+                    f"Modell-Auswahl"
+                    f"{'en' if len(football_displayed) != 1 else ''} · "
+                    f"bei {price_match_count} "
+                    f"{'passt die Quote' if price_match_count == 1 else 'passen die Quoten'}. "
+                    "Der Modellkatalog bleibt vollständig erhalten. Nur "
+                    "bestätigte sehr kurze Quoten werden weniger prominent "
+                    "angezeigt; fehlende oder sonst zu niedrige Quoten ändern "
+                    "die Modellreihenfolge nicht."
+                )
+                featured = football_displayed[:3]
+                additional = football_displayed[3:]
+                render_football_rows(featured, start_index=1)
+            else:
+                additional = []
+                st.info(
+                    "Aktuell gibt es keine nützliche Hauptauswahl. Die "
+                    "vorhandenen Modellprognosen haben bestätigte sehr kurze "
+                    "Quoten und stehen unten separat."
+                )
             if additional:
                 with st.expander(
                     f"Weitere {len(additional)} Modellprognosen",
                     expanded=False,
                 ):
                     render_football_rows(additional, start_index=4)
+            if football_extreme_short:
+                with st.expander(
+                    f"Sehr kurze Quoten · "
+                    f"{len(football_extreme_short)} Modellprognose"
+                    f"{'n' if len(football_extreme_short) != 1 else ''}",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Diese Prognosen bleiben im Modellkatalog erhalten. "
+                        "Wegen der bestätigten sehr kurzen Marktquote werden "
+                        "sie nicht als Hauptauswahl hervorgehoben."
+                    )
+                    render_football_rows(
+                        football_extreme_short,
+                        start_index=len(football_displayed) + 1,
+                    )
 
     if other_displayed:
         with st.expander("Automatische Auswahlen · weitere Sportarten", expanded=True):

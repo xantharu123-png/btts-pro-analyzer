@@ -18,9 +18,16 @@ from alternative_markets_tab_extended import (
     _market_scope_signature,
 )
 from api_football import APIFootball
+from challenge_engine import ChallengeCandidate
 from config_loader import AppConfig
 from ev_signal_sources import ModelSignal
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
+from market_consensus import (
+    REFERENCE_SOURCE,
+    MarketConsensus,
+    QuotePoint,
+    serialize_consensus_map,
+)
 from red_card_bot import RED_CARD_MONITORED_LEAGUE_IDS, RedCardBotEnhanced
 
 
@@ -33,6 +40,142 @@ class _ProgressStub:
 
     def caption(self, _value):
         return None
+
+
+class _RecordingExpander:
+    def __init__(self, streamlit, label):
+        self.streamlit = streamlit
+        self.label = label
+
+    def __enter__(self):
+        self.streamlit.expander_stack.append(self.label)
+        return self.streamlit
+
+    def __exit__(self, _exc_type, _exc, _traceback):
+        assert self.streamlit.expander_stack.pop() == self.label
+
+
+class _RecordingStreamlit:
+    def __init__(self, session_state=None):
+        self.session_state = session_state or {}
+        self.expanders = []
+        self.expander_stack = []
+        self.messages = []
+
+    @property
+    def current_expander(self):
+        return self.expander_stack[-1] if self.expander_stack else None
+
+    def expander(self, label, *, expanded=False):
+        self.expanders.append((label, expanded))
+        return _RecordingExpander(self, label)
+
+    def button(self, _label, **_kwargs):
+        return False
+
+    def caption(self, value):
+        self.messages.append(("caption", value))
+
+    def divider(self):
+        return None
+
+    def error(self, value):
+        self.messages.append(("error", value))
+
+    def info(self, value):
+        self.messages.append(("info", value))
+
+    def markdown(self, value):
+        self.messages.append(("markdown", value))
+
+    def subheader(self, value):
+        self.messages.append(("subheader", value))
+
+    def warning(self, value):
+        self.messages.append(("warning", value))
+
+
+def _extreme_short_quote(candidate_id, now):
+    return MarketConsensus(
+        fixture_id=1,
+        candidate_id=candidate_id,
+        market_key="AWAY_UNDER_1_5",
+        bet_name="Total - Away",
+        value_name="Under 1.5",
+        consensus_odds=1.14,
+        conservative_odds=1.14,
+        lowest_odds=1.12,
+        best_odds=1.17,
+        bookmaker_count=5,
+        quoted_at=now.isoformat(),
+        fetched_at=now.isoformat(),
+        source=REFERENCE_SOURCE,
+        points=(
+            QuotePoint("A", 1.12),
+            QuotePoint("B", 1.14),
+            QuotePoint("C", 1.14),
+            QuotePoint("D", 1.16),
+            QuotePoint("E", 1.17),
+        ),
+    )
+
+
+def _automatic_forecast(key, *, reference_quote=None):
+    return ModelSignal(
+        key=key,
+        label=f"{key}: Team 2 unter 1,5",
+        probability=0.741,
+        probability_haircut=0.165,
+        evidence_stage="SHADOW",
+        policy_version=BETTING_POLICY_VERSION,
+        detail="Testmodell",
+        scheduled_start="2030-01-02T15:00:00+00:00",
+        minimum_odds=1.79,
+        source="automated_wettfinder_forecast",
+        sport="Fußball",
+        event_label=f"{key} Heim vs Gast",
+        market="Team 2 Gesamttore",
+        selection="Unter 1,5",
+        reference_quote=(
+            reference_quote.to_dict() if reference_quote is not None else None
+        ),
+        context_summary="Kontext vollständig geprüft",
+    )
+
+
+def _manual_forecast(key, fixture_id):
+    return ChallengeCandidate(
+        candidate_id=key,
+        fixture_id=fixture_id,
+        league_id=39,
+        league_name="Test League",
+        kickoff="2030-01-02T15:00:00+00:00",
+        home_team_id=fixture_id * 10,
+        away_team_id=fixture_id * 10 + 1,
+        home_team=f"Home {fixture_id}",
+        away_team=f"Away {fixture_id}",
+        market_key="AWAY_UNDER_1_5",
+        market="Team 2 Gesamttore",
+        selection="Unter 1,5",
+        probability=0.741,
+        conservative_probability=0.576,
+        probability_haircut_pp=16.5,
+        model_price=1.35,
+        evidence_score=90.0,
+        model_spread_pp=2.0,
+        expected_home_goals=1.5,
+        expected_away_goals=0.8,
+        venue_samples=(10, 10),
+        form_samples=(6, 6),
+        validation=None,
+        context={
+            "h2h": {"status": "neutral"},
+            "injuries": {"status": "observed"},
+            "weather": {"status": "passed"},
+            "lineups": {"status": "pending"},
+            "blocked_reasons": [],
+        },
+    )
 
 
 def test_automatic_server_signal_becomes_a_price_check_candidate():
@@ -83,7 +226,7 @@ def test_automatic_price_summary_explains_why_models_were_not_published():
     summary = app._automatic_price_summary(status)
 
     assert summary == (
-        "Preisprüfung: 3 Modellmärkte geprüft · 1 unter der Mindestquote · "
+        "Preisprüfung: 3 Modellmärkte geprüft · 1 unter der Value-Grenze · "
         "2 ohne exakt passende Marktquote"
     )
 
@@ -108,6 +251,162 @@ def test_internal_price_summary_is_not_rendered_in_consumer_daily_selection():
     assert "Tagestipp {index}" not in source
     assert "status.generated_at" in source
     assert "status.last_discovery_at" in source
+
+
+def test_automatic_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
+    now = datetime.now(timezone.utc)
+    extreme = _automatic_forecast(
+        "sporting-alverca-away-under-1-5",
+        reference_quote=_extreme_short_quote(
+            "sporting-alverca-away-under-1-5",
+            now,
+        ),
+    )
+    primary = [
+        _automatic_forecast("primary-a"),
+        _automatic_forecast("primary-b"),
+        _automatic_forecast("primary-c"),
+    ]
+    forecasts = [extreme, *primary]
+    status = SimpleNamespace(
+        target_search_date=now.date().isoformat(),
+        generated_at=now,
+        last_discovery_at=now,
+        football_status="completed",
+        fixtures_found=4,
+        fixtures_modeled=4,
+        context_data_incomplete_fixtures=0,
+        context_unchecked_fixtures=0,
+        deferred_context_fixtures=0,
+        context_accounting_available=True,
+        context_scope_complete=True,
+        operational_error_count=0,
+    )
+    recording_st = _RecordingStreamlit()
+    rendered = []
+
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
+    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
+    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: forecasts)
+    monkeypatch.setattr(
+        app,
+        "render_price_decision",
+        lambda candidate, **_kwargs: rendered.append(
+            (recording_st.current_expander, candidate.event_key)
+        ),
+    )
+
+    app._render_automated_daily_selection()
+
+    assert [key for _group, key in rendered] == [
+        "primary-a",
+        "primary-b",
+        "primary-c",
+        "sporting-alverca-away-under-1-5",
+    ]
+    short_group = next(
+        (label, expanded)
+        for label, expanded in recording_st.expanders
+        if label.startswith("Sehr kurze Quoten")
+    )
+    assert short_group[1] is False
+    assert rendered[-1][0] == short_group[0]
+    assert len({key for _group, key in rendered}) == len(forecasts)
+
+
+def test_manual_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
+    now = datetime.now(timezone.utc)
+    extreme = _manual_forecast("sporting-alverca-away-under-1-5", 1)
+    primary = [
+        _manual_forecast("primary-a", 2),
+        _manual_forecast("primary-b", 3),
+        _manual_forecast("primary-c", 4),
+    ]
+    forecasts = [extreme, *primary]
+    search_date = now.date()
+    available_leagues = list(ALTERNATIVE_MARKET_LEAGUES)
+    scope = _market_scope_signature(
+        available_leagues,
+        search_date,
+        search_date,
+    )
+    scope.update(
+        max_fixtures=market_tab.MAX_SCAN_FIXTURES,
+        market_scope="Beste Märkte",
+        market_kinds=None,
+    )
+    snapshot = {
+        "version": market_tab.MARKET_SNAPSHOT_VERSION,
+        "scanned_at": now.isoformat(),
+        "scope": scope,
+        "shortlist": [],
+        "model_shortlist": forecasts,
+        "reference_quotes": serialize_consensus_map(
+            {extreme.candidate_id: _extreme_short_quote(extreme.candidate_id, now)}
+        ),
+        "price_checked_at": now.isoformat(),
+        "price_checked_count": 1,
+        "fixtures_found": 4,
+        "fixtures_modeled": 4,
+        "context_data_incomplete_fixtures": 0,
+        "context_unchecked_fixtures": 0,
+        "deferred_context_fixtures": 0,
+        "context_scope_complete": True,
+        "operational_error_count": 0,
+    }
+    recording_st = _RecordingStreamlit(
+        {"market_bet_finder_snapshot": snapshot}
+    )
+    rendered = []
+
+    monkeypatch.setattr(market_tab, "st", recording_st)
+    monkeypatch.setattr(
+        market_tab,
+        "load_app_config",
+        lambda _st: SimpleNamespace(api_football_key="api", weather_key=None),
+    )
+    monkeypatch.setattr(
+        market_tab,
+        "_segmented",
+        lambda _label, options, _key, _default: options[0],
+    )
+    monkeypatch.setattr(market_tab.scan_jobs, "session_scope", lambda _state: "test")
+    monkeypatch.setattr(market_tab.scan_jobs, "scoped_key", lambda *_args: "job")
+    monkeypatch.setattr(
+        market_tab.scan_jobs,
+        "get_job",
+        lambda _key: {"state": "idle"},
+    )
+    monkeypatch.setattr(
+        market_tab,
+        "render_price_decision",
+        lambda candidate, **_kwargs: rendered.append(
+            (recording_st.current_expander, candidate.event_key)
+        ),
+    )
+
+    market_tab.create_alternative_markets_tab_extended(
+        market_scope="Beste Märkte",
+        search_date=search_date,
+        search_end_date=search_date,
+        embedded=True,
+    )
+
+    assert [key for _group, key in rendered] == [
+        "primary-a",
+        "primary-b",
+        "primary-c",
+        "sporting-alverca-away-under-1-5",
+    ]
+    short_group = next(
+        (label, expanded)
+        for label, expanded in recording_st.expanders
+        if label.startswith("Sehr kurze Quoten")
+    )
+    assert short_group[1] is False
+    assert rendered[-1][0] == short_group[0]
+    assert len({key for _group, key in rendered}) == len(forecasts)
 
 
 def test_automatic_signal_group_accepts_persisted_football_spelling():
