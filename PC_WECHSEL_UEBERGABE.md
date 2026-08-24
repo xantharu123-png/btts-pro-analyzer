@@ -6,38 +6,74 @@ Diese Anleitung bringt einen neuen Windows-PC in einen sicheren,
 reproduzierbaren BetBoy-Arbeitsstand. Der laufende Produktionsserver hängt
 nicht vom alten PC ab und arbeitet während des Wechsels weiter.
 
-Am 24. August 2026 wurde nach der kontrollierten Nutzwert- und
-Repricing-Härtung der
-folgende **aktuelle Produktionsstand** verifiziert:
+Am 24. August 2026 wurde vor dem aktuellen v14/v12-Härtungspaket der folgende
+**zuletzt unabhängig verifizierte Produktionsstand** festgehalten:
 
 | Prüfung | Ergebnis |
 |---|---|
-| Aktueller Funktionscommit | `08778fdc29a7275c21fc23671d4763290273c435` (`Restore team under 1.5 eligibility`) |
+| Letzter verifizierter Funktionscommit vor v14/v12 | `08778fdc29a7275c21fc23671d4763290273c435` (`Restore team under 1.5 eligibility`) |
 | GitHub und VPS | Funktionscommit per vollständigem Hash identisch; ein späterer reiner Dokumentationscommit muss erneut per vollständigem Hash verglichen werden |
 | `betboy-app.service` | `active` |
 | Streamlit-Health | lokal und öffentlich `200 / ok` |
 | BetBoy-Timer | exakt 7 aktiv und enabled; echter automatischer Wettfinder-Lauf `success / 0` |
 | Fehlgeschlagene systemd-Units | 0 |
 | Deploy-Recovery | Root-geschütztes `betboy-preupdate-20260824T094247Z-069033f2891f.zip` |
-| Automatisches v13-Artefakt | Lauf um 11:44 CEST: 17 Fußballspiele gefunden, 14 modelliert, 16 sichtbare Modellprognosen, 10 exakt zuordenbare Fußball-Preisprüfungen, 0 operative Fehler und korrekt 0 strikte Tipps |
+| Letzter verifizierter v13-Lauf | Lauf um 11:44 CEST: 17 Fußballspiele gefunden, 14 modelliert, 16 sichtbare Modellprognosen, 10 exakt zuordenbare Fußball-Preisprüfungen, 0 operative Fehler und korrekt 0 strikte Tipps |
 | Team-Unter-1,5 | Drei normale Modellprognosen mit `is_basic_forecast: false`; der Markt kann Featured, Strict und Ticket erreichen. Aktuelle Bestquoten 1,18, 1,29 und 1,30 lagen lediglich konkret unter den jeweiligen Value-Grenzen. |
 | Gerenderte Live-UI | `Oţelul - Arges Pitesti: Team 2 unter 1,5` als zweite hervorgehobene Auswahl; Bestquote 1,29 transparent gegen Value-Grenze 1,65; Desktop und Mobil 390 x 844 ohne Überlauf, 0 Konsolenfehler |
 
-Der Nutzwert-Katalog verwendet Automationsartefakt v13 und Auswahlrichtlinie
-v11. Er zeigt bis zu 15 Fußball-Modellprognosen und behandelt Quoten
-ausschließlich als Preishinweis. Team-Unter-1,5 ist ausdrücklich keine
-Basisprognose und wird nicht pauschal aus Featured, Strict oder Ticket
-entfernt. Nur eine konkret bestätigte Extrem-Kurzquote darf die Darstellung
-zurückstufen; die Prognose bleibt sichtbar. Künftige Tagesprognosen werden
-automatisch neu bepreist; strikte Freigaben verlangen frischen, vollständigen
-Kontext und eine exakt identische Providerzuordnung. Die QA umfasst 886 Python-Tests, 38
-Subtests und 3/3 JavaScript-Tests; Syntax- und Diff-Prüfungen waren grün.
+Dieser Produktionsbeleg gehört zum früheren Automationsartefakt v13 mit
+Auswahlrichtlinie v11. Die damals dokumentierte QA umfasst 886 Python-Tests,
+38 Subtests und 3/3 JavaScript-Tests; Syntax- und Diff-Prüfungen waren grün.
 Commit, Push, VPS-Deploy, echter Automatiklauf und Produktions-Browserprüfung
-sind abgeschlossen. In der Produktion fehlt derzeit der Odds-API-Schlüssel
-für Tennispreise; E-Sport hat keinen verifizierten Quotenprovider und
-Basketball/NHL/Cricket noch kein validiertes automatisches Prematch-Modell.
-Diese Grenzen werden sichtbar und fail-closed behandelt, nicht durch
-erfundene Quoten oder Tipps kaschiert.
+dieses historischen Funktionsstands waren abgeschlossen. Der aktuelle
+Checkout-Vertrag ist im folgenden Abschnitt beschrieben und muss nach jedem
+neuen Deploy erneut über vollständigen Hash, Worker, Artefakt und Browser
+verifiziert werden.
+
+### Aktueller Checkout-Vertrag: normaler Wettfinder v14/v12
+
+Lokaler Funktionsnachweis dieses Pakets: Commit
+`aa62cbb7187e32f2de28c8135b76b67984bdd415` (`Harden normal Wettfinder
+integrity`), 920 Python-Tests plus 50 Subtests und 3/3 JavaScript-Tests grün;
+Python-Kompilierung und `git diff --check` ebenfalls grün.
+
+- Der normale Wettfinder verwendet Automationsartefakt v14,
+  Auswahl-/Katalogpolicy v12 und Modellcache-Schema v2.
+- Seine Kandidaten entstehen aus einem eigenen vollständigen berechenbaren
+  Marktpool. Der 15K-Wahrscheinlichkeitskorridor und die 15K-Ticketvorfilter
+  werden nicht wiederverwendet; auch höhere Modellwahrscheinlichkeiten bleiben
+  im normalen Finder zulässig.
+- Es gibt kein Markt-Namensgate. Die Nutzwertsortierung entscheidet nur über
+  die hervorgehobenen Karten; alle weiteren ausgewählten Märkte bleiben
+  gruppiert sichtbar.
+- Fehlende oder zu niedrige Quoten ändern und löschen keine Prognose. Sie
+  erscheinen als Preishinweis. Ein normaler `PLAYABLE`-Tipp verlangt dagegen
+  exakte Ereignis-/Auswahlbindung, mindestens drei stabile provider-native
+  Buchmacher-IDs, einen Preiszeitstempel je Punkt sowie ein reales,
+  ausführbares Angebot eines konkret genannten Buchmachers.
+- Der normale Q25-Konsens wird nur aus aktuellen, providergebundenen
+  Einzelangeboten neu berechnet. Ein alter oder unvollständig identifizierter
+  Punkt entwertet drei andere gültige Anbieter nicht.
+- Teilfehler sind quellenspezifisch: Fällt eine Sportquelle aus, bleiben
+  unabhängig gesunde Sportarten sichtbar; der Lauf bleibt betrieblich
+  `degraded`.
+- Die Nutzeroberfläche zeigt Ergebnis, Tippdaten, Preis- und Kontextstatus,
+  aber keine internen Liga-, Spiel-, Kandidaten-, Gate-, Modell-, Markt- oder
+  Cachezähler. Diese Diagnose bleibt Admin und Logs vorbehalten.
+- Die normale statistische Freigabe verlangt eine gepaarte
+  Brier-Verlustverbesserung mit Newey-West-/HAC-Standardfehler, positivem
+  einseitigem unteren Konfidenzrand, bestandenem einseitigem p-Wert und
+  Benjamini-Hochberg-FDR-Korrektur über alle 90 Marktspezifikationen.
+- Gegnerstärke ist bereits numerisch über eigene Offensive, gegnerische
+  Defensive, Heim-/Auswärtseffekt, Form, Ligaprior und gegebenenfalls xG
+  enthalten. Verletzungen, Aufstellungen und Wetter sind aktuell nur
+  zeitbezogene Live-Kontext-, Abdeckungs- und Vetoachsen; mangels eines
+  zeitgestempelten historischen Prematch-Datensatzes werden keine numerischen
+  Effekte erfunden. Die prospektive, versionsgebundene Kontextsammlung ist der
+  nächste ehrliche Schritt.
+- 15K-Wett-, Einsatz-, Ticket- und Release-Regeln bleiben unverändert. Der
+  breitere normale Marktpool lockert den getrennten Challenge-Vertrag nicht.
 
 Nach jedem Commit gilt ausschließlich der frisch abgefragte vollständige
 `origin/main`-Hash. Hash und Produktionsstand werden nach einem Deploy erneut

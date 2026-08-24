@@ -50,12 +50,12 @@ Der Kernvertrag lautet:
 6. Fehlende oder zu niedrige Quote löscht die Modellprognose nicht.
 7. Ohne belastbare Modell-, Release-Kontext- und Preisfreigabe gibt es keinen
    Tipp und keinen Einsatzvorschlag.
-8. Pro Suchlauf stehen zuerst höchstens drei klare Top-Auswahlen. Bis zu zwölf
-   weitere berechnete Modellprognosen bleiben eingeklappt erreichbar, statt
-   nach Platz drei verworfen zu werden.
-9. Extreme Kurzquoten-Basislinien dürfen als nachvollziehbare Modellrechnung
-   sichtbar bleiben, werden aber nie als Top-Auswahl, strikter Tipp oder
-   Einsatzvorschlag beworben.
+8. Pro Suchlauf stehen zuerst höchstens drei klare Top-Auswahlen. Weitere
+   berechnete Marktprognosen bleiben in gruppierten Zusatzbereichen erreichbar,
+   statt wegen ihrer Darstellungsposition verworfen zu werden.
+9. Die Nutzwertsortierung entscheidet ausschließlich, was zuerst gezeigt wird.
+   Sie ist kein Modell-, Markt- oder Preisgate und darf weder eine Wettart noch
+   eine hohe Modellwahrscheinlichkeit aus der normalen Suche ausschließen.
 10. Je Spiel und Marktfamilie wird höchstens eine Auswahl hervorgehoben; der
     Katalog soll echte Entscheidungsalternativen statt Varianten desselben
     trivialen Ereignisses zeigen.
@@ -158,10 +158,11 @@ ebenfalls kein Value-Beweis. Entscheidend sind konservatives p, Preis und
 Unsicherheit gemeinsam.
 
 Breite Basisprognosen wie „Topteam erzielt mindestens ein Tor“ oder sehr
-großzügige Unter-Linien werden weiter berechnet, aber nicht als Top-Auswahl
-beworben. Die Einstufung erfolgt quotenfrei anhand des Markttyps und des
-nachgewiesenen Modellnutzens. Eine niedrige oder fehlende Quote darf eine
-inhaltlich aussagekräftige Modellprognose weder löschen noch herabstufen.
+großzügige Unter-Linien dürfen in der quotenfreien Nutzwertsortierung hinter
+aussagekräftigeren Alternativen stehen. Das ist nur Präsentation: Es gibt
+keine Markt-Namenssperre, und die zusätzlich ausgewählten Marktprognosen
+bleiben sichtbar. Eine niedrige oder fehlende Quote ist ein Preishinweis; sie
+darf die Modellprognose weder löschen noch inhaltlich verändern.
 
 ### 3.4 Evidenzstufen bleiben getrennt
 
@@ -180,6 +181,81 @@ Wenn zu wenige Tipps erscheinen, werden nicht einfach Gates gelockert.
 Zuerst wird der Dropout-Funnel analysiert: Discovery, Statistik, Modell,
 Kalibrierung, Kontext, Marktzuordnung, Preis und Settlement. Änderungen
 benötigen eine vorab definierte Hypothese und zeitlich getrennte Prüfung.
+
+### 3.6 Normaler Wettfinder ist kein 15K-Vorfilter
+
+Die normale Suche konstruiert ihren eigenen vollständigen, berechenbaren
+Marktpool. Sie übernimmt weder den Wahrscheinlichkeitskorridor noch die
+Ticketvorfilter der 15K Challenge. Insbesondere bleiben auch
+Modellwahrscheinlichkeiten oberhalb der im 15K-Workflow verwendeten Obergrenze
+in der normalen Suche zulässig. Marktname, Team-Unter-/Über-Linie oder eine
+hohe Wahrscheinlichkeit sind allein kein Ausschlussgrund.
+
+Die Nutzwertlogik ordnet die erste Ansicht und sorgt für unterschiedliche
+Spiele und Marktfamilien. Sie darf keine Modellprognose aus fachlicher
+Freigabe, Preisprüfung oder Zusatzansicht entfernen. Alle weiteren vom
+Katalog ausgewählten Märkte bleiben gruppiert erreichbar.
+
+### 3.7 Preisnachweis für einen normalen spielbaren Tipp
+
+Der Status `PLAYABLE` im normalen Wettfinder verlangt mehr als eine angezeigte
+Vergleichszahl:
+
+- Ereignis, Markt, Auswahl, Teambezug und Linie müssen exakt gebunden sein;
+- mindestens drei unterschiedliche, stabile und provider-native
+  Buchmacher-IDs müssen den Markt belegen;
+- jeder Preisbeobachtung muss ein auswertbarer Beobachtungszeitpunkt
+  zugeordnet sein;
+- die angezeigte Quote muss ein reales, ausführbares Angebot eines konkret
+  genannten Buchmachers sein und darf nicht aus Quartil, Median oder anderen
+  Preisen synthetisiert werden.
+
+Der normale Konsens wird aus dem aktuellen, providergebundenen Teilbestand
+neu berechnet. Ein einzelner alter oder unvollständig identifizierter
+Buchmacherpunkt darf drei oder mehr andere gültige Angebote nicht entwerten.
+
+Fehlt dieser Nachweis oder liegt der reale Preis unter der Mindestquote, bleibt
+die Prognose sichtbar und erhält einen verständlichen Hinweis. Nur der
+Preisstatus ist offen beziehungsweise unattraktiv; das Modell wird dadurch
+weder richtig noch falsch.
+
+### 3.8 Statistischer Freigabevertrag
+
+Für die normale Wettfinder-Freigabe genügt ein bloßer mittlerer
+Walk-forward-Vorteil nicht. Modell und zeitgleicher Basiswert werden je Spiel
+über die Brier-Verlustdifferenz gepaart. Die Unsicherheit wird mit einem
+Newey-West-/HAC-Standardfehler gegen zeitliche Abhängigkeit geschützt. Der
+einseitige untere Konfidenzrand muss positiv sein, der einseitige p-Wert muss
+bestehen und die Benjamini-Hochberg-Korrektur kontrolliert die False Discovery
+Rate gleichzeitig über alle 90 konfigurierten Marktspezifikationen.
+
+Dieser zusätzliche Nachweis gehört ausschließlich zur normalen
+Wettfinder-Freigabe. Die bestehenden Wett-, Einsatz- und Release-Regeln der
+15K Challenge bleiben unverändert.
+
+Der persistierte Vertrag trägt Automationsartefakt v14 und
+Auswahl-/Katalogpolicy v12; die zugehörigen Signifikanzfelder liegen
+versionsgebunden im Modellcache-Schema v2. Alte Artefakte oder Cachefelder
+dürfen diesen aktuellen Freigabevertrag nicht still umgehen.
+
+Technischer Nachweis des v14/v12-Funktionsvertrags: Commit
+`aa62cbb7187e32f2de28c8135b76b67984bdd415`, 920 Python-Tests plus 50
+Subtests und 3/3 JavaScript-Tests; Python-Kompilierung und Diff-Prüfung grün.
+
+### 3.9 Kontext: berechnet, geprüft und nicht erfunden
+
+Die Gegnerstärke ist bereits numerischer Bestandteil des Fußballmodells:
+eigene Offensive, gegnerische Defensive, Heim-/Auswärtseffekt, Form,
+Ligaprior und bei ausreichender Abdeckung xG fließen in die Torerwartung ein.
+
+Verletzungen, bestätigte Aufstellungen und Wetter sind derzeit dagegen
+zeitbezogene Live-Kontext-, Abdeckungs- und Vetoachsen. Sie verändern die
+Modellwahrscheinlichkeit nicht numerisch. Im Bestand fehlt ein ausreichend
+großer, zeitgestempelter historischer Prematch-Datensatz, der den damaligen
+Kenntnisstand dieser drei Achsen samt Ergebnis kausal abbildet. Prozentuale
+Effekte oder Spielergewichte dürfen deshalb nicht erfunden werden. Der nächste
+fachlich ehrliche Schritt ist eine prospektive, versionsgebundene Sammlung der
+Prematch-Snapshots und erst danach deren Walk-forward-/HAC-/FDR-Validierung.
 
 ## 4. Aktueller Nutzerfluss
 
@@ -203,15 +279,13 @@ konfigurierten Ligen aus. Spätere halbstündliche Läufe prüfen nur gespeicher
 Kandidaten kurz vor dem Anpfiff. Dadurch werden nicht alle 51 Ligen bei jedem
 Aufwachpunkt erneut belastet.
 
-Die App zeigt dezent:
-
-- Zeitpunkt des letzten Vollscans;
-- geprüfte Ligen;
-- gefundene und modellierte Spiele;
-- Zahl bestandener Fußball-Auswahlen;
-- höchstens drei noch nicht gestartete Top-Auswahlen;
-- bis zu zwölf weitere berechnete Modellprognosen in einem kompakten
-  Zusatzbereich.
+Die App zeigt dem Nutzer den Ergebnisstand, höchstens drei noch nicht
+gestartete Top-Auswahlen und gruppierte weitere Modellprognosen. Interne
+Pipeline-, Dropout-, Liga-, Spiel-, Modell- und Marktprüfungszähler gehören in
+die Administration beziehungsweise Logs, nicht in die Consumer-Oberfläche.
+Ein quellenspezifisch gestörter Lauf darf gesunde Sportarten weiterhin
+anzeigen; die betroffene Sportart wird ehrlich als vorübergehend nicht
+vollständig bewertet gekennzeichnet.
 
 ### 15K Challenge
 
@@ -229,6 +303,10 @@ Die Challenge ist ein separater Workflow mit eigenem Kontobuch:
 
 Die 15K-Auswahl ist derzeit fachlich auf Fußball beschränkt. Ein Sportfilter
 darf keine versteckten Ersatz-Tipps aus anderen Sportarten erzeugen.
+
+Die Trennung vom normalen Wettfinder verändert keine 15K-Wett-, Einsatz-,
+Ticket- oder Release-Regel. Der normale Marktpool darf breiter sein, ohne den
+risikoseparaten Challenge-Vertrag zu lockern.
 
 ## 5. Sport- und Marktstatus
 

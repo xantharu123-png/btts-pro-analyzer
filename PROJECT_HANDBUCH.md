@@ -18,14 +18,16 @@
 | Verifizierter Nutzwert-Katalog-Funktionscommit | `f492385aab986112efbb13366b0a09a99a9c257a` (`Prioritize useful diverse market forecasts`), am 20. August kontrolliert gepusht, deployed und in der echten Produktions-UI geprüft |
 | Verifizierter Nutzwert-/Repricing-Funktionscommit | `6c8ea99d9696cc10a4250b52aaf57755d595f100` (`Harden forecast utility and automatic repricing`), am 24. August kontrolliert gepusht, deployed, mit echtem Automatiklauf und in der Produktions-UI geprüft |
 | Verifizierter Team-Unter-1,5-Korrekturcommit | `08778fdc29a7275c21fc23671d4763290273c435` (`Restore team under 1.5 eligibility`), am 24. August kontrolliert gepusht, deployed, mit echtem Automatiklauf und in der Produktions-UI geprüft |
-| Fachlicher Kernstand | Consumer-Wettfinder mit höchstens einer hervorgehobenen Auswahl je Spiel und Marktfamilie. Eine Wettart wird nicht allein wegen ihres Namens ausgeschlossen: Team-Unter-1,5 ist vollständig Featured-, Strict- und ticketfähig, sobald Modell, Kontext und konkrete Quote bestehen. Nur eine tatsächlich bestätigte Extrem-Kurzquote wird in der Darstellung zurückgestuft; die Prognose bleibt sichtbar. Andere breite Basislinien bleiben berechnet und eingeklappt. Modellprognose, Kontextverfügbarkeit, Marktpreis und strikte Tipp-/Einsatzfreigabe sind getrennte Zustände. |
+| Lokal verifizierter v14/v12-Funktionscommit | `aa62cbb7187e32f2de28c8135b76b67984bdd415` (`Harden normal Wettfinder integrity`); 920 Python-Tests plus 50 Subtests und 3/3 JavaScript-Tests grün, Python-Kompilierung und Diff-Prüfung grün |
+| Fachlicher Kernstand | Der normale Consumer-Wettfinder besitzt einen eigenen vollständigen Marktpool und übernimmt weder den 15K-Wahrscheinlichkeitskorridor noch dessen Ticketvorfilter. Marktname und hohe Modellwahrscheinlichkeit sind keine Ausschlussgründe. Nutzwert und Vielfalt steuern nur die Hervorhebung; zusätzliche Märkte bleiben gruppiert sichtbar. Modellprognose, Kontextverfügbarkeit, Marktpreis und strikte Tipp-/Einsatzfreigabe sind getrennte Zustände. |
+| Aktueller Writer-/Reader-Vertrag | Automationsartefakt v14, Auswahl-/Katalogpolicy v12 und Modellcache-Schema v2. Ein normaler `PLAYABLE`-Tipp verlangt exakte Event-/Auswahlbindung, mindestens drei stabile provider-native Buchmacher-IDs, Zeitstempel je Preisbeobachtung und ein reales ausführbares Buchmacherangebot. |
 | Verifizierter VPS-Funktionsstand | Funktionscommit `08778fd`; App aktiv/enabled, lokaler und öffentlicher Health `200 / ok`, alle 7 BetBoy-Timer aktiv/enabled, echter Artefakt-v13-Wettfinder-Lauf `success / 0`, 0 fehlgeschlagene systemd-Units am 24. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 886 Python-Tests, 38 Subtests und 3/3 JavaScript-Tests am 24. August bestanden; Syntax- und Diff-Prüfungen ebenfalls grün |
+| Vollständiger Testlauf | Aktueller v14/v12-Stand: 920 Python-Tests, 50 Subtests und 3/3 JavaScript-Tests am 24. August bestanden; Python-Kompilierung und Diff-Prüfung ebenfalls grün. Die weiter unten genannten 886/38 gehören zum historischen v13-Produktionsnachweis. |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 | Produkt- und Entscheidungsgrundlage | `PROJEKTBIBEL.md` |
 | PC-Wechsel-Runbook | `PC_WECHSEL_UEBERGABE.md` |
@@ -36,6 +38,101 @@ Produkt-, Mathematik-, UX- und Marketingleitplanke steht in
 `PC_WECHSEL_UEBERGABE.md`. Alle drei Dokumente enthalten absichtlich keine
 Schlüssel, Passwörter oder Tokens. Ältere Berichte sind nur Historie, wenn sie
 diesem Handbuch oder dem aktuellen Code widersprechen.
+
+### Aktuelles Härtungspaket: normaler Wettfinder v14/v12
+
+Dieser Abschnitt ist der verbindliche aktuelle Vertrag für den normalen
+Wettfinder. Die nachfolgenden datierten Abschnitte dokumentieren frühere
+Produktionsstände und dürfen diesen Vertrag nicht überschreiben.
+
+#### Eigener Marktpool statt 15K-Vorfilter
+
+- Der normale Wettfinder konstruiert aus allen berechenbaren
+  Marktdefinitionen einen eigenen vollständigen Kandidatenpool. Er verwendet
+  weder den 15K-Wahrscheinlichkeitskorridor noch dessen Ticketvorfilter.
+- Auch Modellwahrscheinlichkeiten oberhalb der 15K-Obergrenze dürfen in der
+  normalen Suche erscheinen und die normalen Modell-/Validierungsgates
+  durchlaufen.
+- Es gibt kein fachliches Markt-Namensgate. Team-Unter-1,5, breite Torlinien
+  und andere berechenbare Märkte werden nicht wegen ihrer Bezeichnung aus
+  Modellprüfung oder Preisprüfung entfernt.
+- Die Nutzwertsortierung ist ausschließlich eine Consumer-Präsentationsregel:
+  Sie bevorzugt informative, unterschiedliche Spiele und Marktfamilien in
+  den hervorgehobenen Karten. Alle weiteren ausgewählten Marktprognosen
+  bleiben in gruppierten Zusatzbereichen sichtbar.
+
+#### Prognose und Preis bleiben getrennt
+
+Eine fehlende oder zu niedrige Quote sperrt nicht die Modellprognose. Sie
+erzeugt einen verständlichen Hinweis wie „Preis noch offen“ beziehungsweise
+„zu diesem Preis nicht spielen“. Modellwahrscheinlichkeit, konservative
+Prognose und Auswahl bleiben unverändert.
+
+Für den normalen Wettfinder ist `PLAYABLE` fail-closed und verlangt gemeinsam:
+
+1. exakte Bindung an Sport, Ereignis, Teilnehmer, Markt, Auswahl, Team-Scope
+   und Linie;
+2. mindestens drei unterschiedliche stabile Buchmacher-IDs aus einem
+   provider-nativen Namensraum wie `api-football:` oder `odds-api:`;
+3. einen parsebaren Beobachtungszeitpunkt für jeden verwendeten Preispunkt;
+4. ein reales, ausführbares Angebot eines konkret bezeichneten Buchmachers.
+
+Vor Quartil und Ausführung wird der normale Teilbestand auf aktuelle,
+providergebundene Einzelangebote reduziert und daraus neu berechnet. Ein
+einzelner alter oder unvollständig identifizierter Punkt darf mindestens drei
+andere gültige Anbieter nicht unbrauchbar machen.
+
+Quartil, Median oder ein anderer Konsenswert dürfen als Marktvergleich
+berechnet werden, aber niemals als angeblich ausführbare Quote auf der
+Tippkarte erscheinen. Legacy-Preise ohne den vollständigen Nachweis bleiben
+lesbar, sind im normalen Wettfinder jedoch nicht handlungsfähig.
+
+#### Statistische Normalfreigabe
+
+Der Walk-forward-Nachweis verwendet je historischem Spiel die gepaarte
+Brier-Verlustdifferenz von Modell und zeitgleichem Basiswert. Der
+Newey-West-/HAC-Standardfehler schützt die Unsicherheitsrechnung gegen
+zeitliche Abhängigkeit. Für eine normale Release-Freigabe müssen der
+einseitige untere Konfidenzrand positiv und der einseitige p-Wert ausreichend
+klein sein. Anschließend wird Benjamini-Hochberg über alle 90 konfigurierten
+Marktspezifikationen angewendet; nur eine bestandene FDR-Korrektur genügt.
+
+Die neuen Felder werden im Modellcache-Schema v2 und im
+Automationsartefakt v14 mit Auswahl-/Katalogpolicy v12 versionsgebunden
+geführt. Diese zusätzliche Signifikanzschicht gilt nur für die normale
+Wettfinder-Freigabe. Wett-, Einsatz-, Ticket- und Release-Regeln der 15K
+Challenge bleiben unverändert.
+
+#### Kontextwirkung ohne erfundene Gewichte
+
+Gegnerstärke ist bereits numerisch im Tormodell enthalten: eigene Offensive,
+gegnerische Defensive, Heim-/Auswärtsaufteilung, Form, Ligaprior und bei
+ausreichender Abdeckung xG bestimmen gemeinsam die Torerwartung.
+
+Verletzungen, Aufstellungen und Wetter sind derzeit zeitbezogene
+Live-Kontext-, Abdeckungs- und Vetoachsen. Der Status
+`probability_integration: not_adjusted` ist absichtlich ehrlich: Im Bestand
+existiert kein ausreichend großer, zeitgestempelter historischer
+Prematch-Datensatz, der den damaligen Informationsstand dieser drei Achsen
+samt späterem Ergebnis kausal enthält. Deshalb werden keine Prozentabschläge,
+Spielergewichte oder Wettereffekte erfunden. Der nächste zulässige Schritt ist
+eine prospektive, versionsgebundene Sammlung der Prematch-Snapshots; erst eine
+spätere Walk-forward-/HAC-/FDR-Prüfung darf daraus numerische Effekte
+freigeben.
+
+#### Teilfehler und Consumer-UI
+
+Operative Fehler werden pro Datenquelle beziehungsweise Sport geführt. Fällt
+zum Beispiel die Tennisquelle aus, bleiben unabhängig gültige
+Fußballauswahlen erhalten; nur Kandidaten der fehlerhaften Quelle werden aus
+dem betroffenen Lauf entfernt. Der Gesamtlauf bleibt als `degraded`
+gekennzeichnet und darf betrieblich nicht als Vollerfolg erscheinen.
+
+Die Consumer-Oberfläche zeigt Ergebnis, Auswahl, Wahrscheinlichkeit,
+Mindestquote, realen Preisstatus und knappen Kontextstatus. Interne Liga-,
+Fixture-, Kandidaten-, Gate-, Dropout-, Modell- und Marktprüfungszähler sowie
+Cache- und Providerdiagnosen gehören ausschließlich in Administration und
+Logs.
 
 ### Produktiv verifizierte Team-Unter-1,5-Korrektur vom 24. August 2026
 
@@ -290,12 +387,16 @@ Der verbindliche Ablauf lautet:
 1. Das Modell bildet eine Punktwahrscheinlichkeit ohne Buchmacherquote.
 2. Datenherkunft, Aktualität, Stichprobe und zeitliche Validierung werden
    geprüft.
-3. Ausfälle und Wetter werden als Pflichtkontext angewendet. H2H ist nur ein
-   konservativer Gegencheck: Fehlende oder kleine Direktvergleichsstichproben
-   sind neutral und können weder freigeben noch blockieren. Im Fußball-Shadow-
-   Lauf kurz vor Anpfiff sind bestätigte Startaufstellungen beider Teams ein
-   verbindliches Gate. Im täglichen 15K-Vorlauf sind sie Zusatzinformation;
-   dort bleibt jede Ausgabe ausdrücklich `SHADOW` und keine Echtgeldfreigabe.
+3. Gegnerstärke ist numerisch in Offensive, gegnerischer Defensive,
+   Heim-/Auswärtseffekt, Form, Ligaprior und gegebenenfalls xG enthalten.
+   Ausfälle, Wetter und Aufstellungen sind derzeit verifizierte Live-Kontext-,
+   Abdeckungs- und Vetoachsen, aber keine erfundenen numerischen
+   Wahrscheinlichkeitsgewichte. H2H ist nur ein konservativer Gegencheck:
+   Fehlende oder kleine Direktvergleichsstichproben sind neutral und können
+   weder freigeben noch blockieren. Im Fußball-Shadow-Lauf kurz vor Anpfiff
+   sind bestätigte Startaufstellungen beider Teams ein verbindliches Gate. Im
+   täglichen 15K-Vorlauf sind sie Zusatzinformation; dessen bestehende
+   Wett-/Einsatz-/Release-Regeln bleiben unverändert.
 4. Die quotenfreie Prognose bleibt sichtbar, auch wenn ein Modellgate oder
    später die Preisprüfung scheitert.
 5. Erst danach wird, soweit exakt verfügbar, ein automatischer
@@ -361,16 +462,17 @@ deutlich ehrlicher als zuvor:
   Deploy-Recovery-Lauf verifizierte 82 von 82 Datenbanken; der historische
   erste Restore-Nachweis umfasste 14.
 - Der automatische Wettfinder entdeckt pro Zieldatum einmal alle Spiele aus
-  allen 51 Fußballligen und persistiert einen mathematisch bestandenen
-  Tagespool. Danach werden nur konkrete Kandidaten-Fixtures kurz vor Anpfiff
-  mit H2H, Ausfällen, Wetter und Aufstellungen aktualisiert. Öffentlich
-  erscheinen bis zu drei hervorgehobene Top-Auswahlen und bis zu zwölf weitere
-  noch nicht gestartete Modellprognosen. Exakt verfügbare Fußballpreise werden
-  erst nach der Modellrangfolge als Hinweis angefügt.
+  allen 51 Fußballligen und persistiert für die normale Suche einen eigenen
+  vollständigen Marktpool ohne 15K-Wahrscheinlichkeitskorridor. Danach werden
+  konkrete Kandidaten-Fixtures kurz vor Anpfiff mit H2H, Ausfällen, Wetter
+  und Aufstellungen aktualisiert. Öffentlich erscheinen bis zu drei
+  hervorgehobene Top-Auswahlen; alle weiteren ausgewählten Prognosen bleiben
+  nach Sport und Marktfamilie gruppiert erreichbar. Exakt verfügbare Preise
+  werden erst nach der Modellrangfolge als Hinweis angefügt.
 - Die automatische Tagesauswahl ist direkt im Wettfinder sichtbar. Sie nennt
-  Zieldatum, Zeitpunkt des letzten echten 51-Ligen-Vollscans, gefundene und
-  modellierte Spiele sowie die Zahl bestandener Fußball-Auswahlen. Ein leerer
-  Fußball-Pool wird nicht als fehlender Scan dargestellt.
+  einen knappen Ergebnis- und Aktualitätsstand, aber keine internen Liga-,
+  Spiel-, Kandidaten-, Gate-, Modell- oder Marktprüfungszähler. Diese
+  Betriebsdiagnostik bleibt Administration und Logs vorbehalten.
 - Die manuelle Suche kann für alle sechs Sportarten bis 14 Tage voraus laufen;
   Ergebnis-Caches sind an Sport, Filter, Start- und Enddatum gebunden.
 
@@ -847,7 +949,7 @@ als nicht eingebundene Rollback-Historie erhalten.
 
 | Bereich | Zweck | Aktueller Status |
 |---|---|---|
-| Wettfinder | Fußball, Tennis, Basketball, Eishockey, Cricket und E-Sport; gemeinsamer Suchhorizont bis 14 Tage; Fußball inklusive BTTS, Ergebnis, Tore, Ecken und Karten | drei hervorgehobene plus bis zu zwölf weitere Fußball-Modellprognosen; maximal drei konkrete preis-/releasefreigegebene Tipps; automatische Fußball-Referenzquote, sonst Mindestquote |
+| Wettfinder | Fußball, Tennis, Basketball, Eishockey, Cricket und E-Sport; gemeinsamer Suchhorizont bis 14 Tage; Fußball inklusive BTTS, Ergebnis, Tore, Ecken und Karten | eigener vollständiger Normalmarktpool ohne 15K-Korridor; bis zu drei nutzwertsortierte Hervorhebungen und gruppiert sichtbare Zusatzmärkte; maximal drei konkrete preis-/releasefreigegebene Tipps; nur reales ausführbares Buchmacherangebot als Quote |
 | Live | BTTS, Resttor, Teamtor | `RESEARCH`; bis unabhängige Live-Kalibrierung blockiert |
 | 15K | bis zu drei Legs, Zielquote 2,00-3,00, automatischer konservativer Mehrbuchmacherpreis | nur modell- und preisgeprüfte Challenge-Tipps; weiterhin sehr hohes Risiko |
 | Meine Tipps | aktive preisgeprüfte Tipps sowie Fußball-/15K-/Tennis-Verlauf | sitzungsisoliert; Research und No-Bet werden nicht als Tipp gespeichert |
@@ -872,14 +974,14 @@ Konkrete Blockaden:
 | `advanced_analyzer.py` | BTTS-Analyse und Modellensemble |
 | `betting_math.py` | kanonische Quote-, No-Vig-, Risiko-EV-, Mindestquote- und Kelly-Mathematik |
 | `price_ledger.py` | append-only Nachweise für den stillgelegten manuellen Preisweg |
-| `market_consensus.py` | exakte API-Football-Marktabbildung, Mehrbuchmacher-Konsens, Frische und Preisstatus |
-| `challenge_engine.py` | Märkte, Validierung, Kontext und Ticketlogik |
+| `market_consensus.py` | exakte Event-/Auswahlbindung, provider-native Buchmacheridentität, Zeitstempel, ausführbares Angebot, Mehrbuchmacher-Konsens und Preisstatus |
+| `challenge_engine.py` | Normalmarktpool, 90 Marktdefinitionen, gepaarte Brier-/HAC-/FDR-Validierung, numerische Gegnerstärke, Live-Kontext und getrennte 15K-Ticketlogik |
 | `football_recommendations.py` | gemeinsame Freigabepolicy |
 | `bet_finder_ui.py` | kundenorientierte Tippkarte, Mindestquote und automatischer Preisstatus |
 | `tip_store.py` | sitzungsisolierte Ablage preisgeprüfter `BET`-/`SHADOW`-Tipps |
 | `my_tips.py` | aktive Tipps, manueller Abschluss und gemeinsame Verlaufsnavigation |
 | `ev_signal_sources.py` | versionsgebundener Signalvertrag aus Punkt-p, Haircut und Evidenzstufe |
-| `wettfinder_automation.py` | tägliche 51-Ligen-Discovery, Fixture-Kontext-Refresh, quotenfreier Nutzwert-Katalog und nachgelagerte Fußballpreise |
+| `wettfinder_automation.py` | tägliche 51-Ligen-Discovery, eigener Normalmarktpool, Fixture-Kontext-Refresh, quellenspezifische Degraded-Behandlung und nachgelagerte ausführbare Preise |
 | `alternative_markets_tab_extended.py` | Fußball-Wettarten und manuelle Intervallsuche bis 14 Tage |
 | `scan_jobs.py` | sitzungsgebundene Hintergrundjobs |
 | `challenge_15k.py` | Challenge-Workflow und UI |
