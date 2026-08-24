@@ -6,13 +6,19 @@ from typing import Optional
 import streamlit as st
 
 import scan_jobs
-from bet_finder_ui import partition_consumer_forecasts, render_price_decision
+from bet_finder_ui import (
+    merge_consumer_forecast_catalog,
+    partition_consumer_featured_forecasts,
+    partition_consumer_forecasts,
+    render_price_decision,
+)
 from bet_finder_candidates import build_probability_candidate
 from multi_sport_recommendations import EVIDENCE_SHADOW
 from ui_components import scan_progress_fragment
 from challenge_15k import (
     MAX_SCAN_FIXTURES,
     ChallengeDataProvider,
+    _price_annotation_candidate_pool,
     scan_daily_challenge,
 )
 from challenge_engine import candidate_context_summary, select_shortlist
@@ -22,6 +28,7 @@ from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from market_consensus import (
     deserialize_consensus_map,
     fetch_football_consensus,
+    quote_matches_candidate,
     reference_price_status,
     serialize_consensus_map,
 )
@@ -29,8 +36,8 @@ from market_consensus import (
 
 DEFAULT_LEAGUES = [78, 39, 140]
 MARKET_WORKFLOW_VERSION = 12
-MARKET_SNAPSHOT_VERSION = 14
-MAX_CONSUMER_MARKET_SELECTIONS = 15
+MARKET_SNAPSHOT_VERSION = 15
+MAX_CONSUMER_MARKET_SELECTIONS = 25
 FEATURED_CONSUMER_MARKET_SELECTIONS = 3
 MARKET_AUDIT_VERSION = 1
 MARKET_MAX_AGE_MINUTES = 20
@@ -426,20 +433,31 @@ def _merge_consumer_market_rows(
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError("limit must be a positive integer")
     displayed = []
-    seen_events = set()
-    # The model order is authoritative. Priced rows only fill compatibility
-    # gaps in older snapshots and may never displace a stronger forecast.
-    for raw_candidate in [*(model_rows or []), *(priced_rows or [])]:
-        fixture_id = getattr(raw_candidate, "fixture_id", None)
-        identity = (
-            f"fixture:{fixture_id}"
-            if isinstance(fixture_id, int) and not isinstance(fixture_id, bool)
-            else f"candidate:{getattr(raw_candidate, 'candidate_id', '')}"
-        )
-        if not identity or identity in seen_events:
+    seen_candidates = set()
+    model_fixtures = set()
+    # The model order is authoritative and may contain several auditable
+    # markets for one fixture. Priced rows only fill compatibility gaps in
+    # older snapshots and may never duplicate a model fixture.
+    for raw_candidate in model_rows or []:
+        candidate_id = str(getattr(raw_candidate, "candidate_id", "")).strip()
+        identity = candidate_id or f"object:{id(raw_candidate)}"
+        if identity in seen_candidates:
             continue
         displayed.append(raw_candidate)
-        seen_events.add(identity)
+        seen_candidates.add(identity)
+        fixture_id = getattr(raw_candidate, "fixture_id", None)
+        if isinstance(fixture_id, int) and not isinstance(fixture_id, bool):
+            model_fixtures.add(fixture_id)
+        if len(displayed) >= limit:
+            return displayed
+    for raw_candidate in priced_rows or []:
+        candidate_id = str(getattr(raw_candidate, "candidate_id", "")).strip()
+        identity = candidate_id or f"object:{id(raw_candidate)}"
+        fixture_id = getattr(raw_candidate, "fixture_id", None)
+        if identity in seen_candidates or fixture_id in model_fixtures:
+            continue
+        displayed.append(raw_candidate)
+        seen_candidates.add(identity)
         if len(displayed) >= limit:
             break
     return displayed
@@ -486,23 +504,49 @@ def _run_market_scan_worker(
     # The calculated forecast is a separate axis from bookmaker price and
     # from the later release decision.  In particular, a provisional UEFA
     # forecast must remain visible even when it is not an Echtgeld tip.
-    model_shortlist = list(
+    model_shortlist = merge_consumer_forecast_catalog(
         challenge_snapshot.get("forecast_shortlist")
         or challenge_snapshot.get("shortlist")
-        or []
+        or [],
+        challenge_snapshot.get("basis_forecasts") or [],
     )
+    raw_price_candidates = challenge_snapshot.get("price_candidates")
     price_candidates = list(
-        challenge_snapshot.get("price_candidates")
-        or model_shortlist
+        raw_price_candidates
+        if isinstance(raw_price_candidates, list)
+        else (
+            challenge_snapshot.get("forecast_shortlist")
+            or challenge_snapshot.get("shortlist")
+            or []
+        )
+    )
+    price_annotation_candidates = _price_annotation_candidate_pool(
+        price_candidates,
+        list(challenge_snapshot.get("basis_forecasts") or []),
     )
     reference_quotes, quote_errors = fetch_football_consensus(
         api_football_key,
-        price_candidates,
+        price_annotation_candidates,
     )
+    price_candidate_by_id = {
+        candidate.candidate_id: candidate
+        for candidate in price_annotation_candidates
+    }
+    reference_quotes = {
+        candidate_id: quote
+        for candidate_id, quote in reference_quotes.items()
+        if quote_matches_candidate(
+            quote,
+            price_candidate_by_id.get(candidate_id),
+        )
+    }
     price_checked_at = datetime.now(timezone.utc)
     price_status_counts: dict[str, int] = {}
     playable_candidates = []
-    for candidate in price_candidates:
+    strict_candidate_ids = {
+        candidate.candidate_id for candidate in price_candidates
+    }
+    for candidate in price_annotation_candidates:
         quote = reference_quotes.get(candidate.candidate_id)
         status = reference_price_status(
             quote,
@@ -512,7 +556,10 @@ def _run_market_scan_worker(
         price_status_counts[status.code] = (
             price_status_counts.get(status.code, 0) + 1
         )
-        if status.code == "PLAYABLE":
+        if (
+            status.code == "PLAYABLE"
+            and candidate.candidate_id in strict_candidate_ids
+        ):
             playable_candidates.append(candidate)
 
     challenge_snapshot["model_shortlist"] = model_shortlist
@@ -536,9 +583,14 @@ def _run_market_scan_worker(
     )
     challenge_snapshot["quote_errors"] = quote_errors
     challenge_snapshot["price_checked_at"] = price_checked_at.isoformat()
-    challenge_snapshot["price_checked_count"] = len(price_candidates)
+    challenge_snapshot["price_annotation_candidates"] = (
+        price_annotation_candidates
+    )
+    challenge_snapshot["price_checked_count"] = len(
+        price_annotation_candidates
+    )
     challenge_snapshot["price_fixture_count"] = len(
-        {candidate.fixture_id for candidate in price_candidates}
+        {candidate.fixture_id for candidate in price_annotation_candidates}
     )
     challenge_snapshot["price_status_counts"] = price_status_counts
     challenge_snapshot["bookmaker_data_used"] = bool(reference_quotes)
@@ -825,9 +877,24 @@ def create_alternative_markets_tab_extended(
     # Model ranking stays authoritative inside each presentation tier; only a
     # confirmed extreme-short market moves out of the prominent consumer tier.
     displayed_rows = _merge_consumer_market_rows(shortlist, model_shortlist)
+    displayed_by_id = {
+        candidate.candidate_id: candidate for candidate in displayed_rows
+    }
+    reference_quotes = {
+        candidate_id: quote
+        for candidate_id, quote in reference_quotes.items()
+        if quote_matches_candidate(
+            quote,
+            displayed_by_id.get(candidate_id),
+        )
+    }
     primary_rows, extreme_short_rows = partition_consumer_forecasts(
         displayed_rows,
         quote_for=lambda candidate: reference_quotes.get(candidate.candidate_id),
+    )
+    featured_rows, more_rows = partition_consumer_featured_forecasts(
+        primary_rows,
+        max_featured=FEATURED_CONSUMER_MARKET_SELECTIONS,
     )
 
     if not displayed_rows:
@@ -836,18 +903,19 @@ def create_alternative_markets_tab_extended(
             day_label=result_day,
         )
     else:
-        if shortlist:
+        if not featured_rows:
+            st.info(
+                "Aktuell gibt es keine nützliche Hauptauswahl. Breite "
+                "Basisprognosen, ähnliche Märkte und bestätigte sehr kurze "
+                "Quoten bleiben unten vollständig sichtbar."
+            )
+        elif shortlist:
             priced_count = min(len(shortlist), len(primary_rows))
             st.info(
                 f"{priced_count} Modell-Auswahl"
                 f"{'en' if priced_count != 1 else ''} mit passender "
                 f"Vergleichsquote für {result_day}. Weitere berechnete "
                 "Auswahlen bleiben unabhängig vom Preis sichtbar."
-            )
-        elif not primary_rows and extreme_short_rows:
-            st.info(
-                "Aktuell gibt es keine nützliche Hauptauswahl. "
-                "Modellprognosen mit sehr kurzen Quoten bleiben unten sichtbar."
             )
         else:
             found_label = (
@@ -885,8 +953,6 @@ def create_alternative_markets_tab_extended(
                 if offset < len(candidates) - 1:
                     st.divider()
 
-        featured_rows = primary_rows[:FEATURED_CONSUMER_MARKET_SELECTIONS]
-        more_rows = primary_rows[FEATURED_CONSUMER_MARKET_SELECTIONS:]
         render_rows(featured_rows, start_index=1)
         if more_rows:
             with st.expander(
@@ -894,13 +960,13 @@ def create_alternative_markets_tab_extended(
                 expanded=False,
             ):
                 st.caption(
-                    "Diese Auswahlen erfüllen dieselben Modellregeln und sind "
-                    "niedriger eingestuft als die drei Top-Auswahlen. Hinweise "
-                    "zur Preisprüfung bleiben bei jeder Auswahl sichtbar."
+                    "Der Modellkatalog bleibt vollständig. Wiederholte "
+                    "Marktentscheidungen oder weitere Auswahlen desselben "
+                    "Spiels stehen gesammelt hier; die Quote blockiert nichts."
                 )
                 render_rows(
                     more_rows,
-                    start_index=FEATURED_CONSUMER_MARKET_SELECTIONS + 1,
+                    start_index=len(featured_rows) + 1,
                 )
         if extreme_short_rows:
             with st.expander(

@@ -11,6 +11,7 @@ def _history(team_id, opponent_id, wins, losses, start_id):
         {
             "match_id": start_id + index,
             "begin_at": f"2026-07-{1 + index:02d}T12:00:00Z",
+            "end_at": f"2026-07-{1 + index:02d}T14:00:00Z",
             "opponent_id": opponent_id,
             "won": (index * wins) % total < wins,
             "number_of_games": 3,
@@ -31,6 +32,7 @@ def _match(match_id=55, team1_wins=15, team2_wins=8):
         "team2_score": 0,
         "series_type": 3,
         "status": "upcoming",
+        "begin_at": "2099-08-01T18:00:00Z",
         "team1_stats": {"matches": 20, "wins": team1_wins},
         "team2_stats": {"matches": 20, "wins": team2_wins},
         "team1_history": _history(7, 100, team1_wins, 20 - team1_wins, 1000),
@@ -51,6 +53,34 @@ class EsportsShadowLogTests(unittest.TestCase):
             self.assertEqual(summary["predictions"], 1)
             self.assertEqual(summary["open"], 1)
             self.assertIsNone(summary["hit_rate"])
+
+    def test_logged_elo_uses_the_same_causal_twenty_rows_as_the_candidate(self):
+        from unittest.mock import patch
+
+        from esports_elo import subgraph_ratings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log = EsportsShadowLog(Path(tmp) / "shadow.db")
+            match = _match()
+            match["team1_history"] = _history(7, 100, 18, 7, 3000)
+            match["team2_history"] = _history(8, 100, 9, 16, 4000)
+
+            with patch(
+                "esports_shadow.subgraph_ratings",
+                wraps=subgraph_ratings,
+            ) as shadow_ratings:
+                self.assertEqual(log.log_predictions([match]), 1)
+
+            shadow_ratings.assert_called_once()
+            history1, history2 = shadow_ratings.call_args.args[:2]
+            self.assertEqual(
+                [row["match_id"] for row in history1],
+                list(range(3024, 3004, -1)),
+            )
+            self.assertEqual(
+                [row["match_id"] for row in history2],
+                list(range(4024, 4004, -1)),
+            )
 
     def test_skips_matches_without_enough_history(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -157,7 +187,8 @@ class EsportsShadowLogTests(unittest.TestCase):
             log.log_predictions([_match(55)])
             with closing(sqlite3.connect(db)) as con:
                 con.execute(
-                    "UPDATE esports_shadow_predictions SET model_version='legacy-v1' "
+                    "UPDATE esports_shadow_predictions "
+                    "SET model_version='subgraph-elo-v2', settled=1, hit=1 "
                     "WHERE match_id=55"
                 )
                 con.commit()
@@ -165,7 +196,11 @@ class EsportsShadowLogTests(unittest.TestCase):
             summary = log.summary()
 
             self.assertEqual(summary["predictions"], 0)
+            self.assertEqual(summary["settled"], 0)
             self.assertEqual(summary["model_version"], ESPORTS_MODEL_VERSION)
+            self.assertEqual(ESPORTS_MODEL_VERSION, "subgraph-elo-v3")
+            self.assertEqual(log.release_status()["settled"], 0)
+            self.assertEqual(log.summary("subgraph-elo-v2")["settled"], 1)
 
     def test_age_alone_never_voids_an_unresolved_row(self):
         import sqlite3

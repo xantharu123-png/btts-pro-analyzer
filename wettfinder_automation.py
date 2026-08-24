@@ -22,6 +22,7 @@ import math
 import os
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
+import unicodedata
 from zoneinfo import ZoneInfo
 
 from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
@@ -33,6 +34,7 @@ from challenge_15k import (
 )
 from challenge_engine import (
     MARKET_BY_KEY,
+    MODEL_SCOPE_SAME_COMPETITION,
     ChallengeCandidate,
     ValidationMetrics,
     candidate_context_summary,
@@ -58,6 +60,8 @@ from market_consensus import (
     MarketConsensus,
     exact_market_target,
     fetch_football_consensus,
+    fetch_tennis_h2h_consensus,
+    quote_matches_candidate,
     reference_price_status,
 )
 
@@ -75,6 +79,7 @@ MAX_AUTOMATIC_CANDIDATES = MAX_AUTOMATED_MODEL_CANDIDATES
 MAX_AUTOMATIC_RECOMMENDATIONS = MAX_AUTOMATED_RECOMMENDATIONS
 MAX_AUTOMATIC_PRICE_FIXTURES = 10
 MAX_AUTOMATIC_MARKETS_PER_FIXTURE = 8
+MAX_AUTOMATIC_BASIC_FORECASTS = 10
 TOMORROW_SCAN_HOUR = 23
 ERROR_RETRY = timedelta(hours=2)
 FOOTBALL_CONTEXT_WINDOW = timedelta(hours=2)
@@ -107,6 +112,47 @@ def _parse_iso(value: object) -> Optional[datetime]:
     if parsed.tzinfo is None:
         return None
     return parsed.astimezone(timezone.utc)
+
+
+def _event_identity_name(value: object) -> str:
+    decomposed = unicodedata.normalize("NFKD", str(value or "").casefold())
+    return " ".join(
+        "".join(
+            character
+            if character.isalnum() and not unicodedata.combining(character)
+            else " "
+            for character in decomposed
+        ).split()
+    )
+
+
+def _signal_event_identity(
+    sport: str,
+    signal_key: str,
+    competitor_a: Optional[str],
+    competitor_b: Optional[str],
+    scheduled: Optional[datetime],
+) -> str:
+    """Stable real-event identity for persisted tennis model variants."""
+
+    normalized_sport = _event_identity_name(sport)
+    participants = sorted(
+        _event_identity_name(value)
+        for value in (competitor_a, competitor_b)
+        if _event_identity_name(value)
+    )
+    if (
+        normalized_sport == "tennis"
+        and scheduled is not None
+        and len(participants) == 2
+        and participants[0] != participants[1]
+    ):
+        match_day = scheduled.astimezone(ZURICH_TZ).date().isoformat()
+        return (
+            f"tennis:{participants[0]}|{participants[1]}:"
+            f"{match_day}"
+        )
+    return f"{str(sport or '').lower()}:{signal_key}"
 
 
 def target_search_date(now: Optional[datetime] = None) -> date:
@@ -234,12 +280,14 @@ def _football_candidate_record(
     candidate: object,
     *,
     context_checked_at: Optional[datetime] = None,
+    allow_basic: bool = False,
 ) -> Optional[dict[str, Any]]:
     if not isinstance(candidate, ChallengeCandidate):
         return None
     if not candidate_is_forecast_credible(candidate):
         return None
-    if market_is_basic_forecast(candidate.market_key):
+    is_basic_forecast = market_is_basic_forecast(candidate.market_key)
+    if is_basic_forecast and not allow_basic:
         return None
     probability = _finite_probability(_value(candidate, "probability"))
     conservative = _finite_probability(
@@ -301,6 +349,7 @@ def _football_candidate_record(
         "detail": " - ".join(detail_parts),
         "model_scope": model_scope,
         "market_kind": market_spec.kind if market_spec is not None else "other",
+        "is_basic_forecast": is_basic_forecast,
         "selection_rank": list(candidate_selection_rank(candidate)),
         "context_summary": candidate_context_summary(candidate),
         "context": dict(candidate.context),
@@ -437,14 +486,42 @@ def _signal_record(signal: ModelSignal) -> Optional[dict[str, Any]]:
     scheduled = _parse_iso(signal.scheduled_start)
     if signal.scheduled_start is not None and scheduled is None:
         return None
+    competitor_a = str(
+        getattr(signal, "competitor_a", None) or ""
+    ).strip() or None
+    competitor_b = str(
+        getattr(signal, "competitor_b", None) or ""
+    ).strip() or None
+    selected_competitor = str(
+        getattr(signal, "selected_competitor", None) or ""
+    ).strip() or None
+    competition = str(
+        getattr(signal, "competition", None) or ""
+    ).strip() or None
     return {
         "key": signal.key,
+        "candidate_id": signal.key,
         "sport": sport,
         "event": event_label,
-        "event_identity": f"{sport.lower()}:{signal.key}",
+        "event_identity": _signal_event_identity(
+            sport,
+            signal.key,
+            competitor_a,
+            competitor_b,
+            scheduled,
+        ),
         "label": signal.label,
         "market": market,
+        "market_key": (
+            "H2H"
+            if all((competitor_a, competitor_b, selected_competitor))
+            else None
+        ),
         "selection": selection,
+        "competitor_a": competitor_a,
+        "competitor_b": competitor_b,
+        "selected_competitor": selected_competitor,
+        "competition": competition,
         "probability": probability,
         "probability_haircut": haircut,
         "conservative_probability": conservative,
@@ -453,6 +530,7 @@ def _signal_record(signal: ModelSignal) -> Optional[dict[str, Any]]:
         "policy_version": signal.policy_version,
         "scheduled_start": scheduled.isoformat() if scheduled else None,
         "status": "PRICE_REQUIRED",
+        "reference_price_status": "UNAVAILABLE",
         "source": "tennis_shadow" if sport == "Tennis" else "esports_shadow",
         "detail": signal.detail,
         "context_summary": signal.context_summary,
@@ -560,16 +638,45 @@ def build_model_selection_ledger(
     """
 
     del strict_rows
+    forecast_list = [
+        dict(row) for row in forecast_rows if isinstance(row, dict)
+    ]
     ledger = [
         dict(row)
         for row in select_candidates(
-            forecast_rows,
+            (
+                row
+                for row in forecast_list
+                if row.get("is_basic_forecast") is not True
+            ),
             now=now,
             target_date=target_date,
             limit=limit,
             preserve_order=True,
         )
     ]
+    seen_keys = {
+        str(row.get("key") or "").strip()
+        for row in ledger
+        if str(row.get("key") or "").strip()
+    }
+    for row in _ranked_candidates(
+        (
+            row
+            for row in forecast_list
+            if row.get("is_basic_forecast") is True
+        ),
+        now=now,
+        target_date=target_date,
+        preserve_order=True,
+    ):
+        key = str(row.get("key") or "").strip()
+        if not key or key in seen_keys:
+            continue
+        ledger.append(dict(row))
+        seen_keys.add(key)
+        if len(ledger) >= limit:
+            break
     for row in ledger:
         row["status"] = "MODEL_SELECTION"
     return ledger
@@ -579,6 +686,7 @@ def build_daily_forecast_catalog(
     football_rows: Iterable[dict[str, Any]],
     other_rows: Iterable[dict[str, Any]],
     *,
+    football_basis_rows: Iterable[dict[str, Any]] = (),
     now: Optional[datetime] = None,
     target_date: Optional[date] = None,
 ) -> list[dict[str, Any]]:
@@ -591,6 +699,32 @@ def build_daily_forecast_catalog(
         limit=MAX_AUTOMATIC_FOOTBALL_CANDIDATES,
         preserve_order=True,
     )
+    football_keys = {
+        str(row.get("key") or "").strip()
+        for row in football_catalog
+        if str(row.get("key") or "").strip()
+    }
+    basis_catalog: list[dict[str, Any]] = []
+    for row in _ranked_candidates(
+        football_basis_rows,
+        now=now,
+        target_date=target_date,
+        preserve_order=True,
+    ):
+        key = str(row.get("key") or "").strip()
+        if (
+            not key
+            or key in football_keys
+            or row.get("is_basic_forecast") is not True
+        ):
+            continue
+        football_keys.add(key)
+        basis_catalog.append(row)
+        if (
+            len(football_catalog) + len(basis_catalog)
+            >= MAX_AUTOMATIC_FOOTBALL_CANDIDATES
+        ):
+            break
     grouped_other: dict[str, list[dict[str, Any]]] = {}
     for row in other_rows:
         if not isinstance(row, dict):
@@ -610,7 +744,7 @@ def build_daily_forecast_catalog(
                 preserve_order=True,
             )
         )
-    return [*football_catalog, *other_catalog]
+    return [*football_catalog, *basis_catalog, *other_catalog]
 
 
 def select_price_check_candidates(
@@ -708,6 +842,32 @@ def _football_state_from_snapshot(
         if record is not None
     ]
     records = _select_football_record_catalog(records)
+    record_ids = {
+        str(record.get("candidate_id") or "").strip()
+        for record in records
+        if str(record.get("candidate_id") or "").strip()
+    }
+    basis_records = [
+        record
+        for record in (
+            _football_candidate_record(
+                candidate,
+                context_checked_at=scanned_at,
+                allow_basic=True,
+            )
+            for candidate in _first_present_candidate_list(
+                snapshot,
+                "basis_forecasts",
+            )
+        )
+        if record is not None
+        and record.get("is_basic_forecast") is True
+        and str(record.get("candidate_id") or "").strip() not in record_ids
+    ]
+    basis_records = _select_football_record_catalog(
+        basis_records,
+        limit=MAX_AUTOMATIC_BASIC_FORECASTS,
+    )
     errors = [
         str(error)
         for error in (snapshot.get("errors") or [])
@@ -805,6 +965,7 @@ def _football_state_from_snapshot(
         "context_checks": context_checks,
         "approved_candidates": len(records),
         "candidates": records,
+        "basis_candidates": basis_records,
         "errors": errors,
     }
 
@@ -842,6 +1003,7 @@ def _failed_football_state(
     state.setdefault("discovery_candidate_count", 0)
     state.setdefault("context_checks", {})
     state.setdefault("candidates", [])
+    state.setdefault("basis_candidates", [])
     state.setdefault("fixtures_found", 0)
     state.setdefault("fixtures_modeled", 0)
     state.setdefault("base_candidates", 0)
@@ -946,6 +1108,27 @@ def _merge_context_refresh(
         )
         if record is not None
     ]
+    existing_basis_records = [
+        row
+        for row in (state.get("basis_candidates") or [])
+        if isinstance(row, dict)
+    ]
+    refreshed_basis_candidates = _first_present_candidate_list(
+        result,
+        "basis_forecasts",
+    )
+    new_basis_records = [
+        record
+        for record in (
+            _football_candidate_record(
+                candidate,
+                context_checked_at=checked_at,
+                allow_basic=True,
+            )
+            for candidate in refreshed_basis_candidates
+        )
+        if record is not None and record.get("is_basic_forecast") is True
+    ]
     new_by_fixture: dict[int, list[dict[str, Any]]] = {}
     for record in new_records:
         fixture_id = record.get("fixture_id")
@@ -969,6 +1152,36 @@ def _merge_context_refresh(
             merged_records.extend(new_by_fixture.get(fixture_id, []))
             replaced_fixtures.add(fixture_id)
     merged_records = _select_football_record_catalog(merged_records)
+    new_basis_by_fixture: dict[int, list[dict[str, Any]]] = {}
+    for record in new_basis_records:
+        fixture_id = record.get("fixture_id")
+        if isinstance(fixture_id, int) and not isinstance(fixture_id, bool):
+            new_basis_by_fixture.setdefault(fixture_id, []).append(record)
+    merged_basis_records: list[dict[str, Any]] = []
+    replaced_basis_fixtures: set[int] = set()
+    for record in existing_basis_records:
+        fixture_id = record.get("fixture_id")
+        if fixture_id not in allowed:
+            merged_basis_records.append(record)
+            continue
+        if (
+            isinstance(fixture_id, int)
+            and fixture_id not in replaced_basis_fixtures
+        ):
+            merged_basis_records.extend(
+                new_basis_by_fixture.get(fixture_id, [])
+            )
+            replaced_basis_fixtures.add(fixture_id)
+    for fixture_id in fixture_ids:
+        if fixture_id not in replaced_basis_fixtures:
+            merged_basis_records.extend(
+                new_basis_by_fixture.get(fixture_id, [])
+            )
+            replaced_basis_fixtures.add(fixture_id)
+    merged_basis_records = _select_football_record_catalog(
+        merged_basis_records,
+        limit=MAX_AUTOMATIC_BASIC_FORECASTS,
+    )
     checks = dict(state.get("context_checks") or {})
     for fixture_id in fixture_ids:
         checks[str(fixture_id)] = checked_at.isoformat()
@@ -1045,6 +1258,7 @@ def _merge_context_refresh(
             "last_context_at": checked_at.isoformat(),
             "context_checks": checks,
             "candidates": merged_records,
+            "basis_candidates": merged_basis_records,
             "approved_candidates": len(merged_records),
             "last_blocked_counts": dict(result.get("blocked_counts") or {}),
             "errors": list(dict.fromkeys(errors))[-20:],
@@ -1104,6 +1318,110 @@ def _active_football_candidates(
         preserve_order=True,
     )
     return _select_football_record_catalog(valid)
+
+
+def _active_football_basis_candidates(
+    state: object,
+    *,
+    now: datetime,
+    target_date: date,
+) -> list[dict[str, Any]]:
+    if not isinstance(state, dict):
+        return []
+    current = _utc(now)
+    fresh: list[dict[str, Any]] = []
+    for row in state.get("basis_candidates") or []:
+        if not isinstance(row, dict) or row.get("is_basic_forecast") is not True:
+            continue
+        checked = _parse_iso(row.get("context_checked_at"))
+        if (
+            checked is None
+            or current - checked < timedelta(0)
+            or current - checked > FOOTBALL_CONTEXT_MAX_AGE
+        ):
+            continue
+        fresh.append(row)
+    valid = _ranked_candidates(
+        fresh,
+        now=current,
+        target_date=target_date,
+        preserve_order=True,
+    )
+    return _select_football_record_catalog(
+        valid,
+        limit=MAX_AUTOMATIC_BASIC_FORECASTS,
+    )
+
+
+def _persisted_football_records(
+    state: object,
+    *,
+    field_name: str,
+    now: datetime,
+    target_date: date,
+    limit: int,
+    basic_only: bool,
+) -> list[dict[str, Any]]:
+    """Keep valid future same-day models visible beyond the context TTL."""
+    if (
+        not isinstance(state, dict)
+        or state.get("search_date") != target_date.isoformat()
+    ):
+        return []
+    current = _utc(now)
+    valid = _ranked_candidates(
+        (
+            row
+            for row in (state.get(field_name) or [])
+            if isinstance(row, dict)
+            and (row.get("is_basic_forecast") is True) is basic_only
+        ),
+        now=current,
+        target_date=target_date,
+        preserve_order=True,
+    )
+    selected = _select_football_record_catalog(valid, limit=limit)
+    result: list[dict[str, Any]] = []
+    for raw in selected:
+        row = dict(raw)
+        checked = _parse_iso(row.get("context_checked_at"))
+        context_fresh = (
+            checked is not None
+            and timedelta(0) <= current - checked <= FOOTBALL_CONTEXT_MAX_AGE
+        )
+        context = row.get("context")
+        context = context if isinstance(context, dict) else {}
+        release_complete = context.get("release_context_complete")
+        row["context_complete"] = context_fresh and (
+            release_complete is True
+            if isinstance(release_complete, bool)
+            else True
+        )
+        row["context_stale"] = not context_fresh
+        if not context_fresh:
+            existing_summary = str(row.get("context_summary") or "").strip()
+            stale_note = (
+                "Kontextpruefung veraltet; vor einer Freigabe ist eine "
+                "Aktualisierung noetig."
+            )
+            row["context_summary"] = " - ".join(
+                part for part in (existing_summary, stale_note) if part
+            )[:300]
+        result.append(row)
+    return result
+
+
+def _football_record_release_eligible(row: object) -> bool:
+    if not isinstance(row, dict):
+        return False
+    context = row.get("context")
+    return (
+        isinstance(context, dict)
+        and context.get("release_context_complete") is True
+        and context.get("release_eligible") is True
+        and row.get("model_scope") == MODEL_SCOPE_SAME_COMPETITION
+        and row.get("context_stale") is not True
+    )
 
 
 def load_state(path: str | Path = STATE_PATH) -> dict[str, Any]:
@@ -1183,6 +1501,55 @@ def _default_football_context_refresh(
     )
 
 
+def _apply_reference_quotes(
+    model_rows: list[dict[str, Any]],
+    price_rows: list[dict[str, Any]],
+    quotes: dict[str, MarketConsensus],
+    *,
+    now: datetime,
+) -> tuple[dict[str, int], list[dict[str, Any]]]:
+    """Attach only freshly fetched exact prices without altering forecasts."""
+    model_by_id = {
+        str(row.get("candidate_id") or "").strip(): row
+        for row in model_rows
+        if str(row.get("candidate_id") or "").strip()
+    }
+    for row in model_rows:
+        row.pop("reference_quote", None)
+        row["reference_price_status"] = "UNAVAILABLE"
+
+    status_counts: dict[str, int] = {}
+    playable: list[dict[str, Any]] = []
+    for row in price_rows:
+        candidate_id = str(row.get("candidate_id") or "").strip()
+        model_row = model_by_id.get(candidate_id)
+        quote = quotes.get(candidate_id)
+        if not quote_matches_candidate(quote, row):
+            status_code = "UNAVAILABLE"
+            row.pop("reference_quote", None)
+        else:
+            row["reference_quote"] = quote.to_dict()
+            if model_row is not None:
+                model_row["reference_quote"] = row["reference_quote"]
+            status_code = reference_price_status(
+                quote,
+                row.get("minimum_odds"),
+                now=now,
+            ).code
+        row["reference_price_status"] = status_code
+        if model_row is not None:
+            model_row["reference_price_status"] = status_code
+        status_counts[status_code] = status_counts.get(status_code, 0) + 1
+        if status_code == "PLAYABLE":
+            playable.append(row)
+    return status_counts, playable
+
+
+def _safe_quote_loader_error(exc: Exception) -> list[str]:
+    """Return a persistable provider error without exception details."""
+    return [f"Quotenabruf fehlgeschlagen ({type(exc).__name__})"]
+
+
 def run_wettfinder(
     *,
     now: Optional[datetime] = None,
@@ -1196,6 +1563,12 @@ def run_wettfinder(
         ]
     ] = None,
     football_quote_loader: Optional[
+        Callable[
+            [list[dict[str, Any]]],
+            tuple[dict[str, MarketConsensus], list[str]],
+        ]
+    ] = None,
+    tennis_quote_loader: Optional[
         Callable[
             [list[dict[str, Any]]],
             tuple[dict[str, MarketConsensus], list[str]],
@@ -1330,6 +1703,27 @@ def run_wettfinder(
         now=current,
         target_date=target,
     )
+    active_football_basis_rows = _active_football_basis_candidates(
+        football_state,
+        now=current,
+        target_date=target,
+    )
+    persisted_football_rows = _persisted_football_records(
+        football_state,
+        field_name="candidates",
+        now=current,
+        target_date=target,
+        limit=MAX_AUTOMATIC_FOOTBALL_CANDIDATES,
+        basic_only=False,
+    )
+    persisted_football_basis_rows = _persisted_football_records(
+        football_state,
+        field_name="basis_candidates",
+        now=current,
+        target_date=target,
+        limit=MAX_AUTOMATIC_BASIC_FORECASTS,
+        basic_only=True,
+    )
     context_statuses = _validated_football_context_statuses(football_state)
     # A partial league scan must not erase a candidate whose own model and
     # context record are complete.  Such rows remain model selections only;
@@ -1339,11 +1733,23 @@ def run_wettfinder(
         if context_statuses is None
         else [
             row
-            for row in active_football_rows
+            for row in persisted_football_rows
             if context_statuses.get(str(row.get("fixture_id"))) == "verified"
         ]
     )
-    source_rows: list[dict[str, Any]] = list(football_forecast_rows)
+    football_basis_forecast_rows = (
+        []
+        if context_statuses is None
+        else [
+            row
+            for row in persisted_football_basis_rows
+            if context_statuses.get(str(row.get("fixture_id"))) == "verified"
+        ]
+    )
+    source_rows: list[dict[str, Any]] = [
+        *football_forecast_rows,
+        *football_basis_forecast_rows,
+    ]
     source_status: dict[str, dict[str, Any]] = {
         "football": {
             "status": football_state.get("status", "idle"),
@@ -1351,7 +1757,18 @@ def run_wettfinder(
             "discovery_scope": len(ALTERNATIVE_MARKET_LEAGUES),
             "context_status": context_status,
             "context_fixture_count": len(context_fixture_ids),
-            "candidate_count": len(football_forecast_rows),
+            "candidate_count": (
+                len(football_forecast_rows)
+                + len(football_basis_forecast_rows)
+            ),
+            "basis_candidate_count": len(football_basis_forecast_rows),
+            "stale_context_candidate_count": sum(
+                row.get("context_stale") is True
+                for row in (
+                    *football_forecast_rows,
+                    *football_basis_forecast_rows,
+                )
+            ),
             "search_date": target.isoformat(),
         }
     }
@@ -1409,10 +1826,18 @@ def run_wettfinder(
         and row["fixture_id"] > 0
         and str(row.get("market_key") or "").strip()
     ]
+    football_primary_model_rows = [
+        row
+        for row in football_model_rows
+        if row.get("is_basic_forecast") is not True
+    ]
+    football_basis_model_rows = [
+        row
+        for row in football_model_rows
+        if row.get("is_basic_forecast") is True
+    ]
     # Every valid model row stays visible even when its exact bookmaker market
-    # cannot be mapped. Only the separate quote pool may reach the provider.
-    for row in football_model_rows:
-        row["reference_price_status"] = "UNAVAILABLE"
+    # cannot be mapped. Only the separate quote pools may reach providers.
     football_price_rows = select_price_check_candidates(
         (
             row
@@ -1439,49 +1864,105 @@ def run_wettfinder(
                     now=current,
                 )
         except Exception as exc:
-            quote_errors = [f"{type(exc).__name__}: {exc}"[:500]]
+            quote_errors = _safe_quote_loader_error(exc)
     if not fixed_now:
         current = _utc(runtime_clock())
-    price_status_counts: dict[str, int] = {}
-    playable_rows: list[dict[str, Any]] = []
-    football_model_by_id = {
+    football_price_by_id = {
         str(row.get("candidate_id") or "").strip(): row
-        for row in football_model_rows
+        for row in football_price_rows
         if str(row.get("candidate_id") or "").strip()
     }
-    for row in football_price_rows:
-        candidate_id = str(row.get("candidate_id") or "")
-        model_row = football_model_by_id.get(candidate_id)
-        quote = reference_quotes.get(candidate_id)
-        if quote is None:
-            status_code = "UNAVAILABLE"
-            row["reference_price_status"] = status_code
-            if model_row is not None:
-                model_row["reference_price_status"] = status_code
-            price_status_counts[status_code] = (
-                price_status_counts.get(status_code, 0) + 1
-            )
-            continue
-        row["reference_quote"] = quote.to_dict()
-        if model_row is not None:
-            model_row["reference_quote"] = row["reference_quote"]
-        status_code = reference_price_status(
+    reference_quotes = {
+        candidate_id: quote
+        for candidate_id, quote in reference_quotes.items()
+        if quote_matches_candidate(
             quote,
-            row.get("minimum_odds"),
-            now=current,
-        ).code
-        row["reference_price_status"] = status_code
-        if model_row is not None:
-            model_row["reference_price_status"] = status_code
-        price_status_counts[status_code] = (
-            price_status_counts.get(status_code, 0) + 1
+            football_price_by_id.get(candidate_id),
         )
-        if status_code == "PLAYABLE":
-            playable_rows.append(row)
+    }
+    football_price_status_counts, football_playable_rows = (
+        _apply_reference_quotes(
+            football_model_rows,
+            football_price_rows,
+            reference_quotes,
+            now=current,
+        )
+    )
 
-    # Preserve the model result independently of bookmaker price. Football
-    # rows carry a quote when one was found (including TOO_LOW), while
-    # Tennis/E-Sport rows remain available for an explicit manual price check.
+    tennis_model_rows = [
+        row for row in source_rows if row.get("source") == "tennis_shadow"
+    ]
+    tennis_price_rows = select_price_check_candidates(
+        (
+            row
+            for row in tennis_model_rows
+            if row.get("market_key") == "H2H"
+            and all(
+                str(row.get(field) or "").strip()
+                for field in (
+                    "competitor_a",
+                    "competitor_b",
+                    "selected_competitor",
+                )
+            )
+        ),
+        now=current,
+        target_date=target,
+        preserve_order=True,
+    )
+    tennis_quote_errors: list[str] = []
+    tennis_reference_quotes: dict[str, MarketConsensus] = {}
+    if tennis_price_rows:
+        try:
+            if tennis_quote_loader is not None:
+                tennis_reference_quotes, tennis_quote_errors = (
+                    tennis_quote_loader(tennis_price_rows)
+                )
+            else:
+                app_config = config or load_app_config()
+                tennis_reference_quotes, tennis_quote_errors = (
+                    fetch_tennis_h2h_consensus(
+                        app_config.odds_api_key or "",
+                        tennis_price_rows,
+                        now=current,
+                    )
+                )
+        except Exception as exc:
+            tennis_quote_errors = _safe_quote_loader_error(exc)
+    if tennis_price_rows and not fixed_now:
+        current = _utc(runtime_clock())
+    tennis_price_by_id = {
+        str(row.get("candidate_id") or "").strip(): row
+        for row in tennis_price_rows
+        if str(row.get("candidate_id") or "").strip()
+    }
+    tennis_reference_quotes = {
+        candidate_id: quote
+        for candidate_id, quote in tennis_reference_quotes.items()
+        if quote_matches_candidate(
+            quote,
+            tennis_price_by_id.get(candidate_id),
+        )
+    }
+    tennis_price_status_counts, tennis_playable_rows = (
+        _apply_reference_quotes(
+            tennis_model_rows,
+            tennis_price_rows,
+            tennis_reference_quotes,
+            now=current,
+        )
+    )
+
+    esports_model_rows = [
+        row for row in source_rows if row.get("source") == "esports_shadow"
+    ]
+    for row in esports_model_rows:
+        row.pop("reference_quote", None)
+        row["reference_price_status"] = "UNAVAILABLE"
+
+    # Preserve every model result independently of bookmaker price. A missing
+    # football, tennis or E-sport quote only prevents strict playability; it
+    # never removes or reorders the forecast.
     non_football_rows = [
         row
         for row in source_rows
@@ -1492,17 +1973,44 @@ def run_wettfinder(
         and int(football_state.get("operational_error_count") or 0) == 0
         and context_statuses is not None
     )
+    football_release_candidate_ids = {
+        str(row.get("candidate_id") or "").strip()
+        for row in active_football_rows
+        if str(row.get("candidate_id") or "").strip()
+        and context_statuses is not None
+        and context_statuses.get(str(row.get("fixture_id"))) == "verified"
+        and _football_record_release_eligible(row)
+    }
     # The model catalog is independent of bookmaker price. The first three
     # remain the compact featured block; additional eligible forecasts stay
     # available instead of being discarded.
     forecast_catalog = build_daily_forecast_catalog(
-        football_model_rows,
+        football_primary_model_rows,
         non_football_rows,
+        football_basis_rows=football_basis_model_rows,
         now=current,
         target_date=target,
     )
+    playable_rows = [
+        *(
+            [
+                row
+                for row in football_playable_rows
+                if str(row.get("candidate_id") or "").strip()
+                in football_release_candidate_ids
+            ]
+            if football_run_publishable
+            else []
+        ),
+        *tennis_playable_rows,
+    ]
+    playable_rows = [
+        row
+        for row in playable_rows
+        if row.get("is_basic_forecast") is not True
+    ]
     model_candidates = build_model_selection_ledger(
-        playable_rows if football_run_publishable else [],
+        playable_rows,
         forecast_catalog,
         now=current,
         target_date=target,
@@ -1527,9 +2035,12 @@ def run_wettfinder(
                 str(row.get("key") or "").strip()
                 for row in model_candidates
             )
-            if football_run_publishable
-            and key in visible_keys
+            if key in visible_keys
             and key in playable_by_key
+            and (
+                playable_by_key[key].get("source") != "football_challenge"
+                or football_run_publishable
+            )
         ),
         now=current,
         target_date=target,
@@ -1548,15 +2059,53 @@ def run_wettfinder(
         source_status["football"]["price_fixture_count"] = len(
             {row["fixture_id"] for row in football_price_rows}
         )
-        source_status["football"]["price_status_counts"] = price_status_counts
+        source_status["football"]["price_status_counts"] = (
+            football_price_status_counts
+        )
         source_status["football"]["published_recommendation_count"] = len(
-            candidates
+            [
+                row
+                for row in candidates
+                if row.get("source") == "football_challenge"
+            ]
         )
         source_status["football"]["published_model_selection_count"] = sum(
             row.get("source") == "football_challenge"
             for row in model_candidates
         )
         source_status["football"]["quote_errors"] = quote_errors[:10]
+    if isinstance(source_status.get("tennis"), dict):
+        source_status["tennis"]["price_provider_status"] = (
+            "configured"
+            if (config or load_app_config()).odds_api_key
+            or tennis_quote_loader is not None
+            else "missing_api_key"
+        )
+        source_status["tennis"]["reference_quote_count"] = len(
+            tennis_reference_quotes
+        )
+        source_status["tennis"]["price_checked_count"] = len(
+            tennis_price_rows
+        )
+        source_status["tennis"]["price_status_counts"] = (
+            tennis_price_status_counts
+        )
+        source_status["tennis"]["published_recommendation_count"] = sum(
+            row.get("source") == "tennis_shadow" for row in candidates
+        )
+        source_status["tennis"]["quote_errors"] = tennis_quote_errors[:10]
+    if isinstance(source_status.get("esports"), dict):
+        source_status["esports"]["price_provider_status"] = (
+            "unsupported_no_verified_odds_provider"
+        )
+        source_status["esports"]["reference_quote_count"] = 0
+        source_status["esports"]["price_checked_count"] = 0
+        source_status["esports"]["price_status_counts"] = (
+            {"UNAVAILABLE": len(esports_model_rows)}
+            if esports_model_rows
+            else {}
+        )
+        source_status["esports"]["published_recommendation_count"] = 0
     document = {
         "version": AUTOMATION_VERSION,
         "generated_at": current.isoformat(),
@@ -1564,7 +2113,9 @@ def run_wettfinder(
         "selection_policy_version": SELECTION_POLICY_VERSION,
         # A quote can be genuinely used to reject every candidate. Keep price
         # evidence separate from the number of published recommendations.
-        "bookmaker_data_used": bool(reference_quotes),
+        "bookmaker_data_used": bool(
+            reference_quotes or tennis_reference_quotes
+        ),
         "quote_required": True,
         "target_search_date": target.isoformat(),
         "football": football_state,

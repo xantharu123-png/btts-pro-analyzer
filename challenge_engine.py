@@ -475,7 +475,7 @@ def market_is_basic_forecast(market_key: str) -> bool:
     threshold = spec.threshold
     broad_lines = {
         "total": {("over", 0.5), ("under", 4.5)},
-        "team_total": {("over", 0.5), ("under", 2.5)},
+        "team_total": {("over", 0.5), ("under", 1.5), ("under", 2.5)},
         "corner_total": {("over", 5.5), ("under", 11.5)},
         "team_corners": {("over", 2.5), ("under", 5.5)},
         "yellow_total": {("over", 1.5), ("under", 4.5)},
@@ -527,9 +527,9 @@ def candidate_context_summary(candidate: ChallengeCandidate) -> str:
     """Return one compact consumer-safe status line for context inputs."""
 
     context = candidate.context if isinstance(candidate.context, dict) else {}
-    labels = {
+    generic_labels = {
         "passed": "berücksichtigt",
-        "observed": "berücksichtigt",
+        "observed": "geprüft",
         "neutral": "geprüft, kein belastbares Veto",
         "pending": "noch offen",
         "unavailable": "nicht verfügbar",
@@ -541,7 +541,36 @@ def candidate_context_summary(candidate: ChallengeCandidate) -> str:
     def label(axis: str) -> str:
         payload = context.get(axis)
         status = payload.get("status") if isinstance(payload, dict) else None
-        return labels.get(str(status or ""), "nicht belegt")
+        status = str(status or "")
+        if axis == "injuries" and isinstance(payload, dict):
+            if status == "observed":
+                reported = payload.get("reported_players")
+                complete = payload.get("impact_assessment_complete")
+                unassessed = payload.get("unassessed_player_names")
+                if reported == 0 and complete is True:
+                    return "geprüft, keine gemeldet"
+                if complete is True:
+                    return "Liste und Wirkung geprüft"
+                if isinstance(unassessed, list):
+                    count = len([name for name in unassessed if str(name).strip()])
+                    if count:
+                        return f"Liste geprüft, Wirkung für {count} nicht modelliert"
+                return "Liste geprüft, Wirkung nicht modelliert"
+            if status == "blocked":
+                return "verifizierte Wirkung spricht dagegen"
+        if axis == "lineups" and isinstance(payload, dict):
+            required = payload.get("required") is True
+            if status == "confirmation_due":
+                return "fehlen – keine vollständige Bestätigung kurz vor Anpfiff"
+            if status in {"required_missing", "pending"}:
+                return (
+                    "fehlen (erforderlich)"
+                    if required
+                    else "für vollständige Bestätigung noch offen"
+                )
+            if status == "passed":
+                return "bestätigt"
+        return generic_labels.get(status, "nicht belegt")
 
     return (
         f"Kontext: H2H {label('h2h')} · "
@@ -2047,6 +2076,8 @@ def _injury_summary(
         home_team_id: {"missing": set(), "questionable": set(), "names": []},
         away_team_id: {"missing": set(), "questionable": set(), "names": []},
     }
+    reported_players: dict[tuple[int, Any], str] = {}
+    impact_verified_players: set[tuple[int, Any]] = set()
     for entry in injuries:
         team = entry.get("team")
         player = entry.get("player")
@@ -2059,14 +2090,43 @@ def _injury_summary(
             }, None
         team_id = team.get("id")
         if team_id not in summary:
-            continue
-        player_id = player.get("id") or player.get("name")
-        if player_id is None:
-            continue
+            return None, {
+                "status": "unavailable",
+                "availability": "invalid",
+                "coverage_available": True,
+                "reason": "Verletzungsmeldung ist keinem Spielteam zugeordnet",
+            }, None
+        raw_player_id = player.get("id")
+        if raw_player_id is None:
+            raw_player_id = player.get("name")
+        if (
+            isinstance(raw_player_id, int)
+            and not isinstance(raw_player_id, bool)
+            and raw_player_id > 0
+        ):
+            player_id: int | str = raw_player_id
+        elif isinstance(raw_player_id, str) and raw_player_id.strip():
+            player_id = raw_player_id.strip()
+        else:
+            return None, {
+                "status": "unavailable",
+                "availability": "invalid",
+                "coverage_available": True,
+                "reason": "Verletzungsmeldung hat keine eindeutige Spieleridentität",
+            }, None
+        player_key = (team_id, player_id)
         injury_type = str(player.get("type") or "").casefold()
         bucket = "questionable" if "question" in injury_type else "missing"
         summary[team_id][bucket].add(player_id)
         name = str(player.get("name") or player_id)
+        reported_players[player_key] = name
+        impact = entry.get("material_impact")
+        if (
+            isinstance(impact, dict)
+            and impact.get("verified") is True
+            and isinstance(impact.get("veto"), bool)
+        ):
+            impact_verified_players.add(player_key)
         if name not in summary[team_id]["names"]:
             summary[team_id]["names"].append(name)
 
@@ -2092,6 +2152,14 @@ def _injury_summary(
             material_vetoes.append(player_name)
 
     passed = not material_vetoes
+    unassessed_player_keys = set(reported_players) - impact_verified_players
+    unassessed_player_names = [
+        name
+        for player_key, name in reported_players.items()
+        if player_key in unassessed_player_keys
+    ]
+    impact_assessment_complete = not unassessed_player_keys
+    reported_count = len(reported_players)
     public_summary = {
         "status": "observed" if passed else "blocked",
         "availability": "available",
@@ -2103,13 +2171,25 @@ def _injury_summary(
         "home_names": summary[home_team_id]["names"],
         "away_names": summary[away_team_id]["names"],
         "material_impact_model": "explicit_verified_veto_only",
+        "reported_players": reported_count,
+        "impact_verified_players": len(impact_verified_players),
+        "impact_assessment_complete": impact_assessment_complete,
+        "unassessed_player_names": unassessed_player_names,
         "material_vetoes": material_vetoes,
         "reason": (
             "Verifizierte materielle Spielerwirkung spricht gegen die Auswahl"
             if material_vetoes
             else (
-                "Ausfallliste beobachtet; ohne verifiziertes Spielerwirkungsmodell "
-                "kein Veto"
+                "Ausfallliste geprüft; keine Ausfälle gemeldet"
+                if reported_count == 0
+                else (
+                    "Ausfallliste und Wirkung der gemeldeten Spieler geprüft; kein Veto"
+                    if impact_assessment_complete
+                    else (
+                        "Ausfallliste geprüft; Wirkung nicht für alle gemeldeten "
+                        "Spieler modelliert, daher daraus kein Veto"
+                    )
+                )
             )
         ),
     }
@@ -2439,7 +2519,22 @@ def apply_candidate_context(
     if lineup_reason and require_lineups:
         blocked.append(lineup_reason)
     if not require_lineups and not lineup_passed:
-        lineup_summary = {**lineup_summary, "status": "pending"}
+        minutes_to_kickoff = (kickoff - now_utc).total_seconds() / 60.0
+        lineup_summary = {
+            **lineup_summary,
+            "status": (
+                "confirmation_due"
+                if minutes_to_kickoff <= 60.0
+                else "pending"
+            ),
+            "reason": (
+                "Aufstellungen fehlen kurz vor Anpfiff; Forecast bleibt sichtbar, "
+                "ist aber nicht vollständig bestätigt"
+                if minutes_to_kickoff <= 60.0
+                else "Aufstellungen sind für die vollständige Bestätigung noch offen"
+            ),
+            "minutes_to_kickoff": round(minutes_to_kickoff, 1),
+        }
     lineup_summary = {
         **lineup_summary,
         "required": require_lineups,
@@ -2461,11 +2556,24 @@ def apply_candidate_context(
         and weather_passed is not False
         and lineup_ok
     )
+    injury_impact_complete = (
+        injuries_summary.get("impact_assessment_complete") is True
+    )
+    release_context_limitations: list[str] = []
+    if injuries_passed is not None and not injury_impact_complete:
+        release_context_limitations.append(
+            "Wirkung gemeldeter Ausfälle ist nicht vollständig modelliert"
+        )
+    if not lineup_passed:
+        release_context_limitations.append(
+            "Beide bestätigten Startaufstellungen fehlen"
+        )
     release_context_complete = (
         h2h_available
         and injuries_passed is not None
+        and injury_impact_complete
         and weather_passed is not None
-        and lineup_ok
+        and lineup_passed
     )
     release_eligible = (
         release_validated
@@ -2476,6 +2584,7 @@ def apply_candidate_context(
         "passed": forecast_passed,
         "forecast_passed": forecast_passed,
         "release_context_complete": release_context_complete,
+        "release_context_limitations": release_context_limitations,
         "release_eligible": release_eligible,
         "checked_at": checked_at,
         "model_transfer": {

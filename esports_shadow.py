@@ -28,13 +28,16 @@ from typing import Any, Callable, Dict, List, Optional
 
 from config_loader import load_app_config
 from esports_elo import subgraph_ratings
-from multi_sport_recommendations import esports_match_winner_candidate
+from multi_sport_recommendations import (
+    ESPORTS_MODEL_VERSION,
+    esports_history_window,
+    esports_match_winner_candidate,
+)
 from scanners.esports_scanner import EsportsScanner
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "esports_shadow.db"
 MAX_SETTLE_CALLS_PER_RUN = 15
 STALE_AFTER_DAYS = 30
-ESPORTS_MODEL_VERSION = "subgraph-elo-v2"
 ESPORTS_RELEASE_MIN_SETTLED = 300
 ESPORTS_RELEASE_MAX_CALIBRATION_GAP = 0.08
 ESPORTS_RELEASE_MAX_BRIER = 0.25
@@ -107,7 +110,8 @@ class EsportsShadowLog:
         match first seen live would record a score-conditioned
         probability — a different product that corrupts calibration.
         """
-        now = datetime.now(timezone.utc).isoformat()
+        observed_at = datetime.now(timezone.utc)
+        now = observed_at.isoformat()
         logged = 0
         with closing(self._connect()) as connection:
             for match in matches or []:
@@ -133,7 +137,7 @@ class EsportsShadowLog:
                     or match_id <= 0
                 ):
                     continue
-                candidate = esports_match_winner_candidate(match)
+                candidate = esports_match_winner_candidate(match, now=observed_at)
                 if not candidate.model_ready:
                     continue
                 team1_id = match.get("team1_id")
@@ -146,11 +150,12 @@ class EsportsShadowLog:
                     continue
                 if not isinstance(selected_team_id, int) or selected_team_id <= 0:
                     continue
+                history1, history2 = esports_history_window(
+                    match,
+                    now=observed_at,
+                )
                 elo1, elo2, _subgraph_size = subgraph_ratings(
-                    match.get("team1_history") or [],
-                    match.get("team2_history") or [],
-                    team1_id,
-                    team2_id,
+                    history1, history2, team1_id, team2_id
                 )
                 cursor = connection.execute(
                     """

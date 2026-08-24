@@ -1,5 +1,6 @@
 import math
 from dataclasses import replace
+from datetime import datetime, timezone
 
 import pytest
 
@@ -34,6 +35,7 @@ def _esports_history(team_id, opponent_id, wins, losses, start_id):
         {
             "match_id": start_id + index,
             "begin_at": f"2026-07-{1 + index:02d}T12:00:00Z",
+            "end_at": f"2026-07-{1 + index:02d}T14:00:00Z",
             "opponent_id": opponent_id,
             # Interleaved results: avoids path artefacts of blocked
             # win-then-loss sequences in the ELO iteration.
@@ -78,6 +80,7 @@ def test_basketball_model_is_created_before_a_bookmaker_quote_exists():
     unconfirmed = evaluate_candidate_price(candidate, 3.00, bankroll=100)
     assert unconfirmed.status == "PRICE_REQUIRED"
     assert unconfirmed.metrics is None
+    assert any("Lineup- und Verletzungsdaten" in note for note in candidate.evidence)
 
 
 @pytest.mark.parametrize(
@@ -206,6 +209,7 @@ def test_nhl_model_uses_regulation_clock_and_explicit_risk_haircut():
     assert candidate.market == "Gesamttore reguläre Spielzeit"
     assert candidate.probability_haircut == 10.0
     assert candidate.expected_total > 5.5
+    assert any("Starting-Goalie" in note for note in candidate.evidence)
 
 
 def test_nhl_overtime_is_never_priced_as_a_regulation_market():
@@ -270,6 +274,8 @@ def test_tennis_and_cricket_return_no_bet_instead_of_fake_probabilities():
     assert tennis.model_probability is None
     assert not cricket.model_ready
     assert cricket.model_probability is None
+    assert any("separaten Tennis-Prematch-Pipeline" in reason for reason in tennis.blockers)
+    assert any("historischer Cricket-State" in reason for reason in cricket.blockers)
 
 
 def test_near_certain_probability_is_display_capped_and_flagged():
@@ -344,13 +350,185 @@ def test_esports_prematch_candidate_scores_upcoming_series():
         }
     )
 
-    candidate = esports_match_winner_candidate(match)
+    candidate = esports_match_winner_candidate(
+        match,
+        now=datetime(2026, 8, 1, 12, tzinfo=timezone.utc),
+    )
 
     assert candidate.model_ready
     assert candidate.selection == "Alpha"
     assert 70.0 < candidate.model_probability < 99.5
     assert candidate.probability_haircut >= 5.0
     assert any("Pre-Match" in note for note in candidate.evidence)
+    assert any("Rosterwechsel und Map-Veto" in note for note in candidate.evidence)
+
+
+def test_esports_prematch_rejects_stale_or_missing_start_time():
+    match = _esports_match()
+    match.update(
+        {
+            "team1_score": 0,
+            "team2_score": 0,
+            "status": "upcoming",
+            "begin_at": "2026-08-01T11:00:00Z",
+        }
+    )
+
+    stale = esports_match_winner_candidate(
+        match,
+        now=datetime(2026, 8, 1, 12, tzinfo=timezone.utc),
+    )
+    match.pop("begin_at")
+    missing = esports_match_winner_candidate(
+        match,
+        now=datetime(2026, 8, 1, 12, tzinfo=timezone.utc),
+    )
+
+    assert not stale.model_ready
+    assert any("bereits begonnen" in reason for reason in stale.blockers)
+    assert not missing.model_ready
+    assert any("Startzeit" in reason for reason in missing.blockers)
+
+
+def test_esports_prematch_drops_history_that_is_not_strictly_pre_event():
+    match = _esports_match()
+    match.update(
+        {
+            "team1_score": 0,
+            "team2_score": 0,
+            "status": "upcoming",
+            "begin_at": "2026-07-19T18:00:00Z",
+        }
+    )
+
+    candidate = esports_match_winner_candidate(
+        match,
+        now=datetime(2026, 7, 19, 12, tzinfo=timezone.utc),
+    )
+
+    assert not candidate.model_ready
+    assert any("vor Serienbeginn" in reason for reason in candidate.blockers)
+
+
+def test_esports_prematch_never_reads_a_result_after_prediction_time():
+    match = _esports_match()
+    match.update(
+        {
+            "team1_score": 0,
+            "team2_score": 0,
+            "status": "upcoming",
+            "begin_at": "2026-08-01T18:00:00Z",
+        }
+    )
+    match["team1_history"][-1] = {
+        **match["team1_history"][-1],
+        "begin_at": "2026-08-01T15:00:00Z",
+    }
+
+    candidate = esports_match_winner_candidate(
+        match,
+        now=datetime(2026, 8, 1, 12, tzinfo=timezone.utc),
+    )
+
+    assert not candidate.model_ready
+    assert any("vor Serienbeginn" in reason for reason in candidate.blockers)
+
+
+def test_esports_prematch_requires_result_completed_strictly_before_prediction():
+    match = _esports_match()
+    match.update(
+        {
+            "team1_score": 0,
+            "team2_score": 0,
+            "status": "upcoming",
+            "begin_at": "2026-08-01T18:00:00Z",
+        }
+    )
+    for key in ("team1_history", "team2_history"):
+        match[key] = [
+            {
+                **row,
+                "begin_at": "2026-08-01T10:00:00Z",
+                "end_at": "2026-08-01T12:00:00Z",
+            }
+            for row in match[key]
+        ]
+
+    candidate = esports_match_winner_candidate(
+        match,
+        now=datetime(2026, 8, 1, 12, tzinfo=timezone.utc),
+    )
+
+    assert not candidate.model_ready
+    assert any("Abschlusszeitpunkt" in reason for reason in candidate.blockers)
+
+
+def test_esports_prematch_selects_twenty_causal_results_before_aggregating():
+    match = _esports_match()
+    match.update(
+        {
+            "team1_score": 0,
+            "team2_score": 0,
+            "status": "upcoming",
+            "begin_at": "2026-08-01T18:00:00Z",
+        }
+    )
+    invalid_newest = {
+        **match["team1_history"][-1],
+        "match_id": 9999,
+        "begin_at": "2026-07-31T12:00:00Z",
+        "end_at": "",
+        "won": False,
+    }
+    match["team1_history"] = [invalid_newest, *match["team1_history"]]
+    match["team1_stats"] = {"matches": 20, "wins": 0}
+
+    candidate = esports_match_winner_candidate(
+        match,
+        now=datetime(2026, 8, 1, 12, tzinfo=timezone.utc),
+    )
+
+    assert candidate.model_ready
+    assert any("Alpha 15/20" in note for note in candidate.evidence)
+
+
+def test_esports_live_uses_only_the_newest_twenty_completed_results(monkeypatch):
+    match = _esports_match()
+    match["status"] = "live"
+    match["team1_history"] = _esports_history(7, 100, 18, 7, 3000)
+    match["team2_history"] = _esports_history(8, 100, 9, 16, 4000)
+    match["team1_history"].append(
+        {
+            **match["team1_history"][-1],
+            "match_id": 9999,
+            "begin_at": "2026-08-01T10:00:00Z",
+            "end_at": "2026-08-01T13:00:00Z",
+        }
+    )
+    match["team1_stats"] = {"matches": 25, "wins": 18}
+    match["team2_stats"] = {"matches": 25, "wins": 9}
+    consumed = {}
+
+    def fake_subgraph_ratings(history1, history2, team1_id, team2_id):
+        consumed["team1"] = [row["match_id"] for row in history1]
+        consumed["team2"] = [row["match_id"] for row in history2]
+        assert (team1_id, team2_id) == (7, 8)
+        return 1550.0, 1450.0, 40
+
+    monkeypatch.setattr(
+        "multi_sport_recommendations.subgraph_ratings",
+        fake_subgraph_ratings,
+    )
+
+    candidate = esports_match_winner_candidate(
+        match,
+        now=datetime(2026, 8, 1, 12, tzinfo=timezone.utc),
+    )
+
+    assert candidate.model_ready
+    assert consumed["team1"] == list(range(3024, 3004, -1))
+    assert consumed["team2"] == list(range(4024, 4004, -1))
+    assert any("Alpha 15/20" in note for note in candidate.evidence)
 
 
 def test_elo_fixed_point_matches_empirical_win_rate():
@@ -407,5 +585,5 @@ def test_esports_candidate_uses_elo_not_raw_winrates():
     candidate = esports_match_winner_candidate(_esports_match())
 
     assert candidate.model_ready
-    assert candidate.model_name == "Subgraph-ELO Series v2"
+    assert candidate.model_name == "Subgraph-ELO Series v3"
     assert any("ELO" in note for note in candidate.evidence)

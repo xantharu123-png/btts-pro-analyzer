@@ -22,7 +22,11 @@ from typing import List, Optional, Union
 from zoneinfo import ZoneInfo
 
 from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
-from market_consensus import MarketConsensus, reference_price_status
+from market_consensus import (
+    MarketConsensus,
+    quote_matches_candidate,
+    reference_price_status,
+)
 from scan_jobs import JOBS_DIR, load_persisted
 from tennis.predict import WINNER_PROBABILITY_HAIRCUT
 from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION
@@ -35,8 +39,8 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 11
-AUTOMATED_SELECTION_POLICY_VERSION = "useful-selection-catalog-v9"
+AUTOMATED_WETTFINDER_VERSION = 12
+AUTOMATED_SELECTION_POLICY_VERSION = "useful-selection-catalog-v10"
 MAX_AUTOMATED_FOOTBALL_CANDIDATES = 15
 MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT = 3
 MAX_AUTOMATED_MODEL_CANDIDATES = 21
@@ -70,8 +74,14 @@ class ModelSignal:
     event_label: Optional[str] = None
     market: Optional[str] = None
     selection: Optional[str] = None
+    market_key: Optional[str] = None
     reference_quote: Optional[dict] = None
     context_summary: Optional[str] = None
+    context_complete: Optional[bool] = None
+    competitor_a: Optional[str] = None
+    competitor_b: Optional[str] = None
+    selected_competitor: Optional[str] = None
+    competition: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not _valid_probability(self.probability):
@@ -106,6 +116,23 @@ class ModelSignal:
             or len(self.context_summary) > 300
         ):
             raise ValueError("Model signal context summary is invalid")
+        if self.context_complete is not None and not isinstance(
+            self.context_complete,
+            bool,
+        ):
+            raise ValueError("Model signal context completeness is invalid")
+        for value in (
+            self.competitor_a,
+            self.competitor_b,
+            self.selected_competitor,
+            self.competition,
+        ):
+            if value is not None and (
+                not isinstance(value, str)
+                or not value.strip()
+                or len(value) > 200
+            ):
+                raise ValueError("Model signal competitor identity is invalid")
 
 
 @dataclass(frozen=True)
@@ -190,6 +217,19 @@ def _current_automated_policies() -> set[str]:
     return policies
 
 
+_AUTOMATED_STRICT_SOURCES = frozenset(
+    {"football_challenge", "tennis_shadow"}
+)
+
+
+def _supported_automated_strict_source(row: object) -> bool:
+    return (
+        isinstance(row, dict)
+        and str(row.get("source") or "").strip()
+        in _AUTOMATED_STRICT_SOURCES
+    )
+
+
 def _read_rows(db_path: Union[str, Path], query: str, params: tuple = ()) -> list:
     path = Path(db_path)
     if not path.exists():
@@ -272,6 +312,11 @@ def tennis_signals(
                 event_label=f"{row['player_a']} vs {row['player_b']}",
                 market="Match Winner",
                 selection=f"Sieg {player}",
+                market_key="H2H",
+                competitor_a=str(row["player_a"]),
+                competitor_b=str(row["player_b"]),
+                selected_competitor=str(player),
+                competition=f"{row['tour']} {row['tournament']}",
             )
         )
     return signals
@@ -359,6 +404,11 @@ def tennis_model_signals(
                 event_label=f"{row['player_a']} vs {row['player_b']}",
                 market="Match Winner",
                 selection=f"Sieg {player}",
+                market_key="H2H",
+                competitor_a=str(row["player_a"]),
+                competitor_b=str(row["player_b"]),
+                selected_competitor=str(player),
+                competition=f"{row['tour']} {row['tournament']}",
             )
         )
     return signals
@@ -447,6 +497,11 @@ def esports_signals(
                 event_label=f"{row['game']} · {row['team1']} vs {row['team2']}",
                 market="Match Winner",
                 selection=f"Sieg {row['selection']}",
+                market_key="H2H",
+                competitor_a=str(row["team1"]),
+                competitor_b=str(row["team2"]),
+                selected_competitor=str(row["selection"]),
+                competition=str(row["game"]),
             )
         )
     return signals
@@ -750,14 +805,12 @@ def _load_automated_wettfinder_document(
             not isinstance(row, dict)
             or row.get("status") != "RECOMMENDED"
             or row.get("reference_price_status") != "PLAYABLE"
+            or not _supported_automated_strict_source(row)
         ):
             return None
         quote = MarketConsensus.from_dict(row.get("reference_quote"))
-        candidate_id = str(row.get("candidate_id") or "").strip()
         if (
-            quote is None
-            or not candidate_id
-            or quote.candidate_id != candidate_id
+            not quote_matches_candidate(quote, row)
             or reference_price_status(
                 quote,
                 row.get("minimum_odds"),
@@ -802,8 +855,7 @@ def _load_automated_wettfinder_document(
         quote_payload = row.get("reference_quote")
         if quote_payload is not None:
             quote = MarketConsensus.from_dict(quote_payload)
-            candidate_id = str(row.get("candidate_id") or "").strip()
-            if quote is None or not candidate_id or quote.candidate_id != candidate_id:
+            if not quote_matches_candidate(quote, row):
                 return None
             expected_status = reference_price_status(
                 quote,
@@ -812,9 +864,7 @@ def _load_automated_wettfinder_document(
             ).code
             if row.get("reference_price_status") != expected_status:
                 return None
-        elif row.get("source") == "football_challenge" and (
-            row.get("reference_price_status") != "UNAVAILABLE"
-        ):
+        elif row.get("reference_price_status") != "UNAVAILABLE":
             return None
     return document, generated, candidates
 
@@ -913,6 +963,29 @@ def automated_wettfinder_status(
     )
 
 
+def _model_row_context_complete(row: dict) -> Optional[bool]:
+    direct = row.get("context_complete")
+    if isinstance(direct, bool):
+        return direct
+    context = row.get("context")
+    if not isinstance(context, dict):
+        return None
+    value = context.get("release_context_complete")
+    return value if isinstance(value, bool) else None
+
+
+def _football_recommendation_release_eligible(row: dict) -> bool:
+    context = row.get("context")
+    return (
+        isinstance(context, dict)
+        and context.get("release_context_complete") is True
+        and context.get("release_eligible") is True
+        and row.get("model_scope") == "same_competition"
+        and row.get("context_stale") is False
+        and row.get("is_basic_forecast") is False
+    )
+
+
 def automated_wettfinder_forecasts(
     path: Union[str, Path] = AUTOMATED_WETTFINDER_PATH,
     *,
@@ -992,6 +1065,8 @@ def automated_wettfinder_forecasts(
         ):
             continue
         quote = MarketConsensus.from_dict(row.get("reference_quote"))
+        if not quote_matches_candidate(quote, row):
+            quote = None
         try:
             forecasts.append(
                 ModelSignal(
@@ -1009,6 +1084,7 @@ def automated_wettfinder_forecasts(
                     event_label=str(row.get("event") or "").strip() or label,
                     market=str(row.get("market") or "").strip() or "Auswahl",
                     selection=str(row.get("selection") or "").strip() or label,
+                    market_key=str(row.get("market_key") or "").strip() or None,
                     reference_quote=quote.to_dict() if quote is not None else None,
                     context_summary=(
                         str(row.get("context_summary")).strip()
@@ -1016,6 +1092,7 @@ def automated_wettfinder_forecasts(
                         and str(row.get("context_summary")).strip()
                         else None
                     ),
+                    context_complete=_model_row_context_complete(row),
                 )
             )
         except ValueError:
@@ -1061,6 +1138,11 @@ def automated_wettfinder_signals(
         row_is_football = (
             row.get("source") == "football_challenge" or row_sport == "fussball"
         )
+        row_is_esports = (
+            row.get("source") == "esports_shadow"
+            or row_sport.replace("-", "").replace(" ", "")
+            in {"esport", "esports"}
+        )
         row_fixture_id = row.get("fixture_id")
         football_fixture_verified = (
             isinstance(row_fixture_id, int)
@@ -1071,9 +1153,18 @@ def automated_wettfinder_signals(
         if (
             not isinstance(row, dict)
             or row.get("status") != "RECOMMENDED"
+            or not _supported_automated_strict_source(row)
+            # The generator deliberately has no verified E-sport price
+            # provider. Keep those model forecasts visible, but fail closed
+            # if an inconsistent or manipulated artifact invents a strict row.
+            or row_is_esports
             or (
                 row_is_football
-                and (not football_publishable or not football_fixture_verified)
+                and (
+                    not football_publishable
+                    or not football_fixture_verified
+                    or not _football_recommendation_release_eligible(row)
+                )
             )
             or any(
                 field in row
@@ -1114,10 +1205,7 @@ def automated_wettfinder_signals(
         market = str(row.get("market") or "").strip() or "Auswahl"
         selection = str(row.get("selection") or "").strip() or label
         reference_quote = MarketConsensus.from_dict(row.get("reference_quote"))
-        if reference_quote is None:
-            continue
-        candidate_id = str(row.get("candidate_id") or "").strip()
-        if not candidate_id or reference_quote.candidate_id != candidate_id:
+        if not quote_matches_candidate(reference_quote, row):
             continue
         if reference_price_status(
             reference_quote,
@@ -1153,6 +1241,7 @@ def automated_wettfinder_signals(
                     event_label=event_label,
                     market=market,
                     selection=selection,
+                    market_key=str(row.get("market_key") or "").strip() or None,
                     reference_quote=reference_quote.to_dict(),
                     context_summary=(
                         str(row.get("context_summary")).strip()
@@ -1160,6 +1249,7 @@ def automated_wettfinder_signals(
                         and str(row.get("context_summary")).strip()
                         else None
                     ),
+                    context_complete=_model_row_context_complete(row),
                 )
             )
         except ValueError:

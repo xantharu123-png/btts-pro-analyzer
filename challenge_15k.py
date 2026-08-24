@@ -18,7 +18,11 @@ import streamlit as st
 import scan_jobs
 
 from account_identity import storage_scope
-from bet_finder_ui import partition_consumer_forecasts
+from bet_finder_ui import (
+    merge_consumer_forecast_catalog,
+    partition_consumer_featured_forecasts,
+    partition_consumer_forecasts,
+)
 from api_budget import (
     APIBudgetError,
     APIBudgetPriority,
@@ -75,6 +79,7 @@ from market_consensus import (
     deserialize_consensus_map,
     exact_market_target,
     fetch_football_consensus,
+    quote_matches_candidate,
     reference_price_status,
     serialize_consensus_map,
 )
@@ -82,7 +87,7 @@ from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 16
+CHALLENGE_SNAPSHOT_VERSION = 17
 CHALLENGE_WORKSPACE_VERSION = 11
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
@@ -1351,6 +1356,25 @@ def _price_candidate_pool(
     return _discovery_candidate_pool(eligible, fixture_ids)
 
 
+def _price_annotation_candidate_pool(
+    strict_candidates: list[ChallengeCandidate],
+    basis_forecasts: list[ChallengeCandidate],
+) -> list[ChallengeCandidate]:
+    """Add quote-mappable basis rows for display, never for strict selection."""
+
+    annotations = list(strict_candidates)
+    seen_ids = {candidate.candidate_id for candidate in annotations}
+    for candidate in basis_forecasts:
+        if (
+            candidate.candidate_id in seen_ids
+            or exact_market_target(candidate.market_key) is None
+        ):
+            continue
+        annotations.append(candidate)
+        seen_ids.add(candidate.candidate_id)
+    return annotations
+
+
 def _forecast_candidate_pool(
     candidates: list[ChallengeCandidate],
 ) -> list[ChallengeCandidate]:
@@ -1427,6 +1451,7 @@ def _context_scope_facts(
         return lineups.get("status") in {
             "passed",
             "pending",
+            "confirmation_due",
             "unavailable",
             "required_missing",
         }
@@ -1574,7 +1599,7 @@ def _run_challenge_scan_worker(
     max_fixtures: int,
     progress_cb=None,
 ) -> dict[str, Any]:
-    """Run the model scan, then price only the final shortlist."""
+    """Run the model scan, then price strict and display-only model rows."""
     def model_progress(value: float, text: str) -> None:
         if progress_cb:
             progress_cb(min(0.90, max(0.0, float(value)) * 0.90), text)
@@ -1593,15 +1618,32 @@ def _run_challenge_scan_worker(
         or snapshot.get("shortlist")
         or []
     )
+    price_annotation_candidates = _price_annotation_candidate_pool(
+        list(price_candidates),
+        list(snapshot.get("basis_forecasts") or []),
+    )
     quotes, quote_errors = fetch_football_consensus(
         provider.api_key,
-        price_candidates,
+        price_annotation_candidates,
     )
+    price_candidate_by_id = {
+        candidate.candidate_id: candidate
+        for candidate in price_annotation_candidates
+    }
+    quotes = {
+        candidate_id: quote
+        for candidate_id, quote in quotes.items()
+        if quote_matches_candidate(
+            quote,
+            price_candidate_by_id.get(candidate_id),
+        )
+    }
     snapshot["reference_quotes"] = serialize_consensus_map(quotes)
     snapshot["quote_errors"] = quote_errors
-    snapshot["price_checked_markets"] = len(price_candidates)
+    snapshot["price_annotation_candidates"] = price_annotation_candidates
+    snapshot["price_checked_markets"] = len(price_annotation_candidates)
     snapshot["price_checked_fixtures"] = len(
-        {candidate.fixture_id for candidate in price_candidates}
+        {candidate.fixture_id for candidate in price_annotation_candidates}
     )
     snapshot["price_checked_at"] = datetime.now(timezone.utc).isoformat()
     if progress_cb:
@@ -3628,6 +3670,8 @@ def _automatic_challenge_ticket(
     statuses = {}
     for candidate in shortlist:
         quote = reference_quotes.get(candidate.candidate_id)
+        if not quote_matches_candidate(quote, candidate):
+            quote = None
         status = reference_price_status(
             quote,
             candidate.minimum_odds,
@@ -3723,8 +3767,9 @@ def _render_price_check(
     settings: dict[str, Any],
 ) -> None:
     shortlist: list[ChallengeCandidate] = snapshot["shortlist"]
-    displayed_candidates: list[ChallengeCandidate] = (
-        snapshot.get("forecast_shortlist") or shortlist
+    displayed_candidates: list[ChallengeCandidate] = merge_consumer_forecast_catalog(
+        snapshot.get("forecast_shortlist") or shortlist,
+        snapshot.get("basis_forecasts"),
     )
     if not displayed_candidates:
         st.info("Für diesen Spieltag gibt es aktuell keinen 15K-Tipp.")
@@ -3750,9 +3795,27 @@ def _render_price_check(
         if candidate.candidate_id in price_candidates_by_id
     ]
     reference_quotes = deserialize_consensus_map(snapshot.get("reference_quotes"))
+    displayed_by_id = {
+        candidate.candidate_id: candidate
+        for candidate in displayed_candidates
+    }
+    reference_quotes = {
+        candidate_id: quote
+        for candidate_id, quote in reference_quotes.items()
+        if quote_matches_candidate(
+            quote,
+            displayed_by_id.get(candidate_id),
+        )
+    }
     primary_candidates, extreme_short_candidates = partition_consumer_forecasts(
         displayed_candidates,
         quote_for=lambda candidate: reference_quotes.get(candidate.candidate_id),
+    )
+    featured_candidates, additional_candidates = (
+        partition_consumer_featured_forecasts(
+            primary_candidates,
+            max_featured=MAX_FEATURED_FORECASTS,
+        )
     )
     ticket, statuses = _automatic_challenge_ticket(
         price_candidates,
@@ -3797,16 +3860,20 @@ def _render_price_check(
             if offset < len(rows) - 1:
                 st.divider()
 
-    render_rows(primary_candidates[:MAX_FEATURED_FORECASTS], start_index=1)
-    additional = primary_candidates[MAX_FEATURED_FORECASTS:]
-    if additional:
+    render_rows(featured_candidates, start_index=1)
+    if additional_candidates:
         with st.expander(
-            f"Weitere {len(additional)} Modellprognosen",
+            f"Weitere {len(additional_candidates)} Modellprognosen",
             expanded=False,
         ):
+            st.caption(
+                "Der Modellkatalog bleibt vollständig. Wiederholte "
+                "Marktentscheidungen oder weitere Auswahlen desselben Spiels "
+                "stehen gesammelt hier."
+            )
             render_rows(
-                additional,
-                start_index=MAX_FEATURED_FORECASTS + 1,
+                additional_candidates,
+                start_index=len(featured_candidates) + 1,
             )
 
     if extreme_short_candidates:

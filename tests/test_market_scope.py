@@ -5,7 +5,12 @@ from types import SimpleNamespace
 import alternative_markets_tab_extended as market_tab
 import bet_finder_ui
 from challenge_engine import market_specs
-from market_consensus import MarketConsensus, QuotePoint
+from market_consensus import (
+    MarketConsensus,
+    QuotePoint,
+    REFERENCE_SOURCE,
+    exact_market_target,
+)
 
 
 def test_every_finder_market_scope_maps_to_supported_model_kinds():
@@ -74,11 +79,13 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
     favorite = SimpleNamespace(
         candidate_id="fixture-1-home",
         fixture_id=1,
+        market_key="RESULT_HOME",
         minimum_odds=1.50,
     )
     alternative = SimpleNamespace(
         candidate_id="fixture-1-under-4-5",
         fixture_id=1,
+        market_key="TOTAL_UNDER_4_5",
         minimum_odds=1.50,
     )
     snapshot = {
@@ -90,12 +97,13 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
     selection_pool = []
 
     def quote(candidate, conservative_odds, best_odds):
+        bet_name, value_name = exact_market_target(candidate.market_key)
         return MarketConsensus(
             fixture_id=1,
             candidate_id=candidate.candidate_id,
-            market_key="TEST",
-            bet_name="Test",
-            value_name="Test",
+            market_key=candidate.market_key,
+            bet_name=bet_name,
+            value_name=value_name,
             consensus_odds=conservative_odds,
             conservative_odds=conservative_odds,
             lowest_odds=conservative_odds,
@@ -103,7 +111,7 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
             bookmaker_count=4,
             quoted_at=now.isoformat(),
             fetched_at=now.isoformat(),
-            source="test",
+            source=REFERENCE_SOURCE,
             points=(
                 QuotePoint("A", conservative_odds),
                 QuotePoint("B", conservative_odds),
@@ -166,6 +174,7 @@ def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypat
     candidate = SimpleNamespace(
         candidate_id="fixture-7-home",
         fixture_id=7,
+        market_key="RESULT_HOME",
         minimum_odds=1.80,
     )
     snapshot = {
@@ -176,8 +185,8 @@ def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypat
     quote = MarketConsensus(
         fixture_id=7,
         candidate_id=candidate.candidate_id,
-        market_key="HOME",
-        bet_name="Winner",
+        market_key=candidate.market_key,
+        bet_name="Match Winner",
         value_name="Home",
         consensus_odds=1.60,
         conservative_odds=1.60,
@@ -186,7 +195,7 @@ def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypat
         bookmaker_count=3,
         quoted_at=now,
         fetched_at=now,
-        source="test",
+        source=REFERENCE_SOURCE,
         points=(
             QuotePoint("A", 1.55),
             QuotePoint("B", 1.60),
@@ -220,20 +229,105 @@ def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypat
     assert result["price_status_counts"] == {"TOO_LOW": 1}
 
 
+def test_market_worker_prices_basis_for_annotation_without_strict_promotion(
+    monkeypatch,
+):
+    forecast = SimpleNamespace(
+        candidate_id="fixture-7-result-total",
+        fixture_id=7,
+        minimum_odds=1.80,
+    )
+    basis = SimpleNamespace(
+        candidate_id="fixture-7-away-under-1-5",
+        fixture_id=7,
+        market_key="AWAY_UNDER_1_5",
+        minimum_odds=1.40,
+    )
+    snapshot = {
+        "shortlist": [],
+        "forecast_shortlist": [forecast],
+        "basis_forecasts": [basis],
+        "price_candidates": [],
+    }
+    checked = []
+    now = datetime.now(timezone.utc)
+    basis_quote = MarketConsensus(
+        fixture_id=7,
+        candidate_id=basis.candidate_id,
+        market_key=basis.market_key,
+        bet_name="Total - Away",
+        value_name="Under 1.5",
+        consensus_odds=1.50,
+        conservative_odds=1.50,
+        lowest_odds=1.50,
+        best_odds=1.50,
+        bookmaker_count=4,
+        quoted_at=now.isoformat(),
+        fetched_at=now.isoformat(),
+        source=REFERENCE_SOURCE,
+        points=(
+            QuotePoint("A", 1.50),
+            QuotePoint("B", 1.50),
+            QuotePoint("C", 1.50),
+            QuotePoint("D", 1.50),
+        ),
+    )
+
+    monkeypatch.setattr(market_tab, "ChallengeDataProvider", lambda *_args: object())
+    monkeypatch.setattr(
+        market_tab,
+        "scan_daily_challenge",
+        lambda *_args, **_kwargs: snapshot,
+    )
+    monkeypatch.setattr(
+        market_tab,
+        "fetch_football_consensus",
+        lambda _api_key, rows: (
+            checked.extend(rows) or {basis.candidate_id: basis_quote},
+            [],
+        ),
+    )
+
+    result = market_tab._run_market_scan_worker(
+        "api-key",
+        None,
+        [78],
+        date(2030, 1, 2),
+        date(2030, 1, 2),
+        1200,
+        {"league_ids": [78]},
+    )["challenge"]
+
+    assert result["model_shortlist"] == [forecast, basis]
+    assert checked == [basis]
+    assert result["price_candidates"] == []
+    assert result["shortlist"] == []
+    assert basis.candidate_id in result["reference_quotes"]
+    assert result["price_status_counts"] == {"PLAYABLE": 1}
+
+
 def test_consumer_merge_keeps_model_order_beyond_featured_three():
     priced = SimpleNamespace(candidate_id="fixture-1-under", fixture_id=1)
     same_fixture_model = SimpleNamespace(candidate_id="fixture-1-home", fixture_id=1)
+    same_fixture_basis = SimpleNamespace(candidate_id="fixture-1-basis", fixture_id=1)
     unpriced_two = SimpleNamespace(candidate_id="fixture-2-home", fixture_id=2)
     unpriced_three = SimpleNamespace(candidate_id="fixture-3-btts", fixture_id=3)
     overflow = SimpleNamespace(candidate_id="fixture-4-over", fixture_id=4)
 
     displayed = market_tab._merge_consumer_market_rows(
         [priced],
-        [same_fixture_model, unpriced_two, unpriced_three, overflow],
+        [
+            same_fixture_model,
+            same_fixture_basis,
+            unpriced_two,
+            unpriced_three,
+            overflow,
+        ],
     )
 
     assert displayed == [
         same_fixture_model,
+        same_fixture_basis,
         unpriced_two,
         unpriced_three,
         overflow,
@@ -331,6 +425,112 @@ def test_consumer_partition_relegates_only_confirmed_extreme_short_prices():
         ],
         key=lambda row: row.candidate_id,
     )
+
+
+def test_featured_partition_prioritizes_complete_useful_market_without_hiding_rows():
+    repeated_team_totals = [
+        SimpleNamespace(
+            candidate_id=f"away-under-{index}",
+            fixture_id=index,
+            market_key="AWAY_UNDER_1_5",
+            market="Team 2 Gesamttore",
+            selection="Unter 1.5",
+            context={"release_context_complete": False},
+        )
+        for index in range(1, 4)
+    ]
+    osasuna = SimpleNamespace(
+        candidate_id="osasuna-result-total",
+        fixture_id=4,
+        market_key="RESULT_TOTAL_1X_UNDER_3_5",
+        market="Resultat & Gesamttore 3,5",
+        selection="1X und Unter 3,5",
+        context={"release_context_complete": True},
+    )
+
+    featured, additional = bet_finder_ui.partition_consumer_featured_forecasts(
+        [*repeated_team_totals, osasuna],
+        max_featured=3,
+    )
+
+    assert featured == [osasuna]
+    assert additional == repeated_team_totals
+    assert featured + additional == [
+        osasuna,
+        repeated_team_totals[0],
+        repeated_team_totals[1],
+        repeated_team_totals[2],
+    ]
+
+
+def test_featured_partition_allows_only_one_selection_per_fixture():
+    first_fixture_primary = SimpleNamespace(
+        candidate_id="fixture-1-result-total",
+        fixture_id=1,
+        market_key="RESULT_TOTAL_1X_UNDER_3_5",
+        market="Resultat & Gesamttore 3,5",
+        selection="1X und Unter 3,5",
+        context={"release_context_complete": True},
+    )
+    same_fixture_other_market = SimpleNamespace(
+        candidate_id="fixture-1-btts",
+        fixture_id=1,
+        market_key="BTTS_YES",
+        market="Beide Teams treffen",
+        selection="Ja",
+        context={"release_context_complete": True},
+    )
+    second_fixture = SimpleNamespace(
+        candidate_id="fixture-2-result",
+        fixture_id=2,
+        market_key="RESULT_HOME",
+        market="Endergebnis",
+        selection="Heimsieg",
+        context={"release_context_complete": True},
+    )
+
+    featured, additional = bet_finder_ui.partition_consumer_featured_forecasts(
+        [first_fixture_primary, same_fixture_other_market, second_fixture],
+        max_featured=3,
+    )
+
+    assert featured == [first_fixture_primary, second_fixture]
+    assert additional == [same_fixture_other_market]
+
+
+def test_featured_partition_allows_only_one_selection_per_market_family():
+    home_win = SimpleNamespace(
+        candidate_id="fixture-1-home",
+        fixture_id=1,
+        market_key="RESULT_HOME",
+        market="Endergebnis",
+        selection="Heimsieg",
+        context={"release_context_complete": True},
+    )
+    away_win = SimpleNamespace(
+        candidate_id="fixture-2-away",
+        fixture_id=2,
+        market_key="RESULT_AWAY",
+        market="Endergebnis",
+        selection="Auswärtssieg",
+        context={"release_context_complete": True},
+    )
+    btts = SimpleNamespace(
+        candidate_id="fixture-3-btts",
+        fixture_id=3,
+        market_key="BTTS_YES",
+        market="Beide Teams treffen",
+        selection="Ja",
+        context={"release_context_complete": True},
+    )
+
+    featured, additional = bet_finder_ui.partition_consumer_featured_forecasts(
+        [home_win, away_win, btts],
+        max_featured=3,
+    )
+
+    assert featured == [home_win, btts]
+    assert additional == [away_win]
 
 
 def test_market_worker_keeps_fully_checked_catalog_beyond_three(monkeypatch):

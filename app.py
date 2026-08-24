@@ -61,7 +61,11 @@ live_football_candidate = _football_recommendations.live_football_candidate
 prematch_btts_candidate = _football_recommendations.prematch_btts_candidate
 red_card_candidate = _football_recommendations.red_card_candidate
 
-from bet_finder_ui import partition_consumer_forecasts, render_price_decision
+from bet_finder_ui import (
+    partition_consumer_featured_forecasts,
+    partition_consumer_forecasts,
+    render_price_decision,
+)
 from betting_math import BETTING_POLICY_VERSION
 from ev_signal_sources import (
     AutomatedWettfinderStatus,
@@ -3483,9 +3487,36 @@ def _automatic_partial_scope_notice(
     )
 
 
+def _automatic_consumer_run_incomplete(
+    status: AutomatedWettfinderStatus,
+) -> bool:
+    """Reduce internal coverage state to one consumer-safe warning flag."""
+
+    pending = sum(
+        int(getattr(status, field, 0) or 0)
+        for field in (
+            "context_data_incomplete_fixtures",
+            "context_unchecked_fixtures",
+            "deferred_context_fixtures",
+        )
+    )
+    unmodeled = max(
+        int(getattr(status, "fixtures_found", 0) or 0)
+        - int(getattr(status, "fixtures_modeled", 0) or 0),
+        0,
+    )
+    return (
+        status.football_status != "completed"
+        or int(getattr(status, "operational_error_count", 0) or 0) > 0
+        or pending > 0
+        or unmodeled > 0
+        or not bool(getattr(status, "context_accounting_available", False))
+        or not bool(getattr(status, "context_scope_complete", False))
+    )
+
+
 def _render_automated_daily_selection() -> None:
     status = automated_wettfinder_status()
-    signals = automated_wettfinder_signals()
     forecasts = automated_wettfinder_forecasts()
     if status is None:
         with st.expander("Automatischer Check", expanded=False):
@@ -3494,16 +3525,17 @@ def _render_automated_daily_selection() -> None:
         return
 
     target_label = _automatic_target_label(status.target_search_date)
-    football_signals, other_signals = _partition_automated_signals(signals)
     football_forecasts, other_forecasts = _partition_automated_signals(forecasts)
-    if status.football_status != "completed":
-        football_signals = []
     football_displayed, football_extreme_short = partition_consumer_forecasts(
         football_forecasts,
         quote_for=lambda selected: selected.reference_quote,
     )
+    football_featured, football_additional = partition_consumer_featured_forecasts(
+        football_displayed,
+        max_featured=3,
+    )
     other_displayed = other_forecasts
-    football_price_keys = {signal.key for signal in football_signals}
+    incomplete_run = _automatic_consumer_run_incomplete(status)
     with st.expander(
         f"Automatischer Fußball-Check · {target_label}",
         expanded=bool(football_displayed or football_extreme_short),
@@ -3517,22 +3549,27 @@ def _render_automated_daily_selection() -> None:
         st.caption(" · ".join(time_parts))
 
         if not football_displayed and not football_extreme_short:
-            evidence, message, incomplete = _automatic_consumer_summary(status)
-            st.caption(evidence)
-            if incomplete:
-                st.warning(message)
-            else:
-                st.info(message)
-        else:
-            partial_scope_notice = _automatic_partial_scope_notice(status)
-            if partial_scope_notice:
-                st.warning(partial_scope_notice)
-            if status.football_status != "completed" or status.operational_error_count:
+            st.info(
+                "Für diesen Spieltag liegt aktuell keine passende "
+                "Fußball-Auswahl vor."
+            )
+            if incomplete_run:
                 st.warning(
-                    "Der gesamte Tageslauf war nicht vollständig. Angezeigt werden "
-                    "nur Auswahlen aus Spielen mit eigener Modellprüfung und den "
-                    "dafür verfügbaren Kontextdaten."
+                    "Die automatische Prüfung konnte noch nicht vollständig "
+                    "abgeschlossen werden."
                 )
+        else:
+            if incomplete_run:
+                st.warning(
+                    "Die automatische Prüfung konnte noch nicht vollständig "
+                    "abgeschlossen werden."
+                )
+            st.info(
+                "Modellprognosen bleiben unabhängig vom Wettpreis sichtbar. "
+                "Eine vorhandene Vergleichsquote wird direkt an der Auswahl "
+                "eingeordnet."
+            )
+
             def render_football_rows(rows, *, start_index: int) -> None:
                 for offset, selected in enumerate(rows):
                     index = start_index + offset
@@ -3550,38 +3587,22 @@ def _render_automated_daily_selection() -> None:
                     if offset < len(rows) - 1:
                         st.divider()
 
-            if football_displayed:
-                price_match_count = sum(
-                    selected.key in football_price_keys
-                    for selected in football_displayed
-                )
-                st.info(
-                    f"{len(football_displayed)} automatisch berechnete "
-                    f"Modell-Auswahl"
-                    f"{'en' if len(football_displayed) != 1 else ''} · "
-                    f"bei {price_match_count} "
-                    f"{'passt die Quote' if price_match_count == 1 else 'passen die Quoten'}. "
-                    "Der Modellkatalog bleibt vollständig erhalten. Nur "
-                    "bestätigte sehr kurze Quoten werden weniger prominent "
-                    "angezeigt; fehlende oder sonst zu niedrige Quoten ändern "
-                    "die Modellreihenfolge nicht."
-                )
-                featured = football_displayed[:3]
-                additional = football_displayed[3:]
-                render_football_rows(featured, start_index=1)
-            else:
-                additional = []
-                st.info(
-                    "Aktuell gibt es keine nützliche Hauptauswahl. Die "
-                    "vorhandenen Modellprognosen haben bestätigte sehr kurze "
-                    "Quoten und stehen unten separat."
-                )
-            if additional:
+            if football_featured:
+                render_football_rows(football_featured, start_index=1)
+            if football_additional:
                 with st.expander(
-                    f"Weitere {len(additional)} Modellprognosen",
+                    f"Weitere {len(football_additional)} Modellprognosen",
                     expanded=False,
                 ):
-                    render_football_rows(additional, start_index=4)
+                    st.caption(
+                        "Der Modellkatalog bleibt vollständig. Wiederholte "
+                        "Marktentscheidungen oder weitere Auswahlen desselben "
+                        "Spiels stehen gesammelt hier."
+                    )
+                    render_football_rows(
+                        football_additional,
+                        start_index=len(football_featured) + 1,
+                    )
             if football_extreme_short:
                 with st.expander(
                     f"Sehr kurze Quoten · "

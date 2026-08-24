@@ -68,6 +68,7 @@ from challenge_store import ChallengeLedger
 from football_data_history import parse_history_csv
 from price_ledger import PriceLedger, PriceQuote
 from market_consensus import (
+    ODDS_API_REFERENCE_SOURCE,
     REFERENCE_SOURCE,
     MarketConsensus,
     QuotePoint,
@@ -573,10 +574,17 @@ class ChallengeProbabilityTests(unittest.TestCase):
 
     def test_scan_worker_prices_every_market_in_the_fixture_pool(self):
         favorite = candidate("1:RESULT_HOME", 1, 0.73)
-        alternative = candidate("1:TOTAL_UNDER_4_5", 1, 0.69)
+        alternative = candidate("1:BTTS_YES", 1, 0.69)
+        basis = replace(
+            candidate("1:AWAY_UNDER_1_5", 1, 0.74),
+            market_key="AWAY_UNDER_1_5",
+            market="Team 2 Gesamttore",
+            selection="Unter 1,5",
+        )
         snapshot = {
             "shortlist": [favorite],
             "price_candidates": [favorite, alternative],
+            "basis_forecasts": [basis],
         }
         provider = Mock(api_key="test")
 
@@ -596,9 +604,10 @@ class ChallengeProbabilityTests(unittest.TestCase):
 
         self.assertEqual(
             fetch_quotes.call_args.args[1],
-            [favorite, alternative],
+            [favorite, alternative, basis],
         )
-        self.assertEqual(result["price_checked_markets"], 2)
+        self.assertEqual(result["price_candidates"], [favorite, alternative])
+        self.assertEqual(result["price_checked_markets"], 3)
         self.assertEqual(result["price_checked_fixtures"], 1)
 
     def test_recommendation_day_label_uses_scanned_date(self):
@@ -779,6 +788,97 @@ class ChallengeProbabilityTests(unittest.TestCase):
             )
         )
 
+    def test_price_check_promotes_complete_result_total_over_repeated_team_totals(self):
+        fake_streamlit = MagicMock()
+        team_spec = MARKET_BY_KEY["AWAY_UNDER_1_5"]
+        team_totals = []
+        for index in range(1, 4):
+            item = replace(
+                candidate(f"{index}:AWAY_UNDER_1_5", index, 0.60),
+                market_key=team_spec.key,
+                market=team_spec.market,
+                selection=team_spec.selection,
+            )
+            item.context = {"release_context_complete": False}
+            team_totals.append(item)
+        result_spec = MARKET_BY_KEY["RESULT_TOTAL_1X_UNDER_3_5"]
+        osasuna = replace(
+            candidate("4:RESULT_TOTAL_1X_UNDER_3_5", 4, 0.60),
+            home_team="Osasuna",
+            away_team="Real Sociedad",
+            market_key=result_spec.key,
+            market=result_spec.market,
+            selection=result_spec.selection,
+        )
+        osasuna.context = {"release_context_complete": True}
+        forecasts = [*team_totals, osasuna]
+        now = datetime.now(timezone.utc)
+        basis_quote = MarketConsensus(
+            fixture_id=team_totals[0].fixture_id,
+            candidate_id=team_totals[0].candidate_id,
+            market_key=team_totals[0].market_key,
+            bet_name="Total - Away",
+            value_name="Under 1.5",
+            consensus_odds=1.50,
+            conservative_odds=1.50,
+            lowest_odds=1.50,
+            best_odds=1.50,
+            bookmaker_count=4,
+            quoted_at=now.isoformat(),
+            fetched_at=now.isoformat(),
+            source=REFERENCE_SOURCE,
+            points=(
+                QuotePoint("A", 1.50),
+                QuotePoint("B", 1.50),
+                QuotePoint("C", 1.50),
+                QuotePoint("D", 1.50),
+            ),
+        )
+        snapshot = {
+            "shortlist": [],
+            "forecast_shortlist": [osasuna],
+            "basis_forecasts": team_totals,
+            "price_candidates": [osasuna],
+            "reference_quotes": serialize_consensus_map(
+                {team_totals[0].candidate_id: basis_quote}
+            ),
+        }
+        rendered = []
+
+        with (
+            patch("challenge_15k.st", fake_streamlit),
+            patch(
+                "challenge_15k._automatic_challenge_ticket",
+                return_value=(None, {}),
+            ) as ticket_builder,
+            patch(
+                "challenge_15k._render_challenge_candidate",
+                side_effect=lambda item, quote, *_args: rendered.append(
+                    (item, quote)
+                ),
+            ),
+        ):
+            _render_price_check(snapshot, Mock(), {})
+
+        self.assertEqual(
+            [item for item, _quote in rendered],
+            [osasuna, *team_totals],
+        )
+        self.assertEqual(ticket_builder.call_args.args[0], [osasuna])
+        self.assertIsNone(rendered[0][1])
+        self.assertEqual(rendered[1][1], basis_quote)
+        self.assertTrue(
+            any(
+                str(call.args[0]) == "Weitere 3 Modellprognosen"
+                for call in fake_streamlit.expander.call_args_list
+                if call.args
+            )
+        )
+        self.assertEqual(
+            {item.candidate_id for item, _quote in rendered},
+            {item.candidate_id for item in forecasts},
+        )
+
     def test_scan_diagnostics_separates_model_and_context_gates(self):
         transfer_only = candidate("1:BTTS", 1, 0.70)
         transfer_only.blocked_reasons = [UNVALIDATED_TRANSFER_REASON]
@@ -851,6 +951,8 @@ class ChallengeProbabilityTests(unittest.TestCase):
             "TOTAL_UNDER_4_5",
             "HOME_OVER_0_5",
             "AWAY_OVER_0_5",
+            "HOME_UNDER_1_5",
+            "AWAY_UNDER_1_5",
             "HOME_UNDER_2_5",
             "AWAY_UNDER_2_5",
             "HOME_RANGE_1_3",
@@ -892,6 +994,23 @@ class ChallengeProbabilityTests(unittest.TestCase):
         self.assertEqual(select_forecast_shortlist([broad, useful]), [useful])
         self.assertEqual(select_basis_forecasts([broad, useful]), [broad])
 
+    def test_team_under_one_five_is_retained_only_as_basis_forecast(self):
+        broad = replace(
+            candidate("1:AWAY_UNDER_1_5", 1, 0.74),
+            market_key="AWAY_UNDER_1_5",
+            market="Team 2 Gesamttore",
+            selection="Unter 1.5",
+        )
+        useful = replace(
+            candidate("2:RESULT_TOTAL_1X_UNDER_3_5", 2, 0.62),
+            market_key="RESULT_TOTAL_1X_UNDER_3_5",
+            market="Resultat & Gesamttore 3,5",
+            selection="1X und Unter 3,5",
+        )
+
+        self.assertEqual(select_forecast_shortlist([broad, useful]), [useful])
+        self.assertEqual(select_basis_forecasts([broad, useful]), [broad])
+
     def test_context_summary_discloses_missing_inputs_without_blocking_price(self):
         item = candidate("1:BTTS_YES", 1, 0.70)
         item.context.update(
@@ -906,9 +1025,12 @@ class ChallengeProbabilityTests(unittest.TestCase):
         summary = candidate_context_summary(item)
 
         self.assertIn("H2H geprüft, kein belastbares Veto", summary)
-        self.assertIn("Ausfälle berücksichtigt", summary)
+        self.assertIn("Ausfälle Liste geprüft, Wirkung nicht modelliert", summary)
         self.assertIn("Wetter nicht verfügbar", summary)
-        self.assertIn("Aufstellungen noch offen", summary)
+        self.assertIn(
+            "Aufstellungen für vollständige Bestätigung noch offen",
+            summary,
+        )
 
     def test_context_ranking_prefers_useful_market_over_trivial_probability(self):
         broad = replace(
@@ -984,11 +1106,12 @@ class ChallengeProbabilityTests(unittest.TestCase):
         selected = select_forecast_shortlist(pool, max_candidates=15)
         kinds = [MARKET_BY_KEY[item.market_key].kind for item in selected]
 
-        self.assertEqual(len(selected), 15)
-        self.assertEqual(len({item.fixture_id for item in selected}), 15)
+        self.assertEqual(len(selected), 14)
+        self.assertEqual(len({item.fixture_id for item in selected}), 14)
         self.assertTrue(all(count <= 3 for count in Counter(kinds).values()))
         self.assertEqual(len(set(kinds[:3])), 3)
         self.assertNotIn("HOME_OVER_0_5", {item.market_key for item in selected})
+        self.assertNotIn("HOME_UNDER_1_5", {item.market_key for item in selected})
 
     def test_diversity_prefill_never_exceeds_requested_maximum(self):
         market_keys = [
@@ -1655,7 +1778,7 @@ class ChallengeContextTests(unittest.TestCase):
                 "rain_3h_mm": 0.0,
                 "snow_3h_mm": 0.0,
             },
-            lineups=None,
+            lineups=confirmed_lineups(),
             now=now,
             require_lineups=False,
         )
@@ -1762,7 +1885,7 @@ class ChallengeContextTests(unittest.TestCase):
                 "rain_3h_mm": 0.0,
                 "snow_3h_mm": 0.0,
             },
-            lineups=None,
+            lineups=confirmed_lineups(),
             now=now,
             require_lineups=False,
         )
@@ -1809,13 +1932,18 @@ class ChallengeContextTests(unittest.TestCase):
                 "rain_3h_mm": 0.0,
                 "snow_3h_mm": 0.0,
             },
-            lineups=None,
+            lineups=confirmed_lineups(),
             now=now,
             require_lineups=False,
         )
 
-        self.assertTrue(candidate_is_credible(item))
-        self.assertTrue(item.context["release_context_complete"])
+        self.assertTrue(candidate_is_forecast_credible(item))
+        self.assertFalse(candidate_is_credible(item))
+        self.assertFalse(item.context["release_context_complete"])
+        self.assertIn(
+            "Wirkung gemeldeter Ausfälle ist nicht vollständig modelliert",
+            item.context["release_context_limitations"],
+        )
         self.assertEqual(item.context["injuries"]["status"], "observed")
         self.assertEqual(item.context["injuries"]["home_missing"], 8)
         self.assertEqual(len(item.context["injuries"]["home_names"]), 8)
@@ -1881,7 +2009,10 @@ class ChallengeContextTests(unittest.TestCase):
                 injuries=[],
                 injury_coverage=True,
                 weather=extreme,
-                lineups=None,
+                lineups=confirmed_lineups(
+                    item.home_team_id,
+                    item.away_team_id,
+                ),
                 now=now,
                 require_lineups=False,
             )
@@ -2005,9 +2136,11 @@ class ChallengeContextTests(unittest.TestCase):
             now=now,
         )
 
-        self.assertEqual(len(result["shortlist"]), 1)
-        refreshed = result["shortlist"][0]
-        self.assertTrue(refreshed.context["passed"])
+        self.assertEqual(result["shortlist"], [])
+        self.assertEqual(len(result["forecast_shortlist"]), 1)
+        refreshed = result["forecast_shortlist"][0]
+        self.assertTrue(candidate_is_forecast_credible(refreshed))
+        self.assertFalse(candidate_is_credible(refreshed))
         self.assertEqual(refreshed.context["lineups"]["status"], "pending")
         self.assertFalse(refreshed.context["lineups"]["required"])
 
@@ -2133,9 +2266,44 @@ class ChallengeContextTests(unittest.TestCase):
             now=now,
         )
 
-        self.assertTrue(item.eligible)
+        self.assertTrue(item.forecast_eligible)
+        self.assertFalse(item.eligible)
+        self.assertFalse(item.context["release_context_complete"])
         self.assertNotIn("Aufstellung", " ".join(item.context["blocked_reasons"]))
         self.assertFalse(item.context["lineups"]["required"])
+
+    def test_missing_optional_lineups_become_urgent_inside_final_hour(self):
+        now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        item = candidate(
+            "1:BTTS",
+            1,
+            0.70,
+            kickoff=now + timedelta(minutes=50),
+        )
+        apply_candidate_context(
+            item,
+            h2h_fixtures=[],
+            injuries=[],
+            injury_coverage=True,
+            weather={
+                "status": "ok",
+                "temperature_c": 12,
+                "wind_mps": 3,
+                "rain_3h_mm": 0,
+                "snow_3h_mm": 0,
+            },
+            lineups=None,
+            now=now,
+            require_lineups=False,
+        )
+
+        self.assertTrue(item.forecast_eligible)
+        self.assertFalse(item.eligible)
+        self.assertEqual(item.context["lineups"]["status"], "confirmation_due")
+        self.assertIn(
+            "keine vollständige Bestätigung kurz vor Anpfiff",
+            candidate_context_summary(item),
+        )
 
     def test_placeholder_lineups_still_ignored_when_optional(self):
         item = candidate("1:BTTS", 1, 0.70)
@@ -2166,7 +2334,8 @@ class ChallengeContextTests(unittest.TestCase):
             require_lineups=False,
         )
 
-        self.assertTrue(item.eligible)
+        self.assertTrue(item.forecast_eligible)
+        self.assertFalse(item.eligible)
 
     def test_missing_h2h_is_neutral_instead_of_blocking_candidate(self):
         now = datetime.now(timezone.utc)
@@ -3507,6 +3676,34 @@ class AutomaticReferenceTicketTests(unittest.TestCase):
 
         self.assertIsNone(ticket)
         self.assertEqual(statuses[item.candidate_id].code, "THIN")
+
+    def test_wrong_quote_identity_never_builds_15k_ticket(self):
+        now = datetime.now(timezone.utc)
+        item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))
+        quote = reference_quote_for(item, now)
+        mismatches = (
+            replace(quote, market_key="BTTS_NO"),
+            replace(quote, fixture_id=2),
+            replace(
+                quote,
+                source=ODDS_API_REFERENCE_SOURCE,
+                provider_event_id="wrong-provider-event",
+            ),
+        )
+
+        for mismatched in mismatches:
+            with self.subTest(mismatch=mismatched):
+                ticket, statuses = _automatic_challenge_ticket(
+                    [item],
+                    {item.candidate_id: mismatched},
+                    now=now,
+                )
+
+                self.assertIsNone(ticket)
+                self.assertEqual(
+                    statuses[item.candidate_id].code,
+                    "UNAVAILABLE",
+                )
 
 
 if __name__ == "__main__":

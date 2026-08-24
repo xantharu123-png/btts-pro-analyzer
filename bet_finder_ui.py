@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 from typing import Callable, Iterable, Optional, TypeVar
 
 import streamlit as st
@@ -24,6 +26,254 @@ from tip_store import TipStore
 
 LOGGER = logging.getLogger(__name__)
 _ForecastRow = TypeVar("_ForecastRow")
+
+
+def merge_consumer_forecast_catalog(
+    *groups: Optional[Iterable[_ForecastRow]],
+) -> list[_ForecastRow]:
+    """Merge display catalogs without dropping distinct markets per fixture."""
+
+    merged: list[_ForecastRow] = []
+    seen: set[str] = set()
+    for group in groups:
+        for row in group or ():
+            identity = _consumer_token(
+                getattr(row, "candidate_id", None)
+                or getattr(row, "key", None)
+                or id(row)
+            )
+            if identity in seen:
+                continue
+            seen.add(identity)
+            merged.append(row)
+    return merged
+
+
+def _consumer_token(value: object) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "").casefold())
+    ascii_value = normalized.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "_", ascii_value).strip("_")
+
+
+def _consumer_market_utility_tier(row: object) -> int:
+    """Return a small, price-independent presentation tier.
+
+    Combined result/goal decisions are more informative than a repeated team
+    safety line.  This is deliberately presentation-only: no tier changes a
+    model probability, price decision, ticket, or eligibility gate.
+    """
+
+    market_key = _consumer_token(getattr(row, "market_key", None))
+    market = _consumer_token(getattr(row, "market", None))
+    selection = _consumer_token(getattr(row, "selection", None))
+    combined = "_".join(part for part in (market_key, market, selection) if part)
+    if market_key.startswith("result_total_") or (
+        "resultat" in market and ("gesamttore" in market or "tore" in market)
+    ):
+        return 0
+    if (
+        market_key.startswith(
+            ("home_under_", "home_over_", "away_under_", "away_over_")
+        )
+        or "team_1_gesamttore" in market
+        or "team_2_gesamttore" in market
+        or "teamtore" in market
+        or "team_total" in combined
+    ):
+        return 2
+    if (
+        market_key.startswith(("dc_", "mixed_"))
+        or "doppelte_chance" in market
+        or "gemischte_chance" in market
+        or ("tore" in selection and "oder" in selection)
+    ):
+        return 3
+    return 1
+
+
+def _consumer_market_is_basis(row: object) -> bool:
+    """Mirror broad consumer basis markets without importing the model layer."""
+
+    market_key = _consumer_token(getattr(row, "market_key", None))
+    market = _consumer_token(getattr(row, "market", None))
+    selection = _consumer_token(getattr(row, "selection", None))
+    basic_prefixes = ("dc_", "mixed_", "home_range_", "away_range_")
+    basic_keys = {
+        "total_over_0_5",
+        "total_under_4_5",
+        "home_over_0_5",
+        "away_over_0_5",
+        "home_under_1_5",
+        "away_under_1_5",
+        "home_under_2_5",
+        "away_under_2_5",
+        "corners_over_5_5",
+        "corners_under_11_5",
+        "home_corners_over_2_5",
+        "away_corners_over_2_5",
+        "home_corners_under_5_5",
+        "away_corners_under_5_5",
+        "yellow_over_1_5",
+        "yellow_under_4_5",
+        "home_yellow_over_0_5",
+        "away_yellow_over_0_5",
+        "home_yellow_under_2_5",
+        "away_yellow_under_2_5",
+    }
+    if market_key.startswith(basic_prefixes) or market_key in basic_keys:
+        return True
+    if "doppelte_chance" in market or "gemischte_chance" in market:
+        return True
+    if selection in {"1_3_tore", "2_4_tore"}:
+        return True
+    is_team_total = (
+        "team_1_gesamttore" in market
+        or "team_2_gesamttore" in market
+        or "teamtore" in market
+        or "team_total" in market
+    )
+    return is_team_total and selection in {
+        "uber_0_5",
+        "unter_1_5",
+        "unter_2_5",
+    }
+
+
+def _consumer_context_complete(row: object) -> bool:
+    for attribute in ("context_complete", "release_context_complete"):
+        value = getattr(row, attribute, None)
+        if value is True:
+            return True
+    context = getattr(row, "context", None)
+    return bool(
+        isinstance(context, dict)
+        and context.get("release_context_complete") is True
+    )
+
+
+def _consumer_fixture_identity(row: object) -> str:
+    fixture_id = getattr(row, "fixture_id", None)
+    if fixture_id is not None and not isinstance(fixture_id, bool):
+        token = _consumer_token(fixture_id)
+        if token:
+            return f"fixture:{token}"
+    event = _consumer_token(getattr(row, "event_label", None))
+    if event:
+        return f"event:{event}"
+    teams = _consumer_token(
+        "|".join(
+            str(value or "")
+            for value in (
+                getattr(row, "home_team", None),
+                getattr(row, "away_team", None),
+            )
+        )
+    )
+    if teams:
+        return f"teams:{teams}"
+    row_identity = (
+        getattr(row, "candidate_id", None)
+        or getattr(row, "key", None)
+        or id(row)
+    )
+    return f"row:{_consumer_token(row_identity)}"
+
+
+def _consumer_market_identity(row: object) -> str:
+    market_key = _consumer_token(getattr(row, "market_key", None))
+    market = _consumer_token(getattr(row, "market", None))
+    keyed_families = (
+        ("result_total_", "result_total"),
+        ("result_", "result"),
+        ("dc_", "double_chance"),
+        ("btts_", "btts"),
+        ("total_", "total"),
+        ("home_corners_", "team_corners"),
+        ("away_corners_", "team_corners"),
+        ("corners_", "corner_total"),
+        ("home_yellow_", "team_yellow"),
+        ("away_yellow_", "team_yellow"),
+        ("yellow_", "yellow_total"),
+        ("home_", "team_total"),
+        ("away_", "team_total"),
+        ("mixed_", "mixed"),
+    )
+    for prefix, family in keyed_families:
+        if market_key.startswith(prefix):
+            return f"family:{family}"
+    labeled_families = (
+        ("resultat", "result_total"),
+        ("beide_teams", "btts"),
+        ("doppelte_chance", "double_chance"),
+        ("team_1_gesamttore", "team_total"),
+        ("team_2_gesamttore", "team_total"),
+        ("teamtore", "team_total"),
+        ("endergebnis", "result"),
+        ("gesamttore", "total"),
+    )
+    for token, family in labeled_families:
+        if token in market:
+            return f"family:{family}"
+    if market_key or market:
+        return f"market:{market_key or market}"
+    row_identity = (
+        getattr(row, "candidate_id", None)
+        or getattr(row, "key", None)
+        or id(row)
+    )
+    return f"row:{_consumer_token(row_identity)}"
+
+
+def partition_consumer_featured_forecasts(
+    rows: Iterable[_ForecastRow],
+    *,
+    max_featured: int = 3,
+) -> tuple[list[_ForecastRow], list[_ForecastRow]]:
+    """Choose diverse main cards and keep every other forecast secondary.
+
+    Ordering is stable inside each utility/context tier.  A fully checked row
+    is preferred to an incomplete row of comparable usefulness.  At most one
+    row per fixture and repeated market decision occupies a main-card slot.
+    Broad basis markets never occupy such a slot; every row remains in the
+    returned primary or secondary catalog.
+    """
+
+    if (
+        isinstance(max_featured, bool)
+        or not isinstance(max_featured, int)
+        or max_featured < 1
+    ):
+        raise ValueError("max_featured must be a positive integer")
+    ranked = sorted(
+        enumerate(rows),
+        key=lambda item: (
+            _consumer_market_utility_tier(item[1]),
+            0 if _consumer_context_complete(item[1]) else 1,
+            item[0],
+        ),
+    )
+    featured: list[_ForecastRow] = []
+    secondary: list[_ForecastRow] = []
+    used_fixtures: set[str] = set()
+    used_markets: set[str] = set()
+    for _index, row in ranked:
+        if _consumer_market_is_basis(row):
+            secondary.append(row)
+            continue
+        fixture_identity = _consumer_fixture_identity(row)
+        market_identity = _consumer_market_identity(row)
+        can_feature = (
+            len(featured) < max_featured
+            and fixture_identity not in used_fixtures
+            and market_identity not in used_markets
+        )
+        if can_feature:
+            featured.append(row)
+            used_fixtures.add(fixture_identity)
+            used_markets.add(market_identity)
+        else:
+            secondary.append(row)
+    return featured, secondary
 
 
 def partition_consumer_forecasts(

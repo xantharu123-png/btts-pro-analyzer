@@ -22,7 +22,10 @@ from ev_signal_sources import (
     tennis_model_signals,
     tennis_signals,
 )
-from market_consensus import parse_fixture_consensus
+from market_consensus import (
+    ODDS_API_REFERENCE_SOURCE,
+    parse_fixture_consensus,
+)
 from tennis.predict import WINNER_PROBABILITY_HAIRCUT
 from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION
 
@@ -74,6 +77,13 @@ def _playable_automatic_candidate(
         "source": "football_challenge",
         "detail": "Automatisch preisgeprüft",
         "reference_price_status": "PLAYABLE",
+        "model_scope": "same_competition",
+        "context": {
+            "release_context_complete": True,
+            "release_eligible": True,
+        },
+        "context_stale": False,
+        "is_basic_forecast": False,
     }
     payload = {
         "response": [
@@ -694,6 +704,9 @@ class ListSignalsTests(unittest.TestCase):
             artifact = Path(tmpdir) / "wettfinder.json"
 
             accepted = rows()
+            accepted[0]["context"] = {"release_context_complete": True}
+            accepted[1]["context"] = {"release_context_complete": False}
+            accepted[2].pop("context", None)
             artifact.write_text(
                 json.dumps(_automatic_document(accepted)),
                 encoding="utf-8",
@@ -704,6 +717,10 @@ class ListSignalsTests(unittest.TestCase):
             forecasts = automated_wettfinder_forecasts(artifact, now=now)
             self.assertEqual(len(forecasts), 21)
             self.assertIn("Wetter nicht verfügbar", forecasts[0].context_summary)
+            self.assertEqual(forecasts[0].market_key, "BTTS_YES")
+            self.assertIs(forecasts[0].context_complete, True)
+            self.assertIs(forecasts[1].context_complete, False)
+            self.assertIsNone(forecasts[2].context_complete)
 
             for rejected in (
                 rows(football=16, tennis=3, esports=2),
@@ -740,6 +757,7 @@ class ListSignalsTests(unittest.TestCase):
                 }
             )
             row["reference_quote"]["candidate_id"] = candidate_id
+            row["reference_quote"]["fixture_id"] = index
             return row
 
         lower_probability_first = playable(1, 0.60)
@@ -907,6 +925,269 @@ class ListSignalsTests(unittest.TestCase):
             )
 
         self.assertEqual(signals, [])
+
+    def test_football_signal_requires_candidate_release_contract(self):
+        import json
+
+        violations = (
+            (
+                "release context incomplete",
+                {
+                    "context": {
+                        "release_context_complete": False,
+                        "release_eligible": True,
+                    }
+                },
+            ),
+            (
+                "release ineligible",
+                {
+                    "context": {
+                        "release_context_complete": True,
+                        "release_eligible": False,
+                    }
+                },
+            ),
+            ("wrong model scope", {"model_scope": "home_league_transfer"}),
+            ("stale context", {"context_stale": True}),
+            ("basic forecast", {"is_basic_forecast": True}),
+        )
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            for label, override in violations:
+                with self.subTest(violation=label):
+                    candidate = _playable_automatic_candidate()
+                    candidate.update(override)
+                    model_candidate = {
+                        **candidate,
+                        "status": "MODEL_SELECTION",
+                    }
+                    artifact.write_text(
+                        json.dumps(
+                            _automatic_document(
+                                [model_candidate],
+                                candidates=[candidate],
+                            )
+                        ),
+                        encoding="utf-8",
+                    )
+
+                    self.assertIsNotNone(
+                        _load_automated_wettfinder_document(
+                            artifact,
+                            now=now,
+                        )
+                    )
+                    self.assertEqual(
+                        automated_wettfinder_signals(artifact, now=now),
+                        [],
+                    )
+
+            candidate = _playable_automatic_candidate()
+            candidate.pop("context_stale")
+            artifact.write_text(
+                json.dumps(
+                    _automatic_document(
+                        [{**candidate, "status": "MODEL_SELECTION"}],
+                        candidates=[candidate],
+                    )
+                ),
+                encoding="utf-8",
+            )
+            self.assertIsNotNone(
+                _load_automated_wettfinder_document(artifact, now=now)
+            )
+            self.assertEqual(
+                automated_wettfinder_signals(artifact, now=now),
+                [],
+            )
+
+            candidate = _playable_automatic_candidate()
+            candidate.pop("is_basic_forecast")
+            artifact.write_text(
+                json.dumps(
+                    _automatic_document(
+                        [{**candidate, "status": "MODEL_SELECTION"}],
+                        candidates=[candidate],
+                    )
+                ),
+                encoding="utf-8",
+            )
+            self.assertIsNotNone(
+                _load_automated_wettfinder_document(artifact, now=now)
+            )
+            self.assertEqual(
+                automated_wettfinder_signals(artifact, now=now),
+                [],
+            )
+
+    def test_esports_signal_is_never_strict_without_a_verified_price_provider(self):
+        import json
+
+        candidate = _playable_automatic_candidate()
+        candidate.update(
+            {
+                "key": "esports-auto-1",
+                "sport": "E-Sport",
+                "event": "Alpha vs Beta",
+                "market": "Match Winner",
+                "market_key": "H2H",
+                "selection": "Sieg Alpha",
+                "source": "esports_shadow",
+                "policy_version": (
+                    f"{BETTING_POLICY_VERSION}:{ESPORTS_MODEL_VERSION}"
+                ),
+            }
+        )
+        candidate.pop("fixture_id")
+        candidate["reference_quote"]["market_key"] = "H2H"
+        model_candidate = {**candidate, "status": "MODEL_SELECTION"}
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            artifact.write_text(
+                json.dumps(
+                    _automatic_document(
+                        [model_candidate],
+                        candidates=[candidate],
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertIsNone(
+                _load_automated_wettfinder_document(artifact, now=now)
+            )
+            self.assertEqual(
+                automated_wettfinder_signals(artifact, now=now),
+                [],
+            )
+
+    def test_automatic_artifact_rejects_mismatched_quote_identity(self):
+        import json
+
+        mutations = (
+            ("wrong market", {"market_key": "BTTS_NO"}),
+            ("wrong fixture", {"fixture_id": 2}),
+            (
+                "wrong source",
+                {
+                    "source": ODDS_API_REFERENCE_SOURCE,
+                    "provider_event_id": "wrong-provider-event",
+                },
+            ),
+        )
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            for label, quote_mutation in mutations:
+                with self.subTest(mismatch=label):
+                    candidate = _playable_automatic_candidate()
+                    candidate["reference_quote"].update(quote_mutation)
+                    model_candidate = {
+                        **candidate,
+                        "status": "MODEL_SELECTION",
+                    }
+                    artifact.write_text(
+                        json.dumps(
+                            _automatic_document(
+                                [model_candidate],
+                                candidates=[candidate],
+                            )
+                        ),
+                        encoding="utf-8",
+                    )
+
+                    self.assertIsNone(
+                        _load_automated_wettfinder_document(
+                            artifact,
+                            now=now,
+                        )
+                    )
+                    self.assertIsNone(
+                        automated_wettfinder_status(artifact, now=now)
+                    )
+                    self.assertEqual(
+                        automated_wettfinder_forecasts(artifact, now=now),
+                        [],
+                    )
+                    self.assertEqual(
+                        automated_wettfinder_signals(artifact, now=now),
+                        [],
+                    )
+
+    def test_automatic_model_without_quote_must_be_unavailable_for_every_sport(
+        self,
+    ):
+        import json
+
+        cases = (
+            ("Tennis", "tennis_shadow", TENNIS_POLICY_VERSION),
+            (
+                "E-Sport",
+                "esports_shadow",
+                f"{BETTING_POLICY_VERSION}:{ESPORTS_MODEL_VERSION}",
+            ),
+        )
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            for index, (sport, source, policy) in enumerate(cases, start=1):
+                with self.subTest(sport=sport):
+                    row = _automatic_model_row(
+                        index,
+                        sport=sport,
+                        source=source,
+                        policy_version=policy,
+                    )
+                    row["reference_price_status"] = "PLAYABLE"
+                    artifact.write_text(
+                        json.dumps(_automatic_document([row])),
+                        encoding="utf-8",
+                    )
+
+                    self.assertIsNone(
+                        _load_automated_wettfinder_document(
+                            artifact,
+                            now=now,
+                        )
+                    )
+                    self.assertIsNone(
+                        automated_wettfinder_status(artifact, now=now)
+                    )
+
+    def test_automatic_strict_candidate_requires_known_generated_source(self):
+        import json
+
+        candidate = _playable_automatic_candidate()
+        candidate["source"] = "manipulated_shadow"
+        model_candidate = {**candidate, "status": "MODEL_SELECTION"}
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            artifact.write_text(
+                json.dumps(
+                    _automatic_document(
+                        [model_candidate],
+                        candidates=[candidate],
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertIsNone(
+                _load_automated_wettfinder_document(artifact, now=now)
+            )
+            self.assertEqual(
+                automated_wettfinder_signals(artifact, now=now),
+                [],
+            )
 
     def test_football_signal_requires_verified_fixture_accounting(self):
         import json

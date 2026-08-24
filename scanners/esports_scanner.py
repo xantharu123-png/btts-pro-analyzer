@@ -353,8 +353,10 @@ class EsportsScanner:
             # Historical calls are useful only when the series model can consume them.
             game_slug = 'csgo' if game == 'CS2' else game.lower()
             if can_estimate and enrich_history:
-                team1_history = self._get_team_history(team1_id, game_slug)[:20]
-                team2_history = self._get_team_history(team2_id, game_slug)[:20]
+                # Keep the provider's bounded 50-row pool until the model has
+                # removed entries whose result was not yet causally available.
+                team1_history = self._get_team_history(team1_id, game_slug)
+                team2_history = self._get_team_history(team2_id, game_slug)
                 team1_stats = self._get_team_stats(team1_id, game_slug)
                 team2_stats = self._get_team_stats(team2_id, game_slug)
             else:
@@ -502,10 +504,12 @@ class EsportsScanner:
                         ):
                             number_of_games = None
                         begin_at = m.get('begin_at')
+                        end_at = m.get('end_at')
                         history.append(
                             {
                                 'match_id': match_id,
                                 'begin_at': begin_at if isinstance(begin_at, str) else '',
+                                'end_at': end_at if isinstance(end_at, str) else '',
                                 'opponent_id': [oid for oid in opponent_ids if oid != team_id][0],
                                 'won': winner_id == team_id,
                                 'number_of_games': number_of_games,

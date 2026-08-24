@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 
+import market_consensus
+from betting_math import BETTING_POLICY_VERSION
 from challenge_engine import (
     MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
@@ -17,10 +19,19 @@ from ev_signal_sources import (
     automated_wettfinder_signals,
 )
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
-from market_consensus import parse_fixture_consensus
+from market_consensus import (
+    MarketConsensus,
+    ODDS_API_REFERENCE_SOURCE,
+    QuotePoint,
+    REFERENCE_SOURCE,
+    parse_h2h_event_consensus,
+    parse_fixture_consensus,
+)
+from multi_sport_recommendations import ESPORTS_MODEL_VERSION
 from wettfinder_automation import (
     AUTOMATION_VERSION,
     _active_football_candidates,
+    _apply_reference_quotes,
     _default_football_scan,
     _football_candidate_record,
     _football_state_from_snapshot,
@@ -39,6 +50,68 @@ from wettfinder_automation import (
 
 
 UTC = timezone.utc
+
+
+def test_apply_reference_quotes_rejects_wrong_market_fixture_and_source():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    row = {
+        "candidate_id": "1:BTTS_YES",
+        "fixture_id": 1,
+        "market_key": "BTTS_YES",
+        "sport": "Fussball",
+        "source": "football_challenge",
+        "minimum_odds": 1.80,
+    }
+    payload = {
+        "errors": [],
+        "response": [
+            {
+                "fixture": {"id": 1},
+                "update": now.isoformat(),
+                "bookmakers": [
+                    {
+                        "name": f"Book {index}",
+                        "bets": [
+                            {
+                                "name": "Both Teams Score",
+                                "values": [{"value": "Yes", "odd": "2.05"}],
+                            }
+                        ],
+                    }
+                    for index in range(1, 5)
+                ],
+            }
+        ],
+    }
+    quote = parse_fixture_consensus(
+        payload,
+        [row],
+        fetched_at=now,
+    )[row["candidate_id"]]
+    mismatches = (
+        replace(quote, market_key="BTTS_NO"),
+        replace(quote, fixture_id=2),
+        replace(
+            quote,
+            source=ODDS_API_REFERENCE_SOURCE,
+            provider_event_id="wrong-provider-event",
+        ),
+    )
+
+    for mismatched in mismatches:
+        model_row = dict(row)
+        price_row = dict(row)
+        counts, playable = _apply_reference_quotes(
+            [model_row],
+            [price_row],
+            {row["candidate_id"]: mismatched},
+            now=now,
+        )
+
+        assert counts == {"UNAVAILABLE": 1}
+        assert playable == []
+        assert model_row["reference_price_status"] == "UNAVAILABLE"
+        assert "reference_quote" not in model_row
 
 
 def test_football_state_propagates_operational_failure_with_nonempty_schedule():
@@ -347,7 +420,12 @@ def _candidate(
 
 def _football_snapshot(now: datetime) -> dict:
     candidate = _challenge_candidate(datetime(2030, 1, 1, 15, 0, tzinfo=UTC))
-    candidate.context = {"passed": True, "blocked_reasons": []}
+    candidate.context = {
+        "passed": True,
+        "blocked_reasons": [],
+        "release_context_complete": True,
+        "release_eligible": True,
+    }
     return {
         "scanned_at": now.isoformat(),
         "fixtures_found": 2,
@@ -411,6 +489,20 @@ def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
 
 def test_automation_writer_and_reader_share_one_artifact_version():
     assert AUTOMATION_VERSION == AUTOMATED_WETTFINDER_VERSION
+
+
+def test_previous_automation_artifact_version_is_rejected(tmp_path):
+    state_path = tmp_path / "legacy-wettfinder.json"
+    state_path.write_text(
+        f'{{"version": {AUTOMATION_VERSION - 1}}}',
+        encoding="utf-8",
+    )
+
+    assert load_state(state_path) == {}
+    assert automated_wettfinder_forecasts(
+        state_path,
+        now=datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
+    ) == []
 
 
 def test_one_model_ledger_preserves_model_order_without_price_priority():
@@ -506,6 +598,61 @@ def test_persisted_model_signal_keeps_event_market_and_selection_separate():
     assert record["event"] == "CS2 · Alpha vs Beta"
     assert record["market"] == "Match Winner"
     assert record["selection"] == "Sieg Alpha"
+
+
+def test_tennis_event_identity_deduplicates_legacy_keys_and_name_punctuation():
+    signal = ModelSignal(
+        key="tennis-a",
+        label="Anna-Lena vs Bea",
+        probability=0.65,
+        probability_haircut=0.05,
+        evidence_stage="SHADOW",
+        policy_version="tennis-test",
+        detail="Persistiertes Tennis-Modell",
+        scheduled_start="2030-01-01T15:00:00+00:00",
+        sport="Tennis",
+        event_label="Anna-Lena vs Bea",
+        market="Match Winner",
+        selection="Sieg Anna-Lena",
+        competitor_a="Anna-Lena",
+        competitor_b="Bea",
+        selected_competitor="Anna-Lena",
+        competition="Winston-Salem",
+    )
+    legacy = replace(
+        signal,
+        key="tennis-b-legacy",
+        event_label="Anna Lena vs Bea",
+        competitor_a="Anna Lena",
+        selected_competitor="Anna Lena",
+        competition="Winston Salem",
+    )
+    corrected_time = replace(
+        signal,
+        key="tennis-c-corrected-time",
+        scheduled_start="2030-01-01T15:05:00+00:00",
+    )
+    next_day = replace(
+        signal,
+        key="tennis-d-next-day",
+        scheduled_start="2030-01-02T15:00:00+00:00",
+    )
+    rows = [
+        _signal_record(item)
+        for item in (signal, legacy, corrected_time, next_day)
+    ]
+
+    assert all(row is not None for row in rows)
+    first, duplicate, corrected, tomorrow = rows
+    assert first["event_identity"] == duplicate["event_identity"]
+    assert first["event_identity"] == corrected["event_identity"]
+    assert first["event_identity"] != tomorrow["event_identity"]
+    selected = select_candidates(
+        rows,
+        now=datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
+        target_date=date(2030, 1, 1),
+    )
+    assert [row["key"] for row in selected] == ["tennis-a"]
 
 
 def test_target_date_switches_at_2300_zurich():
@@ -945,7 +1092,7 @@ def test_runner_never_publishes_unpriced_or_too_low_model_candidates(tmp_path):
         probability=0.6815,
         probability_haircut=0.2572,
         evidence_stage="SHADOW",
-        policy_version="risk-ev-3pct-v1:subgraph-elo-v2",
+        policy_version=f"{BETTING_POLICY_VERSION}:{ESPORTS_MODEL_VERSION}",
         detail="E-Sport-Pre-Match-Modell · Shadow",
         scheduled_start="2030-01-01T18:00:00+00:00",
         sport="E-Sport",
@@ -1082,7 +1229,12 @@ def test_runner_keeps_checked_catalog_beyond_featured_top_three(tmp_path):
             conservative_probability=probability - 0.09,
             model_price=1.0 / (probability - 0.09),
         )
-        candidate.context = {"passed": True, "blocked_reasons": []}
+        candidate.context = {
+            "passed": True,
+            "blocked_reasons": [],
+            "release_context_complete": True,
+            "release_eligible": True,
+        }
         shortlist.append(candidate)
 
     def scan(_search_date):
@@ -1416,3 +1568,483 @@ def test_runner_fails_closed_without_api_key_but_still_writes_state(tmp_path):
     assert document["sources"]["basketball"]["status"] == (
         "live_only_no_prematch_model"
     )
+
+
+def test_runner_reprices_each_supported_reused_candidate_on_every_run(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    state_path = tmp_path / "wettfinder.json"
+    scan_calls = 0
+    football_quote_calls: list[list[str]] = []
+    tennis_quote_calls: list[list[str]] = []
+
+    def football_scan(_search_date):
+        nonlocal scan_calls
+        scan_calls += 1
+        return _football_snapshot(now)
+
+    tennis = ModelSignal(
+        key="tennis-model-1-A",
+        label="Tennis - Alice vs Bea - Sieg Alice",
+        probability=0.66,
+        probability_haircut=0.08,
+        evidence_stage="SHADOW",
+        policy_version="tennis-test",
+        detail="Persistiertes Tennis-Modell",
+        scheduled_start="2030-01-01T16:00:00+00:00",
+        sport="Tennis",
+        event_label="Alice vs Bea",
+        market="Match Winner",
+        selection="Sieg Alice",
+        competitor_a="Alice",
+        competitor_b="Bea",
+        selected_competitor="Alice",
+    )
+    esports = ModelSignal(
+        key="esports-match-2",
+        label="DOTA2 - Level UP vs Team Lynx - Sieg Level UP",
+        probability=0.68,
+        probability_haircut=0.10,
+        evidence_stage="SHADOW",
+        policy_version="esports-test",
+        detail="Persistiertes E-Sport-Modell",
+        scheduled_start="2030-01-01T18:00:00+00:00",
+        sport="E-Sport",
+        event_label="DOTA2 - Level UP vs Team Lynx",
+        market="Match Winner",
+        selection="Sieg Level UP",
+        competitor_a="Level UP",
+        competitor_b="Team Lynx",
+        selected_competitor="Level UP",
+    )
+
+    def consensus(row, prices, fetched_at):
+        ordered = sorted(prices)
+        return MarketConsensus(
+            fixture_id=None,
+            candidate_id=row["candidate_id"],
+            market_key="H2H",
+            bet_name="h2h",
+            value_name=row["selected_competitor"],
+            consensus_odds=(ordered[1] + ordered[2]) / 2,
+            conservative_odds=ordered[0] + (ordered[1] - ordered[0]) * 0.75,
+            lowest_odds=ordered[0],
+            best_odds=ordered[-1],
+            bookmaker_count=4,
+            quoted_at=fetched_at.isoformat(),
+            fetched_at=fetched_at.isoformat(),
+            source=ODDS_API_REFERENCE_SOURCE,
+            points=tuple(
+                QuotePoint(f"Book {index}", price)
+                for index, price in enumerate(ordered, start=1)
+            ),
+            provider_event_id="provider-tennis-model-1",
+        )
+
+    def football_quotes(rows):
+        football_quote_calls.append([row["candidate_id"] for row in rows])
+        return {}, []
+
+    def tennis_quotes(rows):
+        tennis_quote_calls.append([row["candidate_id"] for row in rows])
+        fetched_at = now + timedelta(
+            minutes=10 * (len(tennis_quote_calls) - 1)
+        )
+        row = rows[0]
+        return {
+            row["candidate_id"]: consensus(
+                row,
+                [1.90, 1.95, 2.00, 2.05],
+                fetched_at,
+            ),
+        }, []
+
+    common = {
+        "state_path": state_path,
+        "config": AppConfig(api_football_key="test", odds_api_key="odds-test"),
+        "football_scanner": football_scan,
+        "football_quote_loader": football_quotes,
+        "tennis_quote_loader": tennis_quotes,
+        "tennis_loader": lambda **_kwargs: [tennis],
+        "esports_loader": lambda **_kwargs: [esports],
+    }
+    first = run_wettfinder(now=now, **common)
+    second = run_wettfinder(now=now + timedelta(minutes=10), **common)
+
+    assert scan_calls == 1
+    assert football_quote_calls == [
+        ["fixture-1-btts"],
+        ["fixture-1-btts"],
+    ]
+    assert tennis_quote_calls == [
+        ["tennis-model-1-A"],
+        ["tennis-model-1-A"],
+    ]
+    assert {row["sport"] for row in first["model_candidates"]} == {
+        "Fussball",
+        "Tennis",
+        "E-Sport",
+    }
+    assert {row["sport"] for row in second["model_candidates"]} == {
+        "Fussball",
+        "Tennis",
+        "E-Sport",
+    }
+    priced = {row["sport"]: row for row in second["model_candidates"]}
+    assert priced["Tennis"]["reference_price_status"] == "PLAYABLE"
+    assert priced["E-Sport"]["reference_price_status"] == "UNAVAILABLE"
+    assert priced["Tennis"]["reference_quote"]["fetched_at"] == (
+        now + timedelta(minutes=10)
+    ).isoformat()
+    assert [row["sport"] for row in second["candidates"]] == ["Tennis"]
+    assert second["sources"]["tennis"]["price_checked_count"] == 1
+    assert second["sources"]["tennis"]["reference_quote_count"] == 1
+    assert second["sources"]["esports"]["price_provider_status"] == (
+        "unsupported_no_verified_odds_provider"
+    )
+
+
+def test_quote_loader_exception_details_are_never_persisted(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    secret = "api-key=must-not-be-persisted"
+    tennis = ModelSignal(
+        key="tennis-secret-test-A",
+        label="Tennis - Alice vs Bea - Sieg Alice",
+        probability=0.66,
+        probability_haircut=0.08,
+        evidence_stage="SHADOW",
+        policy_version="tennis-test",
+        detail="Persistiertes Tennis-Modell",
+        scheduled_start="2030-01-01T16:00:00+00:00",
+        sport="Tennis",
+        event_label="Alice vs Bea",
+        market="Match Winner",
+        selection="Sieg Alice",
+        competitor_a="Alice",
+        competitor_b="Bea",
+        selected_competitor="Alice",
+    )
+
+    def fail_with_secret(_rows):
+        raise RuntimeError(f"provider URL leaked {secret}")
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test", odds_api_key="odds-test"),
+        football_scanner=lambda _search_date: _football_snapshot(now),
+        football_quote_loader=fail_with_secret,
+        tennis_quote_loader=fail_with_secret,
+        tennis_loader=lambda **_kwargs: [tennis],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    expected = ["Quotenabruf fehlgeschlagen (RuntimeError)"]
+    assert document["sources"]["football"]["quote_errors"] == expected
+    assert document["sources"]["tennis"]["quote_errors"] == expected
+    assert secret not in str(document)
+
+
+def test_tennis_consensus_requires_exact_event_and_real_bookmaker_points():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    candidate = {
+        "candidate_id": "tennis-model-1-A",
+        "sport": "Tennis",
+        "competitor_a": "Alice Garcia",
+        "competitor_b": "Béa Martin",
+        "selected_competitor": "Alice Garcia",
+        "scheduled_start": "2030-01-01T16:00:00+00:00",
+    }
+    payload = {
+        "id": "provider-event-123",
+        "home_team": "Béa Martin",
+        "away_team": "Alice Garcia",
+        "commence_time": "2030-01-01T16:05:00Z",
+        "bookmakers": [
+            {
+                "key": f"book-{index}",
+                "title": f"Book {index}",
+                "last_update": now.isoformat(),
+                "markets": [
+                    {
+                        "key": "h2h",
+                        "outcomes": [
+                            {"name": "Alice Garcia", "price": price},
+                            {"name": "Béa Martin", "price": 1.80},
+                        ],
+                    }
+                ],
+            }
+            for index, price in enumerate(
+                (1.90, 1.95, 2.00, 2.05),
+                start=1,
+            )
+        ],
+    }
+
+    quotes = parse_h2h_event_consensus(
+        payload,
+        [candidate],
+        fetched_at=now,
+    )
+
+    quote = quotes["tennis-model-1-A"]
+    assert quote.provider_event_id == "provider-event-123"
+    assert quote.fixture_id is None
+    assert quote.bookmaker_count == 4
+    assert [point.odds for point in quote.points] == [1.90, 1.95, 2.00, 2.05]
+    assert MarketConsensus.from_dict(quote.to_dict()) == quote
+
+    wrong_player = {**candidate, "competitor_a": "Alice Garcia Junior"}
+    wrong_time = {
+        **candidate,
+        "scheduled_start": "2030-01-01T20:30:00+00:00",
+    }
+    assert parse_h2h_event_consensus(payload, [wrong_player]) == {}
+    assert parse_h2h_event_consensus(payload, [wrong_time]) == {}
+    for bookmaker in payload["bookmakers"]:
+        bookmaker.pop("last_update")
+    unstamped = parse_h2h_event_consensus(
+        payload,
+        [candidate],
+        fetched_at=now,
+    )
+    assert unstamped == {}
+
+
+def test_tennis_fetch_refuses_unbounded_ambiguous_sport_key_scan(monkeypatch):
+    calls: list[str] = []
+
+    def fake_json(path, _api_key, **_kwargs):
+        calls.append(path)
+        if path == "sports/":
+            return [
+                {
+                    "key": f"tennis_tournament_{index}",
+                    "group": "Tennis",
+                    "title": f"Tournament {index}",
+                    "active": True,
+                }
+                for index in range(20)
+            ], None
+        raise AssertionError("event discovery must not start ambiguously")
+
+    monkeypatch.setattr(market_consensus, "_odds_api_json", fake_json)
+    quotes, errors = market_consensus.fetch_tennis_h2h_consensus(
+        "real-key-not-used-by-test",
+        [
+            {
+                "candidate_id": "tennis-model-1-A",
+                "sport": "Tennis",
+                "competitor_a": "Alice",
+                "competitor_b": "Bea",
+                "selected_competitor": "Alice",
+                "scheduled_start": "2030-01-01T16:00:00+00:00",
+                "competition": "ATP Unknown Event",
+            }
+        ],
+        now=datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
+    )
+
+    assert quotes == {}
+    assert calls == ["sports/"]
+    assert any("Provider-Sportkey" in error for error in errors)
+
+
+def test_runner_keeps_basis_forecast_visible_but_never_promotes_it(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    useful = _challenge_candidate(now + timedelta(hours=5))
+    useful.context = {"passed": True, "blocked_reasons": []}
+    basis = replace(
+        useful,
+        candidate_id="fixture-1-away-under-1-5",
+        market_key="AWAY_UNDER_1_5",
+        market="Team 2 Gesamttore",
+        selection="Unter 1.5",
+    )
+    basis.context = {"passed": True, "blocked_reasons": []}
+    snapshot = _football_snapshot(now)
+    snapshot["forecast_shortlist"] = [useful]
+    snapshot["basis_forecasts"] = [basis]
+
+    def quote_loader(rows):
+        basis_row = next(
+            row for row in rows if row["candidate_id"] == basis.candidate_id
+        )
+        prices = (2.40, 2.45, 2.50, 2.55)
+        return {
+            basis.candidate_id: MarketConsensus(
+                fixture_id=1,
+                candidate_id=basis.candidate_id,
+                market_key="AWAY_UNDER_1_5",
+                bet_name="Total - Away",
+                value_name="Under 1.5",
+                consensus_odds=2.475,
+                conservative_odds=2.4375,
+                lowest_odds=2.40,
+                best_odds=2.55,
+                bookmaker_count=4,
+                quoted_at=now.isoformat(),
+                fetched_at=now.isoformat(),
+                source=REFERENCE_SOURCE,
+                points=tuple(
+                    QuotePoint(f"Book {index}", price)
+                    for index, price in enumerate(prices, start=1)
+                ),
+            )
+        }, []
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _search_date: snapshot,
+        football_quote_loader=quote_loader,
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    by_id = {
+        row["candidate_id"]: row for row in document["model_candidates"]
+    }
+    assert set(by_id) == {useful.candidate_id, basis.candidate_id}
+    assert by_id[basis.candidate_id]["is_basic_forecast"] is True
+    assert by_id[basis.candidate_id]["reference_price_status"] == "PLAYABLE"
+    assert document["football"]["basis_candidates"][0]["candidate_id"] == (
+        basis.candidate_id
+    )
+    assert document["sources"]["football"]["price_checked_count"] == 2
+    assert document["candidates"] == []
+
+
+def test_runner_reprices_same_day_football_after_context_ttl_without_release(
+    tmp_path,
+):
+    scanned_at = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    state_path = tmp_path / "wettfinder.json"
+    scan_calls = 0
+    quote_calls: list[list[str]] = []
+
+    def scan(_search_date):
+        nonlocal scan_calls
+        scan_calls += 1
+        return _football_snapshot(scanned_at)
+
+    def quote_loader(rows):
+        quote_calls.append([row["candidate_id"] for row in rows])
+        observed_at = scanned_at + timedelta(
+            minutes=90 * (len(quote_calls) - 1)
+        )
+        payload = {
+            "response": [
+                {
+                    "fixture": {"id": 1},
+                    "update": observed_at.isoformat(),
+                    "bookmakers": [
+                        {
+                            "name": f"Book {index}",
+                            "bets": [
+                                {
+                                    "name": "Both Teams Score",
+                                    "values": [
+                                        {"value": "Yes", "odd": "2.05"}
+                                    ],
+                                }
+                            ],
+                        }
+                        for index in range(1, 5)
+                    ],
+                }
+            ]
+        }
+        return parse_fixture_consensus(
+            payload,
+            rows,
+            fetched_at=observed_at,
+        ), []
+
+    common = {
+        "state_path": state_path,
+        "config": AppConfig(api_football_key="test"),
+        "football_scanner": scan,
+        "football_quote_loader": quote_loader,
+        "tennis_loader": lambda **_kwargs: [],
+        "esports_loader": lambda **_kwargs: [],
+    }
+    run_wettfinder(now=scanned_at, **common)
+    stale = run_wettfinder(
+        now=scanned_at + timedelta(minutes=90),
+        **common,
+    )
+
+    assert scan_calls == 1
+    assert quote_calls == [
+        ["fixture-1-btts"],
+        ["fixture-1-btts"],
+    ]
+    assert len(stale["model_candidates"]) == 1
+    model_row = stale["model_candidates"][0]
+    assert model_row["candidate_id"] == "fixture-1-btts"
+    assert model_row["reference_price_status"] == "PLAYABLE"
+    assert model_row["context_complete"] is False
+    assert "veraltet" in model_row["context_summary"]
+    assert stale["candidates"] == []
+
+
+def test_playable_price_cannot_release_incomplete_candidate_context(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    snapshot = _football_snapshot(now)
+    candidate = snapshot["shortlist"][0]
+    candidate.context = {
+        "passed": True,
+        "forecast_passed": True,
+        "release_context_complete": False,
+        "release_eligible": False,
+        "lineup_status": "confirmation_due",
+        "injury_impact_status": "unassessed",
+        "blocked_reasons": [],
+    }
+
+    def quote_loader(rows):
+        payload = {
+            "response": [
+                {
+                    "fixture": {"id": 1},
+                    "update": now.isoformat(),
+                    "bookmakers": [
+                        {
+                            "name": f"Book {index}",
+                            "bets": [
+                                {
+                                    "name": "Both Teams Score",
+                                    "values": [
+                                        {"value": "Yes", "odd": "2.05"}
+                                    ],
+                                }
+                            ],
+                        }
+                        for index in range(1, 5)
+                    ],
+                }
+            ]
+        }
+        return parse_fixture_consensus(
+            payload,
+            rows,
+            fetched_at=now,
+        ), []
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _search_date: snapshot,
+        football_quote_loader=quote_loader,
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    assert len(document["model_candidates"]) == 1
+    model_row = document["model_candidates"][0]
+    assert model_row["reference_price_status"] == "PLAYABLE"
+    assert model_row["context_complete"] is False
+    assert document["candidates"] == []

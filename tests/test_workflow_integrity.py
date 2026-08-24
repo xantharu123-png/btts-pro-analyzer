@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta, timezone
+from dataclasses import replace
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
@@ -246,11 +247,119 @@ def test_automatic_price_summary_reports_pending_exact_prices():
 def test_internal_price_summary_is_not_rendered_in_consumer_daily_selection():
     source = inspect.getsource(app._render_automated_daily_selection)
     assert "_automatic_price_summary" not in source
+    assert "_automatic_consumer_summary" not in source
+    assert "_automatic_partial_scope_notice" not in source
+    assert "fixtures_found" not in source
+    assert "fixtures_modeled" not in source
+    assert "price_status_counts" not in source
     assert "VPS" not in source
     assert "Marktkandidaten" not in source
     assert "Tagestipp {index}" not in source
     assert "status.generated_at" in source
     assert "status.last_discovery_at" in source
+
+
+def test_automatic_empty_surface_uses_only_short_consumer_copy(monkeypatch):
+    now = datetime.now(timezone.utc)
+    status = SimpleNamespace(
+        target_search_date=now.date().isoformat(),
+        generated_at=now,
+        last_discovery_at=now,
+        football_status="completed",
+        fixtures_found=205,
+        fixtures_modeled=144,
+        base_candidates=0,
+        base_fixture_count=0,
+        context_verified_fixtures=0,
+        context_data_incomplete_fixtures=12,
+        context_unchecked_fixtures=49,
+        deferred_context_fixtures=0,
+        context_accounting_available=True,
+        context_scope_complete=False,
+        approved_candidates=0,
+        price_checked_count=27,
+        price_status_counts=(("TOO_LOW", 18), ("UNAVAILABLE", 9)),
+        operational_error_count=0,
+    )
+    recording_st = _RecordingStreamlit()
+
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
+    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: [])
+
+    app._render_automated_daily_selection()
+
+    infos = [value for kind, value in recording_st.messages if kind == "info"]
+    warnings = [
+        value for kind, value in recording_st.messages if kind == "warning"
+    ]
+    public_text = " ".join(
+        str(value) for _kind, value in recording_st.messages
+    )
+    assert infos == [
+        "Für diesen Spieltag liegt aktuell keine passende Fußball-Auswahl vor."
+    ]
+    assert warnings == [
+        "Die automatische Prüfung konnte noch nicht vollständig abgeschlossen "
+        "werden."
+    ]
+    assert "Spiele gefunden" not in public_text
+    assert "modelliert" not in public_text
+    assert "Kontextdaten geprüft" not in public_text
+    assert "Preisprüfung" not in public_text
+    assert "Value-Grenze" not in public_text
+
+
+def test_automatic_forecast_surface_shows_one_compact_hint_and_warning(
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    status = SimpleNamespace(
+        target_search_date=now.date().isoformat(),
+        generated_at=now,
+        last_discovery_at=now,
+        football_status="degraded",
+        fixtures_found=40,
+        fixtures_modeled=37,
+        context_data_incomplete_fixtures=1,
+        context_unchecked_fixtures=2,
+        deferred_context_fixtures=0,
+        context_accounting_available=True,
+        context_scope_complete=False,
+        operational_error_count=1,
+    )
+    recording_st = _RecordingStreamlit()
+
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
+    monkeypatch.setattr(
+        app,
+        "automated_wettfinder_forecasts",
+        lambda: [_automatic_forecast("primary")],
+    )
+    monkeypatch.setattr(app, "render_price_decision", lambda *_args, **_kwargs: None)
+
+    app._render_automated_daily_selection()
+
+    infos = [value for kind, value in recording_st.messages if kind == "info"]
+    warnings = [
+        value for kind, value in recording_st.messages if kind == "warning"
+    ]
+    public_text = " ".join(
+        str(value) for _kind, value in recording_st.messages
+    )
+    assert infos == [
+        "Modellprognosen bleiben unabhängig vom Wettpreis sichtbar. Eine "
+        "vorhandene Vergleichsquote wird direkt an der Auswahl eingeordnet."
+    ]
+    assert warnings == [
+        "Die automatische Prüfung konnte noch nicht vollständig abgeschlossen "
+        "werden."
+    ]
+    assert "Spiele gefunden" not in public_text
+    assert "modelliert" not in public_text
+    assert "Tagesumfang" not in public_text
+    assert "Preisprüfungen" not in public_text
 
 
 def test_automatic_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
@@ -312,6 +421,75 @@ def test_automatic_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
     )
     assert short_group[1] is False
     assert rendered[-1][0] == short_group[0]
+    assert len({key for _group, key in rendered}) == len(forecasts)
+
+
+def test_automatic_surface_promotes_complete_osasuna_over_three_team_totals(
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    team_totals = [
+        replace(
+            _automatic_forecast(f"away-under-{index}"),
+            context_complete=False,
+        )
+        for index in range(1, 4)
+    ]
+    osasuna = replace(
+        _automatic_forecast("osasuna-result-total"),
+        label="Osasuna: 1X und Unter 3,5",
+        event_label="Osasuna vs Real Sociedad",
+        market="Resultat & Gesamttore 3,5",
+        selection="1X und Unter 3,5",
+        context_complete=True,
+    )
+    forecasts = [*team_totals, osasuna]
+    status = SimpleNamespace(
+        target_search_date=now.date().isoformat(),
+        generated_at=now,
+        last_discovery_at=now,
+        football_status="completed",
+        fixtures_found=4,
+        fixtures_modeled=4,
+        context_data_incomplete_fixtures=3,
+        context_unchecked_fixtures=0,
+        deferred_context_fixtures=0,
+        context_accounting_available=True,
+        context_scope_complete=True,
+        operational_error_count=0,
+    )
+    recording_st = _RecordingStreamlit()
+    rendered = []
+
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
+    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
+    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: forecasts)
+    monkeypatch.setattr(
+        app,
+        "render_price_decision",
+        lambda candidate, **_kwargs: rendered.append(
+            (recording_st.current_expander, candidate.event_key)
+        ),
+    )
+
+    app._render_automated_daily_selection()
+
+    assert [key for _group, key in rendered] == [
+        "osasuna-result-total",
+        "away-under-1",
+        "away-under-2",
+        "away-under-3",
+    ]
+    additional_group = next(
+        label for label, _expanded in recording_st.expanders
+        if label == "Weitere 3 Modellprognosen"
+    )
+    assert [group for group, _key in rendered[1:]] == [
+        additional_group,
+        additional_group,
+        additional_group,
+    ]
     assert len({key for _group, key in rendered}) == len(forecasts)
 
 
@@ -406,6 +584,106 @@ def test_manual_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
     )
     assert short_group[1] is False
     assert rendered[-1][0] == short_group[0]
+    assert len({key for _group, key in rendered}) == len(forecasts)
+
+
+def test_manual_surface_promotes_complete_osasuna_over_three_team_totals(
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    team_totals = []
+    for index in range(1, 4):
+        item = _manual_forecast(f"away-under-{index}", index)
+        item.context["release_context_complete"] = False
+        team_totals.append(item)
+    osasuna = replace(
+        _manual_forecast("osasuna-result-total", 4),
+        home_team="Osasuna",
+        away_team="Real Sociedad",
+        market_key="RESULT_TOTAL_1X_UNDER_3_5",
+        market="Resultat & Gesamttore 3,5",
+        selection="1X und Unter 3,5",
+    )
+    osasuna.context["release_context_complete"] = True
+    forecasts = [*team_totals, osasuna]
+    search_date = now.date()
+    available_leagues = list(ALTERNATIVE_MARKET_LEAGUES)
+    scope = _market_scope_signature(available_leagues, search_date, search_date)
+    scope.update(
+        max_fixtures=market_tab.MAX_SCAN_FIXTURES,
+        market_scope="Beste Märkte",
+        market_kinds=None,
+    )
+    snapshot = {
+        "version": market_tab.MARKET_SNAPSHOT_VERSION,
+        "scanned_at": now.isoformat(),
+        "scope": scope,
+        "shortlist": [],
+        "model_shortlist": forecasts,
+        "reference_quotes": {},
+        "price_checked_at": None,
+        "price_checked_count": 0,
+        "fixtures_found": 4,
+        "fixtures_modeled": 4,
+        "context_data_incomplete_fixtures": 3,
+        "context_unchecked_fixtures": 0,
+        "deferred_context_fixtures": 0,
+        "context_scope_complete": True,
+        "operational_error_count": 0,
+    }
+    recording_st = _RecordingStreamlit(
+        {"market_bet_finder_snapshot": snapshot}
+    )
+    rendered = []
+
+    monkeypatch.setattr(market_tab, "st", recording_st)
+    monkeypatch.setattr(
+        market_tab,
+        "load_app_config",
+        lambda _st: SimpleNamespace(api_football_key="api", weather_key=None),
+    )
+    monkeypatch.setattr(
+        market_tab,
+        "_segmented",
+        lambda _label, options, _key, _default: options[0],
+    )
+    monkeypatch.setattr(market_tab.scan_jobs, "session_scope", lambda _state: "test")
+    monkeypatch.setattr(market_tab.scan_jobs, "scoped_key", lambda *_args: "job")
+    monkeypatch.setattr(
+        market_tab.scan_jobs,
+        "get_job",
+        lambda _key: {"state": "idle"},
+    )
+    monkeypatch.setattr(
+        market_tab,
+        "render_price_decision",
+        lambda candidate, **_kwargs: rendered.append(
+            (recording_st.current_expander, candidate.event_key)
+        ),
+    )
+
+    market_tab.create_alternative_markets_tab_extended(
+        market_scope="Beste Märkte",
+        search_date=search_date,
+        search_end_date=search_date,
+        embedded=True,
+    )
+
+    assert [key for _group, key in rendered] == [
+        "osasuna-result-total",
+        "away-under-1",
+        "away-under-2",
+        "away-under-3",
+    ]
+    additional_group = next(
+        label for label, _expanded in recording_st.expanders
+        if label == "Weitere 3 Modellprognosen"
+    )
+    assert [group for group, _key in rendered[1:]] == [
+        additional_group,
+        additional_group,
+        additional_group,
+    ]
     assert len({key for _group, key in rendered}) == len(forecasts)
 
 

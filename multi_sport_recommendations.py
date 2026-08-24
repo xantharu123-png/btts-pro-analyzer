@@ -9,6 +9,7 @@ enough risk-adjusted edge and expected return.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import math
 import re
 from typing import Any, Optional, Sequence
@@ -55,6 +56,9 @@ EVIDENCE_LABELS = {
     EVIDENCE_RELEASED: "Echtgeld-freigegeben",
     EVIDENCE_UNAVAILABLE: "Kein belastbares Modell",
 }
+ESPORTS_MODEL_VERSION = "subgraph-elo-v3"
+ESPORTS_MODEL_NAME = "Subgraph-ELO Series v3"
+ESPORTS_HISTORY_WINDOW = 20
 
 
 @dataclass(frozen=True)
@@ -129,6 +133,71 @@ def _whole_non_negative(value: Any) -> Optional[int]:
     if number is None or number < 0 or not number.is_integer():
         return None
     return int(number)
+
+
+def _utc_datetime(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def esports_history_window(
+    match: dict,
+    *,
+    now: Optional[datetime] = None,
+) -> tuple[list[dict], list[dict]]:
+    """Newest completed histories available at the prediction timestamp.
+
+    Both pre-match and live ELO paths use this function so the displayed
+    history counts and the shadow-log diagnostics describe the exact rows
+    consumed by the model. Pre-match rows must additionally have completed
+    before the scheduled series start.
+    """
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    else:
+        reference = reference.astimezone(timezone.utc)
+
+    is_prematch = str(match.get("status") or "") == "upcoming"
+    scheduled_start = _utc_datetime(match.get("begin_at")) if is_prematch else None
+
+    def completed_history(rows: Any) -> list[dict]:
+        if not isinstance(rows, list):
+            return []
+        verified: list[tuple[datetime, dict]] = []
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("won"), bool):
+                continue
+            played_at = _utc_datetime(row.get("begin_at"))
+            completed_at = _utc_datetime(row.get("end_at"))
+            if (
+                played_at is None
+                or completed_at is None
+                or not played_at < completed_at < reference
+                or (
+                    scheduled_start is not None
+                    and completed_at >= scheduled_start
+                )
+            ):
+                continue
+            verified.append((completed_at, row))
+        verified.sort(key=lambda item: item[0], reverse=True)
+        return [
+            row
+            for _completed_at, row in verified[:ESPORTS_HISTORY_WINDOW]
+        ]
+
+    return (
+        completed_history(match.get("team1_history")),
+        completed_history(match.get("team2_history")),
+    )
 
 
 def _event_key(item: dict, *fallback_parts: Any) -> str:
@@ -418,6 +487,8 @@ def basketball_total_candidate(game: dict, market_line: Any) -> RecommendationCa
             f"Live-Stand {home_score}:{away_score} nach {elapsed:.1f} von {regulation_minutes} Minuten.",
             f"Liga-Prior {baseline_total:.1f} Punkte; posteriorer Erwartungswert {expected_total:.1f}.",
             f"Robustheitsabschlag {haircut:.1f} Prozentpunkte für Pace-, Lineup- und Possession-Risiko.",
+            "Lineup- und Verletzungsdaten stehen in diesem Live-Feed nicht zur "
+            "Verfügung und wurden nicht spielerspezifisch modelliert.",
         ),
     )
 
@@ -515,6 +586,8 @@ def nhl_total_candidate(game: dict, market_line: Any) -> RecommendationCandidate
             f"Live-Stand {away_score}:{home_score} nach {elapsed:.1f} von 60 Minuten.",
             f"Liga-Prior {baseline_total:.1f} Tore; posteriorer Erwartungswert {expected_total:.2f}.",
             f"Robustheitsabschlag {haircut:.1f} Prozentpunkte für Goalie-, Special-Team- und Empty-Net-Risiko.",
+            "Starting-Goalie-, Lineup- und Verletzungsdaten stehen in diesem "
+            "Live-Feed nicht zur Verfügung und wurden nicht einzeln modelliert.",
         ),
     )
 
@@ -570,42 +643,84 @@ def _map_probability_from_series_probability(
     return (low + high) / 2.0
 
 
-def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
+def esports_match_winner_candidate(
+    match: dict,
+    *,
+    now: Optional[datetime] = None,
+) -> RecommendationCandidate:
     team1 = str(match.get("team1") or "").strip()
     team2 = str(match.get("team2") or "").strip()
     stats1 = match.get("team1_stats")
     stats2 = match.get("team2_stats")
     blockers = []
+    is_prematch = str(match.get("status") or "") == "upcoming"
+    scheduled_start = _utc_datetime(match.get("begin_at")) if is_prematch else None
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    else:
+        reference = reference.astimezone(timezone.utc)
+    if is_prematch:
+        if scheduled_start is None:
+            blockers.append("Die verifizierte Pre-Match-Startzeit fehlt.")
+        elif scheduled_start <= reference:
+            blockers.append("Die Serie hat laut verifizierter Startzeit bereits begonnen.")
     if not team1 or not team2 or team1.casefold() == team2.casefold():
         blockers.append("Die Teams sind nicht eindeutig zugeordnet.")
-    if not isinstance(stats1, dict) or not isinstance(stats2, dict):
+    if (
+        not is_prematch
+        and (not isinstance(stats1, dict) or not isinstance(stats2, dict))
+    ):
         blockers.append("Historische Teamdaten fehlen.")
         stats1 = {}
         stats2 = {}
 
-    matches1 = _whole_non_negative(stats1.get("matches"))
-    matches2 = _whole_non_negative(stats2.get("matches"))
-    wins1 = _whole_non_negative(stats1.get("wins"))
-    wins2 = _whole_non_negative(stats2.get("wins"))
+    reported_matches1 = _whole_non_negative(stats1.get("matches"))
+    reported_matches2 = _whole_non_negative(stats2.get("matches"))
+    reported_wins1 = _whole_non_negative(stats1.get("wins"))
+    reported_wins2 = _whole_non_negative(stats2.get("wins"))
     score1 = _whole_non_negative(match.get("team1_score"))
     score2 = _whole_non_negative(match.get("team2_score"))
     series_type = _whole_non_negative(match.get("series_type", 3))
-    if None in (matches1, matches2, wins1, wins2):
-        blockers.append("Gültige Sieg-/Matchzahlen fehlen.")
-    elif wins1 > matches1 or wins2 > matches2:
-        blockers.append("Historische Sieg-/Matchzahlen widersprechen sich.")
+    if not is_prematch:
+        if None in (
+            reported_matches1,
+            reported_matches2,
+            reported_wins1,
+            reported_wins2,
+        ):
+            blockers.append("Gültige Sieg-/Matchzahlen fehlen.")
+        elif (
+            reported_wins1 > reported_matches1
+            or reported_wins2 > reported_matches2
+        ):
+            blockers.append("Historische Sieg-/Matchzahlen widersprechen sich.")
     if score1 is None or score2 is None:
         blockers.append("Der verifizierte Serienstand fehlt.")
+    elif is_prematch and (score1 != 0 or score2 != 0):
+        blockers.append("Eine Pre-Match-Serie muss einen verifizierten Stand von 0:0 haben.")
     if series_type is None or series_type < 1 or series_type % 2 == 0:
         blockers.append("Das Best-of-Format fehlt oder ist unplausibel.")
-    history1 = match.get("team1_history")
-    history2 = match.get("team2_history")
-    if not isinstance(history1, list) or not isinstance(history2, list):
+    if not isinstance(match.get("team1_history"), list) or not isinstance(
+        match.get("team2_history"), list
+    ):
         blockers.append("Historische Matchlisten fehlen.")
-        history1 = []
-        history2 = []
-    if len(history1) < 20 or len(history2) < 20:
-        blockers.append("Mindestens 20 abgeschlossene Matches je Team sind erforderlich.")
+    history1, history2 = esports_history_window(match, now=reference)
+    matches1 = len(history1)
+    matches2 = len(history2)
+    wins1 = sum(1 for row in history1 if row["won"])
+    wins2 = sum(1 for row in history2 if row["won"])
+    if len(history1) < ESPORTS_HISTORY_WINDOW or len(history2) < ESPORTS_HISTORY_WINDOW:
+        if is_prematch:
+            blockers.append(
+                "Mindestens 20 Matches je Team mit verifiziertem Abschlusszeitpunkt "
+                "vor dem Prüfzeitpunkt und vor Serienbeginn sind erforderlich."
+            )
+        else:
+            blockers.append(
+                "Mindestens 20 Matches je Team mit verifiziertem Abschlusszeitpunkt "
+                "vor dem Prüfzeitpunkt sind erforderlich."
+            )
     team1_id = _whole_non_negative(match.get("team1_id"))
     team2_id = _whole_non_negative(match.get("team2_id"))
     if team1_id is None or team2_id is None or team1_id == team2_id:
@@ -616,7 +731,7 @@ def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
             match,
             blockers,
             market="Match-Sieger",
-            model_name="Subgraph-ELO Series v2",
+            model_name=ESPORTS_MODEL_NAME,
         )
 
     maps_to_win = series_type // 2 + 1
@@ -626,7 +741,7 @@ def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
             match,
             ["Die Serie ist bereits beendet oder der Serienstand ist unplausibel."],
             market="Match-Sieger",
-            model_name="Subgraph-ELO Series v2",
+            model_name=ESPORTS_MODEL_NAME,
         )
 
     elo1, elo2, subgraph_size = subgraph_ratings(
@@ -679,7 +794,6 @@ def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
     )
     probability_percent = point_probability * 100.0
     haircut = probability_percent - adjusted_probability
-    is_prematch = str(match.get("status") or "") == "upcoming"
     series_evidence = (
         f"Pre-Match (Serie noch nicht gestartet), Best-of-{series_type}."
         if is_prematch
@@ -694,13 +808,15 @@ def esports_match_winner_candidate(match: dict) -> RecommendationCandidate:
         line=None,
         model_probability=probability_percent,
         probability_haircut=haircut,
-        model_name="Subgraph-ELO Series v2",
+        model_name=ESPORTS_MODEL_NAME,
         expected_total=None,
         evidence=(
             series_evidence,
             f"ELO {elo1:.0f} vs {elo2:.0f} aus {subgraph_size} Subgraph-Spielen (gegneradjustiert).",
             f"Historie: {team1} {wins1}/{matches1}, {team2} {wins2}/{matches2}.",
             f"Konservativ: 150 ELO-Punkte Unsicherheitsmarge plus 5,0 Prozentpunkte Modellabschlag.",
+            "Rosterwechsel und Map-Veto stehen im Feed nicht verifiziert zur "
+            "Verfügung und wurden nicht einzeln modelliert.",
         ),
         evidence_stage=EVIDENCE_SHADOW,
     )
@@ -725,7 +841,10 @@ def build_candidate(
             sport,
             item,
             [
-                "Punktgenaue Serve-/Return-Daten und ein validiertes Spielermodell fehlen."
+                "Dieser generische Ereignis-Scan ist nicht eindeutig mit dem "
+                "persistierten Modellstate der separaten Tennis-Prematch-Pipeline "
+                "verknüpft. Daher wird hier keine zweite oder erfundene "
+                "Wahrscheinlichkeit erzeugt."
             ],
             market="Match-Sieger",
         )
@@ -734,7 +853,9 @@ def build_candidate(
             sport,
             item,
             [
-                "Ball-, Batter-, Bowler- und Wicket-State-Daten reichen für ein belastbares Totalmodell nicht aus."
+                "Ein chronologisch validierter historischer Cricket-State mit "
+                "Format-, Venue-, Batter-, Bowler-, Lineup- und Toss-Daten fehlt. "
+                "Der Terminfeed allein reicht nicht für eine Prognose."
             ],
             market="Innings-Gesamtläufe",
         )
