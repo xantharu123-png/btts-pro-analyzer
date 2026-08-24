@@ -62,6 +62,7 @@ prematch_btts_candidate = _football_recommendations.prematch_btts_candidate
 red_card_candidate = _football_recommendations.red_card_candidate
 
 from bet_finder_ui import (
+    group_consumer_markets_by_fixture,
     partition_consumer_featured_forecasts,
     partition_consumer_forecasts,
     render_price_decision,
@@ -162,6 +163,20 @@ FINDER_SINGLE_SPORT_OPTIONS = (
     "E-Sport",
 )
 FINDER_SPORT_OPTIONS = ("Alle", *FINDER_SINGLE_SPORT_OPTIONS)
+FINDER_SPORT_CAPABILITIES = {
+    "Fußball": "Pre-Match-Modell mit Markt- und Kontextprüfung.",
+    "Tennis": (
+        "Pre-Match-Modell; automatische Vergleichspreise nur mit "
+        "konfiguriertem Quotenanbieter."
+    ),
+    "Basketball": "Live-Modell; vor Spielbeginn nur Spielplan, keine Prognose.",
+    "Eishockey": "Live-Modell; vor Spielbeginn nur Spielplan, keine Prognose.",
+    "Cricket": "Nur Spielplan; derzeit kein validiertes Wettmodell.",
+    "E-Sport": (
+        "Shadow-Prognosen; derzeit kein verifizierter automatischer "
+        "Preisvergleich."
+    ),
+}
 SEARCH_HORIZONS = {
     "Heute": 0,
     "3 Tage voraus": 3,
@@ -210,6 +225,13 @@ def _finder_sports_for_selection(sport: str) -> tuple[str, ...]:
     if sport not in FINDER_SINGLE_SPORT_OPTIONS:
         raise ValueError(f"Unbekannte Sportart: {sport}")
     return (sport,)
+
+
+def _sport_capability_text(sport: str) -> str:
+    try:
+        return FINDER_SPORT_CAPABILITIES[sport]
+    except KeyError as exc:
+        raise ValueError(f"Unbekannte Sportart: {sport}") from exc
 
 
 def _multi_sport_job_name(sport: str) -> str:
@@ -3020,6 +3042,7 @@ def render_multi_sport(
         list(MULTI_SPORT_OPTIONS),
         key="multi_sport_selected_sport",
     )
+    st.caption(f"Abdeckung: {_sport_capability_text(sport)}")
     job_key = _job_key(_multi_sport_job_name(sport))
     sport_key = _multi_sport_job_name(sport).removeprefix("multi_sport_")
     detail_filter = None
@@ -3119,16 +3142,36 @@ def render_multi_sport(
     if snapshot_age is None or snapshot_age < -30 or snapshot_age > max_snapshot_age:
         if is_upcoming:
             st.error(
-                "NICHT WETTEN: Pre-Match-Datenstand ist ungültig oder älter als eine Stunde."
+                "Die Spieldaten sind ungültig oder älter als eine Stunde. "
+                "Bitte die Suche aktualisieren."
             )
         else:
             st.error("NICHT WETTEN: Live-Snapshot ist ungültig oder älter als drei Minuten.")
         return
     if is_upcoming:
-        st.caption(
-            "Pre-Match-Bewertung aus Team-Historien (Serienstand 0:0). "
-            "Lineups, Marktlinie und tatsächliche Quote vor Abgabe prüfen."
-        )
+        upcoming_copy = {
+            "Basketball": (
+                "Nur Spielplan: Das Basketballmodell bewertet erst einen "
+                "verifizierten Live-Spielstand mit Spieluhr."
+            ),
+            "Eishockey": (
+                "Nur Spielplan: Das Eishockeymodell bewertet erst einen "
+                "verifizierten Live-Spielstand."
+            ),
+            "Tennis": (
+                "Tennisprognosen werden ausschließlich im separaten "
+                "Tennis-Wettfinder berechnet."
+            ),
+            "Cricket": (
+                "Nur Spielplan: Für Cricket ist noch kein validiertes "
+                "Wettmodell freigegeben."
+            ),
+            "E-Sport": (
+                "Shadow-Prognose vor Serienbeginn; ein verifizierter "
+                "automatischer Preisvergleich fehlt derzeit."
+            ),
+        }
+        st.caption(upcoming_copy[sport])
     snapshot_token = str(snapshot.get("scanned_at") or "snapshot").replace(":", "_")
     line_value = None
     if sport in {"Basketball", "Eishockey"} and not is_upcoming:
@@ -3216,6 +3259,10 @@ def _automated_signal_candidate(signal: ModelSignal) -> RecommendationCandidate:
             else ("Keine belastbare Value-Grenze berechenbar.",)
         ),
         evidence_stage=signal.evidence_stage,
+        release_pending=(
+            _is_football_sport(signal.sport)
+            and signal.statistical_release_passed is not True
+        ),
     )
 
 
@@ -3274,11 +3321,13 @@ def _automatic_consumer_summary(
     verified = status.context_verified_fixtures
     pending = status.context_unchecked_fixtures + status.deferred_context_fixtures
     unmodeled = max(found - modeled, 0)
-    run_complete = status.football_status == "completed" and getattr(
-        status,
-        "operational_error_count",
-        0,
-    ) == 0
+    run_complete = (
+        status.football_status == "completed"
+        and int(
+            getattr(status, "football_operational_error_count", 0) or 0
+        )
+        == 0
+    )
     evidence_parts = [
         f"{found} {'Spiel' if found == 1 else 'Spiele'} gefunden",
         f"{modeled} modelliert",
@@ -3448,6 +3497,8 @@ def _partition_automated_signals(signals: list) -> tuple[list, list]:
 
 def _automatic_partial_scope_notice(
     status: AutomatedWettfinderStatus,
+    *,
+    has_candidates: bool = True,
 ) -> Optional[str]:
     pending = (
         status.context_data_incomplete_fixtures
@@ -3462,28 +3513,15 @@ def _automatic_partial_scope_notice(
         and status.context_scope_complete
     ):
         return None
-    details = []
-    if unmodeled > 0:
-        details.append(
-            f"{unmodeled} weitere "
-            f"{'Spiel konnte' if unmodeled == 1 else 'Spiele konnten'} nicht "
-            "modelliert werden"
+    if has_candidates:
+        return (
+            "Ein Teil des Spieltags konnte wegen unvollständiger Daten nicht "
+            "zuverlässig bewertet werden. Die angezeigten Auswahlen wurden "
+            "vollständig geprüft."
         )
-    if pending > 0:
-        pending_label = (
-            "1 weiteres Spiel" if pending == 1 else f"{pending} weitere Spiele"
-        )
-        details.append(
-            f"für {pending_label} ist die vollständige "
-            "Prüfung nicht belegt"
-        )
-    if not status.context_accounting_available:
-        details.append("der vollständige Prüfumfang ist nicht belegt")
-    suffix = f" ({'; '.join(details)})." if details else "."
     return (
-        "Die angezeigten Auswahlen stammen aus Spielen, deren Modell und "
-        "verfügbare Kontextdaten geprüft wurden; für den gesamten Tagesumfang "
-        "stehen noch Prüfungen aus" + suffix
+        "Ein Teil des Spieltags konnte wegen unvollständiger Daten nicht "
+        "zuverlässig bewertet werden."
     )
 
 
@@ -3507,7 +3545,10 @@ def _automatic_consumer_run_incomplete(
     )
     return (
         status.football_status != "completed"
-        or int(getattr(status, "operational_error_count", 0) or 0) > 0
+        or int(
+            getattr(status, "football_operational_error_count", 0) or 0
+        )
+        > 0
         or pending > 0
         or unmodeled > 0
         or not bool(getattr(status, "context_accounting_available", False))
@@ -3534,8 +3575,19 @@ def _render_automated_daily_selection() -> None:
         football_displayed,
         max_featured=3,
     )
-    other_displayed = other_forecasts
+    other_displayed, other_extreme_short = partition_consumer_forecasts(
+        other_forecasts,
+        quote_for=lambda selected: selected.reference_quote,
+    )
+    other_featured, other_additional = partition_consumer_featured_forecasts(
+        other_displayed,
+        max_featured=3,
+    )
     incomplete_run = _automatic_consumer_run_incomplete(status)
+    incomplete_notice = _automatic_partial_scope_notice(
+        status,
+        has_candidates=bool(football_displayed or football_extreme_short),
+    )
     with st.expander(
         f"Automatischer Fußball-Check · {target_label}",
         expanded=bool(football_displayed or football_extreme_short),
@@ -3555,14 +3607,14 @@ def _render_automated_daily_selection() -> None:
             )
             if incomplete_run:
                 st.warning(
-                    "Die automatische Prüfung konnte noch nicht vollständig "
-                    "abgeschlossen werden."
+                    incomplete_notice
+                    or "Mindestens eine Datenquelle konnte nicht vollständig geprüft werden."
                 )
         else:
             if incomplete_run:
                 st.warning(
-                    "Die automatische Prüfung konnte noch nicht vollständig "
-                    "abgeschlossen werden."
+                    incomplete_notice
+                    or "Mindestens eine Datenquelle konnte nicht vollständig geprüft werden."
                 )
             st.info(
                 "Modellprognosen bleiben unabhängig vom Wettpreis sichtbar. "
@@ -3590,19 +3642,23 @@ def _render_automated_daily_selection() -> None:
             if football_featured:
                 render_football_rows(football_featured, start_index=1)
             if football_additional:
-                with st.expander(
-                    f"Weitere {len(football_additional)} Modellprognosen",
-                    expanded=False,
+                next_index = len(football_featured) + 1
+                for event_label, event_rows in group_consumer_markets_by_fixture(
+                    football_additional
                 ):
-                    st.caption(
-                        "Der Modellkatalog bleibt vollständig. Wiederholte "
-                        "Marktentscheidungen oder weitere Auswahlen desselben "
-                        "Spiels stehen gesammelt hier."
-                    )
-                    render_football_rows(
-                        football_additional,
-                        start_index=len(football_featured) + 1,
-                    )
+                    with st.expander(
+                        f"Weitere Märkte zu {event_label}",
+                        expanded=False,
+                    ):
+                        st.caption(
+                            "Alle weiteren berechneten Märkte dieses Spiels "
+                            "bleiben sichtbar."
+                        )
+                        render_football_rows(
+                            event_rows,
+                            start_index=next_index,
+                        )
+                    next_index += len(event_rows)
             if football_extreme_short:
                 with st.expander(
                     f"Sehr kurze Quoten · "
@@ -3620,24 +3676,61 @@ def _render_automated_daily_selection() -> None:
                         start_index=len(football_displayed) + 1,
                     )
 
-    if other_displayed:
+    if other_displayed or other_extreme_short:
         with st.expander("Automatische Auswahlen · weitere Sportarten", expanded=True):
             st.caption(
                 "Diese Auswahlen stammen aus den getrennten Tennis- und "
                 "E-Sport-Modellen. Preis und Prognose werden separat bewertet."
             )
-            for index, selected in enumerate(other_displayed, start=1):
-                st.markdown(f"### Berechnete Auswahl {index}")
-                render_price_decision(
-                    _automated_signal_candidate(selected),
-                    key=f"automated_other_{selected.key}",
-                    bankroll_key="automated_finder_bankroll",
-                    save_source="Automatischer Wettfinder",
-                    reference_quote=selected.reference_quote,
-                    allow_manual_check=True,
-                )
-                if index < len(other_displayed):
-                    st.divider()
+
+            def render_other_rows(rows, *, start_index: int) -> None:
+                for offset, selected in enumerate(rows):
+                    index = start_index + offset
+                    st.markdown(f"### Berechnete Auswahl {index}")
+                    render_price_decision(
+                        _automated_signal_candidate(selected),
+                        key=f"automated_other_{selected.key}",
+                        bankroll_key="automated_finder_bankroll",
+                        save_source="Automatischer Wettfinder",
+                        reference_quote=selected.reference_quote,
+                        allow_manual_check=True,
+                    )
+                    if offset < len(rows) - 1:
+                        st.divider()
+
+            if other_featured:
+                render_other_rows(other_featured, start_index=1)
+            if other_additional:
+                next_index = len(other_featured) + 1
+                for event_label, event_rows in group_consumer_markets_by_fixture(
+                    other_additional
+                ):
+                    with st.expander(
+                        f"Weitere Märkte zu {event_label}",
+                        expanded=False,
+                    ):
+                        st.caption(
+                            "Alle weiteren berechneten Märkte dieses "
+                            "Ereignisses bleiben sichtbar."
+                        )
+                        render_other_rows(
+                            event_rows,
+                            start_index=next_index,
+                        )
+                    next_index += len(event_rows)
+            if other_extreme_short:
+                with st.expander(
+                    f"Sehr kurze Quoten ({len(other_extreme_short)})",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Diese Prognosen bleiben sichtbar. Nur die bestätigte "
+                        "sehr kurze Marktquote verhindert die Hervorhebung."
+                    )
+                    render_other_rows(
+                        other_extreme_short,
+                        start_index=len(other_displayed) + 1,
+                    )
 
 
 def _render_selected_finder(
@@ -3646,6 +3739,10 @@ def _render_selected_finder(
     search_end_date: date,
     football_market_scope: str,
 ) -> None:
+    # The capability line prevents a timetable-only sport from looking like a
+    # fully validated pre-match betting model.
+    if sport in {"Fußball", "Tennis"}:
+        st.caption(f"Abdeckung: {_sport_capability_text(sport)}")
     if sport == "Fußball":
         create_alternative_markets_tab_extended(
             market_scope=football_market_scope,

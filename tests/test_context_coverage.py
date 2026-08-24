@@ -1,6 +1,10 @@
 from types import SimpleNamespace
 
-from challenge_engine import _injury_summary, candidate_context_summary
+from challenge_engine import (
+    _context_probability_integration_summary,
+    _injury_summary,
+    candidate_context_summary,
+)
 
 
 def _injury(team_id: int, player_id: int, name: str, *, verified=False):
@@ -142,6 +146,8 @@ def test_consumer_context_summary_never_calls_unmodeled_injuries_considered():
 
     assert "Ausfälle Liste geprüft, Wirkung für 1 nicht modelliert" in summary
     assert "Ausfälle berücksichtigt" not in summary
+    assert "Wetter geprüft" in summary
+    assert "Wetter berücksichtigt" not in summary
     assert "Aufstellungen für vollständige Bestätigung noch offen" in summary
 
 
@@ -164,3 +170,53 @@ def test_consumer_context_summary_discloses_required_lineup_gap():
     assert "Ausfälle geprüft, keine gemeldet" in summary
     assert "Wetter nicht verfügbar" in summary
     assert "Aufstellungen fehlen (erforderlich)" in summary
+
+
+def test_context_probability_integration_discloses_veto_only_inputs():
+    summary = _context_probability_integration_summary(
+        {
+            "status": "observed",
+            "impact_assessment_complete": True,
+        },
+        {
+            "status": "passed",
+            "availability": "available",
+        },
+        {
+            "status": "passed",
+        },
+    )
+
+    assert summary["status"] == "not_adjusted"
+    assert summary["applied"] is False
+    assert summary["adjustment_pp"] == 0.0
+    assert summary["model"] == "veto_only_no_validated_effect_size"
+    assert summary["axes"] == {
+        "injuries": "verified_veto_only",
+        "weather": "validated_threshold_veto_only",
+        "lineups": "confirmed_identity_only",
+    }
+    assert "fehlen validierte Effektgrößen" in summary["reason"]
+
+
+def test_context_probability_integration_marks_missing_impact_fail_closed():
+    summary = _context_probability_integration_summary(
+        {
+            "status": "observed",
+            "impact_assessment_complete": False,
+        },
+        {
+            "status": "unavailable",
+            "availability": "provider_unavailable",
+        },
+        {
+            "status": "required_missing",
+        },
+    )
+
+    assert summary["applied"] is False
+    assert summary["axes"] == {
+        "injuries": "effect_assessment_incomplete",
+        "weather": "weather_unavailable",
+        "lineups": "lineup_effect_unavailable",
+    }

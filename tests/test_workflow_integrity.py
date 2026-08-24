@@ -112,12 +112,33 @@ def _extreme_short_quote(candidate_id, now):
         fetched_at=now.isoformat(),
         source=REFERENCE_SOURCE,
         points=(
-            QuotePoint("A", 1.12),
-            QuotePoint("B", 1.14),
-            QuotePoint("C", 1.14),
-            QuotePoint("D", 1.16),
-            QuotePoint("E", 1.17),
+            QuotePoint(
+                "A", 1.12,
+                bookmaker_id="api-football:a",
+                observed_at=now.isoformat(),
+            ),
+            QuotePoint(
+                "B", 1.14,
+                bookmaker_id="api-football:b",
+                observed_at=now.isoformat(),
+            ),
+            QuotePoint(
+                "C", 1.14,
+                bookmaker_id="api-football:c",
+                observed_at=now.isoformat(),
+            ),
+            QuotePoint(
+                "D", 1.16,
+                bookmaker_id="api-football:d",
+                observed_at=now.isoformat(),
+            ),
+            QuotePoint(
+                "E", 1.17,
+                bookmaker_id="api-football:e",
+                observed_at=now.isoformat(),
+            ),
         ),
+        scheduled_start="2030-01-02T15:00:00+00:00",
     )
 
 
@@ -248,7 +269,7 @@ def test_internal_price_summary_is_not_rendered_in_consumer_daily_selection():
     source = inspect.getsource(app._render_automated_daily_selection)
     assert "_automatic_price_summary" not in source
     assert "_automatic_consumer_summary" not in source
-    assert "_automatic_partial_scope_notice" not in source
+    assert "_automatic_partial_scope_notice" in source
     assert "fixtures_found" not in source
     assert "fixtures_modeled" not in source
     assert "price_status_counts" not in source
@@ -299,12 +320,13 @@ def test_automatic_empty_surface_uses_only_short_consumer_copy(monkeypatch):
     assert infos == [
         "Für diesen Spieltag liegt aktuell keine passende Fußball-Auswahl vor."
     ]
-    assert warnings == [
-        "Die automatische Prüfung konnte noch nicht vollständig abgeschlossen "
-        "werden."
-    ]
+    assert len(warnings) == 1
+    assert warnings[0] == (
+        "Ein Teil des Spieltags konnte wegen unvollständiger Daten nicht "
+        "zuverlässig bewertet werden."
+    )
+    assert "61" not in warnings[0]
     assert "Spiele gefunden" not in public_text
-    assert "modelliert" not in public_text
     assert "Kontextdaten geprüft" not in public_text
     assert "Preisprüfung" not in public_text
     assert "Value-Grenze" not in public_text
@@ -352,14 +374,53 @@ def test_automatic_forecast_surface_shows_one_compact_hint_and_warning(
         "Modellprognosen bleiben unabhängig vom Wettpreis sichtbar. Eine "
         "vorhandene Vergleichsquote wird direkt an der Auswahl eingeordnet."
     ]
-    assert warnings == [
-        "Die automatische Prüfung konnte noch nicht vollständig abgeschlossen "
-        "werden."
-    ]
+    assert len(warnings) == 1
+    assert warnings[0] == (
+        "Ein Teil des Spieltags konnte wegen unvollständiger Daten nicht "
+        "zuverlässig bewertet werden. Die angezeigten Auswahlen wurden "
+        "vollständig geprüft."
+    )
+    assert "3 weitere" not in warnings[0]
     assert "Spiele gefunden" not in public_text
-    assert "modelliert" not in public_text
     assert "Tagesumfang" not in public_text
     assert "Preisprüfungen" not in public_text
+
+
+def test_tennis_failure_does_not_create_a_football_scope_warning(monkeypatch):
+    now = datetime.now(timezone.utc)
+    status = SimpleNamespace(
+        target_search_date=now.date().isoformat(),
+        generated_at=now,
+        last_discovery_at=now,
+        football_status="completed",
+        fixtures_found=1,
+        fixtures_modeled=1,
+        context_data_incomplete_fixtures=0,
+        context_unchecked_fixtures=0,
+        deferred_context_fixtures=0,
+        context_accounting_available=True,
+        context_scope_complete=True,
+        # Global degraded state comes from Tennis; football itself is healthy.
+        operational_error_count=1,
+        football_operational_error_count=0,
+    )
+    recording_st = _RecordingStreamlit()
+
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
+    monkeypatch.setattr(
+        app,
+        "automated_wettfinder_forecasts",
+        lambda: [_automatic_forecast("healthy-football")],
+    )
+    monkeypatch.setattr(app, "render_price_decision", lambda *_args, **_kwargs: None)
+
+    app._render_automated_daily_selection()
+
+    warnings = [
+        value for kind, value in recording_st.messages if kind == "warning"
+    ]
+    assert warnings == []
 
 
 def test_automatic_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
@@ -424,7 +485,7 @@ def test_automatic_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
     assert len({key for _group, key in rendered}) == len(forecasts)
 
 
-def test_automatic_surface_promotes_complete_osasuna_over_three_team_totals(
+def test_automatic_surface_promotes_useful_market_and_keeps_all_others(
     monkeypatch,
 ):
     now = datetime.now(timezone.utc)
@@ -481,20 +542,13 @@ def test_automatic_surface_promotes_complete_osasuna_over_three_team_totals(
         "away-under-2",
         "away-under-3",
     ]
-    additional_group = next(
-        label for label, _expanded in recording_st.expanders
-        if label == "Weitere 2 Modellprognosen"
-    )
     primary_group = rendered[0][0]
-    assert primary_group != additional_group
-    assert [group for group, _key in rendered[:2]] == [
-        primary_group,
-        primary_group,
-    ]
-    assert [group for group, _key in rendered[2:]] == [
-        additional_group,
-        additional_group,
-    ]
+    assert [group for group, _key in rendered[:2]] == [primary_group, primary_group]
+    assert all(group != primary_group for group, _key in rendered[2:])
+    assert all(
+        str(group).startswith("Weitere Märkte zu ")
+        for group, _key in rendered[2:]
+    )
     assert len({key for _group, key in rendered}) == len(forecasts)
 
 
@@ -592,7 +646,7 @@ def test_manual_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
     assert len({key for _group, key in rendered}) == len(forecasts)
 
 
-def test_manual_surface_promotes_complete_osasuna_over_three_team_totals(
+def test_manual_surface_promotes_useful_market_and_keeps_all_others(
     monkeypatch,
 ):
     now = datetime.now(timezone.utc)
@@ -680,20 +734,13 @@ def test_manual_surface_promotes_complete_osasuna_over_three_team_totals(
         "away-under-2",
         "away-under-3",
     ]
-    additional_group = next(
-        label for label, _expanded in recording_st.expanders
-        if label == "Weitere 2 Modellprognosen"
-    )
     primary_group = rendered[0][0]
-    assert primary_group != additional_group
-    assert [group for group, _key in rendered[:2]] == [
-        primary_group,
-        primary_group,
-    ]
-    assert [group for group, _key in rendered[2:]] == [
-        additional_group,
-        additional_group,
-    ]
+    assert [group for group, _key in rendered[:2]] == [primary_group, primary_group]
+    assert all(group != primary_group for group, _key in rendered[2:])
+    assert all(
+        str(group).startswith("Weitere Märkte zu ")
+        for group, _key in rendered[2:]
+    )
     assert len({key for _group, key in rendered}) == len(forecasts)
 
 
@@ -730,9 +777,8 @@ def test_automatic_candidate_from_partial_day_discloses_remaining_scope():
     message = app._automatic_partial_scope_notice(status)
 
     assert message is not None
-    assert "Modell und verfügbare Kontextdaten geprüft" in message
-    assert "1 weiteres Spiel" in message
-    assert "gesamten Tagesumfang" in message
+    assert "angezeigten Auswahlen wurden vollständig geprüft" in message
+    assert "1 weiteres Spiel" not in message
 
 
 def test_automatic_summary_proves_model_zero_before_quote_check():
@@ -996,12 +1042,14 @@ def test_market_worker_forwards_detailed_progress(monkeypatch):
         max_fixtures,
         *,
         search_end_date=None,
+        allow_above_challenge_probability=False,
         progress_cb=None,
     ):
         assert received_provider is provider
         assert league_ids == [78, 39]
         assert max_fixtures == 1200
         assert search_end_date == search_date + timedelta(days=7)
+        assert allow_above_challenge_probability is True
         progress_cb(0.25, "Liga 1/2")
         progress_cb(1.0, "Fertig")
         return {"search_date": search_date.isoformat()}

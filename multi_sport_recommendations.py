@@ -79,6 +79,10 @@ class RecommendationCandidate:
     evidence: tuple[str, ...]
     blockers: tuple[str, ...] = ()
     evidence_stage: str = EVIDENCE_RESEARCH
+    # Normal Wettfinder forecasts remain visible while the additional paired
+    # loss/FDR release evidence is collected. A matching price must not turn
+    # such a forecast into a stake recommendation.
+    release_pending: bool = False
 
     @property
     def forecast_available(self) -> bool:
@@ -943,7 +947,8 @@ def evaluate_candidate_price(
     )
     if metrics.market_odds + 1e-9 < effective_minimum:
         reasons.append(
-            f"Quote {metrics.market_odds:.2f} liegt unter der Mindestquote {effective_minimum:.2f}."
+            f"Quote {metrics.market_odds:.2f} liegt unter der Value-Grenze "
+            f"{effective_minimum:.2f}."
         )
     if metrics.kelly_fraction <= 0:
         reasons.append("Das risikoadjustierte Kelly-Ergebnis ist nicht positiv.")

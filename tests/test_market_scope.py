@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import inspect
 from types import SimpleNamespace
 
@@ -11,6 +11,18 @@ from market_consensus import (
     REFERENCE_SOURCE,
     exact_market_target,
 )
+
+
+def _passthrough_wettfinder_catalog(
+    rows,
+    max_candidates=None,
+    *,
+    require_release=False,
+    max_per_fixture=None,
+):
+    del require_release, max_per_fixture
+    selected = list(rows)
+    return selected if max_candidates is None else selected[:max_candidates]
 
 
 def test_every_finder_market_scope_maps_to_supported_model_kinds():
@@ -40,6 +52,7 @@ def test_market_worker_forwards_selected_market_kinds(monkeypatch):
         *,
         search_end_date,
         market_kinds,
+        allow_above_challenge_probability,
         progress_cb=None,
     ):
         received.update(
@@ -49,6 +62,9 @@ def test_market_worker_forwards_selected_market_kinds(monkeypatch):
             end_date=search_end_date,
             max_fixtures=max_fixtures,
             market_kinds=market_kinds,
+            allow_above_challenge_probability=(
+                allow_above_challenge_probability
+            ),
         )
         return {"shortlist": []}
 
@@ -71,22 +87,28 @@ def test_market_worker_forwards_selected_market_kinds(monkeypatch):
         "end_date": date(2030, 1, 9),
         "max_fixtures": 1200,
         "market_kinds": {"btts"},
+        "allow_above_challenge_probability": True,
     }
 
 
 def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch):
     now = datetime.now(timezone.utc)
+    kickoff = now.replace(microsecond=0).isoformat()
     favorite = SimpleNamespace(
         candidate_id="fixture-1-home",
         fixture_id=1,
         market_key="RESULT_HOME",
         minimum_odds=1.50,
+        selection="Heimsieg",
+        kickoff=kickoff,
     )
     alternative = SimpleNamespace(
         candidate_id="fixture-1-under-4-5",
         fixture_id=1,
         market_key="TOTAL_UNDER_4_5",
         minimum_odds=1.50,
+        selection="Unter 4.5",
+        kickoff=kickoff,
     )
     snapshot = {
         "shortlist": [favorite],
@@ -94,7 +116,6 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
         "approved_candidates": 1,
     }
     checked = []
-    selection_pool = []
 
     def quote(candidate, conservative_odds, best_odds):
         bet_name, value_name = exact_market_target(candidate.market_key)
@@ -113,11 +134,28 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
             fetched_at=now.isoformat(),
             source=REFERENCE_SOURCE,
             points=(
-                QuotePoint("A", conservative_odds),
-                QuotePoint("B", conservative_odds),
-                QuotePoint("C", best_odds),
-                QuotePoint("D", best_odds),
+                QuotePoint(
+                    "A", conservative_odds,
+                    bookmaker_id="api-football:a",
+                    observed_at=now.isoformat(),
+                ),
+                QuotePoint(
+                    "B", conservative_odds,
+                    bookmaker_id="api-football:b",
+                    observed_at=now.isoformat(),
+                ),
+                QuotePoint(
+                    "C", best_odds,
+                    bookmaker_id="api-football:c",
+                    observed_at=now.isoformat(),
+                ),
+                QuotePoint(
+                    "D", best_odds,
+                    bookmaker_id="api-football:d",
+                    observed_at=now.isoformat(),
+                ),
             ),
+            scheduled_start=kickoff,
         )
 
     def fetch_quotes(_api_key, rows):
@@ -126,10 +164,6 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
             favorite.candidate_id: quote(favorite, 1.25, 1.30),
             alternative.candidate_id: quote(alternative, 1.80, 1.85),
         }, []
-
-    def choose_after_price(rows, max_candidates):
-        selection_pool.extend(rows)
-        return list(rows)[:max_candidates]
 
     monkeypatch.setattr(
         market_tab,
@@ -142,7 +176,11 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
         lambda *_args, **_kwargs: snapshot,
     )
     monkeypatch.setattr(market_tab, "fetch_football_consensus", fetch_quotes)
-    monkeypatch.setattr(market_tab, "select_shortlist", choose_after_price)
+    monkeypatch.setattr(
+        market_tab,
+        "select_wettfinder_catalog",
+        _passthrough_wettfinder_catalog,
+    )
 
     result = market_tab._run_market_scan_worker(
         "api-key",
@@ -155,9 +193,8 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
     )["challenge"]
 
     assert checked == [favorite, alternative]
-    assert selection_pool == []
-    assert result["model_shortlist"] == [favorite]
-    assert result["shortlist"] == []
+    assert result["model_shortlist"] == [favorite, alternative]
+    assert result["shortlist"] == [alternative]
     assert result["price_checked_count"] == 2
     assert result["price_fixture_count"] == 1
     assert result["price_status_counts"] == {
@@ -166,22 +203,26 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
     }
     assert market_tab._price_check_summary(result) == (
         "Preisprüfung: 2 Modellmärkte aus 1 Spiel geprüft · "
-        "1 unter der Mindestquote · 1 preislich spielbar"
+        "1 unter der Value-Grenze · 1 preislich spielbar"
     )
 
 
 def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypatch):
+    now_dt = datetime.now(timezone.utc)
+    kickoff = now_dt.replace(microsecond=0).isoformat()
     candidate = SimpleNamespace(
         candidate_id="fixture-7-home",
         fixture_id=7,
         market_key="RESULT_HOME",
         minimum_odds=1.80,
+        selection="Heimsieg",
+        kickoff=kickoff,
     )
     snapshot = {
         "shortlist": [candidate],
         "price_candidates": [candidate],
     }
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_dt.isoformat()
     quote = MarketConsensus(
         fixture_id=7,
         candidate_id=candidate.candidate_id,
@@ -197,10 +238,23 @@ def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypat
         fetched_at=now,
         source=REFERENCE_SOURCE,
         points=(
-            QuotePoint("A", 1.55),
-            QuotePoint("B", 1.60),
-            QuotePoint("C", 1.70),
+            QuotePoint(
+                "A", 1.55,
+                bookmaker_id="api-football:a",
+                observed_at=now,
+            ),
+            QuotePoint(
+                "B", 1.60,
+                bookmaker_id="api-football:b",
+                observed_at=now,
+            ),
+            QuotePoint(
+                "C", 1.70,
+                bookmaker_id="api-football:c",
+                observed_at=now,
+            ),
         ),
+        scheduled_start=kickoff,
     )
     monkeypatch.setattr(market_tab, "ChallengeDataProvider", lambda *_args: object())
     monkeypatch.setattr(
@@ -212,6 +266,11 @@ def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypat
         market_tab,
         "fetch_football_consensus",
         lambda *_args, **_kwargs: ({candidate.candidate_id: quote}, []),
+    )
+    monkeypatch.setattr(
+        market_tab,
+        "select_wettfinder_catalog",
+        _passthrough_wettfinder_catalog,
     )
 
     result = market_tab._run_market_scan_worker(
@@ -229,19 +288,26 @@ def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypat
     assert result["price_status_counts"] == {"TOO_LOW": 1}
 
 
-def test_market_worker_prices_basis_for_annotation_without_strict_promotion(
+def test_market_worker_allows_credible_basis_market_to_pass_price_gate(
     monkeypatch,
 ):
+    now = datetime.now(timezone.utc)
+    kickoff = now.replace(microsecond=0).isoformat()
     forecast = SimpleNamespace(
         candidate_id="fixture-7-result-total",
         fixture_id=7,
+        market_key="RESULT_TOTAL_1X_UNDER_3_5",
         minimum_odds=1.80,
+        selection="1X und Unter 3.5",
+        kickoff=kickoff,
     )
     basis = SimpleNamespace(
         candidate_id="fixture-7-away-under-2-5",
         fixture_id=7,
         market_key="AWAY_UNDER_2_5",
         minimum_odds=1.40,
+        selection="Unter 2.5",
+        kickoff=kickoff,
     )
     snapshot = {
         "shortlist": [],
@@ -250,7 +316,6 @@ def test_market_worker_prices_basis_for_annotation_without_strict_promotion(
         "price_candidates": [],
     }
     checked = []
-    now = datetime.now(timezone.utc)
     basis_quote = MarketConsensus(
         fixture_id=7,
         candidate_id=basis.candidate_id,
@@ -266,11 +331,28 @@ def test_market_worker_prices_basis_for_annotation_without_strict_promotion(
         fetched_at=now.isoformat(),
         source=REFERENCE_SOURCE,
         points=(
-            QuotePoint("A", 1.50),
-            QuotePoint("B", 1.50),
-            QuotePoint("C", 1.50),
-            QuotePoint("D", 1.50),
+            QuotePoint(
+                "A", 1.50,
+                bookmaker_id="api-football:a",
+                observed_at=now.isoformat(),
+            ),
+            QuotePoint(
+                "B", 1.50,
+                bookmaker_id="api-football:b",
+                observed_at=now.isoformat(),
+            ),
+            QuotePoint(
+                "C", 1.50,
+                bookmaker_id="api-football:c",
+                observed_at=now.isoformat(),
+            ),
+            QuotePoint(
+                "D", 1.50,
+                bookmaker_id="api-football:d",
+                observed_at=now.isoformat(),
+            ),
         ),
+        scheduled_start=kickoff,
     )
 
     monkeypatch.setattr(market_tab, "ChallengeDataProvider", lambda *_args: object())
@@ -287,6 +369,11 @@ def test_market_worker_prices_basis_for_annotation_without_strict_promotion(
             [],
         ),
     )
+    monkeypatch.setattr(
+        market_tab,
+        "select_wettfinder_catalog",
+        _passthrough_wettfinder_catalog,
+    )
 
     result = market_tab._run_market_scan_worker(
         "api-key",
@@ -300,8 +387,8 @@ def test_market_worker_prices_basis_for_annotation_without_strict_promotion(
 
     assert result["model_shortlist"] == [forecast, basis]
     assert checked == [basis]
-    assert result["price_candidates"] == []
-    assert result["shortlist"] == []
+    assert result["price_candidates"] == [forecast, basis]
+    assert result["shortlist"] == [basis]
     assert basis.candidate_id in result["reference_quotes"]
     assert result["price_status_counts"] == {"PLAYABLE": 1}
 
@@ -368,11 +455,17 @@ def test_consumer_partition_relegates_only_confirmed_extreme_short_prices():
             bookmaker_count=len(prices),
             quoted_at=fetched_at.isoformat(),
             fetched_at=fetched_at.isoformat(),
-            source="test",
+            source=REFERENCE_SOURCE,
             points=tuple(
-                QuotePoint(chr(ord("A") + index), price)
+                QuotePoint(
+                    chr(ord("A") + index),
+                    price,
+                    bookmaker_id=f"api-football:{index + 1}",
+                    observed_at=fetched_at.isoformat(),
+                )
                 for index, price in enumerate(prices)
             ),
+            scheduled_start=(now + timedelta(hours=2)).isoformat(),
         )
 
     quotes = {
@@ -427,7 +520,7 @@ def test_consumer_partition_relegates_only_confirmed_extreme_short_prices():
     )
 
 
-def test_featured_partition_allows_team_under_one_five_without_repetition():
+def test_featured_partition_promotes_useful_market_without_deleting_team_unders():
     repeated_team_totals = [
         SimpleNamespace(
             candidate_id=f"away-under-{index}",
@@ -455,12 +548,9 @@ def test_featured_partition_allows_team_under_one_five_without_repetition():
 
     assert featured == [osasuna, repeated_team_totals[0]]
     assert additional == repeated_team_totals[1:]
-    assert featured + additional == [
-        osasuna,
-        repeated_team_totals[0],
-        repeated_team_totals[1],
-        repeated_team_totals[2],
-    ]
+    assert {row.candidate_id for row in featured + additional} == {
+        row.candidate_id for row in [*repeated_team_totals, osasuna]
+    }
 
 
 def test_featured_partition_allows_only_one_selection_per_fixture():
@@ -497,8 +587,11 @@ def test_featured_partition_allows_only_one_selection_per_fixture():
     assert featured == [first_fixture_primary, second_fixture]
     assert additional == [same_fixture_other_market]
 
+    grouped = bet_finder_ui.group_consumer_markets_by_fixture(additional)
+    assert grouped == [("diesem Spiel", [same_fixture_other_market])]
 
-def test_featured_partition_allows_only_one_selection_per_market_family():
+
+def test_featured_partition_diversifies_market_family_across_fixtures():
     home_win = SimpleNamespace(
         candidate_id="fixture-1-home",
         fixture_id=1,
@@ -533,11 +626,39 @@ def test_featured_partition_allows_only_one_selection_per_market_family():
     assert additional == [away_win]
 
 
+def test_secondary_markets_are_grouped_under_their_public_fixture_label():
+    first = SimpleNamespace(
+        candidate_id="fixture-1-btts",
+        fixture_id=1,
+        home_team="Alpha",
+        away_team="Beta",
+    )
+    second = SimpleNamespace(
+        candidate_id="fixture-1-total",
+        fixture_id=1,
+        home_team="Alpha",
+        away_team="Beta",
+    )
+    third = SimpleNamespace(
+        candidate_id="fixture-2-result",
+        fixture_id=2,
+        event_label="Gamma vs Delta",
+    )
+
+    assert bet_finder_ui.group_consumer_markets_by_fixture(
+        [first, second, third]
+    ) == [
+        ("Alpha vs Beta", [first, second]),
+        ("Gamma vs Delta", [third]),
+    ]
+
+
 def test_market_worker_keeps_fully_checked_catalog_beyond_three(monkeypatch):
     catalog = [
         SimpleNamespace(
             candidate_id=f"fixture-{index}-core",
             fixture_id=index,
+            market_key="BTTS_YES",
             minimum_odds=1.80,
         )
         for index in range(1, 9)
@@ -556,6 +677,11 @@ def test_market_worker_keeps_fully_checked_catalog_beyond_three(monkeypatch):
         market_tab,
         "fetch_football_consensus",
         lambda *_args, **_kwargs: ({}, []),
+    )
+    monkeypatch.setattr(
+        market_tab,
+        "select_wettfinder_catalog",
+        _passthrough_wettfinder_catalog,
     )
 
     result = market_tab._run_market_scan_worker(
@@ -588,12 +714,10 @@ def test_consumer_empty_state_contains_no_pipeline_diagnostics():
     )
 
     visible = f"{evidence} {message}"
-    assert "205 Spiele gefunden" in evidence
-    assert "144 modelliert" in evidence
-    assert "21 Spiele in der engeren Auswahl" in evidence
-    assert "20 mit verfügbaren Kontextdaten geprüft" in evidence
-    assert "Für 1 weiteres Spiel" in message
-    assert "Quote war nicht der Ablehnungsgrund" in message
+    assert evidence == "19.08.2026 bis 22.08.2026 · Prüfung teilweise abgeschlossen"
+    assert "Ein Teil des gewählten Spieltags" in message
+    assert "205" not in visible
+    assert "144" not in visible
     assert incomplete is True
     for internal_term in (
         "Walk-forward",
@@ -617,9 +741,8 @@ def test_consumer_empty_state_distinguishes_model_zero_from_price_zero():
         day_label="Heute",
     )
 
-    assert evidence == "Heute · 40 Spiele gefunden · 40 modelliert"
-    assert "engere Auswahl" in message
-    assert "Quote wurde deshalb noch nicht geprüft" in message
+    assert evidence == "Heute · Prüfung abgeschlossen"
+    assert message == "Aktuell erfüllt keine Auswahl alle Qualitätsregeln."
     assert incomplete is False
 
 
@@ -636,8 +759,8 @@ def test_consumer_empty_state_marks_missing_context_data_as_incomplete():
     )
 
     assert incomplete is True
-    assert "benötigten Daten war nicht vollständig" in message
-    assert "negative Aussage" in message
+    assert "Ein Teil des gewählten Spieltags" in message
+    assert "übrigen Spiele" in message
 
 
 def test_consumer_empty_state_never_turns_provider_failure_into_empty_schedule():
@@ -650,8 +773,8 @@ def test_consumer_empty_state_never_turns_provider_failure_into_empty_schedule()
         day_label="Heute",
     )
 
-    assert evidence == "Heute · 0 Spiele gefunden · 0 modelliert"
-    assert "nicht vollständig abgeschlossen" in message
+    assert evidence == "Heute · Prüfung teilweise abgeschlossen"
+    assert "unvollständiger Daten" in message
     assert "keine anstehenden Spiele" not in message
     assert incomplete is True
 
@@ -728,8 +851,8 @@ def test_partial_manual_scan_keeps_candidates_but_discloses_incomplete_scope():
     )
 
     assert message is not None
-    assert "nur teilweise abgeschlossen" in message
-    assert "gesamte gewählte Suchumfang" in message
+    assert "Ein Teil des gewählten Spieltags" in message
+    assert "angezeigten Auswahlen wurden vollständig geprüft" in message
     assert market_tab._consumer_partial_scope_notice(
         {"operational_error_count": 2},
         has_candidates=False,
@@ -748,7 +871,8 @@ def test_candidate_from_unchecked_context_scope_has_consumer_warning():
     )
 
     assert message is not None
-    assert "gesamte gewählte Suchumfang ist nicht vollständig belegt" in message
+    assert "unvollständiger Daten" in message
+    assert "1 Spiel" not in message
 
 
 def test_public_market_renderer_does_not_render_internal_scan_diagnostics():

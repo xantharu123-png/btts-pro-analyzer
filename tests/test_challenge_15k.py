@@ -344,10 +344,11 @@ def reference_quote_for(item, now, odds=("2.05", "2.10", "2.15", "2.20")):
         "errors": [],
         "response": [
             {
-                "fixture": {"id": item.fixture_id},
+                "fixture": {"id": item.fixture_id, "date": item.kickoff},
                 "update": now.isoformat(),
                 "bookmakers": [
                     {
+                        "id": index,
                         "name": f"Book {index}",
                         "bets": [
                             {

@@ -1,3 +1,5 @@
+import json
+import sqlite3
 from datetime import datetime, timezone
 
 from challenge_engine import MarketCalibration, ValidationMetrics
@@ -70,6 +72,61 @@ def test_model_artifact_round_trip_and_history_invalidation(tmp_path):
     assert (
         load_model_artifact(
             "model-v2",
+            39,
+            2026,
+            history,
+            db_path=db_path,
+        )
+        is None
+    )
+
+
+def test_model_artifact_without_current_schema_is_recomputed(tmp_path):
+    db_path = tmp_path / "model-cache.db"
+    history = [
+        {
+            "fixture": {
+                "id": 1,
+                "date": datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat(),
+            },
+            "goals": {"home": 2, "away": 1},
+        }
+    ]
+    validation = {
+        "BTTS_YES": ValidationMetrics(
+            observations=300,
+            brier_score=0.15,
+            baseline_brier_score=0.20,
+            relative_improvement=0.25,
+            expected_calibration_error=0.04,
+            passed=True,
+        )
+    }
+    save_model_artifact(
+        "model-v1",
+        39,
+        2026,
+        history,
+        validation,
+        {},
+        db_path=db_path,
+    )
+
+    with sqlite3.connect(db_path) as connection:
+        raw_payload = connection.execute(
+            "SELECT payload FROM challenge_model_artifacts"
+        ).fetchone()[0]
+        payload = json.loads(raw_payload)
+        payload.pop("schema_version")
+        connection.execute(
+            "UPDATE challenge_model_artifacts SET payload = ?",
+            (json.dumps(payload),),
+        )
+        connection.commit()
+
+    assert (
+        load_model_artifact(
+            "model-v1",
             39,
             2026,
             history,

@@ -12,6 +12,8 @@ from market_consensus import (
     parse_fixture_consensus,
     quote_matches_candidate,
     reference_price_status,
+    wettfinder_consensus,
+    wettfinder_reference_price_status,
 )
 
 
@@ -23,10 +25,19 @@ def _candidate(market_key: str = "BTTS_YES") -> dict:
         "candidate_id": f"1493030:{market_key}",
         "fixture_id": 1493030,
         "market_key": market_key,
+        "sport": "Fussball",
+        "source": "football_challenge",
+        "scheduled_start": "2030-01-01T16:00:00+00:00",
+        "selection": "Ja" if market_key == "BTTS_YES" else "Nein",
     }
 
 
-def _payload(now: datetime, *, values=None) -> dict:
+def _payload(
+    now: datetime,
+    *,
+    values=None,
+    provider_ids: bool = False,
+) -> dict:
     values = values or {
         "Bet365": "1.88",
         "Pinnacle": "1.91",
@@ -37,10 +48,14 @@ def _payload(now: datetime, *, values=None) -> dict:
         "errors": [],
         "response": [
             {
-                "fixture": {"id": 1493030},
+                "fixture": {
+                    "id": 1493030,
+                    "date": "2030-01-01T16:00:00+00:00",
+                },
                 "update": now.isoformat(),
                 "bookmakers": [
                     {
+                        **({"id": index} if provider_ids else {}),
                         "name": bookmaker,
                         "bets": [
                             {
@@ -52,7 +67,10 @@ def _payload(now: datetime, *, values=None) -> dict:
                             }
                         ],
                     }
-                    for bookmaker, odds in values.items()
+                    for index, (bookmaker, odds) in enumerate(
+                        values.items(),
+                        start=1,
+                    )
                 ],
             }
         ],
@@ -92,6 +110,10 @@ def test_consensus_uses_lower_quartile_not_best_quote():
     assert quote.conservative_odds == 1.855
     assert quote.consensus_odds == 1.87
     assert quote.best_odds == 1.91
+    assert quote.executable_point is not None
+    assert quote.executable_point.bookmaker == "Unibet"
+    assert quote.executable_point.odds == 1.86
+    assert quote.to_dict()["executable_quote"]["odds"] == 1.86
     assert MarketConsensus.from_dict(quote.to_dict()) == quote
 
 
@@ -120,6 +142,99 @@ def test_consensus_deduplicates_bookmaker_casing_conservatively():
     assert MarketConsensus.from_dict(quote.to_dict()) == quote
 
 
+def test_consensus_deduplicates_stable_bookmaker_id_and_keeps_newest_offer():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    old = _payload(now - timedelta(minutes=10))["response"][0]
+    old["bookmakers"] = [
+        {
+            "id": 7,
+            "name": "Old Brand",
+            "bets": [{
+                "name": "Both Teams Score",
+                "values": [{"value": "Yes", "odd": "2.50"}],
+            }],
+        }
+    ]
+    fresh = _payload(now)["response"][0]
+    fresh["bookmakers"] = [
+        {
+            "id": 7,
+            "name": "Renamed Brand",
+            "bets": [{
+                "name": "Both Teams Score",
+                "values": [{"value": "Yes", "odd": "1.80"}],
+            }],
+        },
+        {
+            "id": 8,
+            "name": "Book B",
+            "bets": [{
+                "name": "Both Teams Score",
+                "values": [{"value": "Yes", "odd": "1.90"}],
+            }],
+        },
+        {
+            "id": 9,
+            "name": "Book C",
+            "bets": [{
+                "name": "Both Teams Score",
+                "values": [{"value": "Yes", "odd": "2.00"}],
+            }],
+        },
+    ]
+
+    quote = parse_fixture_consensus(
+        {"errors": [], "response": [old, fresh]},
+        [_candidate()],
+        fetched_at=now,
+    )[_candidate()["candidate_id"]]
+
+    assert quote.bookmaker_count == 3
+    renamed = next(
+        point for point in quote.points if point.bookmaker_id == "api-football:7"
+    )
+    assert renamed.bookmaker == "Renamed Brand"
+    assert renamed.odds == 1.80
+    assert renamed.observed_at == now.isoformat()
+
+
+def test_legacy_points_load_but_new_payload_persists_concrete_execution_offer():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    quote = parse_fixture_consensus(
+        _payload(now),
+        [_candidate()],
+        fetched_at=now,
+    )[_candidate()["candidate_id"]]
+    legacy = quote.to_dict()
+    legacy.pop("executable_quote")
+    for point in legacy["points"]:
+        point.pop("bookmaker_id")
+        point.pop("observed_at")
+
+    loaded = MarketConsensus.from_dict(legacy)
+
+    assert loaded is not None
+    assert loaded.is_fresh(now)
+    assert loaded.executable_point is not None
+    assert loaded.executable_point.odds == 1.86
+    persisted = loaded.to_dict()["executable_quote"]
+    assert persisted["bookmaker"] == "Unibet"
+    assert persisted["odds"] == 1.86
+
+
+def test_serialized_execution_offer_cannot_be_replaced_by_synthetic_q25():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    quote = parse_fixture_consensus(
+        _payload(now),
+        [_candidate()],
+        fetched_at=now,
+    )[_candidate()["candidate_id"]]
+    tampered = quote.to_dict()
+    tampered["executable_quote"]["odds"] = quote.conservative_odds
+
+    assert MarketConsensus.from_dict(tampered) is None
+
+
 def test_price_status_requires_fresh_multi_book_consensus_and_minimum_buffer():
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     quote = next(
@@ -132,7 +247,14 @@ def test_price_status_requires_fresh_multi_book_consensus_and_minimum_buffer():
         )
     )
 
-    assert reference_price_status(quote, 1.85, now=now).code == "PLAYABLE"
+    playable = reference_price_status(quote, 1.85, now=now)
+    assert playable.code == "PLAYABLE"
+    # The shared/15K contract remains the conservative Q25 value. The normal
+    # Wettfinder uses its stricter wrapper below to select a real executable
+    # bookmaker offer instead of placing a synthetic percentile price.
+    assert playable.usable_odds == quote.conservative_odds
+    assert playable.bookmaker is None
+    assert playable.observed_at is None
     assert reference_price_status(quote, 1.87, now=now).code == "BORDERLINE"
     assert reference_price_status(quote, 1.95, now=now).code == "TOO_LOW"
     assert reference_price_status(
@@ -156,6 +278,23 @@ def test_price_status_requires_fresh_multi_book_consensus_and_minimum_buffer():
         now=now,
     ).code == "PLAYABLE"
 
+    normal_stale = next(
+        iter(
+            parse_fixture_consensus(
+                _payload(now - timedelta(minutes=46), provider_ids=True),
+                [_candidate()],
+                fetched_at=now,
+            ).values()
+        )
+    )
+    assert reference_price_status(normal_stale, 1.85, now=now).code == "PLAYABLE"
+    assert wettfinder_reference_price_status(
+        normal_stale,
+        1.85,
+        candidate=_candidate(),
+        now=now,
+    ).code == "STALE"
+
     source_too_old = parse_fixture_consensus(
         _payload(now - timedelta(hours=25)),
         [_candidate()],
@@ -177,6 +316,155 @@ def test_price_status_requires_fresh_multi_book_consensus_and_minimum_buffer():
         )
     )
     assert reference_price_status(thin, 1.80, now=now).code == "THIN"
+
+
+def test_normal_wettfinder_requires_provider_execution_proof_and_exact_binding():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    candidate = _candidate()
+    quote = parse_fixture_consensus(
+        _payload(now, provider_ids=True),
+        [candidate],
+        fetched_at=now,
+    )[candidate["candidate_id"]]
+
+    playable = wettfinder_reference_price_status(
+        quote,
+        1.85,
+        candidate=candidate,
+        now=now,
+    )
+    assert playable.code == "PLAYABLE"
+    assert playable.usable_odds == 1.86
+    assert playable.bookmaker == "Unibet"
+    assert playable.bookmaker_id == "api-football:3"
+    assert playable.observed_at == now.isoformat()
+    assert wettfinder_reference_price_status(
+        quote,
+        1.85,
+        candidate={**candidate, "selection": "Nein"},
+        now=now,
+    ).code == "UNAVAILABLE"
+    assert wettfinder_reference_price_status(
+        quote,
+        1.85,
+        candidate={**candidate, "selection": None},
+        now=now,
+    ).code == "UNAVAILABLE"
+
+
+def test_normal_wettfinder_keeps_legacy_quote_readable_but_not_actionable():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    candidate = _candidate()
+    modern = parse_fixture_consensus(
+        _payload(now, provider_ids=True),
+        [candidate],
+        fetched_at=now,
+    )[candidate["candidate_id"]]
+    legacy_payload = modern.to_dict()
+    legacy_payload.pop("executable_quote")
+    for point in legacy_payload["points"]:
+        point.pop("bookmaker_id")
+        point.pop("observed_at")
+    legacy = MarketConsensus.from_dict(legacy_payload)
+
+    assert legacy is not None
+    assert reference_price_status(legacy, 1.85, now=now).code == "PLAYABLE"
+    assert wettfinder_reference_price_status(
+        legacy,
+        1.85,
+        candidate=candidate,
+        now=now,
+    ).code == "UNAVAILABLE"
+    assert wettfinder_reference_price_status(
+        replace(modern, scheduled_start=None),
+        1.85,
+        candidate=candidate,
+        now=now,
+    ).code == "UNAVAILABLE"
+
+
+def test_normal_wettfinder_rejects_name_only_bookmaker_consensus():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    candidate = _candidate()
+    name_only = parse_fixture_consensus(
+        _payload(now),
+        [candidate],
+        fetched_at=now,
+    )[candidate["candidate_id"]]
+
+    assert reference_price_status(name_only, 1.85, now=now).code == "PLAYABLE"
+    assert wettfinder_reference_price_status(
+        name_only,
+        1.85,
+        candidate=candidate,
+        now=now,
+    ).code == "UNAVAILABLE"
+
+
+def test_normal_freshness_checks_oldest_point_without_changing_15k_clock():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    older = _payload(
+        now - timedelta(minutes=40),
+        values={"Older A": "1.90", "Older B": "1.92"},
+    )["response"][0]
+    fresh = _payload(
+        now,
+        values={"Fresh A": "1.80", "Fresh B": "1.82"},
+    )["response"][0]
+    quote = parse_fixture_consensus(
+        {"errors": [], "response": [older, fresh]},
+        [_candidate()],
+        fetched_at=now,
+    )[_candidate()["candidate_id"]]
+
+    # The persisted aggregate clock remains the established latest observation
+    # used by 15K. Normal execution separately validates every point.
+    assert quote.quoted_at == now.isoformat()
+    assert quote.is_fresh(now)
+    assert quote.is_fresh(now + timedelta(minutes=6))
+    assert quote.is_wettfinder_fresh(now)
+    assert not quote.is_wettfinder_fresh(now + timedelta(minutes=6))
+
+
+def test_normal_consensus_drops_one_stale_point_but_keeps_three_fresh_books():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    stale = _payload(
+        now - timedelta(hours=2),
+        values={"Stale Book": "1.05"},
+        provider_ids=True,
+    )["response"][0]
+    stale["bookmakers"][0]["id"] = 99
+    fresh = _payload(
+        now,
+        values={
+            "Fresh A": "2.00",
+            "Fresh B": "2.10",
+            "Fresh C": "2.20",
+        },
+        provider_ids=True,
+    )["response"][0]
+    candidate = _candidate()
+    quote = parse_fixture_consensus(
+        {"errors": [], "response": [stale, fresh]},
+        [candidate],
+        fetched_at=now,
+    )[candidate["candidate_id"]]
+
+    assert quote.bookmaker_count == 4
+    assert quote.conservative_odds < 1.95
+    effective = wettfinder_consensus(quote, now=now)
+    assert effective is not None
+    assert effective.bookmaker_count == 3
+    assert effective.conservative_odds == 2.05
+    status = wettfinder_reference_price_status(
+        quote,
+        1.95,
+        candidate=candidate,
+        now=now,
+    )
+    assert status.code == "PLAYABLE"
+    assert status.usable_odds == 2.10
+    assert status.bookmaker == "Fresh B"
 
 
 def test_price_status_never_publishes_an_extreme_short_price() -> None:
@@ -219,7 +507,10 @@ def test_parser_never_mixes_prices_between_fixtures():
     first = _payload(now)["response"][0]
     second = {
         **first,
-        "fixture": {"id": 1493031},
+        "fixture": {
+            "id": 1493031,
+            "date": "2030-01-01T18:00:00+00:00",
+        },
         "bookmakers": [
             {
                 **bookmaker,
@@ -237,6 +528,10 @@ def test_parser_never_mixes_prices_between_fixtures():
         "candidate_id": "1493031:BTTS_YES",
         "fixture_id": 1493031,
         "market_key": "BTTS_YES",
+        "sport": "Fussball",
+        "source": "football_challenge",
+        "scheduled_start": "2030-01-01T18:00:00+00:00",
+        "selection": "Ja",
     }
 
     quotes = parse_fixture_consensus(
@@ -268,6 +563,17 @@ def test_quote_identity_binds_market_fixture_and_provider_source():
         candidate,
     ) is False
     assert quote_matches_candidate(
+        quote,
+        {**candidate, "selection": "Nein"},
+    ) is False
+    assert quote_matches_candidate(
+        quote,
+        {
+            **candidate,
+            "scheduled_start": "2030-01-01T17:00:00+00:00",
+        },
+    ) is False
+    assert quote_matches_candidate(
         replace(quote, fixture_id=1493031),
         candidate,
     ) is False
@@ -288,6 +594,8 @@ def test_quote_identity_binds_market_fixture_and_provider_source():
         "competitor_a": "Anna Lena",
         "competitor_b": "Bea",
         "selected_competitor": "Anna Lena",
+        "scheduled_start": "2030-01-01T16:00:00+00:00",
+        "quote_provider_event_id": "provider-event-1",
     }
     tennis_quote = replace(
         quote,
@@ -297,6 +605,10 @@ def test_quote_identity_binds_market_fixture_and_provider_source():
         value_name="Anna-Lena",
         source=ODDS_API_REFERENCE_SOURCE,
         provider_event_id="provider-event-1",
+        scheduled_start="2030-01-01T16:00:00+00:00",
+        event_home="Bea",
+        event_away="Anna Lena",
+        bet_name="h2h",
     )
     assert quote_matches_candidate(tennis_quote, tennis_candidate) is True
     assert quote_matches_candidate(
@@ -309,6 +621,18 @@ def test_quote_identity_binds_market_fixture_and_provider_source():
     ) is False
     assert quote_matches_candidate(
         replace(tennis_quote, value_name="Bea"),
+        tennis_candidate,
+    ) is False
+    assert quote_matches_candidate(
+        replace(tennis_quote, provider_event_id="provider-event-2"),
+        tennis_candidate,
+    ) is False
+    assert quote_matches_candidate(
+        replace(tennis_quote, bet_name="spreads"),
+        tennis_candidate,
+    ) is False
+    assert quote_matches_candidate(
+        replace(tennis_quote, event_home="Other Player"),
         tennis_candidate,
     ) is False
 

@@ -25,6 +25,7 @@ from ev_signal_sources import (
 from market_consensus import (
     ODDS_API_REFERENCE_SOURCE,
     parse_fixture_consensus,
+    wettfinder_reference_price_status,
 )
 from tennis.predict import WINNER_PROBABILITY_HAIRCUT
 from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION
@@ -84,14 +85,22 @@ def _playable_automatic_candidate(
         },
         "context_stale": False,
         "is_basic_forecast": False,
+        "statistical_release_passed": True,
+        "paired_loss_mean": 0.04,
+        "paired_loss_hac_standard_error": 0.01,
+        "paired_loss_lower_confidence_bound": 0.02,
+        "paired_loss_p_value": 0.01,
+        "fdr_q_value": 0.02,
+        "tested_hypotheses": 90,
     }
     payload = {
         "response": [
             {
-                "fixture": {"id": 1},
+                "fixture": {"id": 1, "date": scheduled_start},
                 "update": generated_at,
                 "bookmakers": [
                     {
+                        "id": index,
                         "name": f"Book {index}",
                         "bets": [
                             {
@@ -106,11 +115,25 @@ def _playable_automatic_candidate(
         ]
     }
     fetched_at = datetime.fromisoformat(generated_at)
-    candidate["reference_quote"] = parse_fixture_consensus(
+    quote = parse_fixture_consensus(
         payload,
         [candidate],
         fetched_at=fetched_at,
-    )[candidate["candidate_id"]].to_dict()
+    )[candidate["candidate_id"]]
+    status = wettfinder_reference_price_status(
+        quote,
+        candidate["minimum_odds"],
+        candidate=candidate,
+        now=fetched_at,
+    )
+    candidate["reference_price_status"] = status.code
+    candidate["reference_quote"] = quote.to_dict()
+    if status.code == "PLAYABLE":
+        candidate["reference_quote_source"] = quote.source
+        candidate["reference_quote_executable_odds"] = status.usable_odds
+        candidate["reference_quote_bookmaker"] = status.bookmaker
+        candidate["reference_quote_bookmaker_id"] = status.bookmaker_id
+        candidate["reference_quote_observed_at"] = status.observed_at
     return candidate
 
 
@@ -118,6 +141,14 @@ def _model_automatic_candidate(**kwargs) -> dict:
     candidate = _playable_automatic_candidate(**kwargs)
     candidate["status"] = "MODEL_SELECTION"
     candidate.pop("reference_quote", None)
+    for field in (
+        "reference_quote_source",
+        "reference_quote_executable_odds",
+        "reference_quote_bookmaker",
+        "reference_quote_bookmaker_id",
+        "reference_quote_observed_at",
+    ):
+        candidate.pop(field, None)
     candidate["reference_price_status"] = "UNAVAILABLE"
     return candidate
 
@@ -162,6 +193,11 @@ def _automatic_document(
         == "fussball"
     ]
     statuses = {str(fixture_id): "verified" for fixture_id in football_ids}
+    sources = {
+        "football": {"discovery_scope": 51, "operational_error_count": 0},
+        "tennis": {"operational_error_count": 0},
+        "esports": {"operational_error_count": 0},
+    }
     return {
         "version": AUTOMATED_WETTFINDER_VERSION,
         "generated_at": "2030-01-01T10:00:00+00:00",
@@ -169,6 +205,8 @@ def _automatic_document(
         "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
         "bookmaker_data_used": bool(strict),
         "quote_required": True,
+        "run_status": "completed",
+        "operational_error_count": 0,
         "target_search_date": "2030-01-01",
         "football": {
             "status": "completed",
@@ -188,7 +226,7 @@ def _automatic_document(
             "operational_error_count": 0,
             "approved_candidates": len(strict),
         },
-        "sources": {"football": {"discovery_scope": 51}},
+        "sources": sources,
         "model_candidates": model_candidates,
         "candidates": strict,
     }
@@ -554,6 +592,26 @@ class EsportsSignalTests(unittest.TestCase):
 
 
 class ListSignalsTests(unittest.TestCase):
+    def test_previous_catalog_and_selection_policy_versions_are_rejected(self):
+        import json
+
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            for version, policy in (
+                (13, AUTOMATED_SELECTION_POLICY_VERSION),
+                (AUTOMATED_WETTFINDER_VERSION, "useful-selection-catalog-v11"),
+            ):
+                with self.subTest(version=version, policy=policy):
+                    document = _automatic_document([])
+                    document["version"] = version
+                    document["selection_policy_version"] = policy
+                    artifact.write_text(json.dumps(document), encoding="utf-8")
+
+                    self.assertIsNone(
+                        _load_automated_wettfinder_document(artifact, now=now)
+                    )
+
     def test_merges_tennis_and_esports(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
@@ -591,6 +649,8 @@ class ListSignalsTests(unittest.TestCase):
                         "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
                         "bookmaker_data_used": True,
                         "quote_required": True,
+                        "run_status": "completed",
+                        "operational_error_count": 0,
                         "target_search_date": "2030-01-01",
                         "football": {
                             "status": "completed",
@@ -607,9 +667,15 @@ class ListSignalsTests(unittest.TestCase):
                             "context_scope_complete": True,
                             "context_accounting_available": True,
                             "context_fixture_statuses": {"1": "verified"},
+                            "operational_error_count": 0,
                             "approved_candidates": 1,
                         },
-                        "sources": {"football": {"discovery_scope": 51}},
+                        "sources": {
+                            "football": {
+                                "discovery_scope": 51,
+                                "operational_error_count": 0,
+                            }
+                        },
                         "model_candidates": [
                             {**candidate, "status": "MODEL_SELECTION"}
                         ],
@@ -653,6 +719,66 @@ class ListSignalsTests(unittest.TestCase):
         self.assertEqual(status.approved_candidates, 1)
         self.assertEqual(len(stale_forecasts), 1)
         self.assertEqual(stale_signals, [])
+
+    def test_degraded_tennis_source_preserves_strict_football_signal(self):
+        import json
+
+        candidate = _playable_automatic_candidate()
+        model_candidate = {**candidate, "status": "MODEL_SELECTION"}
+        document = _automatic_document(
+            [model_candidate],
+            candidates=[candidate],
+        )
+        document["run_status"] = "degraded"
+        document["operational_error_count"] = 1
+        document["sources"]["tennis"] = {
+            "status": "degraded",
+            "operational_error_count": 1,
+        }
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            artifact.write_text(json.dumps(document), encoding="utf-8")
+
+            loaded = _load_automated_wettfinder_document(
+                artifact,
+                now=now,
+            )
+            signals = automated_wettfinder_signals(artifact, now=now)
+            status = automated_wettfinder_status(artifact, now=now)
+
+        self.assertIsNotNone(loaded)
+        self.assertEqual([signal.selection for signal in signals], ["Ja"])
+        self.assertIsNotNone(status)
+        self.assertEqual(status.operational_error_count, 1)
+        self.assertEqual(status.candidate_count, 1)
+
+    def test_reader_rejects_candidate_from_its_failed_source(self):
+        import json
+
+        candidate = _playable_automatic_candidate()
+        model_candidate = {**candidate, "status": "MODEL_SELECTION"}
+        document = _automatic_document(
+            [model_candidate],
+            candidates=[candidate],
+        )
+        document["run_status"] = "degraded"
+        document["operational_error_count"] = 1
+        document["sources"]["football"]["operational_error_count"] = 1
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            artifact.write_text(json.dumps(document), encoding="utf-8")
+
+            self.assertIsNone(
+                _load_automated_wettfinder_document(artifact, now=now)
+            )
+            self.assertEqual(
+                automated_wettfinder_signals(artifact, now=now),
+                [],
+            )
 
     def test_automatic_catalog_roundtrip_enforces_per_sport_caps(self):
         import json
@@ -857,6 +983,8 @@ class ListSignalsTests(unittest.TestCase):
                         "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
                         "bookmaker_data_used": False,
                         "quote_required": True,
+                        "run_status": "completed",
+                        "operational_error_count": 0,
                         "target_search_date": "2030-01-01",
                         "football": {
                             "status": "completed",
@@ -871,7 +999,12 @@ class ListSignalsTests(unittest.TestCase):
                             "context_accounting_available": True,
                             "context_fixture_statuses": {"1": "verified"},
                         },
-                        "sources": {"football": {"discovery_scope": 51}},
+                        "sources": {
+                            "football": {
+                                "discovery_scope": 51,
+                                "operational_error_count": 0,
+                            }
+                        },
                         "model_candidates": [_model_automatic_candidate()],
                         "candidates": [],
                     }
@@ -907,6 +1040,8 @@ class ListSignalsTests(unittest.TestCase):
                         "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
                         "bookmaker_data_used": True,
                         "quote_required": True,
+                        "run_status": "degraded",
+                        "operational_error_count": 1,
                         "target_search_date": "2030-01-01",
                         "football": {
                             "status": "degraded",
@@ -950,7 +1085,13 @@ class ListSignalsTests(unittest.TestCase):
             ),
             ("wrong model scope", {"model_scope": "home_league_transfer"}),
             ("stale context", {"context_stale": True}),
-            ("basic forecast", {"is_basic_forecast": True}),
+            (
+                "statistical release not passed",
+                {"statistical_release_passed": False},
+            ),
+            ("missing paired evidence", {"paired_loss_p_value": None}),
+            ("invalid FDR correction", {"fdr_q_value": 0.051}),
+            ("wrong hypothesis family", {"tested_hypotheses": 89}),
         )
         now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
 
@@ -1004,24 +1145,62 @@ class ListSignalsTests(unittest.TestCase):
                 [],
             )
 
-            candidate = _playable_automatic_candidate()
-            candidate.pop("is_basic_forecast")
+    def test_failed_statistical_release_keeps_forecast_but_never_strict_tip(self):
+        import json
+
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+        candidate = _playable_automatic_candidate()
+        candidate["statistical_release_passed"] = False
+        model_candidate = {**candidate, "status": "MODEL_SELECTION"}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
             artifact.write_text(
                 json.dumps(
                     _automatic_document(
-                        [{**candidate, "status": "MODEL_SELECTION"}],
+                        [model_candidate],
                         candidates=[candidate],
                     )
                 ),
                 encoding="utf-8",
             )
-            self.assertIsNotNone(
-                _load_automated_wettfinder_document(artifact, now=now)
-            )
-            self.assertEqual(
-                automated_wettfinder_signals(artifact, now=now),
-                [],
-            )
+
+            forecasts = automated_wettfinder_forecasts(artifact, now=now)
+            strict = automated_wettfinder_signals(artifact, now=now)
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertIs(forecasts[0].statistical_release_passed, False)
+        self.assertEqual(strict, [])
+
+
+    def test_football_signal_does_not_use_basic_market_metadata_as_gate(self):
+        import json
+
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            for metadata in (True, None):
+                with self.subTest(is_basic_forecast=metadata):
+                    candidate = _playable_automatic_candidate()
+                    if metadata is None:
+                        candidate.pop("is_basic_forecast")
+                    else:
+                        candidate["is_basic_forecast"] = metadata
+                    artifact.write_text(
+                        json.dumps(
+                            _automatic_document(
+                                [{**candidate, "status": "MODEL_SELECTION"}],
+                                candidates=[candidate],
+                            )
+                        ),
+                        encoding="utf-8",
+                    )
+
+                    self.assertIsNotNone(
+                        _load_automated_wettfinder_document(artifact, now=now)
+                    )
+                    signals = automated_wettfinder_signals(artifact, now=now)
+                    self.assertEqual(len(signals), 1)
+                    self.assertEqual(signals[0].market_key, "BTTS_YES")
 
     def test_esports_signal_is_never_strict_without_a_verified_price_provider(self):
         import json
@@ -1120,6 +1299,60 @@ class ListSignalsTests(unittest.TestCase):
                         [],
                     )
 
+    def test_automatic_artifact_rejects_tampered_execution_provenance(self):
+        import json
+
+        mutations = (
+            ("synthetic q25", "reference_quote_executable_odds", 2.015),
+            ("wrong bookmaker", "reference_quote_bookmaker", "Other Book"),
+            (
+                "wrong bookmaker id",
+                "reference_quote_bookmaker_id",
+                "api-football:999",
+            ),
+            (
+                "wrong observation",
+                "reference_quote_observed_at",
+                "2030-01-01T09:59:00+00:00",
+            ),
+            ("missing provider source", "reference_quote_source", None),
+        )
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            for label, field, value in mutations:
+                with self.subTest(tamper=label):
+                    candidate = _playable_automatic_candidate()
+                    if value is None:
+                        candidate.pop(field)
+                    else:
+                        candidate[field] = value
+                    model_candidate = {
+                        **candidate,
+                        "status": "MODEL_SELECTION",
+                    }
+                    artifact.write_text(
+                        json.dumps(
+                            _automatic_document(
+                                [model_candidate],
+                                candidates=[candidate],
+                            )
+                        ),
+                        encoding="utf-8",
+                    )
+
+                    self.assertIsNone(
+                        _load_automated_wettfinder_document(
+                            artifact,
+                            now=now,
+                        )
+                    )
+                    self.assertEqual(
+                        automated_wettfinder_signals(artifact, now=now),
+                        [],
+                    )
+
     def test_automatic_model_without_quote_must_be_unavailable_for_every_sport(
         self,
     ):
@@ -1203,6 +1436,8 @@ class ListSignalsTests(unittest.TestCase):
                         "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
                         "bookmaker_data_used": True,
                         "quote_required": True,
+                        "run_status": "completed",
+                        "operational_error_count": 0,
                         "target_search_date": "2030-01-01",
                         "football": {
                             "status": "completed",
@@ -1238,6 +1473,8 @@ class ListSignalsTests(unittest.TestCase):
                         "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
                         "bookmaker_data_used": True,
                         "quote_required": True,
+                        "run_status": "completed",
+                        "operational_error_count": 0,
                         "target_search_date": "2030-01-01",
                         "football": {
                             "status": "completed",

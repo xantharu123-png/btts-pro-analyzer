@@ -176,12 +176,13 @@ def _run_shadow_playable_card() -> None:
         bookmaker_count=3,
         quoted_at=now,
         fetched_at=now,
-        source="test",
+        source="API-Football Mehrbuchmacher",
         points=(
-            QuotePoint("A", 1.95),
-            QuotePoint("B", 2.00),
-            QuotePoint("C", 2.10),
+            QuotePoint("A", 1.95, "api-football:1", now),
+            QuotePoint("B", 2.00, "api-football:2", now),
+            QuotePoint("C", 2.10, "api-football:3", now),
         ),
+        scheduled_start=now,
     )
     render_price_decision(
         candidate,
@@ -229,16 +230,72 @@ def _run_released_playable_card() -> None:
         bookmaker_count=3,
         quoted_at=now,
         fetched_at=now,
-        source="test",
+        source="API-Football Mehrbuchmacher",
         points=(
-            QuotePoint("A", 1.95),
-            QuotePoint("B", 2.00),
-            QuotePoint("C", 2.10),
+            QuotePoint("A", 1.95, "api-football:1", now),
+            QuotePoint("B", 2.00, "api-football:2", now),
+            QuotePoint("C", 2.10, "api-football:3", now),
         ),
+        scheduled_start=now,
     )
     render_price_decision(
         candidate,
         key="ux_released_playable",
+        save_source="Test",
+        reference_quote=quote,
+    )
+
+
+def _run_statistical_release_pending_playable_card() -> None:
+    from datetime import datetime, timezone
+
+    from bet_finder_ui import render_price_decision
+    from market_consensus import MarketConsensus, QuotePoint
+    from multi_sport_recommendations import EVIDENCE_RELEASED, RecommendationCandidate
+
+    now = datetime.now(timezone.utc).isoformat()
+    candidate = RecommendationCandidate(
+        event_key="pending-statistics-1",
+        sport="Fußball",
+        event_label="Alpha vs Beta",
+        market="Beide treffen",
+        selection="Ja",
+        line=None,
+        model_probability=65.0,
+        risk_adjusted_probability=60.0,
+        probability_haircut=5.0,
+        fair_odds=1.538,
+        minimum_odds=1.80,
+        model_name="Testmodell",
+        expected_total=3.0,
+        evidence=("interne Prüfung",),
+        evidence_stage=EVIDENCE_RELEASED,
+        release_pending=True,
+    )
+    quote = MarketConsensus(
+        fixture_id=1,
+        candidate_id="pending-statistics-1",
+        market_key="BTTS_YES",
+        bet_name="Both Teams Score",
+        value_name="Yes",
+        consensus_odds=2.00,
+        conservative_odds=2.00,
+        lowest_odds=1.95,
+        best_odds=2.10,
+        bookmaker_count=3,
+        quoted_at=now,
+        fetched_at=now,
+        source="API-Football Mehrbuchmacher",
+        points=(
+            QuotePoint("A", 1.95, "api-football:1", now),
+            QuotePoint("B", 2.00, "api-football:2", now),
+            QuotePoint("C", 2.10, "api-football:3", now),
+        ),
+        scheduled_start=now,
+    )
+    render_price_decision(
+        candidate,
+        key="ux_pending_statistics_playable",
         save_source="Test",
         reference_quote=quote,
     )
@@ -306,12 +363,13 @@ def _run_too_low_price_card() -> None:
         bookmaker_count=3,
         quoted_at=now,
         fetched_at=now,
-        source="test",
+        source="API-Football Mehrbuchmacher",
         points=(
-            QuotePoint("A", 1.55),
-            QuotePoint("B", 1.60),
-            QuotePoint("C", 1.70),
+            QuotePoint("A", 1.55, "api-football:1", now),
+            QuotePoint("B", 1.60, "api-football:2", now),
+            QuotePoint("C", 1.70, "api-football:3", now),
         ),
+        scheduled_start=now,
     )
     render_price_decision(
         candidate,
@@ -404,7 +462,75 @@ def test_released_selection_with_good_price_is_a_playable_tip():
     at.run(timeout=60)
     assert len(at.exception) == 0
     assert any("SPIELBARER TIPP" in success.value for success in at.success)
+    assert any("2.00 bei B" in success.value for success in at.success)
     assert any(button.label == "Tipp merken" for button in at.button)
+
+
+def test_saved_reference_source_contains_concrete_provider_provenance():
+    from datetime import datetime, timezone
+
+    from bet_finder_ui import _reference_execution_source
+    from market_consensus import (
+        MarketConsensus,
+        QuotePoint,
+        REFERENCE_SOURCE,
+        wettfinder_reference_price_status,
+    )
+
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=timezone.utc).isoformat()
+    quote = MarketConsensus(
+        fixture_id=1,
+        candidate_id="1:BTTS_YES",
+        market_key="BTTS_YES",
+        bet_name="Both Teams Score",
+        value_name="Yes",
+        consensus_odds=2.00,
+        conservative_odds=2.00,
+        lowest_odds=1.95,
+        best_odds=2.10,
+        bookmaker_count=3,
+        quoted_at=now,
+        fetched_at=now,
+        source=REFERENCE_SOURCE,
+        points=(
+            QuotePoint("A", 1.95, "api-football:1", now),
+            QuotePoint("B", 2.00, "api-football:2", now),
+            QuotePoint("C", 2.10, "api-football:3", now),
+        ),
+        scheduled_start="2030-01-01T16:00:00+00:00",
+    )
+    status = wettfinder_reference_price_status(
+        quote,
+        1.80,
+        now=datetime.fromisoformat(now),
+    )
+
+    source = _reference_execution_source(
+        "Automatischer Wettfinder",
+        quote,
+        status,
+    )
+
+    assert len(source) <= 120
+    assert "API-Football" in source
+    assert "B [api-football:2]" in source
+    assert now in source
+
+
+def test_playable_price_cannot_bypass_pending_statistical_release():
+    at = AppTest.from_function(_run_statistical_release_pending_playable_card)
+    at.run(timeout=60)
+
+    assert len(at.exception) == 0
+    assert len(at.success) == 0
+    text = " ".join(info.value for info in at.info)
+    assert (
+        "Modell noch in statistischer Evidenzprüfung – Prognose sichtbar, "
+        "kein Einsatz."
+    ) in text
+    assert "p-Wert" not in text
+    assert "q-Wert" not in text
+    assert all(button.label != "Tipp merken" for button in at.button)
 
 
 def test_missing_quote_keeps_selection_visible_and_neutral():
@@ -443,11 +569,12 @@ def test_partial_manual_scan_renders_bounded_claim_with_compact_evidence():
     assert len(at.exception) == 0
     assert len(at.error) == 0
     assert len(at.warning) == 1
-    assert "Für 1 weiteres Spiel" in at.warning[0].value
+    assert "Ein Teil des gewählten Spieltags" in at.warning[0].value
+    assert "Für die übrigen Spiele" in at.warning[0].value
     captions = " ".join(item.value for item in at.caption)
-    assert "205 Spiele gefunden" in captions
-    assert "144 modelliert" in captions
-    assert "20 mit verfügbaren Kontextdaten geprüft" in captions
+    assert "205 Spiele gefunden" not in captions
+    assert "144 modelliert" not in captions
+    assert "20 mit verfügbaren Kontextdaten geprüft" not in captions
     visible = captions + " " + at.warning[0].value
     assert "Walk-forward" not in visible
     assert "5947" not in visible
@@ -461,8 +588,12 @@ def test_complete_model_zero_explains_that_no_quote_was_checked():
     assert len(at.error) == 0
     assert len(at.warning) == 0
     assert len(at.info) == 1
-    assert "Quote wurde deshalb noch nicht geprüft" in at.info[0].value
-    assert "40 Spiele gefunden" in " ".join(item.value for item in at.caption)
+    assert at.info[0].value == (
+        "Aktuell erfüllt keine Auswahl alle Qualitätsregeln."
+    )
+    assert "40 Spiele gefunden" not in " ".join(
+        item.value for item in at.caption
+    )
 
 
 def test_plain_german_replaces_model_jargon():

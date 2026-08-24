@@ -178,6 +178,29 @@ class FixtureModelXgTest(unittest.TestCase):
             with_sparse["active_lambdas"][0], plain["active_lambdas"][0], places=9
         )
 
+    def test_freshness_uses_oldest_required_team_series(self):
+        history = _league_history()
+        # Team 1 played recently, while Team 2 has no observation after day 5.
+        # The model still has the required six Team-2 matches, but its reported
+        # freshness must not inherit Team 1's recent date.
+        history = [
+            fixture
+            for fixture in history
+            if not (
+                fixture["teams"]["away"]["id"] == 2
+                and (fixture["fixture"]["id"] - 1) // 4 > 5
+            )
+        ]
+
+        model = _fixture_model(_kickoff_fixture(), history)
+
+        self.assertIsNotNone(model)
+        self.assertEqual(model["freshness_days"], 40.0)
+        self.assertEqual(
+            model["freshness_observed_at"],
+            (BASE + timedelta(days=5)).isoformat(),
+        )
+
 
 class FakeProvider:
     """Fake fetch_list: liefert Saisonindex + statistics aus dem Speicher."""

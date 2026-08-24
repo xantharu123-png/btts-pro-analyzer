@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 
 import market_consensus
+import wettfinder_automation
 from betting_math import BETTING_POLICY_VERSION
 from challenge_engine import (
     MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
@@ -13,6 +14,7 @@ from challenge_engine import (
 )
 from config_loader import AppConfig
 from ev_signal_sources import (
+    AUTOMATED_SELECTION_POLICY_VERSION,
     AUTOMATED_WETTFINDER_VERSION,
     ModelSignal,
     automated_wettfinder_forecasts,
@@ -61,15 +63,20 @@ def test_apply_reference_quotes_rejects_wrong_market_fixture_and_source():
         "sport": "Fussball",
         "source": "football_challenge",
         "minimum_odds": 1.80,
+        "scheduled_start": (now + timedelta(hours=5)).isoformat(),
     }
     payload = {
         "errors": [],
         "response": [
             {
-                "fixture": {"id": 1},
+                "fixture": {
+                    "id": 1,
+                    "date": (now + timedelta(hours=5)).isoformat(),
+                },
                 "update": now.isoformat(),
                 "bookmakers": [
                     {
+                        "id": index,
                         "name": f"Book {index}",
                         "bets": [
                             {
@@ -112,6 +119,59 @@ def test_apply_reference_quotes_rejects_wrong_market_fixture_and_source():
         assert playable == []
         assert model_row["reference_price_status"] == "UNAVAILABLE"
         assert "reference_quote" not in model_row
+
+
+def test_apply_reference_quotes_keeps_name_only_legacy_visible_not_playable():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    row = {
+        "candidate_id": "1:BTTS_YES",
+        "fixture_id": 1,
+        "market_key": "BTTS_YES",
+        "sport": "Fussball",
+        "source": "football_challenge",
+        "selection": "Ja",
+        "minimum_odds": 1.80,
+        "scheduled_start": (now + timedelta(hours=5)).isoformat(),
+    }
+    payload = {
+        "response": [{
+            "fixture": {
+                "id": 1,
+                "date": row["scheduled_start"],
+            },
+            "update": now.isoformat(),
+            "bookmakers": [
+                {
+                    "name": f"Legacy Book {index}",
+                    "bets": [{
+                        "name": "Both Teams Score",
+                        "values": [{"value": "Yes", "odd": "2.05"}],
+                    }],
+                }
+                for index in range(1, 5)
+            ],
+        }],
+    }
+    quote = parse_fixture_consensus(
+        payload,
+        [row],
+        fetched_at=now,
+    )[row["candidate_id"]]
+    model_row = dict(row)
+    price_row = dict(row)
+
+    counts, playable = _apply_reference_quotes(
+        [model_row],
+        [price_row],
+        {row["candidate_id"]: quote},
+        now=now,
+    )
+
+    assert counts == {"UNAVAILABLE": 1}
+    assert playable == []
+    assert model_row["reference_quote"] == quote.to_dict()
+    assert model_row["reference_price_status"] == "UNAVAILABLE"
+    assert "reference_quote_executable_odds" not in model_row
 
 
 def test_football_state_propagates_operational_failure_with_nonempty_schedule():
@@ -320,7 +380,7 @@ def test_context_refresh_reranks_new_stronger_fixture_into_full_catalog():
     assert 15 not in fixture_ids
 
 
-def test_context_refresh_does_not_fall_back_to_basic_candidates():
+def test_context_refresh_keeps_credible_basic_market_in_wettfinder_catalog():
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     basic = replace(
         _challenge_candidate(now + timedelta(hours=5)),
@@ -358,7 +418,9 @@ def test_context_refresh_does_not_fall_back_to_basic_candidates():
         checked_at=now + timedelta(minutes=30),
     )
 
-    assert refreshed["candidates"] == []
+    assert [row["candidate_id"] for row in refreshed["candidates"]] == [
+        basic.candidate_id
+    ]
 
 
 def test_active_football_catalog_preserves_all_fifteen_positions():
@@ -459,6 +521,13 @@ def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
         calibration_bins=4,
         min_bin_size=30,
         max_calibration_error=0.06,
+        paired_loss_mean=0.04,
+        paired_loss_hac_standard_error=0.01,
+        paired_loss_lower_confidence_bound=0.02,
+        paired_loss_p_value=0.01,
+        fdr_q_value=0.02,
+        tested_hypotheses=90,
+        statistical_release_passed=True,
     )
     return ChallengeCandidate(
         candidate_id="fixture-1-btts",
@@ -489,6 +558,32 @@ def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
 
 def test_automation_writer_and_reader_share_one_artifact_version():
     assert AUTOMATION_VERSION == AUTOMATED_WETTFINDER_VERSION
+    assert AUTOMATED_WETTFINDER_VERSION == 14
+    assert AUTOMATED_SELECTION_POLICY_VERSION == "useful-selection-catalog-v12"
+
+
+def test_football_record_persists_paired_statistical_release_evidence():
+    candidate = _challenge_candidate(
+        datetime(2030, 1, 1, 15, 0, tzinfo=UTC)
+    )
+    candidate.context = {
+        "passed": True,
+        "forecast_passed": True,
+        "release_context_complete": True,
+        "release_eligible": True,
+        "blocked_reasons": [],
+    }
+
+    record = _football_candidate_record(candidate)
+
+    assert record is not None
+    assert record["statistical_release_passed"] is True
+    assert record["paired_loss_mean"] == 0.04
+    assert record["paired_loss_hac_standard_error"] == 0.01
+    assert record["paired_loss_lower_confidence_bound"] == 0.02
+    assert record["paired_loss_p_value"] == 0.01
+    assert record["fdr_q_value"] == 0.02
+    assert record["tested_hypotheses"] == 90
 
 
 def test_previous_automation_artifact_version_is_rejected(tmp_path):
@@ -655,12 +750,36 @@ def test_tennis_event_identity_deduplicates_legacy_keys_and_name_punctuation():
     assert [row["key"] for row in selected] == ["tennis-a"]
 
 
-def test_target_date_switches_at_2300_zurich():
+def test_target_date_keeps_late_same_day_fixtures_until_midnight():
     before = datetime(2030, 1, 1, 21, 59, tzinfo=UTC)
     after = datetime(2030, 1, 1, 22, 0, tzinfo=UTC)
 
     assert target_search_date(before) == date(2030, 1, 1)
-    assert target_search_date(after) == date(2030, 1, 2)
+    assert target_search_date(after) == date(2030, 1, 1)
+
+
+def test_degraded_discovery_retries_on_the_next_half_hour_tick():
+    previous = {
+        "status": "degraded",
+        "search_date": "2030-01-01",
+        "last_attempt_at": "2030-01-01T10:00:00+00:00",
+    }
+
+    early = football_due(
+        previous,
+        now=datetime(2030, 1, 1, 10, 20, tzinfo=UTC),
+        search_date=date(2030, 1, 1),
+    )
+    next_tick = football_due(
+        previous,
+        now=datetime(2030, 1, 1, 10, 30, tzinfo=UTC),
+        search_date=date(2030, 1, 1),
+    )
+
+    assert early.due is False
+    assert early.reason == "degraded_backoff"
+    assert next_tick.due is True
+    assert next_tick.reason == "retry_degraded_scan"
 
 
 def test_football_discovery_runs_only_once_for_current_target_date():
@@ -717,11 +836,21 @@ def test_default_football_discovery_scans_all_configured_leagues(monkeypatch):
         lambda *_args, **_kwargs: object(),
     )
 
-    def fake_scan(_provider, league_ids, search_date, max_fixtures):
+    def fake_scan(
+        _provider,
+        league_ids,
+        search_date,
+        max_fixtures,
+        *,
+        allow_above_challenge_probability=False,
+    ):
         captured.update(
             league_ids=league_ids,
             search_date=search_date,
             max_fixtures=max_fixtures,
+            allow_above_challenge_probability=(
+                allow_above_challenge_probability
+            ),
         )
         return {}
 
@@ -737,6 +866,7 @@ def test_default_football_discovery_scans_all_configured_leagues(monkeypatch):
 
     assert captured["league_ids"] == list(ALTERNATIVE_MARKET_LEAGUES)
     assert len(captured["league_ids"]) == 51
+    assert captured["allow_above_challenge_probability"] is True
 
 
 def test_selection_is_probability_first_deduplicated_and_maximum_three():
@@ -938,7 +1068,7 @@ def test_runner_reuses_persisted_models_and_skips_not_due_football(tmp_path):
     assert first["quote_required"] is True
     assert first["candidates"] == []
     assert {row["sport"] for row in first["model_candidates"]} == {
-        "Fussball",
+        "Fußball",
         "Tennis",
     }
     assert first["sources"]["football"]["price_status_counts"] == {
@@ -971,7 +1101,7 @@ def test_runner_never_publishes_candidate_from_degraded_football_scan(tmp_path):
     assert document["sources"]["football"]["candidate_count"] == 1
     assert document["sources"]["football"]["price_checked_count"] == 1
     assert document["candidates"] == []
-    assert [row["sport"] for row in document["model_candidates"]] == ["Fussball"]
+    assert [row["sport"] for row in document["model_candidates"]] == ["Fußball"]
 
 
 def test_runner_prices_verified_fixture_even_when_later_fixtures_are_unchecked(
@@ -1031,10 +1161,14 @@ def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
         payload = {
             "response": [
                 {
-                    "fixture": {"id": 1},
+                    "fixture": {
+                        "id": 1,
+                        "date": rows[0]["scheduled_start"],
+                    },
                     "update": now.isoformat(),
                     "bookmakers": [
                         {
+                            "id": index,
                             "name": name,
                             "bets": [
                                 {
@@ -1043,11 +1177,14 @@ def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
                                 }
                             ],
                         }
-                        for name, odds in (
-                            ("Book A", "1.90"),
-                            ("Book B", "1.95"),
-                            ("Book C", "2.00"),
-                            ("Book D", "2.05"),
+                        for index, (name, odds) in enumerate(
+                            (
+                                ("Book A", "1.90"),
+                                ("Book B", "1.95"),
+                                ("Book C", "2.00"),
+                                ("Book D", "2.05"),
+                            ),
+                            start=1,
                         )
                     ],
                 }
@@ -1077,6 +1214,12 @@ def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
     assert model_selection["reference_price_status"] == "PLAYABLE"
     assert tip["reference_quote"]["bookmaker_count"] == 4
     assert tip["reference_quote"]["conservative_odds"] == 1.9375
+    assert tip["reference_quote_executable_odds"] == 1.95
+    assert tip["reference_quote_bookmaker"] == "Book B"
+    assert tip["reference_quote_bookmaker_id"] == "api-football:2"
+    assert tip["reference_quote_observed_at"] == now.isoformat()
+    assert tip["reference_quote_source"] == REFERENCE_SOURCE
+    assert model_selection["reference_quote_executable_odds"] == 1.95
     read_at = now + timedelta(minutes=30)
     forecasts = automated_wettfinder_forecasts(state_path, now=read_at)
     signals = automated_wettfinder_signals(state_path, now=read_at)
@@ -1105,10 +1248,14 @@ def test_runner_never_publishes_unpriced_or_too_low_model_candidates(tmp_path):
         payload = {
             "response": [
                 {
-                    "fixture": {"id": 1},
+                    "fixture": {
+                        "id": 1,
+                        "date": rows[0]["scheduled_start"],
+                    },
                     "update": now.isoformat(),
                     "bookmakers": [
                         {
+                            "id": index,
                             "name": name,
                             "bets": [
                                 {
@@ -1117,11 +1264,14 @@ def test_runner_never_publishes_unpriced_or_too_low_model_candidates(tmp_path):
                                 }
                             ],
                         }
-                        for name, odds in (
-                            ("Book A", "1.20"),
-                            ("Book B", "1.22"),
-                            ("Book C", "1.24"),
-                            ("Book D", "1.26"),
+                        for index, (name, odds) in enumerate(
+                            (
+                                ("Book A", "1.20"),
+                                ("Book B", "1.22"),
+                                ("Book C", "1.24"),
+                                ("Book D", "1.26"),
+                            ),
+                            start=1,
                         )
                     ],
                 }
@@ -1141,11 +1291,11 @@ def test_runner_never_publishes_unpriced_or_too_low_model_candidates(tmp_path):
 
     assert document["candidates"] == []
     assert {row["sport"] for row in document["model_candidates"]} == {
-        "Fussball",
+        "Fußball",
         "E-Sport",
     }
     football_model = next(
-        row for row in document["model_candidates"] if row["sport"] == "Fussball"
+        row for row in document["model_candidates"] if row["sport"] == "Fußball"
     )
     assert football_model["reference_price_status"] == "TOO_LOW"
     assert football_model["reference_quote"]["bookmaker_count"] == 4
@@ -1266,10 +1416,14 @@ def test_runner_keeps_checked_catalog_beyond_featured_top_three(tmp_path):
         payload = {
             "response": [
                 {
-                    "fixture": {"id": 4},
+                    "fixture": {
+                        "id": 4,
+                        "date": target["scheduled_start"],
+                    },
                     "update": now.isoformat(),
                     "bookmakers": [
                         {
+                            "id": index,
                             "name": f"Book {index}",
                             "bets": [
                                 {
@@ -1306,7 +1460,7 @@ def test_runner_keeps_checked_catalog_beyond_featured_top_three(tmp_path):
     assert document["candidates"][0]["reference_price_status"] == "PLAYABLE"
 
 
-def test_runner_never_uses_alternative_price_to_replace_model_pick(tmp_path):
+def test_runner_prices_and_keeps_alternative_market_from_same_fixture(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     base = _challenge_candidate(now + timedelta(hours=5))
     home_win = replace(
@@ -1330,7 +1484,13 @@ def test_runner_never_uses_alternative_price_to_replace_model_pick(tmp_path):
         model_price=1.0 / 0.69,
     )
     for item in (home_win, under_goals):
-        item.context = {"passed": True, "blocked_reasons": []}
+        item.context = {
+            "passed": True,
+            "forecast_passed": True,
+            "release_context_complete": True,
+            "release_eligible": True,
+            "blocked_reasons": [],
+        }
 
     def scan(_search_date):
         return {
@@ -1358,10 +1518,14 @@ def test_runner_never_uses_alternative_price_to_replace_model_pick(tmp_path):
         payload = {
             "response": [
                 {
-                    "fixture": {"id": 1},
+                    "fixture": {
+                        "id": 1,
+                        "date": rows[0]["scheduled_start"],
+                    },
                     "update": now.isoformat(),
                     "bookmakers": [
                         {
+                            "id": index,
                             "name": f"Book {index}",
                             "bets": [
                                 {
@@ -1397,16 +1561,21 @@ def test_runner_never_uses_alternative_price_to_replace_model_pick(tmp_path):
 
     assert [row["candidate_id"] for row in checked_rows] == [
         "fixture-1-home",
+        "fixture-1-under-4-5",
     ]
-    assert document["sources"]["football"]["price_checked_count"] == 1
+    assert document["sources"]["football"]["price_checked_count"] == 2
     assert document["sources"]["football"]["price_fixture_count"] == 1
     assert document["sources"]["football"]["price_status_counts"] == {
         "TOO_LOW": 1,
+        "PLAYABLE": 1,
     }
     assert [row["candidate_id"] for row in document["model_candidates"]] == [
-        "fixture-1-home"
+        "fixture-1-home",
+        "fixture-1-under-4-5",
     ]
-    assert document["candidates"] == []
+    assert [row["candidate_id"] for row in document["candidates"]] == [
+        "fixture-1-under-4-5"
+    ]
 
 
 def test_runner_refreshes_runtime_clock_after_a_long_discovery(tmp_path):
@@ -1427,10 +1596,14 @@ def test_runner_refreshes_runtime_clock_after_a_long_discovery(tmp_path):
         payload = {
             "response": [
                 {
-                    "fixture": {"id": 1},
+                    "fixture": {
+                        "id": 1,
+                        "date": rows[0]["scheduled_start"],
+                    },
                     "update": scanned.isoformat(),
                     "bookmakers": [
                         {
+                            "id": index,
                             "name": f"Book {index}",
                             "bets": [
                                 {
@@ -1634,10 +1807,18 @@ def test_runner_reprices_each_supported_reused_candidate_on_every_run(tmp_path):
             fetched_at=fetched_at.isoformat(),
             source=ODDS_API_REFERENCE_SOURCE,
             points=tuple(
-                QuotePoint(f"Book {index}", price)
+                QuotePoint(
+                    f"Book {index}",
+                    price,
+                    bookmaker_id=f"odds-api:book-{index}",
+                    observed_at=fetched_at.isoformat(),
+                )
                 for index, price in enumerate(ordered, start=1)
             ),
             provider_event_id="provider-tennis-model-1",
+            scheduled_start=row["scheduled_start"],
+            event_home=row["competitor_a"],
+            event_away=row["competitor_b"],
         )
 
     def football_quotes(rows):
@@ -1680,17 +1861,26 @@ def test_runner_reprices_each_supported_reused_candidate_on_every_run(tmp_path):
         ["tennis-model-1-A"],
     ]
     assert {row["sport"] for row in first["model_candidates"]} == {
-        "Fussball",
+        "Fußball",
         "Tennis",
         "E-Sport",
     }
     assert {row["sport"] for row in second["model_candidates"]} == {
-        "Fussball",
+        "Fußball",
         "Tennis",
         "E-Sport",
     }
     priced = {row["sport"]: row for row in second["model_candidates"]}
     assert priced["Tennis"]["reference_price_status"] == "PLAYABLE"
+    assert priced["Tennis"]["quote_provider_event_id"] == (
+        "provider-tennis-model-1"
+    )
+    assert priced["Tennis"]["reference_quote"]["executable_quote"] == {
+        "bookmaker": "Book 2",
+        "odds": 1.95,
+        "bookmaker_id": "odds-api:book-2",
+        "observed_at": (now + timedelta(minutes=10)).isoformat(),
+    }
     assert priced["E-Sport"]["reference_price_status"] == "UNAVAILABLE"
     assert priced["Tennis"]["reference_quote"]["fetched_at"] == (
         now + timedelta(minutes=10)
@@ -1727,9 +1917,10 @@ def test_quote_loader_exception_details_are_never_persisted(tmp_path):
     def fail_with_secret(_rows):
         raise RuntimeError(f"provider URL leaked {secret}")
 
+    state_path = tmp_path / "wettfinder.json"
     document = run_wettfinder(
         now=now,
-        state_path=tmp_path / "wettfinder.json",
+        state_path=state_path,
         config=AppConfig(api_football_key="test", odds_api_key="odds-test"),
         football_scanner=lambda _search_date: _football_snapshot(now),
         football_quote_loader=fail_with_secret,
@@ -1741,7 +1932,195 @@ def test_quote_loader_exception_details_are_never_persisted(tmp_path):
     expected = ["Quotenabruf fehlgeschlagen (RuntimeError)"]
     assert document["sources"]["football"]["quote_errors"] == expected
     assert document["sources"]["tennis"]["quote_errors"] == expected
+    assert document["run_status"] == "degraded"
+    assert document["operational_error_count"] == 2
+    assert load_state(state_path) == document
     assert secret not in str(document)
+
+
+def test_tennis_quote_failure_keeps_strict_football_and_drops_tennis_tip(
+    tmp_path,
+):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    tennis = ModelSignal(
+        key="tennis-source-failure-A",
+        label="Tennis - Alice vs Bea - Sieg Alice",
+        probability=0.66,
+        probability_haircut=0.08,
+        evidence_stage="SHADOW",
+        policy_version="tennis-test",
+        detail="Persistiertes Tennis-Modell",
+        scheduled_start="2030-01-01T16:00:00+00:00",
+        sport="Tennis",
+        event_label="Alice vs Bea",
+        market="Match Winner",
+        selection="Sieg Alice",
+        competitor_a="Alice",
+        competitor_b="Bea",
+        selected_competitor="Alice",
+    )
+
+    def football_quotes(rows):
+        payload = {
+            "response": [
+                {
+                    "fixture": {
+                        "id": 1,
+                        "date": rows[0]["scheduled_start"],
+                    },
+                    "update": now.isoformat(),
+                    "bookmakers": [
+                        {
+                            "id": index,
+                            "name": f"Football Book {index}",
+                            "bets": [
+                                {
+                                    "name": "Both Teams Score",
+                                    "values": [
+                                        {"value": "Yes", "odd": odds}
+                                    ],
+                                }
+                            ],
+                        }
+                        for index, odds in enumerate(
+                            ("1.90", "1.95", "2.00", "2.05"),
+                            start=1,
+                        )
+                    ],
+                }
+            ]
+        }
+        return parse_fixture_consensus(payload, rows, fetched_at=now), []
+
+    def degraded_tennis_quotes(rows):
+        row = rows[0]
+        prices = (1.90, 1.95, 2.00, 2.05)
+        quote = MarketConsensus(
+            fixture_id=None,
+            candidate_id=row["candidate_id"],
+            market_key="H2H",
+            bet_name="h2h",
+            value_name=row["selected_competitor"],
+            consensus_odds=1.975,
+            conservative_odds=1.9375,
+            lowest_odds=1.90,
+            best_odds=2.05,
+            bookmaker_count=4,
+            quoted_at=now.isoformat(),
+            fetched_at=now.isoformat(),
+            source=ODDS_API_REFERENCE_SOURCE,
+            points=tuple(
+                QuotePoint(
+                    f"Tennis Book {index}",
+                    price,
+                    bookmaker_id=f"odds-api:tennis-{index}",
+                    observed_at=now.isoformat(),
+                )
+                for index, price in enumerate(prices, start=1)
+            ),
+            provider_event_id="provider-tennis-source-failure",
+            scheduled_start=row["scheduled_start"],
+            event_home=row["competitor_a"],
+            event_away=row["competitor_b"],
+        )
+        return (
+            {row["candidate_id"]: quote},
+            ["Quotenabruf fehlgeschlagen (TimeoutError)"],
+        )
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test", odds_api_key="odds-test"),
+        football_scanner=lambda _search_date: _football_snapshot(now),
+        football_quote_loader=football_quotes,
+        tennis_quote_loader=degraded_tennis_quotes,
+        tennis_loader=lambda **_kwargs: [tennis],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    assert document["run_status"] == "degraded"
+    assert document["operational_error_count"] == 1
+    assert document["sources"]["football"]["operational_error_count"] == 0
+    assert document["sources"]["tennis"]["operational_error_count"] == 1
+    assert [row["source"] for row in document["candidates"]] == [
+        "football_challenge"
+    ]
+    assert document["candidates"][0]["reference_price_status"] == "PLAYABLE"
+    assert any(
+        row["source"] == "tennis_shadow"
+        for row in document["model_candidates"]
+    )
+    assert document["sources"]["tennis"]["published_recommendation_count"] == 0
+
+
+def test_normal_missing_market_coverage_is_not_an_operational_failure(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    tennis = ModelSignal(
+        key="tennis-coverage-A",
+        label="Tennis - Alice vs Bea - Sieg Alice",
+        probability=0.66,
+        probability_haircut=0.08,
+        evidence_stage="SHADOW",
+        policy_version="tennis-test",
+        detail="Persistiertes Tennis-Modell",
+        scheduled_start="2030-01-01T16:00:00+00:00",
+        sport="Tennis",
+        event_label="Alice vs Bea",
+        market="Match Winner",
+        selection="Sieg Alice",
+        competitor_a="Alice",
+        competitor_b="Bea",
+        selected_competitor="Alice",
+    )
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test", odds_api_key="odds-test"),
+        football_scanner=lambda _search_date: _football_snapshot(now),
+        football_quote_loader=lambda _rows: ({}, []),
+        tennis_quote_loader=lambda _rows: (
+            {},
+            ["The Odds API meldet keine aktive Tennis-Konkurrenz"],
+        ),
+        tennis_loader=lambda **_kwargs: [tennis],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    assert document["run_status"] == "completed"
+    assert document["operational_error_count"] == 0
+    assert document["sources"]["tennis"]["reference_quote_count"] == 0
+
+
+def test_main_returns_nonzero_for_persisted_operational_failure(
+    monkeypatch,
+    capsys,
+):
+    document = {
+        "run_status": "degraded",
+        "operational_error_count": 1,
+        "generated_at": "2030-01-01T10:00:00+00:00",
+        "candidates": [],
+        "model_candidates": [],
+        "bookmaker_data_used": False,
+        "sources": {
+            "football": {
+                "status": "degraded",
+                "due_reason": "retry_degraded_scan",
+                "context_status": "degraded",
+                "discovery_scope": 51,
+            }
+        },
+    }
+    monkeypatch.setattr(
+        wettfinder_automation,
+        "run_wettfinder",
+        lambda **_kwargs: document,
+    )
+
+    assert wettfinder_automation.main(["--state-path", "ignored.json"]) == 1
+    assert '"status": "degraded"' in capsys.readouterr().out
 
 
 def test_tennis_consensus_requires_exact_event_and_real_bookmaker_points():
@@ -1902,9 +2281,15 @@ def test_runner_can_release_team_under_one_five_at_a_good_price(tmp_path):
                 fetched_at=now.isoformat(),
                 source=REFERENCE_SOURCE,
                 points=tuple(
-                    QuotePoint(f"Book {index}", price)
+                    QuotePoint(
+                        f"Book {index}",
+                        price,
+                        bookmaker_id=f"api-football:{index}",
+                        observed_at=now.isoformat(),
+                    )
                     for index, price in enumerate(prices, start=1)
                 ),
+                scheduled_start=team_under_row["scheduled_start"],
             )
         }, []
 
@@ -1952,10 +2337,14 @@ def test_runner_reprices_same_day_football_after_context_ttl_without_release(
         payload = {
             "response": [
                 {
-                    "fixture": {"id": 1},
+                    "fixture": {
+                        "id": 1,
+                        "date": rows[0]["scheduled_start"],
+                    },
                     "update": observed_at.isoformat(),
                     "bookmakers": [
                         {
+                            "id": index,
                             "name": f"Book {index}",
                             "bets": [
                                 {
@@ -2023,10 +2412,14 @@ def test_playable_price_cannot_release_incomplete_candidate_context(tmp_path):
         payload = {
             "response": [
                 {
-                    "fixture": {"id": 1},
+                    "fixture": {
+                        "id": 1,
+                        "date": rows[0]["scheduled_start"],
+                    },
                     "update": now.isoformat(),
                     "bookmakers": [
                         {
+                            "id": index,
                             "name": f"Book {index}",
                             "bets": [
                                 {

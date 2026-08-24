@@ -14,6 +14,7 @@ Modell unabhängige ROI- und CLV-Evidenz.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -25,7 +26,7 @@ from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
 from market_consensus import (
     MarketConsensus,
     quote_matches_candidate,
-    reference_price_status,
+    wettfinder_reference_price_status,
 )
 from scan_jobs import JOBS_DIR, load_persisted
 from tennis.predict import WINNER_PROBABILITY_HAIRCUT
@@ -39,14 +40,15 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 13
-AUTOMATED_SELECTION_POLICY_VERSION = "useful-selection-catalog-v11"
+AUTOMATED_WETTFINDER_VERSION = 14
+AUTOMATED_SELECTION_POLICY_VERSION = "useful-selection-catalog-v12"
 MAX_AUTOMATED_FOOTBALL_CANDIDATES = 15
 MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT = 3
 MAX_AUTOMATED_MODEL_CANDIDATES = 21
 MAX_AUTOMATED_RECOMMENDATIONS = 3
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
-AUTOMATED_TOMORROW_SCAN_HOUR = 23
+AUTOMATED_VALIDATION_MARKET_HYPOTHESES = 90
+AUTOMATED_VALIDATION_FDR_ALPHA = 0.05
 
 # Maximales Signal-Alter je Fußball-Quelle: Prematch-Spiele liegen in der
 # Zukunft (24 h tragbar); Live- und Platzverweis-Märkte sind nach Spielende
@@ -82,6 +84,7 @@ class ModelSignal:
     competitor_b: Optional[str] = None
     selected_competitor: Optional[str] = None
     competition: Optional[str] = None
+    statistical_release_passed: Optional[bool] = None
 
     def __post_init__(self) -> None:
         if not _valid_probability(self.probability):
@@ -121,6 +124,11 @@ class ModelSignal:
             bool,
         ):
             raise ValueError("Model signal context completeness is invalid")
+        if (
+            self.statistical_release_passed is not None
+            and not isinstance(self.statistical_release_passed, bool)
+        ):
+            raise ValueError("Model signal statistical release state is invalid")
         for value in (
             self.competitor_a,
             self.competitor_b,
@@ -164,6 +172,7 @@ class AutomatedWettfinderStatus:
     price_checked_count: int
     reference_quote_count: int
     price_status_counts: tuple[tuple[str, int], ...]
+    football_operational_error_count: int = 0
 
 
 def _valid_probability(value: object) -> bool:
@@ -673,6 +682,50 @@ _AUTOMATED_PRICE_STATUS_CODES = frozenset(
     }
 )
 
+_REFERENCE_EXECUTION_FIELDS = (
+    "reference_quote_source",
+    "reference_quote_executable_odds",
+    "reference_quote_bookmaker",
+    "reference_quote_bookmaker_id",
+    "reference_quote_observed_at",
+)
+
+
+def _reference_execution_matches_row(
+    row: dict,
+    quote: MarketConsensus,
+    status,
+) -> bool:
+    """Bind persisted execution provenance to the real usable offer."""
+
+    if status.code != "PLAYABLE":
+        return not any(field in row for field in _REFERENCE_EXECUTION_FIELDS)
+    odds = row.get("reference_quote_executable_odds")
+    if (
+        status.usable_odds is None
+        or isinstance(odds, bool)
+        or not isinstance(odds, (int, float))
+        or not math.isfinite(float(odds))
+        or not math.isclose(
+            float(odds),
+            status.usable_odds,
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        )
+        or row.get("reference_quote_source") != quote.source
+        or row.get("reference_quote_bookmaker") != status.bookmaker
+        or row.get("reference_quote_bookmaker_id") != status.bookmaker_id
+    ):
+        return False
+    recorded_at = _parse_iso(row.get("reference_quote_observed_at"))
+    expected_at = _parse_iso(status.observed_at)
+    return (
+        recorded_at is not None
+        and expected_at is not None
+        and recorded_at.astimezone(timezone.utc)
+        == expected_at.astimezone(timezone.utc)
+    )
+
 
 def _price_status_counts(value: object) -> tuple[tuple[str, int], ...]:
     if not isinstance(value, dict):
@@ -709,6 +762,18 @@ def _load_automated_wettfinder_document(
         != AUTOMATED_SELECTION_POLICY_VERSION
         or not isinstance(document.get("bookmaker_data_used"), bool)
         or document.get("quote_required") is not True
+        or document.get("run_status") not in {"completed", "degraded"}
+        or isinstance(document.get("operational_error_count"), bool)
+        or not isinstance(document.get("operational_error_count"), int)
+        or document.get("operational_error_count") < 0
+        or (
+            document.get("run_status") == "completed"
+            and document.get("operational_error_count") != 0
+        )
+        or (
+            document.get("run_status") == "degraded"
+            and document.get("operational_error_count") < 1
+        )
     ):
         return None
     generated = _parse_iso(document.get("generated_at"))
@@ -724,6 +789,31 @@ def _load_automated_wettfinder_document(
         or len(candidates) > MAX_AUTOMATED_RECOMMENDATIONS
     ):
         return None
+    sources = document.get("sources")
+    if not isinstance(sources, dict):
+        return None
+    source_for_row = {
+        "football_challenge": "football",
+        "tennis_shadow": "tennis",
+        "esports_shadow": "esports",
+    }
+    for row in candidates:
+        if not isinstance(row, dict):
+            return None
+        source_name = source_for_row.get(str(row.get("source") or ""))
+        source_status = sources.get(source_name) if source_name else None
+        operational_errors = (
+            source_status.get("operational_error_count")
+            if isinstance(source_status, dict)
+            else None
+        )
+        if (
+            source_name is None
+            or isinstance(operational_errors, bool)
+            or not isinstance(operational_errors, int)
+            or operational_errors != 0
+        ):
+            return None
     model_candidates = document.get("model_candidates")
     if (
         not isinstance(model_candidates, list)
@@ -790,9 +880,7 @@ def _load_automated_wettfinder_document(
     except (TypeError, ValueError):
         return None
     local = current.astimezone(ZURICH_TZ)
-    expected_target = local.date() + timedelta(
-        days=local.hour >= AUTOMATED_TOMORROW_SCAN_HOUR
-    )
+    expected_target = local.date()
     if target != expected_target:
         return None
     # Price evidence may reject every model candidate. A published candidate
@@ -809,14 +897,16 @@ def _load_automated_wettfinder_document(
         ):
             return None
         quote = MarketConsensus.from_dict(row.get("reference_quote"))
+        status = wettfinder_reference_price_status(
+            quote,
+            row.get("minimum_odds"),
+            candidate=row,
+            now=generated,
+        )
         if (
             not quote_matches_candidate(quote, row)
-            or reference_price_status(
-                quote,
-                row.get("minimum_odds"),
-                now=generated,
-            ).code
-            != "PLAYABLE"
+            or status.code != "PLAYABLE"
+            or not _reference_execution_matches_row(row, quote, status)
         ):
             return None
     for row in model_candidates:
@@ -857,14 +947,21 @@ def _load_automated_wettfinder_document(
             quote = MarketConsensus.from_dict(quote_payload)
             if not quote_matches_candidate(quote, row):
                 return None
-            expected_status = reference_price_status(
+            status = wettfinder_reference_price_status(
                 quote,
                 supplied_minimum,
+                candidate=row,
                 now=generated,
-            ).code
-            if row.get("reference_price_status") != expected_status:
+            )
+            if (
+                row.get("reference_price_status") != status.code
+                or not _reference_execution_matches_row(row, quote, status)
+            ):
                 return None
-        elif row.get("reference_price_status") != "UNAVAILABLE":
+        elif (
+            row.get("reference_price_status") != "UNAVAILABLE"
+            or any(field in row for field in _REFERENCE_EXECUTION_FIELDS)
+        ):
             return None
     return document, generated, candidates
 
@@ -943,7 +1040,7 @@ def automated_wettfinder_status(
         context_scope_complete=context_scope_complete,
         context_accounting_available=context_accounting_available,
         operational_error_count=_non_negative_int(
-            football.get("operational_error_count")
+            document.get("operational_error_count")
         ),
         approved_candidates=_non_negative_int(
             football.get("approved_candidates")
@@ -959,6 +1056,9 @@ def automated_wettfinder_status(
         ),
         price_status_counts=_price_status_counts(
             football_source.get("price_status_counts")
+        ),
+        football_operational_error_count=_non_negative_int(
+            football_source.get("operational_error_count")
         ),
     )
 
@@ -976,13 +1076,40 @@ def _model_row_context_complete(row: dict) -> Optional[bool]:
 
 def _football_recommendation_release_eligible(row: dict) -> bool:
     context = row.get("context")
+    evidence_values = tuple(
+        row.get(field)
+        for field in (
+            "paired_loss_mean",
+            "paired_loss_hac_standard_error",
+            "paired_loss_lower_confidence_bound",
+            "paired_loss_p_value",
+            "fdr_q_value",
+        )
+    )
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        for value in evidence_values
+    ):
+        return False
+    mean_advantage, standard_error, lower_bound, p_value, q_value = (
+        float(value) for value in evidence_values
+    )
     return (
         isinstance(context, dict)
         and context.get("release_context_complete") is True
         and context.get("release_eligible") is True
         and row.get("model_scope") == "same_competition"
         and row.get("context_stale") is False
-        and row.get("is_basic_forecast") is False
+        and row.get("statistical_release_passed") is True
+        and row.get("tested_hypotheses")
+        == AUTOMATED_VALIDATION_MARKET_HYPOTHESES
+        and -1.0 <= mean_advantage <= 1.0
+        and 0.0 <= standard_error <= 1.0
+        and 0.0 < lower_bound <= mean_advantage + 1e-9
+        and 0.0 <= p_value <= q_value + 1e-9
+        and q_value <= AUTOMATED_VALIDATION_FDR_ALPHA
     )
 
 
@@ -1093,6 +1220,14 @@ def automated_wettfinder_forecasts(
                         else None
                     ),
                     context_complete=_model_row_context_complete(row),
+                    statistical_release_passed=(
+                        row.get("statistical_release_passed")
+                        if isinstance(
+                            row.get("statistical_release_passed"),
+                            bool,
+                        )
+                        else None
+                    ),
                 )
             )
         except ValueError:
@@ -1207,11 +1342,20 @@ def automated_wettfinder_signals(
         reference_quote = MarketConsensus.from_dict(row.get("reference_quote"))
         if not quote_matches_candidate(reference_quote, row):
             continue
-        if reference_price_status(
+        status = wettfinder_reference_price_status(
             reference_quote,
             float(supplied_minimum),
+            candidate=row,
             now=current,
-        ).code != "PLAYABLE":
+        )
+        if (
+            status.code != "PLAYABLE"
+            or not _reference_execution_matches_row(
+                row,
+                reference_quote,
+                status,
+            )
+        ):
             continue
         stage = str(row.get("evidence_stage") or "").upper()
         policy = str(row.get("policy_version") or "").strip()
@@ -1250,6 +1394,9 @@ def automated_wettfinder_signals(
                         else None
                     ),
                     context_complete=_model_row_context_complete(row),
+                    statistical_release_passed=(
+                        True if row_is_football else None
+                    ),
                 )
             )
         except ValueError:

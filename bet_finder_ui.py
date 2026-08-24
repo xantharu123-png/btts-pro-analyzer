@@ -13,7 +13,11 @@ from account_identity import storage_scope
 from betting_math import EXTREME_SHORT_ODDS_CUTOFF
 from market_consensus import (
     MarketConsensus,
-    reference_price_status,
+    ODDS_API_REFERENCE_SOURCE,
+    REFERENCE_SOURCE,
+    ReferencePriceStatus,
+    wettfinder_consensus,
+    wettfinder_reference_price_status,
 )
 from multi_sport_recommendations import (
     PriceDecision,
@@ -56,13 +60,11 @@ def _consumer_token(value: object) -> str:
 
 
 def _consumer_market_utility_tier(row: object) -> int:
-    """Return a small, price-independent presentation tier.
+    """Rank main-card usefulness without changing market eligibility.
 
-    Combined result/goal decisions are more informative than a repeated broad
-    safety line. Team under 1.5 remains an ordinary market here: its concrete
-    price, not its market name, decides whether it is economically useful.
-    This is deliberately presentation-only: no tier changes a model
-    probability, price decision, ticket, or eligibility gate.
+    Informative combined decisions should not be crowded out by repeated broad
+    safety lines. Team under 1.5 remains an ordinary candidate: this tier only
+    affects presentation and never deletes, blocks or reprices a forecast.
     """
 
     market_key = _consumer_token(getattr(row, "market_key", None))
@@ -99,7 +101,7 @@ def _consumer_market_utility_tier(row: object) -> int:
 
 
 def _consumer_market_is_basis(row: object) -> bool:
-    """Mirror broad consumer basis markets without importing the model layer."""
+    """Identify broad safety lines for secondary presentation only."""
 
     market_key = _consumer_token(getattr(row, "market_key", None))
     market = _consumer_token(getattr(row, "market", None))
@@ -137,10 +139,7 @@ def _consumer_market_is_basis(row: object) -> bool:
         or "teamtore" in market
         or "team_total" in market
     )
-    return is_team_total and selection in {
-        "uber_0_5",
-        "unter_2_5",
-    }
+    return is_team_total and selection in {"uber_0_5", "unter_2_5"}
 
 
 def _consumer_context_complete(row: object) -> bool:
@@ -228,18 +227,47 @@ def _consumer_market_identity(row: object) -> str:
     return f"row:{_consumer_token(row_identity)}"
 
 
+def consumer_fixture_label(row: object) -> str:
+    """Return a compact public event label for grouped secondary markets."""
+
+    for attribute in ("event_label", "event"):
+        value = str(getattr(row, attribute, None) or "").strip()
+        if value:
+            return value[:160]
+    home = str(getattr(row, "home_team", None) or "").strip()
+    away = str(getattr(row, "away_team", None) or "").strip()
+    if home and away:
+        return f"{home} vs {away}"[:160]
+    competitor_a = str(getattr(row, "competitor_a", None) or "").strip()
+    competitor_b = str(getattr(row, "competitor_b", None) or "").strip()
+    if competitor_a and competitor_b:
+        return f"{competitor_a} vs {competitor_b}"[:160]
+    return "diesem Spiel"
+
+
+def group_consumer_markets_by_fixture(
+    rows: Iterable[_ForecastRow],
+) -> list[tuple[str, list[_ForecastRow]]]:
+    """Group secondary forecasts by fixture while preserving model order."""
+
+    grouped: dict[str, tuple[str, list[_ForecastRow]]] = {}
+    for row in rows:
+        identity = _consumer_fixture_identity(row)
+        if identity not in grouped:
+            grouped[identity] = (consumer_fixture_label(row), [])
+        grouped[identity][1].append(row)
+    return list(grouped.values())
+
+
 def partition_consumer_featured_forecasts(
     rows: Iterable[_ForecastRow],
     *,
     max_featured: int = 3,
 ) -> tuple[list[_ForecastRow], list[_ForecastRow]]:
-    """Choose diverse main cards and keep every other forecast secondary.
+    """Choose useful, diverse main cards and keep every row visible.
 
-    Ordering is stable inside each utility/context tier.  A fully checked row
-    is preferred to an incomplete row of comparable usefulness.  At most one
-    row per fixture and repeated market decision occupies a main-card slot.
-    Broad basis markets never occupy such a slot; every row remains in the
-    returned primary or secondary catalog.
+    Market family and context completeness are presentation signals only. They
+    never alter model probability, price evaluation or release eligibility.
     """
 
     if (
@@ -285,6 +313,9 @@ def partition_consumer_forecasts(
     *,
     quote_for: Callable[[_ForecastRow], Optional[MarketConsensus | dict]],
     now=None,
+    price_status_for: Callable[..., ReferencePriceStatus] = (
+        wettfinder_reference_price_status
+    ),
 ) -> tuple[list[_ForecastRow], list[_ForecastRow]]:
     """Keep every forecast, but relegate confirmed extreme-short prices.
 
@@ -305,7 +336,11 @@ def partition_consumer_forecasts(
         minimum_odds = getattr(row, "minimum_odds", None)
         is_extreme_short = False
         if quote is not None and minimum_odds is not None:
-            status = reference_price_status(quote, minimum_odds, now=now)
+            status = price_status_for(
+                quote,
+                minimum_odds,
+                now=now,
+            )
             is_extreme_short = (
                 status.code == "TOO_LOW"
                 and quote.best_odds < EXTREME_SHORT_ODDS_CUTOFF
@@ -357,33 +392,66 @@ def _render_stake_recommendation(decision: PriceDecision) -> None:
     )
 
 
+def _enforce_pending_release(decision: PriceDecision) -> PriceDecision:
+    """A passed price cannot bypass the separate statistical release gate."""
+
+    if not decision.candidate.release_pending or not decision.price_passed:
+        return decision
+    return PriceDecision(
+        status="SHADOW",
+        candidate=decision.candidate,
+        quoted_odds=decision.quoted_odds,
+        metrics=decision.metrics,
+        stake_fraction=0.0,
+        stake_amount=0.0,
+        reasons=decision.reasons + (
+            "Statistische Evidenzprüfung noch nicht abgeschlossen.",
+        ),
+    )
+
+
 def _render_reference_price(
     candidate: RecommendationCandidate,
     quote: Optional[MarketConsensus],
     *,
     bankroll: float,
-) -> Optional[PriceDecision]:
-    status = reference_price_status(quote, candidate.minimum_odds)
+    reference_binding_candidate: object = None,
+) -> tuple[Optional[PriceDecision], ReferencePriceStatus]:
+    status = wettfinder_reference_price_status(
+        quote,
+        candidate.minimum_odds,
+        candidate=reference_binding_candidate,
+    )
+    quote = wettfinder_consensus(quote) or quote
     decision = None
     if quote is not None and status.usable_odds is not None:
-        decision = evaluate_candidate_price(
-            candidate,
-            status.usable_odds,
-            bankroll=bankroll,
-            quote_confirmed=True,
+        decision = _enforce_pending_release(
+            evaluate_candidate_price(
+                candidate,
+                status.usable_odds,
+                bankroll=bankroll,
+                quote_confirmed=True,
+            )
         )
 
     if status.code == "PLAYABLE" and quote is not None:
-        if decision is not None and decision.status == "BET":
+        if candidate.release_pending:
+            st.info(
+                "Modell noch in statistischer Evidenzprüfung – Prognose "
+                "sichtbar, kein Einsatz."
+            )
+        elif decision is not None and decision.status == "BET":
             st.success(
                 f"SPIELBARER TIPP: {candidate.selection} | aktuelle "
-                f"Vergleichsquote {quote.conservative_odds:.2f} | spielbar ab "
+                f"Quote {status.usable_odds:.2f} bei {status.bookmaker} | "
+                "spielbar ab "
                 f"{candidate.minimum_odds:.2f}"
             )
         else:
             st.info(
                 f"PASSENDE QUOTE: {candidate.selection} | die aktuelle "
-                f"Vergleichsquote {quote.conservative_odds:.2f} erreicht die "
+                f"Quote {status.usable_odds:.2f} bei {status.bookmaker} "
+                "erreicht die "
                 f"Value-Grenze von {candidate.minimum_odds:.2f}. Das Modell "
                 "sammelt noch Praxisergebnisse; daher kein Einsatzvorschlag."
             )
@@ -405,7 +473,7 @@ def _render_reference_price(
         reason = {
             "THIN": "Es liegen noch zu wenige Vergleichsquoten vor.",
             "STALE": "Die Vergleichsquote ist nicht mehr aktuell.",
-            "UNAVAILABLE": "Aktuell liegt keine exakt passende Vergleichsquote vor.",
+            "UNAVAILABLE": status.label + ".",
             "INVALID_MINIMUM": "Die Value-Grenze konnte nicht sicher berechnet werden.",
         }.get(status.code, "Der Wettpreis kann noch nicht sicher bewertet werden.")
         st.info(
@@ -416,7 +484,26 @@ def _render_reference_price(
 
     if decision is not None and decision.status == "BET":
         _render_stake_recommendation(decision)
-    return decision
+    return decision, status
+
+
+def _reference_execution_source(
+    base_source: str,
+    quote: MarketConsensus,
+    status: ReferencePriceStatus,
+) -> str:
+    """Persist the concrete offer provenance without changing TipStore."""
+
+    provider = {
+        REFERENCE_SOURCE: "API-Football",
+        ODDS_API_REFERENCE_SOURCE: "The Odds API",
+    }.get(quote.source, quote.source[:12])
+    return (
+        f"{base_source[:18]} / {provider} / "
+        f"{str(status.bookmaker or '')[:16]} "
+        f"[{str(status.bookmaker_id or '')[:24]}] / "
+        f"{str(status.observed_at or '')[:32]}"
+    )
 
 
 def _render_manual_check(
@@ -486,6 +573,8 @@ def _render_manual_check(
             if not isinstance(decision, PriceDecision):
                 return None
 
+        decision = _enforce_pending_release(decision)
+
         if decision.status == "PRICE_REQUIRED":
             st.info(
                 f"Quote und exakte Auswahl bestätigen. Value-Grenze "
@@ -497,11 +586,17 @@ def _render_manual_check(
                 f"{decision.quoted_odds:.2f}"
             )
         elif decision.status in {"SHADOW", "RESEARCH"}:
-            st.info(
-                f"PREIS PASST: {candidate.selection} @ "
-                f"{decision.quoted_odds:.2f}. Diese Auswahl wird noch "
-                "geprüft; deshalb gibt es keinen Einsatzvorschlag."
-            )
+            if candidate.release_pending:
+                st.info(
+                    "Modell noch in statistischer Evidenzprüfung – Prognose "
+                    "sichtbar, kein Einsatz."
+                )
+            else:
+                st.info(
+                    f"PREIS PASST: {candidate.selection} @ "
+                    f"{decision.quoted_odds:.2f}. Diese Auswahl wird noch "
+                    "geprüft; deshalb gibt es keinen Einsatzvorschlag."
+                )
         else:
             st.info(
                 f"MODELL-AUSWAHL BLEIBT: {candidate.selection}. Die angebotene "
@@ -523,6 +618,7 @@ def render_price_decision(
     save_source: Optional[str] = None,
     live_price: bool = False,
     reference_quote: Optional[MarketConsensus | dict] = None,
+    reference_binding_candidate: object = None,
     allow_manual_check: bool = False,
 ) -> Optional[PriceDecision]:
     """Render one model selection while keeping forecast and price separate."""
@@ -569,10 +665,11 @@ def render_price_decision(
         else MarketConsensus.from_dict(reference_quote)
     )
     bankroll = float(st.session_state.get(bankroll_key, 100.0) or 100.0)
-    automatic_decision = _render_reference_price(
+    automatic_decision, automatic_status = _render_reference_price(
         candidate,
         quote,
         bankroll=bankroll,
+        reference_binding_candidate=reference_binding_candidate,
     )
 
     if (
@@ -587,7 +684,11 @@ def render_price_decision(
         ):
             message = _save_tip(
                 automatic_decision,
-                source=f"{save_source} / {quote.source}",
+                source=_reference_execution_source(
+                    save_source,
+                    quote,
+                    automatic_status,
+                ),
             )
             if message:
                 st.toast(message)
@@ -605,4 +706,11 @@ def render_price_decision(
     return manual_decision or automatic_decision
 
 
-__all__ = ["render_price_decision"]
+__all__ = [
+    "consumer_fixture_label",
+    "group_consumer_markets_by_fixture",
+    "merge_consumer_forecast_catalog",
+    "partition_consumer_featured_forecasts",
+    "partition_consumer_forecasts",
+    "render_price_decision",
+]

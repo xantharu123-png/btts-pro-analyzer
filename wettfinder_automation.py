@@ -34,13 +34,16 @@ from challenge_15k import (
 )
 from challenge_engine import (
     MARKET_BY_KEY,
+    MARKET_SPECS,
     MODEL_SCOPE_SAME_COMPETITION,
+    VALIDATION_FDR_ALPHA,
     ChallengeCandidate,
     ValidationMetrics,
     candidate_context_summary,
     candidate_is_forecast_credible,
     candidate_selection_rank,
     market_is_basic_forecast,
+    select_wettfinder_catalog,
 )
 from config_loader import AppConfig, load_app_config
 from ev_signal_sources import (
@@ -62,7 +65,8 @@ from market_consensus import (
     fetch_football_consensus,
     fetch_tennis_h2h_consensus,
     quote_matches_candidate,
-    reference_price_status,
+    wettfinder_consensus,
+    wettfinder_reference_price_status,
 )
 
 
@@ -80,8 +84,10 @@ MAX_AUTOMATIC_RECOMMENDATIONS = MAX_AUTOMATED_RECOMMENDATIONS
 MAX_AUTOMATIC_PRICE_FIXTURES = 10
 MAX_AUTOMATIC_MARKETS_PER_FIXTURE = 8
 MAX_AUTOMATIC_BASIC_FORECASTS = 10
-TOMORROW_SCAN_HOUR = 23
-ERROR_RETRY = timedelta(hours=2)
+# The persisted artifact represents the currently active Zurich match day.
+# Switching to tomorrow before midnight used to discard still-upcoming late
+# fixtures.  A new local day is picked up naturally after midnight.
+ERROR_RETRY = timedelta(minutes=25)
 FOOTBALL_CONTEXT_WINDOW = timedelta(hours=2)
 FOOTBALL_CONTEXT_MIN_GAP = timedelta(minutes=25)
 FOOTBALL_CONTEXT_MAX_AGE = timedelta(minutes=75)
@@ -156,9 +162,9 @@ def _signal_event_identity(
 
 
 def target_search_date(now: Optional[datetime] = None) -> date:
-    """Use today's events until 23:00 Zurich, then prepare tomorrow."""
+    """Return the active Zurich match day without dropping late fixtures."""
     local = _utc(now).astimezone(ZURICH_TZ)
-    return local.date() + timedelta(days=local.hour >= TOMORROW_SCAN_HOUR)
+    return local.date()
 
 
 def football_due(
@@ -287,8 +293,10 @@ def _football_candidate_record(
     if not candidate_is_forecast_credible(candidate):
         return None
     is_basic_forecast = market_is_basic_forecast(candidate.market_key)
-    if is_basic_forecast and not allow_basic:
-        return None
+    # ``allow_basic`` remains in the call contract for older persisted
+    # snapshots. The normal Wettfinder never excludes a credible forecast by
+    # market name; usefulness is decided later by ranking and presentation.
+    del allow_basic
     probability = _finite_probability(_value(candidate, "probability"))
     conservative = _finite_probability(
         _value(candidate, "conservative_probability")
@@ -314,7 +322,7 @@ def _football_candidate_record(
     league = str(_value(candidate, "league_name") or "Liga").strip()
     evidence_score = _value(candidate, "evidence_score")
     spread = _value(candidate, "model_spread_pp")
-    detail_parts = [f"15K-Fussballmodell", league]
+    detail_parts = ["Fußball-Marktmodell", league]
     if isinstance(evidence_score, (int, float)) and math.isfinite(
         float(evidence_score)
     ):
@@ -325,16 +333,19 @@ def _football_candidate_record(
     if model_scope == "cross_competition_provisional_forecast":
         detail_parts.append("UEFA-Heimatliga-Modell in Transfer-Prüfphase")
     market_spec = MARKET_BY_KEY.get(str(_value(candidate, "market_key") or ""))
+    validation = candidate.validation
     return {
         "key": f"wettfinder-football-{candidate_id}",
         "candidate_id": candidate_id,
         "fixture_id": _value(candidate, "fixture_id"),
         "league_id": _value(candidate, "league_id"),
+        "home_team": home,
+        "away_team": away,
         "market_key": _value(candidate, "market_key"),
-        "sport": "Fussball",
+        "sport": "Fußball",
         "event": event,
         "event_identity": f"football:{_value(candidate, 'fixture_id')}",
-        "label": f"Fussball - {event} - {market}: {selection}",
+        "label": f"Fußball - {event} - {market}: {selection}",
         "market": market,
         "selection": selection,
         "probability": probability,
@@ -351,6 +362,19 @@ def _football_candidate_record(
         "market_kind": market_spec.kind if market_spec is not None else "other",
         "is_basic_forecast": is_basic_forecast,
         "selection_rank": list(candidate_selection_rank(candidate)),
+        "statistical_release_passed": (
+            validation.statistical_release_passed is True
+        ),
+        "paired_loss_mean": validation.paired_loss_mean,
+        "paired_loss_hac_standard_error": (
+            validation.paired_loss_hac_standard_error
+        ),
+        "paired_loss_lower_confidence_bound": (
+            validation.paired_loss_lower_confidence_bound
+        ),
+        "paired_loss_p_value": validation.paired_loss_p_value,
+        "fdr_q_value": validation.fdr_q_value,
+        "tested_hypotheses": validation.tested_hypotheses,
         "context_summary": candidate_context_summary(candidate),
         "context": dict(candidate.context),
         "context_checked_at": (
@@ -375,6 +399,62 @@ def _first_present_candidate_list(
         value = payload.get(field_name)
         return list(value) if isinstance(value, (list, tuple)) else []
     return []
+
+
+def _merged_candidate_lists(
+    payload: object,
+    *field_names: str,
+) -> list:
+    """Merge compatible candidate pools without losing later alternatives.
+
+    The engine exposes a compact forecast shortlist as well as a richer price
+    pool.  Persisting only the first field made other credible markets from
+    the same fixture disappear before the quote provider could inspect them.
+    """
+
+    if not isinstance(payload, dict):
+        return []
+    merged: list = []
+    seen: set[str] = set()
+    for field_name in field_names:
+        values = payload.get(field_name)
+        if not isinstance(values, (list, tuple)):
+            continue
+        for candidate in values:
+            identity = str(
+                _value(candidate, "candidate_id")
+                or _value(candidate, "key")
+                or ""
+            ).strip()
+            if not identity or identity in seen:
+                continue
+            seen.add(identity)
+            merged.append(candidate)
+    return merged
+
+
+def _wettfinder_candidates_from_snapshot(payload: object) -> list[ChallengeCandidate]:
+    """Recover the richest normal-Wettfinder pool from scan schemas."""
+
+    raw_candidates = _merged_candidate_lists(
+        payload,
+        "wettfinder_candidates",
+        "candidates",
+        "forecast_shortlist",
+        "model_shortlist",
+        "basis_forecasts",
+        "price_candidates",
+        "shortlist",
+        "base_shortlist",
+    )
+    return select_wettfinder_catalog(
+        (
+            candidate
+            for candidate in raw_candidates
+            if isinstance(candidate, ChallengeCandidate)
+        ),
+        max_candidates=None,
+    )
 
 
 def _football_record_selection_rank(row: object) -> Optional[tuple[float, ...]]:
@@ -423,41 +503,24 @@ def _select_football_record_catalog(
     ranked = [row for _rank, row in ranked_rows]
     selected: list[dict[str, Any]] = []
     selected_keys: set[str] = set()
-    selected_events: set[str] = set()
-    kind_counts: dict[str, int] = {}
+    fixture_counts: dict[str, int] = {}
 
-    def add(row: dict[str, Any], *, enforce_kind_cap: bool = True) -> bool:
+    def add(row: dict[str, Any]) -> bool:
         key = str(row.get("key") or "").strip()
         event = str(row.get("event_identity") or key).strip()
-        kind = str(row.get("market_kind") or "other").strip() or "other"
-        if not key or key in selected_keys or not event or event in selected_events:
+        if not key or key in selected_keys or not event:
             return False
-        if enforce_kind_cap and kind_counts.get(kind, 0) >= 3:
+        if fixture_counts.get(event, 0) >= MAX_AUTOMATIC_MARKETS_PER_FIXTURE:
             return False
         selected.append(row)
         selected_keys.add(key)
-        selected_events.add(event)
-        kind_counts[kind] = kind_counts.get(kind, 0) + 1
+        fixture_counts[event] = fixture_counts.get(event, 0) + 1
         return True
 
-    featured_kinds: set[str] = set()
     for row in ranked:
-        kind = str(row.get("market_kind") or "other").strip() or "other"
-        if kind in featured_kinds:
-            continue
-        if add(row):
-            featured_kinds.add(kind)
-        if len(selected) >= min(3, limit):
-            break
-    for enforce_kind_cap in (True, False):
+        add(row)
         if len(selected) >= limit:
             break
-        for row in ranked:
-            if str(row.get("key") or "").strip() in selected_keys:
-                continue
-            add(row, enforce_kind_cap=enforce_kind_cap)
-            if len(selected) >= limit:
-                break
     return selected
 
 
@@ -622,6 +685,55 @@ def select_candidates(
     return selected
 
 
+def select_catalog_candidates(
+    candidates: Iterable[dict[str, Any]],
+    *,
+    now: Optional[datetime] = None,
+    target_date: Optional[date] = None,
+    limit: int = MAX_AUTOMATIC_CANDIDATES,
+    preserve_order: bool = False,
+) -> list[dict[str, Any]]:
+    """Keep distinct credible markets; fixture deduplication is UI-only.
+
+    Variants that describe the exact same market and selection are collapsed,
+    while a second genuinely different market from one fixture remains in the
+    forecast catalog for price checking and the secondary UI section.
+    """
+
+    valid = _ranked_candidates(
+        candidates,
+        now=now,
+        target_date=target_date,
+        preserve_order=preserve_order,
+    )
+    selected: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    seen_markets: set[tuple[str, str, str]] = set()
+    fixture_counts: dict[str, int] = {}
+    for row in valid:
+        key = str(row.get("key") or "").strip()
+        event = str(row.get("event_identity") or key).strip()
+        market = str(row.get("market_key") or row.get("market") or "").strip()
+        selection = str(row.get("selection") or "").strip().casefold()
+        market_identity = (event, market.casefold(), selection)
+        if (
+            not key
+            or not event
+            or key in seen_keys
+            or market_identity in seen_markets
+            or fixture_counts.get(event, 0)
+            >= MAX_AUTOMATIC_MARKETS_PER_FIXTURE
+        ):
+            continue
+        seen_keys.add(key)
+        seen_markets.add(market_identity)
+        fixture_counts[event] = fixture_counts.get(event, 0) + 1
+        selected.append(row)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
 def build_model_selection_ledger(
     strict_rows: Iterable[dict[str, Any]],
     forecast_rows: Iterable[dict[str, Any]],
@@ -643,40 +755,14 @@ def build_model_selection_ledger(
     ]
     ledger = [
         dict(row)
-        for row in select_candidates(
-            (
-                row
-                for row in forecast_list
-                if row.get("is_basic_forecast") is not True
-            ),
+        for row in select_catalog_candidates(
+            forecast_list,
             now=now,
             target_date=target_date,
             limit=limit,
             preserve_order=True,
         )
     ]
-    seen_keys = {
-        str(row.get("key") or "").strip()
-        for row in ledger
-        if str(row.get("key") or "").strip()
-    }
-    for row in _ranked_candidates(
-        (
-            row
-            for row in forecast_list
-            if row.get("is_basic_forecast") is True
-        ),
-        now=now,
-        target_date=target_date,
-        preserve_order=True,
-    ):
-        key = str(row.get("key") or "").strip()
-        if not key or key in seen_keys:
-            continue
-        ledger.append(dict(row))
-        seen_keys.add(key)
-        if len(ledger) >= limit:
-            break
     for row in ledger:
         row["status"] = "MODEL_SELECTION"
     return ledger
@@ -692,7 +778,7 @@ def build_daily_forecast_catalog(
 ) -> list[dict[str, Any]]:
     """Reserve catalog space for football and each validated other sport."""
 
-    football_catalog = select_candidates(
+    football_catalog = select_catalog_candidates(
         football_rows,
         now=now,
         target_date=target_date,
@@ -736,7 +822,7 @@ def build_daily_forecast_catalog(
     other_catalog: list[dict[str, Any]] = []
     for rows in grouped_other.values():
         other_catalog.extend(
-            select_candidates(
+            select_catalog_candidates(
                 rows,
                 now=now,
                 target_date=target_date,
@@ -832,12 +918,7 @@ def _football_state_from_snapshot(
                 candidate,
                 context_checked_at=scanned_at,
             )
-            for candidate in _first_present_candidate_list(
-                snapshot,
-                "forecast_shortlist",
-                "price_candidates",
-                "shortlist",
-            )
+            for candidate in _wettfinder_candidates_from_snapshot(snapshot)
         )
         if record is not None
     ]
@@ -1090,13 +1171,7 @@ def _merge_context_refresh(
     existing_records = [
         row for row in (state.get("candidates") or []) if isinstance(row, dict)
     ]
-    refreshed_candidates = _first_present_candidate_list(
-        result,
-        "forecast_shortlist",
-        "price_candidates",
-        "candidates",
-        "shortlist",
-    )
+    refreshed_candidates = _wettfinder_candidates_from_snapshot(result)
     new_records = [
         record
         for record in (
@@ -1374,7 +1449,11 @@ def _persisted_football_records(
             row
             for row in (state.get(field_name) or [])
             if isinstance(row, dict)
-            and (row.get("is_basic_forecast") is True) is basic_only
+            and (
+                row.get("is_basic_forecast") is True
+                if basic_only
+                else True
+            )
         ),
         now=current,
         target_date=target_date,
@@ -1401,8 +1480,8 @@ def _persisted_football_records(
         if not context_fresh:
             existing_summary = str(row.get("context_summary") or "").strip()
             stale_note = (
-                "Kontextpruefung veraltet; vor einer Freigabe ist eine "
-                "Aktualisierung noetig."
+                "Kontextprüfung veraltet; vor einer Freigabe ist eine "
+                "Aktualisierung nötig."
             )
             row["context_summary"] = " - ".join(
                 part for part in (existing_summary, stale_note) if part
@@ -1415,12 +1494,39 @@ def _football_record_release_eligible(row: object) -> bool:
     if not isinstance(row, dict):
         return False
     context = row.get("context")
+    evidence_values = tuple(
+        row.get(field)
+        for field in (
+            "paired_loss_mean",
+            "paired_loss_hac_standard_error",
+            "paired_loss_lower_confidence_bound",
+            "paired_loss_p_value",
+            "fdr_q_value",
+        )
+    )
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        for value in evidence_values
+    ):
+        return False
+    mean_advantage, standard_error, lower_bound, p_value, q_value = (
+        float(value) for value in evidence_values
+    )
     return (
         isinstance(context, dict)
         and context.get("release_context_complete") is True
         and context.get("release_eligible") is True
         and row.get("model_scope") == MODEL_SCOPE_SAME_COMPETITION
         and row.get("context_stale") is not True
+        and row.get("statistical_release_passed") is True
+        and row.get("tested_hypotheses") == len(MARKET_SPECS)
+        and -1.0 <= mean_advantage <= 1.0
+        and 0.0 <= standard_error <= 1.0
+        and 0.0 < lower_bound <= mean_advantage + 1e-9
+        and 0.0 <= p_value <= q_value + 1e-9
+        and q_value <= VALIDATION_FDR_ALPHA
     )
 
 
@@ -1477,6 +1583,7 @@ def _default_football_scan(
         list(ALTERNATIVE_MARKET_LEAGUES),
         search_date,
         MAX_SCAN_FIXTURES,
+        allow_above_challenge_probability=True,
     )
 
 
@@ -1509,6 +1616,29 @@ def _apply_reference_quotes(
     now: datetime,
 ) -> tuple[dict[str, int], list[dict[str, Any]]]:
     """Attach only freshly fetched exact prices without altering forecasts."""
+    execution_fields = (
+        "reference_quote_source",
+        "reference_quote_executable_odds",
+        "reference_quote_bookmaker",
+        "reference_quote_bookmaker_id",
+        "reference_quote_observed_at",
+    )
+
+    def clear_execution(target: dict[str, Any]) -> None:
+        for field in execution_fields:
+            target.pop(field, None)
+
+    def persist_execution(
+        target: dict[str, Any],
+        quote: MarketConsensus,
+        status,
+    ) -> None:
+        target["reference_quote_source"] = quote.source
+        target["reference_quote_executable_odds"] = status.usable_odds
+        target["reference_quote_bookmaker"] = status.bookmaker
+        target["reference_quote_bookmaker_id"] = status.bookmaker_id
+        target["reference_quote_observed_at"] = status.observed_at
+
     model_by_id = {
         str(row.get("candidate_id") or "").strip(): row
         for row in model_rows
@@ -1516,26 +1646,43 @@ def _apply_reference_quotes(
     }
     for row in model_rows:
         row.pop("reference_quote", None)
+        row.pop("quote_provider_event_id", None)
+        clear_execution(row)
         row["reference_price_status"] = "UNAVAILABLE"
 
     status_counts: dict[str, int] = {}
     playable: list[dict[str, Any]] = []
     for row in price_rows:
+        clear_execution(row)
         candidate_id = str(row.get("candidate_id") or "").strip()
         model_row = model_by_id.get(candidate_id)
-        quote = quotes.get(candidate_id)
-        if not quote_matches_candidate(quote, row):
+        raw_quote = quotes.get(candidate_id)
+        if not quote_matches_candidate(raw_quote, row):
             status_code = "UNAVAILABLE"
             row.pop("reference_quote", None)
         else:
+            quote = wettfinder_consensus(raw_quote, now=now) or raw_quote
+            quotes[candidate_id] = quote
             row["reference_quote"] = quote.to_dict()
+            if quote.provider_event_id:
+                row["quote_provider_event_id"] = quote.provider_event_id
             if model_row is not None:
                 model_row["reference_quote"] = row["reference_quote"]
-            status_code = reference_price_status(
+                if quote.provider_event_id:
+                    model_row["quote_provider_event_id"] = (
+                        quote.provider_event_id
+                    )
+            status = wettfinder_reference_price_status(
                 quote,
                 row.get("minimum_odds"),
+                candidate=row,
                 now=now,
-            ).code
+            )
+            status_code = status.code
+            if status_code == "PLAYABLE":
+                persist_execution(row, quote, status)
+                if model_row is not None:
+                    persist_execution(model_row, quote, status)
         row["reference_price_status"] = status_code
         if model_row is not None:
             model_row["reference_price_status"] = status_code
@@ -1548,6 +1695,29 @@ def _apply_reference_quotes(
 def _safe_quote_loader_error(exc: Exception) -> list[str]:
     """Return a persistable provider error without exception details."""
     return [f"Quotenabruf fehlgeschlagen ({type(exc).__name__})"]
+
+
+def _operational_quote_errors(errors: Iterable[object]) -> list[str]:
+    """Separate provider failures from normal market/coverage absence."""
+
+    unavailable_markers = (
+        "keine aktive tennis-konkurrenz",
+        "zu viele aktive tennis-konkurrenzen",
+        "keine eindeutige turnierzuordnung",
+        "keinem aktiven provider-sportkey eindeutig zugeordnet",
+        "turnierzuordnung ueberschreitet das sichere requestlimit",
+        "ereignis nicht eindeutig",
+    )
+    operational: list[str] = []
+    for raw in errors:
+        message = str(raw).strip()
+        if not message:
+            continue
+        normalized = message.casefold()
+        if any(marker in normalized for marker in unavailable_markers):
+            continue
+        operational.append(message)
+    return list(dict.fromkeys(operational))
 
 
 def run_wettfinder(
@@ -1636,6 +1806,21 @@ def run_wettfinder(
             context_status = "invalid_daily_pool"
             football_state = dict(football_state)
             football_state["status"] = "degraded"
+            discovery_error_count = int(
+                football_state.get("discovery_operational_error_count") or 0
+            )
+            context_error_count = int(
+                football_state.get("context_operational_error_count") or 0
+            ) + 1
+            football_state["discovery_operational_error_count"] = (
+                discovery_error_count
+            )
+            football_state["context_operational_error_count"] = (
+                context_error_count
+            )
+            football_state["operational_error_count"] = (
+                discovery_error_count + context_error_count
+            )
             football_state["errors"] = list(
                 dict.fromkeys(
                     list(football_state.get("errors") or [])
@@ -1770,6 +1955,9 @@ def run_wettfinder(
                 )
             ),
             "search_date": target.isoformat(),
+            "operational_error_count": int(
+                football_state.get("operational_error_count") or 0
+            ),
         }
     }
 
@@ -1796,25 +1984,30 @@ def run_wettfinder(
             source_status[source_name] = {
                 "status": "reused_persisted_model",
                 "candidate_count": len(rows),
+                "operational_error_count": 0,
             }
         except Exception as exc:
             source_status[source_name] = {
                 "status": "degraded",
                 "candidate_count": 0,
+                "operational_error_count": 1,
                 "error": f"{type(exc).__name__}: {exc}"[:500],
             }
 
     source_status["basketball"] = {
         "status": "live_only_no_prematch_model",
         "candidate_count": 0,
+        "operational_error_count": 0,
     }
     source_status["ice_hockey"] = {
         "status": "live_only_no_prematch_model",
         "candidate_count": 0,
+        "operational_error_count": 0,
     }
     source_status["cricket"] = {
         "status": "blocked_no_validated_model",
         "candidate_count": 0,
+        "operational_error_count": 0,
     }
 
     football_model_rows = [
@@ -1825,16 +2018,6 @@ def run_wettfinder(
         and not isinstance(row.get("fixture_id"), bool)
         and row["fixture_id"] > 0
         and str(row.get("market_key") or "").strip()
-    ]
-    football_primary_model_rows = [
-        row
-        for row in football_model_rows
-        if row.get("is_basic_forecast") is not True
-    ]
-    football_basis_model_rows = [
-        row
-        for row in football_model_rows
-        if row.get("is_basic_forecast") is True
     ]
     # Every valid model row stays visible even when its exact bookmaker market
     # cannot be mapped. Only the separate quote pools may reach providers.
@@ -1920,13 +2103,14 @@ def run_wettfinder(
                 )
             else:
                 app_config = config or load_app_config()
-                tennis_reference_quotes, tennis_quote_errors = (
-                    fetch_tennis_h2h_consensus(
-                        app_config.odds_api_key or "",
-                        tennis_price_rows,
-                        now=current,
+                if app_config.odds_api_key:
+                    tennis_reference_quotes, tennis_quote_errors = (
+                        fetch_tennis_h2h_consensus(
+                            app_config.odds_api_key,
+                            tennis_price_rows,
+                            now=current,
+                        )
                     )
-                )
         except Exception as exc:
             tennis_quote_errors = _safe_quote_loader_error(exc)
     if tennis_price_rows and not fixed_now:
@@ -1985,9 +2169,8 @@ def run_wettfinder(
     # remain the compact featured block; additional eligible forecasts stay
     # available instead of being discarded.
     forecast_catalog = build_daily_forecast_catalog(
-        football_primary_model_rows,
+        football_model_rows,
         non_football_rows,
-        football_basis_rows=football_basis_model_rows,
         now=current,
         target_date=target,
     )
@@ -2003,11 +2186,6 @@ def run_wettfinder(
             else []
         ),
         *tennis_playable_rows,
-    ]
-    playable_rows = [
-        row
-        for row in playable_rows
-        if row.get("is_basic_forecast") is not True
     ]
     model_candidates = build_model_selection_ledger(
         playable_rows,
@@ -2050,6 +2228,13 @@ def run_wettfinder(
     for row in candidates:
         row["status"] = "RECOMMENDED"
     if isinstance(source_status.get("football"), dict):
+        football_quote_error_count = len(_operational_quote_errors(quote_errors))
+        source_status["football"]["quote_operational_error_count"] = (
+            football_quote_error_count
+        )
+        source_status["football"]["operational_error_count"] = int(
+            source_status["football"].get("operational_error_count") or 0
+        ) + football_quote_error_count
         source_status["football"]["reference_quote_count"] = len(
             reference_quotes
         )
@@ -2094,6 +2279,15 @@ def run_wettfinder(
             row.get("source") == "tennis_shadow" for row in candidates
         )
         source_status["tennis"]["quote_errors"] = tennis_quote_errors[:10]
+        tennis_quote_error_count = len(
+            _operational_quote_errors(tennis_quote_errors)
+        )
+        source_status["tennis"]["quote_operational_error_count"] = (
+            tennis_quote_error_count
+        )
+        source_status["tennis"]["operational_error_count"] = int(
+            source_status["tennis"].get("operational_error_count") or 0
+        ) + tennis_quote_error_count
     if isinstance(source_status.get("esports"), dict):
         source_status["esports"]["price_provider_status"] = (
             "unsupported_no_verified_odds_provider"
@@ -2106,6 +2300,39 @@ def run_wettfinder(
             else {}
         )
         source_status["esports"]["published_recommendation_count"] = 0
+    operational_error_count = sum(
+        int(source.get("operational_error_count") or 0)
+        for source in source_status.values()
+        if isinstance(source, dict)
+    )
+    failed_sources = {
+        source_name
+        for source_name, source in source_status.items()
+        if isinstance(source, dict)
+        and int(source.get("operational_error_count") or 0) > 0
+    }
+    source_for_row = {
+        "football_challenge": "football",
+        "tennis_shadow": "tennis",
+        "esports_shadow": "esports",
+    }
+    if failed_sources:
+        # Fail closed only for the affected provider/model. A Tennis timeout,
+        # for example, must not erase an independently verified football tip.
+        candidates = [
+            row
+            for row in candidates
+            if source_for_row.get(str(row.get("source") or ""))
+            not in failed_sources
+        ]
+        if isinstance(source_status.get("football"), dict):
+            source_status["football"]["published_recommendation_count"] = sum(
+                row.get("source") == "football_challenge" for row in candidates
+            )
+        if isinstance(source_status.get("tennis"), dict):
+            source_status["tennis"]["published_recommendation_count"] = sum(
+                row.get("source") == "tennis_shadow" for row in candidates
+            )
     document = {
         "version": AUTOMATION_VERSION,
         "generated_at": current.isoformat(),
@@ -2117,6 +2344,10 @@ def run_wettfinder(
             reference_quotes or tennis_reference_quotes
         ),
         "quote_required": True,
+        "run_status": (
+            "completed" if operational_error_count == 0 else "degraded"
+        ),
+        "operational_error_count": operational_error_count,
         "target_search_date": target.isoformat(),
         "football": football_state,
         "sources": source_status,
@@ -2148,7 +2379,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(
         json.dumps(
             {
-                "status": "ok",
+                "status": document.get("run_status", "degraded"),
                 "generated_at": document["generated_at"],
                 "candidate_count": len(document["candidates"]),
                 "model_candidate_count": len(document["model_candidates"]),
@@ -2165,7 +2396,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             ensure_ascii=True,
         )
     )
-    return 0
+    return 0 if int(document.get("operational_error_count") or 0) == 0 else 1
 
 
 if __name__ == "__main__":

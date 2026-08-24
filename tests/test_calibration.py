@@ -367,10 +367,10 @@ class BuildMarketModelArtifactTest(unittest.TestCase):
         self.assertEqual(calibration, reference_calibration)
         self.assertEqual(
             hashlib.sha256(encoded).hexdigest(),
-            "767a3c7b378d5f87b20ec4b5a665a8c6c2ccfc46b4d624682c9a6a6c14493afb",
+            "36ff18e72ad097945436b0133f65b29e3e0223917de04406eea2640a5b3abe9d",
         )
 
-    def test_real_90_market_outputs_match_de20e74_production_golden(self):
+    def test_real_90_market_outputs_match_current_statistical_golden(self):
         history = league_history(cycles=20)
         validation, calibration = challenge_engine.build_market_model_artifact(history)
         artifact = {
@@ -402,17 +402,19 @@ class BuildMarketModelArtifactTest(unittest.TestCase):
             )
         ]
 
-        # Recorded by executing the unmodified de20e74 two-pass engine against
-        # this same history at the production calibration thresholds (100/60).
+        # Current production-threshold golden, including paired-loss/FDR audit
+        # fields while preserving the same walk-forward/calibration pass.
         self.assertEqual(len(calibration), 59)
         self.assertEqual(len(candidates), 90)
         self.assertEqual(
             canonical_digest(artifact),
-            "bb71006f0d32ef835878cf79b647ac7aaa7c759bae206e5426ae4336a544771e",
+            "57247c1bd6eaa8712e12cf101c5c70b1365e5ec48728510488e815a97d441a00",
         )
         self.assertEqual(
             canonical_digest(candidates),
-            "0446b526b2506e69ef942748de2e96437a541eee5704f3b985665c136e6b7a3c",
+            # Includes conservative freshness from the oldest latest input
+            # series, so a stale opponent cannot inherit the other team's age.
+            "d4a7208e5d13b7fceef7db35531aff138418b53c97a9ae6e3bb41101125f7927",
         )
 
 

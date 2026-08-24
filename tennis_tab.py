@@ -666,10 +666,11 @@ def _render_match_card(row: dict) -> None:
         metrics = st.columns(3)
         metrics[0].metric("Modell", f"{likely_probability:.1%}")
         metrics[1].metric("Vorsichtige Prognose", f"{conservative_probability:.1%}")
-        metrics[2].metric("Mindestquote", minimum_text)
+        metrics[2].metric("Value-Grenze", minimum_text)
         st.caption(
             "Aktuell liegt kein automatischer Quotenvergleich vor. Die "
-            "Mindestquote dient nur zur Prüfung der eigenen Buchmacherquote."
+            "Value-Grenze dient nur zur Prüfung der eigenen Buchmacherquote; "
+            "sie ist keine erwartete Marktquote."
         )
 
         odds_a_key = f"odds_a_{row['id']}"

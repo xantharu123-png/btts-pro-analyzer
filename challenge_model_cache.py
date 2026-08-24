@@ -20,6 +20,7 @@ DEFAULT_DB_PATH = (
     / "runtime_state"
     / "challenge_model_cache.db"
 )
+MODEL_ARTIFACT_SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS challenge_model_artifacts (
@@ -101,6 +102,11 @@ def load_model_artifact(
         return None
     try:
         payload = json.loads(row[0])
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema_version") != MODEL_ARTIFACT_SCHEMA_VERSION
+        ):
+            return None
         raw_validation = payload["validation"]
         raw_calibration = payload["calibration"]
         if not isinstance(raw_validation, dict) or not isinstance(raw_calibration, dict):
@@ -145,6 +151,7 @@ def save_model_artifact(
     )
     payload = json.dumps(
         {
+            "schema_version": MODEL_ARTIFACT_SCHEMA_VERSION,
             "validation": {
                 key: asdict(metric)
                 for key, metric in validation.items()
@@ -199,6 +206,7 @@ def save_model_artifact(
 
 __all__ = [
     "DEFAULT_DB_PATH",
+    "MODEL_ARTIFACT_SCHEMA_VERSION",
     "load_model_artifact",
     "save_model_artifact",
 ]

@@ -60,6 +60,7 @@ from challenge_engine import (
     select_forecast_shortlist,
     select_quoted_ticket,
     select_shortlist,
+    select_wettfinder_catalog,
     risk_managed_ticket_stake,
     ticket_stake,
 )
@@ -76,10 +77,10 @@ from football_data_history import merge_api_tail
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, LEAGUE_BY_ID
 from market_consensus import (
     MarketConsensus,
+    challenge_quote_matches_candidate,
     deserialize_consensus_map,
     exact_market_target,
     fetch_football_consensus,
-    quote_matches_candidate,
     reference_price_status,
     serialize_consensus_map,
 )
@@ -1633,7 +1634,7 @@ def _run_challenge_scan_worker(
     quotes = {
         candidate_id: quote
         for candidate_id, quote in quotes.items()
-        if quote_matches_candidate(
+        if challenge_quote_matches_candidate(
             quote,
             price_candidate_by_id.get(candidate_id),
         )
@@ -1898,9 +1899,12 @@ def scan_daily_challenge(
     *,
     search_end_date: Optional[date] = None,
     market_kinds: Optional[set[str]] = None,
+    allow_above_challenge_probability: bool = False,
     progress_cb=None,
 ) -> dict[str, Any]:
     """Run one explicit, quota-aware scan over at most fourteen days."""
+    if not isinstance(allow_above_challenge_probability, bool):
+        raise ValueError("allow_above_challenge_probability must be boolean")
     end_date = search_end_date or search_date
     _validate_scan_inputs(league_ids, search_date, max_fixtures, end_date)
     supported_market_kinds = {spec.kind for spec in market_specs()}
@@ -2143,6 +2147,9 @@ def scan_daily_challenge(
             transfer_probe,
             {},
             team_history=team_history,
+            allow_above_challenge_probability=(
+                allow_above_challenge_probability
+            ),
         )
         if any(candidate.base_eligible for candidate in probe_candidates):
             validation_target_fixture_ids.add(fixture_id)
@@ -2255,6 +2262,9 @@ def scan_daily_challenge(
                 if fixture_id in fixture_team_histories
                 else MODEL_SCOPE_SAME_COMPETITION
             ),
+            allow_above_challenge_probability=(
+                allow_above_challenge_probability
+            ),
         )
         if fixture_id in fixture_team_histories:
             for candidate in fixture_candidates:
@@ -2362,6 +2372,9 @@ def scan_daily_challenge(
         contextualized.append(candidate)
 
     forecast_candidates = _forecast_candidate_pool(contextualized)
+    # Separate full pool for the normal Wettfinder. Existing 15K shortlist,
+    # featured and ticket fields below deliberately keep their prior contract.
+    wettfinder_candidates = select_wettfinder_catalog(contextualized)
     price_candidates = _price_candidate_pool(contextualized)
     forecast_shortlist = select_forecast_shortlist(
         forecast_candidates,
@@ -2463,6 +2476,7 @@ def scan_daily_challenge(
             }
         ),
         "forecast_shortlist": forecast_shortlist,
+        "wettfinder_candidates": wettfinder_candidates,
         "basis_forecasts": basis_forecasts,
         "approved_candidates": len(shortlist),
         "shortlist": shortlist,
@@ -2585,6 +2599,7 @@ def refresh_discovered_candidates(
         contextualized.append(candidate)
 
     forecast_candidates = _forecast_candidate_pool(contextualized)
+    wettfinder_candidates = select_wettfinder_catalog(contextualized)
     price_candidates = _price_candidate_pool(contextualized)
     forecast_shortlist = select_forecast_shortlist(
         forecast_candidates,
@@ -2619,6 +2634,7 @@ def refresh_discovered_candidates(
         "fixture_ids": fixture_ids,
         "shortlist": shortlist,
         "forecast_shortlist": forecast_shortlist,
+        "wettfinder_candidates": wettfinder_candidates,
         "basis_forecasts": basis_forecasts,
         "price_candidates": price_candidates,
         "forecast_candidates": len(forecast_candidates),
@@ -3670,7 +3686,7 @@ def _automatic_challenge_ticket(
     statuses = {}
     for candidate in shortlist:
         quote = reference_quotes.get(candidate.candidate_id)
-        if not quote_matches_candidate(quote, candidate):
+        if not challenge_quote_matches_candidate(quote, candidate):
             quote = None
         status = reference_price_status(
             quote,
@@ -3802,7 +3818,7 @@ def _render_price_check(
     reference_quotes = {
         candidate_id: quote
         for candidate_id, quote in reference_quotes.items()
-        if quote_matches_candidate(
+        if challenge_quote_matches_candidate(
             quote,
             displayed_by_id.get(candidate_id),
         )
@@ -3810,6 +3826,7 @@ def _render_price_check(
     primary_candidates, extreme_short_candidates = partition_consumer_forecasts(
         displayed_candidates,
         quote_for=lambda candidate: reference_quotes.get(candidate.candidate_id),
+        price_status_for=reference_price_status,
     )
     featured_candidates, additional_candidates = (
         partition_consumer_featured_forecasts(

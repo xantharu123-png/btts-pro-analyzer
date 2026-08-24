@@ -1,5 +1,6 @@
 """Strict football-market bet finder with one shared price decision."""
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -7,6 +8,7 @@ import streamlit as st
 
 import scan_jobs
 from bet_finder_ui import (
+    group_consumer_markets_by_fixture,
     merge_consumer_forecast_catalog,
     partition_consumer_featured_forecasts,
     partition_consumer_forecasts,
@@ -18,19 +20,20 @@ from ui_components import scan_progress_fragment
 from challenge_15k import (
     MAX_SCAN_FIXTURES,
     ChallengeDataProvider,
-    _price_annotation_candidate_pool,
     scan_daily_challenge,
 )
-from challenge_engine import candidate_context_summary, select_shortlist
+from challenge_engine import candidate_context_summary, select_wettfinder_catalog
 from config_loader import load_app_config
 from date_context import german_day_label, zurich_today
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from market_consensus import (
     deserialize_consensus_map,
+    exact_market_target,
     fetch_football_consensus,
     quote_matches_candidate,
-    reference_price_status,
     serialize_consensus_map,
+    wettfinder_consensus,
+    wettfinder_reference_price_status,
 )
 
 
@@ -38,6 +41,7 @@ DEFAULT_LEAGUES = [78, 39, 140]
 MARKET_WORKFLOW_VERSION = 12
 MARKET_SNAPSHOT_VERSION = 16
 MAX_CONSUMER_MARKET_SELECTIONS = 25
+MAX_CONSUMER_MARKETS_PER_FIXTURE = 8
 FEATURED_CONSUMER_MARKET_SELECTIONS = 3
 MARKET_AUDIT_VERSION = 1
 MARKET_MAX_AGE_MINUTES = 20
@@ -52,12 +56,12 @@ FOOTBALL_MARKET_SCOPES = {
     "Karten": frozenset({"yellow_total", "team_yellow"}),
 }
 PRICE_STATUS_LABELS = {
-    "TOO_LOW": "unter der Mindestquote",
+    "TOO_LOW": "unter der Value-Grenze",
     "UNAVAILABLE": "ohne exakt passende Marktquote",
     "BORDERLINE": "nur bei einzelnen Anbietern ausreichend",
     "THIN": "mit zu wenigen Vergleichsanbietern",
     "STALE": "mit veraltetem Marktstand",
-    "INVALID_MINIMUM": "mit ungültiger Mindestquote",
+    "INVALID_MINIMUM": "mit ungültiger Value-Grenze",
     "PLAYABLE": "preislich spielbar",
 }
 
@@ -146,12 +150,11 @@ def _consumer_no_tip_copy(
     *,
     day_label: str,
 ) -> tuple[str, str, bool]:
-    """Return concise evidence and an honest empty-state conclusion."""
+    """Return a consumer empty state without exposing pipeline diagnostics."""
 
     found = int(snapshot.get("fixtures_found") or 0)
     modeled = int(snapshot.get("fixtures_modeled") or 0)
     base_fixtures = int(snapshot.get("base_fixture_count") or 0)
-    context_verified = int(snapshot.get("context_verified_fixtures") or 0)
     context_incomplete = int(
         snapshot.get("context_data_incomplete_fixtures") or 0
     )
@@ -159,75 +162,6 @@ def _consumer_no_tip_copy(
     context_deferred = int(snapshot.get("deferred_context_fixtures") or 0)
     operational_errors = int(snapshot.get("operational_error_count") or 0)
     unmodeled = max(found - modeled, 0)
-    unmodeled_note = (
-        f" {unmodeled} weitere gefundene "
-        f"{'Spiel konnte' if unmodeled == 1 else 'Spiele konnten'} nicht "
-        "modelliert werden."
-        if unmodeled > 0
-        else ""
-    )
-
-    evidence_parts = [
-        f"{found} {'Spiel' if found == 1 else 'Spiele'} gefunden",
-        f"{modeled} modelliert",
-    ]
-    if base_fixtures > 0:
-        evidence_parts.append(
-            f"{base_fixtures} {'Spiel' if base_fixtures == 1 else 'Spiele'} "
-            "in der engeren Auswahl"
-        )
-        evidence_parts.append(
-            f"{context_verified} mit verfügbaren Kontextdaten geprüft"
-        )
-    evidence = f"{day_label} · " + " · ".join(evidence_parts)
-
-    if operational_errors > 0:
-        message = (
-            "Die Prüfung konnte nicht vollständig abgeschlossen werden. "
-            "BetBoy gibt deshalb kein Qualitätsurteil ab."
-        )
-    elif found <= 0:
-        message = "Im gewählten Zeitraum wurden keine anstehenden Spiele gefunden."
-    elif modeled <= 0:
-        message = (
-            "Die Prüfung konnte nicht vollständig abgeschlossen werden. "
-            "BetBoy gibt deshalb kein Qualitätsurteil ab."
-        )
-    elif context_incomplete > 0:
-        message = (
-            "Ein Teil der benötigten Daten war nicht vollständig verfügbar. "
-            "Deshalb wurde kein Tipp freigegeben; das ist keine negative "
-            "Aussage über den möglichen Spielausgang."
-            + unmodeled_note
-        )
-    elif context_unchecked > 0 or context_deferred > 0:
-        pending = context_unchecked + context_deferred
-        pending_label = (
-            "1 weiteres Spiel"
-            if pending == 1
-            else f"{pending} weitere Spiele"
-        )
-        message = (
-            f"Unter den {context_verified} mit verfügbaren Kontextdaten "
-            "geprüften Spielen wurde "
-            f"kein Tipp bestätigt. Für {pending_label} "
-            f"{'steht' if pending == 1 else 'stehen'} weitere Prüfungen "
-            "noch aus. Die Quote war nicht der Ablehnungsgrund."
-            + unmodeled_note
-        )
-    elif base_fixtures <= 0:
-        message = (
-            "Kein Spiel kam in die engere Auswahl. "
-            "Eine Quote wurde deshalb noch nicht geprüft."
-            + unmodeled_note
-        )
-    else:
-        message = (
-            f"Unter den {context_verified} mit verfügbaren Kontextdaten "
-            "geprüften Spielen wurde "
-            "kein Tipp bestätigt. Die Quote war nicht der Ablehnungsgrund."
-            + unmodeled_note
-        )
     incomplete = bool(
         operational_errors > 0
         or (found > 0 and modeled <= 0)
@@ -236,6 +170,25 @@ def _consumer_no_tip_copy(
         or context_unchecked > 0
         or context_deferred > 0
     )
+    evidence = (
+        f"{day_label} · "
+        + ("Prüfung teilweise abgeschlossen" if incomplete else "Prüfung abgeschlossen")
+    )
+    if found <= 0 and operational_errors <= 0:
+        message = "Im gewählten Zeitraum wurden keine anstehenden Spiele gefunden."
+    elif incomplete:
+        message = (
+            "Ein Teil des gewählten Spieltags konnte wegen unvollständiger "
+            "Daten nicht zuverlässig bewertet werden. Für die übrigen Spiele "
+            "liegt aktuell keine passende Auswahl vor."
+        )
+    elif base_fixtures <= 0:
+        message = "Aktuell erfüllt keine Auswahl alle Qualitätsregeln."
+    else:
+        message = (
+            "Aktuell erfüllt keine vollständig geprüfte Auswahl alle "
+            "Qualitätsregeln."
+        )
     return evidence, message, incomplete
 
 
@@ -312,21 +265,32 @@ def _consumer_partial_scope_notice(
 ) -> Optional[str]:
     """Return one safe warning when only part of the requested scope ran."""
 
+    operational = int(snapshot.get("operational_error_count") or 0)
+    unmodeled = max(
+        int(snapshot.get("fixtures_found") or 0)
+        - int(snapshot.get("fixtures_modeled") or 0),
+        0,
+    )
+    pending = sum(
+        int(snapshot.get(field) or 0)
+        for field in (
+            "context_data_incomplete_fixtures",
+            "context_unchecked_fixtures",
+            "deferred_context_fixtures",
+        )
+    )
     scope_incomplete = bool(
-        int(snapshot.get("operational_error_count") or 0) > 0
-        or int(snapshot.get("fixtures_modeled") or 0)
-        < int(snapshot.get("fixtures_found") or 0)
-        or int(snapshot.get("context_data_incomplete_fixtures") or 0) > 0
-        or int(snapshot.get("context_unchecked_fixtures") or 0) > 0
-        or int(snapshot.get("deferred_context_fixtures") or 0) > 0
+        operational > 0
+        or unmodeled > 0
+        or pending > 0
         or snapshot.get("context_scope_complete") is not True
     )
     if not has_candidates or not scope_incomplete:
         return None
     return (
-        "Die Suche wurde nur teilweise abgeschlossen. Die angezeigten "
-        "Auswahlen stammen aus erfolgreich geprüften Spielen; der gesamte "
-        "gewählte Suchumfang ist nicht vollständig belegt."
+        "Ein Teil des gewählten Spieltags konnte wegen unvollständiger Daten "
+        "nicht zuverlässig bewertet werden. Die angezeigten Auswahlen wurden "
+        "vollständig geprüft."
     )
 
 
@@ -406,7 +370,7 @@ def _strict_market_candidate(candidate):
         blockers.append("Die Anstoßzeit ist nicht eindeutig verifiziert.")
     elif kickoff.astimezone(timezone.utc) <= datetime.now(timezone.utc):
         blockers.append("Das Spiel hat bereits begonnen.")
-    return build_probability_candidate(
+    rendered_candidate = build_probability_candidate(
         event_key=candidate.candidate_id,
         sport="Fußball",
         event_label=f"{candidate.home_team} vs {candidate.away_team}",
@@ -420,6 +384,13 @@ def _strict_market_candidate(candidate):
         expected_total=candidate.expected_home_goals + candidate.expected_away_goals,
         evidence_stage=EVIDENCE_SHADOW,
     )
+    validation = getattr(candidate, "validation", None)
+    if (
+        str(getattr(candidate, "model_scope", "")) == "same_competition"
+        and getattr(validation, "statistical_release_passed", False) is not True
+    ):
+        rendered_candidate = replace(rendered_candidate, release_pending=True)
+    return rendered_candidate
 
 
 def _merge_consumer_market_rows(
@@ -497,6 +468,7 @@ def _run_market_scan_worker(
         search_date,
         max_fixtures,
         search_end_date=search_end_date,
+        allow_above_challenge_probability=True,
         **scan_kwargs,
     )
     if progress_cb:
@@ -504,26 +476,42 @@ def _run_market_scan_worker(
     # The calculated forecast is a separate axis from bookmaker price and
     # from the later release decision.  In particular, a provisional UEFA
     # forecast must remain visible even when it is not an Echtgeld tip.
-    model_shortlist = merge_consumer_forecast_catalog(
-        challenge_snapshot.get("forecast_shortlist")
-        or challenge_snapshot.get("shortlist")
-        or [],
-        challenge_snapshot.get("basis_forecasts") or [],
+    candidate_pool = []
+    seen_candidate_ids = set()
+    for field_name in (
+        "wettfinder_candidates",
+        "candidates",
+        "forecast_shortlist",
+        "basis_forecasts",
+        "price_candidates",
+        "shortlist",
+        "base_shortlist",
+    ):
+        values = challenge_snapshot.get(field_name)
+        if not isinstance(values, list):
+            continue
+        for candidate in values:
+            candidate_id = str(getattr(candidate, "candidate_id", "")).strip()
+            if not candidate_id or candidate_id in seen_candidate_ids:
+                continue
+            seen_candidate_ids.add(candidate_id)
+            candidate_pool.append(candidate)
+    model_shortlist = select_wettfinder_catalog(
+        candidate_pool,
+        max_candidates=MAX_CONSUMER_MARKET_SELECTIONS,
+        max_per_fixture=MAX_CONSUMER_MARKETS_PER_FIXTURE,
     )
-    raw_price_candidates = challenge_snapshot.get("price_candidates")
-    price_candidates = list(
-        raw_price_candidates
-        if isinstance(raw_price_candidates, list)
-        else (
-            challenge_snapshot.get("forecast_shortlist")
-            or challenge_snapshot.get("shortlist")
-            or []
-        )
+    release_candidates = select_wettfinder_catalog(
+        candidate_pool,
+        max_candidates=MAX_CONSUMER_MARKET_SELECTIONS,
+        require_release=True,
+        max_per_fixture=MAX_CONSUMER_MARKETS_PER_FIXTURE,
     )
-    price_annotation_candidates = _price_annotation_candidate_pool(
-        price_candidates,
-        list(challenge_snapshot.get("basis_forecasts") or []),
-    )
+    price_annotation_candidates = [
+        candidate
+        for candidate in model_shortlist
+        if exact_market_target(candidate.market_key) is not None
+    ]
     reference_quotes, quote_errors = fetch_football_consensus(
         api_football_key,
         price_annotation_candidates,
@@ -532,25 +520,28 @@ def _run_market_scan_worker(
         candidate.candidate_id: candidate
         for candidate in price_annotation_candidates
     }
+    price_checked_at = datetime.now(timezone.utc)
     reference_quotes = {
-        candidate_id: quote
+        candidate_id: (
+            wettfinder_consensus(quote, now=price_checked_at) or quote
+        )
         for candidate_id, quote in reference_quotes.items()
         if quote_matches_candidate(
             quote,
             price_candidate_by_id.get(candidate_id),
         )
     }
-    price_checked_at = datetime.now(timezone.utc)
     price_status_counts: dict[str, int] = {}
     playable_candidates = []
     strict_candidate_ids = {
-        candidate.candidate_id for candidate in price_candidates
+        candidate.candidate_id for candidate in release_candidates
     }
     for candidate in price_annotation_candidates:
         quote = reference_quotes.get(candidate.candidate_id)
-        status = reference_price_status(
+        status = wettfinder_reference_price_status(
             quote,
             candidate.minimum_odds,
+            candidate=candidate,
             now=price_checked_at,
         )
         price_status_counts[status.code] = (
@@ -567,17 +558,20 @@ def _run_market_scan_worker(
     visible_candidate_ids = {
         candidate.candidate_id for candidate in model_shortlist
     }
-    challenge_snapshot["shortlist"] = select_shortlist(
+    challenge_snapshot["shortlist"] = select_wettfinder_catalog(
         [
             candidate
             for candidate in playable_candidates
             if candidate.candidate_id in visible_candidate_ids
         ],
-        max_candidates=FEATURED_CONSUMER_MARKET_SELECTIONS,
+        max_candidates=MAX_CONSUMER_MARKET_SELECTIONS,
+        require_release=True,
+        max_per_fixture=MAX_CONSUMER_MARKETS_PER_FIXTURE,
     )
     challenge_snapshot["approved_candidates"] = len(
         challenge_snapshot["shortlist"]
     )
+    challenge_snapshot["price_candidates"] = release_candidates
     challenge_snapshot["reference_quotes"] = serialize_consensus_map(
         reference_quotes
     )
@@ -948,6 +942,7 @@ def create_alternative_markets_tab_extended(
                     reference_quote=reference_quotes.get(
                         raw_candidate.candidate_id
                     ),
+                    reference_binding_candidate=raw_candidate,
                     allow_manual_check=True,
                 )
                 if offset < len(candidates) - 1:
@@ -955,19 +950,23 @@ def create_alternative_markets_tab_extended(
 
         render_rows(featured_rows, start_index=1)
         if more_rows:
-            with st.expander(
-                f"Weitere {len(more_rows)} Modellprognosen",
-                expanded=False,
+            next_index = len(featured_rows) + 1
+            for event_label, event_rows in group_consumer_markets_by_fixture(
+                more_rows
             ):
-                st.caption(
-                    "Der Modellkatalog bleibt vollständig. Wiederholte "
-                    "Marktentscheidungen oder weitere Auswahlen desselben "
-                    "Spiels stehen gesammelt hier; die Quote blockiert nichts."
-                )
-                render_rows(
-                    more_rows,
-                    start_index=len(featured_rows) + 1,
-                )
+                with st.expander(
+                    f"Weitere Märkte zu {event_label}",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Alle weiteren berechneten Märkte dieses Spiels "
+                        "bleiben sichtbar; die Quote blockiert nichts."
+                    )
+                    render_rows(
+                        event_rows,
+                        start_index=next_index,
+                    )
+                next_index += len(event_rows)
         if extreme_short_rows:
             with st.expander(
                 f"Sehr kurze Quoten ({len(extreme_short_rows)})",

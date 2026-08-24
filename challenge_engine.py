@@ -60,6 +60,15 @@ UNVALIDATED_TRANSFER_REASON = (
     "Heimatliga-Transfermodell ist fuer UEFA-Duelle nicht validiert"
 )
 MIN_VALIDATION_MATCHES = 200
+MIN_RELATIVE_BRIER_IMPROVEMENT = 0.02
+# Strict market release requires evidence that the model's paired Brier loss is
+# lower than the expanding-window baseline after accounting for all configured
+# market hypotheses.  The one-sided normal approximation is only evaluated at
+# MIN_VALIDATION_MATCHES or above; its standard error is Newey-West/HAC so a
+# run of temporally correlated results cannot masquerade as 200 independent
+# observations.  BH controls the false-discovery rate across MARKET_SPECS.
+VALIDATION_FDR_ALPHA = 0.05
+PAIRED_LOSS_CONFIDENCE_Z = 1.6448536269514722
 MIN_CALIBRATION_BINS = 3
 MIN_CALIBRATION_BIN_SIZE = 20
 MAX_EXPECTED_CALIBRATION_ERROR = 0.08
@@ -114,6 +123,16 @@ class ValidationMetrics:
     max_error_bin_size: int = 0
     max_error_bin_mean_probability: Optional[float] = None
     raw_brier_score: Optional[float] = None
+    # Positive values mean that the model lost less than the paired baseline.
+    paired_loss_mean: Optional[float] = None
+    paired_loss_hac_standard_error: Optional[float] = None
+    paired_loss_lower_confidence_bound: Optional[float] = None
+    paired_loss_p_value: Optional[float] = None
+    fdr_q_value: Optional[float] = None
+    tested_hypotheses: int = 0
+    # Separate normal-Wettfinder release evidence. ``passed`` intentionally
+    # retains the shared challenge/15K validation contract.
+    statistical_release_passed: bool = False
 
 
 @dataclass
@@ -455,12 +474,11 @@ MARKET_BY_KEY = {spec.key: spec for spec in MARKET_SPECS}
 COUNT_MARKET_KINDS = {"corner_total", "team_corners", "yellow_total", "team_yellow"}
 GOAL_MARKET_SPECS = tuple(spec for spec in MARKET_SPECS if spec.kind not in COUNT_MARKET_KINDS)
 
-# Broad safety lines are useful calibration outputs, but poor consumer picks:
-# they mostly restate that a team will probably score at least once or stay
-# below an unusually generous ceiling.  They remain modeled and auditable,
-# but never occupy the public Top-Auswahlen. Team under 1.5 is deliberately
-# not in this set: it can be a meaningful market and must be judged by the
-# normal model, context and concrete-price rules.
+# Broad safety lines are useful calibration outputs and often weak featured
+# cards.  In the normal Wettfinder this classification is presentation metadata
+# only; ``select_wettfinder_catalog`` never uses it as an eligibility gate.  The
+# separate challenge-mode shortlist keeps its established presentation contract.
+# Team under 1.5 is deliberately not classified as broad either.
 BASIC_FORECAST_KINDS = frozenset({"double_chance", "team_range", "mixed_or"})
 MAX_PUBLIC_SELECTIONS_PER_KIND = 3
 
@@ -530,7 +548,7 @@ def candidate_context_summary(candidate: ChallengeCandidate) -> str:
 
     context = candidate.context if isinstance(candidate.context, dict) else {}
     generic_labels = {
-        "passed": "berücksichtigt",
+        "passed": "geprüft",
         "observed": "geprüft",
         "neutral": "geprüft, kein belastbares Veto",
         "pending": "noch offen",
@@ -552,7 +570,7 @@ def candidate_context_summary(candidate: ChallengeCandidate) -> str:
                 if reported == 0 and complete is True:
                     return "geprüft, keine gemeldet"
                 if complete is True:
-                    return "Liste und Wirkung geprüft"
+                    return "Liste und Veto geprüft"
                 if isinstance(unassessed, list):
                     count = len([name for name in unassessed if str(name).strip()])
                     if count:
@@ -883,6 +901,116 @@ def _mean(values: Iterable[float]) -> float:
     return sum(values) / len(values)
 
 
+def _paired_loss_statistics(
+    probabilities: list[float],
+    baselines: list[float],
+    outcomes: list[int],
+) -> tuple[
+    Optional[float],
+    Optional[float],
+    Optional[float],
+    Optional[float],
+]:
+    """Return paired Brier advantage, HAC-SE, lower bound and one-sided p.
+
+    Every row compares model and baseline on the *same* already generated
+    walk-forward prediction.  Positive loss differences therefore mean the
+    model beat its contemporaneous baseline without adding any future data.
+    A Bartlett/Newey-West long-run variance protects the uncertainty estimate
+    against short serial runs in chronological match order.
+    """
+
+    if not probabilities or not (
+        len(probabilities) == len(baselines) == len(outcomes)
+    ):
+        return None, None, None, None
+    try:
+        paired_advantages = [
+            (float(baseline) - int(outcome)) ** 2
+            - (float(probability) - int(outcome)) ** 2
+            for probability, baseline, outcome in zip(
+                probabilities,
+                baselines,
+                outcomes,
+            )
+        ]
+    except (TypeError, ValueError, OverflowError):
+        return None, None, None, None
+    if any(not math.isfinite(value) for value in paired_advantages):
+        return None, None, None, None
+
+    observations = len(paired_advantages)
+    mean_advantage = _mean(paired_advantages)
+    if observations < 2:
+        return mean_advantage, None, None, None
+
+    centered = [value - mean_advantage for value in paired_advantages]
+    gamma_zero = sum(value * value for value in centered) / observations
+    # Standard automatic Newey-West bandwidth for a low-order HAC estimate.
+    max_lag = min(
+        observations - 1,
+        max(1, int(4.0 * (observations / 100.0) ** (2.0 / 9.0))),
+    )
+    long_run_variance = gamma_zero
+    for lag in range(1, max_lag + 1):
+        covariance = sum(
+            centered[index] * centered[index - lag]
+            for index in range(lag, observations)
+        ) / observations
+        bartlett_weight = 1.0 - lag / (max_lag + 1.0)
+        long_run_variance += 2.0 * bartlett_weight * covariance
+    standard_error = math.sqrt(max(0.0, long_run_variance) / observations)
+    lower_bound = mean_advantage - PAIRED_LOSS_CONFIDENCE_Z * standard_error
+    if standard_error <= 1e-15:
+        p_value = 0.0 if mean_advantage > 0.0 else 1.0
+    else:
+        z_score = mean_advantage / standard_error
+        p_value = 0.5 * math.erfc(z_score / math.sqrt(2.0))
+    return (
+        mean_advantage,
+        standard_error,
+        lower_bound,
+        min(1.0, max(0.0, p_value)),
+    )
+
+
+def _benjamini_hochberg_q_values(
+    p_values: dict[str, float],
+) -> dict[str, float]:
+    """Deterministically adjust one-sided p-values with BH-FDR.
+
+    Callers pass one hypothesis for every configured market, using p=1 for a
+    market without a valid test.  This prevents sparse data from silently
+    shrinking the 90-market testing family.
+    """
+
+    if not p_values:
+        return {}
+    cleaned: list[tuple[str, float]] = []
+    for key, value in p_values.items():
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or not 0.0 <= float(value) <= 1.0
+        ):
+            raise ValueError("BH p-values must be finite numbers in [0, 1]")
+        cleaned.append((str(key), float(value)))
+    ordered = sorted(cleaned, key=lambda item: (item[1], item[0]))
+    hypothesis_count = len(ordered)
+    adjusted: dict[str, float] = {}
+    running_minimum = 1.0
+    for rank_index in range(hypothesis_count - 1, -1, -1):
+        key, p_value = ordered[rank_index]
+        rank = rank_index + 1
+        running_minimum = min(
+            running_minimum,
+            p_value * hypothesis_count / rank,
+        )
+        adjusted[key] = min(1.0, max(0.0, running_minimum))
+    return adjusted
+
+
 def _shrunk_mean(values: Iterable[float], prior_mean: float, prior_weight: float = 4.0) -> float:
     sample = list(values)
     if not sample:
@@ -983,8 +1111,20 @@ def _fixture_model(
 
     active_home = 0.75 * season_home + 0.25 * form_home
     active_away = 0.75 * season_away + 0.25 * form_away
-    latest_observation = max(home_form[0][2], away_form[0][2])
-    freshness_days = max(0.0, (kickoff - latest_observation).total_seconds() / 86_400.0)
+    # Every one of these four series is required by the active model.  Reporting
+    # only the newest team observation made a stale opponent look fresh.  The
+    # conservative age is therefore measured from the oldest latest
+    # observation among all required team/venue series.
+    oldest_required_observation = min(
+        home_venue[0][2],
+        away_venue[0][2],
+        home_form[0][2],
+        away_form[0][2],
+    )
+    freshness_days = max(
+        0.0,
+        (kickoff - oldest_required_observation).total_seconds() / 86_400.0,
+    )
     xg_coverage = min(
         cov_hs, cov_hc, cov_as, cov_ac, cov_fha, cov_fad, cov_faa, cov_fhd
     )
@@ -996,6 +1136,7 @@ def _fixture_model(
         "form_samples": (len(home_form), len(away_form)),
         "league_sample": league_sample,
         "freshness_days": freshness_days,
+        "freshness_observed_at": oldest_required_observation.isoformat(),
         "xg_coverage": xg_coverage,
     }
 
@@ -1560,13 +1701,67 @@ def _credible_validation(metric: Optional[ValidationMetrics]) -> bool:
         metric.observations >= MIN_VALIDATION_MATCHES
         and 0.0 <= metric.brier_score <= 1.0
         and 0.0 < metric.baseline_brier_score <= 1.0
-        and 0.02 <= metric.relative_improvement <= 1.0
+        and MIN_RELATIVE_BRIER_IMPROVEMENT <= metric.relative_improvement <= 1.0
         and 0.0 <= metric.expected_calibration_error <= MAX_EXPECTED_CALIBRATION_ERROR
         and MIN_CALIBRATION_BINS <= metric.calibration_bins <= 5
         and metric.min_bin_size >= MIN_CALIBRATION_BIN_SIZE
         and metric.min_bin_size <= metric.observations
         and metric.calibration_bins * metric.min_bin_size <= metric.observations
         and 0.0 <= metric.max_calibration_error <= bin_threshold
+    )
+
+
+def _credible_statistical_release_validation(
+    metric: Optional[ValidationMetrics],
+) -> bool:
+    """Fail-closed paired/FDR proof for normal Wettfinder release only.
+
+    The challenge/15K flow intentionally keeps ``_credible_validation`` as its
+    existing shared contract. Normal Wettfinder Echtgeld release additionally
+    requires explicit uncertainty fields produced by the current artifact.
+    """
+
+    if not _credible_validation(metric) or metric is None:
+        return False
+    if metric.statistical_release_passed is not True:
+        return False
+    evidence_values = (
+        metric.paired_loss_mean,
+        metric.paired_loss_hac_standard_error,
+        metric.paired_loss_lower_confidence_bound,
+        metric.paired_loss_p_value,
+        metric.fdr_q_value,
+    )
+    if any(value is None for value in evidence_values):
+        return False
+    try:
+        mean_advantage = float(metric.paired_loss_mean)
+        standard_error = float(metric.paired_loss_hac_standard_error)
+        lower_bound = float(metric.paired_loss_lower_confidence_bound)
+        p_value = float(metric.paired_loss_p_value)
+        q_value = float(metric.fdr_q_value)
+    except (TypeError, ValueError):
+        return False
+    if not all(
+        math.isfinite(value)
+        for value in (
+            mean_advantage,
+            standard_error,
+            lower_bound,
+            p_value,
+            q_value,
+        )
+    ):
+        return False
+    return bool(
+        metric.tested_hypotheses == len(MARKET_SPECS)
+        and -1.0 <= mean_advantage <= 1.0
+        and 0.0 <= standard_error <= 1.0
+        and lower_bound > 0.0
+        and lower_bound <= mean_advantage + 1e-9
+        and 0.0 <= p_value <= 1.0
+        and p_value <= q_value + 1e-9
+        and 0.0 <= q_value <= VALIDATION_FDR_ALPHA
     )
 
 
@@ -1645,7 +1840,8 @@ def _walk_forward_market_records(
 def _validation_metrics_from_records(
     records: dict[str, dict[str, list[Any]]],
 ) -> dict[str, ValidationMetrics]:
-    metrics: dict[str, ValidationMetrics] = {}
+    prepared: dict[str, dict[str, Any]] = {}
+    p_values = {spec.key: 1.0 for spec in MARKET_SPECS}
     for spec in MARKET_SPECS:
         record = records[spec.key]
         probabilities = record["probabilities"]
@@ -1654,7 +1850,7 @@ def _validation_metrics_from_records(
         raw_probabilities = record["raw"]
         observations = len(probabilities)
         if observations == 0:
-            metrics[spec.key] = ValidationMetrics(0, None, None, None, None, False)
+            prepared[spec.key] = {"observations": 0}
             continue
         brier = _mean((probability - outcome) ** 2 for probability, outcome in zip(probabilities, outcomes))
         raw_brier = _mean(
@@ -1671,35 +1867,111 @@ def _validation_metrics_from_records(
             max_error_bin_mean,
         ) = _calibration_diagnostics(probabilities, outcomes)
         bin_threshold = adaptive_bin_threshold(max_error_bin_mean, max_error_bin_size)
+        (
+            paired_loss_mean,
+            paired_loss_standard_error,
+            paired_loss_lower_bound,
+            paired_loss_p_value,
+        ) = _paired_loss_statistics(probabilities, baselines, outcomes)
+        if paired_loss_p_value is not None:
+            p_values[spec.key] = paired_loss_p_value
+        prepared[spec.key] = {
+            "observations": observations,
+            "brier": brier,
+            "raw_brier": raw_brier,
+            "baseline_brier": baseline_brier,
+            "improvement": improvement,
+            "ece": ece,
+            "calibration_bins": calibration_bins,
+            "min_bin_size": min_bin_size,
+            "max_calibration_error": max_calibration_error,
+            "max_error_bin_size": max_error_bin_size,
+            "max_error_bin_mean": max_error_bin_mean,
+            "bin_threshold": bin_threshold,
+            "paired_loss_mean": paired_loss_mean,
+            "paired_loss_standard_error": paired_loss_standard_error,
+            "paired_loss_lower_bound": paired_loss_lower_bound,
+            "paired_loss_p_value": paired_loss_p_value,
+        }
+
+    q_values = _benjamini_hochberg_q_values(p_values)
+    hypothesis_count = len(MARKET_SPECS)
+    metrics: dict[str, ValidationMetrics] = {}
+    for spec in MARKET_SPECS:
+        values = prepared[spec.key]
+        observations = values["observations"]
+        if observations == 0:
+            metrics[spec.key] = ValidationMetrics(
+                0,
+                None,
+                None,
+                None,
+                None,
+                False,
+                tested_hypotheses=hypothesis_count,
+            )
+            continue
+        improvement = values["improvement"]
+        paired_loss_lower_bound = values["paired_loss_lower_bound"]
+        paired_loss_p_value = values["paired_loss_p_value"]
+        q_value = q_values[spec.key] if paired_loss_p_value is not None else None
+        statistical_evidence_passed = (
+            paired_loss_lower_bound is not None
+            and paired_loss_lower_bound > 0.0
+            and paired_loss_p_value is not None
+            and q_value is not None
+            and q_value <= VALIDATION_FDR_ALPHA
+        )
         passed = (
             observations >= MIN_VALIDATION_MATCHES
             and improvement is not None
-            and improvement >= 0.02
-            and ece <= MAX_EXPECTED_CALIBRATION_ERROR
-            and calibration_bins >= MIN_CALIBRATION_BINS
-            and min_bin_size >= MIN_CALIBRATION_BIN_SIZE
-            and max_calibration_error is not None
-            and max_calibration_error <= bin_threshold
+            and improvement >= MIN_RELATIVE_BRIER_IMPROVEMENT
+            and values["ece"] <= MAX_EXPECTED_CALIBRATION_ERROR
+            and values["calibration_bins"] >= MIN_CALIBRATION_BINS
+            and values["min_bin_size"] >= MIN_CALIBRATION_BIN_SIZE
+            and values["max_calibration_error"] is not None
+            and values["max_calibration_error"] <= values["bin_threshold"]
         )
         metrics[spec.key] = ValidationMetrics(
             observations=observations,
-            brier_score=round(brier, 6),
-            baseline_brier_score=round(baseline_brier, 6),
+            brier_score=round(values["brier"], 6),
+            baseline_brier_score=round(values["baseline_brier"], 6),
             relative_improvement=round(improvement, 6) if improvement is not None else None,
-            expected_calibration_error=round(ece, 6),
+            expected_calibration_error=round(values["ece"], 6),
             passed=passed,
-            calibration_bins=calibration_bins,
-            min_bin_size=min_bin_size,
+            calibration_bins=values["calibration_bins"],
+            min_bin_size=values["min_bin_size"],
             max_calibration_error=(
-                round(max_calibration_error, 6)
-                if max_calibration_error is not None else None
+                round(values["max_calibration_error"], 6)
+                if values["max_calibration_error"] is not None else None
             ),
-            max_error_bin_size=max_error_bin_size,
+            max_error_bin_size=values["max_error_bin_size"],
             max_error_bin_mean_probability=(
-                round(max_error_bin_mean, 6)
-                if max_error_bin_mean is not None else None
+                round(values["max_error_bin_mean"], 6)
+                if values["max_error_bin_mean"] is not None else None
             ),
-            raw_brier_score=round(raw_brier, 6),
+            raw_brier_score=round(values["raw_brier"], 6),
+            paired_loss_mean=(
+                round(values["paired_loss_mean"], 10)
+                if values["paired_loss_mean"] is not None else None
+            ),
+            paired_loss_hac_standard_error=(
+                round(values["paired_loss_standard_error"], 10)
+                if values["paired_loss_standard_error"] is not None else None
+            ),
+            paired_loss_lower_confidence_bound=(
+                round(paired_loss_lower_bound, 10)
+                if paired_loss_lower_bound is not None else None
+            ),
+            paired_loss_p_value=(
+                round(paired_loss_p_value, 10)
+                if paired_loss_p_value is not None else None
+            ),
+            fdr_q_value=(round(q_value, 10) if q_value is not None else None),
+            tested_hypotheses=hypothesis_count,
+            statistical_release_passed=(
+                passed and statistical_evidence_passed
+            ),
         )
     return metrics
 
@@ -1777,8 +2049,11 @@ def build_fixture_candidates(
     *,
     team_history: Optional[Iterable[dict[str, Any]]] = None,
     model_scope: str = MODEL_SCOPE_SAME_COMPETITION,
+    allow_above_challenge_probability: bool = False,
 ) -> list[ChallengeCandidate]:
     """Build price-independent candidates for one fixture."""
+    if not isinstance(allow_above_challenge_probability, bool):
+        raise ValueError("allow_above_challenge_probability must be boolean")
     if model_scope not in {
         MODEL_SCOPE_SAME_COMPETITION,
         MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
@@ -1848,8 +2123,12 @@ def build_fixture_candidates(
         blocked: list[str] = []
         if model_scope == MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED:
             blocked.append(UNVALIDATED_TRANSFER_REASON)
-        if not 0.58 <= active <= 0.92:
-            blocked.append("Modellwahrscheinlichkeit außerhalb des Challenge-Korridors")
+        if active < 0.58 or (
+            active > 0.92 and not allow_above_challenge_probability
+        ):
+            blocked.append(
+                "Modellwahrscheinlichkeit außerhalb des Challenge-Korridors"
+            )
         if conservative < 0.55:
             blocked.append("Konservative Wahrscheinlichkeit unter 55 %")
         if spread_pp > 12.0:
@@ -1868,6 +2147,11 @@ def build_fixture_candidates(
             f"Venue-Stichprobe {venue_samples[0]}/{venue_samples[1]}",
             f"Saison/Form-Spanne {spread_pp:.1f} PP",
         ]
+        if active > 0.92:
+            reasons.append(
+                "Sehr hohe Modellwahrscheinlichkeit; die konkrete Quote entscheidet "
+                "über den Wettwert"
+            )
         xg_coverage = float(model.get("xg_coverage", 0.0) or 0.0)
         if xg_coverage >= XG_MIN_COVERAGE:
             reasons.append(f"xG-Hybrid aktiv (Abdeckung {xg_coverage * 100:.0f} %)")
@@ -2389,6 +2673,52 @@ def extract_lineup_display(
     return result
 
 
+def _context_probability_integration_summary(
+    injuries: dict[str, Any],
+    weather: dict[str, Any],
+    lineups: dict[str, Any],
+) -> dict[str, Any]:
+    """Disclose whether context changed the numerical model probability.
+
+    The current provider payloads contain verified veto decisions, weather
+    thresholds and confirmed player identities, but no historically validated
+    candidate-specific effect sizes.  Turning those fields into probability
+    points would invent weights.  Keep the existing fail-closed release gates
+    and record explicitly that the numerical forecast was not adjusted.
+    """
+
+    injury_axis = (
+        "verified_veto_only"
+        if injuries.get("impact_assessment_complete") is True
+        else "effect_assessment_incomplete"
+    )
+    weather_axis = (
+        "validated_threshold_veto_only"
+        if weather.get("availability") == "available"
+        else "weather_unavailable"
+    )
+    lineup_axis = (
+        "confirmed_identity_only"
+        if lineups.get("status") == "passed"
+        else "lineup_effect_unavailable"
+    )
+    return {
+        "status": "not_adjusted",
+        "applied": False,
+        "adjustment_pp": 0.0,
+        "model": "veto_only_no_validated_effect_size",
+        "axes": {
+            "injuries": injury_axis,
+            "weather": weather_axis,
+            "lineups": lineup_axis,
+        },
+        "reason": (
+            "Kontext wurde als verifiziertes Veto geprüft; für eine Änderung "
+            "der Modellwahrscheinlichkeit fehlen validierte Effektgrößen"
+        ),
+    }
+
+
 def apply_candidate_context(
     candidate: ChallengeCandidate,
     *,
@@ -2400,10 +2730,13 @@ def apply_candidate_context(
     now: Optional[datetime] = None,
     require_lineups: bool = False,
 ) -> ChallengeCandidate:
-    """Attach non-price context as veto gates without altering probability.
+    """Attach non-price context and disclose its numerical model treatment.
 
     ``require_lineups=True`` ist ein explizites Opt-in des jeweiligen
-    Workflows. Sonst bleiben Aufstellungen ergänzende Anzeige-Evidenz.
+    Workflows. Sonst bleiben Aufstellungen ergänzende Anzeige-Evidenz. Current
+    context fields are validated veto/coverage inputs, not calibrated effect
+    sizes, so the model probability remains unchanged and this is persisted in
+    ``probability_integration``.
     """
     now_utc = now or datetime.now(timezone.utc)
     if now_utc.tzinfo is None:
@@ -2548,6 +2881,11 @@ def apply_candidate_context(
     injuries_summary = {**injuries_summary, "checked_at": checked_at}
     weather_summary = {**weather_summary, "checked_at": checked_at}
     lineup_summary = {**lineup_summary, "checked_at": checked_at}
+    probability_integration = _context_probability_integration_summary(
+        injuries_summary,
+        weather_summary,
+        lineup_summary,
+    )
 
     lineup_ok = lineup_passed or not require_lineups
     forecast_passed = (
@@ -2640,6 +2978,7 @@ def apply_candidate_context(
         "injuries": injuries_summary,
         "weather": weather_summary,
         "lineups": lineup_summary,
+        "probability_integration": probability_integration,
         "blocked_reasons": blocked,
     }
     return candidate
@@ -2770,6 +3109,64 @@ def select_basis_forecasts(
         max_candidates=max_candidates,
         basic_only=True,
     )
+
+
+def select_wettfinder_catalog(
+    candidates: Iterable[ChallengeCandidate],
+    max_candidates: Optional[int] = None,
+    *,
+    require_release: bool = False,
+    max_per_fixture: Optional[int] = None,
+) -> list[ChallengeCandidate]:
+    """Select the normal consumer catalog without market-name scarcity gates.
+
+    Unlike the challenge-mode shortlist, this Wettfinder path deliberately
+    keeps multiple markets per fixture and never filters on
+    ``market_is_basic_forecast``.  Model/context credibility remains mandatory;
+    ``require_release=True`` additionally applies the strict release contract.
+    A caller may cap processing volume and the number of markets per fixture,
+    but both caps are applied only after the common evidence ranking and never
+    by market type.  The fixture cap is applied before the global cap so one
+    match cannot crowd every other match out of the catalog.
+    """
+
+    if not isinstance(require_release, bool):
+        raise ValueError("require_release must be boolean")
+    if max_candidates is not None and (
+        isinstance(max_candidates, bool)
+        or not isinstance(max_candidates, int)
+        or max_candidates < 1
+    ):
+        raise ValueError("max_candidates must be a positive integer or None")
+    if max_per_fixture is not None and (
+        isinstance(max_per_fixture, bool)
+        or not isinstance(max_per_fixture, int)
+        or max_per_fixture < 1
+    ):
+        raise ValueError("max_per_fixture must be a positive integer or None")
+    credible = (
+        candidate_is_wettfinder_release_credible
+        if require_release
+        else candidate_is_forecast_credible
+    )
+    eligible = [candidate for candidate in candidates if credible(candidate)]
+    eligible.sort(
+        key=lambda candidate: (
+            *(-value for value in candidate_selection_rank(candidate)),
+            candidate.candidate_id,
+        ),
+    )
+    if max_per_fixture is not None:
+        fixture_counts: dict[int, int] = {}
+        capped: list[ChallengeCandidate] = []
+        for candidate in eligible:
+            count = fixture_counts.get(candidate.fixture_id, 0)
+            if count >= max_per_fixture:
+                continue
+            fixture_counts[candidate.fixture_id] = count + 1
+            capped.append(candidate)
+        eligible = capped
+    return eligible if max_candidates is None else eligible[:max_candidates]
 
 
 def _candidate_model_contract_is_valid(candidate: ChallengeCandidate) -> bool:
@@ -2906,6 +3303,22 @@ def candidate_is_credible(candidate: ChallengeCandidate) -> bool:
         and candidate.context.get("passed") is True
         and candidate.context.get("release_context_complete") is True
         and candidate.context.get("release_eligible") is True
+    )
+
+
+def candidate_is_wettfinder_release_credible(
+    candidate: ChallengeCandidate,
+) -> bool:
+    """Apply paired-loss/FDR evidence only to normal Wettfinder release.
+
+    Forecast visibility and the explicitly excluded challenge/15K rules remain
+    unchanged. This extra contract is used by the normal catalog only when its
+    caller asks for a strict, price-checkable release candidate.
+    """
+
+    return bool(
+        candidate_is_credible(candidate)
+        and _credible_statistical_release_validation(candidate.validation)
     )
 
 
@@ -3362,6 +3775,7 @@ __all__ = [
     "MAX_CHALLENGE_STAKE_FRACTION",
     "MAX_TICKET_LEGS",
     "MIN_CHALLENGE_STAKE_FRACTION",
+    "MIN_RELATIVE_BRIER_IMPROVEMENT",
     "MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST",
     "MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED",
     "MODEL_SCOPE_SAME_COMPETITION",
@@ -3371,12 +3785,14 @@ __all__ = [
     "TARGET_ODDS_MAX",
     "TARGET_ODDS_MIN",
     "UNVALIDATED_TRANSFER_REASON",
+    "VALIDATION_FDR_ALPHA",
     "ValidationMetrics",
     "apply_candidate_context",
     "build_fixture_candidates",
     "build_market_model_artifact",
     "candidate_is_forecast_credible",
     "candidate_is_credible",
+    "candidate_is_wettfinder_release_credible",
     "candidate_context_summary",
     "candidate_model_utility",
     "candidate_selection_rank",
@@ -3396,6 +3812,7 @@ __all__ = [
     "risk_managed_ticket_stake",
     "select_forecast_shortlist",
     "select_basis_forecasts",
+    "select_wettfinder_catalog",
     "ticket_stake",
     "ticket_dependency_factor",
     "validate_league_markets",

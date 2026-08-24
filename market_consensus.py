@@ -1,9 +1,11 @@
 """Conservative multi-bookmaker reference prices for exact football markets.
 
 Model probabilities remain independent from bookmaker prices. This module is
-only the downstream price layer: it accepts a quote when API-Football exposes
-the exact same market and selection, then uses a lower-quartile price instead
-of the best available price. Unsupported combinations are never synthesized.
+only the downstream price layer: it accepts a quote when a provider exposes
+the exact same event, market and selection.  The lower quartile is a trust
+gate, while any price handed to a betting decision is one actually observed
+bookmaker offer near that gate. Unsupported combinations and prices are never
+synthesized.
 """
 
 from __future__ import annotations
@@ -31,14 +33,19 @@ REFERENCE_SOURCE = "API-Football Mehrbuchmacher"
 ODDS_API_REFERENCE_SOURCE = "The Odds API Mehrbuchmacher"
 ODDS_API_BASE_URL = "https://api.the-odds-api.com/v4"
 ODDS_API_EVENT_TOLERANCE = timedelta(hours=2)
+FOOTBALL_QUOTE_START_TOLERANCE = timedelta(minutes=5)
+TENNIS_QUOTE_START_TOLERANCE = timedelta(minutes=30)
 MAX_TENNIS_EVENT_DISCOVERY_KEYS = 8
 TENNIS_EVENT_DISCOVERY_TIMEOUT = 5
-# A current retrieval can legitimately contain a provider price whose source
-# timestamp did not change for several hours. Both clocks matter: the app must
-# have fetched the market recently, while the provider observation itself may
-# be older but never older than one day.
+# The established reference window belongs to the separate 15K workflow and
+# is also enforced by its append-only ledger. Keep that contract unchanged.
 REFERENCE_FETCH_MAX_AGE = timedelta(minutes=90)
 REFERENCE_QUOTE_MAX_AGE = timedelta(hours=24)
+# A normal Wettfinder recommendation must be realistically executable when the
+# user sees it. Its retrieval and point clocks are deliberately much shorter;
+# they must not silently tighten the independent 15K challenge contract.
+WETTFINDER_FETCH_MAX_AGE = timedelta(minutes=35)
+WETTFINDER_QUOTE_MAX_AGE = timedelta(minutes=45)
 MIN_REFERENCE_BOOKMAKERS = 3
 
 # Keep obvious placeholder entries and accidental feed labels out of the
@@ -51,6 +58,8 @@ EXCLUDED_BOOKMAKERS = frozenset({"", "none", "null", "n/a"})
 class QuotePoint:
     bookmaker: str
     odds: float
+    bookmaker_id: Optional[str] = None
+    observed_at: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -70,10 +79,17 @@ class MarketConsensus:
     source: str
     points: tuple[QuotePoint, ...]
     provider_event_id: Optional[str] = None
+    scheduled_start: Optional[str] = None
+    event_home: Optional[str] = None
+    event_away: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["points"] = [asdict(point) for point in self.points]
+        executable = self.executable_point
+        payload["executable_quote"] = (
+            asdict(executable) if executable is not None else None
+        )
         return payload
 
     @classmethod
@@ -81,10 +97,14 @@ class MarketConsensus:
         if not isinstance(payload, Mapping):
             return None
         try:
+            legacy_quoted_at = (
+                _utc_iso(payload.get("quoted_at"))
+                if payload.get("quoted_at")
+                else None
+            )
             points = tuple(
-                QuotePoint(
-                    bookmaker=str(point["bookmaker"]).strip(),
-                    odds=validate_decimal_odds(point["odds"]),
+                _quote_point_from_payload(
+                    point,
                 )
                 for point in payload.get("points", ())
                 if isinstance(point, Mapping)
@@ -109,17 +129,28 @@ class MarketConsensus:
                 lowest_odds=validate_decimal_odds(payload.get("lowest_odds")),
                 best_odds=validate_decimal_odds(payload.get("best_odds")),
                 bookmaker_count=_positive_int(payload.get("bookmaker_count")),
-                quoted_at=(
-                    _utc_iso(payload.get("quoted_at"))
-                    if payload.get("quoted_at")
-                    else None
-                ),
+                quoted_at=legacy_quoted_at,
                 fetched_at=_utc_iso(payload.get("fetched_at")),
                 source=_required_text(payload.get("source")),
                 points=points,
                 provider_event_id=(
                     _required_text(payload.get("provider_event_id"))
                     if payload.get("provider_event_id") is not None
+                    else None
+                ),
+                scheduled_start=(
+                    _utc_iso(payload.get("scheduled_start"))
+                    if payload.get("scheduled_start") is not None
+                    else None
+                ),
+                event_home=(
+                    _required_text(payload.get("event_home"))
+                    if payload.get("event_home") is not None
+                    else None
+                ),
+                event_away=(
+                    _required_text(payload.get("event_away"))
+                    if payload.get("event_away") is not None
                     else None
                 ),
             )
@@ -139,7 +170,7 @@ class MarketConsensus:
                 and quote.provider_event_id is None
             )
             or quote.bookmaker_count != len(quote.points)
-            or len({_normalize(point.bookmaker) for point in quote.points})
+            or len({_quote_point_identity(point) for point in quote.points})
             != len(quote.points)
             or not quote.points
         ):
@@ -159,9 +190,32 @@ class MarketConsensus:
             for actual, calculated in zip(values, expected)
         ):
             return None
+        point_times = [
+            _point_observed_at(point, quote.quoted_at)
+            for point in quote.points
+        ]
+        if any(observed is None for observed in point_times):
+            return None
+        latest = max(
+            observed for observed in point_times if observed is not None
+        )
+        quoted = _parse_utc(quote.quoted_at)
+        if quoted is None or not _same_moment(quoted, latest):
+            return None
+        serialized_executable = payload.get("executable_quote")
+        if serialized_executable is not None:
+            if not isinstance(serialized_executable, Mapping):
+                return None
+            loaded_executable = _quote_point_from_payload(
+                serialized_executable,
+            )
+            if loaded_executable != quote.executable_point:
+                return None
         return quote
 
     def is_fresh(self, now: Optional[datetime] = None) -> bool:
+        """Apply the established 15K aggregate quote/fetch window."""
+
         quoted = _parse_utc(self.quoted_at)
         fetched = _parse_utc(self.fetched_at)
         if quoted is None or fetched is None:
@@ -174,9 +228,60 @@ class MarketConsensus:
             and timedelta(minutes=-1) <= fetch_age <= REFERENCE_FETCH_MAX_AGE
         )
 
+    def is_wettfinder_fresh(self, now: Optional[datetime] = None) -> bool:
+        """Require every contributing offer to satisfy the normal live window."""
+
+        fetched = _parse_utc(self.fetched_at)
+        point_times = [
+            _point_observed_at(point, self.quoted_at)
+            for point in self.points
+        ]
+        if fetched is None or not point_times or any(
+            observed is None for observed in point_times
+        ):
+            return False
+        current = _as_utc(now or datetime.now(timezone.utc))
+        fetch_age = current - fetched
+        return (
+            timedelta(minutes=-1) <= fetch_age <= WETTFINDER_FETCH_MAX_AGE
+            and all(
+                timedelta(minutes=-1)
+                <= current - observed
+                <= WETTFINDER_QUOTE_MAX_AGE
+                for observed in point_times
+                if observed is not None
+            )
+            and all(
+                timedelta(minutes=-1)
+                <= fetched - observed
+                <= WETTFINDER_QUOTE_MAX_AGE
+                for observed in point_times
+                if observed is not None
+            )
+        )
+
     @property
     def has_consensus(self) -> bool:
         return self.bookmaker_count >= MIN_REFERENCE_BOOKMAKERS
+
+    @property
+    def executable_point(self) -> Optional[QuotePoint]:
+        """Return the real offer closest at/above the conservative Q25 gate."""
+
+        eligible = [
+            point
+            for point in self.points
+            if point.odds + 1e-9 >= self.conservative_odds
+        ]
+        if not eligible:
+            return None
+        return min(
+            eligible,
+            key=lambda point: (
+                point.odds,
+                _quote_point_identity(point),
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -184,6 +289,9 @@ class ReferencePriceStatus:
     code: str
     label: str
     usable_odds: Optional[float]
+    bookmaker: Optional[str] = None
+    bookmaker_id: Optional[str] = None
+    observed_at: Optional[str] = None
 
 
 def reference_price_status(
@@ -241,6 +349,220 @@ def reference_price_status(
     )
 
 
+def _wettfinder_provider_prefix(quote: MarketConsensus) -> Optional[str]:
+    """Return the stable ID namespace required for a normal finder quote."""
+
+    if quote.source == REFERENCE_SOURCE:
+        return "api-football:"
+    if quote.source == ODDS_API_REFERENCE_SOURCE:
+        return "odds-api:"
+    return None
+
+
+def _wettfinder_fetch_is_fresh(
+    quote: MarketConsensus,
+    now: Optional[datetime] = None,
+) -> bool:
+    fetched = _parse_utc(quote.fetched_at)
+    if fetched is None:
+        return False
+    current = _as_utc(now or datetime.now(timezone.utc))
+    age = current - fetched
+    return timedelta(minutes=-1) <= age <= WETTFINDER_FETCH_MAX_AGE
+
+
+def _wettfinder_identified_points(
+    quote: MarketConsensus,
+) -> tuple[QuotePoint, ...]:
+    provider_prefix = _wettfinder_provider_prefix(quote)
+    if provider_prefix is None:
+        return ()
+    return tuple(
+        point
+        for point in quote.points
+        if (
+            _normalize(point.bookmaker_id).startswith(provider_prefix)
+            and _normalize(point.bookmaker_id)
+            .removeprefix(provider_prefix)
+            .strip()
+            and _parse_utc(point.observed_at) is not None
+        )
+    )
+
+
+def wettfinder_consensus(
+    quote: Optional[MarketConsensus],
+    *,
+    now: Optional[datetime] = None,
+) -> Optional[MarketConsensus]:
+    """Rebuild the normal consensus from current, provider-bound offers.
+
+    The shared parser deliberately retains the wider 15K observation window.
+    One old or unidentified point must not poison an otherwise valid normal
+    three-book market, so Q25, median, best and the executable offer are
+    recomputed only from the current provider-native subset.
+    """
+
+    if not isinstance(quote, MarketConsensus):
+        return None
+    fetched = _parse_utc(quote.fetched_at)
+    if fetched is None:
+        return None
+    current = _as_utc(now or datetime.now(timezone.utc))
+    points = tuple(
+        point
+        for point in _wettfinder_identified_points(quote)
+        if (
+            timedelta(minutes=-1)
+            <= current - _parse_utc(point.observed_at)
+            <= WETTFINDER_QUOTE_MAX_AGE
+            and timedelta(minutes=-1)
+            <= fetched - _parse_utc(point.observed_at)
+            <= WETTFINDER_QUOTE_MAX_AGE
+        )
+    )
+    summary = _summary_prices(sorted(point.odds for point in points))
+    if summary is None:
+        return None
+    lowest, conservative, consensus, best = summary
+    observed = [
+        _parse_utc(point.observed_at)
+        for point in points
+        if _parse_utc(point.observed_at) is not None
+    ]
+    return MarketConsensus(
+        fixture_id=quote.fixture_id,
+        candidate_id=quote.candidate_id,
+        market_key=quote.market_key,
+        bet_name=quote.bet_name,
+        value_name=quote.value_name,
+        consensus_odds=consensus,
+        conservative_odds=conservative,
+        lowest_odds=lowest,
+        best_odds=best,
+        bookmaker_count=len(points),
+        quoted_at=max(observed).isoformat() if observed else None,
+        fetched_at=quote.fetched_at,
+        source=quote.source,
+        points=points,
+        provider_event_id=quote.provider_event_id,
+        scheduled_start=quote.scheduled_start,
+        event_home=quote.event_home,
+        event_away=quote.event_away,
+    )
+
+
+def _wettfinder_quote_has_execution_proof(
+    quote: MarketConsensus,
+) -> bool:
+    """Require provider-native identity and clocks for every consensus point.
+
+    Legacy snapshots intentionally remain deserializable through ``from_dict``.
+    They can still explain an observed price, but aggregate timestamps and
+    bookmaker names are not enough evidence for an actionable normal
+    Wettfinder decision.
+    """
+
+    provider_prefix = _wettfinder_provider_prefix(quote)
+    if provider_prefix is None or _parse_utc(quote.scheduled_start) is None:
+        return False
+    stable_ids: set[str] = set()
+    for point in quote.points:
+        bookmaker_id = _normalize(point.bookmaker_id)
+        if (
+            not bookmaker_id.startswith(provider_prefix)
+            or not bookmaker_id.removeprefix(provider_prefix).strip()
+            or _parse_utc(point.observed_at) is None
+        ):
+            return False
+        stable_ids.add(bookmaker_id)
+    executable = quote.executable_point
+    return (
+        len(stable_ids) >= MIN_REFERENCE_BOOKMAKERS
+        and executable is not None
+        and _normalize(executable.bookmaker_id) in stable_ids
+        and _parse_utc(executable.observed_at) is not None
+    )
+
+
+def wettfinder_reference_price_status(
+    quote: Optional[MarketConsensus],
+    minimum_odds: Optional[float],
+    *,
+    candidate: object = None,
+    now: Optional[datetime] = None,
+) -> ReferencePriceStatus:
+    """Classify a quote under the normal Wettfinder execution contract.
+
+    The established ``reference_price_status`` API deliberately remains
+    unchanged for the separate 15K workflow. Normal Wettfinder callers use
+    this stricter layer: an otherwise playable price is actionable only when
+    the event/selection is exactly bound (when a candidate is supplied), the
+    event start is present, and every contributing bookmaker has a stable
+    provider ID plus its own parseable observation timestamp.
+    """
+
+    if quote is not None and candidate is not None:
+        modeled_selection = str(
+            _candidate_value(candidate, "selection") or ""
+        ).strip()
+        if not modeled_selection or not quote_matches_candidate(
+            quote,
+            candidate,
+        ):
+            return ReferencePriceStatus(
+                "UNAVAILABLE",
+                "Marktquote ist nicht exakt an diese Auswahl gebunden",
+                None,
+            )
+    if quote is None:
+        return reference_price_status(None, minimum_odds, now=now)
+    if not _wettfinder_fetch_is_fresh(quote, now):
+        return ReferencePriceStatus(
+            "STALE",
+            "Marktvergleich ist nicht mehr aktuell",
+            None,
+        )
+    identified_points = _wettfinder_identified_points(quote)
+    effective_quote = wettfinder_consensus(quote, now=now)
+    if effective_quote is None:
+        if identified_points:
+            return ReferencePriceStatus(
+                "STALE",
+                "Marktvergleich ist nicht mehr aktuell",
+                None,
+            )
+        return ReferencePriceStatus(
+            "UNAVAILABLE",
+            "Quotenstand hat keinen vollstaendigen Anbieter- und Zeitbeleg",
+            None,
+        )
+    status = reference_price_status(effective_quote, minimum_odds, now=now)
+    if status.code != "PLAYABLE":
+        return status
+    if not _wettfinder_quote_has_execution_proof(effective_quote):
+        return ReferencePriceStatus(
+            "UNAVAILABLE",
+            "Quotenstand hat keinen vollstaendigen Anbieter- und Zeitbeleg",
+            None,
+        )
+    executable = effective_quote.executable_point
+    if executable is None:
+        return ReferencePriceStatus(
+            "UNAVAILABLE",
+            "Es liegt kein konkret ausfuehrbares Anbieterangebot vor",
+            None,
+        )
+    return ReferencePriceStatus(
+        "PLAYABLE",
+        status.label,
+        executable.odds,
+        bookmaker=executable.bookmaker,
+        bookmaker_id=executable.bookmaker_id,
+        observed_at=executable.observed_at or quote.quoted_at,
+    )
+
+
 def _required_text(value: object) -> str:
     text = str(value or "").strip()
     if not text or len(text) > 300:
@@ -282,6 +604,83 @@ def _utc_iso(value: object) -> str:
 
 def _normalize(value: object) -> str:
     return " ".join(str(value or "").strip().casefold().split())
+
+
+def _same_moment(left: datetime, right: datetime) -> bool:
+    return abs((left - right).total_seconds()) <= 1e-6
+
+
+def _quote_point_from_payload(
+    payload: Mapping[str, object],
+) -> QuotePoint:
+    bookmaker = _required_text(payload.get("bookmaker"))
+    bookmaker_id = (
+        _required_text(payload.get("bookmaker_id"))
+        if payload.get("bookmaker_id") is not None
+        else None
+    )
+    # Old saved snapshots did not contain point-level timestamps. Keep them
+    # readable and use their aggregate quoted_at only during freshness checks;
+    # newly fetched points always carry their own provider observation clock.
+    raw_observed = payload.get("observed_at")
+    observed_at = (
+        _utc_iso(raw_observed)
+        if raw_observed is not None
+        else None
+    )
+    return QuotePoint(
+        bookmaker=bookmaker,
+        odds=validate_decimal_odds(payload.get("odds")),
+        bookmaker_id=bookmaker_id,
+        observed_at=observed_at,
+    )
+
+
+def _quote_point_identity(point: QuotePoint) -> str:
+    stable = _normalize(point.bookmaker_id)
+    if stable:
+        return f"id:{stable}"
+    return f"name:{_normalize(point.bookmaker)}"
+
+
+def _point_observed_at(
+    point: QuotePoint,
+    legacy_quoted_at: Optional[str],
+) -> Optional[datetime]:
+    return _parse_utc(point.observed_at) or _parse_utc(legacy_quoted_at)
+
+
+def _provider_bookmaker_id(
+    provider: Mapping[str, object],
+    *,
+    source_prefix: str,
+    fields: tuple[str, ...],
+) -> Optional[str]:
+    for field in fields:
+        raw = provider.get(field)
+        if isinstance(raw, bool) or raw is None:
+            continue
+        text = str(raw).strip()
+        if text:
+            return f"{source_prefix}:{text.casefold()}"
+    return None
+
+
+def _provider_fixture_start(fixture: Mapping[str, object]) -> Optional[datetime]:
+    parsed = _parse_utc(fixture.get("date"))
+    if parsed is not None:
+        return parsed
+    timestamp = fixture.get("timestamp")
+    if isinstance(timestamp, bool):
+        return None
+    try:
+        number = int(timestamp)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    try:
+        return datetime.fromtimestamp(number, tz=timezone.utc)
+    except (OSError, OverflowError, ValueError):
+        return None
 
 
 def _identity_name(value: object) -> str:
@@ -377,6 +776,112 @@ def _candidate_value(candidate: object, field: str) -> object:
     return getattr(candidate, field, None)
 
 
+def _candidate_start(candidate: object) -> Optional[datetime]:
+    for field in ("scheduled_start", "kickoff", "start_time"):
+        value = _candidate_value(candidate, field)
+        if value is not None:
+            return _parse_utc(value)
+    return None
+
+
+def _candidate_quote_provider_event_id(candidate: object) -> Optional[str]:
+    """Return only an ID explicitly belonging to the quote provider.
+
+    Generic fixture/provider IDs can come from a different data source and
+    must not be compared with The Odds API event IDs. The automation persists
+    this dedicated field after its initial exact team/start discovery match.
+    """
+
+    for field in ("quote_provider_event_id", "odds_provider_event_id"):
+        text = str(_candidate_value(candidate, field) or "").strip()
+        if text:
+            return text
+    return None
+
+
+def _selection_has_exact_line(selection: str, expected_line: str) -> bool:
+    values = re.findall(r"\d+(?:[.,]\d+)?", selection)
+    normalized = {value.replace(",", ".") for value in values}
+    return normalized == {expected_line}
+
+
+def _football_candidate_selection_matches(
+    candidate: object,
+    market_key: str,
+) -> bool:
+    raw = _candidate_value(candidate, "selection")
+    if raw is None:
+        # Legacy in-memory callers used only candidate_id/fixture_id/key. New
+        # production rows always include the modeled selection and are checked.
+        return True
+    selected = _identity_name(raw)
+    if not selected:
+        return False
+    aliases = {
+        "RESULT_HOME": {"home", "heimsieg", "1"},
+        "RESULT_DRAW": {"draw", "unentschieden", "x"},
+        "RESULT_AWAY": {"away", "auswartssieg", "2"},
+        "DC_1X": {"1x", "home draw", "heim unentschieden"},
+        "DC_X2": {"x2", "draw away", "unentschieden auswarts"},
+        "DC_12": {"12", "home away", "heim auswarts"},
+        "BTTS_YES": {"yes", "ja", "btts ja"},
+        "BTTS_NO": {"no", "nein", "btts nein"},
+    }
+    if market_key in aliases:
+        if selected in aliases[market_key]:
+            return True
+        home = _identity_name(_candidate_value(candidate, "home_team"))
+        away = _identity_name(_candidate_value(candidate, "away_team"))
+        if market_key == "RESULT_HOME" and home:
+            return selected in {home, f"sieg {home}"}
+        if market_key == "RESULT_AWAY" and away:
+            return selected in {away, f"sieg {away}"}
+        return False
+
+    expected_line = _line_from_key(market_key)
+    if expected_line is None:
+        return False
+    wants_over = "_OVER_" in market_key
+    wants_under = "_UNDER_" in market_key
+    if wants_over == wants_under:
+        return False
+    words = set(selected.split())
+    direction_matches = (
+        bool(words & {"over", "uber"})
+        if wants_over
+        else bool(words & {"under", "unter"})
+    )
+    return direction_matches and _selection_has_exact_line(
+        str(raw),
+        expected_line,
+    )
+
+
+def _event_start_matches(
+    quote: MarketConsensus,
+    candidate: object,
+    tolerance: timedelta,
+) -> bool:
+    quote_start = _parse_utc(quote.scheduled_start)
+    candidate_start = _candidate_start(candidate)
+    if quote_start is None and candidate_start is None:
+        # Backwards-compatible path for old saved snapshots. Newly fetched
+        # provider quotes always contain a provider event start.
+        return True
+    if quote_start is None and all(
+        point.observed_at is None for point in quote.points
+    ):
+        # Legacy serialized/manual consensus objects predate event starts and
+        # point clocks. They remain readable during migration; every newly
+        # parsed provider quote has both and therefore cannot use this path.
+        return True
+    return (
+        quote_start is not None
+        and candidate_start is not None
+        and abs(quote_start - candidate_start) <= tolerance
+    )
+
+
 def quote_matches_candidate(
     quote: object,
     candidate: object,
@@ -385,8 +890,9 @@ def quote_matches_candidate(
 
     The common candidate/market identity is mandatory for every sport.
     Football additionally requires the same fixture and API-Football source;
-    Tennis accepts only an event-backed The Odds API H2H quote. Unknown sports
-    get no inferred provider identity beyond the common exact fields.
+    Tennis accepts only an event-backed The Odds API H2H quote with exact
+    participants and start binding. Unknown sports never inherit a quote merely
+    because a candidate ID happens to match.
     """
     if not isinstance(quote, MarketConsensus):
         return False
@@ -429,8 +935,18 @@ def quote_matches_candidate(
             fixture_is_valid
             and quote.fixture_id == fixture_id
             and quote.source == REFERENCE_SOURCE
+            and sport in {"", "fussball", "fußball", "football"}
+            and _event_start_matches(
+                quote,
+                candidate,
+                FOOTBALL_QUOTE_START_TOLERANCE,
+            )
             and _normalize(quote.bet_name) == _normalize(bet_name)
             and _normalize(quote.value_name) == _normalize(value_name)
+            and _football_candidate_selection_matches(
+                candidate,
+                market_key,
+            )
         )
     if is_tennis:
         selected = _identity_name(
@@ -440,17 +956,77 @@ def quote_matches_candidate(
             _identity_name(_candidate_value(candidate, "competitor_a")),
             _identity_name(_candidate_value(candidate, "competitor_b")),
         }
+        quoted_competitors = {
+            _identity_name(quote.event_home),
+            _identity_name(quote.event_away),
+        }
+        expected_provider_event_id = _candidate_quote_provider_event_id(
+            candidate
+        )
         return (
             market_key == "H2H"
             and quote.fixture_id is None
             and quote.source == ODDS_API_REFERENCE_SOURCE
+            and sport == "tennis"
             and isinstance(quote.provider_event_id, str)
             and bool(quote.provider_event_id.strip())
+            and (
+                expected_provider_event_id is None
+                or quote.provider_event_id == expected_provider_event_id
+            )
+            and _normalize(quote.bet_name) == "h2h"
             and bool(selected)
+            and len(competitors) == 2
             and selected in competitors
+            and quoted_competitors == competitors
+            and _event_start_matches(
+                quote,
+                candidate,
+                TENNIS_QUOTE_START_TOLERANCE,
+            )
             and _identity_name(quote.value_name) == selected
         )
-    return True
+    return False
+
+
+def challenge_quote_matches_candidate(
+    quote: object,
+    candidate: object,
+) -> bool:
+    """Apply the established fixture/market binding used by the 15K mode.
+
+    The normal Wettfinder intentionally adds selection, event-start and
+    provider-execution proof. Those new release conditions must not
+    retroactively alter the separate 15K challenge contract.
+    """
+
+    if not isinstance(quote, MarketConsensus):
+        return False
+    candidate_id = str(
+        _candidate_value(candidate, "candidate_id") or ""
+    ).strip()
+    market_key = str(
+        _candidate_value(candidate, "market_key") or ""
+    ).strip().upper()
+    fixture_id = _candidate_value(candidate, "fixture_id")
+    target = exact_market_target(market_key)
+    if (
+        not candidate_id
+        or target is None
+        or isinstance(fixture_id, bool)
+        or not isinstance(fixture_id, int)
+        or fixture_id <= 0
+        or quote.candidate_id != candidate_id
+        or quote.market_key.strip().upper() != market_key
+    ):
+        return False
+    bet_name, value_name = target
+    return (
+        quote.fixture_id == fixture_id
+        and quote.source == REFERENCE_SOURCE
+        and _normalize(quote.bet_name) == _normalize(bet_name)
+        and _normalize(quote.value_name) == _normalize(value_name)
+    )
 
 
 def _observation_is_current(
@@ -481,6 +1057,7 @@ def parse_fixture_consensus(
         dict[str, tuple[QuotePoint, datetime]],
     ] = {}
     fixture_ids: set[int] = set()
+    fixture_starts: dict[int, Optional[datetime]] = {}
     for entry in response:
         if not isinstance(entry, Mapping):
             continue
@@ -493,6 +1070,20 @@ def parse_fixture_consensus(
             or fixture_id <= 0
         ):
             continue
+        fixture_start = _provider_fixture_start(fixture)
+        if fixture_id not in fixture_starts:
+            fixture_starts[fixture_id] = fixture_start
+        else:
+            previous_start = fixture_starts[fixture_id]
+            if (
+                previous_start is None
+                or fixture_start is None
+                or abs(previous_start - fixture_start)
+                > FOOTBALL_QUOTE_START_TOLERANCE
+            ):
+                # Preserve the legacy fixture-ID quote for 15K, but remove the
+                # start proof so the normal Wettfinder remains fail-closed.
+                fixture_starts[fixture_id] = None
         fixture_ids.add(fixture_id)
         update = _parse_utc(entry.get("update"))
         bookmakers = entry.get("bookmakers")
@@ -502,8 +1093,17 @@ def parse_fixture_consensus(
             if not isinstance(bookmaker, Mapping):
                 continue
             bookmaker_name = str(bookmaker.get("name") or "").strip()
-            bookmaker_key = _normalize(bookmaker_name)
-            if bookmaker_key in EXCLUDED_BOOKMAKERS:
+            bookmaker_id = _provider_bookmaker_id(
+                bookmaker,
+                source_prefix="api-football",
+                fields=("id",),
+            )
+            bookmaker_key = (
+                f"id:{_normalize(bookmaker_id)}"
+                if bookmaker_id
+                else f"name:{_normalize(bookmaker_name)}"
+            )
+            if _normalize(bookmaker_name) in EXCLUDED_BOOKMAKERS:
                 continue
             bets = bookmaker.get("bets")
             if not isinstance(bets, list):
@@ -530,14 +1130,23 @@ def parse_fixture_consensus(
                         {},
                     )
                     current = market_quotes.get(bookmaker_key)
-                    # A provider sometimes emits casing variants of the same
-                    # bookmaker. Count it once and retain the lower price so a
-                    # duplicate can never make the consensus more optimistic.
-                    if current is None or odds < current[0].odds:
+                    # Stable provider IDs deduplicate renamed books. Prefer the
+                    # newest observation; at an identical timestamp retain the
+                    # lower price so duplicates cannot inflate the consensus.
+                    if (
+                        current is None
+                        or update > current[1]
+                        or (
+                            _same_moment(update, current[1])
+                            and odds < current[0].odds
+                        )
+                    ):
                         market_quotes[bookmaker_key] = (
                             QuotePoint(
                                 bookmaker=bookmaker_name,
                                 odds=odds,
+                                bookmaker_id=bookmaker_id,
+                                observed_at=update.isoformat(),
                             ),
                             update,
                         )
@@ -587,6 +1196,11 @@ def parse_fixture_consensus(
             fetched_at=fetched.isoformat(),
             source=REFERENCE_SOURCE,
             points=points,
+            scheduled_start=(
+                fixture_starts[fixture_id].isoformat()
+                if fixture_starts.get(fixture_id) is not None
+                else None
+            ),
         )
     return result
 
@@ -676,8 +1290,17 @@ def parse_h2h_event_consensus(
         bookmaker_name = str(
             bookmaker.get("title") or bookmaker.get("key") or ""
         ).strip()
-        bookmaker_key = _normalize(bookmaker_name)
-        if bookmaker_key in EXCLUDED_BOOKMAKERS:
+        bookmaker_id = _provider_bookmaker_id(
+            bookmaker,
+            source_prefix="odds-api",
+            fields=("key",),
+        )
+        bookmaker_key = (
+            f"id:{_normalize(bookmaker_id)}"
+            if bookmaker_id
+            else f"name:{_normalize(bookmaker_name)}"
+        )
+        if _normalize(bookmaker_name) in EXCLUDED_BOOKMAKERS:
             continue
         bookmaker_update = _parse_utc(bookmaker.get("last_update"))
         markets = bookmaker.get("markets")
@@ -708,11 +1331,20 @@ def parse_h2h_event_consensus(
                     continue
                 by_bookmaker = quotes.setdefault(outcome_name, {})
                 existing = by_bookmaker.get(bookmaker_key)
-                if existing is None or odds < existing[0].odds:
+                if (
+                    existing is None
+                    or observed_at > existing[1]
+                    or (
+                        _same_moment(observed_at, existing[1])
+                        and odds < existing[0].odds
+                    )
+                ):
                     by_bookmaker[bookmaker_key] = (
                         QuotePoint(
                             bookmaker=bookmaker_name,
                             odds=odds,
+                            bookmaker_id=bookmaker_id,
+                            observed_at=observed_at.isoformat(),
                         ),
                         observed_at,
                     )
@@ -757,6 +1389,9 @@ def parse_h2h_event_consensus(
             source=ODDS_API_REFERENCE_SOURCE,
             points=points,
             provider_event_id=provider_event_id,
+            scheduled_start=_utc_iso(payload.get("commence_time")),
+            event_home=_required_text(payload.get("home_team")),
+            event_away=_required_text(payload.get("away_team")),
         )
     return result
 
@@ -1098,6 +1733,7 @@ __all__ = [
     "REFERENCE_QUOTE_MAX_AGE",
     "REFERENCE_SOURCE",
     "ReferencePriceStatus",
+    "challenge_quote_matches_candidate",
     "deserialize_consensus_map",
     "exact_market_target",
     "fetch_football_consensus",
@@ -1107,4 +1743,6 @@ __all__ = [
     "quote_matches_candidate",
     "reference_price_status",
     "serialize_consensus_map",
+    "wettfinder_consensus",
+    "wettfinder_reference_price_status",
 ]
