@@ -889,6 +889,7 @@ def create_alternative_markets_tab_extended(
     featured_rows, more_rows = partition_consumer_featured_forecasts(
         primary_rows,
         max_featured=FEATURED_CONSUMER_MARKET_SELECTIONS,
+        allow_mixed_backfill=True,
     )
 
     if not displayed_rows:

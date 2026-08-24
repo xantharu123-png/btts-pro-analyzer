@@ -543,6 +543,8 @@ def test_missing_quote_keeps_selection_visible_and_neutral():
     assert "PREIS NOCH OFFEN" in text
     assert text.count("PREIS NOCH OFFEN") == 1
     assert "richtig oder falsch" in text
+    assert "verfügbar" in text
+    assert "verfuegbar" not in text
 
 
 def test_low_quote_changes_only_price_not_model_selection():

@@ -100,6 +100,14 @@ def _consumer_market_utility_tier(row: object) -> int:
     return 1
 
 
+def _consumer_market_is_mixed(row: object) -> bool:
+    """Identify configured mixed-or markets for normal-finder backfill."""
+
+    market_key = _consumer_token(getattr(row, "market_key", None))
+    market = _consumer_token(getattr(row, "market", None))
+    return market_key.startswith("mixed_") or "gemischte_chance" in market
+
+
 def _consumer_market_is_basis(row: object) -> bool:
     """Identify broad safety lines for secondary presentation only."""
 
@@ -263,6 +271,7 @@ def partition_consumer_featured_forecasts(
     rows: Iterable[_ForecastRow],
     *,
     max_featured: int = 3,
+    allow_mixed_backfill: bool = False,
 ) -> tuple[list[_ForecastRow], list[_ForecastRow]]:
     """Choose useful, diverse main cards and keep every row visible.
 
@@ -289,7 +298,8 @@ def partition_consumer_featured_forecasts(
     used_fixtures: set[str] = set()
     used_markets: set[str] = set()
     for _index, row in ranked:
-        if _consumer_market_is_basis(row):
+        mixed_backfill = allow_mixed_backfill and _consumer_market_is_mixed(row)
+        if _consumer_market_is_basis(row) and not mixed_backfill:
             secondary.append(row)
             continue
         fixture_identity = _consumer_fixture_identity(row)
@@ -473,7 +483,7 @@ def _render_reference_price(
         reason = {
             "THIN": "Es liegen noch zu wenige Vergleichsquoten vor.",
             "STALE": "Die Vergleichsquote ist nicht mehr aktuell.",
-            "UNAVAILABLE": status.label + ".",
+            "UNAVAILABLE": "Keine exakt passende Marktquote verfügbar.",
             "INVALID_MINIMUM": "Die Value-Grenze konnte nicht sicher berechnet werden.",
         }.get(status.code, "Der Wettpreis kann noch nicht sicher bewertet werden.")
         st.info(

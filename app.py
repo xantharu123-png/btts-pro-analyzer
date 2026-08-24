@@ -3574,6 +3574,7 @@ def _render_automated_daily_selection() -> None:
     football_featured, football_additional = partition_consumer_featured_forecasts(
         football_displayed,
         max_featured=3,
+        allow_mixed_backfill=True,
     )
     other_displayed, other_extreme_short = partition_consumer_forecasts(
         other_forecasts,

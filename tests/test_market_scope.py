@@ -626,6 +626,108 @@ def test_featured_partition_diversifies_market_family_across_fixtures():
     assert additional == [away_win]
 
 
+def test_normal_featured_partition_can_backfill_one_mixed_market():
+    def row(candidate_id, fixture_id, market_key, market, selection):
+        return SimpleNamespace(
+            candidate_id=candidate_id,
+            fixture_id=fixture_id,
+            market_key=market_key,
+            market=market,
+            selection=selection,
+            context={"release_context_complete": True},
+        )
+
+    result_total = row(
+        "fixture-1-result-total",
+        1,
+        "RESULT_TOTAL_1X_UNDER_3_5",
+        "Resultat & Gesamttore 3,5",
+        "1X und Unter 3,5",
+    )
+    first_mixed = row(
+        "fixture-2-mixed",
+        2,
+        "MIXED_HOME_OR_OVER_2_5",
+        "Gemischte Chance",
+        "Team 1 gewinnt oder Über 2,5 Tore",
+    )
+    second_mixed = row(
+        "fixture-3-mixed",
+        3,
+        "MIXED_AWAY_OR_OVER_2_5",
+        "Gemischte Chance",
+        "Team 2 gewinnt oder Über 2,5 Tore",
+    )
+    double_chance = row(
+        "fixture-4-double-chance",
+        4,
+        "DC_1X",
+        "Doppelte Chance",
+        "1X",
+    )
+    rows = [result_total, first_mixed, second_mixed, double_chance]
+
+    featured, additional = bet_finder_ui.partition_consumer_featured_forecasts(
+        rows,
+        max_featured=3,
+        allow_mixed_backfill=True,
+    )
+    default_featured, default_additional = (
+        bet_finder_ui.partition_consumer_featured_forecasts(
+            rows,
+            max_featured=3,
+        )
+    )
+
+    assert featured == [result_total, first_mixed]
+    assert additional == [second_mixed, double_chance]
+    assert default_featured == [result_total]
+    assert default_additional == [first_mixed, second_mixed, double_chance]
+    assert {item.candidate_id for item in featured + additional} == {
+        item.candidate_id for item in rows
+    }
+
+
+def test_normal_mixed_backfill_does_not_displace_three_better_markets():
+    def row(candidate_id, fixture_id, market_key, market, selection):
+        return SimpleNamespace(
+            candidate_id=candidate_id,
+            fixture_id=fixture_id,
+            market_key=market_key,
+            market=market,
+            selection=selection,
+            context={"release_context_complete": True},
+        )
+
+    higher_value = [
+        row(
+            "fixture-1-result-total",
+            1,
+            "RESULT_TOTAL_1X_UNDER_3_5",
+            "Resultat & Gesamttore 3,5",
+            "1X und Unter 3,5",
+        ),
+        row("fixture-2-result", 2, "RESULT_HOME", "Endergebnis", "Heimsieg"),
+        row("fixture-3-btts", 3, "BTTS_YES", "Beide Teams treffen", "Ja"),
+    ]
+    mixed = row(
+        "fixture-4-mixed",
+        4,
+        "MIXED_HOME_OR_OVER_2_5",
+        "Gemischte Chance",
+        "Team 1 gewinnt oder Über 2,5 Tore",
+    )
+
+    featured, additional = bet_finder_ui.partition_consumer_featured_forecasts(
+        [*higher_value, mixed],
+        max_featured=3,
+        allow_mixed_backfill=True,
+    )
+
+    assert featured == higher_value
+    assert additional == [mixed]
+
+
 def test_secondary_markets_are_grouped_under_their_public_fixture_label():
     first = SimpleNamespace(
         candidate_id="fixture-1-btts",
