@@ -2,17 +2,17 @@
 
 ## Status und Zweck
 
-Stand: 20. August 2026
+Stand: 24. August 2026
 
 Kanonisches Repository: `xantharu123-png/btts-pro-analyzer`
 
 Produktionsadresse: `https://vps-a30a123f.vps.ovh.net/`
 
 Aktuell verifizierte funktionale Basis:
-`f492385aab986112efbb13366b0a09a99a9c257a`
+`6c8ea99d9696cc10a4250b52aaf57755d595f100`
 
 Aktuell verifizierter GitHub- und VPS-Funktionsstand:
-`f492385aab986112efbb13366b0a09a99a9c257a`
+`6c8ea99d9696cc10a4250b52aaf57755d595f100`
 
 Diese Projektbibel erklärt, **warum BetBoy existiert, was das Produkt leisten
 darf, wie eine Empfehlung entsteht und welche fachlichen Grenzen niemals
@@ -53,6 +53,15 @@ Der Kernvertrag lautet:
 8. Pro Suchlauf stehen zuerst höchstens drei klare Top-Auswahlen. Bis zu zwölf
    weitere berechnete Modellprognosen bleiben eingeklappt erreichbar, statt
    nach Platz drei verworfen zu werden.
+9. Extreme Kurzquoten-Basislinien dürfen als nachvollziehbare Modellrechnung
+   sichtbar bleiben, werden aber nie als Top-Auswahl, strikter Tipp oder
+   Einsatzvorschlag beworben.
+10. Je Spiel und Marktfamilie wird höchstens eine Auswahl hervorgehoben; der
+    Katalog soll echte Entscheidungsalternativen statt Varianten desselben
+    trivialen Ereignisses zeigen.
+11. Ein gespeicherter künftiger Kandidat wird automatisch neu bepreist.
+    Preisalter und Kontextalter werden getrennt behandelt; veralteter Kontext
+    kann keine strikte Freigabe erzeugen.
 
 Das Produkt darf sagen:
 

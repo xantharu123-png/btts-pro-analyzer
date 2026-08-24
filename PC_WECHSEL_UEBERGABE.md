@@ -6,31 +6,35 @@ Diese Anleitung bringt einen neuen Windows-PC in einen sicheren,
 reproduzierbaren BetBoy-Arbeitsstand. Der laufende Produktionsserver hängt
 nicht vom alten PC ab und arbeitet während des Wechsels weiter.
 
-Am 20. August 2026 wurde nach dem kontrollierten Nutzwert-Katalog-Deploy der
+Am 24. August 2026 wurde nach der kontrollierten Nutzwert- und
+Repricing-Härtung der
 folgende **aktuelle Produktionsstand** verifiziert:
 
 | Prüfung | Ergebnis |
 |---|---|
-| Aktueller Funktionscommit | `f492385aab986112efbb13366b0a09a99a9c257a` (`Prioritize useful diverse market forecasts`) |
+| Aktueller Funktionscommit | `6c8ea99d9696cc10a4250b52aaf57755d595f100` (`Harden forecast utility and automatic repricing`) |
 | GitHub und VPS | Funktionscommit per vollständigem Hash identisch; ein späterer reiner Dokumentationscommit muss erneut per vollständigem Hash verglichen werden |
 | `betboy-app.service` | `active` |
 | Streamlit-Health | lokal und öffentlich `200 / ok` |
-| BetBoy-Timer | exakt 7 aktiv und enabled; kontrollierter Tennis- und natürlicher Wettfinder-Lauf `success / 0` |
+| BetBoy-Timer | exakt 7 aktiv und enabled; echter automatischer Wettfinder-Lauf `success / 0` |
 | Fehlgeschlagene systemd-Units | 0 |
-| Deploy-Recovery | Root-geschütztes `betboy-preupdate-20260820T191444Z-4b97bde9344a.zip`; Updater-Backup und Restore-Prüfung bestanden |
-| Automatisches v11-Artefakt | kontrollierter Wettfinder-Lauf `success / 0`; wegen des späten Zieldatums keine noch bevorstehenden Spiele, daher 0 Karten |
-| Siebentage-Live-Suche | um 22:26 CEST abgeschlossen; 366 Spiele gefunden, 285 modelliert, 20 priorisierte Spiele mit verfügbarem Kontext geprüft, 15 Modellprognosen, 15 Preisprüfungen, 0 operative Fehler; 0 strikt spielbare Tipps |
-| Gerenderte Live-UI | 3 hervorgehobene und 12 weitere Karten; keine breiten Team/Spiel-über-0,5- oder Team-unter-2,5-Basismärkte; 15 Kontextzeilen; Desktop 1280 und Mobil 390 x 844 ohne horizontalen Überlauf, 0 Konsolenfehler/-warnungen |
+| Deploy-Recovery | Root-geschütztes `betboy-preupdate-20260824T091137Z-ebcf6ec9c653.zip` |
+| Automatisches v12-Artefakt | Lauf um 11:14 CEST: 17 Fußballspiele gefunden, 14 modelliert, 13 sichtbare Modellprognosen, 7 exakt zuordenbare Fußball-Preisprüfungen, 0 operative Fehler und korrekt 0 strikte Tipps |
+| Gerenderte Live-UI | Ein nützlicherer Fußballmarkt vorne; 6 weitere Fußballprognosen und 3 sehr kurze Basisquoten getrennt eingeklappt; 3 Tennis-Auswahlen separat sichtbar; Desktop 1440 x 1000 und Mobil 390 x 844 ohne Überlauf, 0 Konsolenfehler |
 
-Der Nutzwert-Katalog verwendet Automationsartefakt v11, zeigt bis zu 15
-Fußball-Modellprognosen (3 hervorgehoben, weitere eingeklappt), hält breite
-Basisprognosen aus den Top-Auswahlen heraus und behandelt Quoten ausschließlich
-als Preishinweis. Die QA umfasst 828 Python-Tests, 23 Subtests und 3/3
-JavaScript-Tests; der isolierte Lauf ohne Secrets/Laufzeitdaten sowie Paket-,
-Syntax- und Diff-Prüfungen waren grün. Commit, Push, VPS-Deploy und ein echter
-Siebentage-Live-Lauf sind abgeschlossen. Der kalte Vollscan dauerte rund 66
-Minuten trotz 243/243 erfolgreichen Provideraufrufen; diese Performance-
-Optimierung ist offen und darf die mathematische Parität nicht verändern.
+Der Nutzwert-Katalog verwendet Automationsartefakt v12 und Auswahlrichtlinie
+v10. Er zeigt bis zu 15 Fußball-Modellprognosen, hält breite beziehungsweise
+extrem kurze Basisprognosen aus den Top-Auswahlen heraus und behandelt Quoten
+ausschließlich als Preishinweis. Künftige Tagesprognosen werden automatisch
+neu bepreist; strikte Freigaben verlangen frischen, vollständigen Kontext und
+eine exakt identische Providerzuordnung. Die QA umfasst 886 Python-Tests, 38
+Subtests und 3/3 JavaScript-Tests; Syntax- und Diff-Prüfungen waren grün.
+Commit, Push, VPS-Deploy, echter Automatiklauf und Produktions-Browserprüfung
+sind abgeschlossen. In der Produktion fehlt derzeit der Odds-API-Schlüssel
+für Tennispreise; E-Sport hat keinen verifizierten Quotenprovider und
+Basketball/NHL/Cricket noch kein validiertes automatisches Prematch-Modell.
+Diese Grenzen werden sichtbar und fail-closed behandelt, nicht durch
+erfundene Quoten oder Tipps kaschiert.
 
 Nach jedem Commit gilt ausschließlich der frisch abgefragte vollständige
 `origin/main`-Hash. Hash und Produktionsstand werden nach einem Deploy erneut

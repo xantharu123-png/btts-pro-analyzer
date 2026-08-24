@@ -4,7 +4,7 @@
 
 | Feld | Verifizierter Stand |
 |---|---|
-| Auditzeitraum | 1. bis 20. August 2026 |
+| Auditzeitraum | 1. bis 24. August 2026 |
 | Repository | `xantharu123-png/btts-pro-analyzer` |
 | Lokaler Pfad | `C:\Projekt\BetBoy\betboy-app` |
 | Branch | `main` |
@@ -16,14 +16,15 @@
 | Verifizierter Härtungs-Funktionscommit | `9171bdb71ceae8ebbf5ae7404c6648f3d5c08a92` (`Harden Shadow evidence and trusted VPS deployment`), am 17. August kontrolliert gepusht und deployed |
 | Verifizierter Forecast-/Preis-Funktionscommit | `83b2d92a89b9aac746792ff70e54ed743e86c9d9` (`Separate model forecasts from price and release gates`), am 20. August kontrolliert gepusht und deployed |
 | Verifizierter Nutzwert-Katalog-Funktionscommit | `f492385aab986112efbb13366b0a09a99a9c257a` (`Prioritize useful diverse market forecasts`), am 20. August kontrolliert gepusht, deployed und in der echten Produktions-UI geprüft |
-| Fachlicher Kernstand | Consumer-Wettfinder mit drei hervorgehobenen Top-Auswahlen und bis zu zwölf weiteren Modellprognosen; breite Basislinien werden nicht als Top-Auswahl beworben. Modellprognose, Kontextverfügbarkeit, Marktpreis und strikte Tipp-/Einsatzfreigabe sind getrennte Zustände. Fehlende oder zu niedrige Quote löscht oder verschiebt keine Prognose. UEFA-Heimatliga-Transfers bleiben bis zum unabhängigen Transfernachweis ausdrücklich Shadow ohne Einsatzvorschlag. |
-| Verifizierter VPS-Funktionsstand | Funktionscommit `f492385`; App aktiv/enabled, lokaler und öffentlicher Health `200 / ok`, alle 7 BetBoy-Timer aktiv/enabled, kontrollierter Artefakt-v11-Wettfinder-Lauf `success / 0`, 0 fehlgeschlagene systemd-Units am 20. August |
+| Verifizierter Nutzwert-/Repricing-Funktionscommit | `6c8ea99d9696cc10a4250b52aaf57755d595f100` (`Harden forecast utility and automatic repricing`), am 24. August kontrolliert gepusht, deployed, mit echtem Automatiklauf und in der Produktions-UI geprüft |
+| Fachlicher Kernstand | Consumer-Wettfinder mit höchstens einer hervorgehobenen Auswahl je Spiel und Marktfamilie. Extrem kurze Basislinien bleiben berechnet, werden aber nur eingeklappt gezeigt und sind nie Featured, strikt oder ticketfähig. Modellprognose, Kontextverfügbarkeit, Marktpreis und strikte Tipp-/Einsatzfreigabe sind getrennte Zustände; fehlende oder zu niedrige Quote sperrt die sichtbare Prognose nicht. Gespeicherte künftige Tagesprognosen werden automatisch neu bepreist, während veralteter oder nicht vollständig belegter Kontext fail-closed bleibt. |
+| Verifizierter VPS-Funktionsstand | Funktionscommit `6c8ea99`; App aktiv/enabled, lokaler und öffentlicher Health `200 / ok`, alle 7 BetBoy-Timer aktiv/enabled, echter Artefakt-v12-Wettfinder-Lauf `success / 0`, 0 fehlgeschlagene systemd-Units am 24. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | 828 Python-Tests, 23 Subtests und 3/3 JavaScript-Tests am 20. August in isolierter Kopie bestanden; Paket-, Syntax- und Diff-Prüfungen ebenfalls grün |
+| Vollständiger Testlauf | 886 Python-Tests, 38 Subtests und 3/3 JavaScript-Tests am 24. August bestanden; Syntax- und Diff-Prüfungen ebenfalls grün |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 | Produkt- und Entscheidungsgrundlage | `PROJEKTBIBEL.md` |
 | PC-Wechsel-Runbook | `PC_WECHSEL_UEBERGABE.md` |
@@ -34,6 +35,51 @@ Produkt-, Mathematik-, UX- und Marketingleitplanke steht in
 `PC_WECHSEL_UEBERGABE.md`. Alle drei Dokumente enthalten absichtlich keine
 Schlüssel, Passwörter oder Tokens. Ältere Berichte sind nur Historie, wenn sie
 diesem Handbuch oder dem aktuellen Code widersprechen.
+
+### Produktiv verifizierte Nutzwert- und Repricing-Härtung vom 24. August 2026
+
+Der Funktionsstand
+`6c8ea99d9696cc10a4250b52aaf57755d595f100` schließt die verbliebenen
+Fehlanreize zwischen Modellprognose, Darstellung und Wettpreis:
+
+- Team-unter-1,5-Basislinien werden weiter modelliert und bei vorhandener
+  Anbieterzuordnung bepreist, sind aber genau wie andere extreme
+  Kurzquotenmärkte weder Featured noch strikt oder ticketfähig.
+- Je Spiel und Marktfamilie darf höchstens eine Prognose hervorgehoben werden.
+  Vollständiger Kontext wird in der quotenfreien Rangfolge bevorzugt.
+- Künftige Prognosen des aktuellen Tages bleiben bei Folgeläufen sichtbar und
+  werden erneut bepreist. Kontext über 75 Minuten wird ausdrücklich als
+  veraltet markiert und kann keine strikte Freigabe erzeugen.
+- Providerpreise sind an Sport, Spiel/Event, Markt und Auswahl gebunden.
+  Falsche Fixtures, falsche Märkte, unbekannte Quellen und veraltete
+  Einzelanbieterpreise werden fail-closed verworfen.
+- Eine vollständige Fußballfreigabe verlangt belastbares H2H, Wetter, zwei
+  exakte 11er-Aufstellungen und verifizierte Ausfallwirkungen. Fehlende oder
+  misszugeordnete Verletzungsdaten dürfen nicht mehr als "keine Ausfälle"
+  erscheinen.
+- Tennis verwendet einen echten H2H-Mehrbuchmacheradapter. In der Produktion
+  fehlt derzeit der dafür konfigurierte Odds-API-Schlüssel; deshalb bleiben
+  Tennisprognosen sichtbar, aber ohne erfundene Quote. E-Sport besitzt keinen
+  verifizierten Quotenprovider und bleibt ausdrücklich ohne strikte
+  Preisfreigabe. Basketball/NHL und Cricket besitzen noch kein validiertes
+  Prematch-Modell für diesen automatischen Wettfinder.
+
+Der reale automatische Produktionslauf endete am 24. August um 11:14 CEST
+mit `success / 0` und schrieb Automationsartefakt v12 mit Auswahlrichtlinie
+v10. Er fand 17 Fußballspiele, modellierte 14 und zeigte 13
+Modellprognosen: einen nützlicheren Fußballmarkt, drei Tennis-Auswahlen und
+neun eingeklappte Fußball-Basisprognosen. Sieben Fußballreihen erhielten eine
+exakt zuordenbare Preisprüfung. Wegen unvollständigem Release-Kontext und
+fehlenden passenden Preisen entstanden korrekt 0 strikte Tipps.
+
+Die öffentliche UI wurde anschließend mit Playwright bei 1440 x 1000 und
+390 x 844 geprüft. Der nützlichere Markt `Osasuna - Levante: 12 und über 1,5`
+steht vor den Basisprognosen; sechs weitere Fußballprognosen sowie drei sehr
+kurze Basisquoten sind getrennt eingeklappt, Tennis bleibt in einem eigenen
+Bereich sichtbar. Es gab 0 Konsolenfehler. Neun Warnungen stammen aus
+Streamlits Feature-Policy beziehungsweise dem bestehenden Component-Iframe.
+App, Health, sieben Timer, Repository-Sauberkeit und 0 fehlgeschlagene
+systemd-Units wurden nach dem Deploy unabhängig kontrolliert.
 
 ### Verifizierter Forecast-/Preis-Umbau vom 20. August 2026
 
