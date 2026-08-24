@@ -17,8 +17,9 @@
 | Verifizierter Forecast-/Preis-Funktionscommit | `83b2d92a89b9aac746792ff70e54ed743e86c9d9` (`Separate model forecasts from price and release gates`), am 20. August kontrolliert gepusht und deployed |
 | Verifizierter Nutzwert-Katalog-Funktionscommit | `f492385aab986112efbb13366b0a09a99a9c257a` (`Prioritize useful diverse market forecasts`), am 20. August kontrolliert gepusht, deployed und in der echten Produktions-UI geprüft |
 | Verifizierter Nutzwert-/Repricing-Funktionscommit | `6c8ea99d9696cc10a4250b52aaf57755d595f100` (`Harden forecast utility and automatic repricing`), am 24. August kontrolliert gepusht, deployed, mit echtem Automatiklauf und in der Produktions-UI geprüft |
-| Fachlicher Kernstand | Consumer-Wettfinder mit höchstens einer hervorgehobenen Auswahl je Spiel und Marktfamilie. Extrem kurze Basislinien bleiben berechnet, werden aber nur eingeklappt gezeigt und sind nie Featured, strikt oder ticketfähig. Modellprognose, Kontextverfügbarkeit, Marktpreis und strikte Tipp-/Einsatzfreigabe sind getrennte Zustände; fehlende oder zu niedrige Quote sperrt die sichtbare Prognose nicht. Gespeicherte künftige Tagesprognosen werden automatisch neu bepreist, während veralteter oder nicht vollständig belegter Kontext fail-closed bleibt. |
-| Verifizierter VPS-Funktionsstand | Funktionscommit `6c8ea99`; App aktiv/enabled, lokaler und öffentlicher Health `200 / ok`, alle 7 BetBoy-Timer aktiv/enabled, echter Artefakt-v12-Wettfinder-Lauf `success / 0`, 0 fehlgeschlagene systemd-Units am 24. August |
+| Verifizierter Team-Unter-1,5-Korrekturcommit | `08778fdc29a7275c21fc23671d4763290273c435` (`Restore team under 1.5 eligibility`), am 24. August kontrolliert gepusht, deployed, mit echtem Automatiklauf und in der Produktions-UI geprüft |
+| Fachlicher Kernstand | Consumer-Wettfinder mit höchstens einer hervorgehobenen Auswahl je Spiel und Marktfamilie. Eine Wettart wird nicht allein wegen ihres Namens ausgeschlossen: Team-Unter-1,5 ist vollständig Featured-, Strict- und ticketfähig, sobald Modell, Kontext und konkrete Quote bestehen. Nur eine tatsächlich bestätigte Extrem-Kurzquote wird in der Darstellung zurückgestuft; die Prognose bleibt sichtbar. Andere breite Basislinien bleiben berechnet und eingeklappt. Modellprognose, Kontextverfügbarkeit, Marktpreis und strikte Tipp-/Einsatzfreigabe sind getrennte Zustände. |
+| Verifizierter VPS-Funktionsstand | Funktionscommit `08778fd`; App aktiv/enabled, lokaler und öffentlicher Health `200 / ok`, alle 7 BetBoy-Timer aktiv/enabled, echter Artefakt-v13-Wettfinder-Lauf `success / 0`, 0 fehlgeschlagene systemd-Units am 24. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
@@ -36,15 +37,48 @@ Produkt-, Mathematik-, UX- und Marketingleitplanke steht in
 Schlüssel, Passwörter oder Tokens. Ältere Berichte sind nur Historie, wenn sie
 diesem Handbuch oder dem aktuellen Code widersprechen.
 
+### Produktiv verifizierte Team-Unter-1,5-Korrektur vom 24. August 2026
+
+Der Funktionsstand
+`08778fdc29a7275c21fc23671d4763290273c435` korrigiert die zuvor zu breite
+Produktregel: `HOME_UNDER_1_5` und `AWAY_UNDER_1_5` sind keine
+Basisprognosen. Sie durchlaufen wieder dieselben Modell-, Kontext-, Preis-,
+Strict- und Ticketpfade wie andere normale Märkte. Auch die
+Darstellungsrangfolge stuft sie nicht mehr allein wegen der Wettart zurück.
+
+Die konkrete Quote bleibt eine getrennte Entscheidung. Eine frische
+`TOO_LOW`-Bestquote unter 1,25 verschiebt die Auswahl in den eingeklappten
+Bereich „Sehr kurze Quoten“, löscht aber nie die Prognose. Eine gewöhnlich zu
+niedrige Quote ab 1,25 lässt Team-Unter-1,5 im normalen Katalog sichtbar;
+erreicht sie die Value-Grenze bei vollständigem Kontext, kann die Auswahl
+Featured, strikt und ticketfähig werden.
+
+Der echte Produktionslauf endete um 11:44 CEST mit `success / 0` und schrieb
+Automationsartefakt v13 mit Auswahlrichtlinie v11. Er fand 17 Fußballspiele,
+modellierte 14 und veröffentlichte 16 Modellprognosen: vier normale
+Fußballmärkte, drei Tennis-Auswahlen und neun eingeklappte Basisprognosen.
+Drei der vier normalen Fußballmärkte waren Team-Unter-1,5 und wurden korrekt
+mit `is_basic_forecast: false` gespeichert. Zehn Fußballmärkte erhielten eine
+exakt zuordenbare Quote; die aktuellen Preise lagen sämtlich unter ihrer
+Value-Grenze, daher entstanden korrekt 0 strikte Tipps.
+
+Die öffentliche UI zeigte `Oţelul - Arges Pitesti: Team 2 unter 1,5` als
+zweite hervorgehobene Auswahl. Die Bestquote 1,29 wurde transparent gegen die
+Value-Grenze 1,65 eingeordnet, ohne die Prognose zu verändern oder zu
+verstecken. Desktop-Snapshot und Mobilansicht 390 x 844 waren ohne Überlauf;
+die Browserkonsole hatte 0 Fehler. Neun Warnungen stammen aus Streamlits
+Feature-Policy beziehungsweise dem bestehenden Component-Iframe.
+
 ### Produktiv verifizierte Nutzwert- und Repricing-Härtung vom 24. August 2026
 
 Der Funktionsstand
 `6c8ea99d9696cc10a4250b52aaf57755d595f100` schließt die verbliebenen
 Fehlanreize zwischen Modellprognose, Darstellung und Wettpreis:
 
-- Team-unter-1,5-Basislinien werden weiter modelliert und bei vorhandener
-  Anbieterzuordnung bepreist, sind aber genau wie andere extreme
-  Kurzquotenmärkte weder Featured noch strikt oder ticketfähig.
+- Breite Team-unter-2,5- und Team-über-0,5-Basislinien werden weiter
+  modelliert und bei vorhandener Anbieterzuordnung bepreist, aber nicht als
+  Featured, strikt oder ticketfähig beworben. Team-Unter-1,5 fällt
+  ausdrücklich nicht unter diese pauschale Basisregel.
 - Je Spiel und Marktfamilie darf höchstens eine Prognose hervorgehoben werden.
   Vollständiger Kontext wird in der quotenfreien Rangfolge bevorzugt.
 - Künftige Prognosen des aktuellen Tages bleiben bei Folgeläufen sichtbar und
@@ -64,7 +98,7 @@ Fehlanreize zwischen Modellprognose, Darstellung und Wettpreis:
   Preisfreigabe. Basketball/NHL und Cricket besitzen noch kein validiertes
   Prematch-Modell für diesen automatischen Wettfinder.
 
-Der reale automatische Produktionslauf endete am 24. August um 11:14 CEST
+Der damalige automatische Produktionslauf endete am 24. August um 11:14 CEST
 mit `success / 0` und schrieb Automationsartefakt v12 mit Auswahlrichtlinie
 v10. Er fand 17 Fußballspiele, modellierte 14 und zeigte 13
 Modellprognosen: einen nützlicheren Fußballmarkt, drei Tennis-Auswahlen und
@@ -72,7 +106,7 @@ neun eingeklappte Fußball-Basisprognosen. Sieben Fußballreihen erhielten eine
 exakt zuordenbare Preisprüfung. Wegen unvollständigem Release-Kontext und
 fehlenden passenden Preisen entstanden korrekt 0 strikte Tipps.
 
-Die öffentliche UI wurde anschließend mit Playwright bei 1440 x 1000 und
+Die damalige öffentliche UI wurde anschließend mit Playwright bei 1440 x 1000 und
 390 x 844 geprüft. Der nützlichere Markt `Osasuna - Levante: 12 und über 1,5`
 steht vor den Basisprognosen; sechs weitere Fußballprognosen sowie drei sehr
 kurze Basisquoten sind getrennt eingeklappt, Tennis bleibt in einem eigenen

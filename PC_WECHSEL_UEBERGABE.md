@@ -12,22 +12,25 @@ folgende **aktuelle Produktionsstand** verifiziert:
 
 | Prüfung | Ergebnis |
 |---|---|
-| Aktueller Funktionscommit | `6c8ea99d9696cc10a4250b52aaf57755d595f100` (`Harden forecast utility and automatic repricing`) |
+| Aktueller Funktionscommit | `08778fdc29a7275c21fc23671d4763290273c435` (`Restore team under 1.5 eligibility`) |
 | GitHub und VPS | Funktionscommit per vollständigem Hash identisch; ein späterer reiner Dokumentationscommit muss erneut per vollständigem Hash verglichen werden |
 | `betboy-app.service` | `active` |
 | Streamlit-Health | lokal und öffentlich `200 / ok` |
 | BetBoy-Timer | exakt 7 aktiv und enabled; echter automatischer Wettfinder-Lauf `success / 0` |
 | Fehlgeschlagene systemd-Units | 0 |
-| Deploy-Recovery | Root-geschütztes `betboy-preupdate-20260824T091137Z-ebcf6ec9c653.zip` |
-| Automatisches v12-Artefakt | Lauf um 11:14 CEST: 17 Fußballspiele gefunden, 14 modelliert, 13 sichtbare Modellprognosen, 7 exakt zuordenbare Fußball-Preisprüfungen, 0 operative Fehler und korrekt 0 strikte Tipps |
-| Gerenderte Live-UI | Ein nützlicherer Fußballmarkt vorne; 6 weitere Fußballprognosen und 3 sehr kurze Basisquoten getrennt eingeklappt; 3 Tennis-Auswahlen separat sichtbar; Desktop 1440 x 1000 und Mobil 390 x 844 ohne Überlauf, 0 Konsolenfehler |
+| Deploy-Recovery | Root-geschütztes `betboy-preupdate-20260824T094247Z-069033f2891f.zip` |
+| Automatisches v13-Artefakt | Lauf um 11:44 CEST: 17 Fußballspiele gefunden, 14 modelliert, 16 sichtbare Modellprognosen, 10 exakt zuordenbare Fußball-Preisprüfungen, 0 operative Fehler und korrekt 0 strikte Tipps |
+| Team-Unter-1,5 | Drei normale Modellprognosen mit `is_basic_forecast: false`; der Markt kann Featured, Strict und Ticket erreichen. Aktuelle Bestquoten 1,18, 1,29 und 1,30 lagen lediglich konkret unter den jeweiligen Value-Grenzen. |
+| Gerenderte Live-UI | `Oţelul - Arges Pitesti: Team 2 unter 1,5` als zweite hervorgehobene Auswahl; Bestquote 1,29 transparent gegen Value-Grenze 1,65; Desktop und Mobil 390 x 844 ohne Überlauf, 0 Konsolenfehler |
 
-Der Nutzwert-Katalog verwendet Automationsartefakt v12 und Auswahlrichtlinie
-v10. Er zeigt bis zu 15 Fußball-Modellprognosen, hält breite beziehungsweise
-extrem kurze Basisprognosen aus den Top-Auswahlen heraus und behandelt Quoten
-ausschließlich als Preishinweis. Künftige Tagesprognosen werden automatisch
-neu bepreist; strikte Freigaben verlangen frischen, vollständigen Kontext und
-eine exakt identische Providerzuordnung. Die QA umfasst 886 Python-Tests, 38
+Der Nutzwert-Katalog verwendet Automationsartefakt v13 und Auswahlrichtlinie
+v11. Er zeigt bis zu 15 Fußball-Modellprognosen und behandelt Quoten
+ausschließlich als Preishinweis. Team-Unter-1,5 ist ausdrücklich keine
+Basisprognose und wird nicht pauschal aus Featured, Strict oder Ticket
+entfernt. Nur eine konkret bestätigte Extrem-Kurzquote darf die Darstellung
+zurückstufen; die Prognose bleibt sichtbar. Künftige Tagesprognosen werden
+automatisch neu bepreist; strikte Freigaben verlangen frischen, vollständigen
+Kontext und eine exakt identische Providerzuordnung. Die QA umfasst 886 Python-Tests, 38
 Subtests und 3/3 JavaScript-Tests; Syntax- und Diff-Prüfungen waren grün.
 Commit, Push, VPS-Deploy, echter Automatiklauf und Produktions-Browserprüfung
 sind abgeschlossen. In der Produktion fehlt derzeit der Odds-API-Schlüssel

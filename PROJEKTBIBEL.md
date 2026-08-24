@@ -9,10 +9,10 @@ Kanonisches Repository: `xantharu123-png/btts-pro-analyzer`
 Produktionsadresse: `https://vps-a30a123f.vps.ovh.net/`
 
 Aktuell verifizierte funktionale Basis:
-`6c8ea99d9696cc10a4250b52aaf57755d595f100`
+`08778fdc29a7275c21fc23671d4763290273c435`
 
 Aktuell verifizierter GitHub- und VPS-Funktionsstand:
-`6c8ea99d9696cc10a4250b52aaf57755d595f100`
+`08778fdc29a7275c21fc23671d4763290273c435`
 
 Diese Projektbibel erklärt, **warum BetBoy existiert, was das Produkt leisten
 darf, wie eine Empfehlung entsteht und welche fachlichen Grenzen niemals
@@ -62,6 +62,10 @@ Der Kernvertrag lautet:
 11. Ein gespeicherter künftiger Kandidat wird automatisch neu bepreist.
     Preisalter und Kontextalter werden getrennt behandelt; veralteter Kontext
     kann keine strikte Freigabe erzeugen.
+12. Keine Wettart wird allein wegen ihres Namens gesperrt. Team-Unter-1,5 ist
+    ein normaler, vollständig tippsfähiger Markt. Modell, Kontext und die
+    konkrete Quote entscheiden. Nur eine bestätigte Extrem-Kurzquote darf die
+    Darstellung zurückstufen; die Prognose bleibt sichtbar.
 
 Das Produkt darf sagen:
 
