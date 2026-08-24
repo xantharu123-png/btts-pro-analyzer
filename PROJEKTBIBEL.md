@@ -59,6 +59,9 @@ Der Kernvertrag lautet:
 10. Je Spiel und Marktfamilie wird höchstens eine Auswahl hervorgehoben; der
     Katalog soll echte Entscheidungsalternativen statt Varianten desselben
     trivialen Ereignisses zeigen.
+    Im normalen Fußball-Wettfinder darf ein gemischter Oder-Markt einen sonst
+    freien Hauptkartenplatz auffüllen. Er verdrängt keine drei höherwertigen
+    Auswahlen; für 15K gilt dieses Consumer-Opt-in ausdrücklich nicht.
 11. Ein gespeicherter künftiger Kandidat wird automatisch neu bepreist.
     Preisalter und Kontextalter werden getrennt behandelt; veralteter Kontext
     kann keine strikte Freigabe erzeugen.

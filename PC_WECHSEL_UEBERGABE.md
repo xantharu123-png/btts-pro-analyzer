@@ -33,10 +33,12 @@ verifiziert werden.
 
 ### Aktueller Checkout-Vertrag: normaler Wettfinder v14/v12
 
-Lokaler Funktionsnachweis dieses Pakets: Commit
-`aa62cbb7187e32f2de28c8135b76b67984bdd415` (`Harden normal Wettfinder
-integrity`), 920 Python-Tests plus 50 Subtests und 3/3 JavaScript-Tests grün;
-Python-Kompilierung und `git diff --check` ebenfalls grün.
+Produktiv verifizierter Funktionsnachweis dieses Pakets: Commit
+`e341db828121cba7ad5a9d4ed2f6304b146a3591` (`Refine normal Wettfinder
+featured markets`), 922 Python-Tests plus 50 Subtests und 3/3
+JavaScript-Tests grün; Python-Kompilierung und `git diff --check` ebenfalls
+grün. VPS-Revision, App, interner/öffentlicher Healthcheck, sieben Timer und
+null fehlgeschlagene Units wurden am 24. August unabhängig bestätigt.
 
 - Der normale Wettfinder verwendet Automationsartefakt v14,
   Auswahl-/Katalogpolicy v12 und Modellcache-Schema v2.
@@ -47,6 +49,9 @@ Python-Kompilierung und `git diff --check` ebenfalls grün.
 - Es gibt kein Markt-Namensgate. Die Nutzwertsortierung entscheidet nur über
   die hervorgehobenen Karten; alle weiteren ausgewählten Märkte bleiben
   gruppiert sichtbar.
+- Ein gemischter Oder-Markt darf ausschließlich im normalen Fußball-Finder
+  einen freien Hauptkartenplatz auffüllen. Er verdrängt keine drei
+  höherwertigen Karten; der Default für 15K und andere Sportarten bleibt aus.
 - Fehlende oder zu niedrige Quoten ändern und löschen keine Prognose. Sie
   erscheinen als Preishinweis. Ein normaler `PLAYABLE`-Tipp verlangt dagegen
   exakte Ereignis-/Auswahlbindung, mindestens drei stabile provider-native
@@ -74,6 +79,13 @@ Python-Kompilierung und `git diff --check` ebenfalls grün.
   nächste ehrliche Schritt.
 - 15K-Wett-, Einsatz-, Ticket- und Release-Regeln bleiben unverändert. Der
   breitere normale Marktpool lockert den getrennten Challenge-Vertrag nicht.
+
+Der echte v14-Lauf um 17:37 CEST endete `success / 0` mit 18 sichtbaren
+Modellprognosen, null operativen Fehlern und null preislich freigegebenen
+Tipps. Die mobile Produktions-UI 390 x 844 zeigte Team-Unter-1,5 als erste und
+eine gemischte Chance als zweite Hauptkarte; fehlende beziehungsweise alte
+Quoten änderten keine Prognose. Die Schreibweise `verfügbar` war korrigiert,
+und die Browserkonsole hatte null Fehler.
 
 Nach jedem Commit gilt ausschließlich der frisch abgefragte vollständige
 `origin/main`-Hash. Hash und Produktionsstand werden nach einem Deploy erneut

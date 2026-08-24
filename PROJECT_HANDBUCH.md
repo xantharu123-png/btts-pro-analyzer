@@ -18,16 +18,16 @@
 | Verifizierter Nutzwert-Katalog-Funktionscommit | `f492385aab986112efbb13366b0a09a99a9c257a` (`Prioritize useful diverse market forecasts`), am 20. August kontrolliert gepusht, deployed und in der echten Produktions-UI geprüft |
 | Verifizierter Nutzwert-/Repricing-Funktionscommit | `6c8ea99d9696cc10a4250b52aaf57755d595f100` (`Harden forecast utility and automatic repricing`), am 24. August kontrolliert gepusht, deployed, mit echtem Automatiklauf und in der Produktions-UI geprüft |
 | Verifizierter Team-Unter-1,5-Korrekturcommit | `08778fdc29a7275c21fc23671d4763290273c435` (`Restore team under 1.5 eligibility`), am 24. August kontrolliert gepusht, deployed, mit echtem Automatiklauf und in der Produktions-UI geprüft |
-| Lokal verifizierter v14/v12-Funktionscommit | `aa62cbb7187e32f2de28c8135b76b67984bdd415` (`Harden normal Wettfinder integrity`); 920 Python-Tests plus 50 Subtests und 3/3 JavaScript-Tests grün, Python-Kompilierung und Diff-Prüfung grün |
+| Verifizierter v14/v12-Funktionscommit | `e341db828121cba7ad5a9d4ed2f6304b146a3591` (`Refine normal Wettfinder featured markets`); 922 Python-Tests plus 50 Subtests und 3/3 JavaScript-Tests grün, Python-Kompilierung und Diff-Prüfung grün; am 24. August revisionsgebunden deployed und live geprüft |
 | Fachlicher Kernstand | Der normale Consumer-Wettfinder besitzt einen eigenen vollständigen Marktpool und übernimmt weder den 15K-Wahrscheinlichkeitskorridor noch dessen Ticketvorfilter. Marktname und hohe Modellwahrscheinlichkeit sind keine Ausschlussgründe. Nutzwert und Vielfalt steuern nur die Hervorhebung; zusätzliche Märkte bleiben gruppiert sichtbar. Modellprognose, Kontextverfügbarkeit, Marktpreis und strikte Tipp-/Einsatzfreigabe sind getrennte Zustände. |
 | Aktueller Writer-/Reader-Vertrag | Automationsartefakt v14, Auswahl-/Katalogpolicy v12 und Modellcache-Schema v2. Ein normaler `PLAYABLE`-Tipp verlangt exakte Event-/Auswahlbindung, mindestens drei stabile provider-native Buchmacher-IDs, Zeitstempel je Preisbeobachtung und ein reales ausführbares Buchmacherangebot. |
-| Verifizierter VPS-Funktionsstand | Funktionscommit `08778fd`; App aktiv/enabled, lokaler und öffentlicher Health `200 / ok`, alle 7 BetBoy-Timer aktiv/enabled, echter Artefakt-v13-Wettfinder-Lauf `success / 0`, 0 fehlgeschlagene systemd-Units am 24. August |
+| Verifizierter VPS-Funktionsstand | Funktionscommit `e341db828121cba7ad5a9d4ed2f6304b146a3591`; App aktiv, interner und öffentlicher Health `ok`, alle 7 BetBoy-Timer aktiv/enabled, Artefakt v14 / Auswahlpolicy v12, letzter Wettfinder-Lauf `success / 0`, 0 fehlgeschlagene systemd-Units am 24. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | Aktueller v14/v12-Stand: 920 Python-Tests, 50 Subtests und 3/3 JavaScript-Tests am 24. August bestanden; Python-Kompilierung und Diff-Prüfung ebenfalls grün. Die weiter unten genannten 886/38 gehören zum historischen v13-Produktionsnachweis. |
+| Vollständiger Testlauf | Aktueller v14/v12-Stand: 922 Python-Tests, 50 Subtests und 3/3 JavaScript-Tests am 24. August bestanden; Python-Kompilierung und Diff-Prüfung ebenfalls grün. Die weiter unten genannten 886/38 gehören zum historischen v13-Produktionsnachweis. |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 | Produkt- und Entscheidungsgrundlage | `PROJEKTBIBEL.md` |
 | PC-Wechsel-Runbook | `PC_WECHSEL_UEBERGABE.md` |
@@ -60,6 +60,10 @@ Produktionsstände und dürfen diesen Vertrag nicht überschreiben.
   Sie bevorzugt informative, unterschiedliche Spiele und Marktfamilien in
   den hervorgehobenen Karten. Alle weiteren ausgewählten Marktprognosen
   bleiben in gruppierten Zusatzbereichen sichtbar.
+- Nur der normale Fußball-Wettfinder darf einen gemischten Oder-Markt als
+  Backfill für einen freien Hauptkartenplatz verwenden. Drei höherwertige
+  Karten werden nicht verdrängt; Default, andere Sportarten und 15K bleiben
+  unverändert.
 
 #### Prognose und Preis bleiben getrennt
 
@@ -133,6 +137,29 @@ Mindestquote, realen Preisstatus und knappen Kontextstatus. Interne Liga-,
 Fixture-, Kandidaten-, Gate-, Dropout-, Modell- und Marktprüfungszähler sowie
 Cache- und Providerdiagnosen gehören ausschließlich in Administration und
 Logs.
+
+### Produktiv verifizierter Mixed-Backfill vom 24. August 2026
+
+Der Funktionsstand
+`e341db828121cba7ad5a9d4ed2f6304b146a3591` beseitigt einen Widerspruch der
+normalen Consumer-Sortierung: Gemischte Oder-Märkte bleiben Basisprognosen,
+dürfen im normalen Fußball-Wettfinder aber einen sonst freien Hauptkartenplatz
+auffüllen. Das Opt-in ist ausschließlich in den zwei normalen
+Fußball-Aufrufern aktiv; 15K und andere Sportarten behalten den unveränderten
+Default. Fixture- und Marktfamilien-Diversifizierung bleiben bestehen, und
+kein Kandidat wird gelöscht, gesperrt, neu bewertet oder höherwertigen drei
+Karten vorgezogen.
+
+Der vollständige Lauf bestand 922 Python-Tests plus 50 Subtests sowie 3/3
+JavaScript-Tests. Der VPS lief danach exakt auf diesem Commit: App aktiv,
+interner und öffentlicher Healthcheck `ok`, sieben Timer aktiv/enabled und null
+fehlgeschlagene Units. Der automatische v14-Lauf um 17:37 CEST endete mit
+`success / 0`, 18 sichtbaren Modellprognosen, null operativen Fehlern und null
+preislich freigegebenen Tipps. Die reale 390-x-844-Produktionsansicht zeigte
+Team-Unter-1,5 weiterhin als zulässige Hauptkarte und zusätzlich eine
+gemischte Chance als zweite Hauptkarte. Fehlende oder veraltete Quoten ließen
+beide Prognosen sichtbar; `verfügbar` war korrekt geschrieben. Die
+Browserkonsole hatte null Fehler.
 
 ### Produktiv verifizierte Team-Unter-1,5-Korrektur vom 24. August 2026
 
