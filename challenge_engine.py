@@ -458,7 +458,9 @@ GOAL_MARKET_SPECS = tuple(spec for spec in MARKET_SPECS if spec.kind not in COUN
 # Broad safety lines are useful calibration outputs, but poor consumer picks:
 # they mostly restate that a team will probably score at least once or stay
 # below an unusually generous ceiling.  They remain modeled and auditable,
-# but never occupy the public Top-Auswahlen.
+# but never occupy the public Top-Auswahlen. Team under 1.5 is deliberately
+# not in this set: it can be a meaningful market and must be judged by the
+# normal model, context and concrete-price rules.
 BASIC_FORECAST_KINDS = frozenset({"double_chance", "team_range", "mixed_or"})
 MAX_PUBLIC_SELECTIONS_PER_KIND = 3
 
@@ -475,7 +477,7 @@ def market_is_basic_forecast(market_key: str) -> bool:
     threshold = spec.threshold
     broad_lines = {
         "total": {("over", 0.5), ("under", 4.5)},
-        "team_total": {("over", 0.5), ("under", 1.5), ("under", 2.5)},
+        "team_total": {("over", 0.5), ("under", 2.5)},
         "corner_total": {("over", 5.5), ("under", 11.5)},
         "team_corners": {("over", 2.5), ("under", 5.5)},
         "yellow_total": {("over", 1.5), ("under", 4.5)},

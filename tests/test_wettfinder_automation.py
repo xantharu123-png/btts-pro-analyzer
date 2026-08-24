@@ -1850,31 +1850,46 @@ def test_tennis_fetch_refuses_unbounded_ambiguous_sport_key_scan(monkeypatch):
     assert any("Provider-Sportkey" in error for error in errors)
 
 
-def test_runner_keeps_basis_forecast_visible_but_never_promotes_it(tmp_path):
+def test_runner_can_release_team_under_one_five_at_a_good_price(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     useful = _challenge_candidate(now + timedelta(hours=5))
     useful.context = {"passed": True, "blocked_reasons": []}
-    basis = replace(
+    team_under = replace(
         useful,
-        candidate_id="fixture-1-away-under-1-5",
+        candidate_id="fixture-2-away-under-1-5",
+        fixture_id=2,
+        home_team_id=20,
+        away_team_id=21,
+        home_team="FC Gamma",
+        away_team="FC Delta",
         market_key="AWAY_UNDER_1_5",
         market="Team 2 Gesamttore",
         selection="Unter 1.5",
     )
-    basis.context = {"passed": True, "blocked_reasons": []}
+    team_under.context = {
+        "passed": True,
+        "forecast_passed": True,
+        "release_context_complete": True,
+        "release_eligible": True,
+        "blocked_reasons": [],
+    }
     snapshot = _football_snapshot(now)
-    snapshot["forecast_shortlist"] = [useful]
-    snapshot["basis_forecasts"] = [basis]
+    snapshot["forecast_shortlist"] = [useful, team_under]
+    snapshot["base_fixture_count"] = 2
+    snapshot["context_fixtures"] = 2
+    snapshot["context_verified_fixtures"] = 2
+    snapshot["context_fixture_statuses"] = {"1": "verified", "2": "verified"}
 
     def quote_loader(rows):
-        basis_row = next(
-            row for row in rows if row["candidate_id"] == basis.candidate_id
+        team_under_row = next(
+            row for row in rows if row["candidate_id"] == team_under.candidate_id
         )
+        assert team_under_row["is_basic_forecast"] is False
         prices = (2.40, 2.45, 2.50, 2.55)
         return {
-            basis.candidate_id: MarketConsensus(
-                fixture_id=1,
-                candidate_id=basis.candidate_id,
+            team_under.candidate_id: MarketConsensus(
+                fixture_id=2,
+                candidate_id=team_under.candidate_id,
                 market_key="AWAY_UNDER_1_5",
                 bet_name="Total - Away",
                 value_name="Under 1.5",
@@ -1906,14 +1921,14 @@ def test_runner_keeps_basis_forecast_visible_but_never_promotes_it(tmp_path):
     by_id = {
         row["candidate_id"]: row for row in document["model_candidates"]
     }
-    assert set(by_id) == {useful.candidate_id, basis.candidate_id}
-    assert by_id[basis.candidate_id]["is_basic_forecast"] is True
-    assert by_id[basis.candidate_id]["reference_price_status"] == "PLAYABLE"
-    assert document["football"]["basis_candidates"][0]["candidate_id"] == (
-        basis.candidate_id
-    )
+    assert set(by_id) == {useful.candidate_id, team_under.candidate_id}
+    assert by_id[team_under.candidate_id]["is_basic_forecast"] is False
+    assert by_id[team_under.candidate_id]["reference_price_status"] == "PLAYABLE"
+    assert document["football"]["basis_candidates"] == []
     assert document["sources"]["football"]["price_checked_count"] == 2
-    assert document["candidates"] == []
+    assert [row["candidate_id"] for row in document["candidates"]] == [
+        team_under.candidate_id
+    ]
 
 
 def test_runner_reprices_same_day_football_after_context_ttl_without_release(

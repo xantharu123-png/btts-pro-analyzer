@@ -576,10 +576,10 @@ class ChallengeProbabilityTests(unittest.TestCase):
         favorite = candidate("1:RESULT_HOME", 1, 0.73)
         alternative = candidate("1:BTTS_YES", 1, 0.69)
         basis = replace(
-            candidate("1:AWAY_UNDER_1_5", 1, 0.74),
-            market_key="AWAY_UNDER_1_5",
+            candidate("1:AWAY_UNDER_2_5", 1, 0.74),
+            market_key="AWAY_UNDER_2_5",
             market="Team 2 Gesamttore",
-            selection="Unter 1,5",
+            selection="Unter 2,5",
         )
         snapshot = {
             "shortlist": [favorite],
@@ -790,11 +790,11 @@ class ChallengeProbabilityTests(unittest.TestCase):
 
     def test_price_check_promotes_complete_result_total_over_repeated_team_totals(self):
         fake_streamlit = MagicMock()
-        team_spec = MARKET_BY_KEY["AWAY_UNDER_1_5"]
+        team_spec = MARKET_BY_KEY["AWAY_UNDER_2_5"]
         team_totals = []
         for index in range(1, 4):
             item = replace(
-                candidate(f"{index}:AWAY_UNDER_1_5", index, 0.60),
+                candidate(f"{index}:AWAY_UNDER_2_5", index, 0.60),
                 market_key=team_spec.key,
                 market=team_spec.market,
                 selection=team_spec.selection,
@@ -818,7 +818,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
             candidate_id=team_totals[0].candidate_id,
             market_key=team_totals[0].market_key,
             bet_name="Total - Away",
-            value_name="Under 1.5",
+            value_name="Under 2.5",
             consensus_odds=1.50,
             conservative_odds=1.50,
             lowest_odds=1.50,
@@ -951,8 +951,6 @@ class ChallengeProbabilityTests(unittest.TestCase):
             "TOTAL_UNDER_4_5",
             "HOME_OVER_0_5",
             "AWAY_OVER_0_5",
-            "HOME_UNDER_1_5",
-            "AWAY_UNDER_1_5",
             "HOME_UNDER_2_5",
             "AWAY_UNDER_2_5",
             "HOME_RANGE_1_3",
@@ -971,6 +969,8 @@ class ChallengeProbabilityTests(unittest.TestCase):
             "BTTS_YES",
             "TOTAL_OVER_2_5",
             "HOME_OVER_1_5",
+            "HOME_UNDER_1_5",
+            "AWAY_UNDER_1_5",
             "CORNERS_OVER_8_5",
             "YELLOW_OVER_2_5",
         }:
@@ -994,9 +994,15 @@ class ChallengeProbabilityTests(unittest.TestCase):
         self.assertEqual(select_forecast_shortlist([broad, useful]), [useful])
         self.assertEqual(select_basis_forecasts([broad, useful]), [broad])
 
-    def test_team_under_one_five_is_retained_only_as_basis_forecast(self):
-        broad = replace(
-            candidate("1:AWAY_UNDER_1_5", 1, 0.74),
+    def test_team_under_one_five_is_fully_eligible_when_its_price_is_good(self):
+        now = datetime.now(timezone.utc)
+        team_under = replace(
+            candidate(
+                "1:AWAY_UNDER_1_5",
+                1,
+                0.74,
+                kickoff=now + timedelta(days=1),
+            ),
             market_key="AWAY_UNDER_1_5",
             market="Team 2 Gesamttore",
             selection="Unter 1.5",
@@ -1008,8 +1014,26 @@ class ChallengeProbabilityTests(unittest.TestCase):
             selection="1X und Unter 3,5",
         )
 
-        self.assertEqual(select_forecast_shortlist([broad, useful]), [useful])
-        self.assertEqual(select_basis_forecasts([broad, useful]), [broad])
+        self.assertFalse(market_is_basic_forecast(team_under.market_key))
+        self.assertEqual(
+            select_forecast_shortlist([team_under, useful]),
+            [team_under, useful],
+        )
+        self.assertEqual(
+            select_shortlist([team_under, useful]),
+            [team_under, useful],
+        )
+        self.assertEqual(select_basis_forecasts([team_under, useful]), [])
+        quoted = select_quoted_ticket(
+            [team_under],
+            {team_under.candidate_id: 2.0},
+            now=now,
+        )
+        self.assertIsNotNone(quoted)
+        self.assertEqual(
+            quoted.legs[0].candidate.candidate_id,
+            team_under.candidate_id,
+        )
 
     def test_context_summary_discloses_missing_inputs_without_blocking_price(self):
         item = candidate("1:BTTS_YES", 1, 0.70)
@@ -1106,12 +1130,12 @@ class ChallengeProbabilityTests(unittest.TestCase):
         selected = select_forecast_shortlist(pool, max_candidates=15)
         kinds = [MARKET_BY_KEY[item.market_key].kind for item in selected]
 
-        self.assertEqual(len(selected), 14)
-        self.assertEqual(len({item.fixture_id for item in selected}), 14)
+        self.assertEqual(len(selected), 15)
+        self.assertEqual(len({item.fixture_id for item in selected}), 15)
         self.assertTrue(all(count <= 3 for count in Counter(kinds).values()))
         self.assertEqual(len(set(kinds[:3])), 3)
         self.assertNotIn("HOME_OVER_0_5", {item.market_key for item in selected})
-        self.assertNotIn("HOME_UNDER_1_5", {item.market_key for item in selected})
+        self.assertIn("HOME_UNDER_1_5", {item.market_key for item in selected})
 
     def test_diversity_prefill_never_exceeds_requested_maximum(self):
         market_keys = [

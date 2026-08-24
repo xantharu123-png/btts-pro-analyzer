@@ -58,9 +58,11 @@ def _consumer_token(value: object) -> str:
 def _consumer_market_utility_tier(row: object) -> int:
     """Return a small, price-independent presentation tier.
 
-    Combined result/goal decisions are more informative than a repeated team
-    safety line.  This is deliberately presentation-only: no tier changes a
-    model probability, price decision, ticket, or eligibility gate.
+    Combined result/goal decisions are more informative than a repeated broad
+    safety line. Team under 1.5 remains an ordinary market here: its concrete
+    price, not its market name, decides whether it is economically useful.
+    This is deliberately presentation-only: no tier changes a model
+    probability, price decision, ticket, or eligibility gate.
     """
 
     market_key = _consumer_token(getattr(row, "market_key", None))
@@ -71,7 +73,7 @@ def _consumer_market_utility_tier(row: object) -> int:
         "resultat" in market and ("gesamttore" in market or "tore" in market)
     ):
         return 0
-    if (
+    is_team_total = (
         market_key.startswith(
             ("home_under_", "home_over_", "away_under_", "away_over_")
         )
@@ -79,7 +81,12 @@ def _consumer_market_utility_tier(row: object) -> int:
         or "team_2_gesamttore" in market
         or "teamtore" in market
         or "team_total" in combined
+    )
+    if market_key in {"home_under_1_5", "away_under_1_5"} or (
+        is_team_total and selection == "unter_1_5"
     ):
+        return 1
+    if is_team_total:
         return 2
     if (
         market_key.startswith(("dc_", "mixed_"))
@@ -103,8 +110,6 @@ def _consumer_market_is_basis(row: object) -> bool:
         "total_under_4_5",
         "home_over_0_5",
         "away_over_0_5",
-        "home_under_1_5",
-        "away_under_1_5",
         "home_under_2_5",
         "away_under_2_5",
         "corners_over_5_5",
@@ -134,7 +139,6 @@ def _consumer_market_is_basis(row: object) -> bool:
     )
     return is_team_total and selection in {
         "uber_0_5",
-        "unter_1_5",
         "unter_2_5",
     }
 

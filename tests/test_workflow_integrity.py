@@ -483,10 +483,15 @@ def test_automatic_surface_promotes_complete_osasuna_over_three_team_totals(
     ]
     additional_group = next(
         label for label, _expanded in recording_st.expanders
-        if label == "Weitere 3 Modellprognosen"
+        if label == "Weitere 2 Modellprognosen"
     )
-    assert [group for group, _key in rendered[1:]] == [
-        additional_group,
+    primary_group = rendered[0][0]
+    assert primary_group != additional_group
+    assert [group for group, _key in rendered[:2]] == [
+        primary_group,
+        primary_group,
+    ]
+    assert [group for group, _key in rendered[2:]] == [
         additional_group,
         additional_group,
     ]
@@ -677,10 +682,15 @@ def test_manual_surface_promotes_complete_osasuna_over_three_team_totals(
     ]
     additional_group = next(
         label for label, _expanded in recording_st.expanders
-        if label == "Weitere 3 Modellprognosen"
+        if label == "Weitere 2 Modellprognosen"
     )
-    assert [group for group, _key in rendered[1:]] == [
-        additional_group,
+    primary_group = rendered[0][0]
+    assert primary_group != additional_group
+    assert [group for group, _key in rendered[:2]] == [
+        primary_group,
+        primary_group,
+    ]
+    assert [group for group, _key in rendered[2:]] == [
         additional_group,
         additional_group,
     ]

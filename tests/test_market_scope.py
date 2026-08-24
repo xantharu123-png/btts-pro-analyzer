@@ -238,9 +238,9 @@ def test_market_worker_prices_basis_for_annotation_without_strict_promotion(
         minimum_odds=1.80,
     )
     basis = SimpleNamespace(
-        candidate_id="fixture-7-away-under-1-5",
+        candidate_id="fixture-7-away-under-2-5",
         fixture_id=7,
-        market_key="AWAY_UNDER_1_5",
+        market_key="AWAY_UNDER_2_5",
         minimum_odds=1.40,
     )
     snapshot = {
@@ -256,7 +256,7 @@ def test_market_worker_prices_basis_for_annotation_without_strict_promotion(
         candidate_id=basis.candidate_id,
         market_key=basis.market_key,
         bet_name="Total - Away",
-        value_name="Under 1.5",
+        value_name="Under 2.5",
         consensus_odds=1.50,
         conservative_odds=1.50,
         lowest_odds=1.50,
@@ -427,7 +427,7 @@ def test_consumer_partition_relegates_only_confirmed_extreme_short_prices():
     )
 
 
-def test_featured_partition_prioritizes_complete_useful_market_without_hiding_rows():
+def test_featured_partition_allows_team_under_one_five_without_repetition():
     repeated_team_totals = [
         SimpleNamespace(
             candidate_id=f"away-under-{index}",
@@ -453,8 +453,8 @@ def test_featured_partition_prioritizes_complete_useful_market_without_hiding_ro
         max_featured=3,
     )
 
-    assert featured == [osasuna]
-    assert additional == repeated_team_totals
+    assert featured == [osasuna, repeated_team_totals[0]]
+    assert additional == repeated_team_totals[1:]
     assert featured + additional == [
         osasuna,
         repeated_team_totals[0],
