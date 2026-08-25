@@ -162,6 +162,7 @@ def test_production_entrypoint_verifies_permanent_drop_before_live_access(
         "group:2345",
         "stage:1234:2345",
         "user:1234",
+        "dumpable",
         "verified:1234:2345",
         "live-access",
     ]

@@ -528,6 +528,7 @@ def run_production_stage() -> dict[str, Any]:
     _adopt_backup_group(backup_gid)
     stage_identity = _create_stage_directories(live_uid, backup_gid)
     _drop_user_permanently(live_uid)
+    _disable_dumpability()
     _verify_permanent_drop(live_uid, backup_gid)
     return stage_databases(
         PRODUCTION_LIVE_ROOT,

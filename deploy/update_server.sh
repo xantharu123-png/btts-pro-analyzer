@@ -395,26 +395,7 @@ expected_unit_sha256() {
 }
 
 expected_backup_stage_helper_sha256() {
-    printf '%s\n' b11704036e7a6f2302970a12395cd120b4ec26c76eb60f63618896f5bef85e6d
-}
-
-reviewed_backup_stage_target_sha256() {
     printf '%s\n' 1441158c542e97a19b193fa0cd091b645ec6442d6d8157f1d4fceabbba72b026
-}
-
-target_backup_stage_helper_sha256() {
-    local path
-    local actual
-    local reviewed
-    path=$(trusted_file scripts/stage_runtime_databases.py)
-    actual=$(sha256sum -- "${path}" | awk '{print $1}')
-    reviewed=$(expected_backup_stage_helper_sha256)
-    if [[ "${actual}" == "${reviewed}" \
-        || "${actual}" == "$(reviewed_backup_stage_target_sha256)" ]]; then
-        printf '%s\n' "${actual}"
-        return
-    fi
-    die "Privileged backup stage helper differs from both reviewed transition hashes."
 }
 
 validate_trusted_backup_stage_helper() {
@@ -422,7 +403,7 @@ validate_trusted_backup_stage_helper() {
     local actual
     path=$(trusted_file scripts/stage_runtime_databases.py)
     actual=$(sha256sum -- "${path}" | awk '{print $1}')
-    [[ "${actual}" == "$(target_backup_stage_helper_sha256)" ]] \
+    [[ "${actual}" == "$(expected_backup_stage_helper_sha256)" ]] \
         || die "Privileged backup stage helper differs from reviewed bytes."
 }
 
