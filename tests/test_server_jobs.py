@@ -2209,14 +2209,15 @@ def test_backup_discovers_and_archives_all_supported_sqlite_suffixes(tmp_path):
         }
 
 
-def test_staged_backup_release_keeps_only_one_deploy_compatibility_action():
+def test_staged_backup_release_has_no_obsolete_readonly_source_migration():
     root = Path(__file__).resolve().parents[1]
     backup_source = (
         root / "scripts" / "backup_runtime_databases.py"
     ).read_text(encoding="utf-8")
-    assert "def prepare_readonly_backup_sources(" in backup_source
-    assert "One-release compatibility action" in backup_source
-    assert "--prepare-readonly-sources" in backup_source
+    assert "def prepare_readonly_backup_sources(" not in backup_source
+    assert "One-release compatibility action" not in backup_source
+    assert "--prepare-readonly-sources" not in backup_source
+    assert "--offline-confirmed" not in backup_source
 
     for script_name in ("update_server.sh", "bootstrap_server.sh"):
         deploy_source = (root / "deploy" / script_name).read_text(

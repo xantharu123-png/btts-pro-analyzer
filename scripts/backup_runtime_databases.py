@@ -598,98 +598,6 @@ def backup_database(source: Path, destination: Path) -> None:
             source_conn.backup(destination_conn)
 
 
-def prepare_readonly_backup_sources(
-    root: Path = ROOT,
-    *,
-    offline_confirmed: bool = False,
-) -> tuple[int, int]:
-    """Normalize live databases for a strictly read-only backup account."""
-
-    if not offline_confirmed:
-        raise RuntimeError(
-            "Backup source preparation requires explicit offline confirmation"
-        )
-    resolved_root = _validated_application_root(root)
-    databases = discover_databases(resolved_root)
-    if not databases:
-        return 0, 0
-
-    converted = 0
-    for database in databases:
-        before = os.lstat(database)
-        if (
-            not stat.S_ISREG(before.st_mode)
-            or stat.S_ISLNK(before.st_mode)
-            or before.st_nlink != 1
-        ):
-            raise RuntimeError(
-                "Backup database must be one regular, non-linked file"
-            )
-        database_uri = database.resolve(strict=True).as_uri() + "?mode=rw"
-        try:
-            with closing(
-                sqlite3.connect(database_uri, uri=True, timeout=30)
-            ) as connection:
-                connection.execute("PRAGMA busy_timeout = 30000")
-                current_row = connection.execute("PRAGMA journal_mode").fetchone()
-                current_mode = (
-                    str(current_row[0]).casefold()
-                    if current_row is not None and len(current_row) == 1
-                    else ""
-                )
-                if current_mode == "wal":
-                    checkpoint = connection.execute(
-                        "PRAGMA wal_checkpoint(TRUNCATE)"
-                    ).fetchone()
-                    if (
-                        checkpoint is None
-                        or len(checkpoint) != 3
-                        or type(checkpoint[0]) is not int
-                        or checkpoint[0] != 0
-                        or (
-                            checkpoint[1] >= 0
-                            and checkpoint[2] != checkpoint[1]
-                        )
-                    ):
-                        raise RuntimeError(
-                            f"Cannot checkpoint WAL backup source {database}"
-                        )
-                selected = connection.execute(
-                    "PRAGMA journal_mode = DELETE"
-                ).fetchone()
-                if selected != ("delete",):
-                    raise RuntimeError(
-                        f"Cannot select DELETE journal mode for {database}"
-                    )
-                if connection.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
-                    raise RuntimeError(
-                        f"SQLite quick_check failed for backup source {database}"
-                    )
-        except sqlite3.Error as exc:
-            raise RuntimeError(f"Cannot prepare backup source {database}") from exc
-
-        after = os.lstat(database)
-        if (
-            not stat.S_ISREG(after.st_mode)
-            or stat.S_ISLNK(after.st_mode)
-            or after.st_nlink != 1
-            or (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
-        ):
-            raise RuntimeError("Backup database changed identity during preparation")
-        for suffix in ("-wal", "-shm"):
-            companion = database.with_name(f"{database.name}{suffix}")
-            if os.path.lexists(companion):
-                raise RuntimeError(
-                    f"SQLite WAL companion remains after preparation: {companion}"
-                )
-        if current_mode != "delete":
-            _fsync_file(database)
-            _fsync_directory(database.parent)
-            converted += 1
-
-    return len(databases), converted
-
-
 def _read_integrity_key(path: Path) -> bytes:
     """Read one key without following symlinks or accepting loose formats."""
 
@@ -3687,16 +3595,6 @@ def main() -> int:
         metavar=("SNAPSHOT", "DESTINATION"),
         help="Verify that a backup run created exactly one root archive",
     )
-    actions.add_argument(
-        "--prepare-readonly-sources",
-        action="store_true",
-        help="One-release compatibility action for the staged backup migration",
-    )
-    parser.add_argument(
-        "--offline-confirmed",
-        action="store_true",
-        help="Confirm that every application database writer is stopped",
-    )
     parser.add_argument(
         "--recovery-mode",
         action="store_true",
@@ -3705,8 +3603,6 @@ def main() -> int:
     args = parser.parse_args()
     if args.recovery_mode and args.verify_only is None:
         parser.error("--recovery-mode requires --verify-only")
-    if args.offline_confirmed and not args.prepare_readonly_sources:
-        parser.error("--offline-confirmed requires --prepare-readonly-sources")
     if (args.logical_root is None) != (args.stage_manifest is None):
         parser.error("--logical-root and --stage-manifest must be used together")
     if args.retention_days < 1:
@@ -3758,18 +3654,6 @@ def main() -> int:
             recovery_mode=args.recovery_mode,
         )
         print(f"Verified: {args.verify_only} | databases={verified}")
-        return 0
-    if args.prepare_readonly_sources:
-        if not args.offline_confirmed:
-            parser.error("--prepare-readonly-sources requires --offline-confirmed")
-        inspected, converted = prepare_readonly_backup_sources(
-            args.root,
-            offline_confirmed=True,
-        )
-        print(
-            "Prepared read-only backup sources: "
-            f"inspected={inspected} | converted={converted}"
-        )
         return 0
     archive, count = create_archive(
         args.output_dir,
