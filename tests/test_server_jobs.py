@@ -2088,6 +2088,36 @@ def test_root_installers_pin_every_systemd_unit_to_reviewed_bytes():
     assert 'check_installed_unit "${name}" "${expected}"' in verify_previous
 
 
+def test_backup_stage_helper_fix_uses_one_exact_two_commit_bridge():
+    root = Path(__file__).resolve().parents[1]
+    updater = (root / "deploy" / "update_server.sh").read_text(encoding="utf-8")
+    bootstrap = (root / "deploy" / "bootstrap_server.sh").read_text(
+        encoding="utf-8"
+    )
+    current_hash = hashlib.sha256(
+        (root / "scripts" / "stage_runtime_databases.py").read_bytes()
+    ).hexdigest()
+    repaired_hash = (
+        "b11704036e7a6f2302970a12395cd120b4ec26c76eb60f63618896f5bef85e6d"
+    )
+
+    assert current_hash == (
+        "50a1dfefcca43f07a397654d09954dce9aafbceb4b2f677bfa3c46ac41abd865"
+    )
+    assert updater.count(current_hash) == 1
+    assert updater.count(repaired_hash) == 1
+    assert bootstrap.count(current_hash) == 1
+    assert repaired_hash not in bootstrap
+
+    target_hash = _shell_function(updater, "target_backup_stage_helper_sha256")
+    validate = _shell_function(updater, "validate_trusted_backup_stage_helper")
+    assert 'path=$(trusted_file scripts/stage_runtime_databases.py)' in target_hash
+    assert 'reviewed=$(expected_backup_stage_helper_sha256)' in target_hash
+    assert '"${actual}" == "${reviewed}"' in target_hash
+    assert '"${actual}" == "$(reviewed_backup_stage_target_sha256)"' in target_hash
+    assert '"${actual}" == "$(target_backup_stage_helper_sha256)"' in validate
+
+
 def test_esports_broad_discovery_runs_once_daily():
     root = Path(__file__).resolve().parents[1]
     timer = (
