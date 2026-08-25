@@ -1880,6 +1880,8 @@ def test_root_deploy_tools_do_not_trust_betboy_writable_checkout():
         assert 'pgrep -u "${account}"' in script
         assert "scripts/backup_runtime_databases.py" in script
         assert "/usr/local/libexec/betboy-backup-runtime.py" in script
+        assert "scripts/stage_runtime_databases.py" in script
+        assert "/usr/local/libexec/betboy-backup-stage-runtime.py" in script
         assert "scripts/manage_challenge_migration_marker.py" in script
         assert "/usr/local/libexec/betboy-challenge-migration-marker.py" in script
         assert "/run/betboy-deploy/deploy.lock" in script
@@ -1999,6 +2001,8 @@ def test_every_root_installed_betboy_service_drops_privileges():
 def test_root_installers_pin_every_systemd_unit_to_reviewed_bytes():
     root = Path(__file__).resolve().parents[1]
     systemd = root / "deploy" / "systemd"
+    stage_helper = root / "scripts" / "stage_runtime_databases.py"
+    stage_helper_hash = hashlib.sha256(stage_helper.read_bytes()).hexdigest()
     pattern = re.compile(
         r"deploy/systemd/([^\)]+)\) printf '%s\\n' ([0-9a-f]{64})"
     )
@@ -2007,6 +2011,10 @@ def test_root_installers_pin_every_systemd_unit_to_reviewed_bytes():
     mappings = []
     for script_name in ("update_server.sh", "bootstrap_server.sh"):
         script = (root / "deploy" / script_name).read_text(encoding="utf-8")
+        assert "expected_backup_stage_helper_sha256" in script
+        assert "validate_trusted_backup_stage_helper" in script
+        assert stage_helper_hash in script
+        assert "Privileged backup stage helper differs from reviewed bytes" in script
         expected_block = script.split("expected_unit_sha256() {", 1)[1].split(
             "\n}", 1
         )[0]
@@ -2022,11 +2030,28 @@ def test_root_installers_pin_every_systemd_unit_to_reviewed_bytes():
     assert "legacy_unit_sha256" not in updater
     assert "ALLOW_LEGACY_UNIT_HASHES" not in updater
     assert "bridge_source_unit_sha256" not in updater
+    assert "reviewed_backup_target_sha256" in updater
+    future_backup_unit = root / "tests" / "fixtures" / "betboy-backup-staged.service"
+    future_backup_unit_hash = hashlib.sha256(
+        future_backup_unit.read_bytes()
+    ).hexdigest()
+    assert (
+        future_backup_unit_hash
+        == "922352a5d3c883cc671da419c5d3fa589cbe9cd025f32d4c4d9f7b6a9648edb8"
+    )
+    assert (
+        future_backup_unit_hash in updater
+    )
     validate_target = _shell_function(updater, "validate_trusted_unit")
+    target_hash = _shell_function(updater, "target_unit_sha256")
     verify_installed = _shell_function(updater, "verify_installed_unit")
     verify_previous = _shell_function(updater, "verify_installed_previous_unit")
-    assert 'expected=$(expected_unit_sha256 "${relative}")' in validate_target
+    assert 'expected=$(target_unit_sha256 "${relative}")' in validate_target
     assert '[[ "${actual}" == "${expected}" ]]' in validate_target
+    assert "deploy/systemd/betboy-backup.service" in target_hash
+    assert 'target=$(sha256sum -- "$(trusted_file "${relative}")"' in target_hash
+    assert '"${target}" == "${reviewed}"' in target_hash
+    assert '"${target}" == "$(reviewed_backup_target_sha256)"' in target_hash
     assert 'check_installed_unit "${name}"' in verify_installed
     assert 'expected=$(sha256sum -- "${reference}"' in verify_previous
     assert 'check_installed_unit "${name}" "${expected}"' in verify_previous
@@ -3101,6 +3126,8 @@ def test_backup_user_migration_is_updater_and_rollback_compatible():
     assert 'chown "${BACKUP_DIR_UID}:${BACKUP_DIR_GID}"' in update
     assert "restore_backup_principal_state" in update
     assert "BACKUP_HELPER_WAS_PRESENT" in update
+    assert "BACKUP_STAGE_HELPER_WAS_PRESENT" in update
+    assert "backup-stage-helper" in update
     assert "verify_backup_service_migration" in update
     assert "systemctl start betboy-backup.service" in update
     assert "--verify-only" in update

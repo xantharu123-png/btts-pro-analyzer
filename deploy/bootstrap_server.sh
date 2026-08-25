@@ -8,6 +8,7 @@ cd /
 readonly TRUSTED_BOOTSTRAP=/usr/local/sbin/betboy-bootstrap
 readonly TRUSTED_UPDATER=/usr/local/sbin/betboy-update
 readonly TRUSTED_BACKUP_HELPER=/usr/local/libexec/betboy-backup-runtime.py
+readonly TRUSTED_BACKUP_STAGE_HELPER=/usr/local/libexec/betboy-backup-stage-runtime.py
 readonly TRUSTED_MIGRATION_MARKER_HELPER=/usr/local/libexec/betboy-challenge-migration-marker.py
 readonly LEDGER_HMAC_KEY=/etc/betboy/challenge-ledger-hmac.key
 readonly LEDGER_MIGRATION_MARKER=/etc/betboy/challenge-ledger-v2-migrated.json
@@ -370,6 +371,19 @@ expected_unit_sha256() {
     esac
 }
 
+expected_backup_stage_helper_sha256() {
+    printf '%s\n' 50a1dfefcca43f07a397654d09954dce9aafbceb4b2f677bfa3c46ac41abd865
+}
+
+validate_trusted_backup_stage_helper() {
+    local path
+    local actual
+    path=$(trusted_file scripts/stage_runtime_databases.py)
+    actual=$(sha256sum -- "${path}" | awk '{print $1}')
+    [[ "${actual}" == "$(expected_backup_stage_helper_sha256)" ]] \
+        || die "Privileged backup stage helper differs from reviewed bytes."
+}
+
 validate_trusted_unit() {
     local relative="$1"
     local path
@@ -700,6 +714,7 @@ prepare_trusted_tree() {
     trusted_file deploy/update_server.sh >/dev/null
     trusted_file deploy/bootstrap_server.sh >/dev/null
     trusted_file scripts/backup_runtime_databases.py >/dev/null
+    validate_trusted_backup_stage_helper
     trusted_file scripts/manage_challenge_integrity_key.py >/dev/null
     trusted_file scripts/manage_challenge_migration_marker.py >/dev/null
     trusted_file scripts/migrate_challenge_ledgers.py >/dev/null
@@ -758,6 +773,9 @@ install_trusted_units_and_tools() {
     install_root_file_atomic \
         "$(trusted_file scripts/backup_runtime_databases.py)" \
         "${TRUSTED_BACKUP_HELPER}" 0755 root root
+    install_root_file_atomic \
+        "$(trusted_file scripts/stage_runtime_databases.py)" \
+        "${TRUSTED_BACKUP_STAGE_HELPER}" 0755 root root
     install_root_file_atomic \
         "$(trusted_file scripts/manage_challenge_migration_marker.py)" \
         "${TRUSTED_MIGRATION_MARKER_HELPER}" 0755 root root

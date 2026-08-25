@@ -41,6 +41,9 @@ PRODUCTION_BACKUP_KEY_PATH = Path(
 PRODUCTION_BACKUP_MARKER_PATH = Path(
     "/run/betboy-backup/challenge-ledger-v2-migrated.json"
 )
+PRODUCTION_STAGE_ROOT = Path("/tmp/betboy-backup-stage/current")
+STAGE_MANIFEST_NAME = "manifest.json"
+STAGE_MANIFEST_MAX_BYTES = 16 * 1024 * 1024
 LOCAL_INTEGRITY_KEY_RELATIVE_PATH = Path(
     "challenge_sessions/.betboy-ledger-hmac.key"
 )
@@ -342,6 +345,240 @@ def discover_databases(root: Path = ROOT) -> list[Path]:
                 raise RuntimeError("Backup database escapes its application root") from exc
             databases.append(path)
     return sorted(databases)
+
+
+def _logical_application_root(path: Path) -> Path:
+    logical = Path(os.path.abspath(os.fspath(path)))
+    if not logical.is_absolute():
+        raise RuntimeError("Backup logical root must be absolute")
+    return logical
+
+
+def _sha256_stage_file(path: Path) -> tuple[int, str]:
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise RuntimeError(f"Cannot open staged backup database {path}") from exc
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+        ):
+            raise RuntimeError("Staged backup database must be one regular file")
+        digest = hashlib.sha256()
+        while chunk := os.read(descriptor, 1024 * 1024):
+            digest.update(chunk)
+        after = os.fstat(descriptor)
+        if (
+            (before.st_dev, before.st_ino, before.st_size)
+            != (after.st_dev, after.st_ino, after.st_size)
+        ):
+            raise RuntimeError("Staged backup database changed while hashing")
+        return before.st_size, digest.hexdigest()
+    finally:
+        os.close(descriptor)
+
+
+def _validate_stage_manifest(
+    stage_root: Path,
+    manifest_path: Path,
+    logical_root: Path,
+) -> dict[str, dict[str, object]]:
+    expected_manifest = stage_root / STAGE_MANIFEST_NAME
+    lexical_manifest = Path(os.path.abspath(os.fspath(manifest_path)))
+    if lexical_manifest != expected_manifest:
+        raise RuntimeError("Backup stage manifest must be the exact staged manifest")
+    if lexical_manifest.is_symlink():
+        raise RuntimeError("Backup stage manifest must not be a symlink")
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    try:
+        descriptor = os.open(lexical_manifest, flags)
+    except OSError as exc:
+        raise RuntimeError("Backup stage manifest cannot be opened safely") from exc
+    try:
+        info = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_size < 2
+            or info.st_size > STAGE_MANIFEST_MAX_BYTES
+        ):
+            raise RuntimeError("Backup stage manifest metadata is unsafe")
+        raw = os.read(descriptor, STAGE_MANIFEST_MAX_BYTES + 1)
+        if len(raw) != info.st_size or os.read(descriptor, 1):
+            raise RuntimeError("Backup stage manifest changed while reading")
+    finally:
+        os.close(descriptor)
+    try:
+        payload = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_strict_backup_tree_json_object,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise RuntimeError("Backup stage manifest is invalid JSON") from exc
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {
+            "contract_version",
+            "live_root",
+            "database_count",
+            "databases",
+        }
+        or type(payload.get("contract_version")) is not int
+        or payload["contract_version"] != 1
+        or payload.get("live_root") != str(logical_root)
+        or type(payload.get("database_count")) is not int
+        or payload["database_count"] < 0
+        or not isinstance(payload.get("databases"), list)
+        or payload["database_count"] != len(payload["databases"])
+    ):
+        raise RuntimeError("Backup stage manifest has the wrong logical root or contract")
+
+    records: dict[str, dict[str, object]] = {}
+    expected_directories = {""}
+    previous_path = ""
+    for record in payload["databases"]:
+        if not isinstance(record, dict) or set(record) != {
+            "path",
+            "size",
+            "sha256",
+            "source_device",
+            "source_inode",
+        }:
+            raise RuntimeError("Backup stage manifest database record is invalid")
+        relative = PurePosixPath(str(record["path"]))
+        canonical = relative.as_posix()
+        if (
+            relative.is_absolute()
+            or not relative.parts
+            or any(part in {"", ".", ".."} for part in relative.parts)
+            or Path(relative.name).suffix.casefold() not in DATABASE_SUFFIXES
+            or canonical in records
+            or (previous_path and canonical <= previous_path)
+            or type(record["size"]) is not int
+            or record["size"] < 0
+            or not _is_lower_hex(record["sha256"], 64)
+            or type(record["source_device"]) is not int
+            or record["source_device"] < 0
+            or type(record["source_inode"]) is not int
+            or record["source_inode"] < 0
+        ):
+            raise RuntimeError("Backup stage manifest database path is unsafe")
+        previous_path = canonical
+        for parent in relative.parents:
+            if parent == PurePosixPath("."):
+                expected_directories.add("")
+                break
+            expected_directories.add(parent.as_posix())
+        records[canonical] = record
+
+    observed_files: set[str] = set()
+    observed_directories: set[str] = {""}
+    for directory, dirnames, filenames in os.walk(
+        stage_root,
+        topdown=True,
+        followlinks=False,
+    ):
+        current = Path(directory)
+        current_relative = current.relative_to(stage_root).as_posix()
+        if current_relative == ".":
+            current_relative = ""
+        observed_directories.add(current_relative)
+        for name in dirnames:
+            child = current / name
+            child_info = os.lstat(child)
+            if not stat.S_ISDIR(child_info.st_mode) or stat.S_ISLNK(child_info.st_mode):
+                raise RuntimeError("Backup stage contains an unsafe directory")
+            observed_directories.add(child.relative_to(stage_root).as_posix())
+        for name in filenames:
+            child = current / name
+            child_info = os.lstat(child)
+            if (
+                not stat.S_ISREG(child_info.st_mode)
+                or stat.S_ISLNK(child_info.st_mode)
+                or child_info.st_nlink != 1
+            ):
+                raise RuntimeError("Backup stage contains an unsafe file")
+            observed_files.add(child.relative_to(stage_root).as_posix())
+    if observed_directories != expected_directories:
+        raise RuntimeError("Backup stage contains missing or extra directories")
+    if observed_files != set(records) | {STAGE_MANIFEST_NAME}:
+        raise RuntimeError("Backup stage contains missing or extra files")
+
+    production_stage = (
+        os.name != "nt"
+        and stage_root == PRODUCTION_STAGE_ROOT
+    )
+    expected_uid = expected_gid = None
+    if production_stage:
+        import grp
+        import pwd
+
+        expected_uid = pwd.getpwnam("betboy").pw_uid
+        expected_gid = grp.getgrnam("betboy-backup").gr_gid
+        outer = stage_root.parent
+        outer_info = os.lstat(outer)
+        stage_info = os.lstat(stage_root)
+        if (
+            not stat.S_ISDIR(outer_info.st_mode)
+            or stat.S_ISLNK(outer_info.st_mode)
+            or outer_info.st_uid != 0
+            or outer_info.st_gid != expected_gid
+            or stat.S_IMODE(outer_info.st_mode) != 0o710
+            or not stat.S_ISDIR(stage_info.st_mode)
+            or stat.S_ISLNK(stage_info.st_mode)
+            or stage_info.st_uid != expected_uid
+            or stage_info.st_gid != expected_gid
+            or stat.S_IMODE(stage_info.st_mode) != 0o550
+        ):
+            raise RuntimeError("Production backup stage directory metadata is unsafe")
+
+        for relative_directory in observed_directories - {""}:
+            directory = stage_root.joinpath(
+                *PurePosixPath(relative_directory).parts
+            )
+            directory_info = os.lstat(directory)
+            if (
+                directory_info.st_uid != expected_uid
+                or directory_info.st_gid != expected_gid
+                or stat.S_IMODE(directory_info.st_mode) != 0o550
+            ):
+                raise RuntimeError(
+                    "Production backup stage child directory metadata is unsafe"
+                )
+
+    for canonical, record in records.items():
+        database = stage_root.joinpath(*PurePosixPath(canonical).parts)
+        size, digest = _sha256_stage_file(database)
+        if size != record["size"] or digest != record["sha256"]:
+            raise RuntimeError("Backup stage database digest or size differs from manifest")
+        if production_stage:
+            database_info = os.lstat(database)
+            if (
+                database_info.st_uid != expected_uid
+                or database_info.st_gid != expected_gid
+                or stat.S_IMODE(database_info.st_mode) != 0o440
+            ):
+                raise RuntimeError("Production staged database metadata is unsafe")
+    if production_stage:
+        manifest_info = os.lstat(lexical_manifest)
+        if (
+            manifest_info.st_uid != expected_uid
+            or manifest_info.st_gid != expected_gid
+            or stat.S_IMODE(manifest_info.st_mode) != 0o440
+        ):
+            raise RuntimeError("Production stage manifest metadata is unsafe")
+    return records
 
 
 def backup_database(source: Path, destination: Path) -> None:
@@ -1678,11 +1915,31 @@ def create_archive(
     output_dir: Path,
     *,
     root: Path = ROOT,
+    logical_root: Path | None = None,
+    stage_manifest_path: Path | None = None,
     now: datetime | None = None,
     integrity_key_path: Path | None = None,
     migration_marker_path: Path | None = None,
 ) -> tuple[Path, int]:
+    if logical_root is None and stage_manifest_path is not None:
+        raise RuntimeError("Backup stage manifest requires a logical root")
+    if logical_root is not None and stage_manifest_path is None:
+        raise RuntimeError("Backup logical root requires a stage manifest")
     root = _validated_application_root(root)
+    logical_application_root = (
+        _logical_application_root(logical_root)
+        if logical_root is not None
+        else root
+    )
+    stage_records = (
+        _validate_stage_manifest(
+            root,
+            Path(stage_manifest_path),
+            logical_application_root,
+        )
+        if stage_manifest_path is not None
+        else None
+    )
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
     if output_dir.is_symlink():
         raise RuntimeError("Backup output directory must not be a symlink")
@@ -1696,6 +1953,10 @@ def create_archive(
     databases = discover_databases(root)
     if not databases:
         raise RuntimeError("No runtime databases were found to back up")
+    if stage_records is not None and {
+        path.relative_to(root).as_posix() for path in databases
+    } != set(stage_records):
+        raise RuntimeError("Backup stage database inventory differs from manifest")
     if integrity_key_path is None:
         local_key = root / LOCAL_INTEGRITY_KEY_RELATIVE_PATH
         if local_key.exists() or local_key.is_symlink():
@@ -1725,7 +1986,10 @@ def create_archive(
     )
     if marker_payload is not None:
         marker_root = Path(str(marker_payload["application_root"]))
-        if not marker_root.is_absolute() or marker_root != root:
+        if (
+            not marker_root.is_absolute()
+            or marker_root != logical_application_root
+        ):
             raise RuntimeError("Ledger migration marker names another application root")
     database_by_name = {
         path.relative_to(root).as_posix(): path for path in databases
@@ -1769,6 +2033,14 @@ def create_archive(
         for source in databases:
             relative = source.relative_to(root)
             backup_database(source, stage / relative)
+        if stage_manifest_path is not None:
+            repeated_stage_records = _validate_stage_manifest(
+                root,
+                Path(stage_manifest_path),
+                logical_application_root,
+            )
+            if repeated_stage_records != stage_records:
+                raise RuntimeError("Backup stage manifest changed during archive creation")
         if challenge_sources:
             if key_bytes is None or marker_payload is None:
                 raise RuntimeError(
@@ -3384,6 +3656,16 @@ def main() -> int:
         type=Path,
         help="Read-only path to the completed root migration marker",
     )
+    parser.add_argument(
+        "--logical-root",
+        type=Path,
+        help="Original application root represented by a private database stage",
+    )
+    parser.add_argument(
+        "--stage-manifest",
+        type=Path,
+        help="Exact manifest for a private staged database snapshot",
+    )
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument(
         "--verify-only",
@@ -3431,6 +3713,8 @@ def main() -> int:
         parser.error("--recovery-mode requires --verify-only")
     if args.offline_confirmed and not args.prepare_readonly_sources:
         parser.error("--offline-confirmed requires --prepare-readonly-sources")
+    if (args.logical_root is None) != (args.stage_manifest is None):
+        parser.error("--logical-root and --stage-manifest must be used together")
     if args.retention_days < 1:
         parser.error("--retention-days must be at least 1")
     tree_action = next(
@@ -3446,7 +3730,12 @@ def main() -> int:
         None,
     )
     if tree_action is not None:
-        if args.integrity_key or args.migration_marker:
+        if (
+            args.integrity_key
+            or args.migration_marker
+            or args.logical_root
+            or args.stage_manifest
+        ):
             parser.error(
                 "backup-tree actions cannot be combined with archive-only options"
             )
@@ -3468,6 +3757,8 @@ def main() -> int:
             )
         return 0
     if args.verify_only is not None:
+        if args.logical_root or args.stage_manifest:
+            parser.error("stage options cannot be combined with --verify-only")
         verified = verify_archive(
             args.verify_only,
             recovery_mode=args.recovery_mode,
@@ -3489,6 +3780,8 @@ def main() -> int:
     archive, count = create_archive(
         args.output_dir,
         root=args.root,
+        logical_root=args.logical_root,
+        stage_manifest_path=args.stage_manifest,
         integrity_key_path=args.integrity_key,
         migration_marker_path=args.migration_marker,
     )

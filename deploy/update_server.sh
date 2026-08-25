@@ -8,6 +8,7 @@ cd /
 readonly TRUSTED_UPDATER=/usr/local/sbin/betboy-update
 readonly TRUSTED_BOOTSTRAP=/usr/local/sbin/betboy-bootstrap
 readonly TRUSTED_BACKUP_HELPER=/usr/local/libexec/betboy-backup-runtime.py
+readonly TRUSTED_BACKUP_STAGE_HELPER=/usr/local/libexec/betboy-backup-stage-runtime.py
 readonly TRUSTED_MIGRATION_MARKER_HELPER=/usr/local/libexec/betboy-challenge-migration-marker.py
 readonly LEDGER_HMAC_KEY=/etc/betboy/challenge-ledger-hmac.key
 readonly LEDGER_MIGRATION_MARKER=/etc/betboy/challenge-ledger-v2-migrated.json
@@ -58,6 +59,7 @@ PREVIOUS_PAYLOAD=""
 APP_WAS_ACTIVE=0
 APP_WAS_ENABLED=0
 BACKUP_HELPER_WAS_PRESENT=0
+BACKUP_STAGE_HELPER_WAS_PRESENT=0
 MIGRATION_MARKER_HELPER_WAS_PRESENT=0
 BACKUP_USER_WAS_PRESENT=0
 BACKUP_GROUP_WAS_PRESENT=0
@@ -392,13 +394,48 @@ expected_unit_sha256() {
     esac
 }
 
+expected_backup_stage_helper_sha256() {
+    printf '%s\n' 50a1dfefcca43f07a397654d09954dce9aafbceb4b2f677bfa3c46ac41abd865
+}
+
+validate_trusted_backup_stage_helper() {
+    local path
+    local actual
+    path=$(trusted_file scripts/stage_runtime_databases.py)
+    actual=$(sha256sum -- "${path}" | awk '{print $1}')
+    [[ "${actual}" == "$(expected_backup_stage_helper_sha256)" ]] \
+        || die "Privileged backup stage helper differs from reviewed bytes."
+}
+
+reviewed_backup_target_sha256() {
+    printf '%s\n' 922352a5d3c883cc671da419c5d3fa589cbe9cd025f32d4c4d9f7b6a9648edb8
+}
+
+target_unit_sha256() {
+    local relative="$1"
+    local reviewed
+    local target
+    reviewed=$(expected_unit_sha256 "${relative}")
+    if [[ "${relative}" != deploy/systemd/betboy-backup.service ]]; then
+        printf '%s\n' "${reviewed}"
+        return
+    fi
+    target=$(sha256sum -- "$(trusted_file "${relative}")" | awk '{print $1}')
+    if [[ "${target}" == "${reviewed}" \
+        || "${target}" == "$(reviewed_backup_target_sha256)" ]]; then
+        printf '%s\n' "${target}"
+        return
+    fi
+    die "${relative} differs from both reviewed transition hashes."
+}
+
 validate_trusted_unit() {
     local relative="$1"
     local path
     local expected
     local actual
     path=$(trusted_file "${relative}")
-    expected=$(expected_unit_sha256 "${relative}")
+    expected=$(target_unit_sha256 "${relative}")
     actual=$(sha256sum -- "${path}" | awk '{print $1}')
     [[ "${actual}" == "${expected}" ]] \
         || die "${relative} differs from its reviewed byte allowlist."
@@ -422,7 +459,7 @@ check_installed_unit() {
     if [[ -n "${expected_override}" ]]; then
         [[ "${actual}" == "${expected_override}" ]] || return 1
     else
-        [[ "${actual}" == "$(expected_unit_sha256 "deploy/systemd/${name}")" ]] \
+        [[ "${actual}" == "$(target_unit_sha256 "deploy/systemd/${name}")" ]] \
             || return 1
     fi
     fragment=$(systemctl show "${name}" -p FragmentPath --value) || return 1
@@ -590,6 +627,7 @@ prepare_trusted_tree() {
     trusted_file deploy/update_server.sh >/dev/null
     trusted_file deploy/bootstrap_server.sh >/dev/null
     trusted_file scripts/backup_runtime_databases.py >/dev/null
+    validate_trusted_backup_stage_helper
     trusted_file scripts/manage_challenge_integrity_key.py >/dev/null
     trusted_file scripts/manage_challenge_migration_marker.py >/dev/null
     trusted_file scripts/migrate_challenge_ledgers.py >/dev/null
@@ -1962,6 +2000,12 @@ snapshot_root_files() {
         cp -a "${TRUSTED_BACKUP_HELPER}" "${ROLLBACK_ROOT}/backup-helper"
         BACKUP_HELPER_WAS_PRESENT=1
     fi
+    if [[ -e "${TRUSTED_BACKUP_STAGE_HELPER}" ]]; then
+        verify_root_owned_file "${TRUSTED_BACKUP_STAGE_HELPER}"
+        cp -a "${TRUSTED_BACKUP_STAGE_HELPER}" \
+            "${ROLLBACK_ROOT}/backup-stage-helper"
+        BACKUP_STAGE_HELPER_WAS_PRESENT=1
+    fi
     if [[ -e "${TRUSTED_MIGRATION_MARKER_HELPER}" ]]; then
         verify_root_owned_file "${TRUSTED_MIGRATION_MARKER_HELPER}"
         cp -a "${TRUSTED_MIGRATION_MARKER_HELPER}" \
@@ -2019,6 +2063,9 @@ install_trusted_root_files() {
         "$(trusted_file scripts/backup_runtime_databases.py)" \
         "${TRUSTED_BACKUP_HELPER}" 0755 root root
     install_root_file_atomic \
+        "$(trusted_file scripts/stage_runtime_databases.py)" \
+        "${TRUSTED_BACKUP_STAGE_HELPER}" 0755 root root
+    install_root_file_atomic \
         "$(trusted_file scripts/manage_challenge_migration_marker.py)" \
         "${TRUSTED_MIGRATION_MARKER_HELPER}" 0755 root root
     install_root_file_atomic \
@@ -2067,6 +2114,13 @@ restore_root_files() {
     else
         rm -f -- "${TRUSTED_BACKUP_HELPER}" || return 1
     fi
+    if [[ "${BACKUP_STAGE_HELPER_WAS_PRESENT}" == 1 ]]; then
+        install_root_file_atomic \
+            "${ROLLBACK_ROOT}/backup-stage-helper" \
+            "${TRUSTED_BACKUP_STAGE_HELPER}" 0755 root root || return 1
+    else
+        rm -f -- "${TRUSTED_BACKUP_STAGE_HELPER}" || return 1
+    fi
     if [[ "${MIGRATION_MARKER_HELPER_WAS_PRESENT}" == 1 ]]; then
         install_root_file_atomic \
             "${ROLLBACK_ROOT}/migration-marker-helper" \
@@ -2104,6 +2158,12 @@ verify_restored_root_files() {
         cmp -s "${ROLLBACK_ROOT}/backup-helper" "${TRUSTED_BACKUP_HELPER}" \
             || return 1
     elif [[ -e "${TRUSTED_BACKUP_HELPER}" ]]; then
+        return 1
+    fi
+    if [[ "${BACKUP_STAGE_HELPER_WAS_PRESENT}" == 1 ]]; then
+        cmp -s "${ROLLBACK_ROOT}/backup-stage-helper" \
+            "${TRUSTED_BACKUP_STAGE_HELPER}" || return 1
+    elif [[ -e "${TRUSTED_BACKUP_STAGE_HELPER}" ]]; then
         return 1
     fi
     if [[ "${MIGRATION_MARKER_HELPER_WAS_PRESENT}" == 1 ]]; then

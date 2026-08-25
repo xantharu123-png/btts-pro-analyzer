@@ -1,0 +1,38 @@
+[Unit]
+Description=Create consistent BetBoy SQLite backups
+
+[Service]
+Type=oneshot
+User=betboy-backup
+Group=betboy-backup
+SupplementaryGroups=betboy
+WorkingDirectory=/
+RuntimeDirectory=betboy-backup
+RuntimeDirectoryMode=0700
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONUTF8=1
+ExecCondition=/usr/bin/python3 -I /usr/local/libexec/betboy-challenge-migration-marker.py --marker /run/betboy-backup/challenge-ledger-v2-migrated.json --application-root /opt/betboy/app require-complete
+ExecStartPre=!/usr/bin/python3 -I /usr/local/libexec/betboy-backup-stage-runtime.py
+ExecStart=/usr/bin/python3 -I /usr/local/libexec/betboy-backup-runtime.py --root /tmp/betboy-backup-stage/current --logical-root /opt/betboy/app --stage-manifest /tmp/betboy-backup-stage/current/manifest.json --output-dir /var/backups/betboy --retention-days 14 --integrity-key /run/betboy-backup/challenge-ledger-hmac.key --migration-marker /run/betboy-backup/challenge-ledger-v2-migrated.json
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/betboy/app
+ReadWritePaths=/var/backups/betboy
+InaccessiblePaths=/etc/betboy
+InaccessiblePaths=-/opt/betboy/app/.streamlit -/opt/betboy/app/.env -/opt/betboy/app/config.ini
+BindReadOnlyPaths=/etc/betboy/challenge-ledger-hmac.key:/run/betboy-backup/challenge-ledger-hmac.key
+BindReadOnlyPaths=/etc/betboy/challenge-ledger-v2-migrated.json:/run/betboy-backup/challenge-ledger-v2-migrated.json
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=CAP_CHOWN CAP_SETGID CAP_SETUID
+AmbientCapabilities=
+LockPersonality=true
+TimeoutStartSec=30min
