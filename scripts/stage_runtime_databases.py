@@ -469,8 +469,8 @@ def _create_stage_directories(live_uid: int, backup_gid: int) -> tuple[int, int]
             raise RuntimeError("Backup stage outer directory is unsafe")
         os.mkdir(PRODUCTION_CURRENT_STAGE.name, 0o750, dir_fd=outer_fd)
         current_fd = os.open(PRODUCTION_CURRENT_STAGE.name, flags, dir_fd=outer_fd)
-        os.fchown(current_fd, live_uid, backup_gid)
         os.fchmod(current_fd, 0o750)
+        os.fchown(current_fd, live_uid, backup_gid)
         current_info = os.fstat(current_fd)
         if (
             not stat.S_ISDIR(current_info.st_mode)

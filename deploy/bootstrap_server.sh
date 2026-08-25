@@ -372,7 +372,7 @@ expected_unit_sha256() {
 }
 
 expected_backup_stage_helper_sha256() {
-    printf '%s\n' 50a1dfefcca43f07a397654d09954dce9aafbceb4b2f677bfa3c46ac41abd865
+    printf '%s\n' b11704036e7a6f2302970a12395cd120b4ec26c76eb60f63618896f5bef85e6d
 }
 
 validate_trusted_backup_stage_helper() {

@@ -4,6 +4,7 @@ from contextlib import closing
 import hashlib
 import importlib
 import importlib.util
+import inspect
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,15 @@ def _stage_module():
 
 def _readonly_uri(path: Path) -> str:
     return path.resolve(strict=True).as_uri() + "?mode=ro"
+
+
+def test_stage_directory_mode_is_fixed_before_unprivileged_chown():
+    stage = _stage_module()
+    source = inspect.getsource(stage._create_stage_directories)
+
+    assert source.index("os.fchmod(current_fd, 0o750)") < source.index(
+        "os.fchown(current_fd, live_uid, backup_gid)"
+    )
 
 
 def test_stage_databases_copies_live_wal_and_publishes_exact_manifest(tmp_path):
