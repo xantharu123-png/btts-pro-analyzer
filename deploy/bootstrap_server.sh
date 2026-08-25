@@ -15,7 +15,7 @@ readonly REPOSITORY_URL=https://github.com/xantharu123-png/btts-pro-analyzer.git
 readonly APP_DIR=/opt/betboy/app
 readonly VENV_DIR=/opt/betboy/venv
 readonly PUBLIC_HOST=vps-a30a123f.vps.ovh.net
-readonly DEPLOY_LOCK=/run/lock/betboy-deploy.lock
+readonly DEPLOY_LOCK=/run/betboy-deploy/deploy.lock
 
 readonly -a BETBOY_TIMERS=(
     betboy-wettfinder.timer
@@ -62,12 +62,25 @@ from pathlib import Path
 
 path = Path(sys.argv[1])
 parent = path.parent
+base = parent.parent
+base_info = os.lstat(base)
+if (
+    not stat.S_ISDIR(base_info.st_mode)
+    or stat.S_ISLNK(base_info.st_mode)
+    or base_info.st_uid != 0
+    or base_info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+):
+    raise SystemExit("deploy lock base directory is unsafe")
+try:
+    os.mkdir(parent, 0o700)
+except FileExistsError:
+    pass
 parent_info = os.lstat(parent)
 if (
     not stat.S_ISDIR(parent_info.st_mode)
     or stat.S_ISLNK(parent_info.st_mode)
     or parent_info.st_uid != 0
-    or parent_info.st_mode & stat.S_IWOTH
+    or stat.S_IMODE(parent_info.st_mode) != 0o700
 ):
     raise SystemExit("deploy lock directory is unsafe")
 flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)

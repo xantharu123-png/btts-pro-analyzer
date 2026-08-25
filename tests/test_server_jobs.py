@@ -1869,7 +1869,11 @@ def test_root_deploy_tools_do_not_trust_betboy_writable_checkout():
         assert "/usr/local/libexec/betboy-backup-runtime.py" in script
         assert "scripts/manage_challenge_migration_marker.py" in script
         assert "/usr/local/libexec/betboy-challenge-migration-marker.py" in script
-        assert "/run/lock/betboy-deploy.lock" in script
+        assert "/run/betboy-deploy/deploy.lock" in script
+        assert "/run/lock/betboy-deploy.lock" not in script
+        assert "os.mkdir(parent, 0o700)" in script
+        assert "stat.S_IMODE(parent_info.st_mode) != 0o700" in script
+        assert "base_info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)" in script
         assert "flock -n" in script
         assert "os.O_EXCL" in script
         assert "O_NOFOLLOW" in script
