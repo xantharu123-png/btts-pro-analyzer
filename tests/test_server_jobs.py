@@ -2895,6 +2895,10 @@ def test_updater_publishes_backup_snapshot_only_after_helper_success():
     assert "independent backup snapshot and restore" in preflight
 
     root_snapshot = _shell_function(update, "snapshot_root_files")
+    assert (
+        'install -d -m 0700 -o root -g root "${ROLLBACK_ROOT}"\n'
+        in root_snapshot
+    )
     assert "backup_parent_mode=$(stat -c '%a' /var/backups)" in root_snapshot
     assert "Backup parent is writable by a non-root account" in root_snapshot
     assert "Backup destination must share its parent filesystem" in root_snapshot

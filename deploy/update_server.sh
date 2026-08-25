@@ -1930,6 +1930,7 @@ snapshot_root_files() {
     local backup_parent_mode
     local timer
     ROLLBACK_ROOT="${STAGE_DIR}/root-rollback"
+    install -d -m 0700 -o root -g root "${ROLLBACK_ROOT}"
     install -d -m 0700 -o root -g root "${ROLLBACK_ROOT}/systemd"
     verify_root_owned_file "${TRUSTED_UPDATER}"
     verify_root_owned_file "${TRUSTED_BOOTSTRAP}"
