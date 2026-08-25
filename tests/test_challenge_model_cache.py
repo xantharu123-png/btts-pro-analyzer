@@ -69,6 +69,9 @@ def test_model_artifact_round_trip_and_history_invalidation(tmp_path):
         )
         is None
     )
+
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("PRAGMA journal_mode").fetchone() == ("delete",)
     assert (
         load_model_artifact(
             "model-v2",

@@ -817,6 +817,15 @@ prepare_backup_storage_and_sources() {
     )
 }
 
+prepare_readonly_backup_sources() {
+    verify_no_betboy_processes
+    as_betboy env PYTHONNOUSERSITE=1 PYTHONPATH= \
+        /usr/bin/python3 -I "${TRUSTED_BACKUP_HELPER}" \
+        --root "${APP_DIR}" \
+        --prepare-readonly-sources \
+        --offline-confirmed
+}
+
 verify_invocation "$@"
 command -v git >/dev/null || die "Install Git before the trusted bootstrap."
 for required_command in \
@@ -910,6 +919,7 @@ for timer in "${BETBOY_TIMERS[@]}"; do
     verify_installed_unit "${timer%.timer}.service"
 done
 prepare_backup_storage_and_sources
+prepare_readonly_backup_sources
 /usr/bin/python3 -I "${TRUSTED_MIGRATION_MARKER_HELPER}" \
     --marker "${LEDGER_MIGRATION_MARKER}" \
     --application-root "${APP_DIR}" \

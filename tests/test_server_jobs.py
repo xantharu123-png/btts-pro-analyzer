@@ -9,6 +9,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import threading
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -305,6 +306,7 @@ def test_update_migrates_challenge_ledgers_offline_and_never_rolls_back_migrated
     assert "complete" in update
     assert (
         "verify_no_betboy_processes\n"
+        "prepare_readonly_backup_sources\n"
         "verify_backup_service_migration\n\nNEW_APP_STARTED=1"
     ) in update
     boundary_body = update.split(
@@ -2100,6 +2102,129 @@ def test_sqlite_backup_is_consistent_and_prunes_old_archives(tmp_path):
     os.utime(old, (old_timestamp, old_timestamp))
     assert backup.prune_archives(output, retention_days=14, now=now) == 1
     assert not old.exists()
+
+
+def test_offline_backup_source_preparation_converts_wal_and_preserves_data(tmp_path):
+    import pytest
+
+    root = tmp_path / "app"
+    database = root / "runtime_state" / "api_budget.db"
+    database.parent.mkdir(parents=True)
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+        connection.execute("CREATE TABLE evidence (value TEXT NOT NULL)")
+        connection.execute("INSERT INTO evidence VALUES ('preserved')")
+        connection.commit()
+
+    assert not database.with_name(f"{database.name}-wal").exists()
+    assert not database.with_name(f"{database.name}-shm").exists()
+
+    with pytest.raises(RuntimeError, match="offline confirmation"):
+        backup.prepare_readonly_backup_sources(root)
+
+    inspected, converted = backup.prepare_readonly_backup_sources(
+        root,
+        offline_confirmed=True,
+    )
+
+    assert (inspected, converted) == (1, 1)
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("PRAGMA journal_mode").fetchone() == ("delete",)
+        assert connection.execute("PRAGMA quick_check").fetchall() == [("ok",)]
+        assert connection.execute("SELECT value FROM evidence").fetchone() == (
+            "preserved",
+        )
+    assert not database.with_name(f"{database.name}-wal").exists()
+    assert not database.with_name(f"{database.name}-shm").exists()
+
+
+def test_offline_backup_source_preparation_allows_fresh_empty_root(tmp_path):
+    root = tmp_path / "fresh-app"
+    root.mkdir()
+
+    assert backup.prepare_readonly_backup_sources(
+        root,
+        offline_confirmed=True,
+    ) == (0, 0)
+
+
+def test_delete_journal_online_backup_is_consistent_during_writes(tmp_path):
+    source = tmp_path / "source.db"
+    destination = tmp_path / "backup.db"
+    with closing(sqlite3.connect(source)) as connection:
+        assert connection.execute("PRAGMA journal_mode=DELETE").fetchone() == (
+            "delete",
+        )
+        connection.execute("CREATE TABLE evidence (id INTEGER PRIMARY KEY)")
+
+    stop = threading.Event()
+    ready = threading.Event()
+    errors: list[BaseException] = []
+
+    def write_rows() -> None:
+        try:
+            with closing(sqlite3.connect(source, timeout=30)) as connection:
+                connection.execute("PRAGMA busy_timeout=30000")
+                value = 1
+                while not stop.is_set():
+                    connection.execute("INSERT INTO evidence VALUES (?)", (value,))
+                    connection.commit()
+                    ready.set()
+                    value += 1
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+            ready.set()
+
+    writer = threading.Thread(target=write_rows)
+    writer.start()
+    assert ready.wait(timeout=10)
+    try:
+        backup.backup_database(source, destination)
+    finally:
+        stop.set()
+        writer.join(timeout=10)
+
+    assert not writer.is_alive()
+    assert errors == []
+    with closing(sqlite3.connect(destination)) as connection:
+        assert connection.execute("PRAGMA quick_check").fetchall() == [("ok",)]
+        assert connection.execute("SELECT COUNT(*) FROM evidence").fetchone()[0] > 0
+
+
+def test_backup_source_preparation_is_wired_offline_before_backup_probe():
+    root = Path(__file__).resolve().parents[1]
+    update = (root / "deploy" / "update_server.sh").read_text(encoding="utf-8")
+    bootstrap = (root / "deploy" / "bootstrap_server.sh").read_text(
+        encoding="utf-8"
+    )
+
+    update_call = update.index("\nprepare_readonly_backup_sources\n")
+    update_stopped = update.rindex(
+        "\nverify_no_betboy_processes\n",
+        0,
+        update_call,
+    )
+    update_probe = update.index("\nverify_backup_service_migration\n", update_call)
+    assert update_stopped < update_call < update_probe
+
+    bootstrap_call = bootstrap.index("\nprepare_readonly_backup_sources\n")
+    bootstrap_stopped = bootstrap.rindex(
+        "\nverify_no_betboy_processes\n",
+        0,
+        bootstrap_call,
+    )
+    bootstrap_start = bootstrap.index(
+        "systemctl start betboy-app.service",
+        bootstrap_call,
+    )
+    assert bootstrap_stopped < bootstrap_call < bootstrap_start
+
+    for script in (update, bootstrap):
+        function = _shell_function(script, "prepare_readonly_backup_sources")
+        assert "${TRUSTED_BACKUP_HELPER}" in function
+        assert "--prepare-readonly-sources" in function
+        assert "--offline-confirmed" in function
+        assert "as_betboy" in function
 
 
 def test_backup_discovers_and_archives_all_supported_sqlite_suffixes(tmp_path):

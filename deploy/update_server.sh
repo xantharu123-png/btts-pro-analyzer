@@ -1896,6 +1896,15 @@ prepare_backup_storage_and_sources() {
     )
 }
 
+prepare_readonly_backup_sources() {
+    verify_no_betboy_processes
+    as_betboy env PYTHONNOUSERSITE=1 PYTHONPATH= \
+        /usr/bin/python3 -I "${TRUSTED_BACKUP_HELPER}" \
+        --root "${APP_DIR}" \
+        --prepare-readonly-sources \
+        --offline-confirmed
+}
+
 write_trusted_caddy_config() {
     local destination="$1"
     cat >"${destination}" <<EOF
@@ -2598,6 +2607,7 @@ verify_app_bytes "${TARGET_MANIFEST}"
 
 migrate_challenge_integrity_offline
 verify_no_betboy_processes
+prepare_readonly_backup_sources
 verify_backup_service_migration
 
 NEW_APP_STARTED=1

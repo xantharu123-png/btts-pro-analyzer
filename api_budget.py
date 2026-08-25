@@ -199,7 +199,17 @@ class APIBudgetGovernor:
         try:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             with closing(self._connect()) as connection:
-                connection.execute("PRAGMA journal_mode = WAL")
+                journal_mode = connection.execute(
+                    "PRAGMA journal_mode = DELETE"
+                ).fetchone()
+                if (
+                    journal_mode is None
+                    or len(journal_mode) != 1
+                    or str(journal_mode[0]).casefold() != "delete"
+                ):
+                    raise sqlite3.OperationalError(
+                        "API budget database requires DELETE journal mode"
+                    )
                 connection.executescript(_SCHEMA)
         except (OSError, sqlite3.Error) as exc:
             raise APIBudgetUnavailable(

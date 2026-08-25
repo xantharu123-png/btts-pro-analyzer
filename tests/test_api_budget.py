@@ -154,6 +154,47 @@ def test_concurrent_reservations_are_atomic(tmp_path):
     assert governor.snapshot(api_key="shared-key").remaining_estimate == 20
 
 
+def test_independent_governors_share_delete_journal_atomically(tmp_path):
+    database = tmp_path / "budget.db"
+    APIBudgetGovernor(
+        database,
+        daily_limit=50,
+        critical_floor=1,
+        recommendation_reserve=5,
+        background_reserve=10,
+    )
+
+    def reserve(index: int) -> int:
+        governor = APIBudgetGovernor(
+            database,
+            daily_limit=50,
+            critical_floor=1,
+            recommendation_reserve=5,
+            background_reserve=10,
+        )
+        return governor.reserve(
+            api_key="shared-key",
+            endpoint=f"fixture-{index}",
+            priority=APIBudgetPriority.RECOMMENDATION,
+        ).remaining_after
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        remaining = list(pool.map(reserve, range(30)))
+
+    assert len(set(remaining)) == 30
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA journal_mode").fetchone() == ("delete",)
+
+
+def test_budget_ledger_uses_readonly_backup_compatible_journal_mode(tmp_path):
+    database = tmp_path / "budget.db"
+
+    _governor(tmp_path)
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA journal_mode").fetchone() == ("delete",)
+
+
 def test_budget_ledger_never_stores_raw_api_key(tmp_path):
     governor = _governor(tmp_path)
     secret = "this-must-not-land-in-sqlite"
