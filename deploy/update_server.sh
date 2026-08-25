@@ -275,6 +275,18 @@ trusted_file() {
     printf '%s\n' "${path}"
 }
 
+target_payload_file() {
+    local relative="$1"
+    local path="${TARGET_PAYLOAD}/${relative}"
+    local metadata
+    [[ -n "${TARGET_PAYLOAD}" && -f "${path}" && ! -L "${path}" ]] \
+        || die "Target payload lacks regular file ${relative}."
+    metadata=$(stat -c '%U:%G:%a:%h' "${path}")
+    [[ "${metadata}" == root:betboy:640:1 ]] \
+        || die "Target payload file is not immutable and group-readable: ${relative}."
+    printf '%s\n' "${path}"
+}
+
 install_root_file_atomic() {
     local source="$1"
     local destination="$2"
@@ -2387,7 +2399,7 @@ migrate_challenge_integrity_offline() {
     DATABASE_MIGRATION_STARTED=1
     [[ -x "${VENV_DIR}/bin/python" ]] \
         || die "Application Python is unavailable for offline ledger migration."
-    helper=$(trusted_file scripts/migrate_challenge_ledgers.py)
+    helper=$(target_payload_file scripts/migrate_challenge_ledgers.py)
     verify_root_owned_file "${TRUSTED_MIGRATION_MARKER_HELPER}"
     [[ ! -e "${receipt}" && ! -L "${receipt}" ]] \
         || die "Challenge migration receipt path already exists."

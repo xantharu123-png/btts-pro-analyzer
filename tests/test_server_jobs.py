@@ -315,8 +315,19 @@ def test_update_migrates_challenge_ledgers_offline_and_never_rolls_back_migrated
     assert prepare_marker < migration_flag
     migration_body = _shell_function(update, "migrate_challenge_integrity_offline")
     every_run_flag = migration_body.index("DATABASE_MIGRATION_STARTED=1")
-    migration_helper = migration_body.index("scripts/migrate_challenge_ledgers.py")
+    migration_helper = migration_body.index(
+        "target_payload_file scripts/migrate_challenge_ledgers.py"
+    )
     assert every_run_flag < migration_helper
+    assert "helper=$(trusted_file scripts/migrate_challenge_ledgers.py)" not in (
+        migration_body
+    )
+    assert "target_payload_file()" in update
+    payload_gate = _shell_function(update, "target_payload_file")
+    assert '${TARGET_PAYLOAD}/${relative}' in payload_gate
+    assert '! -L "${path}"' in payload_gate
+    assert "stat -c '%U:%G:%a:%h'" in payload_gate
+    assert "root:betboy:640:1" in payload_gate
     stop_app = update.index("systemctl stop betboy-app.service", main)
     disabled = update.index("\ndisable_runtime_autostart\n", stop_app)
     assert stop_app < disabled < boundary < backup < target
