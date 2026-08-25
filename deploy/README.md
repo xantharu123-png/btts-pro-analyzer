@@ -36,16 +36,24 @@ user and group are absent. Any partial, unlocked, non-system or otherwise
 unexpected existing principal fails closed; it is never adopted with
 `usermod`. The account has no persistent supplementary groups. Only the
 systemd backup unit receives `SupplementaryGroups=betboy` inside its hardened
-mount namespace. The updater
-installs the reviewed stdlib-only backup helper root-owned below
-`/usr/local/libexec`, migrates existing SQLite source permissions to read-only
-group access, and changes future runtime writers to umask `0027`. The backup
-  unit cannot browse `/etc/betboy` or read `.streamlit`, `.env`, or `config.ini`;
-  its private mount namespace exposes only the ledger HMAC key and migration
-  marker read-only below `/run/betboy-backup`. Every app and writer service has
-  an `ExecCondition` that accepts only a validated `complete` marker. The backup
-  service has no network address family and only receives write access to its
-  private archive directory.
+mount namespace. The updater installs both reviewed stdlib-only backup helpers
+root-owned and byte-pinned below `/usr/local/libexec`, migrates existing SQLite
+source permissions to read-only group access, and changes future runtime
+writers to umask `0027`. The backup unit cannot browse `/etc/betboy` or read
+`.streamlit`, `.env`, or `config.ini`; its private mount namespace exposes only
+the ledger HMAC key and migration marker read-only below `/run/betboy-backup`.
+Every app and writer service has an `ExecCondition` that accepts only a
+validated `complete` marker.
+
+The backup pre-stage starts with only `CAP_CHOWN`, `CAP_SETGID`, and
+`CAP_SETUID`, creates a service-private staging directory, then permanently
+drops every UID/GID and capability before opening the live databases as
+`betboy`. SQLite online backup therefore recovers hot journals and includes
+committed WAL frames without granting the archive process write access to the
+application tree. The main `betboy-backup` process archives only the sealed
+0440/0550 stage and has no network address family. Deployment verifies with
+the unit's exact supplementary group that it cannot write any live database,
+database parent, integrity file, marker, or runtime secret.
   Before mutation, the updater snapshots the principal state, exact
 database and parent-directory metadata, archive-directory metadata, Caddy
 bytes and metadata, and the archive inventory. Existing archives are held by
@@ -150,23 +158,25 @@ bootstrap may later use the resumable updater.
 
 The 15 allowed unit files are pinned by SHA-256 inside both root deploy tools.
 Whitespace or extra systemd directives therefore fail closed. A legitimate
-unit change uses two releases. Commit A changes only `deploy/update_server.sh`
-to pin the reviewed next unit hashes while the old updater still validates and
-installs the unchanged predecessor units. Commit B then contains the new unit
-bytes. The bridge updater validates installed predecessor bytes against the
-exact previous Git payload, but validates the target and post-install state
-only against the new pinned hashes. There is no legacy target allowlist and no
-wildcard transition.
+unit change uses two releases. Commit A installs a narrowly target-aware bridge
+updater while retaining the predecessor unit on the host; it may also carry the
+reviewed next helper, fixture, tests, and application-side compatibility code
+that the predecessor deploy path does not activate. Commit B then activates the
+new unit and installs the final new-only updater, bootstrap, and helper. The
+bridge updater validates installed predecessor bytes against the exact previous
+Git payload, but validates the target and post-install state only against the
+new pinned hashes. There is no legacy target allowlist and no wildcard
+transition.
 
 ## One-time migration of an existing VPS
 
 Do not rerun bootstrap on an existing installation and do not overwrite the
 installed root tools manually. Push Commit A while it is the exact `main` tip,
-deploy it through the currently installed updater, and verify that only the
-root updater/app commit changed while all installed units retain their legacy
-hashes. Then push Commit B as the new exact `main` tip and deploy it through the
-bridge updater. Commit B installs the final new-only updater, bootstrap, helper,
-units and application bytes atomically. `FragmentPath` must be the exact
+deploy it through the currently installed updater, and verify that the bridge
+updater is installed while all installed units retain their legacy hashes.
+Then push Commit B as the new exact `main` tip and deploy it through the bridge
+updater. Commit B installs the final new-only updater, bootstrap, helper, units
+and application bytes atomically. `FragmentPath` must be the exact
 `/etc/systemd/system/<unit>` path and `DropInPaths` must be empty for every app,
 timer and worker unit. BetBoy-specific, dash-prefix and global type drop-in
 directories are forbidden across the standard persistent, runtime, control and

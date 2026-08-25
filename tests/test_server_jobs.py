@@ -9,7 +9,6 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-import threading
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -306,7 +305,6 @@ def test_update_migrates_challenge_ledgers_offline_and_never_rolls_back_migrated
     assert "complete" in update
     assert (
         "verify_no_betboy_processes\n"
-        "prepare_readonly_backup_sources\n"
         "verify_backup_service_migration\n\nNEW_APP_STARTED=1"
     ) in update
     boundary_body = update.split(
@@ -1927,6 +1925,7 @@ def test_every_root_installed_betboy_service_drops_privileges():
     }
 
     assert {path.name for path in systemd.glob("betboy-*.service")} == expected_services
+    privileged_execs = []
     for name in expected_services:
         service = (systemd / name).read_text(encoding="utf-8")
         assert service.count("User=") == 1
@@ -1937,8 +1936,12 @@ def test_every_root_installed_betboy_service_drops_privileges():
         assert service.count("NoNewPrivileges=true") == 1
         for line in service.splitlines():
             if line.startswith("Exec"):
-                command = line.split("=", 1)[1].lstrip("-@:^|")
-                assert not command.startswith(("+", "!"))
+                command = line.split("=", 1)[1]
+                assert not command.lstrip("-@:^|").startswith("+")
+                if command.startswith("!"):
+                    privileged_execs.append((name, line))
+                else:
+                    assert not command.lstrip("-@:^|").startswith("!")
 
         conditions = [
             line for line in service.splitlines() if line.startswith("ExecCondition=")
@@ -1956,6 +1959,13 @@ def test_every_root_installed_betboy_service_drops_privileges():
     backup_service = (systemd / "betboy-backup.service").read_text(
         encoding="utf-8"
     )
+    assert privileged_execs == [
+        (
+            "betboy-backup.service",
+            "ExecStartPre=!/usr/bin/python3 -I "
+            "/usr/local/libexec/betboy-backup-stage-runtime.py",
+        )
+    ]
     app_service = (systemd / "betboy-app.service").read_text(encoding="utf-8")
     assert "Environment=BETBOY_LEDGER_HMAC_REQUIRED=1" in app_service
     assert (
@@ -1964,8 +1974,11 @@ def test_every_root_installed_betboy_service_drops_privileges():
     ) in app_service
     assert "BETBOY_LEDGER_CHECKPOINT_MIGRATION" not in app_service
     assert "SupplementaryGroups=betboy" in backup_service
+    assert "WorkingDirectory=/\n" in backup_service
+    assert "PrivateTmp=true" in backup_service
     assert "ProtectSystem=strict" in backup_service
-    assert "ReadOnlyPaths=/opt/betboy/app" in backup_service
+    assert "ReadOnlyPaths=/opt/betboy/app" not in backup_service
+    assert backup_service.count("ReadWritePaths=/opt/betboy/app") == 1
     assert "ReadWritePaths=/var/backups/betboy" in backup_service
     assert "InaccessiblePaths=/etc/betboy" in backup_service
     assert "RuntimeDirectory=betboy-backup" in backup_service
@@ -1982,9 +1995,20 @@ def test_every_root_installed_betboy_service_drops_privileges():
         "--migration-marker "
         "/run/betboy-backup/challenge-ledger-v2-migrated.json"
     ) in backup_service
-    assert "CapabilityBoundingSet=" in backup_service
+    assert (
+        "CapabilityBoundingSet=CAP_CHOWN CAP_SETGID CAP_SETUID"
+        in backup_service
+    )
+    assert "AmbientCapabilities=\n" in backup_service
     assert "RestrictAddressFamilies=AF_UNIX" in backup_service
     assert "/usr/bin/python3 -I /usr/local/libexec/betboy-backup-runtime.py" in backup_service
+    assert "--root /tmp/betboy-backup-stage/current" in backup_service
+    assert "--logical-root /opt/betboy/app" in backup_service
+    assert (
+        "--stage-manifest /tmp/betboy-backup-stage/current/manifest.json"
+        in backup_service
+    )
+    assert "--root /opt/betboy/app" not in backup_service
 
     for name in expected_services - {"betboy-backup.service"}:
         service = (systemd / name).read_text(encoding="utf-8")
@@ -2009,11 +2033,15 @@ def test_root_installers_pin_every_systemd_unit_to_reviewed_bytes():
     expected_names = {path.name for path in systemd.glob("betboy-*")}
 
     mappings = []
+    previous_backup_unit_hash = (
+        "c5d5248eb672f3f242ecfed74634d9abf0af003fe0bc7bb68f51f8279f45cdc1"
+    )
     for script_name in ("update_server.sh", "bootstrap_server.sh"):
         script = (root / "deploy" / script_name).read_text(encoding="utf-8")
         assert "expected_backup_stage_helper_sha256" in script
         assert "validate_trusted_backup_stage_helper" in script
-        assert stage_helper_hash in script
+        assert script.count(stage_helper_hash) == 1
+        assert previous_backup_unit_hash not in script
         assert "Privileged backup stage helper differs from reviewed bytes" in script
         expected_block = script.split("expected_unit_sha256() {", 1)[1].split(
             "\n}", 1
@@ -2030,7 +2058,8 @@ def test_root_installers_pin_every_systemd_unit_to_reviewed_bytes():
     assert "legacy_unit_sha256" not in updater
     assert "ALLOW_LEGACY_UNIT_HASHES" not in updater
     assert "bridge_source_unit_sha256" not in updater
-    assert "reviewed_backup_target_sha256" in updater
+    assert "reviewed_backup_target_sha256" not in updater
+    assert "target_unit_sha256" not in updater
     future_backup_unit = root / "tests" / "fixtures" / "betboy-backup-staged.service"
     future_backup_unit_hash = hashlib.sha256(
         future_backup_unit.read_bytes()
@@ -2039,19 +2068,21 @@ def test_root_installers_pin_every_systemd_unit_to_reviewed_bytes():
         future_backup_unit_hash
         == "922352a5d3c883cc671da419c5d3fa589cbe9cd025f32d4c4d9f7b6a9648edb8"
     )
-    assert (
-        future_backup_unit_hash in updater
+    assert updater.count(future_backup_unit_hash) == 1
+    bootstrap = (root / "deploy" / "bootstrap_server.sh").read_text(
+        encoding="utf-8"
     )
+    assert bootstrap.count(future_backup_unit_hash) == 1
+    assert future_backup_unit.read_bytes() == (
+        systemd / "betboy-backup.service"
+    ).read_bytes()
     validate_target = _shell_function(updater, "validate_trusted_unit")
-    target_hash = _shell_function(updater, "target_unit_sha256")
+    check_installed = _shell_function(updater, "check_installed_unit")
     verify_installed = _shell_function(updater, "verify_installed_unit")
     verify_previous = _shell_function(updater, "verify_installed_previous_unit")
-    assert 'expected=$(target_unit_sha256 "${relative}")' in validate_target
+    assert 'expected=$(expected_unit_sha256 "${relative}")' in validate_target
     assert '[[ "${actual}" == "${expected}" ]]' in validate_target
-    assert "deploy/systemd/betboy-backup.service" in target_hash
-    assert 'target=$(sha256sum -- "$(trusted_file "${relative}")"' in target_hash
-    assert '"${target}" == "${reviewed}"' in target_hash
-    assert '"${target}" == "$(reviewed_backup_target_sha256)"' in target_hash
+    assert 'expected_unit_sha256 "deploy/systemd/${name}"' in check_installed
     assert 'check_installed_unit "${name}"' in verify_installed
     assert 'expected=$(sha256sum -- "${reference}"' in verify_previous
     assert 'check_installed_unit "${name}" "${expected}"' in verify_previous
@@ -2129,129 +2160,6 @@ def test_sqlite_backup_is_consistent_and_prunes_old_archives(tmp_path):
     assert not old.exists()
 
 
-def test_offline_backup_source_preparation_converts_wal_and_preserves_data(tmp_path):
-    import pytest
-
-    root = tmp_path / "app"
-    database = root / "runtime_state" / "api_budget.db"
-    database.parent.mkdir(parents=True)
-    with closing(sqlite3.connect(database)) as connection:
-        assert connection.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
-        connection.execute("CREATE TABLE evidence (value TEXT NOT NULL)")
-        connection.execute("INSERT INTO evidence VALUES ('preserved')")
-        connection.commit()
-
-    assert not database.with_name(f"{database.name}-wal").exists()
-    assert not database.with_name(f"{database.name}-shm").exists()
-
-    with pytest.raises(RuntimeError, match="offline confirmation"):
-        backup.prepare_readonly_backup_sources(root)
-
-    inspected, converted = backup.prepare_readonly_backup_sources(
-        root,
-        offline_confirmed=True,
-    )
-
-    assert (inspected, converted) == (1, 1)
-    with closing(sqlite3.connect(database)) as connection:
-        assert connection.execute("PRAGMA journal_mode").fetchone() == ("delete",)
-        assert connection.execute("PRAGMA quick_check").fetchall() == [("ok",)]
-        assert connection.execute("SELECT value FROM evidence").fetchone() == (
-            "preserved",
-        )
-    assert not database.with_name(f"{database.name}-wal").exists()
-    assert not database.with_name(f"{database.name}-shm").exists()
-
-
-def test_offline_backup_source_preparation_allows_fresh_empty_root(tmp_path):
-    root = tmp_path / "fresh-app"
-    root.mkdir()
-
-    assert backup.prepare_readonly_backup_sources(
-        root,
-        offline_confirmed=True,
-    ) == (0, 0)
-
-
-def test_delete_journal_online_backup_is_consistent_during_writes(tmp_path):
-    source = tmp_path / "source.db"
-    destination = tmp_path / "backup.db"
-    with closing(sqlite3.connect(source)) as connection:
-        assert connection.execute("PRAGMA journal_mode=DELETE").fetchone() == (
-            "delete",
-        )
-        connection.execute("CREATE TABLE evidence (id INTEGER PRIMARY KEY)")
-
-    stop = threading.Event()
-    ready = threading.Event()
-    errors: list[BaseException] = []
-
-    def write_rows() -> None:
-        try:
-            with closing(sqlite3.connect(source, timeout=30)) as connection:
-                connection.execute("PRAGMA busy_timeout=30000")
-                value = 1
-                while not stop.is_set():
-                    connection.execute("INSERT INTO evidence VALUES (?)", (value,))
-                    connection.commit()
-                    ready.set()
-                    value += 1
-        except BaseException as exc:  # pragma: no cover - asserted below
-            errors.append(exc)
-            ready.set()
-
-    writer = threading.Thread(target=write_rows)
-    writer.start()
-    assert ready.wait(timeout=10)
-    try:
-        backup.backup_database(source, destination)
-    finally:
-        stop.set()
-        writer.join(timeout=10)
-
-    assert not writer.is_alive()
-    assert errors == []
-    with closing(sqlite3.connect(destination)) as connection:
-        assert connection.execute("PRAGMA quick_check").fetchall() == [("ok",)]
-        assert connection.execute("SELECT COUNT(*) FROM evidence").fetchone()[0] > 0
-
-
-def test_backup_source_preparation_is_wired_offline_before_backup_probe():
-    root = Path(__file__).resolve().parents[1]
-    update = (root / "deploy" / "update_server.sh").read_text(encoding="utf-8")
-    bootstrap = (root / "deploy" / "bootstrap_server.sh").read_text(
-        encoding="utf-8"
-    )
-
-    update_call = update.index("\nprepare_readonly_backup_sources\n")
-    update_stopped = update.rindex(
-        "\nverify_no_betboy_processes\n",
-        0,
-        update_call,
-    )
-    update_probe = update.index("\nverify_backup_service_migration\n", update_call)
-    assert update_stopped < update_call < update_probe
-
-    bootstrap_call = bootstrap.index("\nprepare_readonly_backup_sources\n")
-    bootstrap_stopped = bootstrap.rindex(
-        "\nverify_no_betboy_processes\n",
-        0,
-        bootstrap_call,
-    )
-    bootstrap_start = bootstrap.index(
-        "systemctl start betboy-app.service",
-        bootstrap_call,
-    )
-    assert bootstrap_stopped < bootstrap_call < bootstrap_start
-
-    for script in (update, bootstrap):
-        function = _shell_function(script, "prepare_readonly_backup_sources")
-        assert "${TRUSTED_BACKUP_HELPER}" in function
-        assert "--prepare-readonly-sources" in function
-        assert "--offline-confirmed" in function
-        assert "as_betboy" in function
-
-
 def test_backup_discovers_and_archives_all_supported_sqlite_suffixes(tmp_path):
     root = tmp_path / "app"
     root.mkdir()
@@ -2276,6 +2184,52 @@ def test_backup_discovers_and_archives_all_supported_sqlite_suffixes(tmp_path):
             "two.sqlite",
             "three.sqlite3",
         }
+
+
+def test_staged_backup_release_keeps_only_one_deploy_compatibility_action():
+    root = Path(__file__).resolve().parents[1]
+    backup_source = (
+        root / "scripts" / "backup_runtime_databases.py"
+    ).read_text(encoding="utf-8")
+    assert "def prepare_readonly_backup_sources(" in backup_source
+    assert "One-release compatibility action" in backup_source
+    assert "--prepare-readonly-sources" in backup_source
+
+    for script_name in ("update_server.sh", "bootstrap_server.sh"):
+        deploy_source = (root / "deploy" / script_name).read_text(
+            encoding="utf-8"
+        )
+        assert "prepare_readonly_backup_sources" not in deploy_source
+        assert "--prepare-readonly-sources" not in deploy_source
+
+
+def test_deployers_verify_backup_unit_dac_with_its_supplementary_group():
+    root = Path(__file__).resolve().parents[1]
+    update = (root / "deploy" / "update_server.sh").read_text(encoding="utf-8")
+    bootstrap = (root / "deploy" / "bootstrap_server.sh").read_text(
+        encoding="utf-8"
+    )
+    for script in (update, bootstrap):
+        verify_dac = _shell_function(script, "verify_backup_source_dac")
+        assert (
+            "runuser -u betboy-backup -g betboy-backup -G betboy --"
+            in verify_dac
+        )
+        assert '/usr/bin/test ! -w "${database}"' in verify_dac
+        assert '/usr/bin/test ! -w "${parent}"' in verify_dac
+        assert '"${LEDGER_HMAC_KEY}"' in verify_dac
+        assert '"${LEDGER_MIGRATION_MARKER}"' in verify_dac
+        assert "/etc/betboy/betboy.env" in verify_dac
+        assert "/var/backups/betboy" in verify_dac
+        assert "-name '*.db-wal'" in verify_dac
+
+    assert "prepare_backup_storage_and_sources\nverify_backup_source_dac" in update
+    assert (
+        'fresh --target-head "${REQUESTED_HEAD}" >/dev/null\n'
+        "verify_backup_source_dac"
+    ) in bootstrap
+    backup_probe = _shell_function(update, "verify_backup_service_migration")
+    assert '/usr/bin/test ! -w "${archive}"' in backup_probe
 
 
 def test_challenge_backup_preserves_external_hmac_key(tmp_path):

@@ -200,15 +200,15 @@ class APIBudgetGovernor:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             with closing(self._connect()) as connection:
                 journal_mode = connection.execute(
-                    "PRAGMA journal_mode = DELETE"
+                    "PRAGMA journal_mode = WAL"
                 ).fetchone()
                 if (
                     journal_mode is None
                     or len(journal_mode) != 1
-                    or str(journal_mode[0]).casefold() != "delete"
+                    or str(journal_mode[0]).casefold() != "wal"
                 ):
                     raise sqlite3.OperationalError(
-                        "API budget database requires DELETE journal mode"
+                        "API budget database requires WAL journal mode"
                     )
                 connection.executescript(_SCHEMA)
         except (OSError, sqlite3.Error) as exc:

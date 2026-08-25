@@ -353,7 +353,7 @@ PY
 expected_unit_sha256() {
     case "$1" in
         deploy/systemd/betboy-app.service) printf '%s\n' 90d5047df1ef96e6a4bc9d2a3e888ca6c14d64d62c3526470a64d088788145b8 ;;
-        deploy/systemd/betboy-backup.service) printf '%s\n' c5d5248eb672f3f242ecfed74634d9abf0af003fe0bc7bb68f51f8279f45cdc1 ;;
+        deploy/systemd/betboy-backup.service) printf '%s\n' 922352a5d3c883cc671da419c5d3fa589cbe9cd025f32d4c4d9f7b6a9648edb8 ;;
         deploy/systemd/betboy-backup.timer) printf '%s\n' 918fd587a63dd57eb538c0e49d3f1dc13ffe1db9c99e46eeb2e4144605596aaa ;;
         deploy/systemd/betboy-esports.service) printf '%s\n' 1df7e7c001c093c211ce03ae3c0ac57ce8030f9c3da008e1ee04e431ca9cfd8b ;;
         deploy/systemd/betboy-esports.timer) printf '%s\n' 97fd05b6df1df5afdb2b109f75ea1ad6354da3801300056e478b9a53ea320a6c ;;
@@ -835,13 +835,50 @@ prepare_backup_storage_and_sources() {
     )
 }
 
-prepare_readonly_backup_sources() {
-    verify_no_betboy_processes
-    as_betboy env PYTHONNOUSERSITE=1 PYTHONPATH= \
-        /usr/bin/python3 -I "${TRUSTED_BACKUP_HELPER}" \
-        --root "${APP_DIR}" \
-        --prepare-readonly-sources \
-        --offline-confirmed
+verify_backup_source_dac() {
+    local database
+    local parent
+    local -a backup_identity=(
+        runuser -u betboy-backup -g betboy-backup -G betboy --
+    )
+
+    while IFS= read -r -d '' database; do
+        "${backup_identity[@]}" /usr/bin/test ! -w "${database}" \
+            || die "Backup service identity can write live SQLite state: ${database}"
+        parent=$(dirname "${database}")
+        while [[ "${parent}" == "${APP_DIR}" \
+            || "${parent}" == "${APP_DIR}/"* ]]; do
+            "${backup_identity[@]}" /usr/bin/test ! -w "${parent}" \
+                || die "Backup service identity can write a live parent: ${parent}"
+            [[ "${parent}" == "${APP_DIR}" ]] && break
+            parent=$(dirname "${parent}")
+        done
+    done < <(
+        find -P "${APP_DIR}" -xdev \
+            \( -path "${APP_DIR}/.git" \
+               -o -path "${APP_DIR}/.codex_test_venv" \
+               -o -path "${APP_DIR}/.pytest_cache" \
+               -o -path "${APP_DIR}/.pytest_tmp" \) -prune -o \
+            -type f \
+            \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+               -o -name '*.db-wal' -o -name '*.db-shm' \
+               -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' \
+               -o -name '*.sqlite3-wal' -o -name '*.sqlite3-shm' \
+               -o -name '*.db-journal' -o -name '*.sqlite-journal' \
+               -o -name '*.sqlite3-journal' \) \
+            -print0
+    )
+    "${backup_identity[@]}" /usr/bin/test ! -w "${LEDGER_HMAC_KEY}" \
+        || die "Backup service identity can write the ledger integrity key."
+    if [[ -e "${LEDGER_MIGRATION_MARKER}" ]]; then
+        "${backup_identity[@]}" /usr/bin/test \
+            ! -w "${LEDGER_MIGRATION_MARKER}" \
+            || die "Backup service identity can write the migration marker."
+    fi
+    "${backup_identity[@]}" /usr/bin/test ! -w /etc/betboy/betboy.env \
+        || die "Backup service identity can write runtime environment secrets."
+    "${backup_identity[@]}" /usr/bin/test -w /var/backups/betboy \
+        || die "Backup service identity cannot write the backup destination."
 }
 
 verify_invocation "$@"
@@ -937,12 +974,12 @@ for timer in "${BETBOY_TIMERS[@]}"; do
     verify_installed_unit "${timer%.timer}.service"
 done
 prepare_backup_storage_and_sources
-prepare_readonly_backup_sources
 /usr/bin/python3 -I "${TRUSTED_MIGRATION_MARKER_HELPER}" \
     --marker "${LEDGER_MIGRATION_MARKER}" \
     --application-root "${APP_DIR}" \
     --group betboy \
     fresh --target-head "${REQUESTED_HEAD}" >/dev/null
+verify_backup_source_dac
 
 cat > /etc/caddy/Caddyfile <<EOF
 ${PUBLIC_HOST} {

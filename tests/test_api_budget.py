@@ -183,16 +183,16 @@ def test_independent_governors_share_delete_journal_atomically(tmp_path):
 
     assert len(set(remaining)) == 30
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA journal_mode").fetchone() == ("delete",)
+        assert connection.execute("PRAGMA journal_mode").fetchone() == ("wal",)
 
 
-def test_budget_ledger_uses_readonly_backup_compatible_journal_mode(tmp_path):
+def test_budget_ledger_uses_concurrent_wal_journal_mode(tmp_path):
     database = tmp_path / "budget.db"
 
     _governor(tmp_path)
 
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA journal_mode").fetchone() == ("delete",)
+        assert connection.execute("PRAGMA journal_mode").fetchone() == ("wal",)
 
 
 def test_budget_ledger_never_stores_raw_api_key(tmp_path):

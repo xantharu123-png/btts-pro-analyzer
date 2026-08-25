@@ -603,13 +603,7 @@ def prepare_readonly_backup_sources(
     *,
     offline_confirmed: bool = False,
 ) -> tuple[int, int]:
-    """Normalize live databases for a strictly read-only backup account.
-
-    SQLite WAL databases need writable shared-memory state even for many
-    read-only operations.  The deployment path calls this only after every
-    application writer has stopped, so the persistent mode can be converted
-    durably without granting the backup principal source-tree write access.
-    """
+    """Normalize live databases for a strictly read-only backup account."""
 
     if not offline_confirmed:
         raise RuntimeError(
@@ -3696,7 +3690,7 @@ def main() -> int:
     actions.add_argument(
         "--prepare-readonly-sources",
         action="store_true",
-        help="Offline-normalize SQLite sources for the read-only backup service",
+        help="One-release compatibility action for the staged backup migration",
     )
     parser.add_argument(
         "--offline-confirmed",

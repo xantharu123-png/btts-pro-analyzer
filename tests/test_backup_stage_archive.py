@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,6 +51,39 @@ def _write_stage_manifest(stage: Path, live_root: Path) -> Path:
         encoding="utf-8",
     )
     return manifest
+
+
+def _rewrite_stage_manifest(manifest: Path, payload: dict[str, object]) -> None:
+    manifest.write_text(
+        json.dumps(
+            payload,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _make_stage(
+    tmp_path: Path,
+    *,
+    database_names: tuple[str, ...] = ("runtime.db",),
+) -> tuple[Path, Path, list[Path], Path]:
+    live_root = tmp_path / "live-app"
+    live_root.mkdir()
+    stage = tmp_path / "private-stage" / "current"
+    databases = []
+    for index, name in enumerate(database_names):
+        database = stage / name
+        database.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(database) as connection:
+            connection.execute("CREATE TABLE evidence (value INTEGER NOT NULL)")
+            connection.execute("INSERT INTO evidence VALUES (?)", (index,))
+        databases.append(database)
+    manifest = _write_stage_manifest(stage, live_root)
+    return live_root, stage, databases, manifest
 
 
 def _write_fresh_marker(path: Path, live_root: Path) -> Path:
@@ -157,3 +191,142 @@ def test_stage_arguments_are_required_as_one_contract(tmp_path):
             root=root,
             stage_manifest_path=root / "manifest.json",
         )
+
+
+def test_staged_archive_rejects_duplicate_manifest_json_key(tmp_path):
+    live_root, stage, _, manifest = _make_stage(tmp_path)
+    raw = manifest.read_text(encoding="utf-8")
+    needle = '"contract_version":1'
+    assert needle in raw
+    manifest.write_text(
+        raw.replace(
+            needle,
+            '"contract_version":1,"contract_version":1',
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="invalid JSON"):
+        backup.create_archive(
+            tmp_path / "archives",
+            root=stage,
+            logical_root=live_root,
+            stage_manifest_path=manifest,
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation,database_names",
+    [
+        ("traversal", ("runtime.db",)),
+        ("unsorted", ("a.db", "z.db")),
+        ("bool-as-int", ("runtime.db",)),
+    ],
+)
+def test_staged_archive_rejects_unsafe_manifest_database_records(
+    tmp_path,
+    mutation,
+    database_names,
+):
+    live_root, stage, _, manifest = _make_stage(
+        tmp_path,
+        database_names=database_names,
+    )
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    if mutation == "traversal":
+        payload["databases"][0]["path"] = "../runtime.db"
+    elif mutation == "unsorted":
+        payload["databases"].reverse()
+    else:
+        payload["databases"][0]["size"] = True
+    _rewrite_stage_manifest(manifest, payload)
+
+    with pytest.raises(RuntimeError, match="database path is unsafe"):
+        backup.create_archive(
+            tmp_path / "archives",
+            root=stage,
+            logical_root=live_root,
+            stage_manifest_path=manifest,
+        )
+
+
+@pytest.mark.parametrize("extra_kind", ["file", "directory"])
+def test_staged_archive_rejects_extra_stage_inventory(tmp_path, extra_kind):
+    live_root, stage, _, manifest = _make_stage(tmp_path)
+    if extra_kind == "file":
+        (stage / "unexpected.txt").write_text("not declared\n", encoding="utf-8")
+    else:
+        (stage / "unexpected-directory").mkdir()
+
+    with pytest.raises(RuntimeError, match="missing or extra (files|directories)"):
+        backup.create_archive(
+            tmp_path / "archives",
+            root=stage,
+            logical_root=live_root,
+            stage_manifest_path=manifest,
+        )
+
+
+def test_staged_archive_rejects_symlinked_database(tmp_path):
+    live_root, stage, _, manifest = _make_stage(tmp_path)
+    outside = tmp_path / "outside.db"
+    outside.write_bytes(b"outside")
+    database_link = stage / "linked.db"
+    try:
+        database_link.symlink_to(outside)
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"database symlinks are unavailable on this platform: {exc}")
+
+    with pytest.raises(RuntimeError, match="unsafe file"):
+        backup.create_archive(
+            tmp_path / "archives",
+            root=stage,
+            logical_root=live_root,
+            stage_manifest_path=manifest,
+        )
+
+
+def test_staged_archive_rejects_hardlinked_database(tmp_path):
+    live_root, stage, databases, manifest = _make_stage(tmp_path)
+    try:
+        os.link(databases[0], tmp_path / "outside-hardlink.db")
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"database hardlinks are unavailable on this platform: {exc}")
+
+    with pytest.raises(RuntimeError, match="unsafe file"):
+        backup.create_archive(
+            tmp_path / "archives",
+            root=stage,
+            logical_root=live_root,
+            stage_manifest_path=manifest,
+        )
+
+
+def test_staged_archive_revalidates_manifest_after_database_copy(
+    tmp_path,
+    monkeypatch,
+):
+    live_root, stage, databases, manifest = _make_stage(tmp_path)
+    database = databases[0]
+    original_backup_database = backup.backup_database
+    tampered = False
+
+    def copy_then_tamper(source: Path, destination: Path) -> None:
+        nonlocal tampered
+        original_backup_database(source, destination)
+        if source == database and not tampered:
+            with source.open("ab") as handle:
+                handle.write(b"tamper-after-copy")
+            tampered = True
+
+    monkeypatch.setattr(backup, "backup_database", copy_then_tamper)
+
+    with pytest.raises(RuntimeError, match="digest or size differs"):
+        backup.create_archive(
+            tmp_path / "archives",
+            root=stage,
+            logical_root=live_root,
+            stage_manifest_path=manifest,
+        )
+    assert tampered is True

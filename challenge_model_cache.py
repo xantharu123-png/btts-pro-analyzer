@@ -66,11 +66,11 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(db_path, timeout=30)
     connection.execute("PRAGMA busy_timeout = 30000")
-    journal_mode = connection.execute("PRAGMA journal_mode = DELETE").fetchone()
-    if journal_mode != ("delete",):
+    journal_mode = connection.execute("PRAGMA journal_mode = WAL").fetchone()
+    if journal_mode != ("wal",):
         connection.close()
         raise sqlite3.OperationalError(
-            "Challenge model cache requires DELETE journal mode"
+            "Challenge model cache requires WAL journal mode"
         )
     connection.executescript(_SCHEMA)
     return connection
