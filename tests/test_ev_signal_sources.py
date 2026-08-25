@@ -11,6 +11,7 @@ from pathlib import Path
 from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
 from esports_shadow import ESPORTS_MODEL_VERSION
 from ev_signal_sources import (
+    AUTOMATED_FOOTBALL_RELEASE_CONTRACT,
     AUTOMATED_SELECTION_POLICY_VERSION,
     AUTOMATED_WETTFINDER_VERSION,
     _load_automated_wettfinder_document,
@@ -71,7 +72,8 @@ def _playable_automatic_candidate(
         "probability_haircut": 0.08,
         "conservative_probability": 0.52,
         "minimum_odds": 1.99,
-        "evidence_stage": "SHADOW",
+        "evidence_stage": "RELEASED",
+        "release_contract": AUTOMATED_FOOTBALL_RELEASE_CONTRACT,
         "policy_version": BETTING_POLICY_VERSION,
         "scheduled_start": scheduled_start,
         "status": "RECOMMENDED",
@@ -137,9 +139,17 @@ def _playable_automatic_candidate(
     return candidate
 
 
+def _model_overlay(candidate: dict) -> dict:
+    """Return the immutable MODEL row underlying one strict football overlay."""
+    model = {**candidate, "status": "MODEL_SELECTION"}
+    if model.get("source") == "football_challenge":
+        model["evidence_stage"] = "SHADOW"
+        model.pop("release_contract", None)
+    return model
+
+
 def _model_automatic_candidate(**kwargs) -> dict:
-    candidate = _playable_automatic_candidate(**kwargs)
-    candidate["status"] = "MODEL_SELECTION"
+    candidate = _model_overlay(_playable_automatic_candidate(**kwargs))
     candidate.pop("reference_quote", None)
     for field in (
         "reference_quote_source",
@@ -184,8 +194,18 @@ def _automatic_document(
     model_candidates: list[dict],
     *,
     candidates: list[dict] | None = None,
+    challenge_release_candidates: list[dict] | None = None,
 ) -> dict:
     strict = list(candidates or [])
+    challenge_strict = (
+        list(challenge_release_candidates)
+        if challenge_release_candidates is not None
+        else [
+            dict(row)
+            for row in strict
+            if row.get("source") == "football_challenge"
+        ]
+    )
     football_ids = [
         int(row["fixture_id"])
         for row in model_candidates
@@ -203,7 +223,7 @@ def _automatic_document(
         "generated_at": "2030-01-01T10:00:00+00:00",
         "betting_policy_version": BETTING_POLICY_VERSION,
         "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
-        "bookmaker_data_used": bool(strict),
+        "bookmaker_data_used": bool(strict or challenge_strict),
         "quote_required": True,
         "run_status": "completed",
         "operational_error_count": 0,
@@ -229,6 +249,7 @@ def _automatic_document(
         "sources": sources,
         "model_candidates": model_candidates,
         "candidates": strict,
+        "challenge_release_candidates": challenge_strict,
     }
 
 
@@ -676,10 +697,9 @@ class ListSignalsTests(unittest.TestCase):
                                 "operational_error_count": 0,
                             }
                         },
-                        "model_candidates": [
-                            {**candidate, "status": "MODEL_SELECTION"}
-                        ],
+                        "model_candidates": [_model_overlay(candidate)],
                         "candidates": [candidate],
+                        "challenge_release_candidates": [candidate],
                     }
                 ),
                 encoding="utf-8",
@@ -724,7 +744,7 @@ class ListSignalsTests(unittest.TestCase):
         import json
 
         candidate = _playable_automatic_candidate()
-        model_candidate = {**candidate, "status": "MODEL_SELECTION"}
+        model_candidate = _model_overlay(candidate)
         document = _automatic_document(
             [model_candidate],
             candidates=[candidate],
@@ -758,7 +778,7 @@ class ListSignalsTests(unittest.TestCase):
         import json
 
         candidate = _playable_automatic_candidate()
-        model_candidate = {**candidate, "status": "MODEL_SELECTION"}
+        model_candidate = _model_overlay(candidate)
         document = _automatic_document(
             [model_candidate],
             candidates=[candidate],
@@ -889,8 +909,8 @@ class ListSignalsTests(unittest.TestCase):
         lower_probability_first = playable(1, 0.60)
         higher_probability_second = playable(2, 0.70)
         model_rows = [
-            {**lower_probability_first, "status": "MODEL_SELECTION"},
-            {**higher_probability_second, "status": "MODEL_SELECTION"},
+            _model_overlay(lower_probability_first),
+            _model_overlay(higher_probability_second),
         ]
         now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
 
@@ -928,13 +948,64 @@ class ListSignalsTests(unittest.TestCase):
                 _load_automated_wettfinder_document(artifact, now=now)
             )
 
+    def test_challenge_release_pool_is_required_and_strictly_validated(self):
+        import json
+
+        now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+        candidate = _playable_automatic_candidate()
+        base_document = _automatic_document(
+            [_model_overlay(candidate)],
+            candidates=[],
+            challenge_release_candidates=[candidate],
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "wettfinder.json"
+            artifact.write_text(json.dumps(base_document), encoding="utf-8")
+            self.assertIsNotNone(
+                _load_automated_wettfinder_document(artifact, now=now)
+            )
+
+            invalid_documents: list[tuple[str, dict]] = []
+            missing_pool = json.loads(json.dumps(base_document))
+            missing_pool.pop("challenge_release_candidates")
+            invalid_documents.append(("missing pool", missing_pool))
+
+            wrong_contract = json.loads(json.dumps(base_document))
+            wrong_contract["challenge_release_candidates"][0][
+                "release_contract"
+            ] = "legacy-contract"
+            invalid_documents.append(("wrong release contract", wrong_contract))
+
+            payload_mismatch = json.loads(json.dumps(base_document))
+            payload_mismatch["challenge_release_candidates"][0][
+                "selection"
+            ] = "Nein"
+            invalid_documents.append(("model overlay mismatch", payload_mismatch))
+
+            duplicated = json.loads(json.dumps(base_document))
+            duplicated["challenge_release_candidates"].append(
+                dict(duplicated["challenge_release_candidates"][0])
+            )
+            invalid_documents.append(("duplicate release row", duplicated))
+
+            for label, document in invalid_documents:
+                with self.subTest(violation=label):
+                    artifact.write_text(json.dumps(document), encoding="utf-8")
+                    self.assertIsNone(
+                        _load_automated_wettfinder_document(
+                            artifact,
+                            now=now,
+                        )
+                    )
+
     def test_automatic_artifact_rejects_strict_payload_mismatch(self):
         import json
 
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact = Path(tmpdir) / "wettfinder.json"
             candidate = _playable_automatic_candidate()
-            model_candidate = {**candidate, "status": "MODEL_SELECTION"}
+            model_candidate = _model_overlay(candidate)
             model_candidate["selection"] = "Nein"
             artifact.write_text(
                 json.dumps(
@@ -1007,6 +1078,7 @@ class ListSignalsTests(unittest.TestCase):
                         },
                         "model_candidates": [_model_automatic_candidate()],
                         "candidates": [],
+                        "challenge_release_candidates": [],
                     }
                 ),
                 encoding="utf-8",
@@ -1101,15 +1173,13 @@ class ListSignalsTests(unittest.TestCase):
                 with self.subTest(violation=label):
                     candidate = _playable_automatic_candidate()
                     candidate.update(override)
-                    model_candidate = {
-                        **candidate,
-                        "status": "MODEL_SELECTION",
-                    }
+                    model_candidate = _model_overlay(candidate)
                     artifact.write_text(
                         json.dumps(
                             _automatic_document(
                                 [model_candidate],
                                 candidates=[candidate],
+                                challenge_release_candidates=[],
                             )
                         ),
                         encoding="utf-8",
@@ -1131,8 +1201,9 @@ class ListSignalsTests(unittest.TestCase):
             artifact.write_text(
                 json.dumps(
                     _automatic_document(
-                        [{**candidate, "status": "MODEL_SELECTION"}],
+                        [_model_overlay(candidate)],
                         candidates=[candidate],
+                        challenge_release_candidates=[],
                     )
                 ),
                 encoding="utf-8",
@@ -1151,7 +1222,7 @@ class ListSignalsTests(unittest.TestCase):
         now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
         candidate = _playable_automatic_candidate()
         candidate["statistical_release_passed"] = False
-        model_candidate = {**candidate, "status": "MODEL_SELECTION"}
+        model_candidate = _model_overlay(candidate)
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact = Path(tmpdir) / "wettfinder.json"
             artifact.write_text(
@@ -1159,6 +1230,7 @@ class ListSignalsTests(unittest.TestCase):
                     _automatic_document(
                         [model_candidate],
                         candidates=[candidate],
+                        challenge_release_candidates=[],
                     )
                 ),
                 encoding="utf-8",
@@ -1188,7 +1260,7 @@ class ListSignalsTests(unittest.TestCase):
                     artifact.write_text(
                         json.dumps(
                             _automatic_document(
-                                [{**candidate, "status": "MODEL_SELECTION"}],
+                                [_model_overlay(candidate)],
                                 candidates=[candidate],
                             )
                         ),
@@ -1222,7 +1294,7 @@ class ListSignalsTests(unittest.TestCase):
         )
         candidate.pop("fixture_id")
         candidate["reference_quote"]["market_key"] = "H2H"
-        model_candidate = {**candidate, "status": "MODEL_SELECTION"}
+        model_candidate = _model_overlay(candidate)
         now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1267,10 +1339,7 @@ class ListSignalsTests(unittest.TestCase):
                 with self.subTest(mismatch=label):
                     candidate = _playable_automatic_candidate()
                     candidate["reference_quote"].update(quote_mutation)
-                    model_candidate = {
-                        **candidate,
-                        "status": "MODEL_SELECTION",
-                    }
+                    model_candidate = _model_overlay(candidate)
                     artifact.write_text(
                         json.dumps(
                             _automatic_document(
@@ -1328,10 +1397,7 @@ class ListSignalsTests(unittest.TestCase):
                         candidate.pop(field)
                     else:
                         candidate[field] = value
-                    model_candidate = {
-                        **candidate,
-                        "status": "MODEL_SELECTION",
-                    }
+                    model_candidate = _model_overlay(candidate)
                     artifact.write_text(
                         json.dumps(
                             _automatic_document(
@@ -1399,7 +1465,7 @@ class ListSignalsTests(unittest.TestCase):
 
         candidate = _playable_automatic_candidate()
         candidate["source"] = "manipulated_shadow"
-        model_candidate = {**candidate, "status": "MODEL_SELECTION"}
+        model_candidate = _model_overlay(candidate)
         now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1511,6 +1577,7 @@ class ListSignalsTests(unittest.TestCase):
                         },
                         "model_candidates": [],
                         "candidates": [],
+                        "challenge_release_candidates": [],
                     }
                 ),
                 encoding="utf-8",

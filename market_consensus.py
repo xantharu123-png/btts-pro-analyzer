@@ -37,13 +37,12 @@ FOOTBALL_QUOTE_START_TOLERANCE = timedelta(minutes=5)
 TENNIS_QUOTE_START_TOLERANCE = timedelta(minutes=30)
 MAX_TENNIS_EVENT_DISCOVERY_KEYS = 8
 TENNIS_EVENT_DISCOVERY_TIMEOUT = 5
-# The established reference window belongs to the separate 15K workflow and
-# is also enforced by its append-only ledger. Keep that contract unchanged.
-REFERENCE_FETCH_MAX_AGE = timedelta(minutes=90)
-REFERENCE_QUOTE_MAX_AGE = timedelta(hours=24)
-# A normal Wettfinder recommendation must be realistically executable when the
-# user sees it. Its retrieval and point clocks are deliberately much shorter;
-# they must not silently tighten the independent 15K challenge contract.
+# Both Echtgeld consumers require a realistically executable quote when the
+# user sees it.  Keeping a wider 15K window made a recently fetched aggregate
+# appear current even when one or more contributing offers were many hours old.
+# Use the same strict retrieval and per-offer clocks for both workflows.
+REFERENCE_FETCH_MAX_AGE = timedelta(minutes=35)
+REFERENCE_QUOTE_MAX_AGE = timedelta(minutes=45)
 WETTFINDER_FETCH_MAX_AGE = timedelta(minutes=35)
 WETTFINDER_QUOTE_MAX_AGE = timedelta(minutes=45)
 MIN_REFERENCE_BOOKMAKERS = 3
@@ -214,11 +213,22 @@ class MarketConsensus:
         return quote
 
     def is_fresh(self, now: Optional[datetime] = None) -> bool:
-        """Apply the established 15K aggregate quote/fetch window."""
+        """Require the fetch and every contributing offer to be current.
+
+        ``quoted_at`` is an aggregate (the newest point), so checking only that
+        clock can hide stale contributors. Legacy snapshots without individual
+        point timestamps remain readable but are deliberately not actionable.
+        """
 
         quoted = _parse_utc(self.quoted_at)
         fetched = _parse_utc(self.fetched_at)
-        if quoted is None or fetched is None:
+        point_times = [_parse_utc(point.observed_at) for point in self.points]
+        if (
+            quoted is None
+            or fetched is None
+            or not point_times
+            or any(observed is None for observed in point_times)
+        ):
             return False
         current = _as_utc(now or datetime.now(timezone.utc))
         quote_age = current - quoted
@@ -226,6 +236,20 @@ class MarketConsensus:
         return (
             timedelta(minutes=-1) <= quote_age <= REFERENCE_QUOTE_MAX_AGE
             and timedelta(minutes=-1) <= fetch_age <= REFERENCE_FETCH_MAX_AGE
+            and all(
+                timedelta(minutes=-1)
+                <= current - observed
+                <= REFERENCE_QUOTE_MAX_AGE
+                for observed in point_times
+                if observed is not None
+            )
+            and all(
+                timedelta(minutes=-1)
+                <= fetched - observed
+                <= REFERENCE_QUOTE_MAX_AGE
+                for observed in point_times
+                if observed is not None
+            )
         )
 
     def is_wettfinder_fresh(self, now: Optional[datetime] = None) -> bool:
@@ -330,11 +354,15 @@ def reference_price_status(
             "Mindestquote ist nicht belastbar",
             None,
         )
-    if quote.conservative_odds + 1e-9 >= threshold:
+    executable = quote.executable_point
+    if quote.conservative_odds + 1e-9 >= threshold and executable is not None:
         return ReferencePriceStatus(
             "PLAYABLE",
             "Marktpreis liegt konservativ ueber der Mindestquote",
-            quote.conservative_odds,
+            executable.odds,
+            bookmaker=executable.bookmaker,
+            bookmaker_id=executable.bookmaker_id,
+            observed_at=executable.observed_at,
         )
     if quote.best_odds + 1e-9 >= threshold:
         return ReferencePriceStatus(
@@ -397,7 +425,6 @@ def wettfinder_consensus(
 ) -> Optional[MarketConsensus]:
     """Rebuild the normal consensus from current, provider-bound offers.
 
-    The shared parser deliberately retains the wider 15K observation window.
     One old or unidentified point must not poison an otherwise valid normal
     three-book market, so Q25, median, best and the executable offer are
     recomputed only from the current provider-native subset.
@@ -494,9 +521,8 @@ def wettfinder_reference_price_status(
 ) -> ReferencePriceStatus:
     """Classify a quote under the normal Wettfinder execution contract.
 
-    The established ``reference_price_status`` API deliberately remains
-    unchanged for the separate 15K workflow. Normal Wettfinder callers use
-    this stricter layer: an otherwise playable price is actionable only when
+    Normal Wettfinder callers add provider-native identity proof: an otherwise
+    playable price is actionable only when
     the event/selection is exactly bound (when a candidate is supplied), the
     event start is present, and every contributing bookmaker has a stable
     provider ID plus its own parseable observation timestamp.
@@ -620,8 +646,8 @@ def _quote_point_from_payload(
         else None
     )
     # Old saved snapshots did not contain point-level timestamps. Keep them
-    # readable and use their aggregate quoted_at only during freshness checks;
-    # newly fetched points always carry their own provider observation clock.
+    # readable for audit/history; actionable freshness deliberately requires
+    # the provider clock carried by every newly fetched point.
     raw_observed = payload.get("observed_at")
     observed_at = (
         _utc_iso(raw_observed)

@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
+import json
 
 import market_consensus
 import wettfinder_automation
 from betting_math import BETTING_POLICY_VERSION
 from challenge_engine import (
+    MARKET_BY_KEY,
     MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     ChallengeCandidate,
     ValidationMetrics,
+    select_quoted_ticket,
 )
 from config_loader import AppConfig
 from ev_signal_sources import (
@@ -26,6 +29,7 @@ from market_consensus import (
     ODDS_API_REFERENCE_SOURCE,
     QuotePoint,
     REFERENCE_SOURCE,
+    exact_market_target,
     parse_h2h_event_consensus,
     parse_fixture_consensus,
 )
@@ -39,6 +43,7 @@ from wettfinder_automation import (
     _football_state_from_snapshot,
     _merge_context_refresh,
     _signal_record,
+    build_scheduled_challenge_snapshot,
     build_daily_forecast_catalog,
     build_model_selection_ledger,
     football_context_due_fixture_ids,
@@ -193,6 +198,41 @@ def test_football_state_propagates_operational_failure_with_nonempty_schedule():
     assert state["discovery_operational_error_count"] == 1
     assert state["operational_error_count"] == 1
     assert state["context_accounting_available"] is False
+
+
+def test_discovery_timestamp_never_marks_unchecked_context_as_fresh():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    first = _challenge_candidate(now + timedelta(minutes=80))
+    second = replace(
+        first,
+        fixture_id=2,
+        candidate_id="fixture-2-btts",
+    )
+    state = _football_state_from_snapshot(
+        {
+            "scanned_at": now.isoformat(),
+            "context_checked_at": (now - timedelta(minutes=2)).isoformat(),
+            "base_fixture_count": 2,
+            "context_verified_fixtures": 1,
+            "context_data_incomplete_fixtures": 0,
+            "context_unchecked_fixtures": 1,
+            "deferred_context_fixtures": 0,
+            "context_scope_complete": False,
+            "context_fixture_statuses": {
+                "1": "verified",
+                "2": "unchecked",
+            },
+            "discovery_candidates": [first, second],
+            "errors": [],
+        },
+        attempted_at=now,
+        search_date=now.date(),
+    )
+
+    assert state["context_checks"] == {
+        "1": (now - timedelta(minutes=2)).isoformat(),
+    }
+    assert football_context_due_fixture_ids(state, now=now) == [2]
 
 
 def test_context_refresh_recomputes_coverage_from_per_fixture_statuses():
@@ -558,8 +598,8 @@ def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
 
 def test_automation_writer_and_reader_share_one_artifact_version():
     assert AUTOMATION_VERSION == AUTOMATED_WETTFINDER_VERSION
-    assert AUTOMATED_WETTFINDER_VERSION == 14
-    assert AUTOMATED_SELECTION_POLICY_VERSION == "useful-selection-catalog-v12"
+    assert AUTOMATED_WETTFINDER_VERSION == 16
+    assert AUTOMATED_SELECTION_POLICY_VERSION == "useful-selection-catalog-v13"
 
 
 def test_football_record_persists_paired_statistical_release_evidence():
@@ -584,6 +624,376 @@ def test_football_record_persists_paired_statistical_release_evidence():
     assert record["paired_loss_p_value"] == 0.01
     assert record["fdr_q_value"] == 0.02
     assert record["tested_hypotheses"] == 90
+
+
+def test_scheduled_artifact_rebuilds_15k_forecast_and_exact_quote(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    snapshot = _football_snapshot(now)
+    candidate = snapshot["shortlist"][0]
+    snapshot["discovery_candidates"] = [candidate]
+    prices = (2.00, 2.05, 2.10, 2.15)
+    quote = MarketConsensus(
+        fixture_id=candidate.fixture_id,
+        candidate_id=candidate.candidate_id,
+        market_key=candidate.market_key,
+        bet_name="Both Teams Score",
+        value_name="Yes",
+        consensus_odds=2.075,
+        conservative_odds=2.0375,
+        lowest_odds=2.00,
+        best_odds=2.15,
+        bookmaker_count=4,
+        quoted_at=now.isoformat(),
+        fetched_at=now.isoformat(),
+        source=REFERENCE_SOURCE,
+        points=tuple(
+            QuotePoint(
+                bookmaker=f"Book {index}",
+                odds=odds,
+                bookmaker_id=f"api-football:{index}",
+                observed_at=now.isoformat(),
+            )
+            for index, odds in enumerate(prices, start=1)
+        ),
+        scheduled_start=candidate.kickoff,
+        event_home=candidate.home_team,
+        event_away=candidate.away_team,
+    )
+
+    artifact_path = tmp_path / "wettfinder.json"
+    document = run_wettfinder(
+        now=now,
+        state_path=artifact_path,
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: snapshot,
+        football_context_refresher=lambda *_args: {},
+        football_quote_loader=lambda _rows: (
+            {candidate.candidate_id: quote},
+            [],
+        ),
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+    scope = {
+        "league_ids": list(ALTERNATIVE_MARKET_LEAGUES),
+        "date": now.date().isoformat(),
+        "max_fixtures": 1200,
+    }
+
+    automatic = build_scheduled_challenge_snapshot(document, scope=scope)
+
+    assert automatic is not None
+    assert automatic["automatic_source"] == "wettfinder_systemd_timer"
+    assert automatic["scope"] == scope
+    assert [item.candidate_id for item in automatic["shortlist"]] == [
+        candidate.candidate_id
+    ]
+    assert automatic["reference_quotes"][candidate.candidate_id] == quote.to_dict()
+    assert build_scheduled_challenge_snapshot(
+        document,
+        scope={**scope, "date": "2030-01-02"},
+    ) is None
+    assert build_scheduled_challenge_snapshot(
+        document,
+        scope={**scope, "league_ids": [candidate.league_id]},
+    ) is None
+    assert build_scheduled_challenge_snapshot(
+        {**document, "sources": ["corrupt"]},
+        scope=scope,
+    ) is None
+    missing_release_pool = dict(document)
+    missing_release_pool.pop("challenge_release_candidates")
+    assert build_scheduled_challenge_snapshot(
+        missing_release_pool,
+        scope=scope,
+    ) is None
+    tampered_release_pool = json.loads(json.dumps(document))
+    tampered_release_pool["challenge_release_candidates"][0][
+        "release_contract"
+    ] = "tampered"
+    assert build_scheduled_challenge_snapshot(
+        tampered_release_pool,
+        scope=scope,
+    ) is None
+
+
+def test_scheduled_15k_uses_full_release_pool_not_normal_top_three(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    base = _challenge_candidate(now + timedelta(hours=5))
+    candidates: list[ChallengeCandidate] = []
+    odds_by_id: dict[str, float] = {}
+    for index in range(1, 5):
+        if index < 4:
+            probability = 0.90
+            conservative = 0.84
+            evidence = 100.0 - index
+            market_key = "BTTS_YES"
+            odds = 1.25
+        else:
+            probability = 0.62
+            conservative = 0.55
+            evidence = 72.0
+            market_key = "TOTAL_OVER_2_5"
+            odds = 2.20
+        spec = MARKET_BY_KEY[market_key]
+        candidate = replace(
+            base,
+            candidate_id=f"fixture-{index}-{market_key}",
+            fixture_id=index,
+            home_team_id=index * 2 + 10,
+            away_team_id=index * 2 + 11,
+            home_team=f"Home {index}",
+            away_team=f"Away {index}",
+            market_key=market_key,
+            market=spec.market,
+            selection=spec.selection,
+            probability=probability,
+            conservative_probability=conservative,
+            probability_haircut_pp=round(
+                (probability - conservative) * 100.0,
+                6,
+            ),
+            model_price=1.0 / conservative,
+            evidence_score=evidence,
+        )
+        candidate.context = {
+            "passed": True,
+            "forecast_passed": True,
+            "blocked_reasons": [],
+            "release_context_complete": True,
+            "release_eligible": True,
+        }
+        candidates.append(candidate)
+        odds_by_id[candidate.candidate_id] = odds
+
+    snapshot = {
+        "scanned_at": now.isoformat(),
+        "fixtures_found": 4,
+        "fixtures_modeled": 4,
+        "base_candidates": 4,
+        "base_fixture_count": 4,
+        "context_fixtures": 4,
+        "context_verified_fixtures": 4,
+        "context_data_incomplete_fixtures": 0,
+        "context_unchecked_fixtures": 0,
+        "deferred_context_fixtures": 0,
+        "context_scope_complete": True,
+        "context_fixture_statuses": {
+            str(index): "verified" for index in range(1, 5)
+        },
+        "fixture_kickoffs": [candidate.kickoff for candidate in candidates],
+        "shortlist": candidates,
+        "discovery_candidates": candidates,
+        "errors": [],
+    }
+
+    def quote(candidate: ChallengeCandidate) -> MarketConsensus:
+        bet_name, value_name = exact_market_target(candidate.market_key) or (
+            "",
+            "",
+        )
+        odds = odds_by_id[candidate.candidate_id]
+        return MarketConsensus(
+            fixture_id=candidate.fixture_id,
+            candidate_id=candidate.candidate_id,
+            market_key=candidate.market_key,
+            bet_name=bet_name,
+            value_name=value_name,
+            consensus_odds=odds,
+            conservative_odds=odds,
+            lowest_odds=odds,
+            best_odds=odds,
+            bookmaker_count=4,
+            quoted_at=now.isoformat(),
+            fetched_at=now.isoformat(),
+            source=REFERENCE_SOURCE,
+            points=tuple(
+                QuotePoint(
+                    bookmaker=f"Book {bookmaker}",
+                    odds=odds,
+                    bookmaker_id=f"api-football:{bookmaker}",
+                    observed_at=now.isoformat(),
+                )
+                for bookmaker in range(1, 5)
+            ),
+            scheduled_start=candidate.kickoff,
+            event_home=candidate.home_team,
+            event_away=candidate.away_team,
+        )
+
+    artifact_path = tmp_path / "wettfinder.json"
+    document = run_wettfinder(
+        now=now,
+        state_path=artifact_path,
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: snapshot,
+        football_context_refresher=lambda *_args: {},
+        football_quote_loader=lambda _rows: (
+            {
+                candidate.candidate_id: quote(candidate)
+                for candidate in candidates
+            },
+            [],
+        ),
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+    automatic = build_scheduled_challenge_snapshot(document)
+
+    assert len(document["candidates"]) == 3
+    assert len(document["challenge_release_candidates"]) == 4
+    assert len(
+        automated_wettfinder_forecasts(
+            artifact_path,
+            now=now + timedelta(minutes=1),
+        )
+    ) == 4
+    assert automatic is not None
+    assert len(automatic["shortlist"]) == 4
+    assert select_quoted_ticket(
+        automatic["shortlist"],
+        odds_by_id,
+        now=now,
+    ).legs[0].candidate.candidate_id == "fixture-4-TOTAL_OVER_2_5"
+
+
+def test_completed_zero_forecast_run_is_a_valid_scheduled_15k_snapshot(
+    tmp_path,
+):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    snapshot = {
+        "scanned_at": now.isoformat(),
+        "fixtures_found": 12,
+        "fixtures_modeled": 10,
+        "base_candidates": 0,
+        "base_fixture_count": 0,
+        "context_fixtures": 0,
+        "context_verified_fixtures": 0,
+        "context_data_incomplete_fixtures": 0,
+        "context_unchecked_fixtures": 0,
+        "deferred_context_fixtures": 0,
+        "context_scope_complete": True,
+        "context_fixture_statuses": {},
+        "fixture_kickoffs": [],
+        "shortlist": [],
+        "discovery_candidates": [],
+        "errors": [],
+    }
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: snapshot,
+        football_context_refresher=lambda *_args: {},
+        football_quote_loader=lambda _rows: ({}, []),
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    automatic = build_scheduled_challenge_snapshot(document)
+
+    assert automatic is not None
+    assert automatic["automatic_run_status"] == "completed"
+    assert automatic["fixtures_found"] == 12
+    assert automatic["fixtures_modeled"] == 10
+    assert automatic["forecast_shortlist"] == []
+    assert automatic["shortlist"] == []
+
+
+def test_scheduled_15k_never_promotes_a_model_quote_without_release_execution(
+    tmp_path,
+):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    snapshot = _football_snapshot(now)
+    candidate = snapshot["shortlist"][0]
+    snapshot["discovery_candidates"] = [candidate]
+    prices = (2.00, 2.05, 2.10, 2.15)
+    quote = MarketConsensus(
+        fixture_id=candidate.fixture_id,
+        candidate_id=candidate.candidate_id,
+        market_key=candidate.market_key,
+        bet_name="Both Teams Score",
+        value_name="Yes",
+        consensus_odds=2.075,
+        conservative_odds=2.0375,
+        lowest_odds=2.00,
+        best_odds=2.15,
+        bookmaker_count=4,
+        quoted_at=now.isoformat(),
+        fetched_at=now.isoformat(),
+        source=REFERENCE_SOURCE,
+        points=tuple(
+            QuotePoint(
+                bookmaker=f"Book {index}",
+                odds=odds,
+                observed_at=now.isoformat(),
+            )
+            for index, odds in enumerate(prices, start=1)
+        ),
+        scheduled_start=candidate.kickoff,
+        event_home=candidate.home_team,
+        event_away=candidate.away_team,
+    )
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: snapshot,
+        football_context_refresher=lambda *_args: {},
+        football_quote_loader=lambda _rows: (
+            {candidate.candidate_id: quote},
+            [],
+        ),
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    automatic = build_scheduled_challenge_snapshot(
+        document,
+        scope={
+            "league_ids": list(ALTERNATIVE_MARKET_LEAGUES),
+            "date": now.date().isoformat(),
+            "max_fixtures": 1200,
+        },
+    )
+
+    assert document["candidates"] == []
+    assert document["model_candidates"][0]["reference_price_status"] == "UNAVAILABLE"
+    assert automatic is not None
+    assert automatic["shortlist"] == []
+    assert automatic["price_candidates"] == []
+    assert [item.candidate_id for item in automatic["forecast_shortlist"]] == [
+        candidate.candidate_id
+    ]
+
+
+def test_scheduled_artifact_keeps_forecast_but_blocks_release_on_degraded_source(
+    tmp_path,
+):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    snapshot = _football_snapshot(now)
+    candidate = snapshot["shortlist"][0]
+    snapshot["discovery_candidates"] = [candidate]
+    snapshot["operational_errors"] = ["provider partial"]
+    snapshot["errors"] = ["provider partial"]
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: snapshot,
+        football_context_refresher=lambda *_args: {},
+        football_quote_loader=lambda _rows: ({}, []),
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    automatic = build_scheduled_challenge_snapshot(document)
+
+    assert automatic is not None
+    assert automatic["shortlist"] == []
+    assert [item.candidate_id for item in automatic["forecast_shortlist"]] == [
+        candidate.candidate_id
+    ]
 
 
 def test_previous_automation_artifact_version_is_rejected(tmp_path):
@@ -826,6 +1236,32 @@ def test_context_due_uses_only_near_persisted_fixture_ids():
         state,
         now=now + timedelta(minutes=10),
     ) == []
+
+
+def test_context_due_batches_cover_the_complete_near_kickoff_pool():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    discovery = []
+    for fixture_id in range(1, 46):
+        item = replace(
+            _challenge_candidate(now + timedelta(minutes=80)),
+            fixture_id=fixture_id,
+            candidate_id=f"fixture-{fixture_id}-btts",
+        )
+        discovery.append(item.to_dict())
+    state = {"discovery_candidates": discovery, "context_checks": {}}
+
+    batches = []
+    for _ in range(3):
+        batch = football_context_due_fixture_ids(state, now=now)
+        batches.append(batch)
+        state["context_checks"].update(
+            {str(fixture_id): now.isoformat() for fixture_id in batch}
+        )
+
+    assert [len(batch) for batch in batches] == [20, 20, 5]
+    assert sorted(fixture_id for batch in batches for fixture_id in batch) == list(
+        range(1, 46)
+    )
 
 
 def test_default_football_discovery_scans_all_configured_leagues(monkeypatch):
@@ -1208,7 +1644,10 @@ def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
     model_selection = document["model_candidates"][0]
     assert document["quote_required"] is True
     assert tip["status"] == "RECOMMENDED"
+    assert tip["evidence_stage"] == "RELEASED"
+    assert tip["release_contract"] == "football-hac-fdr-context-price-v1"
     assert model_selection["status"] == "MODEL_SELECTION"
+    assert model_selection["evidence_stage"] == "SHADOW"
     assert model_selection["candidate_id"] == tip["candidate_id"]
     assert tip["reference_price_status"] == "PLAYABLE"
     assert model_selection["reference_price_status"] == "PLAYABLE"
@@ -1225,6 +1664,12 @@ def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
     signals = automated_wettfinder_signals(state_path, now=read_at)
     assert [row.key for row in forecasts] == [model_selection["key"]]
     assert [row.key for row in signals] == [tip["key"]]
+    assert signals[0].evidence_stage == "RELEASED"
+
+    tampered = json.loads(state_path.read_text(encoding="utf-8"))
+    tampered["candidates"][0]["release_contract"] = "unreviewed-release"
+    state_path.write_text(json.dumps(tampered), encoding="utf-8")
+    assert automated_wettfinder_signals(state_path, now=read_at) == []
 
 
 def test_runner_never_publishes_unpriced_or_too_low_model_candidates(tmp_path):
@@ -1716,7 +2161,13 @@ def test_runner_refreshes_only_daily_pool_fixture_without_rescanning(tmp_path):
     assert refreshed["football"]["blocked_counts"] == {
         "Transfer nicht validiert": 4
     }
-    assert refresh_calls == [([1], now + timedelta(minutes=30))]
+    # Unchecked discovery fixtures are refreshed immediately; once they are
+    # inside the two-hour window, the 25-minute freshness contract schedules
+    # the next update without waiting for a browser session.
+    assert refresh_calls == [
+        ([1], now),
+        ([1], now + timedelta(minutes=30)),
+    ]
     assert refreshed["sources"]["football"]["context_status"] == "refreshed"
     assert refreshed["candidates"] == []
     assert refreshed["sources"]["football"]["price_status_counts"] == {

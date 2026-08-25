@@ -157,6 +157,10 @@ def test_external_tampering_is_detected_before_next_append(tmp_path):
         )
     assert ledger.verify_chain() == (False, 1)
     with pytest.raises(PriceLedgerIntegrityError, match="observation 1"):
+        ledger.get(1)
+    with pytest.raises(PriceLedgerIntegrityError, match="observation 1"):
+        ledger.for_event("FOOTBALL", "fixture-1")
+    with pytest.raises(PriceLedgerIntegrityError, match="observation 1"):
         ledger.append(
             _quote(
                 captured_at=NOW + timedelta(minutes=1),

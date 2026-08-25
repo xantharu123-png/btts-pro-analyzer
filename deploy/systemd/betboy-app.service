@@ -11,11 +11,14 @@ WorkingDirectory=/opt/betboy/app
 EnvironmentFile=-/etc/betboy/betboy.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONUTF8=1
+Environment=BETBOY_LEDGER_HMAC_REQUIRED=1
+Environment=BETBOY_LEDGER_HMAC_KEY_FILE=/etc/betboy/challenge-ledger-hmac.key
+ExecCondition=/usr/bin/python3 -I /usr/local/libexec/betboy-challenge-migration-marker.py --marker /etc/betboy/challenge-ledger-v2-migrated.json --application-root /opt/betboy/app require-complete
 ExecStart=/opt/betboy/venv/bin/streamlit run app.py --server.address=127.0.0.1 --server.port=8501 --server.headless=true --browser.gatherUsageStats=false
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
-UMask=0077
+UMask=0027
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

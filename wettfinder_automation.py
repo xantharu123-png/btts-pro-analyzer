@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 
 from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
 from challenge_15k import (
+    CHALLENGE_SNAPSHOT_VERSION,
     MAX_SCAN_FIXTURES,
     ChallengeDataProvider,
     refresh_discovered_candidates,
@@ -41,19 +42,23 @@ from challenge_engine import (
     ValidationMetrics,
     candidate_context_summary,
     candidate_is_forecast_credible,
+    candidate_is_credible,
     candidate_selection_rank,
     market_is_basic_forecast,
     select_wettfinder_catalog,
 )
 from config_loader import AppConfig, load_app_config
 from ev_signal_sources import (
+    AUTOMATED_FOOTBALL_RELEASE_CONTRACT,
     AUTOMATED_SELECTION_POLICY_VERSION,
     AUTOMATED_WETTFINDER_VERSION,
+    MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES,
     MAX_AUTOMATED_FOOTBALL_CANDIDATES,
     MAX_AUTOMATED_MODEL_CANDIDATES,
     MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT,
     MAX_AUTOMATED_RECOMMENDATIONS,
     ModelSignal,
+    _reference_execution_matches_row,
     _validated_football_context_statuses,
     esports_signals,
     tennis_model_signals,
@@ -91,6 +96,8 @@ ERROR_RETRY = timedelta(minutes=25)
 FOOTBALL_CONTEXT_WINDOW = timedelta(hours=2)
 FOOTBALL_CONTEXT_MIN_GAP = timedelta(minutes=25)
 FOOTBALL_CONTEXT_MAX_AGE = timedelta(minutes=75)
+FOOTBALL_CONTEXT_BATCH_SIZE = 20
+FOOTBALL_CONTEXT_MAX_BATCHES_PER_RUN = 3
 
 
 @dataclass(frozen=True)
@@ -985,10 +992,22 @@ def _football_state_from_snapshot(
             "context_scope_complete",
         )
     )
+    context_checked_at = (
+        _parse_iso(snapshot.get("context_checked_at")) or scanned_at
+    )
+    # A discovery timestamp is not context evidence.  Only fixtures actually
+    # queried for H2H, injuries, weather and lineups receive a check clock;
+    # otherwise the timer would incorrectly suppress the unverified remainder
+    # of a broad daily pool for another minimum-gap interval.
     context_checks = {
-        str(payload["fixture_id"]): scanned_at.isoformat()
-        for payload in discovery_payloads
-        if isinstance(payload.get("fixture_id"), int)
+        str(fixture_id): context_checked_at.isoformat()
+        for fixture_id, status in (
+            context_fixture_statuses.items()
+            if isinstance(context_fixture_statuses, dict)
+            else ()
+        )
+        if str(fixture_id).isdigit()
+        and status in {"verified", "data_incomplete"}
     }
     return {
         "status": "degraded" if degraded else "completed",
@@ -1138,7 +1157,7 @@ def football_context_due_fixture_ids(
         for fixture_id, _kickoff in sorted(
             due.items(),
             key=lambda item: (item[1], item[0]),
-        )[:20]
+        )[:FOOTBALL_CONTEXT_BATCH_SIZE]
     ]
 
 
@@ -1541,6 +1560,288 @@ def load_state(path: str | Path = STATE_PATH) -> dict[str, Any]:
     return payload
 
 
+def build_scheduled_challenge_snapshot(
+    document: object,
+    *,
+    scope: Optional[dict[str, Any]] = None,
+) -> Optional[dict[str, Any]]:
+    """Rebuild the automatic football result for the 15K consumer.
+
+    The systemd timer already performs the expensive all-league discovery,
+    context refresh and exact quote lookup.  Reusing that signed-by-schema
+    artifact keeps the 15K page automatic and prevents a browser-local second
+    scan.  Model forecasts remain visible on a degraded price/provider run;
+    only the separate Echtgeld shortlist fails closed.
+    """
+    if (
+        not isinstance(document, dict)
+        or document.get("version") != AUTOMATION_VERSION
+        or document.get("betting_policy_version") != BETTING_POLICY_VERSION
+        or document.get("selection_policy_version")
+        != SELECTION_POLICY_VERSION
+    ):
+        return None
+    generated_at = _parse_iso(document.get("generated_at"))
+    target_date = document.get("target_search_date")
+    football = document.get("football")
+    sources = document.get("sources")
+    model_rows = document.get("model_candidates")
+    challenge_release_rows = document.get("challenge_release_candidates")
+    if (
+        generated_at is None
+        or not isinstance(target_date, str)
+        or not isinstance(football, dict)
+        or not isinstance(sources, dict)
+        or not isinstance(model_rows, list)
+        or not isinstance(challenge_release_rows, list)
+        or len(challenge_release_rows)
+        > MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES
+    ):
+        return None
+    if isinstance(scope, dict):
+        scope_date = str(scope.get("date") or "").strip()
+        scope_leagues = scope.get("league_ids")
+        scope_leagues_valid = (
+            isinstance(scope_leagues, list)
+            and all(
+                isinstance(league_id, int) and not isinstance(league_id, bool)
+                for league_id in scope_leagues
+            )
+        )
+        if (
+            scope_date != target_date
+            or not scope_leagues_valid
+            or sorted(scope_leagues or []) != sorted(ALTERNATIVE_MARKET_LEAGUES)
+        ):
+            return None
+
+    payload_by_id: dict[str, dict[str, Any]] = {}
+    for payload in football.get("discovery_candidates") or []:
+        if not isinstance(payload, dict):
+            continue
+        candidate_id = str(payload.get("candidate_id") or "").strip()
+        if candidate_id and candidate_id not in payload_by_id:
+            payload_by_id[candidate_id] = payload
+    record_by_id = {
+        str(record.get("candidate_id") or "").strip(): record
+        for record in (football.get("candidates") or [])
+        if isinstance(record, dict)
+        and str(record.get("candidate_id") or "").strip()
+    }
+
+    rebuilt: list[ChallengeCandidate] = []
+    row_by_id: dict[str, dict[str, Any]] = {}
+    seen_ids: set[str] = set()
+    for row in model_rows:
+        if not isinstance(row, dict) or row.get("source") != "football_challenge":
+            continue
+        candidate_id = str(row.get("candidate_id") or "").strip()
+        if not candidate_id or candidate_id in seen_ids:
+            continue
+        payload = payload_by_id.get(candidate_id)
+        record = record_by_id.get(candidate_id)
+        candidate = _challenge_candidate_from_payload(payload)
+        if candidate is None or not isinstance(record, dict):
+            continue
+        if (
+            record.get("fixture_id") != candidate.fixture_id
+            or record.get("market_key") != candidate.market_key
+            or row.get("fixture_id") != candidate.fixture_id
+            or row.get("market_key") != candidate.market_key
+            or _parse_iso(row.get("scheduled_start"))
+            != _parse_iso(candidate.kickoff)
+        ):
+            continue
+        context = record.get("context")
+        if not isinstance(context, dict):
+            continue
+        candidate.context = dict(context)
+        rebuilt.append(candidate)
+        row_by_id[candidate_id] = row
+        seen_ids.add(candidate_id)
+
+    forecast_candidates = [
+        candidate
+        for candidate in rebuilt
+        if candidate_is_forecast_credible(candidate)
+    ]
+    model_by_key: dict[str, dict[str, Any]] = {}
+    ambiguous_model_keys: set[str] = set()
+    for model_row in model_rows:
+        if not isinstance(model_row, dict):
+            continue
+        model_key = str(model_row.get("key") or "").strip()
+        if not model_key:
+            continue
+        if model_key in model_by_key:
+            ambiguous_model_keys.add(model_key)
+            continue
+        model_by_key[model_key] = model_row
+    for model_key in ambiguous_model_keys:
+        model_by_key.pop(model_key, None)
+    challenge_release_keys: list[str] = []
+    for strict_row in challenge_release_rows:
+        if not isinstance(strict_row, dict):
+            return None
+        key = str(strict_row.get("key") or "").strip()
+        if not key:
+            return None
+        challenge_release_keys.append(key)
+    challenge_release_key_set = set(challenge_release_keys)
+    model_keys_in_order = [
+        str(model_row.get("key") or "").strip()
+        for model_row in model_rows
+        if isinstance(model_row, dict)
+        and str(model_row.get("key") or "").strip()
+    ]
+    if (
+        len(challenge_release_key_set) != len(challenge_release_keys)
+        or any(key not in model_by_key for key in challenge_release_keys)
+        or [
+            key for key in model_keys_in_order if key in challenge_release_key_set
+        ]
+        != challenge_release_keys
+    ):
+        return None
+    verified_release_quotes: dict[str, MarketConsensus] = {}
+    overlay_fields = {"status", "evidence_stage", "release_contract"}
+    # The normal consumer surface deliberately publishes no more than three
+    # recommendations.  The challenge must optimize its own 2.00-3.00 ticket
+    # over the complete strict football release pool instead of inheriting
+    # that presentation cap.
+    for strict_row in challenge_release_rows:
+        key = str(strict_row.get("key") or "").strip()
+        model_row = model_by_key.get(key)
+        candidate_id = str(strict_row.get("candidate_id") or "").strip()
+        if (
+            not candidate_id
+            or not isinstance(model_row, dict)
+            or strict_row.get("source") != "football_challenge"
+            or strict_row.get("status") != "RECOMMENDED"
+            or strict_row.get("evidence_stage") != "RELEASED"
+            or strict_row.get("release_contract")
+            != AUTOMATED_FOOTBALL_RELEASE_CONTRACT
+            or strict_row.get("reference_price_status") != "PLAYABLE"
+            or not _football_record_release_eligible(strict_row)
+            or model_row.get("evidence_stage") != "SHADOW"
+            or "release_contract" in model_row
+        ):
+            return None
+        strict_decision = {
+            field: value
+            for field, value in strict_row.items()
+            if field not in overlay_fields
+        }
+        model_decision = {
+            field: value
+            for field, value in model_row.items()
+            if field not in overlay_fields
+        }
+        if strict_decision != model_decision:
+            return None
+        raw_quote = MarketConsensus.from_dict(strict_row.get("reference_quote"))
+        quote = wettfinder_consensus(raw_quote, now=generated_at)
+        if quote is None or not quote_matches_candidate(quote, strict_row):
+            return None
+        status = wettfinder_reference_price_status(
+            quote,
+            strict_row.get("minimum_odds"),
+            candidate=strict_row,
+            now=generated_at,
+        )
+        if (
+            status.code != "PLAYABLE"
+            or not _reference_execution_matches_row(strict_row, quote, status)
+        ):
+            return None
+        if candidate_id in verified_release_quotes:
+            return None
+        verified_release_quotes[candidate_id] = quote
+
+    release_candidates = [
+        candidate
+        for candidate in forecast_candidates
+        if candidate_is_credible(candidate)
+        and candidate.candidate_id in verified_release_quotes
+        and quote_matches_candidate(
+            verified_release_quotes[candidate.candidate_id],
+            candidate,
+        )
+    ]
+    football_source = sources.get("football")
+    release_source_complete = (
+        isinstance(football_source, dict)
+        and int(football_source.get("operational_error_count") or 0) == 0
+        and football.get("status") == "completed"
+    )
+    if not release_source_complete:
+        release_candidates = []
+
+    reference_quotes: dict[str, dict[str, Any]] = {}
+    for candidate in forecast_candidates:
+        row = row_by_id[candidate.candidate_id]
+        quote = verified_release_quotes.get(candidate.candidate_id)
+        if quote is None:
+            quote = MarketConsensus.from_dict(row.get("reference_quote"))
+        if quote is None or not quote_matches_candidate(quote, candidate):
+            continue
+        reference_quotes[candidate.candidate_id] = quote.to_dict()
+
+    basis_forecasts = [
+        candidate
+        for candidate in forecast_candidates
+        if market_is_basic_forecast(candidate.market_key)
+    ]
+    strict_forecasts = [
+        candidate
+        for candidate in forecast_candidates
+        if not market_is_basic_forecast(candidate.market_key)
+    ]
+    return {
+        "version": CHALLENGE_SNAPSHOT_VERSION,
+        "automatic_source": "wettfinder_systemd_timer",
+        "scanned_at": generated_at.isoformat(),
+        "price_checked_at": generated_at.isoformat(),
+        "scope": dict(scope) if isinstance(scope, dict) else None,
+        "search_date": target_date,
+        "search_end_date": target_date,
+        "fixtures_found": int(football.get("fixtures_found") or 0),
+        "fixtures_modeled": int(football.get("fixtures_modeled") or 0),
+        "base_candidates": int(football.get("base_candidates") or 0),
+        "base_fixture_count": int(football.get("base_fixture_count") or 0),
+        "context_fixtures": int(football.get("context_fixtures") or 0),
+        "context_verified_fixtures": int(
+            football.get("context_verified_fixtures") or 0
+        ),
+        "context_data_incomplete_fixtures": int(
+            football.get("context_data_incomplete_fixtures") or 0
+        ),
+        "context_unchecked_fixtures": int(
+            football.get("context_unchecked_fixtures") or 0
+        ),
+        "deferred_context_fixtures": int(
+            football.get("deferred_context_fixtures") or 0
+        ),
+        "context_scope_complete": football.get("context_scope_complete") is True,
+        "context_fixture_statuses": dict(
+            football.get("context_fixture_statuses") or {}
+        ),
+        "forecast_shortlist": strict_forecasts,
+        "basis_forecasts": basis_forecasts,
+        "shortlist": release_candidates,
+        "price_candidates": release_candidates,
+        "base_shortlist": forecast_candidates,
+        "reference_quotes": reference_quotes,
+        "approved_candidates": len(release_candidates),
+        "automatic_run_status": document.get("run_status"),
+        "automatic_operational_error_count": int(
+            document.get("operational_error_count") or 0
+        ),
+        "operational_errors": [],
+        "errors": [],
+    }
+
+
 def write_state(document: dict[str, Any], path: str | Path = STATE_PATH) -> None:
     """Atomically replace the public runtime artifact."""
     state_path = Path(path)
@@ -1792,15 +2093,19 @@ def run_wettfinder(
     if not fixed_now:
         current = _utc(runtime_clock())
 
-    context_fixture_ids = football_context_due_fixture_ids(
-        football_state,
-        now=current,
-    )
+    context_fixture_ids: list[int] = []
     context_status = "not_due"
-    if context_fixture_ids:
+    for _batch_index in range(FOOTBALL_CONTEXT_MAX_BATCHES_PER_RUN):
+        batch_fixture_ids = football_context_due_fixture_ids(
+            football_state,
+            now=current,
+        )
+        if not batch_fixture_ids:
+            break
+        context_fixture_ids.extend(batch_fixture_ids)
         context_candidates = _discovered_candidates_for_fixtures(
             football_state,
-            context_fixture_ids,
+            batch_fixture_ids,
         )
         if not context_candidates:
             context_status = "invalid_daily_pool"
@@ -1827,6 +2132,7 @@ def run_wettfinder(
                     + ["Persistierter Fußball-Tagespool ist ungültig"]
                 )
             )[-20:]
+            break
         else:
             try:
                 app_config = config or load_app_config()
@@ -1850,7 +2156,7 @@ def run_wettfinder(
                 football_state = _merge_context_refresh(
                     football_state,
                     refresh_result,
-                    fixture_ids=context_fixture_ids,
+                    fixture_ids=batch_fixture_ids,
                     checked_at=current,
                 )
                 context_status = "refreshed"
@@ -1879,6 +2185,7 @@ def run_wettfinder(
                         + [f"Context {type(exc).__name__}: {exc}"[:500]]
                     )
                 )[-20:]
+                break
 
     if not fixed_now:
         current = _utc(runtime_clock())
@@ -2071,6 +2378,7 @@ def run_wettfinder(
             now=current,
         )
     )
+    football_quote_error_count = len(_operational_quote_errors(quote_errors))
 
     tennis_model_rows = [
         row for row in source_rows if row.get("source") == "tennis_shadow"
@@ -2155,6 +2463,7 @@ def run_wettfinder(
     football_run_publishable = (
         football_state.get("status") == "completed"
         and int(football_state.get("operational_error_count") or 0) == 0
+        and football_quote_error_count == 0
         and context_statuses is not None
     )
     football_release_candidate_ids = {
@@ -2194,6 +2503,33 @@ def run_wettfinder(
         target_date=target,
         limit=MAX_AUTOMATIC_CANDIDATES,
     )
+    model_keys_in_order = [
+        str(row.get("key") or "").strip()
+        for row in model_candidates
+        if str(row.get("key") or "").strip()
+    ]
+    challenge_playable_by_key = {
+        str(row.get("key") or "").strip(): row
+        for row in football_playable_rows
+        if football_run_publishable
+        and str(row.get("candidate_id") or "").strip()
+        in football_release_candidate_ids
+        and str(row.get("key") or "").strip()
+    }
+    challenge_release_candidates = [
+        dict(challenge_playable_by_key[key])
+        for key in model_keys_in_order
+        if key in challenge_playable_by_key
+    ]
+    if (
+        len(challenge_release_candidates)
+        > MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES
+    ):
+        raise RuntimeError("15K release pool exceeds the artifact schema cap")
+    for row in challenge_release_candidates:
+        row["status"] = "RECOMMENDED"
+        row["evidence_stage"] = "RELEASED"
+        row["release_contract"] = AUTOMATED_FOOTBALL_RELEASE_CONTRACT
     visible_keys = {
         str(row.get("key") or "").strip()
         for row in model_candidates
@@ -2227,8 +2563,20 @@ def run_wettfinder(
     )
     for row in candidates:
         row["status"] = "RECOMMENDED"
+        # Football reaches Echtgeld status only in this strict overlay. The
+        # source forecast stays SHADOW in ``model_candidates`` so price never
+        # rewrites the model catalog. Membership here already proves the same
+        # candidate ID passed HAC/BH-FDR, verified live context, complete source
+        # status and an exact executable multi-bookmaker quote.
+        if (
+            row.get("source") == "football_challenge"
+            and str(row.get("candidate_id") or "").strip()
+            in football_release_candidate_ids
+            and row.get("statistical_release_passed") is True
+        ):
+            row["evidence_stage"] = "RELEASED"
+            row["release_contract"] = AUTOMATED_FOOTBALL_RELEASE_CONTRACT
     if isinstance(source_status.get("football"), dict):
-        football_quote_error_count = len(_operational_quote_errors(quote_errors))
         source_status["football"]["quote_operational_error_count"] = (
             football_quote_error_count
         )
@@ -2257,6 +2605,9 @@ def run_wettfinder(
         source_status["football"]["published_model_selection_count"] = sum(
             row.get("source") == "football_challenge"
             for row in model_candidates
+        )
+        source_status["football"]["challenge_release_candidate_count"] = len(
+            challenge_release_candidates
         )
         source_status["football"]["quote_errors"] = quote_errors[:10]
     if isinstance(source_status.get("tennis"), dict):
@@ -2353,6 +2704,7 @@ def run_wettfinder(
         "sources": source_status,
         "model_candidates": model_candidates,
         "candidates": candidates,
+        "challenge_release_candidates": challenge_release_candidates,
     }
     write_state(document, state_path)
     return document

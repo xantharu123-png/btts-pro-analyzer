@@ -1,0 +1,270 @@
+{
+  "observed_at": "2026-08-25",
+  "production_database_count": 72,
+  "schemas": [
+    {
+      "count": 2,
+      "objects": [
+        [
+          "index",
+          "idx_challenge_daily_ticket",
+          "challenge_tickets",
+          "CREATE UNIQUE INDEX idx_challenge_daily_ticket\n                ON challenge_tickets(analysis_date)\n                WHERE status != 'VOID'\n                "
+        ],
+        [
+          "index",
+          "idx_price_observation_event",
+          "price_observations",
+          "CREATE INDEX idx_price_observation_event\nON price_observations(sport, event_id, market_key, selection_key, id)"
+        ],
+        [
+          "index",
+          "sqlite_autoindex_price_observations_1",
+          "price_observations",
+          null
+        ],
+        [
+          "table",
+          "challenge_settings",
+          "challenge_settings",
+          "CREATE TABLE challenge_settings (\n                    id INTEGER PRIMARY KEY CHECK (id = 1),\n                    starting_balance_cents INTEGER NOT NULL CHECK (starting_balance_cents >= 0),\n                    current_balance_cents INTEGER NOT NULL CHECK (current_balance_cents >= 0),\n                    target_balance_cents INTEGER NOT NULL CHECK (target_balance_cents > 0),\n                    stake_fraction_bps INTEGER NOT NULL DEFAULT 10000\n                        CHECK (stake_fraction_bps BETWEEN 500 AND 10000),\n                    updated_at TEXT NOT NULL\n                , stake_policy_version INTEGER NOT NULL DEFAULT 1)"
+        ],
+        [
+          "table",
+          "challenge_tickets",
+          "challenge_tickets",
+          "CREATE TABLE challenge_tickets (\n                    id INTEGER PRIMARY KEY AUTOINCREMENT,\n                    analysis_date TEXT NOT NULL,\n                    created_at TEXT NOT NULL,\n                    quote_verified_at TEXT NOT NULL,\n                    settled_at TEXT,\n                    status TEXT NOT NULL CHECK (status IN ('PENDING', 'WON', 'LOST', 'VOID')),\n                    stake_cents INTEGER NOT NULL CHECK (stake_cents > 0),\n                    payout_cents INTEGER NOT NULL DEFAULT 0 CHECK (payout_cents >= 0),\n                    total_odds REAL NOT NULL CHECK (total_odds > 1),\n                    joint_probability REAL NOT NULL CHECK (joint_probability >= 0 AND joint_probability <= 1),\n                    expected_roi REAL NOT NULL,\n                    legs_json TEXT NOT NULL\n                , played_odds REAL, entry_source TEXT NOT NULL DEFAULT 'MODEL')"
+        ],
+        [
+          "table",
+          "challenge_transactions",
+          "challenge_transactions",
+          "CREATE TABLE challenge_transactions (\n                    id INTEGER PRIMARY KEY AUTOINCREMENT,\n                    created_at TEXT NOT NULL,\n                    kind TEXT NOT NULL,\n                    amount_cents INTEGER NOT NULL,\n                    balance_after_cents INTEGER NOT NULL\n                        CHECK (balance_after_cents >= 0),\n                    ticket_id INTEGER,\n                    note TEXT,\n                    FOREIGN KEY (ticket_id) REFERENCES challenge_tickets(id)\n                )"
+        ],
+        [
+          "table",
+          "price_observations",
+          "price_observations",
+          "CREATE TABLE price_observations (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    recorded_at TEXT NOT NULL,\n    captured_at TEXT NOT NULL,\n    bookmaker TEXT NOT NULL CHECK (bookmaker = 'N1Bet'),\n    sport TEXT NOT NULL,\n    event_id TEXT NOT NULL,\n    event_name TEXT NOT NULL,\n    scheduled_start TEXT NOT NULL,\n    market_key TEXT NOT NULL,\n    market_name TEXT NOT NULL,\n    selection_key TEXT NOT NULL,\n    selection_name TEXT NOT NULL,\n    line_micros INTEGER,\n    odds_micros INTEGER NOT NULL CHECK (odds_micros > 1000000),\n    phase TEXT NOT NULL,\n    source TEXT NOT NULL,\n    model_ref TEXT,\n    supersedes_id INTEGER,\n    metadata_json TEXT NOT NULL,\n    previous_hash TEXT NOT NULL,\n    record_hash TEXT NOT NULL UNIQUE,\n    FOREIGN KEY (supersedes_id) REFERENCES price_observations(id)\n)"
+        ],
+        [
+          "trigger",
+          "price_observations_no_delete",
+          "price_observations",
+          "CREATE TRIGGER price_observations_no_delete\nBEFORE DELETE ON price_observations\nBEGIN\n    SELECT RAISE(ABORT, 'price observations are append-only');\nEND"
+        ],
+        [
+          "trigger",
+          "price_observations_no_update",
+          "price_observations",
+          "CREATE TRIGGER price_observations_no_update\nBEFORE UPDATE ON price_observations\nBEGIN\n    SELECT RAISE(ABORT, 'price observations are append-only');\nEND"
+        ]
+      ],
+      "sha256": "0a8e123e65760609c42dc49c7edd46e88a9724f2223c4a117f9cec428b3d2f8d"
+    },
+    {
+      "count": 1,
+      "objects": [
+        [
+          "index",
+          "idx_challenge_daily_ticket",
+          "challenge_tickets",
+          "CREATE UNIQUE INDEX idx_challenge_daily_ticket\n                ON challenge_tickets(analysis_date)\n                WHERE status != 'VOID'\n                "
+        ],
+        [
+          "table",
+          "challenge_settings",
+          "challenge_settings",
+          "CREATE TABLE challenge_settings (\n                    id INTEGER PRIMARY KEY CHECK (id = 1),\n                    starting_balance_cents INTEGER NOT NULL CHECK (starting_balance_cents >= 0),\n                    current_balance_cents INTEGER NOT NULL CHECK (current_balance_cents >= 0),\n                    target_balance_cents INTEGER NOT NULL CHECK (target_balance_cents > 0),\n                    updated_at TEXT NOT NULL\n                , stake_fraction_bps INTEGER NOT NULL DEFAULT 10000\n                        CHECK (stake_fraction_bps BETWEEN 500 AND 10000))"
+        ],
+        [
+          "table",
+          "challenge_tickets",
+          "challenge_tickets",
+          "CREATE TABLE challenge_tickets (\n                    id INTEGER PRIMARY KEY AUTOINCREMENT,\n                    analysis_date TEXT NOT NULL,\n                    created_at TEXT NOT NULL,\n                    quote_verified_at TEXT NOT NULL,\n                    settled_at TEXT,\n                    status TEXT NOT NULL CHECK (status IN ('PENDING', 'WON', 'LOST', 'VOID')),\n                    stake_cents INTEGER NOT NULL CHECK (stake_cents > 0),\n                    payout_cents INTEGER NOT NULL DEFAULT 0 CHECK (payout_cents >= 0),\n                    total_odds REAL NOT NULL CHECK (total_odds > 1),\n                    joint_probability REAL NOT NULL CHECK (joint_probability >= 0 AND joint_probability <= 1),\n                    expected_roi REAL NOT NULL,\n                    legs_json TEXT NOT NULL\n                )"
+        ]
+      ],
+      "sha256": "4f4bdd6c490d395ab7e5f0a0dd0ddacc97c1364103cdbef3e57df91c33c68727"
+    },
+    {
+      "count": 3,
+      "objects": [
+        [
+          "index",
+          "idx_challenge_daily_ticket",
+          "challenge_tickets",
+          "CREATE UNIQUE INDEX idx_challenge_daily_ticket\n                ON challenge_tickets(analysis_date)\n                WHERE status != 'VOID'\n                "
+        ],
+        [
+          "index",
+          "idx_price_observation_event",
+          "price_observations",
+          "CREATE INDEX idx_price_observation_event\nON price_observations(sport, event_id, market_key, selection_key, id)"
+        ],
+        [
+          "index",
+          "sqlite_autoindex_price_observations_1",
+          "price_observations",
+          null
+        ],
+        [
+          "table",
+          "challenge_settings",
+          "challenge_settings",
+          "CREATE TABLE challenge_settings (\n                    id INTEGER PRIMARY KEY CHECK (id = 1),\n                    starting_balance_cents INTEGER NOT NULL CHECK (starting_balance_cents >= 0),\n                    current_balance_cents INTEGER NOT NULL CHECK (current_balance_cents >= 0),\n                    target_balance_cents INTEGER NOT NULL CHECK (target_balance_cents > 0),\n                    stake_fraction_bps INTEGER NOT NULL DEFAULT 500\n                        CHECK (stake_fraction_bps BETWEEN 500 AND 2500),\n                    stake_policy_version INTEGER NOT NULL DEFAULT 2\n                        CHECK (stake_policy_version >= 1),\n                    updated_at TEXT NOT NULL\n                )"
+        ],
+        [
+          "table",
+          "challenge_tickets",
+          "challenge_tickets",
+          "CREATE TABLE challenge_tickets (\n                    id INTEGER PRIMARY KEY AUTOINCREMENT,\n                    analysis_date TEXT NOT NULL,\n                    created_at TEXT NOT NULL,\n                    quote_verified_at TEXT NOT NULL,\n                    settled_at TEXT,\n                    status TEXT NOT NULL CHECK (status IN ('PENDING', 'WON', 'LOST', 'VOID')),\n                    stake_cents INTEGER NOT NULL CHECK (stake_cents > 0),\n                    payout_cents INTEGER NOT NULL DEFAULT 0 CHECK (payout_cents >= 0),\n                    total_odds REAL NOT NULL CHECK (total_odds > 1),\n                    played_odds REAL CHECK (played_odds IS NULL OR played_odds > 1),\n                    joint_probability REAL NOT NULL CHECK (joint_probability >= 0 AND joint_probability <= 1),\n                    expected_roi REAL NOT NULL,\n                    legs_json TEXT NOT NULL,\n                    entry_source TEXT NOT NULL DEFAULT 'MODEL'\n                )"
+        ],
+        [
+          "table",
+          "challenge_transactions",
+          "challenge_transactions",
+          "CREATE TABLE challenge_transactions (\n                    id INTEGER PRIMARY KEY AUTOINCREMENT,\n                    created_at TEXT NOT NULL,\n                    kind TEXT NOT NULL,\n                    amount_cents INTEGER NOT NULL,\n                    balance_after_cents INTEGER NOT NULL\n                        CHECK (balance_after_cents >= 0),\n                    ticket_id INTEGER,\n                    note TEXT,\n                    FOREIGN KEY (ticket_id) REFERENCES challenge_tickets(id)\n                )"
+        ],
+        [
+          "table",
+          "price_observations",
+          "price_observations",
+          "CREATE TABLE price_observations (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    recorded_at TEXT NOT NULL,\n    captured_at TEXT NOT NULL,\n    bookmaker TEXT NOT NULL CHECK (bookmaker = 'N1Bet'),\n    sport TEXT NOT NULL,\n    event_id TEXT NOT NULL,\n    event_name TEXT NOT NULL,\n    scheduled_start TEXT NOT NULL,\n    market_key TEXT NOT NULL,\n    market_name TEXT NOT NULL,\n    selection_key TEXT NOT NULL,\n    selection_name TEXT NOT NULL,\n    line_micros INTEGER,\n    odds_micros INTEGER NOT NULL CHECK (odds_micros > 1000000),\n    phase TEXT NOT NULL,\n    source TEXT NOT NULL,\n    model_ref TEXT,\n    supersedes_id INTEGER,\n    metadata_json TEXT NOT NULL,\n    previous_hash TEXT NOT NULL,\n    record_hash TEXT NOT NULL UNIQUE,\n    FOREIGN KEY (supersedes_id) REFERENCES price_observations(id)\n)"
+        ],
+        [
+          "trigger",
+          "price_observations_no_delete",
+          "price_observations",
+          "CREATE TRIGGER price_observations_no_delete\nBEFORE DELETE ON price_observations\nBEGIN\n    SELECT RAISE(ABORT, 'price observations are append-only');\nEND"
+        ],
+        [
+          "trigger",
+          "price_observations_no_update",
+          "price_observations",
+          "CREATE TRIGGER price_observations_no_update\nBEFORE UPDATE ON price_observations\nBEGIN\n    SELECT RAISE(ABORT, 'price observations are append-only');\nEND"
+        ]
+      ],
+      "sha256": "79e007c15a995b56d4437bccad44e5424f59c4f8eb408052b36ca1b2e8429ca2"
+    },
+    {
+      "count": 63,
+      "objects": [
+        [
+          "index",
+          "idx_challenge_daily_ticket",
+          "challenge_tickets",
+          "CREATE UNIQUE INDEX idx_challenge_daily_ticket\n                ON challenge_tickets(analysis_date)\n                WHERE status != 'VOID'\n                "
+        ],
+        [
+          "index",
+          "idx_price_observation_event",
+          "price_observations",
+          "CREATE INDEX idx_price_observation_event\nON price_observations(sport, event_id, market_key, selection_key, id)"
+        ],
+        [
+          "index",
+          "sqlite_autoindex_price_observations_1",
+          "price_observations",
+          null
+        ],
+        [
+          "table",
+          "challenge_settings",
+          "challenge_settings",
+          "CREATE TABLE challenge_settings (\n                    id INTEGER PRIMARY KEY CHECK (id = 1),\n                    starting_balance_cents INTEGER NOT NULL CHECK (starting_balance_cents >= 0),\n                    current_balance_cents INTEGER NOT NULL CHECK (current_balance_cents >= 0),\n                    target_balance_cents INTEGER NOT NULL CHECK (target_balance_cents > 0),\n                    stake_fraction_bps INTEGER NOT NULL DEFAULT 2500\n                        CHECK (stake_fraction_bps BETWEEN 500 AND 2500),\n                    updated_at TEXT NOT NULL\n                , stake_policy_version INTEGER NOT NULL DEFAULT 1)"
+        ],
+        [
+          "table",
+          "challenge_tickets",
+          "challenge_tickets",
+          "CREATE TABLE challenge_tickets (\n                    id INTEGER PRIMARY KEY AUTOINCREMENT,\n                    analysis_date TEXT NOT NULL,\n                    created_at TEXT NOT NULL,\n                    quote_verified_at TEXT NOT NULL,\n                    settled_at TEXT,\n                    status TEXT NOT NULL CHECK (status IN ('PENDING', 'WON', 'LOST', 'VOID')),\n                    stake_cents INTEGER NOT NULL CHECK (stake_cents > 0),\n                    payout_cents INTEGER NOT NULL DEFAULT 0 CHECK (payout_cents >= 0),\n                    total_odds REAL NOT NULL CHECK (total_odds > 1),\n                    joint_probability REAL NOT NULL CHECK (joint_probability >= 0 AND joint_probability <= 1),\n                    expected_roi REAL NOT NULL,\n                    legs_json TEXT NOT NULL\n                , played_odds REAL, entry_source TEXT NOT NULL DEFAULT 'MODEL')"
+        ],
+        [
+          "table",
+          "challenge_transactions",
+          "challenge_transactions",
+          "CREATE TABLE challenge_transactions (\n                    id INTEGER PRIMARY KEY AUTOINCREMENT,\n                    created_at TEXT NOT NULL,\n                    kind TEXT NOT NULL,\n                    amount_cents INTEGER NOT NULL,\n                    balance_after_cents INTEGER NOT NULL\n                        CHECK (balance_after_cents >= 0),\n                    ticket_id INTEGER,\n                    note TEXT,\n                    FOREIGN KEY (ticket_id) REFERENCES challenge_tickets(id)\n                )"
+        ],
+        [
+          "table",
+          "price_observations",
+          "price_observations",
+          "CREATE TABLE price_observations (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    recorded_at TEXT NOT NULL,\n    captured_at TEXT NOT NULL,\n    bookmaker TEXT NOT NULL CHECK (bookmaker = 'N1Bet'),\n    sport TEXT NOT NULL,\n    event_id TEXT NOT NULL,\n    event_name TEXT NOT NULL,\n    scheduled_start TEXT NOT NULL,\n    market_key TEXT NOT NULL,\n    market_name TEXT NOT NULL,\n    selection_key TEXT NOT NULL,\n    selection_name TEXT NOT NULL,\n    line_micros INTEGER,\n    odds_micros INTEGER NOT NULL CHECK (odds_micros > 1000000),\n    phase TEXT NOT NULL,\n    source TEXT NOT NULL,\n    model_ref TEXT,\n    supersedes_id INTEGER,\n    metadata_json TEXT NOT NULL,\n    previous_hash TEXT NOT NULL,\n    record_hash TEXT NOT NULL UNIQUE,\n    FOREIGN KEY (supersedes_id) REFERENCES price_observations(id)\n)"
+        ],
+        [
+          "trigger",
+          "price_observations_no_delete",
+          "price_observations",
+          "CREATE TRIGGER price_observations_no_delete\nBEFORE DELETE ON price_observations\nBEGIN\n    SELECT RAISE(ABORT, 'price observations are append-only');\nEND"
+        ],
+        [
+          "trigger",
+          "price_observations_no_update",
+          "price_observations",
+          "CREATE TRIGGER price_observations_no_update\nBEFORE UPDATE ON price_observations\nBEGIN\n    SELECT RAISE(ABORT, 'price observations are append-only');\nEND"
+        ]
+      ],
+      "sha256": "f0f4bd4429e091c5d066d4c0f447513a7ea4d22bbff1d34f2b5edc52301c6754"
+    },
+    {
+      "count": 3,
+      "objects": [
+        [
+          "index",
+          "idx_challenge_daily_ticket",
+          "challenge_tickets",
+          "CREATE UNIQUE INDEX idx_challenge_daily_ticket\n                ON challenge_tickets(analysis_date)\n                WHERE status != 'VOID'\n                "
+        ],
+        [
+          "index",
+          "idx_price_observation_event",
+          "price_observations",
+          "CREATE INDEX idx_price_observation_event\nON price_observations(sport, event_id, market_key, selection_key, id)"
+        ],
+        [
+          "index",
+          "sqlite_autoindex_price_observations_1",
+          "price_observations",
+          null
+        ],
+        [
+          "table",
+          "challenge_settings",
+          "challenge_settings",
+          "CREATE TABLE challenge_settings (\n                    id INTEGER PRIMARY KEY CHECK (id = 1),\n                    starting_balance_cents INTEGER NOT NULL CHECK (starting_balance_cents >= 0),\n                    current_balance_cents INTEGER NOT NULL CHECK (current_balance_cents >= 0),\n                    target_balance_cents INTEGER NOT NULL CHECK (target_balance_cents > 0),\n                    stake_fraction_bps INTEGER NOT NULL DEFAULT 2500\n                        CHECK (stake_fraction_bps BETWEEN 500 AND 2500),\n                    updated_at TEXT NOT NULL\n                , stake_policy_version INTEGER NOT NULL DEFAULT 1)"
+        ],
+        [
+          "table",
+          "challenge_tickets",
+          "challenge_tickets",
+          "CREATE TABLE challenge_tickets (\n                    id INTEGER PRIMARY KEY AUTOINCREMENT,\n                    analysis_date TEXT NOT NULL,\n                    created_at TEXT NOT NULL,\n                    quote_verified_at TEXT NOT NULL,\n                    settled_at TEXT,\n                    status TEXT NOT NULL CHECK (status IN ('PENDING', 'WON', 'LOST', 'VOID')),\n                    stake_cents INTEGER NOT NULL CHECK (stake_cents > 0),\n                    payout_cents INTEGER NOT NULL DEFAULT 0 CHECK (payout_cents >= 0),\n                    total_odds REAL NOT NULL CHECK (total_odds > 1),\n                    played_odds REAL CHECK (played_odds IS NULL OR played_odds > 1),\n                    joint_probability REAL NOT NULL CHECK (joint_probability >= 0 AND joint_probability <= 1),\n                    expected_roi REAL NOT NULL,\n                    legs_json TEXT NOT NULL,\n                    entry_source TEXT NOT NULL DEFAULT 'MODEL'\n                )"
+        ],
+        [
+          "table",
+          "challenge_transactions",
+          "challenge_transactions",
+          "CREATE TABLE challenge_transactions (\n                    id INTEGER PRIMARY KEY AUTOINCREMENT,\n                    created_at TEXT NOT NULL,\n                    kind TEXT NOT NULL,\n                    amount_cents INTEGER NOT NULL,\n                    balance_after_cents INTEGER NOT NULL\n                        CHECK (balance_after_cents >= 0),\n                    ticket_id INTEGER,\n                    note TEXT,\n                    FOREIGN KEY (ticket_id) REFERENCES challenge_tickets(id)\n                )"
+        ],
+        [
+          "table",
+          "price_observations",
+          "price_observations",
+          "CREATE TABLE price_observations (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    recorded_at TEXT NOT NULL,\n    captured_at TEXT NOT NULL,\n    bookmaker TEXT NOT NULL CHECK (bookmaker = 'N1Bet'),\n    sport TEXT NOT NULL,\n    event_id TEXT NOT NULL,\n    event_name TEXT NOT NULL,\n    scheduled_start TEXT NOT NULL,\n    market_key TEXT NOT NULL,\n    market_name TEXT NOT NULL,\n    selection_key TEXT NOT NULL,\n    selection_name TEXT NOT NULL,\n    line_micros INTEGER,\n    odds_micros INTEGER NOT NULL CHECK (odds_micros > 1000000),\n    phase TEXT NOT NULL,\n    source TEXT NOT NULL,\n    model_ref TEXT,\n    supersedes_id INTEGER,\n    metadata_json TEXT NOT NULL,\n    previous_hash TEXT NOT NULL,\n    record_hash TEXT NOT NULL UNIQUE,\n    FOREIGN KEY (supersedes_id) REFERENCES price_observations(id)\n)"
+        ],
+        [
+          "trigger",
+          "price_observations_no_delete",
+          "price_observations",
+          "CREATE TRIGGER price_observations_no_delete\nBEFORE DELETE ON price_observations\nBEGIN\n    SELECT RAISE(ABORT, 'price observations are append-only');\nEND"
+        ],
+        [
+          "trigger",
+          "price_observations_no_update",
+          "price_observations",
+          "CREATE TRIGGER price_observations_no_update\nBEFORE UPDATE ON price_observations\nBEGIN\n    SELECT RAISE(ABORT, 'price observations are append-only');\nEND"
+        ]
+      ],
+      "sha256": "f83d540c4cf176897cfb99cea06b1fab12ffe9fd4895c6c20ee17584e62615df"
+    }
+  ]
+}

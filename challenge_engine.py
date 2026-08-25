@@ -30,6 +30,12 @@ from betting_math import (
 
 
 TARGET_BALANCE = 15_000.0
+# One provenance token for every persisted 15K model artifact, ticket and
+# bookmaker observation.  Changing release mathematics requires a new token so
+# stale artifacts cannot silently satisfy the current contract.
+CHALLENGE_MODEL_CONTRACT_SIGNATURE = (
+    "challenge-engine:hac-fdr-executable-frechet-v11"
+)
 TARGET_ODDS_MIN = 2.0
 TARGET_ODDS_MAX = 3.0
 MAX_TICKET_LEGS = 3
@@ -130,8 +136,7 @@ class ValidationMetrics:
     paired_loss_p_value: Optional[float] = None
     fdr_q_value: Optional[float] = None
     tested_hypotheses: int = 0
-    # Separate normal-Wettfinder release evidence. ``passed`` intentionally
-    # retains the shared challenge/15K validation contract.
+    # Paired-loss/HAC/FDR evidence required for every Echtgeld release path.
     statistical_release_passed: bool = False
 
 
@@ -1714,12 +1719,7 @@ def _credible_validation(metric: Optional[ValidationMetrics]) -> bool:
 def _credible_statistical_release_validation(
     metric: Optional[ValidationMetrics],
 ) -> bool:
-    """Fail-closed paired/FDR proof for normal Wettfinder release only.
-
-    The challenge/15K flow intentionally keeps ``_credible_validation`` as its
-    existing shared contract. Normal Wettfinder Echtgeld release additionally
-    requires explicit uncertainty fields produced by the current artifact.
-    """
+    """Fail-closed paired-loss/HAC/FDR proof for Echtgeld release."""
 
     if not _credible_validation(metric) or metric is None:
         return False
@@ -3298,6 +3298,7 @@ def candidate_is_credible(candidate: ChallengeCandidate) -> bool:
     """Validate the strict release/tip contract again at selection time."""
     return (
         candidate_is_forecast_credible(candidate)
+        and _credible_statistical_release_validation(candidate.validation)
         and candidate.model_scope == MODEL_SCOPE_SAME_COMPETITION
         and isinstance(candidate.context, dict)
         and candidate.context.get("passed") is True
@@ -3309,12 +3310,7 @@ def candidate_is_credible(candidate: ChallengeCandidate) -> bool:
 def candidate_is_wettfinder_release_credible(
     candidate: ChallengeCandidate,
 ) -> bool:
-    """Apply paired-loss/FDR evidence only to normal Wettfinder release.
-
-    Forecast visibility and the explicitly excluded challenge/15K rules remain
-    unchanged. This extra contract is used by the normal catalog only when its
-    caller asks for a strict, price-checkable release candidate.
-    """
+    """Retain the explicit normal-release API over the shared strict gate."""
 
     return bool(
         candidate_is_credible(candidate)
@@ -3372,6 +3368,27 @@ def dependence_floor_probability(
     )
 
 
+def ticket_stress_probability(ticket: QuotedTicket) -> float:
+    """Return the release/stake probability under the dependence stress rule.
+
+    A single leg has no cross-leg dependence uncertainty and therefore keeps
+    its existing joint probability.  Multi-leg tickets use the Fréchet lower
+    bound that is persisted with the ticket.
+    """
+
+    if not isinstance(ticket, QuotedTicket) or not ticket.legs:
+        raise ValueError("A quoted ticket with at least one leg is required")
+    raw_probability = (
+        ticket.dependence_floor_probability
+        if len(ticket.legs) > 1
+        else ticket.joint_probability
+    )
+    probability = _finite_nonnegative(raw_probability)
+    if probability is None or probability > 1.0:
+        raise ValueError("Ticket stress probability must be between zero and one")
+    return probability
+
+
 def select_model_ticket(
     candidates: Iterable[ChallengeCandidate],
     odds_min: float = TARGET_ODDS_MIN,
@@ -3406,8 +3423,13 @@ def select_model_ticket(
                 math.prod(leg.conservative_probability for leg in legs)
                 * dependency_factor
             )
+            stress_probability = (
+                dependence_floor_probability(legs)
+                if len(legs) > 1
+                else joint
+            )
             minimum_total = minimum_acceptable_odds(
-                joint * 100.0,
+                stress_probability * 100.0,
                 minimum_expected_roi_percent=MIN_LEG_EXPECTED_ROI * 100.0,
             )
             if (
@@ -3547,6 +3569,14 @@ def select_quoted_ticket(
             and not quote_low <= odds <= quote_high
         ):
             raise ValueError("ticket odds must lie inside the quoted market range")
+        # For multi-bookmaker tickets ``quote_low`` is persisted as the actual
+        # executable reference price. The synthetic lower quartile remains a
+        # consensus gate only and must never become a ticket leg price.
+        reference_odds = (
+            odds
+            if quote_low is not None and quote_high is not None
+            else quote_low
+        )
         priced.append(
             (
                 candidate,
@@ -3557,7 +3587,7 @@ def select_quoted_ticket(
                 quoted_at,
                 fetched_at,
                 bookmaker_count,
-                quote_low,
+                reference_odds,
                 quote_high,
             )
         )
@@ -3581,8 +3611,16 @@ def select_quoted_ticket(
             expected_roi = joint_probability * total_odds - 1.0
             if expected_roi < minimum_ticket_roi:
                 continue
+            stress_probability = (
+                dependence_floor_probability(candidates_in_ticket)
+                if len(candidates_in_ticket) > 1
+                else joint_probability
+            )
+            stress_expected_roi = stress_probability * total_odds - 1.0
+            if stress_expected_roi < minimum_ticket_roi:
+                continue
             metrics = evaluate_market_price(
-                joint_probability * 100.0,
+                stress_probability * 100.0,
                 total_odds,
                 probability_haircut=0.0,
                 kelly_fraction=0.25,
@@ -3645,16 +3683,22 @@ def ticket_stake(
     available_balance: float,
     challenge_fraction: float = DEFAULT_CHALLENGE_STAKE_FRACTION,
 ) -> float:
-    """Return the configured challenge stake, rounded down to whole cents.
+    """Return the risk-managed, log-positive stake recommendation.
 
-    ``ticket.stake_fraction`` remains the conservative quarter-Kelly reference.
-    The challenge fraction is a separate, explicit risk decision because a
-    roll-over challenge cannot mathematically operate under a hidden 2% cap.
+    The configured challenge fraction is an upper exposure limit, never an
+    instruction to use more than quarter-Kelly or the 5% single-ticket cap.
     """
-    kelly_fraction = _finite_nonnegative(ticket.stake_fraction)
-    if kelly_fraction is None or kelly_fraction > 1.0:
-        raise ValueError("Ticket stake fraction must be finite and non-negative")
-    return challenge_stake_cap(available_balance, challenge_fraction)
+    balance = _finite_nonnegative(available_balance)
+    if balance is None:
+        raise ValueError("Available balance must be finite and non-negative")
+    configured_cap = challenge_stake_cap(balance, challenge_fraction)
+    risk_cap = risk_managed_ticket_stake(ticket, balance)
+    stake = min(configured_cap, risk_cap)
+    if balance <= 0.0 or stake <= 0.0:
+        return 0.0
+    if not ticket_stake_passes_log_growth_gate(ticket, stake / balance):
+        return 0.0
+    return stake
 
 
 def challenge_stake_cap(
@@ -3675,14 +3719,33 @@ def challenge_stake_cap(
     )
 
 
+def _ticket_kelly_fraction_for_price(
+    ticket: QuotedTicket,
+    decimal_odds: float,
+) -> float:
+    """Recalculate quarter-Kelly from the stressed probability and price."""
+
+    probability = ticket_stress_probability(ticket)
+    try:
+        metrics = evaluate_market_price(
+            probability * 100.0,
+            decimal_odds,
+            probability_haircut=0.0,
+            kelly_fraction=0.25,
+            kelly_cap=KELLY_REFERENCE_CAP,
+        )
+    except BettingMathError as exc:
+        raise ValueError("Ticket probability and odds are invalid") from exc
+    return metrics.kelly_fraction
+
+
 def kelly_reference_stake(ticket: QuotedTicket, available_balance: float) -> float:
-    """Return quarter-Kelly as a comparison value, never as the challenge cap."""
+    """Return stressed quarter-Kelly as a comparison value."""
+
     balance = _finite_nonnegative(available_balance)
     if balance is None:
         raise ValueError("Available balance must be finite and non-negative")
-    fraction = _finite_nonnegative(ticket.stake_fraction)
-    if fraction is None or fraction > KELLY_REFERENCE_CAP:
-        raise ValueError("Ticket Kelly fraction is invalid")
+    fraction = _ticket_kelly_fraction_for_price(ticket, ticket.total_odds)
     return float(
         Decimal(str(balance * fraction)).quantize(
             Decimal("0.01"),
@@ -3694,14 +3757,16 @@ def kelly_reference_stake(ticket: QuotedTicket, available_balance: float) -> flo
 def risk_managed_ticket_stake(
     ticket: QuotedTicket,
     available_balance: float,
+    *,
+    decimal_odds: Optional[float] = None,
 ) -> float:
-    """Return quarter-Kelly with an additional 5% single-ticket hard cap."""
+    """Return price-current stressed quarter-Kelly with a 5% hard cap."""
+
     balance = _finite_nonnegative(available_balance)
     if balance is None:
         raise ValueError("Available balance must be finite and non-negative")
-    fraction = _finite_nonnegative(ticket.stake_fraction)
-    if fraction is None or fraction > KELLY_REFERENCE_CAP:
-        raise ValueError("Ticket Kelly fraction is invalid")
+    price = ticket.total_odds if decimal_odds is None else decimal_odds
+    fraction = _ticket_kelly_fraction_for_price(ticket, price)
     fraction = min(fraction, MAX_RISK_MANAGED_STAKE_FRACTION)
     return float(
         Decimal(str(balance * fraction)).quantize(
@@ -3716,21 +3781,63 @@ def expected_log_growth(
     stake_fraction: float,
 ) -> float:
     """Expected log-bankroll growth for one repeated ticket policy."""
+    return expected_log_growth_for_price(
+        ticket_stress_probability(ticket),
+        ticket.total_odds,
+        stake_fraction,
+    )
+
+
+def expected_log_growth_for_price(
+    probability: float,
+    decimal_odds: float,
+    stake_fraction: float,
+) -> float:
+    """Expected log growth for an explicitly supplied probability and price."""
     fraction = _finite_nonnegative(stake_fraction)
     if fraction is None or fraction >= 1.0:
         raise ValueError("Stake fraction must be finite and below 100%")
-    probability = _finite_nonnegative(ticket.joint_probability)
-    odds = _finite_nonnegative(ticket.total_odds)
-    if probability is None or probability > 1.0 or odds is None or odds <= 1.0:
+    chance = _finite_nonnegative(probability)
+    try:
+        odds = validate_decimal_odds(decimal_odds)
+    except BettingMathError as exc:
+        raise ValueError("Ticket probability and odds are invalid") from exc
+    if chance is None or chance > 1.0:
         raise ValueError("Ticket probability and odds are invalid")
     if fraction == 0.0:
         return 0.0
     win_multiplier = 1.0 + fraction * (odds - 1.0)
     loss_multiplier = 1.0 - fraction
     return (
-        probability * math.log(win_multiplier)
-        + (1.0 - probability) * math.log(loss_multiplier)
+        chance * math.log(win_multiplier)
+        + (1.0 - chance) * math.log(loss_multiplier)
     )
+
+
+def ticket_stake_passes_log_growth_gate(
+    ticket: QuotedTicket,
+    stake_fraction: float,
+    *,
+    decimal_odds: Optional[float] = None,
+) -> bool:
+    """Return whether a proposed bankroll fraction has positive log growth.
+
+    This small, side-effect-free predicate is suitable for both UI and
+    persistence/service boundaries. Invalid or zero fractions fail closed.
+    """
+    try:
+        growth = (
+            expected_log_growth(ticket, stake_fraction)
+            if decimal_odds is None
+            else expected_log_growth_for_price(
+                ticket_stress_probability(ticket),
+                decimal_odds,
+                stake_fraction,
+            )
+        )
+        return growth > 1e-12
+    except (TypeError, ValueError, OverflowError):
+        return False
 
 
 def consecutive_wins_to_target(
@@ -3765,6 +3872,7 @@ def consecutive_wins_to_target(
 
 
 __all__ = [
+    "CHALLENGE_MODEL_CONTRACT_SIGNATURE",
     "ChallengeCandidate",
     "CROSS_LEG_MODEL_FACTOR",
     "DEFAULT_CHALLENGE_STAKE_FRACTION",
@@ -3800,6 +3908,7 @@ __all__ = [
     "consecutive_wins_to_target",
     "dependence_floor_probability",
     "expected_log_growth",
+    "expected_log_growth_for_price",
     "fixture_market_probabilities",
     "market_outcome",
     "market_is_basic_forecast",
@@ -3814,6 +3923,8 @@ __all__ = [
     "select_basis_forecasts",
     "select_wettfinder_catalog",
     "ticket_stake",
+    "ticket_stake_passes_log_growth_gate",
+    "ticket_stress_probability",
     "ticket_dependency_factor",
     "validate_league_markets",
 ]

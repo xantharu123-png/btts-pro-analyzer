@@ -14,6 +14,7 @@ import sqlite3
 from typing import Any, Iterable, Optional
 
 from betting_math import BettingMathError, validate_decimal_odds
+from challenge_engine import CHALLENGE_MODEL_CONTRACT_SIGNATURE
 
 
 BOOKMAKER = "N1Bet"
@@ -86,7 +87,8 @@ class PriceObservation:
     record_hash: str
 
 
-_SCHEMA = """
+PRICE_LEDGER_SCHEMA_STATEMENTS = (
+    """
 CREATE TABLE IF NOT EXISTS price_observations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     recorded_at TEXT NOT NULL,
@@ -110,23 +112,27 @@ CREATE TABLE IF NOT EXISTS price_observations (
     previous_hash TEXT NOT NULL,
     record_hash TEXT NOT NULL UNIQUE,
     FOREIGN KEY (supersedes_id) REFERENCES price_observations(id)
-);
-
+)
+""",
+    """
 CREATE INDEX IF NOT EXISTS idx_price_observation_event
 ON price_observations(sport, event_id, market_key, selection_key, id);
-
+""",
+    """
 CREATE TRIGGER IF NOT EXISTS price_observations_no_update
 BEFORE UPDATE ON price_observations
 BEGIN
     SELECT RAISE(ABORT, 'price observations are append-only');
 END;
-
+""",
+    """
 CREATE TRIGGER IF NOT EXISTS price_observations_no_delete
 BEFORE DELETE ON price_observations
 BEGIN
     SELECT RAISE(ABORT, 'price observations are append-only');
 END;
-"""
+""",
+)
 
 
 def _utc_datetime(value: datetime | str | float | int, field: str) -> datetime:
@@ -230,6 +236,7 @@ class PriceLedger:
 
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
+        self._append_receipts: dict[int, dict[str, Any]] = {}
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -242,7 +249,9 @@ class PriceLedger:
     def _initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
-            connection.executescript(_SCHEMA)
+            for statement in PRICE_LEDGER_SCHEMA_STATEMENTS:
+                connection.execute(statement)
+            connection.commit()
 
     @staticmethod
     def _verify_rows(connection: sqlite3.Connection) -> tuple[bool, Optional[int]]:
@@ -257,6 +266,22 @@ class PriceLedger:
                 return False, int(row["id"])
             expected_previous = row["record_hash"]
         return True, None
+
+    @staticmethod
+    def _row_receipt(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            **_row_payload(row),
+            "record_hash": row["record_hash"],
+        }
+
+    def append_receipt(self, observation_id: int) -> dict[str, Any]:
+        receipt = self._append_receipts.get(observation_id)
+        if receipt is None:
+            raise PriceLedgerError(
+                "price observation was not appended by this ledger invocation"
+            )
+        return dict(receipt)
 
     def verify_chain(self) -> tuple[bool, Optional[int]]:
         with closing(self._connect()) as connection:
@@ -331,6 +356,14 @@ class PriceLedger:
             if quote.model_ref is not None
             else None
         )
+        if (
+            model_ref is not None
+            and model_ref.startswith("challenge-engine")
+            and model_ref != CHALLENGE_MODEL_CONTRACT_SIGNATURE
+        ):
+            raise PriceLedgerError(
+                "challenge price observation uses a stale model contract"
+            )
         return {
             "recorded_at": recorded_at.isoformat(),
             "captured_at": captured.isoformat(),
@@ -366,14 +399,16 @@ class PriceLedger:
         quote: PriceQuote,
         *,
         now: Optional[datetime] = None,
+        connection: sqlite3.Connection | None = None,
     ) -> PriceObservation:
-        return self.append_many((quote,), now=now)[0]
+        return self.append_many((quote,), now=now, connection=connection)[0]
 
     def append_many(
         self,
         quotes: Iterable[PriceQuote],
         *,
         now: Optional[datetime] = None,
+        connection: sqlite3.Connection | None = None,
     ) -> list[PriceObservation]:
         recorded_at = (
             _utc_datetime(now, "now")
@@ -386,114 +421,137 @@ class PriceLedger:
         ]
         if not items:
             return []
+        if connection is not None:
+            if not connection.in_transaction or connection.row_factory is not sqlite3.Row:
+                raise PriceLedgerError(
+                    "external price append requires an active row-mapped transaction"
+                )
+            return self._append_validated_many(connection, items)
+
+        with closing(self._connect()) as owned_connection:
+            try:
+                owned_connection.execute("BEGIN IMMEDIATE")
+                observations = self._append_validated_many(owned_connection, items)
+                owned_connection.commit()
+                return observations
+            except Exception:
+                owned_connection.rollback()
+                raise
+
+    def _append_validated_many(
+        self,
+        connection: sqlite3.Connection,
+        items: list[dict[str, Any]],
+    ) -> list[PriceObservation]:
+        """Append validated rows without owning the surrounding transaction."""
+
         observations: list[PriceObservation] = []
-        with closing(self._connect()) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            valid, bad_id = self._verify_rows(connection)
-            if not valid:
-                connection.rollback()
-                raise PriceLedgerIntegrityError(
-                    f"price hash chain is invalid at observation {bad_id}"
+        valid, bad_id = self._verify_rows(connection)
+        if not valid:
+            raise PriceLedgerIntegrityError(
+                f"price hash chain is invalid at observation {bad_id}"
+            )
+        previous_row = connection.execute(
+            "SELECT record_hash FROM price_observations ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        previous_hash = previous_row["record_hash"] if previous_row else ZERO_HASH
+        for item in items:
+            if item["supersedes_id"] is not None:
+                superseded = connection.execute(
+                    "SELECT * FROM price_observations WHERE id=?",
+                    (item["supersedes_id"],),
+                ).fetchone()
+                identity = (
+                    "sport",
+                    "event_id",
+                    "market_key",
+                    "selection_key",
                 )
-            previous_row = connection.execute(
-                "SELECT record_hash FROM price_observations ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            previous_hash = previous_row["record_hash"] if previous_row else ZERO_HASH
-            for item in items:
-                if item["supersedes_id"] is not None:
-                    superseded = connection.execute(
-                        "SELECT * FROM price_observations WHERE id=?",
-                        (item["supersedes_id"],),
-                    ).fetchone()
-                    identity = (
-                        "sport",
-                        "event_id",
-                        "market_key",
-                        "selection_key",
+                if superseded is None or any(
+                    superseded[field] != item[field] for field in identity
+                ):
+                    raise PriceLedgerError(
+                        "a correction must supersede the same event and selection"
                     )
-                    if superseded is None or any(
-                        superseded[field] != item[field] for field in identity
-                    ):
-                        connection.rollback()
-                        raise PriceLedgerError(
-                            "a correction must supersede the same event and selection"
-                        )
-                payload = {
-                    key: value
-                    for key, value in item.items()
-                    if key != "metadata"
-                }
-                payload["previous_hash"] = previous_hash
-                digest = _record_hash(payload)
-                cursor = connection.execute(
-                    """
-                    INSERT INTO price_observations (
-                        recorded_at, captured_at, bookmaker, sport, event_id,
-                        event_name, scheduled_start, market_key, market_name,
-                        selection_key, selection_name, line_micros, odds_micros,
-                        phase, source, model_ref, supersedes_id, metadata_json,
-                        previous_hash, record_hash
-                    ) VALUES (
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?
-                    )
-                    """,
-                    (
-                        item["recorded_at"],
-                        item["captured_at"],
-                        item["bookmaker"],
-                        item["sport"],
-                        item["event_id"],
-                        item["event_name"],
-                        item["scheduled_start"],
-                        item["market_key"],
-                        item["market_name"],
-                        item["selection_key"],
-                        item["selection_name"],
-                        item["line_micros"],
-                        item["odds_micros"],
-                        item["phase"],
-                        item["source"],
-                        item["model_ref"],
-                        item["supersedes_id"],
-                        item["metadata_json"],
-                        previous_hash,
-                        digest,
+            payload = {
+                key: value
+                for key, value in item.items()
+                if key != "metadata"
+            }
+            payload["previous_hash"] = previous_hash
+            digest = _record_hash(payload)
+            cursor = connection.execute(
+                """
+                INSERT INTO price_observations (
+                    recorded_at, captured_at, bookmaker, sport, event_id,
+                    event_name, scheduled_start, market_key, market_name,
+                    selection_key, selection_name, line_micros, odds_micros,
+                    phase, source, model_ref, supersedes_id, metadata_json,
+                    previous_hash, record_hash
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?
+                )
+                """,
+                (
+                    item["recorded_at"],
+                    item["captured_at"],
+                    item["bookmaker"],
+                    item["sport"],
+                    item["event_id"],
+                    item["event_name"],
+                    item["scheduled_start"],
+                    item["market_key"],
+                    item["market_name"],
+                    item["selection_key"],
+                    item["selection_name"],
+                    item["line_micros"],
+                    item["odds_micros"],
+                    item["phase"],
+                    item["source"],
+                    item["model_ref"],
+                    item["supersedes_id"],
+                    item["metadata_json"],
+                    previous_hash,
+                    digest,
+                ),
+            )
+            observation_id = int(cursor.lastrowid)
+            self._append_receipts[observation_id] = {
+                "id": observation_id,
+                **payload,
+                "record_hash": digest,
+            }
+            observations.append(
+                PriceObservation(
+                    id=observation_id,
+                    recorded_at=item["recorded_at"],
+                    captured_at=item["captured_at"],
+                    bookmaker=item["bookmaker"],
+                    sport=item["sport"],
+                    event_id=item["event_id"],
+                    event_name=item["event_name"],
+                    scheduled_start=item["scheduled_start"],
+                    market_key=item["market_key"],
+                    market_name=item["market_name"],
+                    selection_key=item["selection_key"],
+                    selection_name=item["selection_name"],
+                    decimal_odds=float(Decimal(item["odds_micros"]) / ODDS_SCALE),
+                    phase=item["phase"],
+                    source=item["source"],
+                    line=(
+                        float(Decimal(item["line_micros"]) / LINE_SCALE)
+                        if item["line_micros"] is not None
+                        else None
                     ),
+                    model_ref=item["model_ref"],
+                    supersedes_id=item["supersedes_id"],
+                    metadata=item["metadata"],
+                    previous_hash=previous_hash,
+                    record_hash=digest,
                 )
-                observations.append(
-                    PriceObservation(
-                        id=int(cursor.lastrowid),
-                        recorded_at=item["recorded_at"],
-                        captured_at=item["captured_at"],
-                        bookmaker=item["bookmaker"],
-                        sport=item["sport"],
-                        event_id=item["event_id"],
-                        event_name=item["event_name"],
-                        scheduled_start=item["scheduled_start"],
-                        market_key=item["market_key"],
-                        market_name=item["market_name"],
-                        selection_key=item["selection_key"],
-                        selection_name=item["selection_name"],
-                        decimal_odds=float(
-                            Decimal(item["odds_micros"]) / ODDS_SCALE
-                        ),
-                        phase=item["phase"],
-                        source=item["source"],
-                        line=(
-                            float(Decimal(item["line_micros"]) / LINE_SCALE)
-                            if item["line_micros"] is not None
-                            else None
-                        ),
-                        model_ref=item["model_ref"],
-                        supersedes_id=item["supersedes_id"],
-                        metadata=item["metadata"],
-                        previous_hash=previous_hash,
-                        record_hash=digest,
-                    )
-                )
-                previous_hash = digest
-            connection.commit()
+            )
+            previous_hash = digest
         return observations
 
     @staticmethod
@@ -534,6 +592,11 @@ class PriceLedger:
         ):
             raise PriceLedgerError("observation_id must be a positive integer")
         with closing(self._connect()) as connection:
+            valid, bad_id = self._verify_rows(connection)
+            if not valid:
+                raise PriceLedgerIntegrityError(
+                    f"price hash chain is invalid at observation {bad_id}"
+                )
             row = connection.execute(
                 "SELECT * FROM price_observations WHERE id=?",
                 (observation_id,),
@@ -544,6 +607,11 @@ class PriceLedger:
 
     def for_event(self, sport: str, event_id: str) -> list[PriceObservation]:
         with closing(self._connect()) as connection:
+            valid, bad_id = self._verify_rows(connection)
+            if not valid:
+                raise PriceLedgerIntegrityError(
+                    f"price hash chain is invalid at observation {bad_id}"
+                )
             rows = connection.execute(
                 """
                 SELECT * FROM price_observations

@@ -224,7 +224,7 @@ weder richtig noch falsch.
 
 ### 3.8 Statistischer Freigabevertrag
 
-Für die normale Wettfinder-Freigabe genügt ein bloßer mittlerer
+Für eine Echtgeld-Freigabe genügt ein bloßer mittlerer
 Walk-forward-Vorteil nicht. Modell und zeitgleicher Basiswert werden je Spiel
 über die Brier-Verlustdifferenz gepaart. Die Unsicherheit wird mit einem
 Newey-West-/HAC-Standardfehler gegen zeitliche Abhängigkeit geschützt. Der
@@ -232,16 +232,26 @@ einseitige untere Konfidenzrand muss positiv sein, der einseitige p-Wert muss
 bestehen und die Benjamini-Hochberg-Korrektur kontrolliert die False Discovery
 Rate gleichzeitig über alle 90 konfigurierten Marktspezifikationen.
 
-Dieser zusätzliche Nachweis gehört ausschließlich zur normalen
-Wettfinder-Freigabe. Die bestehenden Wett-, Einsatz- und Release-Regeln der
-15K Challenge bleiben unverändert.
+Dieser zusätzliche Nachweis gilt sowohl für normale Tipps als auch für die
+15K Challenge. Eine fehlende oder zu niedrige Quote entfernt weiterhin keine
+Modellprognose; sie verhindert ausschließlich die Echtgeld- beziehungsweise
+Ticketfreigabe.
 
-Der persistierte Vertrag trägt Automationsartefakt v14 und
-Auswahl-/Katalogpolicy v12; die zugehörigen Signifikanzfelder liegen
+Der persistierte Vertrag trägt Automationsartefakt v16 und
+Auswahl-/Katalogpolicy v13; die zugehörigen Signifikanzfelder liegen
 versionsgebunden im Modellcache-Schema v2. Alte Artefakte oder Cachefelder
 dürfen diesen aktuellen Freigabevertrag nicht still umgehen.
 
-Technischer Nachweis des v14/v12-Funktionsvertrags: Commit
+Der normale Consumer-Bereich bleibt auf höchstens drei freigegebene Tipps
+begrenzt. Für 15K enthält dasselbe Artefakt zusätzlich den vollständigen,
+auf höchstens 15 Fußballmärkte begrenzten Pool
+`challenge_release_candidates`. Jede Zeile muss dieselbe exakte
+`RELEASED`-, Kontext-, HAC/FDR-, Markt- und Ausführungsbindung erfüllen und
+darf nicht aus der normalen Top-3-Liste rekonstruiert werden. Ein erfolgreich
+abgeschlossener Lauf ohne Prognose ist ein gültiger Snapshot mit null
+Prognosen und null Tipps, kein weiterlaufender oder fehlender Lauf.
+
+Historischer technischer Nachweis des v14/v12-Funktionsvertrags: Commit
 `aa62cbb7187e32f2de28c8135b76b67984bdd415`, 920 Python-Tests plus 50
 Subtests und 3/3 JavaScript-Tests; Python-Kompilierung und Diff-Prüfung grün.
 
@@ -303,9 +313,20 @@ Die Challenge ist ein separater Workflow mit eigenem Kontobuch:
 - kein Martingale und keine automatische Verdopplung nach Verlusten;
 - Gewinn, Verlust und Void werden persistent verbucht;
 - historische Wetten können gekennzeichnet nachgetragen werden.
+- Geldbewegungen und Settlement-Ereignisse sind mit einem externen
+  root-verwalteten HMAC-Key verkettet; ein Checkpoint v2 authentisiert zusätzlich
+  das vollständige Schema samt internen SQLite-Objekten und Sequenzen,
+  SQLite-Typen, Risiko-/Zielregeln, Ticketzustand sowie die exakten Geld-,
+  Settlement- und Preisbeobachtungshistorien.
+- Jede Abrechnung wird gegen Auszahlung, Kontobewegungen und sichtbaren
+  Ticketstatus vollständig nachgespielt. Manipulierte oder abgeschnittene
+  Historien werden nicht automatisch repariert oder neu signiert.
 
 Die 15K-Auswahl ist derzeit fachlich auf Fußball beschränkt. Ein Sportfilter
-darf keine versteckten Ersatz-Tipps aus anderen Sportarten erzeugen.
+darf keine versteckten Ersatz-Tipps aus anderen Sportarten erzeugen. Deshalb
+zeigt die Seite nur Fußball statt eines funktionslosen Sechs-Sport-Filters.
+Der planmäßige Alle-Ligen-Lauf aktualisiert das Ergebnis alle 30 Minuten; die
+15K-Seite übernimmt es beim Öffnen ohne manuellen Suchklick.
 
 Die Trennung vom normalen Wettfinder verändert keine 15K-Wett-, Einsatz-,
 Ticket- oder Release-Regel. Der normale Marktpool darf breiter sein, ohne den
@@ -347,16 +368,20 @@ Für exakt abbildbare Fußballmärkte verwendet BetBoy den API-Football-
 Mehrbuchmacherfeed als konservativen Marktvergleich:
 
 - mindestens drei verschiedene, case-insensitiv deduplizierte Anbieter;
-- unteres Quartil als Rechenpreis;
+- unteres Quartil als konservative Freigabeschwelle;
+- tatsächlich beobachtetes Anbieterangebot direkt oberhalb dieser Schwelle als
+  ausführbarer Rechenpreis;
 - Minimum, Median und Bestpreis nur zur Transparenz;
-- Abruf höchstens 90 Minuten alt;
-- Providerbeobachtung höchstens 24 Stunden alt;
+- Abruf höchstens 35 Minuten alt;
+- jede beitragende Providerbeobachtung höchstens 45 Minuten alt;
 - exakte Markt-, Team- und Linienzuordnung;
 - kein synthetischer oder geschätzter Buchmacherpreis.
 
-Das untere Quartil reduziert den Einfluss einzelner Ausreißer. Es garantiert
-nicht, dass N1Bet exakt denselben Preis anbietet. Der tatsächlich spielbare
-Preis bleibt für eine reale Entscheidung maßgeblich.
+Das untere Quartil reduziert den Einfluss einzelner Ausreißer, ist selbst aber
+meist kein angebotenes Preisniveau. Ticketrechnung und Persistenz verwenden
+deshalb ausschließlich das konkret beobachtete Anbieterangebot, das der
+Quartilsschwelle am nächsten liegt und sie erreicht. Ob N1Bet denselben Preis
+anbietet, muss weiterhin vor dem Spielen geprüft werden.
 
 Die Browsererweiterung unter `browser_extension/n1bet_importer` ist nur noch
 Rollback-Historie. Sie gehört nicht zum aktiven Nutzerfluss und wird nicht für
@@ -386,6 +411,16 @@ Wichtige Implementierungspolicies:
 - Der risikoadjustierte Ziel-ROI beträgt mindestens 3 Prozent.
 - Mindestens drei Kalibrierungsbins und ausreichende Bin-Größen sind nötig.
 - Kalibrierung und Validierung müssen zeitlich kausal sein.
+- Jeder Echtgeldpfad einschließlich 15K verlangt zusätzlich positiven
+  gepaarten HAC-Konfidenzrand und bestandene BH-FDR-Freigabe über alle 90
+  konfigurierten Markthypothesen.
+- Die Einsatzempfehlung ist das Minimum aus gewählter Expositionsgrenze,
+  Viertel-Kelly und hartem 5-%-Cap und muss positives erwartetes Log-Wachstum
+  besitzen.
+- Mehrbeinige Tickets müssen zusätzlich an der annahmenfreien
+  Fréchet-Untergrenze mindestens den Ziel-ROI erreichen. Einsatz und
+  Log-Wachstum werden mit dieser Stresschance und der tatsächlich gespielten
+  Quote erneut geprüft.
 - Der Kombi-Abschlag `0,97` je weiterem Leg und `0,985` je Paar derselben Liga
   ist eine konservative Policy, kein bewiesenes Korrelationsmodell.
 
@@ -513,6 +548,12 @@ Die wichtigsten Umbauten des Projekts:
   transparent gemacht.
 - Multisport-Scanner bei fehlendem validierten Modell fail-closed gestellt.
 - 15K-Konto persistent, abrechenbar und transaktional gemacht.
+- 15K-Kontobuch mit externer HMAC-Kette, authentisiertem Gesamtzustand und
+  vollständigem Settlement-Replay gegen Roh-SQL-Rollback gehärtet.
+- Einmalige v0-Migration auf fünf exakt inventarisierte Produktions-DDLs
+  begrenzt; Public-SHA v1 und unvollständiges HMAC v2 werden abgelehnt.
+- App- und Writer-Start über den root-eigenen Migrationsmarker gesperrt, bis die
+  Offline-Migration vollständig und verifiziert abgeschlossen ist.
 - 15K-Standard von 25 auf 5 Prozent korrigiert und 68 bestehende Konten auf
   Policy v2 migriert.
 - Cent-Floor, Quoten-Konstanten und Buchmacher-Dedup vereinheitlicht.

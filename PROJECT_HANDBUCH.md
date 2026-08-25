@@ -20,14 +20,14 @@
 | Verifizierter Team-Unter-1,5-Korrekturcommit | `08778fdc29a7275c21fc23671d4763290273c435` (`Restore team under 1.5 eligibility`), am 24. August kontrolliert gepusht, deployed, mit echtem Automatiklauf und in der Produktions-UI geprüft |
 | Verifizierter v14/v12-Funktionscommit | `e341db828121cba7ad5a9d4ed2f6304b146a3591` (`Refine normal Wettfinder featured markets`); 922 Python-Tests plus 50 Subtests und 3/3 JavaScript-Tests grün, Python-Kompilierung und Diff-Prüfung grün; am 24. August revisionsgebunden deployed und live geprüft |
 | Fachlicher Kernstand | Der normale Consumer-Wettfinder besitzt einen eigenen vollständigen Marktpool und übernimmt weder den 15K-Wahrscheinlichkeitskorridor noch dessen Ticketvorfilter. Marktname und hohe Modellwahrscheinlichkeit sind keine Ausschlussgründe. Nutzwert und Vielfalt steuern nur die Hervorhebung; zusätzliche Märkte bleiben gruppiert sichtbar. Modellprognose, Kontextverfügbarkeit, Marktpreis und strikte Tipp-/Einsatzfreigabe sind getrennte Zustände. |
-| Aktueller Writer-/Reader-Vertrag | Automationsartefakt v14, Auswahl-/Katalogpolicy v12 und Modellcache-Schema v2. Ein normaler `PLAYABLE`-Tipp verlangt exakte Event-/Auswahlbindung, mindestens drei stabile provider-native Buchmacher-IDs, Zeitstempel je Preisbeobachtung und ein reales ausführbares Buchmacherangebot. |
+| Aktueller Writer-/Reader-Vertrag | Automationsartefakt v16, Auswahl-/Katalogpolicy v13 und Modellcache-Schema v2. Der normale Consumer-Pool bleibt auf drei Tipps begrenzt; das getrennte, schema-validierte Feld `challenge_release_candidates` enthält bis zu 15 strikt freigegebene Fußballmärkte für die 15K-Ticketwahl. Jede Freigabe verlangt exakte Event-/Auswahlbindung, HAC/FDR- und Kontextvertrag, mindestens drei stabile provider-native Buchmacher-IDs, Zeitstempel je Preisbeobachtung und ein reales ausführbares Buchmacherangebot. |
 | Verifizierter VPS-Funktionsstand | Funktionscommit `e341db828121cba7ad5a9d4ed2f6304b146a3591`; App aktiv, interner und öffentlicher Health `ok`, alle 7 BetBoy-Timer aktiv/enabled, Artefakt v14 / Auswahlpolicy v12, letzter Wettfinder-Lauf `success / 0`, 0 fehlgeschlagene systemd-Units am 24. August |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | Aktueller v14/v12-Stand: 922 Python-Tests, 50 Subtests und 3/3 JavaScript-Tests am 24. August bestanden; Python-Kompilierung und Diff-Prüfung ebenfalls grün. Die weiter unten genannten 886/38 gehören zum historischen v13-Produktionsnachweis. |
+| Vollständiger Testlauf | Letzter vollständig verifizierter v14/v12-Stand: 922 Python-Tests, 50 Subtests und 3/3 JavaScript-Tests am 24. August bestanden; Python-Kompilierung und Diff-Prüfung ebenfalls grün. Die weiter unten genannten 886/38 gehören zum historischen v13-Produktionsnachweis. Der v16/v13-Gesamtlauf ist vor Freigabe neu zu protokollieren. |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 | Produkt- und Entscheidungsgrundlage | `PROJEKTBIBEL.md` |
 | PC-Wechsel-Runbook | `PC_WECHSEL_UEBERGABE.md` |
@@ -39,10 +39,10 @@ Produkt-, Mathematik-, UX- und Marketingleitplanke steht in
 Schlüssel, Passwörter oder Tokens. Ältere Berichte sind nur Historie, wenn sie
 diesem Handbuch oder dem aktuellen Code widersprechen.
 
-### Aktuelles Härtungspaket: normaler Wettfinder v14/v12
+### Aktueller Checkout-Vertrag: Wettfinder und 15K v16/v13
 
-Dieser Abschnitt ist der verbindliche aktuelle Vertrag für den normalen
-Wettfinder. Die nachfolgenden datierten Abschnitte dokumentieren frühere
+Dieser Abschnitt ist der verbindliche aktuelle Vertrag für Wettfinder und
+15K-Consumer. Die nachfolgenden datierten Abschnitte dokumentieren frühere
 Produktionsstände und dürfen diesen Vertrag nicht überschreiben.
 
 #### Eigener Marktpool statt 15K-Vorfilter
@@ -101,11 +101,18 @@ einseitige untere Konfidenzrand positiv und der einseitige p-Wert ausreichend
 klein sein. Anschließend wird Benjamini-Hochberg über alle 90 konfigurierten
 Marktspezifikationen angewendet; nur eine bestandene FDR-Korrektur genügt.
 
-Die neuen Felder werden im Modellcache-Schema v2 und im
-Automationsartefakt v14 mit Auswahl-/Katalogpolicy v12 versionsgebunden
-geführt. Diese zusätzliche Signifikanzschicht gilt nur für die normale
-Wettfinder-Freigabe. Wett-, Einsatz-, Ticket- und Release-Regeln der 15K
-Challenge bleiben unverändert.
+Die Signifikanzfelder werden im Modellcache-Schema v2 und im
+Automationsartefakt v16 mit Auswahl-/Katalogpolicy v13 versionsgebunden
+geführt. Diese Signifikanzschicht gilt für jede Echtgeldfreigabe einschließlich
+15K; fehlende oder zu niedrige Quoten löschen weiterhin keine Prognose.
+
+Der normale Consumer-Pool bleibt unverändert auf höchstens drei freigegebene
+Tipps begrenzt. Die 15K-Ticketwahl verwendet stattdessen das getrennte Feld
+`challenge_release_candidates` mit höchstens 15 Fußballmärkten. Es wird in
+Modellreihenfolge geschrieben und vom Reader vollständig gegen `RELEASED`-,
+HAC/FDR-, Kontext-, Overlay- und Ausführungsprovenienz validiert. Ein
+erfolgreicher Nulltreffer-Lauf bleibt ein abgeschlossener Snapshot mit null
+Prognosen und null Tipps; er wird nicht als „Server prüft weiter“ dargestellt.
 
 #### Kontextwirkung ohne erfundene Gewichte
 
@@ -363,13 +370,14 @@ Der neue verbindliche Preisweg lautet:
    API-Football-Mehrbuchmacherfeeds.
 3. Ein Anbieter darf pro Markt nur einmal beitragen. Ab drei Anbietern gilt
    der Vergleich als ausreichend breit.
-4. Für die Rechenfreigabe zählt nicht der werbewirksame Bestpreis, sondern das
-   untere Quartil aller beobachteten Preise. Minimum, Median und Bestpreis
-   werden nur transparent angezeigt.
-5. Abrufzeit und Provider-Zeitstempel werden getrennt validiert: Der Abruf darf
-   höchstens 90 Minuten, die letzte Provider-Beobachtung höchstens 24 Stunden
-   alt sein. Damit werden frisch abgerufene, aber einige Stunden unveränderte
-   Pre-Match-Märkte nicht fälschlich verworfen.
+4. Das untere Quartil aller beobachteten Preise ist die konservative
+   Freigabeschwelle. Für Ticketrechnung und Persistenz zählt ausschließlich das
+   tatsächlich beobachtete Anbieterangebot direkt an oder oberhalb dieser
+   Schwelle; ein interpoliertes Quartil ist keine spielbare Quote.
+5. Abrufzeit und sämtliche beitragenden Provider-Zeitstempel werden getrennt
+   validiert: Der Abruf darf höchstens 35 Minuten, jeder Einzelpreis höchstens
+   45 Minuten alt sein. Der neueste Punkt darf ältere Beiträge nicht als frisch
+   erscheinen lassen.
 6. Fehlt der exakte Markt, ist der Vergleich zu dünn oder liegt der
    konservative Marktpreis unter der Mindestquote, darf die Auswahl nicht als
    Tagestipp erscheinen. In sportbezogenen Detailanalysen kann sie als
@@ -838,10 +846,10 @@ als nicht eingebundene Rollback-Historie erhalten.
   als aggressive Challenge-Simulation bezeichnet. Die Policy-v2-Migration
   setzt alte implizite 25-%-Defaults einmalig auf 5 % zurück. All-in ist nicht
   auswählbar, und der Ledger klemmt manipulierte Altwerte weiterhin defensiv.
-- Neben der Challenge-Simulation zeigt die App eine separate
-  Viertel-Kelly-Risikoreferenz mit hartem 5-%-Cap. Negatives erwartetes
-  Log-Wachstum und ein Shadow-Einsatz oberhalb dieser Referenz werden
-  ausdrücklich gewarnt.
+- Die Einsatzempfehlung ist das Minimum aus gewählter Expositionsgrenze,
+  Viertel-Kelly-Risikoreferenz und hartem 5-%-Cap. Sie wird nur ausgegeben,
+  wenn ihr erwartetes Log-Wachstum positiv ist; derselbe side-effect-freie
+  Gate-Primitiv steht Persistenz- und Servicegrenzen zur Verfügung.
 - Die tägliche 15K-Ausgabe verlangt Modell, Walk-forward, H2H, Ausfälle und
   Wetter. Aufstellungen werden angezeigt, wenn sie bereits vorliegen, blockieren
   den täglichen Shadow-Vorlauf aber nicht. Der Fußball-CLV-Lauf kurz vor Anpfiff
@@ -872,6 +880,41 @@ als nicht eingebundene Rollback-Historie erhalten.
 - Für Fußball werden bis zu zehn fachlich freigegebene Kandidaten exakt
   bepreist. Erst aus den Preisstatus-`PLAYABLE`-Zeilen werden eventweise
   dedupliziert maximal drei öffentliche Tagestipps ausgewählt.
+
+### 15K-Ledger-Integrität und Migrationsvertrag vom 25. August 2026
+
+- Jede Geldbewegung und jedes Settlement-Ereignis ist append-orientiert und mit
+  einem externen, root-verwalteten 256-Bit-Schlüssel HMAC-verkettet. Betrag,
+  Kontostand, Ticket, Zeit, Typ, Begründung und jeweiliger Vorgänger sind Teil
+  des authentisierten Datensatzes.
+- Der HMAC-Checkpoint v2 bindet das vollständige Schema-Inventar der dedizierten
+  Datenbank einschließlich interner SQLite-Objekte und aller Sequenzwerte,
+  strikt geprüfte SQLite-Typen, Einsatz-/Zielparameter, Ticketdefinition und
+  sichtbaren Status sowie Geld-, Settlement- und Preisbeobachtungshistorien mit
+  exakten Zeilen, IDs, Längen und Tails. Ein gültiger öffentlicher SHA-Hash allein
+  genügt ausdrücklich nicht.
+- Abrechnungen werden zusätzlich Ereignis für Ereignis gegen Auszahlung,
+  Geldbewegungen und materialisierten Ticketstatus nachgespielt. Abgeschnittene
+  Historien, umgeschriebene Modelle, verwaiste Buchungen, manipulierte Regeln,
+  Fremdtrigger und vorbesetzte Sequenzen werden fail-closed abgelehnt.
+- Die einmalige Offline-Migration verlangt zusätzlich die exakte 72-Pfade-
+  Produktionsinventur und akzeptiert ausschließlich fünf vollständige v0-DDL-
+  Manifeste, die am 25. August read-only bestätigt wurden. Public-SHA v1 wird nie
+  migriert; HMAC v2 ohne gültigen Checkpoint wird nie neu signiert.
+- Vor dem dauerhaften Marker `in_progress` werden App-, Timer- und Writer-
+  Autostart deaktiviert, auf Disk synchronisiert und ihr exakter Zustand
+  verifiziert. App und alle sieben Writer besitzen zusätzlich ein
+  `require-complete`-Startgate. Nach Kill, Stromverlust oder Reboot kann daher
+  keine teilweise Offline-Migration von Runtime-Prozessen geöffnet werden.
+- Key und Migrationsmarker gehören zusammen mit den Datenbanken in jedes
+  verifizierte Backup und müssen gemeinsam restauriert werden. Der Key bleibt
+  extern unter `/etc/betboy`, wird nie automatisch ersetzt und ist für die App
+  nur lesbar.
+- Ehrliche Grenze: Die erste Signierung beweist nicht, dass unauthentisierte
+  v0-Daten vor der Migration niemals per Roh-SQL verändert wurden. Ein Archiv
+  enthält außerdem seinen HMAC-Key und beweist daher interne Konsistenz, nicht
+  Authentizität gegen einen Angreifer, der das gesamte Archiv ersetzen kann;
+  unveränderliche Offsite-Kopien bleiben erforderlich.
 
 ### Shadow und Settlement
 
@@ -961,10 +1004,14 @@ als nicht eingebundene Rollback-Historie erhalten.
   Verlauf liegt unter `Meine Tipps`, Kontoeinstellungen hinter dem Zahnrad.
   Eine offene Wette und ihre Ergebniswahl sind zusätzlich direkt auf der
   15K-Seite sichtbar.
-- Die 15K-Sportauswahl enthält ebenfalls `Alle` und dieselben sechs
-  Sportarten. `Alle` bedeutet dort strikt alle Modelle, die den vollständigen
-  15K-Ticketvertrag erfüllen; aktuell ist das nur Fußball. Nicht freigegebene
-  Sportarten erzeugen keine ersatzweisen oder versteckten Fußballtipps.
+- Die 15K-Seite zeigt keinen kosmetischen Sechs-Sport-Filter. Dort steht
+  ausschließlich Fußball, weil nur dieser Sport den vollständigen
+  15K-Vertrag aus Modellvalidierung, ausführbarer Anbieterquote und
+  Abrechnung erfüllt. Weitere Sportarten werden erst nach demselben Vertrag
+  ergänzt; es gibt keine versteckten Ersatz-Tipps.
+- Der planmäßige Alle-Ligen-Lauf liefert der 15K-Seite alle 30 Minuten sein
+  neuestes Ergebnis. Es erscheint beim Öffnen ohne Klick; die manuelle Suche
+  ist nur eine zusätzliche Sofortprüfung.
 - Der aktive Bereich bleibt sichtbar.
 - Material-Icons ersetzen uneinheitliche Emoji-Navigation.
 - Genügend Bottom-Padding verhindert die Überlagerung des Inhalts.
@@ -978,7 +1025,7 @@ als nicht eingebundene Rollback-Historie erhalten.
 |---|---|---|
 | Wettfinder | Fußball, Tennis, Basketball, Eishockey, Cricket und E-Sport; gemeinsamer Suchhorizont bis 14 Tage; Fußball inklusive BTTS, Ergebnis, Tore, Ecken und Karten | eigener vollständiger Normalmarktpool ohne 15K-Korridor; bis zu drei nutzwertsortierte Hervorhebungen und gruppiert sichtbare Zusatzmärkte; maximal drei konkrete preis-/releasefreigegebene Tipps; nur reales ausführbares Buchmacherangebot als Quote |
 | Live | BTTS, Resttor, Teamtor | `RESEARCH`; bis unabhängige Live-Kalibrierung blockiert |
-| 15K | bis zu drei Legs, Zielquote 2,00-3,00, automatischer konservativer Mehrbuchmacherpreis | nur modell- und preisgeprüfte Challenge-Tipps; weiterhin sehr hohes Risiko |
+| 15K | Fußball, bis zu drei Legs, Zielquote 2,00-3,00, planmäßiger Alle-Ligen-Lauf und reales ausführbares Mehrbuchmacherangebot | Prognosen bleiben preisunabhängig sichtbar; nur modell-, Kontext-, Fréchet- und preisgeprüfte Challenge-Tickets erhalten einen Einsatz; weiterhin sehr hohes Risiko |
 | Meine Tipps | aktive preisgeprüfte Tipps sowie Fußball-/15K-/Tennis-Verlauf | sitzungsisoliert; Research und No-Bet werden nicht als Tipp gespeichert |
 | Einstellungen | Daten, Training, API-Status und 15K-Konto | administrativ; keine Wettfreigabe |
 
@@ -1068,9 +1115,10 @@ qualifizieren, aber niemals fehlende Out-of-sample-Evidenz ersetzen.
 Der aktuelle Kombi-Modellrisiko-Faktor ist eine vorsichtige Policy:
 `0,97` pro weiterem Leg und zusätzlich `0,985` pro Leg-Paar aus derselben
 Liga. Das ist kein empirisch bewiesenes Korrelationsmodell. Die
-Fréchet-Untergrenze ist dagegen mathematisch annahmenfrei, häufig aber null
-und deshalb nur ein Stresswert. Für eine konkrete Einsatzquote wird das
-erwartete Log-Wachstum separat berechnet.
+Fréchet-Untergrenze ist dagegen mathematisch annahmenfrei. Ein mehrbeiniges
+15K-Ticket muss auch an dieser Untergrenze den Ziel-ROI bestehen; Kelly,
+5-%-Risikocap und Log-Wachstum verwenden ebenfalls diese Stresschance. Die
+tatsächlich eingegebene Gesamtquote berechnet den zulässigen Einsatz erneut.
 
 ### 15K-Rechnung
 
@@ -1088,10 +1136,11 @@ Ticketchance von 42 % liegt bereits die Chance auf diese 16 Siege in Folge nur
 bei ungefähr 0,0001 %. Verluste, Korrelationen, Limits und schwankende Quoten
 machen beide Pfade zusätzlich schwieriger.
 
-Der Einsatzregler ist deshalb eine Shadow-Risikowahl, keine Optimierung. Die
-App startet bei 5 % und begrenzt die bewusste Hochrisikowahl auf 25 %. Für eine
-reale Risikoreferenz verwendet sie Viertel-Kelly und höchstens 5 % des
-Guthabens. Auch diese Referenz ist nur so gut wie die geschätzte
+Der Einsatzregler definiert deshalb nur die maximale Shadow-Exposition, keine
+Einsatzempfehlung. Die App startet bei 5 % und begrenzt eine bewusst gewählte
+Hochrisikogrenze auf 25 %. Die tatsächliche Empfehlung bleibt darunter: Sie
+verwendet Viertel-Kelly, höchstens 5 % des Guthabens und verlangt positives
+erwartetes Log-Wachstum. Auch diese Rechnung ist nur so gut wie die geschätzte
 Wahrscheinlichkeit. Die App darf das Ziel visualisieren, aber niemals als
 realistische oder sichere Challenge verkaufen.
 
@@ -1327,11 +1376,12 @@ bleiben eine unabhängige Offsite-/WORM-Kopie, Retentionsprüfung und ein echter
 Wiederanlauf nach vollständigem VPS-Verlust; lokale Archive auf demselben VPS
 allein sind kein Disaster Recovery.
 
-Die Preis-Hash-Kette erkennt normale Updates, Löschungen und partielle
-Manipulation. Sie ist jedoch weder extern signiert noch unveränderbarer
-WORM-Speicher: Ein Angreifer mit Root- und Codezugriff könnte Daten und
-Hash-Kette gemeinsam neu schreiben. Für stärkere Beweiskraft muss der tägliche
-Kopf-Hash künftig außerhalb des VPS verankert werden.
+Die allgemeine Preis-Hash-Kette erkennt normale Updates, Löschungen und partielle
+Manipulation. Im 15K-Konto bindet der externe HMAC-Checkpoint zusätzlich die
+vollständig nachgespielte Preisbeobachtungskette und ihren exakten Zustand. Das
+ist dennoch kein unveränderbarer WORM-Speicher: Ein Angreifer mit Root-, Key-
+und Codezugriff könnte Daten und Signatur gemeinsam ersetzen. Für stärkere
+Beweiskraft muss ein täglicher Anker außerhalb des VPS liegen.
 
 ## 10. Sicherheit
 
@@ -1407,9 +1457,11 @@ in beiden Viewports geprüft:
 
 Zusätzlich verifiziert:
 
-- 15K zeigt bei 100 Euro Startguthaben standardmäßig 25 Euro Einsatz.
-- Der 15K-Einsatzregler hat in Produktion exakt Maximum 25; alter
-  100-%-/All-in-Text ist nicht mehr vorhanden.
+- 15K zeigt bei 100 Euro Startguthaben standardmäßig höchstens 5 Euro Einsatz;
+  ein kleinerer stressbasierter Viertel-Kelly-Wert hat Vorrang.
+- Die konfigurierbare Challenge-Exposition reicht von 5 bis 25 Prozent, ist
+  aber nur eine Obergrenze. Das harte einzelne Risikocap bleibt 5 Prozent;
+  alter 100-%-/All-in-Text ist nicht mehr vorhanden.
 - Die Hauptnavigation enthält exakt vier Arbeitsbereiche.
 - Der Fußball-Wettartwechsel erreicht einen eigenen Markt-Scope; Ecken und
   BTTS sind keine separaten Seiten mehr.

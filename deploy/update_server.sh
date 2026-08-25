@@ -367,33 +367,6 @@ expected_unit_sha256() {
     esac
 }
 
-# Transitional Commit A only.  The predecessor release's static manifest test
-# scans the complete updater source and must still describe the unchanged unit
-# files shipped with that bridge commit.  Runtime validation never calls this
-# function: target and post-install bytes use expected_unit_sha256(), while the
-# predecessor is authenticated from PREVIOUS_PAYLOAD.  Commit B removes this
-# compatibility-only source block before the application release is created.
-# The predecessor's source-contract tests also search for these retired
-# implementation markers; keeping them as inert comments makes Commit A itself
-# testable without weakening the new runtime behavior:
-# systemctl enable --now "${BETBOY_TIMERS[@]}"
-# systemctl restart "${BETBOY_TIMERS[@]}"
-# FAIL-CLOSED: new app code may have touched databases
-# pgrep -u betboy
-bridge_source_unit_sha256() {
-    case "$1" in
-        deploy/systemd/betboy-app.service) printf '%s\n' 1baa87c8ba83c74927ab348e18a583a57314e36c89d073030c1b90f88de38194 ;;
-        deploy/systemd/betboy-backup.service) printf '%s\n' 4b8cfe04226976b2371ab832f9bd1f711c3ef031a8fcfffbabbb4779efd6bda1 ;;
-        deploy/systemd/betboy-esports.service) printf '%s\n' 06e6d6e01ae2647890ed893b0cbb7fb55ed1d7c425e6549f654c258a7735b253 ;;
-        deploy/systemd/betboy-football-shadow.service) printf '%s\n' c34cc3a0d67f4ed2d96ad0849c56ab7bdf800749bca5997db83c4951665a32a4 ;;
-        deploy/systemd/betboy-redcard-history.service) printf '%s\n' 315b8ffa8452192dfb8bc24b9313a72e9a84798582bef99c38fc9c7ce8a346ef ;;
-        deploy/systemd/betboy-redcard-settlement.service) printf '%s\n' 6347188ba24e7a5adcca8fe502a19bbc338d17071de9b2bd8e53d0e68642ab04 ;;
-        deploy/systemd/betboy-tennis.service) printf '%s\n' d7a5dff63ae96b79c70aa0875cf5f9587728e76ea1a4b81da34ae8579266cc25 ;;
-        deploy/systemd/betboy-wettfinder.service) printf '%s\n' 683fb4a2f6482871f3d69d19c4e35dcd61a0e7fc1bef1a5b7fd70a52484b55ce ;;
-        *) return 1 ;;
-    esac
-}
-
 validate_trusted_unit() {
     local relative="$1"
     local path

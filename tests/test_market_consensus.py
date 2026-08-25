@@ -214,7 +214,9 @@ def test_legacy_points_load_but_new_payload_persists_concrete_execution_offer():
     loaded = MarketConsensus.from_dict(legacy)
 
     assert loaded is not None
-    assert loaded.is_fresh(now)
+    # Legacy aggregate clocks remain readable, but cannot prove that every
+    # contributing offer was current and are therefore not actionable.
+    assert not loaded.is_fresh(now)
     assert loaded.executable_point is not None
     assert loaded.executable_point.odds == 1.86
     persisted = loaded.to_dict()["executable_quote"]
@@ -249,12 +251,12 @@ def test_price_status_requires_fresh_multi_book_consensus_and_minimum_buffer():
 
     playable = reference_price_status(quote, 1.85, now=now)
     assert playable.code == "PLAYABLE"
-    # The shared/15K contract remains the conservative Q25 value. The normal
-    # Wettfinder uses its stricter wrapper below to select a real executable
-    # bookmaker offer instead of placing a synthetic percentile price.
-    assert playable.usable_odds == quote.conservative_odds
-    assert playable.bookmaker is None
-    assert playable.observed_at is None
+    # Q25 is only the conservative gate. Ticket math receives the closest
+    # actually observed bookmaker offer at/above that gate.
+    assert playable.usable_odds == 1.86
+    assert playable.usable_odds != quote.conservative_odds
+    assert playable.bookmaker == "Unibet"
+    assert playable.observed_at == now.isoformat()
     assert reference_price_status(quote, 1.87, now=now).code == "BORDERLINE"
     assert reference_price_status(quote, 1.95, now=now).code == "TOO_LOW"
     assert reference_price_status(
@@ -263,25 +265,30 @@ def test_price_status_requires_fresh_multi_book_consensus_and_minimum_buffer():
         now=now + timedelta(hours=2),
     ).code == "STALE"
 
-    source_old_but_recently_fetched = next(
+    source_recently_fetched_but_oldest_point_near_boundary = next(
         iter(
             parse_fixture_consensus(
-                _payload(now - timedelta(hours=10)),
+                _payload(now - timedelta(minutes=40)),
                 [_candidate()],
                 fetched_at=now,
             ).values()
         )
     )
     assert reference_price_status(
-        source_old_but_recently_fetched,
+        source_recently_fetched_but_oldest_point_near_boundary,
         1.85,
         now=now,
     ).code == "PLAYABLE"
+    assert reference_price_status(
+        source_recently_fetched_but_oldest_point_near_boundary,
+        1.85,
+        now=now + timedelta(minutes=6),
+    ).code == "STALE"
 
     normal_stale = next(
         iter(
             parse_fixture_consensus(
-                _payload(now - timedelta(minutes=46), provider_ids=True),
+                _payload(now - timedelta(minutes=40), provider_ids=True),
                 [_candidate()],
                 fetched_at=now,
             ).values()
@@ -292,7 +299,7 @@ def test_price_status_requires_fresh_multi_book_consensus_and_minimum_buffer():
         normal_stale,
         1.85,
         candidate=_candidate(),
-        now=now,
+        now=now + timedelta(minutes=6),
     ).code == "STALE"
 
     source_too_old = parse_fixture_consensus(
@@ -368,7 +375,7 @@ def test_normal_wettfinder_keeps_legacy_quote_readable_but_not_actionable():
     legacy = MarketConsensus.from_dict(legacy_payload)
 
     assert legacy is not None
-    assert reference_price_status(legacy, 1.85, now=now).code == "PLAYABLE"
+    assert reference_price_status(legacy, 1.85, now=now).code == "STALE"
     assert wettfinder_reference_price_status(
         legacy,
         1.85,
@@ -401,7 +408,7 @@ def test_normal_wettfinder_rejects_name_only_bookmaker_consensus():
     ).code == "UNAVAILABLE"
 
 
-def test_normal_freshness_checks_oldest_point_without_changing_15k_clock():
+def test_all_echtgeld_freshness_checks_every_contributing_point():
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     older = _payload(
         now - timedelta(minutes=40),
@@ -417,16 +424,56 @@ def test_normal_freshness_checks_oldest_point_without_changing_15k_clock():
         fetched_at=now,
     )[_candidate()["candidate_id"]]
 
-    # The persisted aggregate clock remains the established latest observation
-    # used by 15K. Normal execution separately validates every point.
+    # The aggregate clock is the latest observation, but neither Echtgeld path
+    # may use it to conceal an expired contributor.
     assert quote.quoted_at == now.isoformat()
     assert quote.is_fresh(now)
-    assert quote.is_fresh(now + timedelta(minutes=6))
     assert quote.is_wettfinder_fresh(now)
+    assert not quote.is_fresh(now + timedelta(minutes=6))
     assert not quote.is_wettfinder_fresh(now + timedelta(minutes=6))
 
 
-def test_normal_consensus_drops_one_stale_point_but_keeps_three_fresh_books():
+def test_15k_freshness_boundaries_are_35_minute_fetch_and_45_minute_points():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    point_boundary = parse_fixture_consensus(
+        _payload(now - timedelta(minutes=45)),
+        [_candidate()],
+        fetched_at=now,
+    )[_candidate()["candidate_id"]]
+
+    assert point_boundary.is_fresh(now)
+    assert not point_boundary.is_fresh(now + timedelta(seconds=1))
+
+    fetch_boundary_moment = now - timedelta(minutes=35)
+    fetch_boundary = parse_fixture_consensus(
+        _payload(fetch_boundary_moment),
+        [_candidate()],
+        fetched_at=fetch_boundary_moment,
+    )[_candidate()["candidate_id"]]
+
+    assert fetch_boundary.is_fresh(now)
+    assert not fetch_boundary.is_fresh(now + timedelta(seconds=1))
+
+
+def test_newest_aggregate_clock_cannot_hide_one_expired_15k_offer():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    quote = parse_fixture_consensus(
+        _payload(now),
+        [_candidate()],
+        fetched_at=now,
+    )[_candidate()["candidate_id"]]
+    expired = replace(
+        quote.points[0],
+        observed_at=(now - timedelta(minutes=46)).isoformat(),
+    )
+    tampered = replace(quote, points=(expired, *quote.points[1:]))
+
+    assert tampered.quoted_at == now.isoformat()
+    assert not tampered.is_fresh(now)
+    assert reference_price_status(tampered, 1.85, now=now).code == "STALE"
+
+
+def test_shared_consensus_drops_one_stale_point_but_keeps_three_fresh_books():
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     stale = _payload(
         now - timedelta(hours=2),
@@ -450,8 +497,8 @@ def test_normal_consensus_drops_one_stale_point_but_keeps_three_fresh_books():
         fetched_at=now,
     )[candidate["candidate_id"]]
 
-    assert quote.bookmaker_count == 4
-    assert quote.conservative_odds < 1.95
+    assert quote.bookmaker_count == 3
+    assert quote.conservative_odds == 2.05
     effective = wettfinder_consensus(quote, now=now)
     assert effective is not None
     assert effective.bookmaker_count == 3

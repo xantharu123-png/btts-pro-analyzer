@@ -6,7 +6,8 @@ Diese Anleitung bringt einen neuen Windows-PC in einen sicheren,
 reproduzierbaren BetBoy-Arbeitsstand. Der laufende Produktionsserver hängt
 nicht vom alten PC ab und arbeitet während des Wechsels weiter.
 
-Am 24. August 2026 wurde vor dem aktuellen v14/v12-Härtungspaket der folgende
+Am 24. August 2026 wurde vor dem damals aktuellen v14/v12-Härtungspaket der
+folgende
 **zuletzt unabhängig verifizierte Produktionsstand** festgehalten:
 
 | Prüfung | Ergebnis |
@@ -31,17 +32,18 @@ Checkout-Vertrag ist im folgenden Abschnitt beschrieben und muss nach jedem
 neuen Deploy erneut über vollständigen Hash, Worker, Artefakt und Browser
 verifiziert werden.
 
-### Aktueller Checkout-Vertrag: normaler Wettfinder v14/v12
+### Aktueller Checkout-Vertrag: Wettfinder und 15K v16/v13
 
-Produktiv verifizierter Funktionsnachweis dieses Pakets: Commit
+Letzter produktiv verifizierter Basisnachweis vor v16/v13: Commit
 `e341db828121cba7ad5a9d4ed2f6304b146a3591` (`Refine normal Wettfinder
 featured markets`), 922 Python-Tests plus 50 Subtests und 3/3
 JavaScript-Tests grün; Python-Kompilierung und `git diff --check` ebenfalls
 grün. VPS-Revision, App, interner/öffentlicher Healthcheck, sieben Timer und
 null fehlgeschlagene Units wurden am 24. August unabhängig bestätigt.
 
-- Der normale Wettfinder verwendet Automationsartefakt v14,
-  Auswahl-/Katalogpolicy v12 und Modellcache-Schema v2.
+- Writer und Reader des aktuellen Checkouts verwenden Automationsartefakt v16,
+  Auswahl-/Katalogpolicy v13 und Modellcache-Schema v2. Vor einem Deploy ist
+  der vollständige v16/v13-Test- und Revisionsnachweis neu zu protokollieren.
 - Seine Kandidaten entstehen aus einem eigenen vollständigen berechenbaren
   Marktpool. Der 15K-Wahrscheinlichkeitskorridor und die 15K-Ticketvorfilter
   werden nicht wiederverwendet; auch höhere Modellwahrscheinlichkeiten bleiben
@@ -60,13 +62,16 @@ null fehlgeschlagene Units wurden am 24. August unabhängig bestätigt.
 - Der normale Q25-Konsens wird nur aus aktuellen, providergebundenen
   Einzelangeboten neu berechnet. Ein alter oder unvollständig identifizierter
   Punkt entwertet drei andere gültige Anbieter nicht.
+- Auch 15K verwendet Q25 nur als konservative Schwelle. Ticketrechnung und
+  Persistenz erhalten die tatsächlich beobachtete ausführbare Anbieterquote;
+  Abruf und alle beitragenden Punkte müssen den 35-/45-Minuten-Vertrag erfüllen.
 - Teilfehler sind quellenspezifisch: Fällt eine Sportquelle aus, bleiben
   unabhängig gesunde Sportarten sichtbar; der Lauf bleibt betrieblich
   `degraded`.
 - Die Nutzeroberfläche zeigt Ergebnis, Tippdaten, Preis- und Kontextstatus,
   aber keine internen Liga-, Spiel-, Kandidaten-, Gate-, Modell-, Markt- oder
   Cachezähler. Diese Diagnose bleibt Admin und Logs vorbehalten.
-- Die normale statistische Freigabe verlangt eine gepaarte
+- Jede Echtgeldfreigabe einschließlich 15K verlangt eine gepaarte
   Brier-Verlustverbesserung mit Newey-West-/HAC-Standardfehler, positivem
   einseitigem unteren Konfidenzrand, bestandenem einseitigem p-Wert und
   Benjamini-Hochberg-FDR-Korrektur über alle 90 Marktspezifikationen.
@@ -77,13 +82,21 @@ null fehlgeschlagene Units wurden am 24. August unabhängig bestätigt.
   zeitgestempelten historischen Prematch-Datensatzes werden keine numerischen
   Effekte erfunden. Die prospektive, versionsgebundene Kontextsammlung ist der
   nächste ehrliche Schritt.
-- 15K-Wett-, Einsatz-, Ticket- und Release-Regeln bleiben unverändert. Der
-  breitere normale Marktpool lockert den getrennten Challenge-Vertrag nicht.
+- Die normale Consumer-Freigabe bleibt auf höchstens drei Tipps begrenzt. 15K
+  liest dagegen das getrennte, schema-validierte Feld
+  `challenge_release_candidates` mit höchstens 15 Fußballmärkten. Jede Zeile
+  erfüllt denselben `RELEASED`-, HAC/FDR-, Kontext-, Overlay- und
+  Ausführungsvertrag; die normale Top-3-Grenze beschneidet diesen Pool nicht.
+- Ein erfolgreicher Lauf ohne Prognose wird als abgeschlossener Snapshot mit
+  null Prognosen und null Tipps gespeichert und angezeigt, nicht als noch
+  laufende Prüfung. Fehlende oder niedrige Quoten löschen weiterhin keine
+  Modellprognose.
 
-Der echte v14-Lauf um 17:37 CEST endete `success / 0` mit 18 sichtbaren
-Modellprognosen, null operativen Fehlern und null preislich freigegebenen
-Tipps. Die mobile Produktions-UI 390 x 844 zeigte Team-Unter-1,5 als erste und
-eine gemischte Chance als zweite Hauptkarte; fehlende beziehungsweise alte
+Der historische echte v14-Lauf um 17:37 CEST endete `success / 0` mit 18
+sichtbaren Modellprognosen, null operativen Fehlern und null preislich
+freigegebenen Tipps. Die mobile Produktions-UI 390 x 844 zeigte
+Team-Unter-1,5 als erste und eine gemischte Chance als zweite Hauptkarte;
+fehlende beziehungsweise alte
 Quoten änderten keine Prognose. Die Schreibweise `verfügbar` war korrigiert,
 und die Browserkonsole hatte null Fehler.
 
@@ -104,6 +117,7 @@ verglichen; alte Chatangaben sind keine Betriebswahrheit.
 | Runtime-Migrationssicherung | `/var/backups/betboy-migration-9171bdb` | Nein; Root-only, bis zum bestätigten DR-Entscheid erhalten |
 | SSH-Key-Recovery | `/var/backups/betboy-ssh` | Nein; Root-only, enthält nur öffentliche `authorized_keys`-Bytes |
 | Produktions-Secrets | `/etc/betboy/betboy.env` und ignorierte `config.ini` | Nein |
+| 15K-Integritätsanker | `/etc/betboy/challenge-ledger-hmac.key` und `/etc/betboy/challenge-ledger-v2-migrated.json` | Nein; nur zusammen mit verifiziertem DB-Backup restaurieren |
 | Lokale Entwicklungs-Secrets | alter PC, ignorierte Dateien | Nur sicher neu beziehen oder verschlüsselt übertragen |
 | Privater SSH-Schlüssel | altes Benutzerprofil `.ssh` | Besser neuen Schlüssel erzeugen |
 | 15K-/Tipps-Browser-ID | `localStorage` des alten Browserprofils | Nicht automatisch |
@@ -173,6 +187,16 @@ Vor dem Löschen des alten Browserprofils eine Entscheidung treffen:
 Die rohe Browser-ID ist praktisch ein Bearer-Identifier für dieses lokale
 Konto. Sie gehört nicht in Chat, Git oder Screenshots. Browser-Synchronisierung
 ist kein verlässlicher Transfer für `localStorage`.
+
+Das Kontobuch selbst ist unabhängig von dieser Browserzuordnung HMAC-geschützt.
+Der externe Key und der root-eigene Migrationsmarker liegen auf dem VPS unter
+`/etc/betboy`, beide `root:betboy` mit Modus `0640`. Sie dürfen weder in Git noch
+separat von den zugehörigen Datenbanken übertragen oder neu erzeugt werden. Ein
+Restore verwendet ausschließlich ein zuvor mit
+`/usr/local/libexec/betboy-backup-runtime.py --verify-only` geprüftes Archiv und
+restauriert Datenbanken, Key und Marker gemeinsam bei gestoppten und
+deaktivierten BetBoy-Units. Der vollständige Ablauf steht in
+`deploy/README.md`.
 
 ## 4. Empfohlene Software auf dem neuen PC
 
@@ -487,6 +511,11 @@ git commit -m "Kurze sachliche Beschreibung"
 git push origin main
 ```
 
+Ein Push aktualisiert den VPS **nicht** automatisch. Die sieben systemd-Timer
+starten nur Daten-/Modelljobs und führen weder `git pull` noch ein Deployment
+aus. Jede Codeversion wird anschließend ausdrücklich über den root-eigenen
+Updater mit ihrem vollständigen 40-hex-Commit ausgerollt.
+
 Danach den gepushten vollständigen Hash erneut gegen GitHub prüfen. Vor dem
 **ersten** Einsatz auf einem bestehenden VPS müssen beide geprüften Root-Tools
 einmalig nach `One-time migration of an existing VPS` in `deploy/README.md`
@@ -537,6 +566,12 @@ sudo systemctl status betboy-app.service --no-pager
 sudo journalctl -u betboy-app.service -n 100 --no-pager
 sudo systemctl restart betboy-app.service
 ```
+
+Falls der Start mit „migration is not complete“ aussetzt, nicht umgehen und
+keinen Worker manuell starten. Alle Units gestoppt lassen, den Markerstatus
+prüfen und ausschließlich den darin festgehaltenen Zielcommit über
+`sudo /usr/local/sbin/betboy-update <marker-target>` fortsetzen. Selbst wenn
+`main` inzwischen weiter ist, wird der neuere Tip bis zum Abschluss abgelehnt.
 
 ### Worker gestört
 

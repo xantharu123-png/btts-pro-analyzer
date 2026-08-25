@@ -238,6 +238,48 @@ def test_automatic_target_label_uses_the_actual_scan_date(monkeypatch):
     assert app._automatic_target_label("2030-01-03") == "03.01.2030"
 
 
+def test_automatic_surface_overlays_only_the_exact_released_scheduler_row(
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    forecast = _automatic_forecast("released-row")
+    released = replace(
+        forecast,
+        evidence_stage="RELEASED",
+        source="automated_wettfinder",
+    )
+    status = SimpleNamespace(
+        target_search_date=now.date().isoformat(),
+        generated_at=now,
+        last_discovery_at=now,
+        football_status="completed",
+        fixtures_found=1,
+        fixtures_modeled=1,
+        context_data_incomplete_fixtures=0,
+        context_unchecked_fixtures=0,
+        deferred_context_fixtures=0,
+        context_accounting_available=True,
+        context_scope_complete=True,
+        operational_error_count=0,
+    )
+    rendered = []
+    monkeypatch.setattr(app, "st", _RecordingStreamlit())
+    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
+    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: [forecast])
+    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [released])
+    monkeypatch.setattr(
+        app,
+        "render_price_decision",
+        lambda candidate, **_kwargs: rendered.append(candidate),
+    )
+
+    app._render_automated_daily_selection()
+
+    assert len(rendered) == 1
+    assert rendered[0].event_key == forecast.key
+    assert rendered[0].evidence_stage == "RELEASED"
+
+
 def test_automatic_price_summary_explains_why_models_were_not_published():
     status = SimpleNamespace(
         price_status_counts=(("TOO_LOW", 1), ("UNAVAILABLE", 2)),
@@ -307,6 +349,7 @@ def test_automatic_empty_surface_uses_only_short_consumer_copy(monkeypatch):
     monkeypatch.setattr(app, "st", recording_st)
     monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
     monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: [])
+    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
 
     app._render_automated_daily_selection()
 
@@ -359,6 +402,7 @@ def test_automatic_forecast_surface_shows_one_compact_hint_and_warning(
         "automated_wettfinder_forecasts",
         lambda: [_automatic_forecast("primary")],
     )
+    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
     monkeypatch.setattr(app, "render_price_decision", lambda *_args, **_kwargs: None)
 
     app._render_automated_daily_selection()
@@ -413,6 +457,7 @@ def test_tennis_failure_does_not_create_a_football_scope_warning(monkeypatch):
         "automated_wettfinder_forecasts",
         lambda: [_automatic_forecast("healthy-football")],
     )
+    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
     monkeypatch.setattr(app, "render_price_decision", lambda *_args, **_kwargs: None)
 
     app._render_automated_daily_selection()

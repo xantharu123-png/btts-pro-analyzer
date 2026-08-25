@@ -1,5 +1,6 @@
 from contextlib import closing
 from collections import Counter
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -19,11 +20,13 @@ from challenge_15k import (
     _auto_recheck_scope_allowed,
     _automatic_challenge_ticket,
     _challenge_sports_for_selection,
+    _context_and_discovery_fixture_ids,
     _context_scope_facts,
     _discovery_candidate_pool,
     _forecast_candidate_pool,
     _league_season_segments,
     _price_candidate_pool,
+    _prefer_scheduled_snapshot,
     _ranked_fixture_ids,
     _recommendation_day_label,
     _render_price_check,
@@ -42,6 +45,8 @@ from challenge_engine import (
     MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     UNVALIDATED_TRANSFER_REASON,
+    QuotedLeg,
+    QuotedTicket,
     ValidationMetrics,
     apply_candidate_context,
     build_fixture_candidates,
@@ -50,7 +55,9 @@ from challenge_engine import (
     candidate_is_credible,
     challenge_stake_cap,
     consecutive_wins_to_target,
+    dependence_floor_probability,
     expected_log_growth,
+    expected_log_growth_for_price,
     kelly_reference_stake,
     market_is_basic_forecast,
     market_outcome,
@@ -62,9 +69,16 @@ from challenge_engine import (
     select_quoted_ticket,
     select_shortlist,
     ticket_stake,
+    ticket_stake_passes_log_growth_gate,
+    ticket_dependency_factor,
     validate_league_markets,
 )
-from challenge_store import ChallengeLedger
+from challenge_store import (
+    ChallengeLedger,
+    SETTLEMENT_RULE_VERSION,
+    STAKE_POLICY_VERSION,
+    TICKET_DEFINITION_VERSION,
+)
 from football_data_history import parse_history_csv
 from price_ledger import PriceLedger, PriceQuote
 from market_consensus import (
@@ -73,6 +87,7 @@ from market_consensus import (
     MarketConsensus,
     QuotePoint,
     parse_fixture_consensus,
+    reference_price_status,
     serialize_consensus_map,
 )
 
@@ -160,6 +175,20 @@ def test_context_scope_facts_never_claims_fixture_21_was_checked():
     }
     assert facts["context_fixture_provenance"]["21"]["scope_status"] == "unchecked"
     assert facts["context_fixture_provenance"]["21"]["checked_at"] is None
+
+
+def test_complete_discovery_pool_survives_the_first_context_batch_limit():
+    candidates = [
+        candidate(f"{fixture_id}:BTTS", fixture_id, 0.70)
+        for fixture_id in range(1, 46)
+    ]
+
+    immediate, discovery = _context_and_discovery_fixture_ids(candidates)
+
+    assert len(immediate) == challenge_15k.MAX_CONTEXT_FIXTURES
+    assert len(discovery) == 45
+    assert immediate == discovery[: challenge_15k.MAX_CONTEXT_FIXTURES]
+    assert set(discovery) == set(range(1, 46))
 
 
 def test_context_scope_facts_treats_explicit_optional_unavailability_as_checked():
@@ -276,6 +305,15 @@ def candidate(candidate_id, fixture_id, probability, *, kickoff=None, eligible=T
         calibration_bins=4,
         min_bin_size=30,
         max_calibration_error=0.06,
+        max_error_bin_size=30,
+        max_error_bin_mean_probability=0.70,
+        paired_loss_mean=0.05,
+        paired_loss_hac_standard_error=0.005,
+        paired_loss_lower_confidence_bound=0.0418,
+        paired_loss_p_value=0.00001,
+        fdr_q_value=0.0009,
+        tested_hypotheses=len(MARKET_SPECS),
+        statistical_release_passed=True,
     )
     item = ChallengeCandidate(
         candidate_id=candidate_id,
@@ -312,6 +350,15 @@ def candidate(candidate_id, fixture_id, probability, *, kickoff=None, eligible=T
     return item
 
 
+def stress_safe_ticket_candidates():
+    """Two independent legs whose Fréchet floor clears a 2.25 ticket price."""
+
+    return [
+        candidate("1:BTTS", 1, 0.80),
+        candidate("2:BTTS", 2, 0.79),
+    ]
+
+
 def credible_validation():
     return ValidationMetrics(
         300,
@@ -323,6 +370,15 @@ def credible_validation():
         calibration_bins=4,
         min_bin_size=30,
         max_calibration_error=0.06,
+        max_error_bin_size=30,
+        max_error_bin_mean_probability=0.70,
+        paired_loss_mean=0.05,
+        paired_loss_hac_standard_error=0.005,
+        paired_loss_lower_confidence_bound=0.0418,
+        paired_loss_p_value=0.00001,
+        fdr_q_value=0.0009,
+        tested_hypotheses=len(MARKET_SPECS),
+        statistical_release_passed=True,
     )
 
 
@@ -370,21 +426,43 @@ def reference_quote_for(item, now, odds=("2.05", "2.10", "2.15", "2.20")):
 
 
 class ChallengeProbabilityTests(unittest.TestCase):
-    def test_challenge_sport_dropdown_offers_all_shared_sports(self):
-        self.assertEqual(
-            CHALLENGE_SPORT_OPTIONS,
-            (
-                "Alle",
-                "Fußball",
-                "Tennis",
-                "Basketball",
-                "Eishockey",
-                "Cricket",
-                "E-Sport",
-            ),
+    def test_challenge_exposes_only_sports_with_the_full_15k_contract(self):
+        self.assertEqual(CHALLENGE_SPORT_OPTIONS, ("Fußball",))
+        self.assertEqual(_challenge_sports_for_selection("Fußball"), ("Fußball",))
+        with self.assertRaises(ValueError):
+            _challenge_sports_for_selection("Alle")
+        with self.assertRaises(ValueError):
+            _challenge_sports_for_selection("Tennis")
+
+    def test_scheduled_snapshot_replaces_only_older_same_scope_result(self):
+        scope = {"league_ids": [39], "date": "2026-08-25", "max_fixtures": 1200}
+        older = {
+            "scope": scope,
+            "scanned_at": "2026-08-25T08:00:00+00:00",
+            "source": "manual",
+        }
+        newer = {
+            "scope": scope,
+            "scanned_at": "2026-08-25T08:30:00+00:00",
+            "automatic_source": "wettfinder_systemd_timer",
+        }
+
+        self.assertIs(
+            _prefer_scheduled_snapshot(older, newer, scope=scope),
+            newer,
         )
-        self.assertEqual(_challenge_sports_for_selection("Alle"), ("Fußball",))
-        self.assertEqual(_challenge_sports_for_selection("Tennis"), ())
+        self.assertIs(
+            _prefer_scheduled_snapshot(newer, older, scope=scope),
+            newer,
+        )
+        self.assertIs(
+            _prefer_scheduled_snapshot(
+                older,
+                {**newer, "scope": {**scope, "league_ids": [140]}},
+                scope=scope,
+            ),
+            older,
+        )
 
     def test_daily_discovery_pool_limits_markets_per_fixture(self):
         fixture_one = [
@@ -706,7 +784,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
             patch("challenge_15k.st", fake_streamlit),
             patch(
                 "challenge_15k._automatic_challenge_ticket",
-                return_value=(None, {}),
+                return_value=(None, {}, {}),
             ) as ticket_builder,
         ):
             _render_price_check(snapshot, Mock(), {})
@@ -744,7 +822,11 @@ class ChallengeProbabilityTests(unittest.TestCase):
             fetched_at=now.isoformat(),
             source=REFERENCE_SOURCE,
             points=tuple(
-                QuotePoint(f"Book {index}", odds)
+                QuotePoint(
+                    f"Book {index}",
+                    odds,
+                    observed_at=now.isoformat(),
+                )
                 for index, odds in enumerate(
                     (1.12, 1.14, 1.14, 1.16, 1.17),
                     start=1,
@@ -789,6 +871,82 @@ class ChallengeProbabilityTests(unittest.TestCase):
             )
         )
 
+    def test_price_check_renders_the_same_fresh_consensus_used_by_ticket(self):
+        fake_streamlit = MagicMock()
+        now = datetime.now(timezone.utc)
+        item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))
+        quote = reference_quote_for(item, now)
+        stale_low = replace(
+            quote.points[0],
+            odds=1.20,
+            observed_at=(now - timedelta(minutes=46)).isoformat(),
+        )
+        raw_quote = replace(
+            quote,
+            points=(
+                stale_low,
+                replace(quote.points[1], odds=1.80),
+                replace(quote.points[2], odds=2.00),
+                replace(quote.points[3], odds=2.20),
+            ),
+            lowest_odds=1.20,
+            conservative_odds=1.65,
+            consensus_odds=1.90,
+            best_odds=2.20,
+        )
+        ticket, statuses, approved_quotes = _automatic_challenge_ticket(
+            [item],
+            {item.candidate_id: raw_quote},
+            now=now,
+        )
+        self.assertIsNotNone(ticket)
+        approved = approved_quotes[item.candidate_id]
+        self.assertAlmostEqual(statuses[item.candidate_id].usable_odds, 2.00)
+        self.assertAlmostEqual(approved.executable_point.odds, 2.00)
+        self.assertAlmostEqual(raw_quote.executable_point.odds, 1.80)
+        snapshot = {
+            "shortlist": [item],
+            "forecast_shortlist": [item],
+            "price_candidates": [item],
+            "reference_quotes": serialize_consensus_map(
+                {item.candidate_id: raw_quote}
+            ),
+        }
+        rendered = []
+
+        with (
+            patch("challenge_15k.st", fake_streamlit),
+            patch(
+                "challenge_15k.datetime",
+                wraps=datetime,
+            ) as datetime_mock,
+            patch(
+                "challenge_15k._automatic_challenge_ticket",
+                return_value=(None, statuses, approved_quotes),
+            ),
+            patch(
+                "challenge_15k._render_challenge_candidate",
+                side_effect=lambda candidate, visible_quote, status, index: rendered.append(
+                    (candidate, visible_quote, status, index)
+                ),
+            ),
+        ):
+            datetime_mock.now.return_value = now
+            _render_price_check(snapshot, Mock(), {})
+
+        self.assertEqual(len(rendered), 1)
+        visible_quote = rendered[0][1]
+        self.assertEqual(visible_quote, approved)
+        self.assertEqual(len(visible_quote.points), 3)
+        self.assertNotIn(
+            stale_low.bookmaker_id,
+            {point.bookmaker_id for point in visible_quote.points},
+        )
+        self.assertAlmostEqual(
+            visible_quote.executable_point.odds,
+            statuses[item.candidate_id].usable_odds,
+        )
+
     def test_price_check_promotes_complete_result_total_over_repeated_team_totals(self):
         fake_streamlit = MagicMock()
         team_spec = MARKET_BY_KEY["AWAY_UNDER_2_5"]
@@ -829,10 +987,30 @@ class ChallengeProbabilityTests(unittest.TestCase):
             fetched_at=now.isoformat(),
             source=REFERENCE_SOURCE,
             points=(
-                QuotePoint("A", 1.50),
-                QuotePoint("B", 1.50),
-                QuotePoint("C", 1.50),
-                QuotePoint("D", 1.50),
+                QuotePoint(
+                    "A",
+                    1.50,
+                    bookmaker_id="api-football:1",
+                    observed_at=now.isoformat(),
+                ),
+                QuotePoint(
+                    "B",
+                    1.50,
+                    bookmaker_id="api-football:2",
+                    observed_at=now.isoformat(),
+                ),
+                QuotePoint(
+                    "C",
+                    1.50,
+                    bookmaker_id="api-football:3",
+                    observed_at=now.isoformat(),
+                ),
+                QuotePoint(
+                    "D",
+                    1.50,
+                    bookmaker_id="api-football:4",
+                    observed_at=now.isoformat(),
+                ),
             ),
         )
         snapshot = {
@@ -850,7 +1028,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
             patch("challenge_15k.st", fake_streamlit),
             patch(
                 "challenge_15k._automatic_challenge_ticket",
-                return_value=(None, {}),
+                return_value=(None, {}, {}),
             ) as ticket_builder,
             patch(
                 "challenge_15k._render_challenge_candidate",
@@ -1380,6 +1558,28 @@ class FootballDataBoundaryTests(unittest.TestCase):
 
 
 class ChallengeProviderTests(unittest.TestCase):
+    @patch("challenge_15k.requests.get")
+    def test_weather_failure_never_persists_api_key_or_prepared_url(self, get):
+        secret = "super-secret-weather-key"
+        get.side_effect = challenge_15k.requests.RequestException(
+            "403 for https://api.openweathermap.org/geo/1.0/direct?appid="
+            + secret
+        )
+        provider = ChallengeDataProvider("football-key", secret)
+        target = {
+            "fixture": {
+                "date": "2030-01-01T18:00:00+00:00",
+                "venue": {"city": "Zurich"},
+            },
+            "league": {"country": "Switzerland"},
+        }
+
+        self.assertIsNone(provider.weather(target))
+        self.assertEqual(len(provider.errors), 1)
+        self.assertNotIn(secret, provider.errors[0])
+        self.assertNotIn("http", provider.errors[0])
+        self.assertIn("RequestException", provider.errors[0])
+
     def test_domestic_history_uses_current_league_and_drops_other_competitions(self):
         target_day = date(2026, 8, 4)
         kickoff = datetime(2026, 8, 4, 18, tzinfo=timezone.utc)
@@ -1876,7 +2076,7 @@ class ChallengeContextTests(unittest.TestCase):
         self.assertEqual(select_shortlist([item]), [])
         self.assertEqual(select_forecast_shortlist([item]), [item])
         quote = reference_quote_for(item, now)
-        ticket, statuses = _automatic_challenge_ticket(
+        ticket, statuses, _approved_quotes = _automatic_challenge_ticket(
             [item],
             {item.candidate_id: quote},
             now=now,
@@ -2615,6 +2815,87 @@ class ChallengeContextTests(unittest.TestCase):
 
 
 class ChallengeTicketTests(unittest.TestCase):
+    def test_sporting_alverca_short_price_never_changes_the_model_forecast(self):
+        now = datetime.now(timezone.utc)
+        item = replace(
+            candidate(
+                "1:AWAY_UNDER_1_5",
+                1,
+                0.576,
+                kickoff=now + timedelta(days=1),
+            ),
+            home_team="Sporting CP",
+            away_team="Alverca",
+            market_key="AWAY_UNDER_1_5",
+            market="Team 2 Gesamttore",
+            selection="Unter 1.5",
+            probability=0.741,
+            conservative_probability=0.576,
+            probability_haircut_pp=16.5,
+            model_price=1.0 / 0.576,
+        )
+        quote = MarketConsensus(
+            fixture_id=item.fixture_id,
+            candidate_id=item.candidate_id,
+            market_key=item.market_key,
+            bet_name="Total - Away",
+            value_name="Under 1.5",
+            consensus_odds=1.14,
+            conservative_odds=1.14,
+            lowest_odds=1.12,
+            best_odds=1.17,
+            bookmaker_count=5,
+            quoted_at=now.isoformat(),
+            fetched_at=now.isoformat(),
+            source=REFERENCE_SOURCE,
+            points=tuple(
+                QuotePoint(
+                    f"Book {index}",
+                    odds,
+                    bookmaker_id=f"api-football:{index}",
+                    observed_at=now.isoformat(),
+                )
+                for index, odds in enumerate(
+                    (1.12, 1.14, 1.14, 1.16, 1.17),
+                    start=1,
+                )
+            ),
+            scheduled_start=item.kickoff,
+        )
+        forecast_before = (
+            item.probability,
+            item.conservative_probability,
+            item.minimum_odds,
+            item.forecast_eligible,
+            item.eligible,
+        )
+
+        status = reference_price_status(quote, item.minimum_odds, now=now)
+
+        self.assertEqual(status.code, "TOO_LOW")
+        self.assertIsNone(status.usable_odds)
+        self.assertEqual(item.minimum_odds, 1.79)
+        self.assertEqual(
+            (
+                item.probability,
+                item.conservative_probability,
+                item.minimum_odds,
+                item.forecast_eligible,
+                item.eligible,
+            ),
+            forecast_before,
+        )
+        self.assertTrue(item.forecast_eligible)
+        self.assertTrue(item.eligible)
+        self.assertIsNone(
+            select_quoted_ticket(
+                [item],
+                {},
+                odds_min=1.01,
+                odds_max=3.0,
+            )
+        )
+
     def test_challenge_rejects_legs_below_practical_odds_floor(self):
         item = candidate("1:BTTS", 1, 0.95)
 
@@ -2638,9 +2919,9 @@ class ChallengeTicketTests(unittest.TestCase):
 
     def test_ticket_uses_at_most_three_unique_fixtures_and_target_odds(self):
         candidates = [
-            candidate("1:BTTS", 1, 0.70),
-            candidate("2:BTTS", 2, 0.69),
-            candidate("3:BTTS", 3, 0.65),
+            candidate("1:BTTS", 1, 0.80),
+            candidate("2:BTTS", 2, 0.79),
+            candidate("3:BTTS", 3, 0.75),
         ]
 
         ticket = select_quoted_ticket(
@@ -2654,8 +2935,25 @@ class ChallengeTicketTests(unittest.TestCase):
         self.assertGreaterEqual(ticket.total_odds, 2.0)
         self.assertLessEqual(ticket.total_odds, 3.0)
         self.assertAlmostEqual(ticket.model_dependency_factor, 0.95545)
-        self.assertLess(ticket.joint_probability, 0.70 * 0.69)
-        self.assertAlmostEqual(ticket.dependence_floor_probability, 0.39)
+        self.assertLess(ticket.joint_probability, 0.80 * 0.79)
+        self.assertAlmostEqual(ticket.dependence_floor_probability, 0.59)
+
+    def test_nominally_positive_combo_is_rejected_when_frechet_roi_is_negative(self):
+        candidates = [
+            candidate("1:BTTS", 1, 0.70),
+            candidate("2:BTTS", 2, 0.69),
+        ]
+        nominal_joint = 0.70 * 0.69 * 0.95545
+        frechet_floor = 0.70 + 0.69 - 1.0
+
+        self.assertGreater(nominal_joint * 2.25 - 1.0, 0.03)
+        self.assertLess(frechet_floor * 2.25 - 1.0, 0.03)
+        self.assertIsNone(
+            select_quoted_ticket(
+                candidates,
+                {"1:BTTS": 1.50, "2:BTTS": 1.50},
+            )
+        )
 
     def test_negative_value_single_leg_cannot_hide_in_ticket(self):
         candidates = [
@@ -2731,18 +3029,42 @@ class ChallengeTicketTests(unittest.TestCase):
 
         self.assertIsNone(ticket)
 
-    def test_challenge_stake_is_separate_from_kelly_reference(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
+    def test_challenge_stake_is_capped_by_risk_and_positive_log_growth(self):
+        candidates = [candidate("1:BTTS", 1, 0.74), candidate("2:BTTS", 2, 0.72)]
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
 
         self.assertIsNotNone(ticket)
-        self.assertEqual(ticket_stake(ticket, 1000), 50.0)
-        self.assertEqual(ticket_stake(ticket, 1000, 0.25), 250.0)
-        capped_ticket = replace(ticket, stake_fraction=0.02)
-        self.assertEqual(ticket_stake(capped_ticket, 101.25, 0.25), 25.31)
-        self.assertEqual(kelly_reference_stake(capped_ticket, 101.25), 2.02)
-        self.assertEqual(risk_managed_ticket_stake(capped_ticket, 101.25), 2.02)
+        self.assertEqual(ticket_stake(ticket, 1000), 7.0)
+        self.assertEqual(ticket_stake(ticket, 1000, 0.25), 7.0)
+        forged_ticket = replace(ticket, stake_fraction=0.20)
+        self.assertEqual(ticket_stake(forged_ticket, 1000, 0.25), 7.0)
+        self.assertEqual(kelly_reference_stake(forged_ticket, 1000), 7.0)
+        self.assertEqual(risk_managed_ticket_stake(forged_ticket, 1000), 7.0)
         self.assertLess(expected_log_growth(ticket, 0.25), 0.0)
+        self.assertFalse(ticket_stake_passes_log_growth_gate(ticket, 0.25))
+        self.assertTrue(
+            ticket_stake_passes_log_growth_gate(
+                ticket,
+                ticket_stake(ticket, 1000) / 1000,
+            )
+        )
+        self.assertFalse(ticket_stake_passes_log_growth_gate(ticket, 0.0))
+        self.assertFalse(ticket_stake_passes_log_growth_gate(ticket, float("nan")))
+        self.assertFalse(
+            ticket_stake_passes_log_growth_gate(
+                ticket,
+                0.05,
+                decimal_odds=1.10,
+            )
+        )
+        self.assertGreater(
+            expected_log_growth_for_price(
+                ticket.dependence_floor_probability,
+                ticket.total_odds,
+                ticket_stake(ticket, 1000) / 1000,
+            ),
+            0.0,
+        )
         self.assertEqual(challenge_stake_cap(100.05, 0.25), 25.01)
         self.assertEqual(challenge_stake_cap(100.06, 0.05), 5.0)
 
@@ -2755,11 +3077,49 @@ class ChallengeTicketTests(unittest.TestCase):
 
 
 class ChallengeLedgerTests(unittest.TestCase):
-    def test_placed_ticket_has_verified_append_only_n1bet_price_ids(self):
+    def test_store_rejects_nominally_positive_negative_frechet_ticket(self):
         candidates = [
             candidate("1:BTTS", 1, 0.70),
             candidate("2:BTTS", 2, 0.69),
         ]
+        dependency_factor = ticket_dependency_factor(candidates)
+        joint_probability = (
+            candidates[0].conservative_probability
+            * candidates[1].conservative_probability
+            * dependency_factor
+        )
+        frechet_floor = dependence_floor_probability(candidates)
+        ticket = QuotedTicket(
+            legs=tuple(
+                QuotedLeg(
+                    candidate=item,
+                    odds=1.50,
+                    expected_roi=item.conservative_probability * 1.50 - 1.0,
+                )
+                for item in candidates
+            ),
+            total_odds=2.25,
+            joint_probability=round(joint_probability, 6),
+            expected_roi=round(joint_probability * 2.25 - 1.0, 6),
+            stake_fraction=0.0,
+            model_dependency_factor=round(dependency_factor, 6),
+            dependence_floor_probability=round(frechet_floor, 6),
+        )
+        self.assertGreater(ticket.expected_roi, 0.03)
+        self.assertLess(frechet_floor * ticket.total_odds - 1.0, 0.03)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            with self.assertRaisesRegex(ValueError, "Fréchet stress ROI"):
+                ledger.place_ticket(
+                    "2026-07-14",
+                    ticket,
+                    0.01,
+                    datetime.now(timezone.utc).isoformat(),
+                )
+
+    def test_placed_ticket_has_verified_append_only_n1bet_price_ids(self):
+        candidates = stress_safe_ticket_candidates()
         ticket = select_quoted_ticket(
             candidates,
             {"1:BTTS": 1.50, "2:BTTS": 1.50},
@@ -2788,13 +3148,9 @@ class ChallengeLedgerTests(unittest.TestCase):
             )
 
     def test_ticket_rejects_quote_observation_from_another_candidate(self):
-        candidates = [
-            candidate("1:BTTS", 1, 0.70),
-            candidate("2:BTTS", 2, 0.69),
-        ]
+        candidates = stress_safe_ticket_candidates()
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "challenge.db"
-            ledger = ChallengeLedger(db_path)
             captured = datetime.now(timezone.utc)
             price_ledger = PriceLedger(db_path)
             observations = price_ledger.append_many(
@@ -2815,6 +3171,7 @@ class ChallengeLedgerTests(unittest.TestCase):
                 ],
                 now=captured,
             )
+            ledger = ChallengeLedger(db_path)
             ticket = select_quoted_ticket(
                 candidates,
                 {"1:BTTS": 1.50, "2:BTTS": 1.50},
@@ -2833,7 +3190,7 @@ class ChallengeLedgerTests(unittest.TestCase):
                 )
 
     def test_place_and_win_are_cent_accurate_and_idempotent(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
+        candidates = stress_safe_ticket_candidates()
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
         self.assertIsNotNone(ticket)
 
@@ -2859,26 +3216,133 @@ class ChallengeLedgerTests(unittest.TestCase):
             self.assertEqual(ledger.settings()["current_balance"], expected_balance)
 
     def test_played_odds_drive_the_real_payout(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
+        candidates = stress_safe_ticket_candidates()
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
         self.assertIsNotNone(ticket)
 
         with tempfile.TemporaryDirectory() as tmp:
             ledger = ChallengeLedger(Path(tmp) / "challenge.db")
             ledger.set_stake_fraction(0.25)
+            stake = ticket_stake(ticket, 100.0, 0.25)
             ticket_id = ledger.place_ticket(
                 "2026-07-14",
                 ticket,
-                25.0,
+                stake,
                 datetime.now(timezone.utc).isoformat(),
                 played_odds=2.40,
+                played_leg_odds=[1.60, 1.50],
             )
 
             stored = ledger.get_ticket(ticket_id)
             self.assertEqual(stored["reference_total_odds"], 2.25)
-            self.assertEqual(stored["total_odds"], 2.40)
+            self.assertAlmostEqual(stored["total_odds"], 2.40)
+            self.assertAlmostEqual(
+                stored["expected_roi"],
+                stored["joint_probability"] * 2.40 - 1.0,
+            )
+            self.assertEqual(
+                [leg["played_odds"] for leg in stored["legs"]],
+                [1.60, 1.50],
+            )
             ledger.settle_ticket(ticket_id, "WON")
-            self.assertEqual(ledger.settings()["current_balance"], 135.0)
+            expected = round(100.0 - stake + stake * 2.40, 2)
+            self.assertEqual(ledger.settings()["current_balance"], expected)
+
+    def test_worse_played_price_recalculates_server_risk_cap(self):
+        candidates = [
+            candidate("1:BTTS", 1, 0.80),
+            candidate("2:BTTS", 2, 0.70),
+        ]
+        ticket = select_quoted_ticket(
+            candidates,
+            {"1:BTTS": 1.60, "2:BTTS": 1.80},
+        )
+        self.assertIsNotNone(ticket)
+        self.assertEqual(risk_managed_ticket_stake(ticket, 100.0), 5.0)
+        self.assertEqual(
+            risk_managed_ticket_stake(
+                ticket,
+                100.0,
+                decimal_odds=2.07,
+            ),
+            0.81,
+        )
+        # At 5% this ticket still has positive log growth at the worse price.
+        # The rejection must therefore come from the actual-price Kelly cap.
+        self.assertTrue(
+            ticket_stake_passes_log_growth_gate(
+                ticket,
+                0.05,
+                decimal_odds=2.07,
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            ledger.set_stake_fraction(0.25)
+            verified_at = datetime.now(timezone.utc).isoformat()
+            with self.assertRaisesRegex(ValueError, "risk-managed"):
+                ledger.place_ticket(
+                    "2026-07-14",
+                    ticket,
+                    0.82,
+                    verified_at,
+                    played_odds=2.07,
+                    played_leg_odds=[1.38, 1.50],
+                )
+            ticket_id = ledger.place_ticket(
+                "2026-07-14",
+                ticket,
+                0.81,
+                verified_at,
+                played_odds=2.07,
+                played_leg_odds=[1.38, 1.50],
+            )
+
+        self.assertGreater(ticket_id, 0)
+
+    def test_every_played_leg_needs_value_and_total_must_reconcile(self):
+        candidates = stress_safe_ticket_candidates()
+        ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
+        self.assertIsNotNone(ticket)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            stake = ticket_stake(ticket, 100.0)
+            with self.assertRaisesRegex(ValueError, "played ticket leg"):
+                ledger.place_ticket(
+                    "2026-07-14",
+                    ticket,
+                    stake,
+                    datetime.now(timezone.utc).isoformat(),
+                    played_odds=2.4125,
+                    played_leg_odds=[1.25, 1.93],
+                )
+            with self.assertRaisesRegex(ValueError, "product"):
+                ledger.place_ticket(
+                    "2026-07-14",
+                    ticket,
+                    stake,
+                    datetime.now(timezone.utc).isoformat(),
+                    played_odds=2.40,
+                    played_leg_odds=[1.60, 1.49],
+                )
+
+    def test_market_key_and_settlement_definition_must_match(self):
+        candidates = stress_safe_ticket_candidates()
+        ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
+        self.assertIsNotNone(ticket)
+        ticket.legs[0].candidate.market_key = "TOTAL_OVER_2_5"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            with self.assertRaisesRegex(ValueError, "market identity"):
+                ledger.place_ticket(
+                    "2026-07-14",
+                    ticket,
+                    ticket_stake(ticket, 100.0),
+                    datetime.now(timezone.utc).isoformat(),
+                )
 
     def test_manual_past_win_updates_balance_and_is_labeled(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2916,8 +3380,8 @@ class ChallengeLedgerTests(unittest.TestCase):
                     "WON",
                 )
 
-    def test_fractional_cent_ui_cap_matches_ledger_floor(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
+    def test_fractional_cent_risk_cap_matches_ledger_floor(self):
+        candidates = stress_safe_ticket_candidates()
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
         self.assertIsNotNone(ticket)
         with tempfile.TemporaryDirectory() as tmp:
@@ -2936,16 +3400,24 @@ class ChallengeLedgerTests(unittest.TestCase):
                     25.02,
                     datetime.now(timezone.utc).isoformat(),
                 )
+            risk_managed_maximum = ticket_stake(ticket, 100.05, 0.25)
+            with self.assertRaisesRegex(ValueError, "risk-managed"):
+                ledger.place_ticket(
+                    "2026-07-13",
+                    ticket,
+                    risk_managed_maximum + 0.01,
+                    datetime.now(timezone.utc).isoformat(),
+                )
             ticket_id = ledger.place_ticket(
                 "2026-07-13",
                 ticket,
-                maximum,
+                risk_managed_maximum,
                 datetime.now(timezone.utc).isoformat(),
             )
             self.assertGreater(ticket_id, 0)
 
     def test_only_one_non_void_ticket_per_day(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
+        candidates = stress_safe_ticket_candidates()
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
         self.assertIsNotNone(ticket)
 
@@ -2967,7 +3439,7 @@ class ChallengeLedgerTests(unittest.TestCase):
                 )
 
     def test_open_ticket_blocks_new_placement_even_on_another_date(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
+        candidates = stress_safe_ticket_candidates()
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
         self.assertIsNotNone(ticket)
 
@@ -3005,7 +3477,7 @@ class ChallengeLedgerTests(unittest.TestCase):
             self.assertGreater(second_id, ticket_id)
 
     def test_ledger_recomputes_ticket_math_quote_age_and_challenge_cap(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
+        candidates = stress_safe_ticket_candidates()
         ticket = select_quoted_ticket(candidates, {"1:BTTS": 1.50, "2:BTTS": 1.50})
         self.assertIsNotNone(ticket)
 
@@ -3097,11 +3569,40 @@ class ChallengeLedgerTests(unittest.TestCase):
                     )
                     """
                 )
+                legacy_spec = MARKET_BY_KEY["BTTS_YES"]
+                connection.execute(
+                    """
+                    INSERT INTO challenge_tickets (
+                        analysis_date, created_at, quote_verified_at, settled_at,
+                        status, stake_cents, payout_cents, total_odds,
+                        joint_probability, expected_roi, legs_json
+                    ) VALUES (?, ?, ?, ?, 'LOST', 500, 0, 2.25, 0.40, 0.99, ?)
+                    """,
+                    (
+                        "2026-07-10",
+                        "2026-07-10T08:00:00+00:00",
+                        "2026-07-10T08:00:00+00:00",
+                        "2026-07-10T20:00:00+00:00",
+                        json.dumps(
+                            [
+                                {
+                                    "candidate_id": "legacy:BTTS_YES",
+                                    "fixture_id": 123,
+                                    "market": legacy_spec.market,
+                                    "selection": legacy_spec.selection,
+                                }
+                            ]
+                        ),
+                    ),
+                )
                 connection.commit()
 
             ledger = ChallengeLedger(db_path)
 
             self.assertEqual(ledger.settings()["stake_fraction"], 0.05)
+            self.assertEqual(
+                ledger.settings()["stake_policy_version"], STAKE_POLICY_VERSION
+            )
             ledger.set_stake_fraction(0.25)
             self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
             with closing(sqlite3.connect(db_path)) as connection:
@@ -3113,6 +3614,16 @@ class ChallengeLedgerTests(unittest.TestCase):
                 }
             self.assertIn("played_odds", columns)
             self.assertIn("entry_source", columns)
+            self.assertIn("analysis_timezone", columns)
+            self.assertIn("settlement_odds", columns)
+            self.assertIn("quote_evidence_json", columns)
+            self.assertIn("ticket_definition_hash", columns)
+            migrated = ledger.get_ticket(1)
+            self.assertEqual(migrated["definition_version"], 0)
+            self.assertEqual(migrated["legs"][0]["market_key"], "BTTS_YES")
+            self.assertEqual(migrated["legs"][0]["settlement_rule_version"], 0)
+            self.assertAlmostEqual(migrated["expected_roi"], -0.10)
+            self.assertTrue(migrated["ticket_definition_hash"])
 
     def test_legacy_high_stake_policy_is_reset_and_defensively_capped(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3141,19 +3652,9 @@ class ChallengeLedgerTests(unittest.TestCase):
 
             ledger = ChallengeLedger(db_path)
             self.assertEqual(ledger.settings()["stake_fraction"], 0.05)
-
-            # The legacy CHECK still permits 90%. Every read and money path
-            # must nevertheless enforce the current hard maximum.
-            with closing(sqlite3.connect(db_path)) as connection:
-                connection.execute(
-                    "UPDATE challenge_settings SET stake_fraction_bps=9000 WHERE id=1"
-                )
-                connection.commit()
+            ledger.set_stake_fraction(0.25)
             self.assertEqual(ledger.settings()["stake_fraction"], 0.25)
-            candidates = [
-                candidate("1:BTTS", 1, 0.70),
-                candidate("2:BTTS", 2, 0.69),
-            ]
+            candidates = stress_safe_ticket_candidates()
             ticket = select_quoted_ticket(
                 candidates,
                 {"1:BTTS": 1.50, "2:BTTS": 1.50},
@@ -3167,8 +3668,19 @@ class ChallengeLedgerTests(unittest.TestCase):
                     datetime.now(timezone.utc).isoformat(),
                 )
 
+            # The legacy CHECK still permits 90%, but an out-of-band rewrite
+            # is now authenticated state corruption rather than a value that
+            # a read path may silently clamp and accept.
+            with closing(sqlite3.connect(db_path)) as connection:
+                connection.execute(
+                    "UPDATE challenge_settings SET stake_fraction_bps=9000 WHERE id=1"
+                )
+                connection.commit()
+            with self.assertRaisesRegex(RuntimeError, "financial ledger"):
+                ledger.settings()
+
     def test_transactions_reconcile_exactly_with_current_balance(self):
-        candidates = [candidate("1:BTTS", 1, 0.70), candidate("2:BTTS", 2, 0.69)]
+        candidates = stress_safe_ticket_candidates()
         ticket = select_quoted_ticket(
             candidates,
             {"1:BTTS": 1.50, "2:BTTS": 1.50},
@@ -3196,8 +3708,89 @@ class ChallengeLedgerTests(unittest.TestCase):
             )
             self.assertEqual(
                 ledger.settings()["net_external_funding"],
-                85.0,
+                80.0 + stake,
             )
+
+    def test_reduced_combo_payout_can_be_corrected_and_reversed_append_only(self):
+        candidates = stress_safe_ticket_candidates()
+        ticket = select_quoted_ticket(
+            candidates,
+            {"1:BTTS": 1.50, "2:BTTS": 1.50},
+        )
+        self.assertIsNotNone(ticket)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "challenge.db"
+            ledger = ChallengeLedger(db_path)
+            stake = ticket_stake(ticket, 100.0)
+            ticket_id = ledger.place_ticket(
+                "2026-07-14",
+                ticket,
+                stake,
+                datetime.now(timezone.utc).isoformat(),
+            )
+            reduced_odds = 1.50
+            reduced_payout = float(
+                (Decimal(str(stake)) * Decimal(str(reduced_odds))).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+            )
+
+            settled = ledger.settle_ticket(
+                ticket_id,
+                "WON",
+                settlement_odds=reduced_odds,
+                actual_payout=reduced_payout,
+                reason="Bookmaker voided one combination leg",
+            )
+            self.assertEqual(settled["settlement_odds"], reduced_odds)
+            self.assertEqual(settled["payout"], reduced_payout)
+            self.assertEqual(ledger.settlement_events(ticket_id)[0]["action"], "SETTLE")
+
+            corrected = ledger.correct_settlement(
+                ticket_id,
+                "LOST",
+                reason="Bookmaker later corrected the official market result",
+            )
+            self.assertEqual(corrected["status"], "LOST")
+            self.assertEqual(corrected["payout"], 0.0)
+            self.assertEqual(
+                ledger.settings()["current_balance"],
+                100.0 - stake,
+            )
+
+            reopened = ledger.reverse_settlement(
+                ticket_id,
+                reason="Bookmaker dispute reopened for final manual review",
+            )
+            self.assertEqual(reopened["status"], "PENDING")
+            self.assertEqual(
+                [event["action"] for event in ledger.settlement_events(ticket_id)],
+                ["SETTLE", "CORRECT", "REVERSE"],
+            )
+            connection = sqlite3.connect(db_path)
+            try:
+                with self.assertRaises(sqlite3.DatabaseError):
+                    connection.execute(
+                        "UPDATE challenge_settlement_events SET reason='tampered'"
+                    )
+            finally:
+                connection.close()
+
+    def test_complete_ledger_and_paginated_reads_are_not_truncated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+            for index in range(505):
+                ledger.set_balance(100.0 + (index % 2) / 100.0)
+
+            all_transactions = ledger.transactions()
+            self.assertEqual(len(all_transactions), 506)
+            self.assertEqual(ledger.transaction_count(), 506)
+            first_page = ledger.transactions(limit=25, offset=0)
+            second_page = ledger.transactions(limit=25, offset=25)
+            self.assertEqual(len(first_page), 25)
+            self.assertEqual(len(second_page), 25)
+            self.assertLess(first_page[-1]["id"], second_page[0]["id"])
 
 
 class _SettleProvider:
@@ -3227,7 +3820,7 @@ def _result_fixture(fixture_id, home, away, status="FT"):
 
 def _placed_ticket(ledger, fixture_ids=(1, 2)):
     candidates = [
-        candidate(f"{fid}:BTTS", fid, 0.70 - idx * 0.01)
+        candidate(f"{fid}:BTTS", fid, 0.80 - idx * 0.01)
         for idx, fid in enumerate(fixture_ids)
     ]
     ticket = select_quoted_ticket(
@@ -3284,7 +3877,7 @@ class AutoSettleTests(unittest.TestCase):
             self.assertEqual(summary["resets"], 0)
             self.assertEqual(ledger.get_ticket(ticket_id)["status"], "LOST")
             settings = ledger.settings()
-            self.assertEqual(settings["current_balance"], 95.0)
+            self.assertEqual(settings["current_balance"], 100.0 - _stake)
             self.assertEqual(settings["starting_balance"], 100.0)
 
     def test_running_and_aet_games_stay_open(self):
@@ -3307,7 +3900,7 @@ class AutoSettleTests(unittest.TestCase):
                     ledger.settings()["current_balance"], 100.0 - stake, status
                 )
 
-    def test_all_void_legs_voids_ticket_and_returns_stake(self):
+    def test_void_like_provider_statuses_stay_open_for_bookmaker_confirmation(self):
         from challenge_15k import auto_settle_open_tickets
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -3320,9 +3913,13 @@ class AutoSettleTests(unittest.TestCase):
                 }
             )
             summary = auto_settle_open_tickets(ledger, provider)
-            self.assertEqual(summary["void"], 1)
-            self.assertEqual(ledger.get_ticket(ticket_id)["status"], "VOID")
-            self.assertEqual(ledger.settings()["current_balance"], 100.0)
+            self.assertEqual(summary["void"], 0)
+            self.assertEqual(summary["open"], 1)
+            self.assertEqual(ledger.get_ticket(ticket_id)["status"], "PENDING")
+            self.assertEqual(
+                ledger.settings()["current_balance"],
+                100.0 - _stake,
+            )
 
     def test_api_cap_keeps_ticket_open(self):
         from challenge_15k import auto_settle_open_tickets
@@ -3420,7 +4017,7 @@ def _corner_stats_response(home_id, away_id, corners_home, corners_away):
 
 
 def _corner_candidate(fixture_id):
-    item = candidate(f"{fixture_id}:CORNERS_OVER_9_5", fixture_id, 0.70)
+    item = candidate(f"{fixture_id}:CORNERS_OVER_9_5", fixture_id, 0.80)
     item.market_key = "CORNERS_OVER_9_5"
     item.market = "Eckbälle: Gesamtzahl"
     item.selection = "Über 9.5"
@@ -3662,7 +4259,7 @@ class AutomaticReferenceTicketTests(unittest.TestCase):
         item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))
         quote = reference_quote_for(item, now)
 
-        ticket, statuses = _automatic_challenge_ticket(
+        ticket, statuses, approved_quotes = _automatic_challenge_ticket(
             [item],
             {item.candidate_id: quote},
             now=now,
@@ -3671,7 +4268,102 @@ class AutomaticReferenceTicketTests(unittest.TestCase):
         self.assertIsNotNone(ticket)
         self.assertEqual(statuses[item.candidate_id].code, "PLAYABLE")
         self.assertEqual(ticket.legs[0].quote_source, quote.source)
-        self.assertAlmostEqual(ticket.legs[0].odds, quote.conservative_odds)
+        self.assertIsNotNone(quote.executable_point)
+        self.assertAlmostEqual(
+            ticket.legs[0].odds,
+            quote.executable_point.odds,
+        )
+        self.assertNotAlmostEqual(
+            ticket.legs[0].odds,
+            quote.conservative_odds,
+        )
+        self.assertAlmostEqual(
+            ticket.legs[0].quote_low,
+            quote.executable_point.odds,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = ChallengeLedger(Path(tmpdir) / "challenge.db")
+            ledger.set_stake_fraction(0.25)
+            stake = ticket_stake(ticket, 100.0, 0.25)
+            ticket_id = ledger.place_ticket(
+                now.date().isoformat(),
+                ticket,
+                stake,
+                now.isoformat(),
+                reference_quote_evidence={
+                    item.candidate_id: approved_quotes[
+                        item.candidate_id
+                    ].to_dict()
+                },
+            )
+            stored = ledger.get_ticket(ticket_id)
+
+        self.assertIsNone(stored["legs"][0]["quote_observation_id"])
+        self.assertEqual(stored["legs"][0]["quote_source"], quote.source)
+        self.assertEqual(stored["legs"][0]["bookmaker_count"], 4)
+        self.assertAlmostEqual(
+            stored["legs"][0]["reference_odds"],
+            quote.executable_point.odds,
+        )
+        self.assertEqual(len(stored["quote_evidence"][0]["points"]), 4)
+        self.assertTrue(stored["quote_evidence_hash"])
+        self.assertTrue(stored["ticket_definition_hash"])
+        self.assertEqual(stored["legs"][0]["market_key"], item.market_key)
+        self.assertEqual(stored["legs"][0]["market_kind"], "btts")
+        self.assertEqual(stored["definition_version"], TICKET_DEFINITION_VERSION)
+        self.assertEqual(
+            stored["settlement_rule_version"], SETTLEMENT_RULE_VERSION
+        )
+
+        tampered_evidence = quote.to_dict()
+        tampered_evidence["points"][0]["odds"] = 9.99
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = ChallengeLedger(Path(tmpdir) / "challenge.db")
+            with self.assertRaisesRegex(ValueError, "summary"):
+                ledger.place_ticket(
+                    now.date().isoformat(),
+                    ticket,
+                    ticket_stake(ticket, 100.0),
+                    now.isoformat(),
+                    reference_quote_evidence={
+                        item.candidate_id: tampered_evidence
+                    },
+                )
+
+    def test_playable_ticket_persists_only_the_fresh_approved_consensus(self):
+        now = datetime.now(timezone.utc)
+        item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))
+        quote = reference_quote_for(item, now)
+        stale_point = replace(
+            quote.points[0],
+            odds=9.99,
+            observed_at=(now - timedelta(minutes=46)).isoformat(),
+        )
+        raw_quote = replace(
+            quote,
+            points=(stale_point, *quote.points[1:]),
+            best_odds=9.99,
+        )
+
+        result = _automatic_challenge_ticket(
+            [item],
+            {item.candidate_id: raw_quote},
+            now=now,
+        )
+
+        self.assertEqual(len(result), 3)
+        ticket, statuses, approved_quotes = result
+        self.assertIsNotNone(ticket)
+        self.assertEqual(statuses[item.candidate_id].code, "PLAYABLE")
+        approved = approved_quotes[item.candidate_id]
+        self.assertEqual(approved.bookmaker_count, 3)
+        self.assertEqual(len(approved.points), 3)
+        self.assertNotIn(stale_point.bookmaker_id, {
+            point.bookmaker_id for point in approved.points
+        })
+        self.assertEqual(ticket.legs[0].bookmaker_count, 3)
+        self.assertAlmostEqual(ticket.legs[0].quote_high, 2.20)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             ledger = ChallengeLedger(Path(tmpdir) / "challenge.db")
@@ -3679,21 +4371,115 @@ class AutomaticReferenceTicketTests(unittest.TestCase):
             ticket_id = ledger.place_ticket(
                 now.date().isoformat(),
                 ticket,
-                25.0,
+                ticket_stake(ticket, 100.0, 0.25),
                 now.isoformat(),
+                reference_quote_evidence={
+                    item.candidate_id: approved.to_dict()
+                },
             )
             stored = ledger.get_ticket(ticket_id)
 
-        self.assertIsNone(stored["legs"][0]["quote_observation_id"])
-        self.assertEqual(stored["legs"][0]["quote_source"], quote.source)
-        self.assertEqual(stored["legs"][0]["bookmaker_count"], 4)
+        self.assertEqual(stored["legs"][0]["bookmaker_count"], 3)
+        self.assertEqual(len(stored["quote_evidence"][0]["points"]), 3)
+        self.assertNotIn(stale_point.bookmaker_id, {
+            point["bookmaker_id"]
+            for point in stored["quote_evidence"][0]["points"]
+        })
+
+    def test_reference_without_provider_native_ids_never_builds_ticket(self):
+        now = datetime.now(timezone.utc)
+        item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))
+        quote = reference_quote_for(item, now)
+        unidentified = replace(
+            quote,
+            points=tuple(
+                replace(point, bookmaker_id=None)
+                for point in quote.points
+            ),
+        )
+
+        ticket, statuses, _approved_quotes = _automatic_challenge_ticket(
+            [item],
+            {item.candidate_id: unidentified},
+            now=now,
+        )
+
+        self.assertIsNone(ticket)
+        self.assertEqual(statuses[item.candidate_id].code, "UNAVAILABLE")
+
+    def test_reference_points_cannot_postdate_their_fetch(self):
+        now = datetime.now(timezone.utc)
+        item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))
+        quote = reference_quote_for(item, now)
+        ticket, _statuses, _approved_quotes = _automatic_challenge_ticket(
+            [item],
+            {item.candidate_id: quote},
+            now=now,
+        )
+        self.assertIsNotNone(ticket)
+        impossible_evidence = quote.to_dict()
+        impossible_evidence["fetched_at"] = (
+            now - timedelta(seconds=1)
+        ).isoformat()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = ChallengeLedger(Path(tmpdir) / "challenge.db")
+            with self.assertRaisesRegex(ValueError, "fetch time"):
+                ledger.place_ticket(
+                    now.date().isoformat(),
+                    ticket,
+                    ticket_stake(ticket, 100.0),
+                    now.isoformat(),
+                    reference_quote_evidence={
+                        item.candidate_id: impossible_evidence
+                    },
+                )
+
+    def test_executable_reference_must_exactly_match_one_contributor(self):
+        now = datetime.now(timezone.utc)
+        item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))
+        quote = reference_quote_for(item, now)
+        ticket, _statuses, _approved_quotes = _automatic_challenge_ticket(
+            [item],
+            {item.candidate_id: quote},
+            now=now,
+        )
+        self.assertIsNotNone(ticket)
+        tampered_values = {
+            "bookmaker": "Forged Book",
+            "bookmaker_id": "api-football:forged",
+            "odds": quote.executable_point.odds + 0.01,
+            "observed_at": (
+                now - timedelta(milliseconds=500)
+            ).isoformat(),
+        }
+
+        for field, value in tampered_values.items():
+            with self.subTest(field=field):
+                tampered_evidence = quote.to_dict()
+                tampered_evidence["executable_quote"][field] = value
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    ledger = ChallengeLedger(Path(tmpdir) / "challenge.db")
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "evidenced executable offer",
+                    ):
+                        ledger.place_ticket(
+                            now.date().isoformat(),
+                            ticket,
+                            ticket_stake(ticket, 100.0),
+                            now.isoformat(),
+                            reference_quote_evidence={
+                                item.candidate_id: tampered_evidence
+                            },
+                        )
 
     def test_thin_reference_never_builds_15k_ticket(self):
         now = datetime.now(timezone.utc)
         item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))
         quote = reference_quote_for(item, now, odds=("2.10", "2.15"))
 
-        ticket, statuses = _automatic_challenge_ticket(
+        ticket, statuses, _approved_quotes = _automatic_challenge_ticket(
             [item],
             {item.candidate_id: quote},
             now=now,
@@ -3718,7 +4504,7 @@ class AutomaticReferenceTicketTests(unittest.TestCase):
 
         for mismatched in mismatches:
             with self.subTest(mismatch=mismatched):
-                ticket, statuses = _automatic_challenge_ticket(
+                ticket, statuses, _approved_quotes = _automatic_challenge_ticket(
                     [item],
                     {item.candidate_id: mismatched},
                     now=now,
@@ -3729,6 +4515,48 @@ class AutomaticReferenceTicketTests(unittest.TestCase):
                     statuses[item.candidate_id].code,
                     "UNAVAILABLE",
                 )
+
+
+def test_15k_ui_uses_frechet_stress_probability_as_primary_metric():
+    ticket = select_quoted_ticket(
+        stress_safe_ticket_candidates(),
+        {"1:BTTS": 1.50, "2:BTTS": 1.50},
+    )
+
+    assert ticket is not None
+    primary, model_estimate = challenge_15k._ticket_probability_display(ticket)
+    assert primary == ticket.dependence_floor_probability
+    assert model_estimate == ticket.joint_probability
+
+
+def test_15k_ui_green_status_is_bound_to_actual_odds_and_stake():
+    ticket = select_quoted_ticket(
+        stress_safe_ticket_candidates(),
+        {"1:BTTS": 1.50, "2:BTTS": 1.50},
+    )
+
+    assert ticket is not None
+    valid_level, valid_text = challenge_15k._played_ticket_notice(
+        ticket,
+        suggested_stake=5.0,
+        played_total_odds=2.40,
+        played_stake=4.5,
+        price_is_valid=True,
+    )
+    invalid_level, invalid_text = challenge_15k._played_ticket_notice(
+        ticket,
+        suggested_stake=5.0,
+        played_total_odds=1.80,
+        played_stake=25.0,
+        price_is_valid=False,
+    )
+
+    assert valid_level == "success"
+    assert "tatsächlicher Gesamtquote 2.40" in valid_text
+    assert "tatsächlicher Einsatz 4.50" in valid_text
+    assert invalid_level == "info"
+    assert "REFERENZVORSCHLAG" in invalid_text
+    assert "nicht als 15K-Tipp freigegeben" in invalid_text
 
 
 if __name__ == "__main__":

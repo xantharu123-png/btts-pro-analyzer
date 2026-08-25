@@ -29,6 +29,7 @@ from api_budget import (
     api_football_get,
 )
 from challenge_engine import (
+    CHALLENGE_MODEL_CONTRACT_SIGNATURE,
     ChallengeCandidate,
     COUNT_MARKET_KINDS,
     MARKET_BY_KEY,
@@ -63,9 +64,11 @@ from challenge_engine import (
     select_wettfinder_catalog,
     risk_managed_ticket_stake,
     ticket_stake,
+    ticket_stake_passes_log_growth_gate,
+    ticket_stress_probability,
 )
 from challenge_model_cache import load_model_artifact, save_model_artifact
-from challenge_store import ChallengeLedger
+from challenge_store import ChallengeLedger, SETTLEMENT_RULE_VERSION
 from config_loader import load_app_config
 from date_context import ZURICH_TIMEZONE, german_day_label, zurich_today
 from ui_components import (
@@ -83,24 +86,21 @@ from market_consensus import (
     fetch_football_consensus,
     reference_price_status,
     serialize_consensus_map,
+    wettfinder_consensus,
+    wettfinder_reference_price_status,
 )
 from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 18
+CHALLENGE_SNAPSHOT_VERSION = 19
 CHALLENGE_WORKSPACE_VERSION = 11
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
-CHALLENGE_SPORT_OPTIONS = (
-    "Alle",
-    "Fußball",
-    "Tennis",
-    "Basketball",
-    "Eishockey",
-    "Cricket",
-    "E-Sport",
-)
+# Do not offer a cosmetic sport filter. A 15K sport appears here only after it
+# has the same leakage-free validation, executable-price evidence and
+# settlement contract as football.
+CHALLENGE_SPORT_OPTIONS = ("Fußball",)
 CHALLENGE_ENABLED_SPORTS = ("Fußball",)
 API_TAIL_DAYS = 7  # Frische-Tail: API-FT-Ergebnisse über die CSV-Historie legen
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
@@ -116,7 +116,7 @@ MAX_FEATURED_FORECASTS = 3
 MAX_SCAN_FIXTURES = 1200
 MAX_SCAN_HORIZON_DAYS = 14
 WEATHER_CONTEXT_HORIZON_DAYS = 5
-SNAPSHOT_MAX_AGE_MINUTES = 20
+SNAPSHOT_MAX_AGE_MINUTES = 40
 XG_MAX_NEW_CALLS_PER_SCAN = 12
 CONTINENTAL_LEAGUE_IDS = frozenset({2, 3, 848})
 DOMESTIC_HISTORY_LAST_FIXTURES = 60
@@ -162,7 +162,7 @@ MARKET_KIND_DETAILS = {
 # Explicitly bump this value only when probability, validation or calibration
 # semantics change. Context-only policy edits must not invalidate the costly
 # walk-forward artifacts.
-CHALLENGE_MODEL_SIGNATURE = "challenge-engine:9d0d520bdaed83095d75"
+CHALLENGE_MODEL_SIGNATURE = CHALLENGE_MODEL_CONTRACT_SIGNATURE
 
 
 def _challenge_today(now: Optional[datetime] = None) -> date:
@@ -450,20 +450,36 @@ def _segmented(label: str, options: list[str], key: str, default: str) -> str:
 
 
 def _challenge_sports_for_selection(sport: str) -> tuple[str, ...]:
-    if sport == "Alle":
-        return CHALLENGE_ENABLED_SPORTS
     if sport not in CHALLENGE_SPORT_OPTIONS:
         raise ValueError(f"Unbekannte Sportart: {sport}")
     return (sport,) if sport in CHALLENGE_ENABLED_SPORTS else ()
 
 
-def _format_time(value: Optional[str]) -> str:
-    if not value:
-        return "n/a"
+def _zurich_datetime(value: Any) -> Optional[datetime]:
+    """Parse a stored instant without ever consulting the host timezone."""
+    if value in (None, ""):
+        return None
     try:
-        return datetime.fromisoformat(value).astimezone().strftime("%d.%m.%Y %H:%M")
-    except (TypeError, ValueError):
-        return str(value)
+        moment = (
+            value
+            if isinstance(value, datetime)
+            else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        )
+        # Old snapshots may contain a naive timestamp. BetBoy has always stored
+        # operational timestamps as UTC, so interpret that legacy shape
+        # explicitly instead of letting ``astimezone()`` use the VPS timezone.
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        return moment.astimezone(CHALLENGE_TIMEZONE)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _format_time(value: Any) -> str:
+    if value in (None, ""):
+        return "n/a"
+    moment = _zurich_datetime(value)
+    return moment.strftime("%d.%m.%Y %H:%M") if moment is not None else str(value)
 
 
 def _format_euro(value: float) -> str:
@@ -1123,7 +1139,13 @@ class ChallengeDataProvider:
                 else None
             )
         except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
-            self.errors.append(f"Wetter {city}: {exc}")
+            # Requests exception strings may include the fully prepared URL,
+            # including the OpenWeather ``appid`` query parameter.  Persist
+            # only the failure class so API keys can never reach logs or the
+            # consumer diagnostics artifact.
+            self.errors.append(
+                f"Wetter {city}: Abruf fehlgeschlagen ({type(exc).__name__})"
+            )
             self._weather_cache[cache_key] = None
             return None
         if not isinstance(forecasts, list):
@@ -1409,6 +1431,21 @@ def _ranked_fixture_ids(
     ]
 
 
+def _context_and_discovery_fixture_ids(
+    candidates: list[ChallengeCandidate],
+) -> tuple[list[int], list[int]]:
+    """Return the immediate context batch and the complete refresh pool."""
+    fixture_count = len({candidate.fixture_id for candidate in candidates})
+    discovery_fixture_ids = _ranked_fixture_ids(
+        candidates,
+        limit=fixture_count,
+    )
+    return (
+        discovery_fixture_ids[:MAX_CONTEXT_FIXTURES],
+        discovery_fixture_ids,
+    )
+
+
 def _context_scope_facts(
     candidates: list[ChallengeCandidate],
     context_fixture_ids: list[int],
@@ -1663,6 +1700,61 @@ def _candidate_kickoff(candidate: ChallengeCandidate) -> Optional[datetime]:
     return kickoff.astimezone(timezone.utc)
 
 
+def _load_scheduled_challenge_snapshot(
+    scope: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Load the server-timer result without starting another provider scan."""
+    try:
+        # Local import avoids the module cycle: the automation runner imports
+        # the shared challenge scanner, while this consumer is called only
+        # after both modules have completed initialization.
+        from wettfinder_automation import (
+            build_scheduled_challenge_snapshot,
+            load_state,
+        )
+
+        return build_scheduled_challenge_snapshot(
+            load_state(),
+            scope=scope,
+        )
+    except (ImportError, OSError, TypeError, ValueError):
+        return None
+
+
+def _snapshot_moment(snapshot: object) -> Optional[datetime]:
+    if not isinstance(snapshot, dict):
+        return None
+    try:
+        moment = datetime.fromisoformat(
+            str(snapshot.get("scanned_at") or "").replace("Z", "+00:00")
+        )
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        return None
+    return moment.astimezone(timezone.utc)
+
+
+def _prefer_scheduled_snapshot(
+    current: object,
+    scheduled: object,
+    *,
+    scope: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Choose the newer same-scope result while preserving fresh manual work."""
+    if not isinstance(scheduled, dict) or scheduled.get("scope") != scope:
+        return current if isinstance(current, dict) else None
+    if not isinstance(current, dict) or current.get("scope") != scope:
+        return scheduled
+    current_at = _snapshot_moment(current)
+    scheduled_at = _snapshot_moment(scheduled)
+    if scheduled_at is None:
+        return current
+    if current_at is None or scheduled_at > current_at:
+        return scheduled
+    return current
+
+
 def _auto_recheck_eligible(snapshot: Any, search_date: date) -> bool:
     """Auto-Nachprüfung nur im Wartezustand: nichts freigegeben, aber
     mathematisch tragfähige Kandidaten vorhanden — und nur für heute,
@@ -1673,6 +1765,22 @@ def _auto_recheck_eligible(snapshot: Any, search_date: date) -> bool:
         and bool(snapshot.get("base_shortlist"))
         and search_date == _challenge_today()
     )
+
+
+@st.fragment(run_every=AUTO_RECHECK_POLL_SECONDS)
+def _scheduled_challenge_refresh_fragment(scope: dict[str, Any]) -> None:
+    """Reflect a newer systemd result while the 15K page remains open."""
+    scheduled = _load_scheduled_challenge_snapshot(scope)
+    current = st.session_state.get("challenge_snapshot")
+    preferred = _prefer_scheduled_snapshot(
+        current,
+        scheduled,
+        scope=scope,
+    )
+    if preferred is scheduled and scheduled is not current:
+        st.session_state["challenge_snapshot"] = scheduled
+        st.session_state.pop("challenge_quote_result", None)
+        st.rerun()
 
 
 def _auto_recheck_scope_allowed(league_ids: list[int]) -> bool:
@@ -2302,11 +2410,18 @@ def scan_daily_challenge(
                 context_candidates.append(candidate)
             else:
                 deferred_context_fixture_ids.add(candidate.fixture_id)
-    context_fixture_ids = _ranked_fixture_ids(context_candidates)
+    context_fixture_ids, discovery_fixture_ids = (
+        _context_and_discovery_fixture_ids(context_candidates)
+    )
+    discovery_fixture_count = len(discovery_fixture_ids)
+    # The foreground scan verifies a bounded first batch so it stays
+    # responsive.  The complete price-independent candidate pool is persisted
+    # below; the systemd timer then refreshes every near-kickoff batch without
+    # requiring the page or a second league scan.
     if progress_cb:
         progress_cb(
             0.85,
-            f"Live-Kontext für {len(context_fixture_ids)} Top-Spiele",
+            f"Pflichtkontext: erster Stapel mit {len(context_fixture_ids)} Spielen",
         )
     injuries = provider.injuries_by_fixture(context_fixture_ids) if context_fixture_ids else {}
     details = provider.details_by_fixture(context_fixture_ids) if context_fixture_ids else {}
@@ -2340,7 +2455,7 @@ def scan_daily_challenge(
             reason = (
                 "Pflichtkontext liegt noch außerhalb des Fünf-Tage-Fensters"
                 if candidate.fixture_id in deferred_context_fixture_ids
-                else "Nicht in der begrenzten Kontext-Shortlist"
+                else "Pflichtkontext wird im Hintergrund nachgeladen"
             )
             candidate.context = {
                 "passed": False,
@@ -2392,7 +2507,7 @@ def scan_daily_challenge(
     base_shortlist = sorted(base_candidates, key=_candidate_rank, reverse=True)[:10]
     discovery_candidates = _discovery_candidate_pool(
         base_candidates,
-        context_fixture_ids,
+        discovery_fixture_ids,
     )
     diagnostics = _scan_candidate_diagnostics(
         all_candidates,
@@ -2454,6 +2569,7 @@ def scan_daily_challenge(
             }
         ),
         "base_candidates": len(base_candidates),
+        "discovery_fixture_count": discovery_fixture_count,
         "context_fixtures": len(context_fixture_ids),
         "deferred_context_fixtures": len(deferred_context_fixture_ids),
         "context_checked_at": (
@@ -2726,7 +2842,7 @@ def count_stats_from_response(
 # ("AET"/"PEN") wertet der Buchmacher für 90-Minuten-Märkte anders — diese
 # Tickets bleiben zur manuellen Abrechnung offen.
 SETTLED_STATUSES = {"FT"}
-VOID_STATUSES = {"PST", "CANC", "ABD", "AWD", "WO"}
+MANUAL_REVIEW_STATUSES = {"PST", "CANC", "ABD", "AWD", "WO"}
 
 
 def _spec_by_market_selection() -> dict[tuple[str, str], MarketSpec]:
@@ -2744,9 +2860,9 @@ def auto_settle_open_tickets(
 ) -> dict[str, int]:
     """Settle pending challenge tickets against final API results.
 
-    A loss remains a real loss. AET/PEN results and mixed void/decided tickets
-    stay open for manual settlement. Never raises: settlement must not break
-    the UI.
+    A loss remains a real loss. Provider postponement/cancellation/abandonment,
+    awarded/walkover states and AET/PEN are not bookmaker settlement rules;
+    they stay open until the user confirms the actual credited payout.
     """
     summary = {"won": 0, "lost": 0, "void": 0, "open": 0, "resets": 0}
     try:
@@ -2821,14 +2937,28 @@ def auto_settle_open_tickets(
             continue
         leg_wins = 0
         leg_losses = 0
-        leg_voids = 0
         undecided = False
         for leg in legs:
-            spec = spec_by_key.get(
-                (str(leg.get("market", "")), str(leg.get("selection", "")))
-            )
+            market_key = str(leg.get("market_key") or "")
+            spec = MARKET_BY_KEY.get(market_key)
+            if spec is None:
+                # Legacy records may lack a persisted key. They remain manual:
+                # inferring settlement semantics after placement is unsafe.
+                spec = spec_by_key.get(
+                    (str(leg.get("market", "")), str(leg.get("selection", "")))
+                )
             fixture_id = leg.get("fixture_id")
-            if spec is None or fixture_id is None:
+            if (
+                spec is None
+                or fixture_id is None
+                or leg.get("settlement_rule_version") != SETTLEMENT_RULE_VERSION
+                or leg.get("market_key") != spec.key
+                or leg.get("market_kind") != spec.kind
+                or leg.get("market_side") != spec.side
+                or leg.get("market_threshold") != spec.threshold
+                or leg.get("market_low") != spec.low
+                or leg.get("market_high") != spec.high
+            ):
                 undecided = True
                 break
             details = fixture_details(int(fixture_id))
@@ -2839,9 +2969,9 @@ def auto_settle_open_tickets(
             status = str(
                 (fixture_data.get("status") or {}).get("short", "")
             ).upper()
-            if status in VOID_STATUSES:
-                leg_voids += 1
-                continue
+            if status in MANUAL_REVIEW_STATUSES:
+                undecided = True
+                break
             if status not in SETTLED_STATUSES:
                 undecided = True
                 break
@@ -2873,17 +3003,21 @@ def auto_settle_open_tickets(
             summary["open"] += 1
             continue
         try:
-            if leg_voids == len(legs):
-                ledger.settle_ticket(int(ticket["id"]), "VOID")
-                summary["void"] += 1
-            elif leg_voids:
-                # Gemischt entschieden/storniert: manuelle Abrechnung.
-                summary["open"] += 1
-            elif leg_losses == 0 and leg_wins == len(legs):
-                ledger.settle_ticket(int(ticket["id"]), "WON")
+            if leg_losses == 0 and leg_wins == len(legs):
+                ledger.settle_ticket(
+                    int(ticket["id"]),
+                    "WON",
+                    source="AUTO_PROVIDER_FT",
+                    reason="All persisted legs settled from verified FT data",
+                )
                 summary["won"] += 1
             else:
-                ledger.settle_ticket(int(ticket["id"]), "LOST")
+                ledger.settle_ticket(
+                    int(ticket["id"]),
+                    "LOST",
+                    source="AUTO_PROVIDER_FT",
+                    reason="At least one persisted leg lost on verified FT data",
+                )
                 summary["lost"] += 1
         except Exception:
             summary["open"] += 1
@@ -2953,6 +3087,45 @@ CHALLENGE_RESULT_LABELS = {
     "LOST": "Verloren",
     "VOID": "Storniert",
 }
+DEFAULT_MANUAL_SETTLEMENT_REASON = (
+    "User confirmed result and bookmaker credit in UI"
+)
+
+
+def _manual_settlement_reason(value: Any) -> str:
+    """Return a compact, auditable first-settlement reason."""
+    normalized = " ".join(str(value or "").split())
+    if len(normalized) > 500:
+        raise ValueError("Der Abrechnungsgrund darf höchstens 500 Zeichen haben.")
+    return normalized or DEFAULT_MANUAL_SETTLEMENT_REASON
+
+
+def _manual_history_result(
+    result: Any,
+    actual_payout: Any,
+) -> tuple[str, Optional[float]]:
+    """Map the historical-result UI and require the real winning credit."""
+    statuses = {
+        "Gewonnen": "WON",
+        "Verloren": "LOST",
+        "Storniert": "VOID",
+    }
+    status = statuses.get(result)
+    if status is None:
+        raise ValueError("Bitte das Ergebnis laut Buchmacher auswählen.")
+    if status != "WON":
+        return status, None
+    if isinstance(actual_payout, bool):
+        raise ValueError("Bei einem Gewinn ist die tatsächliche Gutschrift erforderlich.")
+    try:
+        payout = float(actual_payout)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            "Bei einem Gewinn ist die tatsächliche Gutschrift erforderlich."
+        ) from exc
+    if not math.isfinite(payout) or payout <= 0.0:
+        raise ValueError("Bei einem Gewinn ist die tatsächliche Gutschrift erforderlich.")
+    return status, payout
 
 
 def _ticket_description(ticket: dict[str, Any]) -> str:
@@ -2995,17 +3168,60 @@ def _render_pending_ticket_actions(
             f"Gesamtquote {ticket['total_odds']:.2f} · "
             f"mögliche Auszahlung {_format_euro(ticket['stake'] * ticket['total_odds'])}"
         )
-        result = _segmented(
-            "Ergebnis",
+        result = st.selectbox(
+            "Ergebnis laut Buchmacher",
             ["Gewonnen", "Verloren", "Storniert"],
-            f"{key_prefix}_settlement",
-            "Gewonnen",
+            index=None,
+            placeholder="Bitte Ergebnis auswählen",
+            key=f"{key_prefix}_settlement",
+        )
+        settlement_odds = None
+        actual_payout = None
+        if result == "Gewonnen":
+            settlement_odds = st.number_input(
+                "Tatsächliche Auszahlungsquote",
+                min_value=1.01,
+                max_value=1000.0,
+                value=float(ticket["total_odds"]),
+                step=0.01,
+                format="%.2f",
+                key=f"{key_prefix}_settlement_odds",
+                help=(
+                    "Bei stornierten Kombi-Legs die vom Buchmacher reduzierte "
+                    "Quote eintragen."
+                ),
+            )
+            actual_payout = st.number_input(
+                "Tatsächliche Buchmacher-Gutschrift",
+                min_value=0.01,
+                max_value=1_000_000.0,
+                value=round(float(ticket["stake"]) * settlement_odds, 2),
+                step=0.01,
+                format="%.2f",
+                key=f"{key_prefix}_settlement_payout",
+            )
+        settlement_reason_input = st.text_input(
+            "Abrechnungsgrund / Legstatus (optional)",
+            max_chars=500,
+            placeholder=(
+                "z. B. Auswahl 2 storniert; Auswahl 1 gewonnen"
+            ),
+            help=(
+                "Bei einer teilweise stornierten Kombi hier festhalten, welche "
+                "Auswahl der Buchmacher wie abgerechnet hat."
+            ),
+            key=f"{key_prefix}_settlement_reason",
+        )
+        confirmed = st.checkbox(
+            "Ich habe Ergebnis und gegebenenfalls Gutschrift beim Buchmacher geprüft.",
+            key=f"{key_prefix}_settlement_confirmed",
         )
         if st.button(
             "Ergebnis verbuchen",
             type="primary",
             width="stretch",
             key=f"{key_prefix}_settle_button",
+            disabled=result is None or not confirmed,
         ):
             status = {
                 "Gewonnen": "WON",
@@ -3013,7 +3229,14 @@ def _render_pending_ticket_actions(
                 "Storniert": "VOID",
             }[result]
             try:
-                settled = ledger.settle_ticket(int(ticket["id"]), status)
+                settled = ledger.settle_ticket(
+                    int(ticket["id"]),
+                    status,
+                    settlement_odds=settlement_odds,
+                    actual_payout=actual_payout,
+                    source="MANUAL_CONFIRMED",
+                    reason=_manual_settlement_reason(settlement_reason_input),
+                )
                 balance = ledger.settings()["current_balance"]
                 st.session_state["challenge_ledger_notice"] = (
                     f"Ticket #{settled['id']} als {result.lower()} verbucht. "
@@ -3073,10 +3296,27 @@ def _render_manual_result_dialog(ledger: ChallengeLedger) -> None:
             step=0.01,
             format="%.2f",
         )
-        result = st.radio(
-            "Ergebnis",
+        result = st.selectbox(
+            "Ergebnis laut Buchmacher",
             ["Gewonnen", "Verloren", "Storniert"],
-            horizontal=True,
+            index=None,
+            placeholder="Bitte Ergebnis auswählen",
+        )
+        actual_payout = st.number_input(
+            "Tatsächliche Buchmacher-Gutschrift bei Gewinn",
+            min_value=0.0,
+            max_value=1_000_000.0,
+            value=0.0,
+            step=0.01,
+            format="%.2f",
+            help=(
+                "Bei einem Gewinn die effektiv gutgeschriebene Summe inklusive "
+                "Einsatz eintragen. Bei verloren oder storniert wird dieses Feld "
+                "nicht verwendet."
+            ),
+        )
+        confirmed = st.checkbox(
+            "Ich habe Datum, Einsatz, Quote, Ergebnis und Gutschrift beim Buchmacher geprüft."
         )
         submitted = st.form_submit_button(
             "Wette nachtragen",
@@ -3089,19 +3329,21 @@ def _render_manual_result_dialog(ledger: ChallengeLedger) -> None:
     )
     if not submitted:
         return
-
-    status = {
-        "Gewonnen": "WON",
-        "Verloren": "LOST",
-        "Storniert": "VOID",
-    }[result]
+    if not confirmed:
+        st.warning("Bitte die geprüften Buchmacherdaten ausdrücklich bestätigen.")
+        return
     try:
+        status, verified_actual_payout = _manual_history_result(
+            result,
+            actual_payout,
+        )
         ticket_id = ledger.record_manual_result(
             bet_date.isoformat(),
             description,
             stake,
             total_odds,
             status,
+            actual_payout=verified_actual_payout,
         )
         balance = ledger.settings()["current_balance"]
         st.session_state["challenge_ledger_notice"] = (
@@ -3253,7 +3495,10 @@ def _render_equity_curve(ledger: ChallengeLedger, settings: dict[str, Any]) -> N
         )
         return
 
-    times = [item["created_at"] for item in transactions]
+    times = [
+        _zurich_datetime(item["created_at"]) or item["created_at"]
+        for item in transactions
+    ]
     balances = [float(item["balance_after"]) for item in transactions]
     marker_colors = []
     for item in transactions:
@@ -3341,7 +3586,7 @@ def _render_history(ledger: ChallengeLedger) -> None:
                 pd.DataFrame(
                     [
                         {
-                            "Zeit": item["created_at"],
+                            "Zeit": _format_time(item["created_at"]),
                             "Art": item["kind"],
                             "Betrag €": item["amount"],
                             "Saldo €": item["balance_after"],
@@ -3378,17 +3623,121 @@ def _render_history(ledger: ChallengeLedger) -> None:
     st.dataframe(frame, width="stretch", hide_index=True)
 
     _render_pending_ticket_actions(ledger, key_prefix="challenge_history")
+    settled_tickets = [ticket for ticket in tickets if ticket["status"] != "PENDING"]
+    if settled_tickets:
+        with st.expander("Abrechnung korrigieren oder zurücknehmen"):
+            by_label = {
+                f"#{ticket['id']} · {ticket['analysis_date']} · "
+                f"{CHALLENGE_RESULT_LABELS.get(ticket['status'], ticket['status'])}": ticket
+                for ticket in settled_tickets
+            }
+            selected_label = st.selectbox(
+                "Abgerechnetes Ticket",
+                list(by_label),
+                key="challenge_correction_ticket",
+            )
+            selected_ticket = by_label[selected_label]
+            correction_action = st.selectbox(
+                "Aktion",
+                ["Abrechnung korrigieren", "Abrechnung zurücknehmen und wieder öffnen"],
+                index=None,
+                placeholder="Bitte Aktion auswählen",
+                key="challenge_correction_action",
+            )
+            correction_result = None
+            correction_odds = None
+            correction_payout = None
+            if correction_action == "Abrechnung korrigieren":
+                correction_result = st.selectbox(
+                    "Korrektes Ergebnis laut Buchmacher",
+                    ["Gewonnen", "Verloren", "Storniert"],
+                    index=None,
+                    placeholder="Bitte Ergebnis auswählen",
+                    key="challenge_correction_result",
+                )
+                if correction_result == "Gewonnen":
+                    correction_odds = st.number_input(
+                        "Korrekte Auszahlungsquote",
+                        min_value=1.01,
+                        max_value=1000.0,
+                        value=float(
+                            selected_ticket.get("settlement_odds")
+                            or selected_ticket["total_odds"]
+                        ),
+                        step=0.01,
+                        format="%.2f",
+                        key="challenge_correction_odds",
+                    )
+                    correction_payout = st.number_input(
+                        "Korrekte Buchmacher-Gutschrift",
+                        min_value=0.01,
+                        max_value=1_000_000.0,
+                        value=round(
+                            float(selected_ticket["stake"]) * correction_odds,
+                            2,
+                        ),
+                        step=0.01,
+                        format="%.2f",
+                        key="challenge_correction_payout",
+                    )
+            correction_reason = st.text_input(
+                "Begründung",
+                max_chars=500,
+                placeholder="z. B. Buchmacher hat ein Kombi-Leg storniert",
+                key="challenge_correction_reason",
+            )
+            correction_confirmed = st.checkbox(
+                "Ich habe die ursprüngliche Buchung beim Buchmacher erneut geprüft.",
+                key="challenge_correction_confirmed",
+            )
+            action_ready = bool(
+                correction_confirmed
+                and len(correction_reason.strip()) >= 5
+                and correction_action is not None
+                and (
+                    correction_action
+                    == "Abrechnung zurücknehmen und wieder öffnen"
+                    or correction_result is not None
+                )
+            )
+            if st.button(
+                "Korrektur verbuchen",
+                type="primary",
+                disabled=not action_ready,
+                key="challenge_correction_submit",
+            ):
+                try:
+                    if correction_action == "Abrechnung korrigieren":
+                        corrected_status = {
+                            "Gewonnen": "WON",
+                            "Verloren": "LOST",
+                            "Storniert": "VOID",
+                        }[correction_result]
+                        ledger.correct_settlement(
+                            int(selected_ticket["id"]),
+                            corrected_status,
+                            settlement_odds=correction_odds,
+                            actual_payout=correction_payout,
+                            reason=correction_reason,
+                        )
+                    else:
+                        ledger.reverse_settlement(
+                            int(selected_ticket["id"]),
+                            reason=correction_reason,
+                        )
+                    st.session_state["challenge_ledger_notice"] = (
+                        f"Abrechnung von Ticket #{selected_ticket['id']} "
+                        "nachvollziehbar korrigiert."
+                    )
+                    st.rerun()
+                except ValueError as exc:
+                    st.warning(str(exc))
 
 
 def _format_kickoff(raw: str) -> str:
-    """'2026-07-31T18:30:00+00:00' -> '31.07. 20:30' (lokale Zeit)."""
-    try:
-        moment = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-        if moment.tzinfo is None:
-            moment = moment.replace(tzinfo=timezone.utc)
-        return moment.astimezone(CHALLENGE_TIMEZONE).strftime("%d.%m. %H:%M")
-    except (ValueError, TypeError):
-        return str(raw or "?")
+    """'2026-07-31T18:30:00+00:00' -> '31.07. 20:30' in Europe/Zurich."""
+    moment = _zurich_datetime(raw)
+    return moment.strftime("%d.%m. %H:%M") if moment is not None else str(raw or "?")
 
 
 def _recommendation_day_label(
@@ -3679,42 +4028,83 @@ def _automatic_challenge_ticket(
     reference_quotes: dict[str, MarketConsensus],
     *,
     now: Optional[datetime] = None,
-):
-    """Build a ticket only from fresh, exact, conservative market prices."""
+) -> tuple[
+    Optional[QuotedTicket],
+    dict[str, Any],
+    dict[str, MarketConsensus],
+]:
+    """Return ticket, statuses and its exact approved provider evidence."""
+    decision_now = now or datetime.now(timezone.utc)
     odds_by_candidate: dict[str, float] = {}
     metadata_by_candidate: dict[str, dict[str, Any]] = {}
+    approved_quotes: dict[str, MarketConsensus] = {}
     statuses = {}
     for candidate in shortlist:
         quote = reference_quotes.get(candidate.candidate_id)
         if not challenge_quote_matches_candidate(quote, candidate):
             quote = None
-        status = reference_price_status(
+        status = wettfinder_reference_price_status(
             quote,
             candidate.minimum_odds,
-            now=now,
+            candidate=candidate,
+            now=decision_now,
         )
         statuses[candidate.candidate_id] = status
-        if quote is None or status.usable_odds is None:
+        approved_quote = wettfinder_consensus(quote, now=decision_now)
+        if approved_quote is None or status.usable_odds is None:
             continue
+        approved_quotes[candidate.candidate_id] = approved_quote
         odds_by_candidate[candidate.candidate_id] = status.usable_odds
         metadata_by_candidate[candidate.candidate_id] = {
-            "source": quote.source,
-            "quoted_at": quote.quoted_at,
-            "fetched_at": quote.fetched_at,
-            "bookmaker_count": quote.bookmaker_count,
-            # The selected price is the lower quartile. The best price is
-            # retained only as transparent evidence, never for ticket math.
-            "quote_low": quote.conservative_odds,
-            "quote_high": quote.best_odds,
+            "source": approved_quote.source,
+            "quoted_at": approved_quote.quoted_at,
+            "fetched_at": approved_quote.fetched_at,
+            "bookmaker_count": approved_quote.bookmaker_count,
+            # Persist the exact executable offer as the lower edge of the
+            # ticket evidence. Q25 remains an internal consensus threshold,
+            # never a price that a user could actually play.
+            "quote_low": status.usable_odds,
+            "quote_high": approved_quote.best_odds,
         }
     return (
         select_quoted_ticket(
             shortlist,
             odds_by_candidate,
             quote_metadata_by_candidate=metadata_by_candidate,
-            now=now,
+            now=decision_now,
         ),
         statuses,
+        approved_quotes,
+    )
+
+
+def _ticket_probability_display(ticket: Any) -> tuple[float, float]:
+    """Return the decision-grade stress probability before the model estimate."""
+    return ticket_stress_probability(ticket), float(ticket.joint_probability)
+
+
+def _played_ticket_notice(
+    ticket: Any,
+    *,
+    suggested_stake: float,
+    played_total_odds: float,
+    played_stake: float,
+    price_is_valid: bool,
+) -> tuple[str, str]:
+    """Keep the visual tip status bound to the user's actual executable terms."""
+    if price_is_valid:
+        return (
+            "success",
+            f"15K-TIPP: {len(ticket.legs)} Spiel(e) @ tatsächlicher Gesamtquote "
+            f"{played_total_odds:.2f} | tatsächlicher Einsatz {played_stake:.2f} €. "
+            "Auswahl, Modell, Istquote und Isteinsatz bestehen die Prüfungen.",
+        )
+    return (
+        "info",
+        f"REFERENZVORSCHLAG: {len(ticket.legs)} Spiel(e) @ Referenz-Gesamtquote "
+        f"{ticket.total_odds:.2f} | Referenzeinsatz {suggested_stake:.2f} €. "
+        "Die eingegebene Istquote oder der Isteinsatz ist so nicht als "
+        "15K-Tipp freigegeben.",
     )
 
 
@@ -3724,6 +4114,16 @@ def _render_challenge_candidate(
     status,
     index: int,
 ) -> None:
+    best_point = (
+        max(quote.points, key=lambda point: point.odds)
+        if quote is not None and quote.points
+        else None
+    )
+    observed_point = (
+        quote.executable_point
+        if quote is not None and status.code == "PLAYABLE"
+        else best_point
+    )
     st.markdown(f"### {index}. {candidate.market}: {candidate.selection}")
     st.caption(f"{candidate.home_team} vs {candidate.away_team}")
     summary = st.columns(4)
@@ -3741,12 +4141,20 @@ def _render_challenge_candidate(
         ),
     )
     summary[3].metric(
-        "Aktuelle Quote",
-        f"{quote.conservative_odds:.2f}" if quote is not None else "offen",
+        "Beobachtete Anbieterquote",
+        f"{observed_point.odds:.2f}" if observed_point is not None else "offen",
+        help=(
+            f"Tatsächlich beobachtetes Angebot bei {observed_point.bookmaker}. "
+            f"Die interne Konsensschwelle {quote.conservative_odds:.2f} ist nur "
+            "eine Plausibilitätsprüfung und keine angebotene Quote."
+            if observed_point is not None and quote is not None
+            else "Es liegt noch kein exakt passendes Anbieterangebot vor."
+        ),
     )
     if status.code == "PLAYABLE" and quote is not None:
         st.success(
-            f"PASSENDE QUOTE: {quote.conservative_odds:.2f}. Die Auswahl wird "
+            f"PASSENDE ANBIETERQUOTE: {status.usable_odds:.2f} bei "
+            f"{status.bookmaker or 'dem bestätigten Anbieter'}. Die Auswahl wird "
             "erst als 15K-Tagestipp angezeigt, wenn auch das gesamte Ticket passt."
         )
     elif status.code == "BORDERLINE" and quote is not None:
@@ -3757,8 +4165,10 @@ def _render_challenge_candidate(
         )
     elif status.code == "TOO_LOW" and quote is not None:
         st.info(
-            f"MODELL-AUSWAHL BLEIBT: Die beste beobachtete Quote "
-            f"{quote.best_odds:.2f} liegt unter der Value-Grenze "
+            f"MODELL-AUSWAHL BLEIBT: Die beste beobachtete Anbieterquote "
+            f"{quote.best_odds:.2f}"
+            f"{f' bei {best_point.bookmaker}' if best_point is not None else ''} "
+            f"liegt unter der Value-Grenze "
             f"{candidate.minimum_odds:.2f}. Die Grenze ist keine erwartete "
             "Buchmacherquote. Nicht zu diesem Preis spielen."
         )
@@ -3834,10 +4244,23 @@ def _render_price_check(
             max_featured=MAX_FEATURED_FORECASTS,
         )
     )
-    ticket, statuses = _automatic_challenge_ticket(
+    price_decision_now = datetime.now(timezone.utc)
+    ticket, statuses, approved_reference_quotes = _automatic_challenge_ticket(
         price_candidates,
         reference_quotes,
+        now=price_decision_now,
     )
+    display_reference_quotes = {
+        candidate_id: effective_quote
+        for candidate_id, quote in reference_quotes.items()
+        if (
+            effective_quote := wettfinder_consensus(
+                quote,
+                now=price_decision_now,
+            )
+        )
+        is not None
+    }
 
     st.subheader("Auswahlen und Quoten")
     if primary_candidates:
@@ -3864,13 +4287,15 @@ def _render_price_check(
             index = start_index + offset
             status = statuses.get(candidate.candidate_id)
             if status is None:
-                status = reference_price_status(
+                status = wettfinder_reference_price_status(
                     reference_quotes.get(candidate.candidate_id),
                     candidate.minimum_odds,
+                    candidate=candidate,
+                    now=price_decision_now,
                 )
             _render_challenge_candidate(
                 candidate,
-                reference_quotes.get(candidate.candidate_id),
+                display_reference_quotes.get(candidate.candidate_id),
                 status,
                 index,
             )
@@ -3915,17 +4340,26 @@ def _render_price_check(
         )
         return
 
+    current_balance = settings["current_balance"]
+    stake_fraction = settings["stake_fraction"]
+    suggested_stake = ticket_stake(ticket, current_balance, stake_fraction)
+    reference_risk_stake = risk_managed_ticket_stake(ticket, current_balance)
+    if suggested_stake <= 0:
+        st.error("Kein risikoseitig freigegebener Challenge-Einsatz für diesen Tipp.")
+        return
+
     st.subheader("15K-Tagestipp")
+    stress_probability, model_joint_probability = _ticket_probability_display(ticket)
     ticket_metrics = st.columns(4)
     ticket_metrics[0].metric("Spiele", len(ticket.legs))
     ticket_metrics[1].metric("Gesamtquote", f"{ticket.total_odds:.2f}")
     ticket_metrics[2].metric(
-        "Vorsichtige Prognose",
-        f"{ticket.joint_probability * 100:.1f} %",
+        "Vorsichtige Kombi-Chance",
+        f"{stress_probability * 100:.1f} %",
     )
     ticket_metrics[3].metric(
-        "Einsatz",
-        _format_euro(settings["current_balance"] * settings["stake_fraction"]),
+        "Empfohlener Einsatz",
+        _format_euro(suggested_stake),
     )
     st.dataframe(
         pd.DataFrame(
@@ -3948,19 +4382,13 @@ def _render_price_check(
     )
     if len(ticket.legs) > 1:
         st.caption(
-            f"Zusätzlicher Kombi-Modellfehlerabschlag: Faktor "
-            f"{ticket.model_dependency_factor:.3f}. "
-            f"Abhängigkeitsfreie Fréchet-Stressgrenze: "
-            f"{ticket.dependence_floor_probability * 100:.1f} %."
+            f"Zusätzliche Modellschätzung: "
+            f"{model_joint_probability * 100:.1f} %. Für Tipp und Einsatz "
+            f"zählt die vorsichtigere Schätzung, die mögliche Abhängigkeiten "
+            f"zwischen den Spielen berücksichtigt: "
+            f"{stress_probability * 100:.1f} %."
         )
 
-    current_balance = settings["current_balance"]
-    stake_fraction = settings["stake_fraction"]
-    suggested_stake = ticket_stake(ticket, current_balance, stake_fraction)
-    risk_stake = risk_managed_ticket_stake(ticket, current_balance)
-    if suggested_stake <= 0:
-        st.error("Kein verfügbares Challenge-Guthaben für diesen Tipp.")
-        return
     if ledger.pending_tickets():
         st.info(
             "Dieser Tagestipp kann erst als gespielt markiert werden, wenn die "
@@ -3974,8 +4402,7 @@ def _render_price_check(
             + ":".join(leg.candidate.candidate_id for leg in ticket.legs)
         ).encode("utf-8")
     ).hexdigest()[:12]
-    entry_fields = st.columns(2)
-    played_stake = entry_fields[0].number_input(
+    played_stake = st.number_input(
         "Tatsächlicher Einsatz",
         min_value=0.01,
         max_value=challenge_stake_cap(current_balance, stake_fraction),
@@ -3984,25 +4411,46 @@ def _render_price_check(
         format="%.2f",
         key=f"challenge_played_stake_{entry_fingerprint}",
     )
-    played_total_odds = entry_fields[1].number_input(
-        "Tatsächliche Gesamtquote",
-        min_value=1.01,
-        max_value=100.0,
-        value=round(ticket.total_odds, 2),
-        step=0.01,
-        format="%.2f",
-        key=f"challenge_played_odds_{entry_fingerprint}",
+    st.markdown("**Tatsächlich gespielte Quote je Auswahl**")
+    played_leg_odds: list[float] = []
+    for index, leg in enumerate(ticket.legs, start=1):
+        played_leg_odds.append(
+            st.number_input(
+                f"{index}. {leg.candidate.market}: {leg.candidate.selection}",
+                min_value=1.01,
+                max_value=100.0,
+                value=round(float(leg.odds), 2),
+                step=0.01,
+                format="%.2f",
+                key=f"challenge_played_leg_{entry_fingerprint}_{index}",
+            )
+        )
+    played_total_odds = math.prod(played_leg_odds)
+    actual_risk_stake = risk_managed_ticket_stake(
+        ticket,
+        current_balance,
+        decimal_odds=played_total_odds,
     )
+    st.metric("Tatsächliche Gesamtquote", f"{played_total_odds:.4f}")
+    played_leg_rois = [
+        leg.candidate.conservative_probability * odds - 1.0
+        for leg, odds in zip(ticket.legs, played_leg_odds)
+    ]
     actual_fraction = played_stake / current_balance
-    log_growth = (
-        ticket.joint_probability
-        * math.log1p(actual_fraction * (played_total_odds - 1.0))
-        + (1.0 - ticket.joint_probability) * math.log1p(-actual_fraction)
+    log_growth_passed = ticket_stake_passes_log_growth_gate(
+        ticket,
+        actual_fraction,
+        decimal_odds=played_total_odds,
     )
-    played_expected_roi = ticket.joint_probability * played_total_odds - 1.0
+    played_expected_roi = model_joint_probability * played_total_odds - 1.0
+    stress_expected_roi = stress_probability * played_total_odds - 1.0
     price_is_valid = (
         TARGET_ODDS_MIN <= played_total_odds <= TARGET_ODDS_MAX
         and played_expected_roi >= MIN_LEG_EXPECTED_ROI
+        and stress_expected_roi >= MIN_LEG_EXPECTED_ROI
+        and all(roi >= MIN_LEG_EXPECTED_ROI for roi in played_leg_rois)
+        and played_stake <= actual_risk_stake + 1e-9
+        and log_growth_passed
     )
     win_balance = (
         current_balance - played_stake + played_stake * played_total_odds
@@ -4018,45 +4466,65 @@ def _render_price_check(
     stake_metrics[0].metric("Challenge-Einsatz", _format_euro(played_stake))
     stake_metrics[1].metric("Saldo bei Gewinn", _format_euro(win_balance))
     stake_metrics[2].metric("Saldo bei Verlust", _format_euro(loss_balance))
-    stake_metrics[3].metric("Vorsichtiger Einsatz", _format_euro(risk_stake))
+    stake_metrics[3].metric(
+        "Vorsichtiger Einsatz zur Ist-Quote",
+        _format_euro(actual_risk_stake),
+    )
     if wins_remaining is not None and wins_remaining > 0:
-        path_probability = ticket.joint_probability ** wins_remaining
+        path_probability = stress_probability ** wins_remaining
         st.caption(
             f"Bei unveränderter Quote wären {wins_remaining} Siege in Folge bis "
-            f"zum Ziel nötig. Wahrscheinlichkeit dieser Siegesserie laut Modell: "
+            f"zum Ziel nötig. Chance dieser Siegesserie unter derselben "
+            f"vorsichtigen Risikorechnung: "
             f"{path_probability * 100:.4f} %."
         )
-    if log_growth <= 0.0:
+    if not log_growth_passed:
         st.warning(
             "Der gewählte Challenge-Einsatz ist für dieses Risiko zu hoch. "
             "Der niedrigere vorsichtige Einsatz wäre sicherer."
         )
-    elif played_stake > risk_stake:
+    elif played_stake > actual_risk_stake:
         st.warning(
             "Der Challenge-Einsatz liegt über dem vorsichtig berechneten Wert. "
             "Das erhöht das Verlustrisiko deutlich."
         )
-    st.success(
-        f"15K-TIPP: {len(ticket.legs)} Spiel(e) @ Gesamtquote "
-        f"{ticket.total_odds:.2f} | empfohlener Einsatz {suggested_stake:.2f} €. "
-        "Auswahl, Modell und konservativer Marktpreis bestehen die Prüfungen."
+    notice_level, notice = _played_ticket_notice(
+        ticket,
+        suggested_stake=suggested_stake,
+        played_total_odds=played_total_odds,
+        played_stake=played_stake,
+        price_is_valid=price_is_valid,
     )
+    if notice_level == "success":
+        st.success(notice)
+    else:
+        st.info(notice)
+    if not math.isclose(reference_risk_stake, actual_risk_stake, abs_tol=0.01):
+        st.caption(
+            f"Referenz-Einsatz {reference_risk_stake:.2f} €; nach deiner "
+            f"tatsächlichen Quote höchstens {actual_risk_stake:.2f} €."
+        )
     st.caption(
         "Die App platziert keine Wette. Beim eigenen Anbieter müssen Auswahl, "
         "Linie und mindestens die angezeigte Value-Grenze übereinstimmen."
     )
     if not price_is_valid:
         st.warning(
-            "Diese tatsächliche Gesamtquote erfüllt den 15K-Korridor oder den "
-            "konservativen Value-Mindestwert nicht. Sie kann nicht als offizieller "
-            "15K-Tagestipp gespeichert werden."
+            "Diese tatsächliche Quote oder der gewählte Einsatz erfüllt den "
+            "15K-Zielbereich, die vorsichtige Risikoprüfung und die aktuelle "
+            "Einsatzgrenze "
+            "nicht vollständig. Das Ticket kann so nicht gespeichert werden."
         )
+    played_quote_confirmed = st.checkbox(
+        "Ich habe Auswahl, Linie und jede einzelne Quote beim Buchmacher geprüft.",
+        key=f"challenge_played_confirmed_{entry_fingerprint}",
+    )
     if st.button(
         f"Als gespielt markieren und {played_stake:.2f} € abbuchen",
         type="primary",
         width="stretch",
         key="challenge_place_ticket",
-        disabled=not price_is_valid,
+        disabled=not price_is_valid or not played_quote_confirmed,
     ):
         try:
             ticket_id = ledger.place_ticket(
@@ -4065,6 +4533,13 @@ def _render_price_check(
                 played_stake,
                 snapshot.get("price_checked_at") or snapshot["scanned_at"],
                 played_odds=played_total_odds,
+                played_leg_odds=played_leg_odds,
+                reference_quote_evidence={
+                    leg.candidate.candidate_id: approved_reference_quotes[
+                        leg.candidate.candidate_id
+                    ].to_dict()
+                    for leg in ticket.legs
+                },
             )
             st.session_state["challenge_ledger_notice"] = (
                 f"Ticket #{ticket_id} als gespielt markiert. "
@@ -4077,21 +4552,19 @@ def _render_price_check(
 
 def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     config = load_app_config(st)
-    if not config.api_football_key or not config.weather_key:
-        st.error("Die 15K-Suche ist vorübergehend nicht verfügbar.")
-        return
+    manual_scan_available = bool(config.api_football_key and config.weather_key)
     st.caption(
         "BetBoy prüft jede Auswahl und die dazugehörige Quote automatisch."
     )
+    st.markdown("**Sport:** Fußball · vollständig 15K-validiert")
+    st.caption(
+        "Weitere Sportarten erscheinen hier erst, wenn Modell, ausführbare "
+        "Anbieterquote und Abrechnung denselben geprüften Vertrag erfüllen."
+    )
 
-    controls = st.columns(3)
+    sport_scope = "Fußball"
+    controls = st.columns(2)
     with controls[0]:
-        sport_scope = st.selectbox(
-            "Sport",
-            list(CHALLENGE_SPORT_OPTIONS),
-            key="challenge_sport",
-        )
-    with controls[1]:
         date_mode = _segmented(
             "Spieltag",
             ["Heute", "Morgen"],
@@ -4108,7 +4581,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     # über MAX_CONTEXT_FIXTURES gedeckelt; MAX_SCAN_FIXTURES ist nur das
     # technische Sicherheitsventil.
     max_fixtures = MAX_SCAN_FIXTURES
-    controls[2].caption(
+    controls[1].caption(
         "Alle Spiele der gewählten Ligen werden durchsucht."
     )
 
@@ -4119,9 +4592,6 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
             "noch keine 15K-Tipps."
         )
         return
-    if sport_scope == "Alle":
-        st.caption("Aktuell 15K-fähig: Fußball.")
-
     available_ids = list(ALTERNATIVE_MARKET_LEAGUES)
     favorites = [league_id for league_id in DEFAULT_CHALLENGE_LEAGUES if league_id in available_ids]
     all_scope_label = f"Alle ({len(available_ids)})"
@@ -4146,11 +4616,33 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
             key="challenge_selected_leagues",
         )
 
+    current_scope = _scope_signature(selected_leagues, search_date, max_fixtures)
+    scheduled_scope = (
+        search_date == _challenge_today()
+        and sorted(selected_leagues) == sorted(available_ids)
+    )
+    if scheduled_scope:
+        st.caption(
+            "Planmäßiger Serverlauf: heute automatisch alle 30 Minuten. "
+            "Das neueste geprüfte Ergebnis erscheint hier ohne Klick."
+        )
+    elif search_date == _challenge_today():
+        st.caption(
+            "Diese individuelle Liga-Auswahl ist eine manuelle Zusatzsuche. "
+            "Der planmäßige Lauf aktualisiert weiterhin alle Ligen."
+        )
+    if not manual_scan_available:
+        st.info(
+            "Die planmäßigen Serverergebnisse bleiben sichtbar. Eine zusätzliche "
+            "manuelle Live-Suche ist in dieser Sitzung vorübergehend nicht möglich."
+        )
+
     if st.button(
-        "Challenge-Kandidaten finden",
+        "Jetzt zusätzlich neu prüfen" if scheduled_scope else "Jetzt neu prüfen",
         type="primary",
         width="stretch",
         key="run_challenge_scan",
+        disabled=not manual_scan_available,
     ):
         if not selected_leagues:
             st.warning("Mindestens eine Liga auswählen.")
@@ -4178,13 +4670,28 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         scan_jobs.clear_job(_challenge_job_key())
 
     snapshot = st.session_state.get("challenge_snapshot")
+    if scheduled_scope:
+        scheduled_snapshot = _load_scheduled_challenge_snapshot(current_scope)
+        snapshot = _prefer_scheduled_snapshot(
+            snapshot,
+            scheduled_snapshot,
+            scope=current_scope,
+        )
+        if isinstance(snapshot, dict):
+            st.session_state["challenge_snapshot"] = snapshot
     if not isinstance(snapshot, dict):
-        st.info("Noch keine 15K-Suche für diese Auswahl.")
+        if scheduled_scope:
+            st.info(
+                "Der planmäßige Lauf hat für heute noch kein verwendbares "
+                "15K-Ergebnis erzeugt. Der Server prüft automatisch weiter."
+            )
+            _scheduled_challenge_refresh_fragment(current_scope)
+        else:
+            st.info("Noch keine 15K-Suche für diese Auswahl.")
         return
     if snapshot.get("version") != CHALLENGE_SNAPSHOT_VERSION:
         st.warning("Dieses Ergebnis stammt aus einer älteren App-Version. Wetten neu suchen.")
         return
-    current_scope = _scope_signature(selected_leagues, search_date, max_fixtures)
     if snapshot.get("scope") != current_scope:
         st.warning("Datum, Liga oder Prüfumfang wurden seit dem Ergebnis geändert. Wetten neu suchen.")
         return
@@ -4201,24 +4708,29 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     except (KeyError, TypeError, ValueError):
         snapshot_age = float("inf")
     if snapshot_age > SNAPSHOT_MAX_AGE_MINUTES or snapshot_age < -1:
-        if not _auto_recheck_eligible(snapshot, search_date):
-            st.warning(
-                "Dieser Datenstand ist nicht mehr aktuell. Verletzungen, Wetter "
-                "und Anstoßstatus müssen neu geprüft werden."
-            )
-            return
-        st.info(
-            "Dieses Ergebnis wird automatisch neu geprüft, sobald die nötigen "
-            "aktuellen Spieldaten vorliegen."
+        st.warning(
+            "Dieser Datenstand wird gerade erneuert. Die Modellprognosen bleiben "
+            "sichtbar; alte oder fehlende Quoten können keinen Einsatz freigeben."
         )
     _render_price_check(snapshot, ledger, settings)
-    if _auto_recheck_eligible(snapshot, search_date):
+    if scheduled_scope:
+        _scheduled_challenge_refresh_fragment(current_scope)
+    elif (
+        manual_scan_available
+        and _auto_recheck_eligible(snapshot, search_date)
+        and _auto_recheck_scope_allowed(list(selected_leagues))
+    ):
         _challenge_auto_recheck_fragment(
             config.api_football_key,
             config.weather_key,
             list(selected_leagues),
             search_date,
             max_fixtures,
+        )
+    elif _auto_recheck_eligible(snapshot, search_date):
+        st.caption(
+            "Diese große individuelle Auswahl wird nicht im Browser wiederholt. "
+            "Der planmäßige Alle-Ligen-Lauf aktualisiert den Pflichtkontext weiter."
         )
 
 

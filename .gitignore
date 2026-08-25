@@ -26,6 +26,7 @@ models/
 # Laufzeit-Artefakte der Hintergrund-Scans
 scan_jobs/
 challenge_sessions/
+.betboy-ledger-hmac.key
 runtime_reports/
 runtime_state/
 

@@ -10,13 +10,30 @@
   "use strict";
 
   const STORAGE_KEY = "betboy.account.v1";
+  const HTTP_PROTOCOLS = new Set(["http:", "https:"]);
+
+  function trustedParentOrigin() {
+    if (!document.referrer) return null;
+    try {
+      const parentUrl = new URL(document.referrer);
+      if (!HTTP_PROTOCOLS.has(parentUrl.protocol)) return null;
+      // This local Streamlit component is served by the same origin as its
+      // parent. Never turn an arbitrary referrer into a trusted targetOrigin.
+      return parentUrl.origin === window.location.origin ? parentUrl.origin : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  const PARENT_ORIGIN = trustedParentOrigin();
 
   function streamlitMessage(type, extra = {}) {
+    if (!PARENT_ORIGIN) return;
     window.parent.postMessage({
       isStreamlitMessage: true,
       type,
       ...extra,
-    }, "*");
+    }, PARENT_ORIGIN);
   }
 
   function createId() {
@@ -30,17 +47,25 @@
   }
 
   function accountId() {
-    let value = window.localStorage.getItem(STORAGE_KEY);
-    if (!validId(value)) {
-      value = createId();
-      window.localStorage.setItem(STORAGE_KEY, value);
+    try {
+      let value = window.localStorage.getItem(STORAGE_KEY);
+      if (!validId(value)) {
+        value = createId();
+        window.localStorage.setItem(STORAGE_KEY, value);
+      }
+      // A browser can accept setItem while declining persistence. Require a
+      // verified round-trip; an in-memory fallback would orphan later data.
+      return window.localStorage.getItem(STORAGE_KEY) === value ? value : null;
+    } catch (_error) {
+      return null;
     }
-    return value;
   }
 
   window.addEventListener("message", (event) => {
-    const message = event.data || {};
-    if (event.source !== window.parent || message.type !== "streamlit:render") return;
+    if (!PARENT_ORIGIN || event.source !== window.parent || event.origin !== PARENT_ORIGIN) return;
+    const message = event.data;
+    if (!message || typeof message !== "object" || Array.isArray(message)) return;
+    if (message.type !== "streamlit:render") return;
     streamlitMessage("streamlit:setFrameHeight", { height: 0 });
     streamlitMessage("streamlit:setComponentValue", { value: accountId() });
   });

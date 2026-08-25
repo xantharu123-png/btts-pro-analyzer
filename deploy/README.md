@@ -17,13 +17,42 @@ completed with all writers stopped and this package is deployed.
 - Application: `/opt/betboy/app`
 - Python environment: `/opt/betboy/venv`
 - Runtime secrets: `/opt/betboy/app/config.ini` and `/etc/betboy/betboy.env`
+- 15K ledger HMAC key: `/etc/betboy/challenge-ledger-hmac.key`
+  (`root:betboy`, mode `0640`; generated once and never replaced during updates)
+- 15K migration marker: `/etc/betboy/challenge-ledger-v2-migrated.json`
+  (`root:betboy`, mode `0640`; `in_progress` is a durable global runtime stop)
 - Mutable state: `/opt/betboy/app/runtime_state`
 - Generated reports: `/opt/betboy/app/runtime_reports`
-- Local database archives: `/var/backups/betboy`
+- Local database archives: `/var/backups/betboy` (mode `0700`, owned by the
+  non-login `betboy-backup` account; the application account cannot delete or
+  replace archives)
 - Root-protected pre-update archives after the first secure updater run:
   `/var/backups/betboy-update`
 - Reverse proxy: Caddy on ports 80/443
 - Streamlit: loopback only on port 8501
+
+The updater creates the dedicated `betboy-backup` principal only when both its
+user and group are absent. Any partial, unlocked, non-system or otherwise
+unexpected existing principal fails closed; it is never adopted with
+`usermod`. The account has no persistent supplementary groups. Only the
+systemd backup unit receives `SupplementaryGroups=betboy` inside its hardened
+mount namespace. The updater
+installs the reviewed stdlib-only backup helper root-owned below
+`/usr/local/libexec`, migrates existing SQLite source permissions to read-only
+group access, and changes future runtime writers to umask `0027`. The backup
+  unit cannot browse `/etc/betboy` or read `.streamlit`, `.env`, or `config.ini`;
+  its private mount namespace exposes only the ledger HMAC key and migration
+  marker read-only below `/run/betboy-backup`. Every app and writer service has
+  an `ExecCondition` that accepts only a validated `complete` marker. The backup
+  service has no network address family and only receives write access to its
+  private archive directory.
+  Before mutation, the updater snapshots the principal state, exact
+database and parent-directory metadata, archive-directory metadata, Caddy
+bytes and metadata, and the archive inventory. Existing archives are held by
+root-only hard links while writers are stopped, so retention pruning is also
+reversible. `/var/tmp` and `/var/backups` must therefore share a hard-link-
+capable filesystem; the updater checks the device before downtime. A pre-start
+rollback restores and verifies all of that state.
 
 ## Initial installation
 
@@ -110,26 +139,35 @@ target byte-for-byte, uses a root-owned staging clone, and installs both
 allowlisted systemd units from that staging clone. It is fresh-host-only: an
 existing venv or any active BetBoy unit is rejected.
 
+Bootstrap is intentionally fresh-host-only and not crash-resumable. If it is
+interrupted after creating the venv, key, marker, or root-owned files, leave all
+BetBoy units stopped and rebuild or restore the fresh host from reviewed inputs;
+do not bypass its existing-venv/fresh-marker checks. Only a completely finished
+bootstrap may later use the resumable updater.
+
 The 15 allowed unit files are pinned by SHA-256 inside both root deploy tools.
 Whitespace or extra systemd directives therefore fail closed. A legitimate
-future unit change needs a two-release review: first deploy tools which accept
-both the current and next hashes while installing no changed unit, then deploy
-the unit bytes and retire the old hashes. Never weaken this to a wildcard.
+unit change uses two releases. Commit A changes only `deploy/update_server.sh`
+to pin the reviewed next unit hashes while the old updater still validates and
+installs the unchanged predecessor units. Commit B then contains the new unit
+bytes. The bridge updater validates installed predecessor bytes against the
+exact previous Git payload, but validates the target and post-install state
+only against the new pinned hashes. There is no legacy target allowlist and no
+wildcard transition.
 
 ## One-time migration of an existing VPS
 
-Do not rerun bootstrap on an existing installation. Use the operator-owned
-fixed-URL staging procedure from step 3 to install **both** reviewed scripts as
-root-owned `/usr/local/sbin/betboy-bootstrap` and
-`/usr/local/sbin/betboy-update`. Before the first updater run, verify that the
-existing `/etc/systemd/system/betboy-*.service` and `betboy-*.timer` files are
-regular root-owned, non-writable-by-group/others files whose SHA-256 values
-match the byte allowlist in the newly installed updater. `FragmentPath` must
-be the exact `/etc/systemd/system/<unit>` path and `DropInPaths` must be empty
-for every app, timer and worker unit. BetBoy-specific, dash-prefix and global
-type drop-in directories are forbidden across the standard persistent,
-runtime, control and generator search paths; the updater enforces all of these
-checks. Preserve and resolve
+Do not rerun bootstrap on an existing installation and do not overwrite the
+installed root tools manually. Push Commit A while it is the exact `main` tip,
+deploy it through the currently installed updater, and verify that only the
+root updater/app commit changed while all installed units retain their legacy
+hashes. Then push Commit B as the new exact `main` tip and deploy it through the
+bridge updater. Commit B installs the final new-only updater, bootstrap, helper,
+units and application bytes atomically. `FragmentPath` must be the exact
+`/etc/systemd/system/<unit>` path and `DropInPaths` must be empty for every app,
+timer and worker unit. BetBoy-specific, dash-prefix and global type drop-in
+directories are forbidden across the standard persistent, runtime, control and
+generator search paths; the updater enforces all of these checks. Preserve and resolve
 all tracked runtime drift first. For the runtime-split migration, copy the
 current production `tennis/data/model_state.pkl` to
 `runtime_state/tennis/model_state.pkl` and the current weekly HTML to
@@ -154,6 +192,11 @@ full 40-hex commit, then run only the root-owned updater:
 sudo /usr/local/sbin/betboy-update <reviewed-40-hex-main-commit>
 ```
 
+An in-place update requires an active Caddy service and an existing regular,
+root-owned `/etc/caddy/Caddyfile`; fresh hosts use the bootstrap. This makes the
+proxy state byte- and metadata-restorable instead of guessing how to recover a
+missing live configuration.
+
 After the one-time migration and deployment, database files and secrets remain
 ignored by Git and are not changed by updates. The tracked
 `tennis/data/model_state.pkl` then serves only as a read-only packaged seed.
@@ -171,6 +214,31 @@ tools and systemd bytes are installed only from that staging clone and only
 from the explicit allowlist. Application bytes and modes are independently
 manifested from Git blobs, materialized as `betboy`, and verified before the
 app starts; checkout hooks and smudge filters are not used for that step.
+The same update also validates and atomically installs the Caddy policy with
+same-origin frame protection; pre-update unit bytes are checked against the
+previous trusted Git payload so a reviewed systemd migration can be deployed
+without weakening the byte allowlist.
+An `in_progress` marker pins an interrupted deployment to its exact original
+target. Even if `main` has advanced, only an explicit retry for that marker
+target is accepted, and only while it remains an ancestor of current `main`.
+The checkout may contain a crash-consistent mix of predecessor and target files;
+every such file and mode must match one of those two Git manifests exactly.
+Requesting the newer tip is rejected before any target mutation.
+Before new application code starts, the updater runs the hardened backup
+oneshot for real, verifies its SQLite restore, owner, mode, hard-link, complete
+manifest/member inventory and account isolation contracts, and checks that the
+application cannot access the archive.
+It then runs the reviewed 15K migration helper while the app, timers and workers
+remain stopped. The helper scans every challenge database before changing any
+one of them. It requires the exact 72-path production inventory and accepts only
+the five exact, full `sqlite_master` DDL manifests observed across those v0
+ledgers, including legitimate internal objects. Hidden CHECK/default/collation,
+index, trigger, table, ID-sequence, type or object differences fail closed.
+Public-SHA v1 is never migrated. Existing HMAC v2 is accepted only with its
+valid authenticated current-state checkpoint and is never silently re-signed.
+Every migrated database is reopened once more without migration authorization.
+After the app starts, it verifies the public TLS health response and the exact
+`frame-ancestors 'self'` and `SAMEORIGIN` response headers before completing.
 
 Before downtime it validates the tracked-byte manifest, index, fast-forward
 relation, protected-path policy, unit inventory, inactive workers and free
@@ -180,8 +248,33 @@ timers, waits for a race winner to finish, and stops the app. Only after every
 database writer is down—and no other `betboy`-owned process exists—does trusted
 inline code create a root-protected ZIP
 with the exact SQLite inventory, per-file SHA-256, CRC and SQLite
-`quick_check`. The same previous bytes are reverified immediately before this
-backup.
+`quick_check`. Both scheduled and pre-update archives also contain the exact
+matching key as `integrity/challenge-ledger-hmac.key`; a challenge database
+without that member fails verification. Complete archives also contain the
+matching marker as `integrity/challenge-ledger-v2-migrated.json`; a current
+challenge database without it fails verification. The same previous bytes are
+reverified immediately before this backup.
+
+Restore the database set, archived HMAC key **and archived marker** as one
+recovery unit while the app, every timer and every worker is stopped and
+disabled. Verify the archive before extracting anything:
+
+```bash
+sudo /usr/bin/python3 -I /usr/local/libexec/betboy-backup-runtime.py \
+  --verify-only /root/recovery/betboy-sqlite-YYYYMMDDTHHMMSSZ.zip
+```
+
+Then restore the verified database members to their exact relative locations,
+the exact `integrity/challenge-ledger-hmac.key` member to
+`/etc/betboy/challenge-ledger-hmac.key`, and the exact
+`integrity/challenge-ledger-v2-migrated.json` member to
+`/etc/betboy/challenge-ledger-v2-migrated.json`. Both integrity files must be
+single regular files owned `root:betboy` with mode `0640`. Run the same
+`--verify-only` command again against the source archive before enabling any
+unit. An explicitly `in_progress` pre-update archive is verified with the
+additional `--recovery-mode` flag and must not start runtime units; restore it
+and resume only the exact marker target through `betboy-update`. Never generate
+a replacement key or marker for an existing challenge database.
 
 When `requirements.txt` is unchanged, pip is skipped completely. Any
 dependency change is rejected before downtime; follow
@@ -189,13 +282,38 @@ dependency change is rejected before downtime; follow
 updater intentionally has no movable-venv fallback because console-script
 shebangs and unpinned resolution make that unsafe.
 
-A failure before new application code starts restores and byte-verifies the
-previous tracked payload and root-owned files, then restores the remembered
-active/enabled app/timer booleans only if every rollback check succeeds. Any
-rollback error leaves app, timers and workers stopped and preserves root
-staging. Once new app code has started, a failed health/update check is always
-fail-closed because an automatic code rollback cannot prove that a database
-migration is reversible. The updater prints the root-protected recovery ZIP.
+A failure before the offline database migration begins restores and
+byte-verifies the previous tracked payload and root-owned files, then restores
+the remembered active/enabled app/timer booleans only if every rollback check
+succeeds. Any rollback error leaves app, timers and workers stopped and
+preserves root staging. From the instant the durable `in_progress` marker is
+published, every later failure—including target installation, migration,
+startup, health or public checks—is always
+fail-closed with all runtime units stopped: an automatic code rollback cannot
+prove that a partially migrated database set is reversible. The updater
+preserves staging and prints the root-protected database/key/marker recovery ZIP
+for controlled restoration.
+
+Before publishing `in_progress`, the updater persistently disables app, timer
+and worker autostart, flushes that state to disk, and verifies app/timers are
+exactly disabled and workers exactly static. The new service files independently
+require a validated complete marker. A process kill, power loss or reboot
+between marker publication and migration completion therefore cannot restart a
+writer. Successful completion re-enables and re-verifies the app and all seven
+timers while workers remain static.
+
+The HMAC checkpoint v2 binds the complete dedicated-database schema inventory,
+including internal SQLite objects and every sequence value, strict SQLite types,
+risk/target settings, ticket definitions and materialized status, the financial,
+settlement and observed-price chain state, their exact rows, IDs, tails and row
+counts. Settlement is additionally replayed event by event against payouts,
+money movements and visible ticket state. This detects later SQL rewriting or
+rollback without the external key.
+It cannot prove that unauthenticated v0 data was never manipulated before this
+first migration. A backup archive also contains the HMAC key, so its verifier
+proves internal consistency, not authenticity against an attacker able to
+rewrite the entire archive; root isolation and immutable off-site copies remain
+required.
 
 The update intentionally refuses tracked server-side changes. Preserve and
 resolve such files before retrying; never force-reset a production worktree

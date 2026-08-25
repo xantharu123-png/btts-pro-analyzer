@@ -17,7 +17,7 @@ import requests
 import streamlit as st
 
 import league_catalog as _league_catalog
-from account_identity import ensure_account_scope
+from account_identity import account_scope_ready, ensure_account_scope
 from api_budget import APIBudgetPriority, api_football_get
 
 
@@ -3565,6 +3565,17 @@ def _render_automated_daily_selection() -> None:
             st.info("Aktuell ist noch kein Ergebnis verfügbar.")
         return
 
+    # Keep the complete, price-independent catalog and overlay only the exact
+    # strict rows produced by the same scheduler artifact. This preserves every
+    # forecast when a quote is missing/low while allowing a fully HAC/FDR-,
+    # context- and executable-price-confirmed row to reach Echtgeld status.
+    strict_by_key = {
+        signal.key: signal
+        for signal in automated_wettfinder_signals()
+        if signal.evidence_stage == EVIDENCE_RELEASED
+    }
+    forecasts = [strict_by_key.get(signal.key, signal) for signal in forecasts]
+
     target_label = _automatic_target_label(status.target_search_date)
     football_forecasts, other_forecasts = _partition_automated_signals(forecasts)
     football_displayed, football_extreme_short = partition_consumer_forecasts(
@@ -3870,6 +3881,9 @@ def render_settings(analyzer) -> None:
         key="settings_section",
     )
     if section == "15K Konto":
+        if not account_scope_ready(st.session_state):
+            _render_account_storage_unavailable()
+            return
         from challenge_15k import render_challenge_account
 
         render_challenge_account()
@@ -3915,6 +3929,19 @@ def _render_mobile_nav(workspace: str) -> None:
             )
 
 
+def _render_account_storage_unavailable() -> None:
+    """Explain the fail-closed browser-storage boundary without mutating data."""
+    st.info(
+        "Dein persönlicher Speicher wird noch sicher verbunden. Bitte warte "
+        "einen Moment. Falls diese Meldung bleibt, erlaube lokalen Website-"
+        "Speicher für BetBoy und lade die Seite neu."
+    )
+    st.caption(
+        "Ohne bestätigte dauerhafte Browser-ID werden weder Guthaben noch "
+        "Tickets geöffnet oder gespeichert."
+    )
+
+
 def main() -> None:
     st.set_page_config(
         page_title="BetBoy",
@@ -3945,7 +3972,10 @@ def main() -> None:
     if st.session_state.get("analyzer_error"):
         st.error("Die App konnte nicht vollständig gestartet werden.")
 
-    if workspace == "Wettfinder":
+    account_storage_ready = account_scope_ready(st.session_state)
+    if workspace in {"15K", "Meine Tipps"} and not account_storage_ready:
+        _render_account_storage_unavailable()
+    elif workspace == "Wettfinder":
         render_wettfinder()
     elif workspace == "Live":
         render_live(analyzer)

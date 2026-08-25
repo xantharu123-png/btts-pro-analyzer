@@ -7,10 +7,15 @@ cd /
 
 readonly TRUSTED_BOOTSTRAP=/usr/local/sbin/betboy-bootstrap
 readonly TRUSTED_UPDATER=/usr/local/sbin/betboy-update
+readonly TRUSTED_BACKUP_HELPER=/usr/local/libexec/betboy-backup-runtime.py
+readonly TRUSTED_MIGRATION_MARKER_HELPER=/usr/local/libexec/betboy-challenge-migration-marker.py
+readonly LEDGER_HMAC_KEY=/etc/betboy/challenge-ledger-hmac.key
+readonly LEDGER_MIGRATION_MARKER=/etc/betboy/challenge-ledger-v2-migrated.json
 readonly REPOSITORY_URL=https://github.com/xantharu123-png/btts-pro-analyzer.git
 readonly APP_DIR=/opt/betboy/app
 readonly VENV_DIR=/opt/betboy/venv
 readonly PUBLIC_HOST=vps-a30a123f.vps.ovh.net
+readonly DEPLOY_LOCK=/run/lock/betboy-deploy.lock
 
 readonly -a BETBOY_TIMERS=(
     betboy-wettfinder.timer
@@ -36,6 +41,8 @@ STAGE_DIR=""
 TRUSTED_TREE=""
 TRUSTED_REQUIREMENTS=""
 TARGET_MANIFEST=""
+DEPLOY_LOCK_FD=""
+BOOTSTRAP_COMPLETE=0
 
 log() {
     printf '[betboy-bootstrap] %s\n' "$*"
@@ -44,6 +51,45 @@ log() {
 die() {
     log "ERROR: $*" >&2
     exit 1
+}
+
+acquire_deploy_lock() {
+    /usr/bin/python3 -I - "${DEPLOY_LOCK}" <<'PY'
+import os
+import stat
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+parent = path.parent
+parent_info = os.lstat(parent)
+if (
+    not stat.S_ISDIR(parent_info.st_mode)
+    or stat.S_ISLNK(parent_info.st_mode)
+    or parent_info.st_uid != 0
+    or parent_info.st_mode & stat.S_IWOTH
+):
+    raise SystemExit("deploy lock directory is unsafe")
+flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+try:
+    descriptor = os.open(path, flags, 0o600)
+except FileExistsError:
+    descriptor = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
+try:
+    info = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or info.st_nlink != 1
+        or info.st_uid != 0
+        or stat.S_IMODE(info.st_mode) != 0o600
+    ):
+        raise SystemExit("deploy lock file is unsafe")
+finally:
+    os.close(descriptor)
+PY
+    exec {DEPLOY_LOCK_FD}<>"${DEPLOY_LOCK}"
+    flock -n "${DEPLOY_LOCK_FD}" \
+        || die "Another BetBoy bootstrap/update process already holds the deploy lock."
 }
 
 safe_remove_stage() {
@@ -101,6 +147,87 @@ as_betboy() {
     runuser -u betboy -- "$@"
 }
 
+ensure_ledger_hmac_key() {
+    /usr/bin/python3 -I \
+        "$(trusted_file scripts/manage_challenge_integrity_key.py)" \
+        --key "${LEDGER_HMAC_KEY}" \
+        --application-root "${APP_DIR}" \
+        --marker "${LEDGER_MIGRATION_MARKER}" \
+        --group betboy \
+        --production \
+        --fresh-install
+}
+
+ensure_backup_principal() {
+    local group_exists=0
+    local user_exists=0
+
+    getent group betboy-backup >/dev/null && group_exists=1
+    getent passwd betboy-backup >/dev/null && user_exists=1
+    [[ "${group_exists}" == "${user_exists}" ]] \
+        || die "Only one of backup user/group exists; refusing to adopt it."
+    if [[ "${group_exists}" == 0 ]]; then
+        groupadd --system betboy-backup
+        useradd --system --gid betboy-backup \
+            --home-dir /var/lib/betboy-backup --no-create-home \
+            --shell /usr/sbin/nologin betboy-backup
+    fi
+    verify_backup_principal
+    if [[ -e /var/lib/betboy-backup || -L /var/lib/betboy-backup ]]; then
+        verify_backup_home
+    else
+        install -d -m 0700 -o betboy-backup -g betboy-backup \
+            /var/lib/betboy-backup
+    fi
+    verify_backup_home
+}
+
+verify_backup_principal() {
+    local group_entry
+    local group_gid
+    local group_name
+    local password_status
+    local user_entry
+    local user_gid
+    local user_home
+    local user_name
+    local user_shell
+    local user_uid
+
+    group_entry=$(getent group betboy-backup) \
+        || die "Backup group is missing."
+    user_entry=$(getent passwd betboy-backup) \
+        || die "Backup account is missing."
+    IFS=: read -r group_name _ group_gid _ <<<"${group_entry}"
+    IFS=: read -r user_name _ user_uid user_gid _ user_home user_shell \
+        <<<"${user_entry}"
+    [[ "${group_name}" == betboy-backup && "${user_name}" == betboy-backup ]] \
+        || die "Backup principal names are inconsistent."
+    [[ "${user_gid}" == "${group_gid}" ]] \
+        || die "Backup account has an unexpected primary group."
+    [[ "${user_uid}" =~ ^[0-9]+$ && "${group_gid}" =~ ^[0-9]+$ \
+        && "${user_uid}" -gt 0 && "${user_uid}" -lt 1000 \
+        && "${group_gid}" -gt 0 && "${group_gid}" -lt 1000 ]] \
+        || die "Backup principal is not a non-root system principal."
+    [[ "${user_home}" == /var/lib/betboy-backup \
+        && "${user_shell}" == /usr/sbin/nologin ]] \
+        || die "Backup account has unexpected home or shell."
+    [[ "$(id -nG betboy-backup)" == betboy-backup ]] \
+        || die "Backup account must not have persistent supplementary groups."
+    read -r _ password_status _ < <(passwd -S betboy-backup)
+    [[ "${password_status}" == L ]] \
+        || die "Backup account password is not locked."
+}
+
+verify_backup_home() {
+    [[ -d /var/lib/betboy-backup && ! -L /var/lib/betboy-backup ]] \
+        || die "Backup home is not a real directory."
+    [[ "$(stat -c '%U:%G' /var/lib/betboy-backup)" \
+        == betboy-backup:betboy-backup \
+        && "$(stat -c '%a' /var/lib/betboy-backup)" == 700 ]] \
+        || die "Backup home has unexpected owner or mode."
+}
+
 git_betboy() {
     as_betboy env -i \
         HOME=/opt/betboy \
@@ -125,22 +252,106 @@ trusted_file() {
     printf '%s\n' "${path}"
 }
 
+install_root_file_atomic() {
+    local source="$1"
+    local destination="$2"
+    local mode="$3"
+    local owner="$4"
+    local group="$5"
+    /usr/bin/python3 -I - \
+        "${source}" "${destination}" "${mode}" "${owner}" "${group}" <<'PY'
+import grp
+import os
+from pathlib import Path
+import pwd
+import secrets
+import stat
+import sys
+
+source = Path(sys.argv[1])
+destination = Path(sys.argv[2])
+mode = int(sys.argv[3], 8)
+uid = pwd.getpwnam(sys.argv[4]).pw_uid
+gid = grp.getgrnam(sys.argv[5]).gr_gid
+source_info = source.lstat()
+parent_info = destination.parent.lstat()
+if (
+    not stat.S_ISREG(source_info.st_mode)
+    or source.is_symlink()
+    or source_info.st_nlink != 1
+):
+    raise SystemExit("atomic install source is unsafe")
+if (
+    not stat.S_ISDIR(parent_info.st_mode)
+    or destination.parent.is_symlink()
+    or parent_info.st_uid != 0
+    or parent_info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+):
+    raise SystemExit("atomic install parent is unsafe")
+if os.path.lexists(destination):
+    destination_info = destination.lstat()
+    if not stat.S_ISREG(destination_info.st_mode) or destination.is_symlink():
+        raise SystemExit("atomic install destination is unsafe")
+temporary = destination.parent / (
+    f".{destination.name}.{os.getpid()}.{secrets.token_hex(8)}.partial"
+)
+read_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+write_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+try:
+    source_fd = os.open(source, read_flags)
+    try:
+        temporary_fd = os.open(temporary, write_flags, 0o600)
+        try:
+            while True:
+                chunk = os.read(source_fd, 1024 * 1024)
+                if not chunk:
+                    break
+                written = 0
+                while written < len(chunk):
+                    count = os.write(temporary_fd, chunk[written:])
+                    if count <= 0:
+                        raise OSError("short atomic root-file write")
+                    written += count
+            os.fchown(temporary_fd, uid, gid)
+            os.fchmod(temporary_fd, mode)
+            os.fsync(temporary_fd)
+        finally:
+            os.close(temporary_fd)
+    finally:
+        os.close(source_fd)
+    os.replace(temporary, destination)
+    directory_fd = os.open(
+        destination.parent,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+    )
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+finally:
+    try:
+        temporary.unlink()
+    except FileNotFoundError:
+        pass
+PY
+}
+
 expected_unit_sha256() {
     case "$1" in
-        deploy/systemd/betboy-app.service) printf '%s\n' 1baa87c8ba83c74927ab348e18a583a57314e36c89d073030c1b90f88de38194 ;;
-        deploy/systemd/betboy-backup.service) printf '%s\n' 4b8cfe04226976b2371ab832f9bd1f711c3ef031a8fcfffbabbb4779efd6bda1 ;;
+        deploy/systemd/betboy-app.service) printf '%s\n' 90d5047df1ef96e6a4bc9d2a3e888ca6c14d64d62c3526470a64d088788145b8 ;;
+        deploy/systemd/betboy-backup.service) printf '%s\n' c5d5248eb672f3f242ecfed74634d9abf0af003fe0bc7bb68f51f8279f45cdc1 ;;
         deploy/systemd/betboy-backup.timer) printf '%s\n' 918fd587a63dd57eb538c0e49d3f1dc13ffe1db9c99e46eeb2e4144605596aaa ;;
-        deploy/systemd/betboy-esports.service) printf '%s\n' 06e6d6e01ae2647890ed893b0cbb7fb55ed1d7c425e6549f654c258a7735b253 ;;
+        deploy/systemd/betboy-esports.service) printf '%s\n' 1df7e7c001c093c211ce03ae3c0ac57ce8030f9c3da008e1ee04e431ca9cfd8b ;;
         deploy/systemd/betboy-esports.timer) printf '%s\n' 97fd05b6df1df5afdb2b109f75ea1ad6354da3801300056e478b9a53ea320a6c ;;
-        deploy/systemd/betboy-football-shadow.service) printf '%s\n' c34cc3a0d67f4ed2d96ad0849c56ab7bdf800749bca5997db83c4951665a32a4 ;;
+        deploy/systemd/betboy-football-shadow.service) printf '%s\n' 0e9bf4d73bc8db2b2dee201b116d63f86c0dcd953a5458e0f6c8ea00df33a149 ;;
         deploy/systemd/betboy-football-shadow.timer) printf '%s\n' a311d307bc5a604cba565b97212d815c8c9e5a085844dfa302ea4a1fb62d67bf ;;
-        deploy/systemd/betboy-redcard-history.service) printf '%s\n' 315b8ffa8452192dfb8bc24b9313a72e9a84798582bef99c38fc9c7ce8a346ef ;;
+        deploy/systemd/betboy-redcard-history.service) printf '%s\n' a063bd88657bfbcffe804732c48c5302b98c3fd869864383a62f6b2f1daa8795 ;;
         deploy/systemd/betboy-redcard-history.timer) printf '%s\n' cea8127dd10cfe3e911cd0d2f516576964109339e2303792f3c4282a260e26fb ;;
-        deploy/systemd/betboy-redcard-settlement.service) printf '%s\n' 6347188ba24e7a5adcca8fe502a19bbc338d17071de9b2bd8e53d0e68642ab04 ;;
+        deploy/systemd/betboy-redcard-settlement.service) printf '%s\n' f2bdb5ed768012258ecec20f3ba91c0f8290853218f26842524a210aa1ba767a ;;
         deploy/systemd/betboy-redcard-settlement.timer) printf '%s\n' 86b28ef068b75854e2ce1536b11ac9982c9410a9f1716dfeaa7d6045918bba16 ;;
-        deploy/systemd/betboy-tennis.service) printf '%s\n' d7a5dff63ae96b79c70aa0875cf5f9587728e76ea1a4b81da34ae8579266cc25 ;;
+        deploy/systemd/betboy-tennis.service) printf '%s\n' 8f0239135e214f1ffe2cdf1adeda62d2852b5a9ff36ebdf5a1d347850cbef146 ;;
         deploy/systemd/betboy-tennis.timer) printf '%s\n' d1c58a3a36736f557d17d68cec6ef64d52e60e7c539d9af463341bb7df27b118 ;;
-        deploy/systemd/betboy-wettfinder.service) printf '%s\n' 683fb4a2f6482871f3d69d19c4e35dcd61a0e7fc1bef1a5b7fd70a52484b55ce ;;
+        deploy/systemd/betboy-wettfinder.service) printf '%s\n' 698cbda1b157603f735e079c9f30b25bdfb1d78b74d693b8a05036b811d36d1b ;;
         deploy/systemd/betboy-wettfinder.timer) printf '%s\n' 7e26d233ba13afade225ff4b97f00b23a0954b798f7948a927a492563e335db4 ;;
         *) die "Unit is not byte-allowlisted: $1" ;;
     esac
@@ -195,11 +406,101 @@ verify_no_unit_dropin_paths() {
     done
 }
 
-verify_no_betboy_processes() {
+check_no_betboy_processes() {
+    local account
     local pids
-    pids=$(pgrep -u betboy || true)
-    [[ -z "${pids}" ]] \
-        || die "Unexpected betboy process exists on this fresh host: ${pids//$'\n'/, }"
+    for account in betboy betboy-backup; do
+        getent passwd "${account}" >/dev/null || continue
+        pids=$(pgrep -u "${account}" || true)
+        [[ -z "${pids}" ]] || return 1
+    done
+    return 0
+}
+
+verify_no_betboy_processes() {
+    check_no_betboy_processes \
+        || die "Unexpected betboy/betboy-backup process exists on this fresh host."
+}
+
+durable_os_sync() {
+    /usr/bin/python3 -I - <<'PY'
+import os
+
+os.sync()
+PY
+}
+
+persist_runtime_autostart_disabled() {
+    local failed=0
+    local state
+    local unit
+    local worker
+
+    # Static workers can make disable return non-zero.  The authoritative
+    # outcome is checked unit-by-unit after the durable sync.
+    systemctl disable betboy-app.service \
+        "${BETBOY_TIMERS[@]}" "${BETBOY_WORKERS[@]}" >/dev/null 2>&1 || true
+    durable_os_sync || failed=1
+    for unit in betboy-app.service "${BETBOY_TIMERS[@]}"; do
+        state=$(systemctl is-enabled "${unit}" 2>/dev/null || true)
+        if [[ "${state}" != disabled && "${state}" != not-found ]]; then
+            failed=1
+            log "Runtime unit is not disabled/absent (${state:-error}): ${unit}"
+        fi
+    done
+    for worker in "${BETBOY_WORKERS[@]}"; do
+        state=$(systemctl is-enabled "${worker}" 2>/dev/null || true)
+        if [[ "${state}" != static && "${state}" != disabled \
+            && "${state}" != not-found ]]; then
+            failed=1
+            log "Worker unit is not static/disabled/absent (${state:-error}): ${worker}"
+        fi
+    done
+    return "${failed}"
+}
+
+force_runtime_fail_closed() {
+    local failed=0
+    local unit
+
+    # Disable first so an inactive legacy timer/linked worker cannot win the
+    # stop race while the gated replacement units are being installed.
+    persist_runtime_autostart_disabled || failed=1
+    systemctl stop "${BETBOY_TIMERS[@]}" >/dev/null 2>&1 || true
+    systemctl stop "${BETBOY_WORKERS[@]}" >/dev/null 2>&1 || true
+    systemctl stop betboy-app.service >/dev/null 2>&1 || true
+    for unit in betboy-app.service \
+        "${BETBOY_TIMERS[@]}" "${BETBOY_WORKERS[@]}"; do
+        if systemctl is-active --quiet "${unit}"; then
+            failed=1
+            log "Runtime unit remained active across the bootstrap boundary: ${unit}"
+        fi
+    done
+    if ! check_no_betboy_processes; then
+        failed=1
+        log "A betboy/betboy-backup process remains outside the stopped units."
+    fi
+    return "${failed}"
+}
+
+recover_bootstrap() {
+    local status="$1"
+
+    trap - EXIT
+    set +e
+    if [[ "${status}" == 0 && "${BOOTSTRAP_COMPLETE}" == 1 ]]; then
+        safe_remove_stage
+        return
+    fi
+    [[ "${status}" != 0 ]] || status=1
+    log "Bootstrap failed; forcing every BetBoy runtime unit down and disabled."
+    if force_runtime_fail_closed; then
+        log "All BetBoy runtime units are stopped and durably disabled."
+    else
+        log "FAIL-CLOSED verification failed; inspect unit state before recovery."
+    fi
+    safe_remove_stage
+    exit "${status}"
 }
 
 create_target_manifest() {
@@ -385,6 +686,10 @@ prepare_trusted_tree() {
         "$(trusted_file requirements.txt)" "${TRUSTED_REQUIREMENTS}"
     trusted_file deploy/update_server.sh >/dev/null
     trusted_file deploy/bootstrap_server.sh >/dev/null
+    trusted_file scripts/backup_runtime_databases.py >/dev/null
+    trusted_file scripts/manage_challenge_integrity_key.py >/dev/null
+    trusted_file scripts/manage_challenge_migration_marker.py >/dev/null
+    trusted_file scripts/migrate_challenge_ledgers.py >/dev/null
     trusted_file deploy/systemd/betboy-app.service >/dev/null
     validate_trusted_unit deploy/systemd/betboy-app.service
     for timer in "${BETBOY_TIMERS[@]}"; do
@@ -430,34 +735,92 @@ prepare_app_checkout() {
 
 install_trusted_units_and_tools() {
     local timer
-    install -o root -g root -m 0755 \
-        "$(trusted_file deploy/update_server.sh)" "${TRUSTED_UPDATER}"
-    install -o root -g root -m 0755 \
-        "$(trusted_file deploy/bootstrap_server.sh)" "${TRUSTED_BOOTSTRAP}"
-    install -o root -g root -m 0644 \
+    install -d -m 0755 -o root -g root /usr/local/libexec
+    install_root_file_atomic \
+        "$(trusted_file deploy/update_server.sh)" "${TRUSTED_UPDATER}" \
+        0755 root root
+    install_root_file_atomic \
+        "$(trusted_file deploy/bootstrap_server.sh)" "${TRUSTED_BOOTSTRAP}" \
+        0755 root root
+    install_root_file_atomic \
+        "$(trusted_file scripts/backup_runtime_databases.py)" \
+        "${TRUSTED_BACKUP_HELPER}" 0755 root root
+    install_root_file_atomic \
+        "$(trusted_file scripts/manage_challenge_migration_marker.py)" \
+        "${TRUSTED_MIGRATION_MARKER_HELPER}" 0755 root root
+    install_root_file_atomic \
         "$(trusted_file deploy/systemd/betboy-app.service)" \
-        /etc/systemd/system/betboy-app.service
+        /etc/systemd/system/betboy-app.service 0644 root root
     for timer in "${BETBOY_TIMERS[@]}"; do
-        install -o root -g root -m 0644 \
+        install_root_file_atomic \
             "$(trusted_file deploy/systemd/${timer})" \
-            "/etc/systemd/system/${timer}"
-        install -o root -g root -m 0644 \
+            "/etc/systemd/system/${timer}" 0644 root root
+        install_root_file_atomic \
             "$(trusted_file deploy/systemd/${timer%.timer}.service)" \
-            "/etc/systemd/system/${timer%.timer}.service"
+            "/etc/systemd/system/${timer%.timer}.service" 0644 root root
     done
+}
+
+prepare_backup_storage_and_sources() {
+    local database
+    local owner
+    local parent
+
+    [[ -d /var/backups && ! -L /var/backups ]] \
+        || die "/var/backups must be a real directory."
+    [[ ! -L /var/backups/betboy ]] \
+        || die "Backup destination must not be a symlink."
+    install -d -m 0700 -o betboy-backup -g betboy-backup \
+        /var/backups/betboy
+
+    while IFS= read -r -d '' database; do
+        owner=$(stat -c '%U' "${database}")
+        [[ "${owner}" == betboy ]] \
+            || die "Runtime database is not owned by betboy: ${database}"
+        chgrp betboy "${database}"
+        chmod u=rw,g=r,o= "${database}"
+        parent=$(dirname "${database}")
+        while [[ "${parent}" == "${APP_DIR}" \
+            || "${parent}" == "${APP_DIR}/"* ]]; do
+            chgrp betboy "${parent}"
+            chmod u=rwx,g=rx,o= "${parent}"
+            [[ "${parent}" == "${APP_DIR}" ]] && break
+            parent=$(dirname "${parent}")
+        done
+    done < <(
+        find -P "${APP_DIR}" -xdev \
+            \( -path "${APP_DIR}/.git" \
+               -o -path "${APP_DIR}/.codex_test_venv" \
+               -o -path "${APP_DIR}/.pytest_cache" \
+               -o -path "${APP_DIR}/.pytest_tmp" \) -prune -o \
+            -type f \
+            \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+               -o -name '*.db-wal' -o -name '*.db-shm' \
+               -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' \
+               -o -name '*.sqlite3-wal' -o -name '*.sqlite3-shm' \
+               -o -name '*.db-journal' -o -name '*.sqlite-journal' \
+               -o -name '*.sqlite3-journal' \) \
+            -print0
+    )
 }
 
 verify_invocation "$@"
 command -v git >/dev/null || die "Install Git before the trusted bootstrap."
 for required_command in \
     git runuser systemctl systemd-analyze install awk grep bash readlink \
-    stat find chown chmod sha256sum pgrep; do
+    stat find chown chgrp chmod sha256sum pgrep getent groupadd useradd \
+    passwd id dirname flock; do
     command -v "${required_command}" >/dev/null \
         || die "Missing prerequisite command: ${required_command}"
 done
 [[ -x /usr/bin/python3 ]] || die "Missing trusted /usr/bin/python3."
+acquire_deploy_lock
+trap 'recover_bootstrap "$?"' EXIT
+force_runtime_fail_closed \
+    || die "Existing BetBoy runtime could not be made durably fail-closed."
 getent passwd betboy >/dev/null \
     || die "Create the betboy service account before bootstrap (see deploy/README.md)."
+ensure_backup_principal
 verify_no_unit_dropin_paths
 verify_no_betboy_processes
 for unit in betboy-app.service "${BETBOY_TIMERS[@]}" "${BETBOY_WORKERS[@]}"; do
@@ -509,10 +872,11 @@ sysctl --system >/dev/null
 [[ ! -L "${APP_DIR}" ]] || die "${APP_DIR} must not be a symlink."
 install -d -m 0750 -o betboy -g betboy /opt/betboy
 install -d -m 0750 -o root -g betboy /etc/betboy
-install -d -m 0700 -o betboy -g betboy /var/backups/betboy
+install -d -m 0700 -o betboy-backup -g betboy-backup /var/backups/betboy
 touch /etc/betboy/betboy.env
 chown root:betboy /etc/betboy/betboy.env
 chmod 0640 /etc/betboy/betboy.env
+ensure_ledger_hmac_key
 
 as_betboy python3 -m venv "${VENV_DIR}"
 as_betboy "${VENV_DIR}/bin/python" -m pip install --upgrade pip
@@ -525,6 +889,19 @@ verify_app_bytes
 verify_no_betboy_processes
 
 install_trusted_units_and_tools
+systemctl daemon-reload
+verify_no_unit_dropin_paths
+verify_installed_unit betboy-app.service
+for timer in "${BETBOY_TIMERS[@]}"; do
+    verify_installed_unit "${timer}"
+    verify_installed_unit "${timer%.timer}.service"
+done
+prepare_backup_storage_and_sources
+/usr/bin/python3 -I "${TRUSTED_MIGRATION_MARKER_HELPER}" \
+    --marker "${LEDGER_MIGRATION_MARKER}" \
+    --application-root "${APP_DIR}" \
+    --group betboy \
+    fresh --target-head "${REQUESTED_HEAD}" >/dev/null
 
 cat > /etc/caddy/Caddyfile <<EOF
 ${PUBLIC_HOST} {
@@ -532,7 +909,9 @@ ${PUBLIC_HOST} {
 
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        Content-Security-Policy "frame-ancestors 'self'"
         X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
         Referrer-Policy "strict-origin-when-cross-origin"
         -Server
     }
@@ -558,25 +937,35 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
 
-systemctl daemon-reload
-verify_no_unit_dropin_paths
-verify_installed_unit betboy-app.service
-for timer in "${BETBOY_TIMERS[@]}"; do
-    verify_installed_unit "${timer}"
-    verify_installed_unit "${timer%.timer}.service"
-done
 systemctl enable --now fail2ban
 systemctl enable --now unattended-upgrades
 systemctl enable --now caddy
 systemctl reload ssh
 
 verify_no_betboy_processes
-systemctl enable --now betboy-app.service
+systemctl start betboy-app.service
 curl --fail --silent --show-error \
     --retry 12 --retry-all-errors --retry-delay 2 \
     --connect-timeout 3 --max-time 5 \
     http://127.0.0.1:8501/_stcore/health | grep -qx 'ok'
-systemctl enable --now "${BETBOY_TIMERS[@]}"
+systemctl start "${BETBOY_TIMERS[@]}"
+systemctl is-active --quiet betboy-app.service
+for timer in "${BETBOY_TIMERS[@]}"; do
+    systemctl is-active --quiet "${timer}"
+done
+for worker in "${BETBOY_WORKERS[@]}"; do
+    [[ "$(systemctl is-enabled "${worker}" 2>/dev/null || true)" == static ]] \
+        || die "Worker service must remain exactly static: ${worker}"
+done
 
+# Make runtime persistence the final mutation, after the live health gate.
+systemctl enable betboy-app.service "${BETBOY_TIMERS[@]}"
+durable_os_sync
+[[ "$(systemctl is-enabled betboy-app.service 2>/dev/null || true)" == enabled ]]
+for timer in "${BETBOY_TIMERS[@]}"; do
+    [[ "$(systemctl is-enabled "${timer}" 2>/dev/null || true)" == enabled ]]
+done
+
+BOOTSTRAP_COMPLETE=1
 log "Bootstrap complete at ${REQUESTED_HEAD}: https://${PUBLIC_HOST}"
 log "Future updates: sudo ${TRUSTED_UPDATER} <40-hex-origin-main-commit>"

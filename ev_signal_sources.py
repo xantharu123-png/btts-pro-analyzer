@@ -40,9 +40,13 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 14
-AUTOMATED_SELECTION_POLICY_VERSION = "useful-selection-catalog-v12"
+AUTOMATED_WETTFINDER_VERSION = 16
+AUTOMATED_SELECTION_POLICY_VERSION = "useful-selection-catalog-v13"
+AUTOMATED_FOOTBALL_RELEASE_CONTRACT = "football-hac-fdr-context-price-v1"
 MAX_AUTOMATED_FOOTBALL_CANDIDATES = 15
+MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES = (
+    MAX_AUTOMATED_FOOTBALL_CANDIDATES
+)
 MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT = 3
 MAX_AUTOMATED_MODEL_CANDIDATES = 21
 MAX_AUTOMATED_RECOMMENDATIONS = 3
@@ -792,6 +796,15 @@ def _load_automated_wettfinder_document(
     sources = document.get("sources")
     if not isinstance(sources, dict):
         return None
+    challenge_release_candidates = document.get(
+        "challenge_release_candidates"
+    )
+    if (
+        not isinstance(challenge_release_candidates, list)
+        or len(challenge_release_candidates)
+        > MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES
+    ):
+        return None
     source_for_row = {
         "football_challenge": "football",
         "tennis_shadow": "tennis",
@@ -814,6 +827,18 @@ def _load_automated_wettfinder_document(
             or operational_errors != 0
         ):
             return None
+    football_source = sources.get("football")
+    football_operational_errors = (
+        football_source.get("operational_error_count")
+        if isinstance(football_source, dict)
+        else None
+    )
+    if challenge_release_candidates and (
+        isinstance(football_operational_errors, bool)
+        or not isinstance(football_operational_errors, int)
+        or football_operational_errors != 0
+    ):
+        return None
     model_candidates = document.get("model_candidates")
     if (
         not isinstance(model_candidates, list)
@@ -847,14 +872,27 @@ def _load_automated_wettfinder_document(
         for row in candidates
         if isinstance(row, dict)
     ]
+    challenge_release_keys = [
+        str(row.get("key") or "").strip()
+        for row in challenge_release_candidates
+        if isinstance(row, dict)
+    ]
     if (
         len(model_keys) != len(model_candidates)
         or len(strict_keys) != len(candidates)
         or any(not key for key in [*model_keys, *strict_keys])
         or len(set(model_keys)) != len(model_keys)
         or len(set(strict_keys)) != len(strict_keys)
+        or len(challenge_release_keys) != len(challenge_release_candidates)
+        or any(not key for key in challenge_release_keys)
+        or len(set(challenge_release_keys)) != len(challenge_release_keys)
         or any(key not in model_keys for key in strict_keys)
+        or any(key not in model_keys for key in challenge_release_keys)
         or [key for key in model_keys if key in set(strict_keys)] != strict_keys
+        or [
+            key for key in model_keys if key in set(challenge_release_keys)
+        ]
+        != challenge_release_keys
     ):
         return None
     model_by_key = {
@@ -863,17 +901,61 @@ def _load_automated_wettfinder_document(
     }
     for strict_row in candidates:
         model_row = model_by_key[str(strict_row.get("key") or "").strip()]
+        overlay_fields = {"status", "evidence_stage", "release_contract"}
         strict_decision = {
             key: value
             for key, value in strict_row.items()
-            if key != "status"
+            if key not in overlay_fields
         }
         model_decision = {
             key: value
             for key, value in model_row.items()
-            if key != "status"
+            if key not in overlay_fields
         }
         if strict_decision != model_decision:
+            return None
+        if strict_row.get("source") == "football_challenge":
+            if (
+                strict_row.get("evidence_stage") != "RELEASED"
+                or strict_row.get("release_contract")
+                != AUTOMATED_FOOTBALL_RELEASE_CONTRACT
+                or model_row.get("evidence_stage") != "SHADOW"
+                or "release_contract" in model_row
+            ):
+                return None
+        elif (
+            strict_row.get("evidence_stage") != model_row.get("evidence_stage")
+            or strict_row.get("release_contract")
+            != model_row.get("release_contract")
+        ):
+            return None
+    for strict_row in challenge_release_candidates:
+        if strict_row.get("source") != "football_challenge":
+            return None
+        model_row = model_by_key[
+            str(strict_row.get("key") or "").strip()
+        ]
+        overlay_fields = {"status", "evidence_stage", "release_contract"}
+        strict_decision = {
+            key: value
+            for key, value in strict_row.items()
+            if key not in overlay_fields
+        }
+        model_decision = {
+            key: value
+            for key, value in model_row.items()
+            if key not in overlay_fields
+        }
+        if (
+            strict_decision != model_decision
+            or strict_row.get("status") != "RECOMMENDED"
+            or strict_row.get("evidence_stage") != "RELEASED"
+            or strict_row.get("release_contract")
+            != AUTOMATED_FOOTBALL_RELEASE_CONTRACT
+            or model_row.get("evidence_stage") != "SHADOW"
+            or "release_contract" in model_row
+            or not _football_recommendation_release_eligible(strict_row)
+        ):
             return None
     try:
         target = date.fromisoformat(str(document.get("target_search_date")))
@@ -886,9 +968,11 @@ def _load_automated_wettfinder_document(
     # Price evidence may reject every model candidate. A published candidate
     # still requires bookmaker data, but zero candidates does not imply that
     # no bookmaker price was observed.
-    if candidates and document["bookmaker_data_used"] is not True:
+    if (
+        candidates or challenge_release_candidates
+    ) and document["bookmaker_data_used"] is not True:
         return None
-    for row in candidates:
+    for row in [*candidates, *challenge_release_candidates]:
         if (
             not isinstance(row, dict)
             or row.get("status") != "RECOMMENDED"
@@ -1103,6 +1187,11 @@ def _football_recommendation_release_eligible(row: dict) -> bool:
         and row.get("model_scope") == "same_competition"
         and row.get("context_stale") is False
         and row.get("statistical_release_passed") is True
+        and (
+            str(row.get("evidence_stage") or "").upper() != "RELEASED"
+            or row.get("release_contract")
+            == AUTOMATED_FOOTBALL_RELEASE_CONTRACT
+        )
         and row.get("tested_hypotheses")
         == AUTOMATED_VALIDATION_MARKET_HYPOTHESES
         and -1.0 <= mean_advantage <= 1.0
