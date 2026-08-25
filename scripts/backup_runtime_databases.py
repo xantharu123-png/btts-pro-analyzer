@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import hmac
 import json
 import math
 import os
+import re
 import shutil
 import sqlite3
 import stat
@@ -2031,6 +2033,1211 @@ def verify_archive(archive_path: Path, *, recovery_mode: bool = False) -> int:
     return len(members)
 
 
+BACKUP_TREE_SNAPSHOT_VERSION = 1
+BACKUP_ARCHIVE_NAME_PATTERN = re.compile(
+    r"betboy-sqlite-\d{8}T\d{6}Z\.zip"
+)
+
+
+def _validated_real_directory(path: Path, label: str) -> Path:
+    candidate = Path(os.path.abspath(os.fspath(path)))
+    try:
+        info = candidate.lstat()
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"{label} does not exist") from exc
+    if (
+        not stat.S_ISDIR(info.st_mode)
+        or stat.S_ISLNK(info.st_mode)
+        or candidate.resolve(strict=True) != candidate
+    ):
+        raise RuntimeError(f"{label} must be a real directory without symlinks")
+    return candidate
+
+
+def _ensure_private_real_directory(path: Path, label: str) -> Path:
+    candidate = Path(os.path.abspath(os.fspath(path)))
+    missing: list[Path] = []
+    cursor = candidate
+    while True:
+        try:
+            cursor.lstat()
+        except FileNotFoundError:
+            missing.append(cursor)
+            parent = cursor.parent
+            if parent == cursor:
+                raise RuntimeError(f"{label} has no existing real ancestor")
+            cursor = parent
+            continue
+        _validated_real_directory(cursor, f"{label} ancestor")
+        break
+    for directory in reversed(missing):
+        try:
+            directory.mkdir(mode=0o700)
+        except FileExistsError:
+            pass
+        _validated_real_directory(directory, label)
+    result = _validated_real_directory(candidate, label)
+    if os.name != "nt":
+        info = result.lstat()
+        if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) & 0o077:
+            raise RuntimeError(f"{label} must be private to the current account")
+    return result
+
+
+def _backup_tree_paths_overlap(first: Path, second: Path) -> bool:
+    left = Path(os.path.abspath(os.fspath(first)))
+    right = Path(os.path.abspath(os.fspath(second)))
+    try:
+        left.relative_to(right)
+        return True
+    except ValueError:
+        pass
+    try:
+        right.relative_to(left)
+        return True
+    except ValueError:
+        return False
+
+
+def _regular_file_digest(
+    path: Path,
+    *,
+    expected: os.stat_result | None = None,
+    require_single_link: bool = False,
+) -> tuple[os.stat_result, str]:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise RuntimeError(f"backup tree file cannot be opened safely: {path.name}") from exc
+    try:
+        return _regular_descriptor_digest(
+            descriptor,
+            label=path.name,
+            expected=expected,
+            require_single_link=require_single_link,
+        )
+    finally:
+        os.close(descriptor)
+
+
+def _regular_descriptor_digest(
+    descriptor: int,
+    *,
+    label: str,
+    expected: os.stat_result | None,
+    require_single_link: bool,
+) -> tuple[os.stat_result, str]:
+    info = os.fstat(descriptor)
+    link_count_is_safe = (
+        info.st_nlink == 1
+        if os.name != "nt"
+        else info.st_nlink in {0, 1}
+    )
+    if not stat.S_ISREG(info.st_mode) or (
+        require_single_link and not link_count_is_safe
+    ):
+        raise RuntimeError(f"backup tree file is not a private regular file: {label}")
+    if expected is not None:
+        if os.name != "nt":
+            changed = (
+                info.st_dev != expected.st_dev
+                or info.st_ino != expected.st_ino
+            )
+        else:
+            # Windows reports zero inode/link fields for some directory-entry
+            # stat calls.  Production Linux still takes the strict identity
+            # branch; the metadata comparison keeps local tests race-aware.
+            changed = any(
+                left != right
+                for left, right in (
+                    (stat.S_IFMT(info.st_mode), stat.S_IFMT(expected.st_mode)),
+                    (info.st_size, expected.st_size),
+                    (info.st_mtime_ns, expected.st_mtime_ns),
+                )
+            )
+        if changed:
+            raise RuntimeError(f"backup tree file changed during inspection: {label}")
+    digest = hashlib.sha256()
+    with os.fdopen(descriptor, "rb", closefd=False) as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return info, digest.hexdigest()
+
+
+def _backup_tree_record(
+    relative: str,
+    kind: str,
+    info: os.stat_result,
+    *,
+    digest: str | None = None,
+) -> dict[str, object]:
+    return {
+        "path": relative,
+        "kind": kind,
+        "uid": int(info.st_uid),
+        "gid": int(info.st_gid),
+        "mode": stat.S_IMODE(info.st_mode),
+        "size": int(info.st_size) if kind == "file" else None,
+        "sha256": digest if kind == "file" else None,
+        "origin_device": int(info.st_dev),
+        "origin_inode": int(info.st_ino),
+    }
+
+
+def _backup_tree_records_match(
+    observed: dict[str, object],
+    expected: dict[str, object],
+    *,
+    require_origin_identity: bool,
+) -> bool:
+    keys = ["path", "kind", "uid", "gid", "mode", "size", "sha256"]
+    if require_origin_identity:
+        keys.extend(("origin_device", "origin_inode"))
+    return all(observed.get(key) == expected.get(key) for key in keys)
+
+
+def _backup_tree_inventories_match(
+    observed: dict[str, dict[str, object]],
+    expected: dict[str, dict[str, object]],
+    *,
+    require_origin_identity: bool,
+) -> bool:
+    return set(observed) == set(expected) and all(
+        _backup_tree_records_match(
+            observed[path],
+            expected[path],
+            require_origin_identity=require_origin_identity,
+        )
+        for path in expected
+    )
+
+
+def _linux_mount_id(descriptor: int) -> int | None:
+    if os.name == "nt":
+        return None
+    try:
+        lines = Path(f"/proc/self/fdinfo/{descriptor}").read_text(
+            encoding="ascii"
+        ).splitlines()
+    except OSError as exc:
+        raise RuntimeError("backup tree mount identity cannot be inspected") from exc
+    values = [line.split(":", 1)[1].strip() for line in lines if line.startswith("mnt_id:")]
+    if len(values) != 1 or not values[0].isdigit():
+        raise RuntimeError("backup tree mount identity is unavailable")
+    return int(values[0])
+
+
+def _verified_restore_mount_pair(
+    parent: Path,
+    destination: Path,
+) -> tuple[os.stat_result, os.stat_result]:
+    parent_entry = parent.lstat()
+    destination_entry = destination.lstat()
+    if destination.parent != parent or destination == parent:
+        raise RuntimeError("backup tree restore destination has an invalid parent")
+    if os.name == "nt":
+        return parent_entry, destination_entry
+
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        parent_fd = os.open(parent, flags)
+    except OSError as exc:
+        raise RuntimeError("backup tree restore parent cannot be opened safely") from exc
+    destination_fd: int | None = None
+    try:
+        confirmed_parent = os.fstat(parent_fd)
+        if (
+            not stat.S_ISDIR(confirmed_parent.st_mode)
+            or confirmed_parent.st_dev != parent_entry.st_dev
+            or confirmed_parent.st_ino != parent_entry.st_ino
+        ):
+            raise RuntimeError("backup tree restore parent changed identity")
+        try:
+            destination_fd = os.open(destination.name, flags, dir_fd=parent_fd)
+        except OSError as exc:
+            raise RuntimeError(
+                "backup tree restore destination cannot be opened safely"
+            ) from exc
+        confirmed_destination = os.fstat(destination_fd)
+        if (
+            not stat.S_ISDIR(confirmed_destination.st_mode)
+            or confirmed_destination.st_dev != destination_entry.st_dev
+            or confirmed_destination.st_ino != destination_entry.st_ino
+        ):
+            raise RuntimeError("backup tree restore destination changed identity")
+        if (
+            confirmed_destination.st_dev != confirmed_parent.st_dev
+            or _linux_mount_id(destination_fd) != _linux_mount_id(parent_fd)
+        ):
+            raise RuntimeError(
+                "backup tree restore destination must not be a separate mount"
+            )
+        return confirmed_parent, confirmed_destination
+    finally:
+        if destination_fd is not None:
+            os.close(destination_fd)
+        os.close(parent_fd)
+
+
+def _scan_backup_tree(
+    root: Path,
+    *,
+    require_single_link: bool,
+    allowed_link_counts: frozenset[int] | None = None,
+) -> dict[str, dict[str, object]]:
+    records: dict[str, dict[str, object]] = {}
+    root_info = root.lstat()
+    root_device = root_info.st_dev
+    root_mount_id: int | None = None
+
+    def validate_entry(info: os.stat_result, relative_text: str) -> None:
+        if (
+            (os.name != "nt" and info.st_dev != root_device)
+            or (
+                os.name == "nt"
+                and root_device
+                and info.st_dev
+                and info.st_dev != root_device
+            )
+        ):
+            raise RuntimeError(
+                f"backup tree crosses a filesystem boundary: {relative_text}"
+            )
+        if stat.S_ISLNK(info.st_mode):
+            raise RuntimeError(
+                f"backup tree must not contain a symlink: {relative_text}"
+            )
+
+    def record_file(
+        relative_text: str,
+        confirmed: os.stat_result,
+        digest: str,
+    ) -> None:
+        if (
+            allowed_link_counts is not None
+            and confirmed.st_nlink
+            and confirmed.st_nlink not in allowed_link_counts
+        ):
+            raise RuntimeError(
+                f"backup tree file has an unsafe link count: {relative_text}"
+            )
+        records[relative_text] = _backup_tree_record(
+            relative_text,
+            "file",
+            confirmed,
+            digest=digest,
+        )
+
+    def visit_windows(directory: Path, relative_parent: PurePosixPath) -> None:
+        try:
+            entries = sorted(os.scandir(directory), key=lambda entry: entry.name)
+        except OSError as exc:
+            raise RuntimeError("backup tree directory cannot be scanned") from exc
+        for entry in entries:
+            if not entry.name or entry.name in {".", ".."} or "\\" in entry.name:
+                raise RuntimeError("backup tree contains an unsafe entry name")
+            relative = relative_parent / entry.name
+            relative_text = relative.as_posix()
+            path = Path(entry.path)
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"backup tree entry cannot be inspected: {relative_text}"
+                ) from exc
+            validate_entry(info, relative_text)
+            if stat.S_ISDIR(info.st_mode):
+                records[relative_text] = _backup_tree_record(
+                    relative_text,
+                    "directory",
+                    info,
+                )
+                visit_windows(path, relative)
+                continue
+            if not stat.S_ISREG(info.st_mode):
+                raise RuntimeError(
+                    f"backup tree contains a non-regular entry: {relative_text}"
+                )
+            confirmed, digest = _regular_file_digest(
+                path,
+                expected=info,
+                require_single_link=require_single_link,
+            )
+            record_file(relative_text, confirmed, digest)
+
+    def visit_posix(directory_fd: int, relative_parent: PurePosixPath) -> None:
+        try:
+            with os.scandir(directory_fd) as scanner:
+                entries = sorted(scanner, key=lambda entry: entry.name)
+        except OSError as exc:
+            raise RuntimeError("backup tree directory cannot be scanned") from exc
+        for entry in entries:
+            if not entry.name or entry.name in {".", ".."} or "\\" in entry.name:
+                raise RuntimeError("backup tree contains an unsafe entry name")
+            relative = relative_parent / entry.name
+            relative_text = relative.as_posix()
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"backup tree entry cannot be inspected: {relative_text}"
+                ) from exc
+            validate_entry(info, relative_text)
+            if stat.S_ISDIR(info.st_mode):
+                flags = (
+                    os.O_RDONLY
+                    | getattr(os, "O_DIRECTORY", 0)
+                    | getattr(os, "O_NOFOLLOW", 0)
+                )
+                try:
+                    child_fd = os.open(entry.name, flags, dir_fd=directory_fd)
+                except OSError as exc:
+                    raise RuntimeError(
+                        f"backup tree directory changed during inspection: {relative_text}"
+                    ) from exc
+                try:
+                    confirmed = os.fstat(child_fd)
+                    if (
+                        not stat.S_ISDIR(confirmed.st_mode)
+                        or confirmed.st_dev != info.st_dev
+                        or confirmed.st_ino != info.st_ino
+                        or _linux_mount_id(child_fd) != root_mount_id
+                    ):
+                        raise RuntimeError(
+                            f"backup tree directory changed during inspection: {relative_text}"
+                        )
+                    records[relative_text] = _backup_tree_record(
+                        relative_text,
+                        "directory",
+                        confirmed,
+                    )
+                    visit_posix(child_fd, relative)
+                finally:
+                    os.close(child_fd)
+                continue
+            if not stat.S_ISREG(info.st_mode):
+                raise RuntimeError(
+                    f"backup tree contains a non-regular entry: {relative_text}"
+                )
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            try:
+                descriptor = os.open(
+                    entry.name,
+                    flags,
+                    dir_fd=directory_fd,
+                )
+            except OSError as exc:
+                raise RuntimeError(
+                    f"backup tree file cannot be opened safely: {relative_text}"
+                ) from exc
+            try:
+                confirmed, digest = _regular_descriptor_digest(
+                    descriptor,
+                    label=relative_text,
+                    expected=info,
+                    require_single_link=require_single_link,
+                )
+                if _linux_mount_id(descriptor) != root_mount_id:
+                    raise RuntimeError(
+                        f"backup tree crosses a mount boundary: {relative_text}"
+                    )
+            finally:
+                os.close(descriptor)
+            record_file(relative_text, confirmed, digest)
+
+    if os.name == "nt":
+        visit_windows(root, PurePosixPath())
+    else:
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        root_fd = os.open(root, flags)
+        try:
+            confirmed_root = os.fstat(root_fd)
+            root_mount_id = _linux_mount_id(root_fd)
+            if (
+                not stat.S_ISDIR(confirmed_root.st_mode)
+                or confirmed_root.st_dev != root_info.st_dev
+                or confirmed_root.st_ino != root_info.st_ino
+            ):
+                raise RuntimeError("backup tree root changed during inspection")
+            visit_posix(root_fd, PurePosixPath())
+        finally:
+            os.close(root_fd)
+    return records
+
+
+def _validate_backup_tree_manifest_record(value: object) -> dict[str, object]:
+    if not isinstance(value, dict) or set(value) != {
+        "path",
+        "kind",
+        "uid",
+        "gid",
+        "mode",
+        "size",
+        "sha256",
+        "origin_device",
+        "origin_inode",
+    }:
+        raise RuntimeError("backup tree snapshot manifest record is invalid")
+    path_text = value.get("path")
+    if not isinstance(path_text, str):
+        raise RuntimeError("backup tree snapshot path is invalid")
+    pure = PurePosixPath(path_text)
+    if (
+        not path_text
+        or pure.is_absolute()
+        or PureWindowsPath(path_text).is_absolute()
+        or any(part in {"", ".", ".."} for part in pure.parts)
+        or "\\" in path_text
+        or pure.as_posix() != path_text
+    ):
+        raise RuntimeError("backup tree snapshot path is unsafe")
+    kind = value.get("kind")
+    if kind not in {"file", "directory"}:
+        raise RuntimeError("backup tree snapshot kind is invalid")
+    for key in ("uid", "gid", "mode", "origin_device", "origin_inode"):
+        item = value.get(key)
+        if isinstance(item, bool) or not isinstance(item, int) or item < 0:
+            raise RuntimeError("backup tree snapshot metadata is invalid")
+    if int(value["mode"]) > 0o7777:
+        raise RuntimeError("backup tree snapshot mode is invalid")
+    if kind == "file":
+        size = value.get("size")
+        digest = value.get("sha256")
+        if (
+            isinstance(size, bool)
+            or not isinstance(size, int)
+            or size < 0
+            or not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        ):
+            raise RuntimeError("backup tree snapshot file evidence is invalid")
+    elif value.get("size") is not None or value.get("sha256") is not None:
+        raise RuntimeError("backup tree snapshot directory evidence is invalid")
+    return dict(value)
+
+
+def _strict_backup_tree_json_object(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _load_backup_tree_snapshot(
+    snapshot_path: Path,
+) -> tuple[Path, dict[str, dict[str, object]]]:
+    snapshot = _validated_real_directory(snapshot_path, "Backup tree snapshot")
+    files = _validated_real_directory(snapshot / "files", "Backup tree snapshot files")
+    manifest = snapshot / "manifest.json"
+    try:
+        manifest_info = manifest.lstat()
+    except FileNotFoundError as exc:
+        raise RuntimeError("backup tree snapshot manifest is missing") from exc
+    if not stat.S_ISREG(manifest_info.st_mode) or stat.S_ISLNK(manifest_info.st_mode):
+        raise RuntimeError("backup tree snapshot manifest is not a regular file")
+    if manifest_info.st_nlink not in {0, 1}:
+        raise RuntimeError("backup tree snapshot manifest has multiple hard links")
+    if manifest_info.st_size < 1 or manifest_info.st_size > 16 * 1024 * 1024:
+        raise RuntimeError("backup tree snapshot manifest size is invalid")
+    try:
+        raw_manifest = manifest.read_text(encoding="utf-8")
+        payload = json.loads(
+            raw_manifest,
+            object_pairs_hook=_strict_backup_tree_json_object,
+        )
+    except OSError as exc:
+        raise RuntimeError("backup tree snapshot manifest cannot be read") from exc
+    except ValueError as exc:
+        raise RuntimeError(
+            f"backup tree snapshot manifest is invalid: {exc}"
+        ) from exc
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"records", "version"}
+        or type(payload.get("version")) is not int
+        or payload.get("version") != BACKUP_TREE_SNAPSHOT_VERSION
+        or not isinstance(payload.get("records"), list)
+    ):
+        raise RuntimeError("backup tree snapshot manifest contract is invalid")
+    expected: dict[str, dict[str, object]] = {}
+    manifest_paths: list[str] = []
+    for raw_record in payload["records"]:
+        record = _validate_backup_tree_manifest_record(raw_record)
+        path_text = str(record["path"])
+        if path_text in expected:
+            raise RuntimeError("backup tree snapshot contains duplicate paths")
+        expected[path_text] = record
+        manifest_paths.append(path_text)
+    if manifest_paths != sorted(manifest_paths):
+        raise RuntimeError("backup tree snapshot paths are not sorted")
+    for path_text, record in expected.items():
+        parent = PurePosixPath(path_text).parent
+        while parent != PurePosixPath("."):
+            parent_record = expected.get(parent.as_posix())
+            if parent_record is None or parent_record["kind"] != "directory":
+                raise RuntimeError("backup tree snapshot parent inventory is incomplete")
+            parent = parent.parent
+    actual = _scan_backup_tree(
+        files,
+        require_single_link=False,
+        allowed_link_counts=frozenset({1}),
+    )
+    if set(actual) != set(expected):
+        raise RuntimeError("backup tree snapshot files do not match the manifest")
+    for path_text, record in expected.items():
+        observed = actual[path_text]
+        if not _backup_tree_records_match(
+            observed,
+            record,
+            require_origin_identity=False,
+        ):
+            raise RuntimeError("backup tree snapshot member evidence changed")
+    return files, expected
+
+
+def _open_backup_tree_directory_fd(root_fd: int, parts: tuple[str, ...]) -> int:
+    current_fd = os.dup(root_fd)
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        root_device = os.fstat(root_fd).st_dev
+        root_mount_id = _linux_mount_id(root_fd)
+        for part in parts:
+            next_fd = os.open(part, flags, dir_fd=current_fd)
+            os.close(current_fd)
+            current_fd = next_fd
+            info = os.fstat(current_fd)
+            if (
+                not stat.S_ISDIR(info.st_mode)
+                or info.st_dev != root_device
+                or _linux_mount_id(current_fd) != root_mount_id
+            ):
+                raise RuntimeError("backup tree source directory changed identity")
+        return current_fd
+    except Exception:
+        os.close(current_fd)
+        raise
+
+
+def _copy_open_descriptor_to_new_file(descriptor: int, target: Path) -> None:
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    target_fd = os.open(target, flags, 0o600)
+    try:
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            offset = 0
+            while offset < len(chunk):
+                written = os.write(target_fd, chunk[offset:])
+                if written < 1:
+                    raise OSError("backup tree snapshot copy made no progress")
+                offset += written
+        os.fsync(target_fd)
+    finally:
+        os.close(target_fd)
+
+
+def snapshot_backup_tree(source_path: Path, snapshot_path: Path) -> int:
+    source = _validated_real_directory(source_path, "Backup tree source")
+    snapshot = Path(os.path.abspath(os.fspath(snapshot_path)))
+    if _backup_tree_paths_overlap(source, snapshot):
+        raise RuntimeError("backup tree source and snapshot must not overlap")
+    snapshot_parent = _ensure_private_real_directory(
+        snapshot.parent,
+        "Backup tree snapshot parent",
+    )
+    snapshot = snapshot_parent / snapshot.name
+    if _backup_tree_paths_overlap(source, snapshot):
+        raise RuntimeError("backup tree source and snapshot must not overlap")
+    partial = snapshot.with_name(f".{snapshot.name}.partial")
+    if snapshot.exists() or snapshot.is_symlink() or partial.exists() or partial.is_symlink():
+        raise RuntimeError("backup tree snapshot target already exists")
+    records = _scan_backup_tree(source, require_single_link=True)
+    renamed = False
+    published = False
+    source_root_fd: int | None = None
+    try:
+        files = partial / "files"
+        files.mkdir(parents=True, mode=0o700)
+        if os.name != "nt":
+            flags = (
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0)
+            )
+            source_root_fd = os.open(source, flags)
+            opened_root = os.fstat(source_root_fd)
+            source_info = source.lstat()
+            if (
+                opened_root.st_dev != source_info.st_dev
+                or opened_root.st_ino != source_info.st_ino
+            ):
+                raise RuntimeError("backup tree source changed identity")
+        for path_text, record in sorted(
+            records.items(),
+            key=lambda item: (len(PurePosixPath(item[0]).parts), item[0]),
+        ):
+            relative = PurePosixPath(path_text)
+            target = files.joinpath(*relative.parts)
+            if record["kind"] == "directory":
+                target.mkdir(mode=0o700)
+                continue
+            source_file = source.joinpath(*relative.parts)
+            parent_fd: int | None = None
+            descriptor = -1
+            if source_root_fd is None:
+                observed_source = source_file.lstat()
+                descriptor = os.open(
+                    source_file,
+                    os.O_RDONLY
+                    | getattr(os, "O_NOFOLLOW", 0)
+                    | getattr(os, "O_BINARY", 0),
+                )
+            else:
+                parent_fd = _open_backup_tree_directory_fd(
+                    source_root_fd,
+                    tuple(relative.parts[:-1]),
+                )
+                observed_source = os.stat(
+                    relative.name,
+                    dir_fd=parent_fd,
+                    follow_symlinks=False,
+                )
+                descriptor = os.open(
+                    relative.name,
+                    os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                    dir_fd=parent_fd,
+                )
+            try:
+                source_info, source_digest = _regular_descriptor_digest(
+                    descriptor,
+                    label=path_text,
+                    expected=observed_source,
+                    require_single_link=True,
+                )
+                if _backup_tree_record(
+                    path_text,
+                    "file",
+                    source_info,
+                    digest=source_digest,
+                ) != record:
+                    raise RuntimeError(
+                        f"backup tree source changed before copying: {path_text}"
+                    )
+                _copy_open_descriptor_to_new_file(descriptor, target)
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
+                if parent_fd is not None:
+                    os.close(parent_fd)
+            _apply_backup_tree_metadata(target, record)
+            target_info, target_digest = _regular_file_digest(
+                target,
+                require_single_link=True,
+            )
+            if not _backup_tree_records_match(
+                _backup_tree_record(
+                    path_text,
+                    "file",
+                    target_info,
+                    digest=target_digest,
+                ),
+                record,
+                require_origin_identity=False,
+            ):
+                raise RuntimeError("backup tree snapshot copy changed evidence")
+            _fsync_file(target)
+        for path_text, record in sorted(
+            records.items(),
+            key=lambda item: (len(PurePosixPath(item[0]).parts), item[0]),
+            reverse=True,
+        ):
+            if record["kind"] == "directory":
+                _apply_backup_tree_metadata(
+                    files.joinpath(*PurePosixPath(path_text).parts),
+                    record,
+                )
+        manifest = partial / "manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "records": [records[key] for key in sorted(records)],
+                    "version": BACKUP_TREE_SNAPSHOT_VERSION,
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        _fsync_file(manifest)
+        snapshot_directories = [
+            path
+            for path in files.rglob("*")
+            if path.is_dir() and not path.is_symlink()
+        ]
+        for directory in sorted(
+            snapshot_directories,
+            key=lambda path: len(path.parts),
+            reverse=True,
+        ):
+            _fsync_directory(directory)
+        _fsync_directory(files)
+        _fsync_directory(partial)
+        _load_backup_tree_snapshot(partial)
+        os.replace(partial, snapshot)
+        renamed = True
+        _fsync_directory(snapshot.parent)
+        _load_backup_tree_snapshot(snapshot)
+        published = True
+        return len(records)
+    except OSError as exc:
+        raise RuntimeError("backup tree snapshot could not be published") from exc
+    finally:
+        if source_root_fd is not None:
+            os.close(source_root_fd)
+        if not published and partial.exists() and not partial.is_symlink():
+            shutil.rmtree(partial)
+            _fsync_directory(snapshot.parent)
+        if (
+            renamed
+            and not published
+            and snapshot.exists()
+            and not snapshot.is_symlink()
+        ):
+            shutil.rmtree(snapshot)
+            _fsync_directory(snapshot.parent)
+
+
+def _apply_backup_tree_metadata(path: Path, record: dict[str, object]) -> None:
+    if hasattr(os, "chown"):
+        os.chown(
+            path,
+            int(record["uid"]),
+            int(record["gid"]),
+            follow_symlinks=False,
+        )
+    try:
+        os.chmod(path, int(record["mode"]), follow_symlinks=False)
+    except NotImplementedError:
+        # Windows cannot request no-follow chmod.  Snapshot validation has
+        # already rejected links, and this fallback is only for local tests;
+        # production Linux uses the no-follow branch above.
+        os.chmod(path, int(record["mode"]))
+
+
+def _exchange_backup_tree_directories(first: Path, second: Path) -> None:
+    if first.parent != second.parent:
+        raise RuntimeError("backup tree exchange paths must share a parent")
+    if os.name == "nt":
+        holding = second.with_name(f"{second.name}.holding")
+        if holding.exists() or holding.is_symlink():
+            raise RuntimeError("backup tree exchange holding path already exists")
+        os.replace(first, holding)
+        try:
+            os.replace(second, first)
+            os.replace(holding, second)
+        except Exception:
+            if first.exists() and not second.exists():
+                os.replace(first, second)
+            if holding.exists() and not first.exists():
+                os.replace(holding, first)
+            raise
+        return
+
+    library = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(library, "renameat2", None)
+    if renameat2 is None:
+        raise RuntimeError("atomic backup tree exchange is unavailable")
+    renameat2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    renameat2.restype = ctypes.c_int
+    if renameat2(
+        -100,
+        os.fsencode(first),
+        -100,
+        os.fsencode(second),
+        2,
+    ) != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+
+
+def _materialize_backup_tree(
+    files: Path,
+    expected: dict[str, dict[str, object]],
+    destination: Path,
+) -> None:
+    for path_text, record in sorted(
+        expected.items(),
+        key=lambda item: (len(PurePosixPath(item[0]).parts), item[0]),
+    ):
+        relative = PurePosixPath(path_text)
+        target = destination.joinpath(*relative.parts)
+        if record["kind"] == "directory":
+            target.mkdir(mode=0o700)
+            continue
+        source = files.joinpath(*relative.parts)
+        source_lstat = source.lstat()
+        descriptor = os.open(
+            source,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_BINARY", 0),
+        )
+        try:
+            source_info, source_digest = _regular_descriptor_digest(
+                descriptor,
+                label=path_text,
+                expected=source_lstat,
+                require_single_link=True,
+            )
+            if not _backup_tree_records_match(
+                _backup_tree_record(
+                    path_text,
+                    "file",
+                    source_info,
+                    digest=source_digest,
+                ),
+                record,
+                require_origin_identity=False,
+            ):
+                raise RuntimeError(
+                    f"backup tree snapshot changed before restore: {path_text}"
+                )
+            _copy_open_descriptor_to_new_file(descriptor, target)
+        finally:
+            os.close(descriptor)
+        _apply_backup_tree_metadata(target, record)
+        restored_info, restored_digest = _regular_file_digest(
+            target,
+            require_single_link=True,
+        )
+        if not _backup_tree_records_match(
+            _backup_tree_record(
+                path_text,
+                "file",
+                restored_info,
+                digest=restored_digest,
+            ),
+            record,
+            require_origin_identity=False,
+        ):
+            raise RuntimeError(
+                f"materialized backup tree file changed: {path_text}"
+            )
+        _fsync_file(target)
+    for path_text, record in sorted(
+        expected.items(),
+        key=lambda item: (len(PurePosixPath(item[0]).parts), item[0]),
+        reverse=True,
+    ):
+        if record["kind"] == "directory":
+            _apply_backup_tree_metadata(
+                destination.joinpath(*PurePosixPath(path_text).parts),
+                record,
+            )
+    materialized = _scan_backup_tree(destination, require_single_link=False)
+    if not _backup_tree_inventories_match(
+        materialized,
+        expected,
+        require_origin_identity=False,
+    ):
+        raise RuntimeError("materialized backup tree does not match its snapshot")
+    for directory in sorted(
+        [
+            destination,
+            *(
+                destination.joinpath(*PurePosixPath(path).parts)
+                for path, record in expected.items()
+                if record["kind"] == "directory"
+            ),
+        ],
+        key=lambda path: len(path.parts),
+        reverse=True,
+    ):
+        _fsync_directory(directory)
+
+
+def restore_backup_tree(snapshot_path: Path, destination_path: Path) -> int:
+    snapshot = _validated_real_directory(
+        snapshot_path,
+        "Backup tree snapshot",
+    )
+    destination = _validated_real_directory(
+        destination_path,
+        "Backup tree restore destination",
+    )
+    if _backup_tree_paths_overlap(snapshot, destination):
+        raise RuntimeError("backup tree snapshot and restore destination overlap")
+    files, expected = _load_backup_tree_snapshot(snapshot)
+    destination_parent = _validated_real_directory(
+        destination.parent,
+        "Backup tree restore parent",
+    )
+    restore_parent_info, destination_info = _verified_restore_mount_pair(
+        destination_parent,
+        destination,
+    )
+    if os.name != "nt":
+        if (
+            restore_parent_info.st_uid != os.geteuid()
+            or stat.S_IMODE(restore_parent_info.st_mode) & 0o022
+        ):
+            raise RuntimeError(
+                "backup tree restore parent must not be writable by another account"
+            )
+    current = _scan_backup_tree(destination, require_single_link=False)
+    for path_text, record in expected.items():
+        if record["kind"] != "file":
+            continue
+        source = files.joinpath(*PurePosixPath(path_text).parts)
+        snapshot_info = source.lstat()
+        if (
+            (os.name != "nt" and snapshot_info.st_nlink != 1)
+            or (
+                os.name == "nt"
+                and snapshot_info.st_nlink
+                and snapshot_info.st_nlink != 1
+            )
+        ):
+            raise RuntimeError(
+                f"backup tree snapshot has an external hard link: {path_text}"
+            )
+    partial = Path(
+        tempfile.mkdtemp(
+            prefix=f".{destination.name}.restore-",
+            dir=destination_parent,
+        )
+    )
+    exchanged = False
+    committed = False
+    try:
+        _materialize_backup_tree(files, expected, partial)
+        _apply_backup_tree_metadata(
+            partial,
+            {
+                "uid": int(destination_info.st_uid),
+                "gid": int(destination_info.st_gid),
+                "mode": stat.S_IMODE(destination_info.st_mode),
+            },
+        )
+        _fsync_directory(partial)
+        _, current_root = _verified_restore_mount_pair(
+            destination_parent,
+            destination,
+        )
+        if (
+            current_root.st_dev != destination_info.st_dev
+            or current_root.st_ino != destination_info.st_ino
+        ):
+            raise RuntimeError("backup tree restore destination changed identity")
+        current_before_exchange = _scan_backup_tree(
+            destination,
+            require_single_link=False,
+        )
+        if not _backup_tree_inventories_match(
+            current_before_exchange,
+            current,
+            require_origin_identity=(os.name != "nt"),
+        ):
+            raise RuntimeError("backup tree restore destination changed before exchange")
+        _exchange_backup_tree_directories(destination, partial)
+        exchanged = True
+        _fsync_directory(destination_parent)
+        restored = _scan_backup_tree(destination, require_single_link=False)
+        if not _backup_tree_inventories_match(
+            restored,
+            expected,
+            require_origin_identity=False,
+        ):
+            raise RuntimeError("restored backup tree does not match its snapshot")
+        committed = True
+    except Exception:
+        if exchanged and not committed:
+            _exchange_backup_tree_directories(destination, partial)
+            exchanged = False
+            _fsync_directory(destination_parent)
+        raise
+    finally:
+        if not exchanged and partial.exists() and not partial.is_symlink():
+            shutil.rmtree(partial)
+            _fsync_directory(destination_parent)
+    _, replaced_live_info = _verified_restore_mount_pair(
+        destination_parent,
+        partial,
+    )
+    if (
+        not stat.S_ISDIR(replaced_live_info.st_mode)
+        or stat.S_ISLNK(replaced_live_info.st_mode)
+        or replaced_live_info.st_dev != destination_info.st_dev
+        or replaced_live_info.st_ino != destination_info.st_ino
+    ):
+        raise RuntimeError("exchanged backup tree changed identity before cleanup")
+    replaced_live = _scan_backup_tree(partial, require_single_link=False)
+    if not _backup_tree_inventories_match(
+        replaced_live,
+        current,
+        require_origin_identity=(os.name != "nt"),
+    ):
+        raise RuntimeError("exchanged backup tree changed before cleanup")
+    shutil.rmtree(partial)
+    exchanged = False
+    _fsync_directory(destination_parent)
+    return len(expected)
+
+
+def _is_root_backup_archive(path_text: str, record: dict[str, object]) -> bool:
+    pure = PurePosixPath(path_text)
+    if (
+        len(pure.parts) != 1
+        or record.get("kind") != "file"
+        or BACKUP_ARCHIVE_NAME_PATTERN.fullmatch(pure.name) is None
+    ):
+        return False
+    try:
+        datetime.strptime(
+            pure.name.removeprefix("betboy-sqlite-").removesuffix(".zip"),
+            "%Y%m%dT%H%M%SZ",
+        )
+    except ValueError:
+        return False
+    return True
+
+
+def _root_backup_archive_time(path_text: str) -> datetime:
+    pure = PurePosixPath(path_text)
+    return datetime.strptime(
+        pure.name.removeprefix("betboy-sqlite-").removesuffix(".zip"),
+        "%Y%m%dT%H%M%SZ",
+    ).replace(tzinfo=timezone.utc)
+
+
+def verify_backup_tree_update(
+    snapshot_path: Path,
+    destination_path: Path,
+    *,
+    retention_days: int = 14,
+    now: datetime | None = None,
+) -> Path:
+    if retention_days < 1:
+        raise RuntimeError("backup retention must be at least one day")
+    verification_time = now or datetime.now(timezone.utc)
+    if verification_time.tzinfo is None:
+        raise RuntimeError("backup verification time must be timezone-aware")
+    verification_time = verification_time.astimezone(timezone.utc)
+    files, expected = _load_backup_tree_snapshot(snapshot_path)
+    destination = _validated_real_directory(
+        destination_path,
+        "Backup tree verification destination",
+    )
+    observed = _scan_backup_tree(destination, require_single_link=False)
+    expected_paths = set(expected)
+    observed_paths = set(observed)
+    created = observed_paths - expected_paths
+    if len(created) != 1:
+        raise RuntimeError(
+            f"backup service created an unexpected backup entry set: {sorted(created)}"
+        )
+    created_path = next(iter(created))
+    if not _is_root_backup_archive(created_path, observed[created_path]):
+        raise RuntimeError(f"unexpected backup entry: {created_path}")
+    created_at = _root_backup_archive_time(created_path)
+    if not (
+        verification_time - timedelta(hours=1)
+        <= created_at
+        <= verification_time + timedelta(minutes=5)
+    ):
+        raise RuntimeError("new backup archive timestamp is outside the service run")
+    missing = expected_paths - observed_paths
+    retention_window_start = min(created_at, verification_time)
+    retention_window_end = max(created_at, verification_time)
+    required_expired = {
+        path
+        for path, record in expected.items()
+        if _is_root_backup_archive(path, record)
+        and _root_backup_archive_time(path)
+        < retention_window_start - timedelta(days=retention_days)
+    }
+    possibly_expired = {
+        path
+        for path, record in expected.items()
+        if _is_root_backup_archive(path, record)
+        and _root_backup_archive_time(path)
+        < retention_window_end - timedelta(days=retention_days)
+    }
+    if missing - possibly_expired:
+        raise RuntimeError("backup service removed a protected backup entry")
+    if required_expired - missing:
+        raise RuntimeError("backup service did not apply the configured retention")
+    for path_text in expected_paths & observed_paths:
+        if not _backup_tree_records_match(
+            observed[path_text],
+            expected[path_text],
+            require_origin_identity=(os.name != "nt"),
+        ):
+            raise RuntimeError("backup service changed or replaced an existing backup entry")
+    for path_text, record in expected.items():
+        if record["kind"] != "file":
+            continue
+        snapshot_links = files.joinpath(
+            *PurePosixPath(path_text).parts
+        ).lstat().st_nlink
+        if (
+            (os.name != "nt" and snapshot_links != 1)
+            or (
+                os.name == "nt"
+                and snapshot_links
+                and snapshot_links != 1
+            )
+        ):
+            raise RuntimeError(
+                f"backup rollback snapshot has an unsafe link count: {path_text}"
+            )
+    archive = destination.joinpath(*PurePosixPath(created_path).parts)
+    archive_info = archive.lstat()
+    if (
+        (os.name != "nt" and archive_info.st_nlink != 1)
+        or (
+            os.name == "nt"
+            and archive_info.st_nlink
+            and archive_info.st_nlink != 1
+        )
+    ):
+        raise RuntimeError("new backup archive has multiple hard links")
+    return archive
+
+
 def prune_archives(
     output_dir: Path,
     *,
@@ -2079,10 +3286,32 @@ def main() -> int:
         type=Path,
         help="Read-only path to the completed root migration marker",
     )
-    parser.add_argument(
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument(
         "--verify-only",
         type=Path,
         help="Verify an existing backup archive without creating a new one",
+    )
+    actions.add_argument(
+        "--snapshot-backup-tree",
+        nargs=2,
+        type=Path,
+        metavar=("SOURCE", "SNAPSHOT"),
+        help="Atomically snapshot a protected backup directory tree",
+    )
+    actions.add_argument(
+        "--restore-backup-tree",
+        nargs=2,
+        type=Path,
+        metavar=("SNAPSHOT", "DESTINATION"),
+        help="Restore a previously validated backup directory tree",
+    )
+    actions.add_argument(
+        "--verify-backup-tree-update",
+        nargs=2,
+        type=Path,
+        metavar=("SNAPSHOT", "DESTINATION"),
+        help="Verify that a backup run created exactly one root archive",
     )
     parser.add_argument(
         "--recovery-mode",
@@ -2090,8 +3319,44 @@ def main() -> int:
         help="Allow a root recovery archive captured during an in-progress v0 migration",
     )
     args = parser.parse_args()
+    if args.recovery_mode and args.verify_only is None:
+        parser.error("--recovery-mode requires --verify-only")
     if args.retention_days < 1:
         parser.error("--retention-days must be at least 1")
+    tree_action = next(
+        (
+            (name, value)
+            for name, value in (
+                ("snapshot", args.snapshot_backup_tree),
+                ("restore", args.restore_backup_tree),
+                ("verify-update", args.verify_backup_tree_update),
+            )
+            if value is not None
+        ),
+        None,
+    )
+    if tree_action is not None:
+        if args.integrity_key or args.migration_marker:
+            parser.error(
+                "backup-tree actions cannot be combined with archive-only options"
+            )
+        action, paths = tree_action
+        first, second = paths
+        if action == "snapshot":
+            count = snapshot_backup_tree(first, second)
+            print(f"Snapshot: {second} | entries={count}")
+        elif action == "restore":
+            count = restore_backup_tree(first, second)
+            print(f"Restored: {second} | entries={count}")
+        else:
+            print(
+                verify_backup_tree_update(
+                    first,
+                    second,
+                    retention_days=args.retention_days,
+                )
+            )
+        return 0
     if args.verify_only is not None:
         verified = verify_archive(
             args.verify_only,
@@ -2099,9 +3364,6 @@ def main() -> int:
         )
         print(f"Verified: {args.verify_only} | databases={verified}")
         return 0
-    if args.recovery_mode:
-        parser.error("--recovery-mode requires --verify-only")
-
     archive, count = create_archive(
         args.output_dir,
         root=args.root,

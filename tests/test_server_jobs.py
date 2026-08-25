@@ -10,7 +10,7 @@ import sqlite3
 import subprocess
 import sys
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts import backup_runtime_databases as backup
@@ -2414,6 +2414,492 @@ def test_backup_refuses_linked_database_sources(tmp_path):
 
     with pytest.raises(RuntimeError, match="link|regular"):
         backup.create_archive(tmp_path / "backups", root=root)
+
+
+def test_backup_tree_snapshot_round_trips_nested_runtime_artifacts(tmp_path):
+    source = tmp_path / "backups"
+    runtime = source / "runtime-artifacts"
+    runtime.mkdir(parents=True)
+    old_archive = source / "betboy-sqlite-20300101T000000Z.zip"
+    old_archive.write_bytes(b"old-archive")
+    manifest = runtime / "runtime.manifest.json"
+    payload = runtime / "runtime.tar.gz"
+    manifest.write_bytes(b"original-manifest")
+    payload.write_bytes(b"original-payload")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+
+    backup.snapshot_backup_tree(source, snapshot)
+
+    old_archive.unlink()
+    manifest.unlink()
+    manifest.write_bytes(b"replaced-manifest")
+    (runtime / "unexpected.bin").write_bytes(b"unexpected")
+    (source / "betboy-sqlite-20300102T000000Z.zip").write_bytes(b"new")
+
+    backup.restore_backup_tree(snapshot, source)
+
+    assert old_archive.read_bytes() == b"old-archive"
+    assert manifest.read_bytes() == b"original-manifest"
+    assert payload.read_bytes() == b"original-payload"
+    assert not (runtime / "unexpected.bin").exists()
+    assert not (source / "betboy-sqlite-20300102T000000Z.zip").exists()
+
+
+def test_backup_tree_snapshot_failure_is_not_published(tmp_path):
+    import pytest
+
+    source = tmp_path / "backups"
+    source.mkdir()
+    (source / "betboy-sqlite-20300101T000000Z.zip").write_bytes(b"archive")
+    linked = source / "runtime-artifacts"
+    try:
+        linked.symlink_to(tmp_path, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+
+    with pytest.raises(RuntimeError, match="symlink"):
+        backup.snapshot_backup_tree(source, snapshot)
+
+    assert not snapshot.exists()
+    assert not snapshot.with_name(f".{snapshot.name}.partial").exists()
+
+
+def test_backup_tree_update_allows_only_one_new_root_archive(tmp_path):
+    import pytest
+
+    source = tmp_path / "backups"
+    runtime = source / "runtime-artifacts"
+    runtime.mkdir(parents=True)
+    (runtime / "runtime.tar.gz").write_bytes(b"runtime")
+    verification_time = datetime(2030, 1, 2, 0, 5, tzinfo=timezone.utc)
+    old_archive = source / "betboy-sqlite-20000101T000000Z.zip"
+    old_archive.write_bytes(b"old")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+    backup.snapshot_backup_tree(source, snapshot)
+
+    old_archive.unlink()
+    created = source / "betboy-sqlite-20300102T000000Z.zip"
+    created.write_bytes(b"new")
+
+    assert (
+        backup.verify_backup_tree_update(
+            snapshot,
+            source,
+            now=verification_time,
+        )
+        == created
+    )
+
+    (runtime / "unexpected.bin").write_bytes(b"unexpected")
+    with pytest.raises(RuntimeError, match="unexpected backup entry"):
+        backup.verify_backup_tree_update(snapshot, source, now=verification_time)
+
+
+def test_backup_tree_snapshot_rejects_overlap_before_creating_parent(tmp_path):
+    import pytest
+
+    source = tmp_path / "backups"
+    source.mkdir()
+    sentinel = source / "keep.txt"
+    sentinel.write_bytes(b"keep")
+    snapshot = source / "rollback" / "backup-tree"
+
+    with pytest.raises(RuntimeError, match="overlap"):
+        backup.snapshot_backup_tree(source, snapshot)
+
+    assert sentinel.read_bytes() == b"keep"
+    assert not snapshot.parent.exists()
+
+
+def test_backup_tree_restore_rejects_overlap_without_mutation(tmp_path):
+    import pytest
+
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "archive.zip").write_bytes(b"archive")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+    backup.snapshot_backup_tree(source, snapshot)
+    sentinel = tmp_path / "keep.txt"
+    sentinel.write_bytes(b"keep")
+
+    with pytest.raises(RuntimeError, match="overlap"):
+        backup.restore_backup_tree(snapshot, tmp_path)
+
+    assert sentinel.read_bytes() == b"keep"
+    assert snapshot.is_dir()
+
+
+def test_backup_tree_snapshot_copy_failure_leaves_no_publication(
+    tmp_path, monkeypatch
+):
+    import pytest
+
+    source = tmp_path / "backups"
+    source.mkdir()
+    (source / "one.zip").write_bytes(b"one")
+    (source / "two.zip").write_bytes(b"two")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+    real_copy = backup._copy_open_descriptor_to_new_file
+    calls = 0
+
+    def fail_second_copy(descriptor, destination_path):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("injected copy failure")
+        return real_copy(descriptor, destination_path)
+
+    monkeypatch.setattr(
+        backup,
+        "_copy_open_descriptor_to_new_file",
+        fail_second_copy,
+    )
+    with pytest.raises(RuntimeError, match="could not be published"):
+        backup.snapshot_backup_tree(source, snapshot)
+
+    assert not snapshot.exists()
+    assert not snapshot.with_name(f".{snapshot.name}.partial").exists()
+
+
+def test_backup_tree_restore_rejects_tampered_manifest_before_mutation(tmp_path):
+    import pytest
+
+    source = tmp_path / "backups"
+    source.mkdir()
+    original = source / "archive.zip"
+    original.write_bytes(b"original")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+    backup.snapshot_backup_tree(source, snapshot)
+    manifest = snapshot / "manifest.json"
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["records"][0]["path"] = "../escape"
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    original.write_bytes(b"live")
+
+    with pytest.raises(RuntimeError, match="unsafe"):
+        backup.restore_backup_tree(snapshot, source)
+
+    assert original.read_bytes() == b"live"
+
+
+def test_backup_tree_restore_rejects_live_symlink_without_mutation(tmp_path):
+    import pytest
+
+    source = tmp_path / "backups"
+    source.mkdir()
+    live = source / "archive.zip"
+    live.write_bytes(b"original")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+    backup.snapshot_backup_tree(source, snapshot)
+    live.unlink()
+    outside = tmp_path / "outside.zip"
+    outside.write_bytes(b"outside")
+    try:
+        live.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlinks are unavailable")
+
+    with pytest.raises(RuntimeError, match="symlink"):
+        backup.restore_backup_tree(snapshot, source)
+
+    assert live.is_symlink()
+    assert outside.read_bytes() == b"outside"
+
+
+def test_backup_tree_restore_build_failure_preserves_live_tree(tmp_path, monkeypatch):
+    import pytest
+
+    source = tmp_path / "backups"
+    source.mkdir()
+    live = source / "archive.zip"
+    live.write_bytes(b"original")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+    backup.snapshot_backup_tree(source, snapshot)
+    live.unlink()
+    live.write_bytes(b"current-live")
+
+    def fail_copy(*_args, **_kwargs):
+        raise OSError("injected restore copy failure")
+
+    monkeypatch.setattr(backup, "_copy_open_descriptor_to_new_file", fail_copy)
+    with pytest.raises((OSError, RuntimeError)):
+        backup.restore_backup_tree(snapshot, source)
+
+    assert live.read_bytes() == b"current-live"
+
+
+def test_backup_tree_restore_validation_failure_exchanges_live_tree_back(
+    tmp_path, monkeypatch
+):
+    import pytest
+
+    source = tmp_path / "backups"
+    source.mkdir()
+    live = source / "archive.zip"
+    live.write_bytes(b"original")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+    backup.snapshot_backup_tree(source, snapshot)
+    live.unlink()
+    live.write_bytes(b"current-live")
+    real_scan = backup._scan_backup_tree
+    source_scans = 0
+
+    def fail_post_exchange_scan(root, **kwargs):
+        nonlocal source_scans
+        result = real_scan(root, **kwargs)
+        if Path(root) == source:
+            source_scans += 1
+            if source_scans == 3:
+                return {}
+        return result
+
+    monkeypatch.setattr(backup, "_scan_backup_tree", fail_post_exchange_scan)
+    with pytest.raises(RuntimeError, match="does not match"):
+        backup.restore_backup_tree(snapshot, source)
+
+    assert live.read_bytes() == b"current-live"
+    assert not list(tmp_path.glob(".backups.restore-*"))
+
+
+def test_backup_tree_update_rejects_identical_replacement_and_two_archives(tmp_path):
+    import pytest
+
+    source = tmp_path / "backups"
+    runtime = source / "runtime-artifacts"
+    runtime.mkdir(parents=True)
+    protected = runtime / "runtime.tar.gz"
+    protected.write_bytes(b"runtime")
+    verification_time = datetime(2030, 1, 2, 0, 5, tzinfo=timezone.utc)
+    snapshot = tmp_path / "rollback" / "backup-tree"
+    backup.snapshot_backup_tree(source, snapshot)
+
+    protected.unlink()
+    protected.write_bytes(b"runtime")
+    (source / "betboy-sqlite-20300102T000000Z.zip").write_bytes(b"new")
+    if os.name == "nt":
+        assert backup.verify_backup_tree_update(
+            snapshot,
+            source,
+            now=verification_time,
+        ).name == (
+            "betboy-sqlite-20300102T000000Z.zip"
+        )
+    else:
+        with pytest.raises(RuntimeError, match="replaced"):
+            backup.verify_backup_tree_update(
+                snapshot,
+                source,
+                now=verification_time,
+            )
+
+    backup.restore_backup_tree(snapshot, source)
+    shutil.rmtree(snapshot)
+    second_snapshot = tmp_path / "rollback-second" / "backup-tree"
+    backup.snapshot_backup_tree(source, second_snapshot)
+    (source / "betboy-sqlite-20300102T000000Z.zip").write_bytes(b"new")
+    (source / "betboy-sqlite-20300102T000100Z.zip").write_bytes(b"second")
+    with pytest.raises(RuntimeError, match="unexpected backup entry"):
+        backup.verify_backup_tree_update(
+            second_snapshot,
+            source,
+            now=verification_time,
+        )
+
+
+def test_backup_tree_update_rejects_external_link_for_pruned_archive(tmp_path):
+    import pytest
+
+    source = tmp_path / "backups"
+    source.mkdir()
+    old_archive = source / "betboy-sqlite-20000101T000000Z.zip"
+    old_archive.write_bytes(b"old")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+    backup.snapshot_backup_tree(source, snapshot)
+    outside = tmp_path / "outside-link.zip"
+    snapshot_archive = snapshot / "files" / old_archive.name
+    os.link(snapshot_archive, outside)
+    old_archive.unlink()
+    if snapshot_archive.stat().st_nlink == 0:
+        pytest.skip("hard-link counts are unavailable")
+    (source / "betboy-sqlite-20300102T000000Z.zip").write_bytes(b"new")
+
+    with pytest.raises(RuntimeError, match="unsafe link count"):
+        backup.verify_backup_tree_update(
+            snapshot,
+            source,
+            now=datetime(2030, 1, 2, 0, 5, tzinfo=timezone.utc),
+        )
+
+
+def test_backup_tree_update_rejects_recent_history_deletion_and_bad_timestamp(
+    tmp_path,
+):
+    import pytest
+
+    verification_time = datetime(2030, 1, 2, 0, 5, tzinfo=timezone.utc)
+    source = tmp_path / "backups"
+    source.mkdir()
+    recent = source / "betboy-sqlite-20300101T235900Z.zip"
+    recent.write_bytes(b"recent")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+    backup.snapshot_backup_tree(source, snapshot)
+    recent.unlink()
+    created = source / "betboy-sqlite-20300102T000000Z.zip"
+    created.write_bytes(b"new")
+
+    with pytest.raises(RuntimeError, match="removed a protected"):
+        backup.verify_backup_tree_update(
+            snapshot,
+            source,
+            now=verification_time,
+        )
+
+    backup.restore_backup_tree(snapshot, source)
+    shutil.rmtree(snapshot)
+    malformed_snapshot = tmp_path / "rollback-malformed" / "backup-tree"
+    backup.snapshot_backup_tree(source, malformed_snapshot)
+    malformed = source / "betboy-sqlite-99999999T999999Z.zip"
+    malformed.write_bytes(b"bad")
+    with pytest.raises(RuntimeError, match="unexpected backup entry"):
+        backup.verify_backup_tree_update(
+            malformed_snapshot,
+            source,
+            now=verification_time,
+        )
+
+
+def test_backup_tree_update_requires_every_expired_archive_to_be_pruned(tmp_path):
+    import pytest
+
+    verification_time = datetime(2030, 1, 2, 0, 5, tzinfo=timezone.utc)
+    source = tmp_path / "backups"
+    source.mkdir()
+    expired = source / "betboy-sqlite-20000101T000000Z.zip"
+    expired.write_bytes(b"expired")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+    backup.snapshot_backup_tree(source, snapshot)
+    created = source / "betboy-sqlite-20300102T000000Z.zip"
+    created.write_bytes(b"new")
+
+    with pytest.raises(RuntimeError, match="configured retention"):
+        backup.verify_backup_tree_update(
+            snapshot,
+            source,
+            now=verification_time,
+        )
+
+
+def test_backup_tree_update_allows_retention_boundary_race(tmp_path):
+    service_archive_time = datetime(2030, 1, 2, 0, 0, tzinfo=timezone.utc)
+    verification_time = service_archive_time + timedelta(seconds=2)
+    source = tmp_path / "backups"
+    source.mkdir()
+    boundary = source / "betboy-sqlite-20291219T000001Z.zip"
+    boundary.write_bytes(b"boundary")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+    backup.snapshot_backup_tree(source, snapshot)
+    created = source / "betboy-sqlite-20300102T000000Z.zip"
+    created.write_bytes(b"new")
+
+    assert backup.verify_backup_tree_update(
+        snapshot,
+        source,
+        now=verification_time,
+    ) == created
+
+    boundary.unlink()
+    assert backup.verify_backup_tree_update(
+        snapshot,
+        source,
+        now=verification_time,
+    ) == created
+
+
+def test_backup_tree_manifest_requires_sorted_unique_strict_records(tmp_path):
+    import pytest
+
+    source = tmp_path / "backups"
+    source.mkdir()
+    (source / "a.zip").write_bytes(b"a")
+    (source / "b.zip").write_bytes(b"b")
+    snapshot = tmp_path / "rollback" / "backup-tree"
+    backup.snapshot_backup_tree(source, snapshot)
+    manifest = snapshot / "manifest.json"
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["records"].reverse()
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="not sorted"):
+        backup.restore_backup_tree(snapshot, source)
+
+
+def test_backup_tree_manifest_rejects_boolean_version_and_duplicate_keys(tmp_path):
+    import pytest
+
+    source = tmp_path / "backups"
+    source.mkdir()
+    (source / "archive.zip").write_bytes(b"archive")
+
+    boolean_snapshot = tmp_path / "rollback-one" / "backup-tree"
+    backup.snapshot_backup_tree(source, boolean_snapshot)
+    boolean_manifest = boolean_snapshot / "manifest.json"
+    boolean_manifest.write_text(
+        boolean_manifest.read_text(encoding="utf-8").replace(
+            '"version":1',
+            '"version":true',
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="contract"):
+        backup.restore_backup_tree(boolean_snapshot, source)
+    shutil.rmtree(boolean_snapshot)
+
+    duplicate_snapshot = tmp_path / "rollback-two" / "backup-tree"
+    backup.snapshot_backup_tree(source, duplicate_snapshot)
+    duplicate_manifest = duplicate_snapshot / "manifest.json"
+    duplicate_manifest.write_text(
+        duplicate_manifest.read_text(encoding="utf-8").replace(
+            '"version":1',
+            '"version":1,"version":1',
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="duplicate"):
+        backup.restore_backup_tree(duplicate_snapshot, source)
+
+
+def test_updater_publishes_backup_snapshot_only_after_helper_success():
+    root = Path(__file__).resolve().parents[1]
+    update = (root / "deploy" / "update_server.sh").read_text(encoding="utf-8")
+    snapshot = _shell_function(update, "snapshot_backup_archives")
+    helper = snapshot.index("--snapshot-backup-tree")
+    publish = snapshot.index('BACKUP_ARCHIVE_INVENTORY="${candidate}"')
+
+    assert helper < publish
+    assert "scripts/backup_runtime_databases.py" in snapshot
+    assert "manifest.json" in snapshot[helper:publish]
+
+    restore = _shell_function(update, "restore_backup_archives")
+    assert '[[ -z "${BACKUP_ARCHIVE_INVENTORY}" ]] && return 0' in restore
+    assert "--restore-backup-tree" in restore
+    assert '${TRUSTED_TREE}/scripts/backup_runtime_databases.py' in restore
+
+    verify = _shell_function(update, "verify_backup_service_migration")
+    assert "--verify-backup-tree-update" in verify
+    assert "--verify-only" in verify
+
+    preflight = _shell_function(update, "preflight")
+    assert "du -skx --apparent-size /var/backups/betboy" in preflight
+    assert "database_apparent_kib * 5 + 524288" in preflight
+    assert "independent backup snapshot and restore" in preflight
+
+    root_snapshot = _shell_function(update, "snapshot_root_files")
+    assert "backup_parent_mode=$(stat -c '%a' /var/backups)" in root_snapshot
+    assert "Backup parent is writable by a non-root account" in root_snapshot
+    assert "Backup destination must share its parent filesystem" in root_snapshot
+    assert "mountpoint -q /var/backups/betboy" in root_snapshot
+    assert "df -Pk /var/backups" in preflight
 
 
 def test_caddy_frame_policy_is_installed_by_bootstrap_and_updater():

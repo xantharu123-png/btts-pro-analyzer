@@ -1761,101 +1761,32 @@ PY
 }
 
 snapshot_backup_archives() {
-    BACKUP_ARCHIVE_INVENTORY="${ROLLBACK_ROOT}/backup-archive-snapshot"
-    /usr/bin/python3 -I - \
-        /var/backups/betboy "${BACKUP_ARCHIVE_INVENTORY}" <<'PY'
-import json
-import os
-import stat
-import sys
-from pathlib import Path
-
-source = Path(sys.argv[1])
-snapshot = Path(sys.argv[2])
-files = snapshot / "files"
-files.mkdir(parents=True, mode=0o700)
-records = []
-for path in sorted(source.iterdir(), key=lambda item: item.name):
-    info = path.lstat()
-    if not stat.S_ISREG(info.st_mode) or path.is_symlink():
-        raise SystemExit(f"backup directory contains a non-regular entry: {path.name}")
-    linked = files / path.name
-    try:
-        os.link(path, linked, follow_symlinks=False)
-    except OSError as exc:
-        raise SystemExit(
-            "backup rollback snapshot requires /var/tmp and /var/backups "
-            "on one hard-link-capable filesystem"
-        ) from exc
-    records.append({
-        "name": path.name,
-        "uid": info.st_uid,
-        "gid": info.st_gid,
-        "mode": stat.S_IMODE(info.st_mode),
-    })
-manifest = snapshot / "manifest.json"
-with manifest.open("w", encoding="utf-8") as handle:
-    json.dump(records, handle, ensure_ascii=True, sort_keys=True)
-    handle.flush()
-    os.fsync(handle.fileno())
-for directory in (files, snapshot):
-    descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-PY
+    local candidate="${ROLLBACK_ROOT}/backup-archive-snapshot"
+    [[ -z "${BACKUP_ARCHIVE_INVENTORY}" ]] \
+        || die "Backup rollback snapshot was already published."
+    /usr/bin/python3 -I \
+        "$(trusted_file scripts/backup_runtime_databases.py)" \
+        --snapshot-backup-tree /var/backups/betboy "${candidate}"
+    [[ -d "${candidate}" && ! -L "${candidate}" \
+        && -f "${candidate}/manifest.json" \
+        && ! -L "${candidate}/manifest.json" ]] \
+        || die "Backup rollback snapshot was not published safely."
+    BACKUP_ARCHIVE_INVENTORY="${candidate}"
 }
 
 restore_backup_archives() {
-    [[ -n "${BACKUP_ARCHIVE_INVENTORY}" \
-        && -d "${BACKUP_ARCHIVE_INVENTORY}" \
-        && ! -L "${BACKUP_ARCHIVE_INVENTORY}" ]] || return 0
-    /usr/bin/python3 -I - \
-        /var/backups/betboy "${BACKUP_ARCHIVE_INVENTORY}" <<'PY'
-import json
-import os
-import stat
-import sys
-from pathlib import Path
-
-destination = Path(sys.argv[1])
-snapshot = Path(sys.argv[2])
-files = snapshot / "files"
-records = json.loads((snapshot / "manifest.json").read_text(encoding="utf-8"))
-expected = {record["name"]: record for record in records}
-
-for path in list(destination.iterdir()):
-    if path.name in expected:
-        continue
-    info = path.lstat()
-    if not stat.S_ISREG(info.st_mode) or path.is_symlink():
-        raise SystemExit(f"refusing to remove unexpected backup entry: {path.name}")
-    path.unlink()
-
-for name, record in expected.items():
-    source = files / name
-    target = destination / name
-    source_info = source.lstat()
-    if not stat.S_ISREG(source_info.st_mode) or source.is_symlink():
-        raise SystemExit(f"rollback snapshot member is invalid: {name}")
-    if target.exists() or target.is_symlink():
-        target_info = target.lstat()
-        if not stat.S_ISREG(target_info.st_mode) or target.is_symlink():
-            raise SystemExit(f"backup target changed type: {name}")
-        if not os.path.samefile(source, target):
-            raise SystemExit(f"existing backup bytes changed during migration: {name}")
-    else:
-        os.link(source, target, follow_symlinks=False)
-    os.chown(target, int(record["uid"]), int(record["gid"]), follow_symlinks=False)
-    os.chmod(target, int(record["mode"]))
-
-descriptor = os.open(destination, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-try:
-    os.fsync(descriptor)
-finally:
-    os.close(descriptor)
-PY
+    local helper="${TRUSTED_TREE}/scripts/backup_runtime_databases.py"
+    [[ -z "${BACKUP_ARCHIVE_INVENTORY}" ]] && return 0
+    [[ -d "${BACKUP_ARCHIVE_INVENTORY}" \
+        && ! -L "${BACKUP_ARCHIVE_INVENTORY}" \
+        && -f "${BACKUP_ARCHIVE_INVENTORY}/manifest.json" \
+        && ! -L "${BACKUP_ARCHIVE_INVENTORY}/manifest.json" ]] \
+        || return 1
+    [[ -f "${helper}" && ! -L "${helper}" ]] || return 1
+    /usr/bin/python3 -I \
+        "${helper}" \
+        --restore-backup-tree \
+        "${BACKUP_ARCHIVE_INVENTORY}" /var/backups/betboy
 }
 
 verify_backup_service_migration() {
@@ -1873,31 +1804,11 @@ verify_backup_service_migration() {
     [[ "$(systemctl is-active betboy-backup.service || true)" == inactive ]] \
         || die "Backup oneshot did not return to inactive state."
 
-    archive=$(/usr/bin/python3 -I - \
-        /var/backups/betboy "${BACKUP_ARCHIVE_INVENTORY}" <<'PY'
-import json
-import re
-import stat
-import sys
-from pathlib import Path
-
-destination = Path(sys.argv[1])
-snapshot = Path(sys.argv[2])
-records = json.loads((snapshot / "manifest.json").read_text(encoding="utf-8"))
-before = {record["name"] for record in records}
-after = set()
-for path in destination.iterdir():
-    info = path.lstat()
-    if not stat.S_ISREG(info.st_mode) or path.is_symlink():
-        raise SystemExit(f"backup service produced a non-regular entry: {path.name}")
-    after.add(path.name)
-created = sorted(after - before)
-if len(created) != 1 or not re.fullmatch(
-    r"betboy-sqlite-\d{8}T\d{6}Z\.zip", created[0]
-):
-    raise SystemExit(f"backup service did not create exactly one archive: {created}")
-print(destination / created[0])
-PY
+    archive=$(
+        /usr/bin/python3 -I \
+            "$(trusted_file scripts/backup_runtime_databases.py)" \
+            --verify-backup-tree-update \
+            "${BACKUP_ARCHIVE_INVENTORY}" /var/backups/betboy
     )
     BACKUP_PROBE_ARCHIVE="${archive}"
     [[ -f "${archive}" && ! -L "${archive}" \
@@ -2016,6 +1927,7 @@ verify_public_proxy() {
 }
 
 snapshot_root_files() {
+    local backup_parent_mode
     local timer
     ROLLBACK_ROOT="${STAGE_DIR}/root-rollback"
     install -d -m 0700 -o root -g root "${ROLLBACK_ROOT}/systemd"
@@ -2042,10 +1954,19 @@ snapshot_root_files() {
     CADDY_UID=$(stat -c '%u' /etc/caddy/Caddyfile)
     CADDY_GID=$(stat -c '%g' /etc/caddy/Caddyfile)
     CADDY_MODE=$(stat -c '%a' /etc/caddy/Caddyfile)
+    [[ -d /var/backups && ! -L /var/backups \
+        && "$(stat -c '%u' /var/backups)" == 0 ]] \
+        || die "Backup parent must be a real root-owned directory."
+    backup_parent_mode=$(stat -c '%a' /var/backups)
+    (( (8#${backup_parent_mode} & 022) == 0 )) \
+        || die "Backup parent is writable by a non-root account."
     [[ -d /var/backups/betboy && ! -L /var/backups/betboy ]] \
         || die "Existing backup destination is not a real directory."
-    [[ "$(stat -c '%d' /var/tmp)" == "$(stat -c '%d' /var/backups/betboy)" ]] \
-        || die "/var/tmp and /var/backups must share a filesystem for rollback-safe hard links."
+    [[ "$(stat -c '%d' /var/backups/betboy)" \
+        == "$(stat -c '%d' /var/backups)" ]] \
+        || die "Backup destination must share its parent filesystem."
+    ! mountpoint -q /var/backups/betboy \
+        || die "Backup destination must not be a separate mountpoint."
     BACKUP_DIR_WAS_PRESENT=1
     BACKUP_DIR_UID=$(stat -c '%u' /var/backups/betboy)
     BACKUP_DIR_GID=$(stat -c '%g' /var/backups/betboy)
@@ -2537,13 +2458,20 @@ preflight() {
     local required_command
     local worker
     local available_kib
+    local backup_apparent_kib
+    local backup_available_kib
+    local backup_required_kib
+    local database_apparent_kib
+    local rollback_available_kib
+    local rollback_required_kib
+    local shared_required_kib
 
     verify_invocation "$@"
     for required_command in \
         git runuser systemctl systemd-analyze install curl awk sort comm \
-        bash df grep sleep readlink stat date mktemp cp mv rm cmp chown chmod \
+        bash df du grep sleep readlink stat date mktemp cp mv rm cmp chown chmod \
         chgrp sha256sum find pgrep getent groupadd groupdel useradd userdel \
-        passwd id dirname rmdir caddy flock; do
+        passwd id dirname rmdir caddy flock mountpoint; do
         command -v "${required_command}" >/dev/null \
             || die "Missing command: ${required_command}"
     done
@@ -2559,6 +2487,45 @@ preflight() {
     available_kib=$(df -Pk "${APP_DIR}" | awk 'NR == 2 {print $4}')
     [[ "${available_kib}" =~ ^[0-9]+$ ]] || die "Cannot determine free disk space."
     (( available_kib >= 2097152 )) || die "Less than 2 GiB free for safe staging."
+    backup_apparent_kib=$(du -skx --apparent-size /var/backups/betboy \
+        | awk 'NR == 1 {print $1}')
+    database_apparent_kib=$(
+        find -P "${APP_DIR}" -xdev -type f \
+            \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+               -o -name '*.db-wal' -o -name '*.db-shm' \
+               -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' \
+               -o -name '*.sqlite3-wal' -o -name '*.sqlite3-shm' \
+               -o -name '*.db-journal' -o -name '*.sqlite-journal' \
+               -o -name '*.sqlite3-journal' \) \
+            -printf '%s\n' \
+            | awk '{total += $1} END {print int((total + 1023) / 1024)}'
+    )
+    rollback_available_kib=$(df -Pk /var/tmp | awk 'NR == 2 {print $4}')
+    backup_available_kib=$(df -Pk /var/backups \
+        | awk 'NR == 2 {print $4}')
+    [[ "${backup_apparent_kib}" =~ ^[0-9]+$ \
+        && "${database_apparent_kib}" =~ ^[0-9]+$ \
+        && "${rollback_available_kib}" =~ ^[0-9]+$ \
+        && "${backup_available_kib}" =~ ^[0-9]+$ ]] \
+        || die "Cannot determine rollback snapshot capacity."
+    rollback_required_kib=$((
+        backup_apparent_kib + database_apparent_kib * 3 + 524288
+    ))
+    backup_required_kib=$((
+        backup_apparent_kib + database_apparent_kib * 2 + 524288
+    ))
+    if [[ "$(stat -c '%d' /var/tmp)" \
+        == "$(stat -c '%d' /var/backups/betboy)" ]]; then
+        shared_required_kib=$((
+            backup_apparent_kib * 2 + database_apparent_kib * 5 + 524288
+        ))
+        (( rollback_available_kib >= shared_required_kib )) \
+            || die "Insufficient shared space for an independent backup snapshot and restore."
+    else
+        (( rollback_available_kib >= rollback_required_kib \
+            && backup_available_kib >= backup_required_kib )) \
+            || die "Insufficient space for an independent backup snapshot and restore."
+    fi
     for worker in "${BETBOY_WORKERS[@]}"; do
         if systemctl is-active --quiet "${worker}"; then
             die "Worker ${worker} is active; retry after it finishes."

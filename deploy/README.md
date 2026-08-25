@@ -49,10 +49,13 @@ group access, and changes future runtime writers to umask `0027`. The backup
   Before mutation, the updater snapshots the principal state, exact
 database and parent-directory metadata, archive-directory metadata, Caddy
 bytes and metadata, and the archive inventory. Existing archives are held by
-root-only hard links while writers are stopped, so retention pruning is also
-reversible. `/var/tmp` and `/var/backups` must therefore share a hard-link-
-capable filesystem; the updater checks the device before downtime. A pre-start
-rollback restores and verifies all of that state.
+root-only, independently fsynced copies while writers are stopped, so both
+retention pruning and in-place corruption remain reversible. Before downtime,
+the updater checks the archive tree's apparent size and reserves enough free
+space for snapshot, restore, runtime database staging, recovery archives, and
+the probe backup, including when `/var/tmp` and `/var/backups` are separate
+filesystems. A pre-start rollback materializes and verifies a sibling tree
+before atomically exchanging it with the live tree.
 
 ## Initial installation
 
