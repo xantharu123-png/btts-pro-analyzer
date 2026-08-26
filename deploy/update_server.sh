@@ -381,11 +381,11 @@ expected_unit_sha256() {
         deploy/systemd/betboy-esports.service) printf '%s\n' 1df7e7c001c093c211ce03ae3c0ac57ce8030f9c3da008e1ee04e431ca9cfd8b ;;
         deploy/systemd/betboy-esports.timer) printf '%s\n' 97fd05b6df1df5afdb2b109f75ea1ad6354da3801300056e478b9a53ea320a6c ;;
         deploy/systemd/betboy-football-shadow.service) printf '%s\n' 0e9bf4d73bc8db2b2dee201b116d63f86c0dcd953a5458e0f6c8ea00df33a149 ;;
-        deploy/systemd/betboy-football-shadow.timer) printf '%s\n' a311d307bc5a604cba565b97212d815c8c9e5a085844dfa302ea4a1fb62d67bf ;;
+        deploy/systemd/betboy-football-shadow.timer) printf '%s\n' 1acba802120d7911ea7b9b62962712b9119dfd732b4eb5c30ab77e1ed750fa0a ;;
         deploy/systemd/betboy-redcard-history.service) printf '%s\n' a063bd88657bfbcffe804732c48c5302b98c3fd869864383a62f6b2f1daa8795 ;;
         deploy/systemd/betboy-redcard-history.timer) printf '%s\n' cea8127dd10cfe3e911cd0d2f516576964109339e2303792f3c4282a260e26fb ;;
         deploy/systemd/betboy-redcard-settlement.service) printf '%s\n' f2bdb5ed768012258ecec20f3ba91c0f8290853218f26842524a210aa1ba767a ;;
-        deploy/systemd/betboy-redcard-settlement.timer) printf '%s\n' 86b28ef068b75854e2ce1536b11ac9982c9410a9f1716dfeaa7d6045918bba16 ;;
+        deploy/systemd/betboy-redcard-settlement.timer) printf '%s\n' 62e80b3f7d2c9f77cfe2611b0e102386a215950892752593e1f61bc23df7f47e ;;
         deploy/systemd/betboy-tennis.service) printf '%s\n' 8f0239135e214f1ffe2cdf1adeda62d2852b5a9ff36ebdf5a1d347850cbef146 ;;
         deploy/systemd/betboy-tennis.timer) printf '%s\n' d1c58a3a36736f557d17d68cec6ef64d52e60e7c539d9af463341bb7df27b118 ;;
         deploy/systemd/betboy-wettfinder.service) printf '%s\n' 698cbda1b157603f735e079c9f30b25bdfb1d78b74d693b8a05036b811d36d1b ;;
@@ -407,44 +407,13 @@ validate_trusted_backup_stage_helper() {
         || die "Privileged backup stage helper differs from reviewed bytes."
 }
 
-reviewed_timer_target_sha256() {
-    case "$1" in
-        deploy/systemd/betboy-football-shadow.timer) printf '%s\n' 1acba802120d7911ea7b9b62962712b9119dfd732b4eb5c30ab77e1ed750fa0a ;;
-        deploy/systemd/betboy-redcard-settlement.timer) printf '%s\n' 62e80b3f7d2c9f77cfe2611b0e102386a215950892752593e1f61bc23df7f47e ;;
-        *) die "Unit is not part of the reviewed timer transition: $1" ;;
-    esac
-}
-
-target_unit_sha256() {
-    local relative="$1"
-    local reviewed
-    local transition
-    local target
-    reviewed=$(expected_unit_sha256 "${relative}")
-    case "${relative}" in
-        deploy/systemd/betboy-football-shadow.timer|deploy/systemd/betboy-redcard-settlement.timer)
-            transition=$(reviewed_timer_target_sha256 "${relative}")
-            ;;
-        *)
-            printf '%s\n' "${reviewed}"
-            return
-            ;;
-    esac
-    target=$(sha256sum -- "$(trusted_file "${relative}")" | awk '{print $1}')
-    if [[ "${target}" == "${reviewed}" || "${target}" == "${transition}" ]]; then
-        printf '%s\n' "${target}"
-        return
-    fi
-    die "${relative} differs from both reviewed timer-transition hashes."
-}
-
 validate_trusted_unit() {
     local relative="$1"
     local path
     local expected
     local actual
     path=$(trusted_file "${relative}")
-    expected=$(target_unit_sha256 "${relative}")
+    expected=$(expected_unit_sha256 "${relative}")
     actual=$(sha256sum -- "${path}" | awk '{print $1}')
     [[ "${actual}" == "${expected}" ]] \
         || die "${relative} differs from its reviewed byte allowlist."
@@ -468,7 +437,7 @@ check_installed_unit() {
     if [[ -n "${expected_override}" ]]; then
         [[ "${actual}" == "${expected_override}" ]] || return 1
     else
-        [[ "${actual}" == "$(target_unit_sha256 "deploy/systemd/${name}")" ]] \
+        [[ "${actual}" == "$(expected_unit_sha256 "deploy/systemd/${name}")" ]] \
             || return 1
     fi
     fragment=$(systemctl show "${name}" -p FragmentPath --value) || return 1

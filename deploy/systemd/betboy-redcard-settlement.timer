@@ -2,8 +2,7 @@
 Description=Settle BetBoy red-card Shadow signals every 30 minutes
 
 [Timer]
-OnBootSec=5min
-OnUnitActiveSec=30min
+OnCalendar=*-*-* *:05,35:00
 AccuracySec=1min
 Persistent=true
 
