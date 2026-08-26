@@ -88,7 +88,8 @@ MAX_AUTOMATIC_CANDIDATES = MAX_AUTOMATED_MODEL_CANDIDATES
 MAX_AUTOMATIC_RECOMMENDATIONS = MAX_AUTOMATED_RECOMMENDATIONS
 MAX_AUTOMATIC_PRICE_FIXTURES = 10
 MAX_AUTOMATIC_MARKETS_PER_FIXTURE = 8
-MAX_AUTOMATIC_BASIC_FORECASTS = 10
+MAX_AUTOMATIC_BASIC_FORECASTS = 4
+MAX_AUTOMATIC_BASIC_PER_MARKET_KEY = 2
 # The persisted artifact represents the currently active Zurich match day.
 # Switching to tomorrow before midnight used to discard still-upcoming late
 # fixtures.  A new local day is picked up naturally after midnight.
@@ -482,12 +483,10 @@ def _football_record_selection_rank(row: object) -> Optional[tuple[float, ...]]:
     return tuple(values)
 
 
-def _select_football_record_catalog(
+def _ordered_football_record_pool(
     rows: Iterable[dict[str, Any]],
-    *,
-    limit: int = MAX_AUTOMATIC_FOOTBALL_CANDIDATES,
 ) -> list[dict[str, Any]]:
-    """Rebuild the soft-diverse catalog after a context refresh."""
+    """Keep the complete credible pool in deterministic model order."""
 
     records = [dict(row) for row in rows if isinstance(row, dict)]
     if not records:
@@ -497,31 +496,70 @@ def _select_football_record_catalog(
         for row in records
         if (rank := _football_record_selection_rank(row)) is not None
     ]
-    # Old in-memory records are never mixed into the new schema in
-    # production, but preserving their order keeps the helper fail-safe.
-    if len(ranked_rows) != len(records):
-        return records[:limit]
-    ranked_rows.sort(
-        key=lambda item: (
-            *(-value for value in item[0]),
-            str(item[1].get("key") or ""),
+    if len(ranked_rows) == len(records):
+        ranked_rows.sort(
+            key=lambda item: (
+                *(-value for value in item[0]),
+                str(item[1].get("key") or ""),
+            )
         )
-    )
-    ranked = [row for _rank, row in ranked_rows]
+        ordered = [row for _rank, row in ranked_rows]
+    else:
+        # Old persisted rows cannot be safely re-ranked. Preserve their order
+        # instead of mixing two ranking schemas.
+        ordered = records
+    result: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for row in ordered:
+        key = str(row.get("key") or "").strip()
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        result.append(row)
+    return result
+
+
+def _select_football_record_catalog(
+    rows: Iterable[dict[str, Any]],
+    *,
+    limit: int = MAX_AUTOMATIC_FOOTBALL_CANDIDATES,
+) -> list[dict[str, Any]]:
+    """Build the consumer catalog without banning any credible market type."""
+
+    ranked = _ordered_football_record_pool(rows)
+    if not ranked:
+        return []
     selected: list[dict[str, Any]] = []
     selected_keys: set[str] = set()
     fixture_counts: dict[str, int] = {}
+    basic_count = 0
+    basic_market_counts: dict[str, int] = {}
 
     def add(row: dict[str, Any]) -> bool:
+        nonlocal basic_count
         key = str(row.get("key") or "").strip()
         event = str(row.get("event_identity") or key).strip()
         if not key or key in selected_keys or not event:
             return False
         if fixture_counts.get(event, 0) >= MAX_AUTOMATIC_MARKETS_PER_FIXTURE:
             return False
+        is_basic = row.get("is_basic_forecast") is True
+        market_key = str(row.get("market_key") or "").strip().upper()
+        if is_basic and (
+            basic_count >= MAX_AUTOMATIC_BASIC_FORECASTS
+            or not market_key
+            or basic_market_counts.get(market_key, 0)
+            >= MAX_AUTOMATIC_BASIC_PER_MARKET_KEY
+        ):
+            return False
         selected.append(row)
         selected_keys.add(key)
         fixture_counts[event] = fixture_counts.get(event, 0) + 1
+        if is_basic:
+            basic_count += 1
+            basic_market_counts[market_key] = (
+                basic_market_counts.get(market_key, 0) + 1
+            )
         return True
 
     for row in ranked:
@@ -785,8 +823,18 @@ def build_daily_forecast_catalog(
 ) -> list[dict[str, Any]]:
     """Reserve catalog space for football and each validated other sport."""
 
+    football_values = [
+        dict(row) for row in football_rows if isinstance(row, dict)
+    ]
+    embedded_basis = [
+        row for row in football_values if row.get("is_basic_forecast") is True
+    ]
     football_catalog = select_catalog_candidates(
-        football_rows,
+        (
+            row
+            for row in football_values
+            if row.get("is_basic_forecast") is not True
+        ),
         now=now,
         target_date=target_date,
         limit=MAX_AUTOMATIC_FOOTBALL_CANDIDATES,
@@ -797,27 +845,51 @@ def build_daily_forecast_catalog(
         for row in football_catalog
         if str(row.get("key") or "").strip()
     }
+    football_fixture_counts: dict[str, int] = {}
+    for row in football_catalog:
+        event = str(row.get("event_identity") or row.get("key") or "").strip()
+        if event:
+            football_fixture_counts[event] = (
+                football_fixture_counts.get(event, 0) + 1
+            )
     basis_catalog: list[dict[str, Any]] = []
+    basis_market_counts: dict[str, int] = {}
     for row in _ranked_candidates(
-        football_basis_rows,
+        [*embedded_basis, *football_basis_rows],
         now=now,
         target_date=target_date,
         preserve_order=True,
     ):
+        if (
+            len(basis_catalog) >= MAX_AUTOMATIC_BASIC_FORECASTS
+            or len(football_catalog) + len(basis_catalog)
+            >= MAX_AUTOMATIC_FOOTBALL_CANDIDATES
+        ):
+            break
         key = str(row.get("key") or "").strip()
+        event = str(row.get("event_identity") or key).strip()
         if (
             not key
+            or not event
             or key in football_keys
             or row.get("is_basic_forecast") is not True
+            or football_fixture_counts.get(event, 0)
+            >= MAX_AUTOMATIC_MARKETS_PER_FIXTURE
+        ):
+            continue
+        market_key = str(row.get("market_key") or "").strip().upper()
+        if (
+            not market_key
+            or basis_market_counts.get(market_key, 0)
+            >= MAX_AUTOMATIC_BASIC_PER_MARKET_KEY
         ):
             continue
         football_keys.add(key)
         basis_catalog.append(row)
-        if (
-            len(football_catalog) + len(basis_catalog)
-            >= MAX_AUTOMATIC_FOOTBALL_CANDIDATES
-        ):
-            break
+        football_fixture_counts[event] = football_fixture_counts.get(event, 0) + 1
+        basis_market_counts[market_key] = (
+            basis_market_counts.get(market_key, 0) + 1
+        )
     grouped_other: dict[str, list[dict[str, Any]]] = {}
     for row in other_rows:
         if not isinstance(row, dict):
@@ -929,7 +1001,9 @@ def _football_state_from_snapshot(
         )
         if record is not None
     ]
-    records = _select_football_record_catalog(records)
+    # Persist the complete credible pool. Display and quote budgets are applied
+    # independently later so a 15-card UI cap cannot suppress price discovery.
+    records = _ordered_football_record_pool(records)
     record_ids = {
         str(record.get("candidate_id") or "").strip()
         for record in records
@@ -1245,7 +1319,7 @@ def _merge_context_refresh(
         if fixture_id not in replaced_fixtures:
             merged_records.extend(new_by_fixture.get(fixture_id, []))
             replaced_fixtures.add(fixture_id)
-    merged_records = _select_football_record_catalog(merged_records)
+    merged_records = _ordered_football_record_pool(merged_records)
     new_basis_by_fixture: dict[int, list[dict[str, Any]]] = {}
     for record in new_basis_records:
         fixture_id = record.get("fixture_id")
@@ -1411,7 +1485,7 @@ def _active_football_candidates(
         target_date=target_date,
         preserve_order=True,
     )
-    return _select_football_record_catalog(valid)
+    return _ordered_football_record_pool(valid)
 
 
 def _active_football_basis_candidates(
@@ -1453,7 +1527,7 @@ def _persisted_football_records(
     field_name: str,
     now: datetime,
     target_date: date,
-    limit: int,
+    limit: Optional[int],
     basic_only: bool,
 ) -> list[dict[str, Any]]:
     """Keep valid future same-day models visible beyond the context TTL."""
@@ -1478,7 +1552,11 @@ def _persisted_football_records(
         target_date=target_date,
         preserve_order=True,
     )
-    selected = _select_football_record_catalog(valid, limit=limit)
+    selected = (
+        _ordered_football_record_pool(valid)
+        if limit is None
+        else _select_football_record_catalog(valid, limit=limit)
+    )
     result: list[dict[str, Any]] = []
     for raw in selected:
         row = dict(raw)
@@ -2205,7 +2283,7 @@ def run_wettfinder(
         field_name="candidates",
         now=current,
         target_date=target,
-        limit=MAX_AUTOMATIC_FOOTBALL_CANDIDATES,
+        limit=None,
         basic_only=False,
     )
     persisted_football_basis_rows = _persisted_football_records(
@@ -2477,9 +2555,20 @@ def run_wettfinder(
     # The model catalog is independent of bookmaker price. The first three
     # remain the compact featured block; additional eligible forecasts stay
     # available instead of being discarded.
+    football_primary_model_rows = [
+        row
+        for row in football_model_rows
+        if row.get("is_basic_forecast") is not True
+    ]
+    football_basic_model_rows = [
+        row
+        for row in football_model_rows
+        if row.get("is_basic_forecast") is True
+    ]
     forecast_catalog = build_daily_forecast_catalog(
-        football_model_rows,
+        football_primary_model_rows,
         non_football_rows,
+        football_basis_rows=football_basic_model_rows,
         now=current,
         target_date=target,
     )

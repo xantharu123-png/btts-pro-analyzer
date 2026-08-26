@@ -150,6 +150,27 @@ def _consumer_market_is_basis(row: object) -> bool:
     return is_team_total and selection in {"uber_0_5", "unter_2_5"}
 
 
+def _consumer_is_confirmed_tip(row: object) -> bool:
+    """Return whether the validated strict overlay made this row actionable."""
+
+    return str(getattr(row, "evidence_stage", None) or "").upper() == "RELEASED"
+
+
+def partition_consumer_basis_forecasts(
+    rows: Iterable[_ForecastRow],
+) -> tuple[list[_ForecastRow], list[_ForecastRow]]:
+    """Separate broad model context from ordinary or confirmed selections."""
+
+    ordinary: list[_ForecastRow] = []
+    basis: list[_ForecastRow] = []
+    for row in rows:
+        if _consumer_market_is_basis(row) and not _consumer_is_confirmed_tip(row):
+            basis.append(row)
+        else:
+            ordinary.append(row)
+    return ordinary, basis
+
+
 def _consumer_context_complete(row: object) -> bool:
     for attribute in ("context_complete", "release_context_complete"):
         value = getattr(row, attribute, None)
@@ -285,8 +306,9 @@ def partition_consumer_featured_forecasts(
         or max_featured < 1
     ):
         raise ValueError("max_featured must be a positive integer")
+    original = list(rows)
     ranked = sorted(
-        enumerate(rows),
+        enumerate(original),
         key=lambda item: (
             _consumer_market_utility_tier(item[1]),
             0 if _consumer_context_complete(item[1]) else 1,
@@ -294,13 +316,16 @@ def partition_consumer_featured_forecasts(
         ),
     )
     featured: list[_ForecastRow] = []
-    secondary: list[_ForecastRow] = []
+    featured_indices: set[int] = set()
     used_fixtures: set[str] = set()
     used_markets: set[str] = set()
-    for _index, row in ranked:
+    for index, row in ranked:
         mixed_backfill = allow_mixed_backfill and _consumer_market_is_mixed(row)
-        if _consumer_market_is_basis(row) and not mixed_backfill:
-            secondary.append(row)
+        if (
+            _consumer_market_is_basis(row)
+            and not _consumer_is_confirmed_tip(row)
+            and not mixed_backfill
+        ):
             continue
         fixture_identity = _consumer_fixture_identity(row)
         market_identity = _consumer_market_identity(row)
@@ -311,10 +336,12 @@ def partition_consumer_featured_forecasts(
         )
         if can_feature:
             featured.append(row)
+            featured_indices.add(index)
             used_fixtures.add(fixture_identity)
             used_markets.add(market_identity)
-        else:
-            secondary.append(row)
+    secondary = [
+        row for index, row in enumerate(original) if index not in featured_indices
+    ]
     return featured, secondary
 
 

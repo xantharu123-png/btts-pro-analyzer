@@ -597,6 +597,120 @@ def test_automatic_surface_promotes_useful_market_and_keeps_all_others(
     assert len({key for _group, key in rendered}) == len(forecasts)
 
 
+def test_automatic_surface_groups_simple_forecasts_without_calling_them_selections(
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    forecasts = [
+        replace(
+            _automatic_forecast("double-chance"),
+            label="Alpha vs Beta: 1X",
+            event_label="Alpha vs Beta",
+            market="Doppelte Chance",
+            selection="1X",
+            market_key="DC_1X",
+        ),
+        replace(
+            _automatic_forecast(
+                "home-over-a",
+                reference_quote=replace(
+                    _extreme_short_quote("home-over-a", now),
+                    market_key="HOME_OVER_0_5",
+                    bet_name="Total - Home",
+                    value_name="Over 0.5",
+                ),
+            ),
+            label="Gamma: über 0,5 Tore",
+            event_label="Gamma vs Delta",
+            market="Team 1 Gesamttore",
+            selection="Über 0,5",
+            market_key="HOME_OVER_0_5",
+        ),
+        replace(
+            _automatic_forecast("home-over-b"),
+            label="Epsilon: über 0,5 Tore",
+            event_label="Epsilon vs Zeta",
+            market="Team 1 Gesamttore",
+            selection="Über 0,5",
+            market_key="HOME_OVER_0_5",
+        ),
+    ]
+    status = SimpleNamespace(
+        target_search_date=now.date().isoformat(),
+        generated_at=now,
+        last_discovery_at=now,
+        football_status="completed",
+        fixtures_found=3,
+        fixtures_modeled=3,
+        context_data_incomplete_fixtures=0,
+        context_unchecked_fixtures=0,
+        deferred_context_fixtures=0,
+        context_accounting_available=True,
+        context_scope_complete=True,
+        operational_error_count=0,
+    )
+    recording_st = _RecordingStreamlit()
+    rendered = []
+
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
+    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: forecasts)
+    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
+    monkeypatch.setattr(
+        app,
+        "render_price_decision",
+        lambda candidate, **_kwargs: rendered.append(
+            (recording_st.current_expander, candidate.event_key)
+        ),
+    )
+
+    app._render_automated_daily_selection()
+
+    simple_group = next(
+        (label, expanded)
+        for label, expanded in recording_st.expanders
+        if label.startswith("Weitere einfache Modellprognosen")
+    )
+    assert simple_group[1] is False
+    assert [key for _group, key in rendered] == [
+        "double-chance",
+        "home-over-a",
+        "home-over-b",
+    ]
+    assert all(group == simple_group[0] for group, _key in rendered)
+    assert not any(
+        "Berechnete Auswahl" in str(value)
+        for kind, value in recording_st.messages
+        if kind == "markdown"
+    )
+
+    only_extreme_st = _RecordingStreamlit()
+    only_extreme_rendered = []
+    monkeypatch.setattr(app, "st", only_extreme_st)
+    monkeypatch.setattr(
+        app,
+        "automated_wettfinder_forecasts",
+        lambda: [forecasts[1]],
+    )
+    monkeypatch.setattr(
+        app,
+        "render_price_decision",
+        lambda candidate, **_kwargs: only_extreme_rendered.append(
+            (only_extreme_st.current_expander, candidate.event_key)
+        ),
+    )
+
+    app._render_automated_daily_selection()
+
+    only_simple_group = next(
+        (label, expanded)
+        for label, expanded in only_extreme_st.expanders
+        if label.startswith("Weitere einfache Modellprognosen")
+    )
+    assert only_simple_group[1] is False
+    assert only_extreme_rendered == [(only_simple_group[0], "home-over-a")]
+
+
 def test_manual_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
     now = datetime.now(timezone.utc)
     extreme = _manual_forecast("sporting-alverca-away-under-1-5", 1)

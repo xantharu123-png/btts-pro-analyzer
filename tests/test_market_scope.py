@@ -626,6 +626,42 @@ def test_featured_partition_diversifies_market_family_across_fixtures():
     assert additional == [away_win]
 
 
+def test_featured_partition_preserves_model_order_for_basis_forecasts():
+    double_chance = SimpleNamespace(
+        candidate_id="fixture-1-double-chance",
+        fixture_id=1,
+        market_key="DC_1X",
+        market="Doppelte Chance",
+        selection="1X",
+        context={"release_context_complete": True},
+    )
+    home_over = SimpleNamespace(
+        candidate_id="fixture-2-home-over",
+        fixture_id=2,
+        market_key="HOME_OVER_0_5",
+        market="Team 1 Gesamttore",
+        selection="Über 0.5",
+        context={"release_context_complete": True},
+    )
+    home_under = SimpleNamespace(
+        candidate_id="fixture-3-home-under",
+        fixture_id=3,
+        market_key="HOME_UNDER_2_5",
+        market="Team 1 Gesamttore",
+        selection="Unter 2.5",
+        context={"release_context_complete": True},
+    )
+    model_order = [double_chance, home_over, home_under]
+
+    featured, additional = bet_finder_ui.partition_consumer_featured_forecasts(
+        model_order,
+        max_featured=3,
+    )
+
+    assert featured == []
+    assert additional == model_order
+
+
 def test_normal_featured_partition_can_backfill_one_mixed_market():
     def row(candidate_id, fixture_id, market_key, market, selection):
         return SimpleNamespace(

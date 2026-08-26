@@ -63,6 +63,7 @@ red_card_candidate = _football_recommendations.red_card_candidate
 
 from bet_finder_ui import (
     group_consumer_markets_by_fixture,
+    partition_consumer_basis_forecasts,
     partition_consumer_featured_forecasts,
     partition_consumer_forecasts,
     render_price_decision,
@@ -3587,6 +3588,18 @@ def _render_automated_daily_selection() -> None:
         max_featured=3,
         allow_mixed_backfill=True,
     )
+    football_additional, football_basis = partition_consumer_basis_forecasts(
+        football_additional
+    )
+    football_extreme_short, extreme_short_basis = (
+        partition_consumer_basis_forecasts(football_extreme_short)
+    )
+    basis_keys = {
+        selected.key for selected in [*football_basis, *extreme_short_basis]
+    }
+    football_basis = [
+        selected for selected in football_forecasts if selected.key in basis_keys
+    ]
     other_displayed, other_extreme_short = partition_consumer_forecasts(
         other_forecasts,
         quote_for=lambda selected: selected.reference_quote,
@@ -3598,11 +3611,13 @@ def _render_automated_daily_selection() -> None:
     incomplete_run = _automatic_consumer_run_incomplete(status)
     incomplete_notice = _automatic_partial_scope_notice(
         status,
-        has_candidates=bool(football_displayed or football_extreme_short),
+        has_candidates=bool(
+            football_displayed or football_basis or football_extreme_short
+        ),
     )
     with st.expander(
         f"Automatischer Fußball-Check · {target_label}",
-        expanded=bool(football_displayed or football_extreme_short),
+        expanded=bool(football_displayed or football_basis or football_extreme_short),
     ):
         st.caption("Separater planmäßiger Lauf, unabhängig von der Suche darunter.")
         time_parts = [f"Ergebnisstand: {_format_stand(status.generated_at)}"]
@@ -3612,7 +3627,11 @@ def _render_automated_daily_selection() -> None:
             )
         st.caption(" · ".join(time_parts))
 
-        if not football_displayed and not football_extreme_short:
+        if (
+            not football_displayed
+            and not football_basis
+            and not football_extreme_short
+        ):
             st.info(
                 "Für diesen Spieltag liegt aktuell keine passende "
                 "Fußball-Auswahl vor."
@@ -3671,6 +3690,30 @@ def _render_automated_daily_selection() -> None:
                             start_index=next_index,
                         )
                     next_index += len(event_rows)
+            if football_basis:
+                with st.expander(
+                    f"Weitere einfache Modellprognosen ({len(football_basis)}) "
+                    "· keine Tipps",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Diese breiten Märkte bleiben als Modellinformation "
+                        "sichtbar, werden aber nicht als Hauptauswahl beworben. "
+                        "Eine Quote ändert die Prognose nicht."
+                    )
+                    for offset, selected in enumerate(football_basis):
+                        if selected.context_summary:
+                            st.caption(selected.context_summary)
+                        render_price_decision(
+                            _automated_signal_candidate(selected),
+                            key=f"automated_basis_{selected.key}",
+                            bankroll_key="automated_finder_bankroll",
+                            save_source="Automatischer Wettfinder",
+                            reference_quote=selected.reference_quote,
+                            allow_manual_check=True,
+                        )
+                        if offset < len(football_basis) - 1:
+                            st.divider()
             if football_extreme_short:
                 with st.expander(
                     f"Sehr kurze Quoten · "

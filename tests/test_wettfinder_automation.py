@@ -348,7 +348,7 @@ def test_context_refresh_replaces_fixture_without_changing_catalog_order():
     assert refreshed["approved_candidates"] == 4
 
 
-def test_context_refresh_reranks_new_stronger_fixture_into_full_catalog():
+def test_context_refresh_reranks_new_stronger_fixture_without_truncating_pool():
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     records = []
     statuses = {}
@@ -415,9 +415,9 @@ def test_context_refresh_reranks_new_stronger_fixture_into_full_catalog():
     )
 
     fixture_ids = [row["fixture_id"] for row in refreshed["candidates"]]
-    assert len(fixture_ids) == 15
+    assert len(fixture_ids) == 16
     assert fixture_ids[0] == 16
-    assert 15 not in fixture_ids
+    assert fixture_ids[1:] == list(range(1, 16))
 
 
 def test_context_refresh_keeps_credible_basic_market_in_wettfinder_catalog():
@@ -520,6 +520,34 @@ def _candidate(
     }
 
 
+def _football_model_row(
+    key: str,
+    *,
+    fixture_id: int,
+    market_key: str,
+    is_basic_forecast: bool,
+    probability: float = 0.70,
+) -> dict:
+    row = _candidate(
+        key,
+        probability=probability,
+        haircut=0.05,
+        event=f"football-event-{fixture_id}",
+    )
+    row.update(
+        candidate_id=key,
+        sport="Fussball",
+        fixture_id=fixture_id,
+        market_key=market_key,
+        market=market_key,
+        selection=key,
+        source="football_challenge",
+        is_basic_forecast=is_basic_forecast,
+        reference_price_status="UNAVAILABLE",
+    )
+    return row
+
+
 def _football_snapshot(now: datetime) -> dict:
     candidate = _challenge_candidate(datetime(2030, 1, 1, 15, 0, tzinfo=UTC))
     candidate.context = {
@@ -599,7 +627,7 @@ def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
 def test_automation_writer_and_reader_share_one_artifact_version():
     assert AUTOMATION_VERSION == AUTOMATED_WETTFINDER_VERSION
     assert AUTOMATED_WETTFINDER_VERSION == 16
-    assert AUTOMATED_SELECTION_POLICY_VERSION == "useful-selection-catalog-v13"
+    assert AUTOMATED_SELECTION_POLICY_VERSION == "useful-selection-catalog-v14"
 
 
 def test_football_record_persists_paired_statistical_release_evidence():
@@ -1065,10 +1093,19 @@ def test_daily_catalog_reserves_space_for_tennis_and_esports():
         )
         row["sport"] = "E-Sport"
         esports.append(row)
+    basis = [
+        _football_model_row(
+            "football-basic-overflow",
+            fixture_id=99,
+            market_key="HOME_OVER_0_5",
+            is_basic_forecast=True,
+        )
+    ]
 
     catalog = build_daily_forecast_catalog(
         football,
         [*tennis, *esports],
+        football_basis_rows=basis,
         now=datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
         target_date=date(2030, 1, 1),
     )
@@ -1077,6 +1114,229 @@ def test_daily_catalog_reserves_space_for_tennis_and_esports():
     assert [row["sport"] for row in catalog].count("Tennis") == 3
     assert [row["sport"] for row in catalog].count("E-Sport") == 3
     assert len(catalog) == 21
+
+
+def test_daily_catalog_caps_repeated_basic_forecasts_without_banning_them():
+    informative = [
+        _football_model_row(
+            f"informative-{index}",
+            fixture_id=index,
+            market_key=market_key,
+            is_basic_forecast=False,
+        )
+        for index, market_key in enumerate(
+            ("BTTS_YES", "TOTAL_OVER_2_5", "AWAY_UNDER_1_5"),
+            start=1,
+        )
+    ]
+    basis = [
+        *[
+            _football_model_row(
+                f"home-over-{index}",
+                fixture_id=10 + index,
+                market_key="HOME_OVER_0_5",
+                is_basic_forecast=True,
+                probability=0.80 - index / 100,
+            )
+            for index in range(1, 7)
+        ],
+        *[
+            _football_model_row(
+                f"double-chance-{index}",
+                fixture_id=20 + index,
+                market_key="DC_1X",
+                is_basic_forecast=True,
+            )
+            for index in range(1, 4)
+        ],
+        *[
+            _football_model_row(
+                f"home-under-{index}",
+                fixture_id=30 + index,
+                market_key="HOME_UNDER_2_5",
+                is_basic_forecast=True,
+            )
+            for index in range(1, 3)
+        ],
+    ]
+
+    catalog = build_daily_forecast_catalog(
+        informative,
+        [],
+        football_basis_rows=basis,
+        now=datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
+        target_date=date(2030, 1, 1),
+    )
+    football = [row for row in catalog if row["sport"] == "Fussball"]
+    simple = [row for row in football if row["is_basic_forecast"] is True]
+
+    assert [row["key"] for row in football[:3]] == [
+        row["key"] for row in informative
+    ]
+    assert len(football) == 7
+    assert len(simple) == 4
+    assert [row["key"] for row in simple] == [
+        "home-over-1",
+        "home-over-2",
+        "double-chance-1",
+        "double-chance-2",
+    ]
+    assert sum(row["market_key"] == "HOME_OVER_0_5" for row in simple) == 2
+
+
+def test_daily_catalog_applies_fixture_cap_across_primary_and_basic_rows():
+    primary = [
+        _football_model_row(
+            f"fixture-primary-{index}",
+            fixture_id=1,
+            market_key=f"PRIMARY_{index}",
+            is_basic_forecast=False,
+        )
+        for index in range(1, 9)
+    ]
+    basis = [
+        _football_model_row(
+            f"fixture-basic-{index}",
+            fixture_id=1,
+            market_key=market_key,
+            is_basic_forecast=True,
+        )
+        for index, market_key in enumerate(
+            ("HOME_OVER_0_5", "DC_1X", "HOME_UNDER_2_5", "DC_X2"),
+            start=1,
+        )
+    ]
+
+    catalog = build_daily_forecast_catalog(
+        primary,
+        [],
+        football_basis_rows=basis,
+        now=datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
+        target_date=date(2030, 1, 1),
+    )
+
+    assert [row["key"] for row in catalog] == [
+        row["key"] for row in primary
+    ]
+    assert len(catalog) == 8
+
+
+def test_daily_basic_catalog_is_independent_of_reference_price_status():
+    basis = [
+        _football_model_row(
+            f"home-over-{index}",
+            fixture_id=index,
+            market_key="HOME_OVER_0_5",
+            is_basic_forecast=True,
+        )
+        for index in range(1, 6)
+    ]
+    priced_basis = [dict(row) for row in basis]
+    for row, status in zip(
+        priced_basis,
+        ("PLAYABLE", "TOO_LOW", "UNAVAILABLE", "THIN", "STALE"),
+    ):
+        row["reference_price_status"] = status
+
+    kwargs = {
+        "now": datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
+        "target_date": date(2030, 1, 1),
+    }
+    missing_price_catalog = build_daily_forecast_catalog(
+        [], [], football_basis_rows=basis, **kwargs
+    )
+    mixed_price_catalog = build_daily_forecast_catalog(
+        [], [], football_basis_rows=priced_basis, **kwargs
+    )
+
+    assert [row["key"] for row in missing_price_catalog] == [
+        "home-over-1",
+        "home-over-2",
+    ]
+    assert [row["key"] for row in mixed_price_catalog] == [
+        row["key"] for row in missing_price_catalog
+    ]
+
+
+def test_runner_prices_full_model_pool_before_display_cap(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    kickoff = now + timedelta(hours=5)
+    base = _challenge_candidate(kickoff)
+    market_keys = (
+        "BTTS_YES",
+        "BTTS_NO",
+        "TOTAL_OVER_2_5",
+        "TOTAL_UNDER_3_5",
+        "RESULT_HOME",
+        "AWAY_UNDER_1_5",
+        "CORNERS_OVER_8_5",
+        "YELLOW_OVER_3_5",
+    )
+    model_pool = []
+    for fixture_id in (1, 2):
+        for market_key in market_keys:
+            spec = MARKET_BY_KEY[market_key]
+            candidate = replace(
+                base,
+                candidate_id=f"fixture-{fixture_id}-{market_key.lower()}",
+                fixture_id=fixture_id,
+                home_team_id=fixture_id * 10,
+                away_team_id=fixture_id * 10 + 1,
+                home_team=f"Home {fixture_id}",
+                away_team=f"Away {fixture_id}",
+                market_key=market_key,
+                market=spec.market,
+                selection=spec.selection,
+            )
+            candidate.context = {
+                "passed": True,
+                "forecast_passed": True,
+                "release_context_complete": True,
+                "release_eligible": True,
+                "blocked_reasons": [],
+            }
+            model_pool.append(candidate)
+    snapshot = {
+        "scanned_at": now.isoformat(),
+        "fixtures_found": 2,
+        "fixtures_modeled": 2,
+        "base_candidates": len(model_pool),
+        "base_fixture_count": 2,
+        "context_fixtures": 2,
+        "context_verified_fixtures": 2,
+        "context_data_incomplete_fixtures": 0,
+        "context_unchecked_fixtures": 0,
+        "deferred_context_fixtures": 0,
+        "context_scope_complete": True,
+        "context_fixture_statuses": {"1": "verified", "2": "verified"},
+        "fixture_kickoffs": [kickoff.isoformat()],
+        "wettfinder_candidates": model_pool,
+        "discovery_candidates": model_pool,
+        "errors": [],
+    }
+    priced_ids = []
+
+    def quote_loader(rows):
+        priced_ids.extend(row["candidate_id"] for row in rows)
+        return {}, []
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: snapshot,
+        football_quote_loader=quote_loader,
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    assert len(priced_ids) == 16
+    assert len(set(priced_ids)) == 16
+    assert document["sources"]["football"]["price_checked_count"] == 16
+    assert sum(
+        row["source"] == "football_challenge"
+        for row in document["model_candidates"]
+    ) == 15
 
 
 def test_persisted_model_signal_keeps_event_market_and_selection_separate():
