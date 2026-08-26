@@ -83,6 +83,30 @@ def test_wettfinder_timer_is_installed_and_enabled_by_deploy_scripts():
         assert 'systemctl enable --now "${BETBOY_TIMERS[@]}"' not in source
 
 
+def test_polling_timer_calendar_fix_is_staged_for_transition():
+    root = Path(__file__).resolve().parents[1]
+    fixtures = root / "tests" / "fixtures"
+    schedules = {
+        "betboy-football-shadow-calendar.timer": (
+            "*-*-* *:02,12,22,32,42,52:00"
+        ),
+        "betboy-redcard-settlement-calendar.timer": "*-*-* *:05,35:00",
+    }
+
+    for timer_name, schedule in schedules.items():
+        timer = (fixtures / timer_name).read_text(encoding="utf-8")
+        assert timer.count("OnCalendar=") == 1
+        assert f"OnCalendar={schedule}" in timer
+        assert timer.count("Persistent=true") == 1
+        for unsupported in (
+            "OnActiveSec=",
+            "OnBootSec=",
+            "OnUnitActiveSec=",
+            "OnUnitInactiveSec=",
+        ):
+            assert unsupported not in timer
+
+
 def test_update_preflights_before_downtime_and_has_recovery_path():
     root = Path(__file__).resolve().parents[1]
     update = (root / "deploy" / "update_server.sh").read_text(
@@ -2059,7 +2083,20 @@ def test_root_installers_pin_every_systemd_unit_to_reviewed_bytes():
     assert "ALLOW_LEGACY_UNIT_HASHES" not in updater
     assert "bridge_source_unit_sha256" not in updater
     assert "reviewed_backup_target_sha256" not in updater
-    assert "target_unit_sha256" not in updater
+    assert "reviewed_timer_target_sha256" in updater
+    assert "target_unit_sha256" in updater
+    future_timers = {
+        "deploy/systemd/betboy-football-shadow.timer": (
+            root / "tests" / "fixtures" / "betboy-football-shadow-calendar.timer"
+        ),
+        "deploy/systemd/betboy-redcard-settlement.timer": (
+            root / "tests" / "fixtures" / "betboy-redcard-settlement-calendar.timer"
+        ),
+    }
+    for relative, fixture in future_timers.items():
+        future_hash = hashlib.sha256(fixture.read_bytes()).hexdigest()
+        expected_case = f"{relative}) printf '%s\\n' {future_hash} ;;"
+        assert updater.count(expected_case) == 1
     future_backup_unit = root / "tests" / "fixtures" / "betboy-backup-staged.service"
     future_backup_unit_hash = hashlib.sha256(
         future_backup_unit.read_bytes()
@@ -2077,12 +2114,18 @@ def test_root_installers_pin_every_systemd_unit_to_reviewed_bytes():
         systemd / "betboy-backup.service"
     ).read_bytes()
     validate_target = _shell_function(updater, "validate_trusted_unit")
+    target_hash = _shell_function(updater, "target_unit_sha256")
     check_installed = _shell_function(updater, "check_installed_unit")
     verify_installed = _shell_function(updater, "verify_installed_unit")
     verify_previous = _shell_function(updater, "verify_installed_previous_unit")
-    assert 'expected=$(expected_unit_sha256 "${relative}")' in validate_target
+    assert 'expected=$(target_unit_sha256 "${relative}")' in validate_target
     assert '[[ "${actual}" == "${expected}" ]]' in validate_target
-    assert 'expected_unit_sha256 "deploy/systemd/${name}"' in check_installed
+    assert 'reviewed=$(expected_unit_sha256 "${relative}")' in target_hash
+    assert 'transition=$(reviewed_timer_target_sha256 "${relative}")' in target_hash
+    assert 'target=$(sha256sum -- "$(trusted_file "${relative}")"' in target_hash
+    assert '"${target}" == "${reviewed}"' in target_hash
+    assert '"${target}" == "${transition}"' in target_hash
+    assert 'target_unit_sha256 "deploy/systemd/${name}"' in check_installed
     assert 'check_installed_unit "${name}"' in verify_installed
     assert 'expected=$(sha256sum -- "${reference}"' in verify_previous
     assert 'check_installed_unit "${name}" "${expected}"' in verify_previous

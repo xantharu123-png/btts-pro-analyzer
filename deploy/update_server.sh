@@ -407,13 +407,44 @@ validate_trusted_backup_stage_helper() {
         || die "Privileged backup stage helper differs from reviewed bytes."
 }
 
+reviewed_timer_target_sha256() {
+    case "$1" in
+        deploy/systemd/betboy-football-shadow.timer) printf '%s\n' 1acba802120d7911ea7b9b62962712b9119dfd732b4eb5c30ab77e1ed750fa0a ;;
+        deploy/systemd/betboy-redcard-settlement.timer) printf '%s\n' 62e80b3f7d2c9f77cfe2611b0e102386a215950892752593e1f61bc23df7f47e ;;
+        *) die "Unit is not part of the reviewed timer transition: $1" ;;
+    esac
+}
+
+target_unit_sha256() {
+    local relative="$1"
+    local reviewed
+    local transition
+    local target
+    reviewed=$(expected_unit_sha256 "${relative}")
+    case "${relative}" in
+        deploy/systemd/betboy-football-shadow.timer|deploy/systemd/betboy-redcard-settlement.timer)
+            transition=$(reviewed_timer_target_sha256 "${relative}")
+            ;;
+        *)
+            printf '%s\n' "${reviewed}"
+            return
+            ;;
+    esac
+    target=$(sha256sum -- "$(trusted_file "${relative}")" | awk '{print $1}')
+    if [[ "${target}" == "${reviewed}" || "${target}" == "${transition}" ]]; then
+        printf '%s\n' "${target}"
+        return
+    fi
+    die "${relative} differs from both reviewed timer-transition hashes."
+}
+
 validate_trusted_unit() {
     local relative="$1"
     local path
     local expected
     local actual
     path=$(trusted_file "${relative}")
-    expected=$(expected_unit_sha256 "${relative}")
+    expected=$(target_unit_sha256 "${relative}")
     actual=$(sha256sum -- "${path}" | awk '{print $1}')
     [[ "${actual}" == "${expected}" ]] \
         || die "${relative} differs from its reviewed byte allowlist."
@@ -437,7 +468,7 @@ check_installed_unit() {
     if [[ -n "${expected_override}" ]]; then
         [[ "${actual}" == "${expected_override}" ]] || return 1
     else
-        [[ "${actual}" == "$(expected_unit_sha256 "deploy/systemd/${name}")" ]] \
+        [[ "${actual}" == "$(target_unit_sha256 "deploy/systemd/${name}")" ]] \
             || return 1
     fi
     fragment=$(systemctl show "${name}" -p FragmentPath --value) || return 1
