@@ -1,8 +1,13 @@
 # Wettfinder UX-Neuaufbau - To-do
 
-Stand: 26.08.2026
+Stand: 27.08.2026
 Prioritaet: P0
-Status: **OFFEN / NICHT BEGONNEN**
+Status: **WIREFRAME V1 ZUR FREIGABE / IMPLEMENTIERUNG NICHT BEGONNEN**
+
+Designreview:
+
+- `docs/ux/wettfinder-v2/WETTFINDER_WIREFRAME_V1.md`
+- `docs/ux/wettfinder-v2/wettfinder_wireframe_v1.html`
 
 ## Problem
 

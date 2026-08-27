@@ -1,0 +1,1151 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BetBoy Wettfinder V2 - Wireframe v1</title>
+  <style>
+    :root {
+      --ink: #17201c;
+      --muted: #617068;
+      --line: #dce4df;
+      --surface: #ffffff;
+      --canvas: #f3f6f4;
+      --green: #116b45;
+      --green-soft: #e4f3eb;
+      --blue: #245f89;
+      --blue-soft: #e8f1f7;
+      --amber: #8a5600;
+      --amber-soft: #fff3d7;
+      --red: #a32a34;
+      --red-soft: #fbeaec;
+      --shadow: 0 10px 30px rgba(21, 50, 36, 0.07);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { color-scheme: light; }
+
+    body {
+      margin: 0;
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    button, input, select { font: inherit; }
+
+    button { cursor: pointer; }
+
+    .prototype-note {
+      align-items: center;
+      background: #13241c;
+      color: #f2fff7;
+      display: flex;
+      font-size: 0.78rem;
+      font-weight: 760;
+      gap: 0.6rem;
+      justify-content: center;
+      letter-spacing: 0.04em;
+      min-height: 32px;
+      padding: 6px 16px;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .prototype-note span {
+      background: #2b7d58;
+      border-radius: 999px;
+      padding: 2px 8px;
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: 224px minmax(0, 1fr);
+      min-height: calc(100vh - 32px);
+    }
+
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--line);
+      padding: 28px 20px;
+    }
+
+    .brand {
+      align-items: center;
+      display: flex;
+      font-size: 1.22rem;
+      font-weight: 850;
+      gap: 10px;
+      margin: 0 0 30px;
+    }
+
+    .brand-mark {
+      align-items: center;
+      background: var(--green);
+      border-radius: 10px;
+      color: white;
+      display: inline-flex;
+      height: 34px;
+      justify-content: center;
+      width: 34px;
+    }
+
+    .side-label {
+      color: var(--muted);
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.09em;
+      margin: 0 10px 8px;
+      text-transform: uppercase;
+    }
+
+    .side-nav {
+      display: grid;
+      gap: 6px;
+    }
+
+    .side-nav button {
+      align-items: center;
+      background: transparent;
+      border: 0;
+      border-radius: 10px;
+      color: #405048;
+      display: flex;
+      font-weight: 650;
+      gap: 10px;
+      min-height: 44px;
+      padding: 10px 12px;
+      text-align: left;
+      width: 100%;
+    }
+
+    .side-nav button.active {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .nav-dot {
+      border: 2px solid currentColor;
+      border-radius: 50%;
+      height: 10px;
+      width: 10px;
+    }
+
+    .page {
+      margin: 0 auto;
+      max-width: 1320px;
+      padding: 34px 40px 64px;
+      width: 100%;
+    }
+
+    .eyebrow {
+      color: var(--green);
+      font-size: 0.72rem;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      margin: 0 0 5px;
+      text-transform: uppercase;
+    }
+
+    .page-head {
+      align-items: flex-end;
+      display: flex;
+      gap: 20px;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: clamp(1.8rem, 3vw, 2.55rem);
+      letter-spacing: -0.035em;
+      line-height: 1.05;
+      margin: 0;
+    }
+
+    .stand {
+      color: var(--muted);
+      font-size: 0.85rem;
+      text-align: right;
+    }
+
+    .mode-switch {
+      background: #e7ece9;
+      border-radius: 12px;
+      display: inline-grid;
+      gap: 4px;
+      grid-template-columns: 1fr 1fr;
+      margin-bottom: 18px;
+      max-width: 100%;
+      min-width: 0;
+      padding: 4px;
+    }
+
+    .mode-switch button {
+      background: transparent;
+      border: 0;
+      border-radius: 9px;
+      color: #536159;
+      font-weight: 750;
+      min-width: 0;
+      min-height: 44px;
+      padding: 8px 18px;
+    }
+
+    .mode-switch button.active {
+      background: var(--surface);
+      box-shadow: 0 2px 8px rgba(21, 50, 36, 0.08);
+      color: var(--ink);
+    }
+
+    .run-summary {
+      align-items: center;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+      margin-bottom: 26px;
+      min-width: 0;
+      padding: 12px 14px;
+    }
+
+    .summary-copy {
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      min-width: 0;
+    }
+
+    .summary-title { font-weight: 800; }
+    .summary-sub { color: var(--muted); font-size: 0.86rem; }
+
+    .compact-warning {
+      align-items: center;
+      background: var(--amber-soft);
+      border-radius: 999px;
+      color: var(--amber);
+      display: inline-flex;
+      font-size: 0.76rem;
+      font-weight: 800;
+      gap: 6px;
+      padding: 6px 10px;
+      white-space: nowrap;
+    }
+
+    .compact-warning::before {
+      background: currentColor;
+      border-radius: 50%;
+      content: "";
+      height: 7px;
+      width: 7px;
+    }
+
+    .section-head {
+      align-items: flex-end;
+      display: flex;
+      gap: 18px;
+      justify-content: space-between;
+      margin: 0 0 12px;
+    }
+
+    h2 {
+      font-size: 1.08rem;
+      letter-spacing: -0.01em;
+      margin: 0;
+    }
+
+    .section-hint {
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin: 3px 0 0;
+    }
+
+    .sport-filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .filter-chip {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: #4c5c54;
+      font-size: 0.78rem;
+      font-weight: 720;
+      min-height: 44px;
+      padding: 7px 12px;
+    }
+
+    .filter-chip.active {
+      background: var(--ink);
+      border-color: var(--ink);
+      color: white;
+    }
+
+    .top-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-bottom: 32px;
+    }
+
+    .pick-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .card-topline {
+      align-items: center;
+      border-bottom: 1px solid #edf1ee;
+      display: flex;
+      gap: 7px;
+      min-height: 48px;
+      padding: 9px 14px;
+    }
+
+    .rank {
+      align-items: center;
+      background: var(--ink);
+      border-radius: 8px;
+      color: white;
+      display: inline-flex;
+      font-size: 0.72rem;
+      font-weight: 850;
+      height: 30px;
+      justify-content: center;
+      min-width: 44px;
+    }
+
+    .badge {
+      border-radius: 999px;
+      display: inline-flex;
+      font-size: 0.72rem;
+      font-weight: 850;
+      letter-spacing: 0.035em;
+      padding: 5px 8px;
+      text-transform: uppercase;
+    }
+
+    .badge-model { background: var(--blue-soft); color: var(--blue); }
+    .badge-price-open { background: var(--amber-soft); color: var(--amber); }
+    .badge-tip { background: var(--green-soft); color: var(--green); }
+    .badge-basic { background: #eef0f1; color: #59636a; }
+    .badge-playable { background: var(--green-soft); color: var(--green); }
+    .badge-low { background: var(--red-soft); color: var(--red); }
+    .badge-stale { background: #eceff1; color: #4f5b62; }
+    .badge-evidence { background: #eee9fb; color: #62469a; }
+
+    .price-badge { margin-left: auto; }
+
+    .card-body {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      padding: 16px;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 720;
+      margin-bottom: 6px;
+    }
+
+    .event {
+      font-size: 1rem;
+      font-weight: 810;
+      line-height: 1.25;
+      margin: 0 0 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .market-label {
+      color: var(--muted);
+      font-size: 0.74rem;
+      font-weight: 800;
+      letter-spacing: 0.055em;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    .selection {
+      color: var(--green);
+      font-size: 1.08rem;
+      font-weight: 870;
+      line-height: 1.25;
+      margin: 0 0 14px;
+      overflow-wrap: anywhere;
+    }
+
+    .primary-metric {
+      align-items: baseline;
+      background: #f1f7f4;
+      border-radius: 12px;
+      display: flex;
+      gap: 8px;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      padding: 10px 12px;
+    }
+
+    .primary-metric span {
+      color: #425149;
+      font-size: 0.75rem;
+      font-weight: 720;
+    }
+
+    .primary-metric strong {
+      color: var(--green);
+      font-size: 1.42rem;
+      letter-spacing: -0.04em;
+    }
+
+    .metric-grid {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-bottom: 12px;
+    }
+
+    .metric {
+      border-top: 2px solid var(--line);
+      min-width: 0;
+      padding-top: 7px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      display: block;
+      font-size: 0.72rem;
+      line-height: 1.15;
+      margin-bottom: 3px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 0.91rem;
+      overflow-wrap: anywhere;
+    }
+
+    .price-note {
+      background: var(--amber-soft);
+      border-left: 3px solid #c28114;
+      border-radius: 8px;
+      color: #6f4807;
+      font-size: 0.78rem;
+      margin-bottom: 11px;
+      padding: 8px 10px;
+    }
+
+    .context-line {
+      color: var(--muted);
+      font-size: 0.76rem;
+      margin: auto 0 12px;
+    }
+
+    .card-actions {
+      display: grid;
+      gap: 7px;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .action,
+    details > summary {
+      align-items: center;
+      border-radius: 9px;
+      display: flex;
+      font-size: 0.78rem;
+      font-weight: 800;
+      justify-content: center;
+      min-height: 44px;
+      padding: 9px 10px;
+      text-align: center;
+    }
+
+    .action {
+      background: var(--green);
+      border: 1px solid var(--green);
+      color: white;
+    }
+
+    details { min-width: 0; }
+
+    details > summary {
+      background: white;
+      border: 1px solid var(--line);
+      color: #34453c;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    details > summary::-webkit-details-marker { display: none; }
+
+    .analysis {
+      background: #f7f9f8;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: #4c5b53;
+      font-size: 0.75rem;
+      margin-top: 8px;
+      padding: 10px;
+    }
+
+    .analysis ul { margin: 0; padding-left: 18px; }
+    .analysis li + li { margin-top: 4px; }
+
+    .more-panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .forecast-row {
+      align-items: center;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: minmax(210px, 1.5fr) minmax(145px, 1.05fr) 76px 82px 70px 70px 126px;
+      min-height: 76px;
+      padding: 12px 16px;
+    }
+
+    .forecast-row + .forecast-row { border-top: 1px solid var(--line); }
+
+    .row-event strong,
+    .row-pick strong { display: block; overflow-wrap: anywhere; }
+
+    .row-meta,
+    .row-label {
+      color: var(--muted);
+      display: block;
+      font-size: 0.73rem;
+      margin-bottom: 2px;
+    }
+
+    .row-value {
+      font-size: 0.82rem;
+      font-weight: 780;
+    }
+
+    .row-statuses {
+      align-items: stretch;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .row-status,
+    .row-evidence {
+      align-items: center;
+      border-radius: 999px;
+      display: inline-flex;
+      font-size: 0.7rem;
+      font-weight: 820;
+      justify-content: center;
+      min-height: 30px;
+      padding: 5px 9px;
+      text-align: center;
+    }
+
+    .row-status { background: var(--amber-soft); color: var(--amber); }
+    .row-evidence { background: var(--blue-soft); color: var(--blue); }
+
+    .risk-note {
+      color: var(--muted);
+      font-size: 0.75rem;
+      margin: 18px 2px 0;
+    }
+
+    .state-matrix {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-top: 12px;
+    }
+
+    .state-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      min-width: 0;
+      padding: 12px;
+    }
+
+    .state-card .state-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-bottom: 9px;
+    }
+
+    .state-card strong {
+      display: block;
+      font-size: 0.86rem;
+      margin-bottom: 4px;
+    }
+
+    .state-card p {
+      color: var(--muted);
+      font-size: 0.75rem;
+      margin: 0;
+    }
+
+    .context-state {
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      display: block;
+      font-size: 0.72rem;
+      margin-top: 9px;
+      padding-top: 8px;
+    }
+
+    .search-panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+
+    .search-panel h2 { margin-bottom: 4px; }
+
+    .search-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+      margin-top: 18px;
+    }
+
+    .field label {
+      color: var(--muted);
+      display: block;
+      font-size: 0.72rem;
+      font-weight: 760;
+      margin-bottom: 5px;
+    }
+
+    .field select {
+      background: white;
+      border: 1px solid #cbd5cf;
+      border-radius: 9px;
+      color: var(--ink);
+      min-height: 44px;
+      padding: 8px 10px;
+      width: 100%;
+    }
+
+    .search-submit {
+      align-self: end;
+      background: var(--green);
+      border: 0;
+      border-radius: 9px;
+      color: white;
+      font-weight: 820;
+      min-height: 44px;
+      padding: 9px 14px;
+    }
+
+    [hidden] { display: none !important; }
+
+    dialog {
+      border: 0;
+      border-radius: 16px;
+      box-shadow: 0 24px 80px rgba(10, 30, 20, 0.28);
+      max-width: 430px;
+      padding: 22px;
+      width: calc(100% - 30px);
+    }
+
+    dialog::backdrop { background: rgba(11, 25, 18, 0.48); }
+    dialog h2 { font-size: 1.2rem; margin-bottom: 6px; }
+    dialog p { color: var(--muted); font-size: 0.83rem; }
+
+    .quote-fields {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr 1fr;
+      margin: 16px 0;
+    }
+
+    .quote-fields input {
+      border: 1px solid #cbd5cf;
+      border-radius: 9px;
+      min-height: 44px;
+      padding: 8px 10px;
+      width: 100%;
+    }
+
+    .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .dialog-actions button {
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      min-height: 44px;
+      padding: 9px 14px;
+    }
+
+    .dialog-actions .primary { background: var(--green); color: white; }
+
+    .bottom-nav { display: none; }
+
+    @media (max-width: 1080px) {
+      .top-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .state-matrix { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .search-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .forecast-row {
+        align-items: start;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .row-event { grid-column: 1 / -1; grid-row: 1; min-width: 0; }
+      .row-pick { grid-column: 1 / -1; grid-row: 2; }
+      .forecast-row .row-value {
+        border-top: 1px solid var(--line);
+        display: block;
+        padding-top: 7px;
+      }
+      .forecast-row > .row-value:nth-child(3) { grid-column: 1; grid-row: 3; }
+      .forecast-row > .row-value:nth-child(4) { grid-column: 2; grid-row: 3; }
+      .forecast-row > .row-value:nth-child(5) { grid-column: 1; grid-row: 4; }
+      .forecast-row > .row-value:nth-child(6) { grid-column: 2; grid-row: 4; }
+      .row-statuses {
+        border-top: 1px solid var(--line);
+        flex-direction: row;
+        grid-column: 1 / -1;
+        grid-row: 5;
+        justify-content: flex-start;
+        padding-top: 7px;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .prototype-note {
+        font-size: 0.61rem;
+        min-height: 28px;
+        padding: 4px 8px;
+        white-space: nowrap;
+      }
+      .app-shell { display: block; }
+      .sidebar { display: none; }
+      .page { padding: 13px 14px 92px; }
+      .page-head { align-items: flex-start; margin-bottom: 9px; }
+      .eyebrow { font-size: 0.65rem; margin-bottom: 2px; }
+      h1 { font-size: 1.72rem; }
+      .stand { font-size: 0.66rem; line-height: 1.35; max-width: 130px; }
+      .mode-switch { display: grid; margin-bottom: 9px; width: 100%; }
+      .mode-switch button { min-height: 44px; padding: 6px 12px; }
+      .run-summary {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        margin-bottom: 13px;
+        padding: 9px 11px;
+      }
+      .summary-copy { gap: 2px; }
+      .summary-title { font-size: 0.83rem; }
+      .summary-sub { display: none; }
+      .compact-warning { font-size: 0.68rem; justify-self: end; white-space: nowrap; }
+      .section-head { align-items: flex-start; display: block; margin-bottom: 8px; }
+      .section-head .section-hint { display: none; }
+      .sport-filters { margin-top: 6px; overflow-x: auto; padding-bottom: 2px; }
+      .filter-chip { flex: 0 0 auto; min-height: 44px; padding: 7px 12px; }
+      .top-grid { grid-template-columns: 1fr; }
+      .pick-card { border-radius: 15px; }
+      .card-body { padding: 12px 14px 13px; }
+      .card-topline { min-height: 43px; padding: 7px 13px; }
+      .meta { margin-bottom: 4px; }
+      .event { margin-bottom: 8px; }
+      .selection { margin-bottom: 10px; }
+      .primary-metric { margin-bottom: 8px; padding: 8px 10px; }
+      .primary-metric strong { font-size: 1.34rem; }
+      .metric-grid { margin-bottom: 8px; }
+      .price-note { margin-bottom: 7px; padding: 7px 9px; }
+      .context-line { margin-bottom: 8px; }
+      .forecast-row { padding: 13px 14px; }
+      .search-grid { grid-template-columns: 1fr; }
+      .state-matrix { grid-template-columns: 1fr; }
+      .quote-fields { grid-template-columns: 1fr; }
+      .bottom-nav {
+        background: rgba(255, 255, 255, 0.97);
+        border-top: 1px solid var(--line);
+        bottom: 0;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        left: 0;
+        padding: 7px 6px calc(7px + env(safe-area-inset-bottom, 0px));
+        position: fixed;
+        right: 0;
+        z-index: 10;
+      }
+      .bottom-nav button {
+        background: transparent;
+        border: 0;
+        border-radius: 8px;
+        color: var(--muted);
+        font-size: 0.67rem;
+        font-weight: 740;
+        min-height: 48px;
+      }
+      .bottom-nav button.active { background: var(--green-soft); color: var(--green); }
+    }
+
+    @media (max-width: 330px) {
+      .page-head { display: block; }
+      .stand { margin-top: 8px; max-width: none; text-align: left; }
+      .run-summary { display: block; }
+      .compact-warning { margin-top: 8px; }
+      .card-actions { grid-template-columns: 1fr; }
+      .metric-grid { gap: 5px; }
+      .metric strong { font-size: 0.82rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="prototype-note">
+    <span>Wireframe v1</span> Beispieldaten · keine Tipps
+  </div>
+
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Hauptnavigation">
+      <div class="brand"><span class="brand-mark">B</span> BetBoy</div>
+      <div class="side-label">Arbeitsbereich</div>
+      <nav class="side-nav">
+        <button class="active"><span class="nav-dot"></span>Wettfinder</button>
+        <button><span class="nav-dot"></span>Live</button>
+        <button><span class="nav-dot"></span>15K</button>
+        <button><span class="nav-dot"></span>Meine Tipps</button>
+      </nav>
+    </aside>
+
+    <main class="page">
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">BetBoy / Wettfinder</p>
+          <h1>Wettfinder</h1>
+        </div>
+        <div class="stand">Stand: 27.08.2026 · 07:07 Uhr<br>Automatisch aktualisiert</div>
+      </header>
+
+      <nav class="mode-switch" aria-label="Wettfinder-Modus">
+        <button id="automatic-mode" class="active" aria-pressed="true">Automatisch</button>
+        <button id="search-mode" aria-pressed="false">Eigene Suche</button>
+      </nav>
+
+      <section id="automatic-view">
+        <div class="run-summary">
+          <div class="summary-copy">
+            <span class="summary-title">3 Top-Auswahlen</span>
+            <span class="summary-sub">Modellprognose und Wettpreis werden getrennt bewertet.</span>
+          </div>
+          <span class="compact-warning" role="status" aria-live="polite">Fußball · Kontext teils</span>
+        </div>
+
+        <section aria-labelledby="top-title">
+          <div class="section-head">
+            <div>
+              <h2 id="top-title">Top-Auswahlen nach Modell</h2>
+              <p class="section-hint">Alle wichtigen Angaben sofort sichtbar. Der Preisstatus sortiert die Karten nicht um.</p>
+            </div>
+            <div class="sport-filters" aria-label="Sportfilter">
+              <button class="filter-chip active" data-filter="all" aria-pressed="true">Alle</button>
+              <button class="filter-chip" data-filter="football" aria-pressed="false">Fußball</button>
+              <button class="filter-chip" data-filter="tennis" aria-pressed="false">Tennis</button>
+              <button class="filter-chip" data-filter="esports" aria-pressed="false">E-Sport</button>
+            </div>
+          </div>
+
+          <div class="top-grid">
+            <article class="pick-card" data-sport="football">
+              <div class="card-topline">
+                <span class="rank">TOP</span>
+                <span class="badge badge-model">Modellprognose</span>
+                <span class="badge badge-price-open price-badge">Quote offen</span>
+              </div>
+              <div class="card-body">
+                <div class="meta">Fußball · Heute · 20:30 Uhr</div>
+                <h3 class="event">Rosenborg – Viking</h3>
+                <div class="market-label">Beide Teams treffen</div>
+                <p class="selection">Ja</p>
+                <div class="primary-metric">
+                  <span>Vorsichtige Trefferchance</span><strong>61,4 %</strong>
+                </div>
+                <div class="metric-grid">
+                  <div class="metric"><span>Modellwert</span><strong>74,9 %</strong></div>
+                  <div class="metric"><span>Value ab</span><strong>1,68</strong></div>
+                  <div class="metric"><span>Aktuell</span><strong>—</strong></div>
+                </div>
+                <div class="price-note">Keine exakt passende Quote. Die Prognose bleibt unverändert sichtbar.</div>
+                <p class="context-line">Beispielstatus: Kontext teilweise · Aktualisierung vor Bestätigung nötig</p>
+                <div class="card-actions">
+                  <details>
+                    <summary>Analyse anzeigen</summary>
+                    <div class="analysis">
+                      <strong>Synthetische Zustandsvorschau – keine Live-Daten</strong>
+                      <ul>
+                        <li>H2H: strukturierter Status, wenn verfügbar</li>
+                        <li>Wetter: strukturierter Status, wenn verfügbar</li>
+                        <li>Ausfälle: strukturierter Status, wenn verfügbar</li>
+                        <li>Aufstellungen: strukturierter Status, wenn verfügbar</li>
+                      </ul>
+                    </div>
+                  </details>
+                  <button class="action quote-button" data-selection="Rosenborg – Viking: Beide Teams treffen – Ja">Eigene Quote prüfen</button>
+                </div>
+              </div>
+            </article>
+
+            <article class="pick-card" data-sport="tennis">
+              <div class="card-topline">
+                <span class="rank">TOP</span>
+                <span class="badge badge-model">Modellprognose</span>
+                <span class="badge badge-price-open price-badge">Quote offen</span>
+              </div>
+              <div class="card-body">
+                <div class="meta">Tennis · Heute · 18:00 Uhr</div>
+                <h3 class="event">Luka Pavlovic – Jacob Fearnley</h3>
+                <div class="market-label">Match Winner</div>
+                <p class="selection">Sieg Jacob Fearnley</p>
+                <div class="primary-metric">
+                  <span>Vorsichtige Trefferchance</span><strong>46,3 %</strong>
+                </div>
+                <div class="metric-grid">
+                  <div class="metric"><span>Modellwert</span><strong>61,3 %</strong></div>
+                  <div class="metric"><span>Value ab</span><strong>2,23</strong></div>
+                  <div class="metric"><span>Aktuell</span><strong>—</strong></div>
+                </div>
+                <div class="price-note">Keine exakt passende Quote. Die Prognose bleibt unverändert sichtbar.</div>
+                <p class="context-line">Tennis-Modell · Preisprüfung separat</p>
+                <div class="card-actions">
+                  <details>
+                    <summary>Analyse anzeigen</summary>
+                    <div class="analysis">Modellherkunft und vorhandener Kontext erscheinen hier, ohne die Auswahl zu verstecken.</div>
+                  </details>
+                  <button class="action quote-button" data-selection="Sieg Jacob Fearnley">Eigene Quote prüfen</button>
+                </div>
+              </div>
+            </article>
+
+            <article class="pick-card" data-sport="esports">
+              <div class="card-topline">
+                <span class="rank">TOP</span>
+                <span class="badge badge-model">Modellprognose</span>
+                <span class="badge badge-price-open price-badge">Quote offen</span>
+              </div>
+              <div class="card-body">
+                <div class="meta">E-Sport · Heute · 19:00 Uhr</div>
+                <h3 class="event">LOUD – FURIA Esports</h3>
+                <div class="market-label">Match Winner</div>
+                <p class="selection">Sieg LOUD</p>
+                <div class="primary-metric">
+                  <span>Vorsichtige Trefferchance</span><strong>33,7 %</strong>
+                </div>
+                <div class="metric-grid">
+                  <div class="metric"><span>Modellwert</span><strong>59,9 %</strong></div>
+                  <div class="metric"><span>Value ab</span><strong>3,06</strong></div>
+                  <div class="metric"><span>Aktuell</span><strong>—</strong></div>
+                </div>
+                <div class="price-note">Keine exakt passende Quote. Die Prognose bleibt unverändert sichtbar.</div>
+                <p class="context-line">Subgraph-ELO · Preisprüfung separat</p>
+                <div class="card-actions">
+                  <details>
+                    <summary>Analyse anzeigen</summary>
+                    <div class="analysis">Modellherkunft und vorhandener Kontext erscheinen hier, ohne die Auswahl zu verstecken.</div>
+                  </details>
+                  <button class="action quote-button" data-selection="Sieg LOUD">Eigene Quote prüfen</button>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section aria-labelledby="more-title">
+          <div class="section-head">
+            <div>
+              <h2 id="more-title">Weitere Modellprognosen</h2>
+              <p class="section-hint">Flach, kompakt und sichtbar – keine zweite Expander-Hierarchie.</p>
+            </div>
+          </div>
+          <div class="more-panel">
+            <article class="forecast-row" data-sport="football">
+              <div class="row-event"><span class="row-meta">Fußball · Heute · 18:30 Uhr</span><strong>Stabaek – Ranheim</strong></div>
+              <div class="row-pick"><span class="row-label">Doppelte Chance</span><strong>1X</strong></div>
+              <div class="row-value"><span class="row-label">Modell</span>84,6 %</div>
+              <div class="row-value"><span class="row-label">Vorsichtig</span>79,8 %</div>
+              <div class="row-value"><span class="row-label">Value ab</span>1,30</div>
+              <div class="row-value quote-col"><span class="row-label">Aktuell</span>—</div>
+              <div class="row-statuses"><span class="row-evidence">Modellprognose</span><span class="row-status">Quote offen</span></div>
+            </article>
+            <article class="forecast-row" data-sport="football">
+              <div class="row-event"><span class="row-meta">Fußball · Heute · 18:30 Uhr · Einfacher Markt</span><strong>Stabaek – Ranheim</strong></div>
+              <div class="row-pick"><span class="row-label">Team 1 Gesamttore</span><strong>Über 0,5</strong></div>
+              <div class="row-value"><span class="row-label">Modell</span>91,4 %</div>
+              <div class="row-value"><span class="row-label">Vorsichtig</span>87,0 %</div>
+              <div class="row-value"><span class="row-label">Value ab</span>1,20</div>
+              <div class="row-value quote-col"><span class="row-label">Aktuell</span>—</div>
+              <div class="row-statuses"><span class="row-evidence">Modellprognose</span><span class="row-status">Quote offen</span></div>
+            </article>
+            <article class="forecast-row" data-sport="football">
+              <div class="row-event"><span class="row-meta">Fußball · Heute · 20:00 Uhr</span><strong>ODD Ballklubb – Kongsvinger</strong></div>
+              <div class="row-pick"><span class="row-label">Doppelte Chance</span><strong>X2</strong></div>
+              <div class="row-value"><span class="row-label">Modell</span>66,2 %</div>
+              <div class="row-value"><span class="row-label">Vorsichtig</span>56,5 %</div>
+              <div class="row-value"><span class="row-label">Value ab</span>1,83</div>
+              <div class="row-value quote-col"><span class="row-label">Aktuell</span>—</div>
+              <div class="row-statuses"><span class="row-evidence">Modellprognose</span><span class="row-status">Quote offen</span></div>
+            </article>
+          </div>
+        </section>
+
+        <section aria-labelledby="states-title" style="margin-top: 28px;">
+          <div class="section-head">
+            <div>
+              <h2 id="states-title">Statusvarianten für die Umsetzung</h2>
+              <p class="section-hint">Designreferenz mit synthetischen Zuständen – nicht Teil der Tagesauswahl.</p>
+            </div>
+          </div>
+          <div class="state-matrix">
+            <article class="state-card">
+              <div class="state-badges">
+                <span class="badge badge-tip">Bestätigter Tipp</span>
+                <span class="badge badge-playable">Spielbar</span>
+              </div>
+              <strong>Quote erreicht den Value-Bereich</strong>
+              <p>Einsatzaktion ist nur in diesem vollständig freigegebenen Zustand sichtbar.</p>
+              <span class="context-state">Kontext vollständig</span>
+            </article>
+            <article class="state-card">
+              <div class="state-badges">
+                <span class="badge badge-model">Modellprognose</span>
+                <span class="badge badge-low">Unter Value</span>
+              </div>
+              <strong>Gute Prognose, Preis zu niedrig</strong>
+              <p>Die Auswahl bleibt sichtbar; der Preisstatus sortiert sie nicht um.</p>
+              <span class="context-state">Kontext vollständig</span>
+            </article>
+            <article class="state-card">
+              <div class="state-badges">
+                <span class="badge badge-model">Modellprognose</span>
+                <span class="badge badge-stale">Quote veraltet</span>
+              </div>
+              <strong>Preis muss aktualisiert werden</strong>
+              <p>Der veraltete Preis wird niemals wie ein aktuelles Angebot dargestellt.</p>
+              <span class="context-state">Kontext teilweise</span>
+            </article>
+            <article class="state-card">
+              <div class="state-badges">
+                <span class="badge badge-evidence">Evidenz offen</span>
+                <span class="badge badge-playable">Preis passend</span>
+              </div>
+              <strong>Noch keine Einsatzfreigabe</strong>
+              <p>Ein passender Preis allein macht aus der Modellprognose keinen Tipp.</p>
+              <span class="context-state">Kontext vollständig</span>
+            </article>
+          </div>
+        </section>
+
+        <p class="risk-note">Modellwahrscheinlichkeiten können falsch sein. Glücksspiel birgt finanzielles Risiko; kein Ergebnis ist garantiert.</p>
+      </section>
+
+      <section id="search-view" class="search-panel" hidden>
+        <h2>Eigene Suche</h2>
+        <p class="section-hint">Ein klarer Arbeitsmodus statt eines zweiten langen Ergebnisbereichs unter den Tagesauswahlen.</p>
+        <div class="search-grid">
+          <div class="field">
+            <label for="sport">Sport</label>
+            <select id="sport"><option>Alle</option><option>Fußball</option><option>Tennis</option><option>Basketball</option><option>Eishockey</option><option>Cricket</option><option>E-Sport</option></select>
+          </div>
+          <div class="field">
+            <label for="period">Zeitraum</label>
+            <select id="period"><option>Heute</option><option>3 Tage voraus</option><option>7 Tage voraus</option></select>
+          </div>
+          <div class="field">
+            <label for="market">Wettart</label>
+            <select id="market"><option>Beste Märkte</option><option>1X2</option><option>Tore</option><option>Doppelte Chance</option></select>
+          </div>
+          <div class="field">
+            <label for="leagues">Ligen</label>
+            <select id="leagues"><option>Alle verfügbaren Ligen</option><option>Favoriten</option><option>Eigene Auswahl</option></select>
+          </div>
+          <button class="search-submit">Auswahlen berechnen</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <nav class="bottom-nav" aria-label="Mobile Hauptnavigation">
+    <button class="active">Wettfinder</button>
+    <button>Live</button>
+    <button>15K</button>
+    <button>Tipps</button>
+  </nav>
+
+  <dialog id="quote-dialog">
+    <h2>Eigene Quote prüfen</h2>
+    <p id="quote-selection">Auswahl</p>
+    <div class="quote-fields">
+      <div class="field"><label for="own-quote">Dezimalquote</label><input id="own-quote" inputmode="decimal" placeholder="z. B. 1,95"></div>
+      <div class="field"><label for="bankroll">Wettguthaben</label><input id="bankroll" inputmode="decimal" value="100,00"></div>
+    </div>
+    <div class="dialog-actions">
+      <button id="close-dialog">Schließen</button>
+      <button class="primary">Quote vergleichen</button>
+    </div>
+  </dialog>
+
+  <script>
+    const automaticButton = document.querySelector('#automatic-mode');
+    const searchButton = document.querySelector('#search-mode');
+    const automaticView = document.querySelector('#automatic-view');
+    const searchView = document.querySelector('#search-view');
+
+    function setMode(mode) {
+      const automatic = mode === 'automatic';
+      automaticView.hidden = !automatic;
+      searchView.hidden = automatic;
+      automaticButton.classList.toggle('active', automatic);
+      searchButton.classList.toggle('active', !automatic);
+      automaticButton.setAttribute('aria-pressed', String(automatic));
+      searchButton.setAttribute('aria-pressed', String(!automatic));
+    }
+
+    automaticButton.addEventListener('click', () => setMode('automatic'));
+    searchButton.addEventListener('click', () => setMode('search'));
+
+    document.querySelectorAll('.filter-chip').forEach((button) => {
+      button.addEventListener('click', () => {
+        const filter = button.dataset.filter;
+        document.querySelectorAll('.filter-chip').forEach((chip) => {
+          const selected = chip === button;
+          chip.classList.toggle('active', selected);
+          chip.setAttribute('aria-pressed', String(selected));
+        });
+        document.querySelectorAll('[data-sport]').forEach((item) => {
+          item.hidden = filter !== 'all' && item.dataset.sport !== filter;
+        });
+      });
+    });
+
+    const quoteDialog = document.querySelector('#quote-dialog');
+    const quoteSelection = document.querySelector('#quote-selection');
+    document.querySelectorAll('.quote-button').forEach((button) => {
+      button.addEventListener('click', () => {
+        quoteSelection.textContent = button.dataset.selection;
+        quoteDialog.showModal();
+      });
+    });
+    document.querySelector('#close-dialog').addEventListener('click', () => quoteDialog.close());
+  </script>
+</body>
+</html>
