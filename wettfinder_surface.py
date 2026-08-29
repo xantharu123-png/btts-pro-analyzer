@@ -172,7 +172,9 @@ def _normalise_quote(quote: object) -> Optional[MarketConsensus]:
     return None
 
 
-def _signal_quote_candidate(signal: ModelSignal) -> dict[str, object]:
+def wettfinder_quote_binding_candidate(
+    signal: ModelSignal,
+) -> dict[str, object]:
     """Adapt retained loader identity to the existing quote-binding contract."""
 
     return {
@@ -279,7 +281,7 @@ def build_wettfinder_card(
     status = wettfinder_reference_price_status(
         normalized_quote,
         signal.minimum_odds,
-        candidate=_signal_quote_candidate(signal),
+        candidate=wettfinder_quote_binding_candidate(signal),
         now=now,
     )
     current_quote = wettfinder_consensus(normalized_quote, now=now)
@@ -486,4 +488,5 @@ __all__ = [
     "format_scheduled_start",
     "render_compact_row_html",
     "render_top_card_html",
+    "wettfinder_quote_binding_candidate",
 ]

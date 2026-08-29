@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from streamlit.testing.v1 import AppTest
 
 from market_consensus import MarketConsensus, QuotePoint, REFERENCE_SOURCE
@@ -272,6 +274,84 @@ def test_compact_automatic_bet_persists_exact_provider_provenance(monkeypatch):
     assert "API-Football" in saved[0][1]
     assert "B [api-football:2]" in saved[0][1]
     assert NOW in saved[0][1]
+
+
+def test_compact_renderer_uses_exact_precomputed_reference_evaluation(monkeypatch):
+    import bet_finder_ui as ui
+
+    evaluation = ui.evaluate_reference_price(
+        _candidate(), _quote(), bankroll=100.0
+    )
+
+    class _Streamlit:
+        session_state = {}
+
+        @staticmethod
+        def button(*_args, **_kwargs):
+            return False
+
+        @staticmethod
+        def caption(*_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(ui, "st", _Streamlit())
+    monkeypatch.setattr(
+        ui,
+        "evaluate_reference_price",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("reference price was evaluated twice")
+        ),
+    )
+
+    decision = ui.render_price_decision(
+        _candidate(),
+        key="precomputed",
+        reference_quote=_quote(),
+        presentation="compact",
+        precomputed_reference_evaluation=evaluation,
+    )
+
+    assert decision == evaluation.decision
+
+
+def test_mismatched_precomputed_bet_evaluation_cannot_be_saved(monkeypatch):
+    import bet_finder_ui as ui
+
+    evaluation = ui.evaluate_reference_price(
+        _candidate(), _quote(), bankroll=100.0
+    )
+    other_candidate = replace(_candidate(), event_key="different-selection")
+    saved = []
+
+    class _Streamlit:
+        session_state = {}
+
+        @staticmethod
+        def button(*_args, **_kwargs):
+            return True
+
+        @staticmethod
+        def caption(*_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(ui, "st", _Streamlit())
+    monkeypatch.setattr(
+        ui,
+        "_save_tip",
+        lambda decision, *, source: saved.append((decision, source)),
+    )
+
+    with pytest.raises(ValueError, match="candidate"):
+        ui.render_price_decision(
+            other_candidate,
+            key="mismatched-precomputed",
+            reference_quote=_quote(),
+            save_source="Automatischer Wettfinder",
+            presentation="compact",
+            precomputed_reference_evaluation=evaluation,
+        )
+
+    assert saved == []
 
 
 def test_pending_manual_quote_confirmation_never_persists_a_bet(monkeypatch):

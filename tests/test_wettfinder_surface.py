@@ -138,6 +138,36 @@ def test_card_maps_model_and_exact_consensus_without_changing_probabilities():
     assert card.price_label == "Spielbar"
 
 
+def test_public_quote_binding_adapter_preserves_loader_identity():
+    signal = replace(
+        _signal("binding"),
+        candidate_id="provider-candidate",
+        fixture_id=321,
+        home_team="Alpha",
+        away_team="Beta",
+        quote_provider_event_id="event-77",
+        competitor_a="Alpha",
+        competitor_b="Beta",
+        selected_competitor="Alpha",
+    )
+
+    assert surface.wettfinder_quote_binding_candidate(signal) == {
+        "candidate_id": "provider-candidate",
+        "market_key": signal.market_key,
+        "sport": signal.sport,
+        "source": signal.source,
+        "fixture_id": 321,
+        "scheduled_start": signal.scheduled_start,
+        "selection": signal.selection,
+        "home_team": "Alpha",
+        "away_team": "Beta",
+        "quote_provider_event_id": "event-77",
+        "competitor_a": "Alpha",
+        "competitor_b": "Beta",
+        "selected_competitor": "Alpha",
+    }
+
+
 def test_price_states_are_concise_and_only_current_prices_are_displayed():
     signal = _signal()
     cases = {

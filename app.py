@@ -6,7 +6,7 @@ import math
 import sqlite3
 import threading
 from dataclasses import asdict, replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from pathlib import Path
 
@@ -62,10 +62,7 @@ prematch_btts_candidate = _football_recommendations.prematch_btts_candidate
 red_card_candidate = _football_recommendations.red_card_candidate
 
 from bet_finder_ui import (
-    group_consumer_markets_by_fixture,
-    partition_consumer_basis_forecasts,
-    partition_consumer_featured_forecasts,
-    partition_consumer_forecasts,
+    evaluate_reference_price,
     render_price_decision,
 )
 from betting_math import BETTING_POLICY_VERSION
@@ -84,6 +81,14 @@ from multi_sport_recommendations import (
     EVIDENCE_RELEASED,
     RecommendationCandidate,
     build_candidate,
+)
+from wettfinder_surface import (
+    WettfinderReleaseOverlay,
+    build_wettfinder_card,
+    compose_wettfinder_catalog,
+    render_compact_row_html,
+    render_top_card_html,
+    wettfinder_quote_binding_candidate,
 )
 
 
@@ -3557,235 +3562,165 @@ def _automatic_consumer_run_incomplete(
     )
 
 
+def _automatic_release_overlay(evaluation) -> Optional[WettfinderReleaseOverlay]:
+    """Build an overlay only from one validated executable BET snapshot."""
+
+    decision = evaluation.decision
+    status = evaluation.status
+    quote = evaluation.quote
+    if (
+        decision is None
+        or decision.status != "BET"
+        or quote is None
+        or status.code != "PLAYABLE"
+        or status.usable_odds is None
+        or not status.bookmaker_id
+        or not status.observed_at
+    ):
+        return None
+    return WettfinderReleaseOverlay(
+        signal_key=evaluation.candidate.event_key,
+        quote_candidate_id=quote.candidate_id,
+        quote_market_key=quote.market_key,
+        status=decision.status,
+        quoted_odds=status.usable_odds,
+        quote_source=quote.source,
+        bookmaker_id=status.bookmaker_id,
+        observed_at=status.observed_at,
+    )
+
+
+def _render_wettfinder_card_actions(signal, card, candidate, binding, evaluation) -> None:
+    render_price_decision(
+        candidate,
+        key=f"wettfinder_v2_{card.manual_quote_key}",
+        bankroll_key="automated_finder_bankroll",
+        save_source="Automatischer Wettfinder",
+        reference_quote=signal.reference_quote,
+        reference_binding_candidate=binding,
+        allow_manual_check=True,
+        presentation="compact",
+        manual_surface="popover",
+        precomputed_reference_evaluation=evaluation,
+    )
+    with st.expander("Analyse anzeigen", expanded=False):
+        st.caption(f"Kontext: {card.context_label}")
+        st.write(card.detail)
+
+
 def _render_automated_daily_selection() -> None:
     status = automated_wettfinder_status()
-    forecasts = automated_wettfinder_forecasts()
     if status is None:
-        with st.expander("Automatischer Check", expanded=False):
-            st.caption("Separater planmäßiger Lauf, unabhängig von der Suche darunter.")
-            st.info("Aktuell ist noch kein Ergebnis verfügbar.")
+        st.caption("Automatischer Lauf · noch kein Ergebnisstand")
+        st.info("Aktuell ist noch kein automatisches Ergebnis verfügbar.")
         return
 
-    # Keep the complete, price-independent catalog and overlay only the exact
-    # strict rows produced by the same scheduler artifact. This preserves every
-    # forecast when a quote is missing/low while allowing a fully HAC/FDR-,
-    # context- and executable-price-confirmed row to reach Echtgeld status.
+    # One aware clock drives price evaluation and card construction for the
+    # complete run. Exact RELEASED rows replace forecasts only by persisted key.
+    evaluation_now = datetime.now(timezone.utc)
     strict_by_key = {
         signal.key: signal
         for signal in automated_wettfinder_signals()
         if signal.evidence_stage == EVIDENCE_RELEASED
     }
-    forecasts = [strict_by_key.get(signal.key, signal) for signal in forecasts]
+    signals = [
+        strict_by_key.get(signal.key, signal)
+        for signal in automated_wettfinder_forecasts()
+    ]
+    bankroll = float(
+        st.session_state.get("automated_finder_bankroll", 100.0) or 100.0
+    )
+    rows = []
+    for signal in signals:
+        candidate = _automated_signal_candidate(signal)
+        binding = wettfinder_quote_binding_candidate(signal)
+        evaluation = evaluate_reference_price(
+            candidate,
+            signal.reference_quote,
+            bankroll=bankroll,
+            reference_binding_candidate=binding,
+            now=evaluation_now,
+        )
+        card = build_wettfinder_card(
+            signal,
+            signal.reference_quote,
+            now=evaluation_now,
+            release_overlay=_automatic_release_overlay(evaluation),
+        )
+        rows.append((signal, card, candidate, binding, evaluation))
 
     target_label = _automatic_target_label(status.target_search_date)
-    football_forecasts, other_forecasts = _partition_automated_signals(forecasts)
-    football_displayed, football_extreme_short = partition_consumer_forecasts(
-        football_forecasts,
-        quote_for=lambda selected: selected.reference_quote,
-    )
-    football_featured, football_additional = partition_consumer_featured_forecasts(
-        football_displayed,
-        max_featured=3,
-        allow_mixed_backfill=True,
-    )
-    football_additional, football_basis = partition_consumer_basis_forecasts(
-        football_additional
-    )
-    football_extreme_short, extreme_short_basis = (
-        partition_consumer_basis_forecasts(football_extreme_short)
-    )
-    basis_keys = {
-        selected.key for selected in [*football_basis, *extreme_short_basis]
-    }
-    football_basis = [
-        selected for selected in football_forecasts if selected.key in basis_keys
+    time_parts = [
+        f"{target_label}",
+        f"Ergebnisstand: {_format_stand(status.generated_at)}",
     ]
-    other_displayed, other_extreme_short = partition_consumer_forecasts(
-        other_forecasts,
-        quote_for=lambda selected: selected.reference_quote,
-    )
-    other_featured, other_additional = partition_consumer_featured_forecasts(
-        other_displayed,
-        max_featured=3,
-    )
+    if status.last_discovery_at is not None:
+        time_parts.append(f"Geprüft: {_format_stand(status.last_discovery_at)}")
+    st.caption(" · ".join(time_parts))
+
     incomplete_run = _automatic_consumer_run_incomplete(status)
-    incomplete_notice = _automatic_partial_scope_notice(
-        status,
-        has_candidates=bool(
-            football_displayed or football_basis or football_extreme_short
-        ),
+    if incomplete_run:
+        st.warning(
+            _automatic_partial_scope_notice(status, has_candidates=bool(signals))
+            or "Mindestens eine Datenquelle konnte nicht vollständig geprüft werden."
+        )
+    if signals:
+        st.info(
+            "Modellprognosen bleiben unabhängig vom Wettpreis sichtbar. "
+            "Eine vorhandene Vergleichsquote wird direkt an der Auswahl "
+            "eingeordnet."
+        )
+
+    sport_filter = _segmented(
+        "Sportart",
+        list(FINDER_SPORT_OPTIONS),
+        "wettfinder_automatic_sport_v2",
+        "Alle",
     )
-    with st.expander(
-        f"Automatischer Fußball-Check · {target_label}",
-        expanded=bool(football_displayed or football_basis or football_extreme_short),
-    ):
-        st.caption("Separater planmäßiger Lauf, unabhängig von der Suche darunter.")
-        time_parts = [f"Ergebnisstand: {_format_stand(status.generated_at)}"]
-        if status.last_discovery_at is not None:
-            time_parts.append(
-                f"Fußball geprüft: {_format_stand(status.last_discovery_at)}"
-            )
-        st.caption(" · ".join(time_parts))
-
-        if (
-            not football_displayed
-            and not football_basis
-            and not football_extreme_short
-        ):
-            st.info(
-                "Für diesen Spieltag liegt aktuell keine passende "
-                "Fußball-Auswahl vor."
-            )
-            if incomplete_run:
-                st.warning(
-                    incomplete_notice
-                    or "Mindestens eine Datenquelle konnte nicht vollständig geprüft werden."
-                )
+    catalog = compose_wettfinder_catalog(
+        (card for _signal, card, _candidate, _binding, _evaluation in rows),
+        sport_filter=sport_filter,
+    )
+    if not catalog.featured and not catalog.additional:
+        if sport_filter == "Alle":
+            message = "Für diesen Spieltag liegt aktuell keine Modellprognose vor."
         else:
-            if incomplete_run:
-                st.warning(
-                    incomplete_notice
-                    or "Mindestens eine Datenquelle konnte nicht vollständig geprüft werden."
+            message = f"Für {sport_filter} liegt aktuell keine Modellprognose vor."
+        st.info(message)
+        return
+
+    row_by_key = {
+        card.key: (signal, card, candidate, binding, evaluation)
+        for signal, card, candidate, binding, evaluation in rows
+    }
+    st.subheader("Top-Auswahlen nach Modell")
+    top_columns = st.columns(len(catalog.featured))
+    for column, card in zip(top_columns, catalog.featured):
+        signal, card, candidate, binding, evaluation = row_by_key[card.key]
+        with column:
+            with st.container(key=f"wettfinder-top-{card.manual_quote_key}"):
+                st.markdown(render_top_card_html(card), unsafe_allow_html=True)
+                _render_wettfinder_card_actions(
+                    signal,
+                    card,
+                    candidate,
+                    binding,
+                    evaluation,
                 )
-            st.info(
-                "Modellprognosen bleiben unabhängig vom Wettpreis sichtbar. "
-                "Eine vorhandene Vergleichsquote wird direkt an der Auswahl "
-                "eingeordnet."
-            )
 
-            def render_football_rows(rows, *, start_index: int) -> None:
-                for offset, selected in enumerate(rows):
-                    index = start_index + offset
-                    st.markdown(f"### Berechnete Auswahl {index}")
-                    if selected.context_summary:
-                        st.caption(selected.context_summary)
-                    render_price_decision(
-                        _automated_signal_candidate(selected),
-                        key=f"automated_{selected.key}",
-                        bankroll_key="automated_finder_bankroll",
-                        save_source="Automatischer Wettfinder",
-                        reference_quote=selected.reference_quote,
-                        allow_manual_check=True,
-                    )
-                    if offset < len(rows) - 1:
-                        st.divider()
-
-            if football_featured:
-                render_football_rows(football_featured, start_index=1)
-            if football_additional:
-                next_index = len(football_featured) + 1
-                for event_label, event_rows in group_consumer_markets_by_fixture(
-                    football_additional
-                ):
-                    with st.expander(
-                        f"Weitere Märkte zu {event_label}",
-                        expanded=False,
-                    ):
-                        st.caption(
-                            "Alle weiteren berechneten Märkte dieses Spiels "
-                            "bleiben sichtbar."
-                        )
-                        render_football_rows(
-                            event_rows,
-                            start_index=next_index,
-                        )
-                    next_index += len(event_rows)
-            if football_basis:
-                with st.expander(
-                    f"Weitere einfache Modellprognosen ({len(football_basis)}) "
-                    "· keine Tipps",
-                    expanded=False,
-                ):
-                    st.caption(
-                        "Diese breiten Märkte bleiben als Modellinformation "
-                        "sichtbar, werden aber nicht als Hauptauswahl beworben. "
-                        "Eine Quote ändert die Prognose nicht."
-                    )
-                    for offset, selected in enumerate(football_basis):
-                        if selected.context_summary:
-                            st.caption(selected.context_summary)
-                        render_price_decision(
-                            _automated_signal_candidate(selected),
-                            key=f"automated_basis_{selected.key}",
-                            bankroll_key="automated_finder_bankroll",
-                            save_source="Automatischer Wettfinder",
-                            reference_quote=selected.reference_quote,
-                            allow_manual_check=True,
-                        )
-                        if offset < len(football_basis) - 1:
-                            st.divider()
-            if football_extreme_short:
-                with st.expander(
-                    f"Sehr kurze Quoten · "
-                    f"{len(football_extreme_short)} Modellprognose"
-                    f"{'n' if len(football_extreme_short) != 1 else ''}",
-                    expanded=False,
-                ):
-                    st.caption(
-                        "Diese Prognosen bleiben im Modellkatalog erhalten. "
-                        "Wegen der bestätigten sehr kurzen Marktquote werden "
-                        "sie nicht als Hauptauswahl hervorgehoben."
-                    )
-                    render_football_rows(
-                        football_extreme_short,
-                        start_index=len(football_displayed) + 1,
-                    )
-
-    if other_displayed or other_extreme_short:
-        with st.expander("Automatische Auswahlen · weitere Sportarten", expanded=True):
-            st.caption(
-                "Diese Auswahlen stammen aus den getrennten Tennis- und "
-                "E-Sport-Modellen. Preis und Prognose werden separat bewertet."
-            )
-
-            def render_other_rows(rows, *, start_index: int) -> None:
-                for offset, selected in enumerate(rows):
-                    index = start_index + offset
-                    st.markdown(f"### Berechnete Auswahl {index}")
-                    render_price_decision(
-                        _automated_signal_candidate(selected),
-                        key=f"automated_other_{selected.key}",
-                        bankroll_key="automated_finder_bankroll",
-                        save_source="Automatischer Wettfinder",
-                        reference_quote=selected.reference_quote,
-                        allow_manual_check=True,
-                    )
-                    if offset < len(rows) - 1:
-                        st.divider()
-
-            if other_featured:
-                render_other_rows(other_featured, start_index=1)
-            if other_additional:
-                next_index = len(other_featured) + 1
-                for event_label, event_rows in group_consumer_markets_by_fixture(
-                    other_additional
-                ):
-                    with st.expander(
-                        f"Weitere Märkte zu {event_label}",
-                        expanded=False,
-                    ):
-                        st.caption(
-                            "Alle weiteren berechneten Märkte dieses "
-                            "Ereignisses bleiben sichtbar."
-                        )
-                        render_other_rows(
-                            event_rows,
-                            start_index=next_index,
-                        )
-                    next_index += len(event_rows)
-            if other_extreme_short:
-                with st.expander(
-                    f"Sehr kurze Quoten ({len(other_extreme_short)})",
-                    expanded=False,
-                ):
-                    st.caption(
-                        "Diese Prognosen bleiben sichtbar. Nur die bestätigte "
-                        "sehr kurze Marktquote verhindert die Hervorhebung."
-                    )
-                    render_other_rows(
-                        other_extreme_short,
-                        start_index=len(other_displayed) + 1,
-                    )
+    if catalog.additional:
+        st.subheader("Weitere Modellprognosen")
+        for card in catalog.additional:
+            signal, card, candidate, binding, evaluation = row_by_key[card.key]
+            with st.container(key=f"wettfinder-row-{card.manual_quote_key}"):
+                st.markdown(render_compact_row_html(card), unsafe_allow_html=True)
+                _render_wettfinder_card_actions(
+                    signal,
+                    card,
+                    candidate,
+                    binding,
+                    evaluation,
+                )
 
 
 def _render_selected_finder(
@@ -3820,8 +3755,16 @@ def _render_selected_finder(
 
 def render_wettfinder() -> None:
     """One sport-first entry point for every pre-match finder."""
-    _render_automated_daily_selection()
-    st.divider()
+    mode = _segmented(
+        "Modus",
+        ["Automatisch", "Eigene Suche"],
+        "wettfinder_mode_v2",
+        "Automatisch",
+    )
+    if mode == "Automatisch":
+        _render_automated_daily_selection()
+        return
+
     st.subheader("Eigene Suche")
     controls = st.columns(3)
     with controls[0]:

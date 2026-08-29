@@ -43,38 +43,91 @@ class _ProgressStub:
         return None
 
 
-class _RecordingExpander:
-    def __init__(self, streamlit, label):
+class _RecordingContext:
+    def __init__(self, streamlit, kind, label=None):
         self.streamlit = streamlit
+        self.kind = kind
         self.label = label
 
     def __enter__(self):
-        self.streamlit.expander_stack.append(self.label)
+        self.streamlit.context_stack.append((self.kind, self.label))
         return self.streamlit
 
     def __exit__(self, _exc_type, _exc, _traceback):
-        assert self.streamlit.expander_stack.pop() == self.label
+        assert self.streamlit.context_stack.pop() == (self.kind, self.label)
 
 
 class _RecordingStreamlit:
-    def __init__(self, session_state=None):
+    def __init__(self, session_state=None, widget_values=None):
         self.session_state = session_state or {}
+        self.widget_values = widget_values or {}
         self.expanders = []
-        self.expander_stack = []
+        self.popovers = []
+        self.containers = []
+        self.column_groups = []
+        self.tabs_created = []
+        self.segmented_controls = []
+        self.selectboxes = []
+        self.context_stack = []
         self.messages = []
+        self.markdown_calls = []
 
     @property
     def current_expander(self):
-        return self.expander_stack[-1] if self.expander_stack else None
+        return next(
+            (
+                label
+                for kind, label in reversed(self.context_stack)
+                if kind == "expander"
+            ),
+            None,
+        )
+
+    @property
+    def current_context_kind(self):
+        return self.context_stack[-1][0] if self.context_stack else None
 
     def expander(self, label, *, expanded=False):
         self.expanders.append((label, expanded))
-        return _RecordingExpander(self, label)
+        return _RecordingContext(self, "expander", label)
+
+    def popover(self, label, **_kwargs):
+        self.popovers.append(label)
+        return _RecordingContext(self, "popover", label)
+
+    def container(self, *, key=None, **_kwargs):
+        self.containers.append(key)
+        return _RecordingContext(self, "container", key)
+
+    def columns(self, spec, **_kwargs):
+        count = spec if isinstance(spec, int) else len(spec)
+        labels = tuple(f"column-{len(self.column_groups)}-{index}" for index in range(count))
+        self.column_groups.append(labels)
+        return tuple(_RecordingContext(self, "column", label) for label in labels)
+
+    def tabs(self, labels):
+        labels = tuple(labels)
+        self.tabs_created.append(labels)
+        return tuple(_RecordingContext(self, "tab", label) for label in labels)
+
+    def segmented_control(self, label, options, *, default=None, key=None, **_kwargs):
+        options = tuple(options)
+        self.segmented_controls.append((label, options, default, key))
+        return self.widget_values.get(key, default)
+
+    def radio(self, label, options, *, index=0, key=None, **_kwargs):
+        options = tuple(options)
+        return self.widget_values.get(key, options[index])
+
+    def selectbox(self, label, options, *, index=0, key=None, **_kwargs):
+        options = tuple(options)
+        self.selectboxes.append((label, options, index, key))
+        return self.widget_values.get(key, options[index])
 
     def button(self, _label, **_kwargs):
         return False
 
-    def caption(self, value):
+    def caption(self, value, **_kwargs):
         self.messages.append(("caption", value))
 
     def divider(self):
@@ -83,17 +136,21 @@ class _RecordingStreamlit:
     def error(self, value):
         self.messages.append(("error", value))
 
-    def info(self, value):
+    def info(self, value, **_kwargs):
         self.messages.append(("info", value))
 
-    def markdown(self, value):
+    def markdown(self, value, **kwargs):
         self.messages.append(("markdown", value))
+        self.markdown_calls.append((value, kwargs, tuple(self.context_stack)))
 
-    def subheader(self, value):
+    def subheader(self, value, **_kwargs):
         self.messages.append(("subheader", value))
 
-    def warning(self, value):
+    def warning(self, value, **_kwargs):
         self.messages.append(("warning", value))
+
+    def write(self, value, **_kwargs):
+        self.messages.append(("write", value))
 
 
 def _extreme_short_quote(candidate_id, now):
@@ -163,6 +220,32 @@ def _automatic_forecast(key, *, reference_quote=None):
         ),
         context_summary="Kontext vollständig geprüft",
     )
+
+
+def _automatic_status(now, **overrides):
+    values = {
+        "target_search_date": now.date().isoformat(),
+        "generated_at": now,
+        "last_discovery_at": now,
+        "football_status": "completed",
+        "fixtures_found": 1,
+        "fixtures_modeled": 1,
+        "base_candidates": 1,
+        "base_fixture_count": 1,
+        "context_verified_fixtures": 1,
+        "context_data_incomplete_fixtures": 0,
+        "context_unchecked_fixtures": 0,
+        "deferred_context_fixtures": 0,
+        "context_accounting_available": True,
+        "context_scope_complete": True,
+        "approved_candidates": 1,
+        "price_checked_count": 0,
+        "price_status_counts": (),
+        "operational_error_count": 0,
+        "football_operational_error_count": 0,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
 
 
 def _manual_forecast(key, fixture_id):
@@ -307,21 +390,6 @@ def test_automatic_price_summary_reports_pending_exact_prices():
     )
 
 
-def test_internal_price_summary_is_not_rendered_in_consumer_daily_selection():
-    source = inspect.getsource(app._render_automated_daily_selection)
-    assert "_automatic_price_summary" not in source
-    assert "_automatic_consumer_summary" not in source
-    assert "_automatic_partial_scope_notice" in source
-    assert "fixtures_found" not in source
-    assert "fixtures_modeled" not in source
-    assert "price_status_counts" not in source
-    assert "VPS" not in source
-    assert "Marktkandidaten" not in source
-    assert "Tagestipp {index}" not in source
-    assert "status.generated_at" in source
-    assert "status.last_discovery_at" in source
-
-
 def test_automatic_empty_surface_uses_only_short_consumer_copy(monkeypatch):
     now = datetime.now(timezone.utc)
     status = SimpleNamespace(
@@ -361,7 +429,7 @@ def test_automatic_empty_surface_uses_only_short_consumer_copy(monkeypatch):
         str(value) for _kind, value in recording_st.messages
     )
     assert infos == [
-        "Für diesen Spieltag liegt aktuell keine passende Fußball-Auswahl vor."
+        "Für diesen Spieltag liegt aktuell keine Modellprognose vor."
     ]
     assert len(warnings) == 1
     assert warnings[0] == (
@@ -466,249 +534,6 @@ def test_tennis_failure_does_not_create_a_football_scope_warning(monkeypatch):
         value for kind, value in recording_st.messages if kind == "warning"
     ]
     assert warnings == []
-
-
-def test_automatic_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
-    now = datetime.now(timezone.utc)
-    extreme = _automatic_forecast(
-        "sporting-alverca-away-under-1-5",
-        reference_quote=_extreme_short_quote(
-            "sporting-alverca-away-under-1-5",
-            now,
-        ),
-    )
-    primary = [
-        _automatic_forecast("primary-a"),
-        _automatic_forecast("primary-b"),
-        _automatic_forecast("primary-c"),
-    ]
-    forecasts = [extreme, *primary]
-    status = SimpleNamespace(
-        target_search_date=now.date().isoformat(),
-        generated_at=now,
-        last_discovery_at=now,
-        football_status="completed",
-        fixtures_found=4,
-        fixtures_modeled=4,
-        context_data_incomplete_fixtures=0,
-        context_unchecked_fixtures=0,
-        deferred_context_fixtures=0,
-        context_accounting_available=True,
-        context_scope_complete=True,
-        operational_error_count=0,
-    )
-    recording_st = _RecordingStreamlit()
-    rendered = []
-
-    monkeypatch.setattr(app, "st", recording_st)
-    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
-    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
-    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: forecasts)
-    monkeypatch.setattr(
-        app,
-        "render_price_decision",
-        lambda candidate, **_kwargs: rendered.append(
-            (recording_st.current_expander, candidate.event_key)
-        ),
-    )
-
-    app._render_automated_daily_selection()
-
-    assert [key for _group, key in rendered] == [
-        "primary-a",
-        "primary-b",
-        "primary-c",
-        "sporting-alverca-away-under-1-5",
-    ]
-    short_group = next(
-        (label, expanded)
-        for label, expanded in recording_st.expanders
-        if label.startswith("Sehr kurze Quoten")
-    )
-    assert short_group[1] is False
-    assert rendered[-1][0] == short_group[0]
-    assert len({key for _group, key in rendered}) == len(forecasts)
-
-
-def test_automatic_surface_promotes_useful_market_and_keeps_all_others(
-    monkeypatch,
-):
-    now = datetime.now(timezone.utc)
-    team_totals = [
-        replace(
-            _automatic_forecast(f"away-under-{index}"),
-            context_complete=False,
-        )
-        for index in range(1, 4)
-    ]
-    osasuna = replace(
-        _automatic_forecast("osasuna-result-total"),
-        label="Osasuna: 1X und Unter 3,5",
-        event_label="Osasuna vs Real Sociedad",
-        market="Resultat & Gesamttore 3,5",
-        selection="1X und Unter 3,5",
-        context_complete=True,
-    )
-    forecasts = [*team_totals, osasuna]
-    status = SimpleNamespace(
-        target_search_date=now.date().isoformat(),
-        generated_at=now,
-        last_discovery_at=now,
-        football_status="completed",
-        fixtures_found=4,
-        fixtures_modeled=4,
-        context_data_incomplete_fixtures=3,
-        context_unchecked_fixtures=0,
-        deferred_context_fixtures=0,
-        context_accounting_available=True,
-        context_scope_complete=True,
-        operational_error_count=0,
-    )
-    recording_st = _RecordingStreamlit()
-    rendered = []
-
-    monkeypatch.setattr(app, "st", recording_st)
-    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
-    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
-    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: forecasts)
-    monkeypatch.setattr(
-        app,
-        "render_price_decision",
-        lambda candidate, **_kwargs: rendered.append(
-            (recording_st.current_expander, candidate.event_key)
-        ),
-    )
-
-    app._render_automated_daily_selection()
-
-    assert [key for _group, key in rendered] == [
-        "osasuna-result-total",
-        "away-under-1",
-        "away-under-2",
-        "away-under-3",
-    ]
-    primary_group = rendered[0][0]
-    assert [group for group, _key in rendered[:2]] == [primary_group, primary_group]
-    assert all(group != primary_group for group, _key in rendered[2:])
-    assert all(
-        str(group).startswith("Weitere Märkte zu ")
-        for group, _key in rendered[2:]
-    )
-    assert len({key for _group, key in rendered}) == len(forecasts)
-
-
-def test_automatic_surface_groups_simple_forecasts_without_calling_them_selections(
-    monkeypatch,
-):
-    now = datetime.now(timezone.utc)
-    forecasts = [
-        replace(
-            _automatic_forecast("double-chance"),
-            label="Alpha vs Beta: 1X",
-            event_label="Alpha vs Beta",
-            market="Doppelte Chance",
-            selection="1X",
-            market_key="DC_1X",
-        ),
-        replace(
-            _automatic_forecast(
-                "home-over-a",
-                reference_quote=replace(
-                    _extreme_short_quote("home-over-a", now),
-                    market_key="HOME_OVER_0_5",
-                    bet_name="Total - Home",
-                    value_name="Over 0.5",
-                ),
-            ),
-            label="Gamma: über 0,5 Tore",
-            event_label="Gamma vs Delta",
-            market="Team 1 Gesamttore",
-            selection="Über 0,5",
-            market_key="HOME_OVER_0_5",
-        ),
-        replace(
-            _automatic_forecast("home-over-b"),
-            label="Epsilon: über 0,5 Tore",
-            event_label="Epsilon vs Zeta",
-            market="Team 1 Gesamttore",
-            selection="Über 0,5",
-            market_key="HOME_OVER_0_5",
-        ),
-    ]
-    status = SimpleNamespace(
-        target_search_date=now.date().isoformat(),
-        generated_at=now,
-        last_discovery_at=now,
-        football_status="completed",
-        fixtures_found=3,
-        fixtures_modeled=3,
-        context_data_incomplete_fixtures=0,
-        context_unchecked_fixtures=0,
-        deferred_context_fixtures=0,
-        context_accounting_available=True,
-        context_scope_complete=True,
-        operational_error_count=0,
-    )
-    recording_st = _RecordingStreamlit()
-    rendered = []
-
-    monkeypatch.setattr(app, "st", recording_st)
-    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
-    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: forecasts)
-    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
-    monkeypatch.setattr(
-        app,
-        "render_price_decision",
-        lambda candidate, **_kwargs: rendered.append(
-            (recording_st.current_expander, candidate.event_key)
-        ),
-    )
-
-    app._render_automated_daily_selection()
-
-    simple_group = next(
-        (label, expanded)
-        for label, expanded in recording_st.expanders
-        if label.startswith("Weitere einfache Modellprognosen")
-    )
-    assert simple_group[1] is False
-    assert [key for _group, key in rendered] == [
-        "double-chance",
-        "home-over-a",
-        "home-over-b",
-    ]
-    assert all(group == simple_group[0] for group, _key in rendered)
-    assert not any(
-        "Berechnete Auswahl" in str(value)
-        for kind, value in recording_st.messages
-        if kind == "markdown"
-    )
-
-    only_extreme_st = _RecordingStreamlit()
-    only_extreme_rendered = []
-    monkeypatch.setattr(app, "st", only_extreme_st)
-    monkeypatch.setattr(
-        app,
-        "automated_wettfinder_forecasts",
-        lambda: [forecasts[1]],
-    )
-    monkeypatch.setattr(
-        app,
-        "render_price_decision",
-        lambda candidate, **_kwargs: only_extreme_rendered.append(
-            (only_extreme_st.current_expander, candidate.event_key)
-        ),
-    )
-
-    app._render_automated_daily_selection()
-
-    only_simple_group = next(
-        (label, expanded)
-        for label, expanded in only_extreme_st.expanders
-        if label.startswith("Weitere einfache Modellprognosen")
-    )
-    assert only_simple_group[1] is False
-    assert only_extreme_rendered == [(only_simple_group[0], "home-over-a")]
 
 
 def test_manual_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
@@ -901,6 +726,308 @@ def test_manual_surface_promotes_useful_market_and_keeps_all_others(
         for group, _key in rendered[2:]
     )
     assert len({key for _group, key in rendered}) == len(forecasts)
+
+
+def test_wettfinder_defaults_to_automatic_and_hides_custom_search_controls(
+    monkeypatch,
+):
+    recording_st = _RecordingStreamlit()
+    calls = []
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(
+        app,
+        "_render_automated_daily_selection",
+        lambda: calls.append("automatic"),
+    )
+    monkeypatch.setattr(
+        app,
+        "_render_selected_finder",
+        lambda *_args, **_kwargs: calls.append("manual"),
+    )
+
+    app.render_wettfinder()
+
+    assert calls == ["automatic"]
+    assert recording_st.segmented_controls[0][:3] == (
+        "Modus",
+        ("Automatisch", "Eigene Suche"),
+        "Automatisch",
+    )
+    assert recording_st.selectboxes == []
+    assert not any(
+        kind == "subheader" and value == "Eigene Suche"
+        for kind, value in recording_st.messages
+    )
+
+
+def test_wettfinder_manual_mode_keeps_every_sport_horizon_market_and_all_tab(
+    monkeypatch,
+):
+    recording_st = _RecordingStreamlit(
+        widget_values={
+            "wettfinder_mode_v2": "Eigene Suche",
+            "finder_sport": "Alle",
+        }
+    )
+    rendered_sports = []
+    automatic_calls = []
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(
+        app,
+        "_render_automated_daily_selection",
+        lambda: automatic_calls.append(True),
+    )
+    monkeypatch.setattr(
+        app,
+        "_render_selected_finder",
+        lambda sport, *_args: rendered_sports.append(sport),
+    )
+
+    app.render_wettfinder()
+
+    by_key = {key: (label, options) for label, options, _index, key in recording_st.selectboxes}
+    assert automatic_calls == []
+    assert by_key["finder_sport"] == ("Sport", tuple(app.FINDER_SPORT_OPTIONS))
+    assert by_key["finder_search_horizon"] == (
+        "Zeitraum",
+        tuple(app.SEARCH_HORIZONS),
+    )
+    assert by_key["finder_football_market"] == (
+        "Fußball-Wettart",
+        tuple(app._alternative_markets.FOOTBALL_MARKET_SCOPES),
+    )
+    assert recording_st.tabs_created == [tuple(app.FINDER_SINGLE_SPORT_OPTIONS)]
+    assert rendered_sports == list(app.FINDER_SINGLE_SPORT_OPTIONS)
+
+
+def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    forecasts = [
+        replace(
+            _automatic_forecast("football-one"),
+            sport="Fußball",
+            event_label="Alpha vs Beta",
+            market="Beide treffen",
+            market_key="BTTS_YES",
+            selection="Ja",
+        ),
+        replace(
+            _automatic_forecast("tennis-one"),
+            sport="Tennis",
+            event_label="Gamma vs Delta",
+            market="Match Winner",
+            market_key="H2H",
+            selection="Gamma",
+        ),
+        replace(
+            _automatic_forecast("esport-one"),
+            sport="E-Sport",
+            event_label="Echo vs Foxtrot",
+            market="Match Winner",
+            market_key="H2H",
+            selection="Echo",
+        ),
+        replace(
+            _automatic_forecast("football-two"),
+            sport="Fußball",
+            event_label="Hotel vs India",
+            market="Doppelte Chance",
+            market_key="DC_1X",
+            selection="1X",
+        ),
+    ]
+    recording_st = _RecordingStreamlit()
+    price_calls = []
+    evaluation_calls = []
+    card_calls = []
+    real_evaluate = app.evaluate_reference_price
+    real_build_card = app.build_wettfinder_card
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: _automatic_status(now))
+    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: forecasts)
+    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
+    monkeypatch.setattr(
+        app,
+        "evaluate_reference_price",
+        lambda *args, **kwargs: (
+            evaluation_calls.append((args, kwargs)),
+            real_evaluate(*args, **kwargs),
+        )[1],
+    )
+    monkeypatch.setattr(
+        app,
+        "build_wettfinder_card",
+        lambda *args, **kwargs: (
+            card_calls.append((args, kwargs)),
+            real_build_card(*args, **kwargs),
+        )[1],
+    )
+    monkeypatch.setattr(
+        app,
+        "render_price_decision",
+        lambda candidate, **kwargs: price_calls.append(
+            (candidate.event_key, kwargs, recording_st.current_context_kind)
+        ),
+    )
+
+    app._render_automated_daily_selection()
+
+    html = "\n".join(
+        value
+        for value, kwargs, _context in recording_st.markdown_calls
+        if kwargs.get("unsafe_allow_html")
+    )
+    assert [key for key, _kwargs, _context in price_calls] == [
+        "football-one",
+        "tennis-one",
+        "esport-one",
+        "football-two",
+    ]
+    assert all(kwargs["presentation"] == "compact" for _key, kwargs, _ in price_calls)
+    assert all(kwargs["manual_surface"] == "popover" for _key, kwargs, _ in price_calls)
+    assert len(evaluation_calls) == len(forecasts)
+    assert len(card_calls) == len(forecasts)
+    run_now = evaluation_calls[0][1]["now"]
+    assert run_now.tzinfo is not None
+    assert all(call[1]["now"] is run_now for call in evaluation_calls)
+    assert all(call[1]["now"] is run_now for call in card_calls)
+    assert all(
+        kwargs["precomputed_reference_evaluation"].candidate.event_key == key
+        for key, kwargs, _context in price_calls
+    )
+    assert all(context != "expander" for _key, _kwargs, context in price_calls)
+    assert [label for label, _expanded in recording_st.expanders] == [
+        "Analyse anzeigen"
+    ] * len(forecasts)
+    assert html.count('class="wf-top-card"') == 3
+    assert html.count('class="wf-row"') == 1
+    assert all(html.count(f'data-key="{signal.key}"') == 1 for signal in forecasts)
+    assert "Berechnete Auswahl 1" not in html
+    assert "Tagestipp 1" not in html
+
+
+def test_automatic_surface_offers_all_configured_sports_and_short_empty_state(
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    recording_st = _RecordingStreamlit(
+        widget_values={"wettfinder_automatic_sport_v2": "Cricket"}
+    )
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: _automatic_status(now))
+    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: [])
+    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
+
+    app._render_automated_daily_selection()
+
+    sport_control = next(
+        control
+        for control in recording_st.segmented_controls
+        if control[3] == "wettfinder_automatic_sport_v2"
+    )
+    public_text = " ".join(str(value) for _kind, value in recording_st.messages)
+    assert sport_control[1] == tuple(app.FINDER_SPORT_OPTIONS)
+    assert [value for kind, value in recording_st.messages if kind == "info"] == [
+        "Für Cricket liegt aktuell keine Modellprognose vor."
+    ]
+    assert "Preisprüfung" not in public_text
+    assert "Quote fehl" not in public_text
+    assert recording_st.expanders == []
+
+
+def test_automatic_partial_run_copy_stays_consumer_facing(monkeypatch):
+    now = datetime.now(timezone.utc)
+    recording_st = _RecordingStreamlit()
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(
+        app,
+        "automated_wettfinder_status",
+        lambda: _automatic_status(
+            now,
+            fixtures_found=99,
+            fixtures_modeled=70,
+            context_data_incomplete_fixtures=12,
+            context_scope_complete=False,
+            price_checked_count=44,
+            price_status_counts=(("TOO_LOW", 44),),
+        ),
+    )
+    monkeypatch.setattr(
+        app,
+        "automated_wettfinder_forecasts",
+        lambda: [_automatic_forecast("partial")],
+    )
+    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
+    monkeypatch.setattr(app, "render_price_decision", lambda *_args, **_kwargs: None)
+
+    app._render_automated_daily_selection()
+
+    warnings = [value for kind, value in recording_st.messages if kind == "warning"]
+    public_text = " ".join(str(value) for _kind, value in recording_st.messages)
+    assert warnings == [
+        "Ein Teil des Spieltags konnte wegen unvollständiger Daten nicht "
+        "zuverlässig bewertet werden. Die angezeigten Auswahlen wurden "
+        "vollständig geprüft."
+    ]
+    for internal_copy in ("99", "70", "44", "Spiele gefunden", "Preisprüfung"):
+        assert internal_copy not in public_text
+
+
+def test_automatic_strict_release_replaces_same_key_once(monkeypatch):
+    now = datetime.now(timezone.utc)
+    base_quote = _extreme_short_quote("released-row", now)
+    playable_quote = replace(
+        base_quote,
+        consensus_odds=2.00,
+        conservative_odds=2.00,
+        lowest_odds=1.95,
+        best_odds=2.10,
+        points=(
+            replace(base_quote.points[0], odds=1.95),
+            replace(base_quote.points[1], odds=2.00),
+            replace(base_quote.points[2], odds=2.00),
+            replace(base_quote.points[3], odds=2.05),
+            replace(base_quote.points[4], odds=2.10),
+        ),
+    )
+    forecast = replace(
+        _automatic_forecast("released-row", reference_quote=playable_quote),
+        context_complete=True,
+        statistical_release_passed=True,
+        market_key="AWAY_UNDER_1_5",
+        candidate_id="released-row",
+        fixture_id=1,
+    )
+    released = replace(forecast, evidence_stage="RELEASED")
+    unrelated = replace(released, key="another-row", label="another-row")
+    recording_st = _RecordingStreamlit()
+    rendered = []
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: _automatic_status(now))
+    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: [forecast])
+    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [released, unrelated])
+    monkeypatch.setattr(
+        app,
+        "render_price_decision",
+        lambda candidate, **kwargs: rendered.append((candidate, kwargs)),
+    )
+
+    app._render_automated_daily_selection()
+
+    html = "\n".join(
+        value
+        for value, kwargs, _context in recording_st.markdown_calls
+        if kwargs.get("unsafe_allow_html")
+    )
+    assert len(rendered) == 1
+    assert rendered[0][0].event_key == "released-row"
+    assert rendered[0][0].evidence_stage == "RELEASED"
+    assert rendered[0][1]["precomputed_reference_evaluation"].decision.status == "BET"
+    assert html.count('data-key="released-row"') == 1
+    assert "Bestätigter Tipp" in html
+    assert "another-row" not in html
 
 
 def test_automatic_signal_group_accepts_persisted_football_spelling():

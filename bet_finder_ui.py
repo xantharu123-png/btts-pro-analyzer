@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -41,6 +42,7 @@ class ReferencePriceEvaluation:
     decision: Optional[PriceDecision]
     status: ReferencePriceStatus
     quote: Optional[MarketConsensus]
+    candidate: RecommendationCandidate
 
 
 def merge_consumer_forecast_catalog(
@@ -501,7 +503,46 @@ def evaluate_reference_price(
         decision=decision,
         status=status,
         quote=effective_quote,
+        candidate=candidate,
     )
+
+
+def _validate_precomputed_reference_evaluation(
+    evaluation: ReferencePriceEvaluation,
+    candidate: RecommendationCandidate,
+) -> ReferencePriceEvaluation:
+    """Fail closed when a cached automatic decision belongs to another row."""
+
+    if not isinstance(evaluation, ReferencePriceEvaluation):
+        raise TypeError(
+            "precomputed_reference_evaluation must be a ReferencePriceEvaluation"
+        )
+    if evaluation.candidate != candidate:
+        raise ValueError("precomputed reference evaluation candidate mismatch")
+    decision = evaluation.decision
+    if decision is not None and decision.candidate != candidate:
+        raise ValueError("precomputed reference decision candidate mismatch")
+    if decision is not None and decision.status == "BET":
+        status = evaluation.status
+        quote = evaluation.quote
+        executable = quote.executable_point if quote is not None else None
+        if (
+            status.code != "PLAYABLE"
+            or status.usable_odds is None
+            or not status.bookmaker_id
+            or not status.observed_at
+            or executable is None
+            or executable.bookmaker_id != status.bookmaker_id
+            or executable.observed_at != status.observed_at
+            or not math.isclose(
+                float(decision.quoted_odds),
+                float(status.usable_odds),
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            )
+        ):
+            raise ValueError("precomputed BET evaluation provenance mismatch")
+    return evaluation
 
 
 def _render_reference_price(
@@ -708,6 +749,9 @@ def render_price_decision(
     allow_manual_check: bool = False,
     presentation: str = "full",
     manual_surface: str = "expander",
+    precomputed_reference_evaluation: Optional[
+        ReferencePriceEvaluation
+    ] = None,
 ) -> Optional[PriceDecision]:
     """Render one model selection while keeping forecast and price separate."""
     del live_price  # Kept for call-site compatibility.
@@ -753,11 +797,18 @@ def render_price_decision(
         return None
 
     bankroll = float(st.session_state.get(bankroll_key, 100.0) or 100.0)
-    automatic_evaluation = evaluate_reference_price(
-        candidate,
-        reference_quote,
-        bankroll=bankroll,
-        reference_binding_candidate=reference_binding_candidate,
+    automatic_evaluation = (
+        evaluate_reference_price(
+            candidate,
+            reference_quote,
+            bankroll=bankroll,
+            reference_binding_candidate=reference_binding_candidate,
+        )
+        if precomputed_reference_evaluation is None
+        else _validate_precomputed_reference_evaluation(
+            precomputed_reference_evaluation,
+            candidate,
+        )
     )
     automatic_decision = automatic_evaluation.decision
     if presentation == "full":
