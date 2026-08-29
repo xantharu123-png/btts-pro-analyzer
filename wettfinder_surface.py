@@ -45,7 +45,6 @@ class WettfinderCard:
     scheduled_start_label: str
     event_label: str
     market: str
-    market_key: Optional[str]
     selection: str
     model_probability: float
     cautious_probability: float
@@ -63,6 +62,7 @@ class WettfinderCard:
     reference_quote: Optional[MarketConsensus]
     manual_quote_key: str
     can_check_manual_quote: bool = True
+    market_key: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +83,9 @@ class WettfinderReleaseOverlay:
     quote_market_key: str
     status: str
     quoted_odds: float
+    quote_source: str
+    bookmaker_id: str
+    observed_at: str
 
     def __post_init__(self) -> None:
         if not all(
@@ -92,6 +95,9 @@ class WettfinderReleaseOverlay:
                 self.quote_candidate_id,
                 self.quote_market_key,
                 self.status,
+                self.quote_source,
+                self.bookmaker_id,
+                self.observed_at,
             )
         ):
             raise ValueError("release overlay identity is required")
@@ -200,6 +206,9 @@ def _overlay_matches(
         and overlay.quote_candidate_id == quote.candidate_id
         and overlay.quote_market_key.strip().upper()
         == quote.market_key.strip().upper()
+        and overlay.quote_source == quote.source
+        and overlay.bookmaker_id == status.bookmaker_id
+        and overlay.observed_at == status.observed_at
         and math.isclose(
             float(overlay.quoted_odds),
             float(status.usable_odds),

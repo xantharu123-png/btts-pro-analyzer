@@ -6,7 +6,12 @@ from datetime import datetime, timedelta, timezone
 
 import wettfinder_surface as surface
 from ev_signal_sources import ModelSignal
-from market_consensus import MarketConsensus, QuotePoint, REFERENCE_SOURCE
+from market_consensus import (
+    MarketConsensus,
+    QuotePoint,
+    REFERENCE_SOURCE,
+    wettfinder_consensus,
+)
 
 
 NOW = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
@@ -98,12 +103,19 @@ def _overlay(
     status: str = "BET",
     quoted_odds: float = 1.80,
 ):
+    current = wettfinder_consensus(quote, now=NOW)
+    assert current is not None
+    executable = current.executable_point
+    assert executable is not None
     return surface.WettfinderReleaseOverlay(
         signal_key=signal.key,
         quote_candidate_id=quote.candidate_id,
         quote_market_key=quote.market_key,
         status=status,
         quoted_odds=quoted_odds,
+        quote_source=quote.source,
+        bookmaker_id=executable.bookmaker_id or "",
+        observed_at=executable.observed_at or "",
     )
 
 
@@ -215,6 +227,59 @@ def test_same_key_and_market_but_wrong_fixture_cannot_become_confirmed_tip():
     assert card.price_code == "UNAVAILABLE"
     assert card.observed_odds is None
     assert card.confirmed_tip is False
+
+
+def test_confirmed_tip_requires_exact_executable_offer_provenance():
+    signal = _signal(stage="RELEASED", statistical_release_passed=True)
+    quote = _quote(signal)
+    exact = _overlay(signal, quote)
+
+    assert surface.build_wettfinder_card(
+        signal, quote, now=NOW, release_overlay=exact
+    ).confirmed_tip is True
+
+    for different_same_price_offer in (
+        replace(exact, bookmaker_id="api-football:other"),
+        replace(exact, observed_at="2030-01-01T12:01:00+00:00"),
+        replace(exact, quote_source="other-current-source"),
+    ):
+        card = surface.build_wettfinder_card(
+            signal,
+            quote,
+            now=NOW,
+            release_overlay=different_same_price_offer,
+        )
+        assert card.price_code == "PLAYABLE"
+        assert card.observed_odds == exact.quoted_odds
+        assert card.confirmed_tip is False
+
+
+def test_card_keeps_legacy_direct_constructor_shape():
+    card = surface.WettfinderCard(
+        "key",
+        "Fussball",
+        "01.01. 16:00",
+        "Alpha vs Beta",
+        "Doppelte Chance",
+        "1X",
+        0.68,
+        0.60,
+        1.70,
+        None,
+        None,
+        "UNAVAILABLE",
+        "Quote fehlt",
+        "muted",
+        "Teilprüfung",
+        "warning",
+        "Kontext",
+        "Detail",
+        False,
+        None,
+        "key",
+    )
+
+    assert card.market_key is None
 
 
 def test_html_card_and_row_escape_all_provider_and_model_text():
