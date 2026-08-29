@@ -4,6 +4,7 @@ from dataclasses import replace
 import math
 from datetime import datetime, timedelta, timezone
 
+import pytest
 import wettfinder_surface as surface
 from ev_signal_sources import ModelSignal
 from market_consensus import (
@@ -213,6 +214,45 @@ def test_card_uses_precomputed_price_snapshot_at_age_boundary(monkeypatch):
     assert card.price_code == evaluation.status.code
     assert card.observed_odds == evaluation.status.usable_odds
     assert card.reference_quote is evaluation.quote
+
+
+def test_precomputed_price_rejects_same_key_with_different_candidate_content():
+    from app import _automated_signal_candidate
+    from bet_finder_ui import evaluate_reference_price
+
+    signal = _signal(
+        stage="RELEASED",
+        statistical_release_passed=True,
+    )
+    quote = _quote(signal)
+    candidate = _automated_signal_candidate(signal)
+    evaluation = evaluate_reference_price(
+        candidate,
+        quote,
+        bankroll=100.0,
+        reference_binding_candidate=surface.wettfinder_quote_binding_candidate(
+            signal
+        ),
+        now=NOW,
+    )
+    overlay = _overlay(signal, quote)
+    assert evaluation.decision is not None
+    assert evaluation.decision.status == "BET"
+
+    for altered in (
+        replace(signal, market="Manipulierter Markt"),
+        replace(signal, selection="Manipulierte Auswahl"),
+        replace(signal, probability=0.72),
+        replace(signal, minimum_odds=1.90),
+    ):
+        with pytest.raises(ValueError, match="candidate"):
+            surface.build_wettfinder_card(
+                altered,
+                quote,
+                now=NOW,
+                release_overlay=overlay,
+                price_evaluation=evaluation,
+            )
 
 
 def test_price_states_are_concise_and_only_current_prices_are_displayed():

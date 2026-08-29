@@ -32,6 +32,7 @@ from market_consensus import (
     wettfinder_consensus,
     wettfinder_reference_price_status,
 )
+from multi_sport_recommendations import RecommendationCandidate
 
 
 _ALL_SPORT_FILTERS = {"", "alle", "all"}
@@ -196,6 +197,51 @@ def wettfinder_quote_binding_candidate(
     }
 
 
+def wettfinder_recommendation_candidate(
+    signal: ModelSignal,
+) -> RecommendationCandidate:
+    """Build the complete immutable price candidate represented by a signal."""
+
+    probability = signal.probability * 100.0
+    haircut = signal.probability_haircut * 100.0
+    normalized_sport = (
+        str(signal.sport or "").strip().casefold().replace("ß", "ss")
+    )
+    return RecommendationCandidate(
+        event_key=signal.key,
+        sport=signal.sport or "Sport",
+        event_label=signal.event_label or signal.label,
+        market=signal.market or "Auswahl",
+        selection=signal.selection or signal.label,
+        line=None,
+        model_probability=round(probability, 2),
+        risk_adjusted_probability=round(probability - haircut, 2),
+        probability_haircut=round(haircut, 2),
+        fair_odds=round(100.0 / probability, 3),
+        minimum_odds=signal.minimum_odds,
+        model_name=signal.detail,
+        expected_total=None,
+        evidence=(
+            signal.detail,
+            (
+                "Automatischer Marktvergleich liegt vor."
+                if signal.reference_quote is not None
+                else "Modellprognose und Wettpreis werden getrennt bewertet."
+            ),
+        ),
+        blockers=(
+            ()
+            if signal.minimum_odds is not None
+            else ("Keine belastbare Value-Grenze berechenbar.",)
+        ),
+        evidence_stage=signal.evidence_stage,
+        release_pending=(
+            normalized_sport == "fussball"
+            and signal.statistical_release_passed is not True
+        ),
+    )
+
+
 def _overlay_matches(
     overlay: Optional[WettfinderReleaseOverlay],
     signal: ModelSignal,
@@ -290,8 +336,9 @@ def build_wettfinder_card(
         )
         current_quote = wettfinder_consensus(normalized_quote, now=now)
     else:
-        if price_evaluation.candidate.event_key != signal.key:
-            raise ValueError("price evaluation signal mismatch")
+        expected_candidate = wettfinder_recommendation_candidate(signal)
+        if price_evaluation.candidate != expected_candidate:
+            raise ValueError("price evaluation candidate mismatch")
         if now is not None:
             if now.tzinfo is None:
                 raise ValueError("now must be timezone-aware")
@@ -511,4 +558,5 @@ __all__ = [
     "render_compact_row_html",
     "render_top_card_html",
     "wettfinder_quote_binding_candidate",
+    "wettfinder_recommendation_candidate",
 ]

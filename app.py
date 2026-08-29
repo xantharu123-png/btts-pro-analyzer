@@ -87,6 +87,7 @@ from wettfinder_surface import (
     render_compact_row_html,
     render_top_card_html,
     wettfinder_quote_binding_candidate,
+    wettfinder_recommendation_candidate,
 )
 
 
@@ -3232,42 +3233,7 @@ def render_multi_sport(
 
 
 def _automated_signal_candidate(signal: ModelSignal) -> RecommendationCandidate:
-    probability = signal.probability * 100.0
-    haircut = signal.probability_haircut * 100.0
-    adjusted = probability - haircut
-    return RecommendationCandidate(
-        event_key=signal.key,
-        sport=signal.sport or "Sport",
-        event_label=signal.event_label or signal.label,
-        market=signal.market or "Auswahl",
-        selection=signal.selection or signal.label,
-        line=None,
-        model_probability=round(probability, 2),
-        risk_adjusted_probability=round(adjusted, 2),
-        probability_haircut=round(haircut, 2),
-        fair_odds=round(100.0 / probability, 3),
-        minimum_odds=signal.minimum_odds,
-        model_name=signal.detail,
-        expected_total=None,
-        evidence=(
-            signal.detail,
-            (
-                "Automatischer Marktvergleich liegt vor."
-                if signal.reference_quote is not None
-                else "Modellprognose und Wettpreis werden getrennt bewertet."
-            ),
-        ),
-        blockers=(
-            ()
-            if signal.minimum_odds is not None
-            else ("Keine belastbare Value-Grenze berechenbar.",)
-        ),
-        evidence_stage=signal.evidence_stage,
-        release_pending=(
-            _is_football_sport(signal.sport)
-            and signal.statistical_release_passed is not True
-        ),
-    )
+    return wettfinder_recommendation_candidate(signal)
 
 
 def _automatic_target_label(value: Optional[str]) -> str:
