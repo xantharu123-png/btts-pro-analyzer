@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from streamlit.testing.v1 import AppTest
 
@@ -127,6 +127,56 @@ def test_compact_presentation_evaluates_same_automatic_bet_without_duplicate_con
     assert any(item.label == "Tipp merken" for item in app.button)
 
 
+def test_compact_and_full_return_the_same_reference_decision_as_the_helper(monkeypatch):
+    import bet_finder_ui as ui
+
+    class _Streamlit:
+        session_state = {}
+
+        def __getattr__(self, _name):
+            return lambda *_args, **_kwargs: self
+
+        def columns(self, _count):
+            return (self, self, self)
+
+        def button(self, *_args, **_kwargs):
+            return False
+
+        def metric(self, *_args, **_kwargs):
+            return None
+
+    fake_streamlit = _Streamlit()
+    monkeypatch.setattr(ui, "st", fake_streamlit)
+    expected = ui.evaluate_reference_price(_candidate(), _quote(), bankroll=100.0)
+
+    full = ui.render_price_decision(
+        _candidate(), key="full-decision", reference_quote=_quote(),
+    )
+    compact = ui.render_price_decision(
+        _candidate(), key="compact-decision", reference_quote=_quote(),
+        presentation="compact",
+    )
+
+    assert full == expected.decision
+    assert compact == expected.decision
+
+
+def test_compact_and_full_automatic_bets_render_stake_once():
+    compact = AppTest.from_function(_render_compact)
+    compact.run(timeout=30)
+    full = AppTest.from_function(_render_full)
+    full.run(timeout=30)
+
+    compact_stakes = [
+        item.value for item in compact.caption if "Einsatzvorschlag:" in item.value
+    ]
+    full_stakes = [
+        item.value for item in full.caption if "Einsatzvorschlag:" in item.value
+    ]
+    assert len(compact_stakes) == 1
+    assert full_stakes == compact_stakes
+
+
 def test_compact_manual_quote_uses_streamlit_popover_not_legacy_expander(monkeypatch):
     import bet_finder_ui as ui
 
@@ -170,6 +220,21 @@ def test_reference_evaluation_keeps_exact_executable_offer_provenance():
     assert evaluation.quote.candidate_id == "compact-price-action"
 
 
+def test_reference_evaluation_uses_one_injected_clock_and_never_exposes_raw_quote():
+    from bet_finder_ui import evaluate_reference_price
+
+    evaluation = evaluate_reference_price(
+        _candidate(),
+        _quote(),
+        bankroll=100.0,
+        now=datetime.fromisoformat(NOW) + timedelta(hours=2),
+    )
+
+    assert evaluation.status.code == "STALE"
+    assert evaluation.decision is None
+    assert evaluation.quote is None
+
+
 def test_compact_automatic_bet_persists_exact_provider_provenance(monkeypatch):
     import bet_finder_ui as ui
 
@@ -186,15 +251,15 @@ def test_compact_automatic_bet_persists_exact_provider_provenance(monkeypatch):
         def toast(*_args, **_kwargs):
             return None
 
+        @staticmethod
+        def caption(*_args, **_kwargs):
+            return None
+
     monkeypatch.setattr(ui, "st", _Streamlit())
     monkeypatch.setattr(
         ui,
         "_save_tip",
-        lambda decision, *, source: (
-            saved.append((decision, source))
-            if decision.status == "BET"
-            else None
-        ),
+        lambda decision, *, source: saved.append((decision, source)),
     )
 
     decision = ui.render_price_decision(
@@ -234,11 +299,7 @@ def test_pending_manual_quote_confirmation_never_persists_a_bet(monkeypatch):
     monkeypatch.setattr(
         ui,
         "_save_tip",
-        lambda decision, *, source: (
-            saved.append((decision, source))
-            if decision.status == "BET"
-            else None
-        ),
+        lambda decision, *, source: saved.append((decision, source)),
     )
 
     decision = ui._render_manual_check(
@@ -248,4 +309,4 @@ def test_pending_manual_quote_confirmation_never_persists_a_bet(monkeypatch):
     )
 
     assert decision is not None and decision.status == "SHADOW"
-    assert not saved
+    assert [saved_decision.status for saved_decision, _source in saved] == ["SHADOW"]

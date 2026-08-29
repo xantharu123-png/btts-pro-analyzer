@@ -6,6 +6,7 @@ import logging
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Callable, Iterable, Optional, TypeVar
 
 import streamlit as st
@@ -463,9 +464,16 @@ def evaluate_reference_price(
     *,
     bankroll: float,
     reference_binding_candidate: object = None,
+    now: Optional[datetime] = None,
 ) -> ReferencePriceEvaluation:
     """Evaluate the exact automatic offer without producing UI side effects."""
 
+    if now is None:
+        evaluation_now = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    else:
+        evaluation_now = now.astimezone(timezone.utc)
     reference_quote = (
         quote
         if isinstance(quote, MarketConsensus)
@@ -475,8 +483,9 @@ def evaluate_reference_price(
         reference_quote,
         candidate.minimum_odds,
         candidate=reference_binding_candidate,
+        now=evaluation_now,
     )
-    effective_quote = wettfinder_consensus(reference_quote) or reference_quote
+    effective_quote = wettfinder_consensus(reference_quote, now=evaluation_now)
     decision = None
     if effective_quote is not None and status.usable_odds is not None:
         decision = _enforce_pending_release(
@@ -753,6 +762,8 @@ def render_price_decision(
     automatic_decision = automatic_evaluation.decision
     if presentation == "full":
         _render_reference_price(candidate, automatic_evaluation)
+    elif automatic_decision is not None and automatic_decision.status == "BET":
+        _render_stake_recommendation(automatic_decision)
 
     if (
         automatic_decision is not None
