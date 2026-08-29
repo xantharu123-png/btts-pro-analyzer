@@ -66,6 +66,8 @@ def _playable_automatic_candidate(
         "label": "Fußball - A vs B - Beide Teams treffen: Ja",
         "sport": "Fussball",
         "event": "A vs B",
+        "home_team": "A",
+        "away_team": "B",
         "market": "Beide Teams treffen",
         "selection": "Ja",
         "probability": 0.60,
@@ -1241,6 +1243,10 @@ class ListSignalsTests(unittest.TestCase):
 
         self.assertEqual(len(forecasts), 1)
         self.assertIs(forecasts[0].statistical_release_passed, False)
+        self.assertEqual(forecasts[0].candidate_id, "1:BTTS_YES")
+        self.assertEqual(forecasts[0].fixture_id, 1)
+        self.assertEqual(forecasts[0].home_team, "A")
+        self.assertEqual(forecasts[0].away_team, "B")
         self.assertEqual(strict, [])
 
 

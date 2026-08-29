@@ -13,8 +13,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from html import escape
 import math
+import re
 from typing import Iterable, Mapping, Optional
 import unicodedata
+from zoneinfo import ZoneInfo
 
 from bet_finder_ui import (
     _consumer_market_identity,
@@ -31,6 +33,7 @@ from market_consensus import (
 
 
 _ALL_SPORT_FILTERS = {"", "alle", "all"}
+_ZURICH_TZ = ZoneInfo("Europe/Zurich")
 
 
 @dataclass(frozen=True)
@@ -42,6 +45,7 @@ class WettfinderCard:
     scheduled_start_label: str
     event_label: str
     market: str
+    market_key: Optional[str]
     selection: str
     model_probability: float
     cautious_probability: float
@@ -71,6 +75,36 @@ class WettfinderFixtureGroup:
 
 
 @dataclass(frozen=True)
+class WettfinderReleaseOverlay:
+    """A strict decision bound to one persisted model and execution quote."""
+
+    signal_key: str
+    quote_candidate_id: str
+    quote_market_key: str
+    status: str
+    quoted_odds: float
+
+    def __post_init__(self) -> None:
+        if not all(
+            str(value or "").strip()
+            for value in (
+                self.signal_key,
+                self.quote_candidate_id,
+                self.quote_market_key,
+                self.status,
+            )
+        ):
+            raise ValueError("release overlay identity is required")
+        if (
+            isinstance(self.quoted_odds, bool)
+            or not isinstance(self.quoted_odds, (int, float))
+            or not math.isfinite(float(self.quoted_odds))
+            or float(self.quoted_odds) <= 1.0
+        ):
+            raise ValueError("release overlay odds are invalid")
+
+
+@dataclass(frozen=True)
 class WettfinderCatalog:
     """The unranked top cards plus every remaining card exactly once."""
 
@@ -80,9 +114,11 @@ class WettfinderCatalog:
 
 
 def _token(value: object) -> str:
-    normalized = unicodedata.normalize("NFKD", str(value or "").casefold())
+    normalized = unicodedata.normalize(
+        "NFKD", str(value or "").casefold().replace("ß", "ss")
+    )
     ascii_value = normalized.encode("ascii", "ignore").decode("ascii")
-    return "_".join(part for part in ascii_value.split() if part).replace("-", "_")
+    return re.sub(r"[^a-z0-9]+", "_", ascii_value).strip("_")
 
 
 def _clean_text(value: object, fallback: str = "–") -> str:
@@ -99,7 +135,7 @@ def format_scheduled_start(value: object) -> str:
         return "–"
     if parsed.tzinfo is None:
         return "–"
-    return parsed.strftime("%d.%m. %H:%M")
+    return parsed.astimezone(_ZURICH_TZ).strftime("%d.%m. %H:%M")
 
 
 def format_probability(value: object) -> str:
@@ -130,27 +166,47 @@ def _normalise_quote(quote: object) -> Optional[MarketConsensus]:
     return None
 
 
-def _exact_key_bound_quote(
+def _signal_quote_candidate(signal: ModelSignal) -> dict[str, object]:
+    """Adapt retained loader identity to the existing quote-binding contract."""
+
+    return {
+        "candidate_id": signal.candidate_id or signal.key,
+        "market_key": signal.market_key,
+        "sport": signal.sport,
+        "source": signal.source,
+        "fixture_id": signal.fixture_id,
+        "scheduled_start": signal.scheduled_start,
+        "selection": signal.selection,
+        "home_team": signal.home_team,
+        "away_team": signal.away_team,
+        "quote_provider_event_id": signal.quote_provider_event_id,
+        "competitor_a": signal.competitor_a,
+        "competitor_b": signal.competitor_b,
+        "selected_competitor": signal.selected_competitor,
+    }
+
+
+def _overlay_matches(
+    overlay: Optional[WettfinderReleaseOverlay],
     signal: ModelSignal,
     quote: Optional[MarketConsensus],
-) -> Optional[MarketConsensus]:
-    """Require the persisted quote to belong to this loader-approved row.
-
-    ModelSignal intentionally has no raw fixture ID. Its stable key plus the
-    market key are the only identity available at this presentation boundary;
-    lower-level loader code already performed event-level binding.
-    """
-
-    if quote is None:
-        return None
-    market_key = str(signal.market_key or "").strip().upper()
-    if (
-        quote.candidate_id != signal.key
-        or not market_key
-        or quote.market_key.strip().upper() != market_key
-    ):
-        return None
-    return quote
+    status: ReferencePriceStatus,
+) -> bool:
+    if overlay is None or quote is None or status.usable_odds is None:
+        return False
+    return bool(
+        overlay.status == "BET"
+        and overlay.signal_key == signal.key
+        and overlay.quote_candidate_id == quote.candidate_id
+        and overlay.quote_market_key.strip().upper()
+        == quote.market_key.strip().upper()
+        and math.isclose(
+            float(overlay.quoted_odds),
+            float(status.usable_odds),
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        )
+    )
 
 
 def _price_copy(
@@ -201,29 +257,29 @@ def build_wettfinder_card(
     quote: object = None,
     *,
     now: Optional[datetime] = None,
-    evaluated_decision: Optional[str] = None,
+    release_overlay: Optional[WettfinderReleaseOverlay] = None,
 ) -> WettfinderCard:
     """Map one model signal and its exact-key quote to a display card.
 
-    ``evaluated_decision`` is an overlay from the strict price/decision path.
-    It is deliberately optional because a normal model forecast remains
-    visible before any release decision exists.
+    ``release_overlay`` is the identity- and execution-bound output of the
+    strict price/decision path. It is optional because a normal model forecast
+    remains visible before any release decision exists.
     """
 
-    normalized_quote = _exact_key_bound_quote(signal, _normalise_quote(quote))
+    normalized_quote = _normalise_quote(quote)
     status = wettfinder_reference_price_status(
         normalized_quote,
         signal.minimum_odds,
+        candidate=_signal_quote_candidate(signal),
         now=now,
     )
     current_quote = wettfinder_consensus(normalized_quote, now=now)
     released = signal.evidence_stage == "RELEASED"
-    decision_is_bet = str(evaluated_decision or "").strip().upper() == "BET"
     confirmed_tip = bool(
         released
         and signal.statistical_release_passed is True
         and status.code == "PLAYABLE"
-        and decision_is_bet
+        and _overlay_matches(release_overlay, signal, normalized_quote, status)
     )
     price_label, price_tone, observed_odds, bookmaker = _price_copy(
         status,
@@ -238,6 +294,7 @@ def build_wettfinder_card(
         scheduled_start_label=format_scheduled_start(signal.scheduled_start),
         event_label=_clean_text(signal.event_label or signal.label),
         market=_clean_text(signal.market, "Auswahl"),
+        market_key=signal.market_key,
         selection=_clean_text(signal.selection or signal.label),
         model_probability=model_probability,
         cautious_probability=cautious_probability,
@@ -299,7 +356,7 @@ def _select_featured(
         if _consumer_market_is_basis(card):
             continue
         fixture = _fixture_identity(card)
-        market = _consumer_market_identity(card)
+        market = f"{_token(card.sport)}:{_consumer_market_identity(card)}"
         if fixture in fixtures or market in markets:
             continue
         selected.append(card)
@@ -387,16 +444,12 @@ def _card_markup(card: WettfinderCard, *, compact: bool) -> str:
             _display_pair("Modellhinweis", card.detail),
         )
     )
-    actions = "" if compact else (
-        '<div class="wf-actions"><button type="button">Analyse anzeigen</button>'
-        '<button type="button">Eigene Quote prüfen</button></div>'
-    )
     return (
         f'<{tag} class="{classes}" data-key="{escape(card.key, quote=True)}">'
         f'<div class="wf-status wf-evidence-{escape(card.evidence_tone)}">'
         f"{escape(card.evidence_label)}</div>"
         f'<div class="wf-status wf-price-{escape(card.price_tone)}">'
-        f"{escape(card.price_label)}</div>{fields}{actions}</{tag}>"
+        f"{escape(card.price_label)}</div>{fields}</{tag}>"
     )
 
 
@@ -416,6 +469,7 @@ __all__ = [
     "WettfinderCard",
     "WettfinderCatalog",
     "WettfinderFixtureGroup",
+    "WettfinderReleaseOverlay",
     "build_wettfinder_card",
     "compose_wettfinder_catalog",
     "format_decimal_odds",

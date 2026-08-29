@@ -81,6 +81,11 @@ class ModelSignal:
     market: Optional[str] = None
     selection: Optional[str] = None
     market_key: Optional[str] = None
+    candidate_id: Optional[str] = None
+    fixture_id: Optional[int] = None
+    home_team: Optional[str] = None
+    away_team: Optional[str] = None
+    quote_provider_event_id: Optional[str] = None
     reference_quote: Optional[dict] = None
     context_summary: Optional[str] = None
     context_complete: Optional[bool] = None
@@ -112,6 +117,12 @@ class ModelSignal:
             raise ValueError("Model signal minimum odds are invalid")
         if not str(self.source).strip():
             raise ValueError("Model signal source is required")
+        if self.fixture_id is not None and (
+            isinstance(self.fixture_id, bool)
+            or not isinstance(self.fixture_id, int)
+            or self.fixture_id <= 0
+        ):
+            raise ValueError("Model signal fixture identity is invalid")
         if (
             self.reference_quote is not None
             and MarketConsensus.from_dict(self.reference_quote) is None
@@ -134,6 +145,10 @@ class ModelSignal:
         ):
             raise ValueError("Model signal statistical release state is invalid")
         for value in (
+            self.candidate_id,
+            self.home_team,
+            self.away_team,
+            self.quote_provider_event_id,
             self.competitor_a,
             self.competitor_b,
             self.selected_competitor,
@@ -1301,6 +1316,39 @@ def automated_wettfinder_forecasts(
                     market=str(row.get("market") or "").strip() or "Auswahl",
                     selection=str(row.get("selection") or "").strip() or label,
                     market_key=str(row.get("market_key") or "").strip() or None,
+                    candidate_id=(
+                        str(row.get("candidate_id") or "").strip() or key
+                    ),
+                    fixture_id=(
+                        fixture_id
+                        if isinstance(fixture_id, int)
+                        and not isinstance(fixture_id, bool)
+                        and fixture_id > 0
+                        else None
+                    ),
+                    home_team=(
+                        str(row.get("home_team") or "").strip() or None
+                    ),
+                    away_team=(
+                        str(row.get("away_team") or "").strip() or None
+                    ),
+                    quote_provider_event_id=(
+                        str(row.get("quote_provider_event_id") or "").strip()
+                        or None
+                    ),
+                    competitor_a=(
+                        str(row.get("competitor_a") or "").strip() or None
+                    ),
+                    competitor_b=(
+                        str(row.get("competitor_b") or "").strip() or None
+                    ),
+                    selected_competitor=(
+                        str(row.get("selected_competitor") or "").strip()
+                        or None
+                    ),
+                    competition=(
+                        str(row.get("competition") or "").strip() or None
+                    ),
                     reference_quote=quote.to_dict() if quote is not None else None,
                     context_summary=(
                         str(row.get("context_summary")).strip()
@@ -1475,6 +1523,39 @@ def automated_wettfinder_signals(
                     market=market,
                     selection=selection,
                     market_key=str(row.get("market_key") or "").strip() or None,
+                    candidate_id=(
+                        str(row.get("candidate_id") or "").strip() or key
+                    ),
+                    fixture_id=(
+                        row_fixture_id
+                        if isinstance(row_fixture_id, int)
+                        and not isinstance(row_fixture_id, bool)
+                        and row_fixture_id > 0
+                        else None
+                    ),
+                    home_team=(
+                        str(row.get("home_team") or "").strip() or None
+                    ),
+                    away_team=(
+                        str(row.get("away_team") or "").strip() or None
+                    ),
+                    quote_provider_event_id=(
+                        str(row.get("quote_provider_event_id") or "").strip()
+                        or None
+                    ),
+                    competitor_a=(
+                        str(row.get("competitor_a") or "").strip() or None
+                    ),
+                    competitor_b=(
+                        str(row.get("competitor_b") or "").strip() or None
+                    ),
+                    selected_competitor=(
+                        str(row.get("selected_competitor") or "").strip()
+                        or None
+                    ),
+                    competition=(
+                        str(row.get("competition") or "").strip() or None
+                    ),
                     reference_quote=reference_quote.to_dict(),
                     context_summary=(
                         str(row.get("context_summary")).strip()

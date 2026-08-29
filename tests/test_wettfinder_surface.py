@@ -24,6 +24,7 @@ def _signal(
     context_complete: bool | None = True,
     statistical_release_passed: bool | None = False,
     detail: str = "Modell mit Form- und Kaderdaten",
+    context_summary: str | None = "Kader geprüft",
 ) -> ModelSignal:
     return ModelSignal(
         key=key,
@@ -41,7 +42,11 @@ def _signal(
         market=market,
         selection=selection,
         market_key=market_key,
-        context_summary="Kader geprüft" if context_complete is not None else None,
+        candidate_id=f"candidate:{key}",
+        fixture_id=123 if sport == "Fussball" else None,
+        home_team="Alpha" if sport == "Fussball" else None,
+        away_team="Beta" if sport == "Fussball" else None,
+        context_summary=context_summary if context_complete is not None else None,
         context_complete=context_complete,
         statistical_release_passed=statistical_release_passed,
     )
@@ -54,8 +59,8 @@ def _quote(
     fetched_at: datetime = NOW,
 ) -> MarketConsensus:
     return MarketConsensus(
-        fixture_id=123,
-        candidate_id=signal.key,
+        fixture_id=signal.fixture_id,
+        candidate_id=signal.candidate_id or signal.key,
         market_key=signal.market_key or "DC_1X",
         bet_name="Double Chance",
         value_name="Home/Draw",
@@ -77,11 +82,29 @@ def _quote(
             for index, value in enumerate(odds, 1)
         ),
         scheduled_start=signal.scheduled_start,
+        event_home=signal.home_team,
+        event_away=signal.away_team,
     )
 
 
 def _card(signal: ModelSignal, quote: MarketConsensus | None = None):
     return surface.build_wettfinder_card(signal, quote, now=NOW)
+
+
+def _overlay(
+    signal: ModelSignal,
+    quote: MarketConsensus,
+    *,
+    status: str = "BET",
+    quoted_odds: float = 1.80,
+):
+    return surface.WettfinderReleaseOverlay(
+        signal_key=signal.key,
+        quote_candidate_id=quote.candidate_id,
+        quote_market_key=quote.market_key,
+        status=status,
+        quoted_odds=quoted_odds,
+    )
 
 
 def test_card_maps_model_and_exact_consensus_without_changing_probabilities():
@@ -91,6 +114,7 @@ def test_card_maps_model_and_exact_consensus_without_changing_probabilities():
 
     assert card.event_label == "Alpha vs Beta"
     assert card.sport == "Fussball"
+    assert card.scheduled_start_label == "01.01. 16:00"
     assert card.market == "Doppelte Chance"
     assert card.selection == "1X"
     assert card.model_probability == 0.68
@@ -161,20 +185,36 @@ def test_confirmed_tip_requires_all_four_release_and_price_conditions():
 
     assert _card(signal, quote).confirmed_tip is False
     assert surface.build_wettfinder_card(
-        signal, quote, now=NOW, evaluated_decision="BET"
+        signal, quote, now=NOW, release_overlay=_overlay(signal, quote)
     ).confirmed_tip is True
     assert surface.build_wettfinder_card(
         replace(signal, statistical_release_passed=False),
         quote,
         now=NOW,
-        evaluated_decision="BET",
+        release_overlay=_overlay(signal, quote),
     ).confirmed_tip is False
     assert surface.build_wettfinder_card(
         signal,
         _quote(signal, (1.30, 1.40, 1.50)),
         now=NOW,
-        evaluated_decision="BET",
+        release_overlay=_overlay(signal, quote),
     ).confirmed_tip is False
+
+
+def test_same_key_and_market_but_wrong_fixture_cannot_become_confirmed_tip():
+    signal = _signal(stage="RELEASED", statistical_release_passed=True)
+    quote = replace(_quote(signal), fixture_id=999)
+
+    card = surface.build_wettfinder_card(
+        signal,
+        quote,
+        now=NOW,
+        release_overlay=_overlay(signal, quote),
+    )
+
+    assert card.price_code == "UNAVAILABLE"
+    assert card.observed_odds is None
+    assert card.confirmed_tip is False
 
 
 def test_html_card_and_row_escape_all_provider_and_model_text():
@@ -183,19 +223,25 @@ def test_html_card_and_row_escape_all_provider_and_model_text():
         market='Markt <b>',
         selection='Auswahl "x"',
         detail="Detail <script>",
+        context_summary="Kontext <img src=x onerror=alert(1)>",
     )
     card = _card(signal, _quote(signal))
 
     top = surface.render_top_card_html(card)
     row = surface.render_compact_row_html(card)
+    bookmaker_markup = surface.render_top_card_html(
+        _card(_signal(), _quote(_signal()))
+    )
 
     for markup in (top, row):
         assert "<script>" not in markup
         assert "&lt;Alpha &amp; Beta&gt;" in markup
         assert "Markt &lt;b&gt;" in markup
         assert "Auswahl &quot;x&quot;" in markup
-        assert "Book &lt;2&gt;" in markup
         assert "Detail &lt;script&gt;" in markup
+        assert "Kontext &lt;img src=x onerror=alert(1)&gt;" in markup
+        assert "<button" not in markup
+    assert "Book &lt;2&gt;" in bookmaker_markup
 
 
 def test_catalog_round_robins_sports_uses_no_price_order_and_keeps_fixture_rows_adjacent():
@@ -352,3 +398,66 @@ def test_repeated_broad_team_totals_stay_visible_without_monopolizing_featured_c
         "broad-2",
         "broad-3",
     }
+
+
+def test_market_key_drives_basis_treatment_for_corners_and_yellow_markets():
+    basic_keys = ("HOME_CORNERS_OVER_2_5", "YELLOW_UNDER_4_5")
+    basic = [
+        _card(
+            _signal(
+                key,
+                event=f"{key} Event",
+                market="Nichtssagender Markttext",
+                selection="Nichtssagende Auswahl",
+                market_key=key,
+            )
+        )
+        for key in basic_keys
+    ]
+    useful = _card(
+        _signal(
+            "useful-btts-market-key",
+            event="Useful vs Market",
+            market="Beide Teams treffen",
+            selection="Ja",
+            market_key="BTTS_YES",
+        )
+    )
+
+    catalog = surface.compose_wettfinder_catalog([*basic, useful])
+
+    assert useful.market_key == "BTTS_YES"
+    assert [card.key for card in catalog.featured] == ["useful-btts-market-key"]
+    assert {card.key for card in catalog.additional} == set(basic_keys)
+
+
+def test_same_market_family_can_feature_once_per_sport():
+    tennis = _card(
+        _signal(
+            "tennis-winner",
+            sport="Tennis",
+            event="Tennis A vs B",
+            market="Match Winner",
+            selection="Sieg A",
+            market_key="H2H",
+        )
+    )
+    esports = _card(
+        _signal(
+            "esports-winner",
+            sport="E-Sport",
+            event="E-Sport A vs B",
+            market="Match Winner",
+            selection="Sieg A",
+            market_key="H2H",
+        )
+    )
+
+    catalog = surface.compose_wettfinder_catalog(
+        [tennis, esports], max_featured=2
+    )
+
+    assert [card.key for card in catalog.featured] == [
+        "tennis-winner",
+        "esports-winner",
+    ]
