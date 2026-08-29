@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
+from dataclasses import dataclass
 from typing import Callable, Iterable, Optional, TypeVar
 
 import streamlit as st
@@ -30,6 +31,15 @@ from tip_store import TipStore
 
 LOGGER = logging.getLogger(__name__)
 _ForecastRow = TypeVar("_ForecastRow")
+
+
+@dataclass(frozen=True)
+class ReferencePriceEvaluation:
+    """The exact automatic price result, separated from Streamlit rendering."""
+
+    decision: Optional[PriceDecision]
+    status: ReferencePriceStatus
+    quote: Optional[MarketConsensus]
 
 
 def merge_consumer_forecast_catalog(
@@ -447,21 +457,28 @@ def _enforce_pending_release(decision: PriceDecision) -> PriceDecision:
     )
 
 
-def _render_reference_price(
+def evaluate_reference_price(
     candidate: RecommendationCandidate,
-    quote: Optional[MarketConsensus],
+    quote: Optional[MarketConsensus | dict],
     *,
     bankroll: float,
     reference_binding_candidate: object = None,
-) -> tuple[Optional[PriceDecision], ReferencePriceStatus]:
+) -> ReferencePriceEvaluation:
+    """Evaluate the exact automatic offer without producing UI side effects."""
+
+    reference_quote = (
+        quote
+        if isinstance(quote, MarketConsensus)
+        else MarketConsensus.from_dict(quote)
+    )
     status = wettfinder_reference_price_status(
-        quote,
+        reference_quote,
         candidate.minimum_odds,
         candidate=reference_binding_candidate,
     )
-    quote = wettfinder_consensus(quote) or quote
+    effective_quote = wettfinder_consensus(reference_quote) or reference_quote
     decision = None
-    if quote is not None and status.usable_odds is not None:
+    if effective_quote is not None and status.usable_odds is not None:
         decision = _enforce_pending_release(
             evaluate_candidate_price(
                 candidate,
@@ -470,6 +487,23 @@ def _render_reference_price(
                 quote_confirmed=True,
             )
         )
+
+    return ReferencePriceEvaluation(
+        decision=decision,
+        status=status,
+        quote=effective_quote,
+    )
+
+
+def _render_reference_price(
+    candidate: RecommendationCandidate,
+    evaluation: ReferencePriceEvaluation,
+) -> None:
+    """Render the full-mode reference-price explanation."""
+
+    decision = evaluation.decision
+    status = evaluation.status
+    quote = evaluation.quote
 
     if status.code == "PLAYABLE" and quote is not None:
         if candidate.release_pending:
@@ -521,7 +555,6 @@ def _render_reference_price(
 
     if decision is not None and decision.status == "BET":
         _render_stake_recommendation(decision)
-    return decision, status
 
 
 def _reference_execution_source(
@@ -550,10 +583,15 @@ def _render_manual_check(
     bankroll_key: str,
     price_source: str,
     save_source: Optional[str],
+    manual_surface: str = "expander",
 ) -> Optional[PriceDecision]:
     odds_widget_key = f"bet_odds_{key}"
     manual_bankroll_key = f"{bankroll_key}_{key}"
-    with st.expander("Eigene Buchmacherquote prüfen", expanded=False):
+    if manual_surface == "popover":
+        surface = st.popover("Eigene Quote prüfen")
+    else:
+        surface = st.expander("Eigene Buchmacherquote prüfen", expanded=False)
+    with surface:
         st.caption(
             "Optional: Nur nötig, wenn die tatsächlich angebotene Quote mit "
             "der automatischen Marktübersicht verglichen werden soll."
@@ -587,11 +625,13 @@ def _render_manual_check(
 
         decision_state_key = f"bet_decision_{key}"
         if submitted:
-            decision = evaluate_candidate_price(
-                candidate,
-                _decimal_input(raw_odds),
-                bankroll=bankroll,
-                quote_confirmed=confirmed,
+            decision = _enforce_pending_release(
+                evaluate_candidate_price(
+                    candidate,
+                    _decimal_input(raw_odds),
+                    bankroll=bankroll,
+                    quote_confirmed=confirmed,
+                )
             )
             st.session_state[decision_state_key] = decision
             if (
@@ -657,14 +697,21 @@ def render_price_decision(
     reference_quote: Optional[MarketConsensus | dict] = None,
     reference_binding_candidate: object = None,
     allow_manual_check: bool = False,
+    presentation: str = "full",
+    manual_surface: str = "expander",
 ) -> Optional[PriceDecision]:
     """Render one model selection while keeping forecast and price separate."""
     del live_price  # Kept for call-site compatibility.
+    if presentation not in {"full", "compact"}:
+        raise ValueError("presentation must be 'full' or 'compact'")
+    if manual_surface not in {"expander", "popover"}:
+        raise ValueError("manual_surface must be 'expander' or 'popover'")
     selection = candidate.selection or "keine Auswahl"
-    st.subheader(f"{candidate.market}: {selection}")
-    st.caption(candidate.event_label)
+    if presentation == "full":
+        st.subheader(f"{candidate.market}: {selection}")
+        st.caption(candidate.event_label)
 
-    if candidate.forecast_available:
+    if presentation == "full" and candidate.forecast_available:
         metrics = st.columns(3)
         metrics[0].metric(
             "Modellwahrscheinlichkeit",
@@ -696,18 +743,16 @@ def render_price_decision(
             st.error("KEINE BELASTBARE PROGNOSE.")
         return None
 
-    quote = (
-        reference_quote
-        if isinstance(reference_quote, MarketConsensus)
-        else MarketConsensus.from_dict(reference_quote)
-    )
     bankroll = float(st.session_state.get(bankroll_key, 100.0) or 100.0)
-    automatic_decision, automatic_status = _render_reference_price(
+    automatic_evaluation = evaluate_reference_price(
         candidate,
-        quote,
+        reference_quote,
         bankroll=bankroll,
         reference_binding_candidate=reference_binding_candidate,
     )
+    automatic_decision = automatic_evaluation.decision
+    if presentation == "full":
+        _render_reference_price(candidate, automatic_evaluation)
 
     if (
         automatic_decision is not None
@@ -723,8 +768,8 @@ def render_price_decision(
                 automatic_decision,
                 source=_reference_execution_source(
                     save_source,
-                    quote,
-                    automatic_status,
+                    automatic_evaluation.quote,
+                    automatic_evaluation.status,
                 ),
             )
             if message:
@@ -738,6 +783,7 @@ def render_price_decision(
             bankroll_key=bankroll_key,
             price_source=price_source,
             save_source=save_source,
+            manual_surface=manual_surface,
         )
 
     return manual_decision or automatic_decision
@@ -749,5 +795,7 @@ __all__ = [
     "merge_consumer_forecast_catalog",
     "partition_consumer_featured_forecasts",
     "partition_consumer_forecasts",
+    "ReferencePriceEvaluation",
+    "evaluate_reference_price",
     "render_price_decision",
 ]
