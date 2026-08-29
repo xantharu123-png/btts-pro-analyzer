@@ -33,6 +33,8 @@
 
 - Create: `wettfinder_surface.py`
 - Create: `tests/test_wettfinder_surface.py`
+- Modify if exact binding requires retained loader identity: `ev_signal_sources.py`
+- Modify: `tests/test_ev_signal_sources.py`
 
 ### Step 1: Write failing view-model tests
 
@@ -90,7 +92,7 @@ git commit -m "feat: add price-neutral Wettfinder view model"
 **Files:**
 
 - Modify: `bet_finder_ui.py`
-- Modify: `tests/test_bet_finder_ui.py`
+- Create: `tests/test_bet_finder_ui.py`
 
 ### Step 1: Write failing compact-presentation tests
 
