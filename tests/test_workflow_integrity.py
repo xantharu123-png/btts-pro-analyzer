@@ -101,6 +101,7 @@ class _RecordingStreamlit:
 
     def columns(self, spec, **_kwargs):
         count = spec if isinstance(spec, int) else len(spec)
+        assert count > 0, "Streamlit columns requires at least one column"
         labels = tuple(f"column-{len(self.column_groups)}-{index}" for index in range(count))
         self.column_groups.append(labels)
         return tuple(_RecordingContext(self, "column", label) for label in labels)
@@ -248,6 +249,25 @@ def _automatic_status(now, **overrides):
     return SimpleNamespace(**values)
 
 
+def _patch_automatic_snapshot(
+    monkeypatch,
+    *,
+    status,
+    forecasts=(),
+    signals=(),
+):
+    snapshot = SimpleNamespace(
+        status=status,
+        forecasts=tuple(forecasts),
+        signals=tuple(signals),
+    )
+    monkeypatch.setattr(
+        app,
+        "automated_wettfinder_snapshot",
+        lambda *, now: snapshot,
+    )
+
+
 def _manual_forecast(key, fixture_id):
     return ChallengeCandidate(
         candidate_id=key,
@@ -347,9 +367,12 @@ def test_automatic_surface_overlays_only_the_exact_released_scheduler_row(
     )
     rendered = []
     monkeypatch.setattr(app, "st", _RecordingStreamlit())
-    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
-    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: [forecast])
-    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [released])
+    _patch_automatic_snapshot(
+        monkeypatch,
+        status=status,
+        forecasts=[forecast],
+        signals=[released],
+    )
     monkeypatch.setattr(
         app,
         "render_price_decision",
@@ -415,9 +438,7 @@ def test_automatic_empty_surface_uses_only_short_consumer_copy(monkeypatch):
     recording_st = _RecordingStreamlit()
 
     monkeypatch.setattr(app, "st", recording_st)
-    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
-    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: [])
-    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
+    _patch_automatic_snapshot(monkeypatch, status=status)
 
     app._render_automated_daily_selection()
 
@@ -464,13 +485,11 @@ def test_automatic_forecast_surface_shows_one_compact_hint_and_warning(
     recording_st = _RecordingStreamlit()
 
     monkeypatch.setattr(app, "st", recording_st)
-    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
-    monkeypatch.setattr(
-        app,
-        "automated_wettfinder_forecasts",
-        lambda: [_automatic_forecast("primary")],
+    _patch_automatic_snapshot(
+        monkeypatch,
+        status=status,
+        forecasts=[_automatic_forecast("primary")],
     )
-    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
     monkeypatch.setattr(app, "render_price_decision", lambda *_args, **_kwargs: None)
 
     app._render_automated_daily_selection()
@@ -519,13 +538,11 @@ def test_tennis_failure_does_not_create_a_football_scope_warning(monkeypatch):
     recording_st = _RecordingStreamlit()
 
     monkeypatch.setattr(app, "st", recording_st)
-    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: status)
-    monkeypatch.setattr(
-        app,
-        "automated_wettfinder_forecasts",
-        lambda: [_automatic_forecast("healthy-football")],
+    _patch_automatic_snapshot(
+        monkeypatch,
+        status=status,
+        forecasts=[_automatic_forecast("healthy-football")],
     )
-    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
     monkeypatch.setattr(app, "render_price_decision", lambda *_args, **_kwargs: None)
 
     app._render_automated_daily_selection()
@@ -845,9 +862,11 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
     real_evaluate = app.evaluate_reference_price
     real_build_card = app.build_wettfinder_card
     monkeypatch.setattr(app, "st", recording_st)
-    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: _automatic_status(now))
-    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: forecasts)
-    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
+    _patch_automatic_snapshot(
+        monkeypatch,
+        status=_automatic_status(now),
+        forecasts=forecasts,
+    )
     monkeypatch.setattr(
         app,
         "evaluate_reference_price",
@@ -908,6 +927,69 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
     assert "Tagestipp 1" not in html
 
 
+def test_automatic_basis_only_catalog_skips_empty_top_columns(monkeypatch):
+    now = datetime.now(timezone.utc)
+    basis = replace(
+        _automatic_forecast("basis-only"),
+        market="Team 2 Gesamttore",
+        market_key="AWAY_UNDER_2_5",
+        selection="Unter 2,5",
+    )
+    recording_st = _RecordingStreamlit()
+    monkeypatch.setattr(app, "st", recording_st)
+    _patch_automatic_snapshot(
+        monkeypatch,
+        status=_automatic_status(now),
+        forecasts=[basis],
+    )
+    monkeypatch.setattr(app, "render_price_decision", lambda *_args, **_kwargs: None)
+
+    app._render_automated_daily_selection()
+
+    html = "\n".join(
+        value
+        for value, kwargs, _context in recording_st.markdown_calls
+        if kwargs.get("unsafe_allow_html")
+    )
+    assert recording_st.column_groups == []
+    assert not any(
+        kind == "subheader" and value == "Top-Auswahlen nach Modell"
+        for kind, value in recording_st.messages
+    )
+    assert html.count('class="wf-row"') == 1
+    assert html.count('data-key="basis-only"') == 1
+
+
+def test_automatic_surface_captures_clock_before_single_snapshot_loader(
+    monkeypatch,
+):
+    now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+    events = []
+
+    class _Clock:
+        @classmethod
+        def now(cls, tz):
+            events.append("clock")
+            assert tz is timezone.utc
+            return now
+
+    snapshot = SimpleNamespace(
+        status=None,
+        forecasts=(),
+        signals=(),
+    )
+    monkeypatch.setattr(app, "datetime", _Clock)
+    monkeypatch.setattr(
+        app,
+        "automated_wettfinder_snapshot",
+        lambda *, now: events.append(("snapshot", now)) or snapshot,
+    )
+
+    app._render_automated_daily_selection()
+
+    assert events == ["clock", ("snapshot", now)]
+
+
 def test_automatic_surface_offers_all_configured_sports_and_short_empty_state(
     monkeypatch,
 ):
@@ -916,9 +998,7 @@ def test_automatic_surface_offers_all_configured_sports_and_short_empty_state(
         widget_values={"wettfinder_automatic_sport_v2": "Cricket"}
     )
     monkeypatch.setattr(app, "st", recording_st)
-    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: _automatic_status(now))
-    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: [])
-    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
+    _patch_automatic_snapshot(monkeypatch, status=_automatic_status(now))
 
     app._render_automated_daily_selection()
 
@@ -941,10 +1021,9 @@ def test_automatic_partial_run_copy_stays_consumer_facing(monkeypatch):
     now = datetime.now(timezone.utc)
     recording_st = _RecordingStreamlit()
     monkeypatch.setattr(app, "st", recording_st)
-    monkeypatch.setattr(
-        app,
-        "automated_wettfinder_status",
-        lambda: _automatic_status(
+    _patch_automatic_snapshot(
+        monkeypatch,
+        status=_automatic_status(
             now,
             fixtures_found=99,
             fixtures_modeled=70,
@@ -953,13 +1032,8 @@ def test_automatic_partial_run_copy_stays_consumer_facing(monkeypatch):
             price_checked_count=44,
             price_status_counts=(("TOO_LOW", 44),),
         ),
+        forecasts=[_automatic_forecast("partial")],
     )
-    monkeypatch.setattr(
-        app,
-        "automated_wettfinder_forecasts",
-        lambda: [_automatic_forecast("partial")],
-    )
-    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [])
     monkeypatch.setattr(app, "render_price_decision", lambda *_args, **_kwargs: None)
 
     app._render_automated_daily_selection()
@@ -1005,9 +1079,12 @@ def test_automatic_strict_release_replaces_same_key_once(monkeypatch):
     recording_st = _RecordingStreamlit()
     rendered = []
     monkeypatch.setattr(app, "st", recording_st)
-    monkeypatch.setattr(app, "automated_wettfinder_status", lambda: _automatic_status(now))
-    monkeypatch.setattr(app, "automated_wettfinder_forecasts", lambda: [forecast])
-    monkeypatch.setattr(app, "automated_wettfinder_signals", lambda: [released, unrelated])
+    _patch_automatic_snapshot(
+        monkeypatch,
+        status=_automatic_status(now),
+        forecasts=[forecast],
+        signals=[released, unrelated],
+    )
     monkeypatch.setattr(
         app,
         "render_price_decision",

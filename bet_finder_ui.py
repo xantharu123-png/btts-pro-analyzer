@@ -43,6 +43,7 @@ class ReferencePriceEvaluation:
     status: ReferencePriceStatus
     quote: Optional[MarketConsensus]
     candidate: RecommendationCandidate
+    evaluated_at: datetime
 
 
 def merge_consumer_forecast_catalog(
@@ -504,6 +505,7 @@ def evaluate_reference_price(
         status=status,
         quote=effective_quote,
         candidate=candidate,
+        evaluated_at=evaluation_now,
     )
 
 

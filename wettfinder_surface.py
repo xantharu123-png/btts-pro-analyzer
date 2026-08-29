@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from html import escape
 import math
 import re
@@ -19,6 +19,7 @@ import unicodedata
 from zoneinfo import ZoneInfo
 
 from bet_finder_ui import (
+    ReferencePriceEvaluation,
     _consumer_market_identity,
     _consumer_market_is_basis,
     consumer_fixture_label,
@@ -27,6 +28,7 @@ from ev_signal_sources import ModelSignal
 from market_consensus import (
     MarketConsensus,
     ReferencePriceStatus,
+    quote_matches_candidate,
     wettfinder_consensus,
     wettfinder_reference_price_status,
 )
@@ -269,6 +271,7 @@ def build_wettfinder_card(
     *,
     now: Optional[datetime] = None,
     release_overlay: Optional[WettfinderReleaseOverlay] = None,
+    price_evaluation: Optional[ReferencePriceEvaluation] = None,
 ) -> WettfinderCard:
     """Map one model signal and its exact-key quote to a display card.
 
@@ -277,14 +280,33 @@ def build_wettfinder_card(
     remains visible before any release decision exists.
     """
 
-    normalized_quote = _normalise_quote(quote)
-    status = wettfinder_reference_price_status(
-        normalized_quote,
-        signal.minimum_odds,
-        candidate=wettfinder_quote_binding_candidate(signal),
-        now=now,
-    )
-    current_quote = wettfinder_consensus(normalized_quote, now=now)
+    if price_evaluation is None:
+        normalized_quote = _normalise_quote(quote)
+        status = wettfinder_reference_price_status(
+            normalized_quote,
+            signal.minimum_odds,
+            candidate=wettfinder_quote_binding_candidate(signal),
+            now=now,
+        )
+        current_quote = wettfinder_consensus(normalized_quote, now=now)
+    else:
+        if price_evaluation.candidate.event_key != signal.key:
+            raise ValueError("price evaluation signal mismatch")
+        if now is not None:
+            if now.tzinfo is None:
+                raise ValueError("now must be timezone-aware")
+            if now.astimezone(timezone.utc) != price_evaluation.evaluated_at:
+                raise ValueError("price evaluation clock mismatch")
+        status = price_evaluation.status
+        current_quote = (
+            None if status.code == "UNAVAILABLE" else price_evaluation.quote
+        )
+        if current_quote is not None and not quote_matches_candidate(
+            current_quote,
+            wettfinder_quote_binding_candidate(signal),
+        ):
+            raise ValueError("price evaluation quote mismatch")
+        normalized_quote = current_quote
     released = signal.evidence_stage == "RELEASED"
     confirmed_tip = bool(
         released
@@ -320,7 +342,7 @@ def build_wettfinder_card(
         context_label=_clean_text(signal.context_summary, "Kontext ausstehend"),
         detail=_clean_text(signal.detail),
         confirmed_tip=confirmed_tip,
-        reference_quote=normalized_quote,
+        reference_quote=current_quote,
         manual_quote_key=signal.key,
     )
 

@@ -194,6 +194,15 @@ class AutomatedWettfinderStatus:
     football_operational_error_count: int = 0
 
 
+@dataclass(frozen=True)
+class AutomatedWettfinderSnapshot:
+    """One validated artifact view shared by status, forecasts and releases."""
+
+    status: Optional[AutomatedWettfinderStatus]
+    forecasts: tuple[ModelSignal, ...]
+    signals: tuple[ModelSignal, ...]
+
+
 def _valid_probability(value: object) -> bool:
     return (
         not isinstance(value, bool)
@@ -1070,12 +1079,17 @@ def automated_wettfinder_status(
     *,
     now: Optional[datetime] = None,
     max_age: timedelta = AUTOMATED_WETTFINDER_MAX_AGE,
+    _loaded: Optional[tuple[dict, datetime, list]] = None,
 ) -> Optional[AutomatedWettfinderStatus]:
     """Return validated scan facts even when no market passed every gate."""
-    loaded = _load_automated_wettfinder_document(
-        path,
-        now=now,
-        max_age=max_age,
+    loaded = (
+        _loaded
+        if _loaded is not None
+        else _load_automated_wettfinder_document(
+            path,
+            now=now,
+            max_age=max_age,
+        )
     )
     if loaded is None:
         return None
@@ -1222,6 +1236,7 @@ def automated_wettfinder_forecasts(
     *,
     now: Optional[datetime] = None,
     max_age: timedelta = AUTOMATED_WETTFINDER_MAX_AGE,
+    _loaded: Optional[tuple[dict, datetime, list]] = None,
 ) -> List[ModelSignal]:
     """Read the calculated model catalog independently of bookmaker price.
 
@@ -1237,10 +1252,14 @@ def automated_wettfinder_forecasts(
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     current = current.astimezone(timezone.utc)
-    loaded = _load_automated_wettfinder_document(
-        path,
-        now=current,
-        max_age=max_age,
+    loaded = (
+        _loaded
+        if _loaded is not None
+        else _load_automated_wettfinder_document(
+            path,
+            now=current,
+            max_age=max_age,
+        )
     )
     if loaded is None:
         return []
@@ -1377,16 +1396,21 @@ def automated_wettfinder_signals(
     *,
     now: Optional[datetime] = None,
     max_age: timedelta = AUTOMATED_WETTFINDER_MAX_AGE,
+    _loaded: Optional[tuple[dict, datetime, list]] = None,
 ) -> List[ModelSignal]:
     """Read the strict maximum-three artifact produced by systemd."""
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     current = current.astimezone(timezone.utc)
-    loaded = _load_automated_wettfinder_document(
-        path,
-        now=current,
-        max_age=max_age,
+    loaded = (
+        _loaded
+        if _loaded is not None
+        else _load_automated_wettfinder_document(
+            path,
+            now=current,
+            max_age=max_age,
+        )
     )
     if loaded is None:
         return []
@@ -1572,6 +1596,51 @@ def automated_wettfinder_signals(
         except ValueError:
             continue
     return signals
+
+
+def automated_wettfinder_snapshot(
+    path: Union[str, Path] = AUTOMATED_WETTFINDER_PATH,
+    *,
+    now: Optional[datetime] = None,
+    max_age: timedelta = AUTOMATED_WETTFINDER_MAX_AGE,
+) -> AutomatedWettfinderSnapshot:
+    """Load and derive every automatic surface collection from one document."""
+
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    loaded = _load_automated_wettfinder_document(
+        path,
+        now=current,
+        max_age=max_age,
+    )
+    if loaded is None:
+        return AutomatedWettfinderSnapshot(None, (), ())
+    return AutomatedWettfinderSnapshot(
+        status=automated_wettfinder_status(
+            path,
+            now=current,
+            max_age=max_age,
+            _loaded=loaded,
+        ),
+        forecasts=tuple(
+            automated_wettfinder_forecasts(
+                path,
+                now=current,
+                max_age=max_age,
+                _loaded=loaded,
+            )
+        ),
+        signals=tuple(
+            automated_wettfinder_signals(
+                path,
+                now=current,
+                max_age=max_age,
+                _loaded=loaded,
+            )
+        ),
+    )
 
 
 def list_signals(

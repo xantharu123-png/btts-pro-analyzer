@@ -69,9 +69,7 @@ from betting_math import BETTING_POLICY_VERSION
 from ev_signal_sources import (
     AutomatedWettfinderStatus,
     ModelSignal,
-    automated_wettfinder_forecasts,
-    automated_wettfinder_signals,
-    automated_wettfinder_status,
+    automated_wettfinder_snapshot,
 )
 from ui_components import plain_german, scan_progress_fragment
 from config_loader import load_app_config
@@ -3609,7 +3607,9 @@ def _render_wettfinder_card_actions(signal, card, candidate, binding, evaluation
 
 
 def _render_automated_daily_selection() -> None:
-    status = automated_wettfinder_status()
+    evaluation_now = datetime.now(timezone.utc)
+    snapshot = automated_wettfinder_snapshot(now=evaluation_now)
+    status = snapshot.status
     if status is None:
         st.caption("Automatischer Lauf · noch kein Ergebnisstand")
         st.info("Aktuell ist noch kein automatisches Ergebnis verfügbar.")
@@ -3617,15 +3617,14 @@ def _render_automated_daily_selection() -> None:
 
     # One aware clock drives price evaluation and card construction for the
     # complete run. Exact RELEASED rows replace forecasts only by persisted key.
-    evaluation_now = datetime.now(timezone.utc)
     strict_by_key = {
         signal.key: signal
-        for signal in automated_wettfinder_signals()
+        for signal in snapshot.signals
         if signal.evidence_stage == EVIDENCE_RELEASED
     }
     signals = [
         strict_by_key.get(signal.key, signal)
-        for signal in automated_wettfinder_forecasts()
+        for signal in snapshot.forecasts
     ]
     bankroll = float(
         st.session_state.get("automated_finder_bankroll", 100.0) or 100.0
@@ -3643,9 +3642,9 @@ def _render_automated_daily_selection() -> None:
         )
         card = build_wettfinder_card(
             signal,
-            signal.reference_quote,
             now=evaluation_now,
             release_overlay=_automatic_release_overlay(evaluation),
+            price_evaluation=evaluation,
         )
         rows.append((signal, card, candidate, binding, evaluation))
 
@@ -3693,20 +3692,21 @@ def _render_automated_daily_selection() -> None:
         card.key: (signal, card, candidate, binding, evaluation)
         for signal, card, candidate, binding, evaluation in rows
     }
-    st.subheader("Top-Auswahlen nach Modell")
-    top_columns = st.columns(len(catalog.featured))
-    for column, card in zip(top_columns, catalog.featured):
-        signal, card, candidate, binding, evaluation = row_by_key[card.key]
-        with column:
-            with st.container(key=f"wettfinder-top-{card.manual_quote_key}"):
-                st.markdown(render_top_card_html(card), unsafe_allow_html=True)
-                _render_wettfinder_card_actions(
-                    signal,
-                    card,
-                    candidate,
-                    binding,
-                    evaluation,
-                )
+    if catalog.featured:
+        st.subheader("Top-Auswahlen nach Modell")
+        top_columns = st.columns(len(catalog.featured))
+        for column, card in zip(top_columns, catalog.featured):
+            signal, card, candidate, binding, evaluation = row_by_key[card.key]
+            with column:
+                with st.container(key=f"wettfinder-top-{card.manual_quote_key}"):
+                    st.markdown(render_top_card_html(card), unsafe_allow_html=True)
+                    _render_wettfinder_card_actions(
+                        signal,
+                        card,
+                        candidate,
+                        binding,
+                        evaluation,
+                    )
 
     if catalog.additional:
         st.subheader("Weitere Modellprognosen")

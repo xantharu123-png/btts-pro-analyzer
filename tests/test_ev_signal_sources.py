@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
+import ev_signal_sources as signal_sources
 from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
 from esports_shadow import ESPORTS_MODEL_VERSION
 from ev_signal_sources import (
@@ -298,6 +299,46 @@ def _esports_db(rows, tmp: Path) -> Path:
     conn.commit()
     conn.close()
     return db
+
+
+def test_automatic_snapshot_uses_one_loaded_document_when_artifact_changes(
+    monkeypatch,
+    tmp_path,
+):
+    now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+    first_document = _automatic_document([_automatic_model_row(1)])
+    second_document = _automatic_document([_automatic_model_row(2)])
+    artifact = tmp_path / "wettfinder.json"
+    import json
+
+    artifact.write_text(json.dumps(first_document), encoding="utf-8")
+    first_loaded = _load_automated_wettfinder_document(artifact, now=now)
+    artifact.write_text(json.dumps(second_document), encoding="utf-8")
+    second_loaded = _load_automated_wettfinder_document(artifact, now=now)
+    assert first_loaded is not None and second_loaded is not None
+    loads = []
+
+    def changing_loader(*_args, **_kwargs):
+        loads.append(True)
+        return first_loaded if len(loads) == 1 else second_loaded
+
+    monkeypatch.setattr(
+        signal_sources,
+        "_load_automated_wettfinder_document",
+        changing_loader,
+    )
+
+    snapshot = signal_sources.automated_wettfinder_snapshot(
+        artifact,
+        now=now,
+    )
+
+    assert len(loads) == 1
+    assert snapshot.status is not None
+    assert [signal.key for signal in snapshot.forecasts] == [
+        "automatic-model-fussball-1"
+    ]
+    assert snapshot.signals == ()
 
 
 class TennisSignalTests(unittest.TestCase):

@@ -10,6 +10,7 @@ from market_consensus import (
     MarketConsensus,
     QuotePoint,
     REFERENCE_SOURCE,
+    WETTFINDER_FETCH_MAX_AGE,
     wettfinder_consensus,
 )
 
@@ -166,6 +167,52 @@ def test_public_quote_binding_adapter_preserves_loader_identity():
         "competitor_b": "Beta",
         "selected_competitor": "Alpha",
     }
+
+
+def test_card_uses_precomputed_price_snapshot_at_age_boundary(monkeypatch):
+    from app import _automated_signal_candidate
+    from bet_finder_ui import evaluate_reference_price
+
+    signal = _signal()
+    quote = _quote(signal)
+    candidate = _automated_signal_candidate(signal)
+    boundary_now = NOW + WETTFINDER_FETCH_MAX_AGE
+    evaluation = evaluate_reference_price(
+        candidate,
+        quote,
+        bankroll=100.0,
+        reference_binding_candidate=surface.wettfinder_quote_binding_candidate(
+            signal
+        ),
+        now=boundary_now,
+    )
+    assert evaluation.status.code == "PLAYABLE"
+    assert evaluation.quote is not None
+    monkeypatch.setattr(
+        surface,
+        "wettfinder_reference_price_status",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("price status was recomputed")
+        ),
+    )
+    monkeypatch.setattr(
+        surface,
+        "wettfinder_consensus",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("effective quote was recomputed")
+        ),
+    )
+
+    card = surface.build_wettfinder_card(
+        signal,
+        quote,
+        now=boundary_now,
+        price_evaluation=evaluation,
+    )
+
+    assert card.price_code == evaluation.status.code
+    assert card.observed_odds == evaluation.status.usable_odds
+    assert card.reference_quote is evaluation.quote
 
 
 def test_price_states_are_concise_and_only_current_prices_are_displayed():
