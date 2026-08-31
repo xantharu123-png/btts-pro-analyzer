@@ -497,39 +497,86 @@ def compose_wettfinder_catalog(
     return WettfinderCatalog(featured, additional, groups)
 
 
-def _display_pair(label: str, value: str) -> str:
+_PRICE_NOTES = {
+    "PLAYABLE": "Die aktuelle Quote erreicht den Value-Bereich.",
+    "TOO_LOW": "Aktuelle Quote unter Value. Die Prognose bleibt unverändert.",
+    "BORDERLINE": "Preis nur bei einzelnen Anbietern im Value-Bereich.",
+    "THIN": "Zu wenige Vergleichsanbieter für einen belastbaren Preis.",
+    "STALE": "Vergleichsquote veraltet. Bitte den Preis neu prüfen.",
+    "UNAVAILABLE": "Keine exakt passende Quote. Die Prognose bleibt unverändert.",
+    "INVALID_MINIMUM": "Die Value-Grenze ist aktuell nicht belastbar.",
+}
+
+
+def _status_badges(card: WettfinderCard, *, featured: bool) -> str:
+    badges = []
+    if featured:
+        badges.append(
+            '<span class="wf-badge wf-badge-top" '
+            'aria-label="Top-Auswahl">TOP</span>'
+        )
+    badges.extend(
+        (
+            '<span class="wf-badge wf-badge-evidence '
+            f'wf-evidence-{escape(card.evidence_tone, quote=True)}">'
+            f"{escape(card.evidence_label)}</span>",
+            '<span class="wf-badge wf-badge-price '
+            f'wf-price-{escape(card.price_tone, quote=True)}">'
+            f"{escape(card.price_label)}</span>",
+        )
+    )
+    return '<div class="wf-status-row">' + "".join(badges) + "</div>"
+
+
+def _metric(label: str, value: str, *, note: Optional[str] = None) -> str:
+    note_markup = (
+        f'<span class="wf-metric-note">{escape(note)}</span>' if note else ""
+    )
     return (
-        '<div class="wf-field"><span class="wf-label">'
-        f"{escape(label)}</span><strong>{escape(value)}</strong></div>"
+        '<div class="wf-metric"><span class="wf-metric-label">'
+        f"{escape(label)}</span><strong>{escape(value)}</strong>"
+        f"{note_markup}</div>"
     )
 
 
 def _card_markup(card: WettfinderCard, *, compact: bool) -> str:
-    tag = "div" if compact else "article"
     classes = "wf-row" if compact else "wf-top-card"
     price = format_decimal_odds(card.observed_odds)
-    bookmaker = card.bookmaker or "–"
-    fields = "".join(
+    bookmaker_note = card.bookmaker if price != "–" else None
+    metrics = "".join(
         (
-            _display_pair("Sport / Start", f"{card.sport} · {card.scheduled_start_label}"),
-            _display_pair("Begegnung", card.event_label),
-            _display_pair("Markt", card.market),
-            _display_pair("Auswahl", card.selection),
-            _display_pair("Vorsichtig", format_probability(card.cautious_probability)),
-            _display_pair("Modell", format_probability(card.model_probability)),
-            _display_pair("Value ab", format_decimal_odds(card.value_threshold)),
-            _display_pair("Quote", price),
-            _display_pair("Buchmacher", bookmaker),
-            _display_pair("Kontext", card.context_label),
-            _display_pair("Modellhinweis", card.detail),
+            _metric("Modellwert", format_probability(card.model_probability)),
+            _metric("Value ab", format_decimal_odds(card.value_threshold)),
+            _metric("Aktuell", price, note=bookmaker_note),
         )
     )
+    price_code = escape(card.price_code, quote=True)
+    price_note = _PRICE_NOTES.get(
+        card.price_code,
+        "Wettpreis separat prüfen. Die Prognose bleibt unverändert.",
+    )
+    event_label = escape(card.event_label)
     return (
-        f'<{tag} class="{classes}" data-key="{escape(card.key, quote=True)}">'
-        f'<div class="wf-status wf-evidence-{escape(card.evidence_tone)}">'
-        f"{escape(card.evidence_label)}</div>"
-        f'<div class="wf-status wf-price-{escape(card.price_tone)}">'
-        f"{escape(card.price_label)}</div>{fields}</{tag}>"
+        f'<article class="{classes}" data-key="{escape(card.key, quote=True)}" '
+        f'aria-label="Modellprognose für {escape(card.event_label, quote=True)}">'
+        f"{_status_badges(card, featured=not compact)}"
+        '<p class="wf-meta">'
+        f'<span class="wf-sport">{escape(card.sport)}</span>'
+        '<span aria-hidden="true"> · </span>'
+        f'<span class="wf-start">{escape(card.scheduled_start_label)}</span></p>'
+        f'<h3 class="wf-event">{event_label}</h3>'
+        f'<p class="wf-market">{escape(card.market)}</p>'
+        f'<p class="wf-selection">{escape(card.selection)}</p>'
+        '<div class="wf-primary-probability">'
+        '<span>Vorsichtige Trefferchance</span>'
+        f'<strong>{escape(format_probability(card.cautious_probability))}</strong>'
+        "</div>"
+        f'<div class="wf-metric-grid">{metrics}</div>'
+        f'<p class="wf-price-note wf-price-note-{escape(card.price_tone, quote=True)}" '
+        f'data-price-code="{price_code}">{escape(price_note)}</p>'
+        '<p class="wf-context"><span>Kontext:</span> '
+        f"{escape(card.context_label)}</p>"
+        "</article>"
     )
 
 

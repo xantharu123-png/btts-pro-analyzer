@@ -399,7 +399,7 @@ def test_card_keeps_legacy_direct_constructor_shape():
     assert card.market_key is None
 
 
-def test_html_card_and_row_escape_all_provider_and_model_text():
+def test_html_card_and_row_escape_all_visible_provider_text_and_hide_detail():
     signal = _signal(
         event="<Alpha & Beta>",
         market='Markt <b>',
@@ -420,10 +420,96 @@ def test_html_card_and_row_escape_all_provider_and_model_text():
         assert "&lt;Alpha &amp; Beta&gt;" in markup
         assert "Markt &lt;b&gt;" in markup
         assert "Auswahl &quot;x&quot;" in markup
-        assert "Detail &lt;script&gt;" in markup
+        assert "Detail &lt;script&gt;" not in markup
         assert "Kontext &lt;img src=x onerror=alert(1)&gt;" in markup
         assert "<button" not in markup
     assert "Book &lt;2&gt;" in bookmaker_markup
+
+
+def test_top_card_markup_exposes_the_decision_hierarchy_in_reading_order():
+    signal = _signal(
+        event="Rosenborg – Viking",
+        context_summary="Kontext teilweise · Aufstellungen offen",
+    )
+    card = _card(signal, _quote(signal))
+
+    markup = surface.render_top_card_html(card)
+
+    expected_fragments = (
+        'class="wf-badge wf-badge-top" aria-label="Top-Auswahl">TOP</span>',
+        'class="wf-badge wf-badge-evidence wf-evidence-neutral"',
+        'class="wf-badge wf-badge-price wf-price-positive"',
+        'class="wf-meta"',
+        'class="wf-event"',
+        'class="wf-market"',
+        'class="wf-selection"',
+        'class="wf-primary-probability"',
+        'class="wf-metric-grid"',
+        'data-price-code="PLAYABLE"',
+        'class="wf-context"',
+    )
+    positions = [markup.index(fragment) for fragment in expected_fragments]
+    assert positions == sorted(positions)
+    assert '<article class="wf-top-card"' in markup
+    assert "Vorsichtige Trefferchance" in markup
+    assert "Modellwert" in markup
+    assert "Value ab" in markup
+    assert "Aktuell" in markup
+    assert "Die aktuelle Quote erreicht den Value-Bereich." in markup
+    assert "Modell mit Form- und Kaderdaten" not in markup
+
+
+@pytest.mark.parametrize(
+    ("odds", "price_code", "expected_note"),
+    (
+        (
+            (1.40, 1.45, 1.50),
+            "TOO_LOW",
+            "Aktuelle Quote unter Value. Die Prognose bleibt unverändert.",
+        ),
+        (
+            None,
+            "UNAVAILABLE",
+            "Keine exakt passende Quote. Die Prognose bleibt unverändert.",
+        ),
+    ),
+)
+def test_price_note_is_short_and_keeps_forecast_separate_from_price(
+    odds,
+    price_code,
+    expected_note,
+):
+    signal = _signal()
+    quote = None if odds is None else _quote(signal, odds)
+    card = _card(signal, quote)
+
+    markup = surface.render_top_card_html(card)
+
+    assert f'data-price-code="{price_code}"' in markup
+    assert expected_note in markup
+    assert "Mindestquote" not in markup
+
+
+def test_compact_row_is_semantic_flat_and_keeps_the_same_decision_fields():
+    signal = _signal(
+        key="additional-row",
+        event="Stabaek – Ranheim",
+        market="Doppelte Chance",
+        selection="1X",
+    )
+    card = _card(signal, _quote(signal))
+
+    markup = surface.render_compact_row_html(card)
+
+    assert '<article class="wf-row"' in markup
+    assert 'class="wf-badge wf-badge-top"' not in markup
+    assert 'class="wf-badge wf-badge-evidence' in markup
+    assert 'class="wf-badge wf-badge-price' in markup
+    assert 'class="wf-event"' in markup
+    assert 'class="wf-selection"' in markup
+    assert 'class="wf-primary-probability"' in markup
+    assert 'class="wf-metric-grid"' in markup
+    assert "Modell mit Form- und Kaderdaten" not in markup
 
 
 def test_catalog_round_robins_sports_uses_no_price_order_and_keeps_fixture_rows_adjacent():

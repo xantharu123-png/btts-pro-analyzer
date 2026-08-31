@@ -755,6 +755,534 @@ def _apply_app_styles() -> None:
             white-space: nowrap;
         }
 
+        /* --- Wettfinder V2: scoped decision surface --- */
+        .st-key-wettfinder_v2_page {
+            max-width: 100%;
+            min-width: 0;
+            overflow-x: clip;
+        }
+
+        .st-key-wettfinder_v2_page *,
+        .st-key-wettfinder_v2_page *::before,
+        .st-key-wettfinder_v2_page *::after {
+            box-sizing: border-box;
+        }
+
+        .st-key-wettfinder_v2_mode {
+            margin: 0.45rem 0 1rem;
+            max-width: 31rem;
+        }
+
+        .st-key-wettfinder_v2_mode [data-testid="stWidgetLabel"],
+        .st-key-wettfinder_v2_sports [data-testid="stWidgetLabel"] {
+            display: none;
+        }
+
+        .st-key-wettfinder_v2_mode [data-baseweb="button-group"] {
+            background: #e8eeeb;
+            border-radius: 12px;
+            display: flex;
+            gap: 0.25rem;
+            padding: 0.25rem;
+            width: 100%;
+        }
+
+        .st-key-wettfinder_v2_mode [data-baseweb="button-group"] button {
+            border: 0 !important;
+            border-radius: 9px !important;
+            flex: 1 1 0;
+            min-height: 44px;
+        }
+
+        .st-key-wettfinder_v2_summary {
+            background: var(--bb-surface);
+            border: 1px solid var(--bb-line);
+            border-radius: 12px;
+            margin: 0 0 1.35rem;
+            padding: 0.85rem 1rem;
+        }
+
+        .st-key-wettfinder_v2_summary [data-testid="stMarkdownContainer"] p {
+            margin: 0;
+        }
+
+        .st-key-wettfinder_v2_page .wf-run-summary {
+            align-items: center;
+            display: flex;
+            gap: 0.8rem;
+            justify-content: space-between;
+            min-width: 0;
+        }
+
+        .st-key-wettfinder_v2_page .wf-run-copy {
+            align-items: baseline;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem 0.9rem;
+            min-width: 0;
+        }
+
+        .st-key-wettfinder_v2_page .wf-run-copy strong {
+            color: var(--bb-ink);
+            font-size: 0.95rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-run-copy span {
+            color: var(--bb-muted);
+            font-size: 0.84rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-run-badge {
+            border-radius: 999px;
+            flex: 0 0 auto;
+            font-size: 0.74rem;
+            font-weight: 750;
+            line-height: 1;
+            padding: 0.45rem 0.7rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-run-badge-partial {
+            background: #fff0cc;
+            color: #7a4800;
+        }
+
+        .st-key-wettfinder_v2_section_header {
+            margin-top: 0.2rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-section-heading,
+        .st-key-wettfinder_v2_page .wf-additional-heading {
+            margin-bottom: 0.45rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-section-heading h2,
+        .st-key-wettfinder_v2_page .wf-additional-heading h2 {
+            font-size: 1.18rem !important;
+            margin: 0 !important;
+        }
+
+        .st-key-wettfinder_v2_page .wf-section-heading p,
+        .st-key-wettfinder_v2_page .wf-additional-heading p {
+            color: var(--bb-muted);
+            font-size: 0.82rem;
+            margin: 0.2rem 0 0;
+        }
+
+        .st-key-wettfinder_v2_sports {
+            margin-bottom: 0.85rem;
+        }
+
+        .st-key-wettfinder_v2_sports [data-baseweb="button-group"] {
+            background: transparent;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+        }
+
+        .st-key-wettfinder_v2_sports [data-baseweb="button-group"] button {
+            border: 1px solid var(--bb-line) !important;
+            border-radius: 999px !important;
+            flex: 0 0 auto;
+            min-height: 44px;
+            padding-left: 0.95rem !important;
+            padding-right: 0.95rem !important;
+        }
+
+        .st-key-wettfinder_v2_sports [data-baseweb="button-group"] button[aria-pressed="true"] {
+            background: #12251d !important;
+            color: #ffffff !important;
+        }
+
+        .st-key-wettfinder_v2_top_grid {
+            margin-bottom: 1.8rem;
+            min-width: 0;
+        }
+
+        .st-key-wettfinder_v2_top_grid > [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"],
+        .st-key-wettfinder_v2_top_grid [data-testid="stHorizontalBlock"] {
+            align-items: stretch;
+            flex-wrap: wrap;
+            gap: 0.9rem;
+        }
+
+        .st-key-wettfinder_v2_top_grid [data-testid="stColumn"] {
+            display: flex;
+            min-width: 0 !important;
+        }
+
+        .st-key-wettfinder_v2_top_grid [data-testid="stColumn"] > [data-testid="stVerticalBlock"] {
+            width: 100%;
+        }
+
+        [class*="st-key-wettfinder_v2_top_card_"] {
+            background: var(--bb-surface);
+            border: 1px solid var(--bb-line);
+            border-radius: 17px;
+            box-shadow: 0 10px 28px rgba(26, 54, 42, 0.055);
+            height: 100%;
+            min-width: 0;
+            padding: 1rem;
+            width: 100%;
+        }
+
+        [class*="st-key-wettfinder_v2_top_card_"] > [data-testid="stVerticalBlock"] {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .st-key-wettfinder_v2_page .wf-top-card,
+        .st-key-wettfinder_v2_page .wf-row {
+            color: var(--bb-ink);
+            min-width: 0;
+        }
+
+        .st-key-wettfinder_v2_page .wf-status-row {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            margin-bottom: 1rem;
+            min-width: 0;
+        }
+
+        .st-key-wettfinder_v2_page .wf-badge {
+            border-radius: 999px;
+            display: inline-flex;
+            font-size: 0.7rem;
+            font-weight: 800;
+            line-height: 1;
+            padding: 0.42rem 0.58rem;
+            text-transform: uppercase;
+        }
+
+        .st-key-wettfinder_v2_page .wf-badge-top {
+            background: #13231d;
+            border-radius: 7px;
+            color: #ffffff;
+        }
+
+        .st-key-wettfinder_v2_page .wf-badge-price {
+            margin-left: auto;
+        }
+
+        .st-key-wettfinder_v2_page .wf-evidence-positive,
+        .st-key-wettfinder_v2_page .wf-price-positive {
+            background: #dff2e7;
+            color: #11623e;
+        }
+
+        .st-key-wettfinder_v2_page .wf-evidence-neutral {
+            background: #e5f0f7;
+            color: #16577e;
+        }
+
+        .st-key-wettfinder_v2_page .wf-evidence-warning,
+        .st-key-wettfinder_v2_page .wf-price-warning {
+            background: #fff0cc;
+            color: #7a4800;
+        }
+
+        .st-key-wettfinder_v2_page .wf-evidence-muted,
+        .st-key-wettfinder_v2_page .wf-price-muted {
+            background: #edf0f1;
+            color: #53606a;
+        }
+
+        .st-key-wettfinder_v2_page .wf-meta {
+            color: #52665c;
+            font-size: 0.78rem;
+            font-weight: 650;
+            margin: 0 0 0.35rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-event {
+            font-size: 1.02rem !important;
+            line-height: 1.25 !important;
+            margin: 0 0 0.75rem !important;
+            overflow-wrap: anywhere;
+        }
+
+        .st-key-wettfinder_v2_page .wf-market {
+            color: #66766e;
+            font-size: 0.75rem;
+            font-weight: 800;
+            letter-spacing: 0.02em !important;
+            margin: 0 0 0.2rem;
+            text-transform: uppercase;
+        }
+
+        .st-key-wettfinder_v2_page .wf-selection {
+            color: #0f6a42;
+            font-size: 1rem;
+            font-weight: 800;
+            margin: 0 0 0.9rem;
+            overflow-wrap: anywhere;
+        }
+
+        .st-key-wettfinder_v2_page .wf-primary-probability {
+            align-items: center;
+            background: #edf5f1;
+            border-radius: 11px;
+            display: flex;
+            gap: 0.65rem;
+            justify-content: space-between;
+            margin-bottom: 0.7rem;
+            min-height: 3.35rem;
+            padding: 0.65rem 0.75rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-primary-probability span {
+            color: #42564c;
+            font-size: 0.76rem;
+            font-weight: 650;
+        }
+
+        .st-key-wettfinder_v2_page .wf-primary-probability strong {
+            color: #0d7045;
+            flex: 0 0 auto;
+            font-size: 1.45rem;
+            line-height: 1;
+        }
+
+        .st-key-wettfinder_v2_page .wf-metric-grid {
+            display: grid;
+            gap: 0.5rem;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            margin-bottom: 0.75rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-metric {
+            border-top: 2px solid #dbe4df;
+            min-width: 0;
+            padding-top: 0.45rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-metric-label,
+        .st-key-wettfinder_v2_page .wf-metric-note {
+            color: var(--bb-muted);
+            display: block;
+            font-size: 0.7rem;
+            overflow-wrap: anywhere;
+        }
+
+        .st-key-wettfinder_v2_page .wf-metric strong {
+            display: block;
+            font-size: 0.92rem;
+            margin-top: 0.1rem;
+            overflow-wrap: anywhere;
+        }
+
+        .st-key-wettfinder_v2_page .wf-price-note {
+            border-left: 3px solid var(--bb-amber);
+            border-radius: 8px;
+            font-size: 0.76rem;
+            line-height: 1.45;
+            margin: 0 0 0.65rem;
+            padding: 0.55rem 0.65rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-price-note-positive {
+            background: #e5f4eb;
+            border-left-color: var(--bb-green);
+            color: #155f3d;
+        }
+
+        .st-key-wettfinder_v2_page .wf-price-note-warning {
+            background: #fff3d6;
+            color: #714300;
+        }
+
+        .st-key-wettfinder_v2_page .wf-price-note-muted {
+            background: #f3f4f4;
+            border-left-color: #89939a;
+            color: #4d5961;
+        }
+
+        .st-key-wettfinder_v2_page .wf-context {
+            color: var(--bb-muted);
+            font-size: 0.74rem;
+            line-height: 1.45;
+            margin: 0;
+        }
+
+        .st-key-wettfinder_v2_page .wf-context span {
+            color: #42564c;
+            font-weight: 750;
+        }
+
+        [class*="st-key-wettfinder_v2_actions_"] {
+            margin-top: auto;
+            padding-top: 0.8rem;
+        }
+
+        [class*="st-key-wettfinder_v2_actions_"] > [data-testid="stVerticalBlock"] {
+            align-items: start;
+            display: grid;
+            gap: 0.45rem;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        [class*="st-key-wettfinder_v2_actions_"] [data-testid="stExpander"],
+        [class*="st-key-wettfinder_v2_price_action_"] {
+            min-width: 0;
+            width: 100%;
+        }
+
+        [class*="st-key-wettfinder_v2_actions_"] [data-testid="stExpander"] details > summary,
+        [class*="st-key-wettfinder_v2_price_action_"] [data-testid="stPopover"] button,
+        [class*="st-key-wettfinder_v2_price_action_"] [data-testid="stButton"] button {
+            min-height: 44px;
+            width: 100%;
+        }
+
+        .st-key-wettfinder_v2_additional {
+            margin-bottom: 1.4rem;
+        }
+
+        [class*="st-key-wettfinder_v2_additional_row_"] {
+            background: var(--bb-surface);
+            border: 1px solid var(--bb-line);
+            border-radius: 13px;
+            margin-bottom: 0.65rem;
+            min-width: 0;
+            padding: 0.9rem 1rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-row {
+            display: grid;
+            gap: 0.3rem 1rem;
+            grid-template-columns: minmax(12rem, 1.25fr) minmax(10rem, 0.9fr) minmax(15rem, 1.2fr);
+        }
+
+        .st-key-wettfinder_v2_page .wf-row .wf-status-row {
+            grid-column: 1 / -1;
+            margin-bottom: 0.35rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-row .wf-meta,
+        .st-key-wettfinder_v2_page .wf-row .wf-event {
+            grid-column: 1;
+        }
+
+        .st-key-wettfinder_v2_page .wf-row .wf-market,
+        .st-key-wettfinder_v2_page .wf-row .wf-selection {
+            grid-column: 2;
+        }
+
+        .st-key-wettfinder_v2_page .wf-row .wf-primary-probability {
+            grid-column: 3;
+            grid-row: 2 / span 2;
+            margin: 0;
+        }
+
+        .st-key-wettfinder_v2_page .wf-row .wf-metric-grid,
+        .st-key-wettfinder_v2_page .wf-row .wf-price-note,
+        .st-key-wettfinder_v2_page .wf-row .wf-context {
+            grid-column: 1 / -1;
+        }
+
+        div[data-baseweb="popover"]:has([class*="st-key-bet_price_wettfinder_v2_"]),
+        [data-testid="stPopoverBody"]:has([class*="st-key-bet_price_wettfinder_v2_"]) {
+            max-width: min(34rem, calc(100vw - 2rem)) !important;
+            overflow-x: hidden;
+        }
+
+        @media (min-width: 1081px) {
+            .st-key-wettfinder_v2_top_grid [data-testid="stColumn"] {
+                flex: 1 1 calc((100% - 1.8rem) / 3) !important;
+                width: auto !important;
+            }
+        }
+
+        @media (min-width: 761px) and (max-width: 1080px) {
+            .st-key-wettfinder_v2_top_grid [data-testid="stColumn"] {
+                flex: 1 1 calc((100% - 0.9rem) / 2) !important;
+                min-width: calc((100% - 0.9rem) / 2) !important;
+                width: auto !important;
+            }
+
+            .st-key-wettfinder_v2_page .wf-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .st-key-wettfinder_v2_page .wf-row .wf-primary-probability,
+            .st-key-wettfinder_v2_page .wf-row .wf-metric-grid,
+            .st-key-wettfinder_v2_page .wf-row .wf-price-note,
+            .st-key-wettfinder_v2_page .wf-row .wf-context {
+                grid-column: 1 / -1;
+                grid-row: auto;
+            }
+        }
+
+        @media (max-width: 760px) {
+            .st-key-wettfinder_v2_page {
+                padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+            }
+
+            .st-key-wettfinder_v2_top_grid [data-testid="stColumn"] {
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+                width: 100% !important;
+            }
+
+            .st-key-wettfinder_v2_page .wf-row {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .st-key-wettfinder_v2_page .wf-row .wf-primary-probability {
+                margin-bottom: 0.7rem;
+            }
+
+            [class*="st-key-wettfinder_v2_additional_row_"] {
+                padding: 0.85rem;
+            }
+        }
+
+        @media (max-width: 430px) {
+            .st-key-wettfinder_v2_page .wf-run-summary {
+                align-items: flex-start;
+            }
+
+            .st-key-wettfinder_v2_page .wf-run-copy {
+                display: block;
+            }
+
+            .st-key-wettfinder_v2_page .wf-run-copy span {
+                display: block;
+                margin-top: 0.2rem;
+            }
+
+            [class*="st-key-wettfinder_v2_top_card_"] {
+                border-radius: 14px;
+                padding: 0.85rem;
+            }
+
+            .st-key-wettfinder_v2_page .wf-status-row {
+                gap: 0.3rem;
+            }
+
+            .st-key-wettfinder_v2_page .wf-badge {
+                font-size: 0.66rem;
+                padding: 0.4rem 0.5rem;
+            }
+
+            .st-key-wettfinder_v2_page .wf-primary-probability strong {
+                font-size: 1.35rem;
+            }
+        }
+
+        @media (max-width: 360px) {
+            [class*="st-key-wettfinder_v2_actions_"] > [data-testid="stVerticalBlock"] {
+                grid-template-columns: 1fr;
+            }
+
+            .st-key-wettfinder_v2_page .wf-badge-price {
+                margin-left: 0;
+            }
+        }
+
         /* --- Mobile bottom navigation (hidden on desktop) --- */
         .st-key-bb_bottomnav {
             display: none;
@@ -3526,6 +4054,31 @@ def _automatic_consumer_run_incomplete(
     )
 
 
+def _automatic_run_summary_markup(
+    visible_count: int,
+    *,
+    incomplete_run: bool,
+) -> str:
+    count_label = (
+        "1 Modellprognose sichtbar"
+        if visible_count == 1
+        else f"{visible_count} Modellprognosen sichtbar"
+    )
+    partial_badge = (
+        '<span class="wf-run-badge wf-run-badge-partial">Teildaten</span>'
+        if incomplete_run
+        else ""
+    )
+    return (
+        '<div class="wf-run-summary">'
+        '<div class="wf-run-copy">'
+        f"<strong>{count_label}</strong>"
+        "<span>Modell und Wettpreis werden getrennt bewertet.</span>"
+        "</div>"
+        f"{partial_badge}</div>"
+    )
+
+
 def _automatic_release_overlay(evaluation) -> Optional[WettfinderReleaseOverlay]:
     """Build an overlay only from one validated executable BET snapshot."""
 
@@ -3555,21 +4108,25 @@ def _automatic_release_overlay(evaluation) -> Optional[WettfinderReleaseOverlay]
 
 
 def _render_wettfinder_card_actions(signal, card, candidate, binding, evaluation) -> None:
-    render_price_decision(
-        candidate,
-        key=f"wettfinder_v2_{card.manual_quote_key}",
-        bankroll_key="automated_finder_bankroll",
-        save_source="Automatischer Wettfinder",
-        reference_quote=signal.reference_quote,
-        reference_binding_candidate=binding,
-        allow_manual_check=True,
-        presentation="compact",
-        manual_surface="popover",
-        precomputed_reference_evaluation=evaluation,
-    )
-    with st.expander("Analyse anzeigen", expanded=False):
-        st.caption(f"Kontext: {card.context_label}")
-        st.write(card.detail)
+    with st.container(key=f"wettfinder_v2_actions_{card.manual_quote_key}"):
+        with st.expander("Analyse anzeigen", expanded=False):
+            st.caption(f"Kontext: {card.context_label}")
+            st.write(card.detail)
+        with st.container(
+            key=f"wettfinder_v2_price_action_{card.manual_quote_key}"
+        ):
+            render_price_decision(
+                candidate,
+                key=f"wettfinder_v2_{card.manual_quote_key}",
+                bankroll_key="automated_finder_bankroll",
+                save_source="Automatischer Wettfinder",
+                reference_quote=signal.reference_quote,
+                reference_binding_candidate=binding,
+                allow_manual_check=True,
+                presentation="compact",
+                manual_surface="popover",
+                precomputed_reference_evaluation=evaluation,
+            )
 
 
 def _render_automated_daily_selection() -> None:
@@ -3624,28 +4181,37 @@ def _render_automated_daily_selection() -> None:
     st.caption(" · ".join(time_parts))
 
     incomplete_run = _automatic_consumer_run_incomplete(status)
-    if incomplete_run:
-        st.warning(
-            _automatic_partial_scope_notice(status, has_candidates=bool(signals))
-            or "Mindestens eine Datenquelle konnte nicht vollständig geprüft werden."
+    summary_slot = st.empty()
+    with st.container(key="wettfinder_v2_section_header"):
+        st.markdown(
+            '<div class="wf-section-heading">'
+            "<h2>Top-Auswahlen nach Modell</h2>"
+            "<p>Alle wichtigen Angaben sofort sichtbar. Der Preisstatus "
+            "sortiert die Karten nicht um.</p>"
+            "</div>",
+            unsafe_allow_html=True,
         )
-    if signals:
-        st.info(
-            "Modellprognosen bleiben unabhängig vom Wettpreis sichtbar. "
-            "Eine vorhandene Vergleichsquote wird direkt an der Auswahl "
-            "eingeordnet."
+    with st.container(key="wettfinder_v2_sports"):
+        sport_filter = _segmented(
+            "Sportart",
+            list(FINDER_SPORT_OPTIONS),
+            "wettfinder_automatic_sport_v2",
+            "Alle",
         )
-
-    sport_filter = _segmented(
-        "Sportart",
-        list(FINDER_SPORT_OPTIONS),
-        "wettfinder_automatic_sport_v2",
-        "Alle",
-    )
     catalog = compose_wettfinder_catalog(
         (card for _signal, card, _candidate, _binding, _evaluation in rows),
         sport_filter=sport_filter,
     )
+    visible_count = len(catalog.featured) + len(catalog.additional)
+    with summary_slot.container():
+        with st.container(key="wettfinder_v2_summary"):
+            st.markdown(
+                _automatic_run_summary_markup(
+                    visible_count,
+                    incomplete_run=incomplete_run,
+                ),
+                unsafe_allow_html=True,
+            )
     if not catalog.featured and not catalog.additional:
         if sport_filter == "Alle":
             message = "Für diesen Spieltag liegt aktuell keine Modellprognose vor."
@@ -3659,13 +4225,45 @@ def _render_automated_daily_selection() -> None:
         for signal, card, candidate, binding, evaluation in rows
     }
     if catalog.featured:
-        st.subheader("Top-Auswahlen nach Modell")
-        top_columns = st.columns(len(catalog.featured))
-        for column, card in zip(top_columns, catalog.featured):
-            signal, card, candidate, binding, evaluation = row_by_key[card.key]
-            with column:
-                with st.container(key=f"wettfinder-top-{card.manual_quote_key}"):
-                    st.markdown(render_top_card_html(card), unsafe_allow_html=True)
+        with st.container(key="wettfinder_v2_top_grid"):
+            top_columns = st.columns(len(catalog.featured))
+            for index, (column, card) in enumerate(
+                zip(top_columns, catalog.featured),
+                start=1,
+            ):
+                signal, card, candidate, binding, evaluation = row_by_key[card.key]
+                with column:
+                    with st.container(key=f"wettfinder_v2_top_card_{index}"):
+                        st.markdown(
+                            render_top_card_html(card),
+                            unsafe_allow_html=True,
+                        )
+                        _render_wettfinder_card_actions(
+                            signal,
+                            card,
+                            candidate,
+                            binding,
+                            evaluation,
+                        )
+
+    if catalog.additional:
+        with st.container(key="wettfinder_v2_additional"):
+            st.markdown(
+                '<div class="wf-additional-heading">'
+                "<h2>Weitere Modellprognosen</h2>"
+                "<p>Flach, vergleichbar und weiterhin vollständig bedienbar.</p>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            for index, card in enumerate(catalog.additional, start=1):
+                signal, card, candidate, binding, evaluation = row_by_key[card.key]
+                with st.container(
+                    key=f"wettfinder_v2_additional_row_{index}"
+                ):
+                    st.markdown(
+                        render_compact_row_html(card),
+                        unsafe_allow_html=True,
+                    )
                     _render_wettfinder_card_actions(
                         signal,
                         card,
@@ -3673,20 +4271,6 @@ def _render_automated_daily_selection() -> None:
                         binding,
                         evaluation,
                     )
-
-    if catalog.additional:
-        st.subheader("Weitere Modellprognosen")
-        for card in catalog.additional:
-            signal, card, candidate, binding, evaluation = row_by_key[card.key]
-            with st.container(key=f"wettfinder-row-{card.manual_quote_key}"):
-                st.markdown(render_compact_row_html(card), unsafe_allow_html=True)
-                _render_wettfinder_card_actions(
-                    signal,
-                    card,
-                    candidate,
-                    binding,
-                    evaluation,
-                )
 
 
 def _render_selected_finder(
@@ -3721,73 +4305,79 @@ def _render_selected_finder(
 
 def render_wettfinder() -> None:
     """One sport-first entry point for every pre-match finder."""
-    mode = _segmented(
-        "Modus",
-        ["Automatisch", "Eigene Suche"],
-        "wettfinder_mode_v2",
-        "Automatisch",
-    )
-    if mode == "Automatisch":
-        _render_automated_daily_selection()
-        return
-
-    st.subheader("Eigene Suche")
-    controls = st.columns(3)
-    with controls[0]:
-        sport = st.selectbox(
-            "Sport",
-            list(FINDER_SPORT_OPTIONS),
-            index=1,
-            key="finder_sport",
-            format_func=lambda value: (
-                "Alle Bereiche (separate Suchen)" if value == "Alle" else value
-            ),
-        )
-
-    with controls[1]:
-        horizon_label = st.selectbox(
-            "Zeitraum",
-            list(SEARCH_HORIZONS),
-            index=2,
-            key="finder_search_horizon",
-        )
-    search_date = zurich_today()
-    search_end_date = search_date + timedelta(
-        days=SEARCH_HORIZONS[horizon_label]
-    )
-    selected_sports = _finder_sports_for_selection(sport)
-
-    football_market_scope = "Beste Märkte"
-    if "Fußball" in selected_sports:
-        with controls[2]:
-            football_market_scope = st.selectbox(
-                "Wettart" if sport == "Fußball" else "Fußball-Wettart",
-                list(_alternative_markets.FOOTBALL_MARKET_SCOPES),
-                key="finder_football_market",
+    with st.container(key="wettfinder_v2_page"):
+        with st.container(key="wettfinder_v2_mode"):
+            mode = _segmented(
+                "Modus",
+                ["Automatisch", "Eigene Suche"],
+                "wettfinder_mode_v2",
+                "Automatisch",
             )
+        if mode == "Automatisch":
+            _render_automated_daily_selection()
+            return
 
-    if sport == "Alle":
-        st.caption(
-            "Alle zeigt getrennte Sportbereiche. Jede Suche wird im jeweiligen "
-            "Tab separat gestartet; das Ergebnis gilt nur für diesen Sport."
-        )
-        sport_tabs = st.tabs(list(selected_sports))
-        for sport_tab, selected_sport in zip(sport_tabs, selected_sports):
-            with sport_tab:
-                _render_selected_finder(
-                    selected_sport,
-                    search_date,
-                    search_end_date,
-                    football_market_scope,
+        with st.container(key="wettfinder_v2_custom"):
+            st.subheader("Eigene Suche")
+            controls = st.columns(3)
+            with controls[0]:
+                sport = st.selectbox(
+                    "Sport",
+                    list(FINDER_SPORT_OPTIONS),
+                    index=1,
+                    key="finder_sport",
+                    format_func=lambda value: (
+                        "Alle Bereiche (separate Suchen)"
+                        if value == "Alle"
+                        else value
+                    ),
                 )
-        return
 
-    _render_selected_finder(
-        sport,
-        search_date,
-        search_end_date,
-        football_market_scope,
-    )
+            with controls[1]:
+                horizon_label = st.selectbox(
+                    "Zeitraum",
+                    list(SEARCH_HORIZONS),
+                    index=2,
+                    key="finder_search_horizon",
+                )
+            search_date = zurich_today()
+            search_end_date = search_date + timedelta(
+                days=SEARCH_HORIZONS[horizon_label]
+            )
+            selected_sports = _finder_sports_for_selection(sport)
+
+            football_market_scope = "Beste Märkte"
+            if "Fußball" in selected_sports:
+                with controls[2]:
+                    football_market_scope = st.selectbox(
+                        "Wettart" if sport == "Fußball" else "Fußball-Wettart",
+                        list(_alternative_markets.FOOTBALL_MARKET_SCOPES),
+                        key="finder_football_market",
+                    )
+
+            if sport == "Alle":
+                st.caption(
+                    "Alle zeigt getrennte Sportbereiche. Jede Suche wird im "
+                    "jeweiligen Tab separat gestartet; das Ergebnis gilt nur "
+                    "für diesen Sport."
+                )
+                sport_tabs = st.tabs(list(selected_sports))
+                for sport_tab, selected_sport in zip(sport_tabs, selected_sports):
+                    with sport_tab:
+                        _render_selected_finder(
+                            selected_sport,
+                            search_date,
+                            search_end_date,
+                            football_market_scope,
+                        )
+                return
+
+            _render_selected_finder(
+                sport,
+                search_date,
+                search_end_date,
+                football_market_scope,
+            )
 
 
 def _render_system_status(analyzer) -> None:

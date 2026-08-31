@@ -57,6 +57,17 @@ class _RecordingContext:
         assert self.streamlit.context_stack.pop() == (self.kind, self.label)
 
 
+class _RecordingPlaceholder:
+    def __init__(self, streamlit):
+        self.streamlit = streamlit
+
+    def markdown(self, value, **kwargs):
+        self.streamlit.markdown(value, **kwargs)
+
+    def container(self):
+        return _RecordingContext(self.streamlit, "placeholder", None)
+
+
 class _RecordingStreamlit:
     def __init__(self, session_state=None, widget_values=None):
         self.session_state = session_state or {}
@@ -71,6 +82,7 @@ class _RecordingStreamlit:
         self.context_stack = []
         self.messages = []
         self.markdown_calls = []
+        self.event_log = []
 
     @property
     def current_expander(self):
@@ -89,10 +101,12 @@ class _RecordingStreamlit:
 
     def expander(self, label, *, expanded=False):
         self.expanders.append((label, expanded))
+        self.event_log.append(("expander", label))
         return _RecordingContext(self, "expander", label)
 
     def popover(self, label, **_kwargs):
         self.popovers.append(label)
+        self.event_log.append(("popover", label))
         return _RecordingContext(self, "popover", label)
 
     def container(self, *, key=None, **_kwargs):
@@ -114,6 +128,7 @@ class _RecordingStreamlit:
     def segmented_control(self, label, options, *, default=None, key=None, **_kwargs):
         options = tuple(options)
         self.segmented_controls.append((label, options, default, key))
+        self.event_log.append(("segmented_control", key))
         return self.widget_values.get(key, default)
 
     def radio(self, label, options, *, index=0, key=None, **_kwargs):
@@ -134,6 +149,9 @@ class _RecordingStreamlit:
     def divider(self):
         return None
 
+    def empty(self):
+        return _RecordingPlaceholder(self)
+
     def error(self, value):
         self.messages.append(("error", value))
 
@@ -143,6 +161,7 @@ class _RecordingStreamlit:
     def markdown(self, value, **kwargs):
         self.messages.append(("markdown", value))
         self.markdown_calls.append((value, kwargs, tuple(self.context_stack)))
+        self.event_log.append(("markdown", value))
 
     def subheader(self, value, **_kwargs):
         self.messages.append(("subheader", value))
@@ -452,12 +471,14 @@ def test_automatic_empty_surface_uses_only_short_consumer_copy(monkeypatch):
     assert infos == [
         "Für diesen Spieltag liegt aktuell keine Modellprognose vor."
     ]
-    assert len(warnings) == 1
-    assert warnings[0] == (
-        "Ein Teil des Spieltags konnte wegen unvollständiger Daten nicht "
-        "zuverlässig bewertet werden."
+    assert warnings == []
+    html = "\n".join(
+        value
+        for value, kwargs, _context in recording_st.markdown_calls
+        if kwargs.get("unsafe_allow_html")
     )
-    assert "61" not in warnings[0]
+    assert "0 Modellprognosen sichtbar" in html
+    assert 'class="wf-run-badge wf-run-badge-partial">Teildaten' in html
     assert "Spiele gefunden" not in public_text
     assert "Kontextdaten geprüft" not in public_text
     assert "Preisprüfung" not in public_text
@@ -501,17 +522,16 @@ def test_automatic_forecast_surface_shows_one_compact_hint_and_warning(
     public_text = " ".join(
         str(value) for _kind, value in recording_st.messages
     )
-    assert infos == [
-        "Modellprognosen bleiben unabhängig vom Wettpreis sichtbar. Eine "
-        "vorhandene Vergleichsquote wird direkt an der Auswahl eingeordnet."
-    ]
-    assert len(warnings) == 1
-    assert warnings[0] == (
-        "Ein Teil des Spieltags konnte wegen unvollständiger Daten nicht "
-        "zuverlässig bewertet werden. Die angezeigten Auswahlen wurden "
-        "vollständig geprüft."
+    assert infos == []
+    assert warnings == []
+    html = "\n".join(
+        value
+        for value, kwargs, _context in recording_st.markdown_calls
+        if kwargs.get("unsafe_allow_html")
     )
-    assert "3 weitere" not in warnings[0]
+    assert "1 Modellprognose sichtbar" in html
+    assert "Modell und Wettpreis werden getrennt bewertet." in html
+    assert 'class="wf-run-badge wf-run-badge-partial">Teildaten' in html
     assert "Spiele gefunden" not in public_text
     assert "Tagesumfang" not in public_text
     assert "Preisprüfungen" not in public_text
@@ -886,9 +906,12 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
     monkeypatch.setattr(
         app,
         "render_price_decision",
-        lambda candidate, **kwargs: price_calls.append(
-            (candidate.event_key, kwargs, recording_st.current_context_kind)
-        ),
+        lambda candidate, **kwargs: (
+            recording_st.event_log.append(("price_action", candidate.event_key)),
+            price_calls.append(
+                (candidate.event_key, kwargs, recording_st.current_context_kind)
+            ),
+        )[1],
     )
 
     app._render_automated_daily_selection()
@@ -920,11 +943,41 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
     assert [label for label, _expanded in recording_st.expanders] == [
         "Analyse anzeigen"
     ] * len(forecasts)
+    action_order = [
+        kind
+        for kind, _value in recording_st.event_log
+        if kind in {"expander", "price_action"}
+    ]
+    assert action_order == ["expander", "price_action"] * len(forecasts)
     assert html.count('class="wf-top-card"') == 3
     assert html.count('class="wf-row"') == 1
     assert all(html.count(f'data-key="{signal.key}"') == 1 for signal in forecasts)
     assert "Berechnete Auswahl 1" not in html
     assert "Tagestipp 1" not in html
+    assert "Testmodell" not in html
+    assert "Testmodell" in " ".join(
+        str(value) for kind, value in recording_st.messages if kind == "write"
+    )
+    assert {
+        "wettfinder_v2_summary",
+        "wettfinder_v2_section_header",
+        "wettfinder_v2_sports",
+        "wettfinder_v2_top_grid",
+        "wettfinder_v2_top_card_1",
+        "wettfinder_v2_top_card_2",
+        "wettfinder_v2_top_card_3",
+        "wettfinder_v2_additional",
+        "wettfinder_v2_additional_row_1",
+    }.issubset(set(recording_st.containers))
+    heading_event = next(
+        index
+        for index, (kind, value) in enumerate(recording_st.event_log)
+        if kind == "markdown" and 'class="wf-section-heading"' in value
+    )
+    sport_control_event = recording_st.event_log.index(
+        ("segmented_control", "wettfinder_automatic_sport_v2")
+    )
+    assert heading_event < sport_control_event
 
 
 def test_automatic_basis_only_catalog_skips_empty_top_columns(monkeypatch):
@@ -1038,15 +1091,59 @@ def test_automatic_partial_run_copy_stays_consumer_facing(monkeypatch):
 
     app._render_automated_daily_selection()
 
-    warnings = [value for kind, value in recording_st.messages if kind == "warning"]
     public_text = " ".join(str(value) for _kind, value in recording_st.messages)
-    assert warnings == [
-        "Ein Teil des Spieltags konnte wegen unvollständiger Daten nicht "
-        "zuverlässig bewertet werden. Die angezeigten Auswahlen wurden "
-        "vollständig geprüft."
-    ]
+    html = "\n".join(
+        value
+        for value, kwargs, _context in recording_st.markdown_calls
+        if kwargs.get("unsafe_allow_html")
+    )
+    assert [
+        value
+        for kind, value in recording_st.messages
+        if kind in {"warning", "info"}
+    ] == []
+    assert html.count('class="wf-run-summary"') == 1
+    assert "1 Modellprognose sichtbar" in html
+    assert "Modell und Wettpreis werden getrennt bewertet." in html
+    assert 'class="wf-run-badge wf-run-badge-partial">Teildaten' in html
     for internal_copy in ("99", "70", "44", "Spiele gefunden", "Preisprüfung"):
         assert internal_copy not in public_text
+        assert internal_copy not in html
+
+
+def test_wettfinder_page_uses_scoped_mode_wrapper(monkeypatch):
+    recording_st = _RecordingStreamlit()
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(app, "_render_automated_daily_selection", lambda: None)
+
+    app.render_wettfinder()
+
+    assert recording_st.containers[:2] == [
+        "wettfinder_v2_page",
+        "wettfinder_v2_mode",
+    ]
+
+
+def test_app_styles_emit_the_scoped_responsive_wettfinder_contract(monkeypatch):
+    recording_st = _RecordingStreamlit()
+    monkeypatch.setattr(app, "st", recording_st)
+
+    app._apply_app_styles()
+
+    styles = "\n".join(
+        value
+        for value, kwargs, _context in recording_st.markdown_calls
+        if kwargs.get("unsafe_allow_html")
+    )
+    assert ".st-key-wettfinder_v2_page" in styles
+    assert ".st-key-wettfinder_v2_top_grid" in styles
+    assert "@media (min-width: 1081px)" in styles
+    assert "@media (min-width: 761px) and (max-width: 1080px)" in styles
+    assert "@media (max-width: 760px)" in styles
+    assert "min-height: 44px" in styles
+    assert "overflow-x: clip" in styles
+    assert ':has([class*="st-key-bet_price_wettfinder_v2_"])' in styles
+    assert "calc(100vw - 2rem)" in styles
 
 
 def test_automatic_strict_release_replaces_same_key_once(monkeypatch):
@@ -1274,10 +1371,23 @@ def test_legacy_automatic_context_scope_is_unknown_without_zero_pending_claim():
     assert incomplete is True
 
 
-def test_all_sports_copy_says_each_tab_is_a_separate_search():
-    source = inspect.getsource(app.render_wettfinder)
-    assert "getrennte Sportbereiche" in source
-    assert "Ergebnis gilt nur für diesen Sport" in source
+def test_all_sports_copy_says_each_tab_is_a_separate_search(monkeypatch):
+    recording_st = _RecordingStreamlit(
+        widget_values={
+            "wettfinder_mode_v2": "Eigene Suche",
+            "finder_sport": "Alle",
+        }
+    )
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(app, "_render_selected_finder", lambda *_args: None)
+
+    app.render_wettfinder()
+
+    captions = [value for kind, value in recording_st.messages if kind == "caption"]
+    assert captions == [
+        "Alle zeigt getrennte Sportbereiche. Jede Suche wird im jeweiligen "
+        "Tab separat gestartet; das Ergebnis gilt nur für diesen Sport."
+    ]
 
 
 def test_public_navigation_exposes_no_admin_settings_or_training_route():
