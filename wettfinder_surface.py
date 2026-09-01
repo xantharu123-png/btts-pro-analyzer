@@ -135,6 +135,18 @@ def _clean_text(value: object, fallback: str = "–") -> str:
     return text or fallback
 
 
+def _consumer_context_label(value: object) -> str:
+    """Keep the visible ``Kontext:`` prefix in one rendering layer only."""
+
+    text = _clean_text(value, "Kontext ausstehend")
+    while True:
+        cleaned = re.sub(r"^kontext\s*:\s*", "", text, count=1, flags=re.I)
+        if cleaned == text:
+            break
+        text = cleaned.strip()
+    return text or "ausstehend"
+
+
 def format_scheduled_start(value: object) -> str:
     """Format only valid ISO datetimes; malformed input never reaches HTML."""
 
@@ -397,7 +409,7 @@ def build_wettfinder_card(
         price_tone=price_tone,
         evidence_label=evidence_label,
         evidence_tone=evidence_tone,
-        context_label=_clean_text(signal.context_summary, "Kontext ausstehend"),
+        context_label=_consumer_context_label(signal.context_summary),
         detail=_clean_text(signal.detail),
         confirmed_tip=confirmed_tip,
         reference_quote=current_quote,

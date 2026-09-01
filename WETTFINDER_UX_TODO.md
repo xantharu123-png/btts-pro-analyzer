@@ -2,7 +2,7 @@
 
 Stand: 27.08.2026
 Prioritaet: P0
-Status: **WIREFRAME V1 ZUR FREIGABE / IMPLEMENTIERUNG NICHT BEGONNEN**
+Status: **ABGESCHLOSSEN – WETTFINDER V2 IMPLEMENTIERT UND VERIFIZIERT**
 
 Designreview:
 
@@ -48,7 +48,8 @@ Beim Oeffnen des Wettfinders erkennt der Nutzer alle Topvorschlaege und deren
 wichtigste Entscheidungsdaten sofort. Nur echte Zusatzinformationen benoetigen
 einen weiteren Klick.
 
-## Umsetzungsgrenze
+## Abschluss
 
-Dieses Dokument speichert ausschliesslich den offenen Auftrag. Mit seiner
-Erstellung ist keine Umsetzung oder Freigabe des UX-Umbaus verbunden.
+Der freigegebene Neuaufbau ist umgesetzt. Topvorschläge und Zusatzkarten sind
+flach, die wichtigsten Entscheidungsdaten sofort sichtbar, Analyse und
+Quotenprüfung getrennt und Desktop-/Tablet-/Mobilansichten geprüft.

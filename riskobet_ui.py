@@ -25,6 +25,7 @@ from riskobet_surface import (
     RiskBetPriceOverlay,
     build_riskobet_card,
     compose_riskobet_catalog,
+    format_riskobet_public_detail,
     render_riskobet_card_html,
     render_riskobet_compact_row_html,
 )
@@ -361,7 +362,7 @@ def _display_card(
 
 
 def _render_factor_details(snapshot: EventModelSnapshot) -> None:
-    st.caption("Nachvollziehbare Faktoren dieser Modellrevision")
+    st.caption("Grundlage dieser Analyse")
     visible_factors = tuple(
         factor
         for factor in snapshot.factors
@@ -376,7 +377,8 @@ def _render_factor_details(snapshot: EventModelSnapshot) -> None:
         )
         # Streamlit write escapes text. Deliberately omit internal factor keys,
         # provider identifiers and numeric implementation roles.
-        st.write(f"{factor.summary} · Stand: {observed}")
+        summary = format_riskobet_public_detail(factor.summary)
+        st.write(f"{summary} · Stand: {observed}")
 
 
 def _render_quote_comparison(candidate: RiskCandidate) -> None:
@@ -527,9 +529,9 @@ def render_riskobet(path: str | Path | None = None) -> None:
         with st.container(key="riskobet_summary"):
             if view.status == "PARTIAL":
                 st.warning(
-                    "Die letzte Analyse wurde teilweise abgeschlossen. "
-                    "Sichtbare Szenarien stammen aus erfolgreich geprüften "
-                    "Events."
+                    "Einige Sportarten wurden nicht vollständig aktualisiert. "
+                    "Sichtbar sind nur bereits verarbeitete Daten; bitte den "
+                    "jeweiligen Evidenzstand beachten."
                 )
             if catalog.cards:
                 scenario_label = (

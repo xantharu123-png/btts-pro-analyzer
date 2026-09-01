@@ -53,9 +53,12 @@ _SIMPLE_MARKET_KEYS = frozenset(
 )
 
 _EVIDENCE_COPY = {
-    "RESEARCH": ("Research", "muted"),
-    "SHADOW": ("Shadow", "warning"),
-    "VALIDATED": ("Validiert", "positive"),
+    # These are consumer labels, not the internal lifecycle enum names.  In
+    # particular, SHADOW must never look like a quality seal: it still means
+    # that the model has not earned its version-bound validation evidence.
+    "RESEARCH": ("Frühe Analyse · noch nicht historisch geprüft", "muted"),
+    "SHADOW": ("Im Test · noch nicht historisch bestätigt", "warning"),
+    "VALIDATED": ("Historisch validiert", "positive"),
 }
 _CONTEXT_COPY = {
     "FRESH": ("Kontext frisch", "positive"),
@@ -73,6 +76,76 @@ _PRICE_COPY = {
     "UNAVAILABLE": ("Quote fehlt", "muted"),
     "OPEN": ("Preis offen", "muted"),
 }
+_INTERNAL_FACTOR_STATUS_COPY = {
+    "passed": "geprüft",
+    "neutral": "ohne klaren Einfluss",
+    "observed": "vorhanden und geprüft",
+    "partial": "nur teilweise verarbeitet",
+    "blocked": "spricht gegen diese Auswahl",
+    "required_missing": "noch nicht bestätigt",
+    "unavailable": "nicht verfügbar",
+    "open": "noch offen",
+    "stale": "nicht mehr aktuell",
+    "missing": "fehlt",
+    "failed": "konnte nicht geprüft werden",
+    "unknown": "Status unklar",
+}
+_INTERNAL_FACTOR_STATUS_RE = re.compile(
+    r"^(?P<label>[^:\r\n]{1,120}?)\s*:\s*(?P<status>"
+    + "|".join(
+        re.escape(status)
+        for status in sorted(
+            _INTERNAL_FACTOR_STATUS_COPY,
+            key=len,
+            reverse=True,
+        )
+    )
+    + r")\s*[.!]?\s*$",
+    flags=re.IGNORECASE,
+)
+_INTERNAL_FACTOR_STATUS_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?P<status>"
+    + "|".join(
+        re.escape(status)
+        for status in sorted(
+            _INTERNAL_FACTOR_STATUS_COPY,
+            key=len,
+            reverse=True,
+        )
+    )
+    + r")(?![A-Za-z0-9_])",
+    flags=re.IGNORECASE,
+)
+_PUBLIC_DETAIL_REPLACEMENTS = (
+    (re.compile(r"\bRESEARCH\s*:\s*", re.IGNORECASE),
+     "Frühe Analyse · noch nicht historisch geprüft: "),
+    (
+        re.compile(r"\bSHADOW\s*:\s*", re.IGNORECASE),
+        "Im Test · noch nicht historisch bestätigt: ",
+    ),
+    (re.compile(r"\bBeta\(2\s*,\s*2\)-Glättung\b", re.IGNORECASE),
+     "vorsichtige Glättung kleiner Stichproben"),
+    (re.compile(r"\bDas geglättete Log5-Modell\b", re.IGNORECASE),
+     "Das vorsichtige Gegnervergleichsmodell"),
+    (re.compile(r"\bLog5-Modell\b", re.IGNORECASE), "Gegnervergleichsmodell"),
+    (re.compile(r"\bSubgraph-Elo\b", re.IGNORECASE),
+     "Stärkevergleich im relevanten Teilnehmerfeld"),
+    (re.compile(r"\bi\.i\.d\.-Mapannahme\b", re.IGNORECASE),
+     "Annahme gleichbleibender Mapchancen"),
+    (re.compile(r"\beingefrorenen Modellzustand\b", re.IGNORECASE),
+     "vor Spielbeginn festgehaltenen Modellstand"),
+)
+_UNSAFE_TECHNICAL_DETAIL_RE = re.compile(
+    r"(?:^|[^A-Za-z0-9])(?:[A-Za-z0-9]+_)*provider(?:_id)?(?:$|[^A-Za-z0-9])"
+    r"|(?:^|[^A-Za-z0-9])(?:[A-Za-z0-9]+_)*factor_key(?:$|[^A-Za-z0-9])"
+    r"|\b(?:walk[- ]?forward|gate|api-[a-z0-9_-]+)\b"
+    r"|\b(?:source|provider)_(?:failed|partial|unavailable)\b"
+    r"|\b(?:HTTP\s*)?[45]\d{2}\b",
+    flags=re.IGNORECASE,
+)
+_TECHNICAL_DETAIL_FALLBACK = (
+    "Technischer Prüfstatus ist noch nicht nutzerverständlich aufbereitet."
+)
 
 
 @dataclass(frozen=True)
@@ -172,6 +245,39 @@ def _clean_text(value: object, fallback: str = "–") -> str:
     return text or fallback
 
 
+def format_riskobet_public_detail(value: object) -> str:
+    """Translate raw model-status summaries into cautious consumer copy.
+
+    Upstream context contracts intentionally persist stable machine values
+    such as ``passed`` and ``required_missing``.  Those values remain intact
+    in the immutable model snapshot, while every consumer surface uses this
+    presentation-only translation.  The wording describes only what was
+    observed; it never promotes the candidate's evidence stage.
+    """
+
+    raw_text = _clean_text(value, "")
+    if not raw_text:
+        return ""
+    if _UNSAFE_TECHNICAL_DETAIL_RE.search(raw_text):
+        return _TECHNICAL_DETAIL_FALLBACK
+    text = raw_text
+    for pattern, replacement in _PUBLIC_DETAIL_REPLACEMENTS:
+        text = pattern.sub(replacement, text)
+    match = _INTERNAL_FACTOR_STATUS_RE.fullmatch(text)
+    if match is not None:
+        label = match.group("label").strip()
+        status = match.group("status").casefold()
+        text = f"{label}: {_INTERNAL_FACTOR_STATUS_COPY[status]}"
+    else:
+        text = _INTERNAL_FACTOR_STATUS_TOKEN_RE.sub(
+            lambda item: _INTERNAL_FACTOR_STATUS_COPY[
+                item.group("status").casefold()
+            ],
+            text,
+        )
+    return text
+
+
 def format_riskobet_start(value: object) -> str:
     """Render only timezone-aware starts in the product's Zurich timezone."""
 
@@ -197,6 +303,8 @@ def format_riskobet_probability(value: object) -> str:
     number = float(value)
     if not math.isfinite(number) or not 0.0 <= number <= 1.0:
         return "offen"
+    if number >= 0.9995:
+        return "> 99,5 %"
     return f"{number * 100:.1f} %"
 
 
@@ -283,7 +391,7 @@ def build_riskobet_card(
     pros = tuple(
         text
         for text in (
-            _clean_text(value, "")
+            format_riskobet_public_detail(value)
             for value in getattr(candidate, "pros", ())
         )
         if text
@@ -291,7 +399,7 @@ def build_riskobet_card(
     cons = tuple(
         text
         for text in (
-            _clean_text(value, "")
+            format_riskobet_public_detail(value)
             for value in getattr(candidate, "cons", ())
         )
         if text
@@ -331,7 +439,7 @@ def build_riskobet_card(
         missing_core_data=tuple(
             text
             for text in (
-                _clean_text(value, "")
+                format_riskobet_public_detail(value)
                 for value in getattr(candidate, "missing_core_data", ())
             )
             if text
@@ -649,6 +757,7 @@ __all__ = [
     "compose_riskobet_catalog",
     "format_riskobet_odds",
     "format_riskobet_probability",
+    "format_riskobet_public_detail",
     "format_riskobet_start",
     "render_riskobet_card_html",
     "render_riskobet_compact_row_html",

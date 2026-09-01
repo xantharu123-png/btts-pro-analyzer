@@ -98,7 +98,7 @@ def test_card_maps_domain_candidate_and_exact_price_overlay():
     assert card.scheduled_start_label == "01.01. 16:00"
     assert card.model_probability == 0.34
     assert card.cautious_probability == 0.28
-    assert card.evidence_label == "Shadow"
+    assert card.evidence_label == "Im Test · noch nicht historisch bestätigt"
     assert card.context_label == "Kontext frisch"
     assert card.pros == candidate.pros
     assert card.cons == candidate.cons
@@ -128,11 +128,17 @@ def test_missing_research_probability_is_honestly_open_in_both_surfaces():
     assert surface.format_riskobet_probability(None) == "offen"
     for markup in (full, compact):
         assert "offen" in markup
-        assert "Research" in markup
+        assert "Frühe Analyse · noch nicht historisch geprüft" in markup
         assert "Kontext offen" in markup
         assert "Belastbare Pitch-Historie" in markup
         assert "Quote fehlt" in markup
         assert ">–</strong>" in markup
+
+
+def test_exact_one_probability_never_looks_like_a_guaranteed_100_percent():
+    assert surface.format_riskobet_probability(1.0) == "> 99,5 %"
+    assert surface.format_riskobet_probability(0.9995) == "> 99,5 %"
+    assert surface.format_riskobet_probability(0.9994) == "99.9 %"
 
 
 def test_full_and_genuinely_compact_markup_keep_every_decision_field_visible():
@@ -149,7 +155,7 @@ def test_full_and_genuinely_compact_markup_keep_every_decision_field_visible():
         for visible in (
             "Fußball",
             "01.01. 16:00",
-            "Shadow",
+            "Im Test · noch nicht historisch bestätigt",
             "Kontext frisch",
             "Außenseitersieg",
             "Sieg Alpha",
@@ -172,6 +178,72 @@ def test_full_and_genuinely_compact_markup_keep_every_decision_field_visible():
     assert "Contra zwei" not in compact
     assert "<ul>" not in compact
     assert len(compact) < len(full)
+
+
+def test_internal_context_statuses_are_translated_without_promoting_evidence():
+    candidate = _candidate(
+        pros=("Wetter: passed", "Direktduelle: neutral"),
+        cons=("Aufstellungen: required_missing", "Ausfälle: unavailable"),
+        missing_core_data=("Toss: open",),
+    )
+
+    card = _card(candidate)
+    markup = surface.render_riskobet_card_html(card)
+
+    assert card.evidence_code == "SHADOW"
+    assert card.evidence_label == "Im Test · noch nicht historisch bestätigt"
+    assert card.pros == (
+        "Wetter: geprüft",
+        "Direktduelle: ohne klaren Einfluss",
+    )
+    assert card.cons == (
+        "Aufstellungen: noch nicht bestätigt",
+        "Ausfälle: nicht verfügbar",
+    )
+    assert card.missing_core_data == ("Toss: noch offen",)
+    for internal in (
+        "Shadow",
+        ": passed",
+        ": neutral",
+        ": required_missing",
+        ": unavailable",
+    ):
+        assert internal not in markup
+
+
+def test_public_detail_maps_known_model_terms_and_fails_safe_for_debug_copy():
+    assert surface.format_riskobet_public_detail(
+        "RESEARCH: Lineups sind noch nicht kausal validiert."
+    ) == (
+        "Frühe Analyse · noch nicht historisch geprüft: "
+        "Lineups sind noch nicht kausal validiert."
+    )
+    assert "Beta(2,2)" not in surface.format_riskobet_public_detail(
+        "Team: 4/9 Siege; Beta(2,2)-Glättung."
+    )
+    assert "Log5" not in surface.format_riskobet_public_detail(
+        "Das geglättete Log5-Modell ergibt 31,0 %."
+    )
+    assert "Subgraph-Elo" not in surface.format_riskobet_public_detail(
+        "Subgraph-Elo 1510/1580, Best-of-3."
+    )
+    assert "i.i.d." not in surface.format_riskobet_public_detail(
+        "Die i.i.d.-Mapannahme bildet den Veto-Effekt nicht vollständig ab."
+    )
+    assert "eingefrorenen Modellzustand" not in surface.format_riskobet_public_detail(
+        "Fitness ist enthalten, soweit sie im eingefrorenen Modellzustand vorlag."
+    )
+    for raw in (
+        "Walk-forward gate passed",
+        "API-Football provider failed (403)",
+        "injury_provider_id=99123 failed",
+        "factor_key=weather passed",
+    ):
+        public = surface.format_riskobet_public_detail(raw)
+        assert public == (
+            "Technischer Prüfstatus ist noch nicht nutzerverständlich "
+            "aufbereitet."
+        )
 
 
 def test_every_external_text_is_escaped_in_full_and_compact_markup():

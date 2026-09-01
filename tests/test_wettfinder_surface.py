@@ -142,6 +142,14 @@ def test_card_maps_model_and_exact_consensus_without_changing_probabilities():
 
 
 def test_public_quote_binding_adapter_preserves_loader_identity():
+    legacy = _signal(
+        context_summary="Kontext: Kontext: H2H geprüft · Aufstellungen offen"
+    )
+    legacy_card = _card(legacy)
+    legacy_markup = surface.render_top_card_html(legacy_card)
+    assert legacy_card.context_label == "H2H geprüft · Aufstellungen offen"
+    assert "Kontext: Kontext:" not in legacy_markup
+
     signal = replace(
         _signal("binding"),
         candidate_id="provider-candidate",

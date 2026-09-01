@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import re
@@ -307,7 +308,10 @@ def test_partial_summary_is_safe_and_never_exposes_internal_errors(monkeypatch):
     ui.render_riskobet()
 
     text = _all_text(fake)
-    assert "teilweise abgeschlossen" in text
+    assert "nicht vollständig aktualisiert" in text
+    assert "bereits verarbeitete Daten" in text
+    assert "Evidenzstand beachten" in text
+    assert "erfolgreich geprüft" not in text
     assert "provider" not in text.casefold()
     assert "token=secret" not in text
     assert "league 999" not in text
@@ -491,6 +495,43 @@ def test_public_factor_details_hide_frozen_source_identities(monkeypatch):
     assert "PandaScore" not in text
     assert "Team-ID" not in text
     assert "Match-ID" not in text
+
+
+def test_production_like_payload_hides_internal_stage_and_factor_status(
+    monkeypatch,
+):
+    base_snapshot, base_candidate = _bundle("production-context")
+    raw_factor = FactorEvidence(
+        factor_key="football_context_0_weather",
+        summary="Wetter: passed",
+        source="api-football-context",
+        observed_at=MODELED - timedelta(minutes=20),
+        imported_at=MODELED,
+        fresh_until=START,
+        role=FactorRole.MODEL,
+    )
+    snapshot = replace(base_snapshot, factors=(raw_factor,))
+    candidate = replace(
+        base_candidate,
+        snapshot_id=snapshot.snapshot_id,
+        pros=("Wetter: passed",),
+        cons=("Aufstellungen: required_missing",),
+    )
+    payload = _payload((snapshot, candidate))
+    monkeypatch.setattr(ui.RiskBetStore, "read_latest", lambda _self: payload)
+    view = ui.load_riskobet_view()
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, "st", fake)
+    monkeypatch.setattr(ui, "load_riskobet_view", lambda _path=None: view)
+
+    ui.render_riskobet()
+
+    text = _all_text(fake)
+    assert "Im Test · noch nicht historisch bestätigt" in text
+    assert "Wetter: geprüft" in text
+    assert "Aufstellungen: noch nicht bestätigt" in text
+    for internal in ("Shadow", "passed", "required_missing"):
+        assert internal not in text
 
 
 def test_manual_quotes_do_not_change_visibility_or_model_order(monkeypatch):
