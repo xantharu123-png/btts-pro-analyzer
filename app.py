@@ -96,6 +96,10 @@ PAGE_INFO = {
         "Wettfinder",
         "Berechnete Auswahlen nach Qualitätsprüfung; Marktpreis und Value-Grenze werden getrennt bewertet.",
     ),
+    "RisikoBet": (
+        "RisikoBet",
+        "Plausible Außenseiter-Szenarien mit Pro, Contra und Datenstand – der Wettpreis bleibt eine getrennte Information.",
+    ),
     "Live": (
         "Live Wettfinder",
         "Aktuelle Spieldaten werden in konkrete Live-Auswahlen und klare Value-Grenzen übersetzt.",
@@ -110,7 +114,7 @@ PAGE_INFO = {
     ),
 }
 
-MAIN_PAGES = ("Wettfinder", "Live", "15K", "Meine Tipps")
+MAIN_PAGES = ("Wettfinder", "RisikoBet", "Live", "15K", "Meine Tipps")
 LEGACY_PAGE_ALIASES = {
     "Spiele": "Wettfinder",
     "Märkte": "Wettfinder",
@@ -134,6 +138,9 @@ PAGE_SCAN_JOBS = {
         "multi_sport_cricket",
         "multi_sport_esport",
     ),
+    # RisikoBet liest ausschließlich den vom planmäßigen Wettfinder-Lauf
+    # veröffentlichten Modellstand. Der Tab selbst startet keinen Providerjob.
+    "RisikoBet": (),
     "Live": ("live", "red_cards"),
     "15K": ("challenge_15k",),
     "Meine Tipps": (),
@@ -1150,36 +1157,57 @@ def _apply_app_styles() -> None:
         }
 
         .st-key-wettfinder_v2_page .wf-row {
+            align-items: center;
             display: grid;
-            gap: 0.3rem 1rem;
-            grid-template-columns: minmax(12rem, 1.25fr) minmax(10rem, 0.9fr) minmax(15rem, 1.2fr);
+            gap: 0.65rem 0.8rem;
+            grid-template-columns:
+                minmax(12rem, 1.45fr)
+                minmax(9rem, 1fr)
+                repeat(4, minmax(4.8rem, 0.55fr))
+                minmax(9rem, auto);
         }
 
         .st-key-wettfinder_v2_page .wf-row .wf-status-row {
-            grid-column: 1 / -1;
-            margin-bottom: 0.35rem;
-        }
-
-        .st-key-wettfinder_v2_page .wf-row .wf-meta,
-        .st-key-wettfinder_v2_page .wf-row .wf-event {
-            grid-column: 1;
-        }
-
-        .st-key-wettfinder_v2_page .wf-row .wf-market,
-        .st-key-wettfinder_v2_page .wf-row .wf-selection {
-            grid-column: 2;
-        }
-
-        .st-key-wettfinder_v2_page .wf-row .wf-primary-probability {
-            grid-column: 3;
-            grid-row: 2 / span 2;
+            justify-content: flex-end;
             margin: 0;
         }
 
-        .st-key-wettfinder_v2_page .wf-row .wf-metric-grid,
-        .st-key-wettfinder_v2_page .wf-row .wf-price-note,
-        .st-key-wettfinder_v2_page .wf-row .wf-context {
-            grid-column: 1 / -1;
+        .st-key-wettfinder_v2_page .wf-row-event,
+        .st-key-wettfinder_v2_page .wf-row-pick,
+        .st-key-wettfinder_v2_page .wf-row-value {
+            min-width: 0;
+        }
+
+        .st-key-wettfinder_v2_page .wf-row-event strong,
+        .st-key-wettfinder_v2_page .wf-row-pick strong,
+        .st-key-wettfinder_v2_page .wf-row-value strong {
+            display: block;
+            overflow-wrap: anywhere;
+        }
+
+        .st-key-wettfinder_v2_page .wf-row-event strong {
+            font-size: 0.9rem;
+            line-height: 1.25;
+        }
+
+        .st-key-wettfinder_v2_page .wf-row-pick strong {
+            color: #0f6a42;
+            font-size: 0.88rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-row-meta,
+        .st-key-wettfinder_v2_page .wf-row-label,
+        .st-key-wettfinder_v2_page .wf-row-note {
+            color: var(--bb-muted);
+            display: block;
+            font-size: 0.68rem;
+            line-height: 1.3;
+            overflow-wrap: anywhere;
+        }
+
+        .st-key-wettfinder_v2_page .wf-row-value strong {
+            font-size: 0.83rem;
+            margin-top: 0.1rem;
         }
 
         div[data-baseweb="popover"]:has([class*="st-key-bet_price_wettfinder_v2_"]),
@@ -1203,15 +1231,17 @@ def _apply_app_styles() -> None:
             }
 
             .st-key-wettfinder_v2_page .wf-row {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
+                grid-template-columns: repeat(4, minmax(0, 1fr));
             }
 
-            .st-key-wettfinder_v2_page .wf-row .wf-primary-probability,
-            .st-key-wettfinder_v2_page .wf-row .wf-metric-grid,
-            .st-key-wettfinder_v2_page .wf-row .wf-price-note,
-            .st-key-wettfinder_v2_page .wf-row .wf-context {
+            .st-key-wettfinder_v2_page .wf-row-event,
+            .st-key-wettfinder_v2_page .wf-row-pick {
+                grid-column: span 2;
+            }
+
+            .st-key-wettfinder_v2_page .wf-row .wf-status-row {
                 grid-column: 1 / -1;
-                grid-row: auto;
+                justify-content: flex-start;
             }
         }
 
@@ -1227,12 +1257,17 @@ def _apply_app_styles() -> None:
             }
 
             .st-key-wettfinder_v2_page .wf-row {
-                display: flex;
-                flex-direction: column;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
-            .st-key-wettfinder_v2_page .wf-row .wf-primary-probability {
-                margin-bottom: 0.7rem;
+            .st-key-wettfinder_v2_page .wf-row-event,
+            .st-key-wettfinder_v2_page .wf-row-pick,
+            .st-key-wettfinder_v2_page .wf-row .wf-status-row {
+                grid-column: 1 / -1;
+            }
+
+            .st-key-wettfinder_v2_page .wf-row .wf-status-row {
+                justify-content: flex-start;
             }
 
             [class*="st-key-wettfinder_v2_additional_row_"] {
@@ -1283,12 +1318,473 @@ def _apply_app_styles() -> None:
             }
         }
 
+        /* --- RisikoBet: flat, price-independent decision surface --- */
+        .st-key-riskobet_page {
+            max-width: 100%;
+            min-width: 0;
+            overflow-x: clip;
+        }
+
+        .st-key-riskobet_page *,
+        .st-key-riskobet_page *::before,
+        .st-key-riskobet_page *::after {
+            box-sizing: border-box;
+        }
+
+        .st-key-riskobet_summary {
+            background: linear-gradient(135deg, #14271f 0%, #1d3b2e 100%);
+            border: 1px solid #294b3c;
+            border-radius: 15px;
+            color: #ffffff;
+            margin: 0.35rem 0 1rem;
+            padding: 0.95rem 1.05rem;
+        }
+
+        .st-key-riskobet_summary p {
+            color: #dbe9e2;
+            margin: 0;
+        }
+
+        .st-key-riskobet_filters {
+            margin: 0 0 1rem;
+        }
+
+        .st-key-riskobet_filters [data-testid="stWidgetLabel"] {
+            display: none;
+        }
+
+        .st-key-riskobet_filters [data-testid="stButtonGroup"],
+        .st-key-riskobet_filters [data-baseweb="button-group"] {
+            background: transparent;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+        }
+
+        .st-key-riskobet_filters [data-testid="stButtonGroup"] button,
+        .st-key-riskobet_filters [data-baseweb="button-group"] button {
+            border: 1px solid var(--bb-line) !important;
+            border-radius: 999px !important;
+            flex: 0 0 auto;
+            min-height: 44px;
+            padding-left: 0.9rem !important;
+            padding-right: 0.9rem !important;
+        }
+
+        .st-key-riskobet_filters [data-testid="stButtonGroup"] button[aria-pressed="true"],
+        .st-key-riskobet_filters [data-baseweb="button-group"] button[aria-pressed="true"] {
+            background: #14271f !important;
+            color: #ffffff !important;
+        }
+
+        .st-key-riskobet_featured_grid {
+            margin: 0.15rem 0 1.7rem;
+            min-width: 0;
+        }
+
+        .st-key-riskobet_featured_grid [data-testid="stHorizontalBlock"] {
+            align-items: stretch;
+            flex-wrap: wrap;
+            gap: 0.9rem;
+        }
+
+        .st-key-riskobet_featured_grid [data-testid="stColumn"] {
+            display: flex;
+            min-width: 0 !important;
+        }
+
+        .st-key-riskobet_featured_grid [data-testid="stColumn"] > [data-testid="stVerticalBlock"] {
+            width: 100%;
+        }
+
+        [class*="st-key-riskobet_featured_card_"],
+        [class*="st-key-riskobet_additional_row_"] {
+            background: var(--bb-surface);
+            border: 1px solid var(--bb-line);
+            min-width: 0;
+            width: 100%;
+        }
+
+        [class*="st-key-riskobet_featured_card_"] {
+            border-radius: 17px;
+            box-shadow: 0 12px 30px rgba(29, 59, 46, 0.07);
+            height: 100%;
+            padding: 1rem;
+        }
+
+        [class*="st-key-riskobet_featured_card_"] > [data-testid="stVerticalBlock"] {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .st-key-riskobet_page .rb-card,
+        .st-key-riskobet_page .rb-row {
+            color: var(--bb-ink);
+            min-width: 0;
+        }
+
+        .st-key-riskobet_page .rb-status-row,
+        .st-key-riskobet_page .rb-row-status {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
+
+        .st-key-riskobet_page .rb-status-row {
+            margin-bottom: 0.75rem;
+        }
+
+        .st-key-riskobet_page .rb-badge {
+            border-radius: 999px;
+            display: inline-flex;
+            font-size: 0.68rem;
+            font-weight: 800;
+            line-height: 1;
+            padding: 0.42rem 0.56rem;
+            text-transform: uppercase;
+        }
+
+        .st-key-riskobet_page .rb-badge-sport {
+            background: #e9eff7;
+            color: #244b73;
+        }
+
+        .st-key-riskobet_page .rb-evidence-positive,
+        .st-key-riskobet_page .rb-context-positive,
+        .st-key-riskobet_page .rb-price-positive {
+            background: #dff2e7;
+            color: #11623e;
+        }
+
+        .st-key-riskobet_page .rb-evidence-warning,
+        .st-key-riskobet_page .rb-context-warning,
+        .st-key-riskobet_page .rb-price-warning {
+            background: #fff0cc;
+            color: #7a4800;
+        }
+
+        .st-key-riskobet_page .rb-evidence-muted,
+        .st-key-riskobet_page .rb-context-muted,
+        .st-key-riskobet_page .rb-price-muted {
+            background: #edf0f1;
+            color: #53606a;
+        }
+
+        .st-key-riskobet_page .rb-price-neutral {
+            background: #e5f0f7;
+            color: #16577e;
+        }
+
+        .st-key-riskobet_page .rb-meta {
+            color: #586a61;
+            font-size: 0.77rem;
+            font-weight: 650;
+            margin: 0 0 0.35rem;
+        }
+
+        .st-key-riskobet_page .rb-event {
+            font-size: 1.06rem !important;
+            line-height: 1.25 !important;
+            margin: 0 0 0.75rem !important;
+            overflow-wrap: anywhere;
+        }
+
+        .st-key-riskobet_page .rb-market {
+            color: #66766e;
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.02em !important;
+            margin: 0 0 0.2rem;
+            text-transform: uppercase;
+        }
+
+        .st-key-riskobet_page .rb-selection {
+            color: #0f6a42;
+            font-size: 1.05rem;
+            font-weight: 850;
+            margin: 0 0 0.85rem;
+            overflow-wrap: anywhere;
+        }
+
+        .st-key-riskobet_page .rb-probabilities {
+            display: grid;
+            gap: 0.5rem;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            margin-bottom: 0.75rem;
+        }
+
+        .st-key-riskobet_page .rb-probabilities > div {
+            background: #edf5f1;
+            border-radius: 10px;
+            min-width: 0;
+            padding: 0.65rem 0.7rem;
+        }
+
+        .st-key-riskobet_page .rb-probabilities span {
+            color: #4b5d54;
+            display: block;
+            font-size: 0.68rem;
+            line-height: 1.25;
+        }
+
+        .st-key-riskobet_page .rb-probabilities strong {
+            color: #0d7045;
+            display: block;
+            font-size: 1.25rem;
+            margin-top: 0.2rem;
+        }
+
+        .st-key-riskobet_page .rb-reasons {
+            display: grid;
+            gap: 0.55rem;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .st-key-riskobet_page .rb-reason {
+            border-radius: 9px;
+            min-width: 0;
+            padding: 0.62rem 0.7rem;
+        }
+
+        .st-key-riskobet_page .rb-reason-pro {
+            background: #e8f5ed;
+            border-left: 3px solid var(--bb-green);
+        }
+
+        .st-key-riskobet_page .rb-reason-contra {
+            background: #fff0ed;
+            border-left: 3px solid #c24a3c;
+        }
+
+        .st-key-riskobet_page .rb-reason h4 {
+            font-size: 0.72rem;
+            margin: 0 0 0.32rem;
+        }
+
+        .st-key-riskobet_page .rb-reason ul {
+            font-size: 0.74rem;
+            line-height: 1.35;
+            margin: 0;
+            padding-left: 1rem;
+        }
+
+        .st-key-riskobet_page .rb-missing,
+        .st-key-riskobet_page .rb-price-separation {
+            color: var(--bb-muted);
+            font-size: 0.72rem;
+            line-height: 1.4;
+        }
+
+        .st-key-riskobet_page .rb-missing span {
+            color: var(--bb-ink);
+            font-weight: 750;
+        }
+
+        .st-key-riskobet_page .rb-price {
+            align-items: center;
+            border-top: 1px solid var(--bb-line);
+            display: grid;
+            gap: 0.35rem 0.55rem;
+            grid-template-columns: auto 1fr auto;
+            margin-top: 0.75rem;
+            padding-top: 0.7rem;
+        }
+
+        .st-key-riskobet_page .rb-field-label {
+            color: var(--bb-muted);
+            font-size: 0.68rem;
+            font-weight: 750;
+            text-transform: uppercase;
+        }
+
+        .st-key-riskobet_page .rb-price-odds {
+            font-size: 0.95rem;
+            text-align: right;
+        }
+
+        .st-key-riskobet_page .rb-price-bookmaker {
+            color: var(--bb-muted);
+            font-size: 0.7rem;
+            grid-column: 2 / -1;
+        }
+
+        [class*="st-key-riskobet_actions_"] {
+            margin-top: auto;
+            padding-top: 0.75rem;
+        }
+
+        [class*="st-key-riskobet_actions_"] > [data-testid="stVerticalBlock"] {
+            align-items: start;
+            display: grid;
+            gap: 0.45rem;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        [class*="st-key-riskobet_actions_"] [data-testid="stExpander"],
+        [class*="st-key-riskobet_price_action_"] {
+            min-width: 0;
+            width: 100%;
+        }
+
+        [class*="st-key-riskobet_actions_"] [data-testid="stExpander"] details > summary,
+        [class*="st-key-riskobet_price_action_"] [data-testid="stPopover"] button,
+        [class*="st-key-riskobet_price_action_"] [data-testid="stButton"] button {
+            min-height: 44px;
+            width: 100%;
+        }
+
+        .st-key-riskobet_additional {
+            margin-bottom: 1.2rem;
+        }
+
+        [class*="st-key-riskobet_additional_row_"] {
+            border-radius: 13px;
+            margin-bottom: 0.65rem;
+            padding: 0.85rem 0.95rem;
+        }
+
+        .st-key-riskobet_page .rb-row {
+            align-items: center;
+            display: grid;
+            gap: 0.65rem 0.8rem;
+            grid-template-columns:
+                minmax(12rem, 1.35fr)
+                minmax(9rem, 0.9fr)
+                minmax(8rem, 0.7fr)
+                minmax(14rem, 1.3fr)
+                minmax(8rem, auto);
+        }
+
+        .st-key-riskobet_page .rb-row-event,
+        .st-key-riskobet_page .rb-row-pick,
+        .st-key-riskobet_page .rb-row-probabilities,
+        .st-key-riskobet_page .rb-row-reasons,
+        .st-key-riskobet_page .rb-row-price {
+            min-width: 0;
+        }
+
+        .st-key-riskobet_page .rb-row-event > strong,
+        .st-key-riskobet_page .rb-row-pick > strong {
+            display: block;
+            overflow-wrap: anywhere;
+        }
+
+        .st-key-riskobet_page .rb-row-meta,
+        .st-key-riskobet_page .rb-row-pick > span,
+        .st-key-riskobet_page .rb-row-probabilities > span,
+        .st-key-riskobet_page .rb-row-reasons > span,
+        .st-key-riskobet_page .rb-row-missing {
+            color: var(--bb-muted);
+            display: block;
+            font-size: 0.68rem;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+
+        .st-key-riskobet_page .rb-row-pick > strong {
+            color: #0f6a42;
+            font-size: 0.86rem;
+        }
+
+        .st-key-riskobet_page .rb-row-probabilities > span + span,
+        .st-key-riskobet_page .rb-row-reasons > span + span {
+            margin-top: 0.18rem;
+        }
+
+        .st-key-riskobet_page .rb-row-price {
+            display: grid;
+            gap: 0.25rem;
+            justify-items: start;
+        }
+
+        .st-key-riskobet_page .rb-row-price .rb-price-odds {
+            text-align: left;
+        }
+
+        @media (min-width: 1081px) {
+            .st-key-riskobet_featured_grid [data-testid="stColumn"] {
+                flex: 1 1 calc((100% - 0.9rem) / 2) !important;
+                min-width: calc((100% - 0.9rem) / 2) !important;
+                width: auto !important;
+            }
+        }
+
+        @media (min-width: 761px) and (max-width: 1080px) {
+            .st-key-riskobet_featured_grid [data-testid="stColumn"] {
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+                width: 100% !important;
+            }
+
+            .st-key-riskobet_page .rb-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .st-key-riskobet_page .rb-row-reasons,
+            .st-key-riskobet_page .rb-row-price {
+                grid-column: 1 / -1;
+            }
+        }
+
+        @media (max-width: 760px) {
+            .st-key-riskobet_page {
+                padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+            }
+
+            .st-key-riskobet_featured_grid [data-testid="stColumn"] {
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+                width: 100% !important;
+            }
+
+            .st-key-riskobet_page .rb-row,
+            .st-key-riskobet_page .rb-reasons {
+                grid-template-columns: 1fr;
+            }
+
+            .st-key-riskobet_page .rb-probabilities {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .st-key-riskobet_page .rb-row-reasons,
+            .st-key-riskobet_page .rb-row-price {
+                grid-column: 1;
+            }
+        }
+
+        @media (max-width: 430px) {
+            [class*="st-key-riskobet_featured_card_"] {
+                border-radius: 14px;
+                padding: 0.82rem;
+            }
+
+            .st-key-riskobet_page .rb-probabilities {
+                grid-template-columns: 1fr;
+            }
+
+            .st-key-riskobet_page .rb-price {
+                grid-template-columns: auto 1fr;
+            }
+
+            .st-key-riskobet_page .rb-price-odds {
+                grid-column: 2;
+            }
+        }
+
+        @media (max-width: 360px) {
+            [class*="st-key-riskobet_actions_"] > [data-testid="stVerticalBlock"] {
+                grid-template-columns: 1fr;
+            }
+        }
+
         /* --- Mobile bottom navigation (hidden on desktop) --- */
         .st-key-bb_bottomnav {
             display: none;
         }
 
-        @media (max-width: 767px) {
+        @media (max-width: 760px) {
             .st-key-bb_bottomnav {
                 background: var(--bb-surface);
                 border-top: 1px solid var(--bb-line);
@@ -1304,6 +1800,22 @@ def _apply_app_styles() -> None:
             .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] {
                 flex-wrap: nowrap;
                 gap: 0.3rem;
+            }
+
+            .st-key-bb_bottomnav [data-testid="stButtonGroup"] > [role="radiogroup"] {
+                display: grid;
+                gap: 0.3rem;
+                grid-template-columns: repeat(5, minmax(0, 1fr));
+                width: 100%;
+            }
+
+            .st-key-bb_bottomnav [data-testid="stButtonGroup"] button {
+                font-size: 0.7rem !important;
+                line-height: 1.15 !important;
+                min-height: 2.9rem !important;
+                min-width: 0 !important;
+                padding: 0.15rem 0.1rem !important;
+                width: 100% !important;
             }
 
             .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
@@ -1350,6 +1862,25 @@ def _apply_app_styles() -> None:
             }
         }
 
+        @media (min-width: 641px) and (max-width: 760px) {
+            .st-key-wettfinder_v2_page .st-key-wettfinder_v2_top_grid [data-testid="stColumn"] {
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+                width: 100% !important;
+            }
+        }
+
+        @media (max-width: 760px) {
+            /* This rule comes after the generic <=900px column cascade so
+               RisikoBet rows are truly one-column through the full mobile
+               breakpoint, including the 641-760px interval. */
+            .st-key-riskobet_page .st-key-riskobet_featured_grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+                width: 100% !important;
+            }
+        }
+
         @media (max-width: 640px) {
             [data-testid="stMain"] .block-container {
                 padding: 3rem 0.75rem 2rem;
@@ -1393,7 +1924,7 @@ def _apply_app_styles() -> None:
 
         /* Keep the direct mobile navigation usable after the generic
            responsive column rules above have been applied. */
-        @media (max-width: 767px) {
+        @media (max-width: 760px) {
             [data-testid="stMain"] .block-container {
                 padding-bottom: calc(6.25rem + env(safe-area-inset-bottom, 0px)) !important;
             }
@@ -1413,6 +1944,22 @@ def _apply_app_styles() -> None:
                 min-width: 0 !important;
                 width: auto !important;
             }
+
+            .st-key-bb_bottomnav [data-testid="stButtonGroup"] > [role="radiogroup"] {
+                display: grid !important;
+                grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+                overflow-x: hidden;
+                width: 100% !important;
+            }
+
+        }
+
+        @media (min-width: 761px) and (max-width: 1080px) {
+            .st-key-riskobet_page .st-key-riskobet_featured_grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+                width: 100% !important;
+            }
         }
 
         @media (max-width: 430px) {
@@ -1421,11 +1968,40 @@ def _apply_app_styles() -> None:
             }
 
             .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] {
-                flex-wrap: wrap !important;
+                flex-wrap: nowrap !important;
+                gap: 0.18rem;
             }
 
             .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-                flex: 0 0 calc(25% - 0.225rem) !important;
+                flex: 1 1 20% !important;
+                min-width: 0 !important;
+                width: 20% !important;
+            }
+
+            .st-key-bb_bottomnav [data-testid="stButton"] button,
+            .st-key-bb_bottomnav [data-testid="stButton"] button p,
+            .st-key-bb_bottomnav [data-testid="stButtonGroup"] button {
+                font-size: 0.62rem !important;
+                line-height: 1.05 !important;
+            }
+        }
+
+        @media (max-width: 340px) {
+            .st-key-bb_bottomnav {
+                padding-left: 0.18rem;
+                padding-right: 0.18rem;
+            }
+
+            .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] {
+                gap: 0.1rem;
+            }
+
+            .st-key-bb_bottomnav [data-testid="stButton"] button,
+            .st-key-bb_bottomnav [data-testid="stButton"] button p,
+            .st-key-bb_bottomnav [data-testid="stButtonGroup"] button {
+                font-size: 0.56rem !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
             }
         }
         </style>
@@ -4043,6 +4619,7 @@ def _automatic_consumer_run_incomplete(
     )
     return (
         status.football_status != "completed"
+        or int(getattr(status, "operational_error_count", 0) or 0) > 0
         or int(
             getattr(status, "football_operational_error_count", 0) or 0
         )
@@ -4109,9 +4686,15 @@ def _automatic_release_overlay(evaluation) -> Optional[WettfinderReleaseOverlay]
 
 def _render_wettfinder_card_actions(signal, card, candidate, binding, evaluation) -> None:
     with st.container(key=f"wettfinder_v2_actions_{card.manual_quote_key}"):
-        with st.expander("Analyse anzeigen", expanded=False):
-            st.caption(f"Kontext: {card.context_label}")
-            st.write(card.detail)
+        with st.expander(
+            "Analyse anzeigen",
+            expanded=False,
+            key=f"wettfinder_v2_analysis_{candidate.event_key}",
+        ):
+            # Only the curated consumer context reaches the public surface.
+            # Raw model, validation, provider and gate diagnostics stay in the
+            # persisted/admin data and are deliberately not rendered here.
+            st.write(card.context_label)
         with st.container(
             key=f"wettfinder_v2_price_action_{card.manual_quote_key}"
         ):
@@ -4182,15 +4765,6 @@ def _render_automated_daily_selection() -> None:
 
     incomplete_run = _automatic_consumer_run_incomplete(status)
     summary_slot = st.empty()
-    with st.container(key="wettfinder_v2_section_header"):
-        st.markdown(
-            '<div class="wf-section-heading">'
-            "<h2>Top-Auswahlen nach Modell</h2>"
-            "<p>Alle wichtigen Angaben sofort sichtbar. Der Preisstatus "
-            "sortiert die Karten nicht um.</p>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
     with st.container(key="wettfinder_v2_sports"):
         sport_filter = _segmented(
             "Sportart",
@@ -4225,6 +4799,15 @@ def _render_automated_daily_selection() -> None:
         for signal, card, candidate, binding, evaluation in rows
     }
     if catalog.featured:
+        with st.container(key="wettfinder_v2_section_header"):
+            st.markdown(
+                '<div class="wf-section-heading">'
+                "<h2>Top-Auswahlen nach Modell</h2>"
+                "<p>Alle wichtigen Angaben sofort sichtbar. Der Preisstatus "
+                "sortiert die Karten nicht um.</p>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
         with st.container(key="wettfinder_v2_top_grid"):
             top_columns = st.columns(len(catalog.featured))
             for index, (column, card) in enumerate(
@@ -4443,32 +5026,39 @@ def render_settings(analyzer) -> None:
 def _render_mobile_nav(workspace: str) -> None:
     """Bottom navigation for small screens; hidden on desktop via CSS.
 
-    The sidebar radio stays the single state source: the click callback runs
-    before the next script run and only sets the same ``workspace`` key.
+    The sidebar radio stays the workspace source of truth.  A segmented
+    control gives the active item a real radio ``aria-checked`` state; decorative
+    Material icon tokens no longer pollute the accessible button names.
     """
     short_labels = {
-        "Wettfinder": ("Tipps", ":material/search:"),
-        "Live": ("Live", ":material/bolt:"),
-        "15K": ("15K", ":material/emoji_events:"),
-        "Meine Tipps": ("Meine", ":material/bookmarks:"),
+        "Wettfinder": "Finder",
+        "RisikoBet": "Risiko",
+        "Live": "Live",
+        "15K": "15K",
+        "Meine Tipps": "Meine",
     }
+    widget_key = "bb_mobile_navigation"
 
-    def _go(page: str) -> None:
+    def _go() -> None:
+        page = st.session_state.get(widget_key)
+        if page not in MAIN_PAGES:
+            return
         st.session_state["workspace"] = page
         st.session_state["settings_open"] = False
 
+    if st.session_state.get(widget_key) != workspace:
+        st.session_state[widget_key] = workspace
     with st.container(key="bb_bottomnav"):
-        columns = st.columns(len(short_labels), gap="small")
-        for column, (page, (label, icon)) in zip(columns, short_labels.items()):
-            column.button(
-                label,
-                key=f"bb_bottomnav_{page}",
-                icon=icon,
-                type="primary" if page == workspace else "secondary",
-                use_container_width=True,
-                on_click=_go,
-                args=(page,),
-            )
+        st.segmented_control(
+            "Hauptnavigation",
+            MAIN_PAGES,
+            format_func=lambda page: short_labels[page],
+            key=widget_key,
+            required=True,
+            label_visibility="collapsed",
+            width="stretch",
+            on_change=_go,
+        )
 
 
 def _render_account_storage_unavailable() -> None:
@@ -4519,6 +5109,10 @@ def main() -> None:
         _render_account_storage_unavailable()
     elif workspace == "Wettfinder":
         render_wettfinder()
+    elif workspace == "RisikoBet":
+        from riskobet_ui import render_riskobet
+
+        render_riskobet()
     elif workspace == "Live":
         render_live(analyzer)
     elif workspace == "15K":

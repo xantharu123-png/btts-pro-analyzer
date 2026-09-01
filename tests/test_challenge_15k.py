@@ -1970,13 +1970,36 @@ class ChallengeProviderTests(unittest.TestCase):
                 [2],
                 target_day,
                 8,
+                market_kinds={"corner_total"},
             )
 
         self.assertEqual(unvalidated["base_candidates"], 0)
+        self.assertEqual(unvalidated["context_fixtures"], 0)
         self.assertEqual(unvalidated["forecast_shortlist"], [])
-        self.assertGreater(
-            unvalidated["blocked_counts"][UNVALIDATED_TRANSFER_REASON],
-            0,
+        self.assertTrue(unvalidated["riskobet_source_candidates"])
+        self.assertEqual(
+            unvalidated["riskobet_context_checked_fixture_ids"],
+            [900],
+        )
+        self.assertTrue(
+            all(
+                not item.base_eligible
+                for item in unvalidated["riskobet_source_candidates"]
+            )
+        )
+        self.assertTrue(
+            all(
+                MARKET_BY_KEY[item.market_key].kind != "corner_total"
+                for item in unvalidated["riskobet_source_candidates"]
+            ),
+            "Eine normale Marktfilterung darf den unabhaengigen RisikoBet-Pool "
+            "nicht beschneiden.",
+        )
+        self.assertTrue(
+            any(
+                UNVALIDATED_TRANSFER_REASON in item.blocked_reasons
+                for item in unvalidated["riskobet_source_candidates"]
+            )
         )
 
 
@@ -2319,6 +2342,106 @@ class ChallengeContextTests(unittest.TestCase):
         self.assertEqual(result["fixture_ids"], [1])
         self.assertEqual(len(result["shortlist"]), 1)
         self.assertTrue(result["shortlist"][0].eligible)
+
+    def test_targeted_refresh_contextualizes_pre_gate_risk_pool_in_one_batch(self):
+        now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        kickoff = now + timedelta(hours=2)
+        normal = candidate("1:BTTS", 1, 0.70, kickoff=kickoff)
+        risk_markets = {
+            "RESULT_HOME": 0.62,
+            "RESULT_AWAY": 0.20,
+            "RESULT_DRAW": 0.18,
+            "DC_X2": 0.38,
+            "AWAY_OVER_0_5": 0.52,
+            "AWAY_OVER_1_5": 0.22,
+        }
+        risk_pool = []
+        for index, (market_key, probability) in enumerate(risk_markets.items()):
+            item = candidate(
+                f"2:{market_key}:{index}",
+                2,
+                probability,
+                kickoff=kickoff,
+            )
+            item.market_key = market_key
+            item.market = market_key
+            item.selection = market_key
+            item.model_scope = MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED
+            item.validation = replace(
+                item.validation,
+                passed=False,
+                statistical_release_passed=False,
+            )
+            item.blocked_reasons = [
+                "Markt hat das Walk-forward-Gate nicht bestanden"
+            ]
+            risk_pool.append(item)
+
+        class SharedContextProvider:
+            def __init__(self):
+                self.errors = []
+                self.detail_calls = []
+                self.injury_calls = []
+
+            def details_by_fixture(self, fixture_ids):
+                self.detail_calls.append(list(fixture_ids))
+                return {
+                    fixture_id: fixture(
+                        fixture_id,
+                        kickoff,
+                        fixture_id * 10,
+                        fixture_id * 10 + 1,
+                    )
+                    for fixture_id in fixture_ids
+                }
+
+            def injuries_by_fixture(self, fixture_ids):
+                self.injury_calls.append(list(fixture_ids))
+                return {fixture_id: [] for fixture_id in fixture_ids}
+
+            @staticmethod
+            def coverage(_league_id, _season):
+                return {"injuries": True, "lineups": False}
+
+            @staticmethod
+            def h2h(_home_team_id, _away_team_id):
+                return []
+
+            @staticmethod
+            def weather(_fixture):
+                return {
+                    "status": "ok",
+                    "temperature_c": 16,
+                    "wind_mps": 2,
+                    "rain_3h_mm": 0,
+                    "snow_3h_mm": 0,
+                }
+
+        provider = SharedContextProvider()
+        result = refresh_discovered_candidates(
+            provider,
+            [normal, *risk_pool],
+            now.date(),
+            now=now,
+        )
+
+        self.assertEqual(provider.detail_calls, [[1, 2]])
+        self.assertEqual(provider.injury_calls, [[1, 2]])
+        self.assertEqual(result["base_fixture_count"], 1)
+        self.assertEqual(
+            result["riskobet_context_checked_fixture_ids"],
+            [2],
+        )
+        self.assertEqual(
+            {item.fixture_id for item in result["riskobet_source_candidates"]},
+            {2},
+        )
+        self.assertTrue(
+            all(
+                item.context.get("checked_at") == now.isoformat()
+                for item in result["riskobet_source_candidates"]
+            )
+        )
 
     def test_targeted_refresh_does_not_require_unpublished_lineups(self):
         now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)

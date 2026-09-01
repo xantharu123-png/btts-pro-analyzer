@@ -168,6 +168,9 @@ def fetch_fixtures_sofascore(date: str) -> list:
     for ev in response.json().get("events", []):
         if ev.get("status", {}).get("type") != "notstarted":
             continue
+        event_id = ev.get("id")
+        if isinstance(event_id, bool) or not isinstance(event_id, int) or event_id <= 0:
+            continue
         tournament = ev.get("tournament", {})
         category = (tournament.get("category") or {}).get("slug", "")
         if category not in ("atp", "wta"):
@@ -183,7 +186,7 @@ def fetch_fixtures_sofascore(date: str) -> list:
                 "player_a": ev.get("homeTeam", {}).get("name", ""),
                 "player_b": ev.get("awayTeam", {}).get("name", ""),
                 "match_date": match_date,
-                "provider_event_id": str(ev.get("id") or ""),
+                "provider_event_id": str(event_id),
                 "scheduled_start_utc": start_utc,
                 "fixture_source": "SofaScore",
                 "surface": surface,
@@ -251,12 +254,113 @@ def _fetch_espn_events(tour: str, date: str) -> list:
         return []
 
 
+def fetch_results_sofascore(date: str) -> list:
+    """Return strictly evidenced SofaScore terminals for one schedule date."""
+    url = f"https://api.sofascore.com/api/v1/sport/tennis/scheduled-events/{date}"
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=20)
+        response.raise_for_status()
+        events = response.json().get("events", [])
+    except (requests.RequestException, ValueError, AttributeError):
+        return []
+    result_observed_at = datetime.now(timezone.utc).isoformat()
+    results = []
+    for event in events:
+        tournament = event.get("tournament") or {}
+        category = (tournament.get("category") or {}).get("slug", "")
+        if category not in ("atp", "wta"):
+            continue
+        event_id = event.get("id")
+        if isinstance(event_id, bool) or not isinstance(event_id, int) or event_id <= 0:
+            continue
+        provider_event_id = str(event_id)
+        player_a = str((event.get("homeTeam") or {}).get("name") or "").strip()
+        player_b = str((event.get("awayTeam") or {}).get("name") or "").strip()
+        if not provider_event_id or not player_a or not player_b:
+            continue
+        start_utc, match_date = _start_metadata(event.get("startTimestamp"), date)
+        if match_date != date:
+            continue
+        status = event.get("status") or {}
+        status_type = str(status.get("type") or "").strip().casefold()
+        status_blob = json.dumps(status, ensure_ascii=False).casefold()
+        is_retirement = any(
+            token in status_blob
+            for token in ("retired", "retirement", "ret.", "ret'd")
+        )
+        is_walkover = any(
+            token in status_blob for token in ("walkover", "walk-over", "w/o")
+        )
+        if (
+            is_retirement and is_walkover
+            or any(token in status_blob for token in ("defaulted", "abandoned"))
+        ):
+            continue
+        common = {
+            "provider_event_id": provider_event_id,
+            "match_date": match_date,
+            "scheduled_start_utc": start_utc,
+            "player_a": player_a,
+            "player_b": player_b,
+            "result_observed_at": result_observed_at,
+        }
+        if is_retirement and status_type not in {"retired", "finished"}:
+            continue
+        if is_walkover and status_type not in {
+            "walkover",
+            "canceled",
+            "cancelled",
+            "finished",
+        }:
+            continue
+        if is_retirement or is_walkover:
+            results.append(
+                {
+                    **common,
+                    "winner": None,
+                    "winner_sets": None,
+                    "loser_sets": None,
+                    "termination": "retirement" if is_retirement else "walkover",
+                }
+            )
+            continue
+        if status_type != "finished":
+            continue
+        winner_code = event.get("winnerCode")
+        if isinstance(winner_code, bool) or winner_code not in (1, 2):
+            continue
+        home_sets = (event.get("homeScore") or {}).get("current")
+        away_sets = (event.get("awayScore") or {}).get("current")
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in (home_sets, away_sets)
+        ):
+            continue
+        if (winner_code == 1 and home_sets <= away_sets) or (
+            winner_code == 2 and away_sets <= home_sets
+        ):
+            continue
+        winner_is_a = winner_code == 1
+        results.append(
+            {
+                **common,
+                "winner": player_a if winner_is_a else player_b,
+                "winner_sets": home_sets if winner_is_a else away_sets,
+                "loser_sets": away_sets if winner_is_a else home_sets,
+                "termination": "normal",
+            }
+        )
+    return results
+
+
 def fetch_results_espn(date: str, tour: str) -> list:
-    """Return unambiguous normal finals for one tour/date."""
+    """Return only unambiguous normal, retirement, or walkover terminals."""
     tour_slug = str(tour).lower()
     want_slug = "mens-singles" if tour_slug == "atp" else "womens-singles"
     results = []
-    for event in _fetch_espn_events(tour_slug, date):
+    events = _fetch_espn_events(tour_slug, date)
+    result_observed_at = datetime.now(timezone.utc).isoformat()
+    for event in events:
         for grouping in event.get("groupings", []):
             if grouping.get("grouping", {}).get("slug") != want_slug:
                 continue
@@ -269,32 +373,66 @@ def fetch_results_espn(date: str, tour: str) -> list:
                     },
                     ensure_ascii=False,
                 ).casefold()
-                abnormal_tokens = (
+                retirement_tokens = (
                     "retired",
                     "retirement",
                     "ret.",
                     "ret'd",
+                )
+                walkover_tokens = (
                     "walkover",
                     "w/o",
+                    "walk-over",
+                )
+                unsupported_tokens = (
                     "defaulted",
                     "abandoned",
                 )
+                is_retirement = any(
+                    token in status_blob for token in retirement_tokens
+                )
+                is_walkover = any(token in status_blob for token in walkover_tokens)
                 if (
                     status_type.get("state") != "post"
                     or status_type.get("completed") is not True
-                    or status_type.get("name") != "STATUS_FINAL"
-                    or any(token in status_blob for token in abnormal_tokens)
+                    or (is_retirement and is_walkover)
+                    or any(token in status_blob for token in unsupported_tokens)
                 ):
                     continue
                 competitors = comp.get("competitors", [])
-                winners = [
-                    item for item in competitors if item.get("winner") is True
-                ]
                 names = [
                     item.get("athlete", {}).get("displayName")
                     for item in competitors
                 ]
-                if len(competitors) != 2 or len(winners) != 1 or not all(names):
+                if len(competitors) != 2 or not all(names):
+                    continue
+                start_utc, match_date = _start_metadata(comp.get("date"), date)
+                if match_date != date:
+                    continue
+                if is_retirement or is_walkover:
+                    results.append(
+                        {
+                            "provider_event_id": str(comp.get("id") or ""),
+                            "match_date": match_date,
+                            "scheduled_start_utc": start_utc,
+                            "player_a": names[0],
+                            "player_b": names[1],
+                            "winner": None,
+                            "winner_sets": None,
+                            "loser_sets": None,
+                            "termination": (
+                                "retirement" if is_retirement else "walkover"
+                            ),
+                            "result_observed_at": result_observed_at,
+                        }
+                    )
+                    continue
+                if status_type.get("name") != "STATUS_FINAL":
+                    continue
+                winners = [
+                    item for item in competitors if item.get("winner") is True
+                ]
+                if len(winners) != 1:
                     continue
                 winner_sets = sum(
                     1
@@ -313,9 +451,6 @@ def fetch_results_espn(date: str, tour: str) -> list:
                 )
                 if winner_sets < 2:
                     continue
-                start_utc, match_date = _start_metadata(comp.get("date"), date)
-                if match_date != date:
-                    continue
                 results.append(
                     {
                         "provider_event_id": str(comp.get("id") or ""),
@@ -326,13 +461,15 @@ def fetch_results_espn(date: str, tour: str) -> list:
                         "winner": winners[0].get("athlete", {}).get("displayName"),
                         "winner_sets": winner_sets,
                         "loser_sets": loser_sets,
+                        "termination": "normal",
+                        "result_observed_at": result_observed_at,
                     }
                 )
     return results
 
 
 def auto_settle_completed(today: str | None = None) -> int:
-    """Settle old normal finals; retirements and ambiguous rows stay manual."""
+    """Settle old explicit terminals through their exact fixture provider."""
     local_today = today or datetime.now(ZURICH_TZ).date().isoformat()
     pending = [
         row
@@ -349,49 +486,91 @@ def auto_settle_completed(today: str | None = None) -> int:
     result_cache = {}
     settled = 0
     for row in pending:
-        cache_key = (row["match_date"], str(row["tour"]).upper())
-        if cache_key not in result_cache:
-            result_cache[cache_key] = fetch_results_espn(*cache_key)
+        fixture_source = str(row.get("fixture_source") or "").strip().casefold()
+        if fixture_source == "sofascore":
+            cache_key = ("sofascore", row["match_date"])
+            if cache_key not in result_cache:
+                result_cache[cache_key] = fetch_results_sofascore(row["match_date"])
+        elif fixture_source == "espn":
+            cache_key = (
+                "espn",
+                row["match_date"],
+                str(row["tour"]).upper(),
+            )
+            if cache_key not in result_cache:
+                result_cache[cache_key] = fetch_results_espn(
+                    row["match_date"],
+                    str(row["tour"]).upper(),
+                )
+        else:
+            continue
         row_players = {
             normalize_player_name(row["player_a"]),
             normalize_player_name(row["player_b"]),
         }
-        match = None
-        event_id = str(row.get("provider_event_id") or "")
-        if event_id:
-            match = next(
-                (
-                    result
-                    for result in result_cache[cache_key]
-                    if result["provider_event_id"] == event_id
-                ),
-                None,
-            )
+        event_id = str(row.get("provider_event_id") or "").strip()
+        if not event_id:
+            continue
+        match = next(
+            (
+                result
+                for result in result_cache[cache_key]
+                if result["provider_event_id"] == event_id
+            ),
+            None,
+        )
         if match is None:
-            match = next(
-                (
-                    result
-                    for result in result_cache[cache_key]
-                    if {
-                        normalize_player_name(result["player_a"]),
-                        normalize_player_name(result["player_b"]),
-                    }
-                    == row_players
-                ),
-                None,
-            )
-        if match is None:
+            continue
+        match_players = {
+            normalize_player_name(str(match.get("player_a") or "")),
+            normalize_player_name(str(match.get("player_b") or "")),
+        }
+        if match_players != row_players:
+            continue
+        termination = str(match.get("termination") or "").strip().casefold()
+        result_observed_at = match.get("result_observed_at")
+        if not isinstance(result_observed_at, (datetime, str)):
+            continue
+        if termination in {"retirement", "walkover"}:
+            try:
+                shadow.settle(
+                    row["id"],
+                    None,
+                    termination=termination,
+                    result_observed_at=result_observed_at,
+                )
+            except (TypeError, ValueError):
+                continue
+            for bet in shadow.side_bets_for([row["id"]]):
+                if not bet["settled"]:
+                    shadow.settle_side_bet(bet["id"], "ret")
+            settled += 1
+            continue
+        if termination != "normal":
             continue
         winner_key = normalize_player_name(match["winner"])
         if winner_key == normalize_player_name(row["player_a"]):
             winner = row["player_a"]
-            set_result = f"{match['winner_sets']}:{match['loser_sets']}"
+            player_a_sets = match["winner_sets"]
+            player_b_sets = match["loser_sets"]
         elif winner_key == normalize_player_name(row["player_b"]):
             winner = row["player_b"]
-            set_result = f"{match['loser_sets']}:{match['winner_sets']}"
+            player_a_sets = match["loser_sets"]
+            player_b_sets = match["winner_sets"]
         else:
             continue
-        shadow.settle(row["id"], winner)
+        set_result = f"{player_a_sets}:{player_b_sets}"
+        try:
+            shadow.settle(
+                row["id"],
+                winner,
+                termination="normal",
+                result_observed_at=result_observed_at,
+                player_a_sets=player_a_sets,
+                player_b_sets=player_b_sets,
+            )
+        except (TypeError, ValueError):
+            continue
         for bet in shadow.side_bets_for([row["id"]]):
             if not bet["settled"]:
                 shadow.settle_side_bet(bet["id"], set_result)

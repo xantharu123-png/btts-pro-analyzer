@@ -699,7 +699,14 @@ def _render_manual_check(
                     st.toast(message)
         else:
             decision = st.session_state.get(decision_state_key)
-            if not isinstance(decision, PriceDecision):
+            if (
+                not isinstance(decision, PriceDecision)
+                or decision.candidate != candidate
+            ):
+                # The Streamlit widget key can outlive a refreshed model row.
+                # Never show or act on a manual price decision calculated for
+                # a previous immutable candidate snapshot.
+                st.session_state.pop(decision_state_key, None)
                 return None
 
         decision = _enforce_pending_release(decision)

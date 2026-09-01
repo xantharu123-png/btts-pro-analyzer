@@ -271,11 +271,12 @@ def _overlay_matches(
 def _price_copy(
     status: ReferencePriceStatus,
     quote: Optional[MarketConsensus],
+    *,
+    confirmed_tip: bool,
 ) -> tuple[str, str, Optional[float], Optional[str]]:
     """Present a status without ever relabelling an old price as current."""
 
     labels = {
-        "PLAYABLE": ("Spielbar", "positive"),
         "TOO_LOW": ("Unter Value", "muted"),
         "BORDERLINE": ("Quote offen", "warning"),
         "THIN": ("Quote zu dünn", "warning"),
@@ -283,9 +284,17 @@ def _price_copy(
         "UNAVAILABLE": ("Quote fehlt", "muted"),
         "INVALID_MINIMUM": ("Quote offen", "warning"),
     }
-    label, tone = labels.get(status.code, ("Quote offen", "warning"))
     if status.code == "PLAYABLE":
+        # A matching price is not a released tip. Reserve the green
+        # consumer-facing "Spielbar" state for the exact, persisted release
+        # overlay; SHADOW/RESEARCH rows remain visibly non-actionable.
+        label, tone = (
+            ("Spielbar", "positive")
+            if confirmed_tip
+            else ("Quote passend", "warning")
+        )
         return label, tone, status.usable_odds, status.bookmaker
+    label, tone = labels.get(status.code, ("Quote offen", "warning"))
     if status.code in {"TOO_LOW", "BORDERLINE"} and quote is not None:
         best = max(quote.points, key=lambda point: point.odds, default=None)
         return (
@@ -300,15 +309,16 @@ def _price_copy(
 def _evidence_copy(signal: ModelSignal, confirmed_tip: bool) -> tuple[str, str]:
     if confirmed_tip:
         return "Bestätigter Tipp", "positive"
-    if signal.evidence_stage == "RELEASED":
+    evidence_stage = str(signal.evidence_stage or "").strip().upper()
+    if evidence_stage == "RELEASED":
         if signal.statistical_release_passed is True:
             return "Freigegeben", "positive"
         return "Freigabe ausstehend", "warning"
-    if signal.context_complete is True:
-        return "Vollständig geprüft", "neutral"
-    if signal.context_complete is False:
-        return "Teilprüfung", "warning"
-    return "Prüfung ausstehend", "muted"
+    if evidence_stage == "SHADOW":
+        return "Evidenzprüfung", "warning"
+    if evidence_stage == "RESEARCH":
+        return "Forschungsmodell", "muted"
+    return "Modellprüfung", "muted"
 
 
 def build_wettfinder_card(
@@ -364,6 +374,7 @@ def build_wettfinder_card(
     price_label, price_tone, observed_odds, bookmaker = _price_copy(
         status,
         current_quote,
+        confirmed_tip=confirmed_tip,
     )
     evidence_label, evidence_tone = _evidence_copy(signal, confirmed_tip)
     model_probability = float(signal.probability)
@@ -539,8 +550,18 @@ def _metric(label: str, value: str, *, note: Optional[str] = None) -> str:
     )
 
 
-def _card_markup(card: WettfinderCard, *, compact: bool) -> str:
-    classes = "wf-row" if compact else "wf-top-card"
+def _row_value(label: str, value: str, *, note: Optional[str] = None) -> str:
+    note_markup = (
+        f'<span class="wf-row-note">{escape(note)}</span>' if note else ""
+    )
+    return (
+        '<div class="wf-row-value"><span class="wf-row-label">'
+        f"{escape(label)}</span><strong>{escape(value)}</strong>"
+        f"{note_markup}</div>"
+    )
+
+
+def _top_card_markup(card: WettfinderCard) -> str:
     price = format_decimal_odds(card.observed_odds)
     bookmaker_note = card.bookmaker if price != "–" else None
     metrics = "".join(
@@ -555,11 +576,15 @@ def _card_markup(card: WettfinderCard, *, compact: bool) -> str:
         card.price_code,
         "Wettpreis separat prüfen. Die Prognose bleibt unverändert.",
     )
+    if card.price_code == "PLAYABLE" and not card.confirmed_tip:
+        price_note = (
+            "Die Quote erreicht den Value-Bereich; noch kein freigegebener Tipp."
+        )
     event_label = escape(card.event_label)
     return (
-        f'<article class="{classes}" data-key="{escape(card.key, quote=True)}" '
+        f'<article class="wf-top-card" data-key="{escape(card.key, quote=True)}" '
         f'aria-label="Modellprognose für {escape(card.event_label, quote=True)}">'
-        f"{_status_badges(card, featured=not compact)}"
+        f"{_status_badges(card, featured=True)}"
         '<p class="wf-meta">'
         f'<span class="wf-sport">{escape(card.sport)}</span>'
         '<span aria-hidden="true"> · </span>'
@@ -580,16 +605,41 @@ def _card_markup(card: WettfinderCard, *, compact: bool) -> str:
     )
 
 
+def _compact_row_markup(card: WettfinderCard) -> str:
+    """Render one flat comparison row without duplicating full-card copy."""
+
+    price = format_decimal_odds(card.observed_odds)
+    bookmaker_note = card.bookmaker if price != "–" else None
+    return (
+        f'<article class="wf-row" data-key="{escape(card.key, quote=True)}" '
+        f'data-price-code="{escape(card.price_code, quote=True)}" '
+        f'aria-label="Modellprognose für {escape(card.event_label, quote=True)}">'
+        '<div class="wf-row-event">'
+        '<span class="wf-row-meta">'
+        f"{escape(card.sport)} · {escape(card.scheduled_start_label)}</span>"
+        f"<strong>{escape(card.event_label)}</strong></div>"
+        '<div class="wf-row-pick">'
+        f'<span class="wf-row-label">{escape(card.market)}</span>'
+        f"<strong>{escape(card.selection)}</strong></div>"
+        f'{_row_value("Modell", format_probability(card.model_probability))}'
+        f'{_row_value("Vorsichtig", format_probability(card.cautious_probability))}'
+        f'{_row_value("Value ab", format_decimal_odds(card.value_threshold))}'
+        f'{_row_value("Aktuell", price, note=bookmaker_note)}'
+        f"{_status_badges(card, featured=False)}"
+        "</article>"
+    )
+
+
 def render_top_card_html(card: WettfinderCard) -> str:
     """Return escaped standalone markup for one top card."""
 
-    return _card_markup(card, compact=False)
+    return _top_card_markup(card)
 
 
 def render_compact_row_html(card: WettfinderCard) -> str:
     """Return escaped standalone markup for one flat additional row."""
 
-    return _card_markup(card, compact=True)
+    return _compact_row_markup(card)
 
 
 __all__ = [

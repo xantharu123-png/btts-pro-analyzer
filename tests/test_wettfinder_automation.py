@@ -34,6 +34,9 @@ from market_consensus import (
     parse_fixture_consensus,
 )
 from multi_sport_recommendations import ESPORTS_MODEL_VERSION
+from riskobet_automation import SPORT_ORDER
+from riskobet_domain import RiskRunSnapshot, RunStatus
+from riskobet_store import FrozenRevisionError
 from wettfinder_automation import (
     AUTOMATION_VERSION,
     _active_football_candidates,
@@ -49,6 +52,7 @@ from wettfinder_automation import (
     football_context_due_fixture_ids,
     football_due,
     load_state,
+    riskobet_research_refresh_due,
     run_wettfinder,
     select_candidates,
     select_price_check_candidates,
@@ -626,7 +630,7 @@ def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
 
 def test_automation_writer_and_reader_share_one_artifact_version():
     assert AUTOMATION_VERSION == AUTOMATED_WETTFINDER_VERSION
-    assert AUTOMATED_WETTFINDER_VERSION == 16
+    assert AUTOMATED_WETTFINDER_VERSION == 17
     assert AUTOMATED_SELECTION_POLICY_VERSION == "useful-selection-catalog-v14"
 
 
@@ -3167,3 +3171,717 @@ def test_playable_price_cannot_release_incomplete_candidate_context(tmp_path):
     assert model_row["reference_price_status"] == "PLAYABLE"
     assert model_row["context_complete"] is False
     assert document["candidates"] == []
+
+
+def test_pre_gate_riskobet_pool_is_persisted_and_joined_into_one_context_batch():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    risk = replace(
+        _challenge_candidate(now + timedelta(minutes=80)),
+        candidate_id="fixture-1-away-win-risk",
+        market_key="RESULT_AWAY",
+        market="Sieger 1X2",
+        selection="FC Beta",
+        probability=0.34,
+        conservative_probability=0.28,
+        probability_haircut_pp=6.0,
+        model_price=1.0 / 0.28,
+        blocked_reasons=["Markt hat das Walk-forward-Gate nicht bestanden"],
+    )
+    assert risk.base_eligible is False
+    state = _football_state_from_snapshot(
+        {
+            "scanned_at": now.isoformat(),
+            "fixtures_found": 1,
+            "fixtures_modeled": 1,
+            "riskobet_source_candidates": [risk],
+            "errors": [],
+        },
+        attempted_at=now,
+        search_date=now.date(),
+    )
+
+    assert state["riskobet_source_candidate_count"] == 1
+    assert football_context_due_fixture_ids(state, now=now) == [1]
+    mixed = wettfinder_automation._discovered_candidates_for_fixtures(
+        state,
+        [1],
+    )
+    assert [candidate.candidate_id for candidate in mixed] == [risk.candidate_id]
+
+    risk.context = {
+        "passed": True,
+        "forecast_passed": False,
+        "release_context_complete": True,
+        "release_eligible": False,
+        "checked_at": (now + timedelta(minutes=1)).isoformat(),
+        "blocked_reasons": [],
+    }
+    refreshed = _merge_context_refresh(
+        state,
+        {
+            "candidates": [],
+            "riskobet_source_candidates": [risk],
+            "errors": [],
+            "operational_errors": [],
+        },
+        fixture_ids=[1],
+        checked_at=now + timedelta(minutes=1),
+    )
+
+    assert refreshed["riskobet_source_candidate_count"] == 1
+    assert refreshed["riskobet_source_candidates"][0]["context"][
+        "checked_at"
+    ] == (now + timedelta(minutes=1)).isoformat()
+    assert refreshed.get("candidates", []) == []
+
+
+def test_initial_shared_risk_context_is_persisted_and_not_refetched():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    risk = replace(
+        _challenge_candidate(now + timedelta(minutes=80)),
+        candidate_id="fixture-1-away-win-risk",
+        market_key="RESULT_AWAY",
+        market="Sieger 1X2",
+        selection="FC Beta",
+        probability=0.34,
+        conservative_probability=0.28,
+        probability_haircut_pp=6.0,
+        model_price=1.0 / 0.28,
+        blocked_reasons=["Markt hat das Walk-forward-Gate nicht bestanden"],
+    )
+    risk.context = {
+        "passed": True,
+        "forecast_passed": False,
+        "release_context_complete": True,
+        "release_eligible": False,
+        "checked_at": now.isoformat(),
+        "blocked_reasons": [],
+    }
+
+    state = _football_state_from_snapshot(
+        {
+            "scanned_at": now.isoformat(),
+            "context_checked_at": now.isoformat(),
+            "fixtures_found": 1,
+            "fixtures_modeled": 1,
+            "riskobet_source_candidates": [risk],
+            "riskobet_context_checked_fixture_ids": [1],
+            "errors": [],
+        },
+        attempted_at=now,
+        search_date=now.date(),
+    )
+
+    assert state["riskobet_context_checked_fixture_ids"] == [1]
+    assert state["context_checks"] == {"1": now.isoformat()}
+    assert football_context_due_fixture_ids(state, now=now) == []
+
+
+def test_football_risk_snapshot_clock_is_stable_until_inputs_change():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    base = _challenge_candidate(now + timedelta(hours=4))
+    specs = (
+        ("RESULT_HOME", "Endergebnis", "FC Alpha", 0.20),
+        ("RESULT_DRAW", "Endergebnis", "Unentschieden", 0.25),
+        ("RESULT_AWAY", "Endergebnis", "FC Beta", 0.55),
+        ("DC_1X", "Doppelte Chance", "1X", 0.45),
+        ("HOME_OVER_0_5", "Team 1 Gesamttore", "Über 0.5", 0.65),
+        ("HOME_OVER_1_5", "Team 1 Gesamttore", "Über 1.5", 0.25),
+    )
+    risk_pool = [
+        replace(
+            base,
+            candidate_id=f"fixture-1-{market_key.casefold()}",
+            market_key=market_key,
+            market=market,
+            selection=selection,
+            probability=probability,
+            conservative_probability=probability - 0.08,
+            probability_haircut_pp=8.0,
+            model_price=1.0 / (probability - 0.08),
+            blocked_reasons=[
+                "Markt hat das Walk-forward-Gate nicht bestanden"
+            ],
+        )
+        for market_key, market, selection, probability in specs
+    ]
+    state = _football_state_from_snapshot(
+        {
+            "scanned_at": now.isoformat(),
+            "fixtures_found": 1,
+            "fixtures_modeled": 1,
+            "riskobet_source_candidates": risk_pool,
+            "errors": [],
+        },
+        attempted_at=now,
+        search_date=now.date(),
+    )
+
+    first = wettfinder_automation._riskobet_football_source(
+        state,
+        now=now + timedelta(minutes=5),
+        target_date=now.date(),
+    )
+    repeated = wettfinder_automation._riskobet_football_source(
+        state,
+        now=now + timedelta(minutes=35),
+        target_date=now.date(),
+    )
+
+    assert len(first) == len(repeated) == 1
+    assert first[0].snapshot.modeled_at == now
+    assert repeated[0].snapshot.modeled_at == now
+    assert first[0].snapshot.snapshot_id == repeated[0].snapshot.snapshot_id
+
+
+def test_research_batch_uses_injected_completed_causal_history_once():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    event = {
+        "source": "ESPN",
+        "game_id": "nba-1",
+        "league": "NBA",
+        "home_team": "Alpha",
+        "away_team": "Beta",
+        "start_time": (now + timedelta(hours=6)).isoformat(),
+    }
+    history = []
+    for team, wins in (("Alpha", 2), ("Beta", 6)):
+        for index in range(8):
+            history.append(
+                {
+                    "status": "final",
+                    "completed_at": (
+                        now - timedelta(days=index + 1)
+                    ).isoformat(),
+                    "home_team": team,
+                    "away_team": f"Opponent-{team}-{index}",
+                    "winner_side": "home" if index < wins else "away",
+                }
+            )
+    history.append(
+        {
+            "status": "final",
+            "completed_at": (now + timedelta(minutes=1)).isoformat(),
+            "home_team": "Alpha",
+            "away_team": "Future leak",
+            "winner_side": "home",
+        }
+    )
+    calls = []
+
+    def history_loader(**kwargs):
+        calls.append(kwargs)
+        return history
+
+    batch = wettfinder_automation._riskobet_research_batch(
+        "basketball",
+        [event],
+        wettfinder_automation.adapt_basketball_research,
+        now=now,
+        history_loader=history_loader,
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["as_of"] == now
+    assert calls[0]["events"][0]["source_observed_at"] == now.isoformat()
+    assert len(batch.candidates) == 1
+    assert batch.candidates[0].model_probability is not None
+    assert batch.snapshots[0].modeled_at == now
+    assert sorted(factor.sample_size for factor in batch.snapshots[0].factors) == [8, 8]
+
+
+def test_research_without_completed_history_stays_open_without_probability():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    batch = wettfinder_automation._riskobet_research_batch(
+        "cricket",
+        [
+            {
+                "source": "Cricbuzz",
+                "match_id": "cricket-1",
+                "tournament": "Test Cup",
+                "team1": "Alpha",
+                "team2": "Beta",
+                "start_time": (now + timedelta(hours=6)).isoformat(),
+            }
+        ],
+        wettfinder_automation.adapt_cricket_research,
+        now=now,
+    )
+
+    assert len(batch.candidates) == 1
+    assert batch.candidates[0].model_probability is None
+    assert batch.candidates[0].selection_key == "open"
+    assert batch.candidates[0].missing_core_data
+
+
+def test_riskobet_context_never_displaces_normal_wettfinder_batch_priority():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    normal = [
+        {
+            "fixture_id": fixture_id,
+            "kickoff": (now + timedelta(minutes=70 + fixture_id)).isoformat(),
+        }
+        for fixture_id in range(1, 21)
+    ]
+    risk_only = [
+        {
+            "fixture_id": 999,
+            "kickoff": (now + timedelta(minutes=5)).isoformat(),
+        }
+    ]
+
+    due = football_context_due_fixture_ids(
+        {
+            "discovery_candidates": normal,
+            "riskobet_source_candidates": risk_only,
+            "context_checks": {},
+        },
+        now=now,
+    )
+
+    assert due == list(range(1, 21))
+
+
+def test_explicit_riskobet_runner_is_isolated_from_prices_and_uses_temp_paths(
+    tmp_path,
+):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    captured = {}
+    sources = {
+        sport: ()
+        for sport in (
+            "football",
+            "tennis",
+            "basketball",
+            "ice_hockey",
+            "cricket",
+            "esports",
+        )
+    }
+
+    def runner(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "COMPLETE",
+            "run_id": "run_test",
+            "snapshots": [],
+            "candidates": [],
+            "errors": [],
+        }
+
+    state_path = tmp_path / "wettfinder.json"
+    document = run_wettfinder(
+        now=now,
+        state_path=state_path,
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: _football_snapshot(now),
+        football_context_refresher=lambda *_args: {},
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+        riskobet_enabled=True,
+        riskobet_runner=runner,
+        riskobet_sources=sources,
+    )
+
+    assert document["riskobet"]["status"] == "complete"
+    assert captured["db_path"] == tmp_path / "riskobet.db"
+    assert captured["latest_path"] == tmp_path / "riskobet_latest.json"
+    assert captured["football_source"] == ()
+    assert "football_quote_loader" not in captured
+    assert "reference_quotes" not in captured
+    assert not (tmp_path / "riskobet.db").exists()
+    assert not (tmp_path / "riskobet_latest.json").exists()
+
+
+def test_riskobet_settlement_runs_before_new_model_publication(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    order = []
+    result_loader = lambda _requests, _observed: ()
+
+    def settlement_runner(**kwargs):
+        order.append("settlement")
+        assert kwargs["result_loaders"] == {"football": result_loader}
+        assert kwargs["db_path"] == tmp_path / "riskobet.db"
+        assert kwargs["latest_path"] == tmp_path / "riskobet_latest.json"
+        return {
+            "run_id": "prior-run",
+            "due_candidates": 1,
+            "due_events": 1,
+            "checked_sports": ["football"],
+            "terminal_settlements": 1,
+            "unresolved_candidates": 0,
+            "published": True,
+            "error_count": 0,
+            "errors": [],
+        }
+
+    def risk_runner(**_kwargs):
+        order.append("model")
+        return {
+            "status": "COMPLETE",
+            "run_id": "new-run",
+            "snapshots": [],
+            "candidates": [],
+            "errors": [],
+        }
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: _football_snapshot(now),
+        football_context_refresher=lambda *_args: {},
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+        riskobet_enabled=True,
+        riskobet_runner=risk_runner,
+        riskobet_settlement_runner=settlement_runner,
+        riskobet_result_loaders={"football": result_loader},
+        riskobet_sources={sport: () for sport in (
+            "football", "tennis", "basketball", "ice_hockey", "cricket", "esports"
+        )},
+    )
+
+    assert order == ["settlement", "model"]
+    assert document["riskobet"]["settlement"]["terminal_settlements"] == 1
+    assert document["riskobet"]["run_id"] == "new-run"
+
+
+def test_riskobet_settlement_failure_is_sanitized_and_model_run_continues(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    calls = []
+
+    def failed_settlement(**_kwargs):
+        raise RuntimeError("private-provider-token")
+
+    def risk_runner(**_kwargs):
+        calls.append("model")
+        return {
+            "status": "COMPLETE",
+            "run_id": "new-run",
+            "snapshots": [],
+            "candidates": [],
+            "errors": [],
+        }
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: _football_snapshot(now),
+        football_context_refresher=lambda *_args: {},
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+        riskobet_enabled=True,
+        riskobet_runner=risk_runner,
+        riskobet_settlement_runner=failed_settlement,
+        riskobet_sources={sport: () for sport in (
+            "football", "tennis", "basketball", "ice_hockey", "cricket", "esports"
+        )},
+    )
+
+    assert calls == ["model"]
+    encoded = json.dumps(document["riskobet"])
+    assert "private-provider-token" not in encoded
+    assert document["riskobet"]["settlement"]["errors"] == [
+        "automation:settlement_failed_runtimeerror"
+    ]
+
+
+def test_riskobet_integrity_failure_prevents_new_model_publication(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    calls = []
+
+    def failed_settlement(**_kwargs):
+        raise FrozenRevisionError("tampered store")
+
+    def forbidden_model(**_kwargs):
+        calls.append("model")
+        raise AssertionError("model must not publish over an integrity failure")
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: _football_snapshot(now),
+        football_context_refresher=lambda *_args: {},
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+        riskobet_enabled=True,
+        riskobet_runner=forbidden_model,
+        riskobet_settlement_runner=failed_settlement,
+        riskobet_sources={sport: () for sport in (
+            "football", "tennis", "basketball", "ice_hockey", "cricket", "esports"
+        )},
+    )
+
+    assert calls == []
+    assert document["riskobet"]["status"] == "failed"
+    assert document["riskobet"]["failure_type"] == "FrozenRevisionError"
+    assert "tampered store" not in json.dumps(document)
+
+
+def test_temp_wettfinder_path_does_not_enable_default_riskobet_side_effects(
+    tmp_path,
+):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: _football_snapshot(now),
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    assert "riskobet" not in document
+    assert not (tmp_path / "riskobet.db").exists()
+    assert not (tmp_path / "riskobet_latest.json").exists()
+
+
+def test_riskobet_research_retry_detects_missing_corrupt_and_failed_sources(
+    tmp_path,
+):
+    target = date(2030, 1, 1)
+    latest = tmp_path / "riskobet_latest.json"
+    completed_attempts = {
+        sport: {"date": target.isoformat(), "status": "completed"}
+        for sport in ("basketball", "ice_hockey", "cricket")
+    }
+    previous = {
+        "riskobet": {"research_source_attempts": completed_attempts}
+    }
+
+    assert riskobet_research_refresh_due(
+        previous,
+        latest_path=latest,
+        target_date=target,
+    ) is True
+
+    latest.write_text("{broken", encoding="utf-8")
+    assert riskobet_research_refresh_due(
+        previous,
+        latest_path=latest,
+        target_date=target,
+    ) is True
+    latest.write_text(
+        json.dumps(
+            RiskRunSnapshot(
+                started_at=datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
+                completed_at=datetime(2030, 1, 1, 10, 0, tzinfo=UTC),
+                status=RunStatus.COMPLETE,
+            ).to_dict()
+        ),
+        encoding="utf-8",
+    )
+    assert riskobet_research_refresh_due(
+        previous,
+        latest_path=latest,
+        target_date=target,
+    ) is False
+    failed = json.loads(json.dumps(previous))
+    failed["riskobet"]["research_source_attempts"]["cricket"][
+        "status"
+    ] = "failed"
+    assert riskobet_research_refresh_due(
+        failed,
+        latest_path=latest,
+        target_date=target,
+    ) is True
+
+
+def test_default_riskobet_sources_execute_exactly_the_six_due_adapters(monkeypatch):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    calls = []
+
+    def recorder(sport):
+        def run(*_args, **_kwargs):
+            calls.append(sport)
+            return ()
+
+        return run
+
+    monkeypatch.setattr(
+        wettfinder_automation, "_riskobet_football_source", recorder("football")
+    )
+    monkeypatch.setattr(
+        wettfinder_automation, "adapt_tennis_shadow", recorder("tennis")
+    )
+    monkeypatch.setattr(
+        wettfinder_automation, "adapt_esports_shadow", recorder("esports")
+    )
+    monkeypatch.setattr(
+        wettfinder_automation,
+        "_default_basketball_risk_source",
+        recorder("basketball"),
+    )
+    monkeypatch.setattr(
+        wettfinder_automation,
+        "_default_ice_hockey_risk_source",
+        recorder("ice_hockey"),
+    )
+    monkeypatch.setattr(
+        wettfinder_automation, "_default_cricket_risk_source", recorder("cricket")
+    )
+
+    sources, due = wettfinder_automation._riskobet_default_sources(
+        {},
+        now=now,
+        target_date=now.date(),
+        research_due=True,
+    )
+    assert tuple(sport for sport in SPORT_ORDER if sport in sources) == SPORT_ORDER
+    assert due == {sport: True for sport in SPORT_ORDER}
+    for sport in SPORT_ORDER:
+        sources[sport]()
+    assert calls == list(SPORT_ORDER)
+
+    calls.clear()
+    sources, due = wettfinder_automation._riskobet_default_sources(
+        {},
+        now=now,
+        target_date=now.date(),
+        research_due=False,
+    )
+    assert set(sources) == {"football", "tennis", "esports"}
+    assert due == {
+        "football": True,
+        "tennis": True,
+        "basketball": False,
+        "ice_hockey": False,
+        "cricket": False,
+        "esports": True,
+    }
+    for sport in ("football", "tennis", "esports"):
+        sources[sport]()
+    assert calls == ["football", "tennis", "esports"]
+
+
+def test_failed_research_attempt_is_retried_without_new_football_discovery(
+    tmp_path,
+    monkeypatch,
+):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    state_path = tmp_path / "wettfinder.json"
+    latest_path = tmp_path / "riskobet_latest.json"
+    attempts = {
+        sport: {
+            "date": now.date().isoformat(),
+            "status": "failed" if sport == "cricket" else "completed",
+        }
+        for sport in ("basketball", "ice_hockey", "cricket")
+    }
+    state_path.write_text(
+        json.dumps(
+            {
+                "version": AUTOMATION_VERSION,
+                "betting_policy_version": BETTING_POLICY_VERSION,
+                "selection_policy_version": AUTOMATED_SELECTION_POLICY_VERSION,
+                "football": {
+                    "status": "completed",
+                    "search_date": now.date().isoformat(),
+                    "last_attempt_at": (now - timedelta(minutes=5)).isoformat(),
+                    "context_checks": {},
+                    "discovery_candidates": [],
+                    "riskobet_source_candidates": [],
+                    "candidates": [],
+                    "basis_candidates": [],
+                },
+                "riskobet": {"research_source_attempts": attempts},
+            }
+        ),
+        encoding="utf-8",
+    )
+    latest_path.write_text(
+        json.dumps(
+            RiskRunSnapshot(
+                started_at=now,
+                completed_at=now,
+                status=RunStatus.COMPLETE,
+            ).to_dict()
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def safe_sources(_football_state, *, now, target_date, research_due):
+        captured["research_due"] = research_due
+        sources = {
+            sport: ()
+            for sport in (
+                "football",
+                "tennis",
+                "basketball",
+                "ice_hockey",
+                "cricket",
+                "esports",
+            )
+        }
+        return sources, {sport: True for sport in sources}
+
+    monkeypatch.setattr(wettfinder_automation, "_same_artifact_path", lambda *_: True)
+    monkeypatch.setattr(
+        wettfinder_automation,
+        "_riskobet_default_sources",
+        safe_sources,
+    )
+
+    document = run_wettfinder(
+        now=now,
+        state_path=state_path,
+        config=AppConfig(api_football_key="test"),
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+        riskobet_runner=lambda **_kwargs: {
+            "status": "COMPLETE",
+            "run_id": "run_retry",
+            "snapshots": [],
+            "candidates": [],
+            "errors": [],
+        },
+        riskobet_settlement_runner=lambda **_kwargs: {
+            "run_id": None,
+            "due_candidates": 0,
+            "due_events": 0,
+            "checked_sports": [],
+            "terminal_settlements": 0,
+            "unresolved_candidates": 0,
+            "published": False,
+            "error_count": 0,
+            "errors": [],
+        },
+        riskobet_latest_path=latest_path,
+    )
+
+    assert captured["research_due"] is True
+    assert document["sources"]["football"]["due_reason"] == (
+        "daily_discovery_current"
+    )
+    assert document["riskobet"]["research_source_attempts"]["cricket"] == {
+        "date": now.date().isoformat(),
+        "status": "completed",
+    }
+
+
+def test_riskobet_failure_summary_never_leaks_exception_details(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    secret = "provider-secret-token-123"
+
+    def failed_runner(**_kwargs):
+        raise RuntimeError(secret)
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: _football_snapshot(now),
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+        riskobet_enabled=True,
+        riskobet_runner=failed_runner,
+        riskobet_sources={},
+    )
+
+    assert document["riskobet"]["status"] == "failed"
+    assert document["riskobet"]["failure_type"] == "RuntimeError"
+    assert secret not in json.dumps(document)

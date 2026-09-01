@@ -1,6 +1,8 @@
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
+import sqlite3
 
 from esports_shadow import ESPORTS_MODEL_VERSION, EsportsShadowLog
 
@@ -97,8 +99,22 @@ class EsportsShadowLogTests(unittest.TestCase):
             log.log_predictions([_match(55), _match(56, team1_wins=6, team2_wins=14)])
 
             results = {
-                55: {"winner_team_id": 7},   # Alpha was selected -> hit
-                56: {"winner_team_id": 7},   # Beta was selected -> miss
+                55: {
+                    "winner_team_id": 7,
+                    "team1_id": 7,
+                    "team2_id": 8,
+                    "score1": 2,
+                    "score2": 0,
+                    "termination": "normal",
+                },
+                56: {
+                    "winner_team_id": 7,
+                    "team1_id": 7,
+                    "team2_id": 8,
+                    "score1": 2,
+                    "score2": 1,
+                    "termination": "normal",
+                },
             }
             settled = log.settle_open(results.get, max_calls=10)
             self.assertEqual(settled, 2)
@@ -231,14 +247,104 @@ class EsportsShadowLogTests(unittest.TestCase):
 
             self.assertEqual(
                 log.settle_open(
-                    lambda _mid: {"void": True, "status": "canceled"},
+                    lambda _mid: {
+                        "void": True,
+                        "status": "canceled",
+                        "termination": "cancelled",
+                        "team1_id": 7,
+                        "team2_id": 8,
+                    },
                     max_calls=10,
                 ),
-                0,
+                1,
             )
             summary = log.summary()
             self.assertEqual(summary["open"], 0)
             self.assertEqual(summary["voided"], 1)
+
+    def test_legacy_schema_is_migrated_without_fabricating_result_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "shadow.db"
+            with closing(sqlite3.connect(db)) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE esports_shadow_predictions (
+                        match_id INTEGER PRIMARY KEY, logged_at TEXT NOT NULL,
+                        game TEXT NOT NULL, team1 TEXT NOT NULL, team2 TEXT NOT NULL,
+                        selected_team_id INTEGER NOT NULL, selection TEXT NOT NULL,
+                        status TEXT NOT NULL, series_type INTEGER NOT NULL,
+                        score1 INTEGER NOT NULL, score2 INTEGER NOT NULL,
+                        elo1 REAL NOT NULL, elo2 REAL NOT NULL,
+                        model_probability REAL NOT NULL,
+                        risk_adjusted_probability REAL NOT NULL,
+                        minimum_odds REAL NOT NULL, settled INTEGER NOT NULL DEFAULT 0,
+                        winner_team_id INTEGER, hit INTEGER, settled_at TEXT
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO esports_shadow_predictions VALUES (
+                        55, '2026-01-01T10:00:00+00:00', 'CS2', 'Alpha', 'Beta',
+                        7, 'Alpha', 'upcoming', 3, 0, 0, 1600, 1500, 60, 55,
+                        1.8, 1, 7, 1, '2026-01-01T12:00:00+00:00'
+                    )
+                    """
+                )
+                connection.commit()
+
+            EsportsShadowLog(db)
+
+            with closing(sqlite3.connect(db)) as connection:
+                columns = {
+                    row[1] for row in connection.execute(
+                        "PRAGMA table_info(esports_shadow_predictions)"
+                    )
+                }
+                migrated = connection.execute(
+                    "SELECT team1_id, team2_id, termination, final_score1, final_score2 "
+                    "FROM esports_shadow_predictions WHERE match_id=55"
+                ).fetchone()
+            self.assertTrue(
+                {"team1_id", "team2_id", "termination", "final_score1", "final_score2"}
+                <= columns
+            )
+            self.assertEqual(migrated, (None, None, None, None, None))
+
+    def test_overlapping_settlers_cannot_overwrite_a_terminal_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "shadow.db"
+            first = EsportsShadowLog(db)
+            second = EsportsShadowLog(db)
+            first.log_predictions([_match()])
+            alpha_win = {
+                "winner_team_id": 7,
+                "team1_id": 7,
+                "team2_id": 8,
+                "score1": 2,
+                "score2": 0,
+                "termination": "normal",
+            }
+            beta_win = {
+                "winner_team_id": 8,
+                "team1_id": 7,
+                "team2_id": 8,
+                "score1": 1,
+                "score2": 2,
+                "termination": "normal",
+            }
+
+            def racing_fetcher(_match_id):
+                self.assertEqual(second.settle_open(lambda _mid: alpha_win), 1)
+                return beta_win
+
+            self.assertEqual(first.settle_open(racing_fetcher), 0)
+            with closing(sqlite3.connect(db)) as connection:
+                terminal = connection.execute(
+                    "SELECT winner_team_id, final_score1, final_score2, termination "
+                    "FROM esports_shadow_predictions WHERE match_id=55"
+                ).fetchone()
+            self.assertEqual(terminal, (7, 2, 0, "normal"))
 
     def test_unresolved_rows_rotate_instead_of_starving_newer_matches(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -68,6 +68,10 @@ CREATE TABLE IF NOT EXISTS predictions (
     actual_winner TEXT,
     ret_flag INTEGER DEFAULT 0,
     ret_set INTEGER,
+    termination TEXT,
+    result_observed_at TEXT,
+    player_a_sets INTEGER,
+    player_b_sets INTEGER,
     closing_odds_a REAL,
     closing_odds_b REAL,
     closing_checked_utc REAL,
@@ -125,6 +129,10 @@ _PREDICTION_MIGRATIONS = {
     "closing_checked_utc": "REAL",
     "closing_quote_id_a": "INTEGER",
     "closing_quote_id_b": "INTEGER",
+    "termination": "TEXT",
+    "result_observed_at": "TEXT",
+    "player_a_sets": "INTEGER",
+    "player_b_sets": "INTEGER",
     "model_version": "TEXT",
     "policy_version": "TEXT",
 }
@@ -730,9 +738,9 @@ def store_prediction(
                 """
                 UPDATE predictions
                 SET match_date=?,
-                    provider_event_id=COALESCE(?, provider_event_id),
+                    provider_event_id=COALESCE(provider_event_id, ?),
                     scheduled_start_utc=COALESCE(?, scheduled_start_utc),
-                    fixture_source=COALESCE(?, fixture_source)
+                    fixture_source=COALESCE(fixture_source, ?)
                 WHERE id=?
                 """,
                 (
@@ -791,54 +799,166 @@ def pending_predictions() -> List[Dict]:
     return [dict(r) for r in rows]
 
 
-def settle(prediction_id: int, actual_winner: str, ret: bool = False,
+def _result_observation_iso(value: datetime | str | None) -> str:
+    """Return one timezone-aware observation timestamp in canonical UTC ISO form."""
+    if value is None:
+        observed = datetime.now(timezone.utc)
+    elif isinstance(value, datetime):
+        observed = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            observed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("result_observed_at must be a valid ISO timestamp") from exc
+    else:
+        raise TypeError("result_observed_at must be a datetime or ISO timestamp")
+    if observed.tzinfo is None or observed.utcoffset() is None:
+        raise ValueError("result_observed_at must include a timezone")
+    return observed.astimezone(timezone.utc).isoformat()
+
+
+def _validated_set_score(
+    player_a_sets: Optional[int],
+    player_b_sets: Optional[int],
+    *,
+    best_of: object,
+    player_a: str,
+    player_b: str,
+    actual_winner: Optional[str],
+    retired: bool,
+) -> tuple[Optional[int], Optional[int]]:
+    if player_a_sets is None and player_b_sets is None:
+        return None, None
+    if player_a_sets is None or player_b_sets is None:
+        raise ValueError("player_a_sets and player_b_sets must be provided together")
+    for field, value in (
+        ("player_a_sets", player_a_sets),
+        ("player_b_sets", player_b_sets),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{field} must be a non-negative integer")
+    if isinstance(best_of, bool) or not isinstance(best_of, int) or best_of not in (3, 5):
+        raise ValueError("best_of must be 3 or 5 when a set score is recorded")
+    sets_to_win = best_of // 2 + 1
+    if player_a_sets > sets_to_win or player_b_sets > sets_to_win:
+        raise ValueError("set score exceeds the stored best-of format")
+    if not retired:
+        winner_sets = player_a_sets if actual_winner == player_a else player_b_sets
+        loser_sets = player_b_sets if actual_winner == player_a else player_a_sets
+        if winner_sets != sets_to_win or loser_sets >= sets_to_win:
+            raise ValueError("set score does not prove the stored winner")
+    return player_a_sets, player_b_sets
+
+
+def settle(prediction_id: int, actual_winner: Optional[str], ret: bool = False,
            ret_set: Optional[int] = None,
-           closing_a: Optional[float] = None, closing_b: Optional[float] = None) -> None:
-    """Settle one prediction.  ``actual_winner`` must equal player_a or player_b."""
+           closing_a: Optional[float] = None, closing_b: Optional[float] = None,
+           *, termination: Optional[str] = None,
+           result_observed_at: datetime | str | None = None,
+           player_a_sets: Optional[int] = None,
+           player_b_sets: Optional[int] = None) -> None:
+    """Settle one prediction and persist auditable result evidence.
+
+    Existing callers remain valid: when no observation time is supplied, the
+    current UTC instant is recorded.  Set scores are optional, but must be a
+    complete, winner-consistent A/B pair when supplied for a normal final.
+    """
     if closing_a is not None or closing_b is not None:
         raise ValueError(
             "record closing odds before settlement with record_closing_prices"
         )
+    if not isinstance(ret, bool):
+        raise TypeError("ret must be a boolean")
+    if termination is None:
+        clean_termination = "retirement" if ret else "normal"
+    elif isinstance(termination, str) and termination in {
+        "normal",
+        "retirement",
+        "walkover",
+    }:
+        clean_termination = termination
+    else:
+        raise ValueError("termination must be normal, retirement, or walkover")
+    if ret and clean_termination != "retirement":
+        raise ValueError("ret=True requires retirement termination")
+    retired = clean_termination == "retirement"
+    if ret_set is not None and (
+        isinstance(ret_set, bool) or not isinstance(ret_set, int) or ret_set < 0
+    ):
+        raise ValueError("ret_set must be a non-negative integer")
+    if not retired and ret_set is not None:
+        raise ValueError("ret_set requires retirement termination")
+    if clean_termination == "walkover" and (
+        actual_winner is not None
+        or player_a_sets is not None
+        or player_b_sets is not None
+    ):
+        raise ValueError("walkover cannot include a winner or set score")
+    observed_iso = _result_observation_iso(result_observed_at)
     with _connect() as conn:
         row = conn.execute(
-            "SELECT player_a, player_b, recommended_side, odds_a, odds_b FROM predictions WHERE id=?",
+            "SELECT player_a, player_b, recommended_side, odds_a, odds_b, "
+            "best_of, settled FROM predictions WHERE id=?",
             (prediction_id,),
         ).fetchone()
         if row is None:
             raise KeyError(f"prediction {prediction_id} not found")
-        player_a, player_b, side, odds_a, odds_b = row
-        if actual_winner not in (player_a, player_b):
+        player_a, player_b, side, odds_a, odds_b, best_of, settled = row
+        if settled:
+            raise ValueError("prediction is already settled")
+        if actual_winner is not None and actual_winner not in (player_a, player_b):
             raise ValueError("actual_winner must match one of the stored players")
+        if clean_termination == "normal" and actual_winner is None:
+            raise ValueError("normal settlement requires an actual_winner")
+        player_a_sets, player_b_sets = _validated_set_score(
+            player_a_sets,
+            player_b_sets,
+            best_of=best_of,
+            player_a=player_a,
+            player_b=player_b,
+            actual_winner=actual_winner,
+            retired=retired,
+        )
         pnl: Optional[float] = None
         if side:
-            odds = odds_a if side == "A" else odds_b
-            won = (side == "A" and actual_winner == player_a) or (
-                side == "B" and actual_winner == player_b
-            )
-            if odds is None or odds <= 1.0:
-                pnl = None
-            elif ret and RETIREMENT_RULE == "match_completed":
-                pnl = 0.0  # void
-            elif ret and RETIREMENT_RULE == "one_set" and (ret_set or 0) < 1:
-                pnl = 0.0  # void before set 1 completed
+            if clean_termination == "walkover" or actual_winner is None:
+                pnl = 0.0
             else:
-                pnl = (odds - 1.0) if won else -1.0
+                odds = odds_a if side == "A" else odds_b
+                won = (side == "A" and actual_winner == player_a) or (
+                    side == "B" and actual_winner == player_b
+                )
+                if odds is None or odds <= 1.0:
+                    pnl = None
+                elif retired and RETIREMENT_RULE == "match_completed":
+                    pnl = 0.0  # void
+                elif retired and RETIREMENT_RULE == "one_set" and (ret_set or 0) < 1:
+                    pnl = 0.0  # void before set 1 completed
+                else:
+                    pnl = (odds - 1.0) if won else -1.0
 
-        conn.execute(
+        cursor = conn.execute(
             """
             UPDATE predictions
             SET settled=1, actual_winner=?, ret_flag=?, ret_set=?,
-                pnl=?
-            WHERE id=?
+                termination=?, result_observed_at=?,
+                player_a_sets=?, player_b_sets=?, pnl=?
+            WHERE id=? AND settled=0
             """,
             (
                 actual_winner,
-                1 if ret else 0,
+                1 if retired else 0,
                 ret_set,
+                clean_termination,
+                observed_iso,
+                player_a_sets,
+                player_b_sets,
                 pnl,
                 prediction_id,
             ),
         )
+        if cursor.rowcount != 1:
+            raise ValueError("prediction is already settled")
 
 
 def summary() -> Dict:

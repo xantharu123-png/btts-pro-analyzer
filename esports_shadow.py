@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS esports_shadow_predictions (
     game TEXT NOT NULL,
     team1 TEXT NOT NULL,
     team2 TEXT NOT NULL,
+    team1_id INTEGER,
+    team2_id INTEGER,
     selected_team_id INTEGER NOT NULL,
     selection TEXT NOT NULL,
     status TEXT NOT NULL,
@@ -64,6 +66,9 @@ CREATE TABLE IF NOT EXISTS esports_shadow_predictions (
     winner_team_id INTEGER,
     hit INTEGER,
     settled_at TEXT,
+    termination TEXT,
+    final_score1 INTEGER,
+    final_score2 INTEGER,
     scheduled_at TEXT,
     model_version TEXT,
     last_checked_at TEXT,
@@ -84,6 +89,11 @@ class EsportsShadowLog:
                 )
             }
             additions = {
+                "team1_id": "INTEGER",
+                "team2_id": "INTEGER",
+                "termination": "TEXT",
+                "final_score1": "INTEGER",
+                "final_score2": "INTEGER",
                 "scheduled_at": "TEXT",
                 "model_version": "TEXT",
                 "last_checked_at": "TEXT",
@@ -142,6 +152,16 @@ class EsportsShadowLog:
                     continue
                 team1_id = match.get("team1_id")
                 team2_id = match.get("team2_id")
+                if (
+                    not isinstance(team1_id, int)
+                    or isinstance(team1_id, bool)
+                    or team1_id <= 0
+                    or not isinstance(team2_id, int)
+                    or isinstance(team2_id, bool)
+                    or team2_id <= 0
+                    or team1_id == team2_id
+                ):
+                    continue
                 if candidate.selection == match.get("team1"):
                     selected_team_id = team1_id
                 elif candidate.selection == match.get("team2"):
@@ -161,11 +181,12 @@ class EsportsShadowLog:
                     """
                     INSERT OR IGNORE INTO esports_shadow_predictions (
                         match_id, logged_at, game, team1, team2,
-                        selected_team_id, selection, status, series_type,
+                        team1_id, team2_id, selected_team_id, selection,
+                        status, series_type,
                         score1, score2, elo1, elo2, model_probability,
                         risk_adjusted_probability, minimum_odds,
                         scheduled_at, model_version
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         match_id,
@@ -173,6 +194,8 @@ class EsportsShadowLog:
                         str(match.get("game") or ""),
                         str(match.get("team1") or ""),
                         str(match.get("team2") or ""),
+                        team1_id,
+                        team2_id,
                         selected_team_id,
                         str(candidate.selection or ""),
                         str(match.get("status") or "live"),
@@ -209,7 +232,8 @@ class EsportsShadowLog:
             rows = connection.execute(
                 """
                 SELECT match_id, selected_team_id, series_type, score1, score2,
-                       logged_at, last_checked_at, check_attempts
+                       team1_id, team2_id, logged_at, last_checked_at,
+                       check_attempts
                 FROM esports_shadow_predictions
                 WHERE settled = 0
                 ORDER BY
@@ -230,45 +254,127 @@ class EsportsShadowLog:
                     result = result_fetcher(int(row["match_id"]))
                 except Exception:
                     result = None
-                winner_id = result.get("winner_team_id") if isinstance(result, dict) else None
-                explicitly_void = bool(
-                    isinstance(result, dict) and result.get("void") is True
+                if not isinstance(result, dict):
+                    result = {}
+                winner_id = result.get("winner_team_id")
+                termination = str(result.get("termination") or "").strip().casefold()
+                result_team1_id = result.get("team1_id")
+                result_team2_id = result.get("team2_id")
+                frozen_team1_id = row["team1_id"]
+                frozen_team2_id = row["team2_id"]
+                valid_identity = (
+                    isinstance(frozen_team1_id, int)
+                    and not isinstance(frozen_team1_id, bool)
+                    and frozen_team1_id > 0
+                    and isinstance(frozen_team2_id, int)
+                    and not isinstance(frozen_team2_id, bool)
+                    and frozen_team2_id > 0
+                    and frozen_team1_id != frozen_team2_id
+                    and isinstance(result_team1_id, int)
+                    and not isinstance(result_team1_id, bool)
+                    and isinstance(result_team2_id, int)
+                    and not isinstance(result_team2_id, bool)
+                    and {result_team1_id, result_team2_id}
+                    == {frozen_team1_id, frozen_team2_id}
                 )
-                if (
-                    not isinstance(winner_id, int)
-                    or isinstance(winner_id, bool)
-                    or winner_id <= 0
-                ):
-                    if explicitly_void:
-                        connection.execute(
+                if valid_identity and termination in {"cancelled", "forfeit"}:
+                    valid_void = result.get("void") is True
+                    if termination == "forfeit":
+                        valid_void = valid_void and (
+                            isinstance(winner_id, int)
+                            and not isinstance(winner_id, bool)
+                            and winner_id in {frozen_team1_id, frozen_team2_id}
+                        )
+                    if valid_void:
+                        cursor = connection.execute(
                             """
                             UPDATE esports_shadow_predictions
-                            SET settled = 1, hit = NULL, settled_at = ?
-                            WHERE match_id = ?
+                            SET settled = 1, winner_team_id = ?, hit = NULL,
+                                settled_at = ?, termination = ?,
+                                final_score1 = NULL, final_score2 = NULL
+                            WHERE match_id = ? AND settled = 0
                             """,
-                            (now.isoformat(), int(row["match_id"])),
+                            (
+                                winner_id if termination == "forfeit" else None,
+                                now.isoformat(),
+                                termination,
+                                int(row["match_id"]),
+                            ),
                         )
-                    else:
-                        connection.execute(
-                            """
-                            UPDATE esports_shadow_predictions
-                            SET last_checked_at = ?,
-                                check_attempts = check_attempts + 1
-                            WHERE match_id = ?
-                            """,
-                            (now.isoformat(), int(row["match_id"])),
+                        settled += cursor.rowcount
+                        continue
+                score1 = result.get("score1")
+                score2 = result.get("score2")
+                valid_scores = (
+                    valid_identity
+                    and termination == "normal"
+                    and isinstance(winner_id, int)
+                    and not isinstance(winner_id, bool)
+                    and winner_id in {frozen_team1_id, frozen_team2_id}
+                    and isinstance(score1, int)
+                    and not isinstance(score1, bool)
+                    and score1 >= 0
+                    and isinstance(score2, int)
+                    and not isinstance(score2, bool)
+                    and score2 >= 0
+                )
+                if valid_scores:
+                    score_by_team = {
+                        result_team1_id: score1,
+                        result_team2_id: score2,
+                    }
+                    frozen_score1 = score_by_team[frozen_team1_id]
+                    frozen_score2 = score_by_team[frozen_team2_id]
+                    series_type = row["series_type"]
+                    target = series_type // 2 + 1
+                    valid_scores = (
+                        isinstance(series_type, int)
+                        and not isinstance(series_type, bool)
+                        and series_type > 0
+                        and series_type % 2 == 1
+                        and frozen_score1 + frozen_score2 <= series_type
+                        and (
+                            (
+                                winner_id == frozen_team1_id
+                                and frozen_score1 == target
+                                and frozen_score2 < target
+                            )
+                            or (
+                                winner_id == frozen_team2_id
+                                and frozen_score2 == target
+                                and frozen_score1 < target
+                            )
                         )
+                    )
+                if not valid_scores:
+                    connection.execute(
+                        """
+                        UPDATE esports_shadow_predictions
+                        SET last_checked_at = ?,
+                            check_attempts = check_attempts + 1
+                        WHERE match_id = ? AND settled = 0
+                        """,
+                        (now.isoformat(), int(row["match_id"])),
+                    )
                     continue
                 hit = 1 if winner_id == int(row["selected_team_id"]) else 0
-                connection.execute(
+                cursor = connection.execute(
                     """
                     UPDATE esports_shadow_predictions
-                    SET settled = 1, winner_team_id = ?, hit = ?, settled_at = ?
-                    WHERE match_id = ?
+                    SET settled = 1, winner_team_id = ?, hit = ?, settled_at = ?,
+                        termination = 'normal', final_score1 = ?, final_score2 = ?
+                    WHERE match_id = ? AND settled = 0
                     """,
-                    (winner_id, hit, now.isoformat(), int(row["match_id"])),
+                    (
+                        winner_id,
+                        hit,
+                        now.isoformat(),
+                        frozen_score1,
+                        frozen_score2,
+                        int(row["match_id"]),
+                    ),
                 )
-                settled += 1
+                settled += cursor.rowcount
             connection.commit()
         return settled
 

@@ -208,6 +208,58 @@ def test_compact_manual_quote_uses_streamlit_popover_not_legacy_expander(monkeyp
     assert calls == ["Eigene Quote prüfen"]
 
 
+def test_manual_price_state_is_discarded_when_model_candidate_changes(monkeypatch):
+    import bet_finder_ui as ui
+
+    class _Surface:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    old_candidate = _candidate()
+    current_candidate = replace(
+        old_candidate,
+        event_key="refreshed-candidate",
+        model_probability=62.0,
+        minimum_odds=1.90,
+    )
+    stale_decision = ui.evaluate_candidate_price(
+        old_candidate,
+        2.10,
+        bankroll=100.0,
+        quote_confirmed=True,
+    )
+    state = {"bet_decision_reused-manual": stale_decision}
+
+    monkeypatch.setattr(ui.st, "popover", lambda _label: _Surface())
+    monkeypatch.setattr(ui.st, "caption", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ui.st, "form", lambda *_args, **_kwargs: _Surface())
+    monkeypatch.setattr(ui.st, "columns", lambda _count: (_Surface(), _Surface()))
+    monkeypatch.setattr(ui.st, "text_input", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(ui.st, "number_input", lambda *_args, **_kwargs: 100.0)
+    monkeypatch.setattr(ui.st, "checkbox", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        ui.st,
+        "form_submit_button",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(ui.st, "session_state", state)
+
+    decision = ui._render_manual_check(
+        current_candidate,
+        key="reused-manual",
+        bankroll_key="bankroll",
+        price_source="Dezimalquote",
+        save_source=None,
+        manual_surface="popover",
+    )
+
+    assert decision is None
+    assert "bet_decision_reused-manual" not in state
+
+
 def test_reference_evaluation_keeps_exact_executable_offer_provenance():
     from bet_finder_ui import evaluate_reference_price
 

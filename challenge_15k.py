@@ -89,11 +89,12 @@ from market_consensus import (
     wettfinder_consensus,
     wettfinder_reference_price_status,
 )
+from riskobet_candidates import football_risk_source_pool
 from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 19
+CHALLENGE_SNAPSHOT_VERSION = 20
 CHALLENGE_WORKSPACE_VERSION = 11
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
@@ -2389,6 +2390,15 @@ def scan_daily_challenge(
                 f"Spiel {fixture_index + 1}/{fixture_total} modelliert",
             )
 
+    # RisikoBet branches from the complete, price-free model output before the
+    # normal Wettfinder/15K eligibility gates *and* before a user narrows the
+    # normal market catalogue.  The dedicated tab must not silently lose its
+    # support signals merely because a separate Wettfinder search selected a
+    # different market family.  The adapter keeps only the small support set
+    # required to reproduce at most two plausible scenarios per fixture; it
+    # never sees or consults a bookmaker quote.
+    riskobet_source_candidates = football_risk_source_pool(all_candidates)
+
     if selected_market_kinds is not None:
         all_candidates = [
             candidate
@@ -2398,6 +2408,7 @@ def scan_daily_challenge(
 
     base_candidates = [candidate for candidate in all_candidates if candidate.base_eligible]
     context_candidates = base_candidates
+    riskobet_context_candidates = riskobet_source_candidates
     deferred_context_fixture_ids: set[int] = set()
     if end_date > search_date:
         context_deadline = datetime.now(timezone.utc) + timedelta(
@@ -2410,9 +2421,36 @@ def scan_daily_challenge(
                 context_candidates.append(candidate)
             else:
                 deferred_context_fixture_ids.add(candidate.fixture_id)
+        riskobet_context_candidates = [
+            candidate
+            for candidate in riskobet_source_candidates
+            if (
+                (kickoff := _candidate_kickoff(candidate)) is not None
+                and kickoff <= context_deadline
+            )
+        ]
     context_fixture_ids, discovery_fixture_ids = (
         _context_and_discovery_fixture_ids(context_candidates)
     )
+    normal_context_fixture_ids = list(context_fixture_ids)
+    # Preserve the normal foreground context priority exactly.  RisikoBet may
+    # use only otherwise free slots in this bounded batch; remaining fixtures
+    # are persisted for the existing background refresher.
+    riskobet_fixture_count = len(
+        {candidate.fixture_id for candidate in riskobet_context_candidates}
+    )
+    riskobet_fixture_ids = _ranked_fixture_ids(
+        riskobet_context_candidates,
+        limit=riskobet_fixture_count,
+    )
+    if len(context_fixture_ids) < MAX_CONTEXT_FIXTURES:
+        selected_context_ids = set(context_fixture_ids)
+        context_fixture_ids.extend(
+            fixture_id
+            for fixture_id in riskobet_fixture_ids
+            if fixture_id not in selected_context_ids
+        )
+        del context_fixture_ids[MAX_CONTEXT_FIXTURES:]
     discovery_fixture_count = len(discovery_fixture_ids)
     # The foreground scan verifies a bounded first batch so it stays
     # responsive.  The complete price-independent candidate pool is persisted
@@ -2449,8 +2487,15 @@ def scan_daily_challenge(
         if context_fixture_ids
         else None
     )
-    contextualized: list[ChallengeCandidate] = []
-    for candidate in base_candidates:
+    # Apply a fetched fixture context once to both consumers.  Candidate IDs
+    # de-duplicate rows that belong to the normal pool and the risk support
+    # pool at the same time.
+    context_input_by_id = {
+        candidate.candidate_id: candidate
+        for candidate in [*base_candidates, *riskobet_source_candidates]
+    }
+    contextualized_all: list[ChallengeCandidate] = []
+    for candidate in context_input_by_id.values():
         if candidate.fixture_id not in context_fixture_ids:
             reason = (
                 "Pflichtkontext liegt noch außerhalb des Fünf-Tage-Fensters"
@@ -2463,7 +2508,7 @@ def scan_daily_challenge(
                 "release_eligible": False,
                 "blocked_reasons": [reason],
             }
-            contextualized.append(candidate)
+            contextualized_all.append(candidate)
             continue
         detail = details.get(candidate.fixture_id) or {}
         league_coverage = coverage.get(
@@ -2484,7 +2529,23 @@ def scan_daily_challenge(
             now=context_checked_at,
             require_lineups=False,
         )
-        contextualized.append(candidate)
+        contextualized_all.append(candidate)
+
+    contextualized = [
+        candidate
+        for candidate in contextualized_all
+        if candidate.base_eligible
+    ]
+    contextualized_riskobet_sources = football_risk_source_pool(
+        contextualized_all
+    )
+    riskobet_context_checked_fixture_ids = sorted(
+        {
+            candidate.fixture_id
+            for candidate in contextualized_riskobet_sources
+            if candidate.fixture_id in context_fixture_ids
+        }
+    )
 
     forecast_candidates = _forecast_candidate_pool(contextualized)
     # Separate full pool for the normal Wettfinder. Existing 15K shortlist,
@@ -2515,7 +2576,7 @@ def scan_daily_challenge(
     )
     context_scope_facts = _context_scope_facts(
         contextualized,
-        context_fixture_ids,
+        normal_context_fixture_ids,
         deferred_context_fixture_ids,
     )
     provisional_forecast_candidates = [
@@ -2570,7 +2631,7 @@ def scan_daily_challenge(
         ),
         "base_candidates": len(base_candidates),
         "discovery_fixture_count": discovery_fixture_count,
-        "context_fixtures": len(context_fixture_ids),
+        "context_fixtures": len(normal_context_fixture_ids),
         "deferred_context_fixtures": len(deferred_context_fixture_ids),
         "context_checked_at": (
             context_checked_at.isoformat()
@@ -2603,6 +2664,10 @@ def scan_daily_challenge(
         ),
         "base_shortlist": base_shortlist,
         "discovery_candidates": discovery_candidates,
+        "riskobet_source_candidates": contextualized_riskobet_sources,
+        "riskobet_context_checked_fixture_ids": (
+            riskobet_context_checked_fixture_ids
+        ),
         "model_ticket": model_ticket,
         **diagnostics,
         "coverage_notices": coverage_notices,
@@ -2645,7 +2710,11 @@ def refresh_discovered_candidates(
         checked_at = checked_at.replace(tzinfo=timezone.utc)
     else:
         checked_at = checked_at.astimezone(timezone.utc)
-    fixture_ids = _ranked_fixture_ids(base_candidates)
+    # The caller may pass persisted pre-gate RisikoBet support rows alongside
+    # normal discovery rows.  Refresh their shared fixture context as well,
+    # while every normal Wettfinder statistic below remains based only on the
+    # base-eligible subset.
+    fixture_ids = _ranked_fixture_ids(refreshed)
     if not fixture_ids:
         return {
             "checked_at": checked_at.isoformat(),
@@ -2658,6 +2727,8 @@ def refresh_discovered_candidates(
             "provisional_forecast_candidates": 0,
             "provisional_forecast_fixtures": 0,
             "candidates": [],
+            "riskobet_source_candidates": [],
+            "riskobet_context_checked_fixture_ids": [],
             "blocked_counts": {},
             "errors": list(provider.errors),
         }
@@ -2665,7 +2736,7 @@ def refresh_discovered_candidates(
     details = provider.details_by_fixture(fixture_ids)
     injuries = provider.injuries_by_fixture(fixture_ids)
     coverage: dict[int, dict[str, bool]] = {}
-    for candidate in base_candidates:
+    for candidate in refreshed:
         if candidate.fixture_id not in fixture_ids or candidate.league_id in coverage:
             continue
         season = current_season_start_year_for_id(candidate.league_id, search_date)
@@ -2676,7 +2747,7 @@ def refresh_discovered_candidates(
 
     representative = {
         candidate.fixture_id: candidate
-        for candidate in sorted(base_candidates, key=_candidate_rank)
+        for candidate in sorted(refreshed, key=_candidate_rank)
         if candidate.fixture_id in fixture_ids
     }
     h2h_by_fixture: dict[int, Optional[list[dict[str, Any]]]] = {}
@@ -2691,8 +2762,8 @@ def refresh_discovered_candidates(
             provider.weather(detail) if isinstance(detail, dict) else None
         )
 
-    contextualized: list[ChallengeCandidate] = []
-    for candidate in base_candidates:
+    contextualized_all: list[ChallengeCandidate] = []
+    for candidate in refreshed:
         if candidate.fixture_id not in fixture_ids:
             continue
         detail = details.get(candidate.fixture_id)
@@ -2712,7 +2783,23 @@ def refresh_discovered_candidates(
             now=checked_at,
             require_lineups=False,
         )
-        contextualized.append(candidate)
+        contextualized_all.append(candidate)
+
+    contextualized = [
+        candidate
+        for candidate in contextualized_all
+        if candidate.base_eligible
+    ]
+    contextualized_riskobet_sources = football_risk_source_pool(
+        contextualized_all
+    )
+    riskobet_context_checked_fixture_ids = sorted(
+        {
+            candidate.fixture_id
+            for candidate in contextualized_riskobet_sources
+            if candidate.fixture_id in fixture_ids
+        }
+    )
 
     forecast_candidates = _forecast_candidate_pool(contextualized)
     wettfinder_candidates = select_wettfinder_catalog(contextualized)
@@ -2767,6 +2854,10 @@ def refresh_discovered_candidates(
             }
         ),
         "candidates": contextualized,
+        "riskobet_source_candidates": contextualized_riskobet_sources,
+        "riskobet_context_checked_fixture_ids": (
+            riskobet_context_checked_fixture_ids
+        ),
         "blocked_counts": blocked_counts,
         **context_scope_facts,
         "coverage_notices": coverage_notices,

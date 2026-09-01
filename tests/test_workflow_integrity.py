@@ -73,6 +73,7 @@ class _RecordingStreamlit:
         self.session_state = session_state or {}
         self.widget_values = widget_values or {}
         self.expanders = []
+        self.expander_keys = []
         self.popovers = []
         self.containers = []
         self.column_groups = []
@@ -99,8 +100,9 @@ class _RecordingStreamlit:
     def current_context_kind(self):
         return self.context_stack[-1][0] if self.context_stack else None
 
-    def expander(self, label, *, expanded=False):
+    def expander(self, label, *, expanded=False, key=None, **_kwargs):
         self.expanders.append((label, expanded))
+        self.expander_keys.append(key)
         self.event_log.append(("expander", label))
         return _RecordingContext(self, "expander", label)
 
@@ -537,7 +539,7 @@ def test_automatic_forecast_surface_shows_one_compact_hint_and_warning(
     assert "Preisprüfungen" not in public_text
 
 
-def test_tennis_failure_does_not_create_a_football_scope_warning(monkeypatch):
+def test_non_football_failure_marks_the_all_sports_run_as_partial(monkeypatch):
     now = datetime.now(timezone.utc)
     status = SimpleNamespace(
         target_search_date=now.date().isoformat(),
@@ -571,6 +573,12 @@ def test_tennis_failure_does_not_create_a_football_scope_warning(monkeypatch):
         value for kind, value in recording_st.messages if kind == "warning"
     ]
     assert warnings == []
+    html = "\n".join(
+        value
+        for value, kwargs, _context in recording_st.markdown_calls
+        if kwargs.get("unsafe_allow_html")
+    )
+    assert 'class="wf-run-badge wf-run-badge-partial">Teildaten' in html
 
 
 def test_manual_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
@@ -943,6 +951,12 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
     assert [label for label, _expanded in recording_st.expanders] == [
         "Analyse anzeigen"
     ] * len(forecasts)
+    assert recording_st.expander_keys == [
+        "wettfinder_v2_analysis_football-one",
+        "wettfinder_v2_analysis_tennis-one",
+        "wettfinder_v2_analysis_esport-one",
+        "wettfinder_v2_analysis_football-two",
+    ]
     action_order = [
         kind
         for kind, _value in recording_st.event_log
@@ -955,8 +969,21 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
     assert "Berechnete Auswahl 1" not in html
     assert "Tagestipp 1" not in html
     assert "Testmodell" not in html
-    assert "Testmodell" in " ".join(
+    assert "Testmodell" not in " ".join(
         str(value) for kind, value in recording_st.messages if kind == "write"
+    )
+    public_analysis = " ".join(
+        str(value) for kind, value in recording_st.messages if kind == "write"
+    )
+    assert all(
+        token not in public_analysis
+        for token in (
+            "Modellstreuung",
+            "Evidenz",
+            "Transfer-Prüfphase",
+            "Walk-forward",
+            "Provider",
+        )
     )
     assert {
         "wettfinder_v2_summary",
@@ -977,7 +1004,7 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
     sport_control_event = recording_st.event_log.index(
         ("segmented_control", "wettfinder_automatic_sport_v2")
     )
-    assert heading_event < sport_control_event
+    assert sport_control_event < heading_event
 
 
 def test_automatic_basis_only_catalog_skips_empty_top_columns(monkeypatch):
@@ -1009,6 +1036,8 @@ def test_automatic_basis_only_catalog_skips_empty_top_columns(monkeypatch):
         kind == "subheader" and value == "Top-Auswahlen nach Modell"
         for kind, value in recording_st.messages
     )
+    assert "Top-Auswahlen nach Modell" not in html
+    assert "wettfinder_v2_section_header" not in recording_st.containers
     assert html.count('class="wf-row"') == 1
     assert html.count('data-key="basis-only"') == 1
 
@@ -1106,7 +1135,9 @@ def test_automatic_partial_run_copy_stays_consumer_facing(monkeypatch):
     assert "1 Modellprognose sichtbar" in html
     assert "Modell und Wettpreis werden getrennt bewertet." in html
     assert 'class="wf-run-badge wf-run-badge-partial">Teildaten' in html
-    for internal_copy in ("99", "70", "44", "Spiele gefunden", "Preisprüfung"):
+    # Match internal diagnostics by their labels, not bare numbers: a counter
+    # such as ``44`` can legitimately be the current minute in the timestamp.
+    for internal_copy in ("Spiele gefunden", "modelliert", "Preisprüfung"):
         assert internal_copy not in public_text
         assert internal_copy not in html
 
@@ -1140,6 +1171,18 @@ def test_app_styles_emit_the_scoped_responsive_wettfinder_contract(monkeypatch):
     assert "@media (min-width: 1081px)" in styles
     assert "@media (min-width: 761px) and (max-width: 1080px)" in styles
     assert "@media (max-width: 760px)" in styles
+    assert "@media (min-width: 641px) and (max-width: 760px)" in styles
+    tablet_override = styles.index(
+        "@media (min-width: 641px) and (max-width: 760px)"
+    )
+    global_two_column_rule = styles.index(
+        'flex: 1 1 calc(50% - 0.75rem) !important;'
+    )
+    assert tablet_override > global_two_column_rule
+    assert (
+        '.st-key-wettfinder_v2_page .st-key-wettfinder_v2_top_grid '
+        '[data-testid="stColumn"]'
+    ) in styles[tablet_override:]
     assert "min-height: 44px" in styles
     assert "overflow-x: clip" in styles
     assert ':has([class*="st-key-bet_price_wettfinder_v2_"])' in styles
@@ -1400,6 +1443,213 @@ def test_public_navigation_exposes_no_admin_settings_or_training_route():
 
     challenge_source = inspect.getsource(app._challenge_15k.render_challenge_15k)
     assert "Challenge-Konto einstellen" in challenge_source
+
+
+def test_design_four_main_navigation_order_is_exact_on_every_public_surface():
+    assert app.MAIN_PAGES == (
+        "Wettfinder",
+        "RisikoBet",
+        "Live",
+        "15K",
+        "Meine Tipps",
+    )
+    assert tuple(app.PAGE_INFO) == app.MAIN_PAGES
+    assert tuple(app.PAGE_SCAN_JOBS) == app.MAIN_PAGES
+    assert app.PAGE_SCAN_JOBS["RisikoBet"] == ()
+
+
+def test_design_four_mobile_navigation_is_one_ordered_five_item_row():
+    calls = []
+
+    class _Context:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class _MobileNavStreamlit:
+        def __init__(self):
+            self.session_state = {}
+
+        @staticmethod
+        def container(**_kwargs):
+            return _Context()
+
+        def segmented_control(self, label, options, **kwargs):
+            calls.append((label, tuple(options), kwargs))
+            return self.session_state.get(kwargs["key"])
+
+    recording_st = _MobileNavStreamlit()
+    original_st = app.st
+    try:
+        app.st = recording_st
+        app._render_mobile_nav("RisikoBet")
+        assert len(calls) == 1
+        _label, _options, callback_kwargs = calls[0]
+        assert recording_st.session_state["bb_mobile_navigation"] == "RisikoBet"
+        recording_st.session_state["bb_mobile_navigation"] = "Live"
+        callback_kwargs["on_change"]()
+    finally:
+        app.st = original_st
+
+    assert len(calls) == 1
+    label, options, kwargs = calls[0]
+    assert label == "Hauptnavigation"
+    assert options == app.MAIN_PAGES
+    assert [kwargs["format_func"](page) for page in options] == [
+        "Finder",
+        "Risiko",
+        "Live",
+        "15K",
+        "Meine",
+    ]
+    assert kwargs["key"] == "bb_mobile_navigation"
+    assert kwargs["required"] is True
+    assert kwargs["label_visibility"] == "collapsed"
+    assert kwargs["width"] == "stretch"
+    assert recording_st.session_state["workspace"] == "Live"
+    assert recording_st.session_state["settings_open"] is False
+
+
+def test_main_dispatches_riskobet_to_its_own_read_only_renderer(monkeypatch):
+    import riskobet_ui
+
+    events = []
+
+    class _MainStreamlit:
+        def __init__(self):
+            self.session_state = {"workspace": "RisikoBet"}
+
+        def set_page_config(self, **kwargs):
+            events.append(("page_config", kwargs))
+
+        def markdown(self, value, **_kwargs):
+            events.append(("markdown", value))
+
+        def title(self, value):
+            events.append(("title", value))
+
+        def caption(self, value):
+            events.append(("caption", value))
+
+        def error(self, value):
+            events.append(("error", value))
+
+        def divider(self):
+            events.append(("divider", None))
+
+    monkeypatch.setattr(app, "st", _MainStreamlit())
+    monkeypatch.setattr(app, "_apply_app_styles", lambda: None)
+    monkeypatch.setattr(app, "ensure_account_scope", lambda _st: None)
+    monkeypatch.setattr(app, "_session_scope_id", lambda: "test-scope")
+    monkeypatch.setattr(app, "get_analyzer", lambda *_args: object())
+    monkeypatch.setattr(app, "_render_sidebar", lambda _analyzer: "RisikoBet")
+    monkeypatch.setattr(app, "account_scope_ready", lambda _state: True)
+    monkeypatch.setattr(
+        app,
+        "render_wettfinder",
+        lambda: (_ for _ in ()).throw(AssertionError("wrong dispatch")),
+    )
+    monkeypatch.setattr(
+        app,
+        "render_live",
+        lambda _analyzer: (_ for _ in ()).throw(
+            AssertionError("wrong dispatch")
+        ),
+    )
+    monkeypatch.setattr(
+        app,
+        "render_challenge_15k",
+        lambda: (_ for _ in ()).throw(AssertionError("wrong dispatch")),
+    )
+    monkeypatch.setattr(
+        riskobet_ui,
+        "render_riskobet",
+        lambda: events.append(("riskobet", None)),
+    )
+    monkeypatch.setattr(
+        app,
+        "_render_mobile_nav",
+        lambda workspace: events.append(("mobile", workspace)),
+    )
+
+    app.main()
+
+    assert events.count(("riskobet", None)) == 1
+    assert ("title", "RisikoBet") in events
+    assert ("caption", app.PAGE_INFO["RisikoBet"][1]) in events
+    assert ("mobile", "RisikoBet") in events
+
+
+@pytest.mark.parametrize(
+    ("width", "required_media_query"),
+    (
+        (1440, "@media (min-width: 1081px)"),
+        (1080, "@media (min-width: 761px) and (max-width: 1080px)"),
+        (768, "@media (min-width: 761px) and (max-width: 1080px)"),
+        (761, "@media (min-width: 761px) and (max-width: 1080px)"),
+        (430, "@media (max-width: 430px)"),
+        (390, "@media (max-width: 430px)"),
+        (360, "@media (max-width: 360px)"),
+        (320, "@media (max-width: 340px)"),
+    ),
+)
+def test_design_four_css_contract_covers_every_required_width(
+    width,
+    required_media_query,
+):
+    del width
+    source = inspect.getsource(app._apply_app_styles)
+    risk_css = source.split(
+        "/* --- RisikoBet: flat, price-independent decision surface --- */",
+        1,
+    )[1].split(
+        "/* --- Mobile bottom navigation (hidden on desktop) --- */",
+        1,
+    )[0]
+
+    assert required_media_query in source
+    assert "overflow-x: clip" in risk_css
+    assert "@media (min-width: 1081px)" in risk_css
+    assert "calc((100% - 0.9rem) / 2)" in risk_css
+    assert "@media (min-width: 761px) and (max-width: 1080px)" in risk_css
+    assert risk_css.count("flex: 1 1 100% !important") >= 2
+    assert "@media (max-width: 760px)" in risk_css
+    assert "grid-template-columns: 1fr" in risk_css
+    assert "@media (max-width: 430px)" in risk_css
+    assert "@media (max-width: 360px)" in risk_css
+    assert '[data-testid="stButtonGroup"]' in risk_css
+    assert "min-height: 44px" in risk_css
+
+    global_two_column_rule = source.index(
+        'flex: 1 1 calc(50% - 0.75rem) !important;'
+    )
+    late_phone_override = source.rindex(
+        ".st-key-riskobet_page .st-key-riskobet_featured_grid"
+    )
+    assert late_phone_override > global_two_column_rule
+    late_tablet_override = source.rindex(
+        "@media (min-width: 761px) and (max-width: 1080px)"
+    )
+    assert late_tablet_override > global_two_column_rule
+    assert "@media (min-width: 768px) and (max-width: 1080px)" not in source
+
+
+def test_mobile_css_keeps_all_five_items_on_one_row_at_320px():
+    source = inspect.getsource(app._apply_app_styles)
+    bottom_nav_css = source.split(
+        "/* --- Mobile bottom navigation (hidden on desktop) --- */", 1
+    )[1]
+    assert ".st-key-bb_bottomnav" in source
+    assert "overflow-x: hidden" in source
+    assert '[data-testid="stButtonGroup"]' in source
+    assert '> [role="radiogroup"]' in source
+    assert "grid-template-columns: repeat(5, minmax(0, 1fr))" in source
+    assert "@media (max-width: 340px)" in source
+    assert "font-size: 0.56rem !important" in source
+    assert bottom_nav_css.count("@media (max-width: 760px)") >= 2
+    assert "@media (max-width: 767px)" not in bottom_nav_css
 
 
 def test_shadow_tennis_history_is_not_a_consumer_tips_area():

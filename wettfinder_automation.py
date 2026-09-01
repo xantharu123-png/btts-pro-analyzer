@@ -21,7 +21,7 @@ import json
 import math
 import os
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
 import unicodedata
 from zoneinfo import ZoneInfo
 
@@ -57,7 +57,9 @@ from ev_signal_sources import (
     MAX_AUTOMATED_MODEL_CANDIDATES,
     MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT,
     MAX_AUTOMATED_RECOMMENDATIONS,
+    ESPORTS_DB,
     ModelSignal,
+    TENNIS_DB,
     _reference_execution_matches_row,
     _validated_football_context_statuses,
     esports_signals,
@@ -73,6 +75,20 @@ from market_consensus import (
     wettfinder_consensus,
     wettfinder_reference_price_status,
 )
+from riskobet_automation import RiskSourceBatch, run_from_dict, run_riskobet
+from riskobet_candidates import (
+    adapt_basketball_research,
+    adapt_cricket_research,
+    adapt_esports_shadow,
+    adapt_football_candidates,
+    adapt_ice_hockey_research,
+    adapt_tennis_shadow,
+)
+from riskobet_domain import RiskRunSnapshot
+from riskobet_settlement_automation import run_riskobet_settlements
+from riskobet_store import DEFAULT_DB_PATH as RISKOBET_DB_PATH
+from riskobet_store import DEFAULT_LATEST_PATH as RISKOBET_LATEST_PATH
+from riskobet_store import FrozenRevisionError
 
 
 ROOT = Path(__file__).resolve().parent
@@ -247,9 +263,12 @@ def _challenge_candidate_payload(
     candidate: object,
     *,
     keep_context: bool = False,
+    require_base_eligible: bool = True,
 ) -> Optional[dict[str, Any]]:
     """Serialize a model candidate without trusting derived properties."""
-    if not isinstance(candidate, ChallengeCandidate) or not candidate.base_eligible:
+    if not isinstance(candidate, ChallengeCandidate) or (
+        require_base_eligible and not candidate.base_eligible
+    ):
         return None
     payload = candidate.to_dict()
     payload.pop("base_eligible", None)
@@ -262,6 +281,9 @@ def _challenge_candidate_payload(
 
 def _challenge_candidate_from_payload(
     payload: object,
+    *,
+    keep_context: bool = False,
+    require_base_eligible: bool = True,
 ) -> Optional[ChallengeCandidate]:
     """Strictly rebuild a persisted daily candidate for a fresh context pass."""
     if not isinstance(payload, dict):
@@ -281,11 +303,15 @@ def _challenge_candidate_from_payload(
         raw["form_samples"] = tuple(raw.get("form_samples") or ())
         raw["reasons"] = list(raw.get("reasons") or [])
         raw["blocked_reasons"] = list(raw.get("blocked_reasons") or [])
-        raw["context"] = {}
+        raw["context"] = (
+            dict(raw.get("context") or {})
+            if keep_context and isinstance(raw.get("context"), dict)
+            else {}
+        )
         candidate = ChallengeCandidate(**raw)
     except (TypeError, ValueError):
         return None
-    if not candidate.base_eligible:
+    if require_base_eligible and not candidate.base_eligible:
         return None
     return candidate
 
@@ -990,6 +1016,21 @@ def _football_state_from_snapshot(
         )
         if payload is not None
     ]
+    riskobet_payloads = [
+        payload
+        for payload in (
+            _challenge_candidate_payload(
+                candidate,
+                keep_context=True,
+                require_base_eligible=False,
+            )
+            for candidate in _first_present_candidate_list(
+                snapshot,
+                "riskobet_source_candidates",
+            )
+        )
+        if payload is not None
+    ]
     records = [
         record
         for record in (
@@ -1083,6 +1124,24 @@ def _football_state_from_snapshot(
         if str(fixture_id).isdigit()
         and status in {"verified", "data_incomplete"}
     }
+    riskobet_checked_fixture_ids = sorted(
+        {
+            fixture_id
+            for fixture_id in (snapshot.get(
+                "riskobet_context_checked_fixture_ids",
+                (),
+            ) or ())
+            if isinstance(fixture_id, int)
+            and not isinstance(fixture_id, bool)
+            and fixture_id > 0
+        }
+    )
+    # The initial discovery already shares its bounded provider context batch
+    # with RisikoBet.  Persist those exact fixture clocks so the context loop
+    # below does not fetch the same H2H/injury/weather inputs again.
+    if snapshot.get("context_checked_at") is not None:
+        for fixture_id in riskobet_checked_fixture_ids:
+            context_checks[str(fixture_id)] = context_checked_at.isoformat()
     return {
         "status": "degraded" if degraded else "completed",
         "search_date": search_date.isoformat(),
@@ -1136,6 +1195,11 @@ def _football_state_from_snapshot(
         ),
         "discovery_candidates": discovery_payloads,
         "discovery_candidate_count": len(discovery_payloads),
+        "riskobet_source_candidates": riskobet_payloads,
+        "riskobet_source_candidate_count": len(riskobet_payloads),
+        "riskobet_context_checked_fixture_ids": (
+            riskobet_checked_fixture_ids
+        ),
         "context_checks": context_checks,
         "approved_candidates": len(records),
         "candidates": records,
@@ -1175,6 +1239,9 @@ def _failed_football_state(
     state.setdefault("fixture_kickoffs", [])
     state.setdefault("discovery_candidates", [])
     state.setdefault("discovery_candidate_count", 0)
+    state.setdefault("riskobet_source_candidates", [])
+    state.setdefault("riskobet_source_candidate_count", 0)
+    state.setdefault("riskobet_context_checked_fixture_ids", [])
     state.setdefault("context_checks", {})
     state.setdefault("candidates", [])
     state.setdefault("basis_candidates", [])
@@ -1205,34 +1272,49 @@ def football_context_due_fixture_ids(
     current = _utc(now)
     checks = state.get("context_checks")
     checks = checks if isinstance(checks, dict) else {}
-    due: dict[int, datetime] = {}
-    for payload in state.get("discovery_candidates") or []:
-        if not isinstance(payload, dict):
-            continue
-        fixture_id = payload.get("fixture_id")
-        kickoff = _parse_iso(payload.get("kickoff"))
-        if (
-            isinstance(fixture_id, bool)
-            or not isinstance(fixture_id, int)
-            or fixture_id <= 0
-            or kickoff is None
-            or not current < kickoff <= current + FOOTBALL_CONTEXT_WINDOW
-        ):
-            continue
-        last_check = _parse_iso(checks.get(str(fixture_id)))
-        if (
-            last_check is not None
-            and timedelta(0) <= current - last_check < FOOTBALL_CONTEXT_MIN_GAP
-        ):
-            continue
-        due[fixture_id] = kickoff
-    return [
-        fixture_id
+    due_by_pool: list[dict[int, datetime]] = []
+    for field_name in ("discovery_candidates", "riskobet_source_candidates"):
+        due: dict[int, datetime] = {}
+        for payload in state.get(field_name) or []:
+            if not isinstance(payload, dict):
+                continue
+            fixture_id = payload.get("fixture_id")
+            kickoff = _parse_iso(payload.get("kickoff"))
+            if (
+                isinstance(fixture_id, bool)
+                or not isinstance(fixture_id, int)
+                or fixture_id <= 0
+                or kickoff is None
+                or not current < kickoff <= current + FOOTBALL_CONTEXT_WINDOW
+            ):
+                continue
+            last_check = _parse_iso(checks.get(str(fixture_id)))
+            if (
+                last_check is not None
+                and timedelta(0)
+                <= current - last_check
+                < FOOTBALL_CONTEXT_MIN_GAP
+            ):
+                continue
+            due[fixture_id] = kickoff
+        due_by_pool.append(due)
+    selected: list[int] = []
+    selected_set: set[int] = set()
+    # Normal Wettfinder discovery retains its exact priority and full batch
+    # budget. RisikoBet consumes only remaining slots, de-duplicating shared
+    # fixtures so the provider context is fetched once.
+    for due in due_by_pool:
         for fixture_id, _kickoff in sorted(
             due.items(),
             key=lambda item: (item[1], item[0]),
-        )[:FOOTBALL_CONTEXT_BATCH_SIZE]
-    ]
+        ):
+            if fixture_id in selected_set:
+                continue
+            selected.append(fixture_id)
+            selected_set.add(fixture_id)
+            if len(selected) >= FOOTBALL_CONTEXT_BATCH_SIZE:
+                return selected
+    return selected
 
 
 def _discovered_candidates_for_fixtures(
@@ -1243,12 +1325,25 @@ def _discovered_candidates_for_fixtures(
         return []
     allowed = set(fixture_ids)
     candidates: list[ChallengeCandidate] = []
-    for payload in state.get("discovery_candidates") or []:
-        if not isinstance(payload, dict) or payload.get("fixture_id") not in allowed:
-            continue
-        candidate = _challenge_candidate_from_payload(payload)
-        if candidate is not None:
+    seen_candidate_ids: set[str] = set()
+    for field_name, require_base_eligible in (
+        ("discovery_candidates", True),
+        ("riskobet_source_candidates", False),
+    ):
+        for payload in state.get(field_name) or []:
+            if (
+                not isinstance(payload, dict)
+                or payload.get("fixture_id") not in allowed
+            ):
+                continue
+            candidate = _challenge_candidate_from_payload(
+                payload,
+                require_base_eligible=require_base_eligible,
+            )
+            if candidate is None or candidate.candidate_id in seen_candidate_ids:
+                continue
             candidates.append(candidate)
+            seen_candidate_ids.add(candidate.candidate_id)
     return candidates
 
 
@@ -1261,6 +1356,67 @@ def _merge_context_refresh(
 ) -> dict[str, Any]:
     refreshed = dict(state)
     allowed = set(fixture_ids)
+    existing_risk_payloads = [
+        payload
+        for payload in (state.get("riskobet_source_candidates") or [])
+        if isinstance(payload, dict)
+    ]
+    risk_refresh_available = "riskobet_source_candidates" in result
+    new_risk_payloads = [
+        payload
+        for payload in (
+            _challenge_candidate_payload(
+                candidate,
+                keep_context=True,
+                require_base_eligible=False,
+            )
+            for candidate in _first_present_candidate_list(
+                result,
+                "riskobet_source_candidates",
+            )
+        )
+        if payload is not None
+    ]
+    if risk_refresh_available:
+        new_risk_by_fixture: dict[int, list[dict[str, Any]]] = {}
+        for payload in new_risk_payloads:
+            fixture_id = payload.get("fixture_id")
+            if isinstance(fixture_id, int) and not isinstance(fixture_id, bool):
+                new_risk_by_fixture.setdefault(fixture_id, []).append(payload)
+        merged_risk_payloads = [
+            payload
+            for payload in existing_risk_payloads
+            if payload.get("fixture_id") not in allowed
+        ]
+        for fixture_id in fixture_ids:
+            merged_risk_payloads.extend(new_risk_by_fixture.get(fixture_id, []))
+    else:
+        # Older injected refreshers are still accepted, but they cannot erase
+        # a persisted pre-gate pool they did not explicitly refresh.
+        merged_risk_payloads = existing_risk_payloads
+    previous_risk_checked = {
+        fixture_id
+        for fixture_id in state.get("riskobet_context_checked_fixture_ids") or []
+        if isinstance(fixture_id, int)
+        and not isinstance(fixture_id, bool)
+        and fixture_id > 0
+    }
+    result_risk_checked_raw = result.get(
+        "riskobet_context_checked_fixture_ids"
+    )
+    if isinstance(result_risk_checked_raw, list):
+        refreshed_risk_checked = {
+            fixture_id
+            for fixture_id in result_risk_checked_raw
+            if isinstance(fixture_id, int)
+            and not isinstance(fixture_id, bool)
+            and fixture_id in allowed
+        }
+        merged_risk_checked = (
+            previous_risk_checked - allowed
+        ) | refreshed_risk_checked
+    else:
+        merged_risk_checked = previous_risk_checked
     existing_records = [
         row for row in (state.get("candidates") or []) if isinstance(row, dict)
     ]
@@ -1427,6 +1583,11 @@ def _merge_context_refresh(
             "context_checks": checks,
             "candidates": merged_records,
             "basis_candidates": merged_basis_records,
+            "riskobet_source_candidates": merged_risk_payloads,
+            "riskobet_source_candidate_count": len(merged_risk_payloads),
+            "riskobet_context_checked_fixture_ids": sorted(
+                merged_risk_checked
+            ),
             "approved_candidates": len(merged_records),
             "last_blocked_counts": dict(result.get("blocked_counts") or {}),
             "errors": list(dict.fromkeys(errors))[-20:],
@@ -2099,6 +2260,530 @@ def _operational_quote_errors(errors: Iterable[object]) -> list[str]:
     return list(dict.fromkeys(operational))
 
 
+def _same_artifact_path(left: str | Path, right: str | Path) -> bool:
+    return os.path.normcase(os.path.abspath(os.fspath(left))) == os.path.normcase(
+        os.path.abspath(os.fspath(right))
+    )
+
+
+def _riskobet_football_source(
+    football_state: object,
+    *,
+    now: datetime,
+    target_date: date,
+) -> tuple:
+    """Adapt the persisted pre-gate pool with stable input revision clocks."""
+
+    if not isinstance(football_state, dict):
+        return ()
+    pools_by_fixture: dict[int, list[ChallengeCandidate]] = {}
+    seen: set[str] = set()
+    for payload in football_state.get("riskobet_source_candidates") or []:
+        candidate = _challenge_candidate_from_payload(
+            payload,
+            keep_context=True,
+            require_base_eligible=False,
+        )
+        if candidate is None or candidate.candidate_id in seen:
+            continue
+        kickoff = _parse_iso(candidate.kickoff)
+        if (
+            kickoff is None
+            or kickoff <= now
+            or kickoff.astimezone(ZURICH_TZ).date() != target_date
+        ):
+            continue
+        pools_by_fixture.setdefault(candidate.fixture_id, []).append(candidate)
+        seen.add(candidate.candidate_id)
+    discovery_time = (
+        _parse_iso(football_state.get("last_discovery_at"))
+        or _parse_iso(football_state.get("last_success_at"))
+    )
+    context_checks = football_state.get("context_checks")
+    context_checks = context_checks if isinstance(context_checks, dict) else {}
+    results = []
+    for fixture_id in sorted(pools_by_fixture):
+        fixture_pool = pools_by_fixture[fixture_id]
+        kickoff = _parse_iso(fixture_pool[0].kickoff)
+        observed_times = [
+            value
+            for value in (
+                _parse_iso(
+                    candidate.context.get("checked_at")
+                    if isinstance(candidate.context, dict)
+                    else None
+                )
+                for candidate in fixture_pool
+            )
+            if value is not None
+            and value <= now
+            and (kickoff is None or value <= kickoff)
+        ]
+        persisted_check = _parse_iso(context_checks.get(str(fixture_id)))
+        if (
+            persisted_check is not None
+            and persisted_check <= now
+            and (kickoff is None or persisted_check <= kickoff)
+        ):
+            observed_times.append(persisted_check)
+        if (
+            discovery_time is not None
+            and discovery_time <= now
+            and (kickoff is None or discovery_time <= kickoff)
+        ):
+            observed_times.append(discovery_time)
+        # Never substitute the recurring timer's current wall clock for a
+        # missing input clock.  An unproven revision is omitted rather than
+        # silently changing its immutable snapshot ID every wake-up.
+        if not observed_times:
+            continue
+        source_time = max(observed_times)
+        results.extend(
+            adapt_football_candidates(
+                fixture_pool,
+                modeled_at=source_time,
+                input_cutoff_at=source_time,
+            )
+        )
+    return tuple(results)
+
+
+def _causal_completed_history(
+    rows: Iterable[Mapping[str, object]],
+    *,
+    as_of: datetime,
+) -> tuple[dict[str, object], ...]:
+    """Accept only explicitly completed result rows observed by ``as_of``."""
+
+    completed_statuses = {"final", "finished", "completed", "closed", "ended"}
+    timestamp_fields = (
+        "result_observed_at",
+        "result_recorded_at",
+        "settled_at",
+        "completed_at",
+        "ended_at",
+        "finished_at",
+        "final_at",
+    )
+    accepted: list[dict[str, object]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        status = str(row.get("status") or "").strip().casefold()
+        if status and status not in completed_statuses:
+            continue
+        observed = next(
+            (
+                parsed
+                for parsed in (
+                    _parse_iso(row.get(field))
+                    for field in timestamp_fields
+                )
+                if parsed is not None
+            ),
+            None,
+        )
+        if observed is None or observed > as_of:
+            continue
+        accepted.append(dict(row))
+    return tuple(accepted)
+
+
+def _scanner_completed_history_loader(
+    scanner: object,
+    sport: str,
+    *,
+    target_date: date,
+) -> Optional[Callable[..., Iterable[Mapping[str, object]]]]:
+    """Expose a real scanner history method when that scanner provides one.
+
+    Today's Basketball/NHL/Cricket scanners expose upcoming/live data only.
+    This narrow detection contract lets an installed scanner with a completed
+    history interface supply real rows without inventing a database or making
+    a second, undocumented provider call from the automation layer.
+    """
+
+    start_date = target_date - timedelta(days=365)
+    method_specs: dict[str, tuple[str, tuple[object, ...]]] = {
+        "basketball": (
+            "get_completed_games",
+            ("All", start_date, target_date),
+        ),
+        "ice_hockey": (
+            "get_completed_nhl_games",
+            (start_date, target_date),
+        ),
+        "cricket": (
+            "get_completed_matches",
+            (start_date, target_date),
+        ),
+    }
+    method_name, arguments = method_specs[sport]
+    method = getattr(scanner, method_name, None)
+    if not callable(method):
+        return None
+
+    def load_history(**_kwargs: object) -> Iterable[Mapping[str, object]]:
+        return method(*arguments)
+
+    return load_history
+
+
+def _riskobet_research_batch(
+    sport: str,
+    events: Iterable[Mapping[str, object]],
+    adapter: Callable[..., object],
+    *,
+    now: datetime,
+    source_errors: Iterable[object] = (),
+    history_loader: Optional[
+        Callable[..., Iterable[Mapping[str, object]]]
+    ] = None,
+) -> RiskSourceBatch:
+    """Adapt scheduled research events independently and without invented p."""
+
+    source_time = _utc(now)
+    prepared_events: list[dict[str, object]] = []
+    errors = [str(error).strip() for error in source_errors if str(error).strip()]
+    for event in events:
+        if not isinstance(event, Mapping):
+            errors.append("Ungültige Eventdaten")
+            continue
+        prepared = dict(event)
+        start = _parse_iso(
+            prepared.get("starts_at")
+            or prepared.get("start_time")
+            or prepared.get("scheduled_at")
+        )
+        if start is None or start <= now:
+            continue
+        if (
+            prepared.get("source_observed_at") in (None, "")
+            and prepared.get("fetched_at") in (None, "")
+        ):
+            prepared["source_observed_at"] = source_time.isoformat()
+        prepared_events.append(prepared)
+    history: tuple[dict[str, object], ...] = ()
+    if history_loader is not None and prepared_events:
+        loaded_history = history_loader(
+            sport=sport,
+            events=tuple(prepared_events),
+            as_of=source_time,
+        )
+        if loaded_history is None:
+            raise TypeError("history loader returned no sequence")
+        history = _causal_completed_history(
+            loaded_history,
+            as_of=source_time,
+        )
+    results = []
+    for prepared in prepared_events:
+        try:
+            results.append(adapter(prepared, history, modeled_at=source_time))
+        except Exception as exc:
+            event_id = (
+                prepared.get("provider_event_id")
+                or prepared.get("event_id")
+                or prepared.get("game_id")
+                or prepared.get("match_id")
+                or "unbekannt"
+            )
+            errors.append(f"Event {event_id}: {type(exc).__name__}")
+    if errors and not results:
+        raise RuntimeError("; ".join(dict.fromkeys(errors))[:450])
+    snapshots = tuple(result.snapshot for result in results)
+    candidates = tuple(
+        candidate
+        for result in results
+        for candidate in result.candidates
+    )
+    return RiskSourceBatch(
+        sport=sport,
+        snapshots=snapshots,
+        candidates=candidates,
+        errors=tuple(dict.fromkeys(errors))[:10],
+    )
+
+
+def _default_basketball_risk_source(
+    target_date: date,
+    now: datetime,
+    history_loader: Optional[
+        Callable[..., Iterable[Mapping[str, object]]]
+    ] = None,
+) -> RiskSourceBatch:
+    from scanners.basketball_scanner import BasketballScanner
+
+    scanner = BasketballScanner()
+    events = scanner.get_upcoming_games("All", target_date, target_date)
+    resolved_history_loader = history_loader or _scanner_completed_history_loader(
+        scanner,
+        "basketball",
+        target_date=target_date,
+    )
+    return _riskobet_research_batch(
+        "basketball",
+        events,
+        adapt_basketball_research,
+        now=now,
+        source_errors=scanner.errors.values(),
+        history_loader=resolved_history_loader,
+    )
+
+
+def _default_ice_hockey_risk_source(
+    target_date: date,
+    now: datetime,
+    history_loader: Optional[
+        Callable[..., Iterable[Mapping[str, object]]]
+    ] = None,
+) -> RiskSourceBatch:
+    from scanners.basketball_scanner import BasketballScanner
+
+    scanner = BasketballScanner()
+    events = scanner.get_upcoming_nhl_games(target_date, target_date)
+    resolved_history_loader = history_loader or _scanner_completed_history_loader(
+        scanner,
+        "ice_hockey",
+        target_date=target_date,
+    )
+    return _riskobet_research_batch(
+        "ice_hockey",
+        events,
+        adapt_ice_hockey_research,
+        now=now,
+        source_errors=scanner.errors.values(),
+        history_loader=resolved_history_loader,
+    )
+
+
+def _default_cricket_risk_source(
+    target_date: date,
+    now: datetime,
+    history_loader: Optional[
+        Callable[..., Iterable[Mapping[str, object]]]
+    ] = None,
+) -> RiskSourceBatch:
+    from scanners.cricket_scanner import CricketScanner
+
+    scanner = CricketScanner()
+    events = scanner.get_upcoming_matches(target_date, target_date)
+    resolved_history_loader = history_loader or _scanner_completed_history_loader(
+        scanner,
+        "cricket",
+        target_date=target_date,
+    )
+    source_errors = (scanner.last_error,) if scanner.last_error else ()
+    return _riskobet_research_batch(
+        "cricket",
+        events,
+        adapt_cricket_research,
+        now=now,
+        source_errors=source_errors,
+        history_loader=resolved_history_loader,
+    )
+
+
+def _riskobet_default_sources(
+    football_state: object,
+    *,
+    now: datetime,
+    target_date: date,
+    research_due: bool,
+    history_loaders: Optional[
+        Mapping[str, Callable[..., Iterable[Mapping[str, object]]]]
+    ] = None,
+) -> tuple[dict[str, object], dict[str, bool]]:
+    research_history_loaders = dict(history_loaders or {})
+    next_day = target_date + timedelta(days=1)
+    window_end = datetime.combine(
+        next_day,
+        datetime.min.time(),
+        tzinfo=ZURICH_TZ,
+    ).astimezone(timezone.utc)
+    sources: dict[str, object] = {
+        "football": lambda: _riskobet_football_source(
+            football_state,
+            now=now,
+            target_date=target_date,
+        ),
+        "tennis": lambda: adapt_tennis_shadow(
+            TENNIS_DB,
+            as_of=now,
+            window_end=window_end,
+        ),
+        "esports": lambda: adapt_esports_shadow(
+            ESPORTS_DB,
+            as_of=now,
+            window_end=window_end,
+        ),
+    }
+    due = {
+        "football": True,
+        "tennis": True,
+        "esports": True,
+        "basketball": research_due,
+        "ice_hockey": research_due,
+        "cricket": research_due,
+    }
+    if research_due:
+        sources.update(
+            {
+                "basketball": lambda: _default_basketball_risk_source(
+                    target_date,
+                    now,
+                    research_history_loaders.get("basketball"),
+                ),
+                "ice_hockey": lambda: _default_ice_hockey_risk_source(
+                    target_date,
+                    now,
+                    research_history_loaders.get("ice_hockey"),
+                ),
+                "cricket": lambda: _default_cricket_risk_source(
+                    target_date,
+                    now,
+                    research_history_loaders.get("cricket"),
+                ),
+            }
+        )
+    return sources, due
+
+
+def _riskobet_summary(run: object) -> dict[str, Any]:
+    if isinstance(run, RiskRunSnapshot):
+        return {
+            "status": run.status.value.lower(),
+            "run_id": run.run_id,
+            "candidate_count": len(run.candidates),
+            "snapshot_count": len(run.snapshots),
+            "error_count": len(run.errors),
+        }
+    if isinstance(run, Mapping):
+        candidates = run.get("candidates")
+        snapshots = run.get("snapshots")
+        errors = run.get("errors")
+        return {
+            "status": str(run.get("status") or "completed").lower(),
+            "run_id": run.get("run_id"),
+            "candidate_count": len(candidates) if isinstance(candidates, list) else 0,
+            "snapshot_count": len(snapshots) if isinstance(snapshots, list) else 0,
+            "error_count": len(errors) if isinstance(errors, list) else 0,
+        }
+    raise TypeError("RiskBet runner returned no run snapshot")
+
+
+def _riskobet_latest_is_current(
+    latest_path: str | Path,
+    *,
+    target_date: date,
+) -> bool:
+    try:
+        payload = json.loads(Path(latest_path).read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return False
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        return False
+    try:
+        run = run_from_dict(payload)
+    except (KeyError, TypeError, ValueError):
+        return False
+    return bool(
+        run.completed_at.astimezone(ZURICH_TZ).date() == target_date
+        and run.status.value in {"COMPLETE", "PARTIAL"}
+    )
+
+
+def riskobet_research_refresh_due(
+    previous_wettfinder: object,
+    *,
+    latest_path: str | Path,
+    target_date: date,
+) -> bool:
+    """Retry daily research after missing/corrupt state or a source failure."""
+
+    if not _riskobet_latest_is_current(latest_path, target_date=target_date):
+        return True
+    if not isinstance(previous_wettfinder, dict):
+        return True
+    riskobet = previous_wettfinder.get("riskobet")
+    attempts = (
+        riskobet.get("research_source_attempts")
+        if isinstance(riskobet, dict)
+        else None
+    )
+    if not isinstance(attempts, dict):
+        return True
+    for sport in ("basketball", "ice_hockey", "cricket"):
+        attempt = attempts.get(sport)
+        if (
+            not isinstance(attempt, dict)
+            or attempt.get("date") != target_date.isoformat()
+            or attempt.get("status") != "completed"
+        ):
+            return True
+    return False
+
+
+def _research_attempt_summary(
+    run: object,
+    *,
+    previous: object,
+    source_due: Mapping[str, bool],
+    target_date: date,
+) -> dict[str, dict[str, str]]:
+    previous_attempts: dict[str, object] = {}
+    if isinstance(previous, dict):
+        previous_riskobet = previous.get("riskobet")
+        if isinstance(previous_riskobet, dict) and isinstance(
+            previous_riskobet.get("research_source_attempts"),
+            dict,
+        ):
+            previous_attempts = previous_riskobet["research_source_attempts"]
+    run_errors = (
+        tuple(run.errors)
+        if isinstance(run, RiskRunSnapshot)
+        else tuple(run.get("errors") or ())
+        if isinstance(run, Mapping)
+        else ()
+    )
+    failed_sports = {
+        sport
+        for sport in ("basketball", "ice_hockey", "cricket")
+        if any(str(error).startswith(f"{sport}:") for error in run_errors)
+    }
+    run_status = (
+        run.status.value
+        if isinstance(run, RiskRunSnapshot)
+        else str(run.get("status") or "").upper()
+        if isinstance(run, Mapping)
+        else "FAILED"
+    )
+    summary: dict[str, dict[str, str]] = {}
+    for sport in ("basketball", "ice_hockey", "cricket"):
+        if source_due.get(sport) is True:
+            summary[sport] = {
+                "date": target_date.isoformat(),
+                "status": (
+                    "failed"
+                    if sport in failed_sports or run_status == "FAILED"
+                    else "completed"
+                ),
+            }
+            continue
+        previous_attempt = previous_attempts.get(sport)
+        if isinstance(previous_attempt, dict):
+            summary[sport] = {
+                "date": str(previous_attempt.get("date") or ""),
+                "status": str(previous_attempt.get("status") or "missing"),
+            }
+        else:
+            summary[sport] = {
+                "date": target_date.isoformat(),
+                "status": "missing",
+            }
+    return summary
+
+
 def run_wettfinder(
     *,
     now: Optional[datetime] = None,
@@ -2125,6 +2810,19 @@ def run_wettfinder(
     ] = None,
     tennis_loader: Callable[..., list[ModelSignal]] = tennis_model_signals,
     esports_loader: Callable[..., list[ModelSignal]] = esports_signals,
+    riskobet_enabled: Optional[bool] = None,
+    riskobet_runner: Optional[Callable[..., object]] = None,
+    riskobet_settlement_runner: Optional[Callable[..., object]] = None,
+    riskobet_result_loaders: Optional[Mapping[str, Callable[..., object]]] = None,
+    riskobet_sources: Optional[Mapping[str, object]] = None,
+    riskobet_history_loaders: Optional[
+        Mapping[
+            str,
+            Callable[..., Iterable[Mapping[str, object]]],
+        ]
+    ] = None,
+    riskobet_db_path: Optional[str | Path] = None,
+    riskobet_latest_path: Optional[str | Path] = None,
     force_football: bool = False,
     clock: Optional[Callable[[], datetime]] = None,
 ) -> dict[str, Any]:
@@ -2133,6 +2831,94 @@ def run_wettfinder(
     fixed_now = now is not None
     current = _utc(now if fixed_now else runtime_clock())
     target = target_search_date(current)
+    if riskobet_enabled is not None and not isinstance(riskobet_enabled, bool):
+        raise ValueError("riskobet_enabled must be a boolean or None")
+    if riskobet_sources is not None and not isinstance(riskobet_sources, Mapping):
+        raise ValueError("riskobet_sources must be a mapping or None")
+    if riskobet_history_loaders is not None and not isinstance(
+        riskobet_history_loaders,
+        Mapping,
+    ):
+        raise ValueError("riskobet_history_loaders must be a mapping or None")
+    if riskobet_result_loaders is not None and not isinstance(
+        riskobet_result_loaders,
+        Mapping,
+    ):
+        raise ValueError("riskobet_result_loaders must be a mapping or None")
+    unknown_riskobet_sources = set(riskobet_sources or {}) - {
+        "football",
+        "tennis",
+        "basketball",
+        "ice_hockey",
+        "cricket",
+        "esports",
+    }
+    if unknown_riskobet_sources:
+        raise ValueError(
+            f"unsupported RisikoBet source: {sorted(unknown_riskobet_sources)[0]}"
+        )
+    unknown_history_loaders = set(riskobet_history_loaders or {}) - {
+        "basketball",
+        "ice_hockey",
+        "cricket",
+    }
+    if unknown_history_loaders:
+        raise ValueError(
+            "unsupported RisikoBet history source: "
+            f"{sorted(unknown_history_loaders)[0]}"
+        )
+    if any(
+        not callable(loader)
+        for loader in (riskobet_history_loaders or {}).values()
+    ):
+        raise TypeError("RisikoBet history loaders must be callable")
+    unknown_result_loaders = set(riskobet_result_loaders or {}) - {
+        "football",
+        "tennis",
+        "basketball",
+        "ice_hockey",
+        "cricket",
+        "esports",
+    }
+    if unknown_result_loaders:
+        raise ValueError(
+            "unsupported RisikoBet result source: "
+            f"{sorted(unknown_result_loaders)[0]}"
+        )
+    if any(not callable(loader) for loader in (riskobet_result_loaders or {}).values()):
+        raise TypeError("RisikoBet result loaders must be callable")
+    production_state = _same_artifact_path(state_path, STATE_PATH)
+    explicit_riskobet = (
+        riskobet_enabled is True
+        or riskobet_runner is not None
+        or riskobet_settlement_runner is not None
+        or riskobet_result_loaders is not None
+        or riskobet_sources is not None
+        or riskobet_history_loaders is not None
+        or riskobet_db_path is not None
+        or riskobet_latest_path is not None
+    )
+    enable_riskobet = (
+        riskobet_enabled
+        if riskobet_enabled is not None
+        else production_state or explicit_riskobet
+    )
+    resolved_riskobet_db = Path(
+        riskobet_db_path
+        or (
+            RISKOBET_DB_PATH
+            if production_state
+            else Path(state_path).with_name("riskobet.db")
+        )
+    )
+    resolved_riskobet_latest = Path(
+        riskobet_latest_path
+        or (
+            RISKOBET_LATEST_PATH
+            if production_state
+            else Path(state_path).with_name("riskobet_latest.json")
+        )
+    )
     previous = load_state(state_path)
     previous_football = previous.get("football")
     due = football_due(previous_football, now=current, search_date=target)
@@ -2142,6 +2928,18 @@ def run_wettfinder(
         or previous.get("selection_policy_version") != SELECTION_POLICY_VERSION
     ):
         due = FootballDueDecision(True, "recommendation_policy_changed")
+    research_discovery_due = force_football or due.due
+    if (
+        enable_riskobet
+        and production_state
+        and riskobet_sources is None
+        and riskobet_research_refresh_due(
+            previous,
+            latest_path=resolved_riskobet_latest,
+            target_date=target,
+        )
+    ):
+        research_discovery_due = True
     football_state = (
         dict(previous_football) if isinstance(previous_football, dict) else {}
     )
@@ -2795,6 +3593,131 @@ def run_wettfinder(
         "candidates": candidates,
         "challenge_release_candidates": challenge_release_candidates,
     }
+    if enable_riskobet:
+        if production_state and riskobet_sources is None:
+            default_source_kwargs: dict[str, object] = {
+                "now": current,
+                "target_date": target,
+                "research_due": research_discovery_due,
+            }
+            if riskobet_history_loaders is not None:
+                default_source_kwargs["history_loaders"] = (
+                    riskobet_history_loaders
+                )
+            configured_risk_sources, risk_source_due = (
+                _riskobet_default_sources(
+                    football_state,
+                    **default_source_kwargs,
+                )
+            )
+        else:
+            configured_risk_sources = dict(riskobet_sources or {})
+            risk_source_due = {
+                sport: sport in configured_risk_sources
+                for sport in (
+                    "football",
+                    "tennis",
+                    "basketball",
+                    "ice_hockey",
+                    "cricket",
+                    "esports",
+                )
+            }
+        try:
+            settlement_summary: Optional[dict[str, object]] = None
+            should_settle = (
+                (production_state and riskobet_sources is None)
+                or riskobet_settlement_runner is not None
+                or riskobet_result_loaders is not None
+            )
+            if should_settle:
+                settlement_runner = (
+                    riskobet_settlement_runner or run_riskobet_settlements
+                )
+                try:
+                    settlement_result = settlement_runner(
+                        db_path=resolved_riskobet_db,
+                        latest_path=resolved_riskobet_latest,
+                        now=current,
+                        result_loaders=riskobet_result_loaders,
+                        config=config or load_app_config(),
+                    )
+                    if hasattr(settlement_result, "to_dict"):
+                        settlement_summary = dict(settlement_result.to_dict())
+                    elif isinstance(settlement_result, Mapping):
+                        settlement_summary = dict(settlement_result)
+                    else:
+                        raise TypeError("settlement runner returned no summary")
+                except FrozenRevisionError:
+                    # An integrity failure is not a provider outage. Do not
+                    # publish a new RisikoBet revision over a suspicious store.
+                    raise
+                except Exception as exc:
+                    # Result providers are isolated from the new model run and
+                    # never expose raw provider text or credentials publicly.
+                    settlement_summary = {
+                        "run_id": None,
+                        "due_candidates": 0,
+                        "due_events": 0,
+                        "checked_sports": [],
+                        "terminal_settlements": 0,
+                        "unresolved_candidates": 0,
+                        "published": False,
+                        "error_count": 1,
+                        "errors": [
+                            "automation:settlement_failed_"
+                            f"{type(exc).__name__.casefold()}"
+                        ],
+                    }
+            runner = riskobet_runner or run_riskobet
+            risk_run = runner(
+                football_source=configured_risk_sources.get("football"),
+                tennis_source=configured_risk_sources.get("tennis"),
+                basketball_source=configured_risk_sources.get("basketball"),
+                ice_hockey_source=configured_risk_sources.get("ice_hockey"),
+                cricket_source=configured_risk_sources.get("cricket"),
+                esports_source=configured_risk_sources.get("esports"),
+                source_due=risk_source_due,
+                db_path=resolved_riskobet_db,
+                latest_path=resolved_riskobet_latest,
+                now=current,
+                preserve_latest_on_total_failure=True,
+            )
+            riskobet_summary = _riskobet_summary(risk_run)
+            riskobet_summary["research_source_attempts"] = (
+                _research_attempt_summary(
+                    risk_run,
+                    previous=previous,
+                    source_due=risk_source_due,
+                    target_date=target,
+                )
+            )
+            document["riskobet"] = riskobet_summary
+            if settlement_summary is not None:
+                document["riskobet"]["settlement"] = settlement_summary
+        except Exception as exc:
+            # RisikoBet is a separate research surface.  Its failure is
+            # recorded, but never suppresses an independently valid normal
+            # Wettfinder publication or rewrites its price/model status.
+            document["riskobet"] = {
+                "status": "failed",
+                "candidate_count": 0,
+                "snapshot_count": 0,
+                "error_count": 1,
+                "failure_type": type(exc).__name__,
+                "research_source_attempts": _research_attempt_summary(
+                    {
+                        "errors": [
+                            f"{sport}: failed"
+                            for sport in ("basketball", "ice_hockey", "cricket")
+                            if risk_source_due.get(sport) is True
+                        ]
+                    },
+                    previous=previous,
+                    source_due=risk_source_due,
+                    target_date=target,
+                ),
+            }
     write_state(document, state_path)
     return document
 

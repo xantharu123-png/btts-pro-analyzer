@@ -2415,6 +2415,146 @@ class CrossSportMathTests(unittest.TestCase):
             scanner.MAX_UPCOMING_MATCHES_PER_GAME,
         )
 
+    def test_esports_finished_result_binds_opponents_score_and_termination(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        scanner.api_key = "test"
+        scanner.pandascore_base = "https://api.pandascore.co"
+        scanner.headers = {"Authorization": "Bearer test"}
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "id": 55,
+            "status": "finished",
+            "forfeit": False,
+            "opponents": [
+                {"opponent": {"id": 7, "name": "Alpha"}},
+                {"opponent": {"id": 8, "name": "Beta"}},
+            ],
+            "winner": {"id": 8},
+            "results": [
+                {"team_id": 7, "score": 1},
+                {"team_id": 8, "score": 2},
+            ],
+        }
+
+        with patch("scanners.esports_scanner.requests.get", return_value=response):
+            result = scanner.get_match_result(55)
+
+        self.assertEqual(
+            result,
+            {
+                "winner_team_id": 8,
+                "team1_id": 7,
+                "team2_id": 8,
+                "score1": 1,
+                "score2": 2,
+                "termination": "normal",
+            },
+        )
+        response.json.return_value.pop("forfeit")
+        with patch("scanners.esports_scanner.requests.get", return_value=response):
+            self.assertIsNone(scanner.get_match_result(55))
+
+    def test_esports_result_rejects_ambiguous_payloads_and_proves_voids(self):
+        scanner = EsportsScanner.__new__(EsportsScanner)
+        scanner.api_key = "test"
+        scanner.pandascore_base = "https://api.pandascore.co"
+        scanner.headers = {"Authorization": "Bearer test"}
+        opponents = [
+            {"opponent": {"id": 7, "name": "Alpha"}},
+            {"opponent": {"id": 8, "name": "Beta"}},
+        ]
+        response = Mock(status_code=200)
+
+        response.json.return_value = {
+            "id": 55,
+            "status": "canceled",
+            "forfeit": False,
+            "winner": None,
+            "opponents": opponents,
+        }
+        with patch("scanners.esports_scanner.requests.get", return_value=response):
+            self.assertEqual(
+                scanner.get_match_result(55),
+                {
+                    "void": True,
+                    "status": "canceled",
+                    "termination": "cancelled",
+                    "team1_id": 7,
+                    "team2_id": 8,
+                },
+            )
+
+        response.json.return_value = {
+            "id": 55,
+            "status": "canceled",
+            "forfeit": True,
+            "winner": {"id": 7},
+            "opponents": opponents,
+        }
+        with patch("scanners.esports_scanner.requests.get", return_value=response):
+            self.assertEqual(
+                scanner.get_match_result(55),
+                {
+                    "void": True,
+                    "status": "canceled",
+                    "termination": "forfeit",
+                    "winner_team_id": 7,
+                    "team1_id": 7,
+                    "team2_id": 8,
+                },
+            )
+
+        invalid_payloads = (
+            {
+                "id": 55,
+                "status": "finished",
+                "forfeit": False,
+                "winner": {"id": 999},
+                "opponents": opponents,
+                "results": [
+                    {"team_id": 7, "score": 2},
+                    {"team_id": 8, "score": 1},
+                ],
+            },
+            {
+                "id": 55,
+                "status": "finished",
+                "forfeit": False,
+                "winner": {"id": 7},
+                "opponents": opponents,
+                "results": [{"team_id": 7, "score": 2}],
+            },
+            {
+                "id": 55,
+                "status": "finished",
+                "forfeit": False,
+                "winner": {"id": 8},
+                "opponents": opponents,
+                "results": [
+                    {"team_id": 7, "score": 2},
+                    {"team_id": 8, "score": 1},
+                ],
+            },
+        )
+        for payload in invalid_payloads:
+            response.json.return_value = payload
+            with patch("scanners.esports_scanner.requests.get", return_value=response):
+                self.assertIsNone(scanner.get_match_result(55))
+        for provider_id in (None, 56):
+            response.json.return_value = {
+                "id": provider_id,
+                "status": "finished",
+                "forfeit": False,
+                "winner": {"id": 7},
+                "opponents": opponents,
+                "results": [
+                    {"team_id": 7, "score": 2},
+                    {"team_id": 8, "score": 0},
+                ],
+            }
+            with patch("scanners.esports_scanner.requests.get", return_value=response):
+                self.assertIsNone(scanner.get_match_result(55))
+
     def test_esports_upcoming_range_filters_before_model_history_calls(self):
         scanner = EsportsScanner.__new__(EsportsScanner)
         scanner.api_key = "test"

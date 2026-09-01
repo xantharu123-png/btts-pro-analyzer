@@ -402,8 +402,10 @@ class EsportsScanner:
     def get_match_result(self, match_id: int) -> Optional[Dict]:
         """Finished-match result for shadow settlement.
 
-        Returns {"winner_team_id": int} for finished matches, else None
-        (still running, not started, or invalid payload).
+        The returned opponent identities and series score are copied from the
+        same provider payload as the winner.  Ambiguous or incomplete results
+        stay open; a cancellation/forfeit is accepted only when PandaScore
+        marks it explicitly.
         """
         if (
             not self.api_key
@@ -428,20 +430,89 @@ class EsportsScanner:
             return None
         if not isinstance(match, dict):
             return None
+        provider_match_id = match.get("id")
+        if (
+            not isinstance(provider_match_id, int)
+            or isinstance(provider_match_id, bool)
+            or provider_match_id != match_id
+        ):
+            return None
         status = str(match.get("status") or "").lower()
-        if status == "canceled":
-            return {"void": True, "status": status}
-        if status != "finished":
+        opponents = match.get("opponents")
+        if not isinstance(opponents, list) or len(opponents) != 2:
+            return None
+        opponent_ids = []
+        for item in opponents:
+            opponent = item.get("opponent") if isinstance(item, dict) else None
+            team_id = opponent.get("id") if isinstance(opponent, dict) else None
+            if (
+                not isinstance(team_id, int)
+                or isinstance(team_id, bool)
+                or team_id <= 0
+            ):
+                return None
+            opponent_ids.append(team_id)
+        if len(set(opponent_ids)) != 2:
             return None
         winner = match.get("winner")
         winner_id = winner.get("id") if isinstance(winner, dict) else None
-        if (
-            not isinstance(winner_id, int)
-            or isinstance(winner_id, bool)
-            or winner_id <= 0
-        ):
+        if status == "canceled":
+            if match.get("forfeit") is True:
+                if winner_id not in opponent_ids:
+                    return None
+                return {
+                    "void": True,
+                    "status": status,
+                    "termination": "forfeit",
+                    "winner_team_id": winner_id,
+                    "team1_id": opponent_ids[0],
+                    "team2_id": opponent_ids[1],
+                }
+            if match.get("forfeit") is False and winner_id is None:
+                return {
+                    "void": True,
+                    "status": status,
+                    "termination": "cancelled",
+                    "team1_id": opponent_ids[0],
+                    "team2_id": opponent_ids[1],
+                }
             return None
-        return {"winner_team_id": winner_id}
+        if status != "finished" or match.get("forfeit") is not False:
+            return None
+        if winner_id not in opponent_ids:
+            return None
+        raw_results = match.get("results")
+        if not isinstance(raw_results, list) or len(raw_results) != 2:
+            return None
+        scores: Dict[int, int] = {}
+        for item in raw_results:
+            if not isinstance(item, dict):
+                return None
+            team_id = item.get("team_id")
+            score = item.get("score")
+            if (
+                not isinstance(team_id, int)
+                or isinstance(team_id, bool)
+                or team_id not in opponent_ids
+                or team_id in scores
+                or not isinstance(score, int)
+                or isinstance(score, bool)
+                or score < 0
+            ):
+                return None
+            scores[team_id] = score
+        if set(scores) != set(opponent_ids):
+            return None
+        if scores[winner_id] <= scores[next(team for team in opponent_ids if team != winner_id)]:
+            return None
+        return {
+            "winner_team_id": winner_id,
+            "team1_id": opponent_ids[0],
+            "team2_id": opponent_ids[1],
+            "score1": scores[opponent_ids[0]],
+            "score2": scores[opponent_ids[1]],
+            "termination": "normal",
+        }
 
     def _get_team_history(self, team_id: int, game: str) -> List[Dict]:
         """Raw finished-match history for a team (newest first, max 50).

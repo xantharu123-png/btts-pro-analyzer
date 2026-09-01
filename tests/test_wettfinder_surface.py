@@ -137,7 +137,8 @@ def test_card_maps_model_and_exact_consensus_without_changing_probabilities():
     assert card.observed_odds == 1.80
     assert card.bookmaker == "Book <2>"
     assert card.price_code == "PLAYABLE"
-    assert card.price_label == "Spielbar"
+    assert card.price_label == "Quote passend"
+    assert card.price_tone == "warning"
 
 
 def test_public_quote_binding_adapter_preserves_loader_identity():
@@ -267,7 +268,7 @@ def test_price_states_are_concise_and_only_current_prices_are_displayed():
             None,
         ),
         "UNAVAILABLE": (None, "Quote fehlt", None),
-        "PLAYABLE": (_quote(signal), "Spielbar", 1.80),
+        "PLAYABLE": (_quote(signal), "Quote passend", 1.80),
     }
 
     for expected_code, (quote, label, visible_odds) in cases.items():
@@ -300,12 +301,31 @@ def test_evidence_labels_do_not_invent_confirmation_or_context():
     )
     fully_checked = _card(_signal(context_complete=True))
     partial = _card(_signal(context_complete=False))
+    research = _card(_signal(context_complete=True, stage="RESEARCH"))
     pending = _card(_signal(context_complete=None, stage="RELEASED"))
 
     assert released.evidence_label == "Freigegeben"
-    assert fully_checked.evidence_label == "Vollständig geprüft"
-    assert partial.evidence_label == "Teilprüfung"
+    assert fully_checked.evidence_label == "Evidenzprüfung"
+    assert partial.evidence_label == "Evidenzprüfung"
+    assert research.evidence_label == "Forschungsmodell"
     assert pending.evidence_label == "Freigabe ausstehend"
+
+
+@pytest.mark.parametrize("stage", ("SHADOW", "RESEARCH"))
+def test_unreleased_evidence_with_playable_price_never_looks_released(stage):
+    signal = _signal(stage=stage, context_complete=True)
+
+    card = _card(signal, _quote(signal))
+    markup = surface.render_top_card_html(card)
+
+    assert card.confirmed_tip is False
+    assert card.price_code == "PLAYABLE"
+    assert card.price_label == "Quote passend"
+    assert card.price_tone == "warning"
+    assert card.evidence_label != "Vollständig geprüft"
+    assert "Bestätigter Tipp" not in markup
+    assert ">Spielbar</span>" not in markup
+    assert "noch kein freigegebener Tipp" in markup
 
 
 def test_confirmed_tip_requires_all_four_release_and_price_conditions():
@@ -313,9 +333,13 @@ def test_confirmed_tip_requires_all_four_release_and_price_conditions():
     quote = _quote(signal)
 
     assert _card(signal, quote).confirmed_tip is False
-    assert surface.build_wettfinder_card(
+    confirmed = surface.build_wettfinder_card(
         signal, quote, now=NOW, release_overlay=_overlay(signal, quote)
-    ).confirmed_tip is True
+    )
+    assert confirmed.confirmed_tip is True
+    assert confirmed.evidence_label == "Bestätigter Tipp"
+    assert confirmed.price_label == "Spielbar"
+    assert confirmed.price_tone == "positive"
     assert surface.build_wettfinder_card(
         replace(signal, statistical_release_passed=False),
         quote,
@@ -421,8 +445,9 @@ def test_html_card_and_row_escape_all_visible_provider_text_and_hide_detail():
         assert "Markt &lt;b&gt;" in markup
         assert "Auswahl &quot;x&quot;" in markup
         assert "Detail &lt;script&gt;" not in markup
-        assert "Kontext &lt;img src=x onerror=alert(1)&gt;" in markup
         assert "<button" not in markup
+    assert "Kontext &lt;img src=x onerror=alert(1)&gt;" in top
+    assert "Kontext &lt;img src=x onerror=alert(1)&gt;" not in row
     assert "Book &lt;2&gt;" in bookmaker_markup
 
 
@@ -437,8 +462,8 @@ def test_top_card_markup_exposes_the_decision_hierarchy_in_reading_order():
 
     expected_fragments = (
         'class="wf-badge wf-badge-top" aria-label="Top-Auswahl">TOP</span>',
-        'class="wf-badge wf-badge-evidence wf-evidence-neutral"',
-        'class="wf-badge wf-badge-price wf-price-positive"',
+        'class="wf-badge wf-badge-evidence wf-evidence-warning"',
+        'class="wf-badge wf-badge-price wf-price-warning"',
         'class="wf-meta"',
         'class="wf-event"',
         'class="wf-market"',
@@ -455,7 +480,7 @@ def test_top_card_markup_exposes_the_decision_hierarchy_in_reading_order():
     assert "Modellwert" in markup
     assert "Value ab" in markup
     assert "Aktuell" in markup
-    assert "Die aktuelle Quote erreicht den Value-Bereich." in markup
+    assert "noch kein freigegebener Tipp" in markup
     assert "Modell mit Form- und Kaderdaten" not in markup
 
 
@@ -505,10 +530,17 @@ def test_compact_row_is_semantic_flat_and_keeps_the_same_decision_fields():
     assert 'class="wf-badge wf-badge-top"' not in markup
     assert 'class="wf-badge wf-badge-evidence' in markup
     assert 'class="wf-badge wf-badge-price' in markup
-    assert 'class="wf-event"' in markup
-    assert 'class="wf-selection"' in markup
-    assert 'class="wf-primary-probability"' in markup
-    assert 'class="wf-metric-grid"' in markup
+    assert 'class="wf-row-event"' in markup
+    assert 'class="wf-row-pick"' in markup
+    assert markup.count('class="wf-row-value"') == 4
+    assert '>Modell</span>' in markup
+    assert '>Vorsichtig</span>' in markup
+    assert '>Value ab</span>' in markup
+    assert '>Aktuell</span>' in markup
+    assert 'class="wf-primary-probability"' not in markup
+    assert 'class="wf-metric-grid"' not in markup
+    assert 'class="wf-price-note' not in markup
+    assert 'class="wf-context"' not in markup
     assert "Modell mit Form- und Kaderdaten" not in markup
 
 
