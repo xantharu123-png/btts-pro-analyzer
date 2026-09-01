@@ -138,9 +138,15 @@ def _clean_text(value: object, fallback: str = "–") -> str:
 def _consumer_context_label(value: object) -> str:
     """Keep the visible ``Kontext:`` prefix in one rendering layer only."""
 
-    text = _clean_text(value, "Kontext ausstehend")
+    text = _clean_text(value, "ausstehend")
     while True:
-        cleaned = re.sub(r"^kontext\s*:\s*", "", text, count=1, flags=re.I)
+        cleaned = re.sub(
+            r"^kontext(?:\s*:\s*|\s+)",
+            "",
+            text,
+            count=1,
+            flags=re.I,
+        )
         if cleaned == text:
             break
         text = cleaned.strip()

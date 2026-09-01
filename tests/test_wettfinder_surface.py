@@ -149,6 +149,11 @@ def test_public_quote_binding_adapter_preserves_loader_identity():
     legacy_markup = surface.render_top_card_html(legacy_card)
     assert legacy_card.context_label == "H2H geprüft · Aufstellungen offen"
     assert "Kontext: Kontext:" not in legacy_markup
+    for raw in (None, "Kontext ausstehend", "Kontext: ausstehend"):
+        fallback_card = _card(_signal(context_summary=raw))
+        fallback_markup = surface.render_top_card_html(fallback_card)
+        assert fallback_card.context_label == "ausstehend"
+        assert "Kontext: Kontext" not in fallback_markup
 
     signal = replace(
         _signal("binding"),
@@ -454,7 +459,7 @@ def test_html_card_and_row_escape_all_visible_provider_text_and_hide_detail():
         assert "Auswahl &quot;x&quot;" in markup
         assert "Detail &lt;script&gt;" not in markup
         assert "<button" not in markup
-    assert "Kontext &lt;img src=x onerror=alert(1)&gt;" in top
+    assert "Kontext:</span> &lt;img src=x onerror=alert(1)&gt;" in top
     assert "Kontext &lt;img src=x onerror=alert(1)&gt;" not in row
     assert "Book &lt;2&gt;" in bookmaker_markup
 
