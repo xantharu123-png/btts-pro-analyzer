@@ -44,6 +44,14 @@ class FrozenRevisionError(ValueError):
     """An existing immutable identity was presented with different content."""
 
 
+class _AmbiguousSettleableRevisionError(FrozenRevisionError):
+    """One candidate has multiple equally current settleable revisions."""
+
+    def __init__(self, message: str, *, starts_at: Iterable[str]) -> None:
+        super().__init__(message)
+        self.starts_at = tuple(starts_at)
+
+
 class MissingRevisionError(RuntimeError):
     """A referenced run, snapshot or candidate does not exist."""
 
@@ -2006,25 +2014,32 @@ class RiskBetStore:
             for revision in newest
         }
         if len(snapshot_ids) != 1:
-            raise FrozenRevisionError(
-                "candidate has ambiguous equal-time settleable revisions"
+            raise _AmbiguousSettleableRevisionError(
+                "candidate has ambiguous equal-time settleable revisions",
+                starts_at=(
+                    str(revision["candidate"]["starts_at"])  # type: ignore[index]
+                    for revision in newest
+                ),
             )
         return newest[0]
 
-    def load_due_settlement_targets(
+    def load_due_settlement_targets_with_issues(
         self,
         *,
         as_of: datetime,
-    ) -> tuple[dict[str, object], ...]:
-        """Load newest store-wide prospective SHADOW/VALIDATED revisions.
+    ) -> tuple[tuple[dict[str, object], ...], int]:
+        """Load settleable revisions and isolate ambiguous candidate histories.
 
         Results are fully verified through their run memberships, current
         stage chains and global terminal-settlement uniqueness.  A newer
-        RESEARCH-only revision never masks an older settleable revision.
+        RESEARCH-only revision never masks an older settleable revision.  An
+        equal-time ambiguity stays unselected for that candidate, while every
+        other integrity error still aborts the store-wide read.
         """
 
         as_of_text = _utc_text(as_of, "as_of")
         targets: list[dict[str, object]] = []
+        ambiguous_count = 0
         with closing(self._connect()) as connection:
             candidate_ids = [
                 str(row["candidate_id"])
@@ -2042,7 +2057,15 @@ class RiskBetStore:
                     for settlement in settlements
                 ):
                     continue
-                revision = self._newest_settleable_revision(connection, candidate_id)
+                try:
+                    revision = self._newest_settleable_revision(
+                        connection,
+                        candidate_id,
+                    )
+                except _AmbiguousSettleableRevisionError as exc:
+                    if any(starts_at <= as_of_text for starts_at in exc.starts_at):
+                        ambiguous_count += 1
+                    continue
                 if revision is None:
                     continue
                 candidate = dict(revision["candidate"])  # type: ignore[arg-type]
@@ -2070,7 +2093,7 @@ class RiskBetStore:
                         ),
                     }
                 )
-        return tuple(
+        ordered = tuple(
             sorted(
                 targets,
                 key=lambda target: (
@@ -2080,6 +2103,23 @@ class RiskBetStore:
                 ),
             )
         )
+        return ordered, ambiguous_count
+
+    def load_due_settlement_targets(
+        self,
+        *,
+        as_of: datetime,
+    ) -> tuple[dict[str, object], ...]:
+        """Load unambiguous newest prospective SHADOW/VALIDATED revisions."""
+
+        targets, ambiguous_count = self.load_due_settlement_targets_with_issues(
+            as_of=as_of
+        )
+        if ambiguous_count:
+            raise FrozenRevisionError(
+                "candidate has ambiguous equal-time settleable revisions"
+            )
+        return targets
 
     def append_settlement(
         self,

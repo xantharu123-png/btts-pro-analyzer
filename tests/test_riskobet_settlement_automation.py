@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
@@ -257,6 +258,48 @@ def test_terminal_second_run_is_idempotent_and_does_not_call_provider(tmp_path: 
     assert second.terminal_settlements == 0
     assert len(_terminal_rows(store)) == 1
     assert store.read_latest()["run_id"] == run.run_id
+
+
+def test_ambiguous_candidate_is_unresolved_without_blocking_settlement_runner(
+    tmp_path: Path,
+):
+    store = _store(tmp_path)
+    first_run = _published_run(store)
+    first_snapshot = first_run.snapshots[0]
+    first_candidate = first_run.candidates[0]
+    conflicting_snapshot = replace(
+        first_snapshot,
+        input_hash=canonical_input_hash({"provider_id": "77", "revision": 2}),
+    )
+    conflicting_candidate = replace(
+        first_candidate,
+        snapshot_id=conflicting_snapshot.snapshot_id,
+    )
+    conflicting_run = RiskRunSnapshot(
+        started_at=MODELED + timedelta(minutes=2),
+        completed_at=MODELED + timedelta(minutes=3),
+        status=RunStatus.COMPLETE,
+        snapshots=(conflicting_snapshot,),
+        candidates=(conflicting_candidate,),
+    )
+    store.append_run(conflicting_run)
+    store.publish_latest(conflicting_run.run_id)
+
+    def must_not_run(_requests, _now):
+        raise AssertionError("ambiguous candidate must not reach a provider")
+
+    summary = run_riskobet_settlements(
+        store=store,
+        now=NOW,
+        result_loaders={"football": must_not_run},
+    )
+
+    assert summary.due_candidates == 1
+    assert summary.due_events == 0
+    assert summary.unresolved_candidates == 1
+    assert summary.terminal_settlements == 0
+    assert summary.errors == ("automation:ambiguous_settlement_revisions",)
+    assert _terminal_rows(store) == []
 
 
 def test_crash_after_database_append_is_healed_without_provider_retry(tmp_path: Path):

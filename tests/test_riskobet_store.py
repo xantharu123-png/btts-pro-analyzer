@@ -320,6 +320,17 @@ def test_equal_time_settleable_revisions_fail_closed(tmp_path):
     store.append_run(_run(first, first_candidate, minute=1))
     store.append_run(_run(second, second_candidate, minute=2))
 
+    future_targets, future_issue_count = store.load_due_settlement_targets_with_issues(
+        as_of=NOW + timedelta(hours=1)
+    )
+    assert future_targets == ()
+    assert future_issue_count == 0
+
+    targets, issue_count = store.load_due_settlement_targets_with_issues(
+        as_of=NOW + timedelta(days=1)
+    )
+    assert targets == ()
+    assert issue_count == 1
     with pytest.raises(FrozenRevisionError, match="ambiguous equal-time"):
         store.load_due_settlement_targets(as_of=NOW + timedelta(days=1))
     with pytest.raises(FrozenRevisionError, match="ambiguous equal-time"):
@@ -329,6 +340,62 @@ def test_equal_time_settleable_revisions_fail_closed(tmp_path):
             result=SettlementResult(SettlementStatus.WIN, "final_score"),
             settled_at=NOW + timedelta(days=1),
         )
+
+
+def test_ambiguous_schedule_revision_does_not_block_unrelated_settlement(tmp_path):
+    store = RiskBetStore(tmp_path / "riskobet.db")
+    original_start = NOW + timedelta(hours=6)
+    original = EventModelSnapshot(
+        event_key=stable_event_key("football", "provider", "fixture-17"),
+        sport="football",
+        competition="Testliga",
+        event_label="Alpha vs Beta",
+        starts_at=original_start,
+        modeled_at=NOW,
+        input_cutoff_at=NOW - timedelta(minutes=1),
+        model_version="football-risk-v1",
+        input_hash=canonical_input_hash({"revision": 1, "schedule": "original"}),
+    )
+    postponed_start = original.starts_at + timedelta(hours=2)
+    postponed = EventModelSnapshot(
+        event_key=original.event_key,
+        sport=original.sport,
+        competition=original.competition,
+        event_label=original.event_label,
+        starts_at=postponed_start,
+        modeled_at=original.modeled_at,
+        input_cutoff_at=original.input_cutoff_at,
+        model_version=original.model_version,
+        input_hash=canonical_input_hash({"revision": 2, "schedule": "postponed"}),
+    )
+    original_candidate = _candidate(original, stage=EvidenceStage.SHADOW)
+    postponed_candidate = _candidate(postponed, stage=EvidenceStage.SHADOW)
+    assert original_candidate.candidate_id == postponed_candidate.candidate_id
+    store.append_run(_run(original, original_candidate, minute=1))
+    store.append_run(_run(postponed, postponed_candidate, minute=2))
+
+    healthy = EventModelSnapshot(
+        event_key=stable_event_key("football", "provider", "fixture-18"),
+        sport="football",
+        competition="Testliga",
+        event_label="Gamma vs Delta",
+        starts_at=NOW + timedelta(hours=7),
+        modeled_at=NOW + timedelta(minutes=1),
+        input_cutoff_at=NOW,
+        model_version="football-risk-v1",
+        input_hash=canonical_input_hash({"revision": 1, "fixture": 18}),
+    )
+    healthy_candidate = _candidate(healthy, stage=EvidenceStage.SHADOW)
+    store.append_run(_run(healthy, healthy_candidate, minute=3))
+
+    targets, issue_count = store.load_due_settlement_targets_with_issues(
+        as_of=NOW + timedelta(days=1)
+    )
+    assert len(targets) == 1
+    assert targets[0]["snapshot"]["snapshot_id"] == healthy.snapshot_id
+    assert issue_count == 1
+    with pytest.raises(FrozenRevisionError, match="ambiguous equal-time"):
+        store.load_due_settlement_targets(as_of=NOW + timedelta(days=1))
 
 
 def test_evidence_transitions_cannot_skip_shadow_or_rewrite_history(tmp_path):

@@ -889,12 +889,18 @@ def run_riskobet_settlements(
     if stored_latest is None:
         raise ValueError("published RisikoBet run is missing from the store")
     publication_needs_repair = canonical_json(stored_latest) != canonical_json(latest)
-    targets = resolved_store.load_due_settlement_targets(as_of=observed_now)
+    targets, ambiguous_candidates = (
+        resolved_store.load_due_settlement_targets_with_issues(
+            as_of=observed_now
+        )
+    )
     run = {
         "snapshots": [target["snapshot"] for target in targets],
         "candidates": [target["candidate"] for target in targets],
     }
     due, errors = _due_candidates(run, now=observed_now)
+    if ambiguous_candidates:
+        errors.append("automation:ambiguous_settlement_revisions")
     requests, candidates_by_event, request_errors = _requests_by_sport(
         due,
         max_events_per_sport=max_events_per_sport,
@@ -907,7 +913,7 @@ def run_riskobet_settlements(
         for sport, sport_requests in requests.items()
         for request in sport_requests
     )
-    unresolved = len(due) - queried_candidates
+    unresolved = len(due) - queried_candidates + ambiguous_candidates
     checked: list[str] = []
     overrides = dict(result_loaders or {})
     for sport in sorted(requests):
@@ -1030,7 +1036,7 @@ def run_riskobet_settlements(
             errors.append("automation:latest_changed_before_publication")
     return SettlementAutomationSummary(
         run_id=run_id,
-        due_candidates=len(due),
+        due_candidates=len(due) + ambiguous_candidates,
         due_events=sum(len(items) for items in requests.values()),
         checked_sports=tuple(checked),
         terminal_settlements=inserted,

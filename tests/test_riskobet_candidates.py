@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from riskobet_automation import run_riskobet
 from riskobet_candidates import (
     ESPORTS_WIN_MIN_PROBABILITY,
     FOOTBALL_CONTEXT_TTL,
@@ -25,6 +26,7 @@ from riskobet_candidates import (
     select_football_risk_sources,
 )
 from riskobet_domain import ContextState, EvidenceStage
+from riskobet_store import RiskBetStore
 
 
 UTC = timezone.utc
@@ -246,6 +248,64 @@ def test_football_identity_is_fail_closed_and_bundle_order_is_stable():
     corrupt[-2].home_team = "Different Identity"
     assert select_football_risk_sources(corrupt) == []
     assert football_risk_source_pool(corrupt) == []
+
+
+def test_football_refetch_with_a_new_causal_clock_creates_a_new_snapshot_revision():
+    """Repeated automation runs must not collide in the immutable store."""
+
+    pool = football_pool()
+    selected = select_football_risk_sources(pool)
+    support = football_risk_source_pool(pool)
+    first = football_risk_bundle(
+        selected,
+        source_pool=support,
+        modeled_at=MODELED_AT,
+        input_cutoff_at=MODELED_AT,
+    )
+    refetched_at = MODELED_AT + timedelta(minutes=10)
+    refetched = football_risk_bundle(
+        selected,
+        source_pool=support,
+        modeled_at=refetched_at,
+        input_cutoff_at=refetched_at,
+    )
+
+    assert refetched.snapshot.snapshot_id != first.snapshot.snapshot_id
+    assert refetched.snapshot.input_hash != first.snapshot.input_hash
+
+
+def test_football_refetch_persists_and_becomes_the_settlement_revision(tmp_path):
+    pool = football_pool()
+    selected = select_football_risk_sources(pool)
+    support = football_risk_source_pool(pool)
+    first = football_risk_bundle(
+        selected,
+        source_pool=support,
+        modeled_at=MODELED_AT,
+        input_cutoff_at=MODELED_AT,
+    )
+    refetched_at = MODELED_AT + timedelta(minutes=10)
+    refetched = football_risk_bundle(
+        selected,
+        source_pool=support,
+        modeled_at=refetched_at,
+        input_cutoff_at=refetched_at,
+    )
+    store = RiskBetStore(tmp_path / "riskobet.db", tmp_path / "riskobet_latest.json")
+
+    run_riskobet(football_source=(first,), store=store, now=MODELED_AT)
+    second_run = run_riskobet(
+        football_source=(refetched,),
+        store=store,
+        now=refetched_at,
+    )
+
+    assert store.read_latest()["run_id"] == second_run.run_id
+    targets = store.load_due_settlement_targets(as_of=KICKOFF + timedelta(minutes=1))
+    assert targets
+    assert {target["snapshot"]["snapshot_id"] for target in targets} == {
+        refetched.snapshot.snapshot_id
+    }
 
 
 def test_football_rejects_extreme_underdog_and_trivial_one_goal_without_factor():

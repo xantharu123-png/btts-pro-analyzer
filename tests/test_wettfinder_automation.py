@@ -3333,6 +3333,19 @@ def test_football_risk_snapshot_clock_is_stable_until_inputs_change():
     assert repeated[0].snapshot.modeled_at == now
     assert first[0].snapshot.snapshot_id == repeated[0].snapshot.snapshot_id
 
+    refreshed_state = dict(state)
+    refreshed_state["last_discovery_at"] = (now + timedelta(minutes=10)).isoformat()
+    refreshed_state["last_success_at"] = (now + timedelta(minutes=10)).isoformat()
+    refetched = wettfinder_automation._riskobet_football_source(
+        refreshed_state,
+        now=now + timedelta(minutes=35),
+        target_date=now.date(),
+    )
+
+    assert len(refetched) == 1
+    assert refetched[0].snapshot.modeled_at == now + timedelta(minutes=10)
+    assert refetched[0].snapshot.snapshot_id != first[0].snapshot.snapshot_id
+
 
 def test_research_batch_uses_injected_completed_causal_history_once():
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)

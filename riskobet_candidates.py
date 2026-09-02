@@ -905,6 +905,12 @@ def football_risk_bundle(
             "home": home,
             "away": away,
             "kickoff": starts_at.isoformat(),
+            # These clocks affect frozen snapshot content (factor import
+            # times and context freshness).  Bind them to the immutable input
+            # revision so a later provider observation cannot reuse an older
+            # snapshot identity with different content.
+            "modeled_at": model_time.isoformat(),
+            "input_cutoff_at": cutoff.isoformat(),
             "model_candidates": sorted(
                 (_football_model_payload(candidate) for candidate in pool),
                 key=lambda item: str(item["candidate_id"]),
