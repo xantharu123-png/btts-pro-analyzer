@@ -153,6 +153,7 @@ root_git() {
         -c core.hooksPath=/dev/null \
         -c core.fsmonitor=false \
         -c credential.helper= \
+        -c http.version=HTTP/1.1 \
         -c protocol.file.allow=never \
         "$@"
 }
@@ -254,6 +255,7 @@ git_betboy() {
         -c core.hooksPath=/dev/null \
         -c core.fsmonitor=false \
         -c credential.helper= \
+        -c http.version=HTTP/1.1 \
         -c protocol.file.allow=never \
         -C "${APP_DIR}" "$@"
 }

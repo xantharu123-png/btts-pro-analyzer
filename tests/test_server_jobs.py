@@ -171,6 +171,21 @@ def test_update_preflights_before_downtime_and_has_recovery_path():
     assert "FAIL-CLOSED: the target migration/app may have touched databases" in update
 
 
+def test_deploy_git_wrappers_pin_github_transport_to_http_1_1():
+    """The VPS Git/libcurl HTTP/2 path must not break trusted GitHub fetches."""
+
+    root = Path(__file__).resolve().parents[1]
+    for script_name in ("update_server.sh", "bootstrap_server.sh"):
+        source = (root / "deploy" / script_name).read_text(encoding="utf-8")
+        for function_name in ("root_git", "git_betboy"):
+            function = _shell_function(source, function_name)
+            assert function.count("-c http.version=HTTP/1.1") == 1
+            assert "GIT_CONFIG_NOSYSTEM=1" in function
+            assert "GIT_CONFIG_GLOBAL=/dev/null" in function
+            assert "GIT_TERMINAL_PROMPT=0" in function
+            assert "-c credential.helper=" in function
+
+
 def test_resume_target_is_pinned_across_both_fixed_url_fetches():
     root = Path(__file__).resolve().parents[1]
     update = (root / "deploy" / "update_server.sh").read_text(encoding="utf-8")
