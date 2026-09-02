@@ -1,7 +1,7 @@
 # RisikoBet – freigegebene Produktspezifikation
 
-Stand: 01.09.2026
-Status: Design 1–4 freigegeben; Design 5 durch den Auftrag zur vollständigen Umsetzung konkretisiert
+Stand: 02.09.2026
+Status: Design 1–4 freigegeben, einschließlich ausdrücklicher Freigabe von Design 4; Design 1–5 implementiert, getestet und produktiv ausgerollt
 
 ## Problemstellung
 
@@ -158,18 +158,27 @@ Für `VALIDATED` sind mindestens erforderlich:
 
 ## P0-Anforderungen und Abnahmekriterien
 
-- [ ] RisikoBet ist eine eigene Hauptseite und auf Desktop/Mobil in identischer Reihenfolge erreichbar.
-- [ ] Der Orchestrator führt alle sechs fest definierten Sportadapter aus, sobald ihre Quelle fällig ist; der öffentliche Snapshot enthält nur unveränderliche Modellresultate und bereinigte Fehler. Fehlende Kerndaten erzeugen keine Wahrscheinlichkeit.
-- [ ] Fußball-Risiken zweigen vor den normalen Wettfinder-Gates aus dem gemeinsamen Modelllauf ab.
-- [ ] Pro Event werden höchstens zwei Szenarien veröffentlicht.
-- [ ] Quote fehlt/zu niedrig/veraltet verändert weder Sichtbarkeit noch Reihenfolge.
-- [ ] Research, Shadow und Validated werden nie vermischt.
-- [ ] Pro und Contra sowie Datenfrische sind ohne Aufklappen sichtbar.
-- [ ] Consumer-Fehlertexte enthalten keine internen Provider-, Liga-, Kandidaten- oder Gate-Diagnosen.
-- [ ] RisikoBet-Persistenz ist idempotent, revisionsfest und atomar lesbar.
-- [ ] Mindestens Fußball, Tennis und E-Sport besitzen prospektive Shadow- und Settlementpfade.
-- [ ] Basketball, Eishockey und Cricket besitzen echte Research-Adapter; sie geben nur mit ausreichenden historischen Kerndaten eine Prozentzahl aus.
-- [ ] Vollständige Python-, Syntax-, Diff-, Browser-, Backup- und Produktionsprüfungen bestehen.
+- [x] RisikoBet ist eine eigene Hauptseite und auf Desktop/Mobil in identischer Reihenfolge erreichbar.
+- [x] Der Orchestrator führt alle sechs fest definierten Sportadapter aus, sobald ihre Quelle fällig ist; der öffentliche Snapshot enthält nur unveränderliche Modellresultate und bereinigte Fehler. Fehlende Kerndaten erzeugen keine Wahrscheinlichkeit.
+- [x] Fußball-Risiken zweigen vor den normalen Wettfinder-Gates aus dem gemeinsamen Modelllauf ab.
+- [x] Pro Event werden höchstens zwei Szenarien veröffentlicht.
+- [x] Quote fehlt/zu niedrig/veraltet verändert weder Sichtbarkeit noch Reihenfolge.
+- [x] Research, Shadow und Validated werden nie vermischt.
+- [x] Pro und Contra sowie Datenfrische sind ohne Aufklappen sichtbar.
+- [x] Consumer-Fehlertexte enthalten keine internen Provider-, Liga-, Kandidaten- oder Gate-Diagnosen.
+- [x] RisikoBet-Persistenz ist idempotent, revisionsfest und atomar lesbar.
+- [x] Mindestens Fußball, Tennis und E-Sport besitzen prospektive Shadow- und Settlementpfade.
+- [x] Basketball, Eishockey und Cricket besitzen echte Research-Adapter; sie geben nur mit ausreichenden historischen Kerndaten eine Prozentzahl aus.
+- [x] Vollständige Python-, Syntax-, Diff-, Browser-, Backup- und Produktionsprüfungen bestehen.
+
+## Produktionsabnahme 02.09.2026
+
+- Implementierungsfolge: `a086adf`, `5d5fe51` und `765008c`; revisionsfeste Wiederholungsläufe: `049d079a8f15031dccab0285000dd549db1f2388`; HTTP/1.1-kompatibles Deployment: `7d6f0e8060534b3f4d420b3c556321c7f7d022c9`.
+- Regression: 1.423 Tests bestanden, 8 erwartete Skips und 97 Untertests; alle 182 versionierten Python-Dateien kompiliert.
+- Gerenderte Produktionsprüfung bei 1440, 1080, 768, 430, 390, 360 und 320 Pixeln: kein horizontaler Überlauf, keine Console-Fehler oder -Warnungen, sechs funktionsfähige Sportfilter mit exakten Anzahlen und fünfteilige Mobilnavigation.
+- VPS-Funktionsabnahme für `7d6f0e8060534b3f4d420b3c556321c7f7d022c9`: interner und öffentlicher Healthcheck `ok`, sieben Timer aktiv und aktiviert, Backup mit 86 Datenbanken verifiziert. Spätere reine Dokumentationscommits ändern diese Funktionsbasis nicht, müssen aber weiterhin exakt gepusht und deployed werden.
+- Frischer RisikoBet-Lauf: `PARTIAL` ausschließlich wegen der fehlenden Cricket-Quelle; 48 Snapshots, 62 Kandidaten und 47 Events. Veröffentlicht wurden Fußball (30), Tennis (31) und E-Sport (1); Basketball und Eishockey wurden vollständig geprüft, lieferten aber keine Szenarien.
+- Für Cricket fehlen produktiv weiterhin `RAPIDAPI_KEY` beziehungsweise `CRICKET_API_KEY` samt gültigem Anbieterzugang. Der Adapter erfindet deshalb weder Wahrscheinlichkeit noch Kandidat. Diese externe Konfiguration bleibt erforderlich, ist aber keine Modell-, Qualitäts- oder Quotensperre.
 
 ## P1
 

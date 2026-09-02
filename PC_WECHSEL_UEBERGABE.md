@@ -6,6 +6,58 @@ Diese Anleitung bringt einen neuen Windows-PC in einen sicheren,
 reproduzierbaren BetBoy-Arbeitsstand. Der laufende Produktionsserver hängt
 nicht vom alten PC ab und arbeitet während des Wechsels weiter.
 
+### Aktueller verifizierter Stand vom 2. September 2026
+
+Die funktionale Codebasis ist
+`7d6f0e8060534b3f4d420b3c556321c7f7d022c9`. Sie enthält den
+RisikoBet-Revisionsfix
+`049d079a8f15031dccab0285000dd549db1f2388` sowie den auf dem VPS
+erforderlichen Git-HTTP/1.1-Transportfix. Der unmittelbar nachfolgende
+Dokumentationscommit darf den Funktionsstand nicht verändern, muss aber wie
+jeder Release erneut auf GitHub und dem VPS exakt identisch ausgerollt werden.
+
+| Prüfung | Ergebnis |
+|---|---|
+| Regression | 1.423 Tests bestanden, 8 erwartete Skips, 97 Subtests; 182 versionierte Python-Dateien kompiliert |
+| GitHub und VPS | Funktionsbasis per vollständigem 40-hex-Hash identisch; normaler root-eigener Updater erfolgreich |
+| App und Proxy | `betboy-app.service` und Caddy aktiv/enabled; interner und öffentlicher Healthcheck `ok` |
+| Scheduler | exakt sieben BetBoy-Timer aktiv/enabled; Timer rechnen Daten, sie pullen oder deployen keinen Code |
+| RisikoBet-Lauf | `PARTIAL` nur wegen fehlender Cricket-Quelle; 48 Snapshots und 62 Szenarien aus 47 Events: Fußball 30, Tennis 31, E-Sport 1; Basketball und Eishockey regulär geprüft ohne Szenario |
+| Revision/Settlement | 39 alte mehrdeutige Tennis-Kandidatengruppen mit konkurrierenden Revisionen isoliert und nicht geraten; 27 eindeutige Ziele weitergeführt, 5 terminale Settlements verarbeitet |
+| Gerenderte UI | alle sechs Filter geprüft; 1440/1080/768/430/390/360/320 Pixel ohne horizontalen Überlauf, keine Console-Fehler oder -Warnungen |
+| Backup | Pre-Update- und reguläres SQLite-Backup jeweils mit 86 Datenbanken verifiziert |
+
+#### Aktueller Checkout-Vertrag: Wettfinder V2 und RisikoBet V1
+
+- RisikoBet ist ein eigener Hauptbereich mit sechs Sportfiltern und höchstens
+  zwei Szenarien je Event. Sport, Event, Auswahl, Modellwahrscheinlichkeit,
+  vorsichtige Prognose, Pro, Contra, Kontext-/Evidenzstatus und Preisstatus sind
+  auf den Hauptkarten ohne Aufklappen sichtbar.
+- Wettpreis und Modell bleiben vollständig getrennt. Eine fehlende, zu niedrige
+  oder alte Quote ändert weder Wahrscheinlichkeit noch Reihenfolge noch
+  Sichtbarkeit. Ein RisikoBet-Szenario ist kein Tipp und erzeugt keinen
+  Einsatzvorschlag.
+- Das Öffnen oder Filtern der Seite ruft keinen Anbieter auf. Der vorhandene
+  halbstündliche Wettfinder-Job erzeugt auch den atomaren RisikoBet-Snapshot;
+  es gibt weiterhin keinen zusätzlichen achten Timer.
+- `runtime_state/riskobet.db` ist die revisionsfeste Historie,
+  `runtime_state/riskobet_latest.json` das atomar veröffentlichte
+  Consumer-Artefakt. Beide liegen nur auf dem VPS; die Datenbank ist Teil des
+  verifizierten SQLite-Backups, der daraus wiederherstellbare JSON-Snapshot
+  keine zweite kanonische Wahrheit.
+- Alte gleichzeitige Tennis-Kandidatengruppen mit konkurrierenden Revisionen
+  werden nicht willkürlich aufgelöst oder umgeschrieben. Nur die exakt
+  klassifizierte kandidatenspezifische Mehrdeutigkeit wird isoliert; andere
+  Integritätsfehler bleiben fail-closed.
+- Alle sechs RisikoBet-Sportadapter sind implementiert. Auf Produktion fehlen
+  `RAPIDAPI_KEY` und `CRICKET_API_KEY` beziehungsweise ein gültiger
+  Cricket-Datenzugang. Deshalb zeigt Cricket ehrlich Teildaten/leer und keine
+  erfundene Wahrscheinlichkeit. Das ist eine externe Betriebsvoraussetzung,
+  keine Quoten-, Markt- oder Modellnamensperre.
+
+Der folgende Abschnitt ist ein historischer Nachweis vom 24. August und darf
+den aktuellen Vertrag nicht überschreiben.
+
 Am 24. August 2026 wurde vor dem damals aktuellen v14/v12-Härtungspaket der
 folgende
 **zuletzt unabhängig verifizierte Produktionsstand** festgehalten:
@@ -27,12 +79,12 @@ Dieser Produktionsbeleg gehört zum früheren Automationsartefakt v13 mit
 Auswahlrichtlinie v11. Die damals dokumentierte QA umfasst 886 Python-Tests,
 38 Subtests und 3/3 JavaScript-Tests; Syntax- und Diff-Prüfungen waren grün.
 Commit, Push, VPS-Deploy, echter Automatiklauf und Produktions-Browserprüfung
-dieses historischen Funktionsstands waren abgeschlossen. Der aktuelle
-Checkout-Vertrag ist im folgenden Abschnitt beschrieben und muss nach jedem
-neuen Deploy erneut über vollständigen Hash, Worker, Artefakt und Browser
-verifiziert werden.
+dieses historischen Funktionsstands waren abgeschlossen. Die beiden
+historischen Nachweise bleiben zur Ursachenanalyse erhalten; maßgeblich ist
+der aktuelle Vertrag weiter oben, der nach jedem neuen Deploy erneut über
+vollständigen Hash, Worker, Artefakt und Browser verifiziert werden muss.
 
-### Aktueller Checkout-Vertrag: Wettfinder und 15K v16/v13
+### Historischer Checkout-Vertrag: Wettfinder und 15K v16/v13
 
 Letzter produktiv verifizierter Basisnachweis vor v16/v13: Commit
 `e341db828121cba7ad5a9d4ed2f6304b146a3591` (`Refine normal Wettfinder
@@ -41,9 +93,9 @@ JavaScript-Tests grün; Python-Kompilierung und `git diff --check` ebenfalls
 grün. VPS-Revision, App, interner/öffentlicher Healthcheck, sieben Timer und
 null fehlgeschlagene Units wurden am 24. August unabhängig bestätigt.
 
-- Writer und Reader des aktuellen Checkouts verwenden Automationsartefakt v16,
-  Auswahl-/Katalogpolicy v13 und Modellcache-Schema v2. Vor einem Deploy ist
-  der vollständige v16/v13-Test- und Revisionsnachweis neu zu protokollieren.
+- Der Wettfinder-/15K-Pfad verwendet weiterhin Automationsartefakt v16,
+  Auswahl-/Katalogpolicy v13 und Modellcache-Schema v2. RisikoBet ergänzt
+  diesen Pfad, ohne seinen Echtgeldvertrag zu lockern.
 - Seine Kandidaten entstehen aus einem eigenen vollständigen berechenbaren
   Marktpool. Der 15K-Wahrscheinlichkeitskorridor und die 15K-Ticketvorfilter
   werden nicht wiederverwendet; auch höhere Modellwahrscheinlichkeiten bleiben
@@ -100,8 +152,11 @@ fehlende beziehungsweise alte
 Quoten änderten keine Prognose. Die Schreibweise `verfügbar` war korrigiert,
 und die Browserkonsole hatte null Fehler.
 
-Nach jedem Commit gilt ausschließlich der frisch abgefragte vollständige
-`origin/main`-Hash. Hash und Produktionsstand werden nach einem Deploy erneut
+Nach jedem Commit gilt ausschließlich der frisch mit `git ls-remote origin
+refs/heads/main` abgefragte vollständige GitHub-Hash. Der lokale Tracking-Ref
+und besonders der `origin/main`-Ref in `/opt/betboy/app` können absichtlich
+älter sein und sind kein Remote-Nachweis. Nach einem Deploy werden lokaler
+`HEAD`, frisch abgefragtes GitHub `main` und der VPS-`HEAD` erneut als vollständige Hashes
 verglichen; alte Chatangaben sind keine Betriebswahrheit.
 
 ## 2. Was wo lebt
@@ -135,24 +190,27 @@ Im aktuellen Repository:
 ```powershell
 Set-Location C:\Projekt\BetBoy\betboy-app
 git status --short --branch
-git fetch origin
-git rev-parse HEAD
-git rev-parse origin/main
+$local = (git rev-parse HEAD).Trim()
+$github = ((git ls-remote origin refs/heads/main) -split '\s+')[0]
+if ($local -notmatch '^[0-9a-f]{40}$' -or $github -ne $local) {
+    throw 'Lokaler HEAD und frisch abgefragtes GitHub main weichen ab.'
+}
 ```
 
-`HEAD` und `origin/main` müssen identisch sein. Erwartete lokale Altdateien
+Der direkte `ls-remote`-Wert ist maßgeblich; ein lokaler oder serverseitiger
+`origin/main`-Tracking-Ref kann veraltet sein. Erwartete lokale Arbeitsartefakte
 können weiterhin ungetrackt erscheinen:
 
 ```text
+.playwright-cli/
 AUDIT_BERICHT_2026-08-09.md
-logs/pipeline_2026-07-31.log
-logs/pipeline_2026-08-02.log
+output/
 ```
 
-Die validierten Inhalte des Auditberichts sind in `PROJECT_HANDBUCH.md` und
-`PROJEKTBIBEL.md` übernommen. Die beiden Logs sind historischer Laufoutput.
-Keine dieser Dateien ist für den Betrieb nötig. Nur bei gewünschter Archivierung
-verschlüsselt separat kopieren; nicht versehentlich committen.
+Die validierten Inhalte des Auditberichts sind in den kanonischen Dokumenten
+übernommen. Browserzustand und `output/` sind lokale QA-Artefakte. Keine dieser
+Dateien ist für den Betrieb nötig. Nicht löschen, nicht mit `git add -A`
+aufnehmen und nur bei ausdrücklichem Wunsch separat archivieren.
 
 ### Zugangsdaten sichern
 
@@ -480,7 +538,7 @@ ssh betboy-vps
 Auf dem VPS:
 
 ```bash
-sudo -u betboy git -C /opt/betboy/app rev-parse --short HEAD
+sudo -u betboy git -C /opt/betboy/app rev-parse HEAD
 systemctl is-active betboy-app.service
 systemctl list-timers --all 'betboy-*'
 systemctl --failed
@@ -491,7 +549,9 @@ sudo ls -lt /var/backups/betboy-ssh | head
 
 Erwartung:
 
-- Git-Hash entspricht `origin/main`;
+- der vollständige VPS-`HEAD` entspricht dem unmittelbar davor vom PC mit
+  `git ls-remote origin refs/heads/main` abgefragten GitHub-Hash; der
+  serverseitige Tracking-Ref `origin/main` ist hierfür absichtlich irrelevant;
 - App-Service ist `active`;
 - sieben BetBoy-Timer sind vorhanden;
 - keine fehlgeschlagene Unit;
@@ -516,11 +576,20 @@ starten nur Daten-/Modelljobs und führen weder `git pull` noch ein Deployment
 aus. Jede Codeversion wird anschließend ausdrücklich über den root-eigenen
 Updater mit ihrem vollständigen 40-hex-Commit ausgerollt.
 
-Danach den gepushten vollständigen Hash erneut gegen GitHub prüfen. Vor dem
-**ersten** Einsatz auf einem bestehenden VPS müssen beide geprüften Root-Tools
-einmalig nach `One-time migration of an existing VPS` in `deploy/README.md`
-installiert und die vorhandenen Units sowie Laufzeitpfade geprüft werden. Erst
-danach den root-eigenen Updater aufrufen:
+Auf diesem VPS pinnen die beiden root-eigenen Git-Wrapper Zugriffe auf das
+öffentliche feste HTTPS-Repository mit `http.version=HTTP/1.1`. Grund ist ein
+reproduzierbarer Git-2.43/libcurl-Fehler im HTTP/2-Smart-HTTP-Pfad, der
+irreführend nach Zugangsdaten fragte. Das ist kein Authentifizierungsproblem:
+keinen PAT oder Deploy-Key hinzufügen, TLS nicht deaktivieren und den
+HTTP/1.1-Pin nicht entfernen, solange der Server-Stack nicht separat
+nachweislich korrigiert ist.
+
+Danach den gepushten vollständigen Hash erneut gegen GitHub prüfen. Die
+Migration und die einmalige HTTP/1.1-Bridge dieses VPS sind abgeschlossen;
+künftige Releases verwenden ausschließlich den bereits installierten
+root-eigenen Updater. Nur ein tatsächlich noch nie migrierter oder vollständig
+neu aufgebauter Host folgt den Abschnitten `Initial installation` oder
+`One-time migration of an existing VPS` in `deploy/README.md`.
 
 ```powershell
 $target = (git rev-parse HEAD).Trim()
@@ -605,8 +674,10 @@ Geeigneter Übergabeprompt:
 ```text
 Arbeite im Repository betboy-app auf main. Lies zuerst PROJEKTBIBEL.md,
 PC_WECHSEL_UEBERGABE.md und PROJECT_HANDBUCH.md. Verifiziere anschließend
-git status, HEAD gegen origin/main und den VPS-Hash, bevor du Änderungen
-machst. Modellwahrscheinlichkeit und Buchmacherpreis müssen getrennt bleiben.
+git status, lokalen HEAD gegen frisch mit git ls-remote abgefragtes GitHub main
+und anschließend den VPS-HEAD, bevor du Änderungen machst. Ein Tracking-Ref
+origin/main ist kein Remote-Nachweis. Modellwahrscheinlichkeit und
+Buchmacherpreis müssen getrennt bleiben.
 RESEARCH/SHADOW dürfen nicht als Echtgeldtipps veröffentlicht werden. Der VPS
 ist die einzige schreibende Automationsinstanz. Bestehende ungetrackte Dateien
 nicht löschen oder committen. Behauptungen aus alten Chats nur nach Code- und

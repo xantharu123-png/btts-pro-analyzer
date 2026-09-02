@@ -4,10 +4,14 @@
 
 | Feld | Verifizierter Stand |
 |---|---|
-| Auditzeitraum | 1. bis 24. August 2026 |
+| Auditzeitraum | 1. August bis 2. September 2026 |
 | Repository | `xantharu123-png/btts-pro-analyzer` |
 | Lokaler Pfad | `C:\Projekt\BetBoy\betboy-app` |
 | Branch | `main` |
+| Aktuell verifizierte Funktionsbasis | `7d6f0e8060534b3f4d420b3c556321c7f7d022c9`; enthält den RisikoBet-Revisionsfix `049d079a8f15031dccab0285000dd549db1f2388` und den VPS-Git-Transportfix |
+| RisikoBet-Produktstand | Design 1 bis 4 freigegeben, Design 1 bis 5 implementiert; eigener Hauptbereich, flache Karten, höchstens zwei Szenarien je Event, sechs Sportfilter und vollständig vom Wettpreis getrennte Modellreihenfolge |
+| Produktionsnachweis 2. September | Frischer Lauf `PARTIAL` ausschließlich wegen fehlender Cricket-Quelle: 48 Snapshots, 62 Szenarien aus 47 Events (Fußball 30, Tennis 31, E-Sport 1); Basketball und Eishockey regulär geprüft ohne Szenario; kein globaler `FrozenRevisionError` |
+| Release-QA 2. September | 1.423 Tests bestanden, 8 erwartete Skips, 97 Subtests; 182 Python-Dateien kompiliert; Browser bei 1440/1080/768/430/390/360/320 Pixeln ohne horizontalen Überlauf und ohne Console-Warnung/-Fehler |
 | Basis vor der Sperrketten-Diagnose vom 6. August | `4dcfba3` |
 | Verifizierter Produktions-Funktionscommit | `6a59f3e` (`Harden 15K stake policy and quote consensus`) |
 | Verifizierte technische Ausgangsbasis des Re-Audits | `deb35a3` (`Update handbook after production recovery check`) |
@@ -19,15 +23,15 @@
 | Verifizierter Nutzwert-/Repricing-Funktionscommit | `6c8ea99d9696cc10a4250b52aaf57755d595f100` (`Harden forecast utility and automatic repricing`), am 24. August kontrolliert gepusht, deployed, mit echtem Automatiklauf und in der Produktions-UI geprüft |
 | Verifizierter Team-Unter-1,5-Korrekturcommit | `08778fdc29a7275c21fc23671d4763290273c435` (`Restore team under 1.5 eligibility`), am 24. August kontrolliert gepusht, deployed, mit echtem Automatiklauf und in der Produktions-UI geprüft |
 | Verifizierter v14/v12-Funktionscommit | `e341db828121cba7ad5a9d4ed2f6304b146a3591` (`Refine normal Wettfinder featured markets`); 922 Python-Tests plus 50 Subtests und 3/3 JavaScript-Tests grün, Python-Kompilierung und Diff-Prüfung grün; am 24. August revisionsgebunden deployed und live geprüft |
-| Fachlicher Kernstand | Der normale Consumer-Wettfinder besitzt einen eigenen vollständigen Marktpool und übernimmt weder den 15K-Wahrscheinlichkeitskorridor noch dessen Ticketvorfilter. Marktname und hohe Modellwahrscheinlichkeit sind keine Ausschlussgründe. Nutzwert und Vielfalt steuern nur die Hervorhebung; zusätzliche Märkte bleiben gruppiert sichtbar. Modellprognose, Kontextverfügbarkeit, Marktpreis und strikte Tipp-/Einsatzfreigabe sind getrennte Zustände. |
-| Aktueller Writer-/Reader-Vertrag | Automationsartefakt v16, Auswahl-/Katalogpolicy v13 und Modellcache-Schema v2. Der normale Consumer-Pool bleibt auf drei Tipps begrenzt; das getrennte, schema-validierte Feld `challenge_release_candidates` enthält bis zu 15 strikt freigegebene Fußballmärkte für die 15K-Ticketwahl. Jede Freigabe verlangt exakte Event-/Auswahlbindung, HAC/FDR- und Kontextvertrag, mindestens drei stabile provider-native Buchmacher-IDs, Zeitstempel je Preisbeobachtung und ein reales ausführbares Buchmacherangebot. |
-| Verifizierter VPS-Funktionsstand | Funktionscommit `e341db828121cba7ad5a9d4ed2f6304b146a3591`; App aktiv, interner und öffentlicher Health `ok`, alle 7 BetBoy-Timer aktiv/enabled, Artefakt v14 / Auswahlpolicy v12, letzter Wettfinder-Lauf `success / 0`, 0 fehlgeschlagene systemd-Units am 24. August |
+| Fachlicher Kernstand | Der normale Consumer-Wettfinder besitzt einen eigenen vollständigen Marktpool und übernimmt weder den 15K-Wahrscheinlichkeitskorridor noch dessen Ticketvorfilter. RisikoBet ist ein separater Research-Bereich für plausible Außenseiterszenarien und niemals eine Tippfreigabe. In beiden Bereichen bleiben Modellprognose, Kontextverfügbarkeit und Wettpreis getrennte Zustände; Preis fehlt/zu niedrig löscht oder sortiert keine Prognose. |
+| Aktueller Writer-/Reader-Vertrag | Normaler Wettfinder: Automationsartefakt v16, Auswahl-/Katalogpolicy v13 und Modellcache-Schema v2. RisikoBet: immutable Run-Dokument v1 plus revisionsfester SQLite-Store; höchstens zwei Szenarien je Event. Der alte Wettfinder-/15K-Freigabevertrag bleibt unverändert streng und ist nicht auf Research-Szenarien übertragbar. |
+| Verifizierter VPS-Funktionsstand | Funktionscommit `7d6f0e8060534b3f4d420b3c556321c7f7d022c9`; App und Caddy aktiv/enabled, interner und öffentlicher Health `ok`, alle 7 BetBoy-Timer aktiv/enabled und 0 fehlgeschlagene systemd-Units am 2. September |
 | Produktions-App | `https://vps-a30a123f.vps.ovh.net/` |
 | Streamlit Community Cloud | nur noch Alt-/Fallback-Deployment, nicht kanonischer Datenstand |
 | Produktionsbetrieb | Ubuntu 24.04, Caddy, systemd, persistente SQLite-Daten |
 | Framework | Python / Streamlit |
 | Fußballkatalog | 51 eindeutige Wettbewerbe |
-| Vollständiger Testlauf | Letzter vollständig verifizierter v14/v12-Stand: 922 Python-Tests, 50 Subtests und 3/3 JavaScript-Tests am 24. August bestanden; Python-Kompilierung und Diff-Prüfung ebenfalls grün. Die weiter unten genannten 886/38 gehören zum historischen v13-Produktionsnachweis. Der v16/v13-Gesamtlauf ist vor Freigabe neu zu protokollieren. |
+| Vollständiger Testlauf | 1.423 Tests bestanden, 8 erwartete Skips und 97 Subtests am 2. September; 182 Python-Dateien kompiliert, beide Deployskripte per `bash -n` und der Diff geprüft. Ältere Zähler weiter unten sind historische Nachweise. |
 | Detailaudit | `AUDIT_KIMI_2026-08-01.md` |
 | Produkt- und Entscheidungsgrundlage | `PROJEKTBIBEL.md` |
 | PC-Wechsel-Runbook | `PC_WECHSEL_UEBERGABE.md` |
@@ -39,11 +43,76 @@ Produkt-, Mathematik-, UX- und Marketingleitplanke steht in
 Schlüssel, Passwörter oder Tokens. Ältere Berichte sind nur Historie, wenn sie
 diesem Handbuch oder dem aktuellen Code widersprechen.
 
-### Aktueller Checkout-Vertrag: Wettfinder und 15K v16/v13
+### Aktueller Checkout-Vertrag: Wettfinder V2 und RisikoBet V1
 
-Dieser Abschnitt ist der verbindliche aktuelle Vertrag für Wettfinder und
-15K-Consumer. Die nachfolgenden datierten Abschnitte dokumentieren frühere
-Produktionsstände und dürfen diesen Vertrag nicht überschreiben.
+Dieser Abschnitt ist der verbindliche Stand vom 2. September 2026. Der
+nachfolgende v16/v13-Abschnitt bleibt als historischer Wettfinder-/15K-Vertrag
+erhalten; seine Echtgeldregeln gelten weiterhin, beschreiben aber nicht die
+separate RisikoBet-Research-Oberfläche.
+
+#### Produkt- und Laufzeittrennung
+
+- RisikoBet besitzt einen eigenen Hauptnavigationspunkt und liest nur das
+  zuletzt atomar veröffentlichte `runtime_state/riskobet_latest.json`. Das
+  Öffnen oder Filtern des Tabs ruft keinen Provider auf.
+- Der vorhandene halbstündliche `betboy-wettfinder.service` erzeugt den
+  RisikoBet-Snapshot mit. Es gibt weiterhin exakt sieben Timer und keinen
+  achten RisikoBet-Timer.
+- Die Kernmodule sind `riskobet_domain.py`, `riskobet_candidates.py`,
+  `riskobet_store.py`, `riskobet_automation.py`,
+  `riskobet_settlement.py`, `riskobet_settlement_automation.py`,
+  `riskobet_surface.py` und `riskobet_ui.py`.
+- `runtime_state/riskobet.db` ist die kanonische, revisionsfeste Historie;
+  `runtime_state/riskobet_latest.json` ist das atomar ersetzte
+  Consumer-Artefakt. Die Datenbank gehört zum regulären SQLite-Backup; die
+  daraus wiederherstellbare Latest-Datei ist keine zweite kanonische Wahrheit.
+- Je Event werden höchstens zwei plausible Überraschungsszenarien
+  veröffentlicht. Top-Karten zeigen Sport, Event, Auswahl,
+  Modellwahrscheinlichkeit, vorsichtige Prognose, Pro, Contra, Kontext- und
+  Preisstatus ohne Aufklappen; nur tiefe Analyse und eigene Preisprüfung sind
+  optional.
+- Ein Preis verändert weder Wahrscheinlichkeit noch Reihenfolge noch
+  Sichtbarkeit. RisikoBet-Szenarien mit Stufe „Im Test“ sind keine Tipps und
+  erzeugen keinen Einsatzvorschlag.
+
+#### Revisions- und Settlement-Korrektur vom 2. September
+
+Alte Tennis-Snapshots enthielten mehrere gleich aktuelle, prospektiv gültige
+Revisionen desselben Kandidaten. Aus den gespeicherten opaque Input-Hashes lässt
+sich die Ursache nicht verlässlich auf eine reine Terminänderung reduzieren.
+Der Store blieb zu Recht fail-closed, doch die globale Ausnahme blockierte
+dadurch auch unabhängige Abrechnungen und den nächsten RisikoBet-Lauf.
+
+Der Fix in `049d079a8f15031dccab0285000dd549db1f2388` errät keine bevorzugte
+Revision und schreibt keine Historie um:
+
+- Die 39 vorhandenen mehrdeutigen Tennis-Kandidatengruppen mit konkurrierenden
+  Revisionen bleiben ungelöst und erreichen weder Ergebnisprovider noch
+  Settlement-Schreibpfad.
+- Nur diese exakt klassifizierte kandidatenspezifische Mehrdeutigkeit wird
+  isoliert; alle anderen `FrozenRevisionError`-, Manipulations-, Membership-
+  oder Promotionsfehler brechen weiterhin den gesamten Store-Leseweg ab.
+- Unabhängige fällige Kandidaten laufen weiter. Der frische Produktionslauf
+  lieferte 27 reguläre Settlement-Ziele, isolierte 39 alte Mehrdeutigkeiten und
+  verarbeitete 5 terminale Ergebnisse.
+- Neue Fußball-Snapshots binden Modellzeit und Input-Cutoff an ihre immutable
+  Identität. Ein später beobachteter Input kann deshalb nicht mehr dieselbe
+  Snapshot-ID mit verändertem Inhalt wiederverwenden.
+
+#### Aktuelle Produktionsgrenze
+
+Alle sechs Sportadapter sind implementiert. Auf Produktion sind weder
+`RAPIDAPI_KEY` noch `CRICKET_API_KEY` gesetzt; Cricket kann deshalb keine
+aktuellen Kerndaten liefern. Der Consumer zeigt dafür einen neutralen
+Teildaten-/Leerzustand und niemals eine erfundene Wahrscheinlichkeit. Ein
+gültiger Cricket-Zugang samt passendem Datenabo ist die verbleibende externe
+Betriebsvoraussetzung, keine Quote-, Markt- oder Modellnamensperre.
+
+### Historischer Checkout-Vertrag: Wettfinder und 15K v16/v13
+
+Dieser Abschnitt dokumentiert den weiterhin gültigen Echtgeldvertrag für
+Wettfinder und 15K vor Einführung von RisikoBet. Die nachfolgenden datierten
+Abschnitte sind noch ältere Produktionsstände.
 
 #### Eigener Marktpool statt 15K-Vorfilter
 
@@ -1024,6 +1093,7 @@ als nicht eingebundene Rollback-Historie erhalten.
 | Bereich | Zweck | Aktueller Status |
 |---|---|---|
 | Wettfinder | Fußball, Tennis, Basketball, Eishockey, Cricket und E-Sport; gemeinsamer Suchhorizont bis 14 Tage; Fußball inklusive BTTS, Ergebnis, Tore, Ecken und Karten | eigener vollständiger Normalmarktpool ohne 15K-Korridor; bis zu drei nutzwertsortierte Hervorhebungen und gruppiert sichtbare Zusatzmärkte; maximal drei konkrete preis-/releasefreigegebene Tipps; nur reales ausführbares Buchmacherangebot als Quote |
+| RisikoBet | plausible Außenseiter-, Remis-, Satz-/Tor- und ähnliche Überraschungsszenarien in sechs Sportarten | eigener Research-Bereich; höchstens zwei Szenarien je Event; Modellreihenfolge unabhängig von der Quote; keine Tipp- oder Einsatzfreigabe; fehlende Kerndaten erzeugen keine Wahrscheinlichkeit |
 | Live | BTTS, Resttor, Teamtor | `RESEARCH`; bis unabhängige Live-Kalibrierung blockiert |
 | 15K | Fußball, bis zu drei Legs, Zielquote 2,00-3,00, planmäßiger Alle-Ligen-Lauf und reales ausführbares Mehrbuchmacherangebot | Prognosen bleiben preisunabhängig sichtbar; nur modell-, Kontext-, Fréchet- und preisgeprüfte Challenge-Tickets erhalten einen Einsatz; weiterhin sehr hohes Risiko |
 | Meine Tipps | aktive preisgeprüfte Tipps sowie Fußball-/15K-/Tennis-Verlauf | sitzungsisoliert; Research und No-Bet werden nicht als Tipp gespeichert |
@@ -1056,6 +1126,10 @@ Konkrete Blockaden:
 | `my_tips.py` | aktive Tipps, manueller Abschluss und gemeinsame Verlaufsnavigation |
 | `ev_signal_sources.py` | versionsgebundener Signalvertrag aus Punkt-p, Haircut und Evidenzstufe |
 | `wettfinder_automation.py` | tägliche 51-Ligen-Discovery, eigener Normalmarktpool, Fixture-Kontext-Refresh, quellenspezifische Degraded-Behandlung und nachgelagerte ausführbare Preise |
+| `riskobet_domain.py`, `riskobet_candidates.py` | unveränderlicher Szenariovertrag, sportbezogene Modellierung und preisfreie Rangfolge |
+| `riskobet_store.py`, `riskobet_automation.py` | revisionsfeste Historie, atomarer Consumer-Snapshot und Sechs-Sport-Orchestrierung |
+| `riskobet_settlement.py`, `riskobet_settlement_automation.py` | prospektive Ergebnisbindung und kandidatenspezifisch isolierte Altmehrdeutigkeiten |
+| `riskobet_surface.py`, `riskobet_ui.py` | bereinigte Nutzeransicht, sechs Filter und flache responsive Karten |
 | `alternative_markets_tab_extended.py` | Fußball-Wettarten und manuelle Intervallsuche bis 14 Tage |
 | `scan_jobs.py` | sitzungsgebundene Hintergrundjobs |
 | `challenge_15k.py` | Challenge-Workflow und UI |
@@ -1219,7 +1293,7 @@ Konfidenzgrenzen von CLV und Rendite überzeugen. ROI allein reicht nicht.
 
 | VPS-Automation | Zeitplan Europe/Zurich | Verifizierter Status |
 |---|---|---|
-| Automatischer Wettfinder | alle 30 Minuten um Minute 07/37 | Fußball-Discovery einmal je Zieldatum über 51 Ligen; danach nur exakte Kandidaten-Fixtures; Status und Top-Auswahl im Wettfinder sichtbar |
+| Automatischer Wettfinder und RisikoBet | alle 30 Minuten um Minute 07/37 | Fußball-Discovery einmal je Zieldatum über 51 Ligen; danach exakte Kandidaten-Fixtures; derselbe Lauf erzeugt den RisikoBet-Snapshot und rechnet eindeutige fällige Szenarien ab; kein zusätzlicher achter Timer |
 | Fußball Shadow/CLV | Fälligkeitsprüfung alle 10 Minuten | erfolgreich; maximal 60 fällige Fixtures |
 | Rotkarten-Settlement | alle 30 Minuten | erfolgreich; aktuell 0 offene Signale |
 | E-Sport Shadow | täglich 08:23 | Scan und Settlement einmal täglich |
@@ -1973,6 +2047,8 @@ Verbindliche Übergaberegeln:
 | 5 | ältere Auditberichte | Warum wurde eine frühere Entscheidung getroffen oder verworfen? |
 
 Bei Widersprüchen zählen Implementierung und reproduzierbare Tests mehr als
-alte Chatbehauptungen. Der aktuelle `origin/main`-Stand muss vor jeder Arbeit
-gegen den lokalen Checkout und vor jedem Deployment gegen den VPS geprüft
-werden.
+alte Chatbehauptungen. Vor jeder Arbeit wird GitHub `main` frisch mit
+`git ls-remote origin refs/heads/main` abgefragt und gegen den lokalen `HEAD`
+geprüft; nach dem Deployment muss derselbe vollständige Hash dem VPS-`HEAD`
+entsprechen. Ein lokaler oder serverseitiger `origin/main`-Tracking-Ref ist
+kein belastbarer Remote-Nachweis.

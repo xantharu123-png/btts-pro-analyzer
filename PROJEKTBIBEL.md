@@ -2,17 +2,18 @@
 
 ## Status und Zweck
 
-Stand: 24. August 2026
+Stand: 2. September 2026
 
 Kanonisches Repository: `xantharu123-png/btts-pro-analyzer`
 
 Produktionsadresse: `https://vps-a30a123f.vps.ovh.net/`
 
 Aktuell verifizierte funktionale Basis:
-`08778fdc29a7275c21fc23671d4763290273c435`
+`7d6f0e8060534b3f4d420b3c556321c7f7d022c9`
 
-Aktuell verifizierter GitHub- und VPS-Funktionsstand:
-`08778fdc29a7275c21fc23671d4763290273c435`
+Zuletzt verifizierter GitHub- und VPS-Funktionsstand (Code; reine
+Dokumentationsfolgecommits ausgenommen):
+`7d6f0e8060534b3f4d420b3c556321c7f7d022c9`
 
 Diese Projektbibel erklärt, **warum BetBoy existiert, was das Produkt leisten
 darf, wie eine Empfehlung entsteht und welche fachlichen Grenzen niemals
@@ -50,9 +51,11 @@ Der Kernvertrag lautet:
 6. Fehlende oder zu niedrige Quote löscht die Modellprognose nicht.
 7. Ohne belastbare Modell-, Release-Kontext- und Preisfreigabe gibt es keinen
    Tipp und keinen Einsatzvorschlag.
-8. Pro Suchlauf stehen zuerst höchstens drei klare Top-Auswahlen. Weitere
-   berechnete Marktprognosen bleiben in gruppierten Zusatzbereichen erreichbar,
-   statt wegen ihrer Darstellungsposition verworfen zu werden.
+8. Im normalen Wettfinder stehen pro Suchlauf zuerst höchstens drei klare
+   Top-Auswahlen. Weitere berechnete Marktprognosen bleiben in gruppierten
+   Zusatzbereichen erreichbar, statt wegen ihrer Darstellungsposition verworfen
+   zu werden. RisikoBet folgt stattdessen seinem eigenen Maximal-zwei-je-Event-
+   Vertrag.
 9. Die Nutzwertsortierung entscheidet ausschließlich, was zuerst gezeigt wird.
    Sie ist kein Modell-, Markt- oder Preisgate und darf weder eine Wettart noch
    eine hohe Modellwahrscheinlichkeit aus der normalen Suche ausschließen.
@@ -95,15 +98,20 @@ Das Produkt darf niemals behaupten:
 BetBoy verdichtet komplexe Daten in wenige Entscheidungen:
 
 - **Wettfinder:** eigene Suche über Sport, Zeitraum, Wettart und Wettbewerb;
+- **RisikoBet:** getrennte Research-Szenarien, in denen ein Außenseiter oder
+  ein alternatives Spielereignis datenbasiert plausibler sein könnte, als die
+  Favoritenrolle vermuten lässt;
 - **Live:** experimentelle, klar gekennzeichnete Live-Analysen;
 - **15K:** getrennte Challenge-Simulation mit eigenem Konto und Ledger;
 - **Meine Tipps:** aktive Tipps und Verlauf;
-- **Einstellungen:** Konto, Datenqualität, Modell- und Systemstatus.
+- **Einstellungen:** sekundärer Bereich für Konto, Datenqualität, Modell- und
+  Systemstatus.
 
-Die erste sichtbare Ebene zeigt den Tipp. Technische Diagnostik gehört in
-Details oder Einstellungen. Interne Shadow-Automation sammelt Evidenz, ist
-aber nicht das Produktversprechen und darf die Nutzeroberfläche nicht
-dominieren.
+Die erste sichtbare Ebene zeigt im normalen Wettfinder den Tipp beziehungsweise
+in RisikoBet das ausdrücklich nicht als Tipp freigegebene Szenario. Technische
+Diagnostik gehört in Details oder Einstellungen. Interne Shadow-Automation
+sammelt Evidenz, ist aber nicht das Produktversprechen und darf die
+Nutzeroberfläche nicht dominieren.
 
 ### Für Marketing und Vertrieb
 
@@ -152,6 +160,12 @@ Neutrale Daten dürfen nicht als Veto missbraucht werden. Beispiel: Ein kleiner
 oder fehlender H2H-Datensatz kann weder freigeben noch blockieren. Erst eine
 ausreichende und zeitlich passende Stichprobe darf als konservativer
 Gegencheck wirken.
+
+Für RisikoBet bedeutet `fail-closed`: Fehlen sportartspezifische Kerndaten,
+erfindet die App weder eine Wahrscheinlichkeit noch ein scheinbar vollständiges
+Szenario. Eine fehlende oder unattraktive Quote ist dagegen kein fehlender
+Modellkern. Sie bleibt getrennte Preisinformation und darf eine fachlich
+berechnete Research-Prognose weder filtern noch umsortieren.
 
 ### 3.3 Keine Quote ist „sicher“
 
@@ -300,6 +314,34 @@ Ein quellenspezifisch gestörter Lauf darf gesunde Sportarten weiterhin
 anzeigen; die betroffene Sportart wird ehrlich als vorübergehend nicht
 vollständig bewertet gekennzeichnet.
 
+### RisikoBet
+
+RisikoBet ist ein eigener Hauptbereich neben dem normalen Wettfinder. Er sucht
+keine scheinbar sicheren Favoritentipps, sondern nachvollziehbare
+Außenseiter- und Alternativszenarien: etwa Sieg oder Remis eines Underdogs,
+eigene Tore des Außenseiters oder eine sportartspezifische Überraschung im
+Tennis, Basketball, Eishockey, Cricket beziehungsweise E-Sport.
+
+Der verbindliche Darstellungs- und Auswahlvertrag lautet:
+
+- sechs eigenständige Sportfilter für Fußball, Tennis, Basketball, Eishockey,
+  Cricket und E-Sport;
+- höchstens zwei Szenarien desselben Events, damit Varianten eines Spiels die
+  Übersicht nicht fluten;
+- Modellwahrscheinlichkeit und vorsichtige Prognose werden vor und unabhängig
+  von jeder Preisbetrachtung berechnet;
+- eine Quote wird nur als getrennte Preisinformation angezeigt und darf weder
+  filtern noch die Modellreihenfolge verändern;
+- Auswahl, Pro, Contra, Datenfrische und Evidenzstatus sind direkt auf der
+  flachen Karte sichtbar; zusätzliche Analyse ist optional;
+- ein RisikoBet-Szenario ist kein Tipp und erzeugt keine Einsatzempfehlung;
+- fehlen sportartspezifische Kerndaten, zeigt die App die Teildatenlage statt
+  eine Wahrscheinlichkeit zu erfinden.
+
+Der vorhandene planmäßige Wettfinder-Lauf erzeugt und persistiert den
+RisikoBet-Snapshot mit. Dafür existiert bewusst kein zusätzlicher Timer und
+kein zweiter Abruf desselben Spiels.
+
 ### 15K Challenge
 
 Die Challenge ist ein separater Workflow mit eigenem Kontobuch:
@@ -344,6 +386,21 @@ risikoseparaten Challenge-Vertrag zu lockern.
 | Basketball | NBA-/EuroLeague-Termine vorhanden | Kein leak-frei validiertes Prematch-Modell, daher fail-closed |
 | Eishockey | NHL-Termine vorhanden | Goalie-/Lineup- und Prematch-Modell fehlen, daher fail-closed |
 | Cricket | Scannerpfad vorhanden | Datenabo und validierter Modellkern fehlen, daher fail-closed |
+| RisikoBet | Sportartspezifische RisikoBet-Adapter und ein gemeinsamer, preisunabhängiger Szenariovertrag für alle sechs Sportfilter | Research-Ansicht, kein Tipp und keine Einsatzempfehlung; fehlende Kerndaten bleiben ohne erfundene Wahrscheinlichkeit |
+
+Diese Statuszeilen trennen bewusst zwei Verträge: Basketball, Eishockey und
+Cricket bleiben in den normalen Echtgeld- beziehungsweise Tippbereichen
+fail-closed. Ihre RisikoBet-Adapter dürfen Research-Szenarien nur dann zeigen,
+wenn der jeweilige Lauf die nötigen sportartspezifischen Kerndaten tatsächlich
+liefert. „Adapter implementiert“ bedeutet daher weder aktuelle Datenabdeckung
+noch Modellfreigabe oder Profitabilität.
+
+Der verifizierte Produktionslauf vom 2. September 2026 erzeugte 62 Szenarien
+aus 47 Events: Fußball 30, Tennis 31 und E-Sport 1. Basketball und Eishockey
+wurden geprüft, lieferten in diesem Lauf aber keine Szenarien. Cricket blieb
+wegen der extern noch nicht bereitgestellten `RAPIDAPI_KEY`- beziehungsweise
+`CRICKET_API_KEY`-Konfiguration ein offen ausgewiesener Teildatenfehler. Die
+übrigen Sportarten wurden dadurch nicht unterdrückt.
 
 Fußballmärkte im aktuellen Modell- und Mappingumfang:
 
@@ -463,10 +520,10 @@ Browser
   -> HTTPS / Caddy
   -> Streamlit app.py auf 127.0.0.1:8501
   -> Modell-, Preis- und Ledger-Module
-  -> persistente SQLite-Dateien unter /opt/betboy/app
+  -> persistente SQLite- und Snapshot-Dateien unter /opt/betboy/app/runtime_state
 
 systemd timer
-  -> Wettfinder
+  -> Wettfinder einschließlich RisikoBet-Snapshot
   -> Fußball Shadow/CLV
   -> Tennis
   -> E-Sport
@@ -474,6 +531,11 @@ systemd timer
   -> Rotkarten-Historie
   -> tägliches SQLite-Backup
 ```
+
+Es gibt weiterhin exakt sieben BetBoy-Timer. RisikoBet ist kein achter Job:
+Der vorhandene Wettfinder-Timer lädt und modelliert die Events einmal und
+erzeugt aus demselben Lauf auch den RisikoBet-Snapshot. Das vermeidet
+doppelte Providerabrufe und widersprüchliche Ereignisstände.
 
 Produktionsorte:
 
@@ -498,7 +560,13 @@ KIMI-Automationen dürfen nicht parallel aktiviert werden.
 | `market_consensus.py` | exakte Fußball-Preiszuordnung und Konsens |
 | `challenge_engine.py` | 15K-Modell, Gates und Ticketkonstruktion |
 | `challenge_store.py` | transaktionales Challenge-Ledger |
-| `wettfinder_automation.py` | tägliche Discovery, quotenfreier Nutzwert-Katalog und separates Preisgate |
+| `wettfinder_automation.py` | tägliche Discovery, quotenfreier Nutzwert-Katalog, separates Preisgate und planmäßige RisikoBet-Orchestrierung |
+| `riskobet_domain.py` | unveränderliche Sport-, Szenario-, Evidenz- und Snapshot-Verträge |
+| `riskobet_candidates.py` | sportartspezifische Kandidatenbildung, Kontextbindung und Revisionsidentität |
+| `riskobet_automation.py` | sportübergreifende, fehlertolerante Research-Aggregation |
+| `riskobet_store.py` | transaktionale, revisionssichere SQLite-Persistenz und atomarer Latest-Snapshot |
+| `riskobet_settlement.py` / `riskobet_settlement_automation.py` | Ergebniszuordnung und isolierte, idempotente Abrechnung eindeutiger Revisionen |
+| `riskobet_surface.py` / `riskobet_ui.py` | Consumer-Projektion, Filter und flache Karten ohne Preisranking |
 | `shadow_clv_automation.py` | Fußball-Shadow, Closing und Settlement |
 | `tennis/*` | Tennis-Daten, Elo, Serve, Kalibrierung und Shadow |
 | `multi_sport_recommendations.py` | gemeinsame fail-closed Multisport-Policy |
@@ -509,6 +577,23 @@ KIMI-Automationen dürfen nicht parallel aktiviert werden.
 
 Die Runtime-Datenbanken und Scan-Artefakte sind absichtlich nicht in Git.
 Sie liegen auf dem VPS und werden dort gesichert.
+
+RisikoBet persistiert seine unveränderlichen Läufe in
+`runtime_state/riskobet.db`. Die Consumer-Ansicht liest den atomar ersetzten
+Snapshot `runtime_state/riskobet_latest.json`; sie startet beim Seitenaufruf
+keinen neuen Providerlauf. `riskobet.db` ist in den verifizierten
+SQLite-Backupweg eingebunden. Die Datenbank ist die Wiederherstellungsquelle,
+wenn die abgeleitete Latest-Datei fehlt oder beschädigt ist; der JSON-Snapshot
+muss deshalb nicht als zweite kanonische Wahrheit gesichert werden.
+
+Die Revisionsidentität neuer Fußball-Snapshots bindet neben dem fachlichen
+Inhalt auch `modeled_at` und `input_cutoff_at`. Bereits vorhandene
+Tennisrevisionen mit identischem Zeitstempel werden dagegen nicht willkürlich
+ausgewählt oder nachträglich „aufgelöst“: Der verifizierte Produktionslauf
+isolierte 39 solche mehrdeutigen Ziele, meldete 27 eindeutig zuordenbare
+Abrechnungsziele zur regulären Prüfung und schrieb daraus 5 terminale
+Settlements. Diese Zahlen sind eine Laufbeobachtung, kein
+Profitabilitätsnachweis.
 
 Ohne Login verwendet BetBoy eine zufällige 128-Bit-ID im Browser-
 `localStorage`. Dadurch bleiben Konto und Tipps im selben Browser nach einem
@@ -533,6 +618,9 @@ Die wichtigsten Umbauten des Projekts:
 
 - Navigation von vielen Spezialscannern auf fünf verständliche Bereiche
   reduziert.
+- RisikoBet als eigenen Hauptbereich mit flachen, nicht verschachtelten
+  Szenariokarten, sechs Sportfiltern und sichtbaren Pro-/Contra-/Evidenzangaben
+  eingeführt.
 - Wettfinder auf alle sechs Sportarten und bis zu 14 Tage erweitert.
 - Alle Fußballbereiche auf denselben 51-Ligen-Katalog vereinheitlicht.
 - Tagesgrenzen konsequent auf `Europe/Zurich` umgestellt.
@@ -546,6 +634,9 @@ Die wichtigsten Umbauten des Projekts:
 - Unpraktische Kurzquoten aus veröffentlichten Tipps entfernt.
 - Tennis-Belag, Erfahrung, Serve-Daten und Walk-forward-Kalibrierung
   transparent gemacht.
+- RisikoBet-Revisionsidentität für neue Fußball-Snapshots an Modell- und
+  Inputzeit gebunden; gleichzeitige historische Tennisrevisionen werden
+  isoliert, ohne eindeutige Settlements anderer Events anzuhalten.
 - Multisport-Scanner bei fehlendem validierten Modell fail-closed gestellt.
 - 15K-Konto persistent, abrechenbar und transaktional gemacht.
 - 15K-Kontobuch mit externer HMAC-Kette, authentisiertem Gesamtzustand und
@@ -582,6 +673,25 @@ Die wichtigsten Umbauten des Projekts:
 Die jeweils aktuelle, vollständig isolierte Testsuite belegt
 Implementierungsverträge, nicht Profitabilität. Der exakte Zähler und das
 Datum stehen im `PROJECT_HANDBUCH.md` und im PC-Wechsel-Runbook.
+
+Für die funktionale Codebasis
+`7d6f0e8060534b3f4d420b3c556321c7f7d022c9` wurde am 2. September 2026
+folgender Betriebs- und Regressionsstand verifiziert:
+
+- 1.423 Python-Tests bestanden, 8 erwartete Tests wurden übersprungen und 97
+  zusätzliche Untertests bestanden;
+- 182 Python-Dateien wurden ohne Syntaxfehler kompiliert;
+- die Produktionsoberfläche blieb bei 1.440, 1.080, 768, 430, 390, 360 und 320
+  Pixeln ohne horizontalen Überlauf und ohne Browser-Console-Fehler;
+- lokaler Commit, GitHub `main` und VPS-Checkout stimmten auf den vollständigen
+  Funktionshash überein; App, Caddy, interner und öffentlicher Healthcheck
+  waren gesund und alle exakt sieben Timer aktiv sowie aktiviert;
+- ein frisches, wiederherstellungsgeprüftes Produktionsbackup enthielt 86
+  Runtime-Datenbanken einschließlich `riskobet.db`.
+
+Diese Evidenz bestätigt Implementierung, Darstellung und Betrieb. Sie beweist
+weder die Güte einer einzelnen Prognose noch einen positiven Erwartungswert
+oder langfristige Profitabilität.
 
 Der bisherige Shadow-Stand ist jung und je Sport unterschiedlich. Fußball,
 Tennis, E-Sport und Rotkarten besitzen noch keine ausreichende unabhängige,
@@ -642,7 +752,9 @@ kompromittiert. Rotation kommt vor einer Bereinigung alter Git-Historie.
 3. CLV, No-Vig-Benchmark und Kalibrierung unabhängig bewerten.
 4. Heuristiken wie H2H-Veto, Wettergrenzen und Kombi-Abschläge per
    vorregistrierter Ablation prüfen.
-5. Erst danach Sport-/Marktpfade auf `RELEASED` stellen.
+5. RisikoBet-Szenarien versionsgebunden prospektiv sammeln und ihre
+   sportartspezifische Kalibrierung, Eindeutigkeit und Abrechnung prüfen.
+6. Erst danach Sport-/Marktpfade auf `RELEASED` stellen.
 
 ### P2: Consumer-Produkt
 
@@ -673,7 +785,8 @@ Vor jeder Änderung sind diese Fragen zu beantworten:
 ## 17. Übergabe in einem Satz
 
 BetBoy ist heute ein auf einem persistenten VPS laufender, mathematisch
-konservativer Wettfinder mit starkem Fußballkern, ehrlichem Shadow-Aufbau und
-noch offenen Beweisen für langfristigen Wettvorteil; der nächste Rechner muss
-nur Entwicklung, SSH und sichere Geheimnisverwaltung übernehmen, nicht die
+konservativer Wettfinder mit starkem Fußballkern, einem getrennten
+sechssportigen RisikoBet-Researchbereich, ehrlichem Evidenzaufbau und noch
+offenen Beweisen für langfristigen Wettvorteil; der nächste Rechner muss nur
+Entwicklung, SSH und sichere Geheimnisverwaltung übernehmen, nicht die
 laufenden Serverjobs.

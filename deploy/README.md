@@ -86,7 +86,8 @@ checkout.
    sudo useradd --system --home-dir /opt/betboy --shell /usr/sbin/nologin \
        --user-group betboy
    sudo install -d -m 0750 -o betboy -g betboy /opt/betboy
-   sudo -u betboy env HOME=/opt/betboy git clone --branch main \
+   sudo -u betboy env HOME=/opt/betboy \
+       git -c http.version=HTTP/1.1 clone --branch main \
        https://github.com/xantharu123-png/btts-pro-analyzer.git \
        /opt/betboy/app
    test "$(sudo -u betboy git -C /opt/betboy/app rev-parse HEAD)" = "$TARGET"
@@ -107,7 +108,8 @@ checkout.
    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
        git -c credential.helper= init --quiet "$BOOTSTRAP_STAGE/source"
    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
-       git -c credential.helper= -C "$BOOTSTRAP_STAGE/source" fetch \
+       git -c credential.helper= -c http.version=HTTP/1.1 \
+       -C "$BOOTSTRAP_STAGE/source" fetch \
        --quiet --no-tags --depth=1 "$REPOSITORY" refs/heads/main
    test "$(git -C "$BOOTSTRAP_STAGE/source" rev-parse FETCH_HEAD)" = "$TARGET"
    git -C "$BOOTSTRAP_STAGE/source" cat-file blob \
@@ -196,6 +198,18 @@ sudo /usr/local/sbin/betboy-update <reviewed-40-hex-main-commit>
 The first secure updater run snapshots the existing root-owned units and both
 root tools before replacing them from the reviewed root staging tree.
 
+On 2 September 2026 the installed updater was transitioned once to the
+HTTP/1.1-pinned version from exact main commit
+`7d6f0e8060534b3f4d420b3c556321c7f7d022c9`. This was the sole bounded
+exception to the manual-root-tool prohibition above: the bridge used the same
+exclusive deployment lock, fetched only the fixed public repository, verified
+the exact target, Git blob and installed updater SHA-256, replaced only the
+updater, and durably retained its exact predecessor root-only at
+`/var/backups/betboy-update/betboy-update-pre-http11-8026bddd6dea417aba152ee9385c4b7621dde5da0e7a246f40a52d9a98388356.sh`.
+The normal updater then deployed the target and installed the target bootstrap
+and updater. Never repeat the bridge; future releases use only the normal
+command below.
+
 ## Updating
 
 After changes have been reviewed and pushed to `main`, obtain and verify its
@@ -204,6 +218,18 @@ full 40-hex commit, then run only the root-owned updater:
 ```bash
 sudo /usr/local/sbin/betboy-update <reviewed-40-hex-main-commit>
 ```
+
+A push does not update production. The seven systemd timers execute model,
+settlement and backup jobs only; none performs `git pull` or deployment.
+
+Both trusted Git wrappers pin requests to the fixed public HTTPS repository to
+`HTTP/1.1`. The VPS Git 2.43/libcurl HTTP/2 smart-HTTP path reproducibly failed
+against this public repository with a misleading credential prompt, while the
+credential-free HTTP/1.1 path returned the exact advertised ref. Keep TLS,
+fixed-URL validation, disabled credential helpers/hooks and the HTTP/1.1 pin.
+Do not add a PAT or deploy key, set `http.sslVerify=false`, or fall back to Git
+protocol v0 as a workaround. Reconsider the pin only after the server Git/TLS
+stack has been upgraded and the complete trusted-fetch path has been retested.
 
 An in-place update requires an active Caddy service and an existing regular,
 root-owned `/etc/caddy/Caddyfile`; fresh hosts use the bootstrap. This makes the
