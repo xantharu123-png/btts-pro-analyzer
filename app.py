@@ -1211,7 +1211,11 @@ def _apply_app_styles() -> None:
         }
 
         div[data-baseweb="popover"]:has([class*="st-key-bet_price_wettfinder_v2_"]),
-        [data-testid="stPopoverBody"]:has([class*="st-key-bet_price_wettfinder_v2_"]) {
+        [data-testid="stPopoverBody"]:has([class*="st-key-bet_price_wettfinder_v2_"]),
+        div[data-baseweb="popover"]:has([class*="st-key-riskobet-quote-"]),
+        [data-testid="stPopoverBody"]:has([class*="st-key-riskobet-quote-"]),
+        [data-testid="stPopoverBody"][aria-label="Eigene Quote prüfen"] {
+            min-width: 0 !important;
             max-width: min(34rem, calc(100vw - 2rem)) !important;
             overflow-x: hidden;
         }
@@ -4838,7 +4842,15 @@ def _render_automated_daily_selection() -> None:
                 "</div>",
                 unsafe_allow_html=True,
             )
-            for index, card in enumerate(catalog.additional, start=1):
+            page_size = 20
+            pages = (len(catalog.additional) + page_size - 1) // page_size
+            page = st.selectbox(
+                "Weitere Auswahlen – Seite", list(range(1, pages + 1)),
+                key=f"wettfinder_catalog_page_{sport_filter}_{pages}",
+            ) if pages > 1 else 1
+            first = (page - 1) * page_size
+            st.caption(f"{first + 1}–{min(first + page_size, len(catalog.additional))} von {len(catalog.additional)} weiteren Prognosen · Sicherheitswerte sind heuristische Rechenwerte.")
+            for index, card in enumerate(catalog.additional[first:first + page_size], start=first + 1):
                 signal, card, candidate, binding, evaluation = row_by_key[card.key]
                 with st.container(
                     key=f"wettfinder_v2_additional_row_{index}"

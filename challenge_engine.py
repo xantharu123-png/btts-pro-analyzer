@@ -36,6 +36,11 @@ TARGET_BALANCE = 15_000.0
 CHALLENGE_MODEL_CONTRACT_SIGNATURE = (
     "challenge-engine:hac-fdr-executable-frechet-v11"
 )
+# Prediction/cache provenance is separate from the immutable monetary ticket
+# contract. Finder profiles/history updates must not invalidate old tickets.
+CHALLENGE_PREDICTION_VERSION = "challenge-engine:finder-profile-continuous-history-v12"
+CANDIDATE_PROFILE_CHALLENGE = "challenge"
+CANDIDATE_PROFILE_WETTFINDER = "wettfinder"
 TARGET_ODDS_MIN = 2.0
 TARGET_ODDS_MAX = 3.0
 MAX_TICKET_LEGS = 3
@@ -2050,10 +2055,15 @@ def build_fixture_candidates(
     team_history: Optional[Iterable[dict[str, Any]]] = None,
     model_scope: str = MODEL_SCOPE_SAME_COMPETITION,
     allow_above_challenge_probability: bool = False,
+    candidate_profile: str = CANDIDATE_PROFILE_CHALLENGE,
 ) -> list[ChallengeCandidate]:
     """Build price-independent candidates for one fixture."""
     if not isinstance(allow_above_challenge_probability, bool):
         raise ValueError("allow_above_challenge_probability must be boolean")
+    if candidate_profile not in (
+        CANDIDATE_PROFILE_CHALLENGE, CANDIDATE_PROFILE_WETTFINDER,
+    ):
+        raise ValueError("candidate_profile must be challenge or wettfinder")
     if model_scope not in {
         MODEL_SCOPE_SAME_COMPETITION,
         MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
@@ -2123,13 +2133,16 @@ def build_fixture_candidates(
         blocked: list[str] = []
         if model_scope == MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED:
             blocked.append(UNVALIDATED_TRANSFER_REASON)
-        if active < 0.58 or (
+        challenge_profile = candidate_profile == CANDIDATE_PROFILE_CHALLENGE
+        if challenge_profile and (active < 0.58 or (
             active > 0.92 and not allow_above_challenge_probability
-        ):
+        )):
             blocked.append(
                 "Modellwahrscheinlichkeit außerhalb des Challenge-Korridors"
             )
-        if conservative < 0.55:
+        if challenge_profile and conservative < 0.55 and not math.isclose(
+            conservative, 0.55, rel_tol=0.0, abs_tol=1e-12,
+        ):
             blocked.append("Konservative Wahrscheinlichkeit unter 55 %")
         if spread_pp > 12.0:
             blocked.append("Saison- und Formmodell widersprechen sich")
@@ -3295,7 +3308,24 @@ def candidate_is_forecast_credible(candidate: ChallengeCandidate) -> bool:
 
 
 def candidate_is_credible(candidate: ChallengeCandidate) -> bool:
-    """Validate the strict release/tip contract again at selection time."""
+    """Re-check the 15K corridor even for a normal-finder source candidate."""
+    return (
+        candidate_is_wettfinder_release_credible(candidate)
+        and 0.58 <= candidate.probability <= 0.92
+        and (
+            candidate.conservative_probability >= 0.55
+            or math.isclose(
+                candidate.conservative_probability, 0.55,
+                rel_tol=0.0, abs_tol=1e-12,
+            )
+        )
+    )
+
+
+def candidate_is_wettfinder_release_credible(
+    candidate: ChallengeCandidate,
+) -> bool:
+    """Strict model/context release without the separate 15K ticket corridor."""
     return (
         candidate_is_forecast_credible(candidate)
         and _credible_statistical_release_validation(candidate.validation)
@@ -3304,17 +3334,6 @@ def candidate_is_credible(candidate: ChallengeCandidate) -> bool:
         and candidate.context.get("passed") is True
         and candidate.context.get("release_context_complete") is True
         and candidate.context.get("release_eligible") is True
-    )
-
-
-def candidate_is_wettfinder_release_credible(
-    candidate: ChallengeCandidate,
-) -> bool:
-    """Retain the explicit normal-release API over the shared strict gate."""
-
-    return bool(
-        candidate_is_credible(candidate)
-        and _credible_statistical_release_validation(candidate.validation)
     )
 
 
@@ -3873,6 +3892,9 @@ def consecutive_wins_to_target(
 
 __all__ = [
     "CHALLENGE_MODEL_CONTRACT_SIGNATURE",
+    "CHALLENGE_PREDICTION_VERSION",
+    "CANDIDATE_PROFILE_CHALLENGE",
+    "CANDIDATE_PROFILE_WETTFINDER",
     "ChallengeCandidate",
     "CROSS_LEG_MODEL_FACTOR",
     "DEFAULT_CHALLENGE_STAKE_FRACTION",

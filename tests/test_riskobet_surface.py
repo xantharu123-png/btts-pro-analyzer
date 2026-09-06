@@ -180,6 +180,19 @@ def test_full_and_genuinely_compact_markup_keep_every_decision_field_visible():
     assert len(compact) < len(full)
 
 
+def test_model_probability_is_primary_and_safety_value_is_explicitly_heuristic():
+    card = _card(_candidate())
+    full = surface.render_riskobet_card_html(card)
+    compact = surface.render_riskobet_compact_row_html(card)
+    assert full.index("Modellwahrscheinlichkeit") < full.index("Sicherheitswert")
+    assert compact.index("Modell") < compact.index("Sicherheitswert")
+    assert "Heuristischer Abschlag, keine statistisch bestätigte Mindestchance" in full
+    for markup in (full, compact):
+        assert "Vorsichtige Trefferchance" not in markup
+        assert "34.0 %" in markup
+        assert "28.0 %" in markup
+
+
 def test_internal_context_statuses_are_translated_without_promoting_evidence():
     candidate = _candidate(
         pros=("Wetter: passed", "Direktduelle: neutral"),

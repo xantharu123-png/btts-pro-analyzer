@@ -515,12 +515,15 @@ def test_espn_duplicate_cannot_rewrite_published_sofascore_identity(
         scheduled_start_utc="2030-01-01T12:15:00Z",
         fixture_source="ESPN",
     )
-    assert duplicate == -1
-    row = shadow.pending_predictions()[0]
-    assert row["id"] == row_id
+    assert duplicate > 0 and duplicate != row_id
+    rows = {row["id"]: row for row in shadow.pending_predictions()}
+    assert len(rows) == 2
+    row = rows[row_id]
     assert row["provider_event_id"] == "4101"
     assert row["fixture_source"] == "SofaScore"
-    assert row["scheduled_start_utc"] == "2030-01-01T12:15:00Z"
+    assert row["scheduled_start_utc"] == "2030-01-01T12:00:00Z"
+    assert rows[duplicate]["provider_event_id"] == "espn-should-not-replace"
+    assert rows[duplicate]["scheduled_start_utc"] == "2030-01-01T12:15:00Z"
 
     monkeypatch.setattr(
         tennis_daily,

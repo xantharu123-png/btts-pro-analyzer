@@ -27,6 +27,7 @@ from riskobet_domain import (
     SUPPORTED_SPORTS,
 )
 from riskobet_store import DEFAULT_DB_PATH, DEFAULT_LATEST_PATH, RiskBetStore
+from riskobet_quality import evidence_order
 
 
 SPORT_ORDER = (
@@ -415,33 +416,10 @@ def _latest_revisions(
         if candidate.snapshot_id in selected_snapshot_ids
     ]
 
-    stage_rank = {
-        EvidenceStage.VALIDATED: 0,
-        EvidenceStage.SHADOW: 1,
-        EvidenceStage.RESEARCH: 2,
-    }
-    context_rank = {
-        ContextState.FRESH: 0,
-        ContextState.PARTIAL: 1,
-        ContextState.OPEN: 2,
-        ContextState.STALE: 3,
-    }
+    snapshot_by_id = {snapshot.snapshot_id: snapshot for snapshot in snapshots}
 
     def rank(candidate: RiskCandidate) -> tuple[object, ...]:
-        probability = (
-            candidate.cautious_probability
-            if candidate.cautious_probability is not None
-            else candidate.model_probability
-        )
-        return (
-            candidate.starts_at,
-            SPORT_ORDER.index(candidate.sport),
-            candidate.event_key,
-            stage_rank[candidate.stage],
-            context_rank[candidate.context_state],
-            -(probability if probability is not None else -1.0),
-            candidate.candidate_id,
-        )
+        return evidence_order(candidate, snapshot_by_id.get(candidate.snapshot_id))
 
     unique_candidates: dict[tuple[str, str], RiskCandidate] = {}
     for candidate in sorted(candidates, key=rank):

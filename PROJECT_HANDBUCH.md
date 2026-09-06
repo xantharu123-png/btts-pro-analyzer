@@ -2,6 +2,8 @@
 
 ## Dokumentstatus
 
+**Aktuelle Fortsetzung vom 7. September 2026:** Die nachfolgende Tabelle dokumentiert den alten September-2-Stand, nicht die aktuelle Abnahme. Maßgeblich sind `docs/audits/2026-09-05-umsetzung.md` und `docs/audits/2026-09-07-release.md`. Neu: Artefakt v18 / Auswahlpolicy v15, vollständiger normaler Modellpool vor Pagination, kausale Tennisrevisionen, reale historische Loader für Basketball/Eishockey/Cricket und separate `runtime_state/forecast_evidence.db`. Der vorhandene Wettfinder-Worker erfasst Prognosen und Ergebnisse; kein neuer Timer. 15K-Konto-/Ticketregeln und v11-Ticketauthentisierung bleiben erhalten, Vorhersagecache v12. Wetter-/Ausfall-/Belastungseffekte und Profitabilität sind noch nicht empirisch nachgewiesen. Historische „nur Cricket fehlt“- und „kein 15K-Korridor“-Aussagen wurden im Audit vom 5. September präzisiert/korrigiert.
+
 | Feld | Verifizierter Stand |
 |---|---|
 | Auditzeitraum | 1. August bis 2. September 2026 |

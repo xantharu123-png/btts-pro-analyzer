@@ -30,7 +30,7 @@ from market_consensus import (
 )
 from scan_jobs import JOBS_DIR, load_persisted
 from tennis.predict import WINNER_PROBABILITY_HAIRCUT
-from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION
+from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION, latest_predictions
 
 TENNIS_DB = Path(__file__).resolve().parent / "tennis" / "data" / "tennis_shadow.db"
 ESPORTS_DB = Path(__file__).resolve().parent / "esports_shadow.db"
@@ -40,15 +40,15 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 17
-AUTOMATED_SELECTION_POLICY_VERSION = "useful-selection-catalog-v14"
+AUTOMATED_WETTFINDER_VERSION = 18
+AUTOMATED_SELECTION_POLICY_VERSION = "complete-selection-catalog-v15"
 AUTOMATED_FOOTBALL_RELEASE_CONTRACT = "football-hac-fdr-context-price-v1"
-MAX_AUTOMATED_FOOTBALL_CANDIDATES = 15
-MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES = (
-    MAX_AUTOMATED_FOOTBALL_CANDIDATES
-)
-MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT = 3
-MAX_AUTOMATED_MODEL_CANDIDATES = 21
+# Resource envelopes, not presentation quotas: 1,200 football fixtures x 90
+# configured definitions. Top cards and pagination never truncate this pool.
+MAX_AUTOMATED_FOOTBALL_CANDIDATES = 108_000
+MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES = 15
+MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT = 1_200
+MAX_AUTOMATED_MODEL_CANDIDATES = 110_400
 MAX_AUTOMATED_RECOMMENDATIONS = 3
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 AUTOMATED_VALIDATION_MARKET_HYPOTHESES = 90
@@ -94,6 +94,14 @@ class ModelSignal:
     selected_competitor: Optional[str] = None
     competition: Optional[str] = None
     statistical_release_passed: Optional[bool] = None
+    modeled_at: Optional[str] = None
+    input_cutoff_at: Optional[str] = None
+    model_version: Optional[str] = None
+    fixture_source: Optional[str] = None
+    provider_event_id: Optional[str] = None
+    competitor_a_id: Optional[str] = None
+    competitor_b_id: Optional[str] = None
+    context_evidence: Optional[dict] = None
 
     def __post_init__(self) -> None:
         if not _valid_probability(self.probability):
@@ -282,6 +290,39 @@ def _read_rows(db_path: Union[str, Path], query: str, params: tuple = ()) -> lis
         return []
 
 
+def _latest_tennis_rows(db_path, today, current):
+    try:
+        rows = latest_predictions(db_path, pending_only=True, as_of=current)
+    except (OSError, sqlite3.Error, ValueError):
+        return []
+    return [row for row in rows if (
+        row.get("match_date") == today
+        and row.get("model_version") == TENNIS_MODEL_VERSION
+        and row.get("policy_version") == TENNIS_POLICY_VERSION
+    )]
+
+
+def _tennis_context_summary(row):
+    try:
+        data = json.loads(row.get("context_json") or "{}")
+    except (TypeError, ValueError):
+        data = {}
+    facts = []
+    for side, name in (("a", row.get("player_a")), ("b", row.get("player_b"))):
+        player = data.get("players", {}).get(side, {}) if isinstance(data, dict) else {}
+        for fact in player.get("facts", ()) if isinstance(player, dict) else ():
+            if isinstance(fact, str):
+                facts.append(f"{name}: {fact}")
+    return " · ".join([*facts[:2], "Belag modelliert; akute Fitness-/Belastungseffekte noch nicht numerisch validiert."])
+
+
+def _tennis_model_clock(row):
+    value = row.get("created_utc")
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+        return datetime.fromtimestamp(value, timezone.utc).isoformat()
+    return None
+
+
 def tennis_signals(
     db_path: Union[str, Path] = TENNIS_DB,
     today: Optional[str] = None,
@@ -293,18 +334,8 @@ def tennis_signals(
         current = current.replace(tzinfo=timezone.utc)
     current = current.astimezone(timezone.utc)
     today = today or current.astimezone(ZURICH_TZ).date().isoformat()
-    rows = _read_rows(
-        db_path,
-        """SELECT id, match_date, tour, tournament, player_a, player_b,
-                  p_cal, verdict, recommended_side, scheduled_start_utc
-           FROM predictions
-           WHERE settled = 0 AND match_date = ?
-             AND verdict = 'WETTE'
-             AND recommended_side IN ('A', 'B')
-             AND model_version = ? AND policy_version = ?
-           ORDER BY match_date, id""",
-        (today, TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION),
-    )
+    rows = [row for row in _latest_tennis_rows(db_path, today, current)
+            if row.get("verdict") == "WETTE" and row.get("recommended_side") in {"A", "B"}]
     signals: List[ModelSignal] = []
     for row in rows:
         scheduled = _parse_iso(row["scheduled_start_utc"])
@@ -345,6 +376,13 @@ def tennis_signals(
                 scheduled_start=scheduled.astimezone(timezone.utc).isoformat(),
                 minimum_odds=minimum_odds,
                 source="tennis_shadow",
+                fixture_source=row.get("fixture_source"),
+                provider_event_id=row.get("provider_event_id"),
+                context_evidence=json.loads(row.get("context_json") or "{}"),
+                modeled_at=_tennis_model_clock(row),
+                input_cutoff_at=_tennis_model_clock(row),
+                model_version=TENNIS_MODEL_VERSION,
+                context_summary=_tennis_context_summary(row),
                 sport="Tennis",
                 event_label=f"{row['player_a']} vs {row['player_b']}",
                 market="Match Winner",
@@ -370,16 +408,7 @@ def tennis_model_signals(
         current = current.replace(tzinfo=timezone.utc)
     current = current.astimezone(timezone.utc)
     today = today or current.astimezone(ZURICH_TZ).date().isoformat()
-    rows = _read_rows(
-        db_path,
-        """SELECT id, match_date, tour, tournament, player_a, player_b,
-                  p_cal, gates_json, scheduled_start_utc
-           FROM predictions
-           WHERE settled = 0 AND match_date = ?
-             AND model_version = ? AND policy_version = ?
-           ORDER BY match_date, scheduled_start_utc, id""",
-        (today, TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION),
-    )
+    rows = _latest_tennis_rows(db_path, today, current)
     signals: List[ModelSignal] = []
     for row in rows:
         scheduled = _parse_iso(row["scheduled_start_utc"])
@@ -437,6 +466,13 @@ def tennis_model_signals(
                 scheduled_start=scheduled.isoformat(),
                 minimum_odds=minimum_odds,
                 source="tennis_model",
+                fixture_source=row.get("fixture_source"),
+                provider_event_id=row.get("provider_event_id"),
+                context_evidence=json.loads(row.get("context_json") or "{}"),
+                modeled_at=_tennis_model_clock(row),
+                input_cutoff_at=_tennis_model_clock(row),
+                model_version=TENNIS_MODEL_VERSION,
+                context_summary=_tennis_context_summary(row),
                 sport="Tennis",
                 event_label=f"{row['player_a']} vs {row['player_b']}",
                 market="Match Winner",
@@ -483,15 +519,14 @@ def esports_signals(
             return []
     rows = _read_rows(
         db_path,
-        """SELECT match_id, game, team1, team2, selection,
-                  model_probability, risk_adjusted_probability,
-                  scheduled_at, model_version
+        """SELECT *
            FROM esports_shadow_predictions
            WHERE status = 'upcoming' AND settled = 0
            ORDER BY logged_at DESC""",
     )
     signals: List[ModelSignal] = []
     for row in rows:
+        row = dict(row)
         scheduled = _parse_iso(row["scheduled_at"])
         if scheduled is None or scheduled.tzinfo is None:
             continue
@@ -539,6 +574,13 @@ def esports_signals(
                 competitor_b=str(row["team2"]),
                 selected_competitor=str(row["selection"]),
                 competition=str(row["game"]),
+                modeled_at=row["logged_at"],
+                input_cutoff_at=row["logged_at"],
+                model_version=ESPORTS_MODEL_VERSION,
+                fixture_source="pandascore",
+                provider_event_id=str(row["match_id"]),
+                competitor_a_id=str(row["team1_id"]) if row.get("team1_id") else None,
+                competitor_b_id=str(row["team2_id"]) if row.get("team2_id") else None,
             )
         )
     return signals
@@ -877,6 +919,16 @@ def _load_automated_wettfinder_document(
         if not sport:
             return None
         normalized = sport.casefold().replace("ß", "ss")
+        # Enlarging the catalog is not permission to publish an unimplemented
+        # sport/model contract. Other sports currently belong to RisikoBet's
+        # research pipeline, not this normal-Wettfinder artifact.
+        expected_source = {
+            "fussball": "football_challenge",
+            "tennis": "tennis_shadow",
+            "e-sport": "esports_shadow",
+        }.get(normalized)
+        if expected_source is None or row.get("source") != expected_source:
+            return None
         sport_counts[normalized] = sport_counts.get(normalized, 0) + 1
     if sport_counts.get("fussball", 0) > MAX_AUTOMATED_FOOTBALL_CANDIDATES:
         return None

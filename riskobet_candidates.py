@@ -43,7 +43,7 @@ from riskobet_domain import (
 )
 
 
-RISKOBET_POLICY_VERSION = "riskobet-selection-v1"
+RISKOBET_POLICY_VERSION = "riskobet-evidence-order-v2"
 FOOTBALL_MODEL_VERSION = "shared-football-market-model-v1"
 RESEARCH_MODEL_VERSION = "beta-log5-prematch-v1"
 TENNIS_FALLBACK_MODEL_VERSION = "tennis-shadow-model-v1"
@@ -580,9 +580,10 @@ def _football_context_parts(
                     role=FactorRole.DISPLAY_ONLY,
                 )
             )
-            if status in {"passed", "neutral", "observed"}:
-                pros.append(summary)
-            else:
+            # Observing weather or finding no injury veto is not a sporting
+            # advantage. Keep these facts in their attributable context factors,
+            # not in the candidate's positive match-up evidence.
+            if status not in {"passed", "neutral", "observed"}:
                 cons.append(summary)
     if not cons and not complete:
         cons.append("Einzelne Kontextdaten sind noch offen.")
@@ -1073,25 +1074,8 @@ def adapt_tennis_shadow(
     path = Path(db_path)
     if not path.is_file():
         return ()
-    with _connect_read_only(path) as connection:
-        columns = {
-            str(row[1]) for row in connection.execute("PRAGMA table_info(predictions)")
-        }
-        required = {
-            "id",
-            "created_utc",
-            "scheduled_start_utc",
-            "player_a",
-            "player_b",
-            "p_cal",
-            "markets_json",
-            "settled",
-        }
-        if not required.issubset(columns):
-            return ()
-        rows = connection.execute(
-            "SELECT * FROM predictions WHERE settled = 0 ORDER BY scheduled_start_utc, id"
-        ).fetchall()
+    from tennis.shadow import latest_predictions
+    rows = latest_predictions(path, pending_only=True, as_of=now)
     outputs: list[RiskAdapterResult] = []
     for row in rows:
         prediction_id = row["id"]
@@ -1152,6 +1136,8 @@ def adapt_tennis_shadow(
             "gates": _without_prices(
                 _load_json_object(row["gates_json"] if "gates_json" in row.keys() else None)
             ),
+            "model_revision_id": row.get("model_revision_id"),
+            "context": _without_prices(_load_json_object(row.get("context_json"))),
         }
         factor = _shadow_factor(
             key="tennis_calibrated_match_model",
@@ -1174,6 +1160,24 @@ def adapt_tennis_shadow(
             imported_at=observed_at,
             starts_at=starts_at,
         )
+        workload = _load_json_object(row.get("context_json"))
+        workload_players = workload.get("players", {})
+        workload_factors = []
+        if isinstance(workload_players, Mapping):
+            for side, player_name in (("a", player_a), ("b", player_b)):
+                data = workload_players.get(side, {})
+                if not isinstance(data, Mapping):
+                    continue
+                for index, fact in enumerate(data.get("facts", ())):
+                    if not isinstance(fact, str) or not fact.strip():
+                        continue
+                    workload_factors.append(FactorEvidence(
+                        factor_key=f"tennis_workload_{side}_{index}",
+                        summary=f"{player_name}: {fact}"[:600],
+                        source="tennis-shadow-observed-results",
+                        observed_at=observed_at, imported_at=observed_at,
+                        fresh_until=starts_at, role=FactorRole.DISPLAY_ONLY,
+                    ))
         snapshot = EventModelSnapshot(
             event_key=event_key,
             sport="tennis",
@@ -1184,7 +1188,7 @@ def adapt_tennis_shadow(
             input_cutoff_at=observed_at,
             model_version=model_version,
             input_hash=canonical_input_hash(input_payload),
-            factors=(factor, identity_factor),
+            factors=(factor, identity_factor, *workload_factors),
         )
         options: list[tuple[float, str, str, float, float, str, str]] = []
         # (weighted score, market key, label, p, haircut, pro, con)
@@ -1239,7 +1243,7 @@ def adapt_tennis_shadow(
                 p_underdog,
                 0.15,
                 f"Das kalibrierte Matchmodell gibt {underdog} {p_underdog:.1%} Siegchance.",
-                "Belag, Belastung und Fitness sind nur enthalten, soweit sie im eingefrorenen Modellzustand vorlagen.",
+                "Belag ist modelliert. Akute Fitness, Verletzungen und Belastung sind noch nicht als numerischer Effekt validiert.",
             ))
         if chosen_side is not None:
             base_specs.append(chosen_side[1:])
@@ -1720,7 +1724,7 @@ def adapt_research_matchwinner(
     policy_version: str = RISKOBET_POLICY_VERSION,
     model_version: str = RESEARCH_MODEL_VERSION,
 ) -> RiskAdapterResult:
-    """Build a causal beta-smoothed Log5 underdog match-winner candidate."""
+    """Share one causal sport-specific prematch fit per competition snapshot."""
 
     if sport not in {"basketball", "ice_hockey", "cricket"}:
         raise ValueError("research match-winner adapter supports basketball, ice_hockey and cricket")
@@ -1745,8 +1749,8 @@ def adapt_research_matchwinner(
     )
     model_time, cutoff = _require_causal_clock(
         starts_at,
-        source_observed_at,
-        source_observed_at,
+        modeled_at or source_observed_at,
+        modeled_at or source_observed_at,
     )
     provider = _clean_text(event.get("provider") or event.get("source"))
     provider_event_id = _clean_text(
@@ -1769,22 +1773,10 @@ def adapt_research_matchwinner(
     competition = _clean_text(
         event.get("competition", event.get("league", event.get("tournament")))
     ) or sport
-    history = tuple(history)
-    home_wins, home_games, home_rows, home_latest = _causal_team_record(
-        history,
-        team_id=home_id,
-        team_name=home,
-        cutoff=cutoff,
-        starts_at=starts_at,
-    )
-    away_wins, away_games, away_rows, away_latest = _causal_team_record(
-        history,
-        team_id=away_id,
-        team_name=away,
-        cutoff=cutoff,
-        starts_at=starts_at,
-    )
-    missing: list[str] = []
+    from sports_prematch import predict_prematch
+    prediction = predict_prematch(sport, event, history, as_of=model_time)
+    home_games, away_games = prediction.home_games, prediction.away_games
+    missing: list[str] = list(prediction.missing)
     if home_games < minimum_team_games:
         missing.append(
             f"{home}: {minimum_team_games} abgeschlossene Spiele vor Start erforderlich, {home_games} vorhanden"
@@ -1795,10 +1787,8 @@ def adapt_research_matchwinner(
         )
     probability: Optional[float] = None
     cautious: Optional[float] = None
-    if not missing:
-        home_strength = _smoothed_rate(home_wins, home_games)
-        away_strength = _smoothed_rate(away_wins, away_games)
-        p_home = _log5(home_strength, away_strength)
+    if not missing and prediction.p_home is not None:
+        p_home = prediction.p_home
         if math.isclose(p_home, 0.5, abs_tol=1e-12):
             missing.append("Kein eindeutiger Außenseiter aus der kausalen Historie bestimmbar")
             underdog_side = "open"
@@ -1807,31 +1797,24 @@ def adapt_research_matchwinner(
             underdog_side = "home" if p_home < 0.5 else "away"
             underdog = home if underdog_side == "home" else away
             probability = min(p_home, 1.0 - p_home)
-            effective_n = max(1, min(home_games, away_games))
-            uncertainty = 1.96 * math.sqrt(probability * (1.0 - probability) / effective_n)
-            cautious = max(0.0, probability - uncertainty)
     else:
         underdog_side = "open"
         underdog = "Außenseiter noch offen"
     event_key = stable_event_key(sport, provider, provider_event_id)
-    factor_specs = (
-        ("home_history", home, home_wins, home_games, home_latest),
-        ("away_history", away, away_wins, away_games, away_latest),
-    )
     factors = tuple(
         FactorEvidence(
-            factor_key=key,
-            summary=f"{team}: {wins}/{games} Siege vor Eingabeschluss; Beta(2,2)-Glättung.",
+            factor_key=f"prematch_model_{index}",
+            summary=summary,
             source=f"{provider}:historical_results",
-            observed_at=latest,
+            observed_at=prediction.latest_result_observed_at,
             imported_at=model_time,
-            fresh_until=min(latest + RESEARCH_HISTORY_TTL, starts_at),
-            coverage=min(1.0, games / minimum_team_games),
-            sample_size=games,
+            fresh_until=min(model_time + RESEARCH_HISTORY_TTL, starts_at),
+            coverage=min(1.0, min(home_games, away_games) / minimum_team_games),
+            sample_size=prediction.training_games,
             role=FactorRole.MODEL,
         )
-        for key, team, wins, games, latest in factor_specs
-        if latest is not None
+        for index, summary in enumerate(prediction.factors)
+        if prediction.latest_result_observed_at is not None
     )
     input_hash = canonical_input_hash(
         {
@@ -1843,8 +1826,8 @@ def adapt_research_matchwinner(
             "home": {"id": home_id, "name": home},
             "away": {"id": away_id, "name": away},
             "minimum_team_games": minimum_team_games,
-            "home_history": home_rows,
-            "away_history": away_rows,
+            "model_input_hash": prediction.input_hash,
+            "model_decision_at": model_time.isoformat(),
         }
     )
     snapshot = EventModelSnapshot(
@@ -1855,7 +1838,7 @@ def adapt_research_matchwinner(
         starts_at=starts_at,
         modeled_at=model_time,
         input_cutoff_at=cutoff,
-        model_version=model_version,
+        model_version=prediction.model_version,
         input_hash=input_hash,
         factors=factors,
         missing_core_data=tuple(missing),
@@ -1873,10 +1856,11 @@ def adapt_research_matchwinner(
         cons = tuple(missing)
     else:
         pros = (
-            f"Das geglättete Log5-Modell aus {home_games}/{away_games} Teamspielen ergibt {probability:.1%}.",
+            f"Das sportspezifische Modell aus {prediction.training_games} Ergebnissen ergibt {probability:.1%}.",
         )
         cons = (
-            "RESEARCH: Lineups und sportspezifische Matchup-Effekte sind noch nicht kausal validiert.",
+            "Noch keine unabhängig bestätigte Treffergenauigkeit; kein nachgewiesener Wettvorteil.",
+            *prediction.limitations,
         )
     candidate = RiskCandidate(
         snapshot_id=snapshot.snapshot_id,

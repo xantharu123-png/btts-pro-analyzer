@@ -24,6 +24,7 @@ import json
 import sys
 import unicodedata
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -36,6 +37,7 @@ from tennis.data_loader import DEFAULT_CACHE_DIR, normalize_player_name  # noqa:
 from tennis.model_state import load_state  # noqa: E402
 from tennis.predict import predict_match  # noqa: E402
 from tennis import shadow  # noqa: E402
+from tennis.prediction_revisions import utc_epoch  # noqa: E402
 
 import pandas as pd  # noqa: E402
 
@@ -568,6 +570,7 @@ def auto_settle_completed(today: str | None = None) -> int:
                 result_observed_at=result_observed_at,
                 player_a_sets=player_a_sets,
                 player_b_sets=player_b_sets,
+                match_duration_minutes=match.get("duration_minutes"),
             )
         except (TypeError, ValueError):
             continue
@@ -586,6 +589,114 @@ def fetch_fixtures(date: str) -> list:
     except requests.RequestException:
         pass
     return fetch_fixtures_espn(date)
+
+
+def _refresh_now() -> datetime:
+    return datetime.fromtimestamp(time.time(), timezone.utc)
+
+
+def refresh_pending_predictions(
+    *,
+    db_path: str | Path | None = None,
+    as_of: datetime | None = None,
+    minimum_interval: timedelta = timedelta(hours=2),
+) -> dict:
+    """Refresh due pending fixtures from the existing state without network I/O.
+
+    This is the lightweight worker path, not the daily data pipeline. It never
+    downloads, builds, fits, settles, or modifies prices. Fixture metadata is
+    the latest stored observation; newly scheduled/changed fixtures still
+    come from the fixture scan. ``stats_through`` always remains the actual
+    cached model's training cutoff, not this refresh timestamp.
+
+    All consumers read the same appended model revision. An unavailable state
+    or invalid fixture leaves the previous immutable observation intact and is
+    explicitly reported; a refresh is not represented as a fresh provider check.
+    """
+    if not isinstance(minimum_interval, timedelta) or minimum_interval.total_seconds() < 0:
+        raise ValueError("minimum_interval must be a non-negative timedelta")
+    checked_at = _refresh_now() if as_of is None else datetime.fromtimestamp(utc_epoch(as_of), timezone.utc)
+    rows = shadow.latest_predictions(db_path, as_of=checked_at)
+    result = {
+        "status": "unchanged", "checked": len(rows), "due": 0,
+        "refreshed": 0, "skipped": 0, "errors": [],
+        "checked_at": checked_at.isoformat(), "completed_at": checked_at.isoformat(),
+        "fixture_source": "stored_pending_fixtures", "provider_checked": False,
+        "model_stats_through": None,
+    }
+    # Several historical model versions can reference the same event. Refresh
+    # it once using its latest stored fixture metadata, never once per version.
+    by_event = {}
+    for row in rows:
+        try:
+            source = str(row.get("fixture_source") or "").strip()
+            event_id = str(row.get("provider_event_id") or "").strip()
+            players = (str(row.get("player_a") or "").strip(), str(row.get("player_b") or "").strip())
+            if not source or not event_id or not all(players) or any("TBD" in p.upper() for p in players):
+                raise ValueError("incomplete fixture identity")
+            start = utc_epoch(row.get("scheduled_start_utc"))
+            if start <= checked_at.timestamp():
+                result["skipped"] += 1
+                continue
+            if row.get("tour") not in ("ATP", "WTA") or type(row.get("best_of")) is not int or row["best_of"] not in (3, 5):
+                raise ValueError("unverified tour or match format")
+            event_key = (source.casefold(), event_id)
+            old = by_event.get(event_key)
+            if old is None or utc_epoch(row["created_utc"]) > utc_epoch(old["created_utc"]):
+                by_event[event_key] = row
+        except (TypeError, ValueError, KeyError):
+            result["skipped"] += 1
+            result["errors"].append({"prediction_id": row.get("id"), "reason": "invalid_fixture_metadata"})
+    due = [row for row in by_event.values() if checked_at.timestamp() - utc_epoch(row["created_utc"]) >= minimum_interval.total_seconds()]
+    result["due"] = len(due)
+    if not due:
+        return result
+    try:
+        state = load_state()  # trusted existing artifact only; no build fallback
+        workload = shadow.workload_history(db_path)
+    except Exception as exc:
+        result["status"] = "unavailable"
+        result["errors"].append({"reason": "cached_state_or_history_unavailable", "error_type": type(exc).__name__})
+        return result
+    result["model_stats_through"] = state.stats_through
+    for row in due:
+        # Capture the decision after state/history reads, not at worker start.
+        modeled_at = _refresh_now() if as_of is None else checked_at
+        if utc_epoch(row["scheduled_start_utc"]) <= modeled_at.timestamp():
+            result["skipped"] += 1
+            continue
+        try:
+            context = json.loads(row.get("context_json") or "{}")
+            model_inputs = context.get("model_inputs") or {}
+            indoor = model_inputs.get("indoor")
+            if indoor is not None and type(indoor) is not bool:
+                indoor = None
+            surface = row.get("surface")
+            prediction = predict_match(
+                state, row["player_a"], row["player_b"],
+                surface if surface in ("Hard", "Clay", "Grass", "Carpet") else None,
+                row["best_of"], tour=row["tour"], indoor=indoor,
+                as_of=modeled_at, workload_history=workload,
+            )
+            # Do not append a pre-start prediction after the event has started
+            # while a slow computation was running.
+            finished_at = _refresh_now() if as_of is None else checked_at
+            if utc_epoch(row["scheduled_start_utc"]) <= finished_at.timestamp():
+                result["skipped"] += 1
+                continue
+            shadow.store_prediction(
+                row["match_date"], row["tour"], row.get("tournament"), prediction,
+                provider_event_id=str(row["provider_event_id"]),
+                scheduled_start_utc=row["scheduled_start_utc"],
+                fixture_source=row["fixture_source"], modeled_at=modeled_at,
+                db_path=db_path,
+            )
+            result["refreshed"] += 1
+        except Exception as exc:
+            result["errors"].append({"prediction_id": row.get("id"), "reason": "prediction_refresh_failed", "error_type": type(exc).__name__})
+    result["completed_at"] = (_refresh_now() if as_of is None else checked_at).isoformat()
+    result["status"] = "partial" if result["errors"] else "complete"
+    return result
 
 
 # ----------------------------------------------------------------------- main
@@ -615,6 +726,7 @@ def main() -> None:
     print(f"Fixtures (ATP/WTA Singles, noch nicht gestartet): {len(fixtures)}\n")
 
     stored = 0
+    workload_history = shadow.workload_history()
     for fx in fixtures:
         if not fx["player_a"] or not fx["player_b"] or "TBD" in (
             fx["player_a"],
@@ -636,6 +748,7 @@ def main() -> None:
             best_of,
             tour=fx.get("tour", "ATP"),
             indoor=indoor,
+            workload_history=workload_history,
         )
         row_id = shadow.store_prediction(
             fx["match_date"],

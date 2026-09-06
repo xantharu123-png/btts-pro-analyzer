@@ -469,6 +469,7 @@ def _run_market_scan_worker(
         max_fixtures,
         search_end_date=search_end_date,
         allow_above_challenge_probability=True,
+        candidate_profile="wettfinder",
         **scan_kwargs,
     )
     if progress_cb:

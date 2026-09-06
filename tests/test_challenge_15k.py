@@ -108,14 +108,14 @@ def test_cached_market_artifact_builds_and_saves_one_paired_cold_result():
 
     assert result == artifact
     load_mock.assert_called_once_with(
-        challenge_15k.CHALLENGE_MODEL_SIGNATURE,
+        challenge_15k.CHALLENGE_PREDICTION_VERSION,
         39,
         2025,
         history,
     )
     build_mock.assert_called_once_with(history)
     save_mock.assert_called_once_with(
-        challenge_15k.CHALLENGE_MODEL_SIGNATURE,
+        challenge_15k.CHALLENGE_PREDICTION_VERSION,
         39,
         2025,
         history,
@@ -137,7 +137,7 @@ def test_cached_market_artifact_reuses_persistent_hit_without_rebuilding():
 
     assert result == artifact
     load_mock.assert_called_once_with(
-        challenge_15k.CHALLENGE_MODEL_SIGNATURE,
+        challenge_15k.CHALLENGE_PREDICTION_VERSION,
         39,
         2025,
         history,
@@ -286,6 +286,7 @@ def fixture(
         "fixture": {
             "id": fixture_id,
             "date": played_at.astimezone(timezone.utc).isoformat(),
+            "status": {"short": "FT" if home_goals is not None else "NS"},
             "venue": {"city": "London"},
             "referee": "R Test",
         },
@@ -3020,7 +3021,7 @@ class ChallengeTicketTests(unittest.TestCase):
         )
 
     def test_challenge_rejects_legs_below_practical_odds_floor(self):
-        item = candidate("1:BTTS", 1, 0.95)
+        item = candidate("1:BTTS", 1, 0.89)
 
         self.assertEqual(item.minimum_odds, 1.25)
         self.assertIsNone(

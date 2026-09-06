@@ -2143,6 +2143,7 @@ class CrossSportMathTests(unittest.TestCase):
                                 "matchInfo": {
                                     "matchId": 1,
                                     "startDate": 1893528000000,
+                                    "state": "Preview",
                                     "team1": {"teamName": "Alpha"},
                                     "team2": {"teamName": "Beta"},
                                     "seriesName": "Test Series",
@@ -2153,6 +2154,7 @@ class CrossSportMathTests(unittest.TestCase):
                                 "matchInfo": {
                                     "matchId": 2,
                                     "startDate": 1894737600000,
+                                    "state": "Preview",
                                     "team1": {"teamName": "Gamma"},
                                     "team2": {"teamName": "Delta"},
                                 }

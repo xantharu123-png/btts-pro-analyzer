@@ -630,8 +630,8 @@ def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
 
 def test_automation_writer_and_reader_share_one_artifact_version():
     assert AUTOMATION_VERSION == AUTOMATED_WETTFINDER_VERSION
-    assert AUTOMATED_WETTFINDER_VERSION == 17
-    assert AUTOMATED_SELECTION_POLICY_VERSION == "useful-selection-catalog-v14"
+    assert AUTOMATED_WETTFINDER_VERSION == 18
+    assert AUTOMATED_SELECTION_POLICY_VERSION == "complete-selection-catalog-v15"
 
 
 def test_football_record_persists_paired_statistical_release_evidence():
@@ -1067,7 +1067,7 @@ def test_one_model_ledger_preserves_model_order_without_price_priority():
     assert strict_a["status"] == "PRICE_REQUIRED"
 
 
-def test_daily_catalog_reserves_space_for_tennis_and_esports():
+def test_daily_catalog_preserves_complete_football_and_other_sport_pools():
     football = []
     for index in range(15):
         row = _candidate(
@@ -1114,13 +1114,13 @@ def test_daily_catalog_reserves_space_for_tennis_and_esports():
         target_date=date(2030, 1, 1),
     )
 
-    assert [row["sport"] for row in catalog].count("Fussball") == 15
-    assert [row["sport"] for row in catalog].count("Tennis") == 3
-    assert [row["sport"] for row in catalog].count("E-Sport") == 3
-    assert len(catalog) == 21
+    assert [row["sport"] for row in catalog].count("Fussball") == 16
+    assert [row["sport"] for row in catalog].count("Tennis") == 4
+    assert [row["sport"] for row in catalog].count("E-Sport") == 4
+    assert len(catalog) == 24
 
 
-def test_daily_catalog_caps_repeated_basic_forecasts_without_banning_them():
+def test_daily_catalog_preserves_repeated_basic_forecasts_for_later_diversity():
     informative = [
         _football_model_row(
             f"informative-{index}",
@@ -1177,18 +1177,12 @@ def test_daily_catalog_caps_repeated_basic_forecasts_without_banning_them():
     assert [row["key"] for row in football[:3]] == [
         row["key"] for row in informative
     ]
-    assert len(football) == 7
-    assert len(simple) == 4
-    assert [row["key"] for row in simple] == [
-        "home-over-1",
-        "home-over-2",
-        "double-chance-1",
-        "double-chance-2",
-    ]
-    assert sum(row["market_key"] == "HOME_OVER_0_5" for row in simple) == 2
+    assert len(football) == len(informative) + len(basis)
+    assert [row["key"] for row in simple] == [row["key"] for row in basis]
+    assert sum(row["market_key"] == "HOME_OVER_0_5" for row in simple) == 6
 
 
-def test_daily_catalog_applies_fixture_cap_across_primary_and_basic_rows():
+def test_daily_catalog_does_not_apply_price_budget_as_fixture_catalog_cap():
     primary = [
         _football_model_row(
             f"fixture-primary-{index}",
@@ -1220,9 +1214,9 @@ def test_daily_catalog_applies_fixture_cap_across_primary_and_basic_rows():
     )
 
     assert [row["key"] for row in catalog] == [
-        row["key"] for row in primary
+        row["key"] for row in [*primary, *basis]
     ]
-    assert len(catalog) == 8
+    assert len(catalog) == 12
 
 
 def test_daily_basic_catalog_is_independent_of_reference_price_status():
@@ -1254,15 +1248,14 @@ def test_daily_basic_catalog_is_independent_of_reference_price_status():
     )
 
     assert [row["key"] for row in missing_price_catalog] == [
-        "home-over-1",
-        "home-over-2",
+        row["key"] for row in basis
     ]
     assert [row["key"] for row in mixed_price_catalog] == [
         row["key"] for row in missing_price_catalog
     ]
 
 
-def test_runner_prices_full_model_pool_before_display_cap(tmp_path):
+def test_runner_keeps_full_model_pool_after_budgeted_price_check(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     kickoff = now + timedelta(hours=5)
     base = _challenge_candidate(kickoff)
@@ -1340,7 +1333,7 @@ def test_runner_prices_full_model_pool_before_display_cap(tmp_path):
     assert sum(
         row["source"] == "football_challenge"
         for row in document["model_candidates"]
-    ) == 15
+    ) == 16
 
 
 def test_persisted_model_signal_keeps_event_market_and_selection_separate():
@@ -1482,7 +1475,7 @@ def test_football_discovery_runs_only_once_for_current_target_date():
     assert near.reason == "daily_discovery_current"
 
 
-def test_context_due_uses_only_near_persisted_fixture_ids():
+def test_context_due_includes_unchecked_far_persisted_fixture_ids():
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     near = _challenge_candidate(now + timedelta(minutes=80)).to_dict()
     far = _challenge_candidate(now + timedelta(hours=4)).to_dict()
@@ -1493,13 +1486,13 @@ def test_context_due_uses_only_near_persisted_fixture_ids():
         "context_checks": {},
     }
 
-    assert football_context_due_fixture_ids(state, now=now) == [1]
+    assert football_context_due_fixture_ids(state, now=now) == [1, 2]
 
     state["context_checks"] = {"1": now.isoformat()}
     assert football_context_due_fixture_ids(
         state,
         now=now + timedelta(minutes=10),
-    ) == []
+    ) == [2]
 
 
 def test_context_due_batches_cover_the_complete_near_kickoff_pool():
@@ -1528,6 +1521,80 @@ def test_context_due_batches_cover_the_complete_near_kickoff_pool():
     )
 
 
+def test_aged_context_is_refreshed_while_kickoff_is_still_more_than_two_hours_away():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    far = _challenge_candidate(now + timedelta(hours=5)).to_dict()
+    state = {
+        "discovery_candidates": [far],
+        "context_checks": {"1": now.isoformat()},
+    }
+    assert football_context_due_fixture_ids(
+        state, now=now + timedelta(minutes=59)
+    ) == []
+    assert football_context_due_fixture_ids(
+        state, now=now + timedelta(minutes=61)
+    ) == [1]
+
+
+def test_context_refresh_invalidates_fixture_in_every_persisted_model_pool():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    snapshot = _football_snapshot(now)
+    candidate = snapshot["shortlist"][0]
+    snapshot["discovery_candidates"] = [candidate]
+    snapshot["riskobet_source_candidates"] = [candidate]
+    state = _football_state_from_snapshot(snapshot, attempted_at=now, search_date=now.date())
+    refreshed = _merge_context_refresh(
+        state,
+        {"invalidated_fixture_ids": [1], "candidates": [], "errors": []},
+        fixture_ids=[1],
+        checked_at=now + timedelta(minutes=30),
+    )
+    for field in ("discovery_candidates", "riskobet_source_candidates", "candidates", "basis_candidates"):
+        assert refreshed[field] == [], field
+
+
+def test_context_refresh_merges_verified_new_kickoff_into_discovery_and_visible_row():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    snapshot = _football_snapshot(now)
+    original = snapshot["shortlist"][0]
+    snapshot["discovery_candidates"] = [original]
+    state = _football_state_from_snapshot(snapshot, attempted_at=now, search_date=now.date())
+    moved = replace(original, kickoff=(now + timedelta(hours=7)).isoformat())
+    refreshed = _merge_context_refresh(
+        state,
+        {"candidates": [moved], "context_fixture_statuses": {"1": "verified"}},
+        fixture_ids=[1],
+        checked_at=now + timedelta(minutes=30),
+    )
+    assert refreshed["discovery_candidates"][0]["kickoff"] == moved.kickoff
+    assert refreshed["candidates"][0]["scheduled_start"] == moved.kickoff
+
+
+def test_normal_low_probability_forecast_is_not_promoted_to_strict_15k_pool(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    snapshot = _football_snapshot(now)
+    low = replace(
+        snapshot["shortlist"][0], probability=0.45,
+        conservative_probability=0.38, probability_haircut_pp=7.0,
+        model_price=1.0 / 0.38,
+    )
+    assert low.forecast_eligible is True
+    assert low.eligible is False
+    snapshot["shortlist"] = []
+    snapshot["wettfinder_candidates"] = [low]
+    snapshot["discovery_candidates"] = [low]
+    artifact = tmp_path / "normal-low-probability.json"
+    document = run_wettfinder(
+        now=now, state_path=artifact, config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: snapshot,
+        football_quote_loader=lambda _rows: ({}, []),
+        tennis_loader=lambda **_kwargs: [], esports_loader=lambda **_kwargs: [],
+    )
+    assert [row["probability"] for row in document["model_candidates"]] == [0.45]
+    assert document["challenge_release_candidates"] == []
+    assert len(automated_wettfinder_forecasts(artifact, now=now)) == 1
+
+
 def test_default_football_discovery_scans_all_configured_leagues(monkeypatch):
     captured = {}
 
@@ -1543,6 +1610,7 @@ def test_default_football_discovery_scans_all_configured_leagues(monkeypatch):
         max_fixtures,
         *,
         allow_above_challenge_probability=False,
+        candidate_profile="challenge",
     ):
         captured.update(
             league_ids=league_ids,
@@ -1551,6 +1619,7 @@ def test_default_football_discovery_scans_all_configured_leagues(monkeypatch):
             allow_above_challenge_probability=(
                 allow_above_challenge_probability
             ),
+            candidate_profile=candidate_profile,
         )
         return {}
 
@@ -1567,6 +1636,7 @@ def test_default_football_discovery_scans_all_configured_leagues(monkeypatch):
     assert captured["league_ids"] == list(ALTERNATIVE_MARKET_LEAGUES)
     assert len(captured["league_ids"]) == 51
     assert captured["allow_above_challenge_probability"] is True
+    assert captured["candidate_profile"] == "wettfinder"
 
 
 def test_selection_is_probability_first_deduplicated_and_maximum_three():
@@ -1631,12 +1701,12 @@ def test_price_pool_keeps_multiple_markets_for_the_same_fixture():
     ]
 
 
-def test_runner_prices_first_ten_catalog_fixtures_by_model_utility(tmp_path):
+def test_runner_keeps_90_fixtures_and_rotates_prices_without_model_reordering(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     base = _challenge_candidate(now + timedelta(hours=5))
     catalog = []
-    for fixture_id in range(1, 13):
-        probability = 0.70 + fixture_id / 100.0
+    for fixture_id in range(1, 91):
+        probability = 0.70 + fixture_id / 1000.0
         candidate = replace(
             base,
             fixture_id=fixture_id,
@@ -1648,7 +1718,7 @@ def test_runner_prices_first_ten_catalog_fixtures_by_model_utility(tmp_path):
             model_price=1.0 / (probability - 0.09),
             validation=replace(
                 base.validation,
-                relative_improvement=0.30 - fixture_id / 100.0,
+                relative_improvement=0.30 - fixture_id / 1000.0,
             ),
         )
         candidate.context = {"passed": True, "blocked_reasons": []}
@@ -1657,12 +1727,12 @@ def test_runner_prices_first_ten_catalog_fixtures_by_model_utility(tmp_path):
     def scan(_search_date):
         return {
             "scanned_at": now.isoformat(),
-            "fixtures_found": 12,
-            "fixtures_modeled": 12,
-            "base_candidates": 12,
-            "base_fixture_count": 12,
-            "context_fixtures": 12,
-            "context_verified_fixtures": 12,
+            "fixtures_found": len(catalog),
+            "fixtures_modeled": len(catalog),
+            "base_candidates": len(catalog),
+            "base_fixture_count": len(catalog),
+            "context_fixtures": len(catalog),
+            "context_verified_fixtures": len(catalog),
             "context_data_incomplete_fixtures": 0,
             "context_unchecked_fixtures": 0,
             "deferred_context_fixtures": 0,
@@ -1693,9 +1763,25 @@ def test_runner_prices_first_ten_catalog_fixtures_by_model_utility(tmp_path):
     )
 
     assert [row["fixture_id"] for row in document["model_candidates"]] == list(
-        range(1, 13)
+        range(1, 91)
     )
     assert checked_ids == list(range(1, 11))
+    first_order = [row["key"] for row in document["model_candidates"]]
+    checked_ids.clear()
+    second = run_wettfinder(
+        now=now + timedelta(minutes=10),
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=scan,
+        football_quote_loader=quote_loader,
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+    assert checked_ids == list(range(11, 21))
+    assert [row["key"] for row in second["model_candidates"]] == first_order
+    assert [row["probability"] for row in second["model_candidates"]] == [
+        row["probability"] for row in document["model_candidates"]
+    ]
 
 
 def test_football_record_rejects_unvalidated_cross_competition_model():
@@ -3352,34 +3438,39 @@ def test_research_batch_uses_injected_completed_causal_history_once():
     event = {
         "source": "ESPN",
         "game_id": "nba-1",
+        "status": "upcoming",
         "league": "NBA",
         "home_team": "Alpha",
         "away_team": "Beta",
         "start_time": (now + timedelta(hours=6)).isoformat(),
     }
     history = []
-    for team, wins in (("Alpha", 2), ("Beta", 6)):
-        for index in range(8):
+    for team, wins in (("Alpha", 5), ("Beta", 15)):
+        for index in range(20):
+            completed = now - timedelta(days=index + 1)
             history.append(
                 {
+                    "provider": "ESPN",
+                    "competition": "NBA",
+                    "provider_event_id": f"history-{team}-{index}",
                     "status": "final",
-                    "completed_at": (
-                        now - timedelta(days=index + 1)
-                    ).isoformat(),
+                    "start_time": (completed - timedelta(hours=3)).isoformat(),
+                    "completed_at": completed.isoformat(),
+                    "result_observed_at": (completed + timedelta(minutes=2)).isoformat(),
+                    "result_scope": "including_overtime",
                     "home_team": team,
-                    "away_team": f"Opponent-{team}-{index}",
+                    "away_team": f"Common Opponent-{index % 4}",
+                    "home_score": 108 + index % 5 if index < wins else 92 + index % 5,
+                    "away_score": 100,
                     "winner_side": "home" if index < wins else "away",
                 }
             )
-    history.append(
-        {
-            "status": "final",
-            "completed_at": (now + timedelta(minutes=1)).isoformat(),
-            "home_team": "Alpha",
-            "away_team": "Future leak",
-            "winner_side": "home",
-        }
-    )
+    # A fully shaped later result must still be excluded by the causal cutoff.
+    history.append({
+        **history[0], "provider_event_id": "future-result",
+        "completed_at": (now + timedelta(minutes=1)).isoformat(),
+        "result_observed_at": (now + timedelta(minutes=2)).isoformat(),
+    })
     calls = []
 
     def history_loader(**kwargs):
@@ -3400,7 +3491,7 @@ def test_research_batch_uses_injected_completed_causal_history_once():
     assert len(batch.candidates) == 1
     assert batch.candidates[0].model_probability is not None
     assert batch.snapshots[0].modeled_at == now
-    assert sorted(factor.sample_size for factor in batch.snapshots[0].factors) == [8, 8]
+    assert sorted(factor.sample_size for factor in batch.snapshots[0].factors) == [40, 40]
 
 
 def test_research_without_completed_history_stays_open_without_probability():
@@ -3873,6 +3964,7 @@ def test_failed_research_attempt_is_retried_without_new_football_discovery(
     assert document["riskobet"]["research_source_attempts"]["cricket"] == {
         "date": now.date().isoformat(),
         "status": "completed",
+        "checked_at": now.isoformat(),
     }
 
 

@@ -117,6 +117,18 @@ class BasketballScanner:
             )
         return sorted(games, key=lambda item: item.get('start_time') or '')
 
+    def get_completed_games(self, league: str, start_date: date, end_date: date, *, as_of=None) -> List[Dict]:
+        """Observed final NBA/EuroLeague results, with a bounded persistent cache."""
+        from scanners.completed_history import completed_basketball
+
+        return completed_basketball(self, league, start_date, end_date, as_of=as_of)
+
+    def get_completed_nhl_games(self, start_date: date, end_date: date, *, as_of=None) -> List[Dict]:
+        """Observed final NHL results including overtime/shootout winners."""
+        from scanners.completed_history import completed_nhl
+
+        return completed_nhl(self, start_date, end_date, as_of=as_of)
+
     def _get_upcoming_euroleague_games(
         self,
         start_date: date,
@@ -199,6 +211,8 @@ class BasketballScanner:
                     'game_id': game_id,
                     'home_team': home_team,
                     'away_team': away_team,
+                    'home_team_id': self._team_code(local_club, 'code'),
+                    'away_team_id': self._team_code(road_club, 'code'),
                     'status': 'upcoming',
                     'start_time': start.isoformat(),
                     'venue': venue_name or 'Unknown',
@@ -328,6 +342,8 @@ class BasketballScanner:
             'game_id': game_id,
             'home_team': home_team,
             'away_team': away_team,
+            'home_team_id': self._team_code(home_data, 'id'),
+            'away_team_id': self._team_code(away_data, 'id'),
             'status': 'upcoming',
             'start_time': start,
             'venue': (
@@ -414,9 +430,14 @@ class BasketballScanner:
                         'game_id': game_id,
                         'home_team': home_team,
                         'away_team': away_team,
+                        'home_team_id': self._team_code(home, 'id'),
+                        'away_team_id': self._team_code(away, 'id'),
                         'status': 'upcoming',
                         'start_time': start.isoformat(),
                         'venue': self._localized_text(venue) or 'Unknown',
+                        'game_type': game.get('gameType'),
+                        'season': game.get('season'),
+                        'neutral_site': game.get('neutralSite') is True,
                         'source': 'NHL',
                     })
             next_cursor = payload.get('nextStartDate') if isinstance(payload, dict) else None

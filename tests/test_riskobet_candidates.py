@@ -593,6 +593,7 @@ def scanner_event(sport: str) -> dict:
     if sport == "basketball":
         return {
             "source": "ESPN",
+            "status": "upcoming",
             "game_id": "nba-1",
             "league": "NBA",
             "home_team": "Alpha",
@@ -604,8 +605,10 @@ def scanner_event(sport: str) -> dict:
     if sport == "ice_hockey":
         return {
             "source": "NHL",
+            "status": "upcoming",
             "game_id": 2026020001,
             "league": "NHL",
+            "game_type": 2,
             "home_team": "Alpha",
             "away_team": "Beta",
             "start_time": KICKOFF.isoformat(),
@@ -613,8 +616,11 @@ def scanner_event(sport: str) -> dict:
         }
     return {
         "source": "Cricbuzz",
+        "status": "upcoming",
         "match_id": "cricket-1",
         "tournament": "Test Cup",
+        "format": "T20",
+        "neutral_site": True,
         "team1": "Alpha",
         "team2": "Beta",
         "start_time": KICKOFF.isoformat(),
@@ -622,17 +628,35 @@ def scanner_event(sport: str) -> dict:
     }
 
 
-def research_history(team: str, wins: int, games: int) -> list[dict]:
+def research_history(team: str, wins: int, games: int, *, sport: str = "basketball") -> list[dict]:
     rows = []
+    event = scanner_event(sport)
     for index in range(games):
         team_home = index % 2 == 0
-        opponent = f"Opponent-{team}-{index}"
+        opponent = f"Common Opponent-{index % 4}"
         winner = "home" if (index < wins) == team_home else "away"
+        completed = MODELED_AT - timedelta(days=index + 1)
+        extra_time = sport == "ice_hockey" and index % 4 == 0
+        winner_score = 3 if extra_time else 4 + index % 2 if sport == "ice_hockey" else 108 + index % 5
+        loser_score = 2 if sport == "ice_hockey" else 100
         rows.append(
             {
-                "completed_at": (MODELED_AT - timedelta(days=index + 1)).isoformat(),
+                "provider": event["source"],
+                "competition": event.get("league", event.get("tournament")),
+                "provider_event_id": f"{sport}-{team}-{index}",
+                "status": "completed",
+                "start_time": (completed - timedelta(hours=3)).isoformat(),
+                "completed_at": completed.isoformat(),
+                "result_observed_at": (completed + timedelta(minutes=2)).isoformat(),
+                "result_scope": {"basketball": "including_overtime", "ice_hockey": "including_overtime_shootout", "cricket": "match_winner"}[sport],
+                "game_type": event.get("game_type"),
+                "format": event.get("format"),
+                "neutral_site": sport == "cricket",
+                "last_period_type": "OT" if extra_time else "REG",
                 "home_team": team if team_home else opponent,
                 "away_team": opponent if team_home else team,
+                "home_score": winner_score if winner == "home" else loser_score,
+                "away_score": winner_score if winner == "away" else loser_score,
                 "winner_side": winner,
                 "closing_odds": 99.0,
             }
@@ -653,7 +677,7 @@ def test_research_adapters_accept_real_scanner_fields_and_calculate_only_with_hi
     sport: str,
     market: str,
 ):
-    history = research_history("Alpha", 8, 10) + research_history("Beta", 2, 10)
+    history = research_history("Alpha", 13, 20, sport=sport) + research_history("Beta", 7, 20, sport=sport)
     result = adapter(scanner_event(sport), history, modeled_at=MODELED_AT)
     assert result.snapshot.sport == sport
     assert result.snapshot.competition in {"NBA", "NHL", "Test Cup"}
@@ -662,7 +686,8 @@ def test_research_adapters_accept_real_scanner_fields_and_calculate_only_with_hi
     assert candidate.stage is EvidenceStage.RESEARCH
     assert candidate.model_probability is not None
     assert 0.0 < candidate.model_probability < 0.5
-    assert candidate.cautious_probability <= candidate.model_probability
+    # A research fit does not manufacture an individual confidence lower bound.
+    assert candidate.cautious_probability is None
 
     missing = adapter(scanner_event(sport), history[:3], modeled_at=MODELED_AT)
     candidate = missing.candidates[0]
@@ -670,18 +695,17 @@ def test_research_adapters_accept_real_scanner_fields_and_calculate_only_with_hi
     assert candidate.cautious_probability is None
     assert candidate.selection_key == "open"
     assert candidate.missing_core_data
-    assert all("vor Start erforderlich" in item for item in candidate.missing_core_data)
+    assert any("vor Start erforderlich" in item for item in candidate.missing_core_data)
+    assert any("mindestens 40" in item for item in candidate.missing_core_data)
 
 
 def test_research_history_is_causal_and_identity_is_price_neutral():
     event = scanner_event("basketball")
-    history = research_history("Alpha", 8, 10) + research_history("Beta", 2, 10)
+    history = research_history("Alpha", 13, 20) + research_history("Beta", 7, 20)
     baseline = adapt_basketball_research(event, history, modeled_at=MODELED_AT)
-    future = {
+    future = {**history[0], "provider_event_id": "future-event",
         "completed_at": (KICKOFF + timedelta(hours=2)).isoformat(),
-        "home_team": "Beta",
-        "away_team": "Future Opponent",
-        "winner_side": "home",
+        "result_observed_at": (KICKOFF + timedelta(hours=2, minutes=2)).isoformat(),
     }
     with_future = adapt_basketball_research(
         {**event, "odds": 1.01, "bookmaker_price": 1000.0},
@@ -701,7 +725,10 @@ def test_research_history_is_causal_and_identity_is_price_neutral():
         history,
         modeled_at=MODELED_AT + timedelta(minutes=10),
     )
-    assert later_read.snapshot.to_dict() == baseline.snapshot.to_dict()
+    assert later_read.snapshot.snapshot_id != baseline.snapshot.snapshot_id
+    assert later_read.snapshot.modeled_at == MODELED_AT + timedelta(minutes=10)
+    assert later_read.snapshot.event_key == baseline.snapshot.event_key
+    assert later_read.candidates[0].model_probability == baseline.candidates[0].model_probability
     refetched_event = {
         **event,
         "source_observed_at": (MODELED_AT + timedelta(minutes=1)).isoformat(),
@@ -739,18 +766,20 @@ def test_research_requires_explicit_source_clock_and_never_uses_start_as_complet
     )
     candidate = result.candidates[0]
     assert candidate.model_probability is None
-    assert "0 vorhanden" in candidate.missing_core_data[0]
+    assert any("0 vorhanden" in item for item in candidate.missing_core_data)
     later = adapt_basketball_research(
         event,
         [started_but_not_timestamped_as_complete],
         modeled_at=MODELED_AT + timedelta(minutes=10),
     )
-    assert later.snapshot.to_dict() == result.snapshot.to_dict()
+    assert later.snapshot.snapshot_id != result.snapshot.snapshot_id
+    assert later.snapshot.modeled_at == MODELED_AT + timedelta(minutes=10)
+    assert later.candidates[0].model_probability is None
 
 
 def test_research_accepts_explicit_result_observation_clock():
     event = scanner_event("basketball")
-    history = research_history("Alpha", 8, 10) + research_history("Beta", 2, 10)
+    history = research_history("Alpha", 13, 20) + research_history("Beta", 7, 20)
     row = dict(history[0])
     row["result_observed_at"] = row.pop("completed_at")
     result = adapt_basketball_research(
@@ -762,7 +791,7 @@ def test_research_accepts_explicit_result_observation_clock():
 
 
 def test_research_equal_strength_does_not_invent_an_underdog_probability():
-    history = research_history("Alpha", 5, 10) + research_history("Beta", 5, 10)
+    history = research_history("Alpha", 10, 20, sport="cricket") + research_history("Beta", 10, 20, sport="cricket")
     result = adapt_cricket_research(
         scanner_event("cricket"), history, modeled_at=MODELED_AT
     )
@@ -774,7 +803,7 @@ def test_research_equal_strength_does_not_invent_an_underdog_probability():
 
 def test_research_extreme_outsider_is_not_forced_into_the_catalog():
     assert RESEARCH_WIN_MIN_PROBABILITY > 0.05
-    history = research_history("Alpha", 10, 10) + research_history("Beta", 0, 10)
+    history = research_history("Alpha", 20, 20) + research_history("Beta", 0, 20)
     result = adapt_basketball_research(
         scanner_event("basketball"), history, modeled_at=MODELED_AT
     )

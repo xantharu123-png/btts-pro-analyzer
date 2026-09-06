@@ -422,6 +422,15 @@ def _render_detail(
     suffix = _widget_suffix(candidate)
     detail_key = f"riskobet-detail-{suffix}"
     with st.container(key=f"riskobet_actions_{suffix}"):
+        st.caption("Modellstand: " + snapshot.modeled_at.astimezone(timezone.utc).strftime("%d.%m. %H:%M UTC"))
+        visible_context = tuple(
+            format_riskobet_public_detail(factor.summary)
+            for factor in snapshot.factors
+            if factor.role is FactorRole.DISPLAY_ONLY
+            and factor.factor_key.startswith(("tennis_workload_", "football_context_"))
+        )
+        if visible_context:
+            st.caption("Beobachteter Kontext – kein berechneter Zu-/Abschlag: " + " · ".join(visible_context[:4]))
         with st.expander(
             "Analyse anzeigen", expanded=False, key=detail_key
         ):
@@ -438,7 +447,8 @@ def _render_featured(
 ) -> None:
     if not cards:
         return
-    st.markdown("## Top-Szenarien")
+    st.markdown("## Szenarien nach Datenqualität")
+    st.caption("Evidenz, Kontext und Modellunsicherheit bestimmen die Reihenfolge; nicht die Quote oder allein der Spielbeginn.")
     with st.container(key="riskobet_featured_grid"):
         # Build rows, not two persistent columns.  When CSS stacks the row at
         # tablet/mobile widths, DOM and visual order therefore remain the
@@ -471,8 +481,14 @@ def _render_additional(
     if not cards:
         return
     st.markdown("## Weitere Szenarien")
+    page_size = 20
+    pages = (len(cards) + page_size - 1) // page_size
+    page = st.selectbox("Weitere Szenarien – Seite", range(1, pages + 1), key=f"riskobet-page-{len(cards)}") if pages > 1 else 1
+    offset = (page - 1) * page_size
+    visible_cards = cards[offset:offset + page_size]
+    st.caption(f"{offset + 1}–{offset + len(visible_cards)} von {len(cards)} weiteren Szenarien")
     with st.container(key="riskobet_additional"):
-        for index, base_card in enumerate(cards):
+        for index, base_card in enumerate(visible_cards, start=offset):
             candidate = candidate_by_id[base_card.candidate_id]
             display_card = _display_card(
                 candidate, _stored_manual_quote(candidate)

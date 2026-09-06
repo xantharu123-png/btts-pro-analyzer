@@ -1,5 +1,7 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+**Fortsetzung 7. September 2026:** Zuerst `docs/audits/2026-09-05-umsetzung.md` und `docs/audits/2026-09-07-release.md` lesen. Die nachfolgenden September-2-Hashes und Testzahlen sind historische Nachweise. Lokal funktioniert `.codex_test_venv/quality/Scripts/python.exe`; die alte `.venv` wurde erhalten. GitHub und VPS separat prüfen; die sieben Timer rechnen Daten und deployen keinen Code. Offene empirische Modell-/Kontextgüte nicht mit bestandenen Softwaretests gleichsetzen.
+
 ## 1. Ziel dieser Übergabe
 
 Diese Anleitung bringt einen neuen Windows-PC in einen sicheren,

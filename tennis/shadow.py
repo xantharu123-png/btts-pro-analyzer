@@ -18,9 +18,14 @@ import json
 import math
 import sqlite3
 import time
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
+
+from .prediction_revisions import (
+    REVISION_SCHEMA, append_revision, freeze_legacy_baseline, read_latest_predictions, utc_epoch,
+)
 
 from price_ledger import (
     PriceLedger,
@@ -135,6 +140,7 @@ _PREDICTION_MIGRATIONS = {
     "player_b_sets": "INTEGER",
     "model_version": "TEXT",
     "policy_version": "TEXT",
+    "match_duration_minutes": "INTEGER",
 }
 _SIDE_BET_MIGRATIONS = {
     "closing_odds": "REAL",
@@ -644,9 +650,10 @@ def side_bet_summary() -> Dict:
     }
 
 
-def _connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+def _connect(db_path: str | Path | None = None) -> sqlite3.Connection:
+    path = Path(db_path if db_path is not None else DB_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
     conn.executescript(_SCHEMA)
     columns = {
         row[1] for row in conn.execute("PRAGMA table_info(predictions)").fetchall()
@@ -660,7 +667,7 @@ def _connect() -> sqlite3.Connection:
     for name, sql_type in _SIDE_BET_MIGRATIONS.items():
         if name not in side_columns:
             conn.execute(f"ALTER TABLE side_bets ADD COLUMN {name} {sql_type}")
-    conn.executescript(_CLOSING_TRIGGERS)
+    conn.executescript(_CLOSING_TRIGGERS + REVISION_SCHEMA)
     return conn
 
 
@@ -698,10 +705,44 @@ def store_prediction(
     provider_event_id: Optional[str] = None,
     scheduled_start_utc: Optional[str] = None,
     fixture_source: Optional[str] = None,
+    modeled_at: datetime | str | float | None = None,
+    db_path: str | Path | None = None,
 ) -> int:
-    """Persist a TennisPrediction.  Returns the row id (or -1 if duplicate)."""
+    """Freeze the initial prediction and append every later model observation.
+
+    The original id/return convention is preserved for ledger callers: a
+    subsequent observation returns -1, but is available via latest_predictions.
+    """
     gates = {g.name: {"passed": g.passed, "detail": g.detail} for g in prediction.gates}
-    with _connect() as conn:
+    observed = utc_epoch(
+        modeled_at if modeled_at is not None
+        else getattr(prediction, "modeled_at", None) or time.time()
+    )
+    revision = {
+        "created_utc": observed,
+        "match_date": match_date,
+        "provider_event_id": provider_event_id,
+        "scheduled_start_utc": scheduled_start_utc,
+        "fixture_source": fixture_source,
+        "tour": tour,
+        "tournament": tournament,
+        "surface": prediction.surface,
+        "best_of": prediction.best_of,
+        "player_a": prediction.player_a,
+        "player_b": prediction.player_b,
+        "p_raw": prediction.p_a_raw,
+        "p_cal": prediction.p_a_cal,
+        "markets_json": json.dumps(prediction.market_summary(), allow_nan=False),
+        "gates_json": json.dumps(gates, ensure_ascii=False, allow_nan=False),
+        "context_json": json.dumps(getattr(prediction, "context_evidence", {}), ensure_ascii=False, allow_nan=False),
+        "verdict": prediction.verdict,
+        "recommended_side": prediction.recommended_side,
+        "recommended_edge": prediction.recommended_edge,
+        "model_version": TENNIS_MODEL_VERSION,
+        "policy_version": TENNIS_POLICY_VERSION,
+    }
+    with closing(_connect(db_path)) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
         existing = None
         if provider_event_id:
             existing = conn.execute(
@@ -719,19 +760,35 @@ def store_prediction(
                 ),
             ).fetchone()
         if existing is None:
+            # Pair/date matching only upgrades compatible legacy identities.
+            # A known native event must not absorb another event's forecast,
+            # even when the same players meet on the same calendar day.
             existing = conn.execute(
                 "SELECT id FROM predictions "
                 "WHERE match_date=? AND player_a=? AND player_b=? "
-                "AND model_version=? AND policy_version=?",
+                "AND model_version=? AND policy_version=? "
+                "AND (provider_event_id IS NULL OR fixture_source IS NULL) "
+                "AND (provider_event_id IS NULL OR provider_event_id=?) "
+                "AND (fixture_source IS NULL OR fixture_source=?)",
                 (
                     match_date,
                     prediction.player_a,
                     prediction.player_b,
                     TENNIS_MODEL_VERSION,
                     TENNIS_POLICY_VERSION,
+                    provider_event_id,
+                    fixture_source,
                 ),
             ).fetchone()
         if existing:
+            stored = conn.execute(
+                "SELECT player_a,player_b,settled FROM predictions WHERE id=?", (existing[0],)
+            ).fetchone()
+            if tuple(stored[:2]) != (prediction.player_a, prediction.player_b):
+                raise ValueError("tennis revision cannot change player identity or orientation")
+            if stored[2]:
+                raise ValueError("cannot append a model revision after settlement")
+            freeze_legacy_baseline(conn, int(existing[0]))
             # Schedules can move after the first scan. Model outputs stay frozen,
             # while factual fixture metadata may be refreshed.
             conn.execute(
@@ -751,6 +808,12 @@ def store_prediction(
                     existing[0],
                 ),
             )
+            identity = conn.execute(
+                "SELECT provider_event_id,fixture_source,scheduled_start_utc FROM predictions WHERE id=?",
+                (existing[0],),
+            ).fetchone()
+            revision.update(zip(("provider_event_id", "fixture_source", "scheduled_start_utc"), identity))
+            append_revision(conn, int(existing[0]), revision)
             return -1
         cur = conn.execute(
             """
@@ -763,7 +826,7 @@ def store_prediction(
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
-                time.time(),
+                observed,
                 match_date,
                 provider_event_id,
                 scheduled_start_utc,
@@ -787,7 +850,36 @@ def store_prediction(
                 TENNIS_POLICY_VERSION,
             ),
         )
+        append_revision(conn, int(cur.lastrowid), revision)
         return int(cur.lastrowid)
+
+
+def latest_predictions(
+    db_path: str | Path | None = None, *, pending_only: bool = True,
+    as_of: datetime | str | float | None = None,
+) -> List[Dict]:
+    """Read current immutable model observations; original rows remain auditable."""
+    return read_latest_predictions(
+        db_path if db_path is not None else DB_PATH,
+        pending_only=pending_only, as_of=as_of,
+    )
+
+
+def workload_history(db_path: str | Path | None = None) -> List[Dict]:
+    """Read observed completed facts without model/price fields or DB writes."""
+    path = Path(db_path if db_path is not None else DB_PATH)
+    if not path.is_file():
+        return []
+    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+        conn.row_factory = sqlite3.Row
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(predictions)")}
+        required = {"settled", "player_a", "player_b", "provider_event_id", "fixture_source", "scheduled_start_utc", "result_observed_at", "termination", "player_a_sets", "player_b_sets"}
+        if not required.issubset(columns):
+            return []
+        selected = sorted(required | ({"match_duration_minutes"} & columns))
+        return [dict(row) for row in conn.execute(
+            f"SELECT {','.join(selected)} FROM predictions WHERE settled=1 AND result_observed_at IS NOT NULL"
+        )]
 
 
 def pending_predictions() -> List[Dict]:
@@ -856,7 +948,8 @@ def settle(prediction_id: int, actual_winner: Optional[str], ret: bool = False,
            *, termination: Optional[str] = None,
            result_observed_at: datetime | str | None = None,
            player_a_sets: Optional[int] = None,
-           player_b_sets: Optional[int] = None) -> None:
+           player_b_sets: Optional[int] = None,
+           match_duration_minutes: Optional[int] = None) -> None:
     """Settle one prediction and persist auditable result evidence.
 
     Existing callers remain valid: when no observation time is supplied, the
@@ -895,6 +988,13 @@ def settle(prediction_id: int, actual_winner: Optional[str], ret: bool = False,
     ):
         raise ValueError("walkover cannot include a winner or set score")
     observed_iso = _result_observation_iso(result_observed_at)
+    if match_duration_minutes is not None and (
+        isinstance(match_duration_minutes, bool)
+        or not isinstance(match_duration_minutes, int)
+        or not 1 <= match_duration_minutes <= 1500
+        or clean_termination == "walkover"
+    ):
+        raise ValueError("match duration must be observed playing minutes for a played match")
     with _connect() as conn:
         row = conn.execute(
             "SELECT player_a, player_b, recommended_side, odds_a, odds_b, "
@@ -942,7 +1042,7 @@ def settle(prediction_id: int, actual_winner: Optional[str], ret: bool = False,
             UPDATE predictions
             SET settled=1, actual_winner=?, ret_flag=?, ret_set=?,
                 termination=?, result_observed_at=?,
-                player_a_sets=?, player_b_sets=?, pnl=?
+                player_a_sets=?, player_b_sets=?, pnl=?, match_duration_minutes=?
             WHERE id=? AND settled=0
             """,
             (
@@ -954,6 +1054,7 @@ def settle(prediction_id: int, actual_winner: Optional[str], ret: bool = False,
                 player_a_sets,
                 player_b_sets,
                 pnl,
+                match_duration_minutes,
                 prediction_id,
             ),
         )

@@ -451,7 +451,8 @@ def test_featured_grid_flat_rows_and_exact_stable_keys(monkeypatch):
     assert _rendered_candidate_ids(first) == [
         candidate.candidate_id for candidate in view.candidates
     ]
-    assert "## Top-Szenarien" in _all_text(first)
+    assert "## Szenarien nach Datenqualität" in _all_text(first)
+    assert "## Top-Szenarien" not in _all_text(first)
     assert "## Weitere Szenarien" in _all_text(first)
 
 

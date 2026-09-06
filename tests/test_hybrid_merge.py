@@ -202,9 +202,11 @@ class CompletedHistoryMergeTest(unittest.TestCase):
 
     def test_completed_history_falls_back_to_full_api_without_csv(self):
         provider = ChallengeDataProvider("test-key", None)
+        completed = api_entry(1, NOW - timedelta(hours=2), "A", "B", 1, 2)
+        completed["league"]["id"] = 999
         provider._football_get = Mock(
             side_effect=lambda endpoint, params, label, **_kwargs: (
-                [api_entry(1, NOW, "A", "B", 1, 2)] if params.get("season") == 2025 else None
+                [completed] if params.get("season") == 2025 else None
             )
         )
 
@@ -249,7 +251,7 @@ class CompletedHistoryMergeTest(unittest.TestCase):
         self.assertEqual(len(result), 3)
         self.assertEqual([row["fixture"]["id"] for row in result], [-201, -202, -101])
 
-    def test_full_history_skips_previous_season(self):
+    def test_full_history_still_requests_previous_season(self):
         fat = [
             csv_entry(-1000 - index, NOW - timedelta(days=400 + index), "Arsenal", "Chelsea", 501, 502)
             for index in range(230)
@@ -266,7 +268,7 @@ class CompletedHistoryMergeTest(unittest.TestCase):
             result = provider.completed_history(39, 2025, [])
 
         self.assertEqual(len(result), 230)
-        self.assertEqual(calls, [2025])  # kein Vorsaison-Abruf
+        self.assertEqual(calls, [2025, 2024])
 
     def test_tail_window_constant_is_sane(self):
         self.assertGreaterEqual(API_TAIL_DAYS, 3)

@@ -489,9 +489,12 @@ def test_top_card_markup_exposes_the_decision_hierarchy_in_reading_order():
     positions = [markup.index(fragment) for fragment in expected_fragments]
     assert positions == sorted(positions)
     assert '<article class="wf-top-card"' in markup
-    assert "Vorsichtige Trefferchance" in markup
-    assert "Modellwert" in markup
-    assert "Value ab" in markup
+    assert "Modellwahrscheinlichkeit" in markup
+    assert "Sicherheitswert" in markup
+    assert "keine statistisch bestätigte Mindestchance" in markup
+    assert "keine erwartete Buchmacherquote" in markup
+    assert "Vorsichtige Trefferchance" not in markup
+    assert "Risikopreis ab" in markup
     assert "Aktuell" in markup
     assert "noch kein freigegebener Tipp" in markup
     assert "Modell mit Form- und Kaderdaten" not in markup
@@ -547,8 +550,8 @@ def test_compact_row_is_semantic_flat_and_keeps_the_same_decision_fields():
     assert 'class="wf-row-pick"' in markup
     assert markup.count('class="wf-row-value"') == 4
     assert '>Modell</span>' in markup
-    assert '>Vorsichtig</span>' in markup
-    assert '>Value ab</span>' in markup
+    assert '>Sicherheitswert</span>' in markup
+    assert '>Risikopreis ab</span>' in markup
     assert '>Aktuell</span>' in markup
     assert 'class="wf-primary-probability"' not in markup
     assert 'class="wf-metric-grid"' not in markup
@@ -711,6 +714,96 @@ def test_repeated_broad_team_totals_stay_visible_without_monopolizing_featured_c
         "broad-2",
         "broad-3",
     }
+
+
+def test_sixteenth_different_market_survives_repeated_markets_and_90_event_catalog():
+    cards = [
+        _card(_signal(
+            f"basic-{index}", event=f"Home {index} vs Away {index}",
+            market="Team 1 Gesamttore", selection="Über 0.5",
+            market_key="HOME_OVER_0_5",
+        ))
+        for index in range(1, 16)
+    ]
+    cards.append(_card(_signal(
+        "btts-at-sixteen", event="Home 16 vs Away 16",
+        market="Beide Teams treffen", selection="Ja", market_key="BTTS_YES",
+    )))
+    cards.extend(
+        _card(_signal(
+            f"later-{index}", event=f"Home {index} vs Away {index}",
+            market="Beide Teams treffen", selection="Ja", market_key="BTTS_YES",
+        ))
+        for index in range(17, 91)
+    )
+    catalog = surface.compose_wettfinder_catalog(cards)
+    assert "btts-at-sixteen" in {card.key for card in catalog.featured}
+    assert len(catalog.featured) + len(catalog.additional) == 90
+    assert {card.key for card in catalog.featured + catalog.additional} == {card.key for card in cards}
+    repriced = surface.compose_wettfinder_catalog([
+        replace(card, observed_odds=1.01 if index % 2 else None)
+        for index, card in enumerate(cards)
+    ])
+    assert [card.key for card in repriced.featured] == [card.key for card in catalog.featured]
+    assert [card.key for card in repriced.additional] == [card.key for card in catalog.additional]
+
+
+def test_production_additional_renderer_pages_20_without_truncating_the_catalog():
+    # Execute the real app branch without importing Streamlit's module-level
+    # application/bootstrap side effects. This checks widget routing, not CSS.
+    import ast
+    from contextlib import nullcontext
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[1] / "app.py"
+    tree = ast.parse(source.read_text(encoding="utf-8-sig"))
+    renderer = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_render_automated_daily_selection")
+    branch = next(node for node in renderer.body if isinstance(node, ast.If) and isinstance(node.test, ast.Attribute) and node.test.attr == "additional")
+    module = ast.fix_missing_locations(ast.Module(body=[branch], type_ignores=[]))
+    code = compile(module, str(source), "exec")
+    cards = [_card(_signal(
+        f"page-{index}", event=f"Home {index} vs Away {index}",
+        market="Beide Teams treffen", market_key="BTTS_YES", selection="Ja",
+    )) for index in range(90)]
+    catalog = surface.compose_wettfinder_catalog(cards)
+    row_by_key = {card.key: (None, card, None, None, None) for card in cards}
+
+    class PagingStreamlit:
+        page = 1
+        options = ()
+
+        def container(self, **_kwargs):
+            return nullcontext()
+
+        def markdown(self, *_args, **_kwargs):
+            pass
+
+        def caption(self, *_args, **_kwargs):
+            pass
+
+        def selectbox(self, _label, options, **_kwargs):
+            self.options = tuple(options)
+            return self.page
+
+    streamlit = PagingStreamlit()
+    seen = []
+    namespace = {
+        "st": streamlit, "catalog": catalog, "sport_filter": "Alle",
+        "row_by_key": row_by_key, "render_compact_row_html": surface.render_compact_row_html,
+        "_render_wettfinder_card_actions": lambda _signal, card, *_: seen.append(card.key),
+    }
+    pages = (len(catalog.additional) + 19) // 20
+    sizes = []
+    for page in range(1, pages + 1):
+        streamlit.page = page
+        before = len(seen)
+        exec(code, namespace)
+        sizes.append(len(seen) - before)
+    assert streamlit.options == tuple(range(1, pages + 1))
+    assert sizes[:-1] == [20] * (pages - 1)
+    assert 1 <= sizes[-1] <= 20
+    assert seen == [card.key for card in catalog.additional]
+    assert len(catalog.featured) + len(catalog.additional) == 90
 
 
 def test_market_key_drives_basis_treatment_for_corners_and_yellow_markets():

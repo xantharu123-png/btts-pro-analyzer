@@ -61,6 +61,25 @@ _ESPORTS_TEAM1_FACTOR_RE = re.compile(r"^esports_team1_id:([1-9][0-9]*)$")
 _ESPORTS_TEAM2_FACTOR_RE = re.compile(r"^esports_team2_id:([1-9][0-9]*)$")
 _SET_SCORE_RE = re.compile(r"^\s*([0-9]+)\s*[:\-]\s*([0-9]+)\s*$")
 
+# Expected coverage/eligibility diagnostics remain visible to administrators,
+# but are not incidents. Unknown diagnostic codes fail closed as operational;
+# exceptions, corruption, mismatched identities and rejected writes must never
+# disappear under a general "unavailable" label.
+_COVERAGE_DIAGNOSTICS = frozenset({
+    "event_limit_reached", "event_budget_reached", "result_source_unconfigured",
+    "provider_result_unavailable", "matching_settled_result_missing",
+    "result_database_missing", "result_schema_incomplete", "result_observed_at_missing",
+    "termination_unproven", "regulation_score_unproven", "source_identity_unproven",
+    "fixture_identity_unproven", "native_identity_unproven", "native_result_unavailable",
+    "unsupported_selection",
+})
+
+
+def count_settlement_operational_errors(diagnostics: Iterable[str]) -> int:
+    """Count distinct operational diagnostics, not ordinary unresolved coverage."""
+    return sum(str(item).partition(":")[2] not in _COVERAGE_DIAGNOSTICS
+               for item in set(diagnostics))
+
 
 @dataclass(frozen=True, slots=True)
 class SettlementRequest:
@@ -109,6 +128,10 @@ class SettlementAutomationSummary:
     published: bool
     errors: tuple[str, ...] = ()
 
+    @property
+    def operational_error_count(self) -> int:
+        return count_settlement_operational_errors(self.errors)
+
     def to_dict(self) -> dict[str, object]:
         return {
             "run_id": self.run_id,
@@ -119,6 +142,7 @@ class SettlementAutomationSummary:
             "unresolved_candidates": self.unresolved_candidates,
             "published": self.published,
             "error_count": len(self.errors),
+            "operational_error_count": self.operational_error_count,
             "errors": list(self.errors),
         }
 
@@ -1055,6 +1079,7 @@ __all__ = [
     "ResultLoader",
     "SettlementAutomationSummary",
     "SettlementRequest",
+    "count_settlement_operational_errors",
     "esports_result_loader",
     "football_result_loader",
     "run_riskobet_settlements",

@@ -1186,6 +1186,8 @@ def test_app_styles_emit_the_scoped_responsive_wettfinder_contract(monkeypatch):
     assert "min-height: 44px" in styles
     assert "overflow-x: clip" in styles
     assert ':has([class*="st-key-bet_price_wettfinder_v2_"])' in styles
+    assert ':has([class*="st-key-riskobet-quote-"])' in styles
+    assert "min-width: 0 !important;" in styles[styles.index('div[data-baseweb="popover"]'):]
     assert "calc(100vw - 2rem)" in styles
 
 
@@ -1766,6 +1768,7 @@ def test_market_worker_forwards_detailed_progress(monkeypatch):
         *,
         search_end_date=None,
         allow_above_challenge_probability=False,
+        candidate_profile="challenge",
         progress_cb=None,
     ):
         assert received_provider is provider
@@ -1773,6 +1776,7 @@ def test_market_worker_forwards_detailed_progress(monkeypatch):
         assert max_fixtures == 1200
         assert search_end_date == search_date + timedelta(days=7)
         assert allow_above_challenge_probability is True
+        assert candidate_profile == "wettfinder"
         progress_cb(0.25, "Liga 1/2")
         progress_cb(1.0, "Fertig")
         return {"search_date": search_date.isoformat()}

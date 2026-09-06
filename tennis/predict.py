@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import math
+import time
 from typing import Dict, List, Optional, Tuple
 
 from betting_math import (
@@ -36,6 +37,7 @@ from .backtest import MIN_ELO_MATCHES, MIN_SERVE_GAMES
 from .data_loader import resolve_player_name_key
 from .model_state import ModelState
 from .simulator import MatchMarkets, simulate_match
+from .workload import observed_workload_context
 
 ALLOWED_SURFACES = ("Hard",)       # backtest evidence: clay/grass negative
 MIN_EXPECTED_ROI = MINIMUM_RISK_ADJUSTED_ROI_PERCENT / 100.0
@@ -69,6 +71,8 @@ class TennisPrediction:
     recommended_side: Optional[str] = None   # 'A' or 'B'
     recommended_edge: float = 0.0
     recommended_odds: float = 0.0
+    modeled_at: Optional[datetime] = None
+    context_evidence: dict = field(default_factory=dict)
 
     @property
     def all_green(self) -> bool:
@@ -117,6 +121,8 @@ def predict_match(
     minimum_expected_roi: float = MIN_EXPECTED_ROI,
     tour: str = "ATP",
     indoor: Optional[bool] = None,
+    as_of: Optional[datetime] = None,
+    workload_history=(),
 ) -> TennisPrediction:
     """Full prediction + gate evaluation for one fixture.
 
@@ -152,7 +158,14 @@ def predict_match(
         best_of = 3
 
     # --- model probabilities ------------------------------------------------
-    now = datetime.now(timezone.utc)
+    # Use the same epoch clock as ModelState.built_at. On Windows,
+    # datetime.now can truncate a shared clock tick one microsecond earlier.
+    now = as_of if as_of is not None else datetime.fromtimestamp(time.time(), timezone.utc)
+    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("prediction cutoff must be timezone-aware")
+    now = now.astimezone(timezone.utc)
+    if datetime.fromtimestamp(state.built_at, timezone.utc) > now:
+        raise ValueError("model state was built after the prediction cutoff")
     p_elo = state.elo.win_probability(key_a, key_b, surface_model)
     p_serve = None
     serve_games_a = state.serve.service_games(key_a, as_of=now)
@@ -172,6 +185,17 @@ def predict_match(
         else p_elo
     )
     p_cal = state.calibrate_match(p_raw, key_a, key_b, tour=tour)
+    context_evidence = observed_workload_context(
+        player_a, player_b, workload_history, as_of=now,
+    )
+    context_evidence["model_inputs"] = {
+        "surface": surface_model,
+        "indoor": indoor,
+        "surface_in_model": surface_model is not None,
+        "serve_in_model": p_serve is not None,
+        "model_built_at": datetime.fromtimestamp(state.built_at, timezone.utc).isoformat(),
+        "stats_through": state.stats_through,
+    }
 
     # --- gates ---------------------------------------------------------------
     matches_a = state.elo.overall.matches(key_a)
@@ -319,4 +343,6 @@ def predict_match(
         recommended_side=recommended_side,
         recommended_edge=round(recommended_edge, 4),
         recommended_odds=recommended_odds,
+        modeled_at=now,
+        context_evidence=context_evidence,
     )

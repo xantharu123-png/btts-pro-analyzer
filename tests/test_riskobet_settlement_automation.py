@@ -169,6 +169,30 @@ def _terminal_rows(store: RiskBetStore) -> list[tuple[str, str, str]]:
         ).fetchall()
 
 
+@pytest.mark.parametrize("code,expected", [
+    ("event_limit_reached", 0), ("result_source_unconfigured", 0),
+    ("matching_settled_result_missing", 0), ("result_database_missing", 0),
+    ("result_observed_at_missing", 0), ("termination_unproven", 0),
+    ("source_identity_unproven", 0), ("regulation_score_unproven", 0),
+    ("provider_identity_mismatch", 1), ("result_payload_invalid", 1),
+    ("result_database_unavailable", 1), ("result_source_failed_runtimeerror", 1),
+    ("settlement_write_failed_operationalerror", 1),
+])
+def test_summary_separates_admin_coverage_diagnostics_from_operational_failures(tmp_path, code, expected):
+    from riskobet_settlement_automation import ResultIssue
+    store = _store(tmp_path)
+    _published_run(store)
+    def loader(requests, _now):
+        return ResultLoadBatch(issues=(ResultIssue(requests[0].event_key, code),))
+    summary = run_riskobet_settlements(store=store, now=NOW, result_loaders={"football": loader})
+    assert summary.unresolved_candidates == 1
+    assert summary.terminal_settlements == 0
+    assert summary.errors == (f"football:{code}",)
+    assert summary.to_dict()["error_count"] == 1
+    assert summary.operational_error_count == expected
+    assert summary.to_dict()["operational_error_count"] == expected
+
+
 def test_two_markets_use_one_event_call_and_publish_terminal_results(tmp_path: Path):
     store = _store(tmp_path)
     run = _published_run(

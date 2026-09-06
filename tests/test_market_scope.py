@@ -53,6 +53,7 @@ def test_market_worker_forwards_selected_market_kinds(monkeypatch):
         search_end_date,
         market_kinds,
         allow_above_challenge_probability,
+        candidate_profile,
         progress_cb=None,
     ):
         received.update(
@@ -65,6 +66,7 @@ def test_market_worker_forwards_selected_market_kinds(monkeypatch):
             allow_above_challenge_probability=(
                 allow_above_challenge_probability
             ),
+            candidate_profile=candidate_profile,
         )
         return {"shortlist": []}
 
@@ -88,6 +90,7 @@ def test_market_worker_forwards_selected_market_kinds(monkeypatch):
         "max_fixtures": 1200,
         "market_kinds": {"btts"},
         "allow_above_challenge_probability": True,
+        "candidate_profile": "wettfinder",
     }
 
 

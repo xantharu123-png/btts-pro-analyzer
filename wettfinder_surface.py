@@ -584,8 +584,8 @@ def _top_card_markup(card: WettfinderCard) -> str:
     bookmaker_note = card.bookmaker if price != "–" else None
     metrics = "".join(
         (
-            _metric("Modellwert", format_probability(card.model_probability)),
-            _metric("Value ab", format_decimal_odds(card.value_threshold)),
+            _metric("Sicherheitswert", format_probability(card.cautious_probability)),
+            _metric("Risikopreis ab", format_decimal_odds(card.value_threshold)),
             _metric("Aktuell", price, note=bookmaker_note),
         )
     )
@@ -611,10 +611,13 @@ def _top_card_markup(card: WettfinderCard) -> str:
         f'<p class="wf-market">{escape(card.market)}</p>'
         f'<p class="wf-selection">{escape(card.selection)}</p>'
         '<div class="wf-primary-probability">'
-        '<span>Vorsichtige Trefferchance</span>'
-        f'<strong>{escape(format_probability(card.cautious_probability))}</strong>'
+        '<span>Modellwahrscheinlichkeit</span>'
+        f'<strong>{escape(format_probability(card.model_probability))}</strong>'
         "</div>"
         f'<div class="wf-metric-grid">{metrics}</div>'
+        '<p class="wf-uncertainty-note">Sicherheitswert: Modell mit heuristischem '
+        'Abschlag, keine statistisch bestätigte Mindestchance. Der Risikopreis '
+        'ist eine Rechenschwelle, keine erwartete Buchmacherquote.</p>'
         f'<p class="wf-price-note wf-price-note-{escape(card.price_tone, quote=True)}" '
         f'data-price-code="{price_code}">{escape(price_note)}</p>'
         '<p class="wf-context"><span>Kontext:</span> '
@@ -640,8 +643,8 @@ def _compact_row_markup(card: WettfinderCard) -> str:
         f'<span class="wf-row-label">{escape(card.market)}</span>'
         f"<strong>{escape(card.selection)}</strong></div>"
         f'{_row_value("Modell", format_probability(card.model_probability))}'
-        f'{_row_value("Vorsichtig", format_probability(card.cautious_probability))}'
-        f'{_row_value("Value ab", format_decimal_odds(card.value_threshold))}'
+        f'{_row_value("Sicherheitswert", format_probability(card.cautious_probability))}'
+        f'{_row_value("Risikopreis ab", format_decimal_odds(card.value_threshold))}'
         f'{_row_value("Aktuell", price, note=bookmaker_note)}'
         f"{_status_badges(card, featured=False)}"
         "</article>"

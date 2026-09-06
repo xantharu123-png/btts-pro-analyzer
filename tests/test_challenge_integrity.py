@@ -300,6 +300,32 @@ def _reference_ticket(now: datetime):
 
 
 class ModelContractIntegrityTests(unittest.TestCase):
+    def test_existing_v11_model_ticket_remains_readable_and_standalone_verifiable(self):
+        """A prediction upgrade must not invalidate authenticated money history."""
+        now = datetime.now(timezone.utc)
+        legacy_contract = "challenge-engine:hac-fdr-executable-frechet-v11"
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "challenge.db"
+            # Build the historical fixture with its literal original contract,
+            # independently of whatever contract the current engine exports.
+            with (
+                patch("challenge_store.CHALLENGE_MODEL_CONTRACT_SIGNATURE", legacy_contract),
+                patch("price_ledger.CHALLENGE_MODEL_CONTRACT_SIGNATURE", legacy_contract),
+            ):
+                ledger = ChallengeLedger(db_path)
+                ticket_id, _ticket = _place_model_ticket(ledger, now)
+            stored = ChallengeLedger(db_path).get_ticket(ticket_id)
+            self.assertEqual(stored["entry_source"], "MODEL")
+            self.assertEqual(stored["model_contract_signature"], legacy_contract)
+            self.assertEqual(stored["status"], "PENDING")
+            self.assertTrue(stored["ticket_definition_hash"])
+            self.assertTrue(stored["quote_evidence_hash"])
+            backup.verify_current_challenge_database(
+                db_path,
+                ledger._integrity_key_path.read_bytes(),
+                ledger_scope=str(db_path.resolve()),
+            )
+
     def test_model_ticket_and_price_observation_share_central_signature(self):
         now = datetime.now(timezone.utc)
         with tempfile.TemporaryDirectory() as tmp:

@@ -39,7 +39,7 @@ CREATE TABLE predictions (
     player_a TEXT, player_b TEXT, p_cal REAL, settled INTEGER DEFAULT 0,
     verdict TEXT DEFAULT 'WETTE', recommended_side TEXT DEFAULT 'A',
     scheduled_start_utc TEXT, policy_version TEXT,
-    gates_json TEXT, model_version TEXT
+    gates_json TEXT, model_version TEXT, created_utc TEXT
 );
 """
 
@@ -263,13 +263,16 @@ def _tennis_db(rows, tmp: Path) -> Path:
     conn.executemany(
         "INSERT INTO predictions (match_date, tour, tournament, player_a,"
         " player_b, p_cal, settled, scheduled_start_utc, policy_version,"
-        " model_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " model_version, created_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             tuple(row)
             + (
                 f"{row[0]}T23:59:59Z",
                 TENNIS_POLICY_VERSION,
                 TENNIS_MODEL_VERSION,
+                # Explicit synthetic creation time precedes every fixture and
+                # reader cutoff in this fixture; production has no fallback.
+                "2019-12-31T10:00:00Z",
             )
             for row in rows
         ],
@@ -843,7 +846,7 @@ class ListSignalsTests(unittest.TestCase):
                 [],
             )
 
-    def test_automatic_catalog_roundtrip_enforces_per_sport_caps(self):
+    def test_automatic_catalog_roundtrip_keeps_full_pools_and_rejects_unknown_source(self):
         import json
 
         now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
@@ -911,18 +914,23 @@ class ListSignalsTests(unittest.TestCase):
             self.assertIs(forecasts[1].context_complete, False)
             self.assertIsNone(forecasts[2].context_complete)
 
-            for rejected in (
+            for full_pool in (
                 rows(football=16, tennis=3, esports=2),
                 rows(football=15, tennis=4, esports=2),
-                rows(football=15, tennis=3, esports=3, basketball=1),
+                rows(football=90, tennis=4, esports=4),
             ):
                 artifact.write_text(
-                    json.dumps(_automatic_document(rejected)),
+                    json.dumps(_automatic_document(full_pool)),
                     encoding="utf-8",
                 )
-                self.assertIsNone(
+                self.assertIsNotNone(
                     _load_automated_wettfinder_document(artifact, now=now)
                 )
+                self.assertEqual(len(automated_wettfinder_forecasts(artifact, now=now)), len(full_pool))
+            artifact.write_text(
+                json.dumps(_automatic_document(rows(basketball=1))), encoding="utf-8"
+            )
+            self.assertIsNone(_load_automated_wettfinder_document(artifact, now=now))
 
     def test_strict_rows_follow_model_order_even_when_probability_differs(self):
         import json

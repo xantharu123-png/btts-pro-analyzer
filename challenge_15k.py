@@ -29,7 +29,10 @@ from api_budget import (
     api_football_get,
 )
 from challenge_engine import (
+    CANDIDATE_PROFILE_CHALLENGE,
+    CANDIDATE_PROFILE_WETTFINDER,
     CHALLENGE_MODEL_CONTRACT_SIGNATURE,
+    CHALLENGE_PREDICTION_VERSION,
     ChallengeCandidate,
     COUNT_MARKET_KINDS,
     MARKET_BY_KEY,
@@ -94,7 +97,7 @@ from season_utils import current_season_start_year_for_id
 from xg_backfill import annotate_history as annotate_history_xg
 
 
-CHALLENGE_SNAPSHOT_VERSION = 20
+CHALLENGE_SNAPSHOT_VERSION = 21
 CHALLENGE_WORKSPACE_VERSION = 11
 CHALLENGE_TIMEZONE = ZURICH_TIMEZONE
 DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
@@ -104,7 +107,7 @@ DEFAULT_CHALLENGE_LEAGUES = (78, 39, 140, 135, 61)  # xG-validierte Top-5-Ligen
 CHALLENGE_SPORT_OPTIONS = ("Fußball",)
 CHALLENGE_ENABLED_SPORTS = ("Fußball",)
 API_TAIL_DAYS = 7  # Frische-Tail: API-FT-Ergebnisse über die CSV-Historie legen
-MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
+MAX_HISTORY_GAMES = 1200  # bounded, continuous current-plus-previous-season window
 MAX_CONTEXT_FIXTURES = 20
 MAX_DISCOVERY_MARKETS_PER_FIXTURE = 8
 MAX_PRICE_CHECK_FIXTURES = 10
@@ -195,6 +198,65 @@ def _fixture_kickoff(fixture: dict[str, Any]) -> Optional[datetime]:
     return kickoff.astimezone(timezone.utc)
 
 
+def _bounded_completed_history(
+    rows: list[dict[str, Any]],
+    *,
+    before: datetime,
+    league_id: Optional[int] = None,
+) -> list[dict[str, Any]]:
+    """Keep completed, causal, unique results within a rolling row budget."""
+    by_id: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        data = row.get("fixture")
+        goals = row.get("goals")
+        league = row.get("league")
+        teams = row.get("teams")
+        kickoff = _fixture_kickoff(row)
+        if not all(isinstance(value, dict) for value in (data, goals, league, teams)):
+            continue
+        fixture_id = data.get("id")
+        status = data.get("status")
+        status_code = status.get("short") if isinstance(status, dict) else None
+        if (
+            isinstance(fixture_id, bool) or not isinstance(fixture_id, int)
+            or fixture_id == 0 or kickoff is None or kickoff >= before
+            or (league_id is not None and league.get("id") != league_id)
+            or status_code not in (None, "FT")
+            or (
+                status_code is None
+                and row.get("challenge_source") != "football-data-results-only"
+            )
+            or any(
+                isinstance(goals.get(side), bool)
+                or not isinstance(goals.get(side), int)
+                or goals[side] < 0
+                for side in ("home", "away")
+            )
+            or any(
+                not isinstance(teams.get(side), dict)
+                or _positive_integer(teams[side].get("id")) is None
+                for side in ("home", "away")
+            )
+        ):
+            continue
+        if teams["home"]["id"] == teams["away"]["id"]:
+            continue
+        by_id[fixture_id] = row
+    by_event: dict[tuple, dict[str, Any]] = {}
+    for row in by_id.values():
+        key = (
+            row["league"].get("id"), _fixture_kickoff(row),
+            row["teams"]["home"]["id"], row["teams"]["away"]["id"],
+        )
+        by_event[key] = row
+    return sorted(
+        by_event.values(),
+        key=lambda row: (_fixture_kickoff(row), row["fixture"]["id"]),
+    )[-MAX_HISTORY_GAMES:]
+
+
 def _valid_upcoming_fixture(value: Any, expected_league_id: int) -> bool:
     if not isinstance(value, dict):
         return False
@@ -225,6 +287,58 @@ def _valid_upcoming_fixture(value: Any, expected_league_id: int) -> bool:
     ):
         return False
     return _fixture_kickoff(value) is not None
+
+
+def _reconcile_candidate_fixture(
+    candidate: ChallengeCandidate,
+    detail: object,
+    *,
+    now: datetime,
+    search_date: date,
+    search_end_date: Optional[date] = None,
+) -> bool:
+    """Bind a context refresh to the current event identity, time and status."""
+    reason = "Aktuelle Spieldaten sind nicht vollständig bestätigt"
+    fixture_state = "unavailable"
+    if isinstance(detail, dict) and _valid_upcoming_fixture(detail, candidate.league_id):
+        data = detail["fixture"]
+        teams = detail["teams"]
+        identity_matches = (
+            data["id"] == candidate.fixture_id
+            and teams["home"]["id"] == candidate.home_team_id
+            and teams["away"]["id"] == candidate.away_team_id
+        )
+        kickoff = _fixture_kickoff(detail)
+        status = data.get("status")
+        status_code = status.get("short") if isinstance(status, dict) else None
+        if identity_matches and kickoff is not None:
+            # Retain the corrected time even when the event left this search
+            # date. The stale original kickoff must not survive a refresh.
+            candidate.kickoff = kickoff.isoformat()
+            fixture_state = str(status_code or "unavailable")
+            if status_code != "NS":
+                reason = "Spiel ist aktuell nicht als bevorstehend bestätigt"
+            elif kickoff <= now:
+                reason = "Spiel hat bereits begonnen"
+            elif not (
+                search_date <= kickoff.astimezone(CHALLENGE_TIMEZONE).date()
+                <= (search_end_date or search_date)
+            ):
+                reason = "Spieltermin liegt außerhalb des gewählten Zeitraums"
+            else:
+                return True
+        elif not identity_matches:
+            reason = "Aktuelle Spielidentität stimmt nicht mit der Auswahl überein"
+    candidate.context = {
+        "checked_at": now.isoformat(),
+        "passed": False,
+        "forecast_passed": False,
+        "release_context_complete": False,
+        "release_eligible": False,
+        "blocked_reasons": [reason],
+        "fixture": {"status": fixture_state, "checked_at": now.isoformat()},
+    }
+    return False
 
 
 def _validate_scan_inputs(
@@ -528,7 +642,7 @@ def _cached_market_artifact(
     history: list[dict[str, Any]],
 ):
     cached = load_model_artifact(
-        CHALLENGE_MODEL_SIGNATURE,
+        CHALLENGE_PREDICTION_VERSION,
         league_id,
         season,
         history,
@@ -537,7 +651,7 @@ def _cached_market_artifact(
         return cached
     validation, calibration = build_market_model_artifact(history)
     save_model_artifact(
-        CHALLENGE_MODEL_SIGNATURE,
+        CHALLENGE_PREDICTION_VERSION,
         league_id,
         season,
         history,
@@ -724,14 +838,13 @@ class ChallengeDataProvider:
                 priority=APIBudgetPriority.BACKGROUND,
             ) or []
         if (
-            len(history) < MIN_HISTORY_GAMES
-            and isinstance(season, int)
+            isinstance(season, int)
             and not isinstance(season, bool)
             and season > 2020
         ):
-            # Cold-Start-Schutz: bei dünner Saison (Saisonstart, kleine Ligen)
-            # die Vorsaison voranstellen, sonst erreicht die Validierung nie
-            # genügend Walk-forward-Beobachtungen.
+            # Always retain the same two-season source window. A completed
+            # fixture must not discard the previous season at an arbitrary
+            # count threshold and destroy the walk-forward sample overnight.
             previous = fetch_stat_history(league_id, season - 1, upcoming_fixtures)
             if not previous:
                 previous = self._football_get(
@@ -742,7 +855,18 @@ class ChallengeDataProvider:
                 )
             if previous:
                 history = list(previous) + list(history)
-        return history or None
+        cutoff = datetime.now(timezone.utc)
+        target_kickoffs = [
+            kickoff
+            for item in upcoming_fixtures
+            if isinstance(item, dict)
+            and (kickoff := _fixture_kickoff(item)) is not None
+        ]
+        if target_kickoffs:
+            cutoff = min(cutoff, min(target_kickoffs))
+        return _bounded_completed_history(
+            history, before=cutoff, league_id=league_id,
+        ) or None
 
     def domestic_team_history(
         self,
@@ -1320,14 +1444,33 @@ def _split_provider_messages(errors: list[str]) -> tuple[list[str], list[str]]:
 def _discovery_candidate_pool(
     candidates: list[ChallengeCandidate],
     fixture_ids: list[int],
+    *,
+    candidate_profile: str = CANDIDATE_PROFILE_CHALLENGE,
 ) -> list[ChallengeCandidate]:
-    """Keep a diverse, bounded market pool for later fixture-only refreshes."""
+    """Keep the normal full pool or the bounded 15K pool for later refreshes."""
+    if candidate_profile not in (
+        CANDIDATE_PROFILE_CHALLENGE, CANDIDATE_PROFILE_WETTFINDER,
+    ):
+        raise ValueError("candidate_profile must be challenge or wettfinder")
     allowed = set(fixture_ids)
+    ranked = sorted(candidates, key=_candidate_rank, reverse=True)
+    if candidate_profile == CANDIDATE_PROFILE_WETTFINDER:
+        selected_ids: set[str] = set()
+        selected: list[ChallengeCandidate] = []
+        for candidate in ranked:
+            if (
+                candidate.fixture_id not in allowed
+                or candidate.candidate_id in selected_ids
+            ):
+                continue
+            selected.append(candidate)
+            selected_ids.add(candidate.candidate_id)
+        return selected
+
     per_fixture: dict[int, int] = {}
     kinds_by_fixture: dict[int, set[str]] = {}
     selected_ids: set[str] = set()
     selected: list[ChallengeCandidate] = []
-    ranked = sorted(candidates, key=_candidate_rank, reverse=True)
 
     def add(candidate: ChallengeCandidate, *, require_new_kind: bool) -> bool:
         if candidate.fixture_id not in allowed:
@@ -2009,11 +2152,16 @@ def scan_daily_challenge(
     search_end_date: Optional[date] = None,
     market_kinds: Optional[set[str]] = None,
     allow_above_challenge_probability: bool = False,
+    candidate_profile: str = CANDIDATE_PROFILE_CHALLENGE,
     progress_cb=None,
 ) -> dict[str, Any]:
     """Run one explicit, quota-aware scan over at most fourteen days."""
     if not isinstance(allow_above_challenge_probability, bool):
         raise ValueError("allow_above_challenge_probability must be boolean")
+    if candidate_profile not in (
+        CANDIDATE_PROFILE_CHALLENGE, CANDIDATE_PROFILE_WETTFINDER,
+    ):
+        raise ValueError("candidate_profile must be challenge or wettfinder")
     end_date = search_end_date or search_date
     _validate_scan_inputs(league_ids, search_date, max_fixtures, end_date)
     supported_market_kinds = {spec.kind for spec in market_specs()}
@@ -2259,6 +2407,7 @@ def scan_daily_challenge(
             allow_above_challenge_probability=(
                 allow_above_challenge_probability
             ),
+            candidate_profile=candidate_profile,
         )
         if any(candidate.base_eligible for candidate in probe_candidates):
             validation_target_fixture_ids.add(fixture_id)
@@ -2374,6 +2523,7 @@ def scan_daily_challenge(
             allow_above_challenge_probability=(
                 allow_above_challenge_probability
             ),
+            candidate_profile=candidate_profile,
         )
         if fixture_id in fixture_team_histories:
             for candidate in fixture_candidates:
@@ -2478,7 +2628,12 @@ def scan_daily_challenge(
             teams.get("home", {}).get("id"),
             teams.get("away", {}).get("id"),
         )
-        weather_by_fixture[fixture_id] = provider.weather(fixture)
+        current_detail = details.get(fixture_id)
+        weather_by_fixture[fixture_id] = (
+            provider.weather(current_detail)
+            if isinstance(current_detail, dict)
+            else None
+        )
 
     if progress_cb:
         progress_cb(0.96, "Kontextgates werden angewendet")
@@ -2495,6 +2650,7 @@ def scan_daily_challenge(
         for candidate in [*base_candidates, *riskobet_source_candidates]
     }
     contextualized_all: list[ChallengeCandidate] = []
+    invalidated_fixture_ids: set[int] = set()
     for candidate in context_input_by_id.values():
         if candidate.fixture_id not in context_fixture_ids:
             reason = (
@@ -2511,6 +2667,15 @@ def scan_daily_challenge(
             contextualized_all.append(candidate)
             continue
         detail = details.get(candidate.fixture_id) or {}
+        if not _reconcile_candidate_fixture(
+            candidate, detail,
+            now=context_checked_at,
+            search_date=search_date,
+            search_end_date=end_date,
+        ):
+            invalidated_fixture_ids.add(candidate.fixture_id)
+            contextualized_all.append(candidate)
+            continue
         league_coverage = coverage.get(
             fixture_competitions.get(candidate.fixture_id),
             {},
@@ -2536,9 +2701,10 @@ def scan_daily_challenge(
         for candidate in contextualized_all
         if candidate.base_eligible
     ]
-    contextualized_riskobet_sources = football_risk_source_pool(
-        contextualized_all
-    )
+    contextualized_riskobet_sources = football_risk_source_pool([
+        candidate for candidate in contextualized_all
+        if candidate.fixture_id not in invalidated_fixture_ids
+    ])
     riskobet_context_checked_fixture_ids = sorted(
         {
             candidate.fixture_id
@@ -2569,6 +2735,7 @@ def scan_daily_challenge(
     discovery_candidates = _discovery_candidate_pool(
         base_candidates,
         discovery_fixture_ids,
+        candidate_profile=candidate_profile,
     )
     diagnostics = _scan_candidate_diagnostics(
         all_candidates,
@@ -2593,6 +2760,7 @@ def scan_daily_challenge(
         )
     return {
         "version": CHALLENGE_SNAPSHOT_VERSION,
+        "invalidated_fixture_ids": sorted(invalidated_fixture_ids),
         "scanned_at": datetime.now(timezone.utc).isoformat(),
         "scope": _scope_signature(
             league_ids,
@@ -2763,10 +2931,17 @@ def refresh_discovered_candidates(
         )
 
     contextualized_all: list[ChallengeCandidate] = []
+    invalidated_fixture_ids: set[int] = set()
     for candidate in refreshed:
         if candidate.fixture_id not in fixture_ids:
             continue
         detail = details.get(candidate.fixture_id)
+        if not _reconcile_candidate_fixture(
+            candidate, detail, now=checked_at, search_date=search_date,
+        ):
+            invalidated_fixture_ids.add(candidate.fixture_id)
+            contextualized_all.append(candidate)
+            continue
         league_coverage = coverage.get(candidate.league_id, {})
         apply_candidate_context(
             candidate,
@@ -2790,9 +2965,10 @@ def refresh_discovered_candidates(
         for candidate in contextualized_all
         if candidate.base_eligible
     ]
-    contextualized_riskobet_sources = football_risk_source_pool(
-        contextualized_all
-    )
+    contextualized_riskobet_sources = football_risk_source_pool([
+        candidate for candidate in contextualized_all
+        if candidate.fixture_id not in invalidated_fixture_ids
+    ])
     riskobet_context_checked_fixture_ids = sorted(
         {
             candidate.fixture_id
@@ -2834,6 +3010,7 @@ def refresh_discovered_candidates(
     coverage_notices, operational_errors = _split_provider_messages(provider.errors)
     return {
         "checked_at": checked_at.isoformat(),
+        "invalidated_fixture_ids": sorted(invalidated_fixture_ids),
         "fixture_ids": fixture_ids,
         "shortlist": shortlist,
         "forecast_shortlist": forecast_shortlist,

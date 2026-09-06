@@ -67,6 +67,8 @@ class CricketScanner:
     @staticmethod
     def _start_time(value) -> Optional[datetime]:
         try:
+            if isinstance(value, str) and value.strip().isdigit():
+                value = int(value.strip())
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 timestamp = float(value)
                 if timestamp > 10_000_000_000:
@@ -114,6 +116,16 @@ class CricketScanner:
             except (requests.RequestException, ValueError) as exc:
                 self.last_error = f"Cricbuzz {type(exc).__name__}"
         return self._get_upcoming_matches_alternative(start_date, end_date)
+
+    def get_completed_matches(self, start_date: date, end_date: date, *, as_of=None) -> List[Dict]:
+        """Observed completed matches from already configured cricket providers.
+
+        Recent-result endpoints seed a persistent history over time; the method
+        never claims a full year of coverage that the provider did not return.
+        """
+        from scanners.completed_history import completed_cricket
+
+        return completed_cricket(self, start_date, end_date, as_of=as_of)
 
     def _upcoming_from_cricbuzz(
         self,
@@ -169,7 +181,13 @@ class CricketScanner:
             return None
         team1_data = info.get('team1', {})
         team2_data = info.get('team2', {})
+        state = str(info.get('state') or '').strip().casefold()
+        status_text = str(info.get('status') or '').strip().casefold()
+        if any(word in status_text for word in ('cancel', 'abandon', 'postpon', ' won ', 'drawn', 'no result')):
+            return None
         if source == 'CricketData':
+            if info.get('matchStarted') is not False or info.get('matchEnded') is True:
+                return None
             teams = info.get('teams')
             if not isinstance(teams, list) or len(teams) < 2:
                 return None
@@ -180,6 +198,8 @@ class CricketScanner:
             tournament = str(info.get('name') or 'Unknown').strip() or 'Unknown'
             match_format = str(info.get('matchType') or 'Unknown').strip() or 'Unknown'
         else:
+            if state not in {'preview', 'upcoming', 'scheduled'}:
+                return None
             if not isinstance(team1_data, dict) or not isinstance(team2_data, dict):
                 return None
             team1 = str(team1_data.get('teamName') or '').strip()
@@ -204,6 +224,8 @@ class CricketScanner:
             'tournament': tournament,
             'team1': team1,
             'team2': team2,
+            'team1_id': str(team1_data.get('teamId') or '') if source == 'Cricbuzz' else '',
+            'team2_id': str(team2_data.get('teamId') or '') if source == 'Cricbuzz' else '',
             'status': 'upcoming',
             'start_time': start.isoformat(),
             'source': source,
