@@ -815,7 +815,7 @@ def _load_automated_wettfinder_document(
     now: Optional[datetime] = None,
     max_age: timedelta = AUTOMATED_WETTFINDER_MAX_AGE,
 ) -> Optional[tuple[dict, datetime, list]]:
-    """Load one fresh, policy-compatible systemd artifact."""
+    """Load one fresh artifact and project naturally expired live rows."""
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
@@ -912,6 +912,7 @@ def _load_automated_wettfinder_document(
     ):
         return None
     sport_counts: dict[str, int] = {}
+    scheduled_by_key: dict[str, datetime] = {}
     for row in model_candidates:
         if not isinstance(row, dict):
             return None
@@ -1098,7 +1099,8 @@ def _load_automated_wettfinder_document(
         scheduled = _parse_iso(row.get("scheduled_start"))
         if (
             scheduled is None
-            or scheduled.astimezone(timezone.utc) <= current
+            or scheduled.tzinfo is None
+            or scheduled.astimezone(timezone.utc) <= generated
             or scheduled.astimezone(ZURICH_TZ).date() != target
         ):
             return None
@@ -1123,7 +1125,29 @@ def _load_automated_wettfinder_document(
             or any(field in row for field in _REFERENCE_EXECUTION_FIELDS)
         ):
             return None
-    return document, generated, candidates
+        scheduled_by_key[str(row.get("key") or "").strip()] = (
+            scheduled.astimezone(timezone.utc)
+        )
+
+    active_model_keys = {
+        key for key, scheduled in scheduled_by_key.items()
+        if scheduled > current
+    }
+    projected_document = dict(document)
+    projected_document["model_candidates"] = [
+        row for row in model_candidates
+        if str(row.get("key") or "").strip() in active_model_keys
+    ]
+    projected_candidates = [
+        row for row in candidates
+        if str(row.get("key") or "").strip() in active_model_keys
+    ]
+    projected_document["candidates"] = projected_candidates
+    projected_document["challenge_release_candidates"] = [
+        row for row in challenge_release_candidates
+        if str(row.get("key") or "").strip() in active_model_keys
+    ]
+    return projected_document, generated, projected_candidates
 
 
 def automated_wettfinder_status(

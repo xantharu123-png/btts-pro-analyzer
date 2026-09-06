@@ -128,6 +128,74 @@ def test_invalid_metadata_is_reported_without_guessing_or_loading_state(db, monk
     assert result["errors"] == [{"prediction_id":1,"reason":"invalid_fixture_metadata"}]
 
 
+@pytest.mark.parametrize("start,match_date,checked_at", [
+    ((NOW-timedelta(seconds=1)).isoformat(), "2030-01-02", NOW),
+    (NOW.isoformat(), "2030-01-02", NOW),
+    (None, "2029-12-01", NOW),
+    ("invalid", "2029-12-01", NOW),
+    ("2030-01-01T18:00:00", "2030-01-01", NOW),
+    (None, "2030-01-02", NOW.replace(hour=23, minute=30)),
+])
+def test_past_legacy_rows_are_preserved_without_operational_errors(
+    db, monkeypatch, start, match_date, checked_at,
+):
+    store(db)
+    with closing(sqlite3.connect(db)) as conn, conn:
+        conn.execute("DROP TABLE prediction_revisions")
+        conn.execute(
+            "UPDATE predictions SET provider_event_id=NULL, fixture_source=NULL, "
+            "scheduled_start_utc=?, match_date=?", (start, match_date),
+        )
+    before = db.read_bytes()
+    monkeypatch.setattr(daily,"load_state",lambda: pytest.fail("past legacy row is not refreshable"))
+    result = daily.refresh_pending_predictions(db_path=db,as_of=checked_at)
+    assert result["checked"] == result["skipped"] == 1
+    assert result["due"] == result["refreshed"] == 0
+    assert result["errors"] == []
+    assert result["status"] == "unchanged"
+    assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize("start,match_date", [
+    (None, "2030-01-02"),
+    (None, "2030-01-03"),
+    (None, "malformed-date"),
+    (None, "2030-02-30"),
+    ("invalid", "2030-01-02"),
+    (START.isoformat(), "2029-12-01"),
+])
+def test_unresolved_current_or_future_metadata_remains_an_error(db, monkeypatch, start, match_date):
+    store(db)
+    with closing(sqlite3.connect(db)) as conn, conn:
+        conn.execute("DROP TABLE prediction_revisions")
+        conn.execute(
+            "UPDATE predictions SET provider_event_id=NULL, fixture_source=NULL, "
+            "scheduled_start_utc=?, match_date=?", (start, match_date),
+        )
+    before = db.read_bytes()
+    monkeypatch.setattr(daily,"load_state",lambda: pytest.fail("invalid metadata cannot be refreshed"))
+    result = daily.refresh_pending_predictions(db_path=db,as_of=NOW)
+    assert result["checked"] == result["skipped"] == 1
+    assert result["due"] == result["refreshed"] == 0
+    assert result["errors"] == [{"prediction_id":1,"reason":"invalid_fixture_metadata"}]
+    assert db.read_bytes() == before
+
+
+def test_explicit_future_start_is_refreshable_despite_old_calendar_date(db, monkeypatch):
+    store(db)
+    with closing(sqlite3.connect(db)) as conn, conn:
+        conn.execute("DROP TABLE prediction_revisions")
+        conn.execute("UPDATE predictions SET match_date='2029-12-01'")
+    monkeypatch.setattr(daily,"predict_match",lambda *a,**k: prediction(.57))
+    result = daily.refresh_pending_predictions(db_path=db,as_of=NOW)
+    assert result["due"] == result["refreshed"] == 1
+    assert result["errors"] == []
+    latest = shadow.latest_predictions(db,as_of=NOW)[0]
+    assert latest["scheduled_start_utc"] == START.isoformat()
+    assert latest["match_date"] == "2029-12-01"
+    assert latest["p_cal"] == .57
+
+
 def test_bad_cutoff_and_interval_are_not_silently_normalized(db):
     with pytest.raises(ValueError,match="timezone-aware"):
         daily.refresh_pending_predictions(db_path=db,as_of=NOW.replace(tzinfo=None))

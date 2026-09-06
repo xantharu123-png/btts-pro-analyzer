@@ -123,6 +123,8 @@ def _error_text(sport: str, error: object) -> str:
         code = f"source_failed:{type(error).__name__}"
     elif str(error).strip() == "source is due but unavailable":
         code = "source_unavailable"
+    elif str(error).strip() == "source is unconfigured":
+        code = "source_unconfigured"
     else:
         # Batch errors can originate in provider responses.  Their raw text is
         # useful in private service logs, but the latest JSON is a consumer

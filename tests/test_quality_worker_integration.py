@@ -151,3 +151,17 @@ def test_native_tennis_events_do_not_collide_and_survive_rescheduling():
     assert identity("ESPN", "123") != identity("ESPN", "456")
     assert identity("ESPN", "123") != identity("sofascore", "123")
     assert identity("ESPN", "123") == identity("ESPN", "123", NOW + timedelta(days=1))
+
+
+def test_unconfigured_cricket_is_explicit_coverage_not_a_provider_crash(monkeypatch):
+    from types import SimpleNamespace
+    import scanners.cricket_scanner as cricket
+    from riskobet_automation import _error_text
+    scanner = SimpleNamespace(last_error="Cricket API key missing", get_upcoming_matches=lambda *args: [])
+    monkeypatch.setattr(cricket, "CricketScanner", lambda: scanner)
+    batch = worker._default_cricket_risk_source(NOW.date(), NOW)
+    assert batch.candidates == () and batch.snapshots == ()
+    assert batch.errors == ("source is unconfigured",)
+    code = _error_text("cricket", batch.errors[0])
+    assert code == "cricket: source_unconfigured"
+    assert worker._riskobet_summary({"status":"partial", "errors":[code]})["operational_error_count"] == 0

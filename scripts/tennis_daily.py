@@ -25,7 +25,7 @@ import sys
 import unicodedata
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -627,17 +627,27 @@ def refresh_pending_predictions(
     # Several historical model versions can reference the same event. Refresh
     # it once using its latest stored fixture metadata, never once per version.
     by_event = {}
+    local_today = checked_at.astimezone(ZURICH_TZ).date()
     for row in rows:
         try:
+            try:
+                start = utc_epoch(row.get("scheduled_start_utc"))
+            except (TypeError, ValueError):
+                # Old unstarted legacy rows can lack a usable kickoff/identity.
+                # Their calendar date only excludes past rows; it never supplies
+                # a fabricated kickoff or overrides an explicit future start.
+                if date.fromisoformat(row.get("match_date")) < local_today:
+                    result["skipped"] += 1
+                    continue
+                raise
+            if start <= checked_at.timestamp():
+                result["skipped"] += 1
+                continue
             source = str(row.get("fixture_source") or "").strip()
             event_id = str(row.get("provider_event_id") or "").strip()
             players = (str(row.get("player_a") or "").strip(), str(row.get("player_b") or "").strip())
             if not source or not event_id or not all(players) or any("TBD" in p.upper() for p in players):
                 raise ValueError("incomplete fixture identity")
-            start = utc_epoch(row.get("scheduled_start_utc"))
-            if start <= checked_at.timestamp():
-                result["skipped"] += 1
-                continue
             if row.get("tour") not in ("ATP", "WTA") or type(row.get("best_of")) is not int or row["best_of"] not in (3, 5):
                 raise ValueError("unverified tour or match format")
             event_key = (source.casefold(), event_id)

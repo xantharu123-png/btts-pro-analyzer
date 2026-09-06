@@ -71,7 +71,7 @@ _COVERAGE_DIAGNOSTICS = frozenset({
     "result_database_missing", "result_schema_incomplete", "result_observed_at_missing",
     "termination_unproven", "regulation_score_unproven", "source_identity_unproven",
     "fixture_identity_unproven", "native_identity_unproven", "native_result_unavailable",
-    "unsupported_selection",
+    "unsupported_selection", "ambiguous_settlement_revisions",
 })
 
 

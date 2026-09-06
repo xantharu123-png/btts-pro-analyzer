@@ -2582,6 +2582,10 @@ def _default_cricket_risk_source(
 
     scanner = CricketScanner()
     events = scanner.get_upcoming_matches(target_date, target_date)
+    if scanner.last_error == "Cricket API key missing":
+        # An unconfigured optional source is explicit coverage, not a crashed
+        # request. Keep it partial and empty; never synthesize cricket events.
+        return RiskSourceBatch(sport="cricket", errors=("source is unconfigured",))
     resolved_history_loader = history_loader or _scanner_completed_history_loader(
         scanner,
         "cricket",

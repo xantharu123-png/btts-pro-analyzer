@@ -40,7 +40,7 @@ from riskobet_settlement_automation import (
     run_riskobet_settlements,
     tennis_result_loader,
 )
-from riskobet_store import RiskBetStore
+from riskobet_store import FrozenRevisionError, RiskBetStore
 
 
 MODELED = datetime(2030, 1, 1, 10, tzinfo=timezone.utc)
@@ -323,6 +323,25 @@ def test_ambiguous_candidate_is_unresolved_without_blocking_settlement_runner(
     assert summary.unresolved_candidates == 1
     assert summary.terminal_settlements == 0
     assert summary.errors == ("automation:ambiguous_settlement_revisions",)
+    assert summary.operational_error_count == 0
+    assert summary.to_dict()["operational_error_count"] == 0
+    assert summary.to_dict()["error_count"] == 1
+    assert _terminal_rows(store) == []
+
+
+def test_historical_candidate_corruption_still_aborts_instead_of_becoming_quarantine_coverage(tmp_path):
+    store = _store(tmp_path)
+    older = _published_run(store, provider_id="77")
+    _published_run(store, provider_id="88", run_offset_minutes=5)
+    with sqlite3.connect(store.db_path) as connection:
+        connection.execute("UPDATE candidates SET content_hash=? WHERE candidate_id=?",
+                           ("0"*64, older.candidates[0].candidate_id))
+
+    def must_not_run(_requests, _now):
+        raise AssertionError("corrupt candidate history must not reach a provider")
+
+    with pytest.raises(FrozenRevisionError, match="content hash mismatch"):
+        run_riskobet_settlements(store=store, now=NOW, result_loaders={"football": must_not_run})
     assert _terminal_rows(store) == []
 
 
