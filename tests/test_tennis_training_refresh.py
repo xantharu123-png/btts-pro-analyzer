@@ -75,6 +75,41 @@ def test_existing_loader_defaults_remain_cache_only(tmp_path):
     assert data_loader.load_market_odds((2026,), "wta", tmp_path)["Winner"].tolist() == ["Old Woman"]
 
 
+@pytest.mark.parametrize("refresh", [False, True])
+def test_real_atp_compound_tournament_ids_are_opaque_not_numbers(tmp_path, monkeypatch, refresh):
+    tournaments = TOURNAMENTS.replace(b"1,Test Open", b"2026-2801,Test Open")
+    matches = OLD_MATCHES.replace(b"1,1,Old Player", b"1,2026-2801,Old Player")
+    (tmp_path / "atp_tournaments.csv").write_bytes(tournaments)
+    (tmp_path / "atp_matches_2026.csv").write_bytes(matches)
+    monkeypatch.setattr(data_loader.requests, "get", lambda url, **_: response(
+        tournaments if url.endswith("tournaments.csv") else matches))
+    rows = data_loader.load_atp_stats((2026,), tmp_path, refresh_current=refresh, current_year=2026)
+    assert rows["winner_name"].tolist() == ["Old Player"]
+    assert rows["tournament_id"].tolist() == ["2026-2801"]
+
+
+def test_atp_season_metadata_cannot_date_current_results_into_previous_year(tmp_path, monkeypatch):
+    tournaments = TOURNAMENTS.replace(b"20260901", b"20250901")
+    monkeypatch.setattr(data_loader.requests, "get", lambda url, **_: response(
+        tournaments if url.endswith("tournaments.csv") else NEW_MATCHES))
+    with pytest.raises(ValueError, match="2026"):
+        data_loader.load_atp_stats((2026,), tmp_path, refresh_current=True, current_year=2026)
+    assert not (tmp_path / "atp_tournaments.csv").exists()
+
+
+def test_incomplete_atp_source_rows_do_not_block_or_inflate_completed_coverage(tmp_path, monkeypatch):
+    cached_sources(tmp_path)
+    partial = NEW_MATCHES + b"3,1,Pending Player,\n"
+    monkeypatch.setattr(data_loader.requests, "get", lambda url, **_: response(
+        TOURNAMENTS if url.endswith("tournaments.csv") else partial))
+    rows = data_loader.load_atp_stats((2026,), tmp_path, refresh_current=True, current_year=2026)
+    assert rows["winner_name"].tolist() == ["New Player"]
+    dates = data_loader._tournament_dates_for_year(data_loader._validate_tournaments(TOURNAMENTS), 2026)
+    count, _ = data_loader._atp_match_coverage(partial, tournament_dates=dates, year=2026,
+                                             as_of=pd.Timestamp("2026-09-07", tz="UTC"))
+    assert count == 1
+
+
 @pytest.mark.parametrize("bad", [b"", b"<html>error</html>", b"id,tournament_id,winner_name,loser_name\n", b"id,tournament_id,winner_name,loser_name\n2,1,,Other\n"])
 def test_invalid_current_atp_response_never_replaces_good_cache(tmp_path, monkeypatch, bad):
     cached_sources(tmp_path)

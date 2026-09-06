@@ -186,8 +186,19 @@ def _validate_tournaments(payload: bytes) -> pd.DataFrame:
 def _validate_atp_matches(payload: bytes) -> pd.DataFrame:
     required = ("id", "tournament_id", "winner_name", "loser_name")
     frame = _training_table(payload, required)
-    _require_values(frame, required)
+    _require_values(frame, ("id", "tournament_id"))
+    frame = _completed_atp_rows(frame)
+    if frame.empty:
+        raise ValueError("training source has no complete player result rows")
     return frame
+
+
+def _completed_atp_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    """Ignore source placeholders; both named participants are indispensable."""
+    complete = frame["winner_name"].notna() & frame["loser_name"].notna()
+    for column in ("winner_name", "loser_name"):
+        complete &= frame[column].astype("string").str.strip().ne("").fillna(False)
+    return frame[complete].copy()
 
 
 def _validate_market_results(payload: bytes) -> pd.DataFrame:
@@ -215,8 +226,9 @@ def _assert_coverage_not_regressed(
 def _tournament_dates_for_year(
     frame: pd.DataFrame,
     year: int,
-) -> dict[int, pd.Timestamp]:
-    ids = pd.to_numeric(frame["id"], errors="coerce")
+) -> dict[str, pd.Timestamp]:
+    # Provider identities are opaque keys such as "2026-2801", not integers.
+    ids = frame["id"].astype("string")
     years = pd.to_numeric(frame["year"], errors="coerce")
     dates = pd.to_datetime(
         frame["start_dtm"].astype(str),
@@ -224,9 +236,9 @@ def _tournament_dates_for_year(
         errors="coerce",
         utc=True,
     )
-    mask = ids.notna() & years.eq(year) & dates.notna()
+    mask = ids.notna() & years.eq(year) & dates.notna() & dates.dt.year.eq(year)
     return {
-        int(tournament_id): tournament_date
+        str(tournament_id): tournament_date
         for tournament_id, tournament_date in zip(ids[mask], dates[mask])
     }
 
@@ -247,12 +259,12 @@ def _tournament_coverage(
 def _atp_match_coverage(
     payload: bytes,
     *,
-    tournament_dates: dict[int, pd.Timestamp],
+    tournament_dates: dict[str, pd.Timestamp],
     year: int,
     as_of: pd.Timestamp,
 ) -> tuple[int, pd.Timestamp]:
     frame = _validate_atp_matches(payload)
-    tournament_ids = pd.to_numeric(frame["tournament_id"], errors="coerce")
+    tournament_ids = frame["tournament_id"].astype("string")
     dates = tournament_ids.map(tournament_dates)
     causal = dates.notna() & dates.le(as_of)
     if not causal.any():
@@ -397,7 +409,8 @@ def load_atp_stats(
                 raise  # Never present an old/omitted active season as refreshed.
             continue  # season not published yet
         frame = pd.read_csv(path, low_memory=False)
-        frame_ids = pd.to_numeric(frame["tournament_id"], errors="coerce")
+        frame = _completed_atp_rows(frame)
+        frame_ids = frame["tournament_id"].astype("string")
         frame = frame[frame_ids.isin(tournament_dates)].copy()
         keep = [c for c in _STATS_MATCH_COLUMNS if c in frame.columns]
         frames.append(frame[keep])
