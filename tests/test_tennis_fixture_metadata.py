@@ -433,11 +433,14 @@ def test_tennis_empty_state_uses_exact_next_scan_date():
 
 def test_duplicate_scan_backfills_fixture_metadata(tmp_path, monkeypatch):
     monkeypatch.setattr(shadow, "DB_PATH", tmp_path / "tennis.db")
+    # These are three distinct observations, not an equal-clock ambiguity.
+    # Fast Windows runs may otherwise return the same wall-clock tick twice.
     first = shadow.store_prediction(
         "2030-01-02",
         "ATP",
         "Test Open",
         _Prediction(),
+        modeled_at="2030-01-01T10:00:00Z",
     )
     duplicate = shadow.store_prediction(
         "2030-01-02",
@@ -447,6 +450,7 @@ def test_duplicate_scan_backfills_fixture_metadata(tmp_path, monkeypatch):
         provider_event_id="espn-42",
         scheduled_start_utc="2030-01-02T12:00:00Z",
         fixture_source="ESPN",
+        modeled_at="2030-01-01T10:01:00Z",
     )
     rescheduled = shadow.store_prediction(
         "2030-01-03",
@@ -456,6 +460,7 @@ def test_duplicate_scan_backfills_fixture_metadata(tmp_path, monkeypatch):
         provider_event_id="espn-42",
         scheduled_start_utc="2030-01-03T13:00:00Z",
         fixture_source="ESPN",
+        modeled_at="2030-01-01T10:02:00Z",
     )
 
     assert first > 0

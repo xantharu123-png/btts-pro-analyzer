@@ -335,18 +335,33 @@ def load_atp_stats(
     )
     if refresh_current:
         def validate_tournaments(payload: bytes) -> None:
-            coverage = _tournament_coverage(
+            _tournament_coverage(
                 payload, year=active_year, as_of=refresh_cutoff,
             )
-            previous = _previous_coverage(
-                previous_tournaments,
-                lambda value: _tournament_coverage(
-                    value, year=active_year, as_of=refresh_cutoff,
-                ),
-            )
-            _assert_coverage_not_regressed(
-                coverage, previous, source="ATP tournament",
-            )
+            # Calendar entries without results may be cancelled or corrected.
+            # Protect actual completed history, not the number of empty events.
+            prior_matches_path = cache_dir / f"atp_matches_{active_year}.csv"
+            if previous_tournaments is not None and prior_matches_path.exists():
+                prior_matches = prior_matches_path.read_bytes()
+                def coverage_with_metadata(metadata: bytes) -> tuple[int, pd.Timestamp]:
+                    return _atp_match_coverage(
+                        prior_matches,
+                        tournament_dates=_tournament_dates_for_year(_validate_tournaments(metadata), active_year),
+                        year=active_year, as_of=refresh_cutoff,
+                    )
+                previous = _previous_coverage(previous_tournaments, coverage_with_metadata)
+                if previous is not None:
+                    old_dates = _tournament_dates_for_year(_validate_tournaments(previous_tournaments), active_year)
+                    new_dates = _tournament_dates_for_year(_validate_tournaments(payload), active_year)
+                    completed_ids = set(_validate_atp_matches(prior_matches)["tournament_id"].astype("string"))
+                    consumed_ids = {key for key in completed_ids if key in old_dates and old_dates[key] <= refresh_cutoff}
+                    new_causal_ids = {key for key, value in new_dates.items() if value <= refresh_cutoff}
+                    if not consumed_ids.issubset(new_causal_ids):
+                        raise ValueError("ATP completed tournament history lost source identities")
+                    _assert_coverage_not_regressed(
+                        coverage_with_metadata(payload), previous,
+                        source="ATP completed tournament history",
+                    )
         tournament_validator = validate_tournaments
     else:
         tournament_validator = _validate_tournaments

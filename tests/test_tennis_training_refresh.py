@@ -110,6 +110,38 @@ def test_incomplete_atp_source_rows_do_not_block_or_inflate_completed_coverage(t
     assert count == 1
 
 
+def test_removal_of_empty_tournament_does_not_block_real_result_refresh(tmp_path, monkeypatch):
+    cached_sources(tmp_path)
+    prior = TOURNAMENTS + b"2,Empty Open,2026,Outdoor,Hard,atp_250,20260801\n"
+    (tmp_path / "atp_tournaments.csv").write_bytes(prior)
+    monkeypatch.setattr(data_loader.requests, "get", lambda url, **_: response(
+        TOURNAMENTS if url.endswith("tournaments.csv") else NEW_MATCHES))
+    rows = data_loader.load_atp_stats((2026,), tmp_path, refresh_current=True, current_year=2026)
+    assert rows["winner_name"].tolist() == ["New Player"]
+
+
+def test_removed_tournament_with_completed_results_keeps_old_metadata(tmp_path, monkeypatch):
+    cached_sources(tmp_path)
+    removed = TOURNAMENTS.replace(b"1,Test Open", b"2,Replacement Open")
+    monkeypatch.setattr(data_loader.requests, "get", lambda url, **_: response(
+        removed if url.endswith("tournaments.csv") else NEW_MATCHES.replace(b"2,1,", b"2,2,")))
+    with pytest.raises(ValueError):
+        data_loader.load_atp_stats((2026,), tmp_path, refresh_current=True, current_year=2026)
+    assert (tmp_path / "atp_tournaments.csv").read_bytes() == TOURNAMENTS
+
+
+def test_newly_mapped_results_cannot_offset_loss_of_previously_consumed_results(tmp_path, monkeypatch):
+    cached_sources(tmp_path)
+    matches = OLD_MATCHES + b"2,2,Previously Unmapped,Other Player\n"
+    (tmp_path / "atp_matches_2026.csv").write_bytes(matches)
+    replacement = TOURNAMENTS.replace(b"1,Test Open", b"2,New Open").replace(b"20260901", b"20260902")
+    monkeypatch.setattr(data_loader.requests, "get", lambda url, **_: response(
+        replacement if url.endswith("tournaments.csv") else matches))
+    with pytest.raises(ValueError, match="history"):
+        data_loader.load_atp_stats((2026,), tmp_path, refresh_current=True, current_year=2026)
+    assert (tmp_path / "atp_tournaments.csv").read_bytes() == TOURNAMENTS
+
+
 @pytest.mark.parametrize("bad", [b"", b"<html>error</html>", b"id,tournament_id,winner_name,loser_name\n", b"id,tournament_id,winner_name,loser_name\n2,1,,Other\n"])
 def test_invalid_current_atp_response_never_replaces_good_cache(tmp_path, monkeypatch, bad):
     cached_sources(tmp_path)
