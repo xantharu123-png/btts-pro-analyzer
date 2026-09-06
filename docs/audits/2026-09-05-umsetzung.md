@@ -22,7 +22,7 @@ Auftrag: Nutzerfreigabe „alles machen“ am 05.09.2026 nach dem Audit
 | F7 | Tennis Erstprognose plus aktuelle immutable Revision; Kontextrefresh nach Alter | Neue Prognose sichtbar; atomare Legacy-Erstmigration; keine künftigen Termindaten im historischen Lesen | implementiert; Regression grün |
 | F8 | Evidenz-/Kontextpriorität vor Spielbeginn | Schlechter früher Kandidat verdrängt besseren späteren nicht; keine Preisdaten im Ranking | implementiert; Regression grün |
 | F9/F10 | Ehrliche Unsicherheits-/Preisbegriffe; kausale Prognose-, Ergebnis- und Schlussquotenerfassung mit Auswertung | Kalibrierung/Preis-/Renditenachweis getrennt, zeitkorrekte Inputdaten | Infrastruktur implementiert; prospektiver Qualitäts-/Renditenachweis ausstehend |
-| Release | Vollständige Regression, unabhängiges Review, Browser, Commit/Push/VPS | Exakter Hash, Backup, Health, Timer und echter Modelllauf | ausstehend |
+| Release | Vollständige Regression, unabhängiges Review, Browser, Commit/Push/VPS | Exakter Hash, Backup, Health, Timer und echter Modelllauf | Funktionsrelease und Reader-Hotfix live; F13/F14-Nachkorrekturen siehe `2026-09-07-release.md` |
 
 Die numerische Freigabe neuer Kontextfaktoren benötigt historische oder prospektiv gesammelte, zeitgestempelte Ergebnisse. Implementierte Erfassung ist nicht bereits validierte Wirkung. Externe Zugangsdaten werden nicht erfunden oder durch einen neuen kostenpflichtigen Anbieter ersetzt.
 

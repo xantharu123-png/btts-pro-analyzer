@@ -284,6 +284,75 @@ def test_terminal_second_run_is_idempotent_and_does_not_call_provider(tmp_path: 
     assert store.read_latest()["run_id"] == run.run_id
 
 
+@pytest.mark.parametrize("different_snapshot", [False, True])
+def test_historical_scenarios_are_settled_once_per_event_not_limited_by_run_card_count(tmp_path, different_snapshot):
+    store = _store(tmp_path)
+    _published_run(store, markets=(("result_90_minutes", "away"),
+                                         ("underdog_team_over_0_5_90_minutes", "away")))
+    second = _published_run(store, markets=(("result_90_minutes", "draw"),
+                                          ("underdog_team_over_1_5_90_minutes", "away")),
+                            run_offset_minutes=5)
+    if different_snapshot:
+        snapshot = replace(second.snapshots[0], modeled_at=MODELED + timedelta(minutes=10),
+                           input_cutoff_at=MODELED + timedelta(minutes=9),
+                           input_hash=canonical_input_hash({"provider_id": "77", "revision": 2}))
+        revised = replace(second, snapshots=(snapshot,),
+                          candidates=tuple(replace(c, snapshot_id=snapshot.snapshot_id) for c in second.candidates),
+                          started_at=MODELED + timedelta(minutes=10), completed_at=MODELED + timedelta(minutes=11))
+        store.append_run(revised)
+        store.publish_latest(revised.run_id)
+    calls = []
+    def loader(requests, _now):
+        calls.append(requests)
+        assert len(requests) == 1
+        assert len(requests[0].candidate_ids) == 4
+        return (ObservedResult("football", requests[0].event_key, NOW,
+                               FootballResult(EventStatus.FINAL, 1, 2), "fixture:77:FT"),)
+    summary = run_riskobet_settlements(store=store, now=NOW, result_loaders={"football": loader})
+    assert summary.errors == ()
+    assert summary.terminal_settlements == 4
+    assert summary.unresolved_candidates == 0
+    assert len(calls) == 1
+    assert len(_terminal_rows(store)) == 4
+    rerun = run_riskobet_settlements(store=store, now=NOW, result_loaders={"football": loader})
+    assert rerun.terminal_settlements == 0
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("mismatch", ["source", "participants", "start", "multiple_source_ids"])
+def test_cross_snapshot_result_lookup_refuses_conflicting_frozen_identity(tmp_path, mismatch):
+    store = _store(tmp_path)
+    _published_run(store)
+    second = _published_run(store, markets=(("underdog_team_over_0_5_90_minutes", "away"),),
+                            run_offset_minutes=5)
+    original = second.snapshots[0]
+    changes = {"modeled_at": MODELED + timedelta(minutes=10),
+               "input_cutoff_at": MODELED + timedelta(minutes=9),
+               "input_hash": canonical_input_hash({"revision": mismatch})}
+    if mismatch == "source":
+        changes["factors"] = (replace(original.factors[0], factor_key="football_fixture_id:88"),)
+    elif mismatch == "multiple_source_ids":
+        changes["factors"] = (*original.factors, replace(original.factors[0], factor_key="football_fixture_id:88"))
+    elif mismatch == "participants":
+        changes["event_label"] = "Different vs Participants"
+    else:
+        changes["starts_at"] = START + timedelta(minutes=5)
+    snapshot = replace(original, **changes)
+    candidate = replace(second.candidates[0], snapshot_id=snapshot.snapshot_id,
+                        starts_at=snapshot.starts_at, event_label=snapshot.event_label)
+    run = replace(second, snapshots=(snapshot,), candidates=(candidate,),
+                  started_at=MODELED + timedelta(minutes=10), completed_at=MODELED + timedelta(minutes=11))
+    store.append_run(run)
+    store.publish_latest(run.run_id)
+    def must_not_run(*_args):
+        raise AssertionError("conflicting source identities must not reach provider")
+    summary = run_riskobet_settlements(store=store, now=NOW, result_loaders={"football": must_not_run})
+    assert summary.errors == ("football:event_snapshot_ambiguous",)
+    assert summary.operational_error_count == 1
+    assert summary.unresolved_candidates == 2
+    assert _terminal_rows(store) == []
+
+
 def test_ambiguous_candidate_is_unresolved_without_blocking_settlement_runner(
     tmp_path: Path,
 ):

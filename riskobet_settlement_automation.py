@@ -315,11 +315,10 @@ def _requests_by_sport(
     for (sport, event_key), items in sorted(
         grouped.items(), key=lambda entry: (entry[0][0], entry[1][0].starts_at, entry[0][1])
     ):
-        if len(items) > 2:
-            errors.append(_safe_issue(sport, "event_candidate_limit_exceeded"))
-            continue
+        # Two cards is a per-run presentation rule, not a lifetime settlement
+        # limit. Different runs may select different contracts for one event.
         snapshot_ids = {str(item.payload["snapshot_id"]) for item in items}
-        if len(snapshot_ids) != 1:
+        if len(snapshot_ids) != 1 and not _compatible_result_snapshots(sport, items):
             errors.append(_safe_issue(sport, "event_snapshot_ambiguous"))
             continue
         eligible_by_sport.setdefault(sport, []).append((event_key, items))
@@ -335,7 +334,6 @@ def _requests_by_sport(
                 for offset in range(max_events_per_sport)
             ]
         for event_key, items in eligible:
-            snapshot_ids = {str(item.payload["snapshot_id"]) for item in items}
             snapshot = items[0].snapshot
             factors = snapshot.get("factors") or ()
             if not isinstance(factors, (list, tuple)) or any(
@@ -351,7 +349,7 @@ def _requests_by_sport(
                 sport=sport,
                 event_key=event_key,
                 starts_at=items[0].starts_at,
-                snapshot_id=next(iter(snapshot_ids)),
+                snapshot_id=str(items[0].payload["snapshot_id"]),
                 event_label=event_label.strip(),
                 factors=tuple(dict(factor) for factor in factors),
                 candidate_ids=tuple(
@@ -365,6 +363,39 @@ def _requests_by_sport(
         candidates_by_event,
         errors,
     )
+
+
+def _compatible_result_snapshots(sport: str, items: Sequence[_DueCandidate]) -> bool:
+    """Share one result lookup only for exactly identical frozen source identity.
+
+    Model/context revisions may differ; start, participants and every native
+    identity field must agree. Each settlement still binds its own snapshot.
+    Unknown adapters retain the conservative single-snapshot rule.
+    """
+    patterns = {
+        "football": (_FIXTURE_FACTOR_RE,),
+        "tennis": (_TENNIS_PREDICTION_FACTOR_RE,),
+        "esports": (_ESPORTS_MATCH_FACTOR_RE, _ESPORTS_TEAM1_FACTOR_RE, _ESPORTS_TEAM2_FACTOR_RE),
+    }.get(sport)
+    if not patterns:
+        return False
+    identities = []
+    for item in items:
+        factors = item.snapshot.get("factors") or ()
+        if not isinstance(factors, (list, tuple)) or any(not isinstance(f, Mapping) for f in factors):
+            return False
+        native_ids = []
+        for pattern in patterns:
+            matches = [pattern.fullmatch(str(f.get("factor_key", ""))) for f in factors]
+            values = [int(m.group(1)) for m in matches if m is not None]
+            if len(values) != 1:
+                return False
+            native_ids.append(values[0])
+        label = item.snapshot.get("event_label")
+        if not isinstance(label, str) or not label.strip():
+            return False
+        identities.append((item.starts_at, label.strip(), tuple(native_ids)))
+    return len(set(identities)) == 1
 
 
 def _normalize_batch(

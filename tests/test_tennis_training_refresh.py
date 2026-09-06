@@ -1,0 +1,448 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from functools import partial
+from io import BytesIO
+from types import SimpleNamespace
+import sys
+
+import pandas as pd
+import pytest
+import requests
+
+from scripts import rebuild_state
+from tennis import data_loader, model_state
+from tennis.elo import SurfaceElo
+from tennis.serve_model import ServeReturnModel
+
+
+NOW = datetime(2026, 9, 7, 12, tzinfo=timezone.utc).timestamp()
+TOURNAMENTS = (
+    b"id,name,year,indoor_outdoor,surface,series_category_id,start_dtm\n"
+    b"1,Test Open,2026,Outdoor,Hard,atp_250,20260901\n"
+    b"101,Old Open,2025,Outdoor,Hard,atp_250,20250901\n"
+)
+OLD_MATCHES = b"id,tournament_id,winner_name,loser_name\n1,1,Old Player,Other Player\n"
+HISTORICAL_MATCHES = (
+    b"id,tournament_id,winner_name,loser_name\n"
+    b"101,101,Old Player,Other Player\n"
+)
+NEW_MATCHES = b"id,tournament_id,winner_name,loser_name\n2,1,New Player,Other Player\n"
+
+
+def xlsx(winner="New Woman", day="2026-09-01"):
+    output = BytesIO()
+    pd.DataFrame([{"Date": day, "Winner": winner, "Loser": "Other Woman", "Surface": "Hard"}]).to_excel(output, index=False)
+    return output.getvalue()
+
+
+def response(payload):
+    return SimpleNamespace(content=payload, raise_for_status=lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def forbid_real_network(monkeypatch):
+    monkeypatch.setattr(data_loader.requests, "get", lambda *a, **k: pytest.fail("unexpected external request"))
+
+
+def cached_sources(tmp_path):
+    (tmp_path / "atp_tournaments.csv").write_bytes(TOURNAMENTS)
+    (tmp_path / "atp_matches_2025.csv").write_bytes(HISTORICAL_MATCHES)
+    (tmp_path / "atp_matches_2026.csv").write_bytes(OLD_MATCHES)
+    (tmp_path / "wta_odds_2025.xlsx").write_bytes(
+        xlsx("Old Woman", "2025-09-01")
+    )
+    (tmp_path / "wta_odds_2026.xlsx").write_bytes(xlsx("Old Woman"))
+
+
+def test_explicit_refresh_revalidates_current_atp_and_tournaments_not_history(tmp_path, monkeypatch):
+    cached_sources(tmp_path)
+    urls = []
+    def get(url, **kwargs):
+        urls.append(url)
+        return response(TOURNAMENTS if url.endswith("tournaments.csv") else NEW_MATCHES)
+    monkeypatch.setattr(data_loader.requests, "get", get)
+    rows = data_loader.load_atp_stats((2025, 2026), tmp_path, refresh_current=True, current_year=2026)
+    assert rows["winner_name"].tolist() == ["Old Player", "New Player"]
+    assert urls == [f"{data_loader.MAN_TENNIS_BASE}/atp/tournaments.csv", f"{data_loader.MAN_TENNIS_BASE}/atp/matches_2026.csv"]
+    assert (tmp_path / "atp_matches_2025.csv").read_bytes() == HISTORICAL_MATCHES
+    assert (tmp_path / "atp_matches_2026.csv").read_bytes() == NEW_MATCHES
+
+
+def test_existing_loader_defaults_remain_cache_only(tmp_path):
+    cached_sources(tmp_path)
+    assert data_loader.load_atp_stats((2026,), tmp_path)["winner_name"].tolist() == ["Old Player"]
+    assert data_loader.load_market_odds((2026,), "wta", tmp_path)["Winner"].tolist() == ["Old Woman"]
+
+
+@pytest.mark.parametrize("bad", [b"", b"<html>error</html>", b"id,tournament_id,winner_name,loser_name\n", b"id,tournament_id,winner_name,loser_name\n2,1,,Other\n"])
+def test_invalid_current_atp_response_never_replaces_good_cache(tmp_path, monkeypatch, bad):
+    cached_sources(tmp_path)
+    monkeypatch.setattr(data_loader.requests, "get", lambda url, **_: response(TOURNAMENTS if url.endswith("tournaments.csv") else bad))
+    with pytest.raises(ValueError):
+        data_loader.load_atp_stats((2026,), tmp_path, refresh_current=True, current_year=2026)
+    assert (tmp_path / "atp_matches_2026.csv").read_bytes() == OLD_MATCHES
+
+
+@pytest.mark.parametrize("error", [requests.HTTPError("503"), requests.Timeout("timeout")])
+def test_current_atp_http_failure_cannot_fall_back_to_old_season(tmp_path, monkeypatch, error):
+    cached_sources(tmp_path)
+    def get(url, **kwargs):
+        if url.endswith("tournaments.csv"):
+            return response(TOURNAMENTS)
+        raise error
+    monkeypatch.setattr(data_loader.requests, "get", get)
+    with pytest.raises(type(error)):
+        data_loader.load_atp_stats((2025, 2026), tmp_path, refresh_current=True, current_year=2026)
+    assert (tmp_path / "atp_matches_2026.csv").read_bytes() == OLD_MATCHES
+
+
+def test_wrong_year_current_atp_payload_cannot_replace_good_cache(tmp_path, monkeypatch):
+    cached_sources(tmp_path)
+    old = (tmp_path / "atp_matches_2026.csv").read_bytes()
+    wrong_year = (
+        b"id,tournament_id,winner_name,loser_name\n"
+        b"2,101,Wrong Year,Other Player\n"
+    )
+    monkeypatch.setattr(
+        data_loader.requests,
+        "get",
+        lambda url, **_: response(
+            TOURNAMENTS if url.endswith("tournaments.csv") else wrong_year
+        ),
+    )
+
+    with pytest.raises(ValueError, match="2026"):
+        data_loader.load_atp_stats(
+            (2026,), tmp_path, refresh_current=True, current_year=2026,
+        )
+
+    assert (tmp_path / "atp_matches_2026.csv").read_bytes() == old
+
+
+def test_regressed_current_atp_payload_cannot_replace_good_cache(tmp_path, monkeypatch):
+    cached_sources(tmp_path)
+    old = (
+        b"id,tournament_id,winner_name,loser_name\n"
+        b"1,1,Old Player,Other Player\n"
+        b"2,1,Second Player,Other Player\n"
+    )
+    (tmp_path / "atp_matches_2026.csv").write_bytes(old)
+    monkeypatch.setattr(
+        data_loader.requests,
+        "get",
+        lambda url, **_: response(
+            TOURNAMENTS if url.endswith("tournaments.csv") else OLD_MATCHES
+        ),
+    )
+
+    with pytest.raises(ValueError, match="regressed"):
+        data_loader.load_atp_stats(
+            (2026,), tmp_path, refresh_current=True, current_year=2026,
+        )
+
+    assert (tmp_path / "atp_matches_2026.csv").read_bytes() == old
+
+
+def test_invalid_tournament_response_keeps_previous_metadata(tmp_path, monkeypatch):
+    cached_sources(tmp_path)
+    monkeypatch.setattr(data_loader.requests, "get", lambda *a, **k: response(TOURNAMENTS.replace(b"20260901", b"not-a-date")))
+    with pytest.raises(ValueError):
+        data_loader.load_atp_stats((2026,), tmp_path, refresh_current=True, current_year=2026)
+    assert (tmp_path / "atp_tournaments.csv").read_bytes() == TOURNAMENTS
+
+
+def test_wta_refresh_uses_real_result_columns_and_reuses_historical_years(tmp_path, monkeypatch):
+    cached_sources(tmp_path)
+    urls = []
+    def get(url, **kwargs):
+        urls.append(url)
+        return response(xlsx())
+    monkeypatch.setattr(data_loader.requests, "get", get)
+    rows = data_loader.load_market_odds((2025, 2026), "wta", tmp_path, refresh_current=True, current_year=2026)
+    assert rows["Winner"].tolist() == ["Old Woman", "New Woman"]
+    assert urls == [f"{data_loader.TENNIS_DATA_BASE}/2026w/2026.xlsx"]
+
+
+def test_wrong_year_current_wta_payload_cannot_replace_good_cache(tmp_path, monkeypatch):
+    cached_sources(tmp_path)
+    target = tmp_path / "wta_odds_2026.xlsx"
+    old = target.read_bytes()
+    output = BytesIO()
+    pd.DataFrame([{
+        "Date": "2025-09-01", "Winner": "Wrong Year",
+        "Loser": "Other Woman", "Surface": "Hard",
+    }]).to_excel(output, index=False)
+    monkeypatch.setattr(
+        data_loader.requests,
+        "get",
+        lambda *a, **k: response(output.getvalue()),
+    )
+
+    with pytest.raises(ValueError, match="2026"):
+        data_loader.load_market_odds(
+            (2026,), "wta", tmp_path,
+            refresh_current=True, current_year=2026,
+        )
+
+    assert target.read_bytes() == old
+
+
+def test_future_wrong_year_wta_typo_does_not_satisfy_current_coverage(
+    tmp_path, monkeypatch,
+):
+    cached_sources(tmp_path)
+    target = tmp_path / "wta_odds_2026.xlsx"
+    old = target.read_bytes()
+    output = BytesIO()
+    pd.DataFrame([{
+        "Date": "2029-09-01", "Winner": "Future Typo",
+        "Loser": "Other Woman", "Surface": "Hard",
+    }]).to_excel(output, index=False)
+    monkeypatch.setattr(
+        data_loader.requests,
+        "get",
+        lambda *a, **k: response(output.getvalue()),
+    )
+
+    with pytest.raises(ValueError, match="2026"):
+        data_loader.load_market_odds(
+            (2026,), "wta", tmp_path,
+            refresh_current=True, current_year=2026,
+        )
+
+    assert target.read_bytes() == old
+
+
+def test_current_wta_payload_may_include_known_future_date_typo(tmp_path, monkeypatch):
+    cached_sources(tmp_path)
+    output = BytesIO()
+    pd.DataFrame([
+        {
+            "Date": "2026-09-01", "Winner": "Current Woman",
+            "Loser": "Other Woman", "Surface": "Hard",
+        },
+        {
+            "Date": "2029-09-01", "Winner": "Future Typo",
+            "Loser": "Other Woman", "Surface": "Hard",
+        },
+    ]).to_excel(output, index=False)
+    payload = output.getvalue()
+    monkeypatch.setattr(
+        data_loader.requests, "get", lambda *a, **k: response(payload),
+    )
+
+    rows = data_loader.load_market_odds(
+        (2026,), "wta", tmp_path,
+        refresh_current=True, current_year=2026,
+    )
+
+    assert rows["Winner"].tolist() == ["Current Woman"]
+    assert (tmp_path / "wta_odds_2026.xlsx").read_bytes() == payload
+
+
+def test_regressed_current_wta_payload_cannot_replace_good_cache(tmp_path, monkeypatch):
+    cached_sources(tmp_path)
+    target = tmp_path / "wta_odds_2026.xlsx"
+    output = BytesIO()
+    pd.DataFrame([
+        {
+            "Date": "2026-09-01", "Winner": "First Woman",
+            "Loser": "Other Woman", "Surface": "Hard",
+        },
+        {
+            "Date": "2026-09-05", "Winner": "Second Woman",
+            "Loser": "Other Woman", "Surface": "Hard",
+        },
+    ]).to_excel(output, index=False)
+    old = output.getvalue()
+    target.write_bytes(old)
+    monkeypatch.setattr(
+        data_loader.requests,
+        "get",
+        lambda *a, **k: response(xlsx("First Woman")),
+    )
+
+    with pytest.raises(ValueError, match="regressed"):
+        data_loader.load_market_odds(
+            (2026,), "wta", tmp_path,
+            refresh_current=True, current_year=2026,
+        )
+
+    assert target.read_bytes() == old
+
+
+@pytest.mark.parametrize("bad", [b"", b"<html>error</html>", b"not-an-xlsx"])
+def test_invalid_wta_response_never_replaces_good_results(tmp_path, monkeypatch, bad):
+    cached_sources(tmp_path)
+    old = (tmp_path / "wta_odds_2026.xlsx").read_bytes()
+    monkeypatch.setattr(data_loader.requests, "get", lambda *a, **k: response(bad))
+    with pytest.raises(ValueError):
+        data_loader.load_market_odds((2026,), "wta", tmp_path, refresh_current=True, current_year=2026)
+    assert (tmp_path / "wta_odds_2026.xlsx").read_bytes() == old
+
+
+@pytest.mark.parametrize("kind", ["empty", "missing_results", "invalid_date"])
+def test_parseable_but_invalid_wta_workbook_is_not_published(tmp_path, monkeypatch, kind):
+    cached_sources(tmp_path)
+    old = (tmp_path / "wta_odds_2026.xlsx").read_bytes()
+    output = BytesIO()
+    frame = pd.DataFrame([{"Date": "not-a-date", "Winner": "Alpha", "Loser": "Beta", "Surface": "Hard"}])
+    if kind == "empty":
+        frame = frame.iloc[:0]
+    elif kind == "missing_results":
+        frame = pd.DataFrame([{"Price": 2.0}])
+    frame.to_excel(output, index=False)
+    monkeypatch.setattr(data_loader.requests, "get", lambda *a, **k: response(output.getvalue()))
+    with pytest.raises(ValueError):
+        data_loader.load_market_odds((2026,), "wta", tmp_path, refresh_current=True, current_year=2026)
+    assert (tmp_path / "wta_odds_2026.xlsx").read_bytes() == old
+
+
+def test_atomic_cache_replace_failure_retains_original_bytes(tmp_path, monkeypatch):
+    import runtime_paths
+    cached_sources(tmp_path)
+    monkeypatch.setattr(data_loader.requests, "get", lambda *a, **k: response(TOURNAMENTS))
+    def interrupted(*args):
+        raise OSError("simulated atomic replacement failure")
+    monkeypatch.setattr(runtime_paths.os, "replace", interrupted)
+    with pytest.raises(OSError, match="atomic replacement"):
+        data_loader.load_atp_stats((2026,), tmp_path, refresh_current=True, current_year=2026)
+    assert (tmp_path / "atp_tournaments.csv").read_bytes() == TOURNAMENTS
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def old_state():
+    return model_state.ModelState(
+        elo=SurfaceElo(), serve=ServeReturnModel(), cal_a=1., cal_b=0., cal_samples=0,
+        built_at=NOW-60, stats_through="2026-07-27", serve_weight=.3,
+    )
+
+
+def isolated_build(tmp_path, monkeypatch):
+    cached_sources(tmp_path)
+    monkeypatch.setattr(model_state, "load_atp_stats", partial(data_loader.load_atp_stats, cache_dir=tmp_path, current_year=2026))
+    monkeypatch.setattr(model_state, "load_market_odds", partial(data_loader.load_market_odds, cache_dir=tmp_path, current_year=2026))
+    monkeypatch.setattr(model_state, "run_backtest", lambda **_: SimpleNamespace(rows=[]))
+    monkeypatch.setattr(model_state, "DEFAULT_STATE_PATH", tmp_path / "model_state.pkl")
+    model_state.save_state(old_state())
+
+
+def test_model_build_refreshes_both_planes_without_changing_rating_contract(tmp_path, monkeypatch):
+    isolated_build(tmp_path, monkeypatch)
+    def get(url, **kwargs):
+        return response(xlsx() if url.endswith(".xlsx") else TOURNAMENTS if url.endswith("tournaments.csv") else NEW_MATCHES)
+    monkeypatch.setattr(data_loader.requests, "get", get)
+    state = model_state.build_state(stats_years=(2026,), refresh_training_data=True, verbose=False)
+    assert state.stats_through == "2026-09-01"
+    assert state.elo.known_players() == {"player n", "player o", "woman n", "woman o"}
+    assert state.elo.win_probability("player n", "player o") > .5
+    assert state.elo.win_probability("woman n", "woman o") > .5
+
+
+@pytest.mark.parametrize("later_date,retirement", [("20261001", ""), ("20260906", "(RET)")])
+def test_training_coverage_excludes_future_or_unconsumed_atp_rows(tmp_path, monkeypatch, later_date, retirement):
+    isolated_build(tmp_path, monkeypatch)
+    monkeypatch.setattr(model_state.time, "time", lambda: NOW)
+    tournaments = TOURNAMENTS + f"2,Other Open,2026,Outdoor,Hard,atp_250,{later_date}\n".encode()
+    matches = b"id,tournament_id,winner_name,loser_name,match_ret\n2,1,New Player,Other Player,\n" + f"3,2,Excluded Player,Other Player,{retirement}\n".encode()
+    def get(url, **kwargs):
+        return response(xlsx() if url.endswith(".xlsx") else tournaments if url.endswith("tournaments.csv") else matches)
+    monkeypatch.setattr(data_loader.requests, "get", get)
+    state = model_state.build_state(stats_years=(2026,), refresh_training_data=True, verbose=False)
+    assert state.stats_through == "2026-09-01"
+    assert "player e" not in state.elo.known_players()
+
+
+def test_future_wta_results_do_not_enter_refreshed_ratings(tmp_path, monkeypatch):
+    isolated_build(tmp_path, monkeypatch)
+    monkeypatch.setattr(model_state.time, "time", lambda: NOW)
+    output = BytesIO()
+    pd.DataFrame([
+        {"Date": "2026-09-01", "Winner": "New Woman", "Loser": "Other Woman", "Surface": "Hard"},
+        {"Date": "2026-09-08", "Winner": "Future Woman", "Loser": "Other Woman", "Surface": "Hard"},
+    ]).to_excel(output, index=False)
+    def get(url, **kwargs):
+        return response(output.getvalue() if url.endswith(".xlsx") else TOURNAMENTS if url.endswith("tournaments.csv") else NEW_MATCHES)
+    monkeypatch.setattr(data_loader.requests, "get", get)
+    state = model_state.build_state(stats_years=(2026,), refresh_training_data=True, verbose=False)
+    assert "woman f" not in state.elo.known_players()
+    assert "woman n" in state.elo.known_players()
+
+
+def test_wta_refresh_failure_cannot_replace_combined_state_with_atp_only(tmp_path, monkeypatch, capsys):
+    isolated_build(tmp_path, monkeypatch)
+    before = model_state.DEFAULT_STATE_PATH.read_bytes()
+    def get(url, **kwargs):
+        if url.endswith(".xlsx"):
+            raise requests.HTTPError("WTA refresh unavailable")
+        return response(TOURNAMENTS if url.endswith("tournaments.csv") else NEW_MATCHES)
+    monkeypatch.setattr(data_loader.requests, "get", get)
+    monkeypatch.setattr(rebuild_state, "build_state", partial(model_state.build_state, stats_years=(2026,)))
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--force", "--refresh-data"])
+    assert rebuild_state.main() == 1
+    assert model_state.DEFAULT_STATE_PATH.read_bytes() == before
+    assert "REFRESH_FAILED" in capsys.readouterr().out
+
+
+def test_recent_pickle_does_not_hide_old_tournament_start_coverage(tmp_path, monkeypatch, capsys):
+    isolated_build(tmp_path, monkeypatch)
+    before = model_state.DEFAULT_STATE_PATH.read_bytes()
+    monkeypatch.setattr(rebuild_state.time, "time", lambda: NOW)
+    monkeypatch.setattr(rebuild_state, "build_state", partial(model_state.build_state, stats_years=(2026,)))
+    def unavailable(*args, **kwargs):
+        raise requests.Timeout("refresh unavailable")
+    monkeypatch.setattr(data_loader.requests, "get", unavailable)
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--if-stale-days", "7"])
+    assert rebuild_state.main() == 1
+    output = capsys.readouterr().out
+    assert "REFRESH_FAILED" in output
+    assert "ATP-Turnierstart" in output
+    assert model_state.DEFAULT_STATE_PATH.read_bytes() == before
+
+
+def test_recent_pickle_and_current_coverage_skip_rebuild(tmp_path, monkeypatch):
+    isolated_build(tmp_path, monkeypatch)
+    state = old_state()
+    state.stats_through = "2026-09-06"
+    model_state.save_state(state)
+    monkeypatch.setattr(rebuild_state.time, "time", lambda: NOW)
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--if-stale-days", "7"])
+    assert rebuild_state.main() == 0
+
+
+def test_cli_publishes_refreshed_combined_state_only_after_valid_sources(tmp_path, monkeypatch, capsys):
+    isolated_build(tmp_path, monkeypatch)
+    monkeypatch.setattr(rebuild_state, "build_state", partial(model_state.build_state, stats_years=(2026,)))
+    def get(url, **kwargs):
+        return response(xlsx() if url.endswith(".xlsx") else TOURNAMENTS if url.endswith("tournaments.csv") else NEW_MATCHES)
+    monkeypatch.setattr(data_loader.requests, "get", get)
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--force", "--refresh-data"])
+    assert rebuild_state.main() == 0
+    published = model_state.load_state()
+    assert published.stats_through == "2026-09-01"
+    assert published.elo.known_players() == {"player n", "player o", "woman n", "woman o"}
+    assert "aktive Quellen revalidiert=True" in capsys.readouterr().out
+
+
+def test_explicit_cached_rebuild_does_not_claim_a_source_refresh(tmp_path, monkeypatch, capsys):
+    isolated_build(tmp_path, monkeypatch)
+    monkeypatch.setattr(rebuild_state, "build_state", partial(model_state.build_state, stats_years=(2026,)))
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--force", "--no-refresh-data"])
+    assert rebuild_state.main() == 0
+    assert "aktive Quellen revalidiert=False" in capsys.readouterr().out
+    assert model_state.load_state().elo.known_players() == {"player o", "woman o"}
+
+
+def test_failed_atomic_model_publish_retains_last_good_state(tmp_path, monkeypatch):
+    import runtime_paths
+    isolated_build(tmp_path, monkeypatch)
+    before = model_state.DEFAULT_STATE_PATH.read_bytes()
+    monkeypatch.setattr(rebuild_state, "build_state", partial(model_state.build_state, stats_years=(2026,)))
+    def interrupted(*args):
+        raise OSError("simulated model publication failure")
+    monkeypatch.setattr(runtime_paths.os, "replace", interrupted)
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--force", "--no-refresh-data"])
+    assert rebuild_state.main() == 1
+    assert model_state.DEFAULT_STATE_PATH.read_bytes() == before
+    assert not list(tmp_path.glob("*.tmp"))

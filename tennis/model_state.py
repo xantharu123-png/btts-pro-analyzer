@@ -90,6 +90,7 @@ def build_state(
     verbose: bool = True,
     serve_half_life_days: Optional[float] = 365.0,
     serve_split_indoor: bool = True,
+    refresh_training_data: bool = False,
 ) -> ModelState:
     """Build ratings from the stats plane and fit the calibrator on a
     causal walk-forward backtest of the recent seasons.
@@ -100,18 +101,28 @@ def build_state(
 
     ``serve_split_indoor`` likewise: production, calibrator fit and the
     A/B evidence must all see the same environment split.
+
+    ``refresh_training_data`` revalidates active-year ATP/WTA sources before
+    publication. A failed refresh is fatal; it never silently downgrades a
+    previously combined model to ATP-only. Cache-only callers retain their API.
     """
     if stats_years is None:
         stats_years = range(2010, 2027)
 
-    stats = load_atp_stats(stats_years)
+    build_cutoff = pd.Timestamp(time.time(), unit="s", tz="UTC")
+    stats_years = tuple(stats_years)
+    refresh_options = {"refresh_current": True} if refresh_training_data else {}
+    stats = load_atp_stats(stats_years, **refresh_options)
     stats = add_normalized_names(stats, "winner_name", "loser_name")
+    stats["tourney_date"] = pd.to_datetime(stats["tourney_date"], errors="coerce", utc=True)
+    stats = stats[stats["tourney_date"].notna() & (stats["tourney_date"] <= build_cutoff)]
     stats = stats.sort_values("tourney_date", kind="mergesort").reset_index(drop=True)
 
     elo = SurfaceElo()
     serve = ServeReturnModel(half_life_days=serve_half_life_days,
                              split_indoor=serve_split_indoor)
     n = 0
+    consumed_dates = []
     for s in stats.to_dict("records"):
         if _is_retired(s.get("match_ret")):
             continue
@@ -120,9 +131,12 @@ def build_state(
             if is_tour_level(s):
                 serve.update_from_match_row(s)
             n += 1
-    through = str(stats["tourney_date"].max())[:10]
+            consumed_dates.append(s["tourney_date"])
+    if not consumed_dates:
+        raise ValueError("no dated, completed ATP training results before build cutoff")
+    through = str(max(consumed_dates))[:10]
     if verbose:
-        print(f"State: {n} Matches verarbeitet, Daten bis {through}")
+        print(f"State: {n} Matches verarbeitet, ATP-Turnierstart-Abdeckung bis {through}")
 
     # --- WTA: no serve boxscore feed exists, so ratings are Elo-only.
     # Built chronologically from the tennis-data.co.uk WTA results files
@@ -130,12 +144,12 @@ def build_state(
     n_wta = 0
     wta_through = through
     try:
-        wta = load_market_odds(list(stats_years), tour="wta")
+        wta = load_market_odds(list(stats_years), tour="wta", **refresh_options)
         wta = add_normalized_names(wta, "Winner", "Loser")
-        # source hygiene: drop rows with impossible future dates (the WTA
-        # files contain e.g. one 2029 typo row for Iasi 2026)
-        cutoff = pd.Timestamp.now() + pd.Timedelta(days=2)
-        wta = wta[wta["Date"] <= cutoff]
+        # A dated future result cannot train today's ratings, including the
+        # known future-date typo rows in this source.
+        wta["Date"] = pd.to_datetime(wta["Date"], errors="coerce", utc=True)
+        wta = wta[wta["Date"].notna() & (wta["Date"] <= build_cutoff)]
         wta = wta.sort_values("Date", kind="mergesort")
         for row in wta.itertuples():
             if _is_retired(getattr(row, "Comment", None)):
@@ -144,11 +158,15 @@ def build_state(
             if w_key and l_key:
                 elo.update(w_key, l_key, row.Surface if isinstance(row.Surface, str) else None)
                 n_wta += 1
+        if refresh_training_data and not n_wta:
+            raise ValueError("no dated, completed WTA training results before build cutoff")
         if len(wta):
             wta_through = str(pd.to_datetime(wta["Date"]).max())[:10]
         if verbose:
             print(f"State WTA: {n_wta} Matches verarbeitet, Daten bis {wta_through}")
     except Exception as exc:  # WTA feed down -> ATP-only state still valid
+        if refresh_training_data:
+            raise
         if verbose:
             print(f"WARNUNG: WTA-Elo konnte nicht gebaut werden ({exc})")
 

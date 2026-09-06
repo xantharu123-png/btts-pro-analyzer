@@ -26,12 +26,15 @@ from __future__ import annotations
 import ast
 import re
 import unicodedata
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
-from typing import Collection, Iterable, Optional
+from typing import Callable, Collection, Iterable, Optional
 
 import pandas as pd
 import requests
+
+from runtime_paths import atomic_write_bytes
 
 MAN_TENNIS_BASE = (
     "https://raw.githubusercontent.com/msolonskyi/ManTennisData/master"
@@ -139,14 +142,145 @@ def _assert_odds_blind(columns: Iterable[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _download(url: str, cache_path: Path, timeout: int = 60) -> Path:
+def _download(
+    url: str, cache_path: Path, timeout: int = 60, *,
+    refresh: bool = False, validate: Callable[[bytes], None] | None = None,
+) -> Path:
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    if cache_path.exists() and cache_path.stat().st_size > 0:
+    if not refresh and cache_path.exists() and cache_path.stat().st_size > 0:
         return cache_path
     response = requests.get(url, timeout=timeout)
     response.raise_for_status()
-    cache_path.write_bytes(response.content)
-    return cache_path
+    payload = response.content
+    if not payload:
+        raise ValueError("training source returned an empty response")
+    if validate is not None:
+        validate(payload)
+    return atomic_write_bytes(cache_path, payload)
+
+
+def _training_table(payload: bytes, required: tuple[str, ...], *, excel: bool = False) -> pd.DataFrame:
+    try:
+        frame = pd.read_excel(BytesIO(payload)) if excel else pd.read_csv(BytesIO(payload), low_memory=False)
+    except Exception as exc:
+        raise ValueError("training source is not a valid table") from exc
+    if frame.empty or not set(required).issubset(frame.columns):
+        raise ValueError("training source is empty or lacks required result columns")
+    return frame
+
+
+def _require_values(frame: pd.DataFrame, columns: tuple[str, ...]) -> None:
+    for column in columns:
+        if frame[column].isna().any() or frame[column].astype(str).str.strip().eq("").any():
+            raise ValueError(f"training source has missing {column}")
+
+
+def _validate_tournaments(payload: bytes) -> pd.DataFrame:
+    frame = _training_table(payload, _STATS_TOURNAMENT_COLUMNS)
+    _require_values(frame, ("id", "start_dtm"))
+    if pd.to_datetime(frame["start_dtm"].astype(str), format="%Y%m%d", errors="coerce").isna().any():
+        raise ValueError("training source has invalid tournament start dates")
+    return frame
+
+
+def _validate_atp_matches(payload: bytes) -> pd.DataFrame:
+    required = ("id", "tournament_id", "winner_name", "loser_name")
+    frame = _training_table(payload, required)
+    _require_values(frame, required)
+    return frame
+
+
+def _validate_market_results(payload: bytes) -> pd.DataFrame:
+    # WTA ratings consume these result fields, never bookmaker prices.
+    required = ("Date", "Winner", "Loser", "Surface")
+    frame = _training_table(payload, required, excel=True)
+    _require_values(frame, required)
+    if pd.to_datetime(frame["Date"], errors="coerce").isna().any():
+        raise ValueError("training source has invalid result dates")
+    return frame
+
+
+def _assert_coverage_not_regressed(
+    current: tuple[int, pd.Timestamp],
+    previous: tuple[int, pd.Timestamp] | None,
+    *,
+    source: str,
+) -> None:
+    if previous is not None and (
+        current[0] < previous[0] or current[1] < previous[1]
+    ):
+        raise ValueError(f"{source} active-year coverage regressed")
+
+
+def _tournament_dates_for_year(
+    frame: pd.DataFrame,
+    year: int,
+) -> dict[int, pd.Timestamp]:
+    ids = pd.to_numeric(frame["id"], errors="coerce")
+    years = pd.to_numeric(frame["year"], errors="coerce")
+    dates = pd.to_datetime(
+        frame["start_dtm"].astype(str),
+        format="%Y%m%d",
+        errors="coerce",
+        utc=True,
+    )
+    mask = ids.notna() & years.eq(year) & dates.notna()
+    return {
+        int(tournament_id): tournament_date
+        for tournament_id, tournament_date in zip(ids[mask], dates[mask])
+    }
+
+
+def _tournament_coverage(
+    payload: bytes,
+    *,
+    year: int,
+    as_of: pd.Timestamp,
+) -> tuple[int, pd.Timestamp]:
+    dates = _tournament_dates_for_year(_validate_tournaments(payload), year)
+    causal = [value for value in dates.values() if value <= as_of]
+    if not causal:
+        raise ValueError(f"tournament source has no causal {year} coverage")
+    return len(causal), max(causal)
+
+
+def _atp_match_coverage(
+    payload: bytes,
+    *,
+    tournament_dates: dict[int, pd.Timestamp],
+    year: int,
+    as_of: pd.Timestamp,
+) -> tuple[int, pd.Timestamp]:
+    frame = _validate_atp_matches(payload)
+    tournament_ids = pd.to_numeric(frame["tournament_id"], errors="coerce")
+    dates = tournament_ids.map(tournament_dates)
+    causal = dates.notna() & dates.le(as_of)
+    if not causal.any():
+        raise ValueError(f"ATP match source has no causal {year} coverage")
+    return int(causal.sum()), dates[causal].max()
+
+
+def _market_result_coverage(
+    payload: bytes,
+    *,
+    year: int,
+    as_of: pd.Timestamp,
+) -> tuple[int, pd.Timestamp]:
+    frame = _validate_market_results(payload)
+    dates = pd.to_datetime(frame["Date"], errors="coerce", utc=True)
+    causal = dates.notna() & dates.dt.year.eq(year) & dates.le(as_of)
+    if not causal.any():
+        raise ValueError(f"market result source has no causal {year} coverage")
+    return int(causal.sum()), dates[causal].max()
+
+
+def _previous_coverage(payload: bytes | None, loader) -> tuple[int, pd.Timestamp] | None:
+    if payload is None:
+        return None
+    try:
+        return loader(payload)
+    except (TypeError, ValueError):
+        return None
 
 
 def available_man_tennis_years(cache_dir: Path = DEFAULT_CACHE_DIR) -> range:
@@ -162,6 +296,9 @@ def available_man_tennis_years(cache_dir: Path = DEFAULT_CACHE_DIR) -> range:
 def load_atp_stats(
     years: Optional[Iterable[int]] = None,
     cache_dir: Path = DEFAULT_CACHE_DIR,
+    *,
+    refresh_current: bool = False,
+    current_year: int | None = None,
 ) -> pd.DataFrame:
     """Load ATP match statistics joined with tournament surface metadata.
 
@@ -172,9 +309,40 @@ def load_atp_stats(
     """
     if years is None:
         years = available_man_tennis_years()
+    years = tuple(years)
+    active_year = datetime.now(timezone.utc).year if current_year is None else current_year
+    if refresh_current and active_year not in years:
+        raise ValueError("active ATP year must be included in refreshed years")
+    refresh_cutoff = pd.Timestamp(datetime.now(timezone.utc))
 
+    tournaments_cache = cache_dir / "atp_tournaments.csv"
+    previous_tournaments = (
+        tournaments_cache.read_bytes()
+        if refresh_current and tournaments_cache.exists()
+        else None
+    )
+    if refresh_current:
+        def validate_tournaments(payload: bytes) -> None:
+            coverage = _tournament_coverage(
+                payload, year=active_year, as_of=refresh_cutoff,
+            )
+            previous = _previous_coverage(
+                previous_tournaments,
+                lambda value: _tournament_coverage(
+                    value, year=active_year, as_of=refresh_cutoff,
+                ),
+            )
+            _assert_coverage_not_regressed(
+                coverage, previous, source="ATP tournament",
+            )
+        tournament_validator = validate_tournaments
+    else:
+        tournament_validator = _validate_tournaments
     tournaments_path = _download(
-        f"{MAN_TENNIS_BASE}/atp/tournaments.csv", cache_dir / "atp_tournaments.csv"
+        f"{MAN_TENNIS_BASE}/atp/tournaments.csv",
+        tournaments_cache,
+        refresh=refresh_current,
+        validate=tournament_validator,
     )
     tournaments = pd.read_csv(tournaments_path, usecols=list(_STATS_TOURNAMENT_COLUMNS))
     tournaments = tournaments.rename(columns={"id": "tournament_id"})
@@ -184,14 +352,53 @@ def load_atp_stats(
 
     frames = []
     for year in years:
+        refresh_year = refresh_current and year == active_year
+        match_cache = cache_dir / f"atp_matches_{year}.csv"
+        tournament_dates = _tournament_dates_for_year(
+            tournaments.rename(columns={"tournament_id": "id"}), year,
+        )
+        previous_matches = (
+            match_cache.read_bytes()
+            if refresh_year and match_cache.exists()
+            else None
+        )
+        if refresh_year:
+            def validate_matches(payload: bytes) -> None:
+                coverage = _atp_match_coverage(
+                    payload,
+                    tournament_dates=tournament_dates,
+                    year=year,
+                    as_of=refresh_cutoff,
+                )
+                previous = _previous_coverage(
+                    previous_matches,
+                    lambda value: _atp_match_coverage(
+                        value,
+                        tournament_dates=tournament_dates,
+                        year=year,
+                        as_of=refresh_cutoff,
+                    ),
+                )
+                _assert_coverage_not_regressed(
+                    coverage, previous, source="ATP match",
+                )
+            match_validator = validate_matches
+        else:
+            match_validator = _validate_atp_matches
         try:
             path = _download(
                 f"{MAN_TENNIS_BASE}/atp/matches_{year}.csv",
-                cache_dir / f"atp_matches_{year}.csv",
+                match_cache,
+                refresh=refresh_year,
+                validate=match_validator,
             )
         except requests.HTTPError:
+            if refresh_year:
+                raise  # Never present an old/omitted active season as refreshed.
             continue  # season not published yet
         frame = pd.read_csv(path, low_memory=False)
+        frame_ids = pd.to_numeric(frame["tournament_id"], errors="coerce")
+        frame = frame[frame_ids.isin(tournament_dates)].copy()
         keep = [c for c in _STATS_MATCH_COLUMNS if c in frame.columns]
         frames.append(frame[keep])
     if not frames:
@@ -245,6 +452,9 @@ def load_market_odds(
     years: Iterable[int],
     tour: str = "atp",
     cache_dir: Path = DEFAULT_CACHE_DIR,
+    *,
+    refresh_current: bool = False,
+    current_year: int | None = None,
 ) -> pd.DataFrame:
     """Load tennis-data.co.uk season files with closing prices.
 
@@ -252,6 +462,11 @@ def load_market_odds(
     must never be used to build model features.
     """
     wta = tour.lower() == "wta"
+    years = tuple(years)
+    active_year = datetime.now(timezone.utc).year if current_year is None else current_year
+    if refresh_current and active_year not in years:
+        raise ValueError("active market year must be included in refreshed years")
+    refresh_cutoff = pd.Timestamp(datetime.now(timezone.utc))
     frames = []
     for year in years:
         # WTA lives in a suffixed DIRECTORY (2024w/2024.xlsx); the old
@@ -262,11 +477,44 @@ def load_market_odds(
             if wta
             else f"{TENNIS_DATA_BASE}/{year}/{year}.xlsx"
         )
+        refresh_year = refresh_current and year == active_year
+        market_cache = cache_dir / f"{tour.lower()}_odds_{year}.xlsx"
+        previous_market = (
+            market_cache.read_bytes()
+            if refresh_year and market_cache.exists()
+            else None
+        )
+        if refresh_year:
+            def validate_market(payload: bytes) -> None:
+                coverage = _market_result_coverage(
+                    payload, year=year, as_of=refresh_cutoff,
+                )
+                previous = _previous_coverage(
+                    previous_market,
+                    lambda value: _market_result_coverage(
+                        value, year=year, as_of=refresh_cutoff,
+                    ),
+                )
+                _assert_coverage_not_regressed(
+                    coverage, previous, source=f"{tour.upper()} result",
+                )
+            market_validator = validate_market
+        else:
+            market_validator = _validate_market_results
         try:
-            path = _download(url, cache_dir / f"{tour.lower()}_odds_{year}.xlsx")
+            path = _download(
+                url,
+                market_cache,
+                refresh=refresh_year,
+                validate=market_validator,
+            )
         except requests.HTTPError:
+            if refresh_year:
+                raise
             continue
         frame = pd.read_excel(path)
+        frame_dates = pd.to_datetime(frame["Date"], errors="coerce", utc=True)
+        frame = frame[frame_dates.dt.year.eq(year)].copy()
         keep = [c for c in _ODDS_COLUMNS if c in frame.columns]
         frames.append(frame[keep])
     if not frames:
