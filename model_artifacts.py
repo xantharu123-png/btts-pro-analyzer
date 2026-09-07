@@ -37,6 +37,17 @@ def _digest(value: object) -> str:
     return hashlib.sha256(canonical_bytes(value)).hexdigest()
 
 
+def _validate_json_object_keys(value: object) -> None:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if not isinstance(key, str):
+                raise TypeError("JSON object keys must be strings")
+            _validate_json_object_keys(nested)
+    elif isinstance(value, (list, tuple)):
+        for nested in value:
+            _validate_json_object_keys(nested)
+
+
 def _timestamp(value: datetime) -> str:
     if not isinstance(value, datetime) or value.tzinfo is None:
         raise ValueError("timestamp must be timezone-aware")
@@ -164,6 +175,7 @@ def put_artifact(
         raise TypeError("kind must be a string")
     if not isinstance(payload, dict):
         raise TypeError("payload must be a dictionary")
+    _validate_json_object_keys(payload)
     created_at_text = _timestamp(created_at)
     payload_bytes = canonical_bytes(payload)
     digest = _digest({"kind": kind, "payload": payload})

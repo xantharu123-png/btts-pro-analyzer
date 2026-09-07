@@ -18,6 +18,24 @@ from model_artifacts import (
 )
 
 
+def _stat_with(file_stat, **changes):
+    fields = {
+        name: getattr(file_stat, name)
+        for name in dir(file_stat)
+        if name.startswith("st_")
+    }
+    fields.update(changes)
+    return SimpleNamespace(**fields)
+
+
+def _trusted_stat(file_stat):
+    return _stat_with(
+        file_stat,
+        st_mode=file_stat.st_mode
+        & ~(runtime_paths.stat.S_IWGRP | runtime_paths.stat.S_IWOTH),
+    )
+
+
 def test_publish_keeps_other_tour_and_rejects_stale_writer(tmp_path):
     path = tmp_path / "models.db"
     now = datetime(2026, 9, 7, tzinfo=timezone.utc)
@@ -162,6 +180,21 @@ def test_artifact_payload_must_be_an_object(tmp_path):
             payload=["not", "an", "object"],
             created_at=datetime(2026, 9, 7, tzinfo=timezone.utc),
         )
+
+
+def test_artifact_rejects_non_string_keys_recursively_before_database_write(
+    tmp_path,
+):
+    path = tmp_path / "models.db"
+    with pytest.raises(TypeError, match="JSON object keys must be strings"):
+        put_artifact(
+            path,
+            kind="test",
+            payload={"nested": [{2: "two", 10: "ten"}]},
+            created_at=datetime(2026, 9, 7, tzinfo=timezone.utc),
+        )
+
+    assert not path.exists()
 
 
 def test_missing_artifact_rolls_back_entire_publication(tmp_path):
@@ -374,6 +407,132 @@ def test_runtime_database_rejects_wrong_owner(tmp_path, monkeypatch):
 
     with pytest.raises(runtime_paths.RuntimeArtifactTrustError, match="owner"):
         load_manifest(path)
+
+
+def test_runtime_database_rejects_writable_ancestor_before_creating_parents(
+    tmp_path,
+    monkeypatch,
+):
+    replaceable = tmp_path / "replaceable"
+    replaceable.mkdir()
+    target = replaceable / "future" / "nested" / "models.db"
+    original_lstat = runtime_paths.os.lstat
+    replaceable_stat = original_lstat(replaceable)
+    unsafe_mode = (
+        replaceable_stat.st_mode | runtime_paths.stat.S_IWOTH
+    ) & ~runtime_paths.stat.S_ISVTX
+
+    def unsafe_ancestor_lstat(candidate, *args, **kwargs):
+        actual = original_lstat(candidate, *args, **kwargs)
+        if Path(candidate).absolute() == replaceable.absolute():
+            return _stat_with(
+                actual,
+                st_mode=unsafe_mode,
+                st_uid=replaceable_stat.st_uid,
+            )
+        return _trusted_stat(actual)
+
+    monkeypatch.setattr(runtime_paths.os, "lstat", unsafe_ancestor_lstat)
+    monkeypatch.setattr(
+        runtime_paths,
+        "_trusted_owner_ids",
+        lambda: {replaceable_stat.st_uid},
+    )
+
+    with pytest.raises(runtime_paths.RuntimeArtifactTrustError, match="writable"):
+        load_manifest(target)
+    assert not target.parent.exists()
+
+
+def test_runtime_database_rejects_untrusted_ancestor_owner_before_creation(
+    tmp_path,
+    monkeypatch,
+):
+    replaceable = tmp_path / "replaceable"
+    replaceable.mkdir()
+    target = replaceable / "future" / "models.db"
+    original_lstat = runtime_paths.os.lstat
+    replaceable_stat = original_lstat(replaceable)
+
+    def untrusted_ancestor_lstat(candidate, *args, **kwargs):
+        actual = original_lstat(candidate, *args, **kwargs)
+        if Path(candidate).absolute() == replaceable.absolute():
+            return _stat_with(
+                actual,
+                st_mode=replaceable_stat.st_mode,
+                st_uid=replaceable_stat.st_uid + 1,
+            )
+        return _trusted_stat(actual)
+
+    monkeypatch.setattr(runtime_paths.os, "lstat", untrusted_ancestor_lstat)
+    monkeypatch.setattr(
+        runtime_paths,
+        "_trusted_owner_ids",
+        lambda: {replaceable_stat.st_uid},
+    )
+
+    with pytest.raises(runtime_paths.RuntimeArtifactTrustError, match="owner"):
+        load_manifest(target)
+    assert not target.parent.exists()
+
+
+def test_runtime_database_allows_trusted_sticky_writable_ancestor(
+    tmp_path,
+    monkeypatch,
+):
+    sticky = tmp_path / "sticky"
+    sticky.mkdir()
+    target = sticky / "future" / "models.db"
+    original_lstat = runtime_paths.os.lstat
+    sticky_stat = original_lstat(sticky)
+    sticky_mode = (
+        sticky_stat.st_mode
+        | runtime_paths.stat.S_IWOTH
+        | runtime_paths.stat.S_ISVTX
+    )
+
+    def sticky_ancestor_lstat(candidate, *args, **kwargs):
+        actual = original_lstat(candidate, *args, **kwargs)
+        if Path(candidate).absolute() == sticky.absolute():
+            return _stat_with(
+                actual,
+                st_mode=sticky_mode,
+                st_uid=sticky_stat.st_uid,
+            )
+        return _trusted_stat(actual)
+
+    monkeypatch.setattr(runtime_paths.os, "lstat", sticky_ancestor_lstat)
+    monkeypatch.setattr(
+        runtime_paths,
+        "_trusted_owner_ids",
+        lambda: {sticky_stat.st_uid},
+    )
+
+    assert load_manifest(target) == (None, {})
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_posix_runtime_database_rejects_real_nonsticky_writable_ancestor(
+    tmp_path,
+):
+    replaceable = tmp_path / "replaceable"
+    replaceable.mkdir()
+    replaceable.chmod(0o777)
+    target = replaceable / "future" / "nested" / "models.db"
+
+    with pytest.raises(runtime_paths.RuntimeArtifactTrustError, match="writable"):
+        load_manifest(target)
+    assert not target.parent.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_posix_runtime_database_allows_real_trusted_sticky_ancestor(tmp_path):
+    sticky = tmp_path / "sticky"
+    sticky.mkdir()
+    sticky.chmod(0o1777)
+    target = sticky / "future" / "models.db"
+
+    assert load_manifest(target) == (None, {})
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")

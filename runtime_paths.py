@@ -160,32 +160,63 @@ def _validate_trusted_runtime_database_stat(
         )
 
 
-def _validate_trusted_runtime_directory(path: Path) -> None:
+def _validate_trusted_runtime_directory(
+    path: Path,
+    *,
+    allow_sticky_writable: bool,
+    role: str,
+) -> None:
     directory_stat = os.lstat(path)
     if not stat.S_ISDIR(directory_stat.st_mode):
         raise RuntimeArtifactTrustError(
-            f"runtime database parent must be a directory: {path}"
+            f"runtime database {role} must be a directory: {path}"
         )
     trusted_owners = _trusted_owner_ids()
     if trusted_owners is None:
         return
     if directory_stat.st_uid not in trusted_owners:
         raise RuntimeArtifactTrustError(
-            f"runtime database parent has an untrusted owner: {path}"
+            f"runtime database {role} has an untrusted owner: {path}"
         )
-    if directory_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+    writable_by_untrusted = directory_stat.st_mode & (
+        stat.S_IWGRP | stat.S_IWOTH
+    )
+    sticky = directory_stat.st_mode & stat.S_ISVTX
+    if writable_by_untrusted and not (allow_sticky_writable and sticky):
         raise RuntimeArtifactTrustError(
-            f"runtime database parent must not be group/world writable: {path}"
+            f"runtime database {role} must not be group/world writable: {path}"
         )
+
+
+def _validate_trusted_runtime_ancestor_chain(parent: Path) -> None:
+    """Reject ancestors that an untrusted user could replace below us."""
+
+    current = _absolute_without_resolving(parent)
+    direct_parent = True
+    while True:
+        try:
+            _validate_trusted_runtime_directory(
+                current,
+                allow_sticky_writable=not direct_parent,
+                role="parent" if direct_parent else "ancestor",
+            )
+        except FileNotFoundError:
+            pass
+        parent_path = current.parent
+        if parent_path == current:
+            break
+        current = parent_path
+        direct_parent = False
 
 
 def prepare_trusted_runtime_database_path(path: Path) -> Path:
     """Create and validate the trusted location for a mutable SQLite file."""
 
     absolute = _assert_no_symlink_components(Path(path))
+    _validate_trusted_runtime_ancestor_chain(absolute.parent)
     absolute.parent.mkdir(parents=True, exist_ok=True)
     _assert_no_symlink_components(absolute)
-    _validate_trusted_runtime_directory(absolute.parent)
+    _validate_trusted_runtime_ancestor_chain(absolute.parent)
     try:
         file_stat = os.lstat(absolute)
     except FileNotFoundError:
