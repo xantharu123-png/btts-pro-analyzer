@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -160,16 +161,43 @@ class ScanJobTests(unittest.TestCase):
         self.assertEqual(scan_jobs.get_job("test")["result"], "new")
 
     def test_progress_extends_inactivity_timeout(self):
-        def active(progress_cb=None):
-            for step in range(4):
-                time.sleep(0.02)
-                progress_cb((step + 1) / 5, f"Schritt {step + 1}")
-            return "healthy"
+        # Control semantic time independently of Windows thread scheduling.
+        # Five seconds is only a deadlock watchdog, never the timeout under test.
+        monotonic = [100.0]
+        advance = [threading.Event() for _ in range(4)]
+        progressed = [threading.Event() for _ in range(4)]
+        worker_finished = threading.Event()
 
-        self.assertTrue(
-            scan_jobs.start_job("test", active, timeout_seconds=0.035)
-        )
-        current = _wait_for_state("test", {"done", "error"})
+        def active(progress_cb=None):
+            try:
+                for step in range(4):
+                    if not advance[step].wait(5.0):
+                        raise AssertionError("worker advance watchdog expired")
+                    progress_cb((step + 1) / 5, f"Schritt {step + 1}")
+                    progressed[step].set()
+                return "healthy"
+            finally:
+                worker_finished.set()
+
+        with patch.object(scan_jobs.time, "monotonic", lambda: monotonic[0]):
+            self.assertTrue(
+                scan_jobs.start_job("test", active, timeout_seconds=0.035)
+            )
+            try:
+                for step in range(4):
+                    monotonic[0] = 100.0 + (step + 1) * 0.02
+                    if step:
+                        # At 40/60/80 ms the original 35-ms total deadline has
+                        # elapsed, but the most recent callback is only 20 ms old.
+                        # Omitting its inactivity reset must fail here.
+                        self.assertEqual(scan_jobs.get_job("test")["state"], "running")
+                    advance[step].set()
+                    self.assertTrue(progressed[step].wait(5.0))
+                current = _wait_for_state("test", {"done", "error"})
+            finally:
+                for event in advance:
+                    event.set()
+                self.assertTrue(worker_finished.wait(5.0))
         self.assertEqual(current["state"], "done")
         self.assertEqual(current["result"], "healthy")
 
