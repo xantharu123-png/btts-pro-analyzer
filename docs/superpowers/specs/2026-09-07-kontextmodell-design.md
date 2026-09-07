@@ -2,9 +2,11 @@
 
 Stand: 7. September 2026
 
-Status: Architektur im Chat ausdrücklich freigegeben. Diese schriftliche
-Spezifikation wird zur Prüfung vorgelegt; Implementierungsplan und
-Produktivimplementierung dieses Ausbaus sind noch nicht freigegeben beziehungsweise vorhanden.
+Status: Architektur und diese schriftliche Spezifikation am 7. September 2026
+ausdrücklich freigegeben (Nutzer: „Spezifikation freigegeben“). Der zugehörige
+Implementierungsplan wird unter `../plans/2026-09-07-kontextmodell-umsetzung.md`
+geführt. Die Freigabe ist kein Nachweis einer bereits erfolgten Implementierung
+oder Aktivierung der neuen Modelle.
 
 Ausgangscode: `b3afc478a07fa0d67509e2bef0a9c05766bdb077`.
 Auftrag: Alle verbliebenen Arbeiten außer Cricket, mit Vorrang für Verletzungen,
@@ -399,7 +401,7 @@ erfüllt sind; andernfalls wird genau der unerledigte Teil benannt.
 - Mögliche Archivart, keine Anbindungs-/Kostenfreigabe:
   [Open-Meteo Previous Runs](https://open-meteo.com/en/docs/previous-runs-api).
 
-Die Chatfreigabe bestätigt den beschriebenen Architekturansatz. Diese
-schriftliche Fassung wird vor Erstellung des Implementierungsplans zur Prüfung
-vorgelegt. Durch das Speichern dieses Dokuments wird kein Modell aktiviert und
-keine neue Effektvalidierung behauptet.
+Der Nutzer hat nach der Architektur auch diese schriftliche Fassung ausdrücklich
+mit „Spezifikation freigegeben“ bestätigt. Die Umsetzung folgt dem verlinkten
+Implementierungsplan. Durch die Freigabe oder das Speichern der Dokumente wird
+kein Modell aktiviert und keine neue Effektvalidierung behauptet.
