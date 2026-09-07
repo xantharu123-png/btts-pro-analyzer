@@ -63,6 +63,9 @@ class ModelState:
     cal_wta_a: float = 1.0
     cal_wta_b: float = 0.0
     cal_wta_samples: int = 0
+    tour_scope: str = "legacy-combined"
+    stats_through_kind: str = "tournament_start_proxy"
+    artifact_hash: str | None = None
 
     def calibrate(self, p: float, tour: str = "ATP") -> float:
         from .backtest import _sigmoid, _logit
@@ -260,6 +263,11 @@ def load_state(path: Path | None = None) -> ModelState:
             serve._break_avg = 0.230
         if not hasattr(serve, "_split_indoor"):
             serve._split_indoor = False  # pre-F2 pickle: unsplit behaviour
+    state.tour_scope = getattr(state, "tour_scope", "legacy-combined")
+    state.stats_through_kind = getattr(
+        state, "stats_through_kind", "tournament_start_proxy"
+    )
+    state.artifact_hash = getattr(state, "artifact_hash", None)
     return state
 
 

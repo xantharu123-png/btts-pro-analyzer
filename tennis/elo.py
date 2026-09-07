@@ -16,6 +16,7 @@ future: a match only enters the state AFTER its prediction was made
 from __future__ import annotations
 
 from collections import defaultdict
+import math
 from typing import Dict, FrozenSet, Optional, Tuple
 
 INITIAL_RATING = 1500.0
@@ -67,6 +68,41 @@ class SurfaceElo:
         self.overall = _RatingTable()
         self.by_surface: Dict[str, _RatingTable] = {s: _RatingTable() for s in SURFACES}
 
+    def to_payload(self) -> dict:
+        """Export only the explicit rating state needed by the runtime codec."""
+
+        return {
+            "overall": _rating_table_payload(self.overall),
+            "by_surface": {
+                surface: _rating_table_payload(self.by_surface[surface])
+                for surface in SURFACES
+            },
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict) -> "SurfaceElo":
+        """Rehydrate rating tables from a strictly typed payload."""
+
+        if not isinstance(payload, dict):
+            raise TypeError("elo payload must be a dictionary")
+        if set(payload) != {"overall", "by_surface"}:
+            raise ValueError("elo payload keys must be exactly overall and by_surface")
+        by_surface = payload["by_surface"]
+        if not isinstance(by_surface, dict):
+            raise TypeError("elo by_surface must be a dictionary")
+        if set(by_surface) != set(SURFACES):
+            raise ValueError("elo by_surface must contain exactly the supported surfaces")
+
+        result = cls()
+        result.overall = _rating_table_from_payload(payload["overall"], "overall")
+        result.by_surface = {
+            surface: _rating_table_from_payload(
+                by_surface[surface], f"by_surface.{surface}"
+            )
+            for surface in SURFACES
+        }
+        return result
+
     def update(self, winner: str, loser: str, surface: Optional[str]) -> None:
         self.overall.update(winner, loser)
         table = self.by_surface.get(surface or "")
@@ -107,3 +143,47 @@ class SurfaceElo:
             return p_overall
         p_surface = self._expected(table.rating(player_a), table.rating(player_b))
         return (1.0 - surface_weight) * p_overall + surface_weight * p_surface
+
+
+def _rating_table_payload(table: _RatingTable) -> dict:
+    result = {}
+    for player, entry in table._table.items():
+        if not isinstance(player, str) or not player:
+            raise ValueError("rating player must be a non-empty string")
+        if not isinstance(entry, list) or len(entry) != 2:
+            raise ValueError("rating entry must contain rating and match count")
+        rating, matches = entry
+        if isinstance(rating, bool) or not isinstance(rating, (int, float)):
+            raise TypeError("rating must be a number")
+        if not math.isfinite(rating):
+            raise ValueError("rating must be finite")
+        if isinstance(matches, bool) or not isinstance(matches, int):
+            raise TypeError("rating match count must be an integer")
+        if matches < 0:
+            raise ValueError("rating match count must be nonnegative")
+        result[player] = [rating, matches]
+    return result
+
+
+def _rating_table_from_payload(payload: object, label: str) -> _RatingTable:
+    if not isinstance(payload, dict):
+        raise TypeError(f"elo {label} must be a dictionary")
+    table = _RatingTable()
+    decoded = {}
+    for player, entry in payload.items():
+        if not isinstance(player, str) or not player:
+            raise ValueError(f"elo {label} player must be a non-empty string")
+        if not isinstance(entry, list) or len(entry) != 2:
+            raise ValueError(f"elo {label} entry must contain rating and match count")
+        rating, matches = entry
+        if isinstance(rating, bool) or not isinstance(rating, (int, float)):
+            raise TypeError(f"elo {label} rating must be a number")
+        if not math.isfinite(rating):
+            raise ValueError(f"elo {label} rating must be finite")
+        if isinstance(matches, bool) or not isinstance(matches, int):
+            raise TypeError(f"elo {label} match count must be an integer")
+        if matches < 0:
+            raise ValueError(f"elo {label} match count must be nonnegative")
+        decoded[player] = [rating, matches]
+    table._table.update(decoded)
+    return table

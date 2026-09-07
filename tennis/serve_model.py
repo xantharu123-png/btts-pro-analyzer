@@ -38,6 +38,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timezone
+import math
 from typing import Dict, Optional, Tuple
 
 from .data_loader import normalize_player_name
@@ -161,6 +162,56 @@ class ServeReturnModel:
         self._half_life = half_life_days
         # ATP-only refinement; the WTA box-score feed has no indoor flag
         self._split_indoor = split_indoor
+
+    def to_payload(self) -> dict:
+        """Export constructor parameters and every accumulator slot."""
+
+        rows = []
+        for (player, bucket), accumulator in sorted(self._table.items()):
+            row = {"player": player, "bucket": bucket}
+            for name in _ACCUM_SLOTS:
+                value = getattr(accumulator, name)
+                if name == "last_date":
+                    if value is not None and not isinstance(value, datetime):
+                        raise ValueError("serve last_date must be a datetime or None")
+                    row[name] = value.isoformat() if value is not None else None
+                else:
+                    row[name] = value
+            rows.append(row)
+        payload = {
+            "hold_avg": self._hold_avg,
+            "break_avg": self._break_avg,
+            "half_life_days": self._half_life,
+            "split_indoor": self._split_indoor,
+            "rows": rows,
+        }
+        _validate_serve_payload(payload)
+        return payload
+
+    @classmethod
+    def from_payload(cls, payload: dict) -> "ServeReturnModel":
+        """Rehydrate a serve model without accepting arbitrary attributes."""
+
+        decoded_rows = _validate_serve_payload(payload)
+        result = cls(
+            hold_avg=payload["hold_avg"],
+            break_avg=payload["break_avg"],
+            half_life_days=payload["half_life_days"],
+            split_indoor=payload["split_indoor"],
+        )
+        for player, bucket, values in decoded_rows:
+            accumulator = _Accum()
+            (
+                accumulator.sv_gms,
+                accumulator.sv_held,
+                accumulator.ret_gms,
+                accumulator.ret_breaks,
+                accumulator.sv_opp_break_sum,
+                accumulator.ret_opp_hold_sum,
+                accumulator.last_date,
+            ) = values
+            result._table[(player, bucket)] = accumulator
+        return result
 
     # ------------------------------------------------------------------ decay
 
@@ -439,3 +490,119 @@ def _num(value) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+_ACCUM_SLOTS = (
+    "sv_gms",
+    "sv_held",
+    "ret_gms",
+    "ret_breaks",
+    "sv_opp_break_sum",
+    "ret_opp_hold_sum",
+    "last_date",
+)
+_SERVE_PAYLOAD_KEYS = {
+    "hold_avg",
+    "break_avg",
+    "half_life_days",
+    "split_indoor",
+    "rows",
+}
+_SERVE_ROW_KEYS = {"player", "bucket", *_ACCUM_SLOTS}
+_SERVE_BUCKETS = {OVERALL_KEY, *SURFACES, HARD_INDOOR_KEY}
+
+
+def _finite_number(value: object, *, label: str) -> int | float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{label} must be a number")
+    if not math.isfinite(value):
+        raise ValueError(f"{label} must be finite")
+    return value
+
+
+def _probability(value: object, *, label: str) -> int | float:
+    number = _finite_number(value, label=label)
+    if not 0.0 < number < 1.0:
+        raise ValueError(f"{label} must be between zero and one")
+    return number
+
+
+def _stored_date(value: object) -> Optional[datetime]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError("serve last_date must be an ISO date string or None")
+    try:
+        moment = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("serve last_date must be a valid ISO date") from exc
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(timezone.utc).replace(tzinfo=None)
+    return moment
+
+
+def _validate_serve_payload(payload: object):
+    if not isinstance(payload, dict):
+        raise TypeError("serve payload must be a dictionary")
+    if set(payload) != _SERVE_PAYLOAD_KEYS:
+        raise ValueError("serve payload has missing or unexpected keys")
+    _probability(payload["hold_avg"], label="serve hold_avg")
+    _probability(payload["break_avg"], label="serve break_avg")
+    half_life = payload["half_life_days"]
+    if half_life is not None:
+        half_life = _finite_number(half_life, label="serve half_life_days")
+        if half_life <= 0:
+            raise ValueError("serve half_life_days must be positive or None")
+    if not isinstance(payload["split_indoor"], bool):
+        raise TypeError("serve split_indoor must be a boolean")
+    rows = payload["rows"]
+    if not isinstance(rows, list):
+        raise TypeError("serve rows must be a list")
+
+    seen = set()
+    decoded = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise TypeError("serve row must be a dictionary")
+        if set(row) != _SERVE_ROW_KEYS:
+            raise ValueError("serve row has missing or unexpected keys")
+        player = row["player"]
+        bucket = row["bucket"]
+        if not isinstance(player, str) or not player:
+            raise ValueError("serve player must be a non-empty string")
+        if bucket not in _SERVE_BUCKETS:
+            raise ValueError("serve row has an unknown bucket")
+        key = (player, bucket)
+        if key in seen:
+            raise ValueError("serve rows contain a duplicate player and bucket")
+        seen.add(key)
+
+        numbers = [
+            _finite_number(row[name], label=f"serve {name}")
+            for name in _ACCUM_SLOTS[:-1]
+        ]
+        if any(value < 0 for value in numbers):
+            raise ValueError("serve accumulator values must be nonnegative")
+        sv_gms, sv_held, ret_gms, ret_breaks, opp_break, opp_hold = numbers
+        if sv_held > sv_gms:
+            raise ValueError("serve holds cannot exceed service games")
+        if ret_breaks > ret_gms:
+            raise ValueError("serve breaks cannot exceed return games")
+        if opp_break > sv_gms or opp_hold > ret_gms:
+            raise ValueError("serve opponent-rate sums cannot exceed games")
+        decoded.append(
+            (
+                player,
+                bucket,
+                (
+                    sv_gms,
+                    sv_held,
+                    ret_gms,
+                    ret_breaks,
+                    opp_break,
+                    opp_hold,
+                    _stored_date(row["last_date"]),
+                ),
+            )
+        )
+    return decoded
