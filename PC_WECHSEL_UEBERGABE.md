@@ -2,6 +2,8 @@
 
 **Fortsetzung 7. September 2026:** Zuerst `docs/audits/2026-09-05-umsetzung.md` und `docs/audits/2026-09-07-release.md` lesen. Die nachfolgenden September-2-Hashes und Testzahlen sind historische Nachweise. Lokal funktioniert `.codex_test_venv/quality/Scripts/python.exe`; die alte `.venv` wurde erhalten. GitHub und VPS separat prüfen; die sieben Timer rechnen Daten und deployen keinen Code. Offene empirische Modell-/Kontextgüte nicht mit bestandenen Softwaretests gleichsetzen.
 
+**Trainingsdaten:** `tennis/data` enthält versionierte Startdaten und darf durch automatische Downloads nicht verändert werden. Der veränderliche Trainingscache liegt unter `runtime_state/tennis/training_data` beziehungsweise dem konfigurierten Runtime-Root; der Modellstand unter `runtime_state/tennis/model_state.pkl`. Ein aktualisierter Rohdaten-Cache beweist keinen aktualisierten Gesamtmodellstand. Am 7. September verhinderte der WTA-Abruffehler die Veröffentlichung des neuen ATP/WTA-Modells; der alte Juli-Modellstand blieb erhalten.
+
 ## 1. Ziel dieser Übergabe
 
 Diese Anleitung bringt einen neuen Windows-PC in einen sicheren,

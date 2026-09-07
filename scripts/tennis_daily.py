@@ -33,7 +33,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tennis.data_loader import DEFAULT_CACHE_DIR, normalize_player_name  # noqa: E402
+from tennis.data_loader import DEFAULT_CACHE_DIR, cached_training_file, normalize_player_name  # noqa: E402
 from tennis.model_state import load_state  # noqa: E402
 from tennis.predict import predict_match  # noqa: E402
 from tennis import shadow  # noqa: E402
@@ -131,7 +131,7 @@ def _default_scan_date(now: datetime | None = None) -> str:
 
 def tournament_surface_map(year: int) -> dict:
     """normalized official name/location/slug -> (surface, best_of, name, indoor)."""
-    path = DEFAULT_CACHE_DIR / "atp_tournaments.csv"
+    path = cached_training_file("atp_tournaments.csv", DEFAULT_CACHE_DIR)
     df = pd.read_csv(path)
     df = df[df["year"] == year]
     mapping = {}

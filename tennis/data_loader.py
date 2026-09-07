@@ -34,14 +34,19 @@ from typing import Callable, Collection, Iterable, Optional
 import pandas as pd
 import requests
 
-from runtime_paths import atomic_write_bytes
+from runtime_paths import (
+    PACKAGED_TENNIS_TRAINING_DATA_DIR,
+    TENNIS_TRAINING_DATA_DIR,
+    _assert_no_symlink_components,
+    atomic_write_bytes,
+)
 
 MAN_TENNIS_BASE = (
     "https://raw.githubusercontent.com/msolonskyi/ManTennisData/master"
 )
 TENNIS_DATA_BASE = "http://www.tennis-data.co.uk"
 
-DEFAULT_CACHE_DIR = Path(__file__).resolve().parent / "data"
+DEFAULT_CACHE_DIR = TENNIS_TRAINING_DATA_DIR
 
 # ---------------------------------------------------------------------------
 # STATS plane allowlist (odds-blind)
@@ -142,10 +147,31 @@ def _assert_odds_blind(columns: Iterable[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
+def cached_training_file(name: str, cache_dir: Path = DEFAULT_CACHE_DIR) -> Path:
+    """Seed a missing canonical runtime file without changing packaged inputs.
+
+    Explicit independent cache directories never inherit repository fixtures.
+    This also provides offline tournament metadata to the daily fixture scan.
+    """
+    if not name or Path(name).name != name or name in {".", ".."}:
+        raise ValueError("training cache filename must be a single path component")
+    target = Path(cache_dir) / name
+    if Path(cache_dir) != DEFAULT_CACHE_DIR:
+        return target
+    _assert_no_symlink_components(target)
+    if target.exists():
+        return target
+    seed = _assert_no_symlink_components(PACKAGED_TENNIS_TRAINING_DATA_DIR / name)
+    if seed.is_file() and seed.stat().st_size > 0:
+        atomic_write_bytes(target, seed.read_bytes(), replace_existing=False)
+    return target
+
+
 def _download(
     url: str, cache_path: Path, timeout: int = 60, *,
     refresh: bool = False, validate: Callable[[bytes], None] | None = None,
 ) -> Path:
+    cache_path = cached_training_file(cache_path.name, cache_path.parent)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     if not refresh and cache_path.exists() and cache_path.stat().st_size > 0:
         return cache_path
@@ -327,7 +353,11 @@ def load_atp_stats(
         raise ValueError("active ATP year must be included in refreshed years")
     refresh_cutoff = pd.Timestamp(datetime.now(timezone.utc))
 
-    tournaments_cache = cache_dir / "atp_tournaments.csv"
+    # All seed baselines must exist before the refreshed metadata is validated:
+    # a provider response may not silently remove previously consumed results.
+    tournaments_cache = cached_training_file("atp_tournaments.csv", cache_dir)
+    for year in years:
+        cached_training_file(f"atp_matches_{year}.csv", cache_dir)
     previous_tournaments = (
         tournaments_cache.read_bytes()
         if refresh_current and tournaments_cache.exists()
@@ -506,7 +536,7 @@ def load_market_odds(
             else f"{TENNIS_DATA_BASE}/{year}/{year}.xlsx"
         )
         refresh_year = refresh_current and year == active_year
-        market_cache = cache_dir / f"{tour.lower()}_odds_{year}.xlsx"
+        market_cache = cached_training_file(f"{tour.lower()}_odds_{year}.xlsx", cache_dir)
         previous_market = (
             market_cache.read_bytes()
             if refresh_year and market_cache.exists()

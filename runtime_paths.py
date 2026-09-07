@@ -35,6 +35,7 @@ RUNTIME_REPORT_DIR = _configured_dir(
 
 PIPELINE_LOG_DIR = RUNTIME_STATE_DIR / "logs"
 TENNIS_RUNTIME_STATE_DIR = RUNTIME_STATE_DIR / "tennis"
+TENNIS_TRAINING_DATA_DIR = TENNIS_RUNTIME_STATE_DIR / "training_data"
 TENNIS_MODEL_STATE_PATH = TENNIS_RUNTIME_STATE_DIR / "model_state.pkl"
 TENNIS_CALIBRATION_WATCH_PATH = (
     TENNIS_RUNTIME_STATE_DIR / "calibration_watch_latest.json"
@@ -43,6 +44,7 @@ TENNIS_WEEKLY_REPORT_DIR = RUNTIME_REPORT_DIR / "tennis"
 
 # Read-only compatibility inputs. These files may contain a versioned seed or
 # historical evidence, but future automation must never overwrite them.
+PACKAGED_TENNIS_TRAINING_DATA_DIR = PROJECT_ROOT / "tennis" / "data"
 PACKAGED_TENNIS_MODEL_STATE_PATH = (
     PROJECT_ROOT / "tennis" / "data" / "model_state.pkl"
 )
@@ -166,8 +168,12 @@ def open_trusted_pickle(path: Path) -> Iterator[BinaryIO]:
             os.close(descriptor)
 
 
-def atomic_write_bytes(path: Path, payload: bytes) -> Path:
-    """Replace ``path`` atomically after fully writing and syncing a temp file."""
+def atomic_write_bytes(path: Path, payload: bytes, *, replace_existing: bool = True) -> Path:
+    """Publish synced bytes atomically, optionally preserving a concurrent file.
+
+    Seed initialization uses an exclusive hard-link publication so it cannot
+    replace a fresher cache created after an earlier missing-file check.
+    """
 
     target = _absolute_without_resolving(Path(path))
     _assert_no_symlink_components(target.parent)
@@ -189,7 +195,13 @@ def atomic_write_bytes(path: Path, payload: bytes) -> Path:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, target)
+        if replace_existing:
+            os.replace(temporary, target)
+        else:
+            try:
+                os.link(temporary, target)
+            except FileExistsError:
+                _assert_no_symlink_components(target)
         if os.name != "nt":
             directory_descriptor = os.open(target.parent, os.O_RDONLY)
             try:
