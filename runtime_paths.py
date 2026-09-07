@@ -37,6 +37,7 @@ PIPELINE_LOG_DIR = RUNTIME_STATE_DIR / "logs"
 TENNIS_RUNTIME_STATE_DIR = RUNTIME_STATE_DIR / "tennis"
 TENNIS_TRAINING_DATA_DIR = TENNIS_RUNTIME_STATE_DIR / "training_data"
 TENNIS_MODEL_STATE_PATH = TENNIS_RUNTIME_STATE_DIR / "model_state.pkl"
+CONTEXT_MODEL_DB_PATH = RUNTIME_STATE_DIR / "context_models.db"
 TENNIS_CALIBRATION_WATCH_PATH = (
     TENNIS_RUNTIME_STATE_DIR / "calibration_watch_latest.json"
 )
@@ -135,6 +136,61 @@ def validate_trusted_pickle_path(path: Path) -> Path:
     absolute = _assert_no_symlink_components(Path(path))
     file_stat = os.lstat(absolute)
     _validate_trusted_pickle_stat(absolute, file_stat)
+    return absolute
+
+
+def _validate_trusted_runtime_database_stat(
+    path: Path,
+    file_stat: os.stat_result,
+) -> None:
+    if not stat.S_ISREG(file_stat.st_mode):
+        raise RuntimeArtifactTrustError(
+            f"runtime database must be a regular file: {path}"
+        )
+    trusted_owners = _trusted_owner_ids()
+    if trusted_owners is None:
+        return
+    if file_stat.st_uid not in trusted_owners:
+        raise RuntimeArtifactTrustError(
+            f"runtime database has an untrusted owner: {path}"
+        )
+    if file_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise RuntimeArtifactTrustError(
+            f"runtime database must not be group/world writable: {path}"
+        )
+
+
+def _validate_trusted_runtime_directory(path: Path) -> None:
+    directory_stat = os.lstat(path)
+    if not stat.S_ISDIR(directory_stat.st_mode):
+        raise RuntimeArtifactTrustError(
+            f"runtime database parent must be a directory: {path}"
+        )
+    trusted_owners = _trusted_owner_ids()
+    if trusted_owners is None:
+        return
+    if directory_stat.st_uid not in trusted_owners:
+        raise RuntimeArtifactTrustError(
+            f"runtime database parent has an untrusted owner: {path}"
+        )
+    if directory_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise RuntimeArtifactTrustError(
+            f"runtime database parent must not be group/world writable: {path}"
+        )
+
+
+def prepare_trusted_runtime_database_path(path: Path) -> Path:
+    """Create and validate the trusted location for a mutable SQLite file."""
+
+    absolute = _assert_no_symlink_components(Path(path))
+    absolute.parent.mkdir(parents=True, exist_ok=True)
+    _assert_no_symlink_components(absolute)
+    _validate_trusted_runtime_directory(absolute.parent)
+    try:
+        file_stat = os.lstat(absolute)
+    except FileNotFoundError:
+        return absolute
+    _validate_trusted_runtime_database_stat(absolute, file_stat)
     return absolute
 
 
