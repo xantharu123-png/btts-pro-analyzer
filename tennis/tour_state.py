@@ -189,6 +189,11 @@ def _check_predictions(state: ModelState) -> None:
     tables.extend((surface, table, ratings["by_surface"][surface])
                   for surface, table in state.elo.by_surface.items())
     for surface, table, players in tables:
+        if surface is not None:
+            # Match win_probability's default surface eligibility: otherwise
+            # inexperienced extrema trigger its overall fallback and can hide
+            # an overflowing matchup between experienced surface players.
+            players = [player for player in players if table.matches(player) >= 8]
         if not players:
             continue
         low, high = min(players, key=table.rating), max(players, key=table.rating)

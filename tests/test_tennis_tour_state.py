@@ -490,6 +490,35 @@ def test_price_only_changes_cannot_change_separate_model_artifact_hash(tmp_path,
     assert refresh(path, builder)["tours"]["WTA"]["artifact_hash"] == first
 
 
+@pytest.mark.parametrize("surface", ["Hard", "Clay", "Grass", "Carpet"])
+@pytest.mark.parametrize("surface_matches", [8, 10])
+def test_inexperienced_surface_extrema_cannot_hide_overflow_before_storage(
+        tmp_path, monkeypatch, surface, surface_matches):
+    def builder(tour):
+        result = state(tour)
+        payload = result.elo.to_payload()
+        payload["overall"] = {player: [1500., 20] for player in "abcd"}
+        payload["by_surface"] = {name: {} for name in payload["by_surface"]}
+        payload["by_surface"][surface] = {
+            "a": [-1.e300, 0], "b": [1.e300, 0],
+            "c": [-1.e200, surface_matches], "d": [1.e200, surface_matches],
+        }
+        result.elo = SurfaceElo.from_payload(payload)
+        # The outer pair falls back safely; the eligible inner pair overflows.
+        assert result.elo.win_probability("a", "b", surface) == .5
+        with pytest.raises(OverflowError):
+            result.elo.win_probability("c", "d", surface)
+        return result
+
+    monkeypatch.setattr(tour_state, "put_artifact",
+                        lambda *a, **k: pytest.fail("invalid surface model reached artifact storage"))
+    path = tmp_path / "models.db"
+    result = refresh(path, builder)
+    assert result["status"] == "failed"
+    assert all(record["error_type"] == "OverflowError" for record in result["tours"].values())
+    assert load_manifest(path)[1] == {}
+
+
 def test_retry_does_not_overwrite_concurrently_improved_same_tour(tmp_path, monkeypatch):
     path = tmp_path / "models.db"
     actual = tour_state.publish_slots
