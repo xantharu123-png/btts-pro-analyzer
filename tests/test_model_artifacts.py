@@ -375,6 +375,54 @@ def test_first_install_uses_real_sqlite_types_and_keeps_history(tmp_path):
         ).fetchall() == [(first, None), (second, first)]
 
 
+def test_first_install_requests_private_mode_for_every_missing_parent(
+    tmp_path,
+    monkeypatch,
+):
+    parents = [
+        tmp_path / "first",
+        tmp_path / "first" / "second",
+        tmp_path / "first" / "second" / "third",
+    ]
+    path = parents[-1] / "models.db"
+    original_mkdir = runtime_paths.os.mkdir
+    created_modes = {}
+
+    def record_successful_mkdir(candidate, mode=0o777, *args, **kwargs):
+        result = original_mkdir(candidate, mode, *args, **kwargs)
+        created_modes[Path(candidate).absolute()] = mode
+        return result
+
+    monkeypatch.setattr(runtime_paths.os, "mkdir", record_successful_mkdir)
+
+    assert load_manifest(path) == (None, {})
+    assert created_modes == {
+        parent.absolute(): 0o700
+        for parent in parents
+    }
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process umask")
+def test_posix_first_install_is_private_with_group_permissive_umask(tmp_path):
+    parents = [
+        tmp_path / "first",
+        tmp_path / "first" / "second",
+        tmp_path / "first" / "second" / "third",
+    ]
+    path = parents[-1] / "models.db"
+    previous_umask = os.umask(0o002)
+    try:
+        assert load_manifest(path) == (None, {})
+    finally:
+        os.umask(previous_umask)
+
+    assert [runtime_paths.stat.S_IMODE(parent.stat().st_mode) for parent in parents] == [
+        0o700,
+        0o700,
+        0o700,
+    ]
+
+
 def test_runtime_database_rejects_symlink_path(tmp_path, monkeypatch):
     path = (tmp_path / "models.db").absolute()
     original_lstat = runtime_paths.os.lstat
@@ -399,10 +447,26 @@ def test_runtime_database_rejects_wrong_owner(tmp_path, monkeypatch):
     path = tmp_path / "models.db"
     assert load_manifest(path) == (None, {})
     actual_owner = path.stat().st_uid
+    original_lstat = runtime_paths.os.lstat
+
+    def wrong_database_owner_lstat(candidate, *args, **kwargs):
+        actual = original_lstat(candidate, *args, **kwargs)
+        if Path(candidate).absolute() == path.absolute():
+            return _stat_with(
+                _trusted_stat(actual),
+                st_uid=actual_owner + 1,
+            )
+        return _trusted_stat(actual)
+
+    monkeypatch.setattr(
+        runtime_paths.os,
+        "lstat",
+        wrong_database_owner_lstat,
+    )
     monkeypatch.setattr(
         runtime_paths,
         "_trusted_owner_ids",
-        lambda: {actual_owner + 1},
+        lambda: {0, actual_owner},
     )
 
     with pytest.raises(runtime_paths.RuntimeArtifactTrustError, match="owner"):
@@ -436,7 +500,7 @@ def test_runtime_database_rejects_writable_ancestor_before_creating_parents(
     monkeypatch.setattr(
         runtime_paths,
         "_trusted_owner_ids",
-        lambda: {replaceable_stat.st_uid},
+        lambda: {0, replaceable_stat.st_uid},
     )
 
     with pytest.raises(runtime_paths.RuntimeArtifactTrustError, match="writable"):
@@ -468,7 +532,7 @@ def test_runtime_database_rejects_untrusted_ancestor_owner_before_creation(
     monkeypatch.setattr(
         runtime_paths,
         "_trusted_owner_ids",
-        lambda: {replaceable_stat.st_uid},
+        lambda: {0, replaceable_stat.st_uid},
     )
 
     with pytest.raises(runtime_paths.RuntimeArtifactTrustError, match="owner"):
@@ -505,7 +569,7 @@ def test_runtime_database_allows_trusted_sticky_writable_ancestor(
     monkeypatch.setattr(
         runtime_paths,
         "_trusted_owner_ids",
-        lambda: {sticky_stat.st_uid},
+        lambda: {0, sticky_stat.st_uid},
     )
 
     assert load_manifest(target) == (None, {})

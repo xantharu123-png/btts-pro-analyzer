@@ -209,12 +209,46 @@ def _validate_trusted_runtime_ancestor_chain(parent: Path) -> None:
         direct_parent = False
 
 
+def _create_private_runtime_directories(parent: Path) -> None:
+    """Create every missing directory with permissions unaffected by umask 0002."""
+
+    absolute_parent = _absolute_without_resolving(parent)
+    missing: list[Path] = []
+    current = absolute_parent
+    while True:
+        try:
+            os.lstat(current)
+        except FileNotFoundError:
+            missing.append(current)
+        else:
+            break
+        parent_path = current.parent
+        if parent_path == current:
+            raise RuntimeArtifactTrustError(
+                f"runtime database has no existing trusted ancestor: {parent}"
+            )
+        current = parent_path
+
+    for directory in reversed(missing):
+        try:
+            os.mkdir(directory, 0o700)
+        except FileExistsError:
+            pass
+        _assert_no_symlink_components(directory)
+        direct_parent = directory == absolute_parent
+        _validate_trusted_runtime_directory(
+            directory,
+            allow_sticky_writable=not direct_parent,
+            role="parent" if direct_parent else "ancestor",
+        )
+
+
 def prepare_trusted_runtime_database_path(path: Path) -> Path:
     """Create and validate the trusted location for a mutable SQLite file."""
 
     absolute = _assert_no_symlink_components(Path(path))
     _validate_trusted_runtime_ancestor_chain(absolute.parent)
-    absolute.parent.mkdir(parents=True, exist_ok=True)
+    _create_private_runtime_directories(absolute.parent)
     _assert_no_symlink_components(absolute)
     _validate_trusted_runtime_ancestor_chain(absolute.parent)
     try:
