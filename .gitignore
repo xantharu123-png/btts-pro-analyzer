@@ -12,6 +12,7 @@ __pycache__/
 .pytest_tmp/
 .venv/
 .codex_test_venv/
+.worktrees/
 .mypy_cache/
 .ruff_cache/
 .coverage
