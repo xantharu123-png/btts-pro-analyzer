@@ -33,6 +33,7 @@ variable — not the degenerate 'Winner column always won'.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import hashlib
@@ -57,6 +58,24 @@ CUTOFF_DAYS_SLAM = 15
 MIN_SERVE_GAMES = 60.0   # both players need this many tracked service games
 MIN_ELO_MATCHES = 20     # experience gate: below this we do not bet
 RETIRED_FLAGS = {"retired", "ret", "walkover", "w/o", "def", "default"}
+
+# No bookmaker columns, even for sample eligibility in the separated models.
+RESULT_COLUMNS = ("Date", "Tournament", "Surface", "Court", "Best of",
+                  "Winner", "Loser", "Comment", "tour")
+
+
+@dataclass
+class CalibrationRow:
+    date: object
+    tour: str
+    p_alpha_raw: float
+    y_alpha: int
+
+
+@dataclass
+class CalibrationReport:
+    """Sport-only observations, deliberately not an odds evaluation report."""
+    rows: List[CalibrationRow] = field(default_factory=list)
 
 
 def stable_flip(key: str) -> bool:
@@ -471,7 +490,9 @@ def run_backtest(
     score_from: Optional[str] = None,
     serve_half_life_days: Optional[float] = 365.0,
     serve_split_indoor: bool = True,
-) -> BacktestReport:
+    end_cutoff: datetime | None = None,
+    calibration_only: bool = False,
+) -> BacktestReport | CalibrationReport:
     """Full walk-forward backtest.
 
     ``serve_weight`` blends simulator and Elo when both players have
@@ -490,11 +511,36 @@ def run_backtest(
     ``serve_split_indoor`` keeps a pure Hard@Indoor bucket and makes the
     log5 league constant environment-aware (WTA feed has no flag and
     always runs unsplit).
+
+    ``end_cutoff`` is an inclusive aware input boundary. ``calibration_only``
+    returns sport-only raw observations for exactly one tour: prices neither
+    enter its copied input columns nor decide its sample population. The
+    default remains the legacy odds-evaluation report and eligibility policy.
     """
+    # An explicit cutoff bounds every input before causal pointer traversal.
+    # Default evaluation preserves the established price/eligibility behavior.
+    end_ts = None
+    if end_cutoff is not None:
+        if not isinstance(end_cutoff, datetime) or end_cutoff.tzinfo is None or end_cutoff.utcoffset() is None:
+            raise ValueError("end_cutoff must be timezone-aware")
+        end_ts = pd.Timestamp(end_cutoff.astimezone(timezone.utc)).tz_localize(None)
+    if calibration_only and (len(tours) != 1 or tours[0] not in ("atp", "wta")):
+        raise ValueError("calibration requires exactly one explicit tour")
+
+    def bounded(frame, column, tour):
+        if calibration_only and "tour" in frame and not frame["tour"].eq(tour.upper()).all():
+            raise ValueError("input tour does not match calibration tour")
+        if end_ts is None:
+            return frame
+        frame = frame.copy()
+        frame[column] = pd.to_datetime(frame[column], errors="coerce", utc=True).dt.tz_localize(None)
+        return frame[frame[column].notna() & frame[column].le(end_ts)]
+
     stats_records = None
     stats_dates = None
     if "atp" in tours:
         stats = load_atp_stats(stats_years)
+        stats = bounded(stats, "tourney_date", "atp")
         stats = add_normalized_names(stats, "winner_name", "loser_name")
         stats = stats.sort_values("tourney_date", kind="mergesort").reset_index(drop=True)
         stats_records = stats.to_dict("records")
@@ -505,8 +551,9 @@ def run_backtest(
     # pointer so serve ratings only ever see the past.
     wta_records = None
     wta_dates = None
-    if "wta" in tours:
+    if "wta" in tours and serve_weight > 0:
         wta_stats = load_wta_ta_stats()
+        wta_stats = bounded(wta_stats, "tourney_date", "wta")
         wta_stats = add_normalized_names(wta_stats, "winner_name", "loser_name")
         wta_stats = wta_stats.sort_values("tourney_date", kind="mergesort").reset_index(drop=True)
         wta_records = wta_stats.to_dict("records")
@@ -528,10 +575,13 @@ def run_backtest(
     }
     stats_ptr = 0
     wta_ptr = 0
-    result = BacktestReport()
+    result = CalibrationReport() if calibration_only else BacktestReport()
 
     for tour in tours:
         odds = load_market_odds(odds_years, tour=tour)
+        if calibration_only:
+            odds = odds[[name for name in RESULT_COLUMNS if name in odds]].copy()
+        odds = bounded(odds, "Date", tour)
         odds = odds.rename(columns={"Best of": "BestOf"})
         odds = add_normalized_names(odds, "Winner", "Loser")
         odds = odds.sort_values("Date", kind="mergesort").reset_index(drop=True)
@@ -608,6 +658,21 @@ def run_backtest(
                 if p_serve is not None
                 else p_elo
             )
+
+            if calibration_only:
+                if score_from_ts is None or row.Date >= score_from_ts:
+                    alpha_first_is_w = w_key <= l_key
+                    p_alpha_raw = p_model if alpha_first_is_w else 1.0 - p_model
+                    if not math.isfinite(p_alpha_raw) or not 0. <= p_alpha_raw <= 1.:
+                        raise ValueError("invalid calibration probability")
+                    result.rows.append(CalibrationRow(
+                        date=row.Date, tour=tour.upper(),
+                        p_alpha_raw=round(p_alpha_raw, 4),
+                        y_alpha=1 if alpha_first_is_w else 0,
+                    ))
+                if tour == "wta":
+                    elo.update(w_key, l_key, surface)
+                continue
 
             prices = _devig(row.PSW, row.PSL)
             if prices is None:

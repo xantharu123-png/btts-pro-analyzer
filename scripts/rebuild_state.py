@@ -1,4 +1,4 @@
-"""Rebuild the persisted tennis model state (ATP + WTA Elo, calibrators).
+"""Rebuild and independently publish ATP/WTA tennis model artifacts.
 
 Usage:
     rebuild_state.py --force              always rebuild
@@ -6,8 +6,8 @@ Usage:
     rebuild_state.py --force --refresh-data  revalidate active sources (default)
     rebuild_state.py --force --no-refresh-data  explicitly use cached sources
 
-Exit code 0 always (unless the rebuild itself fails); prints whether a
-rebuild happened so callers (daily automation) can log it.
+Exit 0 only if both tours are published or retained fresh. Partial/failed
+refreshes return 1. The legacy combined pickle writer is explicit opt-in.
 """
 import argparse
 import sys
@@ -18,15 +18,39 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tennis.model_state import build_state, save_state, load_state, state_exists
+from tennis.tour_state import build_tour_state, refresh_tours
+from runtime_paths import CONTEXT_MODEL_DB_PATH
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--if-stale-days", type=float, default=None)
+    ap.add_argument("--legacy-combined", action="store_true",
+                    help="Explicitly use the legacy combined pickle writer")
     ap.add_argument("--refresh-data", action=argparse.BooleanOptionalAction, default=True,
                     help="Revalidate active-year sources before rebuilding (default: enabled)")
     args = ap.parse_args()
+
+    if not args.legacy_combined:
+        cutoff = datetime.fromtimestamp(time.time(), timezone.utc)
+        try:
+            result = refresh_tours(
+                path=CONTEXT_MODEL_DB_PATH, as_of=cutoff,
+                builder=lambda tour: build_tour_state(
+                    tour, as_of=cutoff, refresh_training_data=args.refresh_data),
+                if_stale_days=None if args.force else args.if_stale_days,
+            )
+        except Exception as exc:
+            print(f"REFRESH_FAILED: {type(exc).__name__}; bisherige Tour-Artefakte bleiben erhalten.")
+            return 1
+        for tour, record in result["tours"].items():
+            print(f"{tour}: {record['status']}; artifact_hash={record['artifact_hash']}; "
+                  f"built_at={record['built_at']}; training_cutoff={record['training_cutoff']}; "
+                  f"{record['stats_through_kind']}={record['stats_through']}; "
+                  f"error_type={record['error_type']}")
+        print(f"REFRESH_{result['status'].upper()}; Datenrefresh angefordert={args.refresh_data}")
+        return 0 if result["status"] == "complete" else 1
 
     if not args.force and args.if_stale_days is not None and state_exists():
         state = load_state()

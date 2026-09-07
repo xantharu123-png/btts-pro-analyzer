@@ -24,6 +24,7 @@ from __future__ import annotations
 import pickle
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional, Tuple
 
@@ -66,6 +67,7 @@ class ModelState:
     tour_scope: str = "legacy-combined"
     stats_through_kind: str = "tournament_start_proxy"
     artifact_hash: str | None = None
+    training_cutoff: str | None = None
 
     def calibrate(self, p: float, tour: str = "ATP") -> float:
         from .backtest import _sigmoid, _logit
@@ -110,7 +112,7 @@ def build_state(
     previously combined model to ATP-only. Cache-only callers retain their API.
     """
     if stats_years is None:
-        stats_years = range(2010, 2027)
+        stats_years = range(2010, datetime.fromtimestamp(time.time(), timezone.utc).year + 1)
 
     build_cutoff = pd.Timestamp(time.time(), unit="s", tz="UTC")
     stats_years = tuple(stats_years)

@@ -446,7 +446,7 @@ def test_wta_refresh_failure_cannot_replace_combined_state_with_atp_only(tmp_pat
         return response(TOURNAMENTS if url.endswith("tournaments.csv") else NEW_MATCHES)
     monkeypatch.setattr(data_loader.requests, "get", get)
     monkeypatch.setattr(rebuild_state, "build_state", partial(model_state.build_state, stats_years=(2026,)))
-    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--force", "--refresh-data"])
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--legacy-combined", "--force", "--refresh-data"])
     assert rebuild_state.main() == 1
     assert model_state.DEFAULT_STATE_PATH.read_bytes() == before
     assert "REFRESH_FAILED" in capsys.readouterr().out
@@ -460,7 +460,7 @@ def test_recent_pickle_does_not_hide_old_tournament_start_coverage(tmp_path, mon
     def unavailable(*args, **kwargs):
         raise requests.Timeout("refresh unavailable")
     monkeypatch.setattr(data_loader.requests, "get", unavailable)
-    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--if-stale-days", "7"])
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--legacy-combined", "--if-stale-days", "7"])
     assert rebuild_state.main() == 1
     output = capsys.readouterr().out
     assert "REFRESH_FAILED" in output
@@ -474,7 +474,7 @@ def test_recent_pickle_and_current_coverage_skip_rebuild(tmp_path, monkeypatch):
     state.stats_through = "2026-09-06"
     model_state.save_state(state)
     monkeypatch.setattr(rebuild_state.time, "time", lambda: NOW)
-    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--if-stale-days", "7"])
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--legacy-combined", "--if-stale-days", "7"])
     assert rebuild_state.main() == 0
 
 
@@ -484,7 +484,7 @@ def test_cli_publishes_refreshed_combined_state_only_after_valid_sources(tmp_pat
     def get(url, **kwargs):
         return response(xlsx() if url.endswith(".xlsx") else TOURNAMENTS if url.endswith("tournaments.csv") else NEW_MATCHES)
     monkeypatch.setattr(data_loader.requests, "get", get)
-    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--force", "--refresh-data"])
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--legacy-combined", "--force", "--refresh-data"])
     assert rebuild_state.main() == 0
     published = model_state.load_state()
     assert published.stats_through == "2026-09-01"
@@ -495,7 +495,7 @@ def test_cli_publishes_refreshed_combined_state_only_after_valid_sources(tmp_pat
 def test_explicit_cached_rebuild_does_not_claim_a_source_refresh(tmp_path, monkeypatch, capsys):
     isolated_build(tmp_path, monkeypatch)
     monkeypatch.setattr(rebuild_state, "build_state", partial(model_state.build_state, stats_years=(2026,)))
-    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--force", "--no-refresh-data"])
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--legacy-combined", "--force", "--no-refresh-data"])
     assert rebuild_state.main() == 0
     assert "aktive Quellen revalidiert=False" in capsys.readouterr().out
     assert model_state.load_state().elo.known_players() == {"player o", "woman o"}
@@ -509,7 +509,111 @@ def test_failed_atomic_model_publish_retains_last_good_state(tmp_path, monkeypat
     def interrupted(*args):
         raise OSError("simulated model publication failure")
     monkeypatch.setattr(runtime_paths.os, "replace", interrupted)
-    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--force", "--no-refresh-data"])
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--legacy-combined", "--force", "--no-refresh-data"])
     assert rebuild_state.main() == 1
     assert model_state.DEFAULT_STATE_PATH.read_bytes() == before
     assert not list(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.parametrize("broken,expected", [(None, 0), ("WTA", 1), ("ATP", 1), ("both", 1)])
+def test_cli_default_publishes_tours_independently_without_touching_legacy(tmp_path, monkeypatch, capsys, broken, expected):
+    from tennis import tour_state
+    isolated_build(tmp_path, monkeypatch)
+    legacy = model_state.DEFAULT_STATE_PATH.read_bytes()
+    path = tmp_path / "models.db"
+    monkeypatch.setattr(rebuild_state, "CONTEXT_MODEL_DB_PATH", path, raising=False)
+    monkeypatch.setattr(rebuild_state.time, "time", lambda: NOW)
+    calls = []
+    def build(tour, *, as_of, refresh_training_data):
+        calls.append((tour, as_of.year, refresh_training_data))
+        if broken in (tour, "both"):
+            raise OSError("secret-provider-detail")
+        result = old_state()
+        result.built_at = NOW
+        result.tour_scope = tour
+        result.stats_through_kind = "result_date" if tour == "WTA" else "tournament_start_proxy"
+        result.serve_weight = 0. if tour == "WTA" else .3
+        return result
+    monkeypatch.setattr(rebuild_state, "build_tour_state", build, raising=False)
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--force"])
+    assert rebuild_state.main() == expected
+    assert calls == [("ATP", 2026, True), ("WTA", 2026, True)]
+    assert model_state.DEFAULT_STATE_PATH.read_bytes() == legacy
+    output = capsys.readouterr().out
+    assert "secret-provider-detail" not in output
+    for tour in ("ATP", "WTA"):
+        if broken not in (tour, "both"):
+            assert tour_state.load_tour_state(tour, path=path).tour_scope == tour
+
+
+def test_cli_retains_only_fresh_tour_and_force_overrides_skip(tmp_path, monkeypatch, capsys):
+    from tennis import tour_state
+    from model_artifacts import load_manifest
+    path = tmp_path / "models.db"
+    clock = datetime.fromtimestamp(NOW, timezone.utc)
+    def initial(tour):
+        result = old_state()
+        result.built_at = NOW
+        result.stats_through = "2026-09-06" if tour == "ATP" else "2026-07-27"
+        result.tour_scope = tour
+        result.stats_through_kind = "result_date" if tour == "WTA" else "tournament_start_proxy"
+        result.serve_weight = 0. if tour == "WTA" else .3
+        return result
+    assert tour_state.refresh_tours(path=path, as_of=clock, builder=initial,
+        publication_clock=lambda: clock)["status"] == "complete"
+    before = load_manifest(path)
+    calls = []
+    def unavailable(tour, **kwargs):
+        calls.append((tour, kwargs["refresh_training_data"]))
+        raise OSError("unavailable")
+    monkeypatch.setattr(rebuild_state, "CONTEXT_MODEL_DB_PATH", path, raising=False)
+    monkeypatch.setattr(rebuild_state, "build_tour_state", unavailable, raising=False)
+    monkeypatch.setattr(rebuild_state.time, "time", lambda: NOW)
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--if-stale-days", "7"])
+    assert rebuild_state.main() == 1
+    assert calls == [("WTA", True)]
+    assert "retained_fresh" in capsys.readouterr().out
+    assert load_manifest(path) == before
+    calls.clear()
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--force", "--if-stale-days", "7", "--no-refresh-data"])
+    assert rebuild_state.main() == 1
+    assert calls == [("ATP", False), ("WTA", False)]
+    assert load_manifest(path) == before
+
+
+@pytest.mark.parametrize("tour", ["ATP", "WTA"])
+@pytest.mark.parametrize("available", [False, True])
+def test_new_season_uses_coherent_real_source_clock_without_fake_coverage(tmp_path, monkeypatch, tour, available):
+    from tennis import tour_state
+    moment = datetime(2027, 1, 2, tzinfo=timezone.utc)
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return moment if tz else moment.replace(tzinfo=None)
+    monkeypatch.setattr(data_loader, "datetime", FrozenDatetime)
+    monkeypatch.setattr(tour_state.time, "time", lambda: moment.timestamp())
+    cached_sources(tmp_path)
+    tournaments = TOURNAMENTS + b"2,New Season,2027,Outdoor,Hard,atp_250,20270101\n"
+    requested = []
+    def get(url, **kwargs):
+        requested.append(url)
+        if url.endswith("tournaments.csv"):
+            return response(tournaments)
+        if available and url.endswith("matches_2027.csv"):
+            return response(NEW_MATCHES.replace(b"2,1,", b"2,2,"))
+        if available and url.endswith("2027w/2027.xlsx"):
+            return response(xlsx(day="2027-01-01"))
+        raise requests.HTTPError("season not published")
+    monkeypatch.setattr(data_loader.requests, "get", get)
+    monkeypatch.setattr(tour_state, "load_atp_stats", partial(data_loader.load_atp_stats, cache_dir=tmp_path))
+    monkeypatch.setattr(tour_state, "load_market_odds", partial(data_loader.load_market_odds, cache_dir=tmp_path))
+    monkeypatch.setattr(tour_state, "run_backtest", lambda **k: SimpleNamespace(rows=[]))
+    if available:
+        built = tour_state.build_tour_state(tour, as_of=moment)
+        assert built.stats_through == "2027-01-01"
+        assert built.built_at == moment.timestamp()
+    else:
+        with pytest.raises(requests.HTTPError):
+            tour_state.build_tour_state(tour, as_of=moment)
+    suffix = "matches_2027.csv" if tour == "ATP" else "2027w/2027.xlsx"
+    assert any(url.endswith(suffix) for url in requested)
