@@ -4,6 +4,8 @@
 
 **Trainingsdaten:** `tennis/data` enthält versionierte Startdaten und darf durch automatische Downloads nicht verändert werden. Der veränderliche Trainingscache liegt unter `runtime_state/tennis/training_data` beziehungsweise dem konfigurierten Runtime-Root; der Modellstand unter `runtime_state/tennis/model_state.pkl`. Ein aktualisierter Rohdaten-Cache beweist keinen aktualisierten Gesamtmodellstand. Am 7. September verhinderte der WTA-Abruffehler die Veröffentlichung des neuen ATP/WTA-Modells; der alte Juli-Modellstand blieb erhalten.
 
+**Neuer Auftrag – Kontextmodell ohne Cricket:** Der Nutzer hat die Architektur für tatsächliche Verletzungs-/Belastungseffekte und getrennte ATP-/WTA-Modellstände im Chat freigegeben. Schriftliche Spezifikation: `docs/superpowers/specs/2026-09-07-kontextmodell-design.md`. Diese Fassung wartet noch auf Prüfung; es gibt dafür noch keinen Implementierungsplan oder neuen Produktivcode. Cricket bleibt ausgenommen. Nicht mit der abgeschlossenen technischen Auditkorrektur verwechseln.
+
 ## 1. Ziel dieser Übergabe
 
 Diese Anleitung bringt einen neuen Windows-PC in einen sicheren,
