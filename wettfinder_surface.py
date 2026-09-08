@@ -34,6 +34,7 @@ from market_consensus import (
     wettfinder_reference_price_status,
 )
 from multi_sport_recommendations import RecommendationCandidate
+from selection_coherence import consumer_event_identity, select_coherent_forecasts
 
 
 _ALL_SPORT_FILTERS = {"", "alle", "all"}
@@ -70,6 +71,21 @@ class WettfinderCard:
     analysis_basis: str = ""
     analysis_caution: str = ""
     analysis_samples: str = ""
+    # Original event binding, never reconstructed from a formatted display date
+    # or a bookmaker quote. Shared coherence runs before sections/pagination.
+    fixture_id: Optional[int] = None
+    fixture_source: Optional[str] = None
+    provider_event_id: Optional[str] = None
+    scheduled_start: Optional[str] = None
+    home_team: Optional[str] = None
+    away_team: Optional[str] = None
+    home_team_id: Optional[int] = None
+    away_team_id: Optional[int] = None
+    competitor_a: Optional[str] = None
+    competitor_b: Optional[str] = None
+    selected_competitor: Optional[str] = None
+    competitor_a_id: Optional[str] = None
+    competitor_b_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -119,7 +135,12 @@ class WettfinderReleaseOverlay:
 
 @dataclass(frozen=True)
 class WettfinderCatalog:
-    """The unranked top cards plus every remaining card exactly once."""
+    """Price-neutral primary cards and logically compatible additional cards.
+
+    The complete model pool remains upstream, not a list of contradictory
+    standalone user recommendations. Section and page boundaries cannot reset
+    the event's selected scenario.
+    """
 
     featured: tuple[WettfinderCard, ...]
     additional: tuple[WettfinderCard, ...]
@@ -428,15 +449,24 @@ def build_wettfinder_card(
         analysis_basis=analysis.basis,
         analysis_caution=analysis.caution,
         analysis_samples=analysis.samples,
+        fixture_id=signal.fixture_id,
+        fixture_source=signal.fixture_source,
+        provider_event_id=signal.provider_event_id,
+        scheduled_start=signal.scheduled_start,
+        home_team=signal.home_team,
+        away_team=signal.away_team,
+        home_team_id=signal.home_team_id,
+        away_team_id=signal.away_team_id,
+        competitor_a=signal.competitor_a,
+        competitor_b=signal.competitor_b,
+        selected_competitor=signal.selected_competitor,
+        competitor_a_id=signal.competitor_a_id,
+        competitor_b_id=signal.competitor_b_id,
     )
 
 
 def _fixture_identity(card: WettfinderCard) -> str:
-    sport = _token(card.sport) or "modell"
-    event = _token(card.event_label)
-    if event:
-        return f"{sport}:{event}"
-    return f"{sport}:row_{_token(card.key) or 'unknown'}"
+    return consumer_event_identity(card)
 
 
 def _round_robin_by_sport(cards: Iterable[WettfinderCard]) -> list[WettfinderCard]:
@@ -506,12 +536,14 @@ def compose_wettfinder_catalog(
     sport_filter: str = "Alle",
     max_featured: int = 3,
 ) -> WettfinderCatalog:
-    """Compose an unranked, complete, price-neutral visible catalog.
+    """Compose a coherent, price-neutral visible selection across all pages.
 
     With ``Alle`` the source order is round-robin by sport. Within each sport
-    it remains the loader's original model order. Sport and event label form
-    the fixture key, preventing equal event names in different sports from
-    colliding.
+    it remains the loader's original model order. The first useful row per
+    event anchors its scenario; broad basis rows cannot exclude a useful
+    selection merely by arriving earlier. No odds, price decision or raw
+    probability changes that preference. All additional selections must have
+    a jointly possible outcome with their event's complete selected set.
     """
 
     if (
@@ -526,6 +558,10 @@ def compose_wettfinder_catalog(
         ordered = _round_robin_by_sport(original)
     else:
         ordered = [card for card in original if _token(card.sport) == requested]
+    ordered = select_coherent_forecasts(
+        ordered,
+        preferred=[card for card in ordered if not _consumer_market_is_basis(card)],
+    )
     featured = _select_featured(ordered, max_featured=max_featured)
     featured_keys = {card.key for card in featured}
     remaining = [card for card in ordered if card.key not in featured_keys]

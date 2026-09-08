@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import math
 from datetime import datetime, timedelta, timezone
+from zlib import crc32
 
 import pytest
 import wettfinder_surface as surface
@@ -50,7 +51,8 @@ def _signal(
         selection=selection,
         market_key=market_key,
         candidate_id=f"candidate:{key}",
-        fixture_id=123 if sport == "Fussball" else None,
+        # Distinct test events must not reuse the same provider fixture ID.
+        fixture_id=(123 if event == "Alpha vs Beta" else 10_000 + crc32(event.encode("utf-8"))) if sport == "Fussball" else None,
         home_team="Alpha" if sport == "Fussball" else None,
         away_team="Beta" if sport == "Fussball" else None,
         context_summary=context_summary if context_complete is not None else None,
@@ -689,10 +691,10 @@ def test_catalog_round_robins_sports_uses_no_price_order_and_keeps_fixture_rows_
         "same-fixture-two",
         "same-fixture-three",
     ]
-    assert [group.fixture_identity for group in catalog.additional_groups] == [
-        "fussball:alpha_vs_beta",
-        "fussball:eta_vs_theta",
-        "fussball:epsilon_vs_zeta",
+    assert [group.label for group in catalog.additional_groups] == [
+        "Alpha vs Beta",
+        "Eta vs Theta",
+        "Epsilon vs Zeta",
     ]
     assert [card.key for card in catalog.additional_groups[2].cards] == [
         "same-fixture-two",
@@ -745,6 +747,87 @@ def test_repeated_broad_team_totals_stay_visible_without_monopolizing_featured_c
         "broad-2",
         "broad-3",
     }
+
+
+@pytest.mark.parametrize("opposite", ["RESULT_AWAY", "DC_X2"])
+def test_same_event_opposition_cannot_escape_into_additional_cards(opposite):
+    home = _card(replace(_signal(
+        "porto-home", event="Porto vs City", market="Endergebnis",
+        market_key="RESULT_HOME", selection="Heimsieg",
+    ), fixture_id=1635654, probability=.46361))
+    away = _card(replace(_signal(
+        "porto-opposite", event="Porto vs City", market="Endergebnis",
+        market_key=opposite, selection="Auswärtssieg" if opposite == "RESULT_AWAY" else "X2",
+    ), fixture_id=1635654, probability=.211739))
+    catalog = surface.compose_wettfinder_catalog([home, away])
+    assert [card.key for card in catalog.featured + catalog.additional] == [home.key]
+    assert home.model_probability == .46361
+    assert away.model_probability == .211739
+
+
+def test_conflicts_are_resolved_before_pagination_and_independent_of_prices():
+    unrelated = [_card(replace(_signal(
+        f"separate-{index}", event=f"A{index} vs B{index}",
+        market="Endergebnis", market_key="RESULT_HOME", selection="Heimsieg",
+    ), fixture_id=1000 + index)) for index in range(45)]
+    home = _card(replace(_signal(
+        "late-home", event="Porto vs City", market="Endergebnis",
+        market_key="RESULT_HOME", selection="Heimsieg",
+    ), fixture_id=1635654))
+    away = _card(replace(_signal(
+        "late-away", event="Porto vs City", market="Endergebnis",
+        market_key="RESULT_AWAY", selection="Auswärtssieg",
+    ), fixture_id=1635654))
+    rows = [*unrelated[:20], home, *unrelated[20:], away]
+    catalog = surface.compose_wettfinder_catalog(rows)
+    visible = catalog.featured + catalog.additional
+    assert home in visible and away not in visible
+    assert len(visible) == 46
+    repriced = surface.compose_wettfinder_catalog([
+        replace(row, observed_odds=99.0 if row.key == away.key else None,
+                price_code="PLAYABLE" if row.key == away.key else "UNAVAILABLE")
+        for row in rows
+    ])
+    assert [row.key for row in repriced.featured + repriced.additional] == [row.key for row in visible]
+    assert len(rows) == 47  # Presentation never deletes a stored model row.
+
+
+def test_compatible_cross_market_forecasts_stay_visible_but_collective_conflicts_do_not():
+    def outcome(key):
+        return _card(replace(_signal(
+            key, market="Auswahl", market_key=key, selection=key,
+        ), fixture_id=1635654))
+    btts, home_under, total_over = map(outcome, ["BTTS_YES", "HOME_UNDER_1_5", "TOTAL_OVER_2_5"])
+    away_under = outcome("AWAY_UNDER_1_5")
+    # Each pair can win, but both teams exactly one goal cannot also total >2.5.
+    catalog = surface.compose_wettfinder_catalog([btts, home_under, total_over, away_under])
+    assert [card.key for card in catalog.featured + catalog.additional] == [btts.key, home_under.key, total_over.key]
+
+
+def test_event_identity_is_native_and_does_not_merge_same_named_distinct_fixtures():
+    first_signal = replace(_signal(
+        "first-event", event="Same Name vs Same Opponent", market="Endergebnis",
+        market_key="RESULT_HOME", selection="Heimsieg",
+    ), fixture_id=101)
+    separate_signal = replace(first_signal, key="second-event", candidate_id="second-event",
+                              fixture_id=102, market_key="RESULT_AWAY", selection="Auswärtssieg")
+    renamed_same_event = replace(first_signal, key="renamed-event", candidate_id="renamed-event",
+                                 event_label="Changed display spelling", market_key="RESULT_AWAY", selection="Auswärtssieg")
+    cards = [_card(signal) for signal in (first_signal, separate_signal, renamed_same_event)]
+    catalog = surface.compose_wettfinder_catalog(cards)
+    assert {card.key for card in catalog.featured + catalog.additional} == {"first-event", "second-event"}
+
+
+def test_card_keeps_native_team_roles_when_display_names_change():
+    first = replace(_signal(
+        "team-over", market="Team 1 Gesamttore", market_key="HOME_OVER_1_5", selection="Über 1.5",
+    ), fixture_id=1635654, home_team_id=1, away_team_id=2, home_team="Alpha", away_team="Zulu")
+    renamed = replace(first, key="team-under", candidate_id="team-under", market_key="HOME_UNDER_1_5",
+                      selection="Unter 1.5", home_team="Zulu", away_team="Alpha")
+    cards = [_card(first), _card(renamed)]
+    assert [(card.home_team_id, card.away_team_id) for card in cards] == [(1, 2), (1, 2)]
+    catalog = surface.compose_wettfinder_catalog(cards)
+    assert [card.key for card in catalog.featured + catalog.additional] == [first.key]
 
 
 def test_sixteenth_different_market_survives_repeated_markets_and_90_event_catalog():

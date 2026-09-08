@@ -4847,8 +4847,9 @@ def _render_automated_daily_selection() -> None:
         with st.container(key="wettfinder_v2_additional"):
             st.markdown(
                 '<div class="wf-additional-heading">'
-                "<h2>Weitere Modellprognosen</h2>"
-                "<p>Flach, vergleichbar und weiterhin vollständig bedienbar.</p>"
+                "<h2>Weitere Auswahlen</h2>"
+                "<p>Ergänzungen zum selben Spiel widersprechen sich nicht. "
+                "Das ist keine Kombiwetten-Empfehlung.</p>"
                 "</div>",
                 unsafe_allow_html=True,
             )

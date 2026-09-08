@@ -28,6 +28,7 @@ from multi_sport_recommendations import (
     evaluate_candidate_price,
     format_probability_percent,
 )
+from selection_coherence import select_coherent_forecasts
 from tip_store import TipStore
 
 
@@ -357,6 +358,28 @@ def partition_consumer_featured_forecasts(
         row for index, row in enumerate(original) if index not in featured_indices
     ]
     return featured, secondary
+
+
+def coherent_consumer_forecasts(
+    rows: Iterable[_ForecastRow],
+) -> list[_ForecastRow]:
+    """Select compatible normal-finder cards before any display/price split.
+
+    Use the existing usefulness/context preferences for each game's anchor,
+    never its quote, price-release status or probability. The shared selector
+    preserves original objects and model order; stored catalogs stay intact.
+    This opt-in wrapper deliberately leaves the legacy 15K partition unchanged.
+    """
+
+    original = list(rows)
+    preferred = sorted(
+        original,
+        key=lambda row: (
+            _consumer_market_utility_tier(row),
+            0 if _consumer_context_complete(row) else 1,
+        ),
+    )
+    return select_coherent_forecasts(original, preferred=preferred)
 
 
 def partition_consumer_forecasts(
@@ -861,6 +884,7 @@ def render_price_decision(
 
 
 __all__ = [
+    "coherent_consumer_forecasts",
     "consumer_fixture_label",
     "group_consumer_markets_by_fixture",
     "merge_consumer_forecast_catalog",
