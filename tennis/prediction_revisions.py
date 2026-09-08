@@ -52,6 +52,18 @@ def _canonical(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
+def _modeled_identity(payload: dict) -> str:
+    identity = dict(payload)
+    identity.pop("append_observed_at", None)
+    return _canonical(identity)
+
+
+def _revision_digest(prediction_id: int, serialized: str) -> str:
+    return hashlib.sha256(
+        f"{prediction_id}\n{serialized}".encode("utf-8")
+    ).hexdigest()
+
+
 def append_revision(conn: sqlite3.Connection, prediction_id: int, payload: dict) -> str:
     """Append one causal observation, rejecting ambiguous equal-time states."""
     modeled = utc_epoch(payload["created_utc"])
@@ -66,13 +78,28 @@ def append_revision(conn: sqlite3.Connection, prediction_id: int, payload: dict)
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 1:
             raise ValueError(f"invalid tennis {key}")
     serialized = _canonical(payload)
-    revision_id = hashlib.sha256(f"{prediction_id}\n{serialized}".encode("utf-8")).hexdigest()
+    revision_id = _revision_digest(prediction_id, serialized)
     equal_time = conn.execute(
-        "SELECT revision_id FROM prediction_revisions WHERE prediction_id=? AND modeled_utc=?",
+        """
+        SELECT revision_id,payload_json FROM prediction_revisions
+        WHERE prediction_id=? AND modeled_utc=?
+        """,
         (prediction_id, modeled),
     ).fetchall()
-    if any(row[0] != revision_id for row in equal_time):
-        raise ValueError("ambiguous equal-time tennis model revisions")
+    if equal_time:
+        identity = _modeled_identity(payload)
+        for existing_id, existing_payload in equal_time:
+            if _revision_digest(prediction_id, existing_payload) != existing_id:
+                raise ValueError("tennis model revision content mismatch")
+            try:
+                matches = _modeled_identity(json.loads(existing_payload)) == identity
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise ValueError("tennis model revision content mismatch") from exc
+            if not matches:
+                raise ValueError("ambiguous equal-time tennis model revisions")
+        if len(equal_time) != 1:
+            raise ValueError("ambiguous equal-time tennis model revisions")
+        return equal_time[0][0]
     conn.execute(
         "INSERT OR IGNORE INTO prediction_revisions VALUES (?,?,?,?)",
         (revision_id, prediction_id, modeled, serialized),
@@ -169,7 +196,7 @@ def read_latest_predictions(
             if revisions:
                 latest = revisions[0]
                 payload = json.loads(latest["payload_json"])
-                expected = hashlib.sha256(f"{original['id']}\n{_canonical(payload)}".encode("utf-8")).hexdigest()
+                expected = _revision_digest(original["id"], _canonical(payload))
                 if expected != latest["revision_id"] or utc_epoch(payload["created_utc"]) != latest["modeled_utc"]:
                     raise ValueError("tennis model revision content mismatch")
                 if len(revisions) > 1 and revisions[1]["modeled_utc"] == latest["modeled_utc"]:

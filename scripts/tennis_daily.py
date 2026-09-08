@@ -704,6 +704,7 @@ def refresh_pending_predictions(
     as_of: datetime | None = None,
     minimum_interval: timedelta = timedelta(hours=2),
     allow_legacy_model: bool = False,
+    append_observed_at: datetime | None = None,
 ) -> dict:
     """Refresh due pending fixtures from the existing state without network I/O.
 
@@ -833,6 +834,10 @@ def refresh_pending_predictions(
                 provider_event_id=str(row["provider_event_id"]),
                 scheduled_start_utc=row["scheduled_start_utc"],
                 fixture_source=row["fixture_source"], modeled_at=modeled_at,
+                append_observed_at=append_observed_at,
+                expected_model_revision_id=row.get("model_revision_id"),
+                expected_match_date=row["match_date"],
+                expected_scheduled_start_utc=row["scheduled_start_utc"],
                 db_path=db_path,
             )
             result["refreshed"] += 1
@@ -857,6 +862,7 @@ def scan_fixtures(
     surfaces: dict | None = None,
     workload_history=None,
     allow_legacy_model: bool = False,
+    append_observed_at: datetime | None = None,
 ) -> dict:
     """Score stored fixture observations with one state selection per tour."""
     decision_at = datetime.fromtimestamp(utc_epoch(decision_at), timezone.utc)
@@ -936,6 +942,7 @@ def scan_fixtures(
                 scheduled_start_utc=fx.get("scheduled_start_utc"),
                 fixture_source=fx.get("fixture_source"),
                 modeled_at=decision_at,
+                append_observed_at=append_observed_at,
                 db_path=db_path,
             )
             if row_id > 0:

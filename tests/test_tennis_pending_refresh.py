@@ -36,7 +36,7 @@ def store(
         "2030-01-02", tour, "Test Open", prediction(artifact_hash=artifact_hash),
         odds_a=1.8, odds_b=2.1,
         provider_event_id=event_id, fixture_source="ESPN", scheduled_start_utc=START.isoformat(),
-        modeled_at=when, db_path=path,
+        modeled_at=when, append_observed_at=when, db_path=path,
     )
 
 
@@ -67,7 +67,9 @@ def test_refresh_appends_one_shared_revision_preserving_first_prediction_and_pri
         seen.append((a,b,surface,best_of,kwargs))
         return prediction(.57)
     monkeypatch.setattr(daily,"predict_match",predict)
-    result = daily.refresh_pending_predictions(db_path=db,as_of=NOW)
+    result = daily.refresh_pending_predictions(
+        db_path=db, as_of=NOW, append_observed_at=NOW,
+    )
     assert result["status"] == "complete"
     assert result["refreshed"] == 1
     assert result["provider_checked"] is False
@@ -107,13 +109,17 @@ def test_artifact_change_refreshes_recent_fixture_without_price_revision(db, mon
         lambda state, *args, **kwargs: prediction(.57, state.artifact_hash),
     )
 
-    result = daily.refresh_pending_predictions(db_path=db, as_of=NOW)
+    result = daily.refresh_pending_predictions(
+        db_path=db, as_of=NOW, append_observed_at=NOW,
+    )
 
     assert result["due"] == result["refreshed"] == 1
     latest = shadow.latest_predictions(db, as_of=NOW)[0]
     assert latest["id"] == initial_id
     assert latest["p_cal"] == .57
     assert latest["odds_a"] is None
+    assert latest["created_utc"] == NOW.timestamp()
+    assert latest["append_observed_at"] == NOW.isoformat()
     with closing(sqlite3.connect(db)) as conn:
         assert conn.execute(
             "SELECT odds_a,odds_b FROM predictions WHERE id=?", (initial_id,)
@@ -148,7 +154,9 @@ def test_missing_wta_state_keeps_atp_refresh_and_per_tour_diagnostics(db, monkey
         lambda state, *args, **kwargs: prediction(.57, state.artifact_hash),
     )
 
-    result = daily.refresh_pending_predictions(db_path=db, as_of=NOW)
+    result = daily.refresh_pending_predictions(
+        db_path=db, as_of=NOW, append_observed_at=NOW,
+    )
 
     assert [item[0] for item in loaded] == ["ATP", "WTA"]
     assert all(item[1]["decision_cutoff"] == NOW for item in loaded)
@@ -198,7 +206,8 @@ def test_explicit_legacy_fallback_remains_labelled(db, monkeypatch):
     )
 
     result = daily.refresh_pending_predictions(
-        db_path=db, as_of=NOW, allow_legacy_model=True
+        db_path=db, as_of=NOW, allow_legacy_model=True,
+        append_observed_at=NOW,
     )
 
     assert result["models"]["ATP"]["status"] == "legacy"
@@ -247,6 +256,69 @@ def test_match_start_during_model_computation_prevents_late_append(db, monkeypat
     assert result["refreshed"] == 0
     assert result["skipped"] == 1
     assert shadow.latest_predictions(db,as_of=START)[0]["p_cal"] == .62
+
+
+def test_pending_default_append_rechecks_start_inside_write(db, monkeypatch):
+    store(db)
+    clock = [NOW.timestamp()]
+    original_store = shadow.store_prediction
+
+    def begin_write_after_start(*args, **kwargs):
+        clock[0] = (START + timedelta(seconds=1)).timestamp()
+        return original_store(*args, **kwargs)
+
+    monkeypatch.setattr(daily.time, "time", lambda: clock[0])
+    monkeypatch.setattr(daily, "predict_match", lambda *args, **kwargs: prediction(.57))
+    monkeypatch.setattr(shadow, "store_prediction", begin_write_after_start)
+
+    result = daily.refresh_pending_predictions(db_path=db)
+
+    assert result["refreshed"] == 0
+    assert result["skipped"] == 1
+    assert result["errors"] == []
+    assert shadow.latest_predictions(db, as_of=START)[0]["p_cal"] == .62
+
+
+def test_pending_stale_snapshot_cannot_rewind_concurrent_reschedule(
+    db, monkeypatch,
+):
+    old_start = START
+    new_start = START + timedelta(days=1)
+    store(db)
+    clock = [NOW.timestamp()]
+
+    def concurrent_reschedule(*args, **kwargs):
+        changed_at = NOW + timedelta(seconds=1)
+        clock[0] = changed_at.timestamp()
+        shadow.store_prediction(
+            new_start.date().isoformat(), "ATP", "Test Open",
+            prediction(.66), provider_event_id="123", fixture_source="ESPN",
+            scheduled_start_utc=new_start.isoformat(), modeled_at=changed_at,
+            append_observed_at=changed_at, db_path=db,
+        )
+        clock[0] = (NOW + timedelta(seconds=2)).timestamp()
+        return prediction(.57)
+
+    monkeypatch.setattr(daily.time, "time", lambda: clock[0])
+    monkeypatch.setattr(daily, "predict_match", concurrent_reschedule)
+
+    result = daily.refresh_pending_predictions(db_path=db)
+
+    assert result["refreshed"] == 0
+    assert result["skipped"] == 1
+    assert result["errors"] == []
+    with closing(sqlite3.connect(db)) as connection:
+        assert connection.execute(
+            "SELECT match_date,scheduled_start_utc FROM predictions"
+        ).fetchone() == (new_start.date().isoformat(), new_start.isoformat())
+        assert connection.execute(
+            "SELECT COUNT(*) FROM prediction_revisions"
+        ).fetchone()[0] == 2
+    latest = shadow.latest_predictions(
+        db, as_of=NOW + timedelta(seconds=2)
+    )[0]
+    assert latest["scheduled_start_utc"] == new_start.isoformat()
+    assert latest["p_cal"] == .66
 
 
 def test_observed_cancellation_during_model_computation_prevents_append(db, monkeypatch):
@@ -386,7 +458,9 @@ def test_explicit_future_start_is_refreshable_despite_old_calendar_date(db, monk
         conn.execute("DROP TABLE prediction_revisions")
         conn.execute("UPDATE predictions SET match_date='2029-12-01'")
     monkeypatch.setattr(daily,"predict_match",lambda *a,**k: prediction(.57))
-    result = daily.refresh_pending_predictions(db_path=db,as_of=NOW)
+    result = daily.refresh_pending_predictions(
+        db_path=db, as_of=NOW, append_observed_at=NOW,
+    )
     assert result["due"] == result["refreshed"] == 1
     assert result["errors"] == []
     latest = shadow.latest_predictions(db,as_of=NOW)[0]

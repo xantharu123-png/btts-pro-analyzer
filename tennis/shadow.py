@@ -47,6 +47,9 @@ TENNIS_POLICY_VERSION = "risk-ev-haircut-min-odds-v4"
 class FixtureNotRefreshable(ValueError):
     """The latest observed fixture state forbids a model append."""
 
+
+_EXPECTED_UNSET = object()
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS predictions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -807,12 +810,15 @@ def _guard_fixture_refreshable(
     provider_event_id: str | None,
     scheduled_start_utc: str | None,
     modeled_utc: float,
+    appended_utc: float,
     settled: bool,
 ) -> None:
     if settled:
         raise FixtureNotRefreshable("cannot append a model revision after settlement")
     if scheduled_start_utc and modeled_utc >= utc_epoch(scheduled_start_utc):
         raise FixtureNotRefreshable("tennis model revision must precede match start")
+    if scheduled_start_utc and appended_utc >= utc_epoch(scheduled_start_utc):
+        raise FixtureNotRefreshable("tennis prediction append must precede match start")
     if fixture_source and provider_event_id:
         observed = _latest_fixture_status_in_connection(
             conn, fixture_source, provider_event_id
@@ -821,6 +827,54 @@ def _guard_fixture_refreshable(
             raise FixtureNotRefreshable(
                 f"{observed['status']} fixture cannot receive a model revision"
             )
+
+
+def _prediction_append_time(value: datetime | None) -> tuple[float, str]:
+    moment = (
+        datetime.fromtimestamp(time.time(), timezone.utc)
+        if value is None
+        else value
+    )
+    return _fixture_observation_time(moment)
+
+
+def _guard_expected_fixture_snapshot(
+    conn: sqlite3.Connection,
+    prediction_id: int,
+    *,
+    stored_match_date: str,
+    stored_scheduled_start_utc: str | None,
+    expected_model_revision_id,
+    expected_match_date,
+    expected_scheduled_start_utc,
+) -> None:
+    if (
+        expected_model_revision_id is _EXPECTED_UNSET
+        and expected_match_date is _EXPECTED_UNSET
+        and expected_scheduled_start_utc is _EXPECTED_UNSET
+    ):
+        return
+    latest = conn.execute(
+        """
+        SELECT revision_id FROM prediction_revisions
+        WHERE prediction_id=?
+        ORDER BY modeled_utc DESC, revision_id
+        LIMIT 1
+        """,
+        (prediction_id,),
+    ).fetchone()
+    actual_revision_id = None if latest is None else latest[0]
+    if (
+        (expected_model_revision_id is not _EXPECTED_UNSET
+         and expected_model_revision_id != actual_revision_id)
+        or (expected_match_date is not _EXPECTED_UNSET
+            and expected_match_date != stored_match_date)
+        or (expected_scheduled_start_utc is not _EXPECTED_UNSET
+            and expected_scheduled_start_utc != stored_scheduled_start_utc)
+    ):
+        raise FixtureNotRefreshable(
+            "fixture metadata changed during model calculation"
+        )
 
 
 def already_stored(match_date: str, player_a: str, player_b: str) -> bool:
@@ -852,12 +906,19 @@ def store_prediction(
     scheduled_start_utc: Optional[str] = None,
     fixture_source: Optional[str] = None,
     modeled_at: datetime | str | float | None = None,
+    append_observed_at: datetime | None = None,
+    expected_model_revision_id=_EXPECTED_UNSET,
+    expected_match_date=_EXPECTED_UNSET,
+    expected_scheduled_start_utc=_EXPECTED_UNSET,
     db_path: str | Path | None = None,
 ) -> int:
     """Freeze the initial prediction and append every later model observation.
 
     The original id/return convention is preserved for ledger callers: a
     subsequent observation returns -1, but is available via latest_predictions.
+    ``modeled_at`` is the forecast cutoff. ``append_observed_at`` is a distinct,
+    aware test/replay receipt clock; ordinary callers omit it so the write reads
+    the actual clock only after acquiring its immediate transaction.
     """
     gates = {g.name: {"passed": g.passed, "detail": g.detail} for g in prediction.gates}
     observed = utc_epoch(
@@ -930,19 +991,33 @@ def store_prediction(
             stored = conn.execute(
                 """
                 SELECT player_a,player_b,settled,provider_event_id,
-                       fixture_source,scheduled_start_utc
+                       fixture_source,scheduled_start_utc,match_date
                 FROM predictions WHERE id=?
                 """,
                 (existing[0],),
             ).fetchone()
             if tuple(stored[:2]) != (prediction.player_a, prediction.player_b):
                 raise ValueError("tennis revision cannot change player identity or orientation")
+            _guard_expected_fixture_snapshot(
+                conn,
+                int(existing[0]),
+                stored_match_date=stored[6],
+                stored_scheduled_start_utc=stored[5],
+                expected_model_revision_id=expected_model_revision_id,
+                expected_match_date=expected_match_date,
+                expected_scheduled_start_utc=expected_scheduled_start_utc,
+            )
+            appended_utc, appended_at = _prediction_append_time(
+                append_observed_at
+            )
+            revision["append_observed_at"] = appended_at
             _guard_fixture_refreshable(
                 conn,
                 fixture_source=stored[4] or fixture_source,
                 provider_event_id=stored[3] or provider_event_id,
                 scheduled_start_utc=scheduled_start_utc or stored[5],
                 modeled_utc=observed,
+                appended_utc=appended_utc,
                 settled=bool(stored[2]),
             )
             freeze_legacy_baseline(conn, int(existing[0]))
@@ -972,12 +1047,15 @@ def store_prediction(
             revision.update(zip(("provider_event_id", "fixture_source", "scheduled_start_utc"), identity))
             append_revision(conn, int(existing[0]), revision)
             return -1
+        appended_utc, appended_at = _prediction_append_time(append_observed_at)
+        revision["append_observed_at"] = appended_at
         _guard_fixture_refreshable(
             conn,
             fixture_source=fixture_source,
             provider_event_id=provider_event_id,
             scheduled_start_utc=scheduled_start_utc,
             modeled_utc=observed,
+            appended_utc=appended_utc,
             settled=False,
         )
         cur = conn.execute(

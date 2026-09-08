@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import sqlite3
 from types import SimpleNamespace
@@ -233,8 +234,11 @@ def test_append_cannot_backdate_before_original_observation(db):
 
 
 def test_revision_mutations_are_rejected_and_equal_time_is_unambiguous(db):
-    store(prediction(.65), NOW)
-    assert store(prediction(.65), NOW) == -1
+    store(prediction(.65), NOW, append_observed_at=NOW)
+    assert store(
+        prediction(.65), NOW,
+        append_observed_at=NOW + timedelta(seconds=1),
+    ) == -1
     with pytest.raises(ValueError, match="equal-time"):
         store(prediction(.56), NOW)
     with sqlite3.connect(db) as conn:
@@ -243,6 +247,93 @@ def test_revision_mutations_are_rejected_and_equal_time_is_unambiguous(db):
             conn.execute("UPDATE prediction_revisions SET modeled_utc=0")
         with pytest.raises(sqlite3.IntegrityError, match="immutable"):
             conn.execute("DELETE FROM prediction_revisions")
+    assert shadow.latest_predictions(as_of=NOW)[0][
+        "append_observed_at"
+    ] == NOW.isoformat()
+
+
+def test_equal_time_retry_checks_all_rows_and_their_hashes(db):
+    prediction_id = store(
+        prediction(.65), NOW, append_observed_at=NOW,
+    )
+    with sqlite3.connect(db) as conn:
+        payload = json.loads(conn.execute(
+            "SELECT payload_json FROM prediction_revisions"
+        ).fetchone()[0])
+        payload["p_raw"] = payload["p_cal"] = .56
+        serialized = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False,
+        )
+        revision_id = hashlib.sha256(
+            f"{prediction_id}\n{serialized}".encode("utf-8")
+        ).hexdigest()
+        conn.execute(
+            "INSERT INTO prediction_revisions VALUES (?,?,?,?)",
+            (revision_id, prediction_id, NOW.timestamp(), serialized),
+        )
+
+    with pytest.raises(ValueError, match="equal-time"):
+        store(
+            prediction(.65), NOW,
+            append_observed_at=NOW + timedelta(seconds=1),
+        )
+
+
+def test_equal_time_retry_rejects_a_stored_hash_mismatch(db):
+    prediction_id = store(
+        prediction(.65), NOW, append_observed_at=NOW,
+    )
+    with sqlite3.connect(db) as conn:
+        serialized = conn.execute(
+            "SELECT payload_json FROM prediction_revisions"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO prediction_revisions VALUES (?,?,?,?)",
+            ("f" * 64, prediction_id, NOW.timestamp(), serialized),
+        )
+
+    with pytest.raises(ValueError, match="content mismatch"):
+        store(
+            prediction(.65), NOW,
+            append_observed_at=NOW + timedelta(seconds=1),
+        )
+
+
+def test_equal_time_retry_does_not_choose_between_receipt_histories(db):
+    prediction_id = store(
+        prediction(.65), NOW, append_observed_at=NOW,
+    )
+    with sqlite3.connect(db) as conn:
+        payload = json.loads(conn.execute(
+            "SELECT payload_json FROM prediction_revisions"
+        ).fetchone()[0])
+        payload["append_observed_at"] = (NOW + timedelta(seconds=1)).isoformat()
+        serialized = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False,
+        )
+        revision_id = hashlib.sha256(
+            f"{prediction_id}\n{serialized}".encode("utf-8")
+        ).hexdigest()
+        conn.execute(
+            "INSERT INTO prediction_revisions VALUES (?,?,?,?)",
+            (revision_id, prediction_id, NOW.timestamp(), serialized),
+        )
+
+    with pytest.raises(ValueError, match="equal-time"):
+        store(
+            prediction(.65), NOW,
+            append_observed_at=NOW + timedelta(seconds=2),
+        )
+
+
+def test_explicit_append_clock_must_be_aware(db):
+    with pytest.raises(ValueError, match="timezone-aware"):
+        store(
+            prediction(.65), NOW,
+            append_observed_at=NOW.replace(tzinfo=None),
+        )
 
 
 def test_revision_after_start_or_swapped_players_cannot_mutate_identity(db):

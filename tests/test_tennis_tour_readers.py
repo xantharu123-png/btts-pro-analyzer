@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
+import sqlite3
+import sys
 
 import pytest
 
@@ -223,6 +225,7 @@ def test_initial_scan_selects_independent_tour_states_with_same_player_names(
         db_path=db,
         surfaces={},
         workload_history=[],
+        append_observed_at=NOW,
     )
 
     assert [item[0] for item in loads] == ["ATP", "WTA"]
@@ -266,6 +269,7 @@ def test_initial_scan_keeps_healthy_tour_and_never_builds_missing_state(
         db_path=db,
         surfaces={},
         workload_history=[],
+        append_observed_at=NOW,
     )
 
     assert result["status"] == "partial"
@@ -275,3 +279,37 @@ def test_initial_scan_keeps_healthy_tour_and_never_builds_missing_state(
         "error_type": "FileNotFoundError",
     }]
     assert [row["tour"] for row in shadow.latest_predictions(db, as_of=NOW)] == ["ATP"]
+
+
+def test_initial_main_rejects_default_append_when_computation_crosses_start(
+    tmp_path, monkeypatch,
+):
+    db = tmp_path / "initial.db"
+    clock = [NOW.timestamp()]
+    start = NOW + timedelta(seconds=30)
+    fixture = _fixture("ATP", "atp-1")
+    fixture["match_date"] = start.date().isoformat()
+    fixture["scheduled_start_utc"] = start.isoformat()
+
+    def slow_prediction(*args, **kwargs):
+        clock[0] = (start + timedelta(seconds=1)).timestamp()
+        return predict_match(
+            _state("ATP", built_at=NOW - timedelta(hours=1)),
+            "Same A", "Same B", "Hard", tour="ATP", as_of=NOW,
+        )
+
+    monkeypatch.setattr(shadow, "DB_PATH", db)
+    monkeypatch.setattr(daily, "auto_settle_completed", lambda: 0)
+    monkeypatch.setattr(daily, "tournament_surface_map", lambda year: {})
+    monkeypatch.setattr(daily, "fetch_fixtures", lambda *args, **kwargs: [fixture])
+    monkeypatch.setattr(daily, "load_tour_state", lambda *args, **kwargs: _state("ATP"))
+    monkeypatch.setattr(daily, "predict_match", slow_prediction)
+    monkeypatch.setattr(daily.time, "time", lambda: clock[0])
+    monkeypatch.setattr(sys, "argv", ["tennis_daily.py", start.date().isoformat()])
+
+    assert daily.main() == 0
+    with sqlite3.connect(db) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM predictions").fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM prediction_revisions"
+        ).fetchone()[0] == 0
