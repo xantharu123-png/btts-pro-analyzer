@@ -8,10 +8,10 @@ Cricket ist ausdrücklich nicht Bestandteil dieser Umsetzung.
 ## Prüfgrenzen
 
 - Referenz der Codeprüfung: Entwicklungszweig `codex/kontextmodell-20260907`,
-  zuletzt abgeschlossener Aufgabenstand `e08b48cae799c6cc22fdf6921c6c336c1f0a57df`.
+  zuletzt abgeschlossener Aufgabenstand `16d9c4e88435017c5841e613b9cd91670313813a`.
 - Die Quellenprüfungen waren begrenzte Lesezugriffe. Nur die beiden Fußballabrufe
   reservierten ihr Kontingent im vorhandenen produktiven Budgetbuch.
-- Keine Zugangsdaten, Header, neuen Verträge oder bezahlten Tarife wurden gespeichert
+- Keine Zugangsdaten, Auth-Header, neuen Verträge oder bezahlten Tarife wurden gespeichert
   oder eingerichtet. Keine Prognose, Abrechnung oder Modellaktivierung wurde durch
   die Probes verändert.
 - Ein Feldname im Code oder ein synthetischer Test beweist keine Live-Abdeckung.
@@ -82,11 +82,30 @@ der Erholung begründen. Historische ATP-Trainingsfelder enthalten zwar native
 Spielerkennungen und optionale Dauerwerte; ihr Turnierstartdatum ersetzt ebenfalls
 keinen Matchbeginn oder eine prospektiv belegte Verfügbarkeit.
 
-Separate WTA-Quellenprüfungen um `14:14Z` waren nur HEAD-Zugriffe:
+Die ersten WTA-Quellenprüfungen um `14:14Z` waren nur HEAD-Zugriffe:
 HTTPS ergab einen TLS-Fehler, der bestehende HTTP-Pfad HTTP 503. Ein späterer
-HTTPS-Indexaufruf endete mit Timeout. Das ist weder ein erfolgreicher WTA-Refresh
-noch der Beweis, dass ein regulärer GET-Build generell unmöglich ist.
-Ein echter tourgetrennter Build bleibt ein eigener A4/Release-Nachweis.
+HTTPS-Indexaufruf endete mit Timeout.
+
+Eine zusätzliche, auf genau drei GETs begrenzte Prüfung vom VPS um `17:27Z`
+benutzte die vorhandenen Quelladressen und Produktionsvalidatoren, ausschließlich
+im Speicher und ohne Cache-, Modell- oder Datenbankschreibzugriff:
+
+- ATP-Turnierdatei: HTTP 200, 1.858.008 Bytes, 229 gültige 2026-Turniere bis
+  zum Turnierstart-Proxy `2026-09-07`. SHA-256
+  `1483ae267c77bddefb35025f730dc54e63e81a27efdf315b8ae2d484b574ae36`.
+- ATP-Matchdatei 2026: HTTP 200, 4.182.140 Bytes, 11.680 gültig zugeordnete
+  Saison-Resultatzeilen bis zu demselben Turnierstart-Proxy. Das sind weder
+  heutige Spiele noch ausschließlich Tour-Level-Trainingsfälle. SHA-256
+  `7a0cdeaa42ada513f4dbbfaadd35ff24d96b70047c0e63171dabb2c56b952c54`.
+- WTA-Datei `2026w/2026.xlsx`: HTTP 503, daher nicht als Tabelle geparst oder
+  zwischengespeichert. Keine Wiederholung, Umleitung oder TLS-Abschaltung.
+
+Empfangszeiten waren `17:27:31.162784Z`, `17:27:33.212927Z` und
+`17:27:33.292200Z`. Diese Probe bestätigt aktuelle ATP-Quellabdeckung und einen
+konkreten WTA-GET-Fehler, aber keinen neuen Modellbuild oder Produktivrefresh.
+Insbesondere ersetzt der Turnierstart-Proxy kein genaues Matchende. Ein echter
+tourgetrennter Build einschließlich Kalibration bleibt ein eigener
+A4/Release-Nachweis; die zukünftige WTA-Verfügbarkeit folgt nicht aus dieser Probe.
 
 ## Basketball, Eishockey und E-Sport
 
@@ -116,13 +135,50 @@ Primärdokumentation: [OpenWeather-Vorhersagefelder](https://openweathermap.org/
 [Single Runs](https://open-meteo.com/en/docs/single-runs-api),
 [Nutzungsbedingungen](https://open-meteo.com/en/terms).
 
+## Tatsächlich gespeicherte Prognosen und Kontextnachweise
+
+Eine zusätzliche rein lesende VPS-Prüfung um `17:58Z` untersuchte den gemeinsamen
+Prognosenachweis und den Tennisbestand. Im gemeinsamen Speicher standen 5.878
+Fußballzeilen aus nur 19 gespeicherten Spielkennungen, 116 Tenniszeilen aus fünf
+Kennungen und 84 E-Sport-Zeilen aus acht Kennungen. Für Basketball und Eishockey
+gab es dort keine Zeilen. Nur vier Spielkennungen der fünf untersuchten Sportarten
+hatten bereits gespeicherte Ergebnisse. Die Kennungen sind hier noch keine
+quellenübergreifend verifizierten, eindeutigen Spiele; wiederholte Läufe und Märkte
+dürfen die statistische Stichprobe nicht vergrößern.
+
+Der Tennisbestand enthielt 1.239 Prognosezeilen, davon 104 mit Ergebnis-Empfangszeit
+und 73 mit erfassten Satzständen. Eine gezielte Schema-Nachprüfung um `18:05Z`
+bestätigte: Die Spalte `match_duration_minutes` existiert, ist aber in sämtlichen
+Zeilen leer. Exaktes Matchende und native Teilnehmerkennungen werden in dieser
+Tabelle nicht geführt. 375 Modellrevisionen gehören zu 63 Prognose-IDs; auch sie
+sind keine 375 unabhängigen Testspiele. Der zusätzlich geprüfte ältere
+`shadow_clv.db` enthielt genau ein Spiel mit Ergebnis und kein Kontextarchiv.
+
+Diese begrenzte Inventur umfasst drei Datenbanken, nicht sämtliche historischen
+Quellen. Sie belegt noch keinen zeitkorrekten 200-Spiel-Test. Die Datenaufbereitung
+muss weitere geeignete Historien, native Zuordnungen und die damalige Verfügbarkeit
+prüfen. Fehlende Nachweise dürfen weder zurückdatiert noch durch synthetische
+Testfälle ersetzt werden. Rohwerte zu Quoten oder Benutzerkonten wurden für diese
+Inventur nicht gelesen.
+
 ## Nachweise und offene Abnahme
+
+### Ergänzung 8. September: tatsächlicher Offline-Tourbuild
+
+Mit Quellstand `c8935c22af0d4a5e5e03a575be8eb1b5d3f1dc40` wurde der echte getrennte Rebuild mit `--force --no-refresh-data` in einem neuen lokalen Runtime-Verzeichnis ausgeführt. HTTP-Zugriffe waren technisch verboten; die versionierten Dateien blieben unverändert. Ausgangs-SHA-256: ATP-Matches 2026 `975150fe578c8a83f027e06de0709e126331337be51b3ed9c2d2b0ea825c8a9b`, ATP-Turniere `8ebfb9697b648217639b712dfc9acc8121d4f77bfc3cf995402c495700c1bf3e`, WTA 2026 `f6f913da3dabb54add6e9edd167a1d33d669c9ede9741e63e9069f18b3977ba`.
+
+WTA wurde separat als Artefakt `9baf129c88fb6f5ac5b546a64f6b919d9d3a1bc124f6f2b30216a0379e3430cd` veröffentlicht, tatsächlicher Buildzeitpunkt 8. September 16:49:28 UTC, Datenabdeckung `result_date=2026-07-26`. Das ist ein echter Build alter Daten, keine aktuelle WTA-Quelle. ATP scheiterte mit `ValueError`; der anschließende gezielte Stacktrace lokalisiert den Fehler auf den Integritätscheck `serve breaks cannot exceed return games` in `tennis/serve_model.py`. Es wurde keine Prüfung gelockert oder Zahl gekappt. Die Ursachenanalyse muss zwischen Quellfehler, Aggregation und Rundung unterscheiden, bevor eine Korrektur erfolgen darf.
+
+Der Gesamtlauf meldete korrekt `REFRESH_PARTIAL`, Exit 1, und bewies damit unabhängige WTA-Fortsetzung, aber noch keinen erfolgreichen Zwei-Tour-Build. Isolierter Zustand: `.pytest_tmp/tour-offline-realdata-20260908-01`; Controller-Harness und Diagnose unter `output/context-evaluation/`. Keine Produktivdatei oder Quelle wurde dafür verändert. Backup/Restore und echte aktuelle Tour-Aktivierung bleiben gesondert erforderlich.
+
+### Vorherige Quellen- und Korpusnachweise
 
 Die datierten, bereinigten Diagnoseartefakte liegen im lokalen SDD-Arbeitsbereich
 `2026-09-07-kontextmodell-umsetzung`: `football-source-probe-20260907.json`,
 `football-injuries-probe-20260907.json`, `espn-source-probe-20260907.json`,
 `basketball-nhl-schedule-probe-20260907.json` und die zugehörigen Source-Readiness-
-Berichte. Die owning B/C-Aufgaben übernehmen ausschließlich belegte strukturelle
+Berichte. `corpus-inventory-20260907.md` hält die begrenzte Bestandsprüfung mit
+Prüfzeiten und Ausschlussgrenzen fest. Die owning B/C-Aufgaben übernehmen ausschließlich belegte strukturelle
 Samples in ihre versionierten Testfixtures und aktualisieren diesen Bericht.
 
 Noch offen sind die jeweiligen Normalisierer, tatsächlichen Referenz-/Merkmals-
