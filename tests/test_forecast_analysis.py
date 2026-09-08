@@ -304,3 +304,26 @@ def test_all_configured_football_markets_remain_explainable_with_their_own_unit(
         assert "63,0 %" in analysis.basis and "37,0 %" in analysis.caution, key
         if spec.kind in {"corner_total", "team_corners", "yellow_total", "team_yellow"}:
             assert "Tore" not in analysis.basis, key
+
+
+@pytest.mark.parametrize(("modeled", "cutoff", "accepted"), [
+    ("2030-01-01T14:00:00+00:00", "2030-01-01T10:00:00+00:00", False),
+    ("2030-01-01T14:00:00+00:00", "2030-01-01T13:00:00+00:00", False),
+    ("2030-01-01T12:00:00+00:00", "2030-01-01T10:00:00+00:00", True),
+    ("2030-01-01T12:00:00+00:00", "2030-01-01T12:00:00+00:00", True),
+], ids=["future-model", "future-cutoff", "model-at-now", "cutoff-at-now"])
+def test_card_analysis_uses_evaluation_clock_even_for_directly_supplied_evidence(modeled, cutoff, accepted):
+    row = _row()
+    row.update(modeled_at=modeled, input_cutoff_at=cutoff)
+    row["analysis_evidence"] = project_football_analysis(row, model_basis=_basis(row))
+    # Structural projection can retain source facts for a later evaluation.
+    # The consumer must compare them to its one explicit evaluation clock.
+    signal = _signal(row)
+    assert signal.analysis_evidence is not None
+    analysis = build_forecast_analysis(signal, now=NOW)
+    assert ("Modellgrundlagen fehlen" not in analysis.basis) is accepted
+    assert ("1,53" in analysis.basis) is accepted
+    assert "46,4 %" in analysis.basis and "53,6 %" in analysis.caution
+    assert signal.modeled_at == modeled and signal.input_cutoff_at == cutoff
+    assert row["analysis_evidence"]["identity"]["modeled_at"] == modeled
+    assert row["analysis_evidence"]["identity"]["input_cutoff_at"] == cutoff

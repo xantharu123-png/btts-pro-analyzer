@@ -148,8 +148,13 @@ def project_football_analysis(row: Mapping, *, model_basis: Mapping) -> dict | N
     }
 
 
-def read_football_analysis(row: Mapping) -> dict | None:
-    """Validate only this row's envelope; never search/join other candidates."""
+def read_football_analysis(row: Mapping, *, now: datetime | None = None) -> dict | None:
+    """Validate this row only; runtime consumers supply their shared clock.
+
+    Without ``now`` this is structural validation for persisted projection
+    checks, not approval to display evidence at any particular time. Never
+    acquire a per-row wall clock or rewrite the original source timestamps.
+    """
     evidence = _mapping(row.get("analysis_evidence"))
     if evidence.get("schema") != _SCHEMA:
         return None
@@ -159,6 +164,14 @@ def read_football_analysis(row: Mapping) -> dict | None:
     # comparison so malformed envelope values cannot impersonate native IDs.
     if identity is None or _identity(raw_identity) != identity or raw_identity != identity:
         return None
+    if now is not None:
+        if now.tzinfo is None:
+            raise ValueError("analysis clock must be timezone-aware")
+        current = now.astimezone(timezone.utc)
+        for field in ("input_cutoff_at", "modeled_at"):
+            source_clock = _clock(identity[field])
+            if source_clock is not None and source_clock > current:
+                return None
     context = _context_projection(_mapping(evidence.get("context")))
     if "context_stale" in row and row.get("context_stale") is not False:
         context["stale"] = True
@@ -291,7 +304,7 @@ def build_forecast_analysis(signal, *, now: datetime | None = None) -> ForecastA
     contract, counter = _contract(spec, home, away) if spec else (
         f"{signal.market or 'Auswahl'}: {signal.selection or signal.label}", "Auswahl tritt nicht ein",
     )
-    evidence = read_football_analysis(vars(signal)) if football else None
+    evidence = read_football_analysis(vars(signal), now=current) if football else None
     basis = _mapping(evidence.get("basis")) if evidence else {}
     rates = _rate_copy(spec, basis, home, away) if spec else None
     if rates:

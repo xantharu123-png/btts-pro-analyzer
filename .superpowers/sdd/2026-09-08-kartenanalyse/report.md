@@ -2,6 +2,8 @@
 
 Date: 2026-09-08. Worktree: `C:/Projekt/BetBoy/betboy-app/.worktrees/erklaerbare-karten-20260908`. Branch: `codex/erklaerbare-karten-20260908`. Base: `8c3df7978bf074cfe6ce3d9a794f6f60139327ea`.
 
+The original sections below document implementation commit `e8e057fcef2ad6be860d2bbe7cf4b0808f78b4f5`. The final section records the subsequent independent-review P2 correction and supersedes the original QA/source hashes for the files changed by that correction.
+
 ## Result and scope
 
 The normal Wettfinder now displays one short, deterministic explanation and one compact caution directly inside every featured and additional card. The former technical context checklist and its `Analyse anzeigen` expander no longer reach this public surface. Internal context summaries remain intact for diagnostics. No model probabilities, haircuts, ordering, selection rules, reference-price rules, strict release gates, account/ticket/settlement logic or Cricket behavior were changed.
@@ -80,3 +82,46 @@ Source review confirms no new provider calls, generation calls, pricing/model in
 The inherited `scripts/stage_runtime_databases.py` remains untouched and has zero content diff; its SHA-256 is still `1441158c542e97a19b193fa0cd091b645ec6442d6d8157f1d4fceabbba72b026`. It must not be staged. The inherited task brief and controller-owned `.playwright-cli/` / `output/` QA artifacts also stay out of this scoped implementation commit. No sibling worktree or its Git state was accessed.
 
 No independent implementation review, production deployment or live fixture/provider verification is claimed here. The controller owns independent review, final rendered browser acceptance, push/main integration, VPS deployment and post-refresh production verification. The controller reported preliminary synthetic desktop/mobile rendering while this work was in progress; this report does not promote that to final production acceptance. Profitability and complete numerical context-model integration remain unproved and outside this UI repair.
+
+## Independent-review P2 follow-up
+
+Follow-up base: `e8e057fcef2ad6be860d2bbe7cf4b0808f78b4f5`. The full controller-owned `independent-review.md` was read before work. Its sole actionable P2 was reproduced: the owning artifact and future model/cutoff clocks could be structurally valid, but the optional numeric explanation was not checked against the evaluation time. Both real automated readers could therefore expose not-yet-observed numerical model facts.
+
+The narrow fix adds explicit evaluation-time validation to `read_football_analysis`. Both `automated_wettfinder_forecasts` and `automated_wettfinder_signals` pass their already established `current` clock through `_automated_analysis_fields`; `build_forecast_analysis` also passes its existing `current`, protecting directly supplied signals. If either supplied `input_cutoff_at` or `modeled_at` exceeds that clock, only the optional analysis envelope is declined. Equality at the evaluation time is accepted. Omitted source clocks are not invented. The function's no-`now` mode is documented as structural validation for persisted projection checks only; every runtime display/transport caller supplies its shared clock. There is no new per-row `datetime.now()` call.
+
+The source artifact bytes and original source-clock strings are preserved. New end-to-end tests traverse the real document loader and both automatic readers, then real cards/catalog composition, comparing against the exact same rows without optional evidence. They prove unchanged visibility, probability, haircut, source metadata, rank/order, reference quote, price status and release state. Test hooks forbid both HTTP and any new reader/analysis wall-clock call. Separate direct-signal tests prove that rendering alone also rejects future model/cutoff evidence. Both equality-at-now boundaries remain numerical rather than falling back.
+
+RED before source changes:
+
+```powershell
+& 'C:\Projekt\BetBoy\betboy-app\.codex_test_venv\quality\Scripts\python.exe' -B -m pytest tests/test_forecast_analysis.py tests/test_ev_signal_sources.py -q -p no:cacheprovider --basetemp=.pytest_tmp/cards-reviewfix-red01
+```
+
+Exit 1: **4 failed, 112 passed, 26 subtests passed in 4.96s**. The failures reproduced future model/future cutoff acceptance in direct rendering and the real reader path; equality-at-now cases passed before and after the correction. The reader regression exercises both automatic builders for every case once green.
+
+Focused GREEN on final source:
+
+```powershell
+& 'C:\Projekt\BetBoy\betboy-app\.codex_test_venv\quality\Scripts\python.exe' -B -m pytest tests/test_forecast_analysis.py tests/test_wettfinder_surface.py tests/test_wettfinder_automation.py tests/test_ev_signal_sources.py tests/test_workflow_integrity.py -q -p no:cacheprovider --basetemp=.pytest_tmp/cards-reviewfix-green01
+```
+
+Exit 0: **313 passed, 26 subtests passed in 12.61s**. Four review-fix Python files compile without bytecode writes; `git diff --check` is green.
+
+Fresh full suite on final source:
+
+```powershell
+& 'C:\Projekt\BetBoy\betboy-app\.codex_test_venv\quality\Scripts\python.exe' -B -m pytest -q -p no:cacheprovider --basetemp=.pytest_tmp/cards-reviewfix-full01
+```
+
+Exit 0: **1,795 passed, 11 skipped, 97 subtests passed in 83.92s**. No source changes after the focused green run or during/after this fresh full suite; only this report was completed. No skip or acceptance rule was added/relaxed.
+
+Follow-up working-file SHA-256:
+
+| File | SHA-256 |
+| --- | --- |
+| `forecast_analysis.py` | `c1e5341a5df4e3409e4714c72bf434c8ec24aff8539a3da9ccbfa6dc7405f258` |
+| `ev_signal_sources.py` | `298bb9510afc586181abd05f410346fefcd20375a5ce4347bdc4d8c063d1d797` |
+| `tests/test_forecast_analysis.py` | `d371ad291f2092d212cf93bfe2b9aec57b7491f54e7316bcc5a7b4fcc99d0f4b` |
+| `tests/test_ev_signal_sources.py` | `36cdffd0fde7ee783dd32bee58816afbda59d8fe3bc20820747672cdd27917f4` |
+
+Only these four files plus this tracked report belong to the follow-up commit. Controller-owned audit/review documents, task brief, browser/output artifacts and the pinned zero-diff staging helper are excluded. The pinned helper still hashes to `1441158c542e97a19b193fa0cd091b645ec6442d6d8157f1d4fceabbba72b026`. No provider, runtime database, VPS, push or sibling-worktree access was performed. Focused independent rereview and production verification remain controller-owned and are not asserted by this implementation report.

@@ -1313,10 +1313,10 @@ def _football_recommendation_release_eligible(row: dict) -> bool:
     )
 
 
-def _automated_analysis_fields(row: dict) -> dict:
+def _automated_analysis_fields(row: dict, *, now: datetime) -> dict:
     """Optional presentation metadata never changes model/release eligibility."""
     return {
-        "analysis_evidence": read_football_analysis(row),
+        "analysis_evidence": read_football_analysis(row, now=now),
         "home_team_id": row.get("home_id"),
         "away_team_id": row.get("away_id"),
         "model_scope": row.get("model_scope"),
@@ -1470,7 +1470,7 @@ def automated_wettfinder_forecasts(
                         else None
                     ),
                     context_complete=_model_row_context_complete(row),
-                    **_automated_analysis_fields(row),
+                    **_automated_analysis_fields(row, now=current),
                     statistical_release_passed=(
                         row.get("statistical_release_passed")
                         if isinstance(
@@ -1683,7 +1683,7 @@ def automated_wettfinder_signals(
                         else None
                     ),
                     context_complete=_model_row_context_complete(row),
-                    **_automated_analysis_fields(row),
+                    **_automated_analysis_fields(row, now=current),
                     statistical_release_passed=(
                         True if row_is_football else None
                     ),
