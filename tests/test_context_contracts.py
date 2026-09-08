@@ -6,6 +6,7 @@ from context_models.contracts import (
     ContextContractError, normalize_population, validate_population, validate_event,
     validate_feature_vector, validate_base_distribution, validate_effect_artifact,
     validate_context_result, validate_training_row, event_in_population,
+    validate_offset_fit,
 )
 
 
@@ -362,3 +363,31 @@ def test_context_result_cannot_claim_nonexistent_or_unused_context_effect(mutati
         row["feature_refs"] = {key: [] for key in row["factor_roles"]}
     with pytest.raises(ContextContractError):
         validate_context_result(row, family="tennis:winner", effect_artifact=artifact)
+
+
+@pytest.mark.parametrize("changes", [{"scale": []}, {"coef": [True]}, {"coef": [float("inf")]},
+    {"scale": [0.]}, {"alpha": -1.}, {"n_rows": 1}, {"n_rows": 2.5}, {"extra": 1}, {"link": "other"}])
+def test_artifact_and_standalone_offset_fit_share_schema_rejections(changes):
+    value = effect()
+    value["heads"]["winner"].update(changes)
+    with pytest.raises(ContextContractError):
+        validate_offset_fit(value["heads"]["winner"])
+    with pytest.raises(ContextContractError):
+        validate_effect_artifact(value)
+
+
+def test_effect_artifact_calls_shared_fit_validator_without_losing_family_rules(monkeypatch):
+    import context_models.contracts as contracts
+    calls = []
+    original = contracts.validate_offset_fit
+    def observed(value):
+        calls.append(deepcopy(value))
+        return original(value)
+    monkeypatch.setattr(contracts, "validate_offset_fit", observed)
+    assert validate_effect_artifact(effect()) == effect()
+    assert calls == [effect()["heads"]["winner"]]
+    value = effect()
+    value["heads"]["winner"]["link"] = "identity"
+    assert validate_offset_fit(value["heads"]["winner"])["link"] == "identity"
+    with pytest.raises(ContextContractError, match="family"):
+        validate_effect_artifact(value)
