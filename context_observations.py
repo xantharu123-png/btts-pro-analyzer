@@ -299,6 +299,9 @@ def factor_state(rows: tuple[dict, ...], *, cutoff: datetime, scheduled_start: d
 
     A player fact uses requires_complete=False. A team's entire absence list
     uses requires_complete=True. Neither state asserts a numerical effect.
+    ``refs`` is audit-only inspected receipt history, including event status;
+    producers must use ``usable_refs`` for actual numeric provenance. The
+    latter is empty unless the final selected factor is available.
     """
     if type(rows) is not tuple:
         raise ContextContractError("factor rows must be a tuple")
@@ -307,17 +310,23 @@ def factor_state(rows: tuple[dict, ...], *, cutoff: datetime, scheduled_start: d
     kickoff = canonical_timestamp(scheduled_start)
     for row in rows:
         _check_selected_row(row)
+    if len({(row["event_key"], row["sport"], row["competition"], row["format"]) for row in rows}) > 1:
+        raise ContextContractError("factor rows mix different native events or event scope")
     relevant = [row for row in rows if row["kind"] == policy["kind"]]
-    refs = sorted({row["digest"] for row in relevant})
+    refs = sorted({row["digest"] for row in rows if row["kind"] in (policy["kind"], "event_status")})
 
-    def result(state, coverage, fresh_until=None):
-        return {"state": state, "refs": refs, "coverage": coverage,
+    def result(state, coverage, fresh_until=None, usable=()):
+        return {"state": state, "refs": refs,
+                "usable_refs": sorted({row["digest"] for row in usable}) if state == "available" else [],
+                "coverage": coverage,
                 "fresh_until": fresh_until, "policy_version": policy["version"]}
 
     if policy["event_status"] != "scheduled" or decision >= kickoff:
         return result("not_applicable", "not_applicable")
     if any(row["kind"] == "event_status" and row["schedule_revision"] == policy["schedule_revision"]
-           and row["observed_at"] <= decision and row["payload"].get("status") in ("cancelled", "started", "completed")
+           and row["evidence_class"] == "prospective" and row["observed_at"] <= decision
+           and row["valid_from"] <= decision and (row["valid_until"] is None or decision < row["valid_until"])
+           and row["payload"].get("status") in ("cancelled", "started", "completed")
            for row in rows):
         return result("not_applicable", "not_applicable")
     # Only prospectively received facts can refresh a live factor's clock.
@@ -325,19 +334,7 @@ def factor_state(rows: tuple[dict, ...], *, cutoff: datetime, scheduled_start: d
                 and row["evidence_class"] == "prospective" and row["observed_at"] <= decision]
     if not eligible:
         return result("missing", "incomplete")
-    if len({(row["event_key"], row["sport"], row["competition"], row["format"]) for row in eligible}) != 1:
-        raise ContextContractError("factor rows mix different events or event scopes")
-    if policy["requires_complete"] and not any(row["complete"] for row in eligible):
-        return result("missing", "incomplete")
-    if not any(row["complete"] or _has_reported_fact(row["payload"]) for row in eligible):
-        return result("missing", "incomplete")
-    if policy["kind"] == "workload":
-        if all(row["payload"].get("status") == "walkover" for row in eligible):
-            return result("not_applicable", "not_applicable")
-        if any(row["payload"].get("status") not in ("completed", "retired", "walkover") for row in eligible):
-            return result("missing", "incomplete")
-
-    fresh, deadlines, fresh_deadlines = [], [], []
+    fresh, fresh_deadlines = [], {}
     for row in eligible:
         if policy["kind"] == "weather":
             valid = row["valid_from"] <= kickoff and row["valid_until"] is not None and kickoff < row["valid_until"]
@@ -361,26 +358,49 @@ def factor_state(rows: tuple[dict, ...], *, cutoff: datetime, scheduled_start: d
             deadline = canonical_timestamp(observed + timedelta(seconds=seconds))
         if row["valid_until"] is not None and policy["kind"] != "weather":
             deadline = min(deadline, row["valid_until"]) if deadline is not None else row["valid_until"]
-        if deadline is not None:
-            deadlines.append(deadline)
         if deadline is None or decision < deadline:
             fresh.append(row)
-            if deadline is not None:
-                fresh_deadlines.append(deadline)
+            fresh_deadlines[row["digest"]] = deadline
     if not fresh:
-        return result("stale", "incomplete", min(deadlines) if deadlines else None)
-    if policy["requires_complete"] and not any(row["complete"] for row in fresh):
-        return result("missing", "incomplete")
+        return result("stale", "incomplete")
 
     by_subject: dict[str, list[dict]] = {}
     for row in fresh:
         by_subject.setdefault(row["subject_id"], []).append(row)
+    selected = []
     for alternatives in by_subject.values():
         sources = {row["source"] for row in alternatives}
         precedence = policy["source_precedence"]
         if len(sources) > 1 and sources <= set(precedence):
             chosen = min(sources, key=precedence.index)
             alternatives = [row for row in alternatives if row["source"] == chosen]
+        selected.extend(alternatives)
+
+    # A same-source simultaneous revision conflict cannot be silently resolved
+    # by dropping its empty/unknown alternative. Source precedence cannot help.
+    by_source_revision: dict[tuple[str, str], set[str]] = {}
+    for row in selected:
+        by_source_revision.setdefault((row["subject_id"], row["source"]), set()).add(row["content_digest"])
+    if any(len(identities) > 1 for identities in by_source_revision.values()):
+        return result("conflicting", "conflicting")
+
+    # Empty receipts neither establish a fact nor refresh another source's old
+    # fact. Selection happens first, so a discarded source cannot rescue an
+    # explicitly preferred but empty/incomplete collection.
+    usable = [row for row in selected if row["complete"] or _has_reported_fact(row["payload"])]
+    if not usable:
+        return result("missing", "incomplete")
+    if policy["requires_complete"] and (len(usable) != len(selected) or not all(row["complete"] for row in usable)):
+        return result("missing", "incomplete")
+    if policy["kind"] == "workload":
+        if all(row["payload"].get("status") == "walkover" for row in usable):
+            return result("not_applicable", "not_applicable")
+        if any(row["payload"].get("status") not in ("completed", "retired", "walkover") for row in usable):
+            return result("missing", "incomplete")
+    by_subject = {}
+    for row in usable:
+        by_subject.setdefault(row["subject_id"], []).append(row)
+    for alternatives in by_subject.values():
         source_revisions: dict[str, set[str]] = {}
         semantics = set()
         for row in alternatives:
@@ -388,5 +408,6 @@ def factor_state(rows: tuple[dict, ...], *, cutoff: datetime, scheduled_start: d
             semantics.add(canonical_bytes({"payload": row["payload"], "complete": row["complete"]}))
         if any(len(identities) > 1 for identities in source_revisions.values()) or len(semantics) > 1:
             return result("conflicting", "conflicting")
-    complete = all(row["complete"] for row in fresh)
-    return result("available", "complete" if complete else "incomplete", min(fresh_deadlines) if fresh_deadlines else None)
+    complete = all(row["complete"] for row in usable)
+    deadlines = [fresh_deadlines[row["digest"]] for row in usable if fresh_deadlines[row["digest"]] is not None]
+    return result("available", "complete" if complete else "incomplete", min(deadlines) if deadlines else None, usable)

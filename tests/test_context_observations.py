@@ -376,3 +376,125 @@ def test_parallel_exact_ingestion_is_atomic_idempotent_and_retains_genuine_reche
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT count(*) FROM context_contents").fetchone() == (1,)
         assert connection.execute("SELECT count(*) FROM context_observations").fetchone() == (6,)
+
+
+@pytest.mark.parametrize("case", ["future_retrospective", "wrong_revision", "unrelated_wrong_revision", "stale_secondary", "precedence_loser"])
+def test_review_r1_audit_and_usable_references_have_distinct_exact_meanings(tmp_path, case):
+    path = tmp_path / "models.db"
+    current = append_observation(path, normalized_record(), observed_at=NOW)
+    options = {}
+    if case == "future_retrospective":
+        ignored = append_observation(path, normalized_record(source_revision="r2", payload={"status": "available"}), observed_at=NOW + timedelta(days=1))
+        rows = selected(path, mode="historical")
+    elif case in {"wrong_revision", "unrelated_wrong_revision"}:
+        event = "api-football:football:2" if case == "unrelated_wrong_revision" else "api-football:football:1"
+        ignored = append_observation(path, normalized_record(event_key=event, schedule_revision="s2"), observed_at=NOW)
+        rows = selected(path) + observations_as_of(path, event, cutoff=NOW, schedule_revision="s2")
+    elif case == "stale_secondary":
+        ignored = append_observation(path, normalized_record(source="old-source", valid_from=(NOW - timedelta(hours=7)).isoformat()), observed_at=NOW - timedelta(hours=7))
+        rows = selected(path)
+    else:
+        ignored = append_observation(path, normalized_record(source="secondary", payload={"status": "available"}), observed_at=NOW)
+        rows = selected(path)
+        options["source_precedence"] = ["api-football", "secondary"]
+    if case == "unrelated_wrong_revision":
+        with pytest.raises(ContextContractError, match="scope"):
+            state(rows, **options)
+    else:
+        result = state(rows, **options)
+        assert result["state"] == "available"
+        assert result["refs"] == sorted([current, ignored])  # audit only
+        assert result["usable_refs"] == [current]
+
+
+@pytest.mark.parametrize("status", ["cancelled", "started", "completed"])
+def test_review_r2_foreign_status_rejected_before_any_early_decision(tmp_path, status):
+    path = tmp_path / "models.db"
+    append_observation(path, normalized_record(), observed_at=NOW)
+    append_observation(path, normalized_record(event_key="api-football:football:2", kind="event_status", subject_id="fixture:2", payload={"status": status}), observed_at=NOW)
+    rows = selected(path) + observations_as_of(path, "api-football:football:2", cutoff=NOW, schedule_revision="s1")
+    for policy_status in ("scheduled", "cancelled"):
+        with pytest.raises(ContextContractError, match="scope"):
+            state(rows, event_status=policy_status)
+
+
+@pytest.mark.parametrize("validity", ["future", "expired", "future_receipt", "different_schedule", "current"])
+def test_review_r2_status_receipt_interval_and_schedule_control_invalidation(tmp_path, validity):
+    path = tmp_path / "models.db"
+    current = append_observation(path, normalized_record(), observed_at=NOW)
+    changes = {}
+    observed = NOW
+    if validity == "future": changes["valid_from"] = (NOW + timedelta(hours=1)).isoformat()
+    if validity == "expired": changes.update(valid_from=(NOW - timedelta(hours=1)).isoformat(), valid_until=NOW.isoformat())
+    if validity == "future_receipt": observed += timedelta(hours=1)
+    if validity == "different_schedule": changes["schedule_revision"] = "s2"
+    status = append_observation(path, normalized_record(kind="event_status", subject_id="fixture:1", payload={"status": "cancelled"}, **changes), observed_at=observed)
+    rows = selected(path, mode="historical")
+    if validity == "different_schedule": rows += selected(path, schedule="s2")
+    result = state(rows)
+    assert result["refs"] == sorted([current, status])
+    assert result["state"] == ("not_applicable" if validity == "current" else "available")
+    assert result["usable_refs"] == ([] if validity == "current" else [current])
+
+
+def test_review_r3_stale_substantive_fact_cannot_refresh_empty_payload(tmp_path):
+    path = tmp_path / "models.db"
+    stale = append_observation(path, normalized_record(valid_from=(NOW - timedelta(hours=7)).isoformat()), observed_at=NOW - timedelta(hours=7))
+    empty = append_observation(path, normalized_record(source="fresh-empty-source", payload={"status": None}), observed_at=NOW)
+    result = state(selected(path))
+    assert result["state"] == "missing"
+    assert result["refs"] == sorted([stale, empty])
+    assert result["usable_refs"] == []
+    assert result["fresh_until"] is None
+
+
+@pytest.mark.parametrize("requires_complete", [True, False])
+def test_review_r3_selected_collection_cannot_borrow_loser_completeness_or_deadline(tmp_path, requires_complete):
+    path = tmp_path / "models.db"
+    loser = append_observation(path, normalized_record(subject_id="team:1", complete=True, payload={"players": []}), observed_at=NOW)
+    winner = append_observation(path, normalized_record(source="official", subject_id="team:1", complete=False, payload={"players": ["player:7"]}), observed_at=NOW)
+    result = state(selected(path), complete=requires_complete, source_precedence=["official", "api-football"],
+                   source_max_age_seconds={"official": 1200, "api-football": 60})
+    assert result["state"] == ("missing" if requires_complete else "available")
+    assert result["coverage"] == "incomplete"
+    assert result["refs"] == sorted([loser, winner])
+    assert result["usable_refs"] == ([] if requires_complete else [winner])
+    assert result["fresh_until"] == (None if requires_complete else "2026-09-07T12:20:00.000000Z")
+
+
+@pytest.mark.parametrize("field,value", [("competition", "140"), ("format", "120min"), ("sport", "tennis")])
+def test_review_r2_complete_event_scope_is_checked_before_status_decision(tmp_path, field, value):
+    path = tmp_path / "models.db"
+    append_observation(path, normalized_record(), observed_at=NOW)
+    extra = {field: value, "kind": "event_status", "subject_id": "fixture:1", "payload": {"status": "cancelled"}}
+    if field == "sport": extra["event_key"] = "api-football:tennis:1"
+    append_observation(path, normalized_record(**extra), observed_at=NOW)
+    rows = selected(path)
+    if field == "sport": rows += observations_as_of(path, extra["event_key"], cutoff=NOW, schedule_revision="s1")
+    with pytest.raises(ContextContractError, match="scope"):
+        state(rows)
+
+
+def test_review_controls_missing_and_conflicting_states_have_no_usable_refs(tmp_path):
+    assert state(())["usable_refs"] == []
+    path = tmp_path / "models.db"
+    first = append_observation(path, normalized_record(), observed_at=NOW)
+    second = append_observation(path, normalized_record(source_revision="r2", payload={"status": "available"}), observed_at=NOW)
+    result = state(selected(path))
+    assert result["state"] == "conflicting"
+    assert result["usable_refs"] == []
+    assert result["refs"] == sorted([first, second])
+
+
+@pytest.mark.parametrize("preferred_empty", [True, False])
+def test_review_control_empty_payload_cannot_borrow_substance_through_source_selection(tmp_path, preferred_empty):
+    path = tmp_path / "models.db"
+    fact = append_observation(path, normalized_record(), observed_at=NOW)
+    empty = append_observation(path, normalized_record(source="official", payload={"status": None}), observed_at=NOW)
+    options = {"source_precedence": ["official", "api-football"]} if preferred_empty else {}
+    result = state(selected(path), **options)
+    assert result["refs"] == sorted([fact, empty])
+    assert result["state"] == ("missing" if preferred_empty else "available")
+    assert result["usable_refs"] == ([] if preferred_empty else [fact])
+    if preferred_empty:
+        assert result["fresh_until"] is None
