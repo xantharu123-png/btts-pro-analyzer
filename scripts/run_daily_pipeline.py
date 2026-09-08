@@ -118,7 +118,10 @@ def main() -> int:
         out = run_step(log, "State-Rebuild", "rebuild_state.py",
                        ["--if-stale-days", str(MAX_STATE_AGE_DAYS)], timeout=900)
         if out is None:
-            log.warning("Rebuild fehlgeschlagen - Scan nutzt bisherigen State.")
+            log.warning(
+                "Rebuild teilweise/fehlgeschlagen - Scan nutzt je Tour den "
+                "letzten vor dem Entscheidungszeitpunkt publizierten Stand."
+            )
             pipeline_ok = False
 
     # 2) Tages-Scan

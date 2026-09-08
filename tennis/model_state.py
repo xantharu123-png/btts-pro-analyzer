@@ -21,6 +21,7 @@ on the past relative to the fixtures it will now score.
 
 from __future__ import annotations
 
+import hashlib
 import pickle
 import time
 from dataclasses import dataclass
@@ -250,7 +251,8 @@ def save_state(state: ModelState, path: Path | None = None) -> Path:
 def load_state(path: Path | None = None) -> ModelState:
     path = _state_path_for_read(path)
     with open_trusted_pickle(path) as fh:
-        state = pickle.load(fh)
+        payload = fh.read()
+    state = pickle.loads(payload)
     if not isinstance(state, ModelState):
         raise RuntimeArtifactTrustError(
             f"model-state pickle has an unexpected object type: {path}"
@@ -269,7 +271,7 @@ def load_state(path: Path | None = None) -> ModelState:
     state.stats_through_kind = getattr(
         state, "stats_through_kind", "tournament_start_proxy"
     )
-    state.artifact_hash = getattr(state, "artifact_hash", None)
+    state.artifact_hash = hashlib.sha256(payload).hexdigest()
     return state
 
 

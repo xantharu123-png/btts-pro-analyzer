@@ -159,26 +159,37 @@ def _decode_wrapper(payload, tour, *, decision_cutoff=None):
     return state
 
 
-def _load_digest(path, digest, tour):
+def _load_digest(path, digest, tour, *, decision_cutoff=None):
     artifact = load_artifact(path, digest)
     if artifact["kind"] != "tennis-tour-state":
         raise ValueError("unexpected tour artifact kind")
-    state = _decode_wrapper(artifact["payload"], tour)
+    state = _decode_wrapper(
+        artifact["payload"],
+        tour,
+        decision_cutoff=(
+            decision_cutoff.timestamp() if decision_cutoff is not None else None
+        ),
+    )
     state.artifact_hash = digest
     return state
 
 
 def load_tour_state(tour: str, *, path: Path = CONTEXT_MODEL_DB_PATH,
-                    allow_legacy: bool = False) -> ModelState:
+                    allow_legacy: bool = False,
+                    decision_cutoff: datetime | None = None) -> ModelState:
     """Structural load; forecast consumers must check their decision cutoff."""
     tour = _tour(tour)
-    _, slots = load_manifest(path)
+    cutoff = _utc(decision_cutoff) if decision_cutoff is not None else None
+    _, slots = load_manifest(path, decision_cutoff=cutoff)
     digest = slots.get(f"tennis:{tour}")
     if digest is None:
         if allow_legacy:
-            return load_state()
+            state = load_state()
+            if cutoff is not None and state.built_at > cutoff.timestamp():
+                raise ValueError("legacy model was built after the decision cutoff")
+            return state
         raise TourUnavailable(tour)
-    return _load_digest(path, digest, tour)
+    return _load_digest(path, digest, tour, decision_cutoff=cutoff)
 
 
 def _check_predictions(state: ModelState) -> None:

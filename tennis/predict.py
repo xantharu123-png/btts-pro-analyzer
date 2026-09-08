@@ -139,6 +139,9 @@ def predict_match(
     WTA Platt calibration is applied.
     """
     tour = str(tour or "ATP").upper()
+    scope = getattr(state, "tour_scope", "legacy-combined")
+    if scope != "legacy-combined" and scope != tour:
+        raise ValueError("model tour differs from fixture tour")
     is_wta = tour == "WTA"
     if (
         isinstance(minimum_expected_roi, bool)
@@ -164,8 +167,21 @@ def predict_match(
     if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("prediction cutoff must be timezone-aware")
     now = now.astimezone(timezone.utc)
-    if datetime.fromtimestamp(state.built_at, timezone.utc) > now:
+    built_at = datetime.fromtimestamp(state.built_at, timezone.utc)
+    if built_at > now:
         raise ValueError("model state was built after the prediction cutoff")
+    training_cutoff = getattr(state, "training_cutoff", None)
+    if training_cutoff is not None:
+        if not isinstance(training_cutoff, str):
+            raise ValueError("model training cutoff must be aware ISO text")
+        try:
+            training_at = datetime.fromisoformat(training_cutoff)
+        except ValueError as exc:
+            raise ValueError("model training cutoff must be aware ISO text") from exc
+        if training_at.tzinfo is None or training_at.utcoffset() is None:
+            raise ValueError("model training cutoff must be aware ISO text")
+        if training_at.astimezone(timezone.utc) > built_at:
+            raise ValueError("model training cutoff exceeds model build time")
     p_elo = state.elo.win_probability(key_a, key_b, surface_model)
     p_serve = None
     serve_games_a = state.serve.service_games(key_a, as_of=now)
@@ -193,8 +209,14 @@ def predict_match(
         "indoor": indoor,
         "surface_in_model": surface_model is not None,
         "serve_in_model": p_serve is not None,
+        "model_artifact_hash": getattr(state, "artifact_hash", None),
         "model_built_at": datetime.fromtimestamp(state.built_at, timezone.utc).isoformat(),
+        "model_tour_scope": scope,
         "stats_through": state.stats_through,
+        "stats_through_kind": getattr(
+            state, "stats_through_kind", "tournament_start_proxy"
+        ),
+        "training_cutoff": getattr(state, "training_cutoff", None),
     }
 
     # --- gates ---------------------------------------------------------------

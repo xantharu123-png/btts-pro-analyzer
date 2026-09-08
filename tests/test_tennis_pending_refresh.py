@@ -16,20 +16,26 @@ NOW = datetime(2030, 1, 2, 12, tzinfo=timezone.utc)
 START = NOW+timedelta(hours=6)
 
 
-def prediction(p=.62):
+def prediction(p=.62, artifact_hash="new-hash"):
     return SimpleNamespace(
         player_a="Alpha", player_b="Beta", surface="Hard", best_of=5,
         p_a_raw=p, p_a_cal=p, gates=[], verdict="KEINE WETTE",
         recommended_side=None, recommended_edge=0.,
         market_summary=lambda: {"p_a_cal":p, "p_b_cal":1-p},
-        context_evidence={"model_inputs":{"indoor":True}},
+        context_evidence={"model_inputs":{
+            "indoor":True, "model_artifact_hash":artifact_hash,
+        }},
     )
 
 
-def store(path, when=NOW-timedelta(hours=3)):
+def store(
+    path, when=NOW-timedelta(hours=3), *, tour="ATP", event_id="123",
+    artifact_hash="old-hash",
+):
     return shadow.store_prediction(
-        "2030-01-02", "ATP", "Test Open", prediction(), odds_a=1.8, odds_b=2.1,
-        provider_event_id="123", fixture_source="ESPN", scheduled_start_utc=START.isoformat(),
+        "2030-01-02", tour, "Test Open", prediction(artifact_hash=artifact_hash),
+        odds_a=1.8, odds_b=2.1,
+        provider_event_id=event_id, fixture_source="ESPN", scheduled_start_utc=START.isoformat(),
         modeled_at=when, db_path=path,
     )
 
@@ -38,7 +44,18 @@ def store(path, when=NOW-timedelta(hours=3)):
 def db(tmp_path, monkeypatch):
     path = tmp_path/"refresh.db"
     monkeypatch.setattr(shadow,"DB_PATH",tmp_path/"unrelated-global.db")
-    monkeypatch.setattr(daily,"load_state",lambda: SimpleNamespace(stats_through="2029-12-30"))
+    monkeypatch.setattr(
+        daily,
+        "load_tour_state",
+        lambda tour, **kwargs: SimpleNamespace(
+            stats_through="2029-12-30" if tour == "ATP" else "2029-11-30",
+            stats_through_kind=("tournament_start_proxy" if tour == "ATP" else "result_date"),
+            built_at=(NOW - timedelta(days=1)).timestamp(),
+            training_cutoff=(NOW - timedelta(days=2)).isoformat(),
+            artifact_hash="new-hash",
+            tour_scope=tour,
+        ),
+    )
     monkeypatch.setattr(daily.requests,"get",lambda *a,**k: pytest.fail("refresh must not request providers"))
     return path
 
@@ -54,7 +71,8 @@ def test_refresh_appends_one_shared_revision_preserving_first_prediction_and_pri
     assert result["status"] == "complete"
     assert result["refreshed"] == 1
     assert result["provider_checked"] is False
-    assert result["model_stats_through"] == "2029-12-30"
+    assert result["models"]["ATP"]["stats_through"] == "2029-12-30"
+    assert result["models"]["ATP"]["artifact_hash"] == "new-hash"
     assert seen[0][:4] == ("Alpha","Beta","Hard",5)
     assert seen[0][4]["indoor"] is True
     assert seen[0][4]["as_of"] == NOW
@@ -70,19 +88,133 @@ def test_refresh_appends_one_shared_revision_preserving_first_prediction_and_pri
     assert daily.refresh_pending_predictions(db_path=db,as_of=NOW+timedelta(minutes=30))["refreshed"] == 0
 
 
-def test_recent_or_missing_fixture_does_not_load_state_or_create_db(db, monkeypatch):
-    monkeypatch.setattr(daily,"load_state",lambda: pytest.fail("no due fixture, no state load"))
+def test_missing_fixture_does_not_load_state_or_create_db(db, monkeypatch):
+    monkeypatch.setattr(daily,"load_tour_state",lambda *a,**k: pytest.fail("no due fixture, no state load"))
     assert daily.refresh_pending_predictions(db_path=db,as_of=NOW)["checked"] == 0
     assert not db.exists()
-    store(db,NOW-timedelta(minutes=5))
+
+
+def test_recent_fixture_with_same_artifact_is_not_due(db):
+    store(db, NOW-timedelta(minutes=5), artifact_hash="new-hash")
     assert daily.refresh_pending_predictions(db_path=db,as_of=NOW)["due"] == 0
+
+
+def test_artifact_change_refreshes_recent_fixture_without_price_revision(db, monkeypatch):
+    initial_id = store(db, NOW - timedelta(minutes=5))
+    monkeypatch.setattr(
+        daily,
+        "predict_match",
+        lambda state, *args, **kwargs: prediction(.57, state.artifact_hash),
+    )
+
+    result = daily.refresh_pending_predictions(db_path=db, as_of=NOW)
+
+    assert result["due"] == result["refreshed"] == 1
+    latest = shadow.latest_predictions(db, as_of=NOW)[0]
+    assert latest["id"] == initial_id
+    assert latest["p_cal"] == .57
+    assert latest["odds_a"] is None
+    with closing(sqlite3.connect(db)) as conn:
+        assert conn.execute(
+            "SELECT odds_a,odds_b FROM predictions WHERE id=?", (initial_id,)
+        ).fetchone() == (1.8, 2.1)
+        assert conn.execute(
+            "SELECT COUNT(*) FROM prediction_revisions"
+        ).fetchone()[0] == 2
+
+
+def test_missing_wta_state_keeps_atp_refresh_and_per_tour_diagnostics(db, monkeypatch):
+    store(db, event_id="atp-event")
+    store(db, tour="WTA", event_id="wta-event")
+    loaded = []
+
+    def load(tour, **kwargs):
+        loaded.append((tour, kwargs))
+        if tour == "WTA":
+            raise FileNotFoundError("no WTA model")
+        return SimpleNamespace(
+            stats_through="2029-12-30",
+            stats_through_kind="tournament_start_proxy",
+            built_at=(NOW - timedelta(days=1)).timestamp(),
+            training_cutoff=(NOW - timedelta(days=2)).isoformat(),
+            artifact_hash="atp-new",
+            tour_scope="ATP",
+        )
+
+    monkeypatch.setattr(daily, "load_tour_state", load)
+    monkeypatch.setattr(
+        daily,
+        "predict_match",
+        lambda state, *args, **kwargs: prediction(.57, state.artifact_hash),
+    )
+
+    result = daily.refresh_pending_predictions(db_path=db, as_of=NOW)
+
+    assert [item[0] for item in loaded] == ["ATP", "WTA"]
+    assert all(item[1]["decision_cutoff"] == NOW for item in loaded)
+    assert all(item[1]["allow_legacy"] is False for item in loaded)
+    assert result["status"] == "partial"
+    assert result["refreshed"] == 1
+    assert result["models"]["ATP"] == {
+        "status": "available",
+        "artifact_hash": "atp-new",
+        "built_at": (NOW - timedelta(days=1)).isoformat(),
+        "training_cutoff": (NOW - timedelta(days=2)).isoformat(),
+        "stats_through": "2029-12-30",
+        "stats_through_kind": "tournament_start_proxy",
+        "tour_scope": "ATP",
+    }
+    assert result["models"]["WTA"] == {
+        "status": "unavailable", "error_type": "FileNotFoundError",
+    }
+    assert result["errors"] == [{
+        "tour": "WTA", "reason": "cached_tour_state_unavailable",
+        "error_type": "FileNotFoundError",
+    }]
+    current = {row["tour"]: row for row in shadow.latest_predictions(db, as_of=NOW)}
+    assert current["ATP"]["p_cal"] == .57
+    assert current["WTA"]["p_cal"] == .62
+
+
+def test_explicit_legacy_fallback_remains_labelled(db, monkeypatch):
+    store(db)
+    legacy = SimpleNamespace(
+        stats_through="2029-10-01",
+        stats_through_kind="tournament_start_proxy",
+        built_at=(NOW - timedelta(days=10)).timestamp(),
+        training_cutoff=None,
+        artifact_hash="legacy-bytes",
+        tour_scope="legacy-combined",
+    )
+    calls = []
+    monkeypatch.setattr(
+        daily,
+        "load_tour_state",
+        lambda tour, **kwargs: calls.append((tour, kwargs)) or legacy,
+    )
+    monkeypatch.setattr(
+        daily, "predict_match",
+        lambda state, *args, **kwargs: prediction(.57, state.artifact_hash),
+    )
+
+    result = daily.refresh_pending_predictions(
+        db_path=db, as_of=NOW, allow_legacy_model=True
+    )
+
+    assert result["models"]["ATP"]["status"] == "legacy"
+    assert result["models"]["ATP"]["tour_scope"] == "legacy-combined"
+    assert result["models"]["ATP"]["artifact_hash"] == "legacy-bytes"
+    assert calls == [("ATP", {
+        "allow_legacy": True,
+        "decision_cutoff": NOW,
+    })]
 
 
 def test_state_failure_preserves_previous_revision_and_never_rebuilds(db, monkeypatch):
     store(db)
-    def missing():
+    def missing(*args, **kwargs):
         raise FileNotFoundError("missing cached state")
-    monkeypatch.setattr(daily,"load_state",missing)
+    monkeypatch.setattr(daily,"load_tour_state",missing)
     import tennis.model_state
     monkeypatch.setattr(tennis.model_state,"build_state",lambda: pytest.fail("lightweight refresh must not build"))
     result = daily.refresh_pending_predictions(db_path=db,as_of=NOW)
@@ -117,12 +249,79 @@ def test_match_start_during_model_computation_prevents_late_append(db, monkeypat
     assert shadow.latest_predictions(db,as_of=START)[0]["p_cal"] == .62
 
 
+def test_observed_cancellation_during_model_computation_prevents_append(db, monkeypatch):
+    store(db)
+
+    def cancel_before_append(*args, **kwargs):
+        shadow.record_fixture_status(
+            fixture_source="ESPN",
+            provider_event_id="123",
+            status="cancelled",
+            observed_at=NOW + timedelta(seconds=1),
+            db_path=db,
+        )
+        return prediction(.57)
+
+    monkeypatch.setattr(daily, "predict_match", cancel_before_append)
+    result = daily.refresh_pending_predictions(db_path=db, as_of=NOW)
+
+    assert result["refreshed"] == 0
+    assert result["skipped"] == 1
+    assert result["errors"] == []
+    assert shadow.latest_predictions(db, as_of=NOW)[0]["p_cal"] == .62
+    with closing(sqlite3.connect(db)) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM prediction_revisions"
+        ).fetchone()[0] == 1
+
+
+def test_fixture_status_is_monotonic_and_unknown_is_not_invented(db):
+    assert shadow.latest_fixture_status(
+        fixture_source="ESPN", provider_event_id="unknown", db_path=db
+    ) is None
+
+    shadow.record_fixture_status(
+        fixture_source="ESPN", provider_event_id="123", status="scheduled",
+        observed_at=NOW, db_path=db,
+    )
+    shadow.record_fixture_status(
+        fixture_source="ESPN", provider_event_id="123", status="cancelled",
+        observed_at=NOW + timedelta(seconds=2), db_path=db,
+    )
+    shadow.record_fixture_status(
+        fixture_source="ESPN", provider_event_id="123", status="scheduled",
+        observed_at=NOW + timedelta(seconds=1), db_path=db,
+    )
+
+    assert shadow.latest_fixture_status(
+        fixture_source="ESPN", provider_event_id="123", db_path=db
+    ) == {
+        "status": "cancelled",
+        "observed_at": (NOW + timedelta(seconds=2)).isoformat(),
+    }
+
+
+def test_fixture_status_rows_are_append_only(db):
+    shadow.record_fixture_status(
+        fixture_source="ESPN", provider_event_id="123", status="scheduled",
+        observed_at=NOW, db_path=db,
+    )
+
+    with closing(sqlite3.connect(db)) as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            conn.execute(
+                "UPDATE fixture_status_observations SET status='cancelled'"
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            conn.execute("DELETE FROM fixture_status_observations")
+
+
 def test_invalid_metadata_is_reported_without_guessing_or_loading_state(db, monkeypatch):
     store(db)
     with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute("DROP TABLE prediction_revisions")
         conn.execute("UPDATE predictions SET provider_event_id=NULL")
-    monkeypatch.setattr(daily,"load_state",lambda: pytest.fail("invalid identity"))
+    monkeypatch.setattr(daily,"load_tour_state",lambda *a,**k: pytest.fail("invalid identity"))
     result = daily.refresh_pending_predictions(db_path=db,as_of=NOW)
     assert result["due"] == 0
     assert result["errors"] == [{"prediction_id":1,"reason":"invalid_fixture_metadata"}]
@@ -147,7 +346,7 @@ def test_past_legacy_rows_are_preserved_without_operational_errors(
             "scheduled_start_utc=?, match_date=?", (start, match_date),
         )
     before = db.read_bytes()
-    monkeypatch.setattr(daily,"load_state",lambda: pytest.fail("past legacy row is not refreshable"))
+    monkeypatch.setattr(daily,"load_tour_state",lambda *a,**k: pytest.fail("past legacy row is not refreshable"))
     result = daily.refresh_pending_predictions(db_path=db,as_of=checked_at)
     assert result["checked"] == result["skipped"] == 1
     assert result["due"] == result["refreshed"] == 0
@@ -173,7 +372,7 @@ def test_unresolved_current_or_future_metadata_remains_an_error(db, monkeypatch,
             "scheduled_start_utc=?, match_date=?", (start, match_date),
         )
     before = db.read_bytes()
-    monkeypatch.setattr(daily,"load_state",lambda: pytest.fail("invalid metadata cannot be refreshed"))
+    monkeypatch.setattr(daily,"load_tour_state",lambda *a,**k: pytest.fail("invalid metadata cannot be refreshed"))
     result = daily.refresh_pending_predictions(db_path=db,as_of=NOW)
     assert result["checked"] == result["skipped"] == 1
     assert result["due"] == result["refreshed"] == 0

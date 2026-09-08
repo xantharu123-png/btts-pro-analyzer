@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime
+import hashlib
 import math
 import pickle
 
@@ -447,4 +448,4 @@ def test_legacy_pickle_load_applies_new_in_memory_defaults(tmp_path):
 
     assert loaded.tour_scope == "legacy-combined"
     assert loaded.stats_through_kind == "tournament_start_proxy"
-    assert loaded.artifact_hash is None
+    assert loaded.artifact_hash == hashlib.sha256(path.read_bytes()).hexdigest()

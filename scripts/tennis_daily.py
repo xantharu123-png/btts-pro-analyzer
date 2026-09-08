@@ -20,6 +20,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import unicodedata
@@ -34,10 +35,10 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tennis.data_loader import DEFAULT_CACHE_DIR, cached_training_file, normalize_player_name  # noqa: E402
-from tennis.model_state import load_state  # noqa: E402
 from tennis.predict import predict_match  # noqa: E402
 from tennis import shadow  # noqa: E402
 from tennis.prediction_revisions import utc_epoch  # noqa: E402
+from tennis.tour_state import load_tour_state  # noqa: E402
 
 import pandas as pd  # noqa: E402
 
@@ -162,20 +163,41 @@ def resolve_surface(tournament_name: str, surfaces: dict):
 # ------------------------------------------------------------------- fixtures
 
 
-def fetch_fixtures_sofascore(date: str) -> list:
+def _sofascore_fixture_status(event: dict) -> str | None:
+    status = str((event.get("status") or {}).get("type") or "").casefold()
+    if status == "notstarted":
+        return "scheduled"
+    if status in {"cancelled", "canceled"}:
+        return "cancelled"
+    if status in {"inprogress", "finished"}:
+        return "started"
+    return None
+
+
+def fetch_fixtures_sofascore(date: str, *, observe_status=None) -> list:
     url = f"https://api.sofascore.com/api/v1/sport/tennis/scheduled-events/{date}"
     response = requests.get(url, headers=HEADERS, timeout=20)
     response.raise_for_status()
+    payload = response.json()
+    received_at = _refresh_now()
     fixtures = []
-    for ev in response.json().get("events", []):
-        if ev.get("status", {}).get("type") != "notstarted":
-            continue
+    for ev in payload.get("events", []):
         event_id = ev.get("id")
         if isinstance(event_id, bool) or not isinstance(event_id, int) or event_id <= 0:
             continue
         tournament = ev.get("tournament", {})
         category = (tournament.get("category") or {}).get("slug", "")
         if category not in ("atp", "wta"):
+            continue
+        status = _sofascore_fixture_status(ev)
+        if status is not None and observe_status is not None:
+            observe_status(
+                fixture_source="SofaScore",
+                provider_event_id=str(event_id),
+                status=status,
+                observed_at=received_at,
+            )
+        if status != "scheduled":
             continue
         start_utc, match_date = _start_metadata(ev.get("startTimestamp"), date)
         surface, indoor = provider_surface(
@@ -198,19 +220,43 @@ def fetch_fixtures_sofascore(date: str) -> list:
     return fixtures
 
 
-def fetch_fixtures_espn(date: str) -> list:
+def _espn_fixture_status(competition: dict) -> str | None:
+    status = competition.get("status") or {}
+    blob = json.dumps(status, ensure_ascii=False).casefold()
+    if "cancelled" in blob or "canceled" in blob:
+        return "cancelled"
+    state = (status.get("type") or {}).get("state")
+    if state == "pre":
+        return "scheduled"
+    if state in {"in", "post"}:
+        return "started"
+    return None
+
+
+def fetch_fixtures_espn(date: str, *, observe_status=None) -> list:
     """ESPN scoreboard fallback (tournaments with nested match lists)."""
     fixtures = []
     for tour in ("atp", "wta"):
         events = _fetch_espn_events(tour, date)
+        received_at = _refresh_now()
         want_slug = "mens-singles" if tour == "atp" else "womens-singles"
         for ev in events:
             for grouping in ev.get("groupings", []):
                 if grouping.get("grouping", {}).get("slug") != want_slug:
                     continue
                 for comp in grouping.get("competitions", []):
-                    state = comp.get("status", {}).get("type", {}).get("state")
-                    if state != "pre":
+                    event_id = comp.get("id")
+                    if event_id is None or isinstance(event_id, bool) or not str(event_id).strip():
+                        continue
+                    status = _espn_fixture_status(comp)
+                    if status is not None and observe_status is not None:
+                        observe_status(
+                            fixture_source="ESPN",
+                            provider_event_id=str(event_id),
+                            status=status,
+                            observed_at=received_at,
+                        )
+                    if status != "scheduled":
                         continue
                     names = [
                         c.get("athlete", {}).get("displayName")
@@ -232,7 +278,7 @@ def fetch_fixtures_espn(date: str) -> list:
                             "player_a": names[0],
                             "player_b": names[1],
                             "match_date": match_date,
-                            "provider_event_id": str(comp.get("id") or ""),
+                            "provider_event_id": str(event_id),
                             "scheduled_start_utc": start_utc,
                             "fixture_source": "ESPN",
                             "surface": surface,
@@ -581,18 +627,75 @@ def auto_settle_completed(today: str | None = None) -> int:
     return settled
 
 
-def fetch_fixtures(date: str) -> list:
+def fetch_fixtures(date: str, *, observe_status=None) -> list:
     try:
-        fixtures = fetch_fixtures_sofascore(date)
+        fixtures = fetch_fixtures_sofascore(date, observe_status=observe_status)
         if fixtures:
             return fixtures
     except requests.RequestException:
         pass
-    return fetch_fixtures_espn(date)
+    return fetch_fixtures_espn(date, observe_status=observe_status)
 
 
 def _refresh_now() -> datetime:
     return datetime.fromtimestamp(time.time(), timezone.utc)
+
+
+def _model_record(state) -> dict:
+    scope = getattr(state, "tour_scope", "legacy-combined")
+    return {
+        "status": "legacy" if scope == "legacy-combined" else "available",
+        "artifact_hash": getattr(state, "artifact_hash", None),
+        "built_at": datetime.fromtimestamp(
+            state.built_at, timezone.utc
+        ).isoformat(),
+        "training_cutoff": getattr(state, "training_cutoff", None),
+        "stats_through": state.stats_through,
+        "stats_through_kind": getattr(
+            state, "stats_through_kind", "tournament_start_proxy"
+        ),
+        "tour_scope": scope,
+    }
+
+
+def _load_models(
+    tours,
+    *,
+    decision_cutoff: datetime,
+    allow_legacy_model: bool = False,
+) -> tuple[dict, dict, list]:
+    states = {}
+    records = {}
+    errors = []
+    requested = set(tours)
+    for tour in ("ATP", "WTA"):
+        if tour not in requested:
+            continue
+        try:
+            state = load_tour_state(
+                tour,
+                allow_legacy=allow_legacy_model,
+                decision_cutoff=decision_cutoff,
+            )
+            states[tour] = state
+            records[tour] = _model_record(state)
+        except Exception as exc:
+            records[tour] = {
+                "status": "unavailable",
+                "error_type": type(exc).__name__,
+            }
+            errors.append({
+                "tour": tour,
+                "reason": "cached_tour_state_unavailable",
+                "error_type": type(exc).__name__,
+            })
+    return states, records, errors
+
+
+def _reader_status(states: dict, errors: list, *, success: str) -> str:
+    if errors:
+        return "partial" if states else "unavailable"
+    return success
 
 
 def refresh_pending_predictions(
@@ -600,6 +703,7 @@ def refresh_pending_predictions(
     db_path: str | Path | None = None,
     as_of: datetime | None = None,
     minimum_interval: timedelta = timedelta(hours=2),
+    allow_legacy_model: bool = False,
 ) -> dict:
     """Refresh due pending fixtures from the existing state without network I/O.
 
@@ -622,7 +726,7 @@ def refresh_pending_predictions(
         "refreshed": 0, "skipped": 0, "errors": [],
         "checked_at": checked_at.isoformat(), "completed_at": checked_at.isoformat(),
         "fixture_source": "stored_pending_fixtures", "provider_checked": False,
-        "model_stats_through": None,
+        "models": {},
     }
     # Several historical model versions can reference the same event. Refresh
     # it once using its latest stored fixture metadata, never once per version.
@@ -657,21 +761,51 @@ def refresh_pending_predictions(
         except (TypeError, ValueError, KeyError):
             result["skipped"] += 1
             result["errors"].append({"prediction_id": row.get("id"), "reason": "invalid_fixture_metadata"})
-    due = [row for row in by_event.values() if checked_at.timestamp() - utc_epoch(row["created_utc"]) >= minimum_interval.total_seconds()]
-    result["due"] = len(due)
-    if not due:
+    if not by_event:
         return result
+    # One actual decision boundary governs all tour artifacts selected for this
+    # worker run. A later manifest is ineligible even if its state was built early.
+    modeled_at = _refresh_now() if as_of is None else checked_at
+    states, result["models"], model_errors = _load_models(
+        (row["tour"] for row in by_event.values()),
+        decision_cutoff=modeled_at,
+        allow_legacy_model=allow_legacy_model,
+    )
+    result["errors"].extend(model_errors)
     try:
-        state = load_state()  # trusted existing artifact only; no build fallback
         workload = shadow.workload_history(db_path)
     except Exception as exc:
-        result["status"] = "unavailable"
-        result["errors"].append({"reason": "cached_state_or_history_unavailable", "error_type": type(exc).__name__})
+        result["status"] = _reader_status(states, result["errors"], success="unavailable")
+        result["errors"].append({"reason": "cached_history_unavailable", "error_type": type(exc).__name__})
         return result
-    result["model_stats_through"] = state.stats_through
+    due = []
+    for row in by_event.values():
+        state = states.get(row["tour"])
+        interval_due = (
+            checked_at.timestamp() - utc_epoch(row["created_utc"])
+            >= minimum_interval.total_seconds()
+        )
+        artifact_changed = False
+        if state is not None:
+            try:
+                context = json.loads(row.get("context_json") or "{}")
+                previous_hash = (context.get("model_inputs") or {}).get(
+                    "model_artifact_hash"
+                )
+            except (TypeError, ValueError, AttributeError):
+                previous_hash = None
+            artifact_changed = previous_hash != getattr(state, "artifact_hash", None)
+        if interval_due or artifact_changed:
+            due.append(row)
+    result["due"] = len(due)
+    if not due:
+        result["status"] = _reader_status(states, result["errors"], success="unchanged")
+        return result
     for row in due:
-        # Capture the decision after state/history reads, not at worker start.
-        modeled_at = _refresh_now() if as_of is None else checked_at
+        state = states.get(row["tour"])
+        if state is None:
+            result["skipped"] += 1
+            continue
         if utc_epoch(row["scheduled_start_utc"]) <= modeled_at.timestamp():
             result["skipped"] += 1
             continue
@@ -702,90 +836,162 @@ def refresh_pending_predictions(
                 db_path=db_path,
             )
             result["refreshed"] += 1
+        except shadow.FixtureNotRefreshable:
+            result["skipped"] += 1
         except Exception as exc:
             result["errors"].append({"prediction_id": row.get("id"), "reason": "prediction_refresh_failed", "error_type": type(exc).__name__})
     result["completed_at"] = (_refresh_now() if as_of is None else checked_at).isoformat()
-    result["status"] = "partial" if result["errors"] else "complete"
+    result["status"] = _reader_status(states, result["errors"], success="complete")
     return result
 
 
 # ----------------------------------------------------------------------- main
 
 
-def main() -> None:
-    date = sys.argv[1] if len(sys.argv) > 1 else _default_scan_date()
+def scan_fixtures(
+    scan_date: str,
+    fixtures: list,
+    *,
+    decision_at: datetime,
+    db_path: str | Path | None = None,
+    surfaces: dict | None = None,
+    workload_history=None,
+    allow_legacy_model: bool = False,
+) -> dict:
+    """Score stored fixture observations with one state selection per tour."""
+    decision_at = datetime.fromtimestamp(utc_epoch(decision_at), timezone.utc)
+    surfaces = tournament_surface_map(int(scan_date[:4])) if surfaces is None else surfaces
+    workload_history = (
+        shadow.workload_history(db_path)
+        if workload_history is None
+        else workload_history
+    )
+    requested_tours = {
+        fixture.get("tour")
+        for fixture in fixtures
+        if fixture.get("tour") in ("ATP", "WTA")
+    }
+    states, model_records, errors = _load_models(
+        requested_tours,
+        decision_cutoff=decision_at,
+        allow_legacy_model=allow_legacy_model,
+    )
+    result = {
+        "status": "complete",
+        "checked": len(fixtures),
+        "stored": 0,
+        "skipped": 0,
+        "errors": errors,
+        "models": model_records,
+        "decision_at": decision_at.isoformat(),
+    }
+    for fx in fixtures:
+        tour = fx.get("tour")
+        if tour not in ("ATP", "WTA"):
+            result["skipped"] += 1
+            result["errors"].append({
+                "reason": "invalid_fixture_metadata",
+                "error_type": "ValueError",
+            })
+            continue
+        state = states.get(tour)
+        if state is None:
+            result["skipped"] += 1
+            continue
+        try:
+            if not fx["player_a"] or not fx["player_b"] or "TBD" in (
+                fx["player_a"], fx["player_b"]
+            ):
+                result["skipped"] += 1
+                continue
+            if fx.get("scheduled_start_utc") and utc_epoch(
+                fx["scheduled_start_utc"]
+            ) <= decision_at.timestamp():
+                result["skipped"] += 1
+                continue
+            catalog_surface, best_of, _, catalog_indoor = resolve_surface(
+                fx["tournament"], surfaces
+            )
+            surface = merge_surface(fx.get("surface"), catalog_surface)
+            indoor = fx.get("indoor")
+            if indoor is None:
+                indoor = catalog_indoor
+            pred = predict_match(
+                state,
+                fx["player_a"],
+                fx["player_b"],
+                surface,
+                best_of,
+                tour=tour,
+                indoor=indoor,
+                as_of=decision_at,
+                workload_history=workload_history,
+            )
+            row_id = shadow.store_prediction(
+                fx["match_date"],
+                tour,
+                fx["tournament"],
+                pred,
+                provider_event_id=fx.get("provider_event_id") or None,
+                scheduled_start_utc=fx.get("scheduled_start_utc"),
+                fixture_source=fx.get("fixture_source"),
+                modeled_at=decision_at,
+                db_path=db_path,
+            )
+            if row_id > 0:
+                result["stored"] += 1
+        except shadow.FixtureNotRefreshable:
+            result["skipped"] += 1
+        except Exception as exc:
+            result["errors"].append({
+                "tour": tour,
+                "provider_event_id": fx.get("provider_event_id"),
+                "reason": "prediction_scan_failed",
+                "error_type": type(exc).__name__,
+            })
+    result["status"] = _reader_status(
+        states,
+        result["errors"],
+        success="complete",
+    )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("date", nargs="?", default=_default_scan_date())
+    parser.add_argument(
+        "--allow-legacy-model",
+        action="store_true",
+        help="explicit migration bridge to the trusted combined pickle",
+    )
+    args = parser.parse_args()
+    date = args.date
     print(f"=== TENNIS DAILY SCAN {date} ===")
     settled = auto_settle_completed()
     print(f"Automatisch abgerechnet (normale ESPN-Finals): {settled}")
 
-    try:
-        state = load_state()
-    except FileNotFoundError:
-        # Z.B. erster Start auf Streamlit Cloud: State aus den Repo-Daten
-        # einmalig neu bauen (mehrere Minuten), statt mit Traceback zu sterben.
-        print("Modell-State fehlt — baue neu aus den mitgelieferten Daten ...")
-        from tennis.model_state import build_state, save_state
-
-        state = build_state()
-        save_state(state)
-        print("Modell-State gebaut und gespeichert.")
-    print(f"Modell-Stand: Daten bis {state.stats_through}, Kalibrator n={state.cal_samples}")
-
     surfaces = tournament_surface_map(int(date[:4]))
-    fixtures = fetch_fixtures(date)
+    fixtures = fetch_fixtures(date, observe_status=shadow.record_fixture_status)
     print(f"Fixtures (ATP/WTA Singles, noch nicht gestartet): {len(fixtures)}\n")
-
-    stored = 0
-    workload_history = shadow.workload_history()
-    for fx in fixtures:
-        if not fx["player_a"] or not fx["player_b"] or "TBD" in (
-            fx["player_a"],
-            fx["player_b"],
-        ):
-            continue  # qualifiers not yet decided — nothing to audit
-        catalog_surface, best_of, official, catalog_indoor = resolve_surface(
-            fx["tournament"], surfaces
-        )
-        surface = merge_surface(fx.get("surface"), catalog_surface)
-        indoor = fx.get("indoor")
-        if indoor is None:
-            indoor = catalog_indoor
-        pred = predict_match(
-            state,
-            fx["player_a"],
-            fx["player_b"],
-            surface,
-            best_of,
-            tour=fx.get("tour", "ATP"),
-            indoor=indoor,
-            workload_history=workload_history,
-        )
-        row_id = shadow.store_prediction(
-            fx["match_date"],
-            fx["tour"],
-            fx["tournament"],
-            pred,
-            provider_event_id=fx.get("provider_event_id") or None,
-            scheduled_start_utc=fx.get("scheduled_start_utc"),
-            fixture_source=fx.get("fixture_source"),
-        )
-        if row_id > 0:
-            stored += 1
-        gates_ok = all(g.passed for g in pred.gates)
-        flag = "GRUEN" if gates_ok else "rot "
+    result = scan_fixtures(
+        date,
+        fixtures,
+        decision_at=_refresh_now(),
+        surfaces=surfaces,
+        allow_legacy_model=args.allow_legacy_model,
+    )
+    for tour, record in result["models"].items():
         print(
-            f"[{flag}] {fx['tour']:3} {fx['player_a']} vs {fx['player_b']} "
-            f"({fx['tournament']}, {surface or 'Belag?'}, Bo{best_of}) "
-            f"p={pred.p_a_cal:.1%} / {pred.p_b_cal:.1%}"
+            f"Modell {tour}: {record['status']}; "
+            f"{record.get('stats_through_kind')}={record.get('stats_through')}; "
+            f"artifact_hash={record.get('artifact_hash')}; "
+            f"error_type={record.get('error_type')}"
         )
-        if not gates_ok:
-            for g in pred.gates:
-                if not g.passed:
-                    print(f"        Sperre: {g.name} — {g.detail}")
-
-    print(f"\nGespeichert: {stored} neue Predictions (Duplikate uebersprungen)")
+    print(f"\nGespeichert: {result['stored']} neue Predictions (Duplikate uebersprungen)")
     print("Shadow-Stand:", shadow.summary())
+    return 1 if result["errors"] else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

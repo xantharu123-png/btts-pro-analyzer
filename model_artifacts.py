@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -58,6 +58,20 @@ def _timestamp(value: datetime) -> str:
     if offset is None:
         raise ValueError("timestamp must be timezone-aware")
     return value.isoformat()
+
+
+def _decision_time(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        raise ValueError("decision cutoff must be timezone-aware")
+    try:
+        offset = value.utcoffset()
+    except (OverflowError, ValueError) as exc:
+        raise ValueError("decision cutoff must be timezone-aware") from exc
+    if offset is None:
+        raise ValueError("decision cutoff must be timezone-aware")
+    return value.astimezone(timezone.utc)
 
 
 def _validate_stored_timestamp(value: object, *, label: str) -> str:
@@ -238,7 +252,11 @@ def load_artifact(path: Path, digest: str) -> dict:
     return artifact
 
 
-def _load_active(connection: sqlite3.Connection) -> tuple[str | None, dict[str, str]]:
+def _load_active(
+    connection: sqlite3.Connection,
+    *,
+    decision_cutoff: datetime | None = None,
+) -> tuple[str | None, dict[str, str]]:
     active_row = connection.execute(
         "SELECT digest FROM active_manifest WHERE id=1"
     ).fetchone()
@@ -274,16 +292,28 @@ def _load_active(connection: sqlite3.Connection) -> tuple[str | None, dict[str, 
         }
     ) != digest:
         raise ArtifactIntegrityError("manifest hash mismatch")
+    if decision_cutoff is not None:
+        published = datetime.fromisoformat(published_at).astimezone(timezone.utc)
+        if published > decision_cutoff:
+            raise ValueError("active manifest was published after the decision cutoff")
     return digest, slots
 
 
-def load_manifest(path: Path) -> tuple[str | None, dict[str, str]]:
+def load_manifest(
+    path: Path,
+    *,
+    decision_cutoff: datetime | None = None,
+) -> tuple[str | None, dict[str, str]]:
     """Return the active manifest identity and its artifact slots."""
 
+    decision_cutoff = _decision_time(decision_cutoff)
     with closing(_connect(path)) as connection:
         try:
             connection.execute("BEGIN")
-            manifest = _load_active(connection)
+            manifest = _load_active(
+                connection,
+                decision_cutoff=decision_cutoff,
+            )
             connection.commit()
         except BaseException:
             connection.rollback()

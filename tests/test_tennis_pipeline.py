@@ -54,3 +54,28 @@ def test_all_skipped_pipeline_is_success(monkeypatch) -> None:
             ],
         )
         assert run_daily_pipeline.main() == 0
+
+
+def test_partial_or_failed_rebuild_still_runs_scan_and_keeps_error_exit(
+    monkeypatch,
+) -> None:
+    with tempfile.TemporaryDirectory(dir=".") as tmp:
+        monkeypatch.setattr(run_daily_pipeline, "LOG_DIR", Path(tmp) / "logs")
+        calls = []
+
+        def run(log, name, script, args, timeout):
+            calls.append((name, script))
+            return None if name == "State-Rebuild" else "scan complete"
+
+        monkeypatch.setattr(run_daily_pipeline, "run_step", run)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["pipeline", "--skip-watch", "--skip-report"],
+        )
+
+        assert run_daily_pipeline.main() == 1
+        assert calls == [
+            ("State-Rebuild", "rebuild_state.py"),
+            ("Tages-Scan", "tennis_daily.py"),
+        ]

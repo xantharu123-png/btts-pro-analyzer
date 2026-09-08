@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 import sqlite3
@@ -303,6 +303,21 @@ def test_manifest_rejects_tampered_payload_and_dangling_active_row(tmp_path):
         )
     with pytest.raises(ValueError, match="missing manifest"):
         load_manifest(path)
+
+
+def test_manifest_hash_is_verified_before_publication_cutoff(tmp_path):
+    path = tmp_path / "models.db"
+    now = datetime(2026, 9, 7, tzinfo=timezone.utc)
+    artifact = put_artifact(path, kind="test", payload={"v": 1}, created_at=now)
+    publish_slots(path, {"one": artifact}, expected_manifest=None, published_at=now)
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE manifests SET published_at=?",
+            ((now + timedelta(minutes=1)).isoformat(),),
+        )
+
+    with pytest.raises(ValueError, match="manifest hash"):
+        load_manifest(path, decision_cutoff=now)
 
 
 def test_publish_rejects_corrupt_referenced_artifact_and_rolls_back(tmp_path):

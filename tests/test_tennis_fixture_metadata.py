@@ -118,6 +118,40 @@ def test_sofascore_fixture_keeps_event_and_start(monkeypatch):
     assert fixture["match_date"] == "2030-01-01"
 
 
+def test_sofascore_fixture_read_reports_native_cancellation_without_extra_fetch(
+    monkeypatch,
+):
+    calls = []
+    received = datetime(2030, 1, 1, 10, tzinfo=timezone.utc)
+    payload = {
+        "events": [
+            _sofascore_event(
+                1234, status_type="cancelled", status_description="Cancelled"
+            )
+        ]
+    }
+    monkeypatch.setattr(tennis_daily, "_refresh_now", lambda: received)
+    monkeypatch.setattr(
+        tennis_daily.requests,
+        "get",
+        lambda *args, **kwargs: calls.append(args[0]) or _Response(payload),
+    )
+    observations = []
+
+    fixtures = tennis_daily.fetch_fixtures_sofascore(
+        "2030-01-01", observe_status=lambda **row: observations.append(row)
+    )
+
+    assert fixtures == []
+    assert len(calls) == 1
+    assert observations == [{
+        "fixture_source": "SofaScore",
+        "provider_event_id": "1234",
+        "status": "cancelled",
+        "observed_at": received,
+    }]
+
+
 def test_sofascore_results_accept_only_explicit_terminal_statuses(monkeypatch):
     payload = {
         "events": [

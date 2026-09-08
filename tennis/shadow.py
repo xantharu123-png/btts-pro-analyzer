@@ -43,6 +43,10 @@ CLOSING_WINDOW_SECONDS = 60 * 60
 TENNIS_MODEL_VERSION = "elo-serve-platt-v3"
 TENNIS_POLICY_VERSION = "risk-ev-haircut-min-odds-v4"
 
+
+class FixtureNotRefreshable(ValueError):
+    """The latest observed fixture state forbids a model append."""
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS predictions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,6 +108,28 @@ CREATE TABLE IF NOT EXISTS side_bets (
     pnl REAL,
     policy_version TEXT
 );
+CREATE TABLE IF NOT EXISTS fixture_status_observations (
+    fixture_source TEXT NOT NULL,
+    provider_event_id TEXT NOT NULL,
+    observed_utc REAL NOT NULL,
+    observed_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    PRIMARY KEY(fixture_source, provider_event_id, observed_utc)
+);
+CREATE INDEX IF NOT EXISTS tennis_fixture_status_latest
+    ON fixture_status_observations(
+        fixture_source, provider_event_id, observed_utc DESC
+    );
+CREATE TRIGGER IF NOT EXISTS tennis_fixture_status_append_only_update
+BEFORE UPDATE ON fixture_status_observations
+BEGIN
+    SELECT RAISE(ABORT, 'fixture status observations are append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS tennis_fixture_status_append_only_delete
+BEFORE DELETE ON fixture_status_observations
+BEGIN
+    SELECT RAISE(ABORT, 'fixture status observations are append-only');
+END;
 """
 
 _CLOSING_TRIGGERS = """
@@ -677,6 +703,126 @@ def ensure_schema() -> None:
         pass
 
 
+_FIXTURE_STATUSES = {"scheduled", "started", "cancelled"}
+
+
+def _fixture_identity(fixture_source: str, provider_event_id: str) -> tuple[str, str]:
+    source = str(fixture_source or "").strip()
+    event_id = str(provider_event_id or "").strip()
+    if not source or not event_id:
+        raise ValueError("fixture status requires native source and event identity")
+    return source, event_id
+
+
+def _fixture_observation_time(observed_at: datetime) -> tuple[float, str]:
+    if (
+        not isinstance(observed_at, datetime)
+        or observed_at.tzinfo is None
+        or observed_at.utcoffset() is None
+    ):
+        raise ValueError("fixture status observation time must be timezone-aware")
+    moment = observed_at.astimezone(timezone.utc)
+    return moment.timestamp(), moment.isoformat()
+
+
+def _latest_fixture_status_in_connection(
+    conn: sqlite3.Connection,
+    fixture_source: str,
+    provider_event_id: str,
+) -> dict | None:
+    row = conn.execute(
+        """
+        SELECT status, observed_at
+        FROM fixture_status_observations
+        WHERE fixture_source=? AND provider_event_id=?
+        ORDER BY observed_utc DESC
+        LIMIT 1
+        """,
+        (fixture_source, provider_event_id),
+    ).fetchone()
+    return None if row is None else {"status": row[0], "observed_at": row[1]}
+
+
+def record_fixture_status(
+    *,
+    fixture_source: str,
+    provider_event_id: str,
+    status: str,
+    observed_at: datetime,
+    db_path: str | Path | None = None,
+) -> None:
+    """Append one actually received native fixture-status observation."""
+    source, event_id = _fixture_identity(fixture_source, provider_event_id)
+    if status not in _FIXTURE_STATUSES:
+        raise ValueError("fixture status must be scheduled, started, or cancelled")
+    observed_utc, observed_text = _fixture_observation_time(observed_at)
+    with closing(_connect(db_path)) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
+        same_time = conn.execute(
+            """
+            SELECT status, observed_at FROM fixture_status_observations
+            WHERE fixture_source=? AND provider_event_id=? AND observed_utc=?
+            """,
+            (source, event_id, observed_utc),
+        ).fetchone()
+        if same_time is not None and same_time != (status, observed_text):
+            raise ValueError("ambiguous equal-time fixture status observations")
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO fixture_status_observations(
+                fixture_source, provider_event_id, observed_utc, observed_at, status
+            ) VALUES (?,?,?,?,?)
+            """,
+            (source, event_id, observed_utc, observed_text, status),
+        )
+
+
+def latest_fixture_status(
+    *,
+    fixture_source: str,
+    provider_event_id: str,
+    db_path: str | Path | None = None,
+) -> dict | None:
+    """Read the newest native observation; absence remains unknown."""
+    source, event_id = _fixture_identity(fixture_source, provider_event_id)
+    path = Path(db_path if db_path is not None else DB_PATH)
+    if not path.is_file():
+        return None
+    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if "fixture_status_observations" not in tables:
+            return None
+        return _latest_fixture_status_in_connection(conn, source, event_id)
+
+
+def _guard_fixture_refreshable(
+    conn: sqlite3.Connection,
+    *,
+    fixture_source: str | None,
+    provider_event_id: str | None,
+    scheduled_start_utc: str | None,
+    modeled_utc: float,
+    settled: bool,
+) -> None:
+    if settled:
+        raise FixtureNotRefreshable("cannot append a model revision after settlement")
+    if scheduled_start_utc and modeled_utc >= utc_epoch(scheduled_start_utc):
+        raise FixtureNotRefreshable("tennis model revision must precede match start")
+    if fixture_source and provider_event_id:
+        observed = _latest_fixture_status_in_connection(
+            conn, fixture_source, provider_event_id
+        )
+        if observed is not None and observed["status"] in {"started", "cancelled"}:
+            raise FixtureNotRefreshable(
+                f"{observed['status']} fixture cannot receive a model revision"
+            )
+
+
 def already_stored(match_date: str, player_a: str, player_b: str) -> bool:
     with _connect() as conn:
         row = conn.execute(
@@ -782,12 +928,23 @@ def store_prediction(
             ).fetchone()
         if existing:
             stored = conn.execute(
-                "SELECT player_a,player_b,settled FROM predictions WHERE id=?", (existing[0],)
+                """
+                SELECT player_a,player_b,settled,provider_event_id,
+                       fixture_source,scheduled_start_utc
+                FROM predictions WHERE id=?
+                """,
+                (existing[0],),
             ).fetchone()
             if tuple(stored[:2]) != (prediction.player_a, prediction.player_b):
                 raise ValueError("tennis revision cannot change player identity or orientation")
-            if stored[2]:
-                raise ValueError("cannot append a model revision after settlement")
+            _guard_fixture_refreshable(
+                conn,
+                fixture_source=stored[4] or fixture_source,
+                provider_event_id=stored[3] or provider_event_id,
+                scheduled_start_utc=scheduled_start_utc or stored[5],
+                modeled_utc=observed,
+                settled=bool(stored[2]),
+            )
             freeze_legacy_baseline(conn, int(existing[0]))
             # Schedules can move after the first scan. Model outputs stay frozen,
             # while factual fixture metadata may be refreshed.
@@ -815,6 +972,14 @@ def store_prediction(
             revision.update(zip(("provider_event_id", "fixture_source", "scheduled_start_utc"), identity))
             append_revision(conn, int(existing[0]), revision)
             return -1
+        _guard_fixture_refreshable(
+            conn,
+            fixture_source=fixture_source,
+            provider_event_id=provider_event_id,
+            scheduled_start_utc=scheduled_start_utc,
+            modeled_utc=observed,
+            settled=False,
+        )
         cur = conn.execute(
             """
             INSERT INTO predictions (
