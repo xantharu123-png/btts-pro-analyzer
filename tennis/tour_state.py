@@ -15,7 +15,7 @@ from .backtest import RESULT_COLUMNS, WalkForwardCalibrator, _is_retired, run_ba
 from .data_loader import add_normalized_names, load_atp_stats, load_market_odds
 from .elo import SurfaceElo
 from .model_state import ModelState, load_state
-from .serve_model import (ServeReturnModel, WTA_TOUR_HOLD_AVG,
+from .serve_model import (ServeAdmissionDiagnostics, ServeReturnModel, WTA_TOUR_HOLD_AVG,
                           WTA_TOUR_BREAK_AVG, is_tour_level)
 from .state_codec import decode_state, encode_state
 
@@ -54,7 +54,8 @@ def _dated_inputs(frame, column, tour, cutoff):
 
 
 def build_tour_state(tour: str, *, as_of: datetime,
-                     refresh_training_data: bool = True) -> ModelState:
+                     refresh_training_data: bool = True,
+                     diagnostics: dict | None = None) -> ModelState:
     """Build one namespace using sport-only, cutoff-bounded training inputs.
 
     The fixed 2022/2023/2024 calibration-year policy is intentionally retained.
@@ -62,6 +63,17 @@ def build_tour_state(tour: str, *, as_of: datetime,
     This population change is not evidence of improved predictive performance.
     """
     tour = _tour(tour)
+    if diagnostics is not None and not isinstance(diagnostics, dict):
+        raise TypeError("tour build diagnostics must be a dictionary or None")
+    build_diagnostics = {}
+    calibration_diagnostics = {}
+    if diagnostics is not None:
+        diagnostics.clear()
+        diagnostics.update({
+            "serve_build": build_diagnostics,
+            "serve_calibration": calibration_diagnostics,
+        })
+    admission = ServeAdmissionDiagnostics(build_diagnostics)
     cutoff = _utc(as_of)
     if cutoff > _now():
         raise ValueError("training cutoff is in the future")
@@ -86,7 +98,7 @@ def build_tour_state(tour: str, *, as_of: datetime,
             continue
         elo.update(row["winner_key"], row["loser_key"], row.get(surface))
         if tour == "ATP" and is_tour_level(row):
-            serve.update_from_match_row(row)
+            serve.update_from_match_row_if_valid(row, diagnostics=admission)
         consumed.append(row[column])
     if not consumed:
         raise ValueError("no dated completed training results before cutoff")
@@ -96,6 +108,7 @@ def build_tour_state(tour: str, *, as_of: datetime,
         serve_weight=.3 if tour == "ATP" else 0., recalibrate=False,
         serve_half_life_days=365., serve_split_indoor=True,
         end_cutoff=cutoff, calibration_only=True,
+        diagnostics=calibration_diagnostics,
     ) if calibration_years else None
     cal = WalkForwardCalibrator(min_samples=1500, refit_every=250)
     rows = report.rows if report is not None else []

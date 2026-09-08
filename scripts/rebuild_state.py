@@ -10,6 +10,7 @@ Exit 0 only if both tours are published or retained fresh. Partial/failed
 refreshes return 1. The legacy combined pickle writer is explicit opt-in.
 """
 import argparse
+import json
 import sys
 import time
 from datetime import date, datetime, timezone
@@ -20,6 +21,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tennis.model_state import build_state, save_state, load_state, state_exists
 from tennis.tour_state import build_tour_state, refresh_tours
 from runtime_paths import CONTEXT_MODEL_DB_PATH
+
+
+def _compact_serve_diagnostics(diagnostics: dict) -> dict:
+    fields = (
+        "admitted", "skipped", "admitted_event_count", "skipped_event_count",
+        "unknown_event_identity", "unknown_year", "reasons",
+        "admitted_years", "skipped_years",
+    )
+    return {
+        phase: {name: summary[name] for name in fields if name in summary}
+        for phase, summary in diagnostics.items()
+    }
 
 
 def main() -> int:
@@ -34,11 +47,18 @@ def main() -> int:
 
     if not args.legacy_combined:
         cutoff = datetime.fromtimestamp(time.time(), timezone.utc)
+        diagnostics_by_tour = {}
+        def build(tour):
+            diagnostics = {}
+            diagnostics_by_tour[tour] = diagnostics
+            return build_tour_state(
+                tour, as_of=cutoff, refresh_training_data=args.refresh_data,
+                diagnostics=diagnostics,
+            )
         try:
             result = refresh_tours(
                 path=CONTEXT_MODEL_DB_PATH, as_of=cutoff,
-                builder=lambda tour: build_tour_state(
-                    tour, as_of=cutoff, refresh_training_data=args.refresh_data),
+                builder=build,
                 if_stale_days=None if args.force else args.if_stale_days,
             )
         except Exception as exc:
@@ -49,6 +69,11 @@ def main() -> int:
                   f"built_at={record['built_at']}; training_cutoff={record['training_cutoff']}; "
                   f"{record['stats_through_kind']}={record['stats_through']}; "
                   f"error_type={record['error_type']}")
+            if tour in diagnostics_by_tour:
+                compact = _compact_serve_diagnostics(diagnostics_by_tour[tour])
+                print(f"{tour} serve_admission=" + json.dumps(
+                    compact, ensure_ascii=True, separators=(",", ":"), sort_keys=True,
+                ))
         print(f"REFRESH_{result['status'].upper()}; Datenrefresh angefordert={args.refresh_data}")
         return 0 if result["status"] == "complete" else 1
 

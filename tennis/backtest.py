@@ -45,6 +45,7 @@ from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
 from .data_loader import load_atp_stats, load_market_odds, load_wta_ta_stats, add_normalized_names
 from .elo import SurfaceElo
 from .serve_model import (
+    ServeAdmissionDiagnostics,
     ServeReturnModel,
     is_tour_level,
     WTA_TOUR_HOLD_AVG,
@@ -492,6 +493,7 @@ def run_backtest(
     serve_split_indoor: bool = True,
     end_cutoff: datetime | None = None,
     calibration_only: bool = False,
+    diagnostics: dict | None = None,
 ) -> BacktestReport | CalibrationReport:
     """Full walk-forward backtest.
 
@@ -526,6 +528,9 @@ def run_backtest(
         end_ts = pd.Timestamp(end_cutoff.astimezone(timezone.utc)).tz_localize(None)
     if calibration_only and (len(tours) != 1 or tours[0] not in ("atp", "wta")):
         raise ValueError("calibration requires exactly one explicit tour")
+    if diagnostics is not None and not calibration_only:
+        raise ValueError("serve diagnostics are available only for calibration")
+    admission = ServeAdmissionDiagnostics(diagnostics) if calibration_only else None
 
     def bounded(frame, column, tour):
         if calibration_only and "tour" in frame and not frame["tour"].eq(tour.upper()).all():
@@ -606,7 +611,12 @@ def run_backtest(
                     if s.get("winner_key") and s.get("loser_key"):
                         elo.update(s["winner_key"], s["loser_key"], s.get("surface"))
                         if is_tour_level(s):
-                            serve.update_from_match_row(s)
+                            if calibration_only:
+                                serve.update_from_match_row_if_valid(
+                                    s, diagnostics=admission,
+                                )
+                            else:
+                                serve.update_from_match_row(s)
 
             # 1b) WTA: advance the Tennis Abstract box-score pointer.
             # Serve ratings ONLY — Elo comes from the odds-file results
@@ -620,7 +630,12 @@ def run_backtest(
                     s = wta_records[wta_ptr]
                     wta_ptr += 1
                     if s.get("winner_key") and s.get("loser_key"):
-                        serve_wta.update_from_match_row(s)
+                        if calibration_only:
+                            serve_wta.update_from_match_row_if_valid(
+                                s, diagnostics=admission,
+                            )
+                        else:
+                            serve_wta.update_from_match_row(s)
 
             w_key, l_key = row.winner_key, row.loser_key
             if not w_key or not l_key:

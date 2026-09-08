@@ -524,8 +524,30 @@ def test_cli_default_publishes_tours_independently_without_touching_legacy(tmp_p
     monkeypatch.setattr(rebuild_state, "CONTEXT_MODEL_DB_PATH", path, raising=False)
     monkeypatch.setattr(rebuild_state.time, "time", lambda: NOW)
     calls = []
-    def build(tour, *, as_of, refresh_training_data):
+    def build(tour, *, as_of, refresh_training_data, diagnostics):
         calls.append((tour, as_of.year, refresh_training_data))
+        diagnostics.update({
+            "serve_build": {
+                "admitted": 10 if tour == "ATP" else 0, "skipped": 1 if tour == "ATP" else 0,
+                "admitted_event_count": 2 if tour == "ATP" else 0,
+                "skipped_event_count": 1 if tour == "ATP" else 0,
+                "unknown_event_identity": {"admitted_rows": 0, "skipped_rows": 0},
+                "unknown_year": {"admitted_rows": 0, "skipped_rows": 0},
+                "reasons": {"nonpositive_game_denominator": 1} if tour == "ATP" else {},
+                "admitted_years": {"2026": 10} if tour == "ATP" else {},
+                "skipped_years": {"2018": 1} if tour == "ATP" else {},
+                "skipped_events": {"2018-560": 1} if tour == "ATP" else {},
+            },
+            "serve_calibration": {
+                "admitted": 8 if tour == "ATP" else 0, "skipped": 0,
+                "admitted_event_count": 2 if tour == "ATP" else 0,
+                "skipped_event_count": 0,
+                "unknown_event_identity": {"admitted_rows": 0, "skipped_rows": 0},
+                "unknown_year": {"admitted_rows": 0, "skipped_rows": 0},
+                "reasons": {}, "admitted_years": {"2024": 8} if tour == "ATP" else {},
+                "skipped_years": {}, "skipped_events": {},
+            },
+        })
         if broken in (tour, "both"):
             raise OSError("secret-provider-detail")
         result = old_state()
@@ -541,6 +563,15 @@ def test_cli_default_publishes_tours_independently_without_touching_legacy(tmp_p
     assert model_state.DEFAULT_STATE_PATH.read_bytes() == legacy
     output = capsys.readouterr().out
     assert "secret-provider-detail" not in output
+    if broken in ("ATP", "both"):
+        assert "ATP: failed;" in output and "error_type=OSError" in output
+    if broken in ("WTA", "both"):
+        assert "WTA: failed;" in output and "error_type=OSError" in output
+    assert 'ATP serve_admission={"serve_build":{"admitted":10' in output
+    assert '"skipped_event_count":1' in output
+    assert '"reasons":{"nonpositive_game_denominator":1}' in output
+    assert '"skipped_years":{"2018":1}' in output
+    assert 'WTA serve_admission={"serve_build":{"admitted":0' in output
     for tour in ("ATP", "WTA"):
         if broken not in (tour, "both"):
             assert tour_state.load_tour_state(tour, path=path).tour_scope == tour

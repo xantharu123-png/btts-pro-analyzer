@@ -387,6 +387,80 @@ def test_atp_retains_serve_tour_restriction_indoor_split_and_real_completion(mon
     assert {r["bucket"] for r in built.serve.to_payload()["rows"]} == {"__overall__", "Hard@Indoor"}
 
 
+def test_separate_atp_build_skips_bad_serve_row_but_retains_elo_and_reports(monkeypatch):
+    monkeypatch.setattr(tour_state.time, "time", lambda: NOW.timestamp())
+    broken = atp_boxscore(winner="Alexey Vatutin", day="2018-08-27", category="gs")
+    broken.update({
+        "id": "2018-560-v717-f974-Q1",
+        "tournament_id": "2018-560",
+        "loser_name": "Tom Fawcett",
+        "win_service_games_played": 0.0,
+        "win_return_games_played": 0.0,
+        "win_break_points_converted": 6.0,
+        "los_break_points_converted": 4.0,
+        "los_service_games_played": 0.0,
+        "los_return_games_played": 0.0,
+    })
+    monkeypatch.setattr(tour_state, "load_atp_stats", lambda *a, **k: pd.DataFrame([broken]))
+    def calibration(**kwargs):
+        kwargs["diagnostics"].update({
+            "admitted": 2, "skipped": 1,
+            "admitted_event_count": 2, "skipped_event_count": 1,
+            "unknown_event_identity": {"admitted_rows": 0, "skipped_rows": 0},
+            "unknown_year": {"admitted_rows": 0, "skipped_rows": 0},
+            "reasons": {"nonpositive_game_denominator": 1},
+            "admitted_years": {"2017": 2}, "skipped_years": {"2018": 1},
+            "skipped_events": {"2018-560": 1},
+        })
+        return SimpleNamespace(rows=[])
+    monkeypatch.setattr(tour_state, "run_backtest", calibration)
+    diagnostics = {}
+
+    built = tour_state.build_tour_state("ATP", as_of=NOW, diagnostics=diagnostics)
+
+    assert built.elo.known_players() == {"vatutin a", "fawcett t"}
+    assert built.serve.to_payload()["rows"] == []
+    assert diagnostics == {
+        "serve_build": {
+            "admitted": 0, "skipped": 1,
+            "admitted_event_count": 0, "skipped_event_count": 1,
+            "unknown_event_identity": {"admitted_rows": 0, "skipped_rows": 0},
+            "unknown_year": {"admitted_rows": 0, "skipped_rows": 0},
+            "reasons": {"nonpositive_game_denominator": 1},
+            "admitted_years": {}, "skipped_years": {"2018": 1},
+            "skipped_events": {"2018-560": 1},
+        },
+        "serve_calibration": {
+            "admitted": 2, "skipped": 1,
+            "admitted_event_count": 2, "skipped_event_count": 1,
+            "unknown_event_identity": {"admitted_rows": 0, "skipped_rows": 0},
+            "unknown_year": {"admitted_rows": 0, "skipped_rows": 0},
+            "reasons": {"nonpositive_game_denominator": 1},
+            "admitted_years": {"2017": 2}, "skipped_years": {"2018": 1},
+            "skipped_events": {"2018-560": 1},
+        },
+    }
+
+
+def test_separate_build_preserves_calibration_exception_and_live_diagnostics(monkeypatch):
+    monkeypatch.setattr(tour_state.time, "time", lambda: NOW.timestamp())
+    monkeypatch.setattr(
+        tour_state, "load_atp_stats",
+        lambda *a, **k: pd.DataFrame([atp_boxscore()]),
+    )
+    def calibration(**kwargs):
+        kwargs["diagnostics"].update({"admitted": 7, "skipped": 2})
+        raise RuntimeError("calibration-sentinel")
+    monkeypatch.setattr(tour_state, "run_backtest", calibration)
+    diagnostics = {}
+
+    with pytest.raises(RuntimeError, match="calibration-sentinel"):
+        tour_state.build_tour_state("ATP", as_of=NOW, diagnostics=diagnostics)
+
+    assert diagnostics["serve_build"]["admitted"] == 1
+    assert diagnostics["serve_calibration"] == {"admitted": 7, "skipped": 2}
+
+
 def test_future_serve_observation_cannot_hide_under_old_coverage(tmp_path):
     def builder(tour):
         result = state(tour)
@@ -453,6 +527,60 @@ def test_atp_calibration_bounds_stats_and_results_without_other_tour(monkeypatch
     assert len(report.rows) == 1
     assert report.rows[0].p_alpha_raw == .6805
     assert report.rows[0].y_alpha == 0
+
+
+def test_calibration_only_uses_bilateral_admission_and_reports_bad_source(monkeypatch):
+    stats = pd.DataFrame([{
+        **atp_boxscore(winner="Alexey Vatutin", day="2018-08-27", category="gs"),
+        "id": "2018-560-v717-f974-Q1", "tournament_id": "2018-560",
+        "loser_name": "Tom Fawcett",
+        "win_service_games_played": 0.0, "win_return_games_played": 0.0,
+        "win_break_points_converted": 6.0, "los_break_points_converted": 4.0,
+        "los_service_games_played": 0.0, "los_return_games_played": 0.0,
+    }])
+    market = market_frame("atp").iloc[:1].copy()
+    market["Date"] = "2019-01-20"
+    monkeypatch.setattr(backtest, "load_atp_stats", lambda *a, **k: stats.copy())
+    monkeypatch.setattr(backtest, "load_market_odds", lambda *a, **k: market.copy())
+    diagnostics = {}
+
+    report = backtest.run_backtest(
+        (2019,), stats_years=(2018,), tours=("atp",), serve_weight=.3,
+        recalibrate=False, end_cutoff=NOW, calibration_only=True,
+        diagnostics=diagnostics,
+    )
+
+    assert len(report.rows) == 1
+    assert diagnostics == {
+        "admitted": 0, "skipped": 1,
+        "admitted_event_count": 0, "skipped_event_count": 1,
+        "unknown_event_identity": {"admitted_rows": 0, "skipped_rows": 0},
+        "unknown_year": {"admitted_rows": 0, "skipped_rows": 0},
+        "reasons": {"nonpositive_game_denominator": 1},
+        "admitted_years": {}, "skipped_years": {"2018": 1},
+        "skipped_events": {"2018-560": 1},
+    }
+
+
+def test_default_backtest_does_not_enable_separated_admission(monkeypatch):
+    stats = pd.DataFrame([atp_boxscore(day="2024-01-01")])
+    stats["tourney_date"] = pd.to_datetime(stats["tourney_date"])
+    market = market_frame("atp").iloc[1:].copy()
+    market["Date"] = pd.to_datetime(market["Date"])
+    monkeypatch.setattr(backtest, "load_atp_stats", lambda *a, **k: stats.copy())
+    monkeypatch.setattr(backtest, "load_market_odds", lambda *a, **k: market.copy())
+    monkeypatch.setattr(
+        ServeReturnModel, "update_from_match_row_if_valid",
+        lambda *a, **k: pytest.fail("default backtest must retain its legacy update path"),
+        raising=False,
+    )
+
+    report = backtest.run_backtest(
+        (2024,), stats_years=(2024,), tours=("atp",), serve_weight=0.,
+        recalibrate=False,
+    )
+
+    assert isinstance(report, backtest.BacktestReport)
 
 
 def test_nonfinite_serve_prediction_cannot_publish(tmp_path, monkeypatch):

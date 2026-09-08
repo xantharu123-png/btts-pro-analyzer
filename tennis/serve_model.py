@@ -39,6 +39,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date, datetime, timezone
 import math
+from numbers import Real
 from typing import Dict, Optional, Tuple
 
 from .data_loader import normalize_player_name
@@ -100,6 +101,72 @@ class _Accum:
         self.sv_opp_break_sum = 0.0   # sum(sv_gms * opponent break% at the time)
         self.ret_opp_hold_sum = 0.0   # sum(ret_gms * opponent hold% at the time)
         self.last_date = None         # date of the most recent contribution
+
+
+class ServeAdmissionDiagnostics:
+    """In-memory source-quality summary; never part of serialized model state."""
+
+    def __init__(self, target: Optional[dict] = None) -> None:
+        if target is not None and not isinstance(target, dict):
+            raise TypeError("serve diagnostics target must be a dictionary or None")
+        self._target = target
+        self.admitted = 0
+        self.skipped = 0
+        self.reasons = defaultdict(int)
+        self.admitted_years = defaultdict(int)
+        self.skipped_years = defaultdict(int)
+        self.skipped_events = defaultdict(int)
+        self._admitted_events = set()
+        self._skipped_events = set()
+        self._unknown_event = {"admitted_rows": 0, "skipped_rows": 0}
+        self._unknown_year = {"admitted_rows": 0, "skipped_rows": 0}
+        self._sync()
+
+    def record(self, row, rejection_reason: Optional[str]) -> None:
+        admitted = rejection_reason is None
+        disposition = "admitted" if admitted else "skipped"
+        if admitted:
+            self.admitted += 1
+        else:
+            self.skipped += 1
+            self.reasons[rejection_reason] += 1
+
+        moment = _to_naive_utc(row.get("tourney_date"))
+        if moment is None:
+            self._unknown_year[f"{disposition}_rows"] += 1
+        else:
+            years = self.admitted_years if admitted else self.skipped_years
+            years[str(moment.year)] += 1
+
+        event_id = row.get("tournament_id")
+        if isinstance(event_id, str) and event_id.strip():
+            event_id = event_id.strip()
+            events = self._admitted_events if admitted else self._skipped_events
+            events.add(event_id)
+            if not admitted:
+                self.skipped_events[event_id] += 1
+        else:
+            self._unknown_event[f"{disposition}_rows"] += 1
+        self._sync()
+
+    def _sync(self) -> None:
+        if self._target is not None:
+            self._target.clear()
+            self._target.update(self.as_dict())
+
+    def as_dict(self) -> dict:
+        return {
+            "admitted": self.admitted,
+            "skipped": self.skipped,
+            "admitted_event_count": len(self._admitted_events),
+            "skipped_event_count": len(self._skipped_events),
+            "unknown_event_identity": dict(self._unknown_event),
+            "unknown_year": dict(self._unknown_year),
+            "reasons": dict(sorted(self.reasons.items())),
+            "admitted_years": dict(sorted(self.admitted_years.items())),
+            "skipped_years": dict(sorted(self.skipped_years.items())),
+            "skipped_events": dict(sorted(self.skipped_events.items())),
+        }
 
 
 def _to_naive_utc(value) -> Optional[datetime]:
@@ -273,6 +340,24 @@ class ServeReturnModel:
             moment,
             opponent_rates=loser_opponent_rates,
         )
+
+    def update_from_match_row_if_valid(
+        self,
+        row,
+        match_date=None,
+        *,
+        diagnostics: Optional[ServeAdmissionDiagnostics] = None,
+    ) -> bool:
+        """Atomically admit one bilateral box score for separated-tour training."""
+        if diagnostics is not None and not isinstance(diagnostics, ServeAdmissionDiagnostics):
+            raise TypeError("serve diagnostics must be ServeAdmissionDiagnostics or None")
+        reason = _serve_row_rejection_reason(row)
+        if diagnostics is not None:
+            diagnostics.record(row, reason)
+        if reason is not None:
+            return False
+        self.update_from_match_row(row, match_date=match_date)
+        return True
 
     _NAME_COLUMN = {"win": "winner_key", "los": "loser_key"}
 
@@ -490,6 +575,53 @@ def _num(value) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+_SERVE_OBSERVATION_FIELDS = (
+    "win_service_games_played",
+    "win_return_games_played",
+    "win_break_points_converted",
+    "los_break_points_converted",
+    "los_service_games_played",
+    "los_return_games_played",
+)
+_SERVE_GAME_FIELDS = (
+    "win_service_games_played",
+    "win_return_games_played",
+    "los_service_games_played",
+    "los_return_games_played",
+)
+
+
+def _serve_row_rejection_reason(row) -> Optional[str]:
+    """Return a stable reason before either player can mutate the model."""
+    counts = {}
+    for name in _SERVE_OBSERVATION_FIELDS:
+        value = row.get(name)
+        if value is None:
+            return "missing_count"
+        if isinstance(value, bool) or not isinstance(value, Real):
+            return "non_numeric_count"
+        try:
+            finite = math.isfinite(value)
+        except (OverflowError, TypeError):
+            finite = False
+        if not finite:
+            return "nonfinite_count"
+        if value < 0:
+            return "negative_count"
+        counts[name] = value
+
+    if any(counts[name] <= 0 for name in _SERVE_GAME_FIELDS):
+        return "nonpositive_game_denominator"
+    if (
+        counts["win_break_points_converted"] > counts["win_return_games_played"]
+        or counts["win_break_points_converted"] > counts["los_service_games_played"]
+        or counts["los_break_points_converted"] > counts["los_return_games_played"]
+        or counts["los_break_points_converted"] > counts["win_service_games_played"]
+    ):
+        return "breaks_exceed_games"
+    return None
 
 
 _ACCUM_SLOTS = (
