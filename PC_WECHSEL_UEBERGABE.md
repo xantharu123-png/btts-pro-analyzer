@@ -12,23 +12,29 @@ Arbeitskopien sind bereits ausdrücklich freigegeben.
   Gegenrisiko direkt sichtbar. Der echte Porto-Refresh und Browsernachweis
   bei 1440/390/320 Pixeln sind abgeschlossen. Kein neuer Modell-, Preis-,
   Rangfolge-, 15K- oder Cricket-Eingriff durch dieses UI-Release.
-- **Geprüfte Kontext-Integration:** `0c50c5ab2a30c1ffd1f35a62be9c4dda863306b3`
-  vereint A1–A4, den realen ATP-Datenfix `2436dd4`, B1 `22164f` samt
-  abgeschlossenen Einzelreviews und den Live-Kartenstand. Eigener stabiler
-  Gesamtlauf: **2.169 bestanden, 15 Skips, 97 Untertests**, 72,36 Sekunden.
-  Unabhängiges Integrationsreview ohne Findings: 45 exakte Quell-/Test-Blobs
-  verglichen, neun gezielte Integrationstests bestanden. Kein Kontext-Deploy.
+- **Geprüfte Kontext-Integration:** `d7294de65fcb71bbf011378a808316405929d185`
+  vereint A1–A4, den realen ATP-Datenfix `2436dd4`, B1 `22164f`, B2 `a71d095`
+  und den Live-Kartenstand. Eigener stabiler Abschlusslauf: **2.324 bestanden,
+  15 erwartete Windows-Skips, 97 Untertests**, 88,56 Sekunden. B2 unabhängig
+  ohne Findings geprüft (262 Tests plus separate mathematische Gegenproben).
+  Nach dem konfliktfreien Merge stimmen alle 361 getrackten Dateien außerhalb
+  von SDD/Übergabe exakt mit dem geprüften B2-Stand überein. Das frühere
+  B1/UI-Integrationsreview war ebenfalls ohne Findings. Kein Kontext-Deploy.
 - **Echte Daten-/Restoreprüfung:** Getrennte ATP/WTA-Modelle aus den vorhandenen
   historischen Seeds auf Windows und isoliert auf dem VPS erfolgreich gebaut.
   Linux-Backup/Restore mit identischen Registryzeilen, Modellen und kompletten
   Prognosen bestanden. Keine lokale DB hochgeladen, keine Produktions-DB
   geöffnet oder umgeschrieben. Daten reichen nur bis 26./27. Juli; aktueller
   Abruf und empirische Modellgüte sind damit ausdrücklich nicht bewiesen.
-- **Nächste laufende Aufgabe B2:** Regularisierte Offset-Schätzung in separater
-  `.worktrees/kontext-b2-20260908`, Branch `codex/kontext-b2-20260908`, Basis
-  `0c50c5a`. Eigener Implementierer, RED/GREEN und anschließendes unabhängiges
-  Review. B2–D5 sind noch nicht abgeschlossen; Verletzungen und Müdigkeit
-  verändern die produktive Prognose weiterhin nicht numerisch.
+- **B2 abgeschlossen, B3 als Nächstes:** Die regularisierte Schätzung für
+  Raten, binäre Chancen und reelle Änderungen lernt ihre Koeffizienten wirklich
+  aus Daten; keine festen Verletzungs-/Müdigkeitsabschläge. Quellcommit
+  `a71d0955a74884a152c90fddd9bfae2e20602b34`, Reviewpaket `b1bafce79731c516b640b6f07e6ea9f7dfb50892`.
+  Nächster freigegebener Task ist **7 / B3**, gemeinsame revisionsfeste
+  Vergleichssnapshots und Erhalt der Basis bei fehlendem/ungültigem Kontext.
+  B3 wurde noch nicht gestartet. B3–D5, echte Sportanbindung und empirische
+  Abnahme bleiben offen. Verletzungen und Müdigkeit verändern die produktive
+  Prognose weiterhin nicht numerisch; nichts als fertig/live ausgeben.
 - **Betrieb:** App/Caddy/Healthchecks funktionieren. Die sieben Timer rechnen,
   deployen aber keinen Code. Die bekannten Tennis-Rebuild- und
   Ergebnismehrdeutigkeitsfehler bleiben separat offen. Keine Ergebnisse raten,
