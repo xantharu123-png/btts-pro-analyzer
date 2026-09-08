@@ -1,5 +1,51 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktiver Umsetzungsstand vom 8. September 2026
+
+Diese Zusammenfassung ersetzt die älteren Zwischenstände darunter. Fortsetzung
+im Featurebranch `codex/kontextmodell-20260907`, Arbeitskopie
+`.worktrees/kontextmodell-20260907`; Spezifikation, Unteragenten und isolierte
+Arbeitskopien sind bereits ausdrücklich freigegeben.
+
+- **Live:** Main/GitHub/VPS zuletzt identisch auf
+  `4f3ecd5db75cb6f4f466270a568ede742d4ed767`. Karten erklären Auswahl und
+  Gegenrisiko direkt sichtbar. Der echte Porto-Refresh und Browsernachweis
+  bei 1440/390/320 Pixeln sind abgeschlossen. Kein neuer Modell-, Preis-,
+  Rangfolge-, 15K- oder Cricket-Eingriff durch dieses UI-Release.
+- **Geprüfte Kontext-Integration:** `0c50c5ab2a30c1ffd1f35a62be9c4dda863306b3`
+  vereint A1–A4, den realen ATP-Datenfix `2436dd4`, B1 `22164f` samt
+  abgeschlossenen Einzelreviews und den Live-Kartenstand. Eigener stabiler
+  Gesamtlauf: **2.169 bestanden, 15 Skips, 97 Untertests**, 72,36 Sekunden.
+  Unabhängiges Integrationsreview ohne Findings: 45 exakte Quell-/Test-Blobs
+  verglichen, neun gezielte Integrationstests bestanden. Kein Kontext-Deploy.
+- **Echte Daten-/Restoreprüfung:** Getrennte ATP/WTA-Modelle aus den vorhandenen
+  historischen Seeds auf Windows und isoliert auf dem VPS erfolgreich gebaut.
+  Linux-Backup/Restore mit identischen Registryzeilen, Modellen und kompletten
+  Prognosen bestanden. Keine lokale DB hochgeladen, keine Produktions-DB
+  geöffnet oder umgeschrieben. Daten reichen nur bis 26./27. Juli; aktueller
+  Abruf und empirische Modellgüte sind damit ausdrücklich nicht bewiesen.
+- **Nächste laufende Aufgabe B2:** Regularisierte Offset-Schätzung in separater
+  `.worktrees/kontext-b2-20260908`, Branch `codex/kontext-b2-20260908`, Basis
+  `0c50c5a`. Eigener Implementierer, RED/GREEN und anschließendes unabhängiges
+  Review. B2–D5 sind noch nicht abgeschlossen; Verletzungen und Müdigkeit
+  verändern die produktive Prognose weiterhin nicht numerisch.
+- **Betrieb:** App/Caddy/Healthchecks funktionieren. Die sieben Timer rechnen,
+  deployen aber keinen Code. Die bekannten Tennis-Rebuild- und
+  Ergebnismehrdeutigkeitsfehler bleiben separat offen. Keine Ergebnisse raten,
+  umschreiben oder Dienste nur für einen grünen Status zurücksetzen.
+
+Verbindliches Aufgabenbuch: `.superpowers/sdd/2026-09-07-kontextmodell-umsetzung/progress.md`.
+Echte Restorebelege: dort `tour-restore-proof-20260908.md`. Alle Quell-, Review-,
+Git-/Test-/Servernachweise getrennt weiterführen. Bekannte ungetrackte
+Audit-/Browser-/Output-Dateien und den unveränderten Helper-Pin erhalten.
+
+Übergabelücke behoben: Mit `b4f7cdc` sind auch die bisher nur lokal ignorierten
+20 Aufgabenbriefe, Quellzuordnung, Validierungsentscheidungen und bereinigten
+Quellen-/Prüfnachweise versioniert. Alle 20 Aufgaben-Zuordnungen und die fünf
+unveränderten ursprünglichen Plan-Git-Blobs wurden erneut kontrolliert.
+
+## Historische Zwischenstände
+
 **Fortsetzung 8. September 2026 – aktueller Nachweis 19:14 Uhr Zürich:** Die Nutzerfreigaben für Spezifikation, Unteragenten-Ausführung und isolierte Arbeitskopie liegen vor; nicht erneut abfragen. Der unabhängig geprüfte Karten-Quellstand `f82d7aeea2e42d81affa2c4389cb377f2293af5c` wurde mit Release `ce7b98ccf365a5db4303ed04291058acdbe6067b` auf Main/GitHub/VPS identisch bereitgestellt. Zwei Backups mit jeweils 87 Datenbanken verifiziert. Der reguläre 19:07-Lauf ergänzt jetzt auch die echte Porto-Karte: Torprognose 1,53/1,13, unverändert 46,4 % Heimsieg, direkt sichtbare Begründung und 53,6 % Gegenrisiko, ohne alte Aufklapp-Checkliste. Tatsächliche Produktionsdarstellung bei 1440/390/320 Pixeln geprüft, 0 Console-Fehler; neun bestehende Warnungen. Details: `docs/audits/2026-09-08-kartenanalyse.md` und `.superpowers/sdd/2026-09-08-kartenanalyse/independent-review.md` (1.795 Tests, 11 Skips, 97 Untertests; unabhängiger Fokus 313/26). App/Caddy und Healthchecks funktionieren. Die Timer deployen nicht. Tennis-Rebuild und Wettfinder-Ergebnisverarbeitung haben weiter eigene Fehler; der UI-Release behebt diese nicht. Nachfolgende Dokumentationscommits ändern diesen fachlichen Quellstand nicht; den aktuellen vollständigen Git/VPS-Hash bei jeder Fortsetzung neu prüfen.
 
 **Separater Kontextausbau, weiterhin offen:** In `.worktrees/kontextmodell-20260907` sind A1–A4 als Software geprüft; A4-Fix `c8935c2` und Übergabe `6031e31` sind auf dem Featurebranch gesichert. Der reale Offline-Build deckte danach widersprüchliche ATP-Aufschlagstatistiken auf; die eng begrenzte Admission-Korrektur ist in Arbeit, echter Zwei-Tour-Build/Restore und Betriebsfreigabe stehen aus. B1 ist separat in `.worktrees/kontext-b1-20260908` mit `9a4e04f` implementiert (2.057 Tests, 15 Skips, 97 Untertests), aber noch im unabhängigen Review und nicht integriert/deployed. Maßgeblich sind `.superpowers/sdd/2026-09-07-kontextmodell-umsetzung/progress.md` und die aufgabenweisen Berichte der Kontext-Arbeitskopie. B2–D5, numerische Verletzungs-/Müdigkeitswirkung und empirische Freigabe sind nicht erledigt. Der Karten-Release enthält diesen unfertigen Ausbau nicht. Cricket bleibt ausgenommen. Die älteren folgenden Angaben „Wahl steht aus/alle Aufgaben offen“ sind historischer Planungsstand.
