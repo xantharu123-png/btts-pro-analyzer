@@ -53,7 +53,9 @@ def _canonical(payload: dict) -> str:
 
 
 def _modeled_identity(payload: dict) -> str:
-    identity = dict(payload)
+    if type(payload) is not dict:
+        raise ValueError("tennis model revision content mismatch")
+    identity = payload.copy()
     identity.pop("append_observed_at", None)
     return _canonical(identity)
 
@@ -62,6 +64,33 @@ def _revision_digest(prediction_id: int, serialized: str) -> str:
     return hashlib.sha256(
         f"{prediction_id}\n{serialized}".encode("utf-8")
     ).hexdigest()
+
+
+def _decode_stored_revision(serialized: str) -> dict:
+    def object_without_duplicates(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate tennis model revision key")
+            result[key] = value
+        return result
+
+    def reject_constant(value):
+        raise ValueError(f"invalid tennis model revision constant: {value}")
+
+    if not isinstance(serialized, str):
+        raise ValueError("tennis model revision content mismatch")
+    try:
+        payload = json.loads(
+            serialized,
+            object_pairs_hook=object_without_duplicates,
+            parse_constant=reject_constant,
+        )
+        if type(payload) is not dict or _canonical(payload) != serialized:
+            raise ValueError("tennis model revision content mismatch")
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("tennis model revision content mismatch") from exc
+    return payload
 
 
 def append_revision(conn: sqlite3.Connection, prediction_id: int, payload: dict) -> str:
@@ -92,7 +121,10 @@ def append_revision(conn: sqlite3.Connection, prediction_id: int, payload: dict)
             if _revision_digest(prediction_id, existing_payload) != existing_id:
                 raise ValueError("tennis model revision content mismatch")
             try:
-                matches = _modeled_identity(json.loads(existing_payload)) == identity
+                stored = _decode_stored_revision(existing_payload)
+                if utc_epoch(stored["created_utc"]) != modeled:
+                    raise ValueError("tennis model revision content mismatch")
+                matches = _modeled_identity(stored) == identity
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
                 raise ValueError("tennis model revision content mismatch") from exc
             if not matches:
@@ -195,8 +227,9 @@ def read_latest_predictions(
                     continue
             if revisions:
                 latest = revisions[0]
-                payload = json.loads(latest["payload_json"])
-                expected = _revision_digest(original["id"], _canonical(payload))
+                serialized = latest["payload_json"]
+                payload = _decode_stored_revision(serialized)
+                expected = _revision_digest(original["id"], serialized)
                 if expected != latest["revision_id"] or utc_epoch(payload["created_utc"]) != latest["modeled_utc"]:
                     raise ValueError("tennis model revision content mismatch")
                 if len(revisions) > 1 and revisions[1]["modeled_utc"] == latest["modeled_utc"]:

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from tennis import shadow
+from tennis.prediction_revisions import REVISION_SCHEMA, append_revision
 from tennis.workload import observed_workload_context
 
 
@@ -212,7 +213,6 @@ def test_invalid_legacy_baseline_aborts_refresh_atomically(db, field, value):
 
 
 def test_already_mutated_legacy_row_cannot_supply_historical_fixture_without_baseline(db):
-    from tennis.prediction_revisions import REVISION_SCHEMA, append_revision
     store(prediction(), NOW)
     with sqlite3.connect(db) as conn:
         conn.row_factory = sqlite3.Row
@@ -326,6 +326,51 @@ def test_equal_time_retry_does_not_choose_between_receipt_histories(db):
             prediction(.65), NOW,
             append_observed_at=NOW + timedelta(seconds=2),
         )
+
+
+@pytest.mark.parametrize("stored_shape", ["noncanonical-object", "pairs-array"])
+def test_retry_and_reader_reject_noncanonical_stored_revision(db, stored_shape):
+    prediction_id = store(
+        prediction(.65), NOW, append_observed_at=NOW,
+    )
+    with sqlite3.connect(db) as conn:
+        payload = json.loads(conn.execute(
+            "SELECT payload_json FROM prediction_revisions"
+        ).fetchone()[0])
+        serialized = (
+            json.dumps(payload, indent=2, ensure_ascii=False)
+            if stored_shape == "noncanonical-object"
+            else json.dumps(
+                list(payload.items()), ensure_ascii=False, separators=(",", ":"),
+            )
+        )
+        revision_id = hashlib.sha256(
+            f"{prediction_id}\n{serialized}".encode("utf-8")
+        ).hexdigest()
+        conn.executescript("DROP TABLE prediction_revisions;" + REVISION_SCHEMA)
+        conn.execute(
+            "INSERT INTO prediction_revisions VALUES (?,?,?,?)",
+            (revision_id, prediction_id, NOW.timestamp(), serialized),
+        )
+
+    retry_error = None
+    reader_error = None
+    try:
+        store(
+            prediction(.65), NOW,
+            append_observed_at=NOW + timedelta(seconds=1),
+        )
+    except Exception as exc:
+        retry_error = exc
+    try:
+        shadow.latest_predictions(as_of=NOW + timedelta(seconds=2))
+    except Exception as exc:
+        reader_error = exc
+
+    assert isinstance(retry_error, ValueError)
+    assert "content mismatch" in str(retry_error)
+    assert isinstance(reader_error, ValueError)
+    assert "content mismatch" in str(reader_error)
 
 
 def test_explicit_append_clock_must_be_aware(db):
