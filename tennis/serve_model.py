@@ -115,10 +115,14 @@ class ServeAdmissionDiagnostics:
         self.reasons = defaultdict(int)
         self.admitted_years = defaultdict(int)
         self.skipped_years = defaultdict(int)
-        self.skipped_events = defaultdict(int)
-        self._admitted_events = set()
-        self._skipped_events = set()
-        self._unknown_event = {"admitted_rows": 0, "skipped_rows": 0}
+        self.skipped_matches = defaultdict(int)
+        self.skipped_tournaments = defaultdict(int)
+        self._admitted_matches = set()
+        self._skipped_matches = set()
+        self._admitted_tournaments = set()
+        self._skipped_tournaments = set()
+        self._unknown_match = {"admitted_rows": 0, "skipped_rows": 0}
+        self._unknown_tournament = {"admitted_rows": 0, "skipped_rows": 0}
         self._unknown_year = {"admitted_rows": 0, "skipped_rows": 0}
         self._sync()
 
@@ -138,15 +142,27 @@ class ServeAdmissionDiagnostics:
             years = self.admitted_years if admitted else self.skipped_years
             years[str(moment.year)] += 1
 
-        event_id = row.get("tournament_id")
-        if isinstance(event_id, str) and event_id.strip():
-            event_id = event_id.strip()
-            events = self._admitted_events if admitted else self._skipped_events
-            events.add(event_id)
+        match_id = row.get("id")
+        if isinstance(match_id, str) and match_id.strip():
+            match_id = match_id.strip()
+            matches = self._admitted_matches if admitted else self._skipped_matches
+            matches.add(match_id)
             if not admitted:
-                self.skipped_events[event_id] += 1
+                self.skipped_matches[match_id] += 1
         else:
-            self._unknown_event[f"{disposition}_rows"] += 1
+            self._unknown_match[f"{disposition}_rows"] += 1
+
+        tournament_id = row.get("tournament_id")
+        if isinstance(tournament_id, str) and tournament_id.strip():
+            tournament_id = tournament_id.strip()
+            tournaments = (
+                self._admitted_tournaments if admitted else self._skipped_tournaments
+            )
+            tournaments.add(tournament_id)
+            if not admitted:
+                self.skipped_tournaments[tournament_id] += 1
+        else:
+            self._unknown_tournament[f"{disposition}_rows"] += 1
         self._sync()
 
     def _sync(self) -> None:
@@ -158,14 +174,18 @@ class ServeAdmissionDiagnostics:
         return {
             "admitted": self.admitted,
             "skipped": self.skipped,
-            "admitted_event_count": len(self._admitted_events),
-            "skipped_event_count": len(self._skipped_events),
-            "unknown_event_identity": dict(self._unknown_event),
+            "admitted_match_count": len(self._admitted_matches),
+            "skipped_match_count": len(self._skipped_matches),
+            "admitted_tournament_count": len(self._admitted_tournaments),
+            "skipped_tournament_count": len(self._skipped_tournaments),
+            "unknown_match_identity": dict(self._unknown_match),
+            "unknown_tournament_identity": dict(self._unknown_tournament),
             "unknown_year": dict(self._unknown_year),
             "reasons": dict(sorted(self.reasons.items())),
             "admitted_years": dict(sorted(self.admitted_years.items())),
             "skipped_years": dict(sorted(self.skipped_years.items())),
-            "skipped_events": dict(sorted(self.skipped_events.items())),
+            "skipped_matches": dict(sorted(self.skipped_matches.items())),
+            "skipped_tournaments": dict(sorted(self.skipped_tournaments.items())),
         }
 
 
@@ -610,6 +630,8 @@ def _serve_row_rejection_reason(row) -> Optional[str]:
             return "nonfinite_count"
         if value < 0:
             return "negative_count"
+        if value % 1 != 0:
+            return "fractional_count"
         counts[name] = value
 
     if any(counts[name] <= 0 for name in _SERVE_GAME_FIELDS):

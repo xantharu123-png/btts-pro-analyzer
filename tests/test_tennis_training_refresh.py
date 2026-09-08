@@ -529,23 +529,30 @@ def test_cli_default_publishes_tours_independently_without_touching_legacy(tmp_p
         diagnostics.update({
             "serve_build": {
                 "admitted": 10 if tour == "ATP" else 0, "skipped": 1 if tour == "ATP" else 0,
-                "admitted_event_count": 2 if tour == "ATP" else 0,
-                "skipped_event_count": 1 if tour == "ATP" else 0,
-                "unknown_event_identity": {"admitted_rows": 0, "skipped_rows": 0},
+                "admitted_match_count": 10 if tour == "ATP" else 0,
+                "skipped_match_count": 1 if tour == "ATP" else 0,
+                "admitted_tournament_count": 2 if tour == "ATP" else 0,
+                "skipped_tournament_count": 1 if tour == "ATP" else 0,
+                "unknown_match_identity": {"admitted_rows": 0, "skipped_rows": 0},
+                "unknown_tournament_identity": {"admitted_rows": 0, "skipped_rows": 0},
                 "unknown_year": {"admitted_rows": 0, "skipped_rows": 0},
                 "reasons": {"nonpositive_game_denominator": 1} if tour == "ATP" else {},
                 "admitted_years": {"2026": 10} if tour == "ATP" else {},
                 "skipped_years": {"2018": 1} if tour == "ATP" else {},
-                "skipped_events": {"2018-560": 1} if tour == "ATP" else {},
+                "skipped_matches": {"2018-560-v717-f974-Q1": 1} if tour == "ATP" else {},
+                "skipped_tournaments": {"2018-560": 1} if tour == "ATP" else {},
             },
             "serve_calibration": {
                 "admitted": 8 if tour == "ATP" else 0, "skipped": 0,
-                "admitted_event_count": 2 if tour == "ATP" else 0,
-                "skipped_event_count": 0,
-                "unknown_event_identity": {"admitted_rows": 0, "skipped_rows": 0},
+                "admitted_match_count": 8 if tour == "ATP" else 0,
+                "skipped_match_count": 0,
+                "admitted_tournament_count": 2 if tour == "ATP" else 0,
+                "skipped_tournament_count": 0,
+                "unknown_match_identity": {"admitted_rows": 0, "skipped_rows": 0},
+                "unknown_tournament_identity": {"admitted_rows": 0, "skipped_rows": 0},
                 "unknown_year": {"admitted_rows": 0, "skipped_rows": 0},
                 "reasons": {}, "admitted_years": {"2024": 8} if tour == "ATP" else {},
-                "skipped_years": {}, "skipped_events": {},
+                "skipped_years": {}, "skipped_matches": {}, "skipped_tournaments": {},
             },
         })
         if broken in (tour, "both"):
@@ -568,7 +575,8 @@ def test_cli_default_publishes_tours_independently_without_touching_legacy(tmp_p
     if broken in ("WTA", "both"):
         assert "WTA: failed;" in output and "error_type=OSError" in output
     assert 'ATP serve_admission={"serve_build":{"admitted":10' in output
-    assert '"skipped_event_count":1' in output
+    assert '"skipped_match_count":1' in output
+    assert '"skipped_tournament_count":1' in output
     assert '"reasons":{"nonpositive_game_denominator":1}' in output
     assert '"skipped_years":{"2018":1}' in output
     assert 'WTA serve_admission={"serve_build":{"admitted":0' in output

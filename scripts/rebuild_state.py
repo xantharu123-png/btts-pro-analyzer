@@ -25,8 +25,10 @@ from runtime_paths import CONTEXT_MODEL_DB_PATH
 
 def _compact_serve_diagnostics(diagnostics: dict) -> dict:
     fields = (
-        "admitted", "skipped", "admitted_event_count", "skipped_event_count",
-        "unknown_event_identity", "unknown_year", "reasons",
+        "admitted", "skipped", "admitted_match_count", "skipped_match_count",
+        "admitted_tournament_count", "skipped_tournament_count",
+        "unknown_match_identity", "unknown_tournament_identity",
+        "unknown_year", "reasons",
         "admitted_years", "skipped_years",
     )
     return {

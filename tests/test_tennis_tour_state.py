@@ -405,12 +405,15 @@ def test_separate_atp_build_skips_bad_serve_row_but_retains_elo_and_reports(monk
     def calibration(**kwargs):
         kwargs["diagnostics"].update({
             "admitted": 2, "skipped": 1,
-            "admitted_event_count": 2, "skipped_event_count": 1,
-            "unknown_event_identity": {"admitted_rows": 0, "skipped_rows": 0},
+            "admitted_match_count": 2, "skipped_match_count": 1,
+            "admitted_tournament_count": 2, "skipped_tournament_count": 1,
+            "unknown_match_identity": {"admitted_rows": 0, "skipped_rows": 0},
+            "unknown_tournament_identity": {"admitted_rows": 0, "skipped_rows": 0},
             "unknown_year": {"admitted_rows": 0, "skipped_rows": 0},
             "reasons": {"nonpositive_game_denominator": 1},
             "admitted_years": {"2017": 2}, "skipped_years": {"2018": 1},
-            "skipped_events": {"2018-560": 1},
+            "skipped_matches": {"2018-560-v717-f974-Q1": 1},
+            "skipped_tournaments": {"2018-560": 1},
         })
         return SimpleNamespace(rows=[])
     monkeypatch.setattr(tour_state, "run_backtest", calibration)
@@ -423,21 +426,27 @@ def test_separate_atp_build_skips_bad_serve_row_but_retains_elo_and_reports(monk
     assert diagnostics == {
         "serve_build": {
             "admitted": 0, "skipped": 1,
-            "admitted_event_count": 0, "skipped_event_count": 1,
-            "unknown_event_identity": {"admitted_rows": 0, "skipped_rows": 0},
+            "admitted_match_count": 0, "skipped_match_count": 1,
+            "admitted_tournament_count": 0, "skipped_tournament_count": 1,
+            "unknown_match_identity": {"admitted_rows": 0, "skipped_rows": 0},
+            "unknown_tournament_identity": {"admitted_rows": 0, "skipped_rows": 0},
             "unknown_year": {"admitted_rows": 0, "skipped_rows": 0},
             "reasons": {"nonpositive_game_denominator": 1},
             "admitted_years": {}, "skipped_years": {"2018": 1},
-            "skipped_events": {"2018-560": 1},
+            "skipped_matches": {"2018-560-v717-f974-Q1": 1},
+            "skipped_tournaments": {"2018-560": 1},
         },
         "serve_calibration": {
             "admitted": 2, "skipped": 1,
-            "admitted_event_count": 2, "skipped_event_count": 1,
-            "unknown_event_identity": {"admitted_rows": 0, "skipped_rows": 0},
+            "admitted_match_count": 2, "skipped_match_count": 1,
+            "admitted_tournament_count": 2, "skipped_tournament_count": 1,
+            "unknown_match_identity": {"admitted_rows": 0, "skipped_rows": 0},
+            "unknown_tournament_identity": {"admitted_rows": 0, "skipped_rows": 0},
             "unknown_year": {"admitted_rows": 0, "skipped_rows": 0},
             "reasons": {"nonpositive_game_denominator": 1},
             "admitted_years": {"2017": 2}, "skipped_years": {"2018": 1},
-            "skipped_events": {"2018-560": 1},
+            "skipped_matches": {"2018-560-v717-f974-Q1": 1},
+            "skipped_tournaments": {"2018-560": 1},
         },
     }
 
@@ -553,12 +562,15 @@ def test_calibration_only_uses_bilateral_admission_and_reports_bad_source(monkey
     assert len(report.rows) == 1
     assert diagnostics == {
         "admitted": 0, "skipped": 1,
-        "admitted_event_count": 0, "skipped_event_count": 1,
-        "unknown_event_identity": {"admitted_rows": 0, "skipped_rows": 0},
+        "admitted_match_count": 0, "skipped_match_count": 1,
+        "admitted_tournament_count": 0, "skipped_tournament_count": 1,
+        "unknown_match_identity": {"admitted_rows": 0, "skipped_rows": 0},
+        "unknown_tournament_identity": {"admitted_rows": 0, "skipped_rows": 0},
         "unknown_year": {"admitted_rows": 0, "skipped_rows": 0},
         "reasons": {"nonpositive_game_denominator": 1},
         "admitted_years": {}, "skipped_years": {"2018": 1},
-        "skipped_events": {"2018-560": 1},
+        "skipped_matches": {"2018-560-v717-f974-Q1": 1},
+        "skipped_tournaments": {"2018-560": 1},
     }
 
 
