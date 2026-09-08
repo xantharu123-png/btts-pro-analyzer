@@ -1,0 +1,389 @@
+{
+  "provider": "API-Football",
+  "endpoint": "fixtures",
+  "fixture_ids": [
+    1593305,
+    1570343
+  ],
+  "request_count": 1,
+  "started_at": "2026-09-07T14:46:05.769477+00:00",
+  "received_at": "2026-09-07T14:46:05.939454+00:00",
+  "http_status": 200,
+  "provider_error_keys": [],
+  "paging": {
+    "current": 1,
+    "total": 1
+  },
+  "examples": [
+    {
+      "fixture": {
+        "id": 1570343,
+        "referee": "César Soto Grado, Spain",
+        "timezone": "UTC",
+        "date": "2026-08-22T15:00:00+00:00",
+        "timestamp": 1787410800,
+        "periods": {
+          "first": 1787410800,
+          "second": 1787414400
+        },
+        "venue": {
+          "id": null,
+          "name": "San Mamés",
+          "city": "Bilbao"
+        },
+        "status": {
+          "long": "Match Finished",
+          "short": "FT",
+          "elapsed": 90,
+          "extra": 8
+        }
+      },
+      "league": {
+        "id": 140,
+        "name": "La Liga",
+        "country": "Spain",
+        "logo": "https://media.api-sports.io/football/leagues/140.png",
+        "flag": "https://media.api-sports.io/flags/es.svg",
+        "season": 2026,
+        "round": "Regular Season - 2",
+        "standings": true
+      },
+      "teams": {
+        "home": {
+          "id": 531,
+          "name": "Athletic Club",
+          "logo": "https://media.api-sports.io/football/teams/531.png",
+          "winner": false
+        },
+        "away": {
+          "id": 536,
+          "name": "Sevilla",
+          "logo": "https://media.api-sports.io/football/teams/536.png",
+          "winner": true
+        }
+      },
+      "goals": {
+        "home": 1,
+        "away": 3
+      },
+      "score": {
+        "halftime": {
+          "home": 0,
+          "away": 1
+        },
+        "fulltime": {
+          "home": 1,
+          "away": 3
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      },
+      "top_level_keys": [
+        "events",
+        "fixture",
+        "goals",
+        "league",
+        "lineups",
+        "players",
+        "score",
+        "statistics",
+        "teams"
+      ],
+      "lineup_coverage": [
+        {
+          "team_id": 531,
+          "keys": [
+            "coach",
+            "formation",
+            "startXI",
+            "substitutes",
+            "team"
+          ],
+          "starter_count": 11,
+          "bench_count": 12,
+          "starter_example": [
+            {
+              "player": {
+                "id": 47270,
+                "name": "U. Simon",
+                "number": 1,
+                "pos": "G",
+                "grid": "1:1"
+              }
+            }
+          ]
+        },
+        {
+          "team_id": 536,
+          "keys": [
+            "coach",
+            "formation",
+            "startXI",
+            "substitutes",
+            "team"
+          ],
+          "starter_count": 11,
+          "bench_count": 12,
+          "starter_example": [
+            {
+              "player": {
+                "id": 557,
+                "name": "O. Vlachodimos",
+                "number": 1,
+                "pos": "G",
+                "grid": "1:1"
+              }
+            }
+          ]
+        }
+      ],
+      "player_coverage": [
+        {
+          "team_id": 531,
+          "team_keys": [
+            "id",
+            "logo",
+            "name",
+            "update"
+          ],
+          "player_count": 23,
+          "minute_values": 23,
+          "nonnull_minutes": 16,
+          "player_examples": [
+            {
+              "player": {
+                "id": 47270,
+                "name": "Unai Simón",
+                "photo": "https://media.api-sports.io/football/players/47270.png"
+              },
+              "statistics": [
+                {
+                  "games": {
+                    "minutes": 90,
+                    "number": 1,
+                    "position": "G",
+                    "rating": "4.3",
+                    "captain": false,
+                    "substitute": false
+                  },
+                  "offsides": null,
+                  "shots": {
+                    "total": null,
+                    "on": null
+                  },
+                  "goals": {
+                    "total": null,
+                    "conceded": 3,
+                    "assists": 0,
+                    "saves": 2
+                  },
+                  "passes": {
+                    "total": 49,
+                    "key": null,
+                    "accuracy": "29"
+                  },
+                  "tackles": {
+                    "total": null,
+                    "blocks": null,
+                    "interceptions": null
+                  },
+                  "duels": {
+                    "total": null,
+                    "won": null
+                  },
+                  "dribbles": {
+                    "attempts": null,
+                    "success": null,
+                    "past": null
+                  },
+                  "fouls": {
+                    "drawn": null,
+                    "committed": null
+                  },
+                  "cards": {
+                    "yellow": 0,
+                    "red": 0
+                  },
+                  "penalty": {
+                    "won": null,
+                    "commited": null,
+                    "scored": 0,
+                    "missed": 0,
+                    "saved": 0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "team_id": 536,
+          "team_keys": [
+            "id",
+            "logo",
+            "name",
+            "update"
+          ],
+          "player_count": 23,
+          "minute_values": 23,
+          "nonnull_minutes": 16,
+          "player_examples": [
+            {
+              "player": {
+                "id": 557,
+                "name": "Odysseas Vlachodimos",
+                "photo": "https://media.api-sports.io/football/players/557.png"
+              },
+              "statistics": [
+                {
+                  "games": {
+                    "minutes": 90,
+                    "number": 1,
+                    "position": "G",
+                    "rating": "7.2",
+                    "captain": false,
+                    "substitute": false
+                  },
+                  "offsides": null,
+                  "shots": {
+                    "total": null,
+                    "on": null
+                  },
+                  "goals": {
+                    "total": null,
+                    "conceded": 1,
+                    "assists": 0,
+                    "saves": 6
+                  },
+                  "passes": {
+                    "total": 32,
+                    "key": null,
+                    "accuracy": "19"
+                  },
+                  "tackles": {
+                    "total": null,
+                    "blocks": null,
+                    "interceptions": null
+                  },
+                  "duels": {
+                    "total": null,
+                    "won": null
+                  },
+                  "dribbles": {
+                    "attempts": null,
+                    "success": null,
+                    "past": null
+                  },
+                  "fouls": {
+                    "drawn": null,
+                    "committed": null
+                  },
+                  "cards": {
+                    "yellow": 0,
+                    "red": 0
+                  },
+                  "penalty": {
+                    "won": null,
+                    "commited": null,
+                    "scored": 0,
+                    "missed": 0,
+                    "saved": 0
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "fixture": {
+        "id": 1593305,
+        "referee": "K. Katoikos",
+        "timezone": "UTC",
+        "date": "2026-09-07T15:00:00+00:00",
+        "timestamp": 1788793200,
+        "periods": {
+          "first": null,
+          "second": null
+        },
+        "venue": {
+          "id": null,
+          "name": "Theodoros Kolokotronis Stadium",
+          "city": "Tripoli"
+        },
+        "status": {
+          "long": "Not Started",
+          "short": "NS",
+          "elapsed": null,
+          "extra": null
+        }
+      },
+      "league": {
+        "id": 197,
+        "name": "Super League 1",
+        "country": "Greece",
+        "logo": "https://media.api-sports.io/football/leagues/197.png",
+        "flag": "https://media.api-sports.io/flags/gr.svg",
+        "season": 2026,
+        "round": "Regular Season - 3",
+        "standings": true
+      },
+      "teams": {
+        "home": {
+          "id": 955,
+          "name": "Asteras Tripolis",
+          "logo": "https://media.api-sports.io/football/teams/955.png",
+          "winner": null
+        },
+        "away": {
+          "id": 17991,
+          "name": "Iraklis 1908",
+          "logo": "https://media.api-sports.io/football/teams/17991.png",
+          "winner": null
+        }
+      },
+      "goals": {
+        "home": null,
+        "away": null
+      },
+      "score": {
+        "halftime": {
+          "home": null,
+          "away": null
+        },
+        "fulltime": {
+          "home": null,
+          "away": null
+        },
+        "extratime": {
+          "home": null,
+          "away": null
+        },
+        "penalty": {
+          "home": null,
+          "away": null
+        }
+      },
+      "top_level_keys": [
+        "events",
+        "fixture",
+        "goals",
+        "league",
+        "lineups",
+        "players",
+        "score",
+        "statistics",
+        "teams"
+      ],
+      "lineup_coverage": [],
+      "player_coverage": []
+    }
+  ]
+}

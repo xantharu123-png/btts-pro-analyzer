@@ -1,0 +1,332 @@
+{
+  "provider": "API-Football",
+  "endpoint": "injuries",
+  "fixture_ids": [
+    1593305,
+    1570343
+  ],
+  "request_count": 1,
+  "started_at": "2026-09-07T14:47:03.599911+00:00",
+  "received_at": "2026-09-07T14:47:03.758708+00:00",
+  "http_status": 200,
+  "provider_error_keys": [],
+  "paging": {
+    "current": 1,
+    "total": 1
+  },
+  "row_count": 10,
+  "examples": [
+    {
+      "top_level_keys": [
+        "fixture",
+        "league",
+        "player",
+        "team"
+      ],
+      "fixture": {
+        "id": 1570343,
+        "date": "2026-08-22T15:00:00+00:00",
+        "timezone": "UTC",
+        "timestamp": 1787410800
+      },
+      "fixture_keys": [
+        "date",
+        "id",
+        "timestamp",
+        "timezone"
+      ],
+      "league": {
+        "id": 140,
+        "season": 2026
+      },
+      "league_keys": [
+        "country",
+        "flag",
+        "id",
+        "logo",
+        "name",
+        "season"
+      ],
+      "team": {
+        "id": 531
+      },
+      "team_keys": [
+        "id",
+        "logo",
+        "name"
+      ],
+      "player": {
+        "id": 332305,
+        "type": "Missing Fixture",
+        "reason": "Knee Injury"
+      },
+      "player_keys": [
+        "id",
+        "name",
+        "photo",
+        "reason",
+        "type"
+      ]
+    },
+    {
+      "top_level_keys": [
+        "fixture",
+        "league",
+        "player",
+        "team"
+      ],
+      "fixture": {
+        "id": 1570343,
+        "date": "2026-08-22T15:00:00+00:00",
+        "timezone": "UTC",
+        "timestamp": 1787410800
+      },
+      "fixture_keys": [
+        "date",
+        "id",
+        "timestamp",
+        "timezone"
+      ],
+      "league": {
+        "id": 140,
+        "season": 2026
+      },
+      "league_keys": [
+        "country",
+        "flag",
+        "id",
+        "logo",
+        "name",
+        "season"
+      ],
+      "team": {
+        "id": 531
+      },
+      "team_keys": [
+        "id",
+        "logo",
+        "name"
+      ],
+      "player": {
+        "id": 47299,
+        "type": "Missing Fixture",
+        "reason": "Muscle Injury"
+      },
+      "player_keys": [
+        "id",
+        "name",
+        "photo",
+        "reason",
+        "type"
+      ]
+    },
+    {
+      "top_level_keys": [
+        "fixture",
+        "league",
+        "player",
+        "team"
+      ],
+      "fixture": {
+        "id": 1570343,
+        "date": "2026-08-22T15:00:00+00:00",
+        "timezone": "UTC",
+        "timestamp": 1787410800
+      },
+      "fixture_keys": [
+        "date",
+        "id",
+        "timestamp",
+        "timezone"
+      ],
+      "league": {
+        "id": 140,
+        "season": 2026
+      },
+      "league_keys": [
+        "country",
+        "flag",
+        "id",
+        "logo",
+        "name",
+        "season"
+      ],
+      "team": {
+        "id": 531
+      },
+      "team_keys": [
+        "id",
+        "logo",
+        "name"
+      ],
+      "player": {
+        "id": 182617,
+        "type": "Missing Fixture",
+        "reason": "Thigh Injury"
+      },
+      "player_keys": [
+        "id",
+        "name",
+        "photo",
+        "reason",
+        "type"
+      ]
+    },
+    {
+      "top_level_keys": [
+        "fixture",
+        "league",
+        "player",
+        "team"
+      ],
+      "fixture": {
+        "id": 1570343,
+        "date": "2026-08-22T15:00:00+00:00",
+        "timezone": "UTC",
+        "timestamp": 1787410800
+      },
+      "fixture_keys": [
+        "date",
+        "id",
+        "timestamp",
+        "timezone"
+      ],
+      "league": {
+        "id": 140,
+        "season": 2026
+      },
+      "league_keys": [
+        "country",
+        "flag",
+        "id",
+        "logo",
+        "name",
+        "season"
+      ],
+      "team": {
+        "id": 531
+      },
+      "team_keys": [
+        "id",
+        "logo",
+        "name"
+      ],
+      "player": {
+        "id": 286593,
+        "type": "Missing Fixture",
+        "reason": "Coach's decision"
+      },
+      "player_keys": [
+        "id",
+        "name",
+        "photo",
+        "reason",
+        "type"
+      ]
+    },
+    {
+      "top_level_keys": [
+        "fixture",
+        "league",
+        "player",
+        "team"
+      ],
+      "fixture": {
+        "id": 1570343,
+        "date": "2026-08-22T15:00:00+00:00",
+        "timezone": "UTC",
+        "timestamp": 1787410800
+      },
+      "fixture_keys": [
+        "date",
+        "id",
+        "timestamp",
+        "timezone"
+      ],
+      "league": {
+        "id": 140,
+        "season": 2026
+      },
+      "league_keys": [
+        "country",
+        "flag",
+        "id",
+        "logo",
+        "name",
+        "season"
+      ],
+      "team": {
+        "id": 531
+      },
+      "team_keys": [
+        "id",
+        "logo",
+        "name"
+      ],
+      "player": {
+        "id": 182639,
+        "type": "Missing Fixture",
+        "reason": "Inactive"
+      },
+      "player_keys": [
+        "id",
+        "name",
+        "photo",
+        "reason",
+        "type"
+      ]
+    },
+    {
+      "top_level_keys": [
+        "fixture",
+        "league",
+        "player",
+        "team"
+      ],
+      "fixture": {
+        "id": 1570343,
+        "date": "2026-08-22T15:00:00+00:00",
+        "timezone": "UTC",
+        "timestamp": 1787410800
+      },
+      "fixture_keys": [
+        "date",
+        "id",
+        "timestamp",
+        "timezone"
+      ],
+      "league": {
+        "id": 140,
+        "season": 2026
+      },
+      "league_keys": [
+        "country",
+        "flag",
+        "id",
+        "logo",
+        "name",
+        "season"
+      ],
+      "team": {
+        "id": 531
+      },
+      "team_keys": [
+        "id",
+        "logo",
+        "name"
+      ],
+      "player": {
+        "id": 47278,
+        "type": "Missing Fixture",
+        "reason": "Hamstring Injury"
+      },
+      "player_keys": [
+        "id",
+        "name",
+        "photo",
+        "reason",
+        "type"
+      ]
+    }
+  ]
+}

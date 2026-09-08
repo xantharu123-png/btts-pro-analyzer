@@ -1,0 +1,275 @@
+{
+  "provider": "ESPN",
+  "tour": "ATP",
+  "date": "20260906",
+  "calls": 1,
+  "reason": "correct structural probe to existing grouping contract; prior successful payload was not retained",
+  "started_at": "2026-09-07T14:41:09.550652+00:00",
+  "received_at": "2026-09-07T14:41:09.848629+00:00",
+  "http_status": 200,
+  "event_count": 1,
+  "competition_count": 239,
+  "finished_count": 228,
+  "event_keys": [
+    "calendar",
+    "date",
+    "endDate",
+    "groupings",
+    "id",
+    "links",
+    "major",
+    "name",
+    "previousWinners",
+    "season",
+    "shortName",
+    "status",
+    "uid",
+    "venue"
+  ],
+  "examples": [
+    {
+      "event_id": "189-2026",
+      "grouping": {
+        "id": "1",
+        "slug": "mens-singles",
+        "displayName": "Men's Singles"
+      },
+      "competition_keys": [
+        "broadcast",
+        "broadcasts",
+        "competitors",
+        "date",
+        "format",
+        "geoBroadcasts",
+        "id",
+        "notes",
+        "recent",
+        "round",
+        "startDate",
+        "status",
+        "timeValid",
+        "tournamentId",
+        "type",
+        "uid",
+        "venue",
+        "wasSuspended"
+      ],
+      "id": "184607",
+      "date": "2026-08-24T15:05Z",
+      "startDate": "2026-08-24T15:05Z",
+      "status": {
+        "period": 2,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "notes": [
+        {
+          "text": "Jacob Fearnley (GBR) bt Roberto Carballes Baena (ESP) 7-6 (7-3) 6-3",
+          "type": "event"
+        }
+      ],
+      "type": {
+        "id": "1",
+        "text": "Men's Singles",
+        "slug": "mens-singles"
+      },
+      "format": {
+        "regulation": {
+          "periods": 5
+        }
+      },
+      "competitors": [
+        {
+          "id": "2012",
+          "homeAway": "away",
+          "winner": false,
+          "linescores": [
+            {
+              "value": 6,
+              "tiebreak": 3,
+              "winner": false
+            },
+            {
+              "value": 3,
+              "winner": false
+            }
+          ],
+          "statistics": [],
+          "competitor_keys": [
+            "athlete",
+            "homeAway",
+            "id",
+            "linescores",
+            "order",
+            "statistics",
+            "type",
+            "uid",
+            "winner"
+          ],
+          "athlete": {
+            "displayName": "Roberto Carballes Baena"
+          }
+        },
+        {
+          "id": "11685",
+          "homeAway": "home",
+          "winner": true,
+          "linescores": [
+            {
+              "value": 7,
+              "tiebreak": 7,
+              "winner": true
+            },
+            {
+              "value": 6,
+              "winner": true
+            }
+          ],
+          "statistics": [],
+          "competitor_keys": [
+            "athlete",
+            "homeAway",
+            "id",
+            "linescores",
+            "order",
+            "statistics",
+            "type",
+            "uid",
+            "winner"
+          ],
+          "athlete": {
+            "displayName": "Jacob Fearnley"
+          }
+        }
+      ]
+    },
+    {
+      "event_id": "189-2026",
+      "grouping": {
+        "id": "1",
+        "slug": "mens-singles",
+        "displayName": "Men's Singles"
+      },
+      "competition_keys": [
+        "broadcast",
+        "broadcasts",
+        "competitors",
+        "date",
+        "format",
+        "geoBroadcasts",
+        "id",
+        "notes",
+        "recent",
+        "round",
+        "startDate",
+        "status",
+        "timeValid",
+        "tournamentId",
+        "type",
+        "uid",
+        "venue",
+        "wasSuspended"
+      ],
+      "id": "184626",
+      "date": "2026-08-24T15:05Z",
+      "startDate": "2026-08-24T15:05Z",
+      "status": {
+        "period": 2,
+        "type": {
+          "id": "3",
+          "name": "STATUS_FINAL",
+          "state": "post",
+          "completed": true,
+          "description": "Final",
+          "detail": "Final",
+          "shortDetail": "Final"
+        }
+      },
+      "notes": [
+        {
+          "text": "Jurij Rodionov (AUT) bt Kimmer Coppejans (BEL) 6-1 6-4",
+          "type": "event"
+        }
+      ],
+      "type": {
+        "id": "1",
+        "text": "Men's Singles",
+        "slug": "mens-singles"
+      },
+      "format": {
+        "regulation": {
+          "periods": 5
+        }
+      },
+      "competitors": [
+        {
+          "id": "3204",
+          "homeAway": "away",
+          "winner": true,
+          "linescores": [
+            {
+              "value": 6,
+              "winner": true
+            },
+            {
+              "value": 6,
+              "winner": true
+            }
+          ],
+          "statistics": [],
+          "competitor_keys": [
+            "athlete",
+            "homeAway",
+            "id",
+            "linescores",
+            "order",
+            "statistics",
+            "type",
+            "uid",
+            "winner"
+          ],
+          "athlete": {
+            "displayName": "Jurij Rodionov"
+          }
+        },
+        {
+          "id": "2009",
+          "homeAway": "home",
+          "winner": false,
+          "linescores": [
+            {
+              "value": 1,
+              "winner": false
+            },
+            {
+              "value": 4,
+              "winner": false
+            }
+          ],
+          "statistics": [],
+          "competitor_keys": [
+            "athlete",
+            "homeAway",
+            "id",
+            "linescores",
+            "order",
+            "statistics",
+            "type",
+            "uid",
+            "winner"
+          ],
+          "athlete": {
+            "displayName": "Kimmer Coppejans"
+          }
+        }
+      ]
+    }
+  ]
+}

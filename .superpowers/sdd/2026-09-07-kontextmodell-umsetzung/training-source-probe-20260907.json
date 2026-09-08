@@ -1,0 +1,51 @@
+{
+  "kind": "read_only_training_source_probe",
+  "year": 2026,
+  "host": "BetBoy VPS",
+  "validation_code": "existing production tennis.data_loader validators",
+  "request_limit": 3,
+  "per_response_limit_bytes": 12582912,
+  "follow_redirects": false,
+  "requests": [
+    {
+      "source": "ATP_tournaments",
+      "requested_url": "https://raw.githubusercontent.com/msolonskyi/ManTennisData/master/atp/tournaments.csv",
+      "http_status": 200,
+      "content_type": "text/plain; charset=utf-8",
+      "source_last_modified": null,
+      "bytes": 1858008,
+      "sha256": "1483ae267c77bddefb35025f730dc54e63e81a27efdf315b8ae2d484b574ae36",
+      "validation": "current_year_schema_coverage_valid",
+      "causal_rows": 229,
+      "coverage_through": "2026-09-07T00:00:00+00:00",
+      "coverage_kind": "tournament_start_proxy",
+      "received_at": "2026-09-07T17:27:31.162784+00:00"
+    },
+    {
+      "source": "ATP_matches",
+      "requested_url": "https://raw.githubusercontent.com/msolonskyi/ManTennisData/master/atp/matches_2026.csv",
+      "http_status": 200,
+      "content_type": "text/plain; charset=utf-8",
+      "source_last_modified": null,
+      "bytes": 4182140,
+      "sha256": "7a0cdeaa42ada513f4dbbfaadd35ff24d96b70047c0e63171dabb2c56b952c54",
+      "validation": "current_year_schema_coverage_valid",
+      "causal_rows": 11680,
+      "coverage_through": "2026-09-07T00:00:00+00:00",
+      "coverage_kind": "tournament_start_proxy",
+      "received_at": "2026-09-07T17:27:33.212927+00:00"
+    },
+    {
+      "source": "WTA_results",
+      "requested_url": "http://www.tennis-data.co.uk/2026w/2026.xlsx",
+      "http_status": 503,
+      "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "source_last_modified": null,
+      "validation": "not_attempted_http_status",
+      "received_at": "2026-09-07T17:27:33.292200+00:00"
+    }
+  ],
+  "models_published": 0,
+  "runtime_writes": 0,
+  "interpretation": "Availability/schema only; ATP counts cover the season and use tournament-start proxies, not exact match completion. No new tour model or empirical acceptance is established."
+}
