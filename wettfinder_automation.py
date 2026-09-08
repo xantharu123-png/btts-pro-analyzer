@@ -49,6 +49,7 @@ from challenge_engine import (
     select_wettfinder_catalog,
 )
 from config_loader import AppConfig, load_app_config
+from forecast_analysis import project_football_analysis
 from ev_signal_sources import (
     AUTOMATED_FOOTBALL_RELEASE_CONTRACT,
     AUTOMATED_SELECTION_POLICY_VERSION,
@@ -378,7 +379,7 @@ def _football_candidate_record(
         detail_parts.append("UEFA-Heimatliga-Modell in Transfer-Prüfphase")
     market_spec = MARKET_BY_KEY.get(str(_value(candidate, "market_key") or ""))
     validation = candidate.validation
-    return {
+    record = {
         "key": f"wettfinder-football-{candidate_id}",
         "candidate_id": candidate_id,
         "fixture_id": _value(candidate, "fixture_id"),
@@ -431,6 +432,10 @@ def _football_candidate_record(
             else None
         ),
     }
+    record["analysis_evidence"] = project_football_analysis(
+        record, model_basis=vars(candidate),
+    )
+    return record
 
 
 def _first_present_candidate_list(
@@ -1401,13 +1406,6 @@ def _merge_context_refresh(
         )
         if record is not None
     ]
-    # A context refresh is not a new statistical fit. Preserve the original
-    # model observation clock instead of pretending the probabilities changed.
-    previous_records = {row.get("candidate_id"): row for row in existing_records}
-    for record in new_records:
-        previous_record = previous_records.get(record.get("candidate_id"), {})
-        for field in ("modeled_at", "input_cutoff_at"):
-            record[field] = previous_record.get(field) or state.get("last_discovery_at")
     existing_basis_records = [
         row
         for row in (state.get("basis_candidates") or [])
@@ -1429,6 +1427,22 @@ def _merge_context_refresh(
         )
         if record is not None and record.get("is_basic_forecast") is True
     ]
+    # A context refresh is not a new statistical fit. Preserve original clocks
+    # for both catalogs and bind the new optional explanation to those clocks.
+    for new_rows, previous_rows in (
+        (new_records, existing_records),
+        (new_basis_records, existing_basis_records),
+    ):
+        previous_records = {row.get("candidate_id"): row for row in previous_rows}
+        for record in new_rows:
+            previous_record = previous_records.get(record.get("candidate_id"), {})
+            for field in ("modeled_at", "input_cutoff_at"):
+                record[field] = previous_record.get(field) or state.get("last_discovery_at")
+            evidence = record.get("analysis_evidence")
+            if evidence is not None:
+                record["analysis_evidence"] = project_football_analysis(
+                    record, model_basis={**record, **evidence["basis"]},
+                )
     new_by_fixture: dict[int, list[dict[str, Any]]] = {}
     for record in new_records:
         fixture_id = record.get("fixture_id")

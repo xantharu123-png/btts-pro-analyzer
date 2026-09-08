@@ -256,6 +256,48 @@ def _automatic_document(
     }
 
 
+def test_both_automated_builders_retain_exact_analysis_and_original_model_clocks(tmp_path, monkeypatch):
+    import json
+    from forecast_analysis import project_football_analysis
+
+    row = _playable_automatic_candidate()
+    row.update(home_id=10, away_id=11, modeled_at="2030-01-01T09:00:00+00:00",
+               input_cutoff_at="2030-01-01T08:59:00+00:00")
+    row["analysis_evidence"] = project_football_analysis(row, model_basis={
+        **row, "expected_home_goals": 1.527, "expected_away_goals": 1.133,
+        "venue_samples": [12, 12], "form_samples": [6, 6],
+    })
+    path = tmp_path / "analysis.json"
+    path.write_text(json.dumps(_automatic_document([_model_overlay(row)], candidates=[row])), encoding="utf-8")
+    now = datetime(2030, 1, 1, 10, 1, tzinfo=timezone.utc)
+    def forbidden_request(*_args, **_kwargs):
+        raise AssertionError("Showing saved analysis must not request provider data")
+    monkeypatch.setattr("requests.sessions.Session.request", forbidden_request)
+    for builder in (automated_wettfinder_forecasts, automated_wettfinder_signals):
+        signals = builder(path, now=now)
+        assert len(signals) == 1
+        signal = signals[0]
+        assert signal.analysis_evidence == row["analysis_evidence"]
+        assert signal.modeled_at == row["modeled_at"]
+        assert signal.input_cutoff_at == row["input_cutoff_at"]
+        assert signal.home_team_id == 10 and signal.away_team_id == 11
+        assert signal.model_scope == "same_competition"
+
+
+def test_legacy_artifact_never_borrows_even_matching_or_duplicate_discovery_basis(tmp_path):
+    import json
+
+    row = _automatic_model_row(1)
+    document = _automatic_document([row])
+    raw = {**row, "expected_home_goals": 9.9, "expected_away_goals": 0.1}
+    document["football"]["discovery_candidates"] = [raw, {**raw, "expected_home_goals": 8.8}]
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    signals = automated_wettfinder_forecasts(path, now=datetime(2030, 1, 1, 10, 1, tzinfo=timezone.utc))
+    assert len(signals) == 1 and signals[0].analysis_evidence is None
+    assert signals[0].probability == row["probability"]
+
+
 def _tennis_db(rows, tmp: Path) -> Path:
     db = tmp / "tennis_shadow.db"
     conn = sqlite3.connect(db)

@@ -23,6 +23,7 @@ from typing import List, Optional, Union
 from zoneinfo import ZoneInfo
 
 from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
+from forecast_analysis import read_football_analysis
 from market_consensus import (
     MarketConsensus,
     quote_matches_candidate,
@@ -102,6 +103,11 @@ class ModelSignal:
     competitor_a_id: Optional[str] = None
     competitor_b_id: Optional[str] = None
     context_evidence: Optional[dict] = None
+    # Optional exact-bound public-analysis facts, not a model/release input.
+    analysis_evidence: Optional[dict] = None
+    home_team_id: Optional[int] = None
+    away_team_id: Optional[int] = None
+    model_scope: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not _valid_probability(self.probability):
@@ -1307,6 +1313,18 @@ def _football_recommendation_release_eligible(row: dict) -> bool:
     )
 
 
+def _automated_analysis_fields(row: dict) -> dict:
+    """Optional presentation metadata never changes model/release eligibility."""
+    return {
+        "analysis_evidence": read_football_analysis(row),
+        "home_team_id": row.get("home_id"),
+        "away_team_id": row.get("away_id"),
+        "model_scope": row.get("model_scope"),
+        "modeled_at": row.get("modeled_at"),
+        "input_cutoff_at": row.get("input_cutoff_at"),
+    }
+
+
 def automated_wettfinder_forecasts(
     path: Union[str, Path] = AUTOMATED_WETTFINDER_PATH,
     *,
@@ -1452,6 +1470,7 @@ def automated_wettfinder_forecasts(
                         else None
                     ),
                     context_complete=_model_row_context_complete(row),
+                    **_automated_analysis_fields(row),
                     statistical_release_passed=(
                         row.get("statistical_release_passed")
                         if isinstance(
@@ -1664,6 +1683,7 @@ def automated_wettfinder_signals(
                         else None
                     ),
                     context_complete=_model_row_context_complete(row),
+                    **_automated_analysis_fields(row),
                     statistical_release_passed=(
                         True if row_is_football else None
                     ),

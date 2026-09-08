@@ -459,8 +459,7 @@ def test_html_card_and_row_escape_all_visible_provider_text_and_hide_detail():
         assert "Auswahl &quot;x&quot;" in markup
         assert "Detail &lt;script&gt;" not in markup
         assert "<button" not in markup
-    assert "Kontext:</span> &lt;img src=x onerror=alert(1)&gt;" in top
-    assert "Kontext &lt;img src=x onerror=alert(1)&gt;" not in row
+    assert "onerror" not in top and "onerror" not in row
     assert "Book &lt;2&gt;" in bookmaker_markup
 
 
@@ -482,9 +481,9 @@ def test_top_card_markup_exposes_the_decision_hierarchy_in_reading_order():
         'class="wf-market"',
         'class="wf-selection"',
         'class="wf-primary-probability"',
+        'class="wf-analysis"',
         'class="wf-metric-grid"',
         'data-price-code="PLAYABLE"',
-        'class="wf-context"',
     )
     positions = [markup.index(fragment) for fragment in expected_fragments]
     assert positions == sorted(positions)
@@ -498,6 +497,38 @@ def test_top_card_markup_exposes_the_decision_hierarchy_in_reading_order():
     assert "Aktuell" in markup
     assert "noch kein freigegebener Tipp" in markup
     assert "Modell mit Form- und Kaderdaten" not in markup
+
+
+def test_featured_and_compact_analysis_is_visible_once_and_escapes_all_copy():
+    from forecast_analysis import project_football_analysis
+
+    signal = replace(_signal(market_key="RESULT_HOME", market="Endergebnis", selection="Heimsieg"),
+                     home_team='<Alpha & "home">', home_team_id=10, away_team_id=11,
+                     model_scope="same_competition", modeled_at="2030-01-01T10:00:00+00:00",
+                     input_cutoff_at="2030-01-01T09:59:00+00:00",
+                     context_summary="H2H geprüft · kein Veto · Wirkung nicht modelliert · Wetter geprüft")
+    raw = vars(signal)
+    signal = replace(signal, analysis_evidence=project_football_analysis(raw, model_basis={
+        **raw, "expected_home_goals": 1.527, "expected_away_goals": 1.133,
+        "venue_samples": [12, 12], "form_samples": [6, 6],
+    }))
+    card = _card(signal)
+    for renderer in (surface.render_top_card_html, surface.render_compact_row_html):
+        markup = renderer(card)
+        assert markup.count("Warum diese Auswahl?") == 1
+        assert markup.count("1,53") == 1
+        assert "&lt;Alpha &amp; &quot;home&quot;&gt;" in markup
+        assert '<Alpha' not in markup
+        assert "H2H geprüft" not in markup and "kein Veto" not in markup
+        assert "Wetter geprüft" not in markup and "Wirkung nicht modelliert" not in markup
+        assert "<details" not in markup
+    cards = [_card(signal, quote) for quote in (
+        None, replace(_quote(signal), bet_name="Match Winner", value_name="Home"),
+        replace(_quote(signal, (1.40, 1.45, 1.50)), bet_name="Match Winner", value_name="Home"),
+    )]
+    assert {card.analysis_basis for card in cards} == {card.analysis_basis}
+    assert {card.analysis_caution for card in cards} == {card.analysis_caution}
+    assert {card.price_code for card in cards} == {"UNAVAILABLE", "PLAYABLE", "TOO_LOW"}
 
 
 @pytest.mark.parametrize(

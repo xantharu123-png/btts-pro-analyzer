@@ -948,21 +948,16 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
         for key, kwargs, _context in price_calls
     )
     assert all(context != "expander" for _key, _kwargs, context in price_calls)
-    assert [label for label, _expanded in recording_st.expanders] == [
-        "Analyse anzeigen"
-    ] * len(forecasts)
-    assert recording_st.expander_keys == [
-        "wettfinder_v2_analysis_football-one",
-        "wettfinder_v2_analysis_tennis-one",
-        "wettfinder_v2_analysis_esport-one",
-        "wettfinder_v2_analysis_football-two",
-    ]
+    assert recording_st.expanders == []
+    assert recording_st.expander_keys == []
+    assert html.count("Warum diese Auswahl?") == len(forecasts)
+    assert html.count("Modellgrundlagen fehlen") == len(forecasts)
     action_order = [
         kind
         for kind, _value in recording_st.event_log
         if kind in {"expander", "price_action"}
     ]
-    assert action_order == ["expander", "price_action"] * len(forecasts)
+    assert action_order == ["price_action"] * len(forecasts)
     assert html.count('class="wf-top-card"') == 3
     assert html.count('class="wf-row"') == 1
     assert all(html.count(f'data-key="{signal.key}"') == 1 for signal in forecasts)

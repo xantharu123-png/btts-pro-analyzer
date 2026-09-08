@@ -1106,16 +1106,36 @@ def _apply_app_styles() -> None:
             color: #4d5961;
         }
 
-        .st-key-wettfinder_v2_page .wf-context {
-            color: var(--bb-muted);
-            font-size: 0.74rem;
-            line-height: 1.45;
+        .st-key-wettfinder_v2_page .wf-analysis {
+            grid-column: 1 / -1;
+            min-width: 0;
+            color: #334a3f;
+            font-size: 0.84rem;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+
+        .st-key-wettfinder_v2_page .wf-analysis h4 {
+            color: #254737;
+            font-size: 0.84rem;
+            font-weight: 750;
+            margin: 0 0 0.35rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-analysis p {
             margin: 0;
         }
 
-        .st-key-wettfinder_v2_page .wf-context span {
-            color: #42564c;
-            font-weight: 750;
+        .st-key-wettfinder_v2_page .wf-analysis .wf-analysis-caution {
+            color: #655136;
+            font-size: 0.8rem;
+            margin-top: 0.4rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-analysis .wf-analysis-samples {
+            color: var(--bb-muted);
+            font-size: 0.74rem;
+            margin-top: 0.4rem;
         }
 
         [class*="st-key-wettfinder_v2_actions_"] {
@@ -1127,16 +1147,14 @@ def _apply_app_styles() -> None:
             align-items: start;
             display: grid;
             gap: 0.45rem;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns: minmax(0, 1fr);
         }
 
-        [class*="st-key-wettfinder_v2_actions_"] [data-testid="stExpander"],
         [class*="st-key-wettfinder_v2_price_action_"] {
             min-width: 0;
             width: 100%;
         }
 
-        [class*="st-key-wettfinder_v2_actions_"] [data-testid="stExpander"] details > summary,
         [class*="st-key-wettfinder_v2_price_action_"] [data-testid="stPopover"] button,
         [class*="st-key-wettfinder_v2_price_action_"] [data-testid="stButton"] button {
             min-height: 44px;
@@ -4690,15 +4708,7 @@ def _automatic_release_overlay(evaluation) -> Optional[WettfinderReleaseOverlay]
 
 def _render_wettfinder_card_actions(signal, card, candidate, binding, evaluation) -> None:
     with st.container(key=f"wettfinder_v2_actions_{card.manual_quote_key}"):
-        with st.expander(
-            "Analyse anzeigen",
-            expanded=False,
-            key=f"wettfinder_v2_analysis_{candidate.event_key}",
-        ):
-            # Only the curated consumer context reaches the public surface.
-            # Raw model, validation, provider and gate diagnostics stay in the
-            # persisted/admin data and are deliberately not rendered here.
-            st.write(card.context_label)
+        # The short analysis is already visible once inside the card markup.
         with st.container(
             key=f"wettfinder_v2_price_action_{card.manual_quote_key}"
         ):
