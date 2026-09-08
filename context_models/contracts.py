@@ -487,6 +487,28 @@ _HEADS = {"football:goals:90min": ({"home", "away"}, "log_rate"),
           "tennis:winner": ({"winner"}, "logit"), "tennis:serve": ({"hold_a", "hold_b"}, "logit")}
 
 
+def validate_offset_fit(value: dict) -> dict:
+    """One closed fitted-head schema shared by storage and numeric readers.
+
+    Schema validity neither certifies convergence/training provenance nor
+    supplies the additional artifact-level ordered features and family scope.
+    """
+    require_object(value, {"link", "scale", "coef", "alpha", "n_rows"}, label="offset fit")
+    _enum(value["link"], {"log_rate", "logit", "identity"}, "offset link")
+    scales = require_list(value["scale"], "offset scales")
+    coefficients = require_list(value["coef"], "offset coefficients")
+    if not scales or len(scales) != len(coefficients):
+        raise ContextContractError("offset fit dimensions must be equal and nonempty")
+    for scale in scales:
+        require_number(scale, "offset scale", minimum=1e-8)
+    for coefficient in coefficients:
+        require_number(coefficient, "offset coefficient")
+    require_number(value["alpha"], "offset regularization", minimum=0)
+    if type(value["n_rows"]) is not int or value["n_rows"] < 2:
+        raise ContextContractError("offset fit sample count must be an integer >= 2")
+    return {**value, "scale": list(scales), "coef": list(coefficients)}
+
+
 def validate_effect_artifact(value: dict) -> dict:
     required = {"schema", "sport", "family", "feature_version", "feature_names", "heads", "preprocessing_artifacts", "joint_calibration",
                 "training_end", "training_refs_hash", "population", "coverage", "model_variant"}
@@ -503,18 +525,11 @@ def validate_effect_artifact(value: dict) -> dict:
     expected_heads, link = _HEADS[family]
     require_object(row["heads"], expected_heads, label="effect named heads")
     for head in row["heads"].values():
-        require_object(head, {"link", "scale", "coef", "alpha", "n_rows"}, label="effect head")
+        head = validate_offset_fit(head)
         if head["link"] != link:
             raise ContextContractError("effect head link/family mismatch")
-        for name in ("scale", "coef"):
-            numbers = require_list(head[name], f"head {name}")
-            if len(numbers) != len(row["feature_names"]):
-                raise ContextContractError("head dimensions must match the exact feature order")
-            for number in numbers:
-                require_number(number, name, minimum=1e-8 if name == "scale" else None)
-        require_number(head["alpha"], "head regularization", minimum=0)
-        if type(head["n_rows"]) is not int or head["n_rows"] < 2:
-            raise ContextContractError("head sample count must be an integer >= 2")
+        if len(head["scale"]) != len(row["feature_names"]):
+            raise ContextContractError("head dimensions must match the exact feature order")
     if type(row["preprocessing_artifacts"]) is not dict:
         raise ContextContractError("preprocessing artifacts must map names to immutable hashes")
     for name, artifact_hash in row["preprocessing_artifacts"].items():
