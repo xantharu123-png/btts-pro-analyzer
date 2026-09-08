@@ -1,6 +1,6 @@
 # Verständliche Wettfinder-Karten – Release-Nachweis
 
-Stand: 8. September 2026. Quellcode und gerenderte lokale Oberfläche sind geprüft; der anschließende VPS-Nachweis wird getrennt festgehalten. Eine Codefreigabe ist noch kein Produktionsnachweis.
+Stand: 8. September 2026, 19:14 Uhr Zürich. Quellcode, lokale Darstellung, reguläres VPS-Deployment und die echte Produktionskarte nach dem planmäßigen Datenlauf sind getrennt nachgewiesen.
 
 ## Auftrag und Abgrenzung
 
@@ -44,6 +44,15 @@ VPS am 8. September 16:18 UTC sauber auf `b3afc478a07fa0d67509e2bef0a9c05766bdb0
 
 Zwei Worker meldeten unabhängig vom UI-Auftrag Fehler: gemeinsamer Tennis-Rebuild nach ATP-Verarbeitung mit HTTPError; Wettfinder wegen mehrdeutiger RisikoBet-Ergebnisrevisionen. Die Fußballanalyse war abgeschlossen. Bestehende Cricket-Teildaten bleiben unverändert. Diese Befunde dürfen nicht durch einen grünen Seiten-Healthcheck oder einen bloßen Neustart als gelöst gelten.
 
-## Noch erforderlicher Release-Nachweis
+## Ausgeführtes Deployment und echter Datenlauf
 
-Exakter Main-/GitHub-/VPS-Hash; regulärer root-eigener Updater einschließlich verifiziertem Backup; frischer öffentlicher Browser-Reload; ein regulärer Kontext-Refresh mit echten neuen Erklärungsdaten. Erst danach ist dieser UI-Auftrag produktiv nachgewiesen. Die übrigen Aufgaben des Kontextplans bleiben separat offen.
+- `ce7b98ccf365a5db4303ed04291058acdbe6067b` wurde auf `main` und den UI-Branch gepusht und durch den regulären root-eigenen `/usr/local/sbin/betboy-update` erfolgreich ausgerollt. Main, GitHub und VPS waren anschließend exakt identisch; der Produktionscheckout war sauber. Der fachliche Karten-Quellstand ist weiterhin das unabhängig geprüfte `f82d7ae`.
+- Pre-Update-Backup `/var/backups/betboy-update/betboy-preupdate-20260908T163523Z-b3afc478a07f.zip` und reguläres Backup `/var/backups/betboy/betboy-sqlite-20260908T163605Z.zip`: jeweils **87 Datenbanken verifiziert**. Keine Schlüssel oder Ledgerdaten wurden in lokale QA kopiert.
+- Der normale Lauf um 18:37 Uhr ergänzte 17 Fußball-Erklärungen. Porto war zu diesem Zeitpunkt nach der unveränderten Frischeregel noch nicht fällig. Erst der normale Lauf um **19:07 Uhr** ergänzte Porto erfolgreich; es wurde kein Zusatzscan gestartet.
+- Veröffentlichtes Artefakt: `generated_at=2026-09-08T17:07:12.004286+00:00`; Porto-Kontext `2026-09-08T17:07:04.340066+00:00`. 27 gespeicherte Modellkandidaten, davon 25 mit exakt gebundener numerischer Analyse. Bereits gestartete Spiele werden wie bisher nicht mehr als kommende Auswahlen geführt.
+- Porto behielt `probability=0.46361`, Torerwartungen `1.527/1.133` und beide ursprünglichen Modell-/Inputzeiten `2026-09-07T22:11:47.515195+00:00`. Es wurde kein neues Modell simuliert und keine Wahrscheinlichkeit durch Quote oder Kontextbericht geändert.
+- Nach einem frischen öffentlichen Reload standen auf Seite 1 **23 gerenderte Karten und 23 direkt sichtbare Analysen**; der gesamte Katalog ist paginiert. Die echte Porto-Hauptkarte zeigt die Torprognose, 46,4 % Heimsieg, 53,6 % Gegenrisiko, den unvalidierten Vergleich verschiedener Ligen und den zeitlich bezeichneten Kaderstand, dessen Wirkung noch nicht eingerechnet ist. Kein „Analyse anzeigen“ und keine alte H2H-/Veto-Checkliste.
+- Produktion bei 1440, 390 und 320 Pixeln ohne horizontalen Seiten-/Kartenüberlauf. Der Controller hat die tatsächlichen Desktop- und Mobile-Screenshots selbst angesehen. Belege: `production-porto-1440.png` und `production-porto-390.png` im uncommitteten `output/playwright/card-analysis/` der UI-Arbeitskopie. Die Mobile-Aufnahme enthält die vorhandene feste Navigation; das ist kein versteckter Analyse-Expander.
+- Frischer Produktionsbrowser: **0 Console-Fehler, 9 bestehende Feature-Policy-/Iframe-Warnungen**. `betboy-app.service` und Caddy aktiv; interner und öffentlicher Healthcheck `ok`; alle sieben Timer geplant. Die Timer rechnen weiterhin nur Daten und deployen keinen Code.
+
+Der Wettfinder-Worker endete um 19:11:34 trotz erfolgreicher Fußball-Veröffentlichung weiterhin mit Status 1 wegen der bereits bekannten mehrdeutigen Ergebnisrevisionen. Auch der separate gemeinsame Tennis-Rebuild war fehlgeschlagen. Diese Fehler sind **nicht** durch den Karten-Release behoben; keine alten Ergebnisse wurden geraten, überschrieben oder als abgeschlossen umetikettiert. Verletzungs-/Müdigkeitseffekte, empirische Modellgüte und die übrigen Kontextplan-Aufgaben bleiben offen. Ein nachfolgender reiner Dokumentationscommit ändert den hier geprüften fachlichen Quellstand nicht.
