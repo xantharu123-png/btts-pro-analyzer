@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+import pytest
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -254,6 +255,123 @@ def _automatic_document(
         "candidates": strict,
         "challenge_release_candidates": challenge_strict,
     }
+
+
+def test_both_automated_builders_retain_exact_analysis_and_original_model_clocks(tmp_path, monkeypatch):
+    import json
+    from forecast_analysis import project_football_analysis
+
+    row = _playable_automatic_candidate()
+    row.update(home_id=10, away_id=11, modeled_at="2030-01-01T09:00:00+00:00",
+               input_cutoff_at="2030-01-01T08:59:00+00:00")
+    row["analysis_evidence"] = project_football_analysis(row, model_basis={
+        **row, "expected_home_goals": 1.527, "expected_away_goals": 1.133,
+        "venue_samples": [12, 12], "form_samples": [6, 6],
+    })
+    path = tmp_path / "analysis.json"
+    path.write_text(json.dumps(_automatic_document([_model_overlay(row)], candidates=[row])), encoding="utf-8")
+    now = datetime(2030, 1, 1, 10, 1, tzinfo=timezone.utc)
+    def forbidden_request(*_args, **_kwargs):
+        raise AssertionError("Showing saved analysis must not request provider data")
+    monkeypatch.setattr("requests.sessions.Session.request", forbidden_request)
+    for builder in (automated_wettfinder_forecasts, automated_wettfinder_signals):
+        signals = builder(path, now=now)
+        assert len(signals) == 1
+        signal = signals[0]
+        assert signal.analysis_evidence == row["analysis_evidence"]
+        assert signal.modeled_at == row["modeled_at"]
+        assert signal.input_cutoff_at == row["input_cutoff_at"]
+        assert signal.home_team_id == 10 and signal.away_team_id == 11
+        assert signal.model_scope == "same_competition"
+
+
+def test_legacy_artifact_never_borrows_even_matching_or_duplicate_discovery_basis(tmp_path):
+    import json
+
+    row = _automatic_model_row(1)
+    document = _automatic_document([row])
+    raw = {**row, "expected_home_goals": 9.9, "expected_away_goals": 0.1}
+    document["football"]["discovery_candidates"] = [raw, {**raw, "expected_home_goals": 8.8}]
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    signals = automated_wettfinder_forecasts(path, now=datetime(2030, 1, 1, 10, 1, tzinfo=timezone.utc))
+    assert len(signals) == 1 and signals[0].analysis_evidence is None
+    assert signals[0].probability == row["probability"]
+
+
+@pytest.mark.parametrize(("modeled", "cutoff", "accepted"), [
+    ("2030-01-01T12:00:00+00:00", "2030-01-01T09:00:00+00:00", False),
+    ("2030-01-01T12:00:00+00:00", "2030-01-01T11:59:00+00:00", False),
+    ("2030-01-01T10:01:00+00:00", "2030-01-01T09:00:00+00:00", True),
+    ("2030-01-01T10:01:00+00:00", "2030-01-01T10:01:00+00:00", True),
+], ids=["future-model", "future-cutoff", "model-at-now", "cutoff-at-now"])
+def test_both_real_automatic_readers_reject_only_future_analysis_using_one_shared_clock(
+    tmp_path, monkeypatch, modeled, cutoff, accepted,
+):
+    from dataclasses import replace
+    import json
+    import forecast_analysis
+    from wettfinder_surface import build_wettfinder_card, compose_wettfinder_catalog
+
+    row = _playable_automatic_candidate()
+    row.update(home_id=10, away_id=11, modeled_at=modeled, input_cutoff_at=cutoff,
+               selection_rank=[1, 2, 3])
+    row["analysis_evidence"] = forecast_analysis.project_football_analysis(row, model_basis={
+        **row, "expected_home_goals": 1.527, "expected_away_goals": 1.133,
+        "venue_samples": [12, 12], "form_samples": [6, 6],
+    })
+    second = _automatic_model_row(2)
+    document = _automatic_document([_model_overlay(row), second], candidates=[row])
+    path = tmp_path / "future-analysis.json"
+    original = json.dumps(document).encode("utf-8")
+    path.write_bytes(original)
+    without_analysis = {**row, "analysis_evidence": None}
+    baseline_path = tmp_path / "same-row-without-analysis.json"
+    baseline_path.write_text(json.dumps(_automatic_document(
+        [_model_overlay(without_analysis), second], candidates=[without_analysis],
+    )), encoding="utf-8")
+    now = datetime(2030, 1, 1, 10, 1, tzinfo=timezone.utc)
+
+    class NoNewWallClock(datetime):
+        @classmethod
+        def now(cls, *_args, **_kwargs):
+            raise AssertionError("Reuse the explicit evaluation time; no per-signal wall clock")
+
+    def forbidden_request(*_args, **_kwargs):
+        raise AssertionError("No provider request for an optional card explanation")
+
+    monkeypatch.setattr(signal_sources, "datetime", NoNewWallClock)
+    monkeypatch.setattr(forecast_analysis, "datetime", NoNewWallClock)
+    monkeypatch.setattr("requests.sessions.Session.request", forbidden_request)
+    for builder in (automated_wettfinder_forecasts, automated_wettfinder_signals):
+        signals = builder(path, now=now)
+        baseline = builder(baseline_path, now=now)
+        assert len(signals) == len(baseline) == (2 if builder is automated_wettfinder_forecasts else 1)
+        assert [replace(signal, analysis_evidence=None) for signal in signals] == baseline
+        first = signals[0]
+        assert (first.analysis_evidence is not None) is accepted
+        assert first.modeled_at == modeled and first.input_cutoff_at == cutoff
+        assert first.probability == row["probability"]
+        assert first.probability_haircut == row["probability_haircut"]
+        assert first.reference_quote == baseline[0].reference_quote
+        assert first.evidence_stage == baseline[0].evidence_stage
+        assert first.statistical_release_passed == baseline[0].statistical_release_passed
+        cards = [build_wettfinder_card(signal, signal.reference_quote, now=now) for signal in signals]
+        baseline_cards = [build_wettfinder_card(signal, signal.reference_quote, now=now) for signal in baseline]
+        assert ("Modellgrundlagen fehlen" not in cards[0].analysis_basis) is accepted
+        assert ("1,53" in cards[0].analysis_basis) is accepted
+        for actual_card, baseline_card in zip(cards, baseline_cards):
+            assert replace(actual_card, analysis_basis="", analysis_caution="", analysis_samples="") == replace(
+                baseline_card, analysis_basis="", analysis_caution="", analysis_samples="",
+            )
+        assert cards[0].price_code == baseline_cards[0].price_code == "PLAYABLE"
+        actual_catalog = compose_wettfinder_catalog(cards)
+        baseline_catalog = compose_wettfinder_catalog(baseline_cards)
+        assert [card.key for card in actual_catalog.featured + actual_catalog.additional] == [
+            card.key for card in baseline_catalog.featured + baseline_catalog.additional
+        ]
+    assert path.read_bytes() == original
+    assert json.loads(original)["model_candidates"][0]["selection_rank"] == [1, 2, 3]
 
 
 def _tennis_db(rows, tmp: Path) -> Path:

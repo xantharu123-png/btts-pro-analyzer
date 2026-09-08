@@ -25,6 +25,7 @@ from bet_finder_ui import (
     consumer_fixture_label,
 )
 from ev_signal_sources import ModelSignal
+from forecast_analysis import build_forecast_analysis
 from market_consensus import (
     MarketConsensus,
     ReferencePriceStatus,
@@ -66,6 +67,9 @@ class WettfinderCard:
     manual_quote_key: str
     can_check_manual_quote: bool = True
     market_key: Optional[str] = None
+    analysis_basis: str = ""
+    analysis_caution: str = ""
+    analysis_samples: str = ""
 
 
 @dataclass(frozen=True)
@@ -397,6 +401,7 @@ def build_wettfinder_card(
     evidence_label, evidence_tone = _evidence_copy(signal, confirmed_tip)
     model_probability = float(signal.probability)
     cautious_probability = model_probability - float(signal.probability_haircut)
+    analysis = build_forecast_analysis(signal, now=now)
     return WettfinderCard(
         key=signal.key,
         sport=_clean_text(signal.sport, "Modell"),
@@ -420,6 +425,9 @@ def build_wettfinder_card(
         confirmed_tip=confirmed_tip,
         reference_quote=current_quote,
         manual_quote_key=signal.key,
+        analysis_basis=analysis.basis,
+        analysis_caution=analysis.caution,
+        analysis_samples=analysis.samples,
     )
 
 
@@ -579,6 +587,21 @@ def _row_value(label: str, value: str, *, note: Optional[str] = None) -> str:
     )
 
 
+def _analysis_markup(card: WettfinderCard) -> str:
+    samples = (
+        f'<p class="wf-analysis-samples">{escape(card.analysis_samples)}</p>'
+        if card.analysis_samples else ""
+    )
+    return (
+        '<section class="wf-analysis">'
+        '<h4>Warum diese Auswahl?</h4>'
+        f'<p class="wf-analysis-basis">{escape(card.analysis_basis)}</p>'
+        f'<p class="wf-analysis-caution">{escape(card.analysis_caution)}</p>'
+        f"{samples}"
+        '</section>'
+    )
+
+
 def _top_card_markup(card: WettfinderCard) -> str:
     price = format_decimal_odds(card.observed_odds)
     bookmaker_note = card.bookmaker if price != "–" else None
@@ -614,14 +637,13 @@ def _top_card_markup(card: WettfinderCard) -> str:
         '<span>Modellwahrscheinlichkeit</span>'
         f'<strong>{escape(format_probability(card.model_probability))}</strong>'
         "</div>"
+        f"{_analysis_markup(card)}"
         f'<div class="wf-metric-grid">{metrics}</div>'
         '<p class="wf-uncertainty-note">Sicherheitswert: Modell mit heuristischem '
         'Abschlag, keine statistisch bestätigte Mindestchance. Der Risikopreis '
         'ist eine Rechenschwelle, keine erwartete Buchmacherquote.</p>'
         f'<p class="wf-price-note wf-price-note-{escape(card.price_tone, quote=True)}" '
         f'data-price-code="{price_code}">{escape(price_note)}</p>'
-        '<p class="wf-context"><span>Kontext:</span> '
-        f"{escape(card.context_label)}</p>"
         "</article>"
     )
 
@@ -647,6 +669,7 @@ def _compact_row_markup(card: WettfinderCard) -> str:
         f'{_row_value("Risikopreis ab", format_decimal_odds(card.value_threshold))}'
         f'{_row_value("Aktuell", price, note=bookmaker_note)}'
         f"{_status_badges(card, featured=False)}"
+        f"{_analysis_markup(card)}"
         "</article>"
     )
 

@@ -658,6 +658,61 @@ def test_football_record_persists_paired_statistical_release_evidence():
     assert record["tested_hypotheses"] == 90
 
 
+def test_football_projection_persists_price_free_analysis_and_context_refresh_backfills_legacy():
+    from forecast_analysis import read_football_analysis
+
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    candidate = _challenge_candidate(now + timedelta(hours=5))
+    candidate.context = {"forecast_passed": True, "passed": True}
+    record = _football_candidate_record(candidate, context_checked_at=now)
+    evidence = read_football_analysis(record)
+    assert evidence["basis"]["expected_home_goals"] == 1.5
+    assert evidence["basis"]["expected_away_goals"] == 1.2
+    assert evidence["basis"]["venue_samples"] == [10, 10]
+    assert "odds" not in str(evidence) and "price" not in str(evidence)
+    # Simulate the already persisted daily candidate before this optional field
+    # existed. The next due *context* refresh is sufficient; no discovery scan.
+    record.pop("analysis_evidence")
+    record["input_cutoff_at"] = (now - timedelta(minutes=1)).isoformat()
+    refreshed = _merge_context_refresh(
+        {"status": "completed", "candidates": [record], "errors": [],
+         "context_checks": {}, "last_discovery_at": now.isoformat(),
+         "context_accounting_available": True, "context_fixture_statuses": {"1": "verified"}},
+        {"candidates": [candidate], "context_fixture_statuses": {"1": "verified"}, "errors": []},
+        fixture_ids=[1], checked_at=now + timedelta(minutes=30),
+    )
+    updated = refreshed["candidates"][0]
+    assert updated["modeled_at"] == record["modeled_at"]
+    assert updated["input_cutoff_at"] == record["input_cutoff_at"]
+    assert updated["context_checked_at"] == (now + timedelta(minutes=30)).isoformat()
+    assert read_football_analysis(updated)["basis"] == evidence["basis"]
+    assert updated["probability"] == record["probability"]
+    assert updated["selection_rank"] == record["selection_rank"]
+
+
+def test_context_refresh_preserves_original_basis_catalog_clocks_for_analysis():
+    from forecast_analysis import read_football_analysis
+
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    spec = MARKET_BY_KEY["HOME_OVER_0_5"]
+    candidate = replace(_challenge_candidate(now + timedelta(hours=5)),
+                        market_key=spec.key, market=spec.market, selection=spec.selection)
+    candidate.context = {"forecast_passed": True, "passed": True}
+    record = _football_candidate_record(candidate, context_checked_at=now)
+    record["input_cutoff_at"] = (now - timedelta(minutes=1)).isoformat()
+    record.pop("analysis_evidence")
+    refreshed = _merge_context_refresh(
+        {"status": "completed", "candidates": [], "basis_candidates": [record],
+         "errors": [], "context_checks": {}, "last_discovery_at": now.isoformat()},
+        {"basis_forecasts": [candidate], "candidates": [], "errors": []},
+        fixture_ids=[1], checked_at=now + timedelta(minutes=30),
+    )
+    updated = refreshed["basis_candidates"][0]
+    assert updated["modeled_at"] == record["modeled_at"]
+    assert updated["input_cutoff_at"] == record["input_cutoff_at"]
+    assert read_football_analysis(updated)["basis"]["expected_home_goals"] == 1.5
+
+
 def test_scheduled_artifact_rebuilds_15k_forecast_and_exact_quote(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     snapshot = _football_snapshot(now)
