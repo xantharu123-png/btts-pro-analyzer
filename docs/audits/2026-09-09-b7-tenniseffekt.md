@@ -252,3 +252,68 @@ vollständige Quality-Python-Aufruf mit neuem isoliertem
 `--basetemp=.pytest_tmp/b7-v2-full-20260909`. Danach wurden nur diese
 Ergebniszeilen ergänzt. Unabhängige Wiederprüfung sowie sämtliche fachlichen
 Daten-/Trainings-/D1-/D2-/Betriebsabhängigkeiten bleiben offen.
+
+## Unabhängiger Gegenlauf: Nullwirkung und belegte alte Endzeitgrenzen
+
+Der Reviewer prüfte Freeze `96988c93eb6a8173fdfbc4402e2cbbc38c05f081`.
+Sein unverändertes Repropaket (SHA256
+`4163e4470cca8460e93f0438e0f0bd1433a0489ada30e83d9f715b3115d566ab`)
+ergab auch im eigenen Gegenlauf **4 rot, 14 grün**. Die zwei Ursachen:
+
+1. Eine von B1 erlaubte Winner-Basis mit `p_a=.6`, `winner_a=.6000000000000001`
+   und `winner_b=.4` wurde bei exakt null Koeffizient beziehungsweise null
+   Merkmal unnötig auf die neu berechneten Marktwerte umgeschrieben.
+2. Ein terminales Ergebnis, das bereits vor zehn Tagen empfangen wurde, kann
+   trotz unbekannter Endzeit weder heutige 1/3/7-Tagesfenster noch eine belegte
+   neuere letzte Endzeit überholen. Die vorherige pauschale Behandlung aller
+   fehlenden Endzeiten markierte diese aktuelle beobachtete Teilmenge dennoch
+   als unvollständig und entfernte die exakte letzte Erholung.
+
+Der Controller bestätigte vor Sourceänderung diese engen Regeln:
+
+- Sind sämtliche ursprünglichen Parameter unverändert, werden `params` und
+  `markets` exakt tief kopiert. Das gilt auch für Serve; die Prüfung, dass eine
+  Serve-Basis aus derselben Simulatorautorität stammt, bleibt unverändert.
+  Kein B1-Validator, keine Wahrscheinlichkeitstoleranz wurde gelockert.
+- Ein fehlendes Ende ist nur dann außerhalb eines Fensters, wenn seine
+  terminale `result_observed_at`-Obergrenze **streng vor** dem Fensterbeginn
+  liegt. Gleichheit genügt nicht. Es wird nie eine genaue Endzeit eingesetzt
+  oder eine Meldung als im Fenster absolvierte Last gezählt.
+- Exakte letzte Erholung bleibt nur möglich, wenn die jüngste belegte Endzeit
+  mindestens so spät liegt wie **jede** unbekannte Endzeit-Obergrenze.
+- `bounded-irrelevant-end-times` ist eine neue eigenständige Timing-Identität:
+  alle drei Lastfenster und die jeweilige letzte Endzeit sind nachweislich
+  unbeeinflusst. Sie wird niemals in `known-end-times` umbenannt.
+- Ist nur die letzte Endzeit sicher, aber mindestens ein Lastfenster weiterhin
+  unklar, entsteht die separat gebundene Kombination
+  `observed-only.exact-observed.partial-end-times`. Ein all-known-Artefakt
+  darf weder diese noch die bounded-Variante konsumieren. D1/D2 müssen jede
+  neue Coverage separat empirisch untersuchen; hier besteht keine Freigabe.
+- Die Ausschlussbelege bleiben in den tatsächlich verwendeten Completeness-
+  und Restreferenzen. Leere unbelegte Fenster bleiben missing,
+  `history_complete` bleibt 0, fehlende Minuten bleiben fehlend. Frühere
+  Beobachtungen, tatsächliche Quellenzeiten und B1-Receiptbytes bleiben gleich.
+
+### Regressionsnachweise der engen Korrektur
+
+- **19 neue permanente Fälle**: beide Seiten, alle drei Fenster jeweils eine
+  Mikrosekunde vor/auf/nach der Grenze, alle Unknown-End-Obergrenzen statt nur
+  einer, leere Altgeschichte, unveränderte Nullwirkung samt Gruppenvergleich
+  und kein Scope-Transfer auf die neuen Timing-Fälle.
+- Permanente RED-Runde gegen den vorherigen Code: **17 rot, 231 grün**.
+- GREEN inklusive unveränderter unabhängiger Angriffe: **266 bestanden**, 4,42 s.
+
+| Korrigierte Datei | SHA256 |
+| --- | --- |
+| `context_models/tennis.py` | `313ffafacc367e7370312f478327d6453860ac0bf17bbcaf8102acdda49e4bab` |
+| `context_models/tennis_effect.py` | `41c5bb4f10fef2cdef73795bf25dfbaa00e65529dda09b4a8e6fb9ecffa7ecb9` |
+| `tests/test_tennis_context_features.py` | `9f9874ee40a67754154f4b1ba4ff7db067d27c40cd254302a0f180dbb51dcfce` |
+| `tests/test_tennis_context_model.py` | `bd8836f68c3951c9b66cf06b4d2a48328797bab02f9d1a7758d4aaa03a356473` |
+
+Simulator und Legacyfixture behalten exakt ihre zuvor dokumentierten SHA256.
+Die Vollsuite auf diesen Codebytes ist grün: **2.950 bestanden**, **15 erwartete
+Windows/POSIX-Skips**, **97 Untertests bestanden**, **0 Fehler**, 61,05 s.
+Quality-Python-Aufruf: `-B -m pytest -q -rs -p no:cacheprovider
+--basetemp=.pytest_tmp/b7-correction-full-01`. Danach wurden nur diese
+Ergebniszeilen ergänzt. Die unabhängige Wiederprüfung dieser Korrektur steht
+noch aus. Kein Push, VPS-Zugriff, Datenimport oder empirischer Beschluss.

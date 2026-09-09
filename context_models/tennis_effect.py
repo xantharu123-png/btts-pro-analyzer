@@ -48,10 +48,12 @@ _FEATURES = {f"{root}_{side}": (root, side, group)
              for root, group in _ROOTS.items() for side in ("a", "b", "delta")}
 _COVERAGE_CASES = {
     "observed-only.exact-observed.known-end-times",
+    "observed-only.exact-observed.bounded-irrelevant-end-times",
+    "observed-only.exact-observed.partial-end-times",
     "observed-only.receipt-bound-observed.missing-end-times",
     "observed-only.receipt-bound-observed.partial-end-times",
     *(f"observed-only.missing-rest.{timing}" for timing in
-      ("no-history", "known-end-times", "missing-end-times", "partial-end-times")),
+      ("no-history", "known-end-times", "missing-end-times", "partial-end-times", "bounded-irrelevant-end-times")),
 }
 
 
@@ -207,11 +209,18 @@ def _comparison(original: dict, features: dict, artifact: dict, event: dict, x: 
     if original["family"] == "tennis:winner":
         delta = offset_delta(artifact["heads"]["winner"], x)
         p = float(adjust_parameters(np.array([original["params"]["p_a"]], dtype=np.float64), delta, link="logit")[0])
-        params, markets = {"p_a": p}, {"winner_a": p, "winner_b": 1-p}
+        params = {"p_a": p}
     else:
         delta = np.array([float(offset_delta(artifact["heads"][head], x)[0]) for head in ("hold_a", "hold_b")])
         holds = adjust_parameters(np.array([original["params"][head] for head in ("hold_a", "hold_b")], dtype=np.float64), delta, link="logit")
         params = {"hold_a": float(holds[0]), "hold_b": float(holds[1]), "best_of": original["params"]["best_of"]}
+    if params == original["params"]:
+        # A zero/rounding-neutral parameter effect has no authority to rewrite
+        # already-valid baseline market bytes through a new arithmetic path.
+        params, markets = deepcopy(original["params"]), deepcopy(original["markets"])
+    elif original["family"] == "tennis:winner":
+        markets = {"winner_a": params["p_a"], "winner_b": 1-params["p_a"]}
+    else:
         catalog = tennis_serve_markets(params)
         markets = {name: catalog[name] for name in original["markets"]}
     identity = {"schema": 1, "base_hash": digest(original),

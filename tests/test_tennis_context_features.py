@@ -117,6 +117,72 @@ def test_duration_missing_does_not_erase_sets_or_become_zero(tmp_path):
     assert result["values"]["observed_minutes_complete_1d_a"] == 0
 
 
+def bounded_history(tmp_path, *, player="1", upper_bound, extra_unknown=None):
+    ancient = native_row("77", player, "8", hours=300, actual_start_utc=None,
+                         actual_end_utc=None, match_duration_minutes=None,
+                         result_observed_at=upper_bound.isoformat())
+    old = stored(tmp_path, [ancient], receipt=upper_bound)
+    current = stored(tmp_path, [native_row(sets=(3, 2)), native_row("2", "2", sets=(2, 0))])
+    if extra_unknown is not None:
+        late = native_row("78", player, "7", hours=300, actual_start_utc=None,
+                          actual_end_utc=None, match_duration_minutes=None,
+                          result_observed_at=extra_unknown.isoformat())
+        old += stored(tmp_path, [late], receipt=extra_unknown)
+    return tennis_features(event(), old + current, base(), cutoff=NOW), old
+
+
+@pytest.mark.parametrize("player,side", [("1", "a"), ("2", "b")])
+def test_provably_old_unknown_end_does_not_erase_newer_load_or_exact_rest(tmp_path, player, side):
+    result, old = bounded_history(tmp_path, player=player, upper_bound=NOW-timedelta(days=10))
+    expected = 5 if side == "a" else 2
+    exclusion_refs = {row["digest"] for row in old if row["subject_id"] == event()["home_id" if side == "a" else "away_id"]}
+    for days in (1, 3, 7):
+        assert result["values"][f"observed_sets_{days}d_{side}"] == expected
+        assert result["values"][f"observed_sets_complete_{days}d_{side}"] == 1
+        assert result["values"][f"history_complete_{days}d_{side}"] == 0
+        assert exclusion_refs <= set(result["refs"][f"observed_sets_complete_{days}d_{side}"])
+    assert result["values"][f"observed_recovery_exact_hours_{side}"] == 24.
+    assert result["values"][f"recovery_is_exact_{side}"] == 1
+    assert exclusion_refs <= set(result["refs"][f"observed_recovery_exact_hours_{side}"])
+    assert result["coverage"]["case"] == "observed-only.exact-observed.bounded-irrelevant-end-times"
+    assert all(row["payload"]["actual_end"] is None for row in old)
+
+
+@pytest.mark.parametrize("days", [1, 3, 7])
+@pytest.mark.parametrize("microseconds", [-1, 0, 1])
+def test_unknown_end_window_exclusion_is_strict_not_inclusive(tmp_path, days, microseconds):
+    upper = NOW - timedelta(days=days) + timedelta(microseconds=microseconds)
+    result, _ = bounded_history(tmp_path, upper_bound=upper)
+    assert result["values"][f"observed_sets_complete_{days}d_a"] == int(microseconds < 0)
+    for window in (1, 3, 7):
+        assert result["values"][f"observed_sets_complete_{window}d_a"] == int(upper < NOW-timedelta(days=window))
+    # The latest known match ended only 18h ago, so these <=24h bounds cannot
+    # overtake it; load-window completeness is still independently restricted.
+    assert result["values"]["observed_recovery_exact_hours_a"] == 24.
+    timing = "bounded-irrelevant-end-times" if days == 7 and microseconds < 0 else "partial-end-times"
+    assert result["coverage"]["case"] == f"observed-only.exact-observed.{timing}"
+
+
+@pytest.mark.parametrize("microseconds", [-1, 0, 1])
+def test_latest_exact_end_must_dominate_every_unknown_end_upper_bound(tmp_path, microseconds):
+    upper = NOW - timedelta(hours=18) + timedelta(microseconds=microseconds)
+    result, _ = bounded_history(tmp_path, upper_bound=NOW-timedelta(days=10), extra_unknown=upper)
+    assert result["values"]["observed_recovery_exact_hours_a"] == (24. if microseconds <= 0 else None)
+    assert result["values"]["recovery_is_exact_a"] == int(microseconds <= 0)
+    assert result["values"]["observed_sets_complete_1d_a"] == 0
+
+
+def test_only_old_unknown_end_is_not_zero_load_or_exact_history(tmp_path):
+    receipt = NOW-timedelta(days=10)
+    row = native_row("77", hours=300, actual_start_utc=None, actual_end_utc=None,
+                     match_duration_minutes=None, result_observed_at=receipt.isoformat())
+    result = features(tmp_path, [row], receipt=receipt)
+    assert result["values"]["observed_sets_1d_a"] is None
+    assert result["values"]["observed_sets_complete_1d_a"] == 0
+    assert result["values"]["observed_recovery_exact_hours_a"] is None
+    assert result["coverage"]["case"].endswith("missing-end-times")
+
+
 def test_empty_history_is_not_a_healthy_zero_load_or_complete_collection(tmp_path):
     result = features(tmp_path, [])
     assert all(value is None for value in result["values"].values())

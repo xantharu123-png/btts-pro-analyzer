@@ -98,6 +98,39 @@ def test_learned_winner_effect_changes_probability_and_keeps_original_inputs():
     assert (original, feats, fitted) == before
 
 
+@pytest.mark.parametrize("null_kind", ["zero-coefficient", "zero-feature"])
+def test_zero_effect_preserves_valid_last_bit_market_disagreement_exactly(null_kind):
+    from model_artifacts import canonical_bytes
+
+    original = base()
+    original["markets"] = {"winner_a": .6000000000000001, "winner_b": .4}
+    assert validate_base_distribution(original)["markets"] == original["markets"]
+    feats = features(original, load_a=2., load_b=2.) if null_kind == "zero-feature" else features(original)
+    fitted = artifact(original, feats)
+    if null_kind == "zero-coefficient":
+        fitted["heads"]["winner"]["coef"] = [0.]
+    comparison = apply_tennis_effect(original, feats, fitted, event=event())
+    for name in ("params", "markets"):
+        assert canonical_bytes(comparison[name]) == canonical_bytes(original[name])
+        assert comparison[name] is not original[name]
+    contrast = tennis_factor_comparisons(original, feats, fitted, event=event())["workload"]
+    assert canonical_bytes(contrast["comparison"]["markets"]) == canonical_bytes(original["markets"])
+
+
+@pytest.mark.parametrize("coverage_case", [
+    "observed-only.exact-observed.bounded-irrelevant-end-times",
+    "observed-only.exact-observed.partial-end-times",
+])
+def test_bounded_end_coverage_cannot_inherit_all_known_coefficient_scope(coverage_case):
+    original, feats = base(), features()
+    fitted = artifact(original, feats)
+    feats["coverage"]["case"] = coverage_case
+    with pytest.raises(ContextModelError, match="coverage"):
+        apply_tennis_effect(original, feats, fitted, event=event())
+    fitted["coverage"] = deepcopy(feats["coverage"])
+    assert apply_tennis_effect(original, feats, fitted, event=event())["params"]["p_a"] < .6
+
+
 def test_missing_load_is_not_zero_or_a_healthy_player():
     feats = features()
     feats["values"]["observed_sets_1d_delta"] = None
