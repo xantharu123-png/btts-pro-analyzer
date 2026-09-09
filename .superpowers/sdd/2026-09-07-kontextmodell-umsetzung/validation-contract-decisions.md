@@ -2,6 +2,49 @@
 
 These clarify the approved experiment and acceptance interfaces; they do not relax a threshold or certify any dataset. Read together with context-contract-decisions.md. The controller read both D briefs, the B contracts and the approved specification, then adjudicated the bounded read-only preflight. No code or real evaluation is supplied by this document.
 
+## D1 implementation rulings — 9 September 2026
+
+Controller read the complete `task-16-preflight-20260909.md` and accepts its
+A-D boundaries, with these precise implementation choices. These do not make
+the incomplete real corpus causal or authorize a new source/subscription.
+
+- Add an owning closed outcome transport separately from B4 appearances/B6
+  workload, never extra target fields in those existing payloads. Football v1
+  uses actual native FT regulation outcomes; AET/PEN cannot borrow final goals.
+  Tennis completed winner requires real native A/B/tour/winner; retirement and
+  walkover are not silently added. Serve requires actual bilateral hold/trial
+  data and the declared final set outcome. An internal synthetic serve schema
+  is not an available real source capability.
+- Replay gets an explicit keyword-only recipe/state input and returns the
+  proposed separate replay envelope, leaving B1 BaseDistribution unchanged.
+  Logical cutoff, exact code/model/calibrator/input references, original base,
+  full Event/native-identity hash and actual reconstruction clock are bound.
+  Only owning resolved receipts can establish its evidence class; no free
+  caller `verified`/archive flag, no backdated state or freshness bypass.
+- Keep the proposed closed EventCase alongside unchanged scalar TrainingRows.
+  Every referenced outcome/replay/receipt/preprocessing byte must resolve;
+  content hashes prove internal consistency, not historical source truth.
+  Features must be derived without the target result entering feature history.
+  Unresolved cross-source aliases remain excluded; no name/kickoff matching.
+- Implement a report-returning fit function with explicit keyword-only cases;
+  `train_family` remains an artifact-only projection on successful fit, with a
+  typed failure on unavailable data/fit. The separate closed FitResult binds
+  all alpha scores, selected alpha, case/row/config hashes and exclusions.
+  Do not extend EffectArtifact, accept executable callbacks or mutate config.
+- Train/tune fitting must reject final-test cases, not inspect their labels and
+  then silently filter them. Select the train-only fit by exact declared
+  event-market Brier using full B5/B7 comparisons; ties choose larger alpha.
+  Shared mirrored A/B serve fitting is one law, not averaged independent fits;
+  doubled head observations never double the canonical event count.
+- Freeze explicit feature vocabulary; absent player/component columns are not
+  zeros. Prior participation/preprocessing for earlier cases must itself be
+  available before each case, not fitted at a later outer cutoff. New pooled
+  role designs need an explicit owning feature version, never a hidden D1 fill.
+- The initial packet owns outcome/case/replay contracts, supported causal row
+  assembly, actual train/tune fitting and reports. Persisted experiment/opened-
+  test registry and CLI integration follow after these closed contracts are
+  reviewed. None of these mechanics constitutes a completed D1 real run.
+
 ## 1. The selected fit stays train-only
 
 D1 explicitly requires train-only scale and coefficients. Fit each declared alpha on train, choose using event-mean Brier on tune (existing tie rule unchanged), and freeze the selected train-only fit. Do not refit coefficients/scales/player or participation effects on train+tune. EffectArtifact.training_end is the logical train_end, not tune_end or the physical artifact creation time. Preserve all tuning scores and the chosen artifact hash. The preflight suggestion to refit train+tune is rejected because it contradicts the explicit plan. Cost if wrong: some usable training observations remain unused; this is preferable to silently changing the approved fitting protocol.
