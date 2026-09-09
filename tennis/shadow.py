@@ -838,6 +838,12 @@ def _prediction_append_time(value: datetime | None) -> tuple[float, str]:
     return _fixture_observation_time(moment)
 
 
+def _guard_context_publication_append(published_at: str, appended_at: str) -> None:
+    from context_models.contracts import ContextIntegrityError, canonical_timestamp
+    if canonical_timestamp(appended_at) < published_at:
+        raise ContextIntegrityError("Shadow append precedes the actual original publication")
+
+
 def _guard_expected_fixture_snapshot(
     conn: sqlite3.Connection,
     prediction_id: int,
@@ -911,20 +917,66 @@ def store_prediction(
     expected_match_date=_EXPECTED_UNSET,
     expected_scheduled_start_utc=_EXPECTED_UNSET,
     db_path: str | Path | None = None,
+    context_model: dict | None = None,
+    context_original: dict | None = None,
+    context_original_published_at: str | None = None,
 ) -> int:
     """Freeze the initial prediction and append every later model observation.
 
     The original id/return convention is preserved for ledger callers: a
     subsequent observation returns -1, but is available via latest_predictions.
     ``modeled_at`` is the forecast cutoff. ``append_observed_at`` is a distinct,
-    aware test/replay receipt clock; ordinary callers omit it so the write reads
-    the actual clock only after acquiring its immediate transaction.
+    aware test/replay receipt clock; omitting it retains the actual final write
+    clock after acquiring the immediate transaction.
+    A linked context also requires its owning worker's actual persisted original
+    publication time. Its preflight does not replace the final transaction clock.
     """
     gates = {g.name: {"passed": g.passed, "detail": g.detail} for g in prediction.gates}
     observed = utc_epoch(
         modeled_at if modeled_at is not None
         else getattr(prediction, "modeled_at", None) or time.time()
     )
+    context = getattr(prediction, "context_evidence", {})
+    if "context_model" in context:
+        raise ValueError("a previous context link cannot be inherited by a new prediction")
+    if context_model is not None or context_original is not None or context_original_published_at is not None:
+        from copy import deepcopy
+        from context_models.contracts import ContextIntegrityError, canonical_timestamp, digest
+        from context_models.tennis_live import (ORIGINAL_ARTIFACT_KIND, original_base,
+            validate_context_model)
+        from model_artifacts import canonical_bytes
+        if (type(context_original_published_at) is not str
+                or canonical_timestamp(context_original_published_at) != context_original_published_at):
+            raise ContextIntegrityError("context original publication requires a canonical UTC timestamp")
+        linked = validate_context_model(context_model)
+        original = original_base(context_original)
+        native = linked["event"]
+        inputs, values = context_original["inputs"], context_original["values"]
+        publication_hash = digest({"kind": ORIGINAL_ARTIFACT_KIND,
+            "payload": {"schema": 1, "origin": context_original}})
+        model_inputs = context.get("model_inputs", {})
+        expected_inputs = {"player_a": prediction.player_a, "player_b": prediction.player_b,
+            "surface": prediction.surface if prediction.surface in ("Hard", "Clay", "Grass", "Carpet") else None,
+            "best_of": prediction.best_of, "tour": tour, "indoor": model_inputs.get("indoor")}
+        if (fixture_source != "ESPN" or native["event_key"] != f"espn:tennis:{tour}:match:{provider_event_id}"
+                or canonical_timestamp(scheduled_start_utc) != native["scheduled_start"]
+                or canonical_timestamp(datetime.fromtimestamp(observed, timezone.utc)) != linked["cutoff"]
+                or original["cutoff"] != linked["cutoff"]
+                or context_original_published_at < original["cutoff"]
+                or canonical_bytes(context_original["event"]) != canonical_bytes(native)
+                or linked["original_artifact_hash"] != publication_hash
+                or model_inputs.get("model_artifact_hash") != original["model_hash"]
+                or any(canonical_bytes(inputs[name]) != canonical_bytes(value) for name, value in expected_inputs.items())
+                or any(canonical_bytes(round(values[name], 4)) != canonical_bytes(value)
+                    for name, value in (("p_a_raw", prediction.p_a_raw), ("p_a_cal", prediction.p_a_cal),
+                                        ("p_b_cal", prediction.p_b_cal)))):
+            raise ContextIntegrityError("context original does not belong to this exact Shadow model revision")
+        context = deepcopy(context)
+        context["context_model"] = linked
+        # Reject a known backward clock before even creating a Shadow database.
+        # Re-read and recheck after BEGIN IMMEDIATE; never move a clock forward.
+        _guard_context_publication_append(context_original_published_at,
+            _prediction_append_time(append_observed_at)[1])
     revision = {
         "created_utc": observed,
         "match_date": match_date,
@@ -941,7 +993,7 @@ def store_prediction(
         "p_cal": prediction.p_a_cal,
         "markets_json": json.dumps(prediction.market_summary(), allow_nan=False),
         "gates_json": json.dumps(gates, ensure_ascii=False, allow_nan=False),
-        "context_json": json.dumps(getattr(prediction, "context_evidence", {}), ensure_ascii=False, allow_nan=False),
+        "context_json": json.dumps(context, ensure_ascii=False, allow_nan=False),
         "verdict": prediction.verdict,
         "recommended_side": prediction.recommended_side,
         "recommended_edge": prediction.recommended_edge,
@@ -988,6 +1040,23 @@ def store_prediction(
                 ),
             ).fetchone()
         if existing:
+            if context_model is not None:
+                stored_tour = conn.execute("SELECT tour FROM predictions WHERE id=?", (existing[0],)).fetchone()[0]
+                if stored_tour != tour:
+                    raise ContextIntegrityError("native Shadow identifier belongs to a different tour")
+                from .prediction_revisions import _decode_stored_revision, _revision_digest
+                for prior_id, prior_time, serialized in conn.execute(
+                    "SELECT revision_id,modeled_utc,payload_json FROM prediction_revisions WHERE prediction_id=?",
+                    (existing[0],),
+                ):
+                    try:
+                        prior = _decode_stored_revision(serialized)
+                        if (_revision_digest(existing[0], serialized) != prior_id
+                                or utc_epoch(prior["created_utc"]) != utc_epoch(prior_time)
+                                or prior.get("tour") != tour):
+                            raise ContextIntegrityError("earlier Shadow revision has conflicting or unverified tour identity")
+                    except (ValueError, TypeError, KeyError) as exc:
+                        raise ContextIntegrityError("earlier Shadow revision has conflicting or unverified tour identity") from exc
             stored = conn.execute(
                 """
                 SELECT player_a,player_b,settled,provider_event_id,
@@ -1010,6 +1079,8 @@ def store_prediction(
             appended_utc, appended_at = _prediction_append_time(
                 append_observed_at
             )
+            if context_original_published_at is not None:
+                _guard_context_publication_append(context_original_published_at, appended_at)
             revision["append_observed_at"] = appended_at
             _guard_fixture_refreshable(
                 conn,
@@ -1048,6 +1119,8 @@ def store_prediction(
             append_revision(conn, int(existing[0]), revision)
             return -1
         appended_utc, appended_at = _prediction_append_time(append_observed_at)
+        if context_original_published_at is not None:
+            _guard_context_publication_append(context_original_published_at, appended_at)
         revision["append_observed_at"] = appended_at
         _guard_fixture_refreshable(
             conn,
