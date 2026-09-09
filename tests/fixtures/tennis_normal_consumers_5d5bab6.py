@@ -183,4 +183,3 @@ def tennis_model_signals(
             )
         )
     return signals
-

@@ -82,9 +82,16 @@ An intervening04 invocation named a nonexistent reader test file and ran zero
 tests. The correct existing `test_context_reader_trust.py` is included in06 and
 the final post-LF07 round. Initial setup outputs remain preserved. After explicit
 LF normalization of only these seven own files, all raw hashes were unchanged;
-07 passed107 tests with one unchanged Windows-symlink skip in14.00s. No existing
+07 passed107 tests with one unchanged Windows-symlink skip in14.00s (XML SHA256
+`0c1b74762c264b72d31f7b958d6858ef4a00c357fa93c1feed8ac13707c99c89`). No existing
 failure was excluded or an assertion loosened. No fresh whole repository suite
 or Linux/browser execution is claimed here; integrated acceptance remains open.
+
+Postcommit whitespace-only cleanup removes one extra blank EOF line from each
+new frozen fixture; no function bytes/semantics or production source changed.
+The final49 owning cases passed in8.21s, zero skips/deselections;08 XML SHA256
+`29bdb7162cb5108a307caf679f105a2e72cb0add0fca9712f3037a7cf4c48975`.
+The fixture hashes below reflect this cleanup, not the earlier f09a0e6 versions.
 
 ## Frozen raw SHA256
 
@@ -94,8 +101,8 @@ tennis/context_consumer.py f79917b4162ce46607f3dd901644a5d90b906d1656833aff23eb3
 ev_signal_sources.py 26970cb596d38b0458fdb42b1d62c822c8d9bd2b080d2601ec23b3a8cd83e705
 riskobet_candidates.py a28bbd628d6f410259b293f6675c87db698305c3a6dc09f0a9c80efca82ebb2c
 tests/test_tennis_shared_consumer.py 389b7ed1dd792b10b97677d55b5d71d411d8a4c0b6d19048880eaf8a31097db9
-tests/fixtures/tennis_normal_consumers_5d5bab6.py 22bd5f52c266dda43a939e748ca88d4f295101bcb7f55b032807cd45df6cc170
-tests/fixtures/tennis_risk_consumer_5d5bab6.py ce1b7b0efa57589926ed1b4360dbc2f463bc09ed2b03a99aceb12f8f3fd59d13
+tests/fixtures/tennis_normal_consumers_5d5bab6.py dde7cf898418c95484a08da747b5e772075bbd1c5c8b31f74066f428325d37c7
+tests/fixtures/tennis_risk_consumer_5d5bab6.py be0a947b0d2de13c749a4283345e8d628ea3f27f100f526ff12a89055e4c9682
 ```
 
 Future model/source changes, physiological effect evidence, further sport

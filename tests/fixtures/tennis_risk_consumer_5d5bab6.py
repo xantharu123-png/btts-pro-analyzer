@@ -217,4 +217,3 @@ def adapt_tennis_shadow(
         )
         outputs.append(RiskAdapterResult(snapshot=snapshot, candidates=candidates))
     return tuple(outputs)
-
