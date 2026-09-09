@@ -167,7 +167,7 @@ def _selected(observations, decision, kickoff):
             # its own result/end. Later unrelated completed map/lineup metadata
             # cannot authenticate an older withdrawn series completion.
             terminal_retracted = key[1] in {"series", "observed_lineup"} and any(
-                item["payload"]["event"]["status"] == "started" and item["observed_at"] > row["observed_at"]
+                item["payload"]["event"]["status"] in {"started", "cancelled"} and item["observed_at"] > row["observed_at"]
                 for item in history)
             # A refreshed series receipt still cannot end before an actually
             # completed native map belonging to the same event/participants.
@@ -181,8 +181,10 @@ def _selected(observations, decision, kickoff):
                 for map_key, (item, _) in selected.items())
             if conflict or withdrawn or terminal_retracted or inconsistent_end or identity(row) not in identities:
                 selected[key] = (None, "conflicting" if not withdrawn else "missing")
-                if key[1] in {"series", "map"} and not withdrawn:
-                    terminal = not terminal_retracted and not inconsistent_end and all(item["payload"]["kind"] in {"series", "map"} and item["payload"]["status"] == "completed"
+                if key[1] in {"series", "map"}:
+                    # A cancellation retracts the measured fact; it does not
+                    # establish zero activity or an older exact recovery time.
+                    terminal = not withdrawn and not terminal_retracted and not inconsistent_end and all(item["payload"]["kind"] in {"series", "map"} and item["payload"]["status"] == "completed"
                                    and (key[1] != "series" or item["payload"]["event"]["status"] == "completed") for item in latest)
                     ambiguities.append({"kind": key[1], "teams": {item["payload"]["event"][side] for item in history for side in ("home_id", "away_id")},
                         "upper": max(item["observed_at"] for item in latest) if terminal else None, "proof": tuple(history)})
