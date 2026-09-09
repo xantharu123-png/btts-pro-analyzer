@@ -123,8 +123,6 @@ def predict_match(
     indoor: Optional[bool] = None,
     as_of: Optional[datetime] = None,
     workload_history=(),
-    *,
-    original_capture=None,
 ) -> TennisPrediction:
     """Full prediction + gate evaluation for one fixture.
 
@@ -140,8 +138,6 @@ def predict_match(
     serve gate is reported as a pass-through and the separate (thinner)
     WTA Platt calibration is applied.
     """
-    if original_capture is not None and not callable(original_capture):
-        raise TypeError("original_capture must be callable")
     tour = str(tour or "ATP").upper()
     scope = getattr(state, "tour_scope", "legacy-combined")
     if scope != "legacy-combined" and scope != tour:
@@ -205,16 +201,6 @@ def predict_match(
         else p_elo
     )
     p_cal = state.calibrate_match(p_raw, key_a, key_b, tour=tour)
-    if original_capture is not None:
-        # Opt-in owning worker receives the actual same-call original before
-        # presentation rounding. It neither recalibrates nor modifies output.
-        original_capture({
-            "inputs": {"player_a": player_a, "player_b": player_b,
-                "state_key_a": key_a, "state_key_b": key_b,
-                "surface": surface_model, "best_of": best_of, "tour": tour,
-                "indoor": indoor},
-            "values": {"p_a_raw": p_raw, "p_a_cal": p_cal, "p_b_cal": 1-p_cal},
-        })
     context_evidence = observed_workload_context(
         player_a, player_b, workload_history, as_of=now,
     )
