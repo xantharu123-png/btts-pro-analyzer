@@ -1,6 +1,6 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Aktiver Umsetzungsstand vom 8. September 2026
+## Aktiver Umsetzungsstand vom 9. September 2026
 
 Diese Zusammenfassung ersetzt die älteren Zwischenstände darunter. Fortsetzung
 im Featurebranch `codex/kontextmodell-20260907`, Arbeitskopie
@@ -8,10 +8,12 @@ im Featurebranch `codex/kontextmodell-20260907`, Arbeitskopie
 Arbeitskopien sind bereits ausdrücklich freigegeben.
 
 - **Live:** Main/GitHub/VPS zuletzt identisch auf
-  `4f3ecd5db75cb6f4f466270a568ede742d4ed767`. Karten erklären Auswahl und
-  Gegenrisiko direkt sichtbar. Der echte Porto-Refresh und Browsernachweis
-  bei 1440/390/320 Pixeln sind abgeschlossen. Kein neuer Modell-, Preis-,
-  Rangfolge-, 15K- oder Cricket-Eingriff durch dieses UI-Release.
+  `a0fc89cdef1c3a7bebfb237e8aaed1ecb0ee1028`. Dieser Stand enthält zusätzlich
+  den zentralen Widerspruchsschutz aus `acc5d72` für automatische und manuelle
+  Fußball-Auswahl vor Abschnitts-/Seitentrennung. Der neue Merge übernimmt
+  dessen exakte geprüfte Source-/Testblobs in den Kontextzweig; nur diese
+  Übergabe hatte einen dokumentarischen Konflikt. Kontextcode bleibt separat
+  und nicht produktiv aktiviert. Serverstatus wird bei Fortsetzung neu gelesen.
 - **Geprüfte Kontext-Integration:** `d7294de65fcb71bbf011378a808316405929d185`
   vereint A1–A4, den realen ATP-Datenfix `2436dd4`, B1 `22164f`, B2 `a71d095`
   und den Live-Kartenstand. Eigener stabiler Abschlusslauf: **2.324 bestanden,
@@ -50,7 +52,16 @@ Audit-/Browser-/Output-Dateien und den unveränderten Helper-Pin erhalten.
 Quellen-/Prüfnachweise versioniert. Alle 20 Aufgaben-Zuordnungen und die fünf
 unveränderten ursprünglichen Plan-Git-Blobs wurden erneut kontrolliert.
 
-## Historische Zwischenstände
+## Gesicherter Main-Auswahlfix vom 8. September 2026
+**Aktuelle Fortsetzung 8. September 2026 – widersprüchliche Auswahlen:** Der Screenshot mit gleichzeitigem Porto-Heim- und Auswärtssieg war eine echte Lücke der nutzerseitigen Auswahl. Der unabhängig freigegebene funktionale Fix `acc5d7200630c17ae23354226ef6857bbedae587` ist auf Main/GitHub/VPS identisch deployed. Ein zentraler Schutz prüft die gesamte angezeigte Auswahlmenge desselben Spiels vor Top-/Zusatzaufteilung, Seitenwechsel, manuellem Limit und Preisaufteilung. Keine Quoten- oder Marktverbote; alle 90 Fußballmärkte bleiben einzeln möglich, Rohmodelle und Preise unverändert. Root: 1.991 Tests bestanden, 11 erwartete Windows-Skips, 97 Untertests; unabhängige Gegenprüfung ohne Findings, einschließlich 8.100 Marktpaare, 400 vollständiger Pools und des Porto-Falls in beiden Auswahlpfaden. Die acht Source-/Testhashes stimmen auf dem VPS exakt mit dem Review überein. Zwei frische Backups mit je 87 Datenbanken verifiziert; App/Caddy und beide Healthchecks funktionieren, sieben Timer aktiv und geplant. Browserprüfung mit realem Renderer und klar markierter Porto-Reproduktion bei 1440/390/320 Pixeln sowie echte Produktionsseite getrennt geprüft. Produktions-Tennis/Wettfinder-Jobfehler bleiben ausdrücklich offen. Nachfolgende Dokumentationscommits ändern den geprüften funktionalen Stand nicht; bei jeder Fortsetzung den vollständigen aktuellen Main/GitHub/VPS-Hash neu prüfen. Maßgeblich: `docs/audits/2026-09-08-widerspruchsfreie-auswahl.md` und `docs/audits/2026-09-08-widerspruchsfreie-auswahl-review.md`. Die Freigabe umfasst nicht RisikoBet, Live, 15K oder den separaten manuellen Tennis-Preischeck.
+
+**Aktueller separater Kontextstand:** `codex/kontextmodell-20260907` ist lokal und remote bei `0328fd70b893223822365621ef382693be51efee` gesichert. A1–A4 als Software geprüft; nach den ATP-Admission-Korrekturen reale statische ATP/WTA-Builds mit Juli-Startdaten unter Windows/Linux und Linux-Restore nachgewiesen. B1/B2 sind integriert; Kontextregression 2.324 bestanden / 15 Windows-Skips / 97 Untertests. B3 ist die nächste freigegebene Aufgabe, noch nicht begonnen. Aktuelle Quellenfrische, B3–D5, gelernte Verletzungs-/Müdigkeitswirkung, empirische Freigabe und Aktivierung sind weiter offen; kein Kontextcode deployed. Vor B3 den aktuellen Main-Fix kontrolliert in die Kontext-Arbeitskopie integrieren und erneut prüfen. Die dortige `.superpowers/sdd/2026-09-07-kontextmodell-umsetzung/progress.md` und `task-7-brief.md` sind maßgeblich; keine erneute Spezifikations-, Unteragenten- oder Worktreefreigabe erfragen. Cricket bleibt ausgenommen. Die nachfolgenden Absätze mit früheren Hashes und noch ausstehenden B1/B2 sind historische Momentaufnahmen, kein aktueller Auftrag.
+
+Die zuvor verlangte Übernahme des Main-Fixes wird in dieser Fortsetzung vor B3
+durchgeführt. Die folgenden älteren Modell-, Test- und Deploymentangaben bleiben
+als datierte Nachweise erhalten, ersetzen aber nicht den aktuellen Aufgabenstand.
+
+## Historische Nachweise bis zum früheren Karten-Release
 
 **Fortsetzung 8. September 2026 – aktueller Nachweis 19:14 Uhr Zürich:** Die Nutzerfreigaben für Spezifikation, Unteragenten-Ausführung und isolierte Arbeitskopie liegen vor; nicht erneut abfragen. Der unabhängig geprüfte Karten-Quellstand `f82d7aeea2e42d81affa2c4389cb377f2293af5c` wurde mit Release `ce7b98ccf365a5db4303ed04291058acdbe6067b` auf Main/GitHub/VPS identisch bereitgestellt. Zwei Backups mit jeweils 87 Datenbanken verifiziert. Der reguläre 19:07-Lauf ergänzt jetzt auch die echte Porto-Karte: Torprognose 1,53/1,13, unverändert 46,4 % Heimsieg, direkt sichtbare Begründung und 53,6 % Gegenrisiko, ohne alte Aufklapp-Checkliste. Tatsächliche Produktionsdarstellung bei 1440/390/320 Pixeln geprüft, 0 Console-Fehler; neun bestehende Warnungen. Details: `docs/audits/2026-09-08-kartenanalyse.md` und `.superpowers/sdd/2026-09-08-kartenanalyse/independent-review.md` (1.795 Tests, 11 Skips, 97 Untertests; unabhängiger Fokus 313/26). App/Caddy und Healthchecks funktionieren. Die Timer deployen nicht. Tennis-Rebuild und Wettfinder-Ergebnisverarbeitung haben weiter eigene Fehler; der UI-Release behebt diese nicht. Nachfolgende Dokumentationscommits ändern diesen fachlichen Quellstand nicht; den aktuellen vollständigen Git/VPS-Hash bei jeder Fortsetzung neu prüfen.
 

@@ -8,6 +8,7 @@ import streamlit as st
 
 import scan_jobs
 from bet_finder_ui import (
+    coherent_consumer_forecasts,
     group_consumer_markets_by_fixture,
     merge_consumer_forecast_catalog,
     partition_consumer_featured_forecasts,
@@ -398,6 +399,7 @@ def _merge_consumer_market_rows(
     model_rows,
     *,
     limit: int = MAX_CONSUMER_MARKET_SELECTIONS,
+    coherent: bool = False,
 ):
     """Keep the model-ranked display stable regardless of bookmaker price."""
 
@@ -419,7 +421,7 @@ def _merge_consumer_market_rows(
         fixture_id = getattr(raw_candidate, "fixture_id", None)
         if isinstance(fixture_id, int) and not isinstance(fixture_id, bool):
             model_fixtures.add(fixture_id)
-        if len(displayed) >= limit:
+        if not coherent and len(displayed) >= limit:
             return displayed
     for raw_candidate in priced_rows or []:
         candidate_id = str(getattr(raw_candidate, "candidate_id", "")).strip()
@@ -429,9 +431,14 @@ def _merge_consumer_market_rows(
             continue
         displayed.append(raw_candidate)
         seen_candidates.add(identity)
-        if len(displayed) >= limit:
+        if not coherent and len(displayed) >= limit:
             break
-    return displayed
+    # Normal consumer views must resolve contradictions across the complete
+    # pool before the display limit, featured cards or very-short-price group.
+    # The default preserves legacy helper callers and historical 15K behavior.
+    if coherent:
+        displayed = coherent_consumer_forecasts(displayed)
+    return displayed[:limit]
 
 
 def _run_market_scan_worker(
@@ -868,10 +875,11 @@ def create_alternative_markets_tab_extended(
     )
     if partial_scope_notice:
         st.warning(partial_scope_notice)
-    # One price-passing market must not erase the other calculated forecasts.
-    # Model ranking stays authoritative inside each presentation tier; only a
-    # confirmed extreme-short market moves out of the prominent consumer tier.
-    displayed_rows = _merge_consumer_market_rows(shortlist, model_shortlist)
+    # Resolve opposing selections before any price-based presentation split.
+    # A passing price never selects the primary direction for a game.
+    displayed_rows = _merge_consumer_market_rows(
+        shortlist, model_shortlist, coherent=True,
+    )
     displayed_by_id = {
         candidate.candidate_id: candidate for candidate in displayed_rows
     }
@@ -892,6 +900,10 @@ def create_alternative_markets_tab_extended(
         max_featured=FEATURED_CONSUMER_MARKET_SELECTIONS,
         allow_mixed_backfill=True,
     )
+    priced_ids = {candidate.candidate_id for candidate in shortlist}
+    priced_count = sum(
+        candidate.candidate_id in priced_ids for candidate in displayed_rows
+    )
 
     if not displayed_rows:
         _render_consumer_no_tip(
@@ -902,16 +914,16 @@ def create_alternative_markets_tab_extended(
         if not featured_rows:
             st.info(
                 "Aktuell gibt es keine nützliche Hauptauswahl. Breite "
-                "Basisprognosen, ähnliche Märkte und bestätigte sehr kurze "
-                "Quoten bleiben unten vollständig sichtbar."
+                "Basisprognosen und weitere miteinander vereinbare "
+                "Auswahlen stehen unten."
             )
-        elif shortlist:
-            priced_count = min(len(shortlist), len(primary_rows))
+        elif priced_count:
             st.info(
                 f"{priced_count} Modell-Auswahl"
                 f"{'en' if priced_count != 1 else ''} mit passender "
                 f"Vergleichsquote für {result_day}. Weitere berechnete "
-                "Auswahlen bleiben unabhängig vom Preis sichtbar."
+                "miteinander vereinbare Auswahlen bleiben unabhängig vom "
+                "Preis sichtbar."
             )
         else:
             found_label = (
@@ -961,8 +973,8 @@ def create_alternative_markets_tab_extended(
                     expanded=False,
                 ):
                     st.caption(
-                        "Alle weiteren berechneten Märkte dieses Spiels "
-                        "bleiben sichtbar; die Quote blockiert nichts."
+                        "Diese zusätzlichen Auswahlen widersprechen sich "
+                        "nicht. Ihre Quote wird getrennt bewertet."
                     )
                     render_rows(
                         event_rows,
