@@ -11,7 +11,7 @@ from functools import lru_cache
 import re
 
 from context_models.contracts import (
-    ContextContractError, _names, _sport_json, canonical_timestamp,
+    ContextContractError, ContextIntegrityError, _names, _sport_json, canonical_timestamp, digest,
     require_digest, require_list, require_number, require_object, require_text,
     validate_coverage, validate_population,
 )
@@ -150,3 +150,98 @@ def validate_family_config(config: dict) -> dict:
     if not set(row["target_markets"]) <= catalog:
         raise ContextContractError("target market is not in the owning outcome/distribution catalog")
     return deepcopy(row)
+
+
+def validate_artifact_envelope(value: dict, *, kind: str) -> dict:
+    """Check A1 bytes, not provenance supplied by an arbitrary caller."""
+    require_object(value, {"digest", "kind", "payload"}, label="resolved A1 artifact")
+    require_digest(value["digest"], "artifact digest")
+    if value["kind"] != kind:
+        raise ContextContractError("resolved artifact has a different kind")
+    if digest({"kind": value["kind"], "payload": value["payload"]}) != value["digest"]:
+        raise ContextIntegrityError("resolved A1 artifact hash mismatch")
+    return deepcopy(value)
+
+
+def validate_identity_map(envelope: dict) -> dict:
+    """Validate the WHOLE dataset map; no name matching or cross-source alias."""
+    result = validate_artifact_envelope(envelope, kind="context-native-identity-map-v1")
+    payload = result["payload"]
+    require_object(payload, {"schema", "policy", "bindings"}, label="dataset native identity map")
+    if type(payload["schema"]) is not int or payload["schema"] != 1 or payload["policy"] != "native-source-only-v1":
+        raise ContextContractError("unsupported identity resolution policy")
+    bindings = require_list(payload["bindings"], "native bindings")
+    keys = []
+    for binding in bindings:
+        require_object(binding, {"event_key", "home_id", "away_id", "source_refs"}, label="native binding")
+        key = require_text(binding["event_key"], "native event", code=True)
+        if re.fullmatch(r"api-football:football:[1-9][0-9]*", key):
+            participant_pattern = r"api-football:team:[1-9][0-9]*"
+        elif match := re.fullmatch(r"espn:tennis:(ATP|WTA):match:[1-9][0-9]*", key):
+            participant_pattern = rf"espn:tennis:{match[1]}:player:[1-9][0-9]*"
+        else:
+            raise ContextContractError("unresolved source alias is not a native event")
+        for side in ("home_id", "away_id"):
+            text = require_text(binding[side], "native participant", code=True)
+            if re.fullmatch(participant_pattern, text) is None:
+                raise ContextContractError("participant namespace differs from native source/tour")
+        if binding["home_id"] == binding["away_id"]:
+            raise ContextContractError("native participants must be distinct")
+        refs = require_list(binding["source_refs"], "native proof refs")
+        for ref in refs:
+            require_digest(ref, "native source receipt")
+        if not refs or refs != sorted(set(refs)):
+            raise ContextContractError("native identity needs sorted unique source receipts")
+        keys.append(key)
+    if not keys or keys != sorted(set(keys)):
+        raise ContextContractError("dataset native events must be nonempty, sorted and unique")
+    return result
+
+
+def resolve_identity_map(envelope: dict, *, observations: tuple[dict, ...],
+                         event_keys: tuple[str, ...] | None = None) -> dict:
+    """Resolve actual B1 bytes, optionally only an explicitly requested subset.
+
+    Subset resolution retains the full global map hash. Training can thus bind
+    a frozen map without opening other events' receipts or final-test labels.
+    It never asserts that the unrequested references have been resolved.
+    """
+    from context_observations import _check_selected_row
+    from context_sources.outcomes import validate_football_base_input
+    from context_sources.football import _detail_event
+    from context_sources.tennis import validate_workload_record
+    result = validate_identity_map(envelope)
+    if type(observations) is not tuple:
+        raise ContextContractError("native resolution needs an immutable B1 receipt inventory")
+    by_ref = {}
+    for row in observations:
+        _check_selected_row(row)
+        if row["digest"] in by_ref:
+            raise ContextContractError("duplicate physical source receipt")
+        by_ref[row["digest"]] = row
+    bindings = result["payload"]["bindings"]
+    if event_keys is not None:
+        if (type(event_keys) is not tuple or not event_keys
+                or any(type(key) is not str for key in event_keys)
+                or len(set(event_keys)) != len(event_keys)):
+            raise ContextContractError("requested native resolution keys must be a nonempty unique tuple")
+        if any(key not in {b["event_key"] for b in bindings} for key in event_keys):
+            raise ContextContractError("event is missing from the global native identity map")
+        bindings = [b for b in bindings if b["event_key"] in event_keys]
+    for binding in bindings:
+        for ref in binding["source_refs"]:
+            row = by_ref.get(ref)
+            if row is None or row["event_key"] != binding["event_key"]:
+                raise ContextIntegrityError("native identity proof receipt is missing or belongs to another event")
+            if row["sport"] == "football":
+                validate_football_base_input(row)
+                event = _detail_event(row["payload"]["detail"])
+                if any(event[key] != binding[key] for key in ("home_id", "away_id")):
+                    raise ContextIntegrityError("native source orientation differs from dataset identity")
+            elif row["sport"] == "tennis" and row["kind"] == "performed_match":
+                payload = validate_workload_record(row)
+                if {payload["player_id"], payload["opponent_id"]} != {binding["home_id"], binding["away_id"]}:
+                    raise ContextIntegrityError("native tennis participants differ from dataset identity")
+            else:
+                raise ContextContractError("there is no owning native identity resolver for this receipt")
+    return result
