@@ -37,6 +37,15 @@ def _refs(value, label):
         raise ContextContractError(f"{label} must be sorted and unique")
 
 
+def _original_event(ev, original, kind):
+    """Compare known embedded identity without fitting during a card read."""
+    reference = original["reference_weights"]
+    if reference.get("kind") == "unavailable":
+        return  # A genuine absent reference is not a conflicting known one.
+    if reference.get("kind") != kind or canonical_bytes(reference.get("event")) != canonical_bytes(ev):
+        raise ContextIntegrityError("worker event contradicts its embedded original event")
+
+
 def _feature_binding(ev, original, feats, preprocessing_refs):
     """Bind even an unapplied feature vector to its owning full Event/Base."""
     pair = original["family"], feats["version"]
@@ -52,16 +61,19 @@ def _feature_binding(ev, original, feats, preprocessing_refs):
         expected = digest({"version": "tennis-context-reference-v3", "base_hash": digest(original),
             "event_hash": digest(ev)})
     elif pair == ("basketball:margin:including_ot", "basketball-rotation-observed-load-v1"):
+        _original_event(ev, original, "basketball-margin-ridge-v1")
         if preprocessing_refs:
             raise ContextContractError("basketball v1 has no named preprocessing contract")
         expected = digest({"version": "basketball-context-reference-v1", "base_hash": digest(original),
             "event_hash": digest(ev), "preprocessing_artifacts": {}})
     elif pair == ("ice_hockey:regulation_goals", "hockey-observed-exposure-load-v1"):
+        _original_event(ev, original, "hockey-original-poisson-reference-v1")
         if preprocessing_refs:
             raise ContextContractError("hockey v1 has no named preprocessing contract")
         expected = digest({"version": "hockey-context-reference-v1", "base_hash": digest(original),
             "event_hash": digest(ev), "preprocessing_artifacts": {}})
     elif pair == ("esports:series:winner", "esports-native-participation-load-v1"):
+        _original_event(ev, original, "esports-observed-series-reference-v1")
         if preprocessing_refs:
             raise ContextContractError("esports v1 has no named preprocessing contract")
         expected = digest({"version": "esports-context-reference-v1", "base_hash": digest(original),

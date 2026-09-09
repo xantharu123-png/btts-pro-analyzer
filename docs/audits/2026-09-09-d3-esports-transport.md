@@ -59,3 +59,42 @@ No new medical fatigue coefficient is inferred. Actual worker assembly,
 source-aware D4 integration, browser acceptance, main push and VPS deployment
 are separate unfinished steps. Cricket and existing forecast/ticket/15K
 histories are unchanged. The protected staging helper is not part of this patch.
+
+## Independent F1 and cross-family correction
+
+The independent review of `82f1e2d474018515496466a0a24fb1982b6b59d4`
+reproduced one P2 with nine RED cases: changing the outer original Event and
+rehashing its FeatureVector reference could relabel a known embedded original
+Event's probability when no eligible effect ran. The positive unavailable-base
+control stayed green. All original reports and probes remain unchanged.
+
+Root also tested the same actual contradiction across C2/C3/C4, including the
+light reader with an explicitly generated raw key (not stopped early by the
+public key validator). Eighteen new permanent cases produced **14 RED / 4 GREEN**:
+C2 and C4 calculation/full replay/light read were affected; C3 already rejected
+calculation/full replay but its light read accepted the contradiction. The two
+mutations are opposing-team orientation and native schedule revision. These
+are directly conflicting known identities, not missing external source proof.
+
+The bounded fix compares the explicit known embedded original Event before
+fallback and in read validation. Only the three owning reference kinds are
+recognized; a genuine `unavailable` original reference remains supported.
+Comparison references cannot masquerade as those unadjusted originals.
+No model, source, approval, numerical formula or 15K behavior was changed.
+The check compares canonical bytes and never fits, reads a source or accesses I/O.
+Tennis v2/v3 and football routes are unchanged by this fix.
+
+Executed final-scope regression: **134 passed, 0 skipped, 20.58s**, including
+the eighteen new cases, original transport/byte/hockey/esports and v3 tests.
+All **50 original independent probes unchanged** additionally passed, 12.06s,
+including all nine prior REDs and the genuine unavailable-reference control.
+Broader independent correction review and integrated full suite are pending.
+
+| Final fix artifact | Raw SHA-256 |
+| --- | --- |
+| `context_transport.py` | `d55e8ad4f81fc8a3958f48fe5e0a072e1640de8e6e5b9f694de794fafd3c9713` |
+| `tests/test_context_original_event_binding.py` | `805aac5fef88aeaa99826ce59f6f3723b281dd61e6ce266b513db7e8a7084586` |
+| Cross-family RED JUnit | `b036affe57a3e56184cbacf7192cf9c4d2b361a56c9afc43be52d56daca34234` |
+| 134-case GREEN JUnit | `db5de3f69c4c33c1ea0e7dda512829a516d426e0bea0d868bf9a22add89fc3f9` |
+| Original 50-probe rerun JUnit | `33b0a6c7a91cacf10de1a9ca5fd0f7e1c434378b04dd6361a55ca9e2cc2e8a6d` |
+| Original independent negative REVIEW.md | `94ea4f2e90929a0c75473d062b573538c2949ab4d9b2c1c24e98a0be2f918275` |
