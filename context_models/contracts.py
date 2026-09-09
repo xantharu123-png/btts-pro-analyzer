@@ -547,6 +547,42 @@ def validate_effect_artifact(value: dict) -> dict:
     return _sport_json(row, label="effect artifact")
 
 
+def validate_context_approval(value: dict) -> dict:
+    """Validate D2's closed approval payload, not its linked empirical proof.
+
+    Only D2's trusted resolver may supply this transport to runtime consumers.
+    A valid shape or a publicly calculable content hash is not an approval.
+    """
+    fields = {"schema", "decision", "hypothesis_id", "experiment_hash", "report_hash", "effect_hash",
+              "dataset_hash", "event_identity_hash", "code_revision", "policy_version", "base_versions",
+              "sport", "family", "feature_version", "population", "coverage", "model_variant",
+              "target_markets", "outcome_contract", "test_events_hash", "evaluated_at"}
+    require_object(value, fields, label="context approval")
+    row = dict(value)
+    if type(row["schema"]) is not int or row["schema"] != 1 or row["decision"] != "approved":
+        raise ContextContractError("unknown context approval schema or decision")
+    for name in ("hypothesis_id", "experiment_hash", "report_hash", "effect_hash", "dataset_hash",
+                 "event_identity_hash", "test_events_hash"):
+        require_digest(row[name], name)
+    if type(row["code_revision"]) is not str or re.fullmatch(r"[0-9a-f]{40}", row["code_revision"]) is None:
+        raise ContextContractError("approval code_revision must be a full lowercase Git commit")
+    family = _family(row["family"])
+    if require_sport(row["sport"]) != family.split(":")[0]:
+        raise ContextContractError("approval sport/family mismatch")
+    for name in ("policy_version", "feature_version", "model_variant", "outcome_contract"):
+        require_text(row[name], name, code=True)
+    for name in ("base_versions", "target_markets"):
+        row[name] = _names(row[name], name)
+        if row[name] != sorted(row[name]):
+            raise ContextContractError(f"approval {name} must be canonical sorted unique names")
+    row["population"] = validate_population(row["population"])
+    if row["population"]["sport"] != row["sport"]:
+        raise ContextContractError("approval population sport mismatch")
+    row["coverage"] = validate_coverage(row["coverage"])
+    row["evaluated_at"] = _iso_timestamp(row["evaluated_at"], "approval evaluated_at")
+    return _sport_json(row, label="context approval")
+
+
 def validate_training_row(value: dict, *, effect_artifact: dict | None = None) -> dict:
     fields = {"event_key", "decision_at", "result_observed_at", "block", "population", "coverage", "feature_names", "x", "offset",
               "target", "trials", "base_hash", "feature_refs", "evidence_class", "family", "head"}
@@ -602,7 +638,10 @@ def validate_training_row(value: dict, *, effect_artifact: dict | None = None) -
 def validate_context_result(value: dict, *, family: str, effect_artifact: dict | None = None) -> dict:
     fields = {"event_key", "base_hash", "effect_hash", "role", "factor_roles", "factor_states", "feature_refs",
               "base_params", "comparison_params", "used_params", "base_markets", "comparison_markets", "used_markets", "delta_pp", "limitations"}
-    require_object(value, fields, label="context result")
+    certification_fields = {"approval_hash", "certified_markets"}
+    require_object(value, fields, optional=certification_fields, label="context result")
+    if set(value) & certification_fields not in (set(), certification_fields):
+        raise ContextContractError("context certification needs both approval_hash and certified_markets")
     row = dict(value)
     family = _family(family)
     require_native_key(row["event_key"], sport=family.split(":")[0])
@@ -664,4 +703,18 @@ def validate_context_result(value: dict, *, family: str, effect_artifact: dict |
     require_list(row["limitations"], "context limitations")
     for limitation in row["limitations"]:
         require_text(limitation, "context limitation")
+    if certification_fields <= set(row):
+        certified = _names(row["certified_markets"], "certified markets", allow_empty=True)
+        if certified != sorted(certified) or not set(certified) <= set(row["used_markets"]):
+            raise ContextContractError("certified markets must be canonical and belong to this distribution")
+        if role == "applied":
+            require_digest(row["approval_hash"], "context approval hash")
+            if not certified:
+                raise ContextContractError("applied certified result needs actual tested markets")
+        elif row["approval_hash"] is not None or certified:
+            raise ContextContractError("unapplied result cannot inherit context certification")
+        # approval_hash is a specifically validated provenance field, never an
+        # open allowance for arbitrary approval/price keys in sport payloads.
+        copied = _sport_json({name: item for name, item in row.items() if name != "approval_hash"}, label="context result")
+        return {**copied, "approval_hash": row["approval_hash"]}
     return _sport_json(row, label="context result")
