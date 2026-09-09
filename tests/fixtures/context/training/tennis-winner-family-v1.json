@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "sport": "tennis",
+  "family": "tennis:winner",
+  "feature_version": "tennis-performed-load-v2",
+  "feature_names": ["observed_sets_1d_delta", "observed_recovery_exact_hours_delta"],
+  "population": {"sport": "tennis", "competitions": ["espn:ATP:tournament:189-2026"], "formats": ["singles_best_of_3"], "tours": ["ATP"], "surfaces": ["Hard"], "indoor": [false]},
+  "coverage": {"version": "tennis-performed-load-coverage-v1", "case": "observed-only.exact-observed.known-end-times"},
+  "model_variant": "tennis-winner-performed-load-antisymmetric-v1",
+  "base_versions": ["tennis-winner-predecision-tour-state-v1"],
+  "head_links": {"winner": "logit"},
+  "reference_version": "tennis-context-reference-v2",
+  "preprocessing_artifacts": {},
+  "groups": {"workload": ["observed_sets_1d_delta"], "recovery": ["observed_recovery_exact_hours_delta"]},
+  "joint_calibration": {"kind": "identity"},
+  "target_markets": ["winner_a", "winner_b"],
+  "outcome_contract": "tennis-completed-winner-v1",
+  "train_end": "2026-08-01T00:00:00.000000Z",
+  "tune_end": "2026-09-01T00:00:00.000000Z",
+  "alpha_grid": [0.01, 0.1, 1.0, 10.0, 100.0]
+}
