@@ -99,3 +99,15 @@ No predictor, calibration, context feature/approval contract, Cricket path, sour
 capture, consumer/UI, stage helper, historical receipt, server or deployment code
 was edited. Local tests cannot grant the still-missing native historical tennis
 alias or new-base empirical approval. No merge, push or VPS action was performed.
+
+## Full-suite completion after the source freeze
+
+The full run on source freeze `b566da3b5abc5bf7403baf65fbec45c5717fb8a8`
+completed with **5,274 passed, 19 skipped and 97 subtests passed**, exit code 0,
+in **862.27 seconds**. JUnit `.pytest_tmp/tennis-live-clockfix-full-01.xml` has
+SHA-256 `83488c51a2dfd7a776f6ecbb729fd8f0352969350718736ebce3bedc12f50775`.
+
+All three source/test SHA-256 values above were checked again after completion
+and are unchanged. This addition records evidence only; it does not modify the
+frozen code, tests or the retained original negative witnesses. The independent
+review, later integration and any production deployment remain separate claims.
