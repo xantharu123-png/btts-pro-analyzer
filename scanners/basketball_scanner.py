@@ -23,6 +23,10 @@ import time
 import re
 import math
 
+from context_sources.team_sports_capture import (
+    observe_espn_basketball_schedule, observe_euroleague_schedule, observe_nhl_schedule,
+)
+
 logger = logging.getLogger(__name__)
 SEARCH_TIMEZONE = ZoneInfo("Europe/Zurich")
 
@@ -158,6 +162,8 @@ class BasketballScanner:
                     errors.append(f"{season_code}: HTTP {response.status_code}")
                     continue
                 payload = response.json()
+                observe_euroleague_schedule(self.euroleague_games_base, season_code,
+                                           start_date, end_date, payload, response)
             except (requests.RequestException, ValueError) as exc:
                 errors.append(f"{season_code}: {type(exc).__name__}")
                 continue
@@ -255,6 +261,8 @@ class BasketballScanner:
                     errors.append(f"{target_date}: HTTP {response.status_code}")
                     continue
                 payload = response.json()
+                observe_espn_basketball_schedule(url, league, target_date,
+                                               start_date, end_date, payload, response)
             except (requests.RequestException, ValueError) as exc:
                 errors.append(f"{target_date}: {type(exc).__name__}")
                 continue
@@ -381,6 +389,8 @@ class BasketballScanner:
                     errors.append(f"{cursor}: HTTP {response.status_code}")
                     break
                 payload = response.json()
+                observe_nhl_schedule(self.nhl_schedule_base, cursor,
+                                     start_date, end_date, payload, response)
             except (requests.RequestException, ValueError) as exc:
                 errors.append(f"{cursor}: {type(exc).__name__}")
                 break
