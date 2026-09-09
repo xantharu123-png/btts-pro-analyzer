@@ -151,3 +151,40 @@ def test_native_base_input_rejects_injected_price_or_calculated_xg_columns():
         changed[field] = {"home": 1.2}
         with pytest.raises(ContextContractError):
             normalize_football_base_input(changed, observed_at=NOW)
+
+
+def serve_payload():
+    event, _ = tennis_input()
+    event["format"] = "singles_best_of_3"
+    payload = {"schema": 1, "outcome_contract": "tennis-completed-serve-v1",
+        "home_id": event["home_id"], "away_id": event["away_id"], "scheduled_start": canonical_timestamp(event["scheduled_start"]),
+        "terminal": "completed", "result": {"winner_id": event["home_id"],
+            "set_scores": [{"home": 6, "away": 0}, {"home": 6, "away": 0}],
+            "held_games_home": 6, "service_games_home": 6, "held_games_away": 0, "service_games_away": 6}}
+    return event, payload
+
+
+def test_serving_targets_must_reproduce_the_observed_non_tiebreak_score():
+    from context_sources.outcomes import validate_outcome_payload
+    event, payload = serve_payload()
+    assert validate_outcome_payload(payload, event=event) == payload
+    payload["result"].update(held_games_home=0, held_games_away=6)
+    with pytest.raises(ContextContractError):
+        validate_outcome_payload(payload, event=event)
+
+
+def test_bilateral_trials_must_allow_actual_service_alternation():
+    from context_sources.outcomes import validate_outcome_payload
+    event, payload = serve_payload()
+    payload["result"].update(held_games_home=2, service_games_home=2, service_games_away=10)
+    # Counts/holds still reconstruct 12:0, but 2 vs10 serves is impossible.
+    with pytest.raises(ContextContractError):
+        validate_outcome_payload(payload, event=event)
+
+
+def test_tiebreak_is_not_a_held_service_game_and_next_set_server_changes():
+    from context_sources.outcomes import validate_outcome_payload
+    event, payload = serve_payload()
+    payload["result"].update(set_scores=[{"home": 7, "away": 6}, {"home": 6, "away": 1}],
+        held_games_home=9, service_games_home=9, held_games_away=7, service_games_away=10)
+    assert validate_outcome_payload(payload, event=event) == payload

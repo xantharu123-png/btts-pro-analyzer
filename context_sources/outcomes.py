@@ -64,7 +64,7 @@ def validate_outcome_payload(payload: dict, *, event: dict) -> dict:
             if event["format"] not in {"singles_best_of_3", "singles_best_of_5"}:
                 raise ContextContractError("serve outcome requires explicit best-of format")
             needed = 2 if event["format"] == "singles_best_of_3" else 3
-            wins, games, breakers = [0, 0], 0, 0
+            wins, games, breakers, non_tiebreak_wins = [0, 0], 0, 0, [0, 0]
             scores = require_list(result["set_scores"], "final set scores")
             for score in scores:
                 if max(wins) == needed:
@@ -76,7 +76,10 @@ def validate_outcome_payload(payload: dict, *, event: dict) -> dict:
                     raise ContextContractError("unsupported or incomplete final set contract")
                 wins[int(b > a)] += 1
                 games += a + b
-                breakers += int(hi == 7 and lo == 6)
+                tiebreak = int(hi == 7 and lo == 6)
+                breakers += tiebreak
+                non_tiebreak_wins[0] += a - tiebreak * int(a > b)
+                non_tiebreak_wins[1] += b - tiebreak * int(b > a)
             if max(wins) != needed or wins[0] == wins[1]:
                 raise ContextContractError("set outcome does not complete the declared match")
             if result["winner_id"] != event["home_id" if wins[0] > wins[1] else "away_id"]:
@@ -88,6 +91,25 @@ def validate_outcome_payload(payload: dict, *, event: dict) -> dict:
                     raise ContextContractError("invalid measured bilateral hold/trial target")
             if result["service_games_home"] + result["service_games_away"] != games - breakers:
                 raise ContextContractError("service trials disagree with actual non-tiebreak games")
+            for index, side, opponent in ((0, "home", "away"), (1, "away", "home")):
+                reconstructed = result[f"held_games_{side}"] + result[f"service_games_{opponent}"] - result[f"held_games_{opponent}"]
+                if reconstructed != non_tiebreak_wins[index]:
+                    raise ContextContractError("bilateral holds/trials cannot produce the observed score")
+            possible_trials = set()
+            for first_server in (0, 1):
+                service_counts, server = [0, 0], first_server
+                for score in scores:
+                    a, b = score["home"], score["away"]
+                    total = a + b
+                    ordinary = total - int(max(a, b) == 7 and min(a, b) == 6)
+                    service_counts[server] += (ordinary + 1) // 2
+                    service_counts[1-server] += ordinary // 2
+                    # A tiebreak is not a hold trial but occupies one game in
+                    # service rotation; its first receiver serves next set.
+                    server = (server + total) % 2
+                possible_trials.add(tuple(service_counts))
+            if (result["service_games_home"], result["service_games_away"]) not in possible_trials:
+                raise ContextContractError("observed service counts violate service alternation")
     else:
         raise ContextContractError("unsupported outcome contract")
     return deepcopy(payload)
