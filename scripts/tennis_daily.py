@@ -297,7 +297,10 @@ def _fetch_espn_events(tour: str, date: str) -> list:
     try:
         response = requests.get(url, headers=HEADERS, timeout=20)
         response.raise_for_status()
-        return response.json().get("events", [])
+        payload = response.json()
+        from context_sources.tennis_capture import observe_espn_response
+        observe_espn_response(tour, payload)
+        return payload.get("events", [])
     except (requests.RequestException, ValueError):
         return []
 
@@ -973,6 +976,16 @@ def main() -> int:
         help="explicit migration bridge to the trusted combined pickle",
     )
     args = parser.parse_args()
+    from context_sources.tennis_capture import capture_tennis_worker
+    with capture_tennis_worker() as capture:
+        result = _run_daily(args)
+    report = capture.report()
+    print(f"Kontext-Capture: {report['status']}")
+    return 1 if report["issues"] else result
+
+
+def _run_daily(args) -> int:
+    """Existing daily sequence, executed inside the explicit capture scope."""
     date = args.date
     print(f"=== TENNIS DAILY SCAN {date} ===")
     settled = auto_settle_completed()
