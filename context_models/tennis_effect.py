@@ -25,7 +25,7 @@ from context_models.contracts import (
     validate_markets, validate_parameters,
 )
 from context_models.offset import ContextModelError, adjust_parameters, offset_delta
-from context_models.tennis import FEATURE_VERSION, METRICS, WINDOWS
+from context_models.tennis import FEATURE_VERSION, METRICS, WINDOWS, tennis_reference_hash
 from context_snapshots import select_context_result
 from model_artifacts import canonical_bytes
 from tennis.simulator import simulate_match
@@ -167,7 +167,7 @@ def _prepare(base: dict, features: dict, artifact: dict, event: dict):
     if (original["event_key"] != event["event_key"] or features["event_key"] != event["event_key"]
             or original["cutoff"] != features["cutoff"]):
         raise ContextIntegrityError("tennis input event or cutoff identities differ")
-    reference_hash = digest({name: original[name] for name in ("history_refs", "reference_weights")})
+    reference_hash = tennis_reference_hash(original, event)
     if features["reference_hash"] != reference_hash:
         raise ContextIntegrityError("tennis features were built against a different original reference")
     expected_variant = WINNER_VARIANT if family == "tennis:winner" else SERVE_VARIANT

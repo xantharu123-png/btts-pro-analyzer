@@ -3,6 +3,11 @@
 Stand: 9. September 2026. Basis `dd6fd38985e96e615450990c9a953d9af233580c`.
 Isolierter Branch `codex/kontext-b7-tenniseffekt-20260909`.
 
+**Anschlusskorrektur:** Nach dem ersten unten vollständig dokumentierten Freeze
+hat der Controller eine strengere komplette Event-/Basisbindung beschlossen.
+Der aktuelle Vertrag ist **Feature v2**, siehe den abschließenden Abschnitt
+„Referenzkorrektur v2“. Die v1-Hashes/-Tests bleiben historische Nachweise.
+
 ## Status und verbleibende Aufgaben
 
 Implementiert ist der **begrenzte numerische B7-Teil**, nicht die vollständige
@@ -149,7 +154,7 @@ Datierter Windows-Nachweis vom 9. September 2026, SHA256 der vollständigen
 | .9 / .6 / 3 | `3e540276565bd3aef08d02d82847122fcf9518df66d68bee0d097e163e9bd1a1` |
 | .7 / .7 / 5 | `d4b564f9bebd7faf5fded0bd75acd54f70e1b95a17c85c1767e7ac00ca37305b` |
 
-## Eingefrorene Code-/Testbytes
+## Eingefrorene Code-/Testbytes des ersten B7-Stands vor Referenzkorrektur
 
 | Datei | SHA256 |
 | --- | --- |
@@ -177,3 +182,73 @@ Datierter Windows-Nachweis vom 9. September 2026, SHA256 der vollständigen
 Unabhängiges Review ist weiterhin Sache des Controllers. Der grüne Softwarelauf
 ist ausdrücklich keine empirische oder produktive Freigabe; die am Anfang
 benannten Daten-/Trainings-/Betriebsaufgaben bleiben offen.
+
+## Referenzkorrektur v2 – vollständige Event-/Basisbindung
+
+Nach dem unabhängigen Anschlussreview wurde konkret festgestellt: B6-Erholung
+bezieht sich auf den angesetzten nächsten Beginn. Der erste history-only-
+Referenzhash konnte deshalb denselben Merkmalsstand bei geändertem Beginn oder
+anderer Event-/Basisrevision nicht selbst zurückweisen. Der frühere B3-Snapshot-
+Eventhash allein ersetzt diese numerische Consumer-Prüfung nicht.
+
+Der Controller gab als separate enge Korrektur folgenden Vertrag vor:
+
+```text
+FEATURE_VERSION = tennis-performed-load-v2
+reference_hash = SHA256(canonical({
+    version: tennis-context-reference-v2,
+    base_hash: SHA256(canonical(validate_base_distribution(original_base))),
+    event_hash: SHA256(canonical(validate_event(event)))
+}))
+```
+
+- B6-Producer und B7-Consumer teilen `tennis_reference_hash`; keine zweite leicht
+  abweichende Hashdefinition und keine Preprocessing-/Approvaldaten im B7-Hash.
+- Die komplette ursprüngliche Verteilung umfasst auch Modellversion, Parameter,
+  Märkte, historischen Referenzstand und Stichtag. Das komplette Event umfasst
+  Termin, Terminrevision, Status, Teilnehmerorientierung, Format, Tour, Belag,
+  Hallen- und Wettbewerbsangaben. UTC-äquivalente Schreibweisen bleiben gleich.
+- Feature-/Effect-Version v1 wird nicht still migriert. Der alte history-only-
+  Hash wird auch mit umbenanntem Featurestand nicht akzeptiert.
+- Gleicher nativer Eventschlüssel und gleicher Stichtag genügen bei veränderten
+  gebundenen Inhalten nicht. Der Consumer meldet einen Integritätsfehler;
+  die künftige D3-Anbindung muss vor Wiederverwendung neue Merkmale erzeugen.
+- Echte Neuberechnung nach vier Stunden Terminverschiebung aktualisiert beide
+  absoluten Erholungswerte um vier Stunden und erzeugt eine neue Referenz- und
+  Vergleichsidentität. Die alte Event-/Featurekombination bleibt unverändert
+  reproduzierbar. Änderungen der Basis verändern keine beobachteten Sportwerte,
+  wohl aber ihre vollständige Berechnungsbindung.
+- Reine externe Preis-/Tabänderungen sind weiterhin keine Eingaben. Keine
+  Fensterarithmetik, Quellenhistorie, numerischen Fits, Simulator-/Legacybytes,
+  Cricket-/UI-/Job-/15K-Pfade oder produktiven Daten geändert.
+
+### Korrekturevidenz
+
+- Neues echtes RED gegen `1acd2fa`: **14 Fehlfälle**, 144 andere B7-Fälle
+  bewusst deselektiert. Beginn, Revision, Teilnehmer und Basisänderungen konnten
+  zuvor ohne den verlangten Referenzfehler durchlaufen; weitere Scopeänderungen
+  wurden zu spät nur als unpassende Modellpopulation erkannt. Der B6-Producer
+  lieferte erwartbar noch v1. Dieser Befund wurde nicht verschwiegen.
+- Nach der Korrektur: **223 B6/B7-Fälle bestanden**, 3,20 s. Danach zusätzliche
+  v1-Transportablehnung, wirklicher B6-Neubau nach Terminänderung sowie getrennte
+  Serve-Basisparameter-/Marktänderungen abgesichert.
+- Finaler fokussierter Lauf: **860 bestanden**, 9,29 s. Er enthält alle
+  unveränderten vorherigen Mathematik-/Legacy-/Workflow-Prüfungen und insgesamt
+  **164 B7-Fälle**. Bestehende Tests wurden lediglich an den ausdrücklich
+  geänderten Referenzvertrag gebunden, keine erwartete Sportwirkung gelockert.
+
+| Aktuelle v2-Datei | SHA256 |
+| --- | --- |
+| `context_models/tennis.py` | `e0ea6e53852cbcf671c0fc69af51c43ecaac05ae8562f0a2cda79c1aab209349` |
+| `context_models/tennis_effect.py` | `95ee2b5fb9b57c3605388c1920a9a893dc7711e81fb6c6bf09690fc1e43a0a54` |
+| `tests/test_tennis_context_features.py` | `c9f2af758ac28142cb44a817b83eedbbc3a9e8a2d604755410ee2b35a51c9bf9` |
+| `tests/test_tennis_context_model.py` | `f45dfc34bcbba97dbace508cc1cbf53489767b3f13dc6d4e44734942c4c1a025` |
+
+Simulator und ursprüngliche Simulatorfixture haben weiterhin die oben
+dokumentierten identischen SHA256. Der vollständige v2-Gegenlauf auf genau
+diesen Codebytes ist grün: **2.931 bestanden**, **15 erwartete Windows/POSIX-Skips**,
+**97 Untertests bestanden**, **0 Fehler**, 69,45 s. Verwendet wurde derselbe
+vollständige Quality-Python-Aufruf mit neuem isoliertem
+`--basetemp=.pytest_tmp/b7-v2-full-20260909`. Danach wurden nur diese
+Ergebniszeilen ergänzt. Unabhängige Wiederprüfung sowie sämtliche fachlichen
+Daten-/Trainings-/D1-/D2-/Betriebsabhängigkeiten bleiben offen.

@@ -263,7 +263,13 @@ def test_baseline_parameters_and_input_observations_are_not_modified(tmp_path):
     before = deepcopy((ev, observations, original_base))
     first = tennis_features(ev, observations, original_base, cutoff=NOW)
     changed_base = {**original_base, "params": {"p_a": .2}, "markets": {"winner_a": .2, "winner_b": .8}}
-    assert first == tennis_features(ev, observations, changed_base, cutoff=NOW)
+    rebuilt = tennis_features(ev, observations, changed_base, cutoff=NOW)
+    # A changed probability does not change the measured sport facts, but v2
+    # binds their complete original baseline so an old vector is not reused.
+    assert first["values"] == rebuilt["values"]
+    assert first["states"] == rebuilt["states"]
+    assert first["refs"] == rebuilt["refs"]
+    assert first["reference_hash"] != rebuilt["reference_hash"]
     assert (ev, observations, original_base) == before
 
 

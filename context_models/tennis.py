@@ -1,6 +1,8 @@
 """Causal tennis load features, without a learned or heuristic fitness effect.
 
-Window v1 is [cutoff - N * 24h, cutoff) in UTC, attributed by actual match END.
+Window arithmetic remains [cutoff - N * 24h, cutoff) in UTC, by actual match END.
+Feature v2 additionally binds the complete original basis and current event;
+planned-start recovery cannot be reused after a schedule/participant revision.
 Only previously received terminal facts are used. Scheduled/tournament dates and
 result receipts cannot place played work inside these performed-load windows.
 Observed-subset completeness is separate from complete player-history coverage:
@@ -19,9 +21,16 @@ from context_observations import factor_state, freshness_policy
 from context_sources.tennis import SOURCE_SCHEMA, validate_workload_record
 
 
-FEATURE_VERSION = "tennis-performed-load-v1"
+FEATURE_VERSION = "tennis-performed-load-v2"
 WINDOWS = (1, 3, 7)
 METRICS = ("sets", "games", "minutes")
+
+
+def tennis_reference_hash(base: dict, event: dict) -> str:
+    """One canonical producer/consumer binding, not a historical-roster hash."""
+    return digest({"version": "tennis-context-reference-v2",
+                   "base_hash": digest(validate_base_distribution(base)),
+                   "event_hash": digest(validate_event(event))})
 
 
 def _instant(value: datetime | str) -> datetime:
@@ -216,5 +225,5 @@ def tennis_features(event: dict, observations: tuple[dict, ...], base: dict, *, 
         "version": FEATURE_VERSION, "event_key": event["event_key"], "cutoff": canonical_timestamp(decision),
         "values": values, "states": states, "refs": refs,
         "coverage": {"version": "tennis-performed-load-coverage-v1", "case": f"observed-only.{rest}.{timing}"},
-        "reference_hash": digest({"history_refs": base["history_refs"], "reference_weights": base["reference_weights"]}),
+        "reference_hash": tennis_reference_hash(base, event),
     })

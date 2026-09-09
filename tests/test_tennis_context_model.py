@@ -6,7 +6,10 @@ import numpy as np
 import pytest
 from scipy.special import logit
 
-from context_models.contracts import ContextContractError, digest, normalize_population
+from context_models.contracts import (
+    ContextContractError, digest, normalize_population,
+    validate_base_distribution, validate_event,
+)
 from context_models.offset import ContextModelError, fit_offset
 from context_models.tennis import FEATURE_VERSION
 from context_models.tennis_effect import (
@@ -38,8 +41,9 @@ def base(*, family="tennis:winner", best_of=3, p=.6, hold_a=.78, hold_b=.74):
             "reference_weights": {"schema": 1, "kind": "unavailable", "reason": "synthetic-no-roster"}}
 
 
-def features(original=None, *, load_a=5., load_b=2., rest_a=20., rest_b=36.):
+def features(original=None, *, ev=None, load_a=5., load_b=2., rest_a=20., rest_b=36.):
     original = original or base()
+    ev = ev or event(best_of=original["params"].get("best_of", 3))
     values = {"observed_sets_1d_a": load_a, "observed_sets_1d_b": load_b,
               "observed_sets_1d_delta": load_a-load_b,
               "observed_sets_complete_1d_a": 1, "observed_sets_complete_1d_b": 1,
@@ -50,13 +54,14 @@ def features(original=None, *, load_a=5., load_b=2., rest_a=20., rest_b=36.):
             "values": values, "states": {name: "missing" if value is None else "available" for name, value in values.items()},
             "refs": {name: [] if value is None else [REF] for name, value in values.items()},
             "coverage": {"version": "tennis-performed-load-coverage-v1", "case": "observed-only.exact-observed.known-end-times"},
-            "reference_hash": digest({name: original[name] for name in ("history_refs", "reference_weights")})}
+            "reference_hash": digest({"version": "tennis-context-reference-v2",
+                "base_hash": digest(validate_base_distribution(original)), "event_hash": digest(validate_event(ev))})}
 
 
 def artifact(original=None, feats=None, ev=None):
     original = original or base()
-    feats = feats or features(original)
     ev = ev or event(best_of=original["params"].get("best_of", 3))
+    feats = feats or features(original, ev=ev)
     # Actual B2 optimization of artificial, mirrored Bernoulli observations.
     x = np.array([[-1.], [0.], [1.]] * 40)
     winner = fit_offset(x, np.zeros(120), np.array([1., 0., 0.] * 40), link="logit", alpha=.1)
@@ -110,8 +115,8 @@ def test_strict_simulator_does_not_round_away_a_small_hold_change():
 
 def result(original=None, feats=None, fitted=None, ev=None, **changes):
     original = original or base()
-    feats = feats or features(original)
     ev = ev or event(best_of=original["params"].get("best_of", 3))
+    feats = feats or features(original, ev=ev)
     fitted = fitted or artifact(original, feats, ev)
     envelope = {"kind": "context-effect-v1", "payload": fitted}
     return tennis_context_result(original, feats, envelope, event=ev, effect_hash=digest(envelope), **changes)
@@ -121,7 +126,8 @@ def result(original=None, feats=None, fitted=None, ev=None, **changes):
 @pytest.mark.parametrize("best_of", [3, 5])
 def test_real_fitted_heads_are_internal_until_d2_and_a1_hash_binds_kind_payload(family, best_of):
     original = base(family=family, best_of=best_of)
-    feats, ev = features(original), event(best_of=best_of)
+    ev = event(best_of=best_of)
+    feats = features(original, ev=ev)
     fitted = artifact(original, feats, ev)
     answer = result(original, feats, fitted, ev)
     assert answer["role"] == "experimental"
@@ -141,13 +147,13 @@ def test_real_fitted_heads_are_internal_until_d2_and_a1_hash_binds_kind_payload(
 @pytest.mark.parametrize("loads", [(1., 5.), (2., 2.), (5., 1.)])
 def test_side_swap_with_same_artifact_complements_winner_and_shared_markets(family, best_of, loads):
     original = base(family=family, best_of=best_of)
-    feats = features(original, load_a=loads[0], load_b=loads[1])
     ev = event(best_of=best_of)
+    feats = features(original, ev=ev, load_a=loads[0], load_b=loads[1])
     fitted = artifact(original, feats, ev)
     first = apply_tennis_effect(original, feats, fitted, event=ev)
     reverse = base(family=family, best_of=best_of, p=.4, hold_a=.74, hold_b=.78)
-    reverse_feats = features(reverse, load_a=loads[1], load_b=loads[0], rest_a=36., rest_b=20.)
     reverse_ev = {**ev, "home_id": ev["away_id"], "away_id": ev["home_id"]}
+    reverse_feats = features(reverse, ev=reverse_ev, load_a=loads[1], load_b=loads[0], rest_a=36., rest_b=20.)
     second = apply_tennis_effect(reverse, reverse_feats, fitted, event=reverse_ev)
     assert first["markets"]["winner_a"] + second["markets"]["winner_a"] == pytest.approx(1., abs=1e-12)
     if family == "tennis:serve":
@@ -245,7 +251,7 @@ def test_serve_does_not_infer_or_change_actual_single_format(fmt):
     ev = event(format=fmt)
     fitted = artifact(original, ev=ev)
     with pytest.raises(ContextModelError, match="format|best_of"):
-        apply_tennis_effect(original, features(original), fitted, event=ev)
+        apply_tennis_effect(original, features(original, ev=ev), fitted, event=ev)
     assert result(original, fitted=fitted, ev=ev)["used_params"] == original["params"]
 
 
@@ -504,8 +510,8 @@ def test_serve_mirrored_individual_features_and_stored_scale_route_to_correct_he
     fitted["heads"] = {"hold_a": head, "hold_b": {**deepcopy(head), "coef": head["coef"][::-1], "scale": head["scale"][::-1]}}
     first = apply_tennis_effect(original, features(original), fitted, event=event())
     reverse = base(family="tennis:serve", hold_a=.74, hold_b=.78)
-    second = apply_tennis_effect(reverse, features(reverse, load_a=2., load_b=5.), fitted,
-                                 event=event(home_id=event()["away_id"], away_id=event()["home_id"]))
+    reverse_ev = event(home_id=event()["away_id"], away_id=event()["home_id"])
+    second = apply_tennis_effect(reverse, features(reverse, ev=reverse_ev, load_a=2., load_b=5.), fitted, event=reverse_ev)
     assert first["params"]["hold_a"] == second["params"]["hold_b"]
     assert first["params"]["hold_b"] == second["params"]["hold_a"]
     assert first["markets"]["winner_a"] + second["markets"]["winner_a"] == pytest.approx(1., abs=1e-12)
@@ -622,3 +628,102 @@ def test_partly_missing_observed_minutes_cannot_reuse_full_subset_coefficients(s
         feats["values"][name], feats["states"][name], feats["refs"][name] = value, "available", [REF]
     feats["values"][f"observed_minutes_complete_1d_{side}"] = 0
     assert result(feats=feats, fitted=fitted)["role"] == "not_applied"
+
+
+@pytest.mark.parametrize("change", ["kickoff", "revision", "tour", "surface", "indoor", "participants", "format", "competition", "status", "base_params", "base_model", "base_version"])
+def test_old_features_cannot_cross_a_changed_complete_event_or_baseline(change):
+    from context_models.contracts import ContextIntegrityError
+    original, ev = base(), event()
+    frozen = features(original)
+    fitted = artifact(original, frozen, ev)
+    if change == "kickoff": ev["scheduled_start"] = "2026-09-09T22:00:00.000000Z"
+    if change == "revision": ev["schedule_revision"] = "s2"
+    if change == "tour": ev["tour"] = "WTA"
+    if change == "surface": ev["surface"] = "Clay"
+    if change == "indoor": ev["indoor"] = True
+    if change == "participants": ev["home_id"], ev["away_id"] = ev["away_id"], ev["home_id"]
+    if change == "format": ev["format"] = "singles_best_of_5"
+    if change == "competition": ev["competition"] = "espn:ATP:tournament:other"
+    if change == "status": ev["status"] = "cancelled"
+    if change == "base_params": original.update(params={"p_a": .55}, markets={"winner_a": .55, "winner_b": .45})
+    if change == "base_model": original["model_hash"] = "e" * 64
+    if change == "base_version": original["version"] = "different-base-v2"
+    # Same native event key, same cutoff and same stored feature values are not
+    # permission to reuse a different scheduled/metadata/base revision.
+    assert original["event_key"] == frozen["event_key"] == ev["event_key"]
+    assert original["cutoff"] == frozen["cutoff"]
+    with pytest.raises(ContextIntegrityError, match="reference"):
+        apply_tennis_effect(original, frozen, fitted, event=ev)
+
+
+def test_b6_reference_v2_binds_complete_canonical_event_and_base(tmp_path):
+    from test_tennis_context_features import native_row, stored, NOW
+    from context_models.contracts import validate_base_distribution, validate_event
+    from context_models.tennis import tennis_features
+    original, ev = base(), event()
+    observations = stored(tmp_path, [native_row(sets=(3, 2)), native_row("2", "2")])
+    feats = tennis_features(ev, observations, original, cutoff=NOW)
+    assert feats["version"] == "tennis-performed-load-v2"
+    assert feats["reference_hash"] == digest({"version": "tennis-context-reference-v2",
+        "base_hash": digest(validate_base_distribution(original)), "event_hash": digest(validate_event(ev))})
+
+
+def test_v1_history_only_reference_cannot_be_relabelled_as_v2():
+    from context_models.contracts import ContextIntegrityError
+    original, feats = base(), features()
+    feats["reference_hash"] = digest({name: original[name] for name in ("history_refs", "reference_weights")})
+    with pytest.raises(ContextIntegrityError, match="reference"):
+        result(original, feats)
+
+
+@pytest.mark.parametrize("old", ["features", "effect", "both"])
+def test_v1_feature_or_effect_version_is_never_silently_migrated(old):
+    feats, fitted = features(), artifact()
+    if old in {"features", "both"}: feats["version"] = "tennis-performed-load-v1"
+    if old in {"effect", "both"}: fitted["feature_version"] = "tennis-performed-load-v1"
+    answer = result(feats=feats, fitted=fitted)
+    assert answer["role"] == "not_applied"
+    assert answer["used_markets"] == base()["markets"]
+    assert answer["comparison_markets"] is None
+
+
+def test_b6_rebuild_after_schedule_revision_updates_recovery_and_binding(tmp_path):
+    from copy import deepcopy
+    from context_models.contracts import ContextIntegrityError
+    from context_models.tennis import tennis_features
+    from test_tennis_context_features import native_row, stored, NOW
+    original, ev = base(), event()
+    observations = stored(tmp_path, [native_row(sets=(3, 2)), native_row("2", "2", hours=12)])
+    before = tennis_features(ev, observations, original, cutoff=NOW)
+    saved = deepcopy((observations, original, ev, before))
+    fitted = artifact(original, before, ev)
+    first = apply_tennis_effect(original, before, fitted, event=ev)
+    revised = {**ev, "scheduled_start": "2026-09-09T22:00:00.000000Z", "schedule_revision": "s2"}
+    with pytest.raises(ContextIntegrityError):
+        apply_tennis_effect(original, before, fitted, event=revised)
+    after = tennis_features(revised, observations, original, cutoff=NOW)
+    assert after["reference_hash"] != before["reference_hash"]
+    for side in ("a", "b"):
+        assert after["values"][f"observed_recovery_exact_hours_{side}"] == before["values"][f"observed_recovery_exact_hours_{side}"] + 4
+        assert after["values"][f"observed_recovery_minimum_hours_{side}"] == before["values"][f"observed_recovery_minimum_hours_{side}"] + 4
+    rebuilt = apply_tennis_effect(original, after, fitted, event=revised)
+    assert rebuilt["model_hash"] != first["model_hash"]
+    assert result(original, after, fitted, revised)["role"] == "experimental"
+    assert apply_tennis_effect(original, before, fitted, event=ev) == first
+    assert (observations, original, ev, before) == saved
+
+
+@pytest.mark.parametrize("part", ["params", "markets"])
+def test_serve_baseline_changed_under_same_model_hash_needs_new_features(part):
+    from context_models.contracts import ContextIntegrityError
+    original = base(family="tennis:serve")
+    frozen, fitted = features(original), artifact(original)
+    changed = deepcopy(original)
+    if part == "params":
+        changed["params"]["hold_a"] = .81
+        changed["markets"] = tennis_serve_markets(changed["params"])
+    else:
+        changed["markets"]["over_22.5_games"] += .001
+    assert changed["model_hash"] == original["model_hash"]
+    with pytest.raises(ContextIntegrityError, match="reference"):
+        apply_tennis_effect(changed, frozen, fitted, event=event())
