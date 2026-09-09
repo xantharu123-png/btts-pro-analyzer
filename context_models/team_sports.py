@@ -500,7 +500,9 @@ def team_sport_features(sport: str, event: dict, observations: tuple[dict, ...],
     load = [row for (key, kind), (row, state) in selected.items() if kind == "appearance" and key != event["event_key"] and state == "available"
         and row["payload"]["status"] == "completed" and row["payload"]["event"]["format"] == event["format"]
         and row["payload"]["event"]["competition"] == event["competition"]
-        and (row["payload"]["data"]["actual_end"] is None or row["payload"]["data"]["actual_end"] < stamp)]
+        # Known completions at the cutoff belong to the observed rest timeline.
+        # The separate performed-minute windows below remain right-exclusive.
+        and (row["payload"]["data"]["actual_end"] is None or row["payload"]["data"]["actual_end"] <= stamp)]
     load_cases = []
     roots = []
     for side in ("home", "away"):

@@ -9,14 +9,16 @@ No network I/O, source-time inference, medical diagnosis or default OT minutes.
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import closing
 from datetime import datetime
 from math import fsum
+from pathlib import Path
 
 from context_models.contracts import (
     ContextContractError, OBSERVATION_FIELDS, canonical_timestamp, digest,
-    normalize_observation, require_list, require_number, require_object,
+    normalize_observation, require_list, require_number, require_object, require_text,
 )
-from context_models.team_sports import FORMATS, _scope, basketball_event, native_subject
+from context_models.team_sports import FORMATS, _scope, basketball_event, native_event, native_subject
 
 SCHEMA = "basketball-internal-context-v1"
 KINDS = {"appearance", "rotation", "availability"}
@@ -163,3 +165,45 @@ def validate_basketball_receipt(row):
     if replay != {key: row[key] for key in OBSERVATION_FIELDS}:
         raise ContextContractError("stored basketball source projection changed")
     return payload
+
+
+def basketball_observations_as_of(path: Path, event_key: str, *, cutoff: datetime,
+                                  schedule_revision: str) -> tuple[dict, ...]:
+    """Owning C2 pool: historical lineage is not a current-schedule projection.
+
+    Retain ALL causal appearance revisions, even across corrected historical
+    schedules. C2's whole-event selector, not this storage reader, owns newest
+    values. Current rotation/availability still requires the requested schedule.
+    Use this pool at C2 worker callers: generic observations_as_of intentionally
+    cannot prove full historical participant lineage across schedule revisions.
+    No network, source-clock inference, archive promotion or new database.
+    """
+    from context_observations import _connect, _decode_receipt, _SELECT
+    if not isinstance(cutoff, datetime):
+        raise ContextContractError("basketball receipt cutoff must be an aware datetime")
+    decision = canonical_timestamp(cutoff)
+    require_text(event_key, "basketball event key", code=True)
+    source = event_key.split(":", 1)[0]
+    if source not in {item[0] for item in FORMATS.values()}:
+        raise ContextContractError("unsupported native basketball source")
+    native_event(event_key, source)
+    require_text(schedule_revision, "basketball requested schedule", code=True)
+    with closing(_connect(Path(path))) as connection:
+        try:
+            connection.execute("BEGIN")
+            rows = [_decode_receipt(row) for row in connection.execute(
+                _SELECT + " WHERE r.event_key=?", (event_key,))]
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+    result = []
+    for row in rows:
+        if row["observed_at"] > decision or row["source_schema"] != SCHEMA:
+            continue
+        payload = validate_basketball_receipt(row)
+        if payload["kind"] != "appearance" and row["schedule_revision"] != schedule_revision:
+            continue
+        result.append({**row, "evidence_class": "prospective", "effective_at": row["observed_at"],
+                       "publication_resolution": None})
+    return tuple(sorted(result, key=lambda row: (row["observed_at"], row["digest"])))
