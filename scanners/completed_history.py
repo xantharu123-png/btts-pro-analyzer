@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from runtime_paths import RUNTIME_STATE_DIR
+from context_sources.team_sports_capture import observe_completed_team_sports_response
 
 UTC = timezone.utc
 SEARCH_TIMEZONE = ZoneInfo("Europe/Zurich")
@@ -251,7 +252,9 @@ def fetch_page(store, provider, key, url, parser, *, params=None, headers=None, 
         response = requests.get(url, params=params, headers=headers, timeout=10)
         if response.status_code != 200:
             raise ValueError(f"HTTP {response.status_code}")
-        rows = parser(response.json())
+        payload = response.json()
+        observe_completed_team_sports_response(provider, key, url, params, payload, response)
+        rows = parser(payload)
         store.record(provider, key, rows)
         return True, None
     except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
