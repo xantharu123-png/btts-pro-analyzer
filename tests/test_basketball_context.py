@@ -151,7 +151,8 @@ def test_whole_native_event_transport_retains_explicit_scope(kind):
     original = deepcopy(raw)
     records = normalized(raw)
     assert len(records) == 1
-    assert records[0]["subject_id"] == raw["event"]["event_key"]
+    assert records[0]["subject_id"] == raw["event"]["event_key"] + ":participants:" + digest(
+        {key: raw["event"][key] for key in ("home_id", "away_id")})
     assert records[0]["payload"]["event"] == raw["event"]
     assert records[0]["payload"]["season"] == "2026"
     assert raw == original

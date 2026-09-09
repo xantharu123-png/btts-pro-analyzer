@@ -138,9 +138,14 @@ def normalize_basketball_context(event: dict, rows: tuple[dict, ...], *, observe
             complete &= all(player[field] is not None for team in data["teams"].values() for player in team["players"] for field in fields)
         payload = {"schema": 1, "source_schema": SCHEMA, "kind": kind, "event": event,
                    **scope, "status": event["status"] if kind == "appearance" else data.get("status", "reported"), "data": data}
+        # B1 retains the latest receipt per subject. Bind the joint participant
+        # revision here so a partial correction cannot erase the former native
+        # participants before C2 can assess their unresolved recent workload.
+        # C2 still selects latest by event/kind, so old minutes are never revived.
+        participant_identity = digest({key: event[key] for key in ("home_id", "away_id")})
         output.append(normalize_observation({
             "event_key": event["event_key"], "sport": "basketball", "competition": event["competition"], "format": event["format"],
-            "subject_id": event["event_key"], "kind": "workload" if kind == "appearance" else "availability" if kind == "availability" else "expected_lineup" if data["status"] == "expected" else "confirmed_lineup",
+            "subject_id": event["event_key"] + ":participants:" + participant_identity, "kind": "workload" if kind == "appearance" else "availability" if kind == "availability" else "expected_lineup" if data["status"] == "expected" else "confirmed_lineup",
             "source": source, "source_schema": SCHEMA, "source_revision": digest(payload), "schedule_revision": event["schedule_revision"],
             "published_at": None, "publication_proof": None, "valid_from": _time(raw["valid_from"]),
             "valid_until": None if raw["valid_until"] is None else _time(raw["valid_until"]), "complete": complete, "payload": payload,

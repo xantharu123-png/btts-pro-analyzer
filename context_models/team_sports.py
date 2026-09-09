@@ -274,6 +274,25 @@ def export_basketball_base(event, history, as_of, *, context_event, scope=None):
                 return native
             for side in ("home", "away"):
                 bind_team(event, side)
+            # Legacy casefold selection is not a native alias proof. Inspect
+            # every already-known spelling of a contributing event BEFORE
+            # narrowing to its selected receipt. A future revision is not
+            # causal evidence of a past collision either.
+            selected_ids = {match.event_id for match in matches}
+            event_spellings = {}
+            for raw in history:
+                if not isinstance(raw, dict) or legacy._text(raw.get("provider") or raw.get("source")) != source:
+                    continue
+                received = legacy._time(raw.get("result_observed_at") or raw.get("observed_at"))
+                raw_id = raw.get("provider_event_id") or raw.get("event_id") or raw.get("id")
+                folded = legacy._text(raw_id)
+                if received is None or received > as_of or folded not in selected_ids:
+                    continue
+                native_id = _source_id(raw_id, "actual native event ID")
+                native_event(f"{source}:basketball:{native_id}", source)
+                if folded in event_spellings and event_spellings[folded] != native_id:
+                    raise ContextContractError("ambiguous native-to-legacy event identity mapping")
+                event_spellings[folded] = native_id
             for match in matches:
                 candidates = [row for row in history if isinstance(row, dict)
                     and legacy._text(row.get("provider") or row.get("source")) == source
@@ -344,13 +363,36 @@ def _selected(observations, decision, kickoff):
         validate_basketball_receipt(row)
         if row["evidence_class"] == "prospective" and row["observed_at"] <= canonical_timestamp(decision):
             groups.setdefault((row["event_key"], row["payload"]["kind"]), []).append(row)
-    selected, conflicts = {}, set()
+    selected, uncertainties = {}, {}
+
+    def uncertain(history, latest):
+        """Retain joint-revision ambiguity and ONLY its causal terminal bound.
+
+        A bound can rule out an event in a particular time window; it never
+        restores conflicting minutes, participants or a reference rotation.
+        Old rows are retained solely as native identity/exclusion provenance.
+        """
+        if any(row["payload"]["kind"] != "appearance" for row in latest):
+            return
+        upper = []
+        for row in latest:
+            state = factor_state((row,), cutoff=decision, scheduled_start=kickoff,
+                policy=freshness_policy(row["kind"], schedule_revision=row["schedule_revision"], requires_complete=False))
+            if row["digest"] not in state["usable_refs"]:
+                upper = []
+                break
+            upper.append(row["payload"]["data"]["result_observed_at"])
+        proof = tuple({row["digest"]: row for row in history}.values())
+        ambiguity = {"upper": max(upper) if upper else None, "proof": proof}
+        for team in {row["payload"]["event"][side] for row in history for side in ("home_id", "away_id")}:
+            uncertainties.setdefault(team, []).append(ambiguity)
+
     for key, history in groups.items():
         newest = max(row["observed_at"] for row in history)
         latest = {row["content_digest"]: row for row in history if row["observed_at"] == newest}
         if len(latest) != 1:
             selected[key] = (None, "conflicting")
-            conflicts.update(row["payload"]["event"][side] for row in history for side in ("home_id", "away_id"))
+            uncertain(history, tuple(latest.values()))
             continue
         row = next(iter(latest.values()))
         state = factor_state((row,), cutoff=decision, scheduled_start=kickoff,
@@ -358,9 +400,12 @@ def _selected(observations, decision, kickoff):
         selected[key] = (row if row["digest"] in state["usable_refs"] else None, state["state"])
         # Withdrawals and late incomplete revisions supersede the entire event;
         # no lookup can recover individual members from an older collection.
-        if key[1] == "appearance" and state["state"] != "available" and row["payload"]["status"] != "cancelled":
-            conflicts.update(row["payload"]["event"][side] for row in history for side in ("home_id", "away_id"))
-    return selected, conflicts
+        if key[1] == "appearance":
+            current_teams = {row["payload"]["event"][side] for side in ("home_id", "away_id")}
+            prior_teams = {old["payload"]["event"][side] for old in history for side in ("home_id", "away_id")}
+            if (state["state"] != "available" or (not row["complete"] and prior_teams != current_teams)) and row["payload"]["status"] != "cancelled":
+                uncertain(history, (row,))
+    return selected, uncertainties
 
 
 def _rotation_vector(row):
@@ -413,7 +458,7 @@ def team_sport_features(sport: str, event: dict, observations: tuple[dict, ...],
     if recipe["kind"] != "unavailable" and recipe["event"] != event:
         raise ContextIntegrityError("basketball original recipe belongs to another full event revision")
     kickoff = datetime.fromisoformat(event["scheduled_start"])
-    selected, conflicts = _selected(observations, cutoff, kickoff)
+    selected, uncertainties = _selected(observations, cutoff, kickoff)
     values, states, refs = {}, {}, {}
 
     def put(name, value, used=(), state=None):
@@ -461,11 +506,15 @@ def team_sport_features(sport: str, event: dict, observations: tuple[dict, ...],
     for side in ("home", "away"):
         team_id = event[side + "_id"]
         rows = [row for row in load if team_id in row["payload"]["data"]["teams"]]
-        blocked = "conflicting" if team_id in conflicts else None
+        ambiguous = uncertainties.get(team_id, [])
+        bound_refs = [row for item in ambiguous for row in item["proof"]]
+        blocked_windows = []
         known = [row for row in rows if row["payload"]["data"]["actual_end"] is not None]
         unknown = [row for row in rows if row["payload"]["data"]["actual_end"] is None]
         for days in (1, 3, 7):
             first = canonical_timestamp(cutoff - timedelta(days=days))
+            blocked = "conflicting" if any(item["upper"] is None or item["upper"] >= first for item in ambiguous) else None
+            blocked_windows.append(blocked)
             window = [row for row in known if first <= row["payload"]["data"]["actual_end"] < stamp]
             measured = [row for row in window if row["payload"]["data"]["teams"][team_id]["complete"]
                 and row["payload"]["data"]["overtime_periods"] is not None
@@ -476,22 +525,25 @@ def team_sport_features(sport: str, event: dict, observations: tuple[dict, ...],
             for root, value, used in ((f"observed_inclusive_minutes_{days}d", total, measured),
                 (f"observed_inclusive_minutes_complete_{days}d", int(bool(window) and len(measured) == len(window) and not uncertain) if rows else None, rows),
                 (f"history_complete_{days}d", 0 if rows else None, rows)):
-                put(root + "_" + side, value, used, blocked)
+                put(root + "_" + side, value, [*used, *bound_refs], blocked)
                 if root not in roots: roots.append(root)
         last_end = max((row["payload"]["data"]["actual_end"] for row in known), default=None)
         upper = max((row["payload"]["data"]["result_observed_at"] for row in rows), default=None)
         exact = last_end if last_end is not None and all(row["payload"]["data"]["result_observed_at"] <= last_end for row in unknown) else None
+        blocked = "conflicting" if ambiguous and (last_end is None or any(item["upper"] is None or item["upper"] >= last_end for item in ambiguous)) else None
         for label, instant in (("minimum", exact or upper), ("exact", exact)):
             root = f"observed_recovery_{label}_hours"
             hours = None if instant is None else (kickoff - datetime.fromisoformat(instant)).total_seconds() / 3600
-            put(root + "_" + side, hours, rows, blocked)
+            put(root + "_" + side, hours, [*rows, *bound_refs], blocked)
             if root not in roots: roots.append(root)
         put("medical_fatigue_" + side, None)
         put("travel_hours_" + side, None)
         case = "no-history" if not rows else "known-end-times" if not unknown else "missing-end-times" if not known else "partial-end-times"
         if unknown and exact is not None and all(row["payload"]["data"]["result_observed_at"] < canonical_timestamp(cutoff - timedelta(days=7)) for row in unknown):
             case = "bounded-irrelevant-end-times"
-        load_cases.append(blocked or case)
+        if ambiguous and not blocked and not any(blocked_windows):
+            case = "bounded-irrelevant-end-times"
+        load_cases.append("conflicting" if blocked or any(blocked_windows) else case)
     for root in roots:
         home, away = root + "_home", root + "_away"
         if states[home] == states[away] == "available":
