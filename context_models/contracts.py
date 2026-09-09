@@ -315,11 +315,17 @@ def validate_feature_vector(value: dict) -> dict:
 
 
 def _family(value: object) -> str:
-    return _enum(value, {"football:goals:90min", "tennis:winner", "tennis:serve"}, "context model family")
+    return _enum(value, {"football:goals:90min", "tennis:winner", "tennis:serve", "basketball:margin:including_ot"}, "context model family")
 
 
 def validate_parameters(value: dict, family: str) -> dict:
     family = _family(family)
+    if family == "basketball:margin:including_ot":
+        require_object(value, {"expected_margin", "residual_scale"}, label="basketball margin parameters")
+        require_number(value["expected_margin"], "expected margin")
+        if require_number(value["residual_scale"], "residual scale", minimum=0) <= 0:
+            raise ContextContractError("basketball residual scale must be positive")
+        return dict(value)
     required = {"home_lambda", "away_lambda"} if family == "football:goals:90min" else (
         {"p_a"} if family == "tennis:winner" else {"hold_a", "hold_b", "best_of"})
     require_object(value, required, label="base parameters")
@@ -348,6 +354,9 @@ def validate_markets(value: dict, *, family: str | None = None) -> dict:
     if family == "tennis:winner":
         if set(value) != {"winner_a", "winner_b"} or not math.isclose(sum(value.values()), 1, rel_tol=0, abs_tol=1e-12):
             raise ContextContractError("tennis winner markets must be exact complementary A/B outcomes")
+    if family == "basketball:margin:including_ot":
+        if set(value) != {"home_win", "away_win"} or not math.isclose(sum(value.values()), 1, rel_tol=0, abs_tol=1e-12):
+            raise ContextContractError("basketball inclusive winner markets must be complementary")
     return dict(value)
 
 
@@ -394,6 +403,16 @@ def _weighted_refs(value: list, available: set[str], label: str) -> float:
 
 
 def validate_reference_weights(value: dict, history_refs: list[dict], *, family: str) -> dict:
+    if type(value) is dict and value.get("kind") == "basketball-margin-comparison-reference-v1":
+        if family != "basketball:margin:including_ot":
+            raise ContextContractError("basketball comparison reference belongs only to its margin family")
+        from context_models.team_sports import validate_basketball_comparison_reference
+        return validate_basketball_comparison_reference(value, history_refs)
+    if type(value) is dict and value.get("kind") == "basketball-margin-ridge-v1":
+        if family != "basketball:margin:including_ot":
+            raise ContextContractError("basketball Ridge reference belongs only to its margin family")
+        from context_models.team_sports import validate_basketball_reference
+        return validate_basketball_reference(value, history_refs)
     require_object(value, {"schema", "kind"}, optional={"reason", "heads"}, label="reference weights")
     if type(value["schema"]) is not int or value["schema"] != 1:
         raise ContextContractError("unknown reference weights schema")
@@ -480,11 +499,18 @@ def validate_base_distribution(value: dict) -> dict:
         raise ContextContractError("winner parameter and market probability mismatch")
     row["history_refs"] = validate_history_refs(row["history_refs"])
     row["reference_weights"] = validate_reference_weights(row["reference_weights"], row["history_refs"], family=family)
+    if family == "basketball:margin:including_ot":
+        from context_models.team_sports import margin_distribution, validate_basketball_base_reference
+        expected = margin_distribution(row["params"]["expected_margin"], row["params"]["residual_scale"])
+        if any(not math.isclose(row["markets"][key], expected[key], rel_tol=0, abs_tol=1e-12) for key in ("home_win", "away_win")):
+            raise ContextContractError("basketball original margin and winner law differ")
+        validate_basketball_base_reference(row)
     return row
 
 
 _HEADS = {"football:goals:90min": ({"home", "away"}, "log_rate"),
-          "tennis:winner": ({"winner"}, "logit"), "tennis:serve": ({"hold_a", "hold_b"}, "logit")}
+          "tennis:winner": ({"winner"}, "logit"), "tennis:serve": ({"hold_a", "hold_b"}, "logit"),
+          "basketball:margin:including_ot": ({"margin"}, "identity")}
 
 
 def validate_offset_fit(value: dict) -> dict:
@@ -611,8 +637,11 @@ def validate_training_row(value: dict, *, effect_artifact: dict | None = None) -
     for number in row["x"]:
         require_number(number, "training feature")
     require_number(row["offset"], "training offset")
-    require_number(row["target"], "training target", minimum=0)
-    if family == "football:goals:90min":
+    require_number(row["target"], "training target", minimum=None if family == "basketball:margin:including_ot" else 0)
+    if family == "basketball:margin:including_ot":
+        if row["trials"] is not None or row["target"] != int(row["target"]):
+            raise ContextContractError("basketball target must be a signed integer point margin without trials")
+    elif family == "football:goals:90min":
         if row["trials"] is not None or row["target"] != int(row["target"]):
             raise ContextContractError("goal target must be a count with no binomial trials")
     else:
