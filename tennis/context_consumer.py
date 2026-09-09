@@ -13,7 +13,9 @@ from pathlib import Path
 from context_consumers import _read_context_snapshot
 from context_copy import public_context_summary
 from context_links import ContextReference
-from context_models.contracts import ContextContractError, ContextIntegrityError, canonical_timestamp
+from context_models.contracts import (
+    ContextContractError, ContextIntegrityError, canonical_timestamp, require_object,
+)
 from context_models.dataset import _artifact
 from context_models.experiments import _artifact_created_at
 from context_models.tennis_live import (
@@ -22,6 +24,7 @@ from context_models.tennis_live import (
 )
 from context_transport import project_context_market
 from model_artifacts import canonical_bytes
+from tennis.state_codec import _STATE_KEYS
 
 
 def _same(left, right):
@@ -38,6 +41,12 @@ def _decision(value):
 
 
 def _object(raw):
+    # Only these explicit legacy forms mean absence. False/0/containers are
+    # present malformed metadata, never permission to use a rounded fallback.
+    if raw is None or (type(raw) is str and raw == ""):
+        return {}
+    if type(raw) is not str:
+        raise ContextIntegrityError("stored tennis context must be JSON text")
     def pairs(items):
         result = {}
         for key, value in items:
@@ -48,12 +57,26 @@ def _object(raw):
     def invalid(_):
         raise ContextIntegrityError("invalid stored tennis context constant")
     try:
-        value = json.loads(raw or "{}", object_pairs_hook=pairs, parse_constant=invalid)
+        value = json.loads(raw, object_pairs_hook=pairs, parse_constant=invalid)
     except (TypeError, ValueError) as exc:
         raise ContextIntegrityError("invalid stored tennis context") from exc
     if type(value) is not dict:
         raise ContextIntegrityError("stored tennis context must be an object")
     return value
+
+
+def _state_header(payload, *, tour):
+    """Bind the known A1 header, without decoding or replaying its model.
+
+    The state codec owns this closed schema. Its nested Elo/Serve values,
+    training provenance and model replay still belong to the producer/D4.
+    """
+    require_object(payload, {"schema", "training_cutoff", "state"}, label="tennis state envelope")
+    state = require_object(payload["state"], _STATE_KEYS, label="tennis state")
+    if (type(payload["schema"]) is not int or payload["schema"] != 1
+            or type(state["schema"]) is not int or state["schema"] != 1
+            or type(state["tour"]) is not str or state["tour"] != tour):
+        raise ContextIntegrityError("referenced tennis state header differs from the original tour")
 
 
 def _artifact_schema(connection):
@@ -109,7 +132,8 @@ def load_tennis_winner_context(row: dict, *, path: Path | None = None) -> dict |
                 raise ContextIntegrityError("consumer sidecar refers to another original publication")
             # Only read/check immutable A1 bytes and actual publication time;
             # native historical identity/model replay remain producer/D4 work.
-            _artifact(connection, base["model_hash"], "tennis-tour-state", latest=cutoff)
+            state = _artifact(connection, base["model_hash"], "tennis-tour-state", latest=cutoff)
+            _state_header(state["payload"], tour=event["tour"])
             model_inputs = context.get("model_inputs")
             if type(model_inputs) is not dict or model_inputs.get("model_artifact_hash") != base["model_hash"]:
                 raise ContextIntegrityError("Shadow model differs from its saved original")

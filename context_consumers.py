@@ -67,8 +67,11 @@ def _read_context_snapshot(path: Path, reference: dict, *, expected_event: dict,
         if row[0] != reference["key"] or row[2] != reference["payload_digest"]:
             raise ContextIntegrityError("stored context reference and payload identity differ")
         payload = _decode_snapshot(*row)
-        if (canonical_bytes(payload["event"]) != canonical_bytes(event)
-                or payload["base"]["cutoff"] != expected_cutoff):
+        base = payload.get("base")
+        if type(base) is not dict:
+            raise ContextIntegrityError("context snapshot base must be an object")
+        if (canonical_bytes(payload.get("event")) != canonical_bytes(event)
+                or base.get("cutoff") != expected_cutoff):
             raise ContextIntegrityError("context snapshot belongs to another consumer event or decision")
         yield connection, payload
 
