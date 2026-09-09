@@ -659,6 +659,7 @@ def _signal_record(signal: ModelSignal) -> Optional[dict[str, Any]]:
         "source": "tennis_shadow" if sport == "Tennis" else "esports_shadow",
         "detail": signal.detail,
         "context_summary": signal.context_summary,
+        **({"context_ref": signal.context_ref.to_dict()} if signal.context_ref is not None else {}),
     }
 
 

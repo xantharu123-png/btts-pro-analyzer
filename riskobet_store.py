@@ -13,6 +13,7 @@ import sqlite3
 from typing import Iterable, Mapping, Optional
 
 import runtime_paths
+from context_links import ContextReference
 from riskobet_domain import (
     EvidenceStage,
     EventModelSnapshot,
@@ -20,6 +21,7 @@ from riskobet_domain import (
     RiskRunSnapshot,
     ValidationEvidenceArtifact,
     canonical_json,
+    event_snapshot_id,
 )
 from riskobet_settlement import SettlementResult, SettlementStatus
 
@@ -864,11 +866,11 @@ class RiskBetStore:
             payload = _verified_json(
                 row["payload_json"], row["content_hash"], f"snapshot {row['snapshot_id']}"
             )
-            expected_id = _stable_id(
-                "snapshot",
+            expected_id = event_snapshot_id(
                 str(payload.get("event_key")),
                 str(payload.get("model_version")),
                 str(payload.get("input_hash")),
+                ContextReference.from_dict(payload["context_ref"]) if "context_ref" in payload else None,
             )
             if (
                 payload.get("snapshot_id") != row["snapshot_id"]
@@ -1533,11 +1535,11 @@ class RiskBetStore:
         payload = _verified_json(
             row["payload_json"], row["content_hash"], f"snapshot {row['snapshot_id']}"
         )
-        expected_id = _stable_id(
-            "snapshot",
+        expected_id = event_snapshot_id(
             str(payload.get("event_key")),
             str(payload.get("model_version")),
             str(payload.get("input_hash")),
+            ContextReference.from_dict(payload["context_ref"]) if "context_ref" in payload else None,
         )
         if (
             payload.get("snapshot_id") != row["snapshot_id"]

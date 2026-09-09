@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Mapping, Optional
 
 import streamlit as st
+from context_links import ContextReference
 
 from riskobet_domain import (
     ContextState,
@@ -174,7 +175,7 @@ def _factor(payload: object) -> FactorEvidence:
 
 def _snapshot(payload: object) -> EventModelSnapshot:
     data = _mapping(payload, "snapshot")
-    _exact_keys(data, _SNAPSHOT_KEYS, "snapshot")
+    _exact_keys(data, _SNAPSHOT_KEYS | ({"context_ref"} if "context_ref" in data else set()), "snapshot")
     try:
         snapshot = EventModelSnapshot(
             event_key=data["event_key"],
@@ -192,6 +193,7 @@ def _snapshot(payload: object) -> EventModelSnapshot:
             missing_core_data=tuple(
                 _sequence(data["missing_core_data"], "missing_core_data")
             ),
+            context_ref=ContextReference.from_dict(data["context_ref"]) if "context_ref" in data else None,
         )
     except (KeyError, TypeError, ValueError) as exc:
         if isinstance(exc, RiskBetViewError):

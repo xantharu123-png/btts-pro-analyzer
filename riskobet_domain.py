@@ -17,6 +17,8 @@ import math
 import re
 from typing import Any, Iterable, Mapping, Optional
 
+from context_links import ContextReference
+
 
 SUPPORTED_SPORTS = frozenset(
     {
@@ -252,6 +254,7 @@ class EventModelSnapshot:
     input_hash: str
     factors: tuple[FactorEvidence, ...] = ()
     missing_core_data: tuple[str, ...] = ()
+    context_ref: Optional[ContextReference] = None
     snapshot_id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -284,6 +287,8 @@ class EventModelSnapshot:
         if len(set(factor_keys)) != len(factor_keys):
             raise ValueError("factor keys must be unique within a snapshot")
         missing = _strings(self.missing_core_data, "missing_core_data")
+        if self.context_ref is not None and not isinstance(self.context_ref, ContextReference):
+            raise ValueError("context_ref must be an immutable context reference")
         object.__setattr__(self, "event_key", event_key)
         object.__setattr__(self, "sport", sport)
         object.__setattr__(self, "competition", _text(self.competition, "competition", 240))
@@ -298,7 +303,7 @@ class EventModelSnapshot:
         object.__setattr__(
             self,
             "snapshot_id",
-            _stable_id("snapshot", event_key, model_version, input_hash),
+            event_snapshot_id(event_key, model_version, input_hash, self.context_ref),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -315,7 +320,18 @@ class EventModelSnapshot:
             "input_hash": self.input_hash,
             "factors": [factor.to_dict() for factor in self.factors],
             "missing_core_data": list(self.missing_core_data),
+            **({"context_ref": self.context_ref.to_dict()} if self.context_ref is not None else {}),
         }
+
+
+def event_snapshot_id(event_key, model_version, input_hash, context_ref=None):
+    """Legacy identities stay exact; a new reference creates a new revision."""
+    parts = (event_key, model_version, input_hash)
+    if context_ref is not None:
+        if not isinstance(context_ref, ContextReference):
+            raise ValueError("snapshot identity requires an immutable context reference")
+        parts += (context_ref.key, context_ref.payload_digest)
+    return _stable_id("snapshot", *parts)
 
 
 @dataclass(frozen=True, slots=True)

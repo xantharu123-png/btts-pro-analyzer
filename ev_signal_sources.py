@@ -23,6 +23,7 @@ from typing import List, Optional, Union
 from zoneinfo import ZoneInfo
 
 from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
+from context_links import ContextReference
 from forecast_analysis import read_football_analysis
 from market_consensus import (
     MarketConsensus,
@@ -108,8 +109,11 @@ class ModelSignal:
     home_team_id: Optional[int] = None
     away_team_id: Optional[int] = None
     model_scope: Optional[str] = None
+    context_ref: Optional[ContextReference] = None
 
     def __post_init__(self) -> None:
+        if self.context_ref is not None and not isinstance(self.context_ref, ContextReference):
+            raise ValueError("Model signal context reference must be immutable")
         if not _valid_probability(self.probability):
             raise ValueError("Model signal probability must be between 0 and 1")
         if not _valid_haircut(self.probability_haircut, self.probability):
@@ -1424,6 +1428,7 @@ def automated_wettfinder_forecasts(
                     scheduled_start=scheduled.astimezone(timezone.utc).isoformat(),
                     minimum_odds=float(minimum_odds),
                     source="automated_wettfinder_forecast",
+                    context_ref=ContextReference.from_dict(row["context_ref"]) if "context_ref" in row else None,
                     sport=str(row.get("sport") or "").strip() or None,
                     event_label=str(row.get("event") or "").strip() or label,
                     market=str(row.get("market") or "").strip() or "Auswahl",
@@ -1637,6 +1642,7 @@ def automated_wettfinder_signals(
                     ),
                     minimum_odds=float(supplied_minimum),
                     source="automated_wettfinder",
+                    context_ref=ContextReference.from_dict(row["context_ref"]) if "context_ref" in row else None,
                     sport=sport,
                     event_label=event_label,
                     market=market,
