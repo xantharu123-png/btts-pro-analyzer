@@ -7,15 +7,16 @@ for those IDs, not an unbounded duplicate historical feed.
 """
 from contextlib import contextmanager
 from copy import deepcopy
-from datetime import datetime
+from datetime import date, datetime
+import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from context_models.contracts import ContextContractError, canonical_timestamp, require_object
+from context_models.contracts import ContextContractError, ContextIntegrityError, canonical_timestamp, require_object
 from context_observations import append_observation
 from context_sources.football import _detail_event, normalize_football_context
 from context_sources.football_provider import _native_id, _response
-from context_sources.outcomes import normalize_football_base_input, normalize_football_outcome
+from context_sources.outcomes import normalize_football_base_input, normalize_football_outcome, validate_football_base_input
 
 
 def _ids(params, single):
@@ -52,6 +53,47 @@ def capture_report_fields(snapshot):
     return {"context_capture": deepcopy(report)}
 
 
+def _previous_prematch_observations(path):
+    """Live ingestion scope only, not a label-free D2 inventory reader.
+
+    The existing native base receipt authorizes retaining a later fetched
+    result for that ID. It does NOT assert that any frozen event/schedule or
+    historical model may consume the new result; owning outcome replay still
+    checks those identities. No schema initialization or new source query.
+    """
+    if not os.path.lexists(path):
+        return {}
+    from context_models.dataset import _reader
+    from context_observations import _SELECT, _decode_receipt
+    watched = {}
+    with _reader(path) as connection:
+        tables = {row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('context_observations','context_contents')")}
+        if not tables:
+            return watched  # A legitimate A1-only database stays untouched.
+        if tables != {"context_observations", "context_contents"}:
+            raise ContextIntegrityError("incomplete stored context observation tables")
+        for stored in connection.execute(_SELECT + " WHERE r.source='api-football' AND r.kind='base_fixture'"):
+            row = _decode_receipt(stored)
+            # Owning validation requires B1's selected-row shape. This is the
+            # actual receipt clock, not an archival publication or live cutoff;
+            # both prematch and later-result bounds are checked separately.
+            row = {**row, "evidence_class": "prospective", "effective_at": row["observed_at"],
+                   "publication_resolution": None}
+            if row["source_schema"] != "native-football-base-detail-v1":
+                continue
+            try:
+                validate_football_base_input(row)
+            except ContextContractError as exc:
+                raise ContextIntegrityError("invalid stored native football base receipt") from exc
+            event = _detail_event(row["payload"]["detail"])
+            if (row["evidence_class"] == "prospective" and event["status"] == "scheduled"
+                    and row["observed_at"] < event["scheduled_start"]):
+                key = row["event_key"]
+                watched[key] = min(watched.get(key, row["observed_at"]), row["observed_at"])
+    return watched
+
+
 class _Capture:
     def __init__(self):
         self.errors, self.receipts, self.wanted, self.refs = [], [], set(), set()
@@ -70,7 +112,10 @@ class _Capture:
             discovery = endpoint == "fixtures" and params.get("status") == "NS" and (
                 set(params) in ({"league", "season", "date", "timezone", "status"},
                                 {"league", "season", "from", "to", "timezone", "status"}))
-            if requested is None and not discovery:
+            results = endpoint == "fixtures" and params.get("status") == "FT" and (
+                set(params) in ({"league", "season", "status"},
+                                {"league", "season", "from", "to", "timezone", "status"}))
+            if requested is None and not discovery and not results:
                 return
             if requested is not None:
                 self.wanted.update(requested)
@@ -96,12 +141,22 @@ class _Capture:
                             or raw["fixture"]["status"]["short"] != params["status"]
                             or ev["status"] != "scheduled" or not first <= actual_date <= last):
                             raise ContextContractError("context discovery is outside its native request scope")
+                    if results:
+                        if (str(_native_id(params["league"])) != ev["competition"]
+                                or type(params["season"]) is not int or raw["league"].get("season") != params["season"]
+                                or raw["fixture"]["status"]["short"] != "FT"):
+                            raise ContextContractError("context result is outside its native request scope")
+                        if "from" in params:
+                            first, last = (date.fromisoformat(params[name]) for name in ("from", "to"))
+                            actual_date = datetime.fromisoformat(ev["scheduled_start"]).astimezone(ZoneInfo(params["timezone"])).date()
+                            if not first <= actual_date <= last:
+                                raise ContextContractError("context result is outside its requested dates")
                 if requested is not None and seen != set(requested):
                     self.errors.append("Kontext-Capture: native-response-unavailable")
             elif any(_native_id(row["fixture"]["id"]) not in requested for row in rows):
                 raise ContextContractError("context injury response identity differs")
             self.receipts.append({"endpoint": endpoint, "requested": requested,
-                                  "rows": deepcopy(rows), "observed_at": clock})
+                                  "rows": deepcopy(rows), "observed_at": clock, "watched_results_only": results})
         except (ContextContractError, KeyError, TypeError, ValueError, OverflowError):
             self.errors.append("Kontext-Capture: native-response-unavailable")
 
@@ -111,15 +166,21 @@ class _Capture:
         # Interrupted multi-record append remains partial and is rejected as a
         # complete roster by existing collection validators on subsequent reads.
         details = [item for item in self.receipts if item["endpoint"] == "fixtures"]
+        watched = (_previous_prematch_observations(path)
+                   if any(item["watched_results_only"] for item in details) else {})
         for receipt in self.receipts:
             observed = datetime.fromisoformat(receipt["observed_at"])
             additions = []
             try:
                 if receipt["endpoint"] == "fixtures":
                     for raw in receipt["rows"]:
-                        if raw["fixture"]["id"] not in self.wanted:
-                            continue
                         ev = _detail_event(raw)
+                        if receipt["watched_results_only"]:
+                            known_at = watched.get(ev["event_key"])
+                            if known_at is None or known_at > receipt["observed_at"]:
+                                continue
+                        elif raw["fixture"]["id"] not in self.wanted:
+                            continue
                         additions.extend(row for row in normalize_football_context(ev, injuries=[],
                             lineups=[raw] if "lineups" in raw and ev["status"] == "scheduled" else [],
                             appearances=[raw] if "players" in raw and ev["status"] == "completed" else [],
