@@ -109,6 +109,36 @@ aggregate_event_losses also returns canonical decision_at. Each canonical eligib
 
 Each distribution-loss row has event_key, decision_at, block, outcome_contract, base_logloss, context_logloss, tail_policy. Exactly one row per event, matching the fixed distribution outcome. Use the same final eligibility intersection as primary Brier, not a more favorable second subset. A missing/invalid distribution is a reported exclusion in that ready cohort; all event and block counts are computed after the common intersection. Compute unweighted event means, and report block differences separately. Follow the existing declared tail policy; never hide impossible outcomes with an after-the-fact epsilon. Continuous-density logloss is not incorrectly constrained to nonnegative values. Cost if wrong: the no-worse-distribution requirement could be passed on a different population.
 
+### Initial owning distribution scorers
+
+The controller read the actual independent-Poisson `score_matrix`, native D1
+outcome contracts and existing strict B7 simulator before implementing the
+bounded CPU scorer. The code-versioned policies are fixed per family, not
+selected after observing the test. They do not grant approval or replace D1
+case/effect/receipt resolution.
+
+- Football scores the exact observed regulation goal pair under the existing
+  underlying independent-Poisson rates, using log PMFs. Its explicit policy is
+  `independent-poisson-exact-score-log-v1`. The original market matrix and its
+  tiny tail folded into cell25 remain untouched. Scoring26 goals does not
+  borrow the cell25 probability or silently discard the observation.
+- Winner-only Tennis uses the native winning participant and stable Bernoulli
+  log/log1p, `native-winner-bernoulli-log-v1`. Zero probability assigned to the
+  actual winner is a typed failed scoring result, not an epsilon or healthy
+  data-coverage exclusion.
+- Serve Tennis scores the final match set count (e.g.2:1), not a full point or
+  ordered set-game path, using the unchanged IID-set/hold-proxy/TB7 kernel.
+  Policy `iidsets-holdproxy-tb7-match-set-score-log-v1` sums log set probabilities
+  plus the exact valid-order combinatorial term before a match product can
+  underflow. Full native set/hold/trial validation remains required. This
+  numerical scorer does not create a real Tennis source/replay capability.
+- These initial scorers do not borrow a family for basketball, hockey,
+  e-sport or Cricket. Later supported families need their owning typed law.
+- A numerical/prediction failure of a ready hypothesis is preserved explicitly
+  in its result and cannot be relabelled pretest unsupported after opening the
+  test. An impossible probability cannot disappear as a favorable subset;
+  all registered hypotheses still participate in the multiplicity report.
+
 ## 6. Close the approval transport and provenance
 
 Use A1 artifact kind `context-effect-v1` for EffectArtifact, `context-evaluation-v1` for the immutable full D2 report, and `context-approval-v1` for successful approvals. The active approval slot is `context-approval:<effect_hash>`. Effect/approval rollback remains coupled under D4.
