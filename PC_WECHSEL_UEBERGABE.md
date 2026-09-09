@@ -1,6 +1,42 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Aktiver Umsetzungsstand vom 9. September 2026
+## Neuester Fortsetzungsstand vom 9. September 2026
+
+Maßgeblich ist der oberste aktuelle Abschnitt in
+`.superpowers/sdd/2026-09-07-kontextmodell-umsetzung/progress.md` der Arbeitskopie
+`.worktrees/kontextmodell-20260907`. Die ursprüngliche Spezifikation, Variante 1
+mit Unteragenten und isolierte Worktrees sind freigegeben; nicht erneut fragen.
+Cricket bleibt ausgenommen. Die älteren folgenden Statusabsätze sind Historie.
+
+- Main/GitHub/VPS zuletzt in dieser Fortsetzung exakt auf `2ba3931` verifiziert,
+  einschließlich des gesonderten Tennis-Terminabrechnungsfixes. Die früheren
+  Widerspruchs-/Kartenerklärungsfixes sind darin enthalten. Kein neues Kontext-
+  Deployment; funktionierende Timer sind keine automatische Codeauslieferung.
+- Featurezweig: geprüfte C2-Basketballmechanik `23aa21c` übernommen, Original-
+  und Nachreviews vollständig erhalten; C1-Endpunkt-Erholungskorrektur mit
+  unabhängigen 283 Prüfungen in `a1f4969` committed. D1-Quellenreplay/Case/Fit
+  `f4649c3` und D2-Verteilungsscorer/Vergleich sind ebenfalls übernommen.
+- Letzter stabiler vollständiger Root-Test: 4.323 bestanden, 18 erwartete
+  Plattform-Skips, 97 Untertests. Danach nur weiterer noch ungeprüfter D3-
+  Übergabecode verfeinert; dessen letzter Fokus 265 bestanden. Kein Testlauf
+  ist eine Freigabe realer Verletzungs-/Müdigkeitseffekte.
+- Erhaltene aktive Arbeiten: C3 Eishockey in `kontext-c3-hockey-20260909`,
+  D2 tatsächlicher Datensatz/Evaluator/Approval in `kontext-d2-evaluator-20260909`.
+  C4 E-Sport `26e8910` ist separat eingefroren (4.154/18/97), noch unabhängig
+  zu prüfen. Root-D3 `context_copy.py`/`context_transport.py` samt Tests sind
+  noch WIP; Copy ist im Review. Keine dieser Arbeiten löschen/überschreiben.
+- Weiter offen: tatsächliche Quellen- und gemeinsame Worker-Anbindung für
+  fünf Sportarten, D1/D2 fehlende Familien/echte kausale Daten, verständliche
+  gemeinsame Anzeige samt Browserprüfung, D4 semantische Restore-/Deploy-
+  Verbindung und D5 Release. Neue Datenmodelle bleiben ohne echte Abnahme
+  intern; vorhandene gültige Basisprognosen bleiben sichtbar.
+
+Commit/push, main, VPS, echte Daten und empirische Wirkung getrennt nachweisen.
+Bekannte ungetrackte Audit-/Output-Dateien und den gepinnten Deployment-Helper
+unverändert erhalten. Keine historischen Prognosen, Tickets oder Geldbewegungen
+umschreiben. Keine neuen kostenpflichtigen Quellen ohne eigene Zustimmung.
+
+## Historischer früherer Umsetzungsstand vom 9. September 2026
 
 Diese Zusammenfassung ersetzt die älteren Zwischenstände darunter. Fortsetzung
 im Featurebranch `codex/kontextmodell-20260907`, Arbeitskopie

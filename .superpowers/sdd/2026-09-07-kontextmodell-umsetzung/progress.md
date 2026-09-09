@@ -1,5 +1,65 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Latest C1/C2/D1 integration checkpoint — 9 September 2026
+
+This is newer than the older checkpoint below. Do not restart completed work or
+ask again for specification, isolated worktrees or Variant 1 delegation approval.
+Root feature source is `a1f4969f9aab6f7253951eafaa0d0582e0156be9`; main/VPS
+remain the separately verified `2ba3931dd8cb35f31d2475ae5797d75b44be268e`.
+No new context code has been published to main or deployed in this checkpoint.
+
+- D1 owning replay/case/all-five-alpha fit mechanics `f4649c3` independently
+  accepted and merged; original reports preserved byte-identically in `70d6ce1`.
+  Identity proof retains original valid receipt history while numerical replay
+  uses actual latest native values. Real corpus and Tennis native-state resolver
+  remain missing; synthetic optimization is not empirical acceptance.
+- D2 exact distribution scorers and complete-registry paired comparisons are
+  independently accepted in `9e8e22f`, with the real owning dataset/evaluator
+  rulings. Final-label opening and all-family BH inventory stay immutable.
+  The new owning dataset/evaluator/activation/CLI is now isolated under
+  `kontext-d2-evaluator-20260909`, on base `70d6ce1`, not yet independently accepted.
+  New actual SQLite controls bind terminal-result revisions at the original
+  train/tune boundaries and at final evaluated_at, plus label-free outer-index
+  integrity before opening. These are mechanics, not a >=200-event real result.
+- C2 reviewed branch `23aa21c` merged as `b908712`, with all three original
+  review reports preserved in `13b4dac`. Original F1-F3 and later F4-F5 closed
+  in the OWNING path: full causal participant/term lineage, exact-end rest,
+  strict half-open load and old-conflict bounds. Independent final 319 + 44
+  positive tests in two runs; two unchanged wrong-generic-reader diagnostics
+  remain negative integration evidence, NOT green. Owner full3795/15/97.
+  D3 must use basketball_observations_as_of, never the wrong generic selector.
+- C1 exact-cutoff rest fix independently accepted and committed `a1f4969`:
+  final reviewer283 passed, genuine original Git-code reproduction and unchanged
+  Tennis source. Historical total/window count remains strict; exact rest may
+  include an end known exactly at decision. No source or fatigue coefficient added.
+- Root stable full integration before subsequent D3 transport-only refinements:
+  `context-c2-transport-integration-full-20260909-01`, **4323 passed / 18 expected
+  platform skips / 97 subtests**, 272.30s. It includes then-current unreviewed
+  copy/transport WIP; it is not independent D3 acceptance or a live result.
+- D3 public copy is frozen for independent review: context_copy.py and
+  tests/test_context_copy.py (33 cases). The standalone closed CPU transport is
+  still Root WIP, with 50 tests; latest copy/transport/B3 focus265 green4.16s.
+  It binds full original Event/Base/FV, typed reference lists, resolved artifact
+  identities and exact result/consumer market. Consumer reads do not refit
+  Ridge through a validator. Real A1/B1/D2 assembly, workers, signal/domain/store,
+  both UIs and browser proof are NOT implemented by these helper tests.
+- C4 internal E-Sport mechanics frozen `26e891096ecee78ac962b5090a8294deefd7d395`
+  in `kontext-c4-esports-20260909`, clean, owner full4154/18/97. Root independent
+  review remains required. No native Roster/Patch/Maptime live feed or D1/D2 proof.
+- C3 Hockey implementation is assigned in clean `kontext-c3-hockey-20260909`,
+  base `13b4dac`, after full task14 ruling/preflight. Measured exposure is not
+  nonlinear optimizer influence; hypothetical starters cannot silently become
+  the central applied forecast. Existing observed-fact-only paths are not banned.
+- D4 structural/read-only/isolated Linux restore proof remains accepted, while
+  D2 semantic verification, D3 input/source replay and production deploy wiring
+  remain open. D5 real worker/browser/release and empirical proof remain open.
+
+Cricket, odds/ranking policy, old forecasts/tickets/ledger and protected helper
+bytes remain unchanged. Untracked output archives/probes remain user work. The
+seven timers calculate data and do not auto-pull or deploy source. Commit/push,
+main/VPS code, actual worker execution, source freshness and empirical activation
+must continue to be evidenced separately.
+
 ## Current continuation checkpoint — 9 September 2026
 
 This section supersedes earlier next-task statements, not historical evidence.
