@@ -24,6 +24,7 @@ from context_models.training_contracts import validate_artifact_envelope, valida
 from context_observations import _SELECT, _check_selected_row, _decode_receipt
 from model_artifacts import ArtifactIntegrityError, _load_artifact, canonical_bytes
 from runtime_paths import (
+    RuntimeArtifactTrustError,
     _assert_no_symlink_components, _validate_trusted_runtime_ancestor_chain,
     _validate_trusted_runtime_database_stat,
 )
@@ -34,31 +35,59 @@ CASE_KIND = "context-training-case-v1"
 UNAVAILABLE_REASONS = frozenset({"native_to_state_key_source_resolver_unavailable"})
 
 
+def _reader_files(path, *, expected=None):
+    """Inspect main and live SQLite companions without following any alias.
+
+    SQLite can write synchronization metadata even through a mode=ro reader.
+    Existing invalid files must therefore be rejected before SQLite opens.
+    Checks bound observable identities, not a race-proof VFS: another process
+    with the same trusted filesystem authority can still act between checks.
+    """
+    _validate_trusted_runtime_ancestor_chain(path.parent)
+    identities = {}
+    for suffix in ("", "-wal", "-shm", "-journal"):
+        member = _assert_no_symlink_components(path.with_name(path.name + suffix))
+        try:
+            current = os.lstat(member)
+        except FileNotFoundError:
+            if not suffix:
+                raise ContextIntegrityError("explicit context database does not exist")
+            continue
+        _validate_trusted_runtime_database_stat(member, current)
+        if current.st_nlink != 1:
+            raise RuntimeArtifactTrustError(f"context database and companions must be singly linked: {member}")
+        identities[member] = (current.st_dev, current.st_ino)
+    if expected is not None and any(identities.get(member) != identity for member, identity in expected.items()):
+        raise ContextIntegrityError("context database path identity changed while opening or reading")
+    return identities
+
+
 @contextmanager
 def _reader(path):
-    """Existing explicit database only. No implicit A1/B1 schema creation."""
+    """Live read transaction: no data/schema publication or implicit creation.
+
+    Trusted SQLite WAL/SHM synchronization is allowed; committed WAL rows must
+    remain visible. This is not an immutable main-file copy or a sealed audit.
+    """
     path = _assert_no_symlink_components(Path(path))
-    _validate_trusted_runtime_ancestor_chain(path.parent)
-    if not path.is_file():
-        raise ContextIntegrityError("explicit context database does not exist")
-    original = os.lstat(path)
-    _validate_trusted_runtime_database_stat(path, original)
-    connection = sqlite3.connect(path.as_uri()+"?mode=ro", uri=True, timeout=5)
+    original = _reader_files(path)
+    connection = None
     try:
-        _assert_no_symlink_components(path)
-        current = os.lstat(path)
-        _validate_trusted_runtime_database_stat(path, current)
-        if (current.st_dev, current.st_ino) != (original.st_dev, original.st_ino):
-            raise ContextIntegrityError("context database path identity changed while opening")
+        connection = sqlite3.connect(path.as_uri()+"?mode=ro", uri=True, timeout=5)
+        opened = _reader_files(path, expected=original)
         connection.execute("PRAGMA query_only=ON")
         connection.execute("PRAGMA trusted_schema=OFF")
         connection.execute("BEGIN")
         yield connection
+        _reader_files(path, expected=opened)
     except (ArtifactIntegrityError, sqlite3.DatabaseError, KeyError) as exc:
         raise ContextIntegrityError("context database references or stored bytes are invalid") from exc
     finally:
-        connection.rollback()
-        connection.close()
+        if connection is not None:
+            try:
+                connection.rollback()
+            finally:
+                connection.close()
 
 
 def _artifact(connection, ref, kind, *, latest):

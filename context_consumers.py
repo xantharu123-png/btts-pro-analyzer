@@ -51,10 +51,10 @@ def load_context_market(path: Path, reference: dict, selected_market: str, *,
         ).fetchall()
         if schema != [("table",)]:
             raise ContextIntegrityError("referenced context snapshot table is unavailable")
-        columns = connection.execute("PRAGMA table_info(context_snapshots)").fetchall()
-        expected_columns = [(0, "key", "TEXT", 1, None, 1),
-                            (1, "payload", "BLOB", 1, None, 0),
-                            (2, "payload_digest", "TEXT", 1, None, 0)]
+        columns = connection.execute("PRAGMA table_xinfo(context_snapshots)").fetchall()
+        expected_columns = [(0, "key", "TEXT", 1, None, 1, 0),
+                            (1, "payload", "BLOB", 1, None, 0, 0),
+                            (2, "payload_digest", "TEXT", 1, None, 0, 0)]
         if columns != expected_columns:
             raise ContextIntegrityError("referenced context snapshot schema is invalid")
         row = connection.execute(
