@@ -9,13 +9,15 @@ an old archive today therefore does not manufacture a historical backtest.
 from __future__ import annotations
 
 from collections import Counter
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 import hashlib
 import json
 import math
-from typing import Iterable, Mapping, Optional
+from types import MappingProxyType
+from typing import Callable, Iterable, Mapping, Optional
 import unicodedata
 
 import numpy as np
@@ -116,6 +118,28 @@ class _Fit:
     residual_scale: Optional[float] = None
     overtime_home_rate: Optional[float] = None
     overtime_games: int = 0
+
+
+@dataclass(frozen=True)
+class OriginalPrematch:
+    """Detached internal parts from one actual target computation.
+
+    This is not a source receipt, a native-identity assertion, a learned effect
+    or an approval. Missing predictions stay missing. Raw source dictionaries
+    are copied; normalized inputs, fit and values cannot mutate the calculation.
+    """
+
+    sport: str
+    as_of: datetime
+    raw_event: Mapping[str, object]
+    raw_history: tuple[object, ...]
+    identity: Optional[_Identity]
+    matches: tuple[_Match, ...]
+    fitted: Optional[_Fit]
+    probability: Optional[float]
+    values: Mapping[str, float]
+    input_hash: str
+    prediction: PrematchPrediction
 
 
 def _text(value: object) -> str:
@@ -443,6 +467,8 @@ def predict_prematch(
     event: Mapping[str, object],
     history: Iterable[Mapping[str, object]],
     as_of: datetime,
+    *,
+    original_capture: Optional[Callable[[OriginalPrematch], None]] = None,
 ) -> PrematchPrediction:
     """Estimate a research-only full-match winner from strictly known results.
 
@@ -456,6 +482,15 @@ def predict_prematch(
         raise ValueError("as_of must be timezone-aware")
     if not isinstance(event, Mapping):
         raise ValueError("event must be a mapping")
+    if original_capture is not None:
+        if not callable(original_capture):
+            raise ValueError("original_capture must be callable")
+        if sport not in {"basketball", "ice_hockey"}:
+            raise ValueError("original capture supports basketball and ice_hockey only")
+        # Retain the actual inputs before normalization discards source scope.
+        # A single-use iterable is consumed exactly once, only for this opt-in.
+        event = deepcopy(event)
+        history = deepcopy(tuple(history))
     as_of = as_of.astimezone(timezone.utc)
     identity, identity_missing = _identity(sport, event, as_of)
     matches = _normalise_history(sport, identity, history, as_of) if identity else ()
@@ -503,13 +538,21 @@ def predict_prematch(
         "matches": [{**asdict(m), "start": m.start.isoformat(), "observed": m.observed.isoformat()} for m in matches],
     }
     input_hash = hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
-    return PrematchPrediction(
+    result = PrematchPrediction(
         sport, probability, 1.0 - probability if probability is not None else None,
         len(matches), home_games, away_games, evaluation, tuple(factors), tuple(missing),
         tuple(limitations), input_hash, max((m.observed for m in matches), default=None),
         _MARKETS[sport], p_home_regulation=values.get("p_home_regulation"),
         p_draw_regulation=values.get("p_draw_regulation"),
     )
+    if original_capture is not None:
+        original_capture(OriginalPrematch(
+            sport=sport, as_of=as_of, raw_event=event, raw_history=history,
+            identity=identity, matches=matches, fitted=fitted,
+            probability=probability, values=MappingProxyType(dict(values)),
+            input_hash=input_hash, prediction=result,
+        ))
+    return result
 
 
 __all__ = ["MODEL_VERSION", "PrematchPrediction", "PrequentialEvaluation", "predict_prematch"]

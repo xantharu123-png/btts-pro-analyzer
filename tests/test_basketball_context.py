@@ -1,5 +1,6 @@
 """C2 CPU mechanics on synthetic source-resolved data; no empirical approval."""
 from copy import deepcopy
+import ast
 from datetime import datetime, timedelta
 from functools import lru_cache
 import hashlib
@@ -106,7 +107,30 @@ def test_frozen_default_cricket_matches_before_change_on_same_cpu():
         b = sports_prematch.predict_prematch("cricket", target, rows, NOW).to_dict()
         assert canonical_bytes(a) == canonical_bytes(b)
         assert (target, rows) == frozen
-    assert Path(sports_prematch.__file__).read_bytes().startswith(raw)
+    # The additive same-call collector intentionally changes this source file.
+    # Keep the old functions/math frozen, not an obsolete whole-file prefix.
+    old_functions = {n.name: n for n in ast.parse(raw).body if isinstance(n, ast.FunctionDef)}
+    new_functions = {n.name: n for n in ast.parse(Path(sports_prematch.__file__).read_bytes()).body
+                     if isinstance(n, ast.FunctionDef)}
+    for name, before in old_functions.items():
+        after = deepcopy(new_functions[name])
+        if name == "predict_prematch":
+            assert len(after.args.kwonlyargs) == 1
+            assert after.args.kwonlyargs[0].arg == "original_capture"
+            assert ast.dump(after.args.kw_defaults[0]) == "Constant(value=None)"
+            after.args.kwonlyargs = []
+            after.args.kw_defaults = []
+            conditional = ast.dump(ast.parse("original_capture is not None", mode="eval").body)
+            guards = [n for n in after.body if isinstance(n, ast.If) and ast.dump(n.test) == conditional]
+            assert len(guards) == 2 and all(not n.orelse for n in guards)
+            after.body = [n for n in after.body if n not in guards]
+            assignment, returned = after.body[-2:]
+            assert isinstance(assignment, ast.Assign) and len(assignment.targets) == 1
+            assert isinstance(assignment.targets[0], ast.Name) and assignment.targets[0].id == "result"
+            assert isinstance(returned, ast.Return) and isinstance(returned.value, ast.Name)
+            assert returned.value.id == "result"
+            after.body[-2:] = [ast.Return(value=assignment.value)]
+        assert ast.dump(before) == ast.dump(after), name
 
 
 def rotation_team(team_id, *, load=False):

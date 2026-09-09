@@ -1723,6 +1723,7 @@ def adapt_research_matchwinner(
     minimum_team_games: int = MIN_RESEARCH_TEAM_GAMES,
     policy_version: str = RISKOBET_POLICY_VERSION,
     model_version: str = RESEARCH_MODEL_VERSION,
+    original_capture=None,
 ) -> RiskAdapterResult:
     """Share one causal sport-specific prematch fit per competition snapshot."""
 
@@ -1774,7 +1775,8 @@ def adapt_research_matchwinner(
         event.get("competition", event.get("league", event.get("tournament")))
     ) or sport
     from sports_prematch import predict_prematch
-    prediction = predict_prematch(sport, event, history, as_of=model_time)
+    prediction = predict_prematch(sport, event, history, as_of=model_time,
+        **({"original_capture": original_capture} if original_capture is not None else {}))
     home_games, away_games = prediction.home_games, prediction.away_games
     missing: list[str] = list(prediction.missing)
     if home_games < minimum_team_games:
