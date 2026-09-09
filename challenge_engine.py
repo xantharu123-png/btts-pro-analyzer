@@ -864,6 +864,7 @@ def _team_observations(
     *,
     venue: Optional[str],
     limit: int,
+    _fixtures: Optional[list[dict[str, Any]]] = None,
 ) -> list[tuple[float, float, datetime, Optional[float], Optional[float]]]:
     """Letzte Spiele eines Teams: (Tore, Gegentore, Datum, xG, xGA)."""
     rows: list[tuple[float, float, datetime, Optional[float], Optional[float]]] = []
@@ -899,6 +900,8 @@ def _team_observations(
         rows.append(
             (float(scored), float(conceded), _fixture_datetime(fixture), xg_scored, xg_conceded)
         )
+        if _fixtures is not None:
+            _fixtures.append(fixture)
         if len(rows) >= limit:
             break
     return rows
@@ -1072,7 +1075,16 @@ def _fixture_model(
     fixture: dict[str, Any],
     league_history: Iterable[dict[str, Any]],
     team_history: Optional[Iterable[dict[str, Any]]] = None,
+    *,
+    include_provenance: bool = False,
+    native_provenance: Optional[dict[str, Any]] = None,
 ) -> Optional[dict[str, Any]]:
+    """Calculate the unchanged legacy basis; optionally expose its real inputs.
+
+    ``native_provenance`` is the closed internal owning-source-adapter transport
+    described by ``_football_native_bindings``, never untrusted provider flags.
+    Invalid or unknown linkage affects provenance only, not a computable basis.
+    """
     kickoff = _fixture_datetime(fixture)
     teams = fixture.get("teams", {})
     home_id = teams.get("home", {}).get("id")
@@ -1087,10 +1099,26 @@ def _fixture_model(
         return None
     league_home, league_away, league_sample = league_means
 
-    home_venue = _team_observations(observations, home_id, kickoff, venue="home", limit=12)
-    away_venue = _team_observations(observations, away_id, kickoff, venue="away", limit=12)
-    home_form = _team_observations(observations, home_id, kickoff, venue=None, limit=6)
-    away_form = _team_observations(observations, away_id, kickoff, venue=None, limit=6)
+    selected = (
+        {name: [] for name in ("home_venue", "away_venue", "home_form", "away_form")}
+        if include_provenance else {}
+    )
+    home_venue = _team_observations(
+        observations, home_id, kickoff, venue="home", limit=12,
+        _fixtures=selected.get("home_venue"),
+    )
+    away_venue = _team_observations(
+        observations, away_id, kickoff, venue="away", limit=12,
+        _fixtures=selected.get("away_venue"),
+    )
+    home_form = _team_observations(
+        observations, home_id, kickoff, venue=None, limit=6,
+        _fixtures=selected.get("home_form"),
+    )
+    away_form = _team_observations(
+        observations, away_id, kickoff, venue=None, limit=6,
+        _fixtures=selected.get("away_form"),
+    )
     if min(len(home_venue), len(away_venue)) < MIN_VENUE_MATCHES:
         return None
     if min(len(home_form), len(away_form)) < MIN_FORM_MATCHES:
@@ -1138,7 +1166,7 @@ def _fixture_model(
     xg_coverage = min(
         cov_hs, cov_hc, cov_as, cov_ac, cov_fha, cov_fad, cov_faa, cov_fhd
     )
-    return {
+    model = {
         "active_lambdas": (active_home, active_away),
         "season_lambdas": (season_home, season_away),
         "form_lambdas": (form_home, form_away),
@@ -1149,6 +1177,257 @@ def _fixture_model(
         "freshness_observed_at": oldest_required_observation.isoformat(),
         "xg_coverage": xg_coverage,
     }
+    if include_provenance:
+        from context_models.contracts import ContextContractError
+        try:
+            model.update(_football_reference_provenance(
+                fixture, history, selected,
+                {"home_venue": home_venue, "away_venue": away_venue, "home_form": home_form, "away_form": away_form},
+                league_means, native_provenance,
+            ))
+        except ContextContractError:
+            # Unknown/broken source linkage never discards a computable legacy
+            # basis. Its roster provenance remains explicitly unavailable.
+            model.update(history_refs=[], reference_weights={
+                "schema": 1, "kind": "unavailable", "reason": "football-source-provenance-invalid",
+            })
+    return model
+
+
+def football_base_history_record(fixture: dict[str, Any]) -> dict[str, Any]:
+    """The exact allowlisted sport record hashed by opt-in base provenance.
+
+    Team IDs here are LOCAL calculation IDs, not a native identity claim.
+    Display names, prices, arbitrary provider fields and existing context flags
+    are deliberately absent. Future target records may have unknown goals.
+    """
+    from context_models.contracts import ContextContractError, canonical_timestamp, require_text
+    if type(fixture) is not dict or type(fixture.get("fixture")) is not dict:
+        raise ContextContractError("football source record needs fixture metadata")
+    data, teams, league = fixture["fixture"], fixture.get("teams") or {}, fixture.get("league") or {}
+    if type(teams) is not dict or type(league) is not dict:
+        raise ContextContractError("football source teams and league must be objects")
+    raw_start = data.get("date")
+    if type(raw_start) is not str:
+        raise ContextContractError("football source record needs an actual aware date")
+    source = fixture.get("challenge_source") or "unresolved"
+    require_text(source, "football source marker", code=True)
+    row = {"schema": 1, "source_marker": source, "fixture_id": data.get("id"),
+           "scheduled_start": canonical_timestamp(raw_start), "league_id": league.get("id"),
+           "season": league.get("season")}
+    for side in ("home", "away"):
+        team = teams.get(side) or {}
+        if type(team) is not dict:
+            raise ContextContractError("football source team must be an object")
+        row[side + "_id"] = team.get("id")
+    for name in ("fixture_id", "league_id", "season", "home_id", "away_id"):
+        if row[name] is not None and type(row[name]) is not int:
+            raise ContextContractError("football source IDs must be actual integers or unknown")
+    try:
+        score, xg = _fixture_score(fixture), _fixture_xg(fixture)
+    except (ValueError, TypeError, OverflowError) as exc:
+        # The league goal prior can be computable without ever inspecting a
+        # nonselected row's xG. An invalid ancillary field must not hide it.
+        raise ContextContractError("football source calculation metadata is not representable") from exc
+    for side, index in (("home", 0), ("away", 1)):
+        row["goals_" + side] = score[index] if score is not None else None
+        row["xg_" + side] = xg[index] if xg is not None else None
+    return row
+
+
+def _football_native_bindings(
+    native_provenance: Optional[dict[str, Any]],
+    records: dict[str, dict[str, Any]],
+    target_ref: str,
+) -> dict[str, dict[str, Any]]:
+    """Validate the CLOSED INTERNAL transport from the owning source adapter.
+
+    This is not an endpoint for provider/user claims. The adapter must first
+    resolve actual native API source responses and secured receipt identities.
+    A public A1 hash checks that transport's bytes; it does not prove source
+    truth or make an arbitrary hash/positive ID a verified roster. The complete
+    event/team/schedule/result binding is checked again against the sport record.
+
+    ``appearances`` establishes native identity links only: unknown minutes stay
+    unknown, and a 120-minute aggregate is NOT regulation exposure. The owning
+    feature builder must independently establish complete regulation coverage.
+    """
+    from context_models.contracts import (
+        ContextContractError, canonical_timestamp, digest, require_digest,
+        require_list, require_number, require_object, require_text,
+    )
+    if native_provenance is None:
+        return {}
+
+    def clock(value):
+        if type(value) is not str or canonical_timestamp(value) != value:
+            raise ContextContractError("native evidence needs canonical actual UTC timestamps")
+        return value
+
+    def positive(value):
+        if type(value) is not int or value <= 0:
+            raise ContextContractError("native football IDs must be actual positive integers")
+        return value
+
+    try:
+        require_object(native_provenance, {"schema", "decision_at", "records"}, label="native football provenance")
+        if type(native_provenance["schema"]) is not int or native_provenance["schema"] != 1:
+            raise ContextContractError("unknown native football provenance schema")
+        decision = clock(native_provenance["decision_at"])
+        if decision >= records[target_ref]["scheduled_start"]:
+            raise ContextContractError("native baseline provenance requires its prematch cutoff")
+        if type(native_provenance["records"]) is not dict:
+            raise ContextContractError("native football evidence must map complete record hashes")
+        bindings, native_events = {}, {}
+        fixed = {"fixture_id", "scheduled_start", "league_id", "season", "home_id", "away_id", "goals_home", "goals_away"}
+        fields = {"schema", "source", "source_schema", "observed_at", "record_hash", "appearances"} | fixed
+        for ref, envelope in native_provenance["records"].items():
+            require_digest(ref, "baseline source record")
+            if ref not in records:
+                raise ContextContractError("native evidence is outside the actual baseline inputs")
+            record = records[ref]
+            require_object(envelope, {"digest", "kind", "payload"}, label="native football envelope")
+            if envelope["kind"] != "football-base-native-evidence-v1":
+                raise ContextContractError("unknown native football evidence kind")
+            require_digest(envelope["digest"], "native football evidence digest")
+            if digest({"kind": envelope["kind"], "payload": envelope["payload"]}) != envelope["digest"]:
+                raise ContextContractError("native football evidence hash mismatch")
+            payload = require_object(envelope["payload"], fields, label="native football evidence")
+            if type(payload["schema"]) is not int or payload["schema"] != 1 or (
+                payload["source"] != "api-football" or payload["source_schema"] != "fixtures-v3"
+            ):
+                raise ContextContractError("native football evidence source/schema mismatch")
+            if payload["record_hash"] != ref or digest(record) != ref:
+                raise ContextContractError("native evidence does not bind the complete baseline record")
+            if record["source_marker"] not in {"unresolved", "api-football", "api-football-ft-tail"}:
+                raise ContextContractError("CSV or unknown source records cannot be relabelled as API-native evidence")
+            for name in ("fixture_id", "league_id", "season", "home_id", "away_id"):
+                positive(payload[name])
+            if payload["home_id"] == payload["away_id"]:
+                raise ContextContractError("native fixture teams must be distinct")
+            clock(payload["scheduled_start"])
+            for name in ("goals_home", "goals_away"):
+                if payload[name] is not None and (type(payload[name]) is not int or payload[name] < 0):
+                    raise ContextContractError("native scores must be actual nonnegative integers or unknown")
+            if any(payload[name] != record[name] for name in fixed):
+                raise ContextContractError("native source fixture/team/schedule/result identity mismatch")
+            observed = clock(payload["observed_at"])
+            if observed > decision or (payload["goals_home"] is not None and observed < payload["scheduled_start"]):
+                raise ContextContractError("native source evidence was not available at the declared cutoff")
+            players, teams = set(), set()
+            for appearance in require_list(payload["appearances"], "native appearance evidence"):
+                require_object(appearance, {"fixture_id", "team_id", "player_id", "minutes", "started", "role"}, label="native appearance")
+                for name in ("fixture_id", "team_id", "player_id"):
+                    positive(appearance[name])
+                if appearance["fixture_id"] != payload["fixture_id"] or appearance["team_id"] not in {payload["home_id"], payload["away_id"]}:
+                    raise ContextContractError("native appearance is not bound to this fixture and team")
+                if appearance["player_id"] in players:
+                    raise ContextContractError("native appearance player identity is duplicated or on both sides")
+                players.add(appearance["player_id"])
+                teams.add(appearance["team_id"])
+                if appearance["minutes"] is not None:
+                    require_number(appearance["minutes"], "actual observed minutes", minimum=0)
+                if appearance["started"] is not None and type(appearance["started"]) is not bool:
+                    raise ContextContractError("observed starter status must be bool or unknown")
+                if appearance["role"] is not None:
+                    require_text(appearance["role"], "observed player role")
+            event_key = f"api-football:football:{payload['fixture_id']}"
+            if event_key in native_events and native_events[event_key] != ref:
+                raise ContextContractError("multiple baseline revisions claim the same native event")
+            native_events[event_key] = ref
+            bindings[ref] = {"native_event_key": event_key,
+                             "home_id": f"api-football:team:{payload['home_id']}",
+                             "away_id": f"api-football:team:{payload['away_id']}",
+                             "roster_join": "verified_native" if teams == {payload["home_id"], payload["away_id"]} else "unresolved"}
+        return bindings
+    except (ValueError, TypeError, OverflowError, RecursionError) as exc:
+        raise ContextContractError("invalid native football source provenance") from exc
+
+
+def _football_reference_provenance(fixture, history, selected, series, league_means, native_provenance):
+    """Expose the existing formula's actual selected inputs, without refitting."""
+    from collections import Counter
+    from context_models.contracts import ContextContractError, digest, validate_history_refs, validate_reference_weights
+    kickoff = _fixture_datetime(fixture)
+    prior_fixtures = [row for row in history if _is_completed_before(row, kickoff) and _fixture_score(row) is not None]
+    records = {}
+
+    def reference(row):
+        record = football_base_history_record(row)
+        try:
+            ref = digest(record)
+        except (ValueError, TypeError, OverflowError, RecursionError) as exc:
+            raise ContextContractError("football source record is not canonical JSON") from exc
+        records[ref] = record
+        return ref
+
+    prior_refs = [reference(row) for row in prior_fixtures]
+    series_refs = {name: [reference(row) for row in rows] for name, rows in selected.items()}
+    historical_refs = set(records)
+    target_ref = reference(fixture)
+    bindings = _football_native_bindings(native_provenance, records, target_ref)
+
+    def weights(refs, denominator):
+        return [{"ref": ref, "weight": count / denominator} for ref, count in sorted(Counter(refs).items())]
+
+    prior_weights = weights(prior_refs, len(prior_refs))
+    references = [{"ref": ref, "source": "api-football" if ref in bindings else (
+                       "football-data" if record["source_marker"] == "football-data-results-only" else "unresolved"),
+                   "source_event_id": str(record["fixture_id"]) if record["fixture_id"] is not None else "record:" + ref,
+                   "native_event_key": bindings[ref]["native_event_key"] if ref in bindings else None,
+                   "event_join": "verified_native" if ref in bindings else "unresolved",
+                   "roster_join": bindings[ref]["roster_join"] if ref in bindings else "unresolved"}
+                  for ref, record in sorted(records.items()) if ref in historical_refs]
+    team_identity = {}
+    for side in ("home", "away"):
+        target_binding = bindings.get(target_ref)
+        target_team = target_binding[side + "_id"] if target_binding is not None else None
+        target_local = records[target_ref][side + "_id"]
+        used_refs = set(series_refs[side + "_venue"] + series_refs[side + "_form"])
+        verified = target_team is not None and all(
+            ref in bindings and any(records[ref][position + "_id"] == target_local and bindings[ref][position + "_id"] == target_team
+                                    for position in ("home", "away"))
+            for ref in used_refs
+        )
+        team_identity[side] = (target_team, "verified_native" if verified else "unresolved")
+    league_home, league_away, _ = league_means
+    league_team = (league_home + league_away) / 2.0
+
+    def component(series_name, *, scored, prior_value, prior_raw_weight):
+        rows, refs = series[series_name], series_refs[series_name]
+        xg_index = 3 if scored else 4
+        xg_refs = [ref for ref, row in zip(refs, rows) if row[xg_index] is not None]
+        use_xg = bool(rows and xg_refs and len(xg_refs) / len(rows) >= XG_MIN_COVERAGE)
+
+        def term(actual_refs):
+            denominator = len(actual_refs) + prior_raw_weight
+            return {"samples": weights(actual_refs, denominator), "prior_weight": prior_raw_weight / denominator,
+                    "prior_value": prior_value, "prior_refs": [dict(item) for item in prior_weights]}
+
+        team_id, team_join = team_identity[series_name.split("_")[0]]
+        return {"team_id": team_id, "team_join": team_join,
+                "scope": "all_form" if series_name.endswith("form") else series_name,
+                "prior_raw_weight": prior_raw_weight,
+                "metric_weights": {"goals": 1.0 - XG_BLEND_WEIGHT if use_xg else 1.0, "xg": XG_BLEND_WEIGHT if use_xg else 0.0},
+                "goals": term(refs), "xg": term(xg_refs) if use_xg else None}
+
+    heads = {}
+    for side in ("home", "away"):
+        opponent = "away" if side == "home" else "home"
+        venue_prior = league_home if side == "home" else league_away
+        heads[side] = {
+            "outer_weights": {"venue": .75, "form": .25},
+            "pair_weights": {"venue": {"attack": .5, "defense": .5}, "form": {"attack": .5, "defense": .5}},
+            "components": {
+                "venue_attack": component(side + "_venue", scored=True, prior_value=venue_prior, prior_raw_weight=4),
+                "venue_defense": component(opponent + "_venue", scored=False, prior_value=venue_prior, prior_raw_weight=4),
+                "form_attack": component(side + "_form", scored=True, prior_value=league_team, prior_raw_weight=3),
+                "form_defense": component(opponent + "_form", scored=False, prior_value=league_team, prior_raw_weight=3),
+            },
+        }
+    refs = validate_history_refs(references)
+    reference_weights = validate_reference_weights({"schema": 1, "kind": "football-goals-v1", "heads": heads}, refs, family="football:goals:90min")
+    return {"history_refs": refs, "reference_weights": reference_weights}
 
 
 def _fixture_count_pair(
