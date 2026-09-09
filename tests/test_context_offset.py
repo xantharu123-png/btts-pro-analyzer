@@ -8,7 +8,7 @@ import pytest
 
 import context_models.offset as module
 from context_models.offset import ContextModelError, fit_offset, offset_delta, adjust_parameters
-from context_models.contracts import validate_offset_fit
+from context_models.contracts import ContextContractError, validate_offset_fit
 
 
 def test_learned_count_effect_and_zero_reference():
@@ -262,6 +262,36 @@ def test_valid_large_json_integer_parameters_remain_numeric(changes, expected):
     result = offset_delta(model, np.ones((1, 1)))
     assert result.dtype == np.float64
     assert result[0] == pytest.approx(expected, rel=1e-14, abs=0.)
+
+
+@pytest.mark.parametrize("field", ["scale", "coef"])
+@pytest.mark.parametrize("value", [2 ** 53 + 1, 2 ** 100 + 1, 10 ** 100 + 1])
+def test_shared_fit_validator_rejects_inexact_json_integer_parameters(field, value):
+    model = standalone_fit(**{field: [value]})
+    frozen = json.dumps(model, sort_keys=True)
+    with pytest.raises(ContextContractError, match="represent"):
+        validate_offset_fit(model)
+    with pytest.raises(ContextModelError, match="represent"):
+        offset_delta(model, np.ones((1, 1)))
+    assert json.dumps(model, sort_keys=True) == frozen
+
+
+def test_negative_inexact_coefficient_cannot_hide_behind_cancellation():
+    model = standalone_fit(scale=[1., 1.], coef=[-(2 ** 53 + 1), 2 ** 53])
+    with pytest.raises(ContextContractError, match="represent"):
+        validate_offset_fit(model)
+    with pytest.raises(ContextModelError, match="represent"):
+        offset_delta(model, np.ones((1, 2)))
+
+
+@pytest.mark.parametrize("value", [2 ** 53 - 1, 2 ** 53, 2 ** 53 + 2, 10 ** 20, 2 ** 100, 2 ** 1023])
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_large_exact_json_integer_scale_and_coefficient_preserve_artifact_bytes(value, sign):
+    model = standalone_fit(scale=[value], coef=[sign * value])
+    frozen = json.dumps(model, sort_keys=True)
+    assert validate_offset_fit(model) == model
+    assert json.dumps(model, sort_keys=True) == frozen
+    assert offset_delta(model, np.array([[1.]]))[0] == pytest.approx(sign, rel=1e-15)
 
 
 def test_prediction_shapes_and_overflow_are_errors_without_broadcasting():

@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 import challenge_engine as engine
-from context_models.contracts import ContextContractError, canonical_timestamp, digest, validate_base_distribution, validate_effect_artifact
+from context_models.contracts import ContextContractError, canonical_timestamp, digest, validate_base_distribution, validate_effect_artifact, validate_event
 from context_models.offset import fit_offset
 from test_context_contracts import football_reference_base
 
@@ -25,6 +25,12 @@ def event(**changes):
             "status": "scheduled", **changes}
 
 
+def reference_hash(base, *, event_value=None, preprocessing=()):
+    return digest({"version": "football-context-reference-v2", "base_hash": digest(validate_base_distribution(base)),
+                   "event_hash": digest(validate_event(event() if event_value is None else event_value)),
+                   "preprocessing": sorted(set(preprocessing))})
+
+
 def inputs(*, rates=(2., 1.), values=(1., .5, .5), home_coef=(-.3, -.1, -.2), away_coef=(.1, 0., 0.)):
     matrix = engine.score_matrix(*rates)
     base = football_reference_base()
@@ -33,10 +39,10 @@ def inputs(*, rates=(2., 1.), values=(1., .5, .5), home_coef=(-.3, -.1, -.2), aw
                          for spec in engine.MARKET_SPECS})
     base = validate_base_distribution(base)
     coverage = {"version": "football-roster-v1", "case": "reported_players"}
-    features = {"version": "football-roster-components-v1", "event_key": base["event_key"], "cutoff": base["cutoff"],
+    features = {"version": "football-roster-components-v2", "event_key": base["event_key"], "cutoff": base["cutoff"],
                 "values": dict(zip(FEATURE_NAMES, values)), "states": {name: "available" for name in FEATURE_NAMES},
                 "refs": {name: [str(index + 4) * 64] for index, name in enumerate(FEATURE_NAMES)},
-                "coverage": coverage, "reference_hash": digest({"base_hash": digest(base), "preprocessing": []})}
+                "coverage": coverage, "reference_hash": reference_hash(base)}
     artifact = {"schema": 1, "sport": "football", "family": "football:goals:90min",
                 "feature_version": features["version"], "feature_names": list(FEATURE_NAMES),
                 "heads": {side: {"link": "log_rate", "scale": [1., 1., 1.], "coef": list(coef), "alpha": .1, "n_rows": 200}
@@ -164,7 +170,7 @@ def test_unrepresentable_or_unsupported_adjusted_rate_does_not_return_partial_ma
 def test_unknown_market_identity_fails_whole_comparison_instead_of_guessing_family(key):
     base, features, artifact = inputs()
     base["markets"][key] = .5
-    features["reference_hash"] = digest({"base_hash": digest(base), "preprocessing": []})
+    features["reference_hash"] = reference_hash(base)
     with pytest.raises(ContextContractError):
         implementation().apply_football_effect(base, features, artifact, event=event())
 
@@ -205,6 +211,118 @@ def test_explicit_event_scope_and_original_team_orientation_are_required(change)
         implementation().apply_football_effect(*inputs(), event=event(**change))
 
 
+@pytest.mark.parametrize("change", [
+    {"scheduled_start": (NOW + timedelta(hours=7)).isoformat()},
+    {"scheduled_start": (NOW + timedelta(hours=5)).isoformat()},
+    {"schedule_revision": "s2"}, {"home_id": "api-football:team:99"},
+    {"away_id": "api-football:team:99"}, {"competition": "61"},
+    {"format": "45min"}, {"status": "started"}, {"status": "cancelled"},
+    {"event_key": "api-football:football:2"},
+])
+def test_changed_event_cannot_reuse_unchanged_feature_reference(change):
+    base, features, artifact = inputs()
+    # Remove independent orientation/population blockers where that is a valid
+    # contract, so this exercises binding of the complete original event.
+    for head in base["reference_weights"]["heads"].values():
+        for component in head["components"].values():
+            component.update(team_id=None, team_join="unresolved")
+    artifact["population"]["competitions"] = ["39", "61"]
+    features["reference_hash"] = reference_hash(base)
+    frozen = deepcopy((base, features, artifact))
+    with pytest.raises(ContextContractError):
+        implementation().apply_football_effect(base, features, artifact, event=event(**change))
+    assert (base, features, artifact) == frozen
+
+
+def test_legacy_unversioned_base_only_reference_is_not_a_current_event_binding():
+    base, features, artifact = inputs()
+    features["reference_hash"] = digest({"base_hash": digest(base), "preprocessing": []})
+    with pytest.raises(ContextContractError, match="reference"):
+        implementation().apply_football_effect(base, features, artifact, event=event())
+
+
+@pytest.mark.parametrize("version", ["football-roster-components-v1", "football-roster-components-v3", "other-context-v2"])
+def test_effect_matching_another_feature_version_does_not_define_the_b4_v2_variant(version):
+    base, features, artifact = inputs()
+    features["version"] = artifact["feature_version"] = version
+    with pytest.raises(ContextContractError, match="feature"):
+        implementation().apply_football_effect(base, features, artifact, event=event())
+
+
+def test_changed_schedule_requires_a_new_v2_feature_reference_for_every_comparison():
+    base, features, artifact = inputs()
+    original = implementation().apply_football_effect(base, features, artifact, event=event())
+    changed_event = event(schedule_revision="s2", scheduled_start=(NOW + timedelta(hours=7)).isoformat())
+    groups = {"all": list(FEATURE_NAMES)}
+    with pytest.raises(ContextContractError, match="reference"):
+        implementation().football_factor_comparisons(base, features, artifact, event=changed_event, groups=groups)
+    changed_features = deepcopy(features)
+    changed_features["reference_hash"] = reference_hash(base, event_value=changed_event)
+    # A synthetic fresh-v2 transport, not a source feature recomputation proof.
+    updated = implementation().apply_football_effect(base, changed_features, artifact, event=changed_event)
+    assert updated["params"] == original["params"]
+    assert updated["model_hash"] != original["model_hash"]
+    assert implementation().football_factor_comparisons(
+        base, changed_features, artifact, event=changed_event, groups=groups)["full"] == updated
+    assert changed_features["reference_hash"] != features["reference_hash"]
+
+
+def test_same_event_in_another_timezone_has_the_same_canonical_v2_reference():
+    base, features, artifact = inputs()
+    same_event = event(scheduled_start="2026-09-09T20:00:00+02:00")
+    assert reference_hash(base, event_value=same_event) == features["reference_hash"]
+    assert implementation().apply_football_effect(base, features, artifact, event=same_event) == (
+        implementation().apply_football_effect(base, features, artifact, event=event()))
+
+
+@pytest.mark.parametrize("side", ["home", "away"])
+@pytest.mark.parametrize("foreign", ["api-football:team:99", "swapped"])
+def test_known_target_team_remains_binding_with_unresolved_historical_join(side, foreign):
+    base, features, artifact = inputs()
+    original_team = event()[side + "_id"]
+    other_team = event()["away_id" if side == "home" else "home_id"]
+    for head in base["reference_weights"]["heads"].values():
+        for component in head["components"].values():
+            component["team_join"] = "unresolved"
+    changed = {side + "_id": foreign if foreign != "swapped" else other_team}
+    if foreign == "swapped":
+        changed["away_id" if side == "home" else "home_id"] = original_team
+    # Deliberately bind the new event correctly: known baseline team identity
+    # must still reject it independently of the earlier reference check.
+    features["reference_hash"] = reference_hash(base, event_value=event(**changed))
+    original = deepcopy((base, features, artifact))
+    with pytest.raises(ContextContractError, match="orientation"):
+        implementation().apply_football_effect(base, features, artifact, event=event(**changed))
+    assert (base, features, artifact) == original
+
+
+@pytest.mark.parametrize("known", [True, False])
+def test_unresolved_history_is_not_itself_an_additional_team_identity_gate(known):
+    base, features, artifact = inputs()
+    for head in base["reference_weights"]["heads"].values():
+        for component in head["components"].values():
+            component["team_join"] = "unresolved"
+            if not known:
+                component["team_id"] = None
+    features["reference_hash"] = reference_hash(base)
+    # Synthetic available features exercise only this identity guard. This is
+    # not proof that unknown historical joins support real B4 roster features.
+    assert implementation().apply_football_effect(base, features, artifact, event=event())["params"]
+
+
+@pytest.mark.parametrize("field,values", [
+    ("coef", [2 ** 53 + 1, -(2 ** 53), 0.]),
+    ("scale", [2 ** 53 + 1, 1., 1.]),
+])
+def test_fitted_json_integer_heads_cannot_round_before_b5_prediction(field, values):
+    base, features, artifact = inputs(values=(1., 1., 0.), home_coef=(.1, 0., 0.))
+    artifact["heads"]["home"][field] = values
+    frozen = deepcopy((base, features, artifact))
+    with pytest.raises(ContextContractError, match="represent"):
+        implementation().apply_football_effect(base, features, artifact, event=event())
+    assert (base, features, artifact) == frozen
+
+
 @pytest.mark.parametrize("part,key,value", [
     ("features", "event_key", "api-football:football:2"),
     ("features", "cutoff", (NOW - timedelta(seconds=1)).isoformat()),
@@ -228,7 +346,7 @@ def test_reference_and_preprocessing_identity_cannot_be_changed_or_counted_twice
     artifact["preprocessing_artifacts"] = {"participation": "d" * 64, "same_participation": "d" * 64}
     with pytest.raises(ContextContractError):
         implementation().apply_football_effect(base, features, artifact, event=event())
-    features["reference_hash"] = digest({"base_hash": digest(base), "preprocessing": ["d" * 64]})
+    features["reference_hash"] = reference_hash(base, preprocessing=["d" * 64])
     result = implementation().apply_football_effect(base, features, artifact, event=event())
     assert result["model_hash"] != base["model_hash"]
 
@@ -313,11 +431,11 @@ def test_future_training_guard_is_reached_for_an_otherwise_canonical_artifact():
 def test_only_goal_subset_can_change_and_an_all_foreign_family_cannot_be_mislabelled():
     base, features, artifact = inputs()
     base["markets"] = {"RESULT_HOME": base["markets"]["RESULT_HOME"], "CORNERS_OVER_5_5": .12, "YELLOW_OVER_1_5": .8}
-    features["reference_hash"] = digest({"base_hash": digest(base), "preprocessing": []})
+    features["reference_hash"] = reference_hash(base)
     result = implementation().apply_football_effect(base, features, artifact, event=event())
     assert result["markets"]["CORNERS_OVER_5_5"] == .12 and result["markets"]["YELLOW_OVER_1_5"] == .8
     base["markets"].pop("RESULT_HOME")
-    features["reference_hash"] = digest({"base_hash": digest(base), "preprocessing": []})
+    features["reference_hash"] = reference_hash(base)
     with pytest.raises(ContextContractError):
         implementation().apply_football_effect(base, features, artifact, event=event())
 
@@ -360,7 +478,7 @@ def test_returned_comparison_is_detached_and_cannot_be_used_as_the_original_agai
     base, features, artifact = inputs()
     comparison = implementation().apply_football_effect(base, features, artifact, event=event())
     repeated_features = deepcopy(features)
-    repeated_features["reference_hash"] = digest({"base_hash": digest(comparison), "preprocessing": []})
+    repeated_features["reference_hash"] = reference_hash(comparison)
     with pytest.raises(ContextContractError, match="original"):
         implementation().apply_football_effect(comparison, repeated_features, artifact, event=event())
     comparison["history_refs"][0]["roster_join"] = "unresolved"
@@ -402,7 +520,7 @@ def test_unconsumed_missing_context_does_not_invent_a_consumed_value():
 def test_legacy_independent_market_curve_is_not_reapplied_to_zero_delta_rates():
     base, features, artifact = inputs(values=(0., 0., 0.))
     base["markets"]["BTTS_YES"] = .99  # Explicitly synthetic legacy inconsistency.
-    features["reference_hash"] = digest({"base_hash": digest(base), "preprocessing": []})
+    features["reference_hash"] = reference_hash(base)
     result = implementation().apply_football_effect(base, features, artifact, event=event())
     expected = engine.market_probability(engine.score_matrix(2., 1.), engine.MARKET_BY_KEY["BTTS_YES"])
     assert result["params"] == base["params"]

@@ -23,6 +23,8 @@ from model_artifacts import canonical_bytes
 
 
 FAMILY = "football:goals:90min"
+FEATURE_VERSION = "football-roster-components-v2"
+REFERENCE_VERSION = "football-context-reference-v2"
 COMPARISON_VERSION = "football-context-goal-rates-v1"
 GROUP_VERSION = "football-counterfactual-groups-v1"
 GOAL_KINDS = frozenset({"result", "double_chance", "btts", "total", "team_total", "team_range", "result_total", "mixed_or"})
@@ -63,18 +65,23 @@ def _checked(base, features, artifact, event):
         raise ContextContractError("football comparison requires a prematch scheduled event")
     if not event_in_population(event, effect["population"]):
         raise ContextContractError("football effect population does not cover this event")
-    if effect["feature_version"] != features["version"] or effect["coverage"] != features["coverage"]:
+    if (features["version"] != FEATURE_VERSION or effect["feature_version"] != features["version"]
+            or effect["coverage"] != features["coverage"]):
         raise ContextContractError("football effect feature version or coverage differs")
     if effect["training_end"] > base["cutoff"]:
         raise ContextContractError("football effect training follows the decision cutoff")
     preprocessing = sorted(set(effect["preprocessing_artifacts"].values()))
-    if features["reference_hash"] != digest({"base_hash": digest(base), "preprocessing": preprocessing}):
+    if features["reference_hash"] != digest({"version": REFERENCE_VERSION, "base_hash": digest(base),
+                                             "event_hash": digest(event), "preprocessing": preprocessing}):
         raise ContextIntegrityError("football features do not belong to the original base reference")
     if base["reference_weights"]["kind"] == "football-goals-v1":
-        for side, participant in (("home", "home_id"), ("away", "away_id")):
-            component = base["reference_weights"]["heads"][side]["components"]["venue_attack"]
-            if component["team_join"] == "verified_native" and component["team_id"] != event[participant]:
-                raise ContextIntegrityError("football base reference has a different team orientation")
+        for side, head in base["reference_weights"]["heads"].items():
+            for name, component in head["components"].items():
+                participant = "home_id" if (side == "home") == name.endswith("attack") else "away_id"
+                # A known target team still binds when historical roster joins
+                # are unresolved. Unknown history cannot erase known identity.
+                if component["team_id"] is not None and component["team_id"] != event[participant]:
+                    raise ContextIntegrityError("football base reference has a different team orientation")
     for name in effect["feature_names"]:
         if name not in features["values"] or features["states"][name] != "available" or not features["refs"][name]:
             raise ContextContractError("every consumed football feature needs available referenced evidence")

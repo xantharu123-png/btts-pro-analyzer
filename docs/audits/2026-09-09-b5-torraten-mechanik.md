@@ -46,8 +46,14 @@ Der Controller integriert spaeter oeffentliche Reexports. Weder
 - Event, Spielstatus, Termin, Cutoff, Teamorientierung, Familie, Population,
   Featureversion, Coverage, Featureverfuegbarkeit und echte Referenzen werden
   geprueft. Training darf nicht nach dem Entscheidungszeitpunkt liegen.
-- B4-Referenzbindung bleibt exakt
-  `digest({base_hash: digest(validated_original_base), preprocessing: sorted(set(artifact.preprocessing_artifacts.values()))})`.
+- Die nach unabhaengigem Review ausdruecklich freigegebene B4/B5-Referenz-v2
+  ist exakt `digest({version: 'football-context-reference-v2', base_hash:
+  digest(validated_original_base), event_hash: digest(validate_event(event)),
+  preprocessing: sorted(set(artifact.preprocessing_artifacts.values()))})`.
+  Nur `football-roster-components-v2` gehoert zu diesem Anschlussvertrag.
+  Termin-/Status-/Teilnehmer-/Wettbewerbsrevisionen brauchen neu gebildete
+  Features. Alte unversionierte Referenzen und lediglich neu gehashte
+  v1-Featurevektoren werden nicht als neue Berechnung angenommen.
   Doppelte benannte Bindungen desselben Preprocessing-Hashes werden nicht als
   zwei verschiedene Artefakte gerechnet.
 - Effekthash: A1-`digest({kind: 'context-effect-v1', payload: artifact})`.
@@ -96,12 +102,67 @@ A1-put/load-Rundreise und B3: ohne D2-Freigabe bleibt `used` exakt die Basis,
 der Vergleich ist nur `experimental`, und `certified_markets` bleibt leer.
 Originaleingaben bleiben unveraendert; rueckgegebene Historien sind entkoppelt.
 
-SHA-256 der unveraenderten Implementierungs-/Testbytes im vollen Lauf:
+SHA-256 der damaligen Implementierungs-/Testbytes im ersten vollen Lauf:
 
 - `context_models/football_effect.py`:
   `571dbccde4d5c2e35997b38bfa1e7aeefe88ca0e4b227e8612cd2ae16f001c66`
 - `tests/test_football_context_model.py`:
   `7769de0574e05d7ffbbc6111afd13a3a5942be1de83e29dba59c269b8ceb08a2`
+
+## Unabhaengiges Review und eng autorisierte Korrekturen
+
+Die unveraenderten externen Repros des B3/B4-Reviewers wurden auf Commit
+`49e6faefd7a8f73be766ef2c8b53301f547f3192` selbst ausgefuehrt:
+`b5-review-fixes-red-01`, **5 fehlgeschlagen, 1 bestanden**. Repro-SHA256
+`07ab92411606a12fd28a2ff9eefdc71c4afc561c366ca72e34899edf82974772`.
+
+- Eine bekannte native Zielteam-ID bleibt bindend, wenn nur die historischen
+  Joins `unresolved` sind. Jetzt werden ALLE vorhandenen nichtleeren
+  Komponenten-IDs gegen die konkrete Home-/Away-Angriff-/Abwehrorientierung
+  geprueft. Unbekannte Historie radiert keine bekannte Zielidentitaet aus.
+- Der gemeinsame B2-Fitvalidator prueft Integer-Koeffizienten und -Skalen
+  VOR Float64-Konvertierung auf exakte Darstellbarkeit. Der Gegenfall
+  `(2**53+1)-2**53` darf nicht durch Konvertierung zu null werden. Es gibt
+  keine pauschale 2**53-Grenze: exakt darstellbare grosse Zahlen, einschliesslich
+  `2**1023`, bleiben gueltig. Artifact-JSON und Hashes werden nicht veraendert.
+  Der numerische Fehlerwrapper bewahrt den konkreten typisierten Fehlergrund.
+
+Eigene 27 permanente Zusatzfaelle vor Fix: `b5-review-permanent-red-01`,
+**13 fehlgeschlagen, 14 bestanden**. Nach Korrektur: unveraenderte externe
+Repros plus Fokus `b5-review-fixes-green-01`, **380 bestanden**.
+
+Zusaetzlich bestaetigte der Controller nach dem Event-Replaybefund den oben
+beschriebenen v2-Vertrag. `b5-event-reference-red-01` reproduzierte
+**7 fehlgeschlagen, 4 bestanden**: Termin frueher/spaeter, Schedule-Revision,
+beide Teilnehmer trotz fehlender Historien-ID, Competition innerhalb derselben
+erlaubten Population und Legacy-Hash waren nicht ausreichend gebunden.
+`b5-feature-version-red-01`: **3 fehlgeschlagen** fuer v1/v3/fremde beidseitig
+passende Feature-/Artifactversionen. Der Controller hat explizit nur v2 fuer
+diesen Pfad freigegeben; kuenftige Varianten benoetigen einen eigenen Vertrag.
+
+Nach v2-Umstellung: `b5-reference-v2-green-01`, **388 bestanden**.
+Mit positiven Neu-Referenz-/Zeitzonenfaellen und A1/B1/B2/B3/15K-Fokus:
+`b5-reference-v2-green-02`, **830 bestanden, 4 erwartete Skips, 32 Untertests**.
+Die permanente Orientierungsgegenprobe bindet absichtlich den umgedrehten
+Event korrekt an den v2-Referenzhash. Sie erreicht deshalb wirklich die
+Teampruefung, nicht zufaellig den vorgelagerten Referenzvergleich. Der
+urspruengliche Replayfall bleibt als eigener negativer Referenztest erhalten.
+Die historische externe Reprodatei wurde nicht angepasst oder ueberschrieben.
+
+Vollsuite der korrigierten Bytes: `b5-review-full-02`, **1 fehlgeschlagen,
+2829 bestanden, 15 erwartete Skips, 97 Untertests**, 67,83 Sekunden. Derselbe
+unveraenderte UI-zu-Spawn-Harnessfehler aus dem ersten vollen Lauf bleibt der
+einzige Fehler. Der Controller integriert dafuer separat den unabhaengig
+geprueften B3-Harnessfix; dieser ist absichtlich kein Teil dieses B5/B2-Commits.
+Keine Vollsuitefreigabe fuer diese isolierte Arbeitskopie behauptet.
+
+Finale SHA256 der korrigierten Quell-/Testbytes:
+
+- `context_models/contracts.py`: `fafa94df182f3cf5e37eb2ec2cf800e06e2821bcc954670092ac16195cb2ab32`
+- `context_models/offset.py`: `027939cc5f7c05648177bfc94605bdc5f0fabac10e215d346a6e9ba1b37ec7a7`
+- `context_models/football_effect.py`: `76f6db32ccbde0d582bb988a431e384cb1f71eb814c255e3ef311e33047e7789`
+- `tests/test_context_offset.py`: `74f0f30878ec6fc1c7f30f3a7ab7eca901c89057c5fb1154f651855c07a416b7`
+- `tests/test_football_context_model.py`: `f7f5d77e79c2e1c63648a6ef9715d745281b944637c04f1979ef24a768c9b413`
 
 ## Explizit nicht erledigt
 
