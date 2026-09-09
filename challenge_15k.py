@@ -511,16 +511,8 @@ def _conservative_calibration_map(
         if any(curve is None or not callable(curve) for curve in curves):
             continue
 
-        def conservative_curve(
-            probability: float,
-            source_curves: tuple[Any, ...] = tuple(curves),
-        ) -> float:
-            return min(
-                [float(probability)]
-                + [float(curve(probability)) for curve in source_curves]
-            )
-
-        combined[spec.key] = conservative_curve
+        from challenge_engine import ConservativeMarketCalibration
+        combined[spec.key] = ConservativeMarketCalibration(tuple(curves))
     return combined
 
 

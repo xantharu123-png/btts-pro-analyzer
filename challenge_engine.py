@@ -1645,12 +1645,22 @@ def fixture_market_probabilities(
     calibration: Optional[dict[str, MarketCalibration]] = None,
     *,
     team_history: Optional[Iterable[dict[str, Any]]] = None,
+    original_capture=None,
 ) -> Optional[dict[str, Any]]:
+    if original_capture is not None and not callable(original_capture):
+        raise ValueError("original_capture must be callable or None")
     history = list(league_history)
     observations = list(team_history) if team_history is not None else None
-    model = _fixture_model(fixture, history, observations)
+    if original_capture is not None:
+        from football_original import calibration_recipe, capture_football_original, football_original_inputs
+        original_inputs = football_original_inputs(fixture, history, observations,
+                                                  logical_history_cutoff=_fixture_datetime(fixture))
+    model = (_fixture_model(fixture, history, observations) if original_capture is None
+             else _fixture_model(fixture, history, observations, include_provenance=True))
     if model is None:
         return None
+    if original_capture is not None:
+        original_provenance = {key: model.pop(key) for key in ("history_refs", "reference_weights")}
     active_matrix = score_matrix(*model["active_lambdas"])
     season_matrix = score_matrix(*model["season_lambdas"])
     form_matrix = score_matrix(*model["form_lambdas"])
@@ -1688,14 +1698,30 @@ def fixture_market_probabilities(
                 season_probabilities[spec.key],
                 form_probabilities[spec.key],
             )
+    if original_capture is not None:
+        original_raw_probabilities = dict(model["probabilities"])
+        original_calibration_recipes = {
+            key: {"kind": "identity"}
+            for key in model["probabilities"]
+        }
     if calibration:
         for market_key, values in model["probabilities"].items():
             curve = calibration.get(market_key)
+            if original_capture is not None:
+                original_calibration_recipes[market_key] = calibration_recipe(curve)
             if curve is not None:
                 model["probabilities"][market_key] = tuple(curve(value) for value in values)
         model["calibrated_markets"] = len(
             [key for key in model["probabilities"] if key in calibration]
         )
+    if original_capture is not None:
+        original_capture(capture_football_original(
+            inputs=original_inputs, model=model,
+            raw_probabilities=original_raw_probabilities, calibration_recipes=original_calibration_recipes,
+            provenance=original_provenance, market_specs=MARKET_SPECS,
+            prediction_version=CHALLENGE_PREDICTION_VERSION,
+            model_contract_signature=CHALLENGE_MODEL_CONTRACT_SIGNATURE,
+        ))
     return model
 
 
@@ -1806,6 +1832,19 @@ class MarketCalibration:
             return y1
         weight = (value - x0) / (x1 - x0)
         return y0 + weight * (y1 - y0)
+
+
+@dataclass(frozen=True)
+class ConservativeMarketCalibration:
+    """The unchanged UEFA minimum law, with an explicit owning recipe type."""
+
+    source_curves: tuple[Any, ...]
+
+    def __call__(self, probability: float) -> float:
+        return min(
+            [float(probability)]
+            + [float(curve(probability)) for curve in self.source_curves]
+        )
 
 
 def _pava(blocks: list[list[float]]) -> list[list[float]]:
@@ -2275,6 +2314,7 @@ def build_fixture_candidates(
     model_scope: str = MODEL_SCOPE_SAME_COMPETITION,
     allow_above_challenge_probability: bool = False,
     candidate_profile: str = CANDIDATE_PROFILE_CHALLENGE,
+    original_capture=None,
 ) -> list[ChallengeCandidate]:
     """Build price-independent candidates for one fixture."""
     if not isinstance(allow_above_challenge_probability, bool):
@@ -2290,12 +2330,18 @@ def build_fixture_candidates(
     }:
         raise ValueError("model_scope is invalid")
     identity = _fixture_identity(fixture)
-    model = fixture_market_probabilities(
-        fixture,
-        league_history,
-        calibration,
-        team_history=team_history,
-    )
+    if original_capture is None:
+        model = fixture_market_probabilities(
+            fixture,
+            league_history,
+            calibration,
+            team_history=team_history,
+        )
+    else:
+        model = fixture_market_probabilities(
+            fixture, league_history, calibration, team_history=team_history,
+            original_capture=original_capture,
+        )
     if identity is None or model is None:
         return []
 
