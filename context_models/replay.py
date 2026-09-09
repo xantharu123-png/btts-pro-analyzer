@@ -109,7 +109,10 @@ def replay_base_distribution(sport: str, event: dict, history: tuple[dict, ...],
     rows = _selected_native_rows(history, decision=decision)
     if sorted(row["digest"] for row in rows) != recipe["payload"]["input_refs"]:
         raise ContextIntegrityError("recipe must identify exactly the latest resolved native input receipts")
-    identities = resolve_identity_map(identity_map, observations=rows, event_keys=(event["event_key"],))
+    # Selection above validates every supplied receipt and its causal clock.
+    # A frozen native identity proof may name an earlier still-valid receipt;
+    # only the mathematical recipe/baseline must use the latest revision.
+    identities = resolve_identity_map(identity_map, observations=history, event_keys=(event["event_key"],))
     binding = next(row for row in identities["payload"]["bindings"] if row["event_key"] == event["event_key"])
     if any(binding[key] != event[key] for key in ("home_id", "away_id")):
         raise ContextIntegrityError("original event differs from the whole-dataset native mapping")

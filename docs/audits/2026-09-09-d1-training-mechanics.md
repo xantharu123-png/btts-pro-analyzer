@@ -190,4 +190,86 @@ bba6aeb14f39f1a9fecc2bcb2ee15a440efd8530196997b20a508a9182a35a4e tests/test_cont
 debc173076f64f2e54fe3051eb959119b0efe288bbf9647c063e46c3681ccac3 tests/test_context_training_tennis_math.py
 ```
 
-Unabhängiges Abschlussreview dieses D1-Pakets: **noch ausstehend**.
+Der damalige unabhängige Abschlussreview war noch ausstehend. Sein tatsächliches
+Ergebnis und die begrenzte Nachkorrektur sind im folgenden Nachtrag dokumentiert.
+
+## Reviewnachtrag: Identitätsbeleg bleibt bei legitimem Refresh gültig
+
+Ausgangscommit der Korrektur: `b74e2abd759a952991559709833470b3c3b160c0`.
+Der vollständig gelesene unabhängige Bericht
+`.pytest_tmp/d1-independent-20260909/review-d1.md` hat SHA-256
+`01f5e6535015e70afaa0f9459a12e877ac23c9b4ba9be9efb48c53cb5e08d787`.
+Er fand genau **einen P2-Verfügbarkeitsfehler**, keine neue Freigabe- oder
+numerische Modellbehauptung: Nach einem legitim späteren nativen Targetreceipt
+suchte Replay den in der globalen Identitätsmap genannten ursprünglichen
+Targetbeleg nur noch in den mathematisch neuesten Zeilen. Obwohl der alte
+gültige Beleg weiter im vollständigen kausalen Eingabepool lag, ging die
+Identitätsprüfung dadurch fälschlich von einem fehlenden Beleg aus.
+
+Die Korrektur ändert ausschließlich das Argument der bestehenden
+`resolve_identity_map`-Anwendung: Sie erhält nun den vollständigen `history`-
+Receiptpool, **nachdem** `_selected_native_rows` sämtliche Receipts und
+Quellenzeiten validiert hat. Recipe-Matching, aktuelle Target-/Team-/Schedule-
+Prüfung, Native-Provenienz und mathematische Baseline verwenden unverändert
+die streng neuesten ausgewählten `rows`. Keine alte Aufstellung, Spielerminute
+oder Zielzahl wird dadurch zum aktuellen Modelleingang. Keine freie neue
+Altersgrenze für Identitätsbelege: Alt ist nicht allein deshalb ungültig; fehlend,
+fremd, nachträglich importiert, manipuliert oder mit aktuellem Event unvereinbar
+bleibt ungültig. Nur der explizit angeforderte native Event wird aufgelöst;
+der ursprüngliche globale Maphash bleibt gebunden.
+
+Die 16 neuen permanenten Fälle in `tests/test_context_replay_identity_refresh.py`
+verwenden synthetische Sportdaten und genuine lokale B1-Persistenz:
+
+- Identischer Recheck und geänderte XI-Position, jeweils beide Reihenfolgen des
+  Receiptpools; unveränderter globaler Identitätsbeleg wird akzeptiert.
+- Spies belegen genau eine ursprüngliche Modell-/Native-Provenienzrechnung,
+  ausschließlich aktuellen Targetreceipt, 26 eindeutige historische Spiele und
+  unveränderte Raw-Mathematik; Inputs/Map/Recipe bleiben unverändert.
+- Unangeforderter weiterer Map-Eintrag wird nicht aufgelöst und benötigt keine
+  Öffnung seiner Receipts. Fehlender Receipt/Ref oder fremder Event bleibt zu.
+- Eine ältere anders orientierte native Quelle, eine inzwischen veraltete
+  Teammap und ein unpassender aktueller Termin erreichen weiterhin ihre
+  konkreten bestehenden Identitäts-/Schedule-Guards.
+- Ein nach dem Cutoff empfangener Beleg sowie manipulierte ältere Bytes werden
+  abgelehnt, bevor der Identitätsresolver überhaupt erreicht wird.
+- Ein altes Recipe oder der gesamte Revisionspool als mathematisches Recipe
+  bleibt ungültig. Vollständige aktualisierte Caseassembly mit neuen tatsächlichen
+  XI-Projektionen funktioniert dagegen bei unverändertem Identitätsmaphash.
+
+### Eigener RED/GREEN-Gegenlauf der Korrektur
+
+Alle Läufe mit demselben oben angegebenen Quality-Interpreter, `-B -m pytest -q
+-p no:cacheprovider`, jeweils eigenem frischem Basetemp:
+
+| Lauf | Ergebnis | Basetemp |
+| --- | --- | --- |
+| Beide unveränderten unabhängigen Reviewerdateien, vor Sourceänderung | **2 fehlgeschlagen, 23 bestanden**, 17,39 s | `d1-refresh-original-red-01` |
+| Neue permanente Refreshregressionen, vor Sourceänderung | **9 fehlgeschlagen, 7 bestanden**, 14,67 s | `d1-refresh-permanent-red-01` |
+| Neue Regressionen + beide Original-Reviewerdateien nach enger Korrektur | **41 bestanden**, 33,19 s | `d1-refresh-green-01` |
+| Vollständiger D1-Fokus inklusive 34 unveränderter Splittests, 16 neuer Regressionen und 25 unabhängiger Gegenproben | **223 bestanden**, 123,32 s | `d1-refresh-focus-01` |
+| Gesamte bestehende Testsuite einschließlich neuer permanenter Regressionen | **3.479 bestanden, 15 erwartete Windows-Skips, 97 Untertests bestanden**, 178,86 s | `d1-refresh-full-01` |
+
+Die neun permanenten RED-Ausgänge sind nicht neun unabhängige Modellfehler:
+Sechs sind gültige Refresh-/Assemblyfälle desselben P2; drei weitere verlangen
+die konkret zuständigen nachgelagerten Identitäts-/Schedule-Guards, die zuvor
+schon am falsch reduzierten Belegpool hängen blieben. Ihre Schutzwirkung wurde
+nicht gelockert. Die beiden ursprünglichen Refreshreproduktionen und sämtliche
+23 zusätzlichen unabhängigen Negativ-/Rechenfälle wurden unverändert ausgeführt.
+
+### Eingefrorene Repro- und Korrekturbytes
+
+```text
+fb7e0d581f45144c1f1b0456f828e58a7cb16ac124c1ec9683dc4f2b43fae32d context_models/replay.py
+cc3084075b601c211c632d50eab28b4b1a0f5e9134aa83cb1caae09de7f636b4 tests/test_context_replay_identity_refresh.py
+01f5e6535015e70afaa0f9459a12e877ac23c9b4ba9be9efb48c53cb5e08d787 .pytest_tmp/d1-independent-20260909/review-d1.md
+5c26c3bf49d2b4b4ab3b109ea73b8d5029a883d899deba0d2367f71dc7123a0c .pytest_tmp/d1-independent-20260909/test_d1_independent.py
+4a52a1f59408818c06d3645fffc83c64c6ddae0c404d5d0faa34eaa76a219aea .pytest_tmp/d1-independent-20260909/test_d1_math_independent.py
+```
+
+Beide Reviewerdateien und deren Bericht bleiben unverändert. Bestehende
+Trainings-/Case-/Outcome-/B1-Verträge und der bestehende Testhelper behalten ihre
+vorherigen Bytes. Keine Tennis-/Participation-Freigabe, Schema- oder Source-
+Erweiterung. Keine Root-, Provider-, Produktions-, Push- oder VPS-Schreibvorgänge.
+Der Fix hebt keine der zuvor dokumentierten Daten-/Empirikgrenzen auf.
+Unabhängige erneute Prüfung der Korrektur: noch ausstehend.
