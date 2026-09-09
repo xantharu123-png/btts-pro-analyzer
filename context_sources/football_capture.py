@@ -88,8 +88,12 @@ class _Capture:
                     if discovery:
                         actual_date = datetime.fromisoformat(ev["scheduled_start"]).astimezone(ZoneInfo(params["timezone"])).date().isoformat()
                         first, last = params.get("date", params.get("from")), params.get("date", params.get("to"))
+                        # NS/TBD/PST share the normalized scheduled state, but
+                        # only the exact requested native status proves this
+                        # discovery scope. Explicit ID queries are unchanged.
                         if (str(_native_id(params["league"])) != ev["competition"]
                             or type(params["season"]) is not int or raw["league"].get("season") != params["season"]
+                            or raw["fixture"]["status"]["short"] != params["status"]
                             or ev["status"] != "scheduled" or not first <= actual_date <= last):
                             raise ContextContractError("context discovery is outside its native request scope")
                 if requested is not None and seen != set(requested):

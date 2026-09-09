@@ -298,3 +298,90 @@ def test_missing_requested_detail_is_partial_but_preserves_actual_returned_fixtu
     assert len(calls) == 1 and owner.errors == []
     assert {row["event_key"] for row in stored(path)} == {"api-football:football:1575469"}
     assert capture.report()["status"] == "partial" and capture.report()["receipt_refs"]
+
+
+@pytest.mark.parametrize("discovery", ["date", "range"])
+@pytest.mark.parametrize("native_status", ["NS", "TBD", "PST"])
+def test_discovery_requires_exact_native_requested_status_before_injury_binding(
+    tmp_path, monkeypatch, discovery, native_status,
+):
+    # _detail_event intentionally maps all three native values to scheduled.
+    # That shared Event state must not widen an explicit discovery status=NS.
+    fixture = detail()
+    fixture["fixture"]["status"]["short"] = native_status
+    owner, calls = provider(monkeypatch, details=payload([fixture]))
+    clocks = iter([NOW, NOW + timedelta(seconds=1)])
+    monkeypatch.setattr(owner, "_context_received_at", lambda: next(clocks))
+    path = tmp_path / "context.db"
+    with implementation().capture_football_worker(owner, path=path) as capture:
+        if discovery == "date":
+            returned = owner.upcoming_fixtures(94, 2026, NOW.date())
+        else:
+            returned = owner.upcoming_fixtures_range(94, 2026, NOW.date(), NOW.date())
+        owner.injuries_by_fixture([1575469])
+    # The legacy reader and request count are unchanged; only capture rejects
+    # an out-of-scope response as source/joining evidence.
+    assert returned == [fixture] and owner.errors == []
+    assert len(calls) == 2 and calls[0][1]["params"]["status"] == "NS"
+    rows = stored(path)
+    if native_status == "NS":
+        assert len(rows) == 5 and capture.report()["status"] == "captured"
+        assert len([row for row in rows if row["kind"] == "availability"]) == 2
+        assert {row["observed_at"] for row in rows if row["kind"] == "availability"} == {
+            canonical_timestamp(NOW + timedelta(seconds=1))}
+    else:
+        assert rows == [] and capture.report()["receipt_refs"] == []
+        assert capture.report()["status"] == "partial"
+        assert "Kontext-Capture: native-response-unavailable" in capture.report()["issues"]
+        assert "Kontext-Capture: native-event-binding-unavailable" in capture.report()["issues"]
+
+
+@pytest.mark.parametrize("discovery", ["date", "range"])
+@pytest.mark.parametrize("native_status", ["TBD", "PST"])
+def test_mixed_discovery_status_withholds_whole_response_not_just_wrong_row(
+    tmp_path, monkeypatch, discovery, native_status,
+):
+    fixture, outside = detail(), detail()
+    outside["fixture"]["id"] = 99
+    outside["fixture"]["status"]["short"] = native_status
+    owner, calls = provider(monkeypatch, details=payload([fixture, outside]))
+    clocks = iter([NOW, NOW + timedelta(seconds=1)])
+    monkeypatch.setattr(owner, "_context_received_at", lambda: next(clocks))
+    path = tmp_path / "context.db"
+    with implementation().capture_football_worker(owner, path=path) as capture:
+        if discovery == "date":
+            owner.upcoming_fixtures(94, 2026, NOW.date())
+        else:
+            owner.upcoming_fixtures_range(94, 2026, NOW.date(), NOW.date())
+        owner.injuries_by_fixture([1575469])
+    assert len(calls) == 2 and owner.errors == []
+    assert stored(path) == [] and capture.report()["status"] == "partial"
+    assert capture.report()["receipt_refs"] == []
+
+
+@pytest.mark.parametrize("single", [False, True])
+@pytest.mark.parametrize("native_status", ["NS", "TBD", "PST"])
+def test_explicit_fixture_id_details_keep_supported_native_statuses(
+    tmp_path, monkeypatch, single, native_status,
+):
+    fixture = detail()
+    fixture["fixture"]["status"]["short"] = native_status
+    owner, calls = provider(monkeypatch, details=payload([fixture]))
+    clocks = iter([NOW, NOW + timedelta(seconds=1)])
+    monkeypatch.setattr(owner, "_context_received_at", lambda: next(clocks))
+    path = tmp_path / "context.db"
+    with implementation().capture_football_worker(owner, path=path) as capture:
+        if single:
+            owner._football_get("fixtures", {"id": 1575469}, "single fixture control")
+        else:
+            owner.details_by_fixture([1575469])
+        owner.injuries_by_fixture([1575469])
+    rows = stored(path)
+    assert len(calls) == 2 and owner.errors == []
+    # The preserved native fixture also declares empty whole-team lineups,
+    # which produce two typed collection markers, not player assertions.
+    assert len(rows) == 5 and capture.report()["status"] == "captured"
+    assert len([row for row in rows if row["kind"] == "availability"]) == 2
+    original = next(row for row in rows if row["kind"] == "base_fixture")
+    assert original["payload"]["detail"]["fixture"]["status"]["short"] == native_status
+    assert owner._context_capture is None
