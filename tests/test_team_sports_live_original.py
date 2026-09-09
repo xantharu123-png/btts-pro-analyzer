@@ -491,3 +491,55 @@ def test_capture_and_pure_validator_do_not_access_database_files_or_sources(spor
     result = build(sport, original)
     assert implementation.validate_team_sport_live_origin(result.base) == result.base
     assert validate_base_distribution(result.base) == result.base
+
+
+def _capture_with_unavailable_native_id(sport, unavailable):
+    target, rows = raw_inputs(sport)
+    if unavailable == "event":
+        target["provider_event_id"] = "legacy-nonnative-match"
+    else:
+        prior = target[unavailable + "_team_id"]
+        for row in [target, *rows]:
+            for side in ("home", "away"):
+                if row[side + "_team_id"] == prior:
+                    row[side + "_team_id"] = "legacy-known-nonnative-team"
+    original, prediction = capture(sport, target=target, rows=rows)
+    assert prediction.p_home is not None
+    return original, prediction
+
+
+@pytest.mark.parametrize("sport", SPORTS)
+@pytest.mark.parametrize("unavailable,known", [
+    ("home", "event_key"), ("home", "away_id"),
+    ("away", "event_key"), ("away", "home_id"),
+    ("event", "home_id"), ("event", "away_id"),
+])
+@pytest.mark.parametrize("entry", ["builder", "pure-validator"])
+def test_unavailable_native_id_does_not_hide_an_independent_known_conflict(sport, unavailable, known, entry):
+    original, prediction = _capture_with_unavailable_native_id(sport, unavailable)
+    frozen_prediction = canonical_bytes(prediction.to_dict())
+    event = native_event(sport)
+    if entry == "pure-validator":
+        stored = deepcopy(build(sport, original, event=event).original)
+    event[known] = event[known].rsplit(":", 1)[0] + (":499999999" if known == "event_key" else ":99")
+    with pytest.raises(ContextContractError, match="identity|orientation|raw|native"):
+        if entry == "builder":
+            build(sport, original, event=event)
+        else:
+            stored["event"] = event
+            stored["event_hash"] = digest(event)
+            api().validate_captured_team_sport_original(stored)
+    assert canonical_bytes(prediction.to_dict()) == frozen_prediction
+
+
+@pytest.mark.parametrize("sport", SPORTS)
+@pytest.mark.parametrize("unavailable", ["event", "home", "away"])
+def test_genuinely_unavailable_native_id_preserves_original_without_a_native_base(sport, unavailable):
+    original, prediction = _capture_with_unavailable_native_id(sport, unavailable)
+    captured = build(sport, original)
+    assert captured.base is None
+    kind = "event" if unavailable == "event" else "team"
+    assert captured.context_unavailable_reason == f"native-target-{kind}-identity-unavailable"
+    assert captured.original["outputs"]["p_home"].hex() == prediction.p_home.hex()
+    assert captured.original["outputs"]["p_away"].hex() == prediction.p_away.hex()
+    assert canonical_bytes(api().validate_captured_team_sport_original(captured.original)) == canonical_bytes(captured.original)

@@ -274,12 +274,14 @@ def _native_binding(sport, event, raw, identity):
             expected_id = bb._source_id(raw_id, "actual target ID")
             expected_key = bb.native_event(f"{source}:basketball:{expected_id}", source)
         except ContextContractError:
-            return None, "native-target-event-identity-unavailable", False
-        try:
-            expected_sides = {side: bb._reported_team(raw, side, source) for side in ("home", "away")
-                              if raw.get(side+"_team_id") or raw.get("team1_id" if side == "home" else "team2_id")}
-        except ContextContractError:
-            return None, "native-target-team-identity-unavailable", False
+            expected_key = None
+        expected_sides = {}
+        for side in ("home", "away"):
+            if raw.get(side+"_team_id") or raw.get("team1_id" if side == "home" else "team2_id"):
+                try:
+                    expected_sides[side] = bb._reported_team(raw, side, source)
+                except ContextContractError:
+                    pass
     else:
         if source != "nhl":
             return None, "native-source-unsupported", False
@@ -288,7 +290,7 @@ def _native_binding(sport, event, raw, identity):
             expected_key = "nhl:ice_hockey:" + str(expected_id)
             nhl.native_id(expected_key, "")
         except ContextContractError:
-            return None, "native-target-event-identity-unavailable", False
+            expected_key = None
         expected_sides = {}
         for side in ("home", "away"):
             team = raw.get(side+"_team_id") or raw.get("team1_id" if side == "home" else "team2_id")
@@ -296,9 +298,13 @@ def _native_binding(sport, event, raw, identity):
                 try:
                     expected_sides[side] = "nhl:ice_hockey:team:" + str(nhl._integer_identity(team))
                 except ContextContractError:
-                    return None, "native-target-team-identity-unavailable", False
-    if current["event_key"] != expected_key or any(current[side+"_id"] != team for side, team in expected_sides.items()):
+                    pass
+    # An unavailable claim cannot hide a different, already known contradiction.
+    if ((expected_key is not None and current["event_key"] != expected_key)
+            or any(current[side+"_id"] != team for side, team in expected_sides.items())):
         raise ContextIntegrityError("actual raw native target identity/orientation differs")
+    if expected_key is None:
+        return None, "native-target-event-identity-unavailable", False
     if len(expected_sides) != 2 or not identity.home.startswith("id:") or not identity.away.startswith("id:"):
         return None, "native-target-team-identity-unavailable", False
     if sport == "basketball":
