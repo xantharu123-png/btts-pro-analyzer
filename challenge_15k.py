@@ -1120,6 +1120,48 @@ class ChallengeDataProvider:
             priority=APIBudgetPriority.BACKGROUND,
         )
 
+    @staticmethod
+    def _context_received_at() -> datetime:
+        """Actual new-fetch clock; callers cannot backdate a context batch."""
+        return datetime.now(timezone.utc)
+
+    def _context_football_response(self, path: str, fixture_ids: tuple[int, ...]):
+        """Opt-in, one budgeted GET with envelope/receipt retained for B4.
+
+        Unlike the existing recommendation helper this never falls back to
+        per-fixture calls. Pagination/error metadata cannot be discarded and
+        interpreted as complete context. No response headers or secret values
+        are returned or logged into the context transport.
+        """
+        from context_models.contracts import canonical_timestamp
+        self._rate_limit()
+        try:
+            response = api_football_get(
+                f"{self.base_url}/{path}", headers=self.headers,
+                params={"ids": "-".join(str(value) for value in fixture_ids)},
+                timeout=20, allow_redirects=False, priority=APIBudgetPriority.BACKGROUND,
+                label=f"Kontext {path}",
+            )
+            response.raise_for_status()
+            if type(response.status_code) is not int or response.status_code != 200:
+                raise requests.HTTPError("context source did not return a complete HTTP 200 response")
+            payload = response.json()
+            observed = canonical_timestamp(self._context_received_at())
+        except (APIBudgetError, requests.RequestException, ValueError):
+            self.errors.append(f"Kontext {path}: Quelle nicht verfügbar")
+            return None
+        return {"payload": payload, "observed_at": observed}
+
+    def football_context_batch(self, events: tuple[dict, ...], *, historical_fixture_ids: tuple[int, ...] = ()) -> dict:
+        """Collect at most 20 native fixtures with two bounded BACKGROUND GETs.
+
+        This is an explicit source-ingestion seam only. Ordinary scans do not
+        call it, and it does not train, persist or activate a model. Returned
+        normalized contents retain their own actual receipt clocks for B1.
+        """
+        from context_sources.football_provider import collect_football_context
+        return collect_football_context(self, events, historical_fixture_ids=historical_fixture_ids)
+
     def details_by_fixture(self, fixture_ids: list[int]) -> dict[int, Optional[dict[str, Any]]]:
         result: dict[int, Optional[dict[str, Any]]] = {fixture_id: None for fixture_id in fixture_ids}
         for start in range(0, len(fixture_ids), 20):

@@ -2,6 +2,81 @@
 
 These are implementation clarifications of the approved specification, not relaxed data or empirical gates. The controller read the B1-B3 briefs, D2 interface and relevant existing baseline/A1 code, then considered the read-only contract pre-review. No source has been newly certified by this document.
 
+## Continuation rulings — 9 September 2026
+
+- Current B4/B5 reference identity is v2, superseding the earlier unversioned
+  base/preprocessing-only formula: `digest({version: 'football-context-reference-v2',
+  base_hash: digest(validate_base_distribution(base)), event_hash: digest(validate_event(event)),
+  preprocessing: sorted(set(preprocessing_artifact_hashes))})`. Producer version
+  is `football-roster-components-v2`. B6/B7 use the same full base/event binding
+  under `tennis-context-reference-v2`, without preprocessing, and feature version
+  `tennis-performed-load-v2`. The independent review reproduced acceptance of
+  unchanged old features after a kickoff/revision change. A new output hash
+  alone did not fix stale input. Rebuild features on every new worker event
+  revision; never accept the old unversioned/history-only reference or silently
+  migrate its meaning. Price/tab state remains absent. This is an integrity
+  correction before runtime integration, not a new predictive approval.
+- B4 projected lineup/appearance records bind the entire team CONTENT revision,
+  including every player's minutes/role and the event schedule revision. A
+  membership-only digest was insufficient: partial authentic projections from
+  two simultaneous same-roster revisions could otherwise invent a mixed team
+  or twelve starting players. Reconstruct the complete declared content from
+  the selected projections, keep simultaneous revisions conflicting, and never
+  fill missing projections from an older revision. These hashes prove internal
+  record consistency only, not source truth or medical coverage.
+- B7 explicit serve scope is `singles_best_of_3` or `singles_best_of_5`, matching
+  `base.params.best_of`; do not infer singles from an ambiguous format alias.
+  B6 accepts these plus its existing `singles` for load measurement. A separately
+  tested winner-only unknown-format population may remain `singles` but cannot
+  supply serve markets. The strict simulator seam does not clip/round holds
+  and retains the existing DP/tiebreak approximation; no empirical exactness
+  claim. Serve heads must be mirror-consistent with identical fitting scales,
+  parameter routing and training counts, not posthoc-averaged unconstrained fits.
+- B7 consumed observed-load dimensions require their matching per-side/window
+  completeness flag. This means complete measured values within the observed
+  subset, never a proven complete career or competition schedule. Unknown end,
+  duration or rest remains its separately tested coverage case or unchanged base.
+- B5/B7 factor groups explicitly name consumed feature lists in artifact order,
+  jointly covering all consumed columns; overlap is allowed only as an explicit
+  interaction-group choice. Each contrast zeroes its group against original
+  features/base independently. Outputs retain all hashes and `additive=False`;
+  no claim these model counterfactuals are observed causal effects or sum to the
+  full change. D1/D3 still own fitted/grouping provenance and user activation.
+
+- B3 `base_hash` is `digest(validate_base_distribution(original_base))`, binding
+  the entire normalized event/cutoff/parameters/markets/history/reference
+  revision. `base.model_hash` remains a separate model identity. B5/B7/D1 must
+  use the same distinction, never pass prior `used_params` as original base.
+- D2/B3 `base_versions` is a canonical sorted unique nonempty list of stable
+  `BaseDistribution.version` codes, with exact membership. `outcome_contract`
+  is a stable versioned identifier of the frozen D1 outcome registry. Neither
+  field is a guessed model hash, display label or free object.
+- New ContextResults always carry the paired `approval_hash` and
+  `certified_markets`. Only applied results retain the verified decision hash
+  and the nonempty canonical tested-market subset. Other results carry
+  `None`/`[]`. Legacy records lacking both remain readable but gain no new
+  certification. D3 may not label untested markets certified or inherit an
+  old release status onto a changed distribution.
+- B6 performed-load windows are explicitly UTC `[cutoff - N*24h, cutoff)`,
+  N=1/3/7, attributed by observed actual match end. A receipt is not an end.
+  Unknown end leaves its performed-window placement unknown. Receipt-based
+  rest bounds remain a distinct coverage variant, never input to a coefficient
+  fitted for exact rest. Raw observed sets/games remain stored separately.
+- B4 roster-component v1 describes a feature, not an assigned effect:
+  `outer * pair * metric * sum(sample_weight * (expected_minutes - historical_minutes)) / 90`.
+  The unchanged league pseudo-count is not a named team roster and is never
+  represented as a healthy player or a second absence. Every player/sample
+  exposure must be explicitly known regulation minutes. The complete baseline
+  weights and preprocessing references are bound in feature identity. Training
+  and independent review remain necessary before any numeric use.
+- B4 optional participation transport is an A1-resolved
+  `football-participation-v1` envelope containing a closed
+  `football-doubtful-v1` binomial status model, its training cutoff/refs and
+  exact population. It supplies no default percentage. The trusted D1 resolver
+  must prove its causal training inventory; a public content hash alone does
+  not prove fitted provenance or predictive value. No runtime activation or
+  empirical approval follows from accepting this mechanical transport.
+
 ## Receipt/content identity and clocks (B1)
 
 - Store both immutable content and receipt identities. `content_digest` hashes the complete normalized record (including source revision, excluding receipt time); returned `digest` hashes `{content_digest, observed_at}`. Canonical receipt time is UTC `YYYY-MM-DDTHH:MM:SS.ffffffZ`. Persist the content digest alongside each receipt. Exact duplicate receipt ingestion is idempotent; a later actual recheck is a new receipt. Never overwrite first receipt to refresh old data.

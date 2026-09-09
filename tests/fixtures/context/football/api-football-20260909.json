@@ -1,0 +1,2706 @@
+{
+  "schema": 1,
+  "requested_fixture_ids": [
+    1575469,
+    1570343
+  ],
+  "purpose": "bounded football context schema probe; not historic prematch evidence",
+  "calls": [
+    {
+      "endpoint": "fixtures",
+      "started_at": "2026-09-09T07:20:32.626696+00:00",
+      "received_at": "2026-09-09T07:20:32.783563+00:00",
+      "http_status": 200,
+      "response_sha256": "05142d8c87168f0eb0b930f68c8cfd1c0e3e0eff77e57b775bcada3814c821bb",
+      "bytes": 46005,
+      "paging": {
+        "current": 1,
+        "total": 1
+      },
+      "error_keys": [],
+      "row_count": 2,
+      "samples": [
+        {
+          "fixture": {
+            "id": 1570343,
+            "date": "2026-08-22T15:00:00+00:00",
+            "status": {
+              "long": "Match Finished",
+              "short": "FT",
+              "elapsed": 90,
+              "extra": 8
+            },
+            "periods": {
+              "first": 1787410800,
+              "second": 1787414400
+            }
+          },
+          "league": {
+            "id": 140,
+            "season": 2026
+          },
+          "teams": {
+            "home": {
+              "id": 531
+            },
+            "away": {
+              "id": 536
+            }
+          },
+          "goals": {
+            "home": 1,
+            "away": 3
+          },
+          "score": {
+            "halftime": {
+              "home": 0,
+              "away": 1
+            },
+            "fulltime": {
+              "home": 1,
+              "away": 3
+            },
+            "extratime": {
+              "home": null,
+              "away": null
+            },
+            "penalty": {
+              "home": null,
+              "away": null
+            }
+          },
+          "lineups": [
+            {
+              "team": {
+                "id": 531
+              },
+              "startXI": [
+                {
+                  "player": {
+                    "id": 47270,
+                    "pos": "G"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 182181,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 47271,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 183849,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 47273,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 332307,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 437643,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 47294,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 128398,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 30510,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 47291,
+                    "pos": "F"
+                  }
+                }
+              ],
+              "substitutes": [
+                {
+                  "player": {
+                    "id": 312468,
+                    "pos": "G"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 622,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 344838,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 332309,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 336998,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 313025,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 84086,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 47007,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 383780,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 190489,
+                    "pos": "F"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 183799,
+                    "pos": "F"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 287680,
+                    "pos": "F"
+                  }
+                }
+              ]
+            },
+            {
+              "team": {
+                "id": 536
+              },
+              "startXI": [
+                {
+                  "player": {
+                    "id": 557,
+                    "pos": "G"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 119742,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 174927,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 338902,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 11421,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 21004,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 104821,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 546798,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 162126,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 341453,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 327536,
+                    "pos": "F"
+                  }
+                }
+              ],
+              "substitutes": [
+                {
+                  "player": {
+                    "id": 396475,
+                    "pos": "G"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 290686,
+                    "pos": "G"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 195923,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 546857,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 386870,
+                    "pos": "D"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 119795,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 331607,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 546882,
+                    "pos": "M"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 39121,
+                    "pos": "F"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 548842,
+                    "pos": null
+                  }
+                },
+                {
+                  "player": {
+                    "id": 185398,
+                    "pos": "F"
+                  }
+                },
+                {
+                  "player": {
+                    "id": 548686,
+                    "pos": "F"
+                  }
+                }
+              ]
+            }
+          ],
+          "players": [
+            {
+              "team": {
+                "id": 531
+              },
+              "players": [
+                {
+                  "player": {
+                    "id": 47270
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 90,
+                        "number": 1,
+                        "position": "G",
+                        "rating": "4.3",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 3,
+                        "assists": 0,
+                        "saves": 2
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 49,
+                        "key": null,
+                        "accuracy": "29"
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 182181
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 58,
+                        "number": 12,
+                        "position": "D",
+                        "rating": "5.7",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 1,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 22,
+                        "key": 2,
+                        "accuracy": "19"
+                      },
+                      "tackles": {
+                        "total": 1,
+                        "blocks": null,
+                        "interceptions": 1
+                      },
+                      "duels": {
+                        "total": 8,
+                        "won": 4
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 47271
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 90,
+                        "number": 5,
+                        "position": "D",
+                        "rating": "6.6",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 1,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 2,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 54,
+                        "key": 2,
+                        "accuracy": "46"
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": 1,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 12,
+                        "won": 8
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 183849
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 74,
+                        "number": 4,
+                        "position": "D",
+                        "rating": "7.3",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": 1,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 1,
+                        "on": 1
+                      },
+                      "passes": {
+                        "total": 69,
+                        "key": 1,
+                        "accuracy": "61"
+                      },
+                      "tackles": {
+                        "total": 3,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 7,
+                        "won": 7
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 47273
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 11,
+                        "number": 17,
+                        "position": "D",
+                        "rating": "3",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 17,
+                        "key": null,
+                        "accuracy": "14"
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 2,
+                        "won": 1
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 1
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 332307
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 83,
+                        "number": 24,
+                        "position": "M",
+                        "rating": "6.3",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 1,
+                        "on": 1
+                      },
+                      "passes": {
+                        "total": 40,
+                        "key": null,
+                        "accuracy": "33"
+                      },
+                      "tackles": {
+                        "total": 3,
+                        "blocks": null,
+                        "interceptions": 4
+                      },
+                      "duels": {
+                        "total": 12,
+                        "won": 6
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 437643
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 90,
+                        "number": 28,
+                        "position": "M",
+                        "rating": "6.9",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 2,
+                        "on": 2
+                      },
+                      "passes": {
+                        "total": 70,
+                        "key": 3,
+                        "accuracy": "61"
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 14,
+                        "won": 7
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 47294
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 58,
+                        "number": 9,
+                        "position": "M",
+                        "rating": "6.7",
+                        "captain": true,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 2,
+                        "on": 2
+                      },
+                      "passes": {
+                        "total": 12,
+                        "key": 2,
+                        "accuracy": "8"
+                      },
+                      "tackles": {
+                        "total": 1,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 10,
+                        "won": 6
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 128398
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 90,
+                        "number": 8,
+                        "position": "M",
+                        "rating": "6.7",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 2,
+                        "on": 1
+                      },
+                      "passes": {
+                        "total": 36,
+                        "key": 3,
+                        "accuracy": "31"
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": 1
+                      },
+                      "duels": {
+                        "total": 19,
+                        "won": 9
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 30510
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 90,
+                        "number": 7,
+                        "position": "M",
+                        "rating": "6.3",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 1,
+                        "on": 1
+                      },
+                      "passes": {
+                        "total": 48,
+                        "key": 2,
+                        "accuracy": "42"
+                      },
+                      "tackles": {
+                        "total": 1,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 11,
+                        "won": 5
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 47291
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 58,
+                        "number": 11,
+                        "position": "F",
+                        "rating": "6.7",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 2,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 12,
+                        "key": null,
+                        "accuracy": "5"
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 8,
+                        "won": 5
+                      },
+                      "cards": {
+                        "yellow": 1,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 622
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 32,
+                        "number": 14,
+                        "position": "D",
+                        "rating": "7.5",
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 41,
+                        "key": null,
+                        "accuracy": "36"
+                      },
+                      "tackles": {
+                        "total": 3,
+                        "blocks": null,
+                        "interceptions": 1
+                      },
+                      "duels": {
+                        "total": 8,
+                        "won": 5
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 183799
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 32,
+                        "number": 10,
+                        "position": "F",
+                        "rating": "6.9",
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 1,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 19,
+                        "key": null,
+                        "accuracy": "12"
+                      },
+                      "tackles": {
+                        "total": 1,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 7,
+                        "won": 3
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 287680
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 32,
+                        "number": 21,
+                        "position": "F",
+                        "rating": "6.2",
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 5,
+                        "key": null,
+                        "accuracy": "4"
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 2,
+                        "won": 1
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 313025
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 16,
+                        "number": 15,
+                        "position": "D",
+                        "rating": "6.9",
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 11,
+                        "key": null,
+                        "accuracy": "11"
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 1,
+                        "won": 1
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 47007
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 14,
+                        "number": 16,
+                        "position": "M",
+                        "rating": "6.5",
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 12,
+                        "key": null,
+                        "accuracy": "10"
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 3,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 1,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 312468
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 13,
+                        "position": "G",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 336998
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 19,
+                        "position": "D",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 344838
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 31,
+                        "position": "D",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 332309
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 20,
+                        "position": "M",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 383780
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 18,
+                        "position": "M",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 84086
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 23,
+                        "position": "M",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 190489
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 25,
+                        "position": "F",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "team": {
+                "id": 536
+              },
+              "players": [
+                {
+                  "player": {
+                    "id": 557
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 90,
+                        "number": 1,
+                        "position": "G",
+                        "rating": "7.2",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 1,
+                        "assists": 0,
+                        "saves": 6
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 32,
+                        "key": null,
+                        "accuracy": "19"
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 119742
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 90,
+                        "number": 2,
+                        "position": "D",
+                        "rating": "6.9",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 1,
+                        "on": 1
+                      },
+                      "passes": {
+                        "total": 14,
+                        "key": null,
+                        "accuracy": "7"
+                      },
+                      "tackles": {
+                        "total": 2,
+                        "blocks": 1,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 8,
+                        "won": 5
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 174927
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 68,
+                        "number": 12,
+                        "position": "D",
+                        "rating": "6.9",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 38,
+                        "key": 1,
+                        "accuracy": "29"
+                      },
+                      "tackles": {
+                        "total": 1,
+                        "blocks": 1,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 10,
+                        "won": 5
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 338902
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 90,
+                        "number": 5,
+                        "position": "D",
+                        "rating": "7.2",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 46,
+                        "key": 1,
+                        "accuracy": "39"
+                      },
+                      "tackles": {
+                        "total": 1,
+                        "blocks": null,
+                        "interceptions": 1
+                      },
+                      "duels": {
+                        "total": 4,
+                        "won": 3
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 11421
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 90,
+                        "number": 17,
+                        "position": "D",
+                        "rating": "6.6",
+                        "captain": true,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 43,
+                        "key": null,
+                        "accuracy": "34"
+                      },
+                      "tackles": {
+                        "total": 2,
+                        "blocks": null,
+                        "interceptions": 1
+                      },
+                      "duels": {
+                        "total": 10,
+                        "won": 6
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 21004
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 90,
+                        "number": 6,
+                        "position": "M",
+                        "rating": "7.3",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 27,
+                        "key": null,
+                        "accuracy": "21"
+                      },
+                      "tackles": {
+                        "total": 5,
+                        "blocks": 1,
+                        "interceptions": 5
+                      },
+                      "duels": {
+                        "total": 11,
+                        "won": 5
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 104821
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 45,
+                        "number": 18,
+                        "position": "M",
+                        "rating": "6.2",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 16,
+                        "key": null,
+                        "accuracy": "13"
+                      },
+                      "tackles": {
+                        "total": 1,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 8,
+                        "won": 2
+                      },
+                      "cards": {
+                        "yellow": 1,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 546798
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 45,
+                        "number": 30,
+                        "position": "M",
+                        "rating": "7.2",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 1,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 7,
+                        "key": null,
+                        "accuracy": "5"
+                      },
+                      "tackles": {
+                        "total": 2,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 7,
+                        "won": 6
+                      },
+                      "cards": {
+                        "yellow": 1,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 162126
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 45,
+                        "number": 10,
+                        "position": "M",
+                        "rating": "6.2",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 4,
+                        "key": null,
+                        "accuracy": "3"
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 5,
+                        "won": 1
+                      },
+                      "cards": {
+                        "yellow": 1,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 341453
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 78,
+                        "number": 19,
+                        "position": "M",
+                        "rating": "8.2",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": 1,
+                        "conceded": 0,
+                        "assists": 1,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 2,
+                        "on": 1
+                      },
+                      "passes": {
+                        "total": 17,
+                        "key": 1,
+                        "accuracy": "13"
+                      },
+                      "tackles": {
+                        "total": 3,
+                        "blocks": null,
+                        "interceptions": 2
+                      },
+                      "duels": {
+                        "total": 15,
+                        "won": 8
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 327536
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 90,
+                        "number": 9,
+                        "position": "F",
+                        "rating": "5.6",
+                        "captain": false,
+                        "substitute": false
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 7,
+                        "key": 1,
+                        "accuracy": "1"
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 13,
+                        "won": 2
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 546882
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 45,
+                        "number": 27,
+                        "position": "M",
+                        "rating": "6.3",
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 13,
+                        "key": null,
+                        "accuracy": "10"
+                      },
+                      "tackles": {
+                        "total": 1,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 8,
+                        "won": 2
+                      },
+                      "cards": {
+                        "yellow": 1,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 185398
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 45,
+                        "number": 16,
+                        "position": "F",
+                        "rating": "8.2",
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": 1,
+                        "conceded": 0,
+                        "assists": 1,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 1,
+                        "on": 1
+                      },
+                      "passes": {
+                        "total": 7,
+                        "key": 1,
+                        "accuracy": "5"
+                      },
+                      "tackles": {
+                        "total": 1,
+                        "blocks": null,
+                        "interceptions": 1
+                      },
+                      "duels": {
+                        "total": 12,
+                        "won": 6
+                      },
+                      "cards": {
+                        "yellow": 1,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 39121
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 45,
+                        "number": 21,
+                        "position": "F",
+                        "rating": "7.7",
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": 1,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": 1,
+                        "on": 1
+                      },
+                      "passes": {
+                        "total": 7,
+                        "key": null,
+                        "accuracy": "5"
+                      },
+                      "tackles": {
+                        "total": 3,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 9,
+                        "won": 4
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 195923
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 22,
+                        "number": 22,
+                        "position": "D",
+                        "rating": "6.9",
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 3,
+                        "key": null,
+                        "accuracy": "1"
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": 1,
+                        "interceptions": 1
+                      },
+                      "duels": {
+                        "total": 3,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 386870
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": 12,
+                        "number": 3,
+                        "position": "D",
+                        "rating": "6.9",
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": 0,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": 4,
+                        "key": null,
+                        "accuracy": "3"
+                      },
+                      "tackles": {
+                        "total": 1,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": 1,
+                        "won": 1
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 396475
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 13,
+                        "position": "G",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 290686
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 33,
+                        "position": "G",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 546857
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 34,
+                        "position": "D",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 386270
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 37,
+                        "position": "F",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 331607
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 28,
+                        "position": "M",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 119795
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 8,
+                        "position": "M",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "player": {
+                    "id": 548686
+                  },
+                  "statistics": [
+                    {
+                      "games": {
+                        "minutes": null,
+                        "number": 26,
+                        "position": "F",
+                        "rating": null,
+                        "captain": false,
+                        "substitute": true
+                      },
+                      "goals": {
+                        "total": null,
+                        "conceded": 0,
+                        "assists": null,
+                        "saves": null
+                      },
+                      "shots": {
+                        "total": null,
+                        "on": null
+                      },
+                      "passes": {
+                        "total": null,
+                        "key": null,
+                        "accuracy": null
+                      },
+                      "tackles": {
+                        "total": null,
+                        "blocks": null,
+                        "interceptions": null
+                      },
+                      "duels": {
+                        "total": null,
+                        "won": null
+                      },
+                      "cards": {
+                        "yellow": 0,
+                        "red": 0
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "fixture": {
+            "id": 1575469,
+            "date": "2026-09-09T19:45:00+00:00",
+            "status": {
+              "long": "Not Started",
+              "short": "NS",
+              "elapsed": null,
+              "extra": null
+            },
+            "periods": {
+              "first": null,
+              "second": null
+            }
+          },
+          "league": {
+            "id": 94,
+            "season": 2026
+          },
+          "teams": {
+            "home": {
+              "id": 215
+            },
+            "away": {
+              "id": 211
+            }
+          },
+          "goals": {
+            "home": null,
+            "away": null
+          },
+          "score": {
+            "halftime": {
+              "home": null,
+              "away": null
+            },
+            "fulltime": {
+              "home": null,
+              "away": null
+            },
+            "extratime": {
+              "home": null,
+              "away": null
+            },
+            "penalty": {
+              "home": null,
+              "away": null
+            }
+          },
+          "lineups": [],
+          "players": []
+        }
+      ]
+    },
+    {
+      "endpoint": "injuries",
+      "started_at": "2026-09-09T07:20:32.784783+00:00",
+      "received_at": "2026-09-09T07:20:32.902895+00:00",
+      "http_status": 200,
+      "response_sha256": "dde00f7cc6ce25feea55a196d6adb06f90f223d2b19f1d3772ab3afbc0b80c34",
+      "bytes": 5710,
+      "paging": {
+        "current": 1,
+        "total": 1
+      },
+      "error_keys": [],
+      "row_count": 10,
+      "samples": [
+        {
+          "fixture": {
+            "id": 1570343,
+            "date": "2026-08-22T15:00:00+00:00"
+          },
+          "league": {
+            "id": 140,
+            "season": 2026
+          },
+          "team": {
+            "id": 531
+          },
+          "player": {
+            "id": 332305,
+            "type": "Missing Fixture",
+            "reason": "Knee Injury"
+          }
+        },
+        {
+          "fixture": {
+            "id": 1570343,
+            "date": "2026-08-22T15:00:00+00:00"
+          },
+          "league": {
+            "id": 140,
+            "season": 2026
+          },
+          "team": {
+            "id": 531
+          },
+          "player": {
+            "id": 47299,
+            "type": "Missing Fixture",
+            "reason": "Muscle Injury"
+          }
+        },
+        {
+          "fixture": {
+            "id": 1570343,
+            "date": "2026-08-22T15:00:00+00:00"
+          },
+          "league": {
+            "id": 140,
+            "season": 2026
+          },
+          "team": {
+            "id": 531
+          },
+          "player": {
+            "id": 182617,
+            "type": "Missing Fixture",
+            "reason": "Thigh Injury"
+          }
+        },
+        {
+          "fixture": {
+            "id": 1570343,
+            "date": "2026-08-22T15:00:00+00:00"
+          },
+          "league": {
+            "id": 140,
+            "season": 2026
+          },
+          "team": {
+            "id": 531
+          },
+          "player": {
+            "id": 286593,
+            "type": "Missing Fixture",
+            "reason": "Coach's decision"
+          }
+        },
+        {
+          "fixture": {
+            "id": 1570343,
+            "date": "2026-08-22T15:00:00+00:00"
+          },
+          "league": {
+            "id": 140,
+            "season": 2026
+          },
+          "team": {
+            "id": 531
+          },
+          "player": {
+            "id": 182639,
+            "type": "Missing Fixture",
+            "reason": "Inactive"
+          }
+        },
+        {
+          "fixture": {
+            "id": 1570343,
+            "date": "2026-08-22T15:00:00+00:00"
+          },
+          "league": {
+            "id": 140,
+            "season": 2026
+          },
+          "team": {
+            "id": 531
+          },
+          "player": {
+            "id": 47278,
+            "type": "Missing Fixture",
+            "reason": "Hamstring Injury"
+          }
+        },
+        {
+          "fixture": {
+            "id": 1570343,
+            "date": "2026-08-22T15:00:00+00:00"
+          },
+          "league": {
+            "id": 140,
+            "season": 2026
+          },
+          "team": {
+            "id": 536
+          },
+          "player": {
+            "id": 119213,
+            "type": "Missing Fixture",
+            "reason": "Muscle Injury"
+          }
+        },
+        {
+          "fixture": {
+            "id": 1570343,
+            "date": "2026-08-22T15:00:00+00:00"
+          },
+          "league": {
+            "id": 140,
+            "season": 2026
+          },
+          "team": {
+            "id": 536
+          },
+          "player": {
+            "id": 433,
+            "type": "Missing Fixture",
+            "reason": "Foot Injury"
+          }
+        },
+        {
+          "fixture": {
+            "id": 1570343,
+            "date": "2026-08-22T15:00:00+00:00"
+          },
+          "league": {
+            "id": 140,
+            "season": 2026
+          },
+          "team": {
+            "id": 536
+          },
+          "player": {
+            "id": 297311,
+            "type": "Missing Fixture",
+            "reason": "Red Card"
+          }
+        },
+        {
+          "fixture": {
+            "id": 1570343,
+            "date": "2026-08-22T15:00:00+00:00"
+          },
+          "league": {
+            "id": 140,
+            "season": 2026
+          },
+          "team": {
+            "id": 536
+          },
+          "player": {
+            "id": 48471,
+            "type": "Missing Fixture",
+            "reason": "Transfer negotiations"
+          }
+        }
+      ]
+    }
+  ]
+}

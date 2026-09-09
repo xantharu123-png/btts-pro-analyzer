@@ -1,5 +1,73 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Current continuation checkpoint — 9 September 2026
+
+This section supersedes earlier next-task statements, not historical evidence.
+The full new attachment was read; prior spec/worktree/delegation authority
+remains in force. Cricket remains excluded. No model-price or money policy was
+expanded, no prior prediction/ledger was rewritten.
+
+- Current main/GitHub/VPS are exactly `2ba3931dd8cb35f31d2475ae5797d75b44be268e`.
+  This separately reviewed native Tennis schedule-settlement fix passed2022
+  tests/11 expected skips/97 subtests in main plus independent173 focused tests.
+  The trusted updater verified pre/post backups with87 databases each, exact
+  deployed source hash, healthy app/Caddy/local/public health and7 enabled timers.
+  The first subsequent scheduled Wettfinder run10:07:22-10:11:09 CEST completed
+  with exit0,122 model candidates and0 fully confirmed tips. It does not prove
+  quality or fix the external WTA503. Context merged this release in7962322.
+- Context merge `3e9ce2c3e4e7a591a3b22a657fe6cc5cc9aeab06` is pushed and exactly
+  verified through ls-remote. It integrates the independently reviewed B3/B5/
+  B6/B7 and existing UI/main fixes. Root full3281/15/97 included the reviewed
+  B4 worktree bytes, preserved in the subsequent scoped commit. Unrelated
+  outputs and the pinned deployment helper remain untouched.
+- B3 software was independently source-reviewed by Root and rerun:557 passed,
+  4 expected POSIX skips. Approved scoped commit
+  `f876df0588aaed82db4a752e5f23977c6ceb5dc1` was fast-forward integrated.
+  Its 182 new tests include real A1 roundtrips,8 threads,3 processes, corrupt
+  payload/key bindings, stale/future/mismatched evidence and legacy certification.
+  Shared production consumers and complete D4 restore remain future tasks.
+- B4 provenance6726818 and genuine3-process test harness9ddb45f independently
+  read/retested by Root:275 tests green, including UI-before-snapshot order.
+  Integrated in c318224. The harness retains a common start barrier, exactly
+  one callback, all child exits and exact stored/result equality; no skip.
+- Root B4 source/roster/feature/provider/native-receipt mechanics is reviewed.
+  Real sanitized fixture probe:2 governed BACKGROUND GETs,46 player
+  rows/32 known minutes, no historical prematch or complete absence claim.
+  First3 independent revision findings fixed. The further same-membership
+  mixed-content revision attack was reproduced and corrected with whole-team
+  content binding. Empty-collection withdrawal, HTTP3xx/206 admission and
+  direct45min normalizer scope were reproduced and corrected. Final independent
+  review:118 focus/39 additional attacks/459 integration passed,10 source/test
+  SHAs unchanged; Root independently repeated94 including all39 new attacks.
+  Full Root3281/15/97; task-8-final-review-20260909.md preserves the review.
+  Training/empirical/runtime boundaries remain open, not inferred from this.
+- B6 corrected implementationad8f85d passed Root271 tests, including unchanged
+  independent participant-revision attacks, and is integrated in dd6fd38.
+- B5 mathematical-only49e6fae plus independent-review fixes219b6c1 are integrated
+  in ce7f070 after Root source review/390-test recheck. Known target team IDs
+  bind even with unresolved history; B2 stored integer coefficients/scales must
+  be exactly float64-representable. Full original Event/base v2 reference and
+  strict B4 feature version prevent old-feature reuse after schedule changes.
+  Real football training rows/fit/empirical approval/activation remain open.
+- B7 mathematical-onlybf758206 passed final independent rereview:266 plus18
+  new boundary attacks, no findings; original attacks unchanged. Integrated in
+  3e9ce2c, Root674 focused and full3281/15/97. V2 binds full Event/base; strict
+  serve preserves the existing approximation and exact legacy outputs.
+  Neutral effects preserve original market bytes; a sufficiently old terminal
+  receipt may exclude an unknown end from recent windows, using its own exact
+  bounded/partial coverage identity. task-11-final-review-20260909.md preserved.
+- D4 non-destructive rollback and temporary restore/verification implementation
+  is frozen at f8ecf651 for independent review. C1 CPU-only weather/load is
+  frozen at87b2745 for another independent reviewer. No actual weather GET or
+  fitted C1 effect is claimed. No privileged helper changes allowed without
+  a concrete failing test and controller review.
+- C1-C4,D1-D3,D5 and actual numerical injury/fatigue activation remain open;
+  B4/B5/B7/C1/D4 have the limited software/review statuses stated above.
+  Root D1 split_rows now has34 new RED-to-GREEN tests (151 with B1), separately
+  unreviewed; D2 unchanged-statistic extraction is being prepared. Neither is
+  a fitted model, assembled identity-proof dataset or opened final experiment.
+  No wrapper/synthetic test count is an empirical200-event/three-block result.
+
 ## Identity and authority
 
 - User approved written specification on 2026-09-07 and selected execution option 1 (subagents with task review).
