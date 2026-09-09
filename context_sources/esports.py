@@ -13,6 +13,7 @@ from context_models.contracts import (
 from context_models.esports import esports_event, esports_scope, native_identity
 
 SCHEMA = "esports-internal-native-context-v1"
+SUBJECT_VERSION = "esports-native-status-subject-v2"
 KINDS = {"series", "observed_lineup", "lineup", "map", "patch_veto"}
 
 
@@ -130,14 +131,17 @@ def normalize_esports_context(event: dict, responses: tuple[dict, ...], *, obser
             complete = data["patch_id"] is not None and data["veto"] is not None
         valid_until = None if raw["valid_until"] is None else _time(raw["valid_until"])
         payload = {"schema": 1, "source_schema": SCHEMA, "kind": kind, "event": ev, "scope": scope, "status": status, "data": data}
-        identity = digest({"participants": {key: ev[key] for key in ("home_id", "away_id")}, "scope": scope})
+        identity = digest({"version": SUBJECT_VERSION,
+            "participants": {key: ev[key] for key in ("home_id", "away_id")}, "scope": scope,
+            "event_status": ev["status"]})
         subject = ev["event_key"] + ":participants:" + identity
         if kind == "map":
             subject += ":" + data["map_id"]
         b1_kind = "workload" if kind in {"series", "observed_lineup", "map"} else "availability" if kind == "patch_veto" else (
             "confirmed_lineup" if data["status"] == "confirmed" else "expected_lineup")
-        # Distinct fact kinds must not overwrite each other in B1; joint native
-        # participant/scope revisions retain old identity but never old values.
+        # Keep actual native status transitions through B1 latest-selection too:
+        # a later map refresh must not erase an earlier series-end retraction.
+        # These are source-bound identities, never independent caller flags.
         subject += ":fact:" + kind
         output.append(normalize_observation({
             "event_key": ev["event_key"], "sport": "esports", "competition": ev["competition"], "format": ev["format"],

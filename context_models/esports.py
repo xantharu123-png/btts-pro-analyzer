@@ -144,7 +144,8 @@ def _selected(observations, decision, kickoff):
     # Different fact kinds share ONE native event revision. A later lineup
     # cannot leave an old result/map joined to former participants or season.
     # Normal started -> completed status evolution alone does not rewrite a
-    # previously observed map; explicit withdrawals still invalidate old facts.
+    # previously observed map. The reverse transition withdraws terminal series
+    # facts, but does not invent a new end time from a completed individual map.
     def identity(row):
         payload = row["payload"]
         return digest({"event": {key: value for key, value in payload["event"].items() if key != "status"},
@@ -162,10 +163,27 @@ def _selected(observations, decision, kickoff):
         for key, (row, state) in list(selected.items()):
             if key[0] != event_key or key[1] == "event_revision" or row is None:
                 continue
-            if conflict or withdrawn or identity(row) not in identities:
+            # Only a new terminal fact after the actual retraction may restore
+            # its own result/end. Later unrelated completed map/lineup metadata
+            # cannot authenticate an older withdrawn series completion.
+            terminal_retracted = key[1] in {"series", "observed_lineup"} and any(
+                item["payload"]["event"]["status"] == "started" and item["observed_at"] > row["observed_at"]
+                for item in history)
+            # A refreshed series receipt still cannot end before an actually
+            # completed native map belonging to the same event/participants.
+            # Unknown times remain unknown; no map score is an inferred clock.
+            series_end = row["payload"]["data"].get("actual_end") if key[1] == "series" else None
+            inconsistent_end = series_end is not None and any(
+                map_key[0] == event_key and map_key[1] == "map" and item is not None
+                and identity(item) == identity(row) and item["payload"]["status"] == "completed"
+                and item["payload"]["data"]["actual_end"] is not None
+                and item["payload"]["data"]["actual_end"] > series_end
+                for map_key, (item, _) in selected.items())
+            if conflict or withdrawn or terminal_retracted or inconsistent_end or identity(row) not in identities:
                 selected[key] = (None, "conflicting" if not withdrawn else "missing")
                 if key[1] in {"series", "map"} and not withdrawn:
-                    terminal = all(item["payload"]["kind"] in {"series", "map"} and item["payload"]["status"] == "completed" for item in latest)
+                    terminal = not terminal_retracted and not inconsistent_end and all(item["payload"]["kind"] in {"series", "map"} and item["payload"]["status"] == "completed"
+                                   and (key[1] != "series" or item["payload"]["event"]["status"] == "completed") for item in latest)
                     ambiguities.append({"kind": key[1], "teams": {item["payload"]["event"][side] for item in history for side in ("home_id", "away_id")},
                         "upper": max(item["observed_at"] for item in latest) if terminal else None, "proof": tuple(history)})
     return selected, ambiguities
@@ -599,7 +617,7 @@ def _prepare_effect(base, features, artifact, event):
                     if available(root + "_complete_" + side) != 1:
                         raise ContextModelError("observed esports count window is incomplete")
         value = available(name)
-        if not math.isclose(value, available(left) - available(right), rel_tol=0, abs_tol=1e-12):
+        if value != available(left) - available(right):
             raise ContextIntegrityError("esports signed feature does not match its measured components")
         if features["refs"][name] != sorted(set(features["refs"][left]) | set(features["refs"][right])):
             raise ContextIntegrityError("esports signed feature lost source component provenance")
