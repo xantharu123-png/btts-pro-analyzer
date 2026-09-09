@@ -1,8 +1,12 @@
 """Causal tennis load features, without a learned or heuristic fitness effect.
 
-Window v1 is [cutoff - N * 24h, cutoff) in UTC, attributed by actual match END.
+Window arithmetic remains [cutoff - N * 24h, cutoff) in UTC, by actual match END.
+Feature v2 additionally binds the complete original basis and current event;
+planned-start recovery cannot be reused after a schedule/participant revision.
 Only previously received terminal facts are used. Scheduled/tournament dates and
 result receipts cannot place played work inside these performed-load windows.
+A terminal receipt strictly before a window can exclude that old match from
+the window without inventing its exact end; this has its own coverage identity.
 Observed-subset completeness is separate from complete player-history coverage:
 the currently measured source does not establish the latter, even for empty lists.
 """
@@ -19,9 +23,16 @@ from context_observations import factor_state, freshness_policy
 from context_sources.tennis import SOURCE_SCHEMA, validate_workload_record
 
 
-FEATURE_VERSION = "tennis-performed-load-v1"
+FEATURE_VERSION = "tennis-performed-load-v2"
 WINDOWS = (1, 3, 7)
 METRICS = ("sets", "games", "minutes")
+
+
+def tennis_reference_hash(base: dict, event: dict) -> str:
+    """One canonical producer/consumer binding, not a historical-roster hash."""
+    return digest({"version": "tennis-context-reference-v2",
+                   "base_hash": digest(validate_base_distribution(base)),
+                   "event_hash": digest(validate_event(event))})
 
 
 def _instant(value: datetime | str) -> datetime:
@@ -146,8 +157,10 @@ def tennis_features(event: dict, observations: tuple[dict, ...], base: dict, *, 
         states[name] = state or ("missing" if value is None else "available")
         refs[name] = sorted({row["digest"] for row in used}) if states[name] == "available" else []
 
-    applicable = event["status"] == "scheduled" and event["format"] == "singles" and event.get("tour") in {"ATP", "WTA"}
-    side_names, coverage_rows = [], []
+    applicable = (event["status"] == "scheduled"
+                  and event["format"] in {"singles", "singles_best_of_3", "singles_best_of_5"}
+                  and event.get("tour") in {"ATP", "WTA"})
+    side_names, coverage_rows, bounded_unknown_sides = [], [], []
     for side, player in (("a", event["home_id"]), ("b", event["away_id"])):
         rows = [row for row in usable if row["subject_id"] == player and row["payload"]["tour"] == event.get("tour")
                 and row["event_key"] != event["event_key"]] if applicable else []
@@ -155,14 +168,15 @@ def tennis_features(event: dict, observations: tuple[dict, ...], base: dict, *, 
         if blocked:
             rows = []
         coverage_rows.extend(rows)
-        # Unknown end times may belong to any window, so they cannot make the
-        # observed subset's window coverage complete or become exact rest.
+        # A terminal result supplies only an end UPPER bound. It may exclude a
+        # match from a later window, but never locate it inside that window.
         known_times = [row for row in rows if row["payload"]["actual_end"] is not None]
         unknown_times = [row for row in rows if row["payload"]["actual_end"] is None]
         for days in WINDOWS:
             start = canonical_timestamp(decision - timedelta(days=days))
             stop = canonical_timestamp(decision)
             window = [row for row in known_times if start <= row["payload"]["actual_end"] < stop]
+            uncertain_window = any(row["payload"]["result_observed_at"] >= start for row in unknown_times)
             for metric in METRICS:
                 measured = [row for row in window if row["payload"][metric] is not None]
                 name = f"observed_{metric}_{days}d"
@@ -171,7 +185,7 @@ def tennis_features(event: dict, observations: tuple[dict, ...], base: dict, *, 
                 # exists. Empty incomplete history is not evidence for zero.
                 total = sum(row["payload"][metric] for row in measured) if measured else None
                 put(f"{name}_{side}", total, measured, blocked)
-                complete = int(bool(window) and len(measured) == len(window) and not unknown_times) if rows else None
+                complete = int(bool(window) and len(measured) == len(window) and not uncertain_window) if rows else None
                 put(f"observed_{metric}_complete_{days}d_{side}", complete, rows, blocked)
             put(f"observed_matches_{days}d_{side}", len(window) if window else None, window, blocked)
             put(f"incomplete_matches_{days}d_{side}", sum(row["payload"]["incomplete_match"] for row in window) if window else None, window, blocked)
@@ -180,7 +194,17 @@ def tennis_features(event: dict, observations: tuple[dict, ...], base: dict, *, 
         if rows:
             latest_receipt = max(_instant(row["payload"]["result_observed_at"]) for row in rows)
             latest_end = max((_instant(row["payload"]["actual_end"]) for row in known_times), default=None)
-            exact_end = latest_end if not unknown_times else None
+            # A known latest end remains exact only if NO unknown end can
+            # overtake it. Equality is safe for latest-end identity, unlike the
+            # inclusive lower edge of a performed-load window above.
+            exact_end = latest_end if latest_end is not None and all(
+                _instant(row["payload"]["result_observed_at"]) <= latest_end for row in unknown_times
+            ) else None
+            if unknown_times:
+                bounded_unknown_sides.append(exact_end is not None and all(
+                    _instant(row["payload"]["result_observed_at"]) < decision-timedelta(days=max(WINDOWS))
+                    for row in unknown_times
+                ))
             bounds = recovery_bounds(next_start=next_start, result_observed_at=latest_receipt, ended_at=exact_end)
         else:
             bounds = {"minimum_hours": None, "exact_hours": None}
@@ -210,9 +234,13 @@ def tennis_features(event: dict, observations: tuple[dict, ...], base: dict, *, 
     known_end_count = sum(row["payload"]["actual_end"] is not None for row in coverage_rows)
     timing = "no-history" if not coverage_rows else "missing-end-times" if not known_end_count else (
         "known-end-times" if known_end_count == len(coverage_rows) else "partial-end-times")
+    if bounded_unknown_sides and all(bounded_unknown_sides):
+        # This is NOT all-known timing or complete history. D1/D2 must test the
+        # distinct bounded-exclusion population before activating its effect.
+        timing = "bounded-irrelevant-end-times"
     return validate_feature_vector({
         "version": FEATURE_VERSION, "event_key": event["event_key"], "cutoff": canonical_timestamp(decision),
         "values": values, "states": states, "refs": refs,
         "coverage": {"version": "tennis-performed-load-coverage-v1", "case": f"observed-only.{rest}.{timing}"},
-        "reference_hash": digest({"history_refs": base["history_refs"], "reference_weights": base["reference_weights"]}),
+        "reference_hash": tennis_reference_hash(base, event),
     })
