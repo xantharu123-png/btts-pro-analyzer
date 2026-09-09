@@ -56,6 +56,11 @@ def _feature_binding(ev, original, feats, preprocessing_refs):
             raise ContextContractError("hockey v1 has no named preprocessing contract")
         expected = digest({"version": "hockey-context-reference-v1", "base_hash": digest(original),
             "event_hash": digest(ev), "preprocessing_artifacts": {}})
+    elif pair == ("esports:series:winner", "esports-native-participation-load-v1"):
+        if preprocessing_refs:
+            raise ContextContractError("esports v1 has no named preprocessing contract")
+        expected = digest({"version": "esports-context-reference-v1", "base_hash": digest(original),
+            "event_hash": digest(ev), "preprocessing": []})
     else:
         raise ContextContractError("owning worker feature reference is not yet connected")
     if feats["reference_hash"] != expected:
@@ -164,6 +169,9 @@ def _comparison(ev, original, feats, artifact):
     if family == "ice_hockey:regulation_goals":
         from context_models.ice_hockey import apply_hockey_effect
         return apply_hockey_effect(original, feats, artifact, event=ev)
+    if family == "esports:series:winner":
+        from context_models.esports import apply_esports_effect
+        return apply_esports_effect(original, feats, artifact, event=ev)
     raise ContextContractError("owning worker comparison family is not yet connected")
 
 
