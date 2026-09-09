@@ -99,6 +99,9 @@ def calibration_recipe(curve):
         issues = set()
         if type(curve.points) not in (tuple, list) or type(curve.samples) is not int:
             return {"kind": "unsupported-callable"}
+        # Samples are ancillary to __call__, but must obey the same numeric
+        # capture boundary as points; huge integers cannot enter recipe JSON.
+        samples = _scalar(curve.samples, issues)
         points = []
         for point in curve.points:
             if (type(point) not in (tuple, list) or len(point) != 2
@@ -107,7 +110,7 @@ def calibration_recipe(curve):
             points.append([_scalar(value, issues) for value in point])
         if issues:
             return {"kind": "unsupported-callable"}
-        return {"kind": "legacy-market-calibration-v1", "points": points, "samples": curve.samples}
+        return {"kind": "legacy-market-calibration-v1", "points": points, "samples": samples}
     if type(curve) is ConservativeMarketCalibration:
         if type(curve.source_curves) is not tuple:
             return {"kind": "unsupported-callable"}
