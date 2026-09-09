@@ -295,9 +295,16 @@ def _resolve_input(raw, *, index, sport, components, lookup):
         by_clock[row["observed_at"]].append(row)
     matched, conflicts, missing_core = [], set(), set()
     for row in relevant:
-        if row["payload"]["projection"]["issues"] or len({_signature(other) for other in by_clock[row["observed_at"]]}) != 1:
-            continue
         missing, different, unavailable = _compare(raw, row, index=index)
+        if row["payload"]["projection"]["issues"] or len({_signature(other) for other in by_clock[row["observed_at"]]}) != 1:
+            # Partial/ambiguous facts remain unusable, but a separately known
+            # wrong participant must not disappear behind the unknown side.
+            known_identity_conflict = different & {"native-participants-conflict"}
+            conflicts.update(known_identity_conflict)
+            missing_core.update(unavailable & {"native-participants-unavailable"})
+            if row["observed_at"] == current[0]["observed_at"]:
+                reasons.update(known_identity_conflict)
+            continue
         conflicts.update(different)
         missing_core.update(unavailable)
         if not different and not unavailable:
