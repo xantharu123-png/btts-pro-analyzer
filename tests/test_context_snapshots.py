@@ -1,12 +1,17 @@
 """CPU-only synthetic B3 mechanics; these fixtures are not model approvals."""
 
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
+import json
+import os
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 from threading import Barrier
+from time import monotonic
 from types import SimpleNamespace
 
 import pytest
@@ -414,18 +419,87 @@ def test_basis_and_result_mutation_do_not_change_prior_snapshot(tmp_path):
     assert previous["feature_refs"]["load_difference"] == [REF]
 
 
-def _process_calculate(args):
-    path, sentinel = args
-    return compute_once(Path(path), "a" * 64, lambda: {"worker": sentinel})
-
-
 def test_independent_processes_share_the_same_first_calculation(tmp_path):
+    # Streamlit AppTest can replace sys.modules['__main__'] with a generated
+    # renderer. Spawn must not recycle that unrelated script. Each interpreter
+    # gets its own explicit, CPU-only bootstrap and the actual repository.
+    child_code = """
+import json
+import os
+from pathlib import Path
+import sys
+from context_snapshots import compute_once
+
+sentinel = int(sys.argv[2])
+calls = []
+def calculate():
+    calls.append(sentinel)
+    return {"worker": sentinel}
+
+print(json.dumps({"ready": True, "pid": os.getpid(), "worker": sentinel}), flush=True)
+if sys.stdin.readline() != "go\\n":
+    raise RuntimeError("missing common start barrier")
+result = compute_once(Path(sys.argv[1]), "a" * 64, calculate)
+print(json.dumps({"result": result, "callbacks": len(calls)}), flush=True)
+"""
     path = tmp_path / "models.db"
-    with ProcessPoolExecutor(max_workers=3) as pool:
-        results = list(pool.map(_process_calculate, ((str(path), number) for number in range(3))))
-    assert len({result["worker"] for result in results}) == 1
+    repo = Path(__file__).resolve().parents[1]
+    environment = dict(os.environ, PYTHONPATH=str(repo))
+    # Windows venv python.exe may be a launcher that creates another process.
+    # This stdlib-only kernel uses the same real interpreter directly, so its
+    # PID and timeout cleanup belong to the exact Popen child we own.
+    interpreter = getattr(sys, "_base_executable", sys.executable) or sys.executable
+    processes = []
+    readers = ThreadPoolExecutor(max_workers=3)
+    try:
+        # All three processes are alive and waiting at the barrier before ANY
+        # first write is allowed. No sleeps or scheduler timing assumptions.
+        for number in range(3):
+            processes.append(subprocess.Popen(
+                [interpreter, "-B", "-u", "-c", child_code, str(path), str(number)],
+                cwd=repo, env=environment, text=True,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            ))
+        ready_reads = [readers.submit(process.stdout.readline) for process in processes]
+        deadline = monotonic() + 30
+        for number, (process, ready) in enumerate(zip(processes, ready_reads)):
+            payload = json.loads(ready.result(timeout=max(.01, deadline - monotonic())))
+            assert payload == {"ready": True, "pid": process.pid, "worker": number}
+        assert len({process.pid for process in processes}) == 3
+        assert not path.exists(), "a child calculated before the common start barrier"
+        for process in processes:
+            process.stdin.write("go\n")
+            process.stdin.flush()
+        deadline = monotonic() + 30
+        completed = [process.communicate(timeout=max(.01, deadline - monotonic())) for process in processes]
+        reports = []
+        for process, (stdout, stderr) in zip(processes, completed):
+            assert process.returncode == 0, stderr
+            assert stderr == ""
+            reports.append(json.loads(stdout))
+        assert all(set(report) == {"result", "callbacks"} for report in reports)
+        assert all(type(report["callbacks"]) is int and report["callbacks"] in (0, 1) for report in reports)
+        assert sum(report["callbacks"] for report in reports) == 1
+        winner = next(number for number, report in enumerate(reports) if report["callbacks"] == 1)
+        assert all(report["result"] == {"worker": winner} for report in reports)
+    finally:
+        # Only these three owned test children are eligible for cleanup.
+        for process in processes:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+            for pipe in (process.stdin, process.stdout, process.stderr):
+                if pipe is not None:
+                    pipe.close()
+        readers.shutdown(wait=True, cancel_futures=True)
     with sqlite3.connect(path) as con:
         assert con.execute("SELECT COUNT(*) FROM context_snapshots").fetchone()[0] == 1
+        stored = con.execute("SELECT payload FROM context_snapshots").fetchone()[0]
+        assert json.loads(stored) == {"worker": winner}
 
 
 def test_a1_path_guard_rejects_symlink_before_callback_or_creation(tmp_path, monkeypatch):
