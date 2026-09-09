@@ -31,6 +31,8 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
+from tennis.context_consumer import load_tennis_winner_context
+
 from riskobet_domain import (
     ContextState,
     EvidenceStage,
@@ -1101,12 +1103,26 @@ def adapt_tennis_shadow(
         player_b = _clean_text(row["player_b"])
         if p_a is None or not player_a or not player_b or player_a.casefold() == player_b.casefold():
             continue
+        shared = load_tennis_winner_context(row)
+        if shared is not None:
+            p_a = shared["base_probabilities"]["A"]
         p_b = 1.0 - p_a
-        if math.isclose(p_a, p_b, abs_tol=1e-12):
+        base_tied = math.isclose(p_a, p_b, abs_tol=1e-12)
+        if base_tied and shared is None:
             continue
         underdog_side = "home" if p_a < p_b else "away"
         underdog = player_a if underdog_side == "home" else player_b
         p_underdog = min(p_a, p_b)
+        # Sets retain their owning original simulation/orientation. This one
+        # shared reference describes the WINNER only; it certifies no market.
+        winner_side, winner_underdog, winner_probability = underdog_side, underdog, p_underdog
+        winner_tied = base_tied
+        if shared is not None:
+            winner_a, winner_b = shared["probabilities"]["A"], shared["probabilities"]["B"]
+            winner_tied = math.isclose(winner_a, winner_b, abs_tol=1e-12)
+            winner_side = "home" if winner_a < winner_b else "away"
+            winner_underdog = player_a if winner_side == "home" else player_b
+            winner_probability = min(winner_a, winner_b)
         markets = _load_json_object(row["markets_json"])
         tournament = _clean_text(row["tournament"] if "tournament" in row.keys() else "")
         competition = tournament or _clean_text(row["tour"] if "tour" in row.keys() else "") or "Tennis"
@@ -1139,10 +1155,15 @@ def adapt_tennis_shadow(
             "model_revision_id": row.get("model_revision_id"),
             "context": _without_prices(_load_json_object(row.get("context_json"))),
         }
+        if shared is not None:
+            input_payload["winner_context"] = {"family": "tennis:winner",
+                "reference": shared["context_ref"].to_dict(),
+                "base_probabilities": shared["base_probabilities"], "used_probabilities": shared["probabilities"]}
         factor = _shadow_factor(
             key="tennis_calibrated_match_model",
             summary=(
-                f"Kalibriertes Sieger-Modell plus Satzsimulation; Außenseiter {p_underdog:.1%}."
+                f"Kalibriertes Sieger-Modell plus Satzsimulation; Außenseiter {p_underdog:.1%}." if shared is None else
+                f"Siegermodell: {winner_underdog} {winner_probability:.1%}. Satzmärkte aus separater, unveränderter Simulation."
             ),
             source="tennis_shadow.predictions",
             observed_at=observed_at,
@@ -1189,6 +1210,7 @@ def adapt_tennis_shadow(
             model_version=model_version,
             input_hash=canonical_input_hash(input_payload),
             factors=(factor, identity_factor, *workload_factors),
+            context_ref=shared["context_ref"] if shared is not None else None,
         )
         options: list[tuple[float, str, str, float, float, str, str]] = []
         # (weighted score, market key, label, p, haircut, pro, con)
@@ -1203,7 +1225,8 @@ def adapt_tennis_shadow(
         # A simple 1+ set card needs an additional matchup signal.  The
         # independently simulated probability of a deciding set is that signal.
         if (
-            at_least_one is not None
+            not base_tied
+            and at_least_one is not None
             and TENNIS_SIDE_MIN_PROBABILITY <= at_least_one <= TENNIS_SIMPLE_MAX_PROBABILITY
             and over_25 is not None
             and over_25 >= 0.40
@@ -1236,14 +1259,15 @@ def adapt_tennis_shadow(
             )
         chosen_side = max(options, key=lambda item: (item[0], item[1]), default=None)
         base_specs: list[tuple[str, str, float, float, str, str]] = []
-        if p_underdog >= TENNIS_WIN_MIN_PROBABILITY:
+        if not winner_tied and winner_probability >= TENNIS_WIN_MIN_PROBABILITY:
             base_specs.append((
                 "match_winner",
                 "Außenseitersieg",
-                p_underdog,
+                winner_probability,
                 0.15,
-                f"Das kalibrierte Matchmodell gibt {underdog} {p_underdog:.1%} Siegchance.",
-                "Belag ist modelliert. Akute Fitness, Verletzungen und Belastung sind noch nicht als numerischer Effekt validiert.",
+                f"Das kalibrierte Matchmodell gibt {winner_underdog} {winner_probability:.1%} Siegchance.",
+                (shared["summaries"]["A" if winner_side == "home" else "B"] if shared is not None else
+                 "Belag ist modelliert. Akute Fitness, Verletzungen und Belastung sind noch nicht als numerischer Effekt validiert."),
             ))
         if chosen_side is not None:
             base_specs.append(chosen_side[1:])
@@ -1257,8 +1281,8 @@ def adapt_tennis_shadow(
                 starts_at=starts_at,
                 market_key=spec[0],
                 market_label=spec[1],
-                selection_key=("over" if spec[0] == "over_2_5_sets" else underdog_side),
-                selection_label=("Über 2,5 Sätze" if spec[0] == "over_2_5_sets" else underdog),
+                selection_key=("over" if spec[0] == "over_2_5_sets" else winner_side if spec[0] == "match_winner" else underdog_side),
+                selection_label=("Über 2,5 Sätze" if spec[0] == "over_2_5_sets" else winner_underdog if spec[0] == "match_winner" else underdog),
                 model_probability=spec[2],
                 cautious_probability=max(0.0, spec[2] - spec[3]),
                 stage=EvidenceStage.SHADOW,
@@ -1268,7 +1292,7 @@ def adapt_tennis_shadow(
                 cons=(spec[5],),
                 settlement_contract=(
                     f"riskobet-settlement-v1:tennis:{spec[0]}:"
-                    f"{'over' if spec[0] == 'over_2_5_sets' else underdog_side}"
+                    f"{'over' if spec[0] == 'over_2_5_sets' else winner_side if spec[0] == 'match_winner' else underdog_side}"
                 ),
             )
             for spec in base_specs

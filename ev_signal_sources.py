@@ -32,6 +32,7 @@ from market_consensus import (
 )
 from scan_jobs import JOBS_DIR, load_persisted
 from tennis.predict import WINNER_PROBABILITY_HAIRCUT
+from tennis.context_consumer import load_tennis_winner_context
 from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION, latest_predictions
 
 TENNIS_DB = Path(__file__).resolve().parent / "tennis" / "data" / "tennis_shadow.db"
@@ -357,14 +358,16 @@ def tennis_signals(
             continue
         if not _valid_probability(row["p_cal"]):
             continue
-        p_a = float(row["p_cal"])
+        shared = load_tennis_winner_context(row)
+        p_a = shared["probabilities"]["A"] if shared is not None else float(row["p_cal"])
         detail = (
             f"Tennis-Shadow · {row['tour']} · {row['tournament']} · "
             f"{row['match_date']} · Policy {TENNIS_POLICY_VERSION}"
         )
         side = row["recommended_side"]
         player = row["player_a"] if side == "A" else row["player_b"]
-        probability = p_a if side == "A" else 1.0 - p_a
+        probability = (shared["probabilities"][side] if shared is not None
+                       else p_a if side == "A" else 1.0 - p_a)
         minimum_odds = _minimum_odds(
             probability,
             WINNER_PROBABILITY_HAIRCUT,
@@ -392,7 +395,8 @@ def tennis_signals(
                 modeled_at=_tennis_model_clock(row),
                 input_cutoff_at=_tennis_model_clock(row),
                 model_version=TENNIS_MODEL_VERSION,
-                context_summary=_tennis_context_summary(row),
+                context_summary=shared["summaries"][side] if shared is not None else _tennis_context_summary(row),
+                context_ref=shared["context_ref"] if shared is not None else None,
                 sport="Tennis",
                 event_label=f"{row['player_a']} vs {row['player_b']}",
                 market="Match Winner",
@@ -446,12 +450,14 @@ def tennis_model_signals(
             )
         ):
             continue
-        p_a = float(row["p_cal"])
+        shared = load_tennis_winner_context(row)
+        p_a = shared["probabilities"]["A"] if shared is not None else float(row["p_cal"])
         side = "A" if p_a > 0.5 else "B" if p_a < 0.5 else None
         if side is None:
             continue
         player = row["player_a"] if side == "A" else row["player_b"]
-        probability = p_a if side == "A" else 1.0 - p_a
+        probability = (shared["probabilities"][side] if shared is not None
+                       else p_a if side == "A" else 1.0 - p_a)
         minimum_odds = _minimum_odds(
             probability,
             WINNER_PROBABILITY_HAIRCUT,
@@ -482,7 +488,8 @@ def tennis_model_signals(
                 modeled_at=_tennis_model_clock(row),
                 input_cutoff_at=_tennis_model_clock(row),
                 model_version=TENNIS_MODEL_VERSION,
-                context_summary=_tennis_context_summary(row),
+                context_summary=shared["summaries"][side] if shared is not None else _tennis_context_summary(row),
+                context_ref=shared["context_ref"] if shared is not None else None,
                 sport="Tennis",
                 event_label=f"{row['player_a']} vs {row['player_b']}",
                 market="Match Winner",
