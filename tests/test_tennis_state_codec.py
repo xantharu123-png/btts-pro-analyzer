@@ -443,6 +443,9 @@ def test_legacy_pickle_load_applies_new_in_memory_defaults(tmp_path):
     del state.artifact_hash
     path = tmp_path / "legacy.pkl"
     path.write_bytes(pickle.dumps(state))
+    # A valid legacy fixture retains the loader's private-file boundary even
+    # on hosts whose default umask allows group writes.
+    path.chmod(0o600)
 
     loaded = load_state(path)
 

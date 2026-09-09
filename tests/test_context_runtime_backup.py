@@ -223,10 +223,14 @@ def test_real_stage_archive_restore_preserves_tours_receipts_and_b3_bytes(tmp_pa
     # Only the one already verified EXPECTED member is restored to a new tree;
     # no extractall(), member-driven destination, overwrite or productive root.
     restored = tmp_path / "restored" / "runtime_state" / "context_models.db"
-    restored.parent.mkdir(parents=True)
+    # Explicit private restoration, independent of the host's ordinary 0002
+    # umask. Do not relax the verifier to accept group-writable test fixtures.
+    restored.parent.parent.mkdir(mode=0o700)
+    restored.parent.mkdir(mode=0o700)
     with zipfile.ZipFile(archive) as zipped:
         assert zipped.namelist() == ["runtime_state/context_models.db"]
-        with restored.open("xb") as target:
+        descriptor = os.open(restored, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as target:
             target.write(zipped.read("runtime_state/context_models.db"))
     after = verify_context_database(restored)
     assert after["active_manifest"] == current
@@ -822,7 +826,9 @@ def test_sealed_image_rejects_even_empty_companions(tmp_path, suffix):
 
     path = tmp_path / "models.db"
     seeded(path)
-    Path(str(path)+suffix).write_bytes(b"")
+    companion = Path(str(path)+suffix)
+    companion.write_bytes(b"")
+    companion.chmod(0o600)
     before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
     with pytest.raises(RuntimeArtifactTrustError, match="sealed stage"):
         verify_context_database(path)

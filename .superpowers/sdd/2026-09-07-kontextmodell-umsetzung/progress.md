@@ -15,11 +15,11 @@ expanded, no prior prediction/ledger was rewritten.
   The first subsequent scheduled Wettfinder run10:07:22-10:11:09 CEST completed
   with exit0,122 model candidates and0 fully confirmed tips. It does not prove
   quality or fix the external WTA503. Context merged this release in7962322.
-- Context merge `0d000f6d8d85a4ada11521398ca1e4b82c88fd2d` is pushed and exactly
-  verified through ls-remote. It includes reviewed B3-B7, B4 sources4672c6a,
-  D1 split/config/native-outcome identity contracts and C1 corrected mechanics.
-  Root full3752/15/97 includes the final independently reviewed D2 math plus
-  separately still-unreviewed experiment-registry WIP. It is not a D2 empirical
+- Context D2 math commit `9b46c27df02a5037b9d729f958daa44b0bdcaf94` is pushed and
+  exactly verified through ls-remote. Current reviewed D4 merge is
+  `dfcc6d357c536e4390322c1267bc26957663ddbd`; registry and Linux fixture evidence
+  below are the next scoped commits. Root full3865/18/97 includes final reviewed
+  D2 math/registry, D4 and corrected private Linux fixtures. It is not a D2 empirical
   approval or a main/VPS context release. Unrelated outputs and pinned helper
   bytes remain untouched.
 - B3 software was independently source-reviewed by Root and rerun:557 passed,
@@ -62,21 +62,28 @@ expanded, no prior prediction/ledger was rewritten.
   original37 attacks +163 permanent+29 new independent cases pass, reviewer
   full3170/15/97; Root439 integrated checks. task-12-final-review-20260909.md
   preserves evidence. Real weather/source, fitted C1 effects and runtime stay open.
-- D4 corrections frozen at3df419d, after two independent findings. Its second
-  review is running. Source reads now use only an in-memory SQLite image;
+- D4 corrections3df419d independently approved and merged indfcc6d. Source
+  reads now use only an in-memory SQLite image;
   original source/sidecars remain unmodified, controlled input cap64MiB.
-  Existing isolated VPS QA Python3.12.3/SQLite3.45.1 has deserialize; this is
-  only a capability check, not the pending Linux restore/integrity execution.
+  Actual isolated Linux QA Python3.12.3/SQLite3.45.1/pytest9.1.1, non-root ubuntu
+  and ordinary umask0002: original5failed/429passed from permissive test fixtures,
+  then434passed/0skips on unchanged product bytes and explicit private fixtures.
+  Independent fixture review150passed/3Windows-skips, no findings; both exact
+  source/helper hashes unchanged. Full proof in2026-09-09-d4-linux-restore.md.
+  D2 semantic/D3 input/deploy integration remain separate.
 - C1-C4,D1-D3,D5 and actual numerical injury/fatigue activation remain open;
   B4/B5/B7/C1/D4 have the limited software/review statuses stated above.
   D1 split reviewed47 incl13 independent, config ea511ba/ea511a2 reviewed445,
   native outcome/global map3322470 with Serve consistency2fd9c72 reviewed by
   Root;124 identity/outcome/config/registry checks pass. Actual replay/case/fit
-  remains with worker_failures in kontext-d1-training-20260909.
-  D2 math finally reviewed246 incl107 unchanged independent attacks; its
-  extraction and paired metrics are the scoped pending Root commit. Freeze/open
-  registry is separate40-test green WIP, unreviewed/uncommitted. C2 basketball
-  preflight is running in kontext-c2-basketball-20260909 under b6; no C2 source
+  is frozen b74e2ab in kontext-d1-training-20260909 for independent review,
+  implementer full3463/15/97; no real causal Tennis or participation fit claimed.
+  D2 math finally reviewed246 incl107 unchanged independent attacks and committed
+  9b46c27. Registry had two P2 findings/six REDs, corrected and independently
+  approved136 incl76 independent probes; Root136 rerun also green. Complete
+  task-17-registry-final-review-20260909.md is preserved byte-identically.
+  C2 basketball implementation follows approved preflight/rulings under b6;
+  separate D3 read-only preflight is with worker_failures. No C2 source
   request or production edit. C3/C4/D3/D5 are not completed by these mechanics.
   No wrapper/synthetic test count is an empirical200-event/three-block result.
 
