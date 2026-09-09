@@ -249,10 +249,15 @@ def export_hockey_base(target, history, cutoff, *, context_event, scope=None):
         or event["event_key"] != "nhl:ice_hockey:"+identity.event_id
         or canonical_timestamp(identity.start) != event["scheduled_start"] or event["status"] != "scheduled"):
         raise ContextIntegrityError("known original NHL event/schedule does not match context")
+    if identity.variant != str(FORMATS[event["format"]]):
+        raise ContextIntegrityError("known original NHL game type differs from context format")
     for side in ("home", "away"):
-        raw_team = target.get(side+"_team_id")
-        if type(raw_team) in (int, str) and re.fullmatch(r"[1-9][0-9]*", str(raw_team)):
-            if event[side+"_id"] != "nhl:ice_hockey:team:"+str(raw_team):
+        # Bind the ID actually selected by the unchanged legacy precedence,
+        # including team1_id/team2_id. Names never establish a native join;
+        # this contradiction guard does not certify missing roster provenance.
+        model_team = re.fullmatch(r"id:([1-9][0-9]*)", getattr(identity, side))
+        if model_team is not None:
+            if event[side+"_id"] != "nhl:ice_hockey:team:"+model_team.group(1):
                 raise ContextIntegrityError("known original NHL team orientation differs")
     reference, refs = {"schema": 1, "kind": "unavailable", "reason": "unqualified-native-hockey-reference"}, []
     try:
@@ -373,7 +378,11 @@ def _selection(observations, decision, kickoff):
         row = next(iter(latest.values()))
         status = state(row)
         selected[key] = (row if status == "available" else None, status, proof)
-        if key[1] == "appearance" and row["payload"]["status"] != "cancelled":
+        # Only an effective cancellation can withdraw participation. A stale
+        # or future-valid correction remains uncertainty for every prior/new
+        # participant; do not resurrect older play or invent a terminal bound.
+        effective_cancellation = row["payload"]["status"] == "cancelled" and status == "available"
+        if key[1] == "appearance" and not effective_cancellation:
             old_teams = {old["payload"]["event"][side] for old in history for side in ("home_id", "away_id")}
             current_teams = {row["payload"]["event"][side] for side in ("home_id", "away_id")}
             if status != "available" or (not row["complete"] and old_teams != current_teams):
