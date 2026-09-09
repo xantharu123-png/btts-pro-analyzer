@@ -73,8 +73,13 @@ def _previous_prematch_observations(path):
             return watched  # A legitimate A1-only database stays untouched.
         if tables != {"context_observations", "context_contents"}:
             raise ContextIntegrityError("incomplete stored context observation tables")
-        for stored in connection.execute(_SELECT + " WHERE r.source='api-football' AND r.kind='base_fixture'"):
+        # Source/kind indexes are not trusted until the actual content has been
+        # decoded and bound. Otherwise a changed index can hide a corrupt watch
+        # as missing while another watch publishes new results into that DB.
+        for stored in connection.execute(_SELECT):
             row = _decode_receipt(stored)
+            if row["source"] != "api-football" or row["kind"] != "base_fixture":
+                continue
             # Owning validation requires B1's selected-row shape. This is the
             # actual receipt clock, not an archival publication or live cutoff;
             # both prematch and later-result bounds are checked separately.

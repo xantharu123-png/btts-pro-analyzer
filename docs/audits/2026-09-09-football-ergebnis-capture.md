@@ -91,3 +91,36 @@ noch ausstehend. Synthetische native Antworten belegen Softwaremechanik, keine
 neue Live-Erhebung oder empirisch bessere Wetten. Insbesondere fehlen weiterhin
 ausreichende unverfälschte Daten, native CSV-/Spielerjoins und vollständige
 gemeinsame Worker-/Kartenanbindung. Cricket und Geldregeln bleiben unverändert.
+
+## Unabhängiger Befund F1 und enger Fix
+
+Die unabhängige Prüfung von `684865e583bcf4377df588aaa911b23832f23e57`
+hat einen echten P2-Befund reproduziert: ein beschädigter Source-/Kind-Index
+konnte durch die frühe SQL-Selektion als fehlender Watch verschwinden. Bei
+einem zweiten gültigen Watch wurden sogar weitere Ergebnisbelege gespeichert,
+obwohl die vorhandene Datenbank beschädigt war. Originalbericht und sechs
+unveränderte RED-Proben werden erhalten; die 426 grünen Bestandsprüfungen
+waren kein Gegenbeweis. Zwei zusätzliche Defekt-Witnesses sind ausdrücklich
+Schadensnachweise, keine Reparaturtests.
+
+Der Fix entfernt nur den vorgeschalteten SQL-Filter. Jede tatsächliche B1-Zeile
+wird zunächst mit `_decode_receipt` auf Typen, Hash und Index-/Inhaltsbindung
+geprüft; erst danach werden Source/Kind/Schema ausgewählt. Die vollständige
+Prüfung läuft vor jeglicher neuer Ergebnisveröffentlichung. Dies bleibt ein
+owning Live-Capture-Reader und wird nicht als label-freier D2-Preflight benutzt.
+Quellen, B1-Schema, Wettmodelle und Preis-/Geldregeln bleiben unverändert.
+
+Acht neue permanente Wiederholungen (vier Indexänderungen jeweils mit/ohne
+zweiten gültigen Watch) ergaben vor dem Fix **8 RED**, danach mit den sechs
+unveränderten unabhängigen Reparaturerwartungen und allen vorhandenen
+Fokusfällen **496 bestanden, 0 Skips, 10,18s**. Die neuen Fälle prüfen die
+Unverändertheit beider SQLite-Tabellen nach dem korrekt propagierten Fehler.
+Unabhängiges Nachreview und integrierte Vollsuite stehen noch aus.
+
+```text
+fa4adf76c31fb1fa84f2296f8ba735ca0877fc3d181ff7c62ce53e51a3faccec  context_sources/football_capture.py
+1475c0074d3ecee12157ed2770de84c54b32afbb3cd8dae0ceebbd86b17d16af  tests/test_context_football_result_capture.py
+5fa0c50f9fd7313574c56c07a76e2ca2def9896928bfb1c87660a67475dcb528  .pytest_tmp/result-capture-index-red-20260909-01.xml
+23dbbb415bf1e574a66c4674cca22e119f1d0f54fa97766ed336ad2beabff307  .pytest_tmp/result-capture-fix-green-20260909-01.xml
+8ca1924fc5882c7df0bd48e7e97f3b07e6f300fe6b5cfd575797253a0946fd54  original independent REVIEW.md
+```

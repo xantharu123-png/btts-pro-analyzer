@@ -212,3 +212,34 @@ def test_corrupt_b1_watch_index_cannot_be_used_as_scope_permission(tmp_path, mon
         connection.execute(f"UPDATE context_observations SET {index}=? WHERE kind='base_fixture'", ("f"*64,))
     with pytest.raises(ContextIntegrityError):
         capture_results(path, monkeypatch)
+
+
+@pytest.mark.parametrize("index,value", [("source", "espn"), ("source", "API-FOOTBALL"),
+    ("kind", "match_outcome"), ("kind", "other")])
+@pytest.mark.parametrize("valid_second_watch", [False, True])
+def test_scope_index_corruption_fails_before_any_later_result_publication(
+        tmp_path, monkeypatch, index, value, valid_second_watch):
+    from context_observations import append_observation
+    from context_sources.outcomes import normalize_football_base_input
+    path = tmp_path/"context.db"
+    capture_prematch(path, monkeypatch)
+    replies = [finished()]
+    if valid_second_watch:
+        second = detail()
+        second["fixture"]["id"] = 99
+        append_observation(path, normalize_football_base_input(second, observed_at=NOW), observed_at=NOW)
+        second = finished()
+        second["fixture"]["id"] = 99
+        replies.append(second)
+    with sqlite3.connect(path) as connection:
+        connection.execute(f"UPDATE context_observations SET {index}=? WHERE event_key=? AND kind='base_fixture'",
+            (value, "api-football:football:1575469"))
+        connection.commit()
+        before = tuple(connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+            for table in ("context_observations", "context_contents"))
+    with pytest.raises(ContextIntegrityError):
+        capture_results(path, monkeypatch, response=payload(replies))
+    with sqlite3.connect(path) as connection:
+        after = tuple(connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+            for table in ("context_observations", "context_contents"))
+    assert after == before
