@@ -201,9 +201,19 @@ def select_context_result(
     if event["sport"] != base["family"].split(":")[0]:
         raise ContextIntegrityError("event and baseline model family do not match")
     basketball_comparison = None
+    hockey_comparison = None
     if comparison is not None:
         comparison = validate_base_distribution(comparison)
         for name in ("event_key", "cutoff", "family", "history_refs", "reference_weights"):
+            if name == "reference_weights" and base["family"] == "ice_hockey:regulation_goals":
+                hockey_comparison = comparison["reference_weights"]
+                if (comparison["version"] != "hockey-context-comparison-v1"
+                    or hockey_comparison["kind"] != "hockey-context-comparison-reference-v1"):
+                    raise ContextIntegrityError("hockey comparison lacks its owning replay contract")
+                for nested, supplied in (("original", base), ("event", event), ("features", features)):
+                    if canonical_bytes(hockey_comparison[nested]) != canonical_bytes(supplied):
+                        raise ContextIntegrityError(f"hockey comparison and supplied {nested} differ")
+                continue
             if name == "reference_weights" and base["family"] == "basketball:margin:including_ot":
                 # C2 owns a closed replay envelope, not permission for a freely
                 # relabelled baseline to change its fitted margin or scale.
@@ -227,6 +237,13 @@ def select_context_result(
         effect_hash, artifact = _verified_payload(effect_artifact, kind="context-effect-v1", expected_hash=effect_hash)
     elif effect_hash is not None or comparison is not None:
         raise ContextIntegrityError("effect/comparison requires its verified artifact")
+    if base["family"] == "ice_hockey:regulation_goals":
+        from context_models.ice_hockey import validate_hockey_context_binding
+        validate_hockey_context_binding(base, event, features, None if artifact is None else artifact["preprocessing_artifacts"])
+    if hockey_comparison is not None:
+        if (artifact is None or canonical_bytes(hockey_comparison["effect"]) != canonical_bytes(artifact)
+            or digest({"kind": "context-effect-v1", "payload": hockey_comparison["effect"]}) != effect_hash):
+            raise ContextIntegrityError("hockey comparison and verified B3 effect differ")
     if basketball_comparison is not None:
         if (artifact is None or canonical_bytes(basketball_comparison["effect"]) != canonical_bytes(artifact)
             or digest({"kind": "context-effect-v1", "payload": basketball_comparison["effect"]}) != effect_hash):
@@ -292,6 +309,14 @@ def select_context_result(
             else:
                 approval_applies = True
 
+    if hockey_comparison is not None:
+        from context_models.ice_hockey import hockey_comparison_is_conditional
+        if hockey_comparison_is_conditional(hockey_comparison):
+            # A whole lineup built around an assumed goalie remains conditional,
+            # including its skaters. Unassumed observed-load-only effects
+            # are unaffected; all envelope/certification checks already ran.
+            approval_applies = False
+            note("hockey-conditional-goalie-scenario")
     if not eligible:
         comparison = None
     role = "not_applied" if comparison is None else ("applied" if approval_applies else "experimental")

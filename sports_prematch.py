@@ -523,3 +523,9 @@ def basketball_base_distribution(event, history, as_of, *, context_event, scope=
     """
     from context_models.team_sports import export_basketball_base
     return export_basketball_base(event, tuple(history), as_of, context_event=context_event, scope=scope)
+
+
+def hockey_base_distribution(event, history, as_of, *, context_event, scope=None):
+    """Opt-in C3 original export; no default prediction or source behavior change."""
+    from context_models.ice_hockey import export_hockey_base
+    return export_hockey_base(event, tuple(history), as_of, context_event=context_event, scope=scope)
