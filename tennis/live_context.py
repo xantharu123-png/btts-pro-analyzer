@@ -293,8 +293,9 @@ class LiveWorker:
                     stored_original = _load_artifact(connection, original_hash)
                     if not _equal(stored_original, {"kind": ORIGINAL_ARTIFACT_KIND, "payload": publication}):
                         raise ContextIntegrityError("original publication differs from its actual stored bytes")
+                    original_published_at = _artifact_created_at(connection, original_hash)
                     validate_original_publication(stored_original["payload"],
-                        created_at=_artifact_created_at(connection, original_hash))
+                        created_at=original_published_at)
                 payload = compute_once(self.path, key, lambda inputs=inputs: calculate_context_payload(**inputs))
                 # Existing same-key bytes must match our actual resolved inputs,
                 # not merely be self-hashed valid JSON from another producer.
@@ -305,7 +306,8 @@ class LiveWorker:
                 reference = context_consumer_reference(key, payload)
                 kwargs = {**kwargs, "context_model": validate_context_model({"schema": 1, "kind": SIDECAR_KIND,
                     "reference": reference, "event": inputs["event"], "cutoff": origin["cutoff"],
-                    "markets": MARKETS, "original_artifact_hash": original_hash}), "context_original": origin}
+                    "markets": MARKETS, "original_artifact_hash": original_hash}), "context_original": origin,
+                    "context_original_published_at": original_published_at}
             try:
                 fx = item["fixture"]
                 row_id = shadow.store_prediction(fx["match_date"], fx["tour"], fx["tournament"], item["prediction"], **kwargs)
