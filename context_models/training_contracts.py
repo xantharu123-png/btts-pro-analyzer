@@ -12,7 +12,7 @@ import re
 
 from context_models.contracts import (
     ContextContractError, _names, _sport_json, canonical_timestamp,
-    require_digest, require_list, require_number, require_object,
+    require_digest, require_list, require_number, require_object, require_text,
     validate_coverage, validate_population,
 )
 
@@ -62,7 +62,7 @@ def validate_family_config(config: dict) -> dict:
     row = _sport_json(config, label="family config")
     if type(row["schema"]) is not int or row["schema"] != 1:
         raise ContextContractError("unsupported family config schema")
-    family = row["family"]
+    family = require_text(row["family"], "context family", code=True)
     if family not in {"football:goals:90min", "tennis:winner", "tennis:serve"}:
         raise ContextContractError("no reviewed training law for this family")
     sport = family.split(":")[0]

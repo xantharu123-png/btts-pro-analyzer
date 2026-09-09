@@ -62,3 +62,22 @@ def test_unknown_fields_never_silently_change_a_frozen_experiment():
     config["price_threshold"] = 1.5
     with pytest.raises(ContextContractError):
         validate_family_config(config)
+
+
+@pytest.mark.parametrize("field", ["family", "feature_version", "reference_version", "model_variant", "coverage"])
+@pytest.mark.parametrize("value", [None, [], {}, True])
+def test_malformed_json_type_uses_the_owning_contract_error(field, value):
+    from context_models.training_contracts import validate_family_config
+    config = winner_config()
+    config[field] = value
+    with pytest.raises(ContextContractError):
+        validate_family_config(config)
+
+
+@pytest.mark.parametrize("value", [None, [], {}, True])
+def test_malformed_coverage_member_type_uses_the_owning_contract_error(value):
+    from context_models.training_contracts import validate_family_config
+    config = winner_config()
+    config["coverage"]["case"] = value
+    with pytest.raises(ContextContractError):
+        validate_family_config(config)
