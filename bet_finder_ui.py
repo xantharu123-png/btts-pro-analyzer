@@ -651,6 +651,27 @@ def _reference_execution_source(
     )
 
 
+@dataclass(frozen=True)
+class _ManualPriceInputs:
+    """Exact form-independent inputs of one explicitly requested check."""
+
+    candidate: RecommendationCandidate
+    raw_odds: Optional[str]
+    bankroll: Optional[float]
+    confirmed: bool
+
+
+def _invalidate_manual_check(key: str) -> None:
+    """Discard only display state; editing never calculates or persists a tip."""
+
+    decision_key = f"bet_decision_{key}"
+    inputs_key = f"bet_checked_inputs_{key}"
+    if decision_key in st.session_state or inputs_key in st.session_state:
+        st.session_state[f"bet_manual_changed_{key}"] = True
+    st.session_state.pop(decision_key, None)
+    st.session_state.pop(inputs_key, None)
+
+
 def _render_manual_check(
     candidate: RecommendationCandidate,
     *,
@@ -671,34 +692,51 @@ def _render_manual_check(
             "Optional: Nur nötig, wenn die tatsächlich angebotene Quote mit "
             "der automatischen Marktübersicht verglichen werden soll."
         )
-        with st.form(f"bet_price_{key}", border=False):
+        # Forms hold edits in the browser until submit and can leave a previous
+        # result looking current. Keep the existing scoped layout, but let each
+        # edit invalidate that result on its ordinary Streamlit rerun.
+        with st.container(key=f"bet_price_{key}", border=False):
             price_column, bankroll_column = st.columns(2)
             with price_column:
                 raw_odds = st.text_input(
                     f"{price_source} für {candidate.selection}",
                     placeholder="z. B. 1,95",
                     key=odds_widget_key,
+                    on_change=_invalidate_manual_check,
+                    args=(key,),
                 )
             with bankroll_column:
+                if manual_bankroll_key not in st.session_state:
+                    st.session_state[manual_bankroll_key] = 100.0
                 bankroll = st.number_input(
                     "Aktuelles Wettguthaben",
                     min_value=1.0,
-                    value=100.0,
+                    # Keep the initial balance, but do not silently turn an
+                    # explicitly cleared input back into that old balance.
+                    value=None,
                     step=10.0,
                     key=manual_bankroll_key,
+                    on_change=_invalidate_manual_check,
+                    args=(key,),
                 )
             confirmed = st.checkbox(
                 f"Auswahl stimmt exakt: {candidate.selection} / {candidate.market}",
                 value=False,
                 key=f"bet_confirmed_{key}",
+                on_change=_invalidate_manual_check,
+                args=(key,),
             )
-            submitted = st.form_submit_button(
+            submitted = st.button(
                 "Eigene Quote prüfen",
+                key=f"bet_check_{key}",
                 type="primary",
                 use_container_width=True,
             )
 
         decision_state_key = f"bet_decision_{key}"
+        inputs_state_key = f"bet_checked_inputs_{key}"
+        changed_state_key = f"bet_manual_changed_{key}"
+        current_inputs = _ManualPriceInputs(candidate, raw_odds, bankroll, confirmed)
         if submitted:
             decision = _enforce_pending_release(
                 evaluate_candidate_price(
@@ -709,6 +747,8 @@ def _render_manual_check(
                 )
             )
             st.session_state[decision_state_key] = decision
+            st.session_state[inputs_state_key] = current_inputs
+            st.session_state.pop(changed_state_key, None)
             if (
                 save_source
                 and confirmed
@@ -725,19 +765,34 @@ def _render_manual_check(
             if (
                 not isinstance(decision, PriceDecision)
                 or decision.candidate != candidate
+                or st.session_state.get(inputs_state_key) != current_inputs
             ):
                 # The Streamlit widget key can outlive a refreshed model row.
-                # Never show or act on a manual price decision calculated for
-                # a previous immutable candidate snapshot.
-                st.session_state.pop(decision_state_key, None)
+                # Missing legacy input bindings cannot certify a current check.
+                # This also catches changed inputs in a non-widget rerun.
+                _invalidate_manual_check(key)
+                if st.session_state.get(changed_state_key):
+                    st.info("Eingabe geändert – neu prüfen.")
                 return None
 
         decision = _enforce_pending_release(decision)
+        if decision.quoted_odds is not None:
+            # Even while a new text edit is still local to the browser (before
+            # blur), explicitly name what the last submitted result evaluated.
+            st.caption(
+                f"Letzte Prüfung: Quote {decision.quoted_odds:.2f} · "
+                f"Wettguthaben {bankroll:.2f} €."
+            )
 
         if decision.status == "PRICE_REQUIRED":
             st.info(
                 f"Quote und exakte Auswahl bestätigen. Value-Grenze "
                 f"{candidate.minimum_odds:.2f}."
+            )
+        elif decision.quoted_odds is None:
+            st.info(
+                "Keine Preisprüfung möglich. Bitte eine gültige Dezimalquote "
+                "und ein positives Wettguthaben eingeben."
             )
         elif decision.status == "BET":
             st.success(
