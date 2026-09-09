@@ -26,6 +26,10 @@ from context_models.contracts import (
 )
 from context_models.offset import ContextModelError, adjust_parameters, offset_delta
 from context_models.tennis import FEATURE_VERSION, METRICS, WINDOWS, tennis_reference_hash
+from context_models.tennis_v3 import (
+    FEATURE_VERSION as STATUS_FEATURE_VERSION, COVERAGE_VERSION as STATUS_COVERAGE_VERSION,
+    tennis_reference_hash_v3,
+)
 from context_snapshots import select_context_result
 from model_artifacts import canonical_bytes
 from tennis.simulator import simulate_match
@@ -33,6 +37,8 @@ from tennis.simulator import simulate_match
 
 WINNER_VARIANT = "tennis-winner-performed-load-antisymmetric-v1"
 SERVE_VARIANT = "tennis-serve-performed-load-mirrored-iidsets-holdproxy-tb7-strict-v1"
+STATUS_WINNER_VARIANT = "tennis-winner-status-load-antisymmetric-v1"
+STATUS_SERVE_VARIANT = "tennis-serve-status-load-mirrored-iidsets-holdproxy-tb7-strict-v1"
 SERVE_BASE_VERSION = "tennis-serve-iidsets-holdproxy-tb7-strict-v1"
 COMPARISON_VERSION = "tennis-context-comparison-v1"
 SINGLES_FORMATS = {"singles_best_of_3": 3, "singles_best_of_5": 5}
@@ -169,10 +175,20 @@ def _prepare(base: dict, features: dict, artifact: dict, event: dict):
     if (original["event_key"] != event["event_key"] or features["event_key"] != event["event_key"]
             or original["cutoff"] != features["cutoff"]):
         raise ContextIntegrityError("tennis input event or cutoff identities differ")
-    reference_hash = tennis_reference_hash(original, event)
+    if features["version"] == FEATURE_VERSION:
+        reference_hash = tennis_reference_hash(original, event)
+        expected_variant = WINNER_VARIANT if family == "tennis:winner" else SERVE_VARIANT
+        coverage_version, coverage_cases = "tennis-performed-load-coverage-v1", _COVERAGE_CASES
+    elif features["version"] == STATUS_FEATURE_VERSION:
+        reference_hash = tennis_reference_hash_v3(original, event)
+        expected_variant = STATUS_WINNER_VARIANT if family == "tennis:winner" else STATUS_SERVE_VARIANT
+        coverage_version = STATUS_COVERAGE_VERSION
+        coverage_cases = {mode + "." + case for mode in
+            ("status-paired", "legacy-only", "mixed-status-legacy") for case in _COVERAGE_CASES}
+    else:
+        raise ContextModelError("unsupported explicit tennis feature version")
     if features["reference_hash"] != reference_hash:
         raise ContextIntegrityError("tennis features were built against a different original reference")
-    expected_variant = WINNER_VARIANT if family == "tennis:winner" else SERVE_VARIANT
     if artifact["model_variant"] != expected_variant or artifact["preprocessing_artifacts"]:
         raise ContextModelError("unsupported tennis model variant or preprocessing")
     if (event["status"] != "scheduled" or event["scheduled_start"] <= original["cutoff"]
@@ -187,10 +203,10 @@ def _prepare(base: dict, features: dict, artifact: dict, event: dict):
             or artifact["population"]["surfaces"] != [event["surface"]]
             or artifact["population"]["indoor"] != [event.get("indoor")]):
         raise ContextModelError("tennis effect requires separately scoped tour/surface/environment")
-    if (features["version"] != FEATURE_VERSION or artifact["feature_version"] != FEATURE_VERSION
+    if (artifact["feature_version"] != features["version"]
             or features["coverage"] != artifact["coverage"]
-            or features["coverage"]["version"] != "tennis-performed-load-coverage-v1"
-            or features["coverage"]["case"] not in _COVERAGE_CASES):
+            or features["coverage"]["version"] != coverage_version
+            or features["coverage"]["case"] not in coverage_cases):
         raise ContextModelError("tennis feature version or measured coverage mismatch")
     x = _feature_input(features, artifact["feature_names"], family=family)
     if family == "tennis:serve":

@@ -46,6 +46,11 @@ def _feature_binding(ev, original, feats, preprocessing_refs):
     elif pair in {(family, "tennis-performed-load-v2") for family in ("tennis:winner", "tennis:serve")}:
         expected = digest({"version": "tennis-context-reference-v2", "base_hash": digest(original),
             "event_hash": digest(ev)})
+    elif pair in {(family, "tennis-performed-load-v3") for family in ("tennis:winner", "tennis:serve")}:
+        if preprocessing_refs:
+            raise ContextContractError("tennis status v3 has no named preprocessing contract")
+        expected = digest({"version": "tennis-context-reference-v3", "base_hash": digest(original),
+            "event_hash": digest(ev)})
     elif pair == ("basketball:margin:including_ot", "basketball-rotation-observed-load-v1"):
         if preprocessing_refs:
             raise ContextContractError("basketball v1 has no named preprocessing contract")
