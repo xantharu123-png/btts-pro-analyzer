@@ -230,3 +230,19 @@ tests/test_tennis_live_integrity.py 0187170831fc4be24ce1b3249414fc8925f2fbb77878
 tests/test_tennis_live_legacy_parity.py 5665261481ae91f29c6665ecb4c14b5044d35b11953763ed5067178a8af40b6e
 tests/fixtures/tennis_predict_legacy_da0ae34.py f92d9451d3e7c0612832101ab1d6298cb99baeeaaa4f2d7c89cb8e9fe0526c7c
 ```
+
+## Completed frozen full run
+
+The full run on source commit `32ac1d8ac739a51f84654c2c41fc27017c95cedd`
+completed with **5,249 passed, 19 skipped and 97 subtests passed**, zero failures,
+exit 0, **1,067.06 seconds**. Its command is the exact command above. All eleven
+listed code/test/legacy-fixture SHA-256 hashes were checked again after completion
+and remain unchanged. Only this evidence append changes the audit document.
+
+JUnit: `.pytest_tmp/tennis-live-full-01.xml`, SHA-256
+`11bec44ddc00a4e4e03bdc4ce1cba6eea05bdb29d7eceba950798685a1371d3f`.
+Focused JUnit SHA-256:
+`4f74d969eb3b54006e7738b8bc4b3b1f5ccf451a047950efa6e6d7f759d539da`.
+
+This is local regression evidence, not the independent review's verdict or a
+deployment/real-provider/empirical approval. Those boundaries remain as above.
