@@ -159,6 +159,21 @@ Datierter Windows-Nachweis vom 9. September 2026, SHA256 der vollständigen
 | `tests/test_tennis_context_model.py` | `1fccf25eeac7731ba077cadb7c2fbeb3f5e656298b7ba4eb97106b5ddead87b4` |
 | ursprüngliche Simulatorfixture | `c0f6a751b09c59c3bb547d13703eb854094c0b6b5527f2bc27358086b3da3734` |
 
-Nach dem separat übernommenen Harnessfix folgen der vollständige Gegenlauf und
-unabhängiges Review. Ein Code-Freeze ist ausdrücklich keine empirische oder
-produktive Freigabe.
+## Abschließender vollständiger Gegenlauf
+
+- B7-Code-/Testcommit: `e9cc3900feb1e32f7e0711dc92795808074d56e6`.
+- Ausschließlich der von Root unabhängig freigegebene Testharnessfix `9ddb45f`
+  wurde danach als `5aca4cad7b19aafa039f07104ad21cabda85854e` übernommen. Keine
+  weitere B7-Source-/Teständerung; die obigen SHA256 bleiben identisch.
+- Vollständiger Lauf auf diesem Stand: **2.911 bestanden**, **15 erwartete
+  Windows/POSIX-Skips**, **97 Untertests bestanden**, **0 Fehler**, 60,53 s.
+- Aufruf: absoluter Quality-Python mit `-B -m pytest -q -rs -p no:cacheprovider
+  --basetemp=.pytest_tmp/b7-full-fixed-20260909` im B7-Worktree.
+- Der letzte fokussierte 840er-Lauf enthält **144 neue B7-Fälle**. Die beiden
+  neuen expliziten Singlesformat-Codes und die strict-Seam haben zusätzlich die
+  gesamte unveränderte Legacy-/Workflow-/Cricket-/15K-Suite durchlaufen.
+- Nach dem Testlauf wurden ausschließlich diese Ergebniszeilen ergänzt.
+
+Unabhängiges Review ist weiterhin Sache des Controllers. Der grüne Softwarelauf
+ist ausdrücklich keine empirische oder produktive Freigabe; die am Anfang
+benannten Daten-/Trainings-/Betriebsaufgaben bleiben offen.
