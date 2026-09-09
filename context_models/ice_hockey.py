@@ -111,7 +111,11 @@ def _project(raw):
 
 def _legacy_json(value):
     row = asdict(value)
-    return {key: val.isoformat() if isinstance(val, datetime) else list(val) if isinstance(val, tuple) else val
+    # The unchanged optimizer returns NumPy float64 coefficients. Export the
+    # same scalar values as actual JSON floats, not NumPy objects inside lists.
+    # Their canonical serialized bytes and the original fit remain unchanged.
+    return {key: [float(item) for item in val] if key == "coefficients" else
+            val.isoformat() if isinstance(val, datetime) else list(val) if isinstance(val, tuple) else val
             for key, val in row.items()}
 
 
