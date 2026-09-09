@@ -1,5 +1,59 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Current integration and source-status checkpoint — 9 September 2026
+
+This section supersedes the older next-task statements below. Current Root
+source is `c871ba1203b66f8ba69adb5fed056e251d84c59b`. Last verified remote
+feature is `908667ec0d682b192f5ac33c20c915f79b3259d4`; this checkpoint and
+the subsequent scoped feature push must be verified separately. Main/GitHub
+main remain `2ba3931dd8cb35f31d2475ae5797d75b44be268e`; VPS was verified
+at that release earlier in this same continuation, not by this note. No new
+context main/VPS deployment. Existing spec/worktree/Variant 1 authority stands.
+
+- Latest completed whole Root suite: 4449 passed, 18 Windows/POSIX platform
+  skips, 97 subtests, 715.38s; `context-d2-capture-full-20260909-01.xml`, SHA256
+  `649d6d74d9234aa225de8a46739de84b35d38c368ae87b29e5d969171c96f459`.
+  This predates all following integrations: do not call it their full regression.
+- D3 exact transport byte fix `1a9fffa` independently accepted and merged
+  `0840c35`. Football native NS request-scope correction independently accepted,
+  Root215 tests, committed `53c2ae9`. Original and completed review reports are
+  preserved byte-identically (or clearly identified as Root rereview) in `0964dd1`.
+- C3 Hockey owning correction `39cbc3e` independently accepted, Root295 passed
+  with 1 Windows symlink skip, merged `a55d1a7`. Real player/TOI capture and
+  native D1/D2 corpus remain unavailable; no empirical or live acceptance.
+- Subsequent Root D3 Hockey transport `c871ba1` is frozen pending independent
+  review. Its owning coefficient export converts NumPy floats to Python floats
+  without changing float.hex or canonical JSON. Actual B3 two-consumer CPU
+  reuse, regulation and overtime parity: latest550 passed/1 platform skip.
+  This does not establish live-worker assembly or full source-semantic replay.
+- C4 remains isolated, NOT merged. Original and second reviews exposed terminal
+  status, derived-delta and incomplete native-scope correction failures. Root
+  R1b `be45dab` passed4205/18/97 full, but the next independent31 cases found
+  R1c (5 RED). Owner is correcting only native whole-identity retention in
+  `kontext-c4-esports-20260909`; latest1012 focused passed167.10s, full running.
+  All old adversarial probes and pinned Elo/source bytes must remain unchanged.
+- Tennis actual existing-response status/workload capture is active in
+  `kontext-tennis-capture-20260909`, base `ecf9200`. Explicit status/source/FV-v3
+  preserves native correction lineage, including incomplete terminal revisions;
+  old B6/v2 bytes stay unchanged. Latest85 new tests green; broad run/review
+  pending. No new GETs, inferred native state IDs or invented end/duration times.
+- D4 actual semantic verification is active in `kontext-d4-semantic-20260909`,
+  base `0840c35`. It must use existing evaluator functions on the same in-memory
+  read-only snapshot, preserve opaque legacy transport-only boundaries, and
+  never open frozen final labels before their legitimate recorded opening.
+  Exact source bytes/indexes remain checked; missing owning contexts cannot
+  become full semantic approval. Known invalid artifacts fail closed.
+- D2 owning evaluator is accepted but no actual >=200-event successful approval
+  exists. D3 actual A1/B1/D2 worker assembly, missing sport adapters, signal/domain/
+  store/both-tab integration and rendered evidence remain open. D4 production
+  backup wiring and D5 release remain open. Do not mislabel helpers as live work.
+
+Cricket, prices/ranking, old forecasts/tickets/money and production state remain
+unchanged. Protected stage helper still has raw SHA256
+`1441158c542e97a19b193fa0cd091b645ec6442d6d8157f1d4fceabbba72b026`.
+Preserve unrelated untracked archives/probes. Never blanket-stage ignored SDD;
+force-add only exact new report paths. Timers calculate and never deploy code.
+
 ## Latest D2, capture and independent-review checkpoint — 9 September 2026
 
 Current Root source `ecf92007f46c5e8b85cb24b6f7208cb71240cac4`. Main/GitHub

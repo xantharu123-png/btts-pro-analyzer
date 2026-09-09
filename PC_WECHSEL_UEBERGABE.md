@@ -1,5 +1,35 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Fortsetzungsstand vom 9. September 2026 — integrierte Gegenprüfungen
+
+Verbindlich ist der oberste aktuelle Abschnitt in
+`.superpowers/sdd/2026-09-07-kontextmodell-umsetzung/progress.md` der Arbeitskopie
+`.worktrees/kontextmodell-20260907`. Nicht erneut um Spezifikation, Worktrees
+oder Variante 1 bitten. Cricket bleibt ausgenommen.
+
+- Root-Quellstand `c871ba1`; GitHub-Feature zuletzt `908667e` verifiziert.
+  Main/GitHub main `2ba3931`; VPS früher in dieser Fortsetzung ebenfalls exakt
+  dort verifiziert. Noch kein neues Kontext-Release. Timer rechnen, nicht pullen.
+- Vollsuite vor den jüngsten Integrationen: 4.449 bestanden, 18 erwartete
+  Plattform-Skips, 97 Untertests. Die neue Gesamtsuite steht noch aus.
+- Exakter D3-Transportfix, Fußball-NS-Quellkorrektur und C3-Eishockeymechanik
+  sind unabhängig geprüft und übernommen. Sechs Original-/Nachreviewberichte
+  wurden gezielt gesichert. Die anschließende Eishockey-Transportanbindung
+  besteht 550 Fokustests/1 Plattform-Skip und wartet auf unabhängiges Review.
+- E-Sport bleibt separat: Ein weiterer Grenzfall bei unvollständiger nativer
+  Saisonkorrektur wurde reproduziert; Fix besteht 1.012 gezielte Prüfungen,
+  Vollsuite und unabhängige Nachprüfung stehen noch aus. Nicht als fertig melden.
+- Tennis bewahrt jetzt in eigener Arbeitskopie echte Status-/Belastungsbelege
+  aus vorhandenen Abrufen; noch nicht übernommen. D4 prüft separat tatsächliche
+  gespeicherte Evaluator-Semantik, ohne ungeöffnete finale Ergebnisdaten zu lesen.
+- Echte gemeinsame Worker-/Kartenanbindung, Produktions-Backupintegration,
+  Browser-/Releaseprüfung und ausreichende reale empirische Daten bleiben offen.
+  Eine funktionierende Prüfsoftware beweist keine Verletzungs-/Müdigkeitswirkung.
+
+Alte Prognosen, Tickets und Konten sowie bekannte ungetrackte Dateien und den
+gepinnten Staging-Helper unverändert erhalten. Nur gezielt committen/pushen;
+Code, Daten, empirische Freigabe und VPS-Aktivierung getrennt nachweisen.
+
 ## Neuester Fortsetzungsstand vom 9. September 2026 — D2 und Quellenbelege
 
 Der oberste Abschnitt von `.superpowers/sdd/2026-09-07-kontextmodell-umsetzung/progress.md`
