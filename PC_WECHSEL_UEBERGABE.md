@@ -1,5 +1,41 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Fortsetzungsstand vom 9. September 2026 — 15:59 UTC
+
+- Root-Code `9de9b52`, letzter verifizierter GitHub-Featurestand `7201302`.
+  Main/GitHub main und **frisch lesend geprüfter VPS** exakt `2ba3931`.
+  Noch kein neues Kontext-Release. Timer führen weiterhin keinen Codepull aus.
+- App/Caddy aktiv, Healthcheck `ok`, sieben Timer geplant, VPS-Code sauber.
+  **Nicht alle Dienste sind fehlerfrei:** Tennisjob 07:17–07:18 CEST scheiterte
+  im gemeinsamen Modellrefresh an HTTPError; anschließender Scan rc0/22 neue
+  Prognosen nutzte den alten State. Kein kosmetisches Zurücksetzen des Fehlers.
+- Originalevent-Bindung `da0ae34` unabhängig PASS: 831 bestandene Prüfungen,
+  darunter alle50 unveränderten ursprünglichen Gegenproben. Berichte erhalten.
+- D4-Semantik samt kausalem Referenzfix unabhängig nachgeprüft (13/13) und in
+  `d2809fc` übernommen. Neue Gesamtsuite läuft separat unveränderlich auf diesem
+  Stand in `kontext-integrated-qa-20260909`; nicht als abgeschlossen melden.
+- Der D3-Leser `97cb672` ist **noch nicht freigegeben**: zwei unabhängige P2-
+  Befunde (generierte Zusatzspalten, SHM-Hardlink) werden in `kontext-reader-fix-
+  20260909` behoben. Normale SQLite-WAL-Synchronisationsdateien sind erlaubt;
+  uncheckpointete echte Prognosen dürfen nicht zugunsten einer alten Kopie fehlen.
+- Optionale unveränderliche Ref-Verträge für ModelSignal/RisikoBet und normale
+  JSON-Leser sind in `9de9b52` eingefroren: 298 Tests/26 Untertests, unabhängiges
+  Review noch ausstehend. Alte IDs/JSON ohne Ref und Storeeindeutigkeit unverändert.
+- Echter ESPN-Tennis-Winner-Producer (gleicher Modellaufruf, native IDs, tatsäch-
+  liches A1-Modell, Capture vor B1-Lesen, atomare Shadow-Ref) in eigener WT aktiv.
+  Neuer Originalbeleg nach Entscheidung ist kein rückdatiertes Trainingsmodell.
+- Trusted-Updaterhook in eigener WT aktiv; echte Linux-/WAL-/Restore-/Zwei-Commit-
+  Abnahme steht aus. VPS hat derzeit keine Kontext-DB/keinen Runtimepfadoverride,
+  vorhandene venv Python3.12.3/SQLite3.45.1 unterstützt deserialize; Roottools
+  entsprechen den Pins. Vollständiges Backup/Schlüssel bleiben app-unlesbar.
+- Cricket ausgenommen, keine erfundenen Verletzungs-/Müdigkeitskoeffizienten,
+  keine reale >=200-Event-Freigabe. Gemeinsame tatsächliche Kartenanbindung aller
+  fünf Sportarten, fehlende Original-/Quellenpfade, Browser und Release offen.
+
+Ausführlicher aktueller Ledger: `.superpowers/sdd/2026-09-07-kontextmodell-
+umsetzung/progress.md`. Vorhandene Freigaben nicht erneut erfragen. Alle fremden
+WIP-/Outputdateien und den gepinnten Helper erhalten.
+
 ## Aktueller Fortsetzungsstand vom 9. September 2026 — 15:28 UTC
 
 Root-Quellstand `da0ae34613fb030280aac3e8abc504d18ebca47e`, letzter verifizierter

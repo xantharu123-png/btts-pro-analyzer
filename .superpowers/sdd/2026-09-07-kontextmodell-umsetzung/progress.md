@@ -1,5 +1,74 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Current actual producer/reader checkpoint — 9 September 2026, 15:59 UTC
+
+Root code `9de9b52ab096c8c08852460dfe8226854014e789`; last verified remote feature
+`7201302a7b145c7dd94de30bd41d1b5b8a498f9f`. Fresh GitHub main AND readonly VPS
+verification at15:57UTC: `2ba3931dd8cb35f31d2475ae5797d75b44be268e`. Tracked VPS
+clean, App/Caddy active/localhealthok, seven timers scheduled. No context release.
+
+Important changed production status: tennis service is failed, last07:17:02–
+07:18:34CEST/exit1. Journal proves combined rebuild HTTPError/rc1 after64s;
+existing state retained, subsequent day scan rc0/22 new predictions. No source
+rerun or reset-failed was performed. Do not repeat older 'no failed units'.
+Existing reviewed A1–A4 independent tour refresh is still feature-only.
+
+- Original-event binding da0 independently PASS831/0. Original negative and
+  accepted rereview plus actual producer/updater preflights preserved7fae762.
+- D4 F1 independently13/13,86.57s; exact old13 probes unchanged. JUnit SHA256
+  `adbbd85bd872ecd85d1cafc568893c89513caff01aea5d02364a702fe1c87e85`.
+  Owning1daf72d merged `d2809fc67d4e0ebc548cdd1ded89034d4e2d1761`; original and
+  rereview preserved7201302. Explicit new C3/C4/Tennis-v3 source replay is not
+  silently certified by the older closed numeric-capability table.
+- Fresh whole integration run is ACTIVE in separate clean
+  `kontext-integrated-qa-20260909` on exactd2809fc, session70501,
+  `.pytest_tmp/context-integrated-full-20260909-01.xml`. This includes accepted
+  sport/capture/D4 merges and initial Reader97cb672, not later domain/Readerfix/
+  actual Tennis/updater work. Current run has not completed; report no total yet.
+- New reader97cb672 independent REQUEST_CHANGES: F1 table_info hides generated
+  extra columns; F2 preexisting SHM hardlink overwrites a separate temp sentinel.
+  ReportSHA `85874edf9da050ff77ccb30b36b92b29c1df162ef9f88da77a8b199b35a23529` in
+  `kontext-reader-review-20260909/.pytest_tmp/consumer-reader-independent-20260909`.
+  Original413GREEN/4literalRED/1Windows-symlinkskip: two realfindings, one
+  explicitly overbroad no-WAL-sidecars assertion and one unpinned-WAL harness.
+  New actual WAL controls prove current uncheckpointed rows/consistent readtxn.
+  Fix active in `kontext-reader-fix-20260909` on7201302: closed table_xinfo,
+  narrow shared dataset._reader main/companiontrust beforeSQLiteopen/after,
+  no immutable=1/raw-copy/stale fallback. Root rereview pending. Keep originals.
+- Domain-link packet9de9b52 (8exactfiles) adds frozen ContextReference,
+  optional ModelSignal/EventModelSnapshot.ref and normal JSON readback.
+  Legacy IDs/absent field remain exact; existing event/model/input UNIQUE
+  remains strict, new actual context must have its proper new input hash.
+  Latest298/0/26subtests5.95s, XML SHA256
+  `f970df164f355db1882da53db52f07d4874994f04f322cac68a9630a470bfafb`.
+  Independent review pending. No real producer attaches this field yet.
+- Actual Tennis producer active in `kontext-tennis-live-20260909` on da0.
+  Agent owns predict optional same-call capture, daily two-phase ordering,
+  revision-atomic shadow context_json.context_model, new
+  context_models/tennis_live.py + tennis/live_context.py and additive contract.
+  Base version tennis-live-calibrated-winner-v1; model_hash actual prior A1
+  tourstate. Original publication is later/separate. Native current ESPN IDs
+  are retained, historical state alias remains unavailable; Surface/Indoor
+  unknown in native status-v1 stay None while actual modelinputs remain in
+  the owning original. No made-up serve format/duration/approval. Root will
+  add exact new original validation in transport and actual consumers after
+  independent freeze; no blanket reclassification of D1 or old B7 comparison.
+- Updaterhook implementation active `kontext-updater-hook-20260909` on1daf72d.
+  Full Root-read preflight/rulings held. New hooks beforedowntime/afterbackup
+  beforeapply; only TARGET_PAYLOAD verifier asbetboy, exact runtime mapping,
+  isolated root-owned single DB/real seal/no app ZIP or keys. Fixed12 positive
+  capabilitylimits only for typed exit2, never unknownschemas/errors. Missing
+  only proved pre-context legacy (previous complete payload no contextpath
+  contract + exact live/backupabsence); Root can release hook-only bridgeA then
+  real contextB. No newRootinstaller/stagehelper/Unitpin/migrationpolicy change.
+  VPSpreflight actual runtime overrideabsent/contextfileabsent; updaterroot0755
+  SHAa07ad24c92f207c9d1124acee37fb4b0e443dae39876dad6c1948b55bb725cbb,
+  stagehelperroot0755 unchanged1441158…; venv3.12.3/SQLite3.45.1/deserializeTrue.
+
+No real empirical approval, complete five-sport D3 UI or new main/VPS activation.
+Cricket excluded; preserve prior forecasts/tickets/accounts/untracked/protected
+helper. Continue the approved work without repeating spec/worktree permissions.
+
 ## Current owning integration checkpoint — 9 September 2026, 15:28 UTC
 
 This section supersedes older next-task statements. Root source is
