@@ -8,6 +8,7 @@ to the instant at which the result was actually observed.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -92,6 +93,9 @@ class SettlementRequest:
     event_label: str
     factors: tuple[Mapping[str, object], ...]
     candidate_ids: tuple[str, ...]
+    # A moved schedule may share one tennis result only after the source row
+    # proves a real provider/event binding, not a legacy row-ID fallback.
+    requires_native_identity: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,6 +359,9 @@ def _requests_by_sport(
                 candidate_ids=tuple(
                     sorted(str(item.payload["candidate_id"]) for item in items)
                 ),
+                requires_native_identity=(
+                    sport == "tennis" and len({item.starts_at for item in items}) > 1
+                ),
             )
             requests.setdefault(sport, []).append(request)
             candidates_by_event[(sport, event_key)] = tuple(items)
@@ -368,9 +375,11 @@ def _requests_by_sport(
 def _compatible_result_snapshots(sport: str, items: Sequence[_DueCandidate]) -> bool:
     """Share one result lookup only for exactly identical frozen source identity.
 
-    Model/context revisions may differ; start, participants and every native
-    identity field must agree. Each settlement still binds its own snapshot.
-    Unknown adapters retain the conservative single-snapshot rule.
+    Model/context revisions may differ; participants and every native identity
+    field must agree. Only tennis may carry different frozen start times: its
+    reader verifies the same native event and prediction row, and the runner
+    checks the observed result against each candidate's own start separately.
+    Other adapters retain their exact-start/single-snapshot rules.
     """
     patterns = {
         "football": (_FIXTURE_FACTOR_RE,),
@@ -394,7 +403,10 @@ def _compatible_result_snapshots(sport: str, items: Sequence[_DueCandidate]) -> 
         label = item.snapshot.get("event_label")
         if not isinstance(label, str) or not label.strip():
             return False
-        identities.append((item.starts_at, label.strip(), tuple(native_ids)))
+        identities.append((
+            item.payload["event_key"], label.strip(), tuple(native_ids),
+            None if sport == "tennis" else item.starts_at,
+        ))
     return len(set(identities)) == 1
 
 
@@ -609,9 +621,10 @@ def tennis_result_loader(
                     )
                 prediction_ids = sorted(set(prediction_by_event.values()))
                 placeholders = ",".join("?" for _ in prediction_ids)
+                # Prove physical identity before filtering result eligibility:
+                # an unsettled duplicate cannot make this ID unambiguous.
                 rows = connection.execute(
-                    f"SELECT * FROM predictions WHERE settled=1 "
-                    f"AND id IN ({placeholders}) ORDER BY id DESC",
+                    f"SELECT * FROM predictions WHERE id IN ({placeholders}) ORDER BY id DESC",
                     prediction_ids,
                 ).fetchall()
         except sqlite3.Error:
@@ -620,8 +633,20 @@ def tennis_result_loader(
             )
         results: list[ObservedResult] = []
         matched: set[str] = set()
+        duplicate_ids = {
+            prediction_id for prediction_id, count in Counter(row["id"] for row in rows).items()
+            if count > 1
+        }
+        identity_rejected = {
+            event_key for event_key, prediction_id in prediction_by_event.items()
+            if prediction_id in duplicate_ids
+        }
+        issues.extend(ResultIssue(event_key, "duplicate_event_result")
+                      for event_key in sorted(identity_rejected))
         for sqlite_row in rows:
             row = dict(sqlite_row)
+            if row["id"] in duplicate_ids or row["settled"] != 1:
+                continue
             provider_id = str(row.get("provider_event_id") or f"shadow-{row['id']}").strip()
             provider = str(row.get("fixture_source") or "tennis-shadow").strip()
             event_key = stable_event_key("tennis", provider, provider_id)
@@ -633,6 +658,18 @@ def tennis_result_loader(
                 or row.get("id") != expected_prediction_id
                 or event_key in matched
             ):
+                continue
+            if request.requires_native_identity and (
+                not isinstance(row.get("provider_event_id"), str)
+                or not row["provider_event_id"].strip()
+                or not isinstance(row.get("fixture_source"), str)
+                or not row["fixture_source"].strip()
+                # Explicitly stored fallback strings are still fallback IDs.
+                or provider.casefold() == "tennis-shadow"
+                or provider_id.casefold().startswith("shadow-")
+            ):
+                issues.append(ResultIssue(event_key, "source_identity_unproven"))
+                identity_rejected.add(event_key)
                 continue
             observed = _first_observation(row, columns)
             if observed is None:
@@ -695,6 +732,7 @@ def tennis_result_loader(
             for request in requests
             if request.event_key in prediction_by_event
             and request.event_key not in matched
+            and request.event_key not in identity_rejected
         )
         return ResultLoadBatch(tuple(results), tuple(issues))
 
@@ -1032,13 +1070,16 @@ def run_riskobet_settlements(
                 observation.sport != sport
                 or observed_at is None
                 or observed_at > observed_now
-                or observed_at < event_candidates[0].starts_at
                 or not observation.source_result_id.strip()
             ):
                 errors.append(_safe_issue(sport, "result_identity_or_time_invalid"))
                 unresolved += len(event_candidates)
                 continue
             for candidate in event_candidates:
+                if observed_at < candidate.starts_at:
+                    errors.append(_safe_issue(sport, "result_identity_or_time_invalid"))
+                    unresolved += 1
+                    continue
                 try:
                     decision = settle_market(
                         sport=candidate.contract.sport,
