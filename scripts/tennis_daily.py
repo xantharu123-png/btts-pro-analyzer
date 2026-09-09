@@ -271,8 +271,7 @@ def fetch_fixtures_espn(date: str, *, observe_status=None) -> list:
                         or ev.get("groundType")
                         or ev.get("surface")
                     )
-                    fixtures.append(
-                        {
+                    fixture = {
                             "tour": tour.upper(),
                             "tournament": ev.get("name", ""),
                             "player_a": names[0],
@@ -284,7 +283,12 @@ def fetch_fixtures_espn(date: str, *, observe_status=None) -> list:
                             "surface": surface,
                             "indoor": indoor,
                         }
-                    )
+                    from tennis.live_context import active_worker
+                    live_batch = active_worker()
+                    if live_batch is not None:
+                        live_batch.bind_fixture(fixture, tour=tour.upper(), tournament_id=ev.get("id"),
+                            competition=comp, grouping_slug=want_slug)
+                    fixtures.append(fixture)
     return fixtures
 
 
@@ -666,11 +670,16 @@ def _load_models(
     *,
     decision_cutoff: datetime,
     allow_legacy_model: bool = False,
+    context_path: Path | None = None,
 ) -> tuple[dict, dict, list]:
     states = {}
     records = {}
     errors = []
     requested = set(tours)
+    from tennis.live_context import active_worker
+    live_batch = active_worker()
+    context_options = {"path": live_batch.path} if live_batch is not None else (
+        {"path": context_path} if context_path is not None else {})
     for tour in ("ATP", "WTA"):
         if tour not in requested:
             continue
@@ -679,6 +688,7 @@ def _load_models(
                 tour,
                 allow_legacy=allow_legacy_model,
                 decision_cutoff=decision_cutoff,
+                **context_options,
             )
             states[tour] = state
             records[tour] = _model_record(state)
@@ -770,10 +780,17 @@ def refresh_pending_predictions(
     # One actual decision boundary governs all tour artifacts selected for this
     # worker run. A later manifest is ineligible even if its state was built early.
     modeled_at = _refresh_now() if as_of is None else checked_at
+    from tennis.live_context import LiveWorker, has_stored_context
+    live_batch = None
+    if any(has_stored_context(row) for row in by_event.values()):
+        from runtime_paths import CONTEXT_MODEL_DB_PATH
+        live_batch = LiveWorker(CONTEXT_MODEL_DB_PATH)
+    model_options = {"context_path": live_batch.path} if live_batch is not None else {}
     states, result["models"], model_errors = _load_models(
         (row["tour"] for row in by_event.values()),
         decision_cutoff=modeled_at,
         allow_legacy_model=allow_legacy_model,
+        **model_options,
     )
     result["errors"].extend(model_errors)
     try:
@@ -820,11 +837,19 @@ def refresh_pending_predictions(
             if indoor is not None and type(indoor) is not bool:
                 indoor = None
             surface = row.get("surface")
+            originals = []
+            capture_options = {}
+            if live_batch is not None and has_stored_context(row):
+                live_batch.bind_pending(row, decision_at=modeled_at)
+                if not live_batch.wants_original(row, state):
+                    raise ValueError("native context refresh requires the actual separate tour model")
+                capture_options = {"original_capture": originals.append}
             prediction = predict_match(
                 state, row["player_a"], row["player_b"],
                 surface if surface in ("Hard", "Clay", "Grass", "Carpet") else None,
                 row["best_of"], tour=row["tour"], indoor=indoor,
                 as_of=modeled_at, workload_history=workload,
+                **capture_options,
             )
             # Do not append a pre-start prediction after the event has started
             # while a slow computation was running.
@@ -832,9 +857,7 @@ def refresh_pending_predictions(
             if utc_epoch(row["scheduled_start_utc"]) <= finished_at.timestamp():
                 result["skipped"] += 1
                 continue
-            shadow.store_prediction(
-                row["match_date"], row["tour"], row.get("tournament"), prediction,
-                provider_event_id=str(row["provider_event_id"]),
+            store_options = dict(provider_event_id=str(row["provider_event_id"]),
                 scheduled_start_utc=row["scheduled_start_utc"],
                 fixture_source=row["fixture_source"], modeled_at=modeled_at,
                 append_observed_at=append_observed_at,
@@ -843,11 +866,18 @@ def refresh_pending_predictions(
                 expected_scheduled_start_utc=row["scheduled_start_utc"],
                 db_path=db_path,
             )
+            if originals:
+                live_batch.enqueue(row, state, prediction, originals, decision_at=modeled_at,
+                    kwargs=store_options, result=result, success_counter="refreshed")
+                continue
+            shadow.store_prediction(row["match_date"], row["tour"], row.get("tournament"), prediction, **store_options)
             result["refreshed"] += 1
         except shadow.FixtureNotRefreshable:
             result["skipped"] += 1
         except Exception as exc:
             result["errors"].append({"prediction_id": row.get("id"), "reason": "prediction_refresh_failed", "error_type": type(exc).__name__})
+    if live_batch is not None:
+        live_batch.finish()
     result["completed_at"] = (_refresh_now() if as_of is None else checked_at).isoformat()
     result["status"] = _reader_status(states, result["errors"], success="complete")
     return result
@@ -894,6 +924,8 @@ def scan_fixtures(
         "models": model_records,
         "decision_at": decision_at.isoformat(),
     }
+    from tennis.live_context import active_worker
+    live_batch = active_worker()
     for fx in fixtures:
         tour = fx.get("tour")
         if tour not in ("ATP", "WTA"):
@@ -925,6 +957,9 @@ def scan_fixtures(
             indoor = fx.get("indoor")
             if indoor is None:
                 indoor = catalog_indoor
+            originals = []
+            capture_options = ({"original_capture": originals.append}
+                if live_batch is not None and live_batch.wants_original(fx, state) else {})
             pred = predict_match(
                 state,
                 fx["player_a"],
@@ -935,19 +970,16 @@ def scan_fixtures(
                 indoor=indoor,
                 as_of=decision_at,
                 workload_history=workload_history,
+                **capture_options,
             )
-            row_id = shadow.store_prediction(
-                fx["match_date"],
-                tour,
-                fx["tournament"],
-                pred,
-                provider_event_id=fx.get("provider_event_id") or None,
-                scheduled_start_utc=fx.get("scheduled_start_utc"),
-                fixture_source=fx.get("fixture_source"),
-                modeled_at=decision_at,
-                append_observed_at=append_observed_at,
-                db_path=db_path,
-            )
+            store_options = dict(provider_event_id=fx.get("provider_event_id") or None,
+                scheduled_start_utc=fx.get("scheduled_start_utc"), fixture_source=fx.get("fixture_source"),
+                modeled_at=decision_at, append_observed_at=append_observed_at, db_path=db_path)
+            if live_batch is not None:
+                live_batch.enqueue(fx, state, pred, originals, decision_at=decision_at,
+                    kwargs=store_options, result=result)
+                continue
+            row_id = shadow.store_prediction(fx["match_date"], tour, fx["tournament"], pred, **store_options)
             if row_id > 0:
                 result["stored"] += 1
         except shadow.FixtureNotRefreshable:
@@ -977,10 +1009,18 @@ def main() -> int:
     )
     args = parser.parse_args()
     from context_sources.tennis_capture import capture_tennis_worker
-    with capture_tennis_worker() as capture:
-        result = _run_daily(args)
+    from tennis.live_context import live_worker
+    with live_worker() as batch:
+        with capture_tennis_worker(path=batch.path) as capture:
+            batch.attach_capture(capture)
+            result = _run_daily(args)
+        batch.finish()
     report = capture.report()
     print(f"Kontext-Capture: {report['status']}")
+    if batch.pending:
+        results = {id(item["result"]): item["result"] for item in batch.pending}.values()
+        print(f"Nach Datenempfang gespeichert: {sum(item['stored'] for item in results)} neue Predictions")
+        print("Shadow-Stand:", shadow.summary())
     return 1 if report["issues"] else result
 
 
@@ -1008,8 +1048,11 @@ def _run_daily(args) -> int:
             f"artifact_hash={record.get('artifact_hash')}; "
             f"error_type={record.get('error_type')}"
         )
-    print(f"\nGespeichert: {result['stored']} neue Predictions (Duplikate uebersprungen)")
-    print("Shadow-Stand:", shadow.summary())
+    if "prepared" in result:
+        print(f"\nVorbereitet: {result['prepared']} Predictions; Speicherung nach Datenempfang")
+    else:
+        print(f"\nGespeichert: {result['stored']} neue Predictions (Duplikate uebersprungen)")
+        print("Shadow-Stand:", shadow.summary())
     return 1 if result["errors"] else 0
 
 

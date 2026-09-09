@@ -413,6 +413,11 @@ def _weighted_refs(value: list, available: set[str], label: str) -> float:
 
 
 def validate_reference_weights(value: dict, history_refs: list[dict], *, family: str) -> dict:
+    if type(value) is dict and value.get("kind") == "tennis-live-winner-origin-v1":
+        if family != "tennis:winner":
+            raise ContextContractError("live Tennis original belongs only to its winner family")
+        from context_models.tennis_live import validate_live_winner_reference
+        return validate_live_winner_reference(value, history_refs)
     if type(value) is dict and type(value.get("kind")) is str and value["kind"] in {"hockey-original-poisson-reference-v1", "hockey-context-comparison-reference-v1"}:
         if family != "ice_hockey:regulation_goals":
             raise ContextContractError("hockey reference belongs only to its regulation-goal family")
