@@ -49,6 +49,7 @@ from challenge_engine import (
     select_wettfinder_catalog,
 )
 from config_loader import AppConfig, load_app_config
+from context_sources.football_capture import capture_report_fields
 from forecast_analysis import project_football_analysis
 from ev_signal_sources import (
     AUTOMATED_FOOTBALL_RELEASE_CONTRACT,
@@ -1152,6 +1153,7 @@ def _football_state_from_snapshot(
         "candidates": records,
         "basis_candidates": basis_records,
         "errors": errors,
+        **capture_report_fields(snapshot),
     }
 
 
@@ -1570,6 +1572,7 @@ def _merge_context_refresh(
     refreshed.update(
         {
             "last_context_at": checked_at.isoformat(),
+            **capture_report_fields(result),
             "context_checks": checks,
             "candidates": merged_records,
             "basis_candidates": merged_basis_records,
@@ -2108,14 +2111,19 @@ def _default_football_scan(
         config.api_football_key,
         config.weather_key,
     )
-    return scan_daily_challenge(
-        provider,
-        list(ALTERNATIVE_MARKET_LEAGUES),
-        search_date,
-        MAX_SCAN_FIXTURES,
-        allow_above_challenge_probability=True,
-        candidate_profile="wettfinder",
-    )
+    from context_sources.football_capture import capture_football_worker
+    with capture_football_worker(provider) as capture:
+        snapshot = scan_daily_challenge(
+            provider,
+            list(ALTERNATIVE_MARKET_LEAGUES),
+            search_date,
+            MAX_SCAN_FIXTURES,
+            allow_above_challenge_probability=True,
+            candidate_profile="wettfinder",
+        )
+    if capture is not None:
+        snapshot["context_capture"] = capture.report()
+    return snapshot
 
 
 def _default_football_context_refresh(
@@ -2130,13 +2138,18 @@ def _default_football_context_refresh(
         config.api_football_key,
         config.weather_key,
     )
-    return refresh_discovered_candidates(
-        provider,
-        candidates,
-        search_date,
-        now=current,
-        max_candidates=15,
-    )
+    from context_sources.football_capture import capture_football_worker
+    with capture_football_worker(provider) as capture:
+        snapshot = refresh_discovered_candidates(
+            provider,
+            candidates,
+            search_date,
+            now=current,
+            max_candidates=15,
+        )
+    if capture is not None:
+        snapshot["context_capture"] = capture.report()
+    return snapshot
 
 
 def _apply_reference_quotes(

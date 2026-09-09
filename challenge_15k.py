@@ -693,6 +693,9 @@ class ChallengeDataProvider:
         self._domestic_history_cache: dict[
             tuple[int, str], Optional[dict[str, Any]]
         ] = {}
+        # Only explicit background/manual workers enable immutable B1 capture.
+        # Default providers (including 15K display/price paths) remain unchanged.
+        self._context_capture = None
 
     def _rate_limit(self) -> None:
         elapsed = time.monotonic() - self._last_request
@@ -717,12 +720,16 @@ class ChallengeDataProvider:
                 timeout=20,
                 priority=priority,
                 label=label,
+                **({"allow_redirects": False} if self._context_capture is not None else {}),
             )
             response.raise_for_status()
             payload = response.json()
         except (APIBudgetError, requests.RequestException, ValueError) as exc:
             self.errors.append(f"{label}: {exc}")
             return None
+        if self._context_capture is not None:
+            self._context_capture.record(path, params, payload,
+                observed_at=self._context_received_at(), status=response.status_code)
         if not isinstance(payload, dict):
             self.errors.append(f"{label}: ungültige Provider-Antwort")
             return None

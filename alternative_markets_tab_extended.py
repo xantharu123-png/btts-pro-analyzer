@@ -469,16 +469,20 @@ def _run_market_scan_worker(
     }
     if market_kinds is not None:
         scan_kwargs["market_kinds"] = set(market_kinds)
-    challenge_snapshot = scan_daily_challenge(
-        provider,
-        league_ids,
-        search_date,
-        max_fixtures,
-        search_end_date=search_end_date,
-        allow_above_challenge_probability=True,
-        candidate_profile="wettfinder",
-        **scan_kwargs,
-    )
+    from context_sources.football_capture import capture_football_worker
+    with capture_football_worker(provider) as capture:
+        challenge_snapshot = scan_daily_challenge(
+            provider,
+            league_ids,
+            search_date,
+            max_fixtures,
+            search_end_date=search_end_date,
+            allow_above_challenge_probability=True,
+            candidate_profile="wettfinder",
+            **scan_kwargs,
+        )
+    if capture is not None:
+        challenge_snapshot["context_capture"] = capture.report()
     if progress_cb:
         progress_cb(0.92, "Marktquoten der Modellkandidaten werden verglichen")
     # The calculated forecast is a separate axis from bookmaker price and
