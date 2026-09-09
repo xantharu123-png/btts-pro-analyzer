@@ -34,6 +34,7 @@ def test_main_and_every_existing_companion_must_be_singly_linked_before_open(tmp
     target = member(path, suffix)
     if suffix:
         target.write_bytes(b"existing companion")
+        target.chmod(0o600)
     sentinel = tmp_path / "other-file.bin"
     os.link(target, sentinel)
     before = sentinel.read_bytes()
@@ -52,6 +53,7 @@ def test_actual_wal_shm_hardlink_never_overwrites_unrelated_file(tmp_path):
     sentinel = tmp_path / "unrelated-not-database.bin"
     before = b"OTHER FILE, NOT A SQLITE SHARED MEMORY FILE.\n" * 2048
     sentinel.write_bytes(before)
+    sentinel.chmod(0o600)
     os.link(sentinel, member(path, "-shm"))
     with pytest.raises(RuntimeArtifactTrustError, match="singly linked"):
         read(path, reference, payload)
@@ -125,6 +127,7 @@ def test_invalid_member_introduced_during_connect_is_rejected_and_connection_clo
     before = b"must remain untouched"
     if suffix:
         sentinel.write_bytes(before)
+        sentinel.chmod(0o600)
     def connect(database, *args, **kwargs):
         connection = original_connect(database, *args, **kwargs)
         opened.append(connection)
@@ -148,8 +151,10 @@ def test_existing_companion_replacement_during_open_is_not_the_original_identity
     path, reference, payload = saved(tmp_path)
     target = member(path, suffix)
     target.write_bytes(b"")
+    target.chmod(0o600)
     replacement = tmp_path / "replacement.bin"
     replacement.write_bytes(b"")
+    replacement.chmod(0o600)
     original_connect = sqlite3.connect
     opened = []
     def connect(database, *args, **kwargs):
@@ -170,6 +175,7 @@ def test_successful_read_rechecks_new_companion_trust_before_return(tmp_path):
     sentinel = tmp_path / "new-after-open.bin"
     before = b"not shared memory"
     sentinel.write_bytes(before)
+    sentinel.chmod(0o600)
     with pytest.raises(RuntimeArtifactTrustError, match="singly linked"):
         with dataset._reader(path) as connection:
             assert connection.execute("SELECT count(*) FROM context_snapshots").fetchone() == (1,)

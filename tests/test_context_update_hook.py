@@ -558,7 +558,7 @@ def test_runtime_override_outside_backup_or_ambiguous_is_not_silently_relocated(
 def configuration_fixture(data, tmp_path, *, legacy=True, present=False, extra_previous=None, env=None):
     """Actual staged bytes, known code pin, exact manifests; Unix DAC emulated."""
     app, target, old = (tmp_path / name for name in ("app", "target", "previous"))
-    for directory in (app, target, old): directory.mkdir()
+    for directory in (app, target, old): directory.mkdir(mode=0o700)
     units = {p.relative_to(ROOT).as_posix(): p.read_bytes()
              for p in (ROOT / "deploy/systemd").glob("betboy-*.service") if p.name != "betboy-backup.service"}
     new_files = {**units, "runtime_paths.py": (ROOT / "runtime_paths.py").read_bytes(),
