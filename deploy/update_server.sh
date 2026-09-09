@@ -1048,6 +1048,562 @@ prepare_dependencies() {
     die "requirements.txt changed; use the separately reviewed venv-migration runbook."
 }
 
+context_hook_data() {
+    # Privileged boundary: only this installed, stdlib-only inline program.
+    # Never import the app, its venv, NumPy or the backup's secret contents here.
+    /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 \
+        /usr/bin/python3 -I -B - "$@" <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import sqlite3
+import stat
+import sys
+import zipfile
+
+MAX_IMAGE = 64 * 1024 * 1024
+MAX_REPORT = 1024 * 1024
+PATH_CONTRACT = "710b8f8b1bfacf35397aad47d8df2fc9c28f6af60a4888540acfac4030331a8c"
+EXCLUDED = {".codex_test_venv", ".git", ".pytest_cache", ".pytest_tmp", ".venv", "__pycache__", "backups_runtime"}
+ALLOWED_LIMITS = {
+    "d2-final-source-replay-not-opened", "d1-participation-training-receipts-unresolved",
+    "d1-final-source-replay-unavailable", "d1-fit-owning-replay-unavailable",
+    "d2-dataset-owning-experiment-unavailable", "d1-case-owning-replay-unavailable",
+    "d1-original-replay-context-unavailable", "d2-evaluation-opening-unavailable",
+    "d2-approval-evidence-resolution-unavailable", "d3-owning-family-replay-unavailable",
+    "d3-owning-source-feature-replay-unavailable", "d3-snapshot-input-binding-unavailable",
+}
+PERSISTENCE_FILES = {"model_artifacts.py", "context_observations.py", "context_snapshots.py",
+                     "context_runtime.py", "context_runtime_semantics.py"}
+RESULT_KEYS = {"status", "schema", "verification_level", "empirical_approval_verified",
+    "limitations", "d2_verified", "counts", "active_manifest", "active_slots_hash",
+    "active_slot_count", "tour_states"}
+
+
+def need(condition, reason):
+    if not condition:
+        raise ValueError(reason)
+
+
+def object_pairs(pairs):
+    value = {}
+    for key, item in pairs:
+        need(key not in value, "duplicate JSON key")
+        value[key] = item
+    return value
+
+
+def decode(raw):
+    def bad_constant(value):
+        raise ValueError("nonfinite JSON constant")
+    return json.loads(raw, object_pairs_hook=object_pairs, parse_constant=bad_constant)
+
+
+def sha(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def digest(value):
+    need(type(value) is str and re.fullmatch(r"[0-9a-f]{64}", value), "invalid hash")
+    return value
+
+
+def integer(value):
+    need(type(value) is int and value >= 0, "expected actual nonnegative integer")
+    return value
+
+
+def hash_list(values):
+    need(type(values) is list and values == sorted(set(digest(v) for v in values)), "noncanonical hash list")
+
+
+def validate_report(value, code):
+    need(type(value) is dict and set(value) == RESULT_KEYS, "unknown context report shape")
+    need(type(value["schema"]) is int and value["schema"] == 1, "unknown report schema")
+    need(value["empirical_approval_verified"] is False, "continuity is not effect certification")
+    limits = value["limitations"]
+    need(type(limits) is list and all(type(v) is str for v in limits)
+         and limits == sorted(set(limits)), "noncanonical limitation list")
+    if code == 0:
+        need(value["status"] == "verified" and value["verification_level"] == "structural"
+             and not limits, "success code contradicts the actual report")
+    elif code == 2:
+        need(value["status"] == "incomplete" and value["verification_level"] == "transport_only"
+             and limits and set(limits) <= ALLOWED_LIMITS, "unreviewed context continuity limitation")
+    else:
+        raise ValueError("context verifier failed or exceeded its execution boundary")
+    need(type(value["counts"]) is dict and set(value["counts"]) ==
+         {"artifacts", "manifests", "contents", "observations", "snapshots", "rollbacks"}, "unknown counts")
+    for count in value["counts"].values():
+        integer(count)
+    need(type(value["d2_verified"]) is dict and set(value["d2_verified"]) ==
+         {"experiments", "datasets", "fits", "cases", "evaluations", "approvals"}, "unknown D2 report lists")
+    for refs in value["d2_verified"].values():
+        hash_list(refs)
+    if value["active_manifest"] is not None:
+        digest(value["active_manifest"])
+    digest(value["active_slots_hash"])
+    integer(value["active_slot_count"])
+    need(type(value["tour_states"]) is dict and set(value["tour_states"]) <= {"ATP", "WTA"}, "unknown tour")
+    for ref in value["tour_states"].values():
+        digest(ref)
+    # A1 legitimately allows multiple slot aliases for one immutable artifact.
+    need(len(value["tour_states"]) <= value["active_slot_count"], "impossible tour slot count")
+    need((value["active_manifest"] is not None) == (value["counts"]["manifests"] > 0), "missing manifest identity")
+    need(value["active_manifest"] is not None or value["active_slot_count"] == 0, "slots without a manifest")
+    return value
+
+
+def configuration_lines(raw):
+    # Shared closed record grammar for EnvironmentFile and unit records. Only
+    # ASCII LF/CRLF/CR delimit records; Unicode never creates another setting.
+    text = raw.decode("utf-8", "strict")
+    need(not text.startswith("\ufeff") and all((ord(c) >= 32 or c in "\r\n\t")
+         and c not in "\x85\u2028\u2029" for c in text), "unsupported configuration encoding")
+    return [line.strip(" \t") for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+
+
+def runtime_override(raw):
+    # Deliberately closed EnvironmentFile subset, not an incomplete imitation
+    # of systemd's multiline/escape language. Ambiguity stops before downtime.
+    seen, result = set(), None
+    for line in configuration_lines(raw):
+        if not line or line.startswith(("#", ";")):
+            continue
+        match = re.fullmatch(r"([A-Za-z_][A-Za-z_0-9]*)=(.*)", line)
+        need(match is not None and "\\" not in line, "unsupported environment record")
+        name, value = match.groups()
+        need(name not in seen, "duplicate environment assignment")
+        seen.add(name)
+        value = value.strip(" \t")
+        if value.startswith(("'", '"')):
+            need(len(value) >= 2 and value[-1] == value[0] and value[0] not in value[1:-1], "unsupported quoted environment record")
+            value = value[1:-1]
+        else:
+            need("'" not in value and '"' not in value, "ambiguous environment quotes")
+        if name == "BETBOY_RUNTIME_STATE_DIR":
+            result = value.strip(" \t") or None
+            # The known app resolver strips Unicode whitespace too. Do not
+            # silently turn that different path spelling into an exact route.
+            need(result is None or not (result[0].isspace() or result[-1].isspace()), "unsupported runtime path whitespace")
+    return result
+
+
+def relative_name(value):
+    need(type(value) is str and value and "\\" not in value
+         and all(ord(c) >= 32 for c in value), "unsafe relative path")
+    parsed = PurePosixPath(value)
+    need(not parsed.is_absolute() and parsed.as_posix() == value and ".." not in parsed.parts
+         and ":" not in value and not any(p in EXCLUDED for p in parsed.parts), "unsupported path scope")
+    return value
+
+
+def runtime_relative(app, override):
+    root = PurePosixPath(app)
+    selected = override or (root / "runtime_state").as_posix()
+    pure = PurePosixPath(selected)
+    need(root.is_absolute() and root.as_posix() == app and ".." not in root.parts
+         and pure.is_absolute() and pure.as_posix() == selected and ".." not in pure.parts
+         and "\\" not in selected and ":" not in selected and not selected.startswith("//"), "runtime path must be exact absolute POSIX")
+    try:
+        relative = (pure / "context_models.db").relative_to(root).as_posix()
+    except ValueError as exc:
+        raise ValueError("context path is outside existing backup scope") from exc
+    return relative_name(relative)
+
+
+def signature(info):
+    return [info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid,
+            info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns]
+
+
+def directory(path, *, owners, direct=True):
+    path = Path(path)
+    info = path.lstat()
+    need(stat.S_ISDIR(info.st_mode) and info.st_uid in owners
+         and (not info.st_mode & 0o022 or (not direct and info.st_mode & stat.S_ISVTX)), "unsafe directory boundary")
+    if path.parent != path:
+        directory(path.parent, owners=owners, direct=False)
+    return info
+
+
+def file_info(path, *, owners, mode=None, gid=None):
+    path = Path(path)
+    directory(path.parent, owners=owners)
+    info = path.lstat()
+    need(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid in owners
+         and not info.st_mode & 0o022, "unsafe file boundary")
+    need(mode is None or stat.S_IMODE(info.st_mode) == mode, "unexpected file mode")
+    need(gid is None or info.st_gid == gid, "unexpected file group")
+    return info
+
+
+def read_file(path, *, owners=frozenset({0}), maximum=MAX_REPORT, mode=None, gid=None):
+    path = Path(path)
+    initial = file_info(path, owners=owners, mode=mode, gid=gid)
+    need(initial.st_size <= maximum, "bounded file input exceeded")
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
+    try:
+        need(signature(os.fstat(fd)) == signature(initial), "file changed before read")
+        with os.fdopen(fd, "rb", closefd=False) as handle:
+            raw = handle.read(maximum + 1)
+        need(len(raw) <= maximum and signature(os.fstat(fd)) == signature(initial)
+             and signature(file_info(path, owners=owners, mode=mode, gid=gid)) == signature(initial), "file changed during read")
+        return raw
+    finally:
+        os.close(fd)
+
+
+def file_hash(path, *, owners=frozenset({0})):
+    path = Path(path)
+    before = file_info(path, owners=owners)
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
+    try:
+        need(signature(os.fstat(fd)) == signature(before), "hash source replaced")
+        result = hashlib.sha256()
+        with os.fdopen(fd, "rb", closefd=False) as handle:
+            while block := handle.read(1024 * 1024):
+                result.update(block)
+        need(signature(os.fstat(fd)) == signature(before) and
+             signature(file_info(path, owners=owners)) == signature(before), "hash source changed")
+        return result.hexdigest()
+    finally:
+        os.close(fd)
+
+
+def write_new(path, raw, *, gid=0, mode=0o600):
+    path = Path(path)
+    directory(path.parent, owners={0})
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0), mode)
+    try:
+        os.fchown(fd, 0, gid)
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, "wb", closefd=False) as handle:
+            handle.write(raw)
+            handle.flush()
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def write_record(path, value):
+    write_new(path, json.dumps(value, sort_keys=True, allow_nan=False, separators=(",", ":")).encode())
+
+
+def verify_payload(root, manifest_path, revision, app_gid):
+    root = Path(root)
+    directory(root, owners={0})
+    manifest = decode(read_file(manifest_path, maximum=16 * 1024 * 1024, mode=0o640, gid=app_gid))
+    need(type(manifest) is dict and set(manifest) == {"revision", "files", "must_be_absent"}
+         and manifest["revision"] == revision and type(manifest["files"]) is dict
+         and type(manifest["must_be_absent"]) is list, "invalid trusted payload manifest")
+    files = manifest["files"]
+    for name, entry in files.items():
+        # Tracked seed/input paths are allowed here, but never executed as root.
+        need(type(name) is str and not name.startswith("/") and ".." not in PurePosixPath(name).parts
+             and "\\" not in name and PurePosixPath(name).as_posix() == name
+             and all(ord(c) >= 32 for c in name), "unsafe tracked name")
+        need(type(entry) is dict and set(entry) == {"mode", "sha256"}
+             and entry["mode"] in {"100644", "100755"}, "invalid tracked manifest entry")
+        file_info(root / name, owners={0}, mode=0o640, gid=app_gid)
+        need(file_hash(root / name) == digest(entry["sha256"]), "trusted payload hash differs")
+    actual = set()
+    for parent, dirs, names in os.walk(root, followlinks=False):
+        for name in dirs:
+            directory(Path(parent) / name, owners={0})
+        actual.update((Path(parent) / name).relative_to(root).as_posix() for name in names)
+    need(actual == set(files), "unmanifested payload import or missing file")
+    return files
+
+
+def configuration(app, env_path, target, previous, app_uid, app_gid, target_manifest, previous_manifest, previous_head, target_head, backup_head):
+    app = Path(app)
+    directory(app, owners={0, app_uid})
+    targets = verify_payload(target, target_manifest, target_head, app_gid)
+    predecessors = verify_payload(previous, previous_manifest, previous_head, app_gid)
+    need("runtime_paths.py" in targets and "scripts/verify_context_runtime.py" in targets, "target lacks the reviewed context entry")
+    path_module = read_file(Path(target) / "runtime_paths.py", mode=0o640, gid=app_gid)
+    need(sha(path_module.replace(b"\r\n", b"\n")) == PATH_CONTRACT, "unsupported runtime path contract")
+    old_paths = (read_file(Path(previous) / "runtime_paths.py", mode=0o640, gid=app_gid)
+                 if "runtime_paths.py" in predecessors else b"")
+    legacy = b"CONTEXT_MODEL_DB_PATH" not in old_paths
+    if legacy:
+        partial_context = PERSISTENCE_FILES.intersection(predecessors) or any(
+            name.startswith(("context_models/", "context_sources/"))
+            or (name.startswith("context_") and name.endswith(".py"))
+            or name in {"tennis/tour_state.py", "scripts/verify_context_runtime.py"}
+            for name in predecessors)
+        need(not partial_context, "partial legacy context persistence is ambiguous")
+    else:
+        need("model_artifacts.py" in predecessors and sha(old_paths.replace(b"\r\n", b"\n")) == PATH_CONTRACT,
+             "previous runtime path contract is unsupported")
+    # Existing unit hashes are checked by the installed updater. Additionally
+    # bind their actual shared path records, never parse shell or source env.
+    for tree, files in ((Path(target), targets), (Path(previous), predecessors)):
+        units = [n for n in files if n.startswith("deploy/systemd/betboy-") and n.endswith(".service") and not n.endswith("betboy-backup.service")]
+        need(len(units) == 7, "unexpected runtime service inventory")
+        for unit in units:
+            lines = configuration_lines(read_file(tree / unit, mode=0o640, gid=app_gid))
+            need(not any(line.endswith("\\") for line in lines), "unreviewed multiline unit record")
+            records = [(key.strip(" \t"), value.strip(" \t")) for line in lines if line and not line.startswith(("#", ";"))
+                       for key, separator, value in [line.partition("=")] if separator]
+            need([value for key, value in records if key == "EnvironmentFile"] == ["-/etc/betboy/betboy.env"],
+                 "unreviewed environment-file route")
+            need(not any(key == "Environment" and ("BETBOY_RUNTIME_STATE_DIR" in value or "\\" in value) for key, value in records)
+                 and not any(key in {"PassEnvironment", "UnsetEnvironment"} for key, _ in records), "ambiguous runtime environment override")
+    env = Path(env_path)
+    directory(env.parent, owners={0})
+    raw_env = read_file(env, maximum=65536, mode=0o640, gid=app_gid) if os.path.lexists(env) else None
+    override = runtime_override(raw_env) if raw_env is not None else None
+    relative = runtime_relative(app.as_posix(), override)
+    path = app / relative
+    current = path.parent
+    while not os.path.lexists(current):
+        current = current.parent
+    directory(current, owners={0, app_uid})
+    presence = live_signature(path, app_uid)
+    need(presence or legacy, "context-capable predecessor has a missing database")
+    return {"app": str(app), "env": str(env), "env_hash": None if raw_env is None else sha(raw_env),
+        "target": str(target), "previous": str(previous), "target_manifest": str(target_manifest),
+        "previous_manifest": str(previous_manifest), "previous_head": previous_head, "target_head": target_head, "backup_head": backup_head,
+        "app_uid": app_uid, "app_gid": app_gid, "relative": relative, "legacy": legacy, "present": bool(presence)}
+
+
+def live_signature(path, app_uid):
+    found = {}
+    for suffix in ("", "-wal", "-shm", "-journal"):
+        name = Path(str(path) + suffix)
+        if os.path.lexists(name):
+            found[suffix] = signature(file_info(name, owners={0, app_uid}))
+    need(not found or "" in found, "context sidecars without their database")
+    return found
+
+
+def load_config(hook):
+    value = decode(read_file(Path(hook) / "config.json", mode=0o600))
+    keys = {"app", "env", "target", "previous", "app_uid", "app_gid", "target_manifest", "previous_manifest", "previous_head", "target_head", "backup_head"}
+    need(type(value) is dict and set(value) == keys | {"env_hash", "relative", "legacy", "present"}, "invalid configuration receipt")
+    arguments = {key: value[key] for key in keys}
+    arguments["env_path"] = arguments.pop("env")
+    current = configuration(**arguments)
+    need(current == value, "context configuration/presence changed across downtime")
+    return value
+
+
+def extract_and_seal(archive_path, relative, destination, *, source_head, app_gid):
+    archive_path, destination = Path(archive_path), Path(destination)
+    before = file_info(archive_path, owners={0}, mode=0o600, gid=0)
+    archive_hash = file_hash(archive_path)
+    fd = os.open(archive_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
+    member_hash = None
+    try:
+        need(signature(os.fstat(fd)) == signature(before), "archive replaced before single-member read")
+        with os.fdopen(fd, "rb", closefd=False) as source, zipfile.ZipFile(source) as archive:
+            infos = archive.infolist()
+            names = [i.filename for i in infos]
+            need(len(names) == len(set(names)), "duplicate archive members")
+            for info in infos:
+                relative_name(info.filename)
+                need(not info.is_dir() and stat.S_IFMT(info.external_attr >> 16) in {0, stat.S_IFREG}, "nonregular archive member")
+            manifest_info = archive.getinfo("MANIFEST.json")
+            need(manifest_info.file_size <= MAX_REPORT, "oversized backup manifest")
+            manifest = decode(archive.read(manifest_info))
+            required = {"created_at", "source_head", "database_count", "databases", "integrity_key"}
+            need(type(manifest) is dict and set(manifest) in (required, required | {"migration_marker"})
+                 and manifest["source_head"] == source_head, "backup source identity differs")
+            entries = manifest["databases"]
+            need(type(entries) is list and integer(manifest["database_count"]) == len(entries) and entries, "invalid database inventory")
+            paths = []
+            for entry in entries:
+                need(type(entry) is dict and set(entry) == {"path", "source_size", "backup_size", "sha256"}, "invalid database member record")
+                paths.append(relative_name(entry["path"]))
+                need(Path(entry["path"]).suffix in {".db", ".sqlite", ".sqlite3"}, "non-database inventory entry")
+                digest(entry["sha256"])
+                integer(entry["source_size"])
+                need(integer(entry["backup_size"]) == archive.getinfo(entry["path"]).file_size, "database inventory size differs")
+            need(paths == sorted(set(paths)), "noncanonical database inventory")
+            allowed = {"MANIFEST.json", *paths}
+            for key, expected in (("integrity_key", "integrity/challenge-ledger-hmac.key"),
+                                  ("migration_marker", "integrity/challenge-ledger-v2-migrated.json")):
+                if key not in manifest:
+                    continue
+                item = manifest[key]
+                need(type(item) is dict and set(item) == {"path", "sha256"} and item["path"] == expected, "invalid integrity inventory identity")
+                digest(item["sha256"])
+                allowed.add(expected)  # Do NOT read these secret members.
+            need(set(names) == allowed, "archive and verified inventory differ")
+            if relative in paths:
+                member = archive.getinfo(relative)
+                need(100 <= member.file_size <= MAX_IMAGE, "context image outside bounded SQLite size")
+                with archive.open(member) as handle:
+                    raw = handle.read(MAX_IMAGE + 1)
+                member_hash = digest(entries[paths.index(relative)]["sha256"])
+                need(len(raw) == member.file_size and sha(raw) == member_hash, "context archive member integrity differs")
+                need(raw[:16] == b"SQLite format 3\x00" and raw[18:20] in {b"\x01\x01", b"\x02\x02"}, "not a complete SQLite backup image")
+                write_new(destination, raw)
+        need(signature(os.fstat(fd)) == signature(before)
+             and signature(file_info(archive_path, owners={0}, mode=0o600, gid=0)) == signature(before)
+             and file_hash(archive_path) == archive_hash, "archive changed during extraction")
+    finally:
+        os.close(fd)
+    if member_hash is not None:
+        # Only the newly created private copy receives a SQLite filename.
+        # Actual SQLite sealing, never raw-header repair or immutable WAL.
+        need(not any(os.path.lexists(str(destination) + s) for s in ("-wal", "-shm", "-journal")), "unsealed copy has companions")
+        connection = sqlite3.connect(destination.as_uri() + "?mode=rw", uri=True, timeout=30)
+        try:
+            connection.execute("PRAGMA trusted_schema=OFF")
+            need(connection.execute("PRAGMA journal_mode=DELETE").fetchone() == ("delete",), "snapshot could not be sealed")
+            need(connection.execute("PRAGMA quick_check").fetchall() == [("ok",)], "sealed snapshot SQLite check failed")
+        finally:
+            connection.close()
+        need(not any(os.path.lexists(str(destination) + s) for s in ("-wal", "-shm", "-journal")), "snapshot sealing left companions")
+        raw = read_file(destination, maximum=MAX_IMAGE, mode=0o600)
+        need(raw[18:20] == b"\x01\x01", "snapshot is not DELETE mode")
+        os.chown(destination, 0, app_gid)
+        os.chmod(destination, 0o440)
+    return {"archive_hash": archive_hash, "archive_signature": signature(before), "member_hash": member_hash}
+
+
+def main(args):
+    need(getattr(os, "geteuid", lambda: -1)() == 0, "installed updater data boundary requires root")
+    command, *args = args
+    if command == "configure":
+        app, env, target, previous, target_manifest, previous_manifest, old, new, backup_head, hook, uid, gid = args
+        need(uid.isdigit() and gid.isdigit() and int(uid) > 0 and int(gid) > 0, "invalid app principal")
+        need(all(re.fullmatch(r"[0-9a-f]{40}", revision) for revision in (old, new, backup_head)), "invalid release identity")
+        need(env == "/etc/betboy/betboy.env", "unreviewed production config source")
+        value = configuration(app, env, target, previous, int(uid), int(gid), target_manifest, previous_manifest, old, new, backup_head)
+        hook = Path(hook)
+        directory(hook.parent, owners={0})
+        os.mkdir(hook, 0o750)
+        os.chown(hook, 0, int(gid))
+        os.chmod(hook, 0o750)
+        write_record(hook / "config.json", value)
+    elif command == "stage":
+        hook, archive = Path(args[0]), Path(args[1])
+        config = load_config(hook)
+        path = Path(config["app"]) / config["relative"]
+        live = live_signature(path, config["app_uid"])
+        destination = hook / "context_models.db"
+        proof = extract_and_seal(archive, config["relative"], destination, source_head=config["backup_head"], app_gid=config["app_gid"])
+        need(bool(live) == (proof["member_hash"] is not None), "live/backup context presence differs")
+        need(live or config["legacy"], "missing database is not a proved legacy installation")
+        proof.update({"archive": str(archive), "live": live,
+                      "sealed_hash": file_hash(destination) if live else None,
+                      "sealed_signature": signature(file_info(destination, owners={0}, mode=0o440, gid=config["app_gid"])) if live else None})
+        write_record(hook / "stage.json", proof)
+        print("present" if live else "not_present_legacy")
+    elif command == "finish":
+        hook, code = Path(args[0]), int(args[1])
+        config, proof = load_config(hook), decode(read_file(hook / "stage.json", mode=0o600))
+        need(set(proof) == {"archive", "archive_hash", "archive_signature", "member_hash", "live", "sealed_hash", "sealed_signature"}, "unknown stage receipt")
+        need(signature(file_info(proof["archive"], owners={0}, mode=0o600, gid=0)) == proof["archive_signature"]
+             and file_hash(proof["archive"]) == proof["archive_hash"], "backup changed after verification")
+        need(live_signature(Path(config["app"]) / config["relative"], config["app_uid"]) == proof["live"], "live source changed during verifier")
+        if proof["member_hash"] is None:
+            need(config["legacy"] and not config["present"] and code == 0
+                 and not os.path.lexists(hook / "context_models.db"), "invalid legacy absence claim")
+            print("Context continuity: not_present_legacy; no model/effect certification.")
+        else:
+            destination = hook / "context_models.db"
+            need(not any(os.path.lexists(str(destination) + s) for s in ("-wal", "-shm", "-journal")), "verifier created companions")
+            need(signature(file_info(destination, owners={0}, mode=0o440, gid=config["app_gid"])) == proof["sealed_signature"]
+                 and file_hash(destination) == proof["sealed_hash"], "sealed source changed during verifier")
+            value = validate_report(decode(read_file(hook / "report.json", maximum=MAX_REPORT, mode=0o600)), code)
+            print("Context continuity: " + value["verification_level"] + "; no model/effect certification.")
+    elif command == "dependencies":
+        need(len(args) == 2 and args[1] == "0" and read_file(args[0], maximum=1024, mode=0o600) == b"context-dependencies-v1:ok\n", "context dependency preflight failed")
+    else:
+        raise ValueError("unknown context hook action")
+
+
+if __name__ == "__main__":
+    try:
+        main(sys.argv[1:])
+    except Exception:
+        # Never print provider/env/archive data or arbitrary exception strings.
+        print("Context continuity check failed (configuration, integrity, or capability).", file=sys.stderr)
+        raise SystemExit(1)
+PY
+}
+
+context_hook_command() {
+    local output="$1"
+    shift
+    local -a codes
+    [[ ! -e "${output}" && ! -L "${output}" ]] || die "Context output already exists."
+    if as_betboy /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 \
+        /usr/bin/timeout --signal=TERM --kill-after=10s 600s \
+        "$@" 2>&1 | /usr/bin/timeout --signal=TERM --kill-after=10s 610s \
+        /usr/bin/head -c 1048577 >"${output}"; then
+        codes=("${PIPESTATUS[@]}")
+    else
+        codes=("${PIPESTATUS[@]}")
+    fi
+    [[ "${#codes[@]}" == 2 && "${codes[1]}" == 0 ]] \
+        || die "Context verifier output could not be captured."
+    CONTEXT_COMMAND_STATUS="${codes[0]}"
+}
+
+preflight_context_runtime() {
+    local hook="${STAGE_DIR}/context-hook"
+    local entry
+    local manifest_previous="${PREVIOUS_HEAD}"
+    if [[ "${MIGRATION_RESUME_TARGET}" == 1 ]]; then
+        manifest_previous="${MIGRATION_MARKER_PREVIOUS_HEAD}"
+    fi
+    entry=$(target_payload_file scripts/verify_context_runtime.py)
+    context_hook_data configure "${APP_DIR}" /etc/betboy/betboy.env \
+        "${TARGET_PAYLOAD}" "${PREVIOUS_PAYLOAD}" \
+        "${TARGET_MANIFEST}" "${PREVIOUS_MANIFEST}" "${manifest_previous}" "${TARGET_HEAD}" "${PREVIOUS_HEAD}" \
+        "${hook}" "$(id -u betboy)" "$(id -g betboy)"
+    context_hook_command "${hook}/dependencies.txt" "${VENV_DIR}/bin/python" -I -B - "${TARGET_PAYLOAD}" <<'PY'
+import importlib
+import sqlite3
+import sys
+
+sys.path.insert(0, sys.argv[1])
+for name in ("numpy", "scipy", "pandas", "sklearn", "context_runtime", "context_runtime_semantics",
+             "context_models.evaluator", "context_models.activation", "tennis.tour_state", "context_transport"):
+    importlib.import_module(name)
+source = sqlite3.connect(":memory:")
+target = sqlite3.connect(":memory:")
+try:
+    source.execute("CREATE TABLE dependency_probe(value INTEGER)")
+    source.execute("INSERT INTO dependency_probe VALUES(1)")
+    source.commit()
+    target.deserialize(source.serialize())
+    assert target.execute("SELECT value FROM dependency_probe").fetchall() == [(1,)]
+finally:
+    target.close()
+    source.close()
+print("context-dependencies-v1:ok")
+PY
+    context_hook_data dependencies "${hook}/dependencies.txt" "${CONTEXT_COMMAND_STATUS}"
+}
+
+verify_context_runtime_before_update() {
+    local hook="${STAGE_DIR}/context-hook"
+    local presence
+    local entry
+    verify_no_betboy_processes
+    presence=$(context_hook_data stage "${hook}" "${FRESH_BACKUP}")
+    if [[ "${presence}" == present ]]; then
+        entry=$(target_payload_file scripts/verify_context_runtime.py)
+        context_hook_command "${hook}/report.json" "${VENV_DIR}/bin/python" -I -B \
+            "${entry}" --database "${hook}/context_models.db"
+    elif [[ "${presence}" == not_present_legacy ]]; then
+        CONTEXT_COMMAND_STATUS=0
+    else
+        die "Context stage returned an unknown state."
+    fi
+    verify_no_betboy_processes
+    context_hook_data finish "${hook}" "${CONTEXT_COMMAND_STATUS}"
+}
+
 verify_backup_archive() {
     local archive="$1"
     env PYTHONNOUSERSITE=1 PYTHONPATH= \
@@ -2572,7 +3128,7 @@ preflight() {
         git runuser systemctl systemd-analyze install curl awk sort comm \
         bash df du grep sleep readlink stat date mktemp cp mv rm cmp chown chmod \
         chgrp sha256sum find pgrep getent groupadd groupdel useradd userdel \
-        passwd id dirname rmdir caddy flock mountpoint; do
+        passwd id dirname rmdir caddy flock mountpoint timeout head; do
         command -v "${required_command}" >/dev/null \
             || die "Missing command: ${required_command}"
     done
@@ -2633,6 +3189,7 @@ preflight() {
         fi
     done
     prepare_dependencies
+    preflight_context_runtime
 }
 
 preflight "$@"
@@ -2664,6 +3221,7 @@ snapshot_backup_source_metadata
 snapshot_backup_archives
 prepare_challenge_migration_boundary
 create_fresh_backup
+verify_context_runtime_before_update
 
 # Materialize only root-verified Git blobs as the unprivileged service user.
 # update-ref/read-tree move repository metadata without checkout filters/hooks.
