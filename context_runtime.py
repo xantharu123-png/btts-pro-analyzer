@@ -324,6 +324,11 @@ def _verify_artifact_types(connection, artifacts, created_at, limitations):
             if tour not in ("ATP", "WTA"):
                 raise ArtifactIntegrityError("legacy or unknown tour schema")
             _check_predictions(_decode_wrapper(payload, tour, decision_cutoff=created_at[key].timestamp()))
+        elif kind == "tennis-live-winner-original-v1":
+            # Full A1/current-B1/known-code numerical binding follows after
+            # observation decoding, including originals with no B3 consumer.
+            from context_models.tennis_live import validate_original_publication
+            validate_original_publication(payload, created_at=created_at[key])
         elif kind == "context-effect-v1":
             validated = validate_effect_artifact(payload)
             if canonical_bytes(validated) != canonical_bytes(payload):
@@ -407,7 +412,7 @@ def _verify_observations(connection, tables, *, protected_receipts=()):
     return receipts, len(contents)
 
 
-def _verify_worker_snapshot(payload, key, artifacts, receipts, limitations):
+def _verify_worker_snapshot(payload, key, artifacts, receipts, limitations, live_originals):
     from context_transport import _BASE_KEYS, _INPUTS, _input_key, _refs, replay_context_payload
     require_object(payload, _INPUTS | {"result"}, label="stored worker transport")
     if type(payload["schema"]) is not int or payload["schema"] != 1:
@@ -440,6 +445,9 @@ def _verify_worker_snapshot(payload, key, artifacts, receipts, limitations):
             or not all(set(refs) <= set(payload["observation_refs"]) for refs in features["refs"].values())
             or _input_key(payload, event, base, features) != key):
         raise ArtifactIntegrityError("worker transport does not bind its complete input revision")
+    from context_runtime_tennis import verify_live_snapshot
+    if verify_live_snapshot(payload, key, live_originals, effect=effect, approval=approval, limitations=limitations):
+        return
     pair = base["family"], features["version"]
     if pair not in _WORKER_REPLAY_CAPABILITIES:
         limitations.add("d3-owning-family-replay-unavailable")
@@ -448,7 +456,7 @@ def _verify_worker_snapshot(payload, key, artifacts, receipts, limitations):
     limitations.add("d3-owning-source-feature-replay-unavailable")
 
 
-def _verify_snapshots(connection, tables, artifacts, receipts, limitations):
+def _verify_snapshots(connection, tables, artifacts, receipts, limitations, live_originals):
     if "context_snapshots" not in tables:
         return 0
     count = 0
@@ -457,7 +465,7 @@ def _verify_snapshots(connection, tables, artifacts, receipts, limitations):
         payload = _decode_snapshot(key, raw, payload_hash)
         count += 1
         if payload.get("kind") == "context-worker-snapshot-v1":
-            _verify_worker_snapshot(payload, key, artifacts, receipts, limitations)
+            _verify_worker_snapshot(payload, key, artifacts, receipts, limitations, live_originals)
             continue
         limitations.add("d3-snapshot-input-binding-unavailable")
         # Recognizable B3 ContextResult has additional typed references. Its
@@ -539,7 +547,9 @@ def _verify_connection(connection):
         _verify_slots(manifest["slots"], artifacts)
     receipts, content_count = _verify_observations(connection, tables,
         protected_receipts=semantics["protected_receipts"])
-    snapshot_count = _verify_snapshots(connection, tables, artifacts, receipts, limitations)
+    from context_runtime_tennis import verify_live_originals
+    live_originals = verify_live_originals(artifacts, created_at, receipts, limitations)
+    snapshot_count = _verify_snapshots(connection, tables, artifacts, receipts, limitations, live_originals)
     rollback_count = _verify_rollbacks(connection, tables, manifests, chain)
     slots = manifests[current]["slots"] if current is not None else {}
     report = {"schema": 1, "verification_level": "transport_only" if limitations else "structural",

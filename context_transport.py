@@ -48,6 +48,12 @@ def _original_event(ev, original, kind):
 
 def _feature_binding(ev, original, feats, preprocessing_refs):
     """Bind even an unapplied feature vector to its owning full Event/Base."""
+    if (original["version"] == "tennis-live-calibrated-winner-v1"
+            or original["reference_weights"].get("kind") == "tennis-live-winner-origin-v1"):
+        from context_models.tennis_live import validate_live_winner_origin
+        # Pure exact original binding, including during lightweight card reads.
+        # This does not load/re-fit the tour state or replay source history.
+        validate_live_winner_origin(original, ev)
     pair = original["family"], feats["version"]
     if pair == ("football:goals:90min", "football-roster-components-v2"):
         expected = digest({"version": "football-context-reference-v2", "base_hash": digest(original),

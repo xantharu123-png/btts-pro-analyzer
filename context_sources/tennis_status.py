@@ -273,6 +273,20 @@ def tennis_observations_as_of(path: Path, *, cutoff: datetime, tour: str) -> tup
         # correction which remains in the actual B1 inventory.
         rows = [_decode_receipt(stored) for stored in connection.execute(_SELECT)]
         connection.commit()
+    return select_tennis_observations(tuple(rows), cutoff=cutoff, tour=tour)
+
+
+def select_tennis_observations(rows: tuple[dict, ...], *, cutoff: datetime, tour: str) -> tuple[dict, ...]:
+    """Same complete-tour selection on already decoded B1 rows; no IO.
+
+    D4 uses its own held image transaction instead of opening the live path.
+    Source decoding still belongs to the caller and precedes any scope pruning.
+    This is not proof that the upstream provider supplied complete history.
+    """
+    _tour(tour)
+    if type(rows) is not tuple or not isinstance(cutoff, datetime):
+        raise ContextContractError("tennis selector requires decoded B1 tuple and actual cutoff")
+    decision = canonical_timestamp(cutoff)
     result = []
     for row in rows:
         if row["observed_at"] > decision or row["source_schema"] not in {STATUS_SCHEMA, SOURCE_SCHEMA}:
