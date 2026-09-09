@@ -15,11 +15,13 @@ expanded, no prior prediction/ledger was rewritten.
   The first subsequent scheduled Wettfinder run10:07:22-10:11:09 CEST completed
   with exit0,122 model candidates and0 fully confirmed tips. It does not prove
   quality or fix the external WTA503. Context merged this release in7962322.
-- Context merge `3e9ce2c3e4e7a591a3b22a657fe6cc5cc9aeab06` is pushed and exactly
-  verified through ls-remote. It integrates the independently reviewed B3/B5/
-  B6/B7 and existing UI/main fixes. Root full3281/15/97 included the reviewed
-  B4 worktree bytes, preserved in the subsequent scoped commit. Unrelated
-  outputs and the pinned deployment helper remain untouched.
+- Context merge `0d000f6d8d85a4ada11521398ca1e4b82c88fd2d` is pushed and exactly
+  verified through ls-remote. It includes reviewed B3-B7, B4 sources4672c6a,
+  D1 split/config/native-outcome identity contracts and C1 corrected mechanics.
+  Root full3752/15/97 includes the final independently reviewed D2 math plus
+  separately still-unreviewed experiment-registry WIP. It is not a D2 empirical
+  approval or a main/VPS context release. Unrelated outputs and pinned helper
+  bytes remain untouched.
 - B3 software was independently source-reviewed by Root and rerun:557 passed,
   4 expected POSIX skips. Approved scoped commit
   `f876df0588aaed82db4a752e5f23977c6ceb5dc1` was fast-forward integrated.
@@ -56,16 +58,26 @@ expanded, no prior prediction/ledger was rewritten.
   Neutral effects preserve original market bytes; a sufficiently old terminal
   receipt may exclude an unknown end from recent windows, using its own exact
   bounded/partial coverage identity. task-11-final-review-20260909.md preserved.
-- D4 non-destructive rollback and temporary restore/verification implementation
-  is frozen at f8ecf651 for independent review. C1 CPU-only weather/load is
-  frozen at87b2745 for another independent reviewer. No actual weather GET or
-  fitted C1 effect is claimed. No privileged helper changes allowed without
-  a concrete failing test and controller review.
+- C1 corrected f14f75e is independently approved and merged in0d000f6:
+  original37 attacks +163 permanent+29 new independent cases pass, reviewer
+  full3170/15/97; Root439 integrated checks. task-12-final-review-20260909.md
+  preserves evidence. Real weather/source, fitted C1 effects and runtime stay open.
+- D4 corrections frozen at3df419d, after two independent findings. Its second
+  review is running. Source reads now use only an in-memory SQLite image;
+  original source/sidecars remain unmodified, controlled input cap64MiB.
+  Existing isolated VPS QA Python3.12.3/SQLite3.45.1 has deserialize; this is
+  only a capability check, not the pending Linux restore/integrity execution.
 - C1-C4,D1-D3,D5 and actual numerical injury/fatigue activation remain open;
   B4/B5/B7/C1/D4 have the limited software/review statuses stated above.
-  Root D1 split_rows now has34 new RED-to-GREEN tests (151 with B1), separately
-  unreviewed; D2 unchanged-statistic extraction is being prepared. Neither is
-  a fitted model, assembled identity-proof dataset or opened final experiment.
+  D1 split reviewed47 incl13 independent, config ea511ba/ea511a2 reviewed445,
+  native outcome/global map3322470 with Serve consistency2fd9c72 reviewed by
+  Root;124 identity/outcome/config/registry checks pass. Actual replay/case/fit
+  remains with worker_failures in kontext-d1-training-20260909.
+  D2 math finally reviewed246 incl107 unchanged independent attacks; its
+  extraction and paired metrics are the scoped pending Root commit. Freeze/open
+  registry is separate40-test green WIP, unreviewed/uncommitted. C2 basketball
+  preflight is running in kontext-c2-basketball-20260909 under b6; no C2 source
+  request or production edit. C3/C4/D3/D5 are not completed by these mechanics.
   No wrapper/synthetic test count is an empirical200-event/three-block result.
 
 ## Identity and authority

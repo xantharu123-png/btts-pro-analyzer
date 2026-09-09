@@ -45,6 +45,33 @@ the incomplete real corpus causal or authorize a new source/subscription.
   test registry and CLI integration follow after these closed contracts are
   reviewed. None of these mechanics constitutes a completed D1 real run.
 
+## Frozen inventory and opening transport — 9 September 2026
+
+The D1 plan adds the already required `hypotheses` and global
+`event_identity_hash`, plus `test_inventory`. Each inventory entry is closed:
+`{event, decision_at, block}`. `event` is the unchanged B1 Event, not an outcome;
+`decision_at` is the actual pre-start feature/base cutoff, not kickoff. Entries
+are sorted by decision/event key and a canonical native event occurs once.
+Block `test:i` is recomputed from the frozen half-open intervals. The full
+identity-map artifact is `context-native-identity-map-v1`; its owner is D1's
+`training_contracts.validate_identity_map` / `resolve_identity_map`. The map
+hash binds the whole dataset, never one convenient event. Freeze checks the
+map shape and inventory identities; only resolved source receipts establish
+identity evidence during assembly/evaluation. No label or source truth is
+implied by freeze alone.
+
+Opening is an append-only A1 artifact `context-test-opening-v1`, with closed
+payload `{schema, experiment_hash, event_identity_hash, event_keys, opened_at}`.
+The sorted unique `event_keys` must equal the frozen experiment inventory, not
+a selected successful subset. An A1 IMMEDIATE transaction verifies prior
+opening hashes/references and rejects a different experiment overlapping any
+opened canonical event. Exact reruns reuse the original opening unchanged.
+This uses A1 artifacts, no additional table/manifest shape. A changed creation
+clock, dataset hash or identity-map revision does not reset opened events.
+This is a local analysis workflow guard, not proof nobody saw external match
+results. Freeze/open alone cannot issue model approval; D2 still needs real
+source-resolved cases, full registry/cohort evaluation and linked provenance.
+
 ## 1. The selected fit stays train-only
 
 D1 explicitly requires train-only scale and coefficients. Fit each declared alpha on train, choose using event-mean Brier on tune (existing tie rule unchanged), and freeze the selected train-only fit. Do not refit coefficients/scales/player or participation effects on train+tune. EffectArtifact.training_end is the logical train_end, not tune_end or the physical artifact creation time. Preserve all tuning scores and the chosen artifact hash. The preflight suggestion to refit train+tune is rejected because it contradicts the explicit plan. Cost if wrong: some usable training observations remain unused; this is preferable to silently changing the approved fitting protocol.
