@@ -45,6 +45,19 @@ the incomplete real corpus causal or authorize a new source/subscription.
   test registry and CLI integration follow after these closed contracts are
   reviewed. None of these mechanics constitutes a completed D1 real run.
 
+### Owning assembly interface clarification
+
+`assemble_training_cases(cases, config)` is the one source-resolving assembly
+path. It supersedes the older insufficient three-argument
+`build_football_training_rows` / `build_tennis_training_rows` sketches, which
+cannot bind the approved closed EventCase/config/replay contract. Do not add a
+second unchecked row builder just to reproduce those obsolete signatures.
+The implementer's Python-wide caller search found no existing implementations
+or callers to preserve; the audit must retain that evidence. This is an
+interface clarification, not a weaker provenance requirement or proof of a
+real Tennis replay. B5/B7 assembly mechanics and actual causal fits remain
+distinct completion claims.
+
 ## Frozen inventory and opening transport — 9 September 2026
 
 The D1 plan adds the already required `hypotheses` and global
