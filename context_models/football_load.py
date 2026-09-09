@@ -314,7 +314,10 @@ def _usable_schedule(rows, *, cutoff, kickoff):
         if group[0]["payload"]["status"] != "completed":
             continue
         ended = group[0]["payload"]["actual_end"]
-        if ended is not None and ended >= canonical_timestamp(cutoff):
+        # A completion received exactly at the decision belongs to the observed
+        # rest timeline. Performed-load windows below still exclude their upper
+        # endpoint; dropping it here would falsely make an older match latest.
+        if ended is not None and ended > canonical_timestamp(cutoff):
             continue
         evaluated = factor_state(tuple(group), cutoff=cutoff, scheduled_start=kickoff,
             policy=freshness_policy("workload", schedule_revision=group[0]["schedule_revision"], requires_complete=False))
@@ -343,7 +346,11 @@ def football_schedule_features(event: dict, completed: tuple[dict, ...], *, cuto
         rows = [row for row in usable if row["subject_id"] == team and row["event_key"] != event["event_key"]] if not blocked else []
         known = [row for row in rows if row["payload"]["actual_end"] is not None]
         unknown = [row for row in rows if row["payload"]["actual_end"] is None]
-        put(f"observed_matches_total_{side}", len(rows) if rows else None, rows, blocked)
+        # The historical count keeps its strict-before-decision convention;
+        # the distinct recovery timeline may also know a just-completed event.
+        counted = [row for row in rows if row["payload"]["actual_end"] is None
+                   or row["payload"]["actual_end"] < canonical_timestamp(decision)]
+        put(f"observed_matches_total_{side}", len(counted) if counted else None, counted, blocked)
         side_metrics.add("observed_matches_total")
         for days in WINDOWS:
             first, last = canonical_timestamp(decision - timedelta(days=days)), canonical_timestamp(decision)
