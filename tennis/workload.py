@@ -14,6 +14,19 @@ from typing import Iterable, Mapping
 from .data_loader import normalize_player_name
 
 
+def native_workload_records(history: tuple[dict, ...], *, observed_at: datetime) -> tuple[dict, ...]:
+    """Opt-in B1 ingestion seam for source-owned, native-identified match facts.
+
+    The legacy display-only name-matched history below is not an eligible B6
+    feature corpus. Missing native player IDs, tour, duration or actual times
+    are never repaired from names, scheduled dates or the observer's clock.
+    This pure call neither fetches data nor writes the production shadow DB.
+    """
+    from context_sources.tennis import normalize_tennis_workload
+
+    return normalize_tennis_workload(history, observed_at=observed_at)
+
+
 def _instant(value: object) -> datetime | None:
     try:
         if isinstance(value, str):
