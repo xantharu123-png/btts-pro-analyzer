@@ -1,5 +1,38 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Closed full run / accepted reader correction — 9 September 2026, 16:24 UTC
+
+Root code `ef1aea8ae01d51eb1b134aa06265f3f2fe4c471b`; main/VPS latestactual
+15:57UTC `2ba3931`, no new context deployment; actual combined Tennis rebuild
+HTTPError remains a production issue, not reset or hidden.
+
+- Frozen d2809fc full COMPLETE:5202passed/19skipped/97subtests1196.76s.
+  `kontext-integrated-qa-20260909/.pytest_tmp/context-integrated-full-20260909-01.xml`
+  SHA256c368aa7c7b4e8eb6ab867f485cb7696910bec2b6d6d247d95f9c18ec24a151f0.
+  Does not cover later Domain, corrected Reader, actual Producer or Updater.
+- Readerfix4011392 fullownerreport/source/tests read byRoot; independent74/1,
+  7.48s includes actual two unchanged originalfindings, both qualifiedWALcontrols,
+  tenRootprobes and61 permanentcases. Firstcombinedcollection had same-name
+  helpercollision, zero tests; correctedviaexplicit targethelperpreimports only.
+  Rootrereview preserved alongside originalnegative, mergedef1aea8 exacthashes.
+  Rootintegration session12818 active; not a new completed fullsuite.
+- New ccefe85 P3 same-call original seam: 19 APIRED then727/1 broad128.16s,
+  22postLFchecks; frozen-source/defaultAST parity replaces obsolete prefix check,
+  no oldfixture/pin alteration. RealCricket normal/missing predictor+RiskIDs
+  before/afterSHA17769c31bbee92d89991ed2582255cebe713a17379b661a91e4b972426227083.
+  Owning live B3/Basebuilders and shared normal consumer still required.
+- Domain9de independent review active in worker agent after Readerfreeze.
+  P3ccefe85 independent review queued; no acceptance inferred yet.
+- ActualTennis32ac1d8 frozen with758/0 focus including154 new cases/48 legacy
+  parity. Fullrunning byowner; Root starts independentreview. TypedOriginkind
+  requires Root exact original/lightvalidation, actual shared normal/Riskreaders
+  and D4publication+nativeB1+state reference binding before context release.
+- Updaterhook still in owner regression on separate worktree. Fixed12-code
+  limitedexit2 rule unchanged; actual opaqueD2schemas correctly reject.
+
+All old negative reports/handoffs preserved. No D2>=200 empirical approval,
+no invented five-sport source capabilities, no Cricket/tickets/accounts changes.
+
 ## Current actual producer/reader checkpoint — 9 September 2026, 15:59 UTC
 
 Root code `9de9b52ab096c8c08852460dfe8226854014e789`; last verified remote feature

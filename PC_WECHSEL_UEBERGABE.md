@@ -1,5 +1,32 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Fortsetzungsstand vom 9. September 2026 — 16:24 UTC
+
+Root-Code `ef1aea8`; nachfolgende Punkte ersetzen die älteren Lauf-/Offenangaben.
+Main/GitHub/VPS zuletzt15:57UTC exakt `2ba3931`, kein neues Kontext-Deployment.
+Der belegte Tennis-Refreshfehler bleibt offen bis zur tatsächlichen Auslieferung.
+
+- Vollsuite auf separat eingefrorenem `d2809fc` abgeschlossen: **5.202 bestanden,
+  19 Skips, 97 Untertests, 1.196,76 Sekunden**. XML SHA256
+  `c368aa7c7b4e8eb6ab867f485cb7696910bec2b6d6d247d95f9c18ec24a151f0`.
+  Enthält nicht die späteren Domain-/Reader-/Producer-/Updaterpakete.
+- Readerfix `4011392` unabhängig von Root akzeptiert und in `ef1aea8` integriert:
+  beide Originalfehler + unveränderte echte WAL-Kontrollen +10 neue Gegenchecks,
+  74 bestanden/1 Windows-Skip. Originalnegative Berichte bleiben unverändert.
+  Zusätzliche Root-Integrationssuite noch aktiv (Session12818).
+- Basketball/Hockey same-call Anschluss in `ccefe85`: ungerundetes Original aus
+  genau der Zielberechnung, optional durch den echten Risk-Adapter weitergegeben.
+  727 bestanden/1 Windows-Skip; Cricket Vorher/Nachher inklusive Risk-IDs bytegleich.
+  Noch kein tatsächlicher B3-Worker-/Normal-UI-Anschluss dieser Sportarten.
+- Echter Tennis-Producer `32ac1d8` in eigenem WT eingefroren: 758 Fokusprüfungen,
+  154 neue Fälle einschließlich48 Altcode-Paritäten. Eigene Vollsuite läuft;
+  Root-Review sowie gemeinsamer Consumer und D4-Originanschluss noch erforderlich.
+- Unabhängiger Review der Domain-Refs `9de9b52` jetzt aktiv. Danach Review des
+  Basketball/Hockey-Anschlusses. Trusted-Updaterhook weiterhin in Regression.
+
+Alle bestehenden Freigaben gelten weiter. Keine neue empirische Wirkung aktiviert,
+kein Cricket-/Ticket-/Kontoeingriff; geschützten Helper und fremde Dateien erhalten.
+
 ## Aktueller Fortsetzungsstand vom 9. September 2026 — 15:59 UTC
 
 - Root-Code `9de9b52`, letzter verifizierter GitHub-Featurestand `7201302`.
