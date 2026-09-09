@@ -202,6 +202,7 @@ def select_context_result(
         raise ContextIntegrityError("event and baseline model family do not match")
     basketball_comparison = None
     hockey_comparison = None
+    esports_comparison = None
     if comparison is not None:
         comparison = validate_base_distribution(comparison)
         for name in ("event_key", "cutoff", "family", "history_refs", "reference_weights"):
@@ -224,6 +225,15 @@ def select_context_result(
                 for nested, supplied in (("original", base), ("event", event), ("features", features)):
                     if canonical_bytes(basketball_comparison[nested]) != canonical_bytes(supplied):
                         raise ContextIntegrityError(f"basketball comparison and supplied {nested} differ")
+                continue
+            if name == "reference_weights" and base["family"] == "esports:series:winner":
+                esports_comparison = comparison["reference_weights"]
+                if (comparison["version"] != "esports-context-comparison-v1"
+                        or esports_comparison["kind"] != "esports-series-comparison-reference-v1"):
+                    raise ContextIntegrityError("esports comparison lacks its owning replay reference")
+                for nested, supplied in (("original", base), ("event", event), ("features", features)):
+                    if canonical_bytes(esports_comparison[nested]) != canonical_bytes(supplied):
+                        raise ContextIntegrityError(f"esports comparison and supplied {nested} differ")
                 continue
             if comparison[name] != base[name]:
                 raise ContextIntegrityError(f"comparison and original baseline {name} mismatch")
@@ -248,6 +258,10 @@ def select_context_result(
         if (artifact is None or canonical_bytes(basketball_comparison["effect"]) != canonical_bytes(artifact)
             or digest({"kind": "context-effect-v1", "payload": basketball_comparison["effect"]}) != effect_hash):
             raise ContextIntegrityError("basketball comparison and verified B3 effect identity differ")
+    if esports_comparison is not None:
+        if (artifact is None or canonical_bytes(esports_comparison["effect"]) != canonical_bytes(artifact)
+                or digest({"kind": "context-effect-v1", "payload": esports_comparison["effect"]}) != effect_hash):
+            raise ContextIntegrityError("esports comparison and actually resolved B3 effect differ")
     approval_digest, approved = (None, None) if approval is None else _verified_payload(approval, kind="context-approval-v1")
 
     keys = set(features["values"])

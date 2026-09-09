@@ -651,7 +651,15 @@ def esports_match_winner_candidate(
     match: dict,
     *,
     now: Optional[datetime] = None,
-) -> RecommendationCandidate:
+    base_request: Optional[dict] = None,
+) -> RecommendationCandidate | dict:
+    # Explicit CPU-only sidecar; all existing callers retain their exact return
+    # and calculation. No renderer, provider or implicit new effect is added.
+    if base_request is not None:
+        from context_models.contracts import ContextContractError, require_object
+        require_object(base_request, {"event", "observations"}, label="optional original esports base request")
+        if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+            raise ContextContractError("original esports base export requires an explicit aware decision")
     team1 = str(match.get("team1") or "").strip()
     team2 = str(match.get("team2") or "").strip()
     stats1 = match.get("team1_stats")
@@ -730,23 +738,25 @@ def esports_match_winner_candidate(
     if team1_id is None or team2_id is None or team1_id == team2_id:
         blockers.append("Team-IDs für die gegneradjustierte Stärkebewertung fehlen.")
     if blockers:
-        return no_bet_candidate(
+        candidate = no_bet_candidate(
             "E-Sport",
             match,
             blockers,
             market="Match-Sieger",
             model_name=ESPORTS_MODEL_NAME,
         )
+        return candidate if base_request is None else {"candidate": candidate, "base": None}
 
     maps_to_win = series_type // 2 + 1
     if score1 >= maps_to_win or score2 >= maps_to_win:
-        return no_bet_candidate(
+        candidate = no_bet_candidate(
             "E-Sport",
             match,
             ["Die Serie ist bereits beendet oder der Serienstand ist unplausibel."],
             market="Match-Sieger",
             model_name=ESPORTS_MODEL_NAME,
         )
+        return candidate if base_request is None else {"candidate": candidate, "base": None}
 
     elo1, elo2, subgraph_size = subgraph_ratings(
         history1, history2, team1_id, team2_id
@@ -803,7 +813,7 @@ def esports_match_winner_candidate(
         if is_prematch
         else f"Serienstand {score1}:{score2}, Best-of-{series_type}."
     )
-    return _candidate(
+    candidate = _candidate(
         event_key=_event_key(match, team1, team2),
         sport="E-Sport",
         event_label=f"{team1} vs {team2}",
@@ -824,6 +834,12 @@ def esports_match_winner_candidate(
         ),
         evidence_stage=EVIDENCE_SHADOW,
     )
+    if base_request is not None:
+        from context_models.esports import export_esports_base
+        base = export_esports_base(match, event=base_request["event"], observations=base_request["observations"],
+            cutoff=reference, windows=(history1, history2), probability=team1_live_probability)
+        return {"candidate": candidate, "base": base}
+    return candidate
 
 
 def build_candidate(
