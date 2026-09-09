@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import lru_cache
-from math import comb, fsum, isclose, isfinite
+from math import comb
 from typing import Dict, Tuple
 
 
@@ -145,29 +145,14 @@ class MatchMarkets:
         return sum(p for d, p in self.games_diff.items() if d + line > 0)
 
 
-def simulate_match(p_hold_a: float, p_hold_b: float, best_of: int = 3, *, strict: bool = False) -> MatchMarkets:
-    """DP distributions under the existing IID-set, hold-proxy tiebreak model.
+def simulate_match(p_hold_a: float, p_hold_b: float, best_of: int = 3) -> MatchMarkets:
+    """Exact market distributions for a match between A and B."""
+    if best_of not in (3, 5):
+        raise ValueError("best_of must be 3 or 5")
+    p_hold_a = min(max(p_hold_a, 1e-3), 1.0 - 1e-3)
+    p_hold_b = min(max(p_hold_b, 1e-3), 1.0 - 1e-3)
 
-    The legacy default retains its original clamp/rounding and results. New
-    context models opt into strict finite interior inputs without quantization.
-    This does not replace the existing hold-based tiebreak approximation with
-    a point-serve inversion or add support for a different scoring rule.
-    """
-    if type(strict) is not bool:
-        raise ValueError("strict must be an actual boolean")
-    if strict:
-        if type(best_of) is not int or best_of not in (3, 5):
-            raise ValueError("strict best_of must be the actual integer 3 or 5")
-        if any(type(value) not in (int, float) or not 0 < value < 1 or not isfinite(value)
-               for value in (p_hold_a, p_hold_b)):
-            raise ValueError("strict holds must be finite interior JSON probabilities")
-        set_dist = _set_distribution_cached(p_hold_a, p_hold_b)
-    else:
-        if best_of not in (3, 5):
-            raise ValueError("best_of must be 3 or 5")
-        p_hold_a = min(max(p_hold_a, 1e-3), 1.0 - 1e-3)
-        p_hold_b = min(max(p_hold_b, 1e-3), 1.0 - 1e-3)
-        set_dist = _set_distribution_cached(round(p_hold_a, 4), round(p_hold_b, 4))
+    set_dist = _set_distribution_cached(round(p_hold_a, 4), round(p_hold_b, 4))
     sets_needed = 2 if best_of == 3 else 3
 
     p_a_win = 0.0
@@ -215,7 +200,7 @@ def simulate_match(p_hold_a: float, p_hold_b: float, best_of: int = 3, *, strict
         states = nxt
 
     exp_games = sum(g * p for g, p in games_total.items())
-    result = MatchMarkets(
+    return MatchMarkets(
         p_a_win=p_a_win,
         p_b_win=1.0 - p_a_win,
         best_of=best_of,
@@ -226,14 +211,3 @@ def simulate_match(p_hold_a: float, p_hold_b: float, best_of: int = 3, *, strict
         p_tiebreak_in_match=1.0 - p_no_tiebreak,
         expected_total_games=exp_games,
     )
-    if strict:
-        # Never repair a malformed probability mass by clipping/renormalizing.
-        for distribution in (result.sets_played, result.correct_scores, result.games_total, result.games_diff):
-            if (not distribution or any(not isfinite(p) or not 0 <= p <= 1 for p in distribution.values())
-                    or not isclose(fsum(distribution.values()), 1., rel_tol=0., abs_tol=1e-10)):
-                raise ValueError("strict simulator returned invalid probability mass")
-        if any(not isfinite(p) or not 0 <= p <= 1 for p in (result.p_a_win, result.p_b_win, result.p_tiebreak_in_match)):
-            raise ValueError("strict simulator returned an invalid probability")
-        if not isfinite(result.expected_total_games) or result.expected_total_games <= 0:
-            raise ValueError("strict simulator returned invalid expected games")
-    return result

@@ -146,7 +146,9 @@ def tennis_features(event: dict, observations: tuple[dict, ...], base: dict, *, 
         states[name] = state or ("missing" if value is None else "available")
         refs[name] = sorted({row["digest"] for row in used}) if states[name] == "available" else []
 
-    applicable = event["status"] == "scheduled" and event["format"] == "singles" and event.get("tour") in {"ATP", "WTA"}
+    applicable = (event["status"] == "scheduled"
+                  and event["format"] in {"singles", "singles_best_of_3", "singles_best_of_5"}
+                  and event.get("tour") in {"ATP", "WTA"})
     side_names, coverage_rows = [], []
     for side, player in (("a", event["home_id"]), ("b", event["away_id"])):
         rows = [row for row in usable if row["subject_id"] == player and row["payload"]["tour"] == event.get("tour")
