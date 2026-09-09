@@ -1,5 +1,47 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Fortsetzungsstand vom 9. September 2026 — 15:28 UTC
+
+Root-Quellstand `da0ae34613fb030280aac3e8abc504d18ebca47e`, letzter verifizierter
+GitHub-Featurestand `caa230f73705f5bf8aadcc25394cd136963e858d`. Main/GitHub main
+weiter `2ba3931dd8cb35f31d2475ae5797d75b44be268e`; VPS früher in derselben
+Fortsetzung dort geprüft, nicht durch diesen Vermerk neu abgefragt. Kein neues
+Kontext-Release. Die Timer rechnen und deployen keinen Code. Alle bestehenden
+Freigaben gelten; Cricket bleibt ausgenommen.
+
+- C3-Eishockey samt Transport und C4-E-Sport samt nativer Korrekturhistorie sind
+  unabhängig geprüft und übernommen. C4-Integration: 1.034 bestanden/1 Windows-
+  Plattform-Skip. Das belegt die Software, keine reale Müdigkeitswirkung.
+- Tennis-v3 bewahrt echte Status- und Belastungsbelege vorhandener Abrufe;
+  unabhängig 978 bestanden, Root-Integration 523 bestanden. Übernommen in
+  `d4312dd`. Native Spieler-/Tourmodellzuordnung und tatsächlicher Workeranschluss
+  sind noch offen; keine Zeiten/IDs aus Namen oder Spielplan erfunden.
+- Fußball-FT-Belege werden nur für bereits gespeicherte native Basisereignisse
+  aus bestehenden Abrufen erhalten. Ein unabhängiger Befund zum vollständigen
+  Belegbestand wurde korrigiert und erneut mit 510 Prüfungen bestätigt; übernommen
+  in `ffb4005`. Ursprüngliche negative und neue Reviewberichte sind gesichert.
+- Die neue D3-Prüfung bindet Originalteams und Spieltermin auch in Rückfall- und
+  reinen Kartenlesepfaden für Basketball/Eishockey/E-Sport. 18 neue Fälle:
+  14 ROT/4 GRÜN vor dem Fix, danach 134 Fokustests und alle 50 ursprünglichen
+  unabhängigen Gegenproben grün. `da0ae34` wartet noch auf unabhängiges Nachreview.
+- D4-Semantik separat `b56da33`: Vollsuite 4.533/18 Plattform-Skips/97 Untertests.
+  Root-Gegenprüfung fand 2 Fehler bei fehlenden/zukünftigen expliziten Belegrefs
+  in gültigen verwaisten Cases. Der enge Fix läuft; noch nicht übernommen.
+- Der rein lesende D4-Updater-Preflight liegt vor. Noch kein Produktionshook.
+  Vollständiges Backup/Schlüssel bleiben app-unlesbar, gepinnter Stagehelper
+  bleibt unverändert. Ein neuer Hook braucht echte Snapshot-/Restoreprüfung und
+  den bestehenden zweistufigen Trusted-Updater-Übergang.
+- Reale D3-Worker-/Kartenanbindung bleibt offen. Vorhandene Basketball-/Hockey-
+  Historienmodelle laufen im RisikoBet-Pfad, noch nicht im normalen Wettfinder;
+  deren fehlende Spieler-Kontextquellen sind davon zu unterscheiden. Frische
+  Gesamtregression, Linux-/Browser-/Releasebelege und echte empirische Abnahme
+  bleiben ebenfalls offen. Frühere 4.449 Root-Tests gelten nicht für diese Merges.
+
+Maßgeblich ist der oberste Ledgerabschnitt in der freigegebenen Arbeitskopie
+`.worktrees/kontextmodell-20260907`. Alte Prognosen, Tickets, Konten, ungetrackte
+Dateien und den gepinnten Helper erhalten. Kein erneutes Anfordern der bereits
+erteilten Spezifikations-/Worktree-/Unteragentenfreigabe.
+
 ## Aktueller Fortsetzungsstand vom 9. September 2026 — integrierte Gegenprüfungen
 
 Verbindlich ist der oberste aktuelle Abschnitt in

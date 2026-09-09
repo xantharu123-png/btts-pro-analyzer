@@ -1,5 +1,78 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Current owning integration checkpoint — 9 September 2026, 15:28 UTC
+
+This section supersedes older next-task statements. Root source is
+`da0ae34613fb030280aac3e8abc504d18ebca47e`; last verified remote feature is
+`caa230f73705f5bf8aadcc25394cd136963e858d`. Main/GitHub main remain
+`2ba3931dd8cb35f31d2475ae5797d75b44be268e`; VPS was verified there earlier in
+this same continuation, not refreshed by this checkpoint. No new context
+main/VPS deployment. Existing spec/worktree/Variant 1 authority stands.
+
+- C3 Hockey and D3 transport independently accepted. Owner and original review
+  reports are preserved in `e7911e0`; independent transport573/1 platform skip.
+- C4 owning native-scope correction independently accepted, merged `3c14e3d`.
+  Root integration1034/1 Windows symlink skip184.50s; XML SHA256
+  `a8618fb621382f72a6971ec5587bc642b386f9cc752d4dc776c609aa010e320a`.
+  Original negative, correction and final reports preserved; no live roster,
+  patch/map-time source, D1/D2 corpus or empirical effect acceptance.
+- Tennis-v3 real existing-response status/workload packet `f45c7eb` independently
+  accepted978/0 and merged `d4312dd`; Root integration523/0,42.16s. Existing
+  source/v2/predictor bytes remain unchanged. Receipt publication happens on
+  capture scope exit, after `_run_daily`; native player-to-tour-state binding,
+  actual worker/consumer integration and real empirical corpus remain open.
+- Football FT watch capture final `af7375b` independently accepted510/0,15.42s,
+  merged `ffb4005`. Original F1: filtered SQL inventory hid a corrupted existing
+  base receipt. All rows now decode before source/kind selection or writes.
+  Positive original damage witnesses correctly fail before the bad state; do
+  not count those expected diagnostic failures as ordinary passing tests.
+  Tennis and original/after-fix Football reports preserved in `b6a70c0`.
+- D3 C4 adapter `82f1e2d` original review REQUEST_CHANGES, one P2 (9 RED/41 GREEN
+  new probes). Existing fallback could relabel a known original event before
+  numerical comparison. Root reproduced the same C2 and C3 light-read class:
+ 18 permanent tests14 RED/4 GREEN; fixed `da0ae34` with exact owning original
+  reference-kind/event binding before calculation, replay and card projection.
+  New combined134/0,20.58s; XML SHA256
+  `db5de3f69c4c33c1ea0e7dda512829a516d426e0bea0d868bf9a22add89fc3f9`.
+  All50 byte-identical original C4 probes now green12.06s; XML SHA256
+  `33b0a6c7a91cacf10de1a9ca5fd0f7e1c434378b04dd6361a55ca9e2cc2e8a6d`.
+  Independent rereview active in `kontext-original-event-review-20260909` on
+  exact `da0ae34`. Preserve the original negative report before merge/release.
+- D4 semantic owner frozen `b56da33`, NOT merged; owner full4533/18 platform
+  skips/97 subtests1080.69s. Root original13 probes produced2 RED/11 GREEN:
+  orphan known cases skipped physical/time validation of explicit FV.refs.
+  Narrow F1 fix active; original probe SHA256
+  `c2972259269e8e119e7021ce7307ced0e5bc110fede03c609705bd8c22ddb0bf`
+  and negative REVIEW.md must remain unchanged. No final body may be opened
+  to solve a missing configuration/capability, and no old Linux proof certifies
+  these new semantic branches.
+- Read-only D4 updater preflight complete:
+  `.pytest_tmp/d4-updater-preflight-20260909/REPORT.md`, SHA256
+  `0a747558167dd55aeba0fcab8bbdf27bf7a877096f0abf99f73ebc7ef3a928b3`.
+  Proposed exact seam: verified preupdate backup before apply_trusted_payload;
+  private root-owned sealed single-DB copy, target payload verifier only as
+  betboy, never App/venv modules as root or backup-key account. No implemented
+  hook. Actual runtime mapping, typed limited exit policy, Linux permissions,
+  WAL seal/restore and installed two-commit trusted transition still need tests.
+- Actual D3 producers are being traced read-only. Basketball/Hockey historical
+  winner models exist in Riskobet but are not consumed by normal Wettfinder
+  (`live_only_no_prematch_model`). Manual totals are distinct model families.
+  Football legacy market calibration cannot be relabelled D1 raw Poisson;
+  Tennis loses unrounded original winner/hold/native IDs before Shadow storage.
+  These are concrete remaining software seams, separate from unavailable
+  player/forecast sources. No generic helper is a live integration proof.
+
+Latest whole Root4449/18/97 predates these integrations; fresh stable whole
+regression remains required. D3 actual shared assembly/domain/store/both-tab
+cards, D4 production hook/Linux restore, D5 browser/release and actual>=200
+event empirical approvals remain open. Baseline-safe software may ship without
+activating an unapproved effect; never claim all sport effects are complete.
+Cricket, prices/ranking, old predictions/tickets/ledger and production unchanged.
+Protected stage helper raw SHA256 remains
+`1441158c542e97a19b193fa0cd091b645ec6442d6d8157f1d4fceabbba72b026`.
+Preserve unrelated untracked archives/probes; force-add ignored SDD only by
+exact report path. Timers calculate, never pull or deploy code.
+
 ## Current integration and source-status checkpoint — 9 September 2026
 
 This section supersedes the older next-task statements below. Current Root
