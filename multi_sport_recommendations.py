@@ -163,6 +163,12 @@ def esports_history_window(
     consumed by the model. Pre-match rows must additionally have completed
     before the scheduled series start.
     """
+    selected = _esports_history_selection(match, now=now)
+    return tuple([row for _index, row in side] for side in selected)
+
+
+def _esports_history_selection(match: dict, *, now: Optional[datetime] = None):
+    """Same legacy selection, retaining actual raw positions before slicing."""
     reference = now or datetime.now(timezone.utc)
     if reference.tzinfo is None:
         reference = reference.replace(tzinfo=timezone.utc)
@@ -172,11 +178,11 @@ def esports_history_window(
     is_prematch = str(match.get("status") or "") == "upcoming"
     scheduled_start = _utc_datetime(match.get("begin_at")) if is_prematch else None
 
-    def completed_history(rows: Any) -> list[dict]:
+    def completed_history(rows: Any):
         if not isinstance(rows, list):
             return []
-        verified: list[tuple[datetime, dict]] = []
-        for row in rows:
+        verified: list[tuple[datetime, int, dict]] = []
+        for index, row in enumerate(rows):
             if not isinstance(row, dict) or not isinstance(row.get("won"), bool):
                 continue
             played_at = _utc_datetime(row.get("begin_at"))
@@ -191,11 +197,11 @@ def esports_history_window(
                 )
             ):
                 continue
-            verified.append((completed_at, row))
+            verified.append((completed_at, index, row))
         verified.sort(key=lambda item: item[0], reverse=True)
         return [
-            row
-            for _completed_at, row in verified[:ESPORTS_HISTORY_WINDOW]
+            (index, row)
+            for _completed_at, index, row in verified[:ESPORTS_HISTORY_WINDOW]
         ]
 
     return (
@@ -652,9 +658,22 @@ def esports_match_winner_candidate(
     *,
     now: Optional[datetime] = None,
     base_request: Optional[dict] = None,
+    capture_original: bool = False,
 ) -> RecommendationCandidate | dict:
     # Explicit CPU-only sidecar; all existing callers retain their exact return
     # and calculation. No renderer, provider or implicit new effect is added.
+    if type(capture_original) is not bool:
+        from context_models.contracts import ContextContractError
+        raise ContextContractError("capture_original requires an actual bool")
+    if capture_original:
+        from context_models.contracts import ContextContractError, canonical_timestamp
+        if base_request is not None:
+            raise ContextContractError("same-call capture and offline native base export are separate operations")
+        if not isinstance(now, datetime):
+            raise ContextContractError("same-call original requires an explicit aware decision")
+        canonical_timestamp(now)
+        from context_models.esports_live import project_esports_inputs
+        original_inputs = project_esports_inputs(match)
     if base_request is not None:
         from context_models.contracts import ContextContractError, require_object
         require_object(base_request, {"event", "observations"}, label="optional original esports base request")
@@ -717,7 +736,12 @@ def esports_match_winner_candidate(
         match.get("team2_history"), list
     ):
         blockers.append("Historische Matchlisten fehlen.")
-    history1, history2 = esports_history_window(match, now=reference)
+    if capture_original:
+        selected = _esports_history_selection(match, now=reference)
+        history1, history2 = ([row for _index, row in side] for side in selected)
+        history_indices = tuple([index for index, _row in side] for side in selected)
+    else:
+        history1, history2 = esports_history_window(match, now=reference)
     matches1 = len(history1)
     matches2 = len(history2)
     wins1 = sum(1 for row in history1 if row["won"])
@@ -745,6 +769,8 @@ def esports_match_winner_candidate(
             market="Match-Sieger",
             model_name=ESPORTS_MODEL_NAME,
         )
+        if capture_original:
+            return {"candidate": candidate, "original": None}
         return candidate if base_request is None else {"candidate": candidate, "base": None}
 
     maps_to_win = series_type // 2 + 1
@@ -756,6 +782,8 @@ def esports_match_winner_candidate(
             market="Match-Sieger",
             model_name=ESPORTS_MODEL_NAME,
         )
+        if capture_original:
+            return {"candidate": candidate, "original": None}
         return candidate if base_request is None else {"candidate": candidate, "base": None}
 
     elo1, elo2, subgraph_size = subgraph_ratings(
@@ -839,6 +867,11 @@ def esports_match_winner_candidate(
         base = export_esports_base(match, event=base_request["event"], observations=base_request["observations"],
             cutoff=reference, windows=(history1, history2), probability=team1_live_probability)
         return {"candidate": candidate, "base": base}
+    if capture_original:
+        from context_models.esports_live import capture_esports_original
+        original = capture_esports_original(original_inputs, cutoff=reference,
+            history_indices=history_indices, windows=(history1, history2), consumed=locals(), outputs=locals())
+        return {"candidate": candidate, "original": original}
     return candidate
 
 

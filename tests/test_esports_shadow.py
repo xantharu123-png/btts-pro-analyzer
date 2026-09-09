@@ -56,10 +56,10 @@ class EsportsShadowLogTests(unittest.TestCase):
             self.assertEqual(summary["open"], 1)
             self.assertIsNone(summary["hit_rate"])
 
-    def test_logged_elo_uses_the_same_causal_twenty_rows_as_the_candidate(self):
-        from unittest.mock import patch
-
+    def test_logged_elo_uses_one_actual_calculation_and_exact_raw_positions(self):
+        import sys
         from esports_elo import subgraph_ratings
+        from multi_sport_recommendations import esports_match_winner_candidate
 
         with tempfile.TemporaryDirectory() as tmp:
             log = EsportsShadowLog(Path(tmp) / "shadow.db")
@@ -67,14 +67,29 @@ class EsportsShadowLogTests(unittest.TestCase):
             match["team1_history"] = _history(7, 100, 18, 7, 3000)
             match["team2_history"] = _history(8, 100, 9, 16, 4000)
 
-            with patch(
-                "esports_shadow.subgraph_ratings",
-                wraps=subgraph_ratings,
-            ) as shadow_ratings:
-                self.assertEqual(log.log_predictions([match]), 1)
+            actual_ratings, originals = [], []
+            previous = sys.getprofile()
+            self.assertIsNone(previous)
 
-            shadow_ratings.assert_called_once()
-            history1, history2 = shadow_ratings.call_args.args[:2]
+            def observe(frame, event, returned):
+                if event == "return" and frame.f_code is subgraph_ratings.__code__:
+                    actual_ratings.append((returned, frame.f_locals["history1"], frame.f_locals["history2"]))
+                if event == "return" and frame.f_code is esports_match_winner_candidate.__code__:
+                    originals.append(returned["original"].to_dict())
+
+            sys.setprofile(observe)
+            try:
+                self.assertEqual(log.log_predictions([match]), 1)
+            finally:
+                sys.setprofile(previous)
+
+            self.assertEqual(len(actual_ratings), 1)
+            self.assertEqual(len(originals), 1)
+            ratings, history1, history2 = actual_ratings[0]
+            self.assertEqual(originals[0]["outputs"]["elo1"].hex(), ratings[0].hex())
+            self.assertEqual(originals[0]["outputs"]["elo2"].hex(), ratings[1].hex())
+            self.assertEqual(originals[0]["consumed"]["history_indices"],
+                             {"team1": list(range(24, 4, -1)), "team2": list(range(24, 4, -1))})
             self.assertEqual(
                 [row["match_id"] for row in history1],
                 list(range(3024, 3004, -1)),

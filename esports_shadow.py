@@ -147,7 +147,8 @@ class EsportsShadowLog:
                     or match_id <= 0
                 ):
                     continue
-                candidate = esports_match_winner_candidate(match, now=observed_at)
+                captured = esports_match_winner_candidate(match, now=observed_at, capture_original=True)
+                candidate = captured["candidate"]
                 if not candidate.model_ready:
                     continue
                 team1_id = match.get("team1_id")
@@ -170,13 +171,8 @@ class EsportsShadowLog:
                     continue
                 if not isinstance(selected_team_id, int) or selected_team_id <= 0:
                     continue
-                history1, history2 = esports_history_window(
-                    match,
-                    now=observed_at,
-                )
-                elo1, elo2, _subgraph_size = subgraph_ratings(
-                    history1, history2, team1_id, team2_id
-                )
+                original_values = captured["original"].to_dict()["outputs"]
+                elo1, elo2 = original_values["elo1"], original_values["elo2"]
                 cursor = connection.execute(
                     """
                     INSERT OR IGNORE INTO esports_shadow_predictions (
