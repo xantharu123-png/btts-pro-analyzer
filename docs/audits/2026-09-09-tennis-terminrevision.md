@@ -2,8 +2,9 @@
 
 Stand: 9. September 2026. Basis: `a0fc89cdef1c3a7bebfb237e8aaed1ecb0ee1028`.
 Eigene Arbeitskopie: `.worktrees/tennis-terminrevision-20260909`.
-Status: lokal implementiert und getestet; unabhaengiges Review, Integration,
-Push und VPS-Deployment sind noch nicht Bestandteil dieses Nachweises.
+Status: lokal implementiert und getestet; erstes unabhaengiges Review mit zwei
+reproduzierten Findings, begrenzt nachgebessert. Erneute Reviewfreigabe,
+Integration, Push und VPS-Deployment stehen noch aus.
 
 ## Verifizierte Ursache
 
@@ -98,7 +99,7 @@ und Stage-Zeilen bleiben bytegleich; der Quell-DB-Hash bleibt unveraendert.
 Ein zweiter Lauf fragt terminale Kandidaten nicht nochmals ab und legt keine
 zweite Ergebniszuordnung an.
 
-Eingefrorene SHA-256 nach der vollstaendigen Suite:
+Eingefrorene SHA-256 der ersten Implementierung nach deren vollstaendiger Suite:
 
 - `riskobet_settlement_automation.py`:
   `685378f90bba1e8b1ae9159dda95e936250542b9cc6bf48dab497c0b037dd2e1`
@@ -106,6 +107,44 @@ Eingefrorene SHA-256 nach der vollstaendigen Suite:
   `b7b53199f1a078da27e17ef36da6274d41dd479c2e105f8404f0ec9e534f5954`
 - Der unberuehrte gepinnte Backup-Helper hat weiter SHA-256
   `1441158c542e97a19b193fa0cd091b645ec6442d6d8157f1d4fceabbba72b026`.
+
+## Unabhaengige Gegenprobe und begrenzte Nachbesserung
+
+Die unabhaengige Gegenprobe gegen Implementierungscommit `7740110` fand zwei
+Vertragsluecken, beide in synthetischen lokalen Datenbanken reproduziert:
+
+1. Explizit gespeicherte Ersatzidentitaeten (`fixture_source=tennis-shadow`,
+   `provider_event_id=shadow-1269`) erfuellten die blosse Nicht-Leer-Pruefung.
+   Eine Ersatz-ID wird aber nicht durch Speichern zur nativen Provider-ID.
+2. Die SQL-Auswahl `settled=1` entfernte eine zweite physische Zeile derselben
+   Prediction-ID bereits vor der Duplikatpruefung. Auch eine offene zweite
+   Zeile mit anderem Event/Teilnehmer macht die eingefrorene ID mehrdeutig.
+
+Der Nachtrag prueft jetzt alle physischen Zeilen der exakt angefragten IDs auf
+Duplikate, bevor allein fertige Ergebnisse verarbeitet werden. Die reservierte
+Quelle `tennis-shadow` und das Ersatz-ID-Praefix `shadow-` bleiben bei geaenderten
+Startzeiten geschlossen, auch mit abweichender Grossschreibung/Rand-Leerraum.
+Normale unveraenderte Termine behalten ihren bestehenden Legacy-Vertrag.
+Es gibt weiterhin keine Schema-, Store-, Kandidaten- oder Geldbewegungsaenderung
+und keinen Nachweis, dass die synthetischen Duplikate auf Produktion existieren.
+
+- Eigener Lauf der unveraenderten fremden Repros: `tennis-review-red-01`,
+  **2 fehlgeschlagen, 1 bestanden**; beide Fehler fuehrten zuvor zu zwei
+  Ergebniszuordnungen. Der positive Test einer Terminvorziehung blieb gruen.
+- Acht permanente Varianten: `tennis-review-red-02`, **8 fehlgeschlagen**.
+  Beide Ersatz-ID-Felder werden auch einzeln geprueft; die offene Duplikatzeile
+  steht in beiden Zeilenreihenfolgen, mit gleicher oder anderer Identitaet.
+- `tennis-review-green-01`: **163 bestanden**, inklusive der drei fremden
+  Repros, aller 31 Terminrevisionstests sowie Store/Settlement/Pending/Revisionen.
+- `tennis-review-full-01`: **2022 bestanden, 11 erwartete Windows-
+  Symlink-Skips, 97 Untertests**, 54,45 Sekunden, Exit 0.
+
+SHA-256 des Nachtrags vor der breiten Teststufe (Dateien danach unveraendert):
+
+- `riskobet_settlement_automation.py`:
+  `a0a7d85036340e364bbd8d715a6a3bfd16d7e9334647fe4977ea3d46899cb560`
+- `tests/test_tennis_settlement_schedule_revisions.py`:
+  `4e77b2a380441b23212a7dc9c9ec457d4649cf3df46bd15be08fd0b3a9714027`
 
 ## Unabhaengiger Review-Auftrag und offene Grenzen
 

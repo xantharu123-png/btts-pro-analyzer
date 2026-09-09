@@ -216,6 +216,28 @@ def test_legacy_fallback_row_cannot_certify_a_changed_native_schedule(tmp_path):
     assert terminal_rows(store) == []
 
 
+@pytest.mark.parametrize("provider,event_id", [
+    ("tennis-shadow", "shadow-1269"),
+    ("tennis-shadow", "182682"),
+    ("ESPN", "shadow-1269"),
+    (" TENNIS-SHADOW ", " SHADOW-1269 "),
+])
+def test_explicit_fallback_identity_is_not_native_for_a_moved_schedule(tmp_path, provider, event_id):
+    store = RiskBetStore(tmp_path / "riskobet.db")
+    append_run(store, provider=provider, event_id=event_id)
+    append_run(store, provider=provider, event_id=event_id,
+               policy="riskobet-evidence-order-v2", start=NEW_START,
+               modeled=MODELED + timedelta(hours=1), tag="moved")
+    source = result_database(tmp_path, fixture_source=provider, provider_event_id=event_id)
+    before = frozen_rows(store)
+    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    summary = run_with_source(store, source)
+    assert summary.errors == ("tennis:source_identity_unproven",)
+    assert summary.terminal_settlements == 0 and summary.unresolved_candidates == 2
+    assert terminal_rows(store) == [] and frozen_rows(store) == before
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == source_hash
+
+
 def test_duplicate_source_results_remain_unresolved_for_all_schedule_revisions(tmp_path):
     store = RiskBetStore(tmp_path / "riskobet.db")
     moved_runs(store)
@@ -250,6 +272,27 @@ def test_duplicate_physical_source_rows_cannot_certify_schedule_identity(tmp_pat
     assert summary.errors == ("tennis:duplicate_event_result",)
     assert summary.terminal_settlements == 0 and summary.unresolved_candidates == 2
     assert terminal_rows(store) == []
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == source_hash
+
+
+@pytest.mark.parametrize("different_identity", [False, True])
+@pytest.mark.parametrize("pending_row", [1, 2])
+def test_pending_duplicate_source_row_cannot_be_filtered_out_of_identity_check(tmp_path, different_identity, pending_row):
+    store = RiskBetStore(tmp_path / "riskobet.db")
+    moved_runs(store)
+    source = result_database(tmp_path, unique_id=False)
+    with sqlite3.connect(source) as connection:
+        connection.execute("INSERT INTO predictions SELECT * FROM predictions")
+        connection.execute("UPDATE predictions SET settled=0 WHERE rowid=?", (pending_row,))
+        if different_identity:
+            connection.execute("UPDATE predictions SET provider_event_id='other-native-event', "
+                               "player_b='C' WHERE rowid=?", (pending_row,))
+    before = frozen_rows(store)
+    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    summary = run_with_source(store, source)
+    assert summary.errors == ("tennis:duplicate_event_result",)
+    assert summary.terminal_settlements == 0 and summary.unresolved_candidates == 2
+    assert terminal_rows(store) == [] and frozen_rows(store) == before
     assert hashlib.sha256(source.read_bytes()).hexdigest() == source_hash
 
 

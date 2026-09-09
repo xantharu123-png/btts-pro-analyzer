@@ -621,9 +621,10 @@ def tennis_result_loader(
                     )
                 prediction_ids = sorted(set(prediction_by_event.values()))
                 placeholders = ",".join("?" for _ in prediction_ids)
+                # Prove physical identity before filtering result eligibility:
+                # an unsettled duplicate cannot make this ID unambiguous.
                 rows = connection.execute(
-                    f"SELECT * FROM predictions WHERE settled=1 "
-                    f"AND id IN ({placeholders}) ORDER BY id DESC",
+                    f"SELECT * FROM predictions WHERE id IN ({placeholders}) ORDER BY id DESC",
                     prediction_ids,
                 ).fetchall()
         except sqlite3.Error:
@@ -644,7 +645,7 @@ def tennis_result_loader(
                       for event_key in sorted(identity_rejected))
         for sqlite_row in rows:
             row = dict(sqlite_row)
-            if row["id"] in duplicate_ids:
+            if row["id"] in duplicate_ids or row["settled"] != 1:
                 continue
             provider_id = str(row.get("provider_event_id") or f"shadow-{row['id']}").strip()
             provider = str(row.get("fixture_source") or "tennis-shadow").strip()
@@ -663,6 +664,9 @@ def tennis_result_loader(
                 or not row["provider_event_id"].strip()
                 or not isinstance(row.get("fixture_source"), str)
                 or not row["fixture_source"].strip()
+                # Explicitly stored fallback strings are still fallback IDs.
+                or provider.casefold() == "tennis-shadow"
+                or provider_id.casefold().startswith("shadow-")
             ):
                 issues.append(ResultIssue(event_key, "source_identity_unproven"))
                 identity_rejected.add(event_key)
