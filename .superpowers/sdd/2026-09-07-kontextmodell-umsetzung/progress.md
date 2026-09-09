@@ -1,5 +1,34 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Real Linux DAC and complete Root regression — 10 September 2026, 00:20 CEST
+
+Root/feature remote6d03ca0; latest GitHub main21:56UTC2ba3931, no context deploy.
+Existing user authorization remains in force. Cricket remains excluded.
+
+- Immutable Root full6d03:6168passed/20WindowsSkips/97subtests1206.62s, exit0.
+  XML07cf9cd6, detailed report task-20-root-full-6d03ca0-20260910.md. This does
+  not cover later P4b2/P5a/P6a. Every skip checked; no result inferred from WIP.
+- Actual Linux root/betboy DAC PASS in new synthetic fixture5zxtb2ij. Real
+  closed CLI0/2/1 results,12 denied operations with real positive controls,
+  unchanged timeout/output bounds and full pre/post identities. Root read
+  complete RESULT015e0300; raw large integers preserved byte-exactly.
+  Detailed report task-20-linux-dac-root-run-20260910.md. No production/secret/
+  unit/pin mutation. Installed trusted BridgeA→B is still a separate open test.
+- P4b2ba73dc9 frozen with823 owning focused tests; worker agent now runs the
+  independent prepared review. No integration/final approval yet.
+- P5a8691022 Root original review4RED/71GREEN: nonrepresentable unused owning
+  calibration sample metadata aborts optional capture, not the legacy model.
+  P3 fix assigned to another agent in separate WT; original evidence frozen.
+- P6a original logger/real scanner each execute Elo twice, actual code frames
+  counted. Two functional REDs preserved. Narrow same-call original+logger
+  fix explicitly authorized in separate6d03 WT; old Offline base_request
+  replay and historical SQL/settlement/IDs/Cricket remain unchanged.
+
+Remaining real worker/consumer/native-source connections and D1/D2 empirical
+effect proof are not hidden by these technical approvals. Final browser,
+main push and trusted two-commit deployment remain open. Preserve protected
+stagehelper1441158 and all inherited WIP/output files.
+
 ## Accepted consumers/native captures and actual Linux run — 9 September 2026, 21:53 UTC
 
 Root code `4f49a8c86e98d56127f5419d0b63b629997e0712` integrates consumerfix

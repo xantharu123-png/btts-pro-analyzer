@@ -1,5 +1,33 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Fortsetzungsstand vom 10. September 2026 — 00:20 CEST
+
+Root und gepushter Featurebranch stehen auf `6d03ca0`; GitHub main zuletzt
+21:56 UTC weiterhin `2ba3931`. Kein Kontext-Deployment. Der frühere Ablauf
+ist übernommen; bestehende Freigaben müssen nicht erneut erfragt werden.
+
+- Ganze Root-Regression fertig: **6168 bestanden, 20 Windows-Skips,
+  97 Untertests, 1206,62 Sekunden**, separat unveränderlich auf `6d03ca0`.
+- Tatsächliche Linux-Root/App-Rechteprüfung bestanden: echte CLI-Resultate
+  0/2/1, zwölf verweigerte Dateioperationen, positive Lese-/Schreibkontrollen,
+  Timeout und begrenzte Ausgabe. Keine Produktionsdaten oder Schlüssel
+  angerührt. Installierter vertrauenswürdiger Übergang A→B bleibt offen.
+- Basketball/Hockey-Resolver P4b2 auf `ba73dc9` eingefroren; unabhängiges
+  Review läuft jetzt gegen genau diesen Stand. Noch nicht integriert.
+- Fußball-Original P5a `8691022`: Root fand vier echte Fehlerfälle für
+  übergroße ungenutzte Kalibrier-Metadaten. Enger Fix in eigener Arbeitskopie;
+  gültige Originalprognosen dürfen daran nicht scheitern. Noch nicht integriert.
+- E-Sport: tatsächlich doppelte Elo-Rechnung im Logger und Scan nachgewiesen.
+  Enger Same-call-Fix wird separat umgesetzt, ohne historische SQL-Werte,
+  Modelle, First-observation oder Abrechnung zu verändern.
+
+Die genannten Prüfungen belegen Softwaregrenzen, noch keine neue Wirkung von
+Verletzungen/Müdigkeit. Reale gemeinsame Worker-/Consumeranbindung weiterer
+Sportarten, Quellenlücken/Empirie, finale Browserprüfung und Main/VPS-Release
+bleiben offen. Cricket bleibt ausgenommen. Fremde Dateien und gepinnter
+Stagehelper bleiben unverändert. Neue Root-Berichte im SDD-Ledger sichern
+Originalfehler, Ergebnisse und Quellenhashes separat.
+
 ## Aktueller Fortsetzungsstand vom 9. September 2026 — 21:53 UTC
 
 Root-Code `4f49a8c86e98d56127f5419d0b63b629997e0712`. Neu übernommen sind
