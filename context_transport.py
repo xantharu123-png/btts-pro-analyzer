@@ -216,13 +216,20 @@ def _validate_payload(payload, *, key, effect_artifact, approval, replay_base=Tr
     expected = {"event_key": ev["event_key"], "base_hash": digest(original), "effect_hash": payload["effect_hash"],
         "base_params": original["params"], "base_markets": original["markets"],
         "factor_states": feats["states"], "feature_refs": feats["refs"]}
-    if canonical_bytes(result) != canonical_bytes(payload["result"]) or any(result[name] != value for name, value in expected.items()):
+    if (canonical_bytes(result) != canonical_bytes(payload["result"])
+            or any(canonical_bytes(result[name]) != canonical_bytes(value) for name, value in expected.items())):
         raise ContextIntegrityError("worker result differs from its original inputs")
+    prefix = "comparison" if result["role"] == "applied" else "base"
+    if any(canonical_bytes(result["used_" + part]) != canonical_bytes(result[prefix + "_" + part])
+           for part in ("params", "markets")):
+        raise ContextIntegrityError("worker used distribution must preserve the exact role-selected bytes")
     expected_roles = {name: result["role"] if artifact is not None and name in artifact["feature_names"] else "not_applied"
         for name in feats["values"]}
     if result["factor_roles"] != expected_roles:
         raise ContextIntegrityError("worker factor roles differ from actual consumed features")
-    if any(delta != 100*(result["used_markets"][name]-original["markets"][name]) for name, delta in result["delta_pp"].items()):
+    expected_delta = {name: 100*(probability-original["markets"][name])
+                      for name, probability in result["used_markets"].items()}
+    if canonical_bytes(result["delta_pp"]) != canonical_bytes(expected_delta):
         raise ContextIntegrityError("worker result delta is not the exact used difference")
     if result["role"] != "not_applied" and not _eligible(ev, original, feats, artifact):
         raise ContextIntegrityError("ineligible worker input cannot claim a comparison")
