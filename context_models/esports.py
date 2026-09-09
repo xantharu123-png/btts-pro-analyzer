@@ -121,6 +121,12 @@ def _selected(observations, decision, kickoff):
         item = payload["data"].get("map_id") if payload["kind"] == "map" else None
         groups.setdefault((row["event_key"], payload["kind"], item), []).append((row, state))
         event_history.setdefault(row["event_key"], []).append(row)
+
+    def identity(row):
+        payload = row["payload"]
+        return digest({"event": {key: value for key, value in payload["event"].items() if key != "status"},
+                       "scope": payload["scope"]})
+
     selected, ambiguities = {}, []
     for key, history in groups.items():
         latest_time = max(row["observed_at"] for row, _ in history)
@@ -132,10 +138,11 @@ def _selected(observations, decision, kickoff):
         if key[1] not in {"series", "map"}:
             continue
         prior = {row["payload"]["event"][side] for row, _ in history for side in ("home_id", "away_id")}
-        current_teams = set() if current is None else {current["payload"]["event"][side] for side in ("home_id", "away_id")}
-        # A complete correction genuinely removes old participants. A partial,
-        # withdrawn or conflicting source cannot silently erase their ambiguity.
-        if current is None or (not current["complete"] and current_teams != prior):
+        prior_identities = {identity(row) for row, _ in history}
+        # A complete correction can retire an old native identity or scope.
+        # A partial replacement must retain that uncertainty even if filtering
+        # its new season would otherwise leave an apparently empty history.
+        if current is None or (not current["complete"] and prior_identities != {identity(current)}):
             proof = tuple({row["digest"]: row for row, _ in history}.values())
             upper = max((row["observed_at"] for row, state in entries), default=None)
             if any(row["digest"] not in state["usable_refs"] for row, state in entries):
@@ -146,10 +153,6 @@ def _selected(observations, decision, kickoff):
     # Normal started -> completed status evolution alone does not rewrite a
     # previously observed map. The reverse transition withdraws terminal series
     # facts, but does not invent a new end time from a completed individual map.
-    def identity(row):
-        payload = row["payload"]
-        return digest({"event": {key: value for key, value in payload["event"].items() if key != "status"},
-                       "scope": payload["scope"]})
     for event_key, history in event_history.items():
         latest_time = max(row["observed_at"] for row in history)
         latest = [row for row in history if row["observed_at"] == latest_time]
