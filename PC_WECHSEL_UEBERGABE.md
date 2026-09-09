@@ -1,5 +1,37 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Fortsetzungsstand vom 9. September 2026 — 21:53 UTC
+
+Root-Code `4f49a8c86e98d56127f5419d0b63b629997e0712`. Neu übernommen sind
+unabhängig geprüfter gemeinsamer Tennis-Consumer samt Korrektur `5a865e0`,
+Basketball/Hockey-Originale samt ID-Reihenfolgefix `e284e7a`, echte bestehende
+Antwort-Captures `b2b7d34` und Linux-Testfixture-Korrektur `2346846`.
+Main/GitHub/VPS frisch21:08UTC weiterhin `2ba3931`, **kein Kontext-Deployment**.
+
+- Tennis-Consumer: alle67 unveränderten ursprünglichen Gegenproben und98 eigene
+  Tests bestanden; zusätzlich46 unabhängige Randfälle. Kein erneutes Fitten bei
+  Kartenanzeige, keine Umdeutung kaputter Metadaten in normale Altprognosen.
+- Basketball/Hockey: Root242 bestandene Original-/ID-Prüfungen, darunter alle
+  acht ursprünglichen Fehlerfälle. Empfangs-Captures separat265+46 qualifiziert
+  geprüft. Ganze Statushistorie vorhanden, aber noch kein vollständiger aktueller
+  Alias-/Input-/Worker-Anschluss. Fehlende native Belege bleiben fehlend.
+- Echte Linux-Prüfung:785 bestanden, keine Skips,55,61s auf privater Kopie als
+  unprivilegierter Nutzer. Der alte negative Lauf bleibt erhalten. Reale
+  Root/App-Dateirechte und installierte BridgeA→KontextB sind noch nicht belegt.
+- Weiter aktiv: reiner Basketball/Hockey-ID-/Inputresolver (P4b2), exakte
+  Fußball-Originalaufnahme (P5a), lokale Vorbereitung der getrennten Linux-
+  Rechteprüfung. Keine dieser Teilaufgaben als Gesamtfreigabe melden.
+- VPS App/Caddy/Healthcheck zuletzt gesund. Der bekannte alte Tennis-Refresh-
+  HTTPError bleibt sichtbar, nicht kosmetisch zurückgesetzt. Timer rechnen;
+  sie deployen keinen Code. NEXT=- während eines laufenden Jobs ist allein
+  kein Nachweis eines Timerfehlers.
+
+Alle ursprünglichen und neuen unabhängigen Reviewberichte bytegleich im SDD
+gesichert. Noch offen: tatsächliche Worker-/Consumeranbindung weiterer Sportarten,
+Quellenlücken und empirische Wirkung, neue Gesamtsuite/Browser, Main-Push und
+vertrauenswürdiges VPS-Update. Cricket ausgenommen; keine Altprognosen, Tickets,
+Geldbewegungen oder fremde Dateien verändern. Stagehelper SHA1441158 unverändert.
+
 ## Aktueller Fortsetzungsstand vom 9. September 2026 — 21:01 UTC
 
 Root-Code `3dccf6b` integriert die unabhängig akzeptierten Domain-, Reader-,

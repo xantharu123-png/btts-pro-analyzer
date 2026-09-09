@@ -1,5 +1,41 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Accepted consumers/native captures and actual Linux run — 9 September 2026, 21:53 UTC
+
+Root code `4f49a8c86e98d56127f5419d0b63b629997e0712` integrates consumerfix
+`5a865e0`, P4a/F1 `e284e7a`, P4b1 `b2b7d34`, Linux fixtures `2346846`.
+GitHub main/VPS freshly checked21:08UTC remain `2ba3931`; app/Caddy/localhealth
+healthy, old Tennis combined-refresh HTTPError still not reset or repaired live.
+Seven timers are present; NEXT=- during an active worker alone is not a defect.
+
+- Shared Tennis consumer independently accepted: all67 original witnesses plus
+  98 owning cases pass (165/0/0), then46 independent boundaries pass. Known
+  ATP/WTA header contradiction, false-valued malformed-context fallback and
+  generic untyped shape errors are corrected. Root broader680/1/26. Original
+  report08724ef and independent rereview622ce38 preserved byte-identically.
+- Actual BB/Hockey originals accepted after known-ID validation-order correction.
+  Root242/0/0 in8.86s includes all eight original negatives. Original review
+  988dd9c and new Root rereview retained. This still marks source links unresolved;
+  a valid same-call original is not native/empirical source approval.
+- Native existing-response capture P4b1 independently accepted:265/0/0 plus46
+  qualified independent cases. One mistaken reviewer WAL-lifetime setup remains
+  preserved and explicitly deselected; two actual WAL controls pass. Report
+  0077a6a unchanged. Warm legacy cache is not converted into a new receipt.
+- Actual unprivileged Linux test matrix on pinned archive plus only two positive
+  fixture corrections:785passed, zero skips/errors/failures,55.61s, exit0.
+  Ordinary umask0002, all source hashes unchanged. Original14RED/771GREEN preserved.
+  JUnit7c77e9d; full Root report `task-20-linux-fixture-root-rerun-20260909.md`.
+  This is not yet real root/app DAC or the installed trusted A-to-B transition.
+- Active authorized subagents: P4b2 pure native-alias/raw-input resolver;
+  P5a actual Football same-call original capture; local-only synthetic root/app
+  DAC harness design pending Root source review before any privileged execution.
+
+Remaining: real shared worker/normal consumers BB/Hockey, Football/C4 owning
+original/consumer integration, external-source gaps and D1/D2 learned-effect
+proof, final integrated suite/browser and safe main/updater/VPS release.
+Cricket excluded; no historical forecast/ticket/account rewriting. Installed
+stage-helper pin1441158 stays unchanged; unrelated outputs/WIP preserved.
+
 ## Accepted actual originals, D4 and updater correction — 9 September 2026, 21:01 UTC
 
 Root code3dccf6b integrates accepted Domain53c9a88, Reader4011392, P3ccefe85,
