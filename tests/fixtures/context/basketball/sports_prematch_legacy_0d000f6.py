@@ -513,13 +513,3 @@ def predict_prematch(
 
 
 __all__ = ["MODEL_VERSION", "PrematchPrediction", "PrequentialEvaluation", "predict_prematch"]
-
-
-def basketball_base_distribution(event, history, as_of, *, context_event, scope=None):
-    """Additive C2 original-base export; legacy/default prediction is unchanged.
-
-    Scope is explicit source-resolved season/rules, not guessed from kickoff.
-    No source call, effect application, runtime storage or Cricket dispatch.
-    """
-    from context_models.team_sports import export_basketball_base
-    return export_basketball_base(event, tuple(history), as_of, context_event=context_event, scope=scope)
