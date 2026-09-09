@@ -1,5 +1,43 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Accepted actual originals, D4 and updater correction — 9 September 2026, 21:01 UTC
+
+Root code3dccf6b integrates accepted Domain53c9a88, Reader4011392, P3ccefe85,
+Tennis actual32ac1d8+clockb566da3/9a9da36, D4live5d5bab6 and Hook7ba4c97.
+Main/VPS last actual15:57UTC2ba3931; no context release. The known Tennis job
+HTTPError remains a production issue, not cosmetically reset.
+
+- Domain Root88/0/0 rerun accepts eleven original real failures; original and
+  rereview reports already preserved68aff47. Reader233/1 integration completed;
+  prior entry's session12818 is no longer active.
+- Actual Tennis clock Root184/0/0 in8.79s. Corrected owning full5274/19/97
+  in862.27s. New Root report preserves the first SQL-column harness correction
+  and explains why the original main-test no-file assertion was overbroad:
+  received native status rows remain while invalid predictions/revisions do not.
+- D4 actualTennis5d5bab6 reviewed independently:375/3 in37.52s,57 qualified
+  probes and two actual mixed D2/live stores in52.53s. Full original report
+  SHA bc9c550bc1a49eaa6c2f405ccd874ad27a81478204d13bf6cca5e4257ad1c927
+  copied unchanged. No native alias/court/empirical capability inferred.
+- Hook7ba4c97 Root software rereview367/0 in38.58s, one deliberately historical
+  sourcepin deselected. Original12 functional REDs plus6 controls unchanged and
+  green. Owning full4789/18/97 in1004.62s; its immutable Full26 addendum copied.
+  Actual Linux DAC/restore/installed A-to-B chain is still required.
+- Shared Tennis consumer is local WIP on5d5bab6 in separate consumer worktree;
+  242passed/26subtests14.27s plus400passed/1WindowsSkip29.20s. Both views consume
+  full-precision winner and same immutable reference. Set simulation and all
+  legacy absent-reference JSON/IDs stay separate; price inputs do not change p.
+  Freeze/independent review and integrated merge not yet done at this checkpoint.
+- P4a team-sport original builder and P4b1 same-response native envelope capture
+  are active in separate agent worktrees. Actual shared BB/Hockey worker/normal
+  consumer and Football/C4 original/consumer integration remain open.
+
+Preserved new reports: task-18-tennis-publication-clock-root-rereview,
+task-18-team-sports-live-preflight, task-20-updater-original-independent-review,
+task-20-updater-full26-owner, task-20-updater-unicode-root-rereview,
+task-20-tennis-d4-independent-review (all suffix20260909.md).
+No source entitlement or >=200 real-event approval fabricated; no Cricket,
+money, old forecasts, tickets, pinned helper or unrelated output mutations.
+
 ## Closed full run / accepted reader correction — 9 September 2026, 16:24 UTC
 
 Root code `ef1aea8ae01d51eb1b134aa06265f3f2fe4c471b`; main/VPS latestactual

@@ -103,7 +103,7 @@ and read-only consumer controls were subsequently added, making 37 owning cases.
 | `tennis-d4-green-20260909-01.xml` | 34 passed, 6.14 s | `1c02c288ff1a3bfede94c29be9d69e05cbbbfcdc171429137e34b60eea66ce2a` |
 | `tennis-d4-focused-20260909-01.xml` | 514 passed, 3 Windows skips, 53.26 s | `108a40c42df0a7568dbe1204fbef12ce66004add7824d866969667c79e1ec0f3` |
 | `tennis-d4-final-focus-20260909-02.xml` | 62 passed, 9.72 s | `d18026f72776e6513020a24f1c91e88bf64b07def93e8d9d07ea9e2136f3cef1` |
-| `tennis-d4-lf-20260909-03.xml` | 149 passed, 12.99 s | recorded at freeze below |
+| `tennis-d4-lf-20260909-03.xml` | 149 passed, 12.99 s | `d73ba361262b7182ed61cf80030d051c75feae34e849bcdc95922c5068bfb0ff` |
 
 The 514-case run includes D4 runtime/transport/backup, all four shared transports,
 persisted consumer/schema, native Tennis status/capture/v3, live-origin/worker/

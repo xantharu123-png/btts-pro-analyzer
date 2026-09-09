@@ -1,5 +1,40 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Fortsetzungsstand vom 9. September 2026 — 21:01 UTC
+
+Root-Code `3dccf6b` integriert die unabhängig akzeptierten Domain-, Reader-,
+Tennis-Producer-/Publikationsuhr-, D4-Tennis- und Updater-Parserpakete. Diese
+Codeabnahme ist **noch kein Main-/VPS-Release**. Main/VPS zuletzt15:57UTC auf
+`2ba3931`; der belegte Produktions-Tennis-Refreshfehler ist nicht zurückgesetzt.
+
+- Domain-Typfix `53c9a88`: Root88/88, alle elf ursprünglichen echten Fehler
+  behoben. Reader-Integration abgeschlossen:233 bestanden/1 Windows-Skip;
+  die unten noch aktive Session12818 ist damit historisch überholt.
+- Tennis-Publikationsuhr `b566da3` akzeptiert: Root184/184; owning Vollsuite
+  5274 bestanden/19 erwartete Skips/97 Untertests. Tatsächlicher gespeicherter
+  Originalzeitpunkt darf nicht nach der Shadow-Verbuchung liegen.
+- D4-Tennis `5d5bab6` unabhängig PASS:375/3,57 qualifizierte Gegenproben,
+  2 echte Mischstore-Prüfungen mit ungeöffneten D2-Labels. Das belegt die
+  mechanische Original-/Quellenbindung, keine neue empirische Wirkung.
+- Trusted-Updater `7ba4c97`: ursprünglicher Unicode-P2 nachgeprüft; Root367
+  bestanden, nur alter Sourcehash-Pin explizit abgewählt. Owning Vollsuite
+  4789/18/97. Echte Linux-Rechte und installierte BridgeA→KontextB noch offen.
+- Gemeinsamer Tennis-Consumer ist im separaten `kontext-tennis-consumer-20260909`
+  umgesetzt, noch nicht freigegeben/übernommen:242 Tests/26 Untertests sowie
+  400 Integrationsprüfungen/1 Windows-Skip. Beide Ansichten beziehen denselben
+  ungerundeten Winner und dieselbe Ref; Satzsimulation bleibt separat.
+- Basketball/Hockey: P4a same-call Originalbuilder und P4b1 echte bestehende
+  JSON-Antwort-Captures laufen getrennt. Noch kein vollständiger gemeinsamer
+  Worker-/Normal-UI-Anschluss; unbekannte native Saison-/Rosterbelege bleiben
+  unbekannt. Cricket ist ausdrücklich ausgenommen.
+
+Nächste Schritte: Consumerfreeze/Independentreview, P4a/P4b-Anschluss, noch offene
+Fußball-/E-Sport-Original-/Consumerpfade, Linux-Bridge-/Restorematrix, neue finale
+Gesamtsuite/Browserprüfung und erst dann exakter Main-Push/VPS-Update. Kein
+Timercodepull; keine Wett-/Kontohistorie umschreiben; gepinnten Stagehelper und
+alle fremden WIP-/Outputdateien unverändert erhalten. Neue und ursprüngliche
+Reviewberichte sind im SDD-Ledger bytegleich aufbewahrt.
+
 ## Aktueller Fortsetzungsstand vom 9. September 2026 — 16:24 UTC
 
 Root-Code `ef1aea8`; nachfolgende Punkte ersetzen die älteren Lauf-/Offenangaben.
