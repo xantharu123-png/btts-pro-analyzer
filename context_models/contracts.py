@@ -413,6 +413,12 @@ def _weighted_refs(value: list, available: set[str], label: str) -> float:
 
 
 def validate_reference_weights(value: dict, history_refs: list[dict], *, family: str) -> dict:
+    if type(value) is dict and type(value.get("kind")) is str and value["kind"] in {"basketball-live-margin-origin-v1", "hockey-live-poisson-origin-v1"}:
+        expected = "basketball:margin:including_ot" if value["kind"] == "basketball-live-margin-origin-v1" else "ice_hockey:regulation_goals"
+        if family != expected:
+            raise ContextContractError("captured team-sport original belongs only to its exact family")
+        from context_models.team_sports_live import validate_team_sport_live_reference
+        return validate_team_sport_live_reference(value, history_refs)
     if type(value) is dict and value.get("kind") == "tennis-live-winner-origin-v1":
         if family != "tennis:winner":
             raise ContextContractError("live Tennis original belongs only to its winner family")
@@ -523,6 +529,11 @@ def validate_base_distribution(value: dict) -> dict:
         raise ContextContractError("winner parameter and market probability mismatch")
     row["history_refs"] = validate_history_refs(row["history_refs"])
     row["reference_weights"] = validate_reference_weights(row["reference_weights"], row["history_refs"], family=family)
+    if row["reference_weights"].get("kind") in ("basketball-live-margin-origin-v1", "hockey-live-poisson-origin-v1"):
+        from context_models.team_sports_live import validate_team_sport_live_origin
+        # These new captured originals bind exact bytes, including their
+        # already-canonical clocks. Do not hide changes by validating row only.
+        return validate_team_sport_live_origin(value)
     if family == "ice_hockey:regulation_goals":
         from context_models.ice_hockey import hockey_distribution, validate_hockey_base_reference
         expected = hockey_distribution(row["params"]["home_lambda"], row["params"]["away_lambda"], row["params"]["overtime_home_probability"])
