@@ -1,5 +1,55 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Latest D2, capture and independent-review checkpoint — 9 September 2026
+
+Current Root source `ecf92007f46c5e8b85cb24b6f7208cb71240cac4`. Main/GitHub
+main last verified `2ba3931dd8cb35f31d2475ae5797d75b44be268e`; VPS verified
+earlier in this same continuation at that release, not refreshed by this note.
+Last independently verified remote feature was `4d33224`; newer Root commits
+below still need their feature push. No new context main/VPS deployment.
+
+- D2 actual source dataset/evaluator/approval/CLI `84c101b` independently PASS
+  (70 owning +15 new integration attacks). Merged `187dfa0`; byte-identical
+  review retained `526d988`. Root independently reran all70 tests:471.59s.
+  No >=200-event successful actual-source approval; Tennis native-state alias,
+  other sports' D1/D2 and preregistered detailed cohorts remain missing.
+- D3 public copy independently accepted `5fb41de` (178 tests). Pure transport
+  frozen `4d33224` passed4351/18/97 full but independent review found one P2
+  exact numeric-copy identity issue (6 RED). Root narrow fix is independently
+  PASS in separate clean `kontext-d3-bytefix-20260909`, `1a9fffa`:17 new REDs
+  closed,296 owning /360 independent in two runs. Not yet merged while Root's
+  existing full run retains frozen bytes. Original review/probes unchanged.
+- Football actual existing-response capture committed `ecf9200`:28 new tests,
+  397 focused /32 subtests green13.95s; no new GETs, no retroactive receipt
+  clocks, only worker-owned native batches. Automatic scan/context refresh and
+  manual scan wrappers preserve baseline selection, with closed internal
+  capture metadata separate from ordinary provider errors/eligibility.
+  Independent review by b3 is active. Root full `context-d2-capture-full-20260909-01`
+  is still running; never substitute the earlier4351 count as its result.
+- C3 Hockey clean `6b2473b`, owner4442/19/97 full and1001/1 focus. Independent
+  review assigned worker_failures; no merge or actual NHL input/D1/D2 acceptance.
+- C4 original review found two P2s: terminal->started correction retained old
+  load/rest; absolute tolerance admitted a changed derived participation delta.
+  Owner fix clean `79763a1` with35 new tests,235 focus/4189 full/18 skips/97
+  subtests. Actual native-status Subject-v2 retains intervening corrections;
+  only a genuinely consistent later terminal series restores its end.
+  Original probes/audit/Elo bytes unchanged. b6 independent re-review active.
+- Root prepared clean `kontext-tennis-capture-20260909` on `ecf9200` for actual
+  already-fetched ESPN receipt preservation; NO new source edits there yet.
+  Preflight identified that nonterminal corrections must also be preserved;
+  the currently terminal-only B6 source must not silently retain obsolete load.
+  Pending-refresh remains no-network; native state identity/end/duration gaps
+  are not filled with names or scheduled/receipt times.
+- D3 full owning A1/B1/D2 assembly, sport adapters, domain/store/both-tab UI and
+  browser evidence remain open. D4 needs real semantic evaluator/transport
+  verification and production backup wiring. D5/empirical activation remain open.
+
+Preserve all unrelated output archives/probes and the phantom changed staging
+helper: raw SHA256 `1441158c542e97a19b193fa0cd091b645ec6442d6d8157f1d4fceabbba72b026`
+still matches. Cricket, prices/ranking, prior predictions/tickets/ledger and
+production state are unchanged. Existing spec/worktree/Variant1 authority is
+already granted; no repeated approval question. Timers calculate, never deploy.
+
 ## Latest C1/C2/D1 integration checkpoint — 9 September 2026
 
 This is newer than the older checkpoint below. Do not restart completed work or

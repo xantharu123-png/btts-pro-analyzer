@@ -1,6 +1,37 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Neuester Fortsetzungsstand vom 9. September 2026
+## Neuester Fortsetzungsstand vom 9. September 2026 — D2 und Quellenbelege
+
+Der oberste Abschnitt von `.superpowers/sdd/2026-09-07-kontextmodell-umsetzung/progress.md`
+in `.worktrees/kontextmodell-20260907` ist verbindlich. Freigegebene Spezifikation,
+isolierte Worktrees und Variante1 mit unabhängigen Unteragenten-Reviews gelten
+weiter; nicht erneut nachfragen. Cricket bleibt ausgenommen.
+
+- Root-Quellstand `ecf9200`; GitHub-Feature zuletzt `4d33224` verifiziert. Main/
+  GitHub main `2ba3931`, VPS zuletzt in dieser Fortsetzung ebenfalls `2ba3931`.
+  Noch kein Kontext-Release. Die Timer führen Berechnungen aus, keinen Pull.
+- Tatsächlicher D2-Datensatz/Evaluator/Approval ist unabhängig geprüft und
+  übernommen (`187dfa0`, Originalreview `526d988`); Root70 Tests grün471,59s.
+  Dies belegt Prüfsoftware, keine empirisch erfolgreiche Kontextwirkung.
+- D3-Kartentext ist geprüft. Der Transport-Bytefix ist separat unabhängig
+  freigegeben `1a9fffa`, noch zu integrieren. Die vorhandene Vollsuite läuft
+  unverändert weiter; neue Resultate nicht mit alten Testzahlen verwechseln.
+- Neue Fußballbelege werden ausschließlich aus bereits vorhandenen Abrufen
+  in automatischer Suche, Kontextrefresh und manueller Suche gespeichert.
+  Paket `ecf9200`:397 Fokustests/32 Untertests grün, unabhängiges Review läuft.
+  Keine neue Abfrage, keine erfundene Veröffentlichung, keine Quoten-Sperre.
+- C3 Eishockey `6b2473b` im Review; C4 E-Sport-Korrektur `79763a1` im Nachreview.
+  Die ursprünglichen Gegenproben und alten Quellbytes bleiben erhalten.
+- Tennis-Capture ist in eigener sauberer Arbeitskopie vorbereitet, noch nicht
+  implementiert. Statuskorrekturen müssen erhalten bleiben, nicht nur Finals.
+  Gemeinsame echte Worker-/UI-Anbindung, D4-Semantik/Backup, Browser, Release
+  und tatsächliche Quellen-/200-Event-Abnahme bleiben ausdrücklich offen.
+
+Keine alten Prognosen, Tickets oder Geldbewegungen überschreiben. Bekannte
+ungetrackte Audit-/Outputdateien und gepinnten Staging-Helper erhalten. Nur
+gezielte Commits/Pushes; Push, VPS-Code, echte Daten und Modellwirkung trennen.
+
+## Historischer Fortsetzungsstand vom 9. September 2026
 
 Maßgeblich ist der oberste aktuelle Abschnitt in
 `.superpowers/sdd/2026-09-07-kontextmodell-umsetzung/progress.md` der Arbeitskopie
