@@ -153,7 +153,7 @@ def offset_delta(model: dict, x: np.ndarray) -> np.ndarray:
     try:
         model = validate_offset_fit(model)
     except ContextContractError as exc:
-        raise ContextModelError("invalid stored offset fit") from exc
+        raise ContextModelError(f"invalid stored offset fit: {exc}") from exc
     x = _array(x, "prediction x", 2)
     if x.shape[1] != len(model["coef"]):
         raise ContextModelError("prediction features do not match fitted feature dimensions")

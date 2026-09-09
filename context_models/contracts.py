@@ -499,10 +499,14 @@ def validate_offset_fit(value: dict) -> dict:
     coefficients = require_list(value["coef"], "offset coefficients")
     if not scales or len(scales) != len(coefficients):
         raise ContextContractError("offset fit dimensions must be equal and nonempty")
-    for scale in scales:
-        require_number(scale, "offset scale", minimum=1e-8)
-    for coefficient in coefficients:
-        require_number(coefficient, "offset coefficient")
+    for numbers, label, minimum in ((scales, "offset scale", 1e-8), (coefficients, "offset coefficient", None)):
+        for number in numbers:
+            require_number(number, label, minimum=minimum)
+            # Numeric readers use float64. Validate before conversion without
+            # rewriting the immutable JSON payload or rejecting large exact
+            # integers such as powers of two solely for their magnitude.
+            if type(number) is int and int(float(number)) != number:
+                raise ContextContractError(f"{label} integer is not exactly representable in float64")
     require_number(value["alpha"], "offset regularization", minimum=0)
     if type(value["n_rows"]) is not int or value["n_rows"] < 2:
         raise ContextContractError("offset fit sample count must be an integer >= 2")
