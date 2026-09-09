@@ -1,0 +1,24 @@
+{
+  "evidence_kind": "sanitized real API-Football schedule projection, not weather or complete load history",
+  "original_path": ".superpowers/sdd/2026-09-07-kontextmodell-umsetzung/football-source-probe-20260907.json",
+  "original_sha256": "5314091f34eb0927cab41ba0b22fb4cea45eebbb57ceaf181b735859e3c0aab4",
+  "received_at": "2026-09-07T14:46:05.939454+00:00",
+  "examples": [
+    {
+      "fixture": {"id": 1570343, "date": "2026-08-22T15:00:00+00:00",
+                  "status": {"short": "FT", "elapsed": 90, "extra": 8},
+                  "periods": {"first": 1787410800, "second": 1787414400},
+                  "venue": {"id": null, "name": "San Mamés", "city": "Bilbao"}},
+      "league": {"id": 140, "season": 2026},
+      "teams": {"home": {"id": 531}, "away": {"id": 536}}
+    },
+    {
+      "fixture": {"id": 1593305, "date": "2026-09-07T15:00:00+00:00",
+                  "status": {"short": "NS", "elapsed": null, "extra": null},
+                  "periods": {"first": null, "second": null},
+                  "venue": {"id": null, "name": "Theodoros Kolokotronis Stadium", "city": "Tripoli"}},
+      "league": {"id": 197, "season": 2026},
+      "teams": {"home": {"id": 955}, "away": {"id": 17991}}
+    }
+  ]
+}
