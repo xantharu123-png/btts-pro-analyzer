@@ -236,36 +236,49 @@ def football_weather_features(event: dict, observations: tuple[dict, ...], base:
             raise ContextContractError("weather observations mix distinct native event scopes")
         if row["evidence_class"] == "prospective" and row["observed_at"] <= canonical_timestamp(decision):
             eligible.append(row)
-    latest = max((row["observed_at"] for row in eligible), default=None)
-    selected = {row["digest"]: row for row in eligible if row["observed_at"] == latest}
+    # Recency orders revisions WITHIN a source, never gives one source an
+    # implicit priority over a different fresh source. Select before checking
+    # metadata/intervals so a newer unknown revision cannot revive an older one.
+    latest = {}
+    for row in eligible:
+        latest[row["source"]] = max(latest.get(row["source"], row["observed_at"]), row["observed_at"])
+    selected = {row["digest"]: row for row in eligible if row["observed_at"] == latest[row["source"]]}
+    current = tuple(row for row in selected.values() if row["schedule_revision"] == event["schedule_revision"]
+                    and row["payload"]["event_hash"] == digest(event))
+    policy = freshness_policy("weather", schedule_revision=event["schedule_revision"], requires_complete=False)
+    evaluated = factor_state((*current, *statuses), cutoff=decision, scheduled_start=kickoff, policy=policy)
+    source_revisions = {}
+    for row in current:
+        seconds = min(policy["weather_max_age_seconds"],
+                      policy["source_max_age_seconds"].get(row["source"], policy["weather_max_age_seconds"]))
+        if decision < _instant(row["observed_at"]) + timedelta(seconds=seconds):
+            source_revisions.setdefault(row["source"], set()).add(row["content_digest"])
     state, case, payload, used = "missing", "missing-source", None, ()
     if event["status"] != "scheduled" or status_check["state"] == "not_applicable":
         state, case = "not_applicable", "event-not-scheduled"
-    elif len({row["content_digest"] for row in selected.values()}) > 1:
+    elif selected and not current:
+        state, case = "stale", "different-event-revision"
+    elif any(len(revisions) > 1 for revisions in source_revisions.values()) or evaluated["state"] == "conflicting":
+        # A simultaneous unknown alternative from the same fresh source must
+        # not disappear merely because its interval cannot be used numerically.
         state, case = "conflicting", "conflicting-source-revision"
-    elif selected:
-        row = next(iter(selected.values()))
-        payload = row["payload"]
-        if row["schedule_revision"] != event["schedule_revision"] or payload["event_hash"] != digest(event):
-            state, case = "stale", "different-event-revision"
-        elif (gap := weather_metadata_gap(payload)) is not None:
+    elif current:
+        usable = tuple(row for row in current if row["digest"] in evaluated["usable_refs"])
+        if evaluated["state"] == "available" and usable:
+            payload = usable[0]["payload"]
+            if (gap := weather_metadata_gap(payload)) is not None:
+                case = gap
+            elif not weather_window(issued_at=_instant(payload["issued_at"]), valid_from=_instant(payload["valid_from"]),
+                    valid_until=_instant(payload["valid_until"]), decision_at=decision, kickoff=kickoff):
+                state, case = "stale", "ineligible-forecast-window"
+            elif payload["venue"]["roof"] == "closed":
+                state, case = "not_applicable", "closed-roof-outdoor-factor"
+            else:
+                state, case, used = "available", "strict-current-outdoor-forecast", usable
+        elif len(current) == 1 and (gap := weather_metadata_gap(current[0]["payload"])) is not None:
             case = gap
         else:
-            evaluated = factor_state((row, *statuses), cutoff=decision, scheduled_start=kickoff,
-                policy=freshness_policy("weather", schedule_revision=event["schedule_revision"], requires_complete=False))
-            state, case = evaluated["state"], "strict-current-outdoor-forecast"
-            if state == "available" and not weather_window(issued_at=_instant(payload["issued_at"]),
-                    valid_from=_instant(payload["valid_from"]), valid_until=_instant(payload["valid_until"]),
-                    decision_at=decision, kickoff=kickoff):
-                state, case = "stale", "ineligible-forecast-window"
-            elif state == "available" and payload["venue"]["roof"] == "closed":
-                state, case = "not_applicable", "closed-roof-outdoor-factor"
-            elif state == "available":
-                used = (row,) if row["digest"] in evaluated["usable_refs"] else ()
-                if not used:
-                    state, case = "missing", "no-usable-source-reference"
-            if state != "available" and case == "strict-current-outdoor-forecast":
-                case = state + "-forecast-receipt"
+            state, case = evaluated["state"], evaluated["state"] + "-forecast-receipt"
     for key in METRICS:
         value = payload[key] if state == "available" else None
         put(key, value, used if value is not None else (), None if state == "available" else state)
@@ -291,10 +304,11 @@ def _usable_schedule(rows, *, cutoff, kickoff):
         group = list({row["digest"]: row for row in history if row["observed_at"] == newest}.values())
         teams = {row["payload"][key] for row in group for key in ("home_id", "away_id")}
         identities = {digest({key: value for key, value in row["payload"].items() if key not in {"team_id", "opponent_id"}}) for row in group}
-        if len(teams) != 2 or len(identities) != 1:
+        if len(teams) != 2 or len(identities) != 1 or {row["subject_id"] for row in group} != teams:
+            # A partial newest joint revision invalidates every old/new
+            # participant's load claim. Never borrow an older counterpart or
+            # silently erase the fixture so another match certifies exact rest.
             conflicts.update(row["payload"][key] for row in history for key in ("home_id", "away_id"))
-            continue
-        if {row["subject_id"] for row in group} != teams:
             continue
         # Latest event-wide withdrawal wins even if an older terminal was valid.
         if group[0]["payload"]["status"] != "completed":
@@ -335,23 +349,35 @@ def football_schedule_features(event: dict, completed: tuple[dict, ...], *, cuto
             first, last = canonical_timestamp(decision - timedelta(days=days)), canonical_timestamp(decision)
             window = [row for row in known if first <= row["payload"]["actual_end"] < last]
             measured = [row for row in window if row["payload"]["minutes"] is not None]
+            # A terminal receipt proves only an end upper bound. Strictly
+            # earlier bounds exclude an unknown end; equality remains possible
+            # at the inclusive window edge. No receipt is treated as an end.
+            uncertain_window = any(row["payload"]["result_observed_at"] >= first for row in unknown)
             for name, value, used in ((f"observed_matches_{days}d", len(window) if window else None, window),
                                       (f"observed_minutes_{days}d", sum(row["payload"]["minutes"] for row in measured) if measured else None, measured),
-                                      (f"observed_minutes_complete_{days}d", int(bool(window) and len(measured) == len(window) and not unknown) if rows else None, rows),
+                                      (f"observed_minutes_complete_{days}d", int(bool(window) and len(measured) == len(window) and not uncertain_window) if rows else None, rows),
                                       (f"history_complete_{days}d", 0 if rows else None, rows)):
                 put(f"{name}_{side}", value, used, blocked)
                 side_metrics.add(name)
         bounds = {"minimum_hours": None, "exact_hours": None}
         if rows:
             latest_receipt = max(_instant(row["payload"]["result_observed_at"]) for row in rows)
-            latest_end = max((_instant(row["payload"]["actual_end"]) for row in known), default=None) if not unknown else None
-            bounds = recovery_bounds(next_start=kickoff, result_observed_at=latest_receipt, ended_at=latest_end)
+            latest_end = max((_instant(row["payload"]["actual_end"]) for row in known), default=None)
+            exact_end = latest_end if latest_end is not None and all(
+                _instant(row["payload"]["result_observed_at"]) <= latest_end for row in unknown
+            ) else None
+            bounds = recovery_bounds(next_start=kickoff, result_observed_at=latest_receipt, ended_at=exact_end)
         for kind in ("minimum", "exact"):
             name = f"observed_recovery_{kind}_hours"
             put(f"{name}_{side}", bounds[f"{kind}_hours"], rows, blocked)
             side_metrics.add(name)
         put(f"travel_hours_{side}", None, state=blocked)
-        cases.append(blocked or ("no-history" if not rows else "receipt-bound" if unknown else "exact-observed"))
+        case = "no-history" if not rows else "receipt-bound" if unknown else "exact-observed"
+        if unknown and bounds["exact_hours"] is not None:
+            case = "bounded-irrelevant-end-times" if all(
+                _instant(row["payload"]["result_observed_at"]) < decision - timedelta(days=max(WINDOWS)) for row in unknown
+            ) else "partial-end-times-exact-rest"
+        cases.append(blocked or case)
     for name in sorted(side_metrics):
         home, away = f"{name}_home", f"{name}_away"
         a, b = values[home], values[away]

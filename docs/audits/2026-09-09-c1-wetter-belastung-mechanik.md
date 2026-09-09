@@ -65,6 +65,10 @@ diesen Quellenbeweis nicht.
 - Prospektive B1-Receipts, unveränderte Drei-Stunden-Frische, aktueller Termin,
   explizite Ausgabe vor Entscheidung und Intervallabdeckung sind erforderlich.
   Eine neue unbekannte Revision kann keine alte numerische Beobachtung auffrischen.
+  Die neueste Revision wird je Quelle ausgewählt; B1 prüft anschließend die
+  aktuellen Quellen gemeinsam. Ein späterer Empfang ist keine Quellenpriorität.
+  Widersprüchliche frische Quellen sowie gleichzeitige unterschiedliche
+  Revisionen derselben frischen Quelle bleiben widersprüchlich.
 - Fehlende Stadion-/Dachbelege bleiben fehlend. Belegt geschlossenes Dach macht
   ausschließlich diesen **Outdoor-Wetterfaktor** nicht anwendbar; daraus folgt
   keine Behauptung über Hallentemperatur oder allgemeine Wetterunabhängigkeit.
@@ -98,15 +102,29 @@ pauschale Spielerminute für alle Kaderspieler.
 - Neuere Teilnehmer-/Termin-/Nichtgespielt-Revisionen verdrängen alte
   Abschlussbehauptungen eventweit. Teilprojektionen dürfen keine alte Gegenseite
   ausleihen; gleichzeitige widersprüchliche Revisionen bleiben widersprüchlich.
+  Eine unvollständige neueste gemeinsame Revision setzt sämtliche bekannten
+  früheren und neu betroffenen Teilnehmer auf widersprüchliche Belastungsdaten.
+  Das Spiel verschwindet nicht still, sodass ein anderes Spiel eine scheinbar
+  exakte Pause oder vollständige beobachtete Minuten erzeugen könnte.
 - Nur vor der Entscheidung empfangene Abschlüsse; tatsächliches Ende muss vor
   dem Cutoff liegen. Ein Spielende exakt am Cutoff ist keine frühere Leistung.
 - Fenster sind `[cutoff-N*24h, cutoff)` für 1/3/7 Tage, zugeordnet nach belegtem
   tatsächlichem **Ende**, nicht nach Empfang oder Termin. Unbekanntes Ende darf
   solche Fenster nicht numerisch füllen.
 - Mindestpause zum nächsten angesetzten Beginn aus tatsächlichem
-  Ergebnisempfang; exakte Pause nur relativ zu vollständig zeitbekannten
-  **beobachteten** Spielen. Keine Behauptung einer vollständigen Teamhistorie,
+  Ergebnisempfang. Ein unbekanntes Ende darf aus einem Fenster ausschließlich
+  ausgeschlossen werden, wenn sein terminaler Ergebnisempfang **strikt vor**
+  dessen Beginn liegt. Gleichheit bleibt am eingeschlossenen Fensterbeginn
+  mehrdeutig. Eine exakte Pause ist relativ zum letzten zeitbekannten
+  **beobachteten** Ende möglich, sofern dieses mindestens jede unbekannte
+  Ende-Obergrenze erreicht. Keine Behauptung einer vollständigen Teamhistorie,
   Reisezeit, individueller Ermüdung oder medizinischen Diagnose.
+- Die Abdeckungsfälle `bounded-irrelevant-end-times` und
+  `partial-end-times-exact-rest` bleiben ausdrücklich verschieden von
+  `exact-observed`. Ausschlussbelege bleiben in den Referenzen der
+  Vollständigkeits-/Erholungsmerkmale und deren signierten Differenzen.
+  Ein abgegrenztes unbekanntes Ende erhält weder eine erfundene Endzeit noch
+  null Minuten; fehlende gemessene Dauer bleibt fehlend.
 - Signierte Heim-minus-Auswärts-Merkmale verwenden exakt die vereinigten
   Referenzen ihrer beiden Operanden. Eine fehlende Seite wird nicht zu null.
 
@@ -182,4 +200,65 @@ Augustresultats wird nicht auf August zurückdatiert.
 | tests/test_football_weather_features.py | 1bde629bba4d036cac28f0a39e441de44b513268d577d039dca59efc7b9e2c0a |
 | tests/fixtures/context/football/c1-schedule-20260907.json | dd21398ef1e6e05802b9666cfd0b34ddd051d55e0b9d83a6f66d9b15656b21f3 |
 
-Controllerorganisierte unabhängige Prüfung bleibt vor Integration erforderlich.
+## Korrekturrunde nach unabhängigem C1-Review
+
+Der erste Stand `87b27458538b03b0631d1159c806bd30d26803be` war trotz grüner
+Bestandssuite **nicht freigegeben**. Das unabhängige Review fand zwei P1- und
+ein P2-Problem: implizite Wetterquellenpriorität nach Empfang, still verschwundene
+unvollständige Matchrevisionen und unnötig blockierende alte unbekannte Enden.
+Die obigen drei Präzisierungen dokumentieren die korrigierte Mechanik.
+
+Originalreview:
+`.pytest_tmp/c1-b6-independent-review/REVIEW.md`, SHA256
+`84df337ee4fd581973ebe26b89197e7c4314f0b6c8fd4d154ac229bdca24afb9`.
+Unverändert übernommener Repro:
+`.pytest_tmp/c1-b6-independent-review/test_c1_independent_review.py`, SHA256
+`0a390a9b5e3553f54cc35e7c202758d2e0bdaac3223a4ce42b3f954472550fdd`.
+
+Der Controller genehmigte ausschließlich diese Korrekturen mit den bereits
+an B6/B7 belegten strikten Empfangsobergrenzen. Die dort korrigierte aktuelle
+Rechenstelle wurde vor Übernahme gelesen; es wird kein fremder Modell- oder
+Abnahmevertrag kopiert. Neue Quellen-/Empirie-/Aktivierungsfreigaben bleiben
+ausdrücklich ausgenommen.
+
+### Frische RED/GREEN-Nachweise
+
+- Originalrepro auf unverändertem `87b2745` selbst reproduziert: **8 fehlgeschlagen,
+  29 bestanden**, 0.90 s; `.pytest_tmp/c1-independent-owner-red-01`.
+- Neue permanente Tests zuerst vor Codekorrektur: nach Berichtigung zweier
+  eigener Fixture-Erwartungen **45 fehlgeschlagen, 97 bestanden**, 4.33 s;
+  `.pytest_tmp/c1-review-permanent-red-02`. Der Originalrepro blieb unangetastet.
+- Nach Korrektur: zunächst **179 bestanden** (142 permanente C1-Fälle plus
+  alle 37 Originalreviewfälle), 5.05 s; `.pytest_tmp/c1-review-green-01`.
+- Die abschließenden **163 permanenten C1-Fälle** enthalten sämtliche
+  1/3/7-Tage-Grenzen mit −1/0/+1 Mikrosekunde für tatsächliche Enden und
+  unbekannte Empfangsobergrenzen auf beiden Teamseiten. Dazu kommen beide
+  Projektionsrichtungen, frühere/neue Teilnehmer und Gegner, Gleichzeitigkeit,
+  Heilung durch eine spätere vollständige Revision, unbeeinträchtigte fremde
+  Teams, exakte Pause an der Obergrenze sowie Ausschlussreferenzen in Deltas.
+- Erweiterter Fokus inklusive aller unveränderten Originalrepros, C1, B5,
+  B1-Verträge/-Beobachtungen, B2, B3 und B6: **924 bestanden**, 13.93 s;
+  `.pytest_tmp/c1-review-focus-02`.
+- Der erste Fokusaufruf nannte irrtümlich einen nicht existierenden
+  Tennis-Testdateinamen und sammelte null Tests. Der vollständige korrigierte
+  Aufruf mit `tests/test_tennis_context_features.py` ist der oben genannte
+  frische grüne Lauf; kein fehlender Test wurde als bestanden gewertet.
+- Frische vollständige isolierte Suite: **3170 bestanden, 15 erwartete
+  Windows/POSIX-Skips, 97 Untertests bestanden**, 71.88 s;
+  `.pytest_tmp/c1-review-full-01`. Die separate Originalrepro-Sammlung ist im
+  obigen Fokuslauf enthalten. Plattformspezifische Skips sind kein VPS-Nachweis.
+
+### Korrigierte Implementierungsbytes
+
+| Datei | SHA256 |
+| --- | --- |
+| context_models/football_load.py | df594cbd76c37cb88891c65c545f566da54bb3c3e777a4a73d661a7a0e4e9fe3 |
+| tests/test_football_weather_features.py | ab8a53fc6b06ba83d66f96584c5d2c3354de130fe800bbf7395a3dc56677e513 |
+
+Die Wettertransportquelle und die echte Fixtureprojektion behalten exakt ihre
+oben protokollierten ursprünglichen Hashes. Commitumfang dieser Korrektur sind
+nur `context_models/football_load.py`, der permanente C1-Test und dieser Bericht.
+Keine B1-/B3-/B5-/Quellenvertrag-, Provider-, UI-, Geld- oder Serveränderung.
+Kein Abruf, Push oder Deployment. Gleiches unabhängiges Review bleibt vor
+Controllerintegration erforderlich; C1 als gesamte fachliche Umsetzung bleibt
+mit den ursprünglichen Quellen-, Training-, D1/D2- und Runtimegrenzen offen.

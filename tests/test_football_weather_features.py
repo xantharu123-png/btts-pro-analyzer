@@ -282,6 +282,212 @@ def test_unknown_match_end_has_receipt_bound_but_no_window_or_zero_minutes(tmp_p
     assert result["values"]["observed_matches_3d_home"] is None
 
 
+@pytest.mark.parametrize("offset", [-1, 0, 1])
+def test_review_cross_source_weather_uses_b1_freshness_not_latest_global_receipt(tmp_path, offset):
+    first = weather()
+    first.update(source="synthetic-source-a", temperature_c=35.,
+                 issued_at=canonical_timestamp(NOW - timedelta(hours=4)))
+    received = NOW - timedelta(hours=3) + timedelta(microseconds=offset)
+    older = stored_weather(tmp_path, first, observed=received)
+    latest = weather()
+    latest.update(source="synthetic-source-b", temperature_c=8.)
+    newer = stored_weather(tmp_path, latest)
+    result = football_weather_features(event(), older + newer, base(), cutoff=NOW)
+    assert result == football_weather_features(event(), newer + older + newer, base(), cutoff=NOW)
+    if offset > 0:
+        assert set(result["states"].values()) == {"conflicting"}
+        assert not any(result["refs"].values())
+    else:
+        assert result["values"]["temperature_c"] == 8.
+        assert result["refs"]["temperature_c"] == [row["digest"] for row in newer if row["source"] == "synthetic-source-b"]
+
+
+def test_review_same_source_latest_earlier_expiry_cannot_revive_older_interval(tmp_path):
+    old = stored_weather(tmp_path, observed=NOW - timedelta(minutes=30))
+    revised = weather()
+    revised.update(valid_at=canonical_timestamp(START - timedelta(hours=2)),
+                   valid_from=canonical_timestamp(START - timedelta(hours=3)),
+                   valid_until=canonical_timestamp(START - timedelta(hours=1)))
+    new = stored_weather(tmp_path, revised)
+    result = football_weather_features(event(), old + new, base(), cutoff=NOW)
+    assert set(result["states"].values()) == {"stale"}
+    assert not any(result["refs"].values())
+
+
+@pytest.mark.parametrize("unknown", ["issued_at", "interval", "roof"])
+def test_review_simultaneous_same_source_unknown_revision_still_conflicts(tmp_path, unknown):
+    first = stored_weather(tmp_path)
+    changed = weather()
+    if unknown == "issued_at":
+        changed["issued_at"] = None
+    elif unknown == "interval":
+        changed["valid_from"] = changed["valid_until"] = None
+    else:
+        changed["venue"].update(roof="unknown", roof_revision=None)
+    current = stored_weather(tmp_path, changed)
+    result = football_weather_features(event(), first + current, base(), cutoff=NOW)
+    assert set(result["states"].values()) == {"conflicting"}
+    assert not any(result["refs"].values())
+
+
+@pytest.mark.parametrize("days", [1, 3, 7])
+@pytest.mark.parametrize("offset", [-1, 0, 1])
+@pytest.mark.parametrize("side,team", [("home", 1), ("away", 2)])
+def test_review_terminal_upper_bound_window_microseconds_and_exclusion_refs(tmp_path, days, offset, side, team):
+    upper = NOW - timedelta(days=days) + timedelta(microseconds=offset)
+    old = timeline(90, home=team, end=upper - timedelta(minutes=2))
+    old.update(actual_start=None, actual_end=None, minutes=None)
+    known = timeline(91, home=team, end=NOW - timedelta(hours=18))
+    rows = stored_load(tmp_path, [old, known])
+    result = football_schedule_features(event(), rows, cutoff=NOW, base=base())
+    assert result["values"][f"observed_minutes_complete_{days}d_{side}"] == int(offset < 0)
+    assert result["values"][f"observed_minutes_{days}d_{side}"] == 95.
+    assert result["values"][f"history_complete_{days}d_{side}"] == 0
+    assert result["values"][f"observed_recovery_exact_hours_{side}"] == 22.
+    excluded = next(row["digest"] for row in rows if row["event_key"] == "api-football:football:90"
+                    and row["subject_id"] == f"api-football:team:{team}")
+    assert excluded in result["refs"][f"observed_minutes_complete_{days}d_{side}"]
+    assert excluded in result["refs"][f"observed_recovery_exact_hours_{side}"]
+    expected_case = "bounded-irrelevant-end-times" if days == 7 and offset < 0 else "partial-end-times-exact-rest"
+    assert expected_case in result["coverage"]["case"]
+    only_known = football_schedule_features(event(), tuple(row for row in rows if row["event_key"] != "api-football:football:90"),
+                                            cutoff=NOW, base=base())
+    assert result["coverage"] != only_known["coverage"]
+
+
+@pytest.mark.parametrize("offset", [-1, 0, 1])
+@pytest.mark.parametrize("side,team", [("home", 1), ("away", 2)])
+def test_review_exact_latest_end_must_bound_every_unknown_receipt(tmp_path, offset, side, team):
+    latest_end = NOW - timedelta(hours=18)
+    unknown = timeline(90, home=team, end=latest_end - timedelta(minutes=2) + timedelta(microseconds=offset))
+    unknown.update(actual_start=None, actual_end=None, minutes=None)
+    known = timeline(91, home=team, end=latest_end)
+    rows = stored_load(tmp_path, [unknown, known])
+    result = football_schedule_features(event(), rows, cutoff=NOW, base=base())
+    assert result["values"][f"observed_recovery_exact_hours_{side}"] == (22. if offset <= 0 else None)
+    assert result["values"][f"observed_recovery_minimum_hours_{side}"] == pytest.approx(22. - 2 / 60)
+    assert result["values"][f"observed_minutes_complete_1d_{side}"] == 0
+    if offset <= 0:
+        assert "partial-end-times-exact-rest" in result["coverage"]["case"]
+        assert len(result["refs"][f"observed_recovery_exact_hours_{side}"]) == 2
+    else:
+        assert "receipt-bound" in result["coverage"]["case"]
+
+
+@pytest.mark.parametrize("side,team", [("home", 1), ("away", 2)])
+def test_review_bounded_old_receipt_does_not_fill_missing_recent_minutes(tmp_path, side, team):
+    old = timeline(90, home=team, end=NOW - timedelta(days=10))
+    old.update(actual_start=None, actual_end=None, minutes=None)
+    known = timeline(91, home=team, end=NOW - timedelta(hours=18))
+    known["minutes"] = None
+    rows = stored_load(tmp_path, [old, known])
+    result = football_schedule_features(event(), rows, cutoff=NOW, base=base())
+    assert result["values"][f"observed_recovery_exact_hours_{side}"] == 22.
+    for days in (1, 3, 7):
+        assert result["values"][f"observed_minutes_{days}d_{side}"] is None
+        assert result["values"][f"observed_minutes_complete_{days}d_{side}"] == 0
+        assert result["values"][f"history_complete_{days}d_{side}"] == 0
+
+
+@pytest.mark.parametrize("days", [1, 3, 7])
+@pytest.mark.parametrize("offset", [-1, 0, 1])
+@pytest.mark.parametrize("side,team", [("home", 1), ("away", 2)])
+def test_review_actual_end_window_microseconds_on_both_sides(tmp_path, days, offset, side, team):
+    ended = NOW - timedelta(days=days) + timedelta(microseconds=offset)
+    rows = stored_load(tmp_path, [timeline(90, home=team, end=ended)])
+    result = football_schedule_features(event(), rows, cutoff=NOW, base=base())
+    assert result["values"][f"observed_matches_{days}d_{side}"] == (1 if offset >= 0 else None)
+    assert result["values"][f"observed_minutes_{days}d_{side}"] == (95. if offset >= 0 else None)
+    assert result["values"][f"observed_minutes_complete_{days}d_{side}"] == int(offset >= 0)
+    assert result["values"][f"history_complete_{days}d_{side}"] == 0
+
+
+def test_review_signed_exact_rest_and_completeness_bind_both_exclusion_receipts(tmp_path):
+    raw = []
+    for team in (1, 2):
+        old = timeline(team * 10, home=team, end=NOW - timedelta(days=10))
+        old.update(actual_start=None, actual_end=None, minutes=None)
+        raw.extend((old, timeline(team * 10 + 1, home=team, end=NOW - timedelta(hours=18))))
+    rows = stored_load(tmp_path, raw)
+    result = football_schedule_features(event(), rows, cutoff=NOW, base=base())
+    expected = {row["digest"] for row in rows if row["subject_id"] in (event()["home_id"], event()["away_id"])}
+    for name in ("observed_recovery_exact_hours", "observed_minutes_complete_1d",
+                 "observed_minutes_complete_3d", "observed_minutes_complete_7d"):
+        assert result["values"][name + "_delta"] == 0
+        assert set(result["refs"][name + "_delta"]) == expected
+    assert result["coverage"]["case"].count("bounded-irrelevant-end-times") == 2
+
+
+@pytest.mark.parametrize("gap", ["issued_at", "interval"])
+def test_review_latest_unknown_is_not_rescued_by_its_old_revision_or_stale_other_source(tmp_path, gap):
+    older = stored_weather(tmp_path, observed=NOW - timedelta(minutes=30))
+    other = weather()
+    other.update(source="synthetic-stale-other", issued_at=canonical_timestamp(NOW - timedelta(hours=4)))
+    stale = stored_weather(tmp_path, other, observed=NOW - timedelta(hours=3))
+    unknown = weather()
+    if gap == "issued_at":
+        unknown["issued_at"] = None
+    else:
+        unknown["valid_from"] = unknown["valid_until"] = None
+    latest = stored_weather(tmp_path, unknown)
+    result = football_weather_features(event(), older + stale + latest, base(), cutoff=NOW)
+    assert all(value is None for value in result["values"].values())
+    assert not any(result["refs"].values())
+
+
+@pytest.mark.parametrize("new_home,projection,team,side", [
+    (new_home, projection, team, side)
+    for new_home in (1, 7) for projection in ("home", "away")
+    for team in sorted({1, 3, new_home}) for side in ("home", "away")
+])
+def test_review_partial_native_revision_blocks_all_old_and_new_participants(tmp_path, new_home, projection, team, side):
+    older = timeline(90, end=NOW - timedelta(hours=20))
+    another = timeline(91, home=team, away=444, end=NOW - timedelta(hours=30))
+    previous = stored_load(tmp_path, [older, another], observed=NOW - timedelta(hours=1))
+    current = timeline(90, home=new_home, end=NOW - timedelta(hours=3))
+    normalized = normalize_football_schedule((current,), observed_at=NOW, source_schema="football-completed-transport-v1")
+    partial = tuple(row for row in normalized if row["subject_id"] == f"api-football:team:{current[projection + '_id']}")
+    latest = store_rows(tmp_path, partial)
+    target = {**event(), f"{side}_id": f"api-football:team:{team}",
+              f"{'away' if side == 'home' else 'home'}_id": "api-football:team:999"}
+    result = football_schedule_features(target, previous + latest, cutoff=NOW, base=base(target))
+    assert result["states"][f"observed_matches_total_{side}"] == "conflicting"
+    assert result["values"][f"observed_recovery_exact_hours_{side}"] is None
+    assert result["values"][f"observed_minutes_complete_3d_{side}"] is None
+    assert result["states"]["observed_recovery_exact_hours_delta"] == "conflicting"
+
+
+def test_review_complete_later_pair_heals_partial_revision_without_borrowing_older_counterpart(tmp_path):
+    previous = stored_load(tmp_path, [timeline(90, end=NOW - timedelta(hours=20)),
+                                     timeline(91, home=1, away=444, end=NOW - timedelta(hours=30))],
+                           observed=NOW - timedelta(hours=1))
+    revised = timeline(90, home=7, end=NOW - timedelta(hours=3))
+    partial = normalize_football_schedule((revised,), observed_at=NOW - timedelta(minutes=30),
+                                          source_schema="football-completed-transport-v1")[:1]
+    middle = store_rows(tmp_path, partial, observed=NOW - timedelta(minutes=30))
+    healed = stored_load(tmp_path, [revised])
+    rows = previous + middle + healed
+    for team, hours in ((1, 34.), (3, 7.), (7, 7.)):
+        target = {**event(), "home_id": f"api-football:team:{team}"}
+        result = football_schedule_features(target, rows, cutoff=NOW, base=base(target))
+        assert result["values"]["observed_recovery_exact_hours_home"] == hours
+        assert result["values"]["observed_matches_total_home"] == 1
+
+
+def test_review_equal_time_partial_identity_conflict_does_not_affect_unrelated_team(tmp_path):
+    one = stored_load(tmp_path, [timeline(), timeline(91, home=77, away=88, end=NOW - timedelta(hours=18))])
+    changed = normalize_football_schedule((timeline(home=7),), observed_at=NOW,
+                                          source_schema="football-completed-transport-v1")[:1]
+    another = store_rows(tmp_path, changed)
+    for team in (1, 3, 7):
+        target = {**event(), "home_id": f"api-football:team:{team}"}
+        assert football_schedule_features(target, one + another, cutoff=NOW, base=base(target))["states"]["observed_matches_total_home"] == "conflicting"
+    target = {**event(), "home_id": "api-football:team:77"}
+    result = football_schedule_features(target, one + another, cutoff=NOW, base=base(target))
+    assert result["values"]["observed_recovery_exact_hours_home"] == 22.
+    assert result["values"]["observed_minutes_complete_1d_home"] == 1
+
+
 def test_completed_receipt_after_cutoff_cannot_supply_load(tmp_path):
     rows = stored_load(tmp_path, observed=NOW + timedelta(minutes=1))
     result = football_schedule_features(event(), rows, cutoff=NOW, base=base())
