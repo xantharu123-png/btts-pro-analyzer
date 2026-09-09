@@ -386,3 +386,51 @@ def publish_slots(
             connection.rollback()
             raise
     return digest
+
+
+def rollback_model_slots(
+    path: Path, previous_manifest_hash: str, *, expected_manifest: str,
+    published_at: datetime,
+) -> str:
+    """Publish the exact old model-slot set as a new, audited CAS revision.
+
+    Only immutable pointers roll back. Newer artifacts, observations, forecast
+    snapshots and every separate finance database remain untouched. This is a
+    mechanical operator rollback, never a new empirical model approval.
+    """
+    # Lazy import keeps A1 canonical storage available to the owning validators.
+    from context_runtime import ROLLBACK_REASON, ROLLBACK_SQL, _open_database, _verify_connection
+
+    _validate_digest(previous_manifest_hash, label="rollback target")
+    _validate_digest(expected_manifest, label="expected manifest")
+    published = _timestamp(published_at)
+    with _open_database(path, writable=True) as connection:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            # Check CAS before any audit-table creation or publication.
+            current, _ = _load_active(connection)
+            if current != expected_manifest:
+                raise ManifestConflict("manifest changed")
+            checked = _verify_connection(connection)
+            manifests, chain = checked["manifests"], checked["chain"]
+            if previous_manifest_hash not in chain[1:]:
+                raise ArtifactIntegrityError("rollback target is not an earlier manifest in this history")
+            if datetime.fromisoformat(published) < datetime.fromisoformat(manifests[current]["published_at"]):
+                raise ArtifactIntegrityError("rollback publication time precedes the current manifest")
+            slots = manifests[previous_manifest_hash]["slots"]
+            new = _digest({"predecessor": current, "slots": slots, "published_at": published})
+            connection.execute("INSERT INTO manifests(digest,predecessor,payload,published_at) VALUES (?,?,?,?)",
+                               (new, current, canonical_bytes(slots), published))
+            if "context_model_rollbacks" not in checked["tables"]:
+                connection.execute(ROLLBACK_SQL)
+            audit = {"schema": 1, "expected_manifest": current, "target_manifest": previous_manifest_hash,
+                     "new_manifest": new, "reason": ROLLBACK_REASON, "published_at": published}
+            connection.execute("INSERT INTO context_model_rollbacks(digest,payload) VALUES (?,?)",
+                               (_digest(audit), canonical_bytes(audit)))
+            connection.execute("UPDATE active_manifest SET digest=? WHERE id=1 AND digest=?", (new, current))
+            _verify_connection(connection)
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+    return new
