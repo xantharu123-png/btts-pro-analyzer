@@ -2,9 +2,29 @@
 
 Stand: 9. September 2026. Basis: `a0fc89cdef1c3a7bebfb237e8aaed1ecb0ee1028`.
 Eigene Arbeitskopie: `.worktrees/tennis-terminrevision-20260909`.
-Status: lokal implementiert und getestet; erstes unabhaengiges Review mit zwei
-reproduzierten Findings, begrenzt nachgebessert. Erneute Reviewfreigabe,
-Integration, Push und VPS-Deployment stehen noch aus.
+Status: implementiert, begrenzt nachgebessert und am 9. September unabhaengig
+freigegeben. Der Controller hat den exakten Code in main integriert. Die
+nachfolgenden datierten Zwischenstaende bleiben als Nachweis erhalten; sie
+ersetzten keine gesonderte tatsaechliche Push-/VPS-Versionspruefung.
+
+## Abschliessendes unabhaengiges Review
+
+Freigegebener Implementierungsstand:
+`6e6468e484573f84d25fcc994728ddd604289138`, Source-SHA-256
+`a0a7d85036340e364bbd8d715a6a3bfd16d7e9334647fe4977ea3d46899cb560`.
+
+- Der unabhaengige Reviewer hat den gesamten Nachtragsdiff und Bericht gelesen,
+  beide urspruenglichen roten Gegenfaelle unveraendert wiederholt und den
+  Terminvorziehungs-Kontrollfall erneut bestanden:173 Tests gruen, keine offenen
+  Findings im begrenzten Scope. Die Quell-/Testbytes blieben unveraendert.
+- Der Controller hat den gesamten funktionalen Diff gesondert gelesen und
+  die vollstaendige Suite selbst ausgefuehrt:2022 bestanden,11 erwartete
+  Windows-Symlink-Skips,97 Untertests,55,42 Sekunden, Exit0. Eigenes Basetemp:
+  `.pytest_tmp/termin-root-full-20260909`.
+- Review betrifft ausschliesslich exakte native Tennis-Terminrevisionen und
+  die beschriebenen Identitaets-/Zeit-/Duplikatgrenzen. Es ist keine neue
+  Geld-, Markt-, Preis- oder Quellenfreigabe. Der WTA-Quellfehler und die
+  96 gleichzeitigen mehrdeutigen Revisionsgruppen sind hiermit nicht behoben.
 
 ## Verifizierte Ursache
 
