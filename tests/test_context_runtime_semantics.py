@@ -1,6 +1,7 @@
 """Actual local A1/B1/D1/D2 replay, synthetic sport inputs, no activation claim."""
 from contextlib import closing
 from copy import deepcopy
+from datetime import datetime, timedelta
 import math
 import os
 from pathlib import Path
@@ -281,6 +282,92 @@ def test_prefreeze_orphans_are_not_completed_with_invented_config(packets, tmp_p
     assert {"d2-dataset-owning-experiment-unavailable", "d1-fit-owning-replay-unavailable",
             "d1-case-owning-replay-unavailable", "d1-original-replay-context-unavailable"} <= set(result["limitations"])
     assert not any(result["d2_verified"].values())
+    assert packet["path"].read_bytes() == before
+
+
+@pytest.mark.parametrize("state", ["available", "missing", "stale", "conflicting", "not_applicable"])
+@pytest.mark.parametrize("defect", ["missing", "future-final"])
+def test_orphan_case_every_explicit_feature_receipt_remains_physical_evidence(
+        packets, tmp_path, state, defect):
+    packet = sealed_copy(packets[0], tmp_path)
+    with closing(sqlite3.connect(packet["path"])) as connection:
+        connection.execute("DELETE FROM artifacts WHERE kind='context-experiment-v1'")
+        connection.commit()
+    case = deepcopy(packet["cases"][0]["case"]["payload"])
+    names = sorted(name for name, refs in case["features"]["refs"].items()
+                   if refs and case["features"]["states"][name] == "available")
+    assert len(names) > 1
+    name = names[-1]  # Not just the first configured feature or first ref.
+    ref = ("f" * 64 if defect == "missing" else
+           packet["cases"][-1]["case"]["payload"]["outcome_ref"])
+    case["features"]["refs"][name] = sorted({*case["features"]["refs"][name], ref})
+    case["features"]["states"][name] = state
+    if state in {"missing", "not_applicable"}:
+        case["features"]["values"][name] = None
+    add_artifact(packet, "context-training-case-v1", case)
+    before = packet["path"].read_bytes()
+    with pytest.raises(ArtifactIntegrityError):
+        verify_context_database(packet["path"])
+    assert packet["path"].read_bytes() == before
+    assert [p.name for p in tmp_path.iterdir()] == ["copy.db"]
+
+
+@pytest.mark.parametrize("case_index", [0, -1])
+@pytest.mark.parametrize("microseconds", [-1, 0, 1])
+def test_orphan_feature_receipt_obeys_original_decision_not_later_case_creation(
+        packets, tmp_path, case_index, microseconds):
+    from context_models.contracts import OBSERVATION_FIELDS
+    from context_observations import append_observation
+
+    packet = sealed_copy(packets[0], tmp_path)
+    with closing(sqlite3.connect(packet["path"])) as connection:
+        connection.execute("DELETE FROM artifacts WHERE kind='context-experiment-v1'")
+        connection.commit()
+    resolved = packet["cases"][case_index]
+    case = deepcopy(resolved["case"]["payload"])
+    name = next(name for name, refs in case["features"]["refs"].items() if refs)
+    original = case["features"]["refs"][name][0]
+    record = next(row for row in resolved["observations"] if row["digest"] == original)
+    actual_receipt = datetime.fromisoformat(case["features"]["cutoff"]) + timedelta(microseconds=microseconds)
+    assert actual_receipt < EVALUATED
+    ref = append_observation(packet["path"], {key: record[key] for key in OBSERVATION_FIELDS},
+                             observed_at=actual_receipt)
+    case["features"]["refs"][name] = sorted({*case["features"]["refs"][name], ref})
+    add_artifact(packet, "context-training-case-v1", case)
+    before = packet["path"].read_bytes()
+    if microseconds > 0:
+        with pytest.raises(ArtifactIntegrityError):
+            verify_context_database(packet["path"])
+    else:
+        result = verify_context_database(packet["path"])
+        assert result["verification_level"] == "transport_only"
+        assert "d1-case-owning-replay-unavailable" in result["limitations"]
+        assert not any(result["d2_verified"].values())
+        assert result["empirical_approval_verified"] is False
+    assert packet["path"].read_bytes() == before
+    assert [p.name for p in tmp_path.iterdir()] == ["copy.db"]
+
+
+def test_explicit_future_feature_ref_rejects_before_decoding_unopened_final_body(
+        packets, tmp_path, monkeypatch):
+    import context_observations
+    import context_runtime
+
+    packet = sealed_copy(packets[0], tmp_path)
+    case = deepcopy(packet["cases"][0]["case"]["payload"])
+    name = next(name for name, refs in case["features"]["refs"].items() if refs)
+    ref = packet["cases"][-1]["case"]["payload"]["outcome_ref"]
+    case["features"]["refs"][name] = sorted({*case["features"]["refs"][name], ref})
+    add_artifact(packet, "context-training-case-v1", case)
+    original = context_observations._decode_receipt
+    def no_final_decode(row):
+        assert row[0] != ref, "physical feature guard opened the final outcome body"
+        return original(row)
+    monkeypatch.setattr(context_observations, "_decode_receipt", no_final_decode)
+    monkeypatch.setattr(context_runtime, "_decode_receipt", no_final_decode)
+    before = packet["path"].read_bytes()
+    with pytest.raises(ArtifactIntegrityError):
+        verify_context_database(packet["path"])
     assert packet["path"].read_bytes() == before
 
 

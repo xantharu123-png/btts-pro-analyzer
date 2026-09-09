@@ -140,6 +140,11 @@ def _case_shape(connection, ref, payload, *, configs, actual):
             or base["cutoff"] != features["cutoff"] or base["cutoff"] >= event["scheduled_start"]
             or event["status"] != "scheduled"):
         raise ContextIntegrityError("standalone case has contradictory original identities")
+    # Missing configuration does not make explicit prospective references
+    # unknowable. Check every feature state against its original decision,
+    # not the later case creation; this inspects no source/label body.
+    for receipt in sorted({r for refs in features["refs"].values() for r in refs}):
+        _physical_ref(connection, receipt, latest=features["cutoff"])
     replay = _artifact(connection, payload["replay_ref"], "context-base-replay-v1", latest=actual)["payload"]
     _artifact(connection, payload["event_identity_hash"], "context-native-identity-map-v1", latest=actual)
     if (replay.get("base") != base or replay.get("event_hash") != digest(event)

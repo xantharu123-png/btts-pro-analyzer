@@ -242,3 +242,99 @@ Der historische Ausgangs-Hash von `context_runtime.py` ist
 Die übrigen owning D1/D2-/Transportdateien bleiben auf der angegebenen Basis.
 Die unabhängige Prüfung dieses neuen D4-Pakets und seine Zusammenführung mit
 späteren Root-Erweiterungen stehen nach dem eigenen Freeze noch aus.
+
+## F1: unabhängige Nachprüfung und enge physische Referenzkorrektur
+
+Der vorstehende ursprüngliche Freeze wurde als `b56da33d7b4c447e6a50ff7ec600efc3b7b49f5f`
+committed. Roots vollständiger unabhängiger Bericht wurde gelesen und sein
+P2-Befund vor der Korrektur selbst auf genau diesen Sourcebytes reproduziert.
+Die beiden Fehler waren echte fehlende `ArtifactIntegrityError`-Ablehnungen,
+keine Fixture-/Importfehler. Ohne ursprüngliche Experimentkonfiguration blieb
+ein sonst gültiger bekannter D1-Fall zu Recht unvollständig; dabei wurden aber
+explizite FeatureVector-Receiptverweise nicht auf tatsächliches Vorhandensein
+und rechtzeitigen Empfang geprüft. Sowohl ein nicht existierender Hash als
+auch ein real gespeicherter erst nach der Entscheidung empfangener Datensatz
+wurden fälschlich lediglich als `transport_only` behandelt.
+
+Das war keine empirische Freigabeumgehung: der bisherige Gesamtbericht war
+bereits unvollständig und ohne verifizierte Approvals. Es war gleichwohl eine
+konkrete Verletzung der versprochenen Referenzintegrität. Root hat ausschließlich
+die folgende Korrektur freigegeben:
+
+- `_case_shape` prüft nun **alle** expliziten eindeutigen FeatureVector-Refs
+  mit dem bestehenden `_physical_ref` gegen `features.cutoff`. Die bereits
+  validierte ursprüngliche Basis besitzt exakt denselben Cutoff; die spätere
+  Fall-/Artefakterstellzeit darf ihn nicht ersetzen.
+- Der Zustand `available`, `missing`, `stale`, `conflicting` oder
+  `not_applicable` erlaubt niemals einen unmöglichen expliziten Quellenverweis.
+  Das ist keine Änderung an der Auswahl oder Bewertung dieser Zustände.
+- Der bestehende physische äußere Receiptcheck benötigt weder eine erratene
+  Konfiguration noch Zugriff auf finale Quellkörper. Es wird kein Quellenkind,
+  Eventgleichheit historischer Inputs, Archivbeweis oder Modellreplay erfunden.
+  Die tatsächliche unterstützte D1-Datenklasse bleibt `prospective`.
+- Tatsächlich rechtzeitig empfangene verwaiste Daten bleiben ausdrücklich
+  unvollständig. `received_at == cutoff` ist zulässig, `cutoff + 1µs` nicht.
+  Fehlende owning Konfiguration bleibt ein offener Replay, kein neu verifizierter
+  Fall und keine neue Fähigkeit/Freigabe.
+
+Die einzige semantisch geänderte Funktion ist `_case_shape`, per AST-Vergleich
+gegen b56da33 belegt. Der Produktionsdiff besteht aus zwei Rechenzeilen und
+drei begrenzenden Kommentarzeilen. `context_runtime.py`, Dataset/Evaluator,
+Training-Case-/B1-Verträge und insbesondere der gepinnte Stagehelper sind
+roh bytegleich. Die bestehende readonly Deskriptor-/64MiB-/DELETE-/Memory-/CAS-
+Grenze wurde nicht geändert.
+
+### Unveränderte unabhängige Beweise
+
+Beide Dateien bleiben exakt auf den ursprünglich abgelehnten Reviewbytes:
+
+```text
+c2972259269e8e119e7021ce7307ced0e5bc110fede03c609705bd8c22ddb0bf  .pytest_tmp/d4-root-independent-20260909/test_independent_d4.py
+7dae71f5c3bfb83a88b16ea3164bdcbc7968056a2f11a6f3d61625ce81a64342  .pytest_tmp/d4-root-independent-20260909/REVIEW.md
+```
+
+Der negative Originalbericht wurde nicht überschrieben oder nachträglich als
+grün bezeichnet. Neue permanente Tests ergänzen ihn: je fünf Featurezustände
+mit fehlendem beziehungsweise vorhandenem zukünftigem Receipt; mehr als ein
+Ref und nicht nur die erste Featureposition; erster/letzter Fall mit tatsächlichen
+neuen B1-Receipts an `cutoff - 1µs`, `cutoff`, `cutoff + 1µs`; ein realer noch
+ungeöffneter Final-Outcome-Receipt darf durch den Guard nicht dekodiert werden.
+Alle DBs sind lokale synthetische native-shaped SQLite-Mechanikfixtures.
+
+### F1-Testbelege
+
+| Lauf | Ergebnis |
+| --- | --- |
+| `d4-f1-original-red-20260909-01` | 2 fehlgeschlagen, 11 bestanden, 87,55s; unveränderte 13 Rootproben |
+| `d4-f1-permanent-red-20260909-01` | 13 fehlgeschlagen, 4 bestanden, 50 abgewählt, 91,74s; alle 17 neuen permanenten Fälle vor Sourceänderung |
+| `d4-f1-regression-green-20260909-01` | 705 bestanden, 8 erwartete Plattform-Skips, 32 Untertests bestanden, 451,72s; alle 17 neuen und 13 unveränderten Rootfälle grün |
+
+RED-JUnit-Hashes:
+
+```text
+0f1bad9bb69bfcfebff0edcebf956d5b5ac6350513796c6a5de4170eccc2a9ea  .pytest_tmp/d4-f1-original-red-20260909-01.xml
+806185141ad186dfa46d7225825e0b329162c12a6e99520da45f5a76473bfd09  .pytest_tmp/d4-f1-permanent-red-20260909-01.xml
+```
+
+GREEN-JUnit: `.pytest_tmp/d4-f1-regression-green-20260909-01.xml`, SHA256
+`a983b788a1a4f75467664f4128ba1070f14eb0274663ae821322fd569491c224`.
+Die XML-Auswertung bestätigt 713 Testcaseeinträge, 8 Skips, 0 Fehler und
+0 Fehlschläge; die 13 unabhängigen und 17 neuen permanenten Fälle sind darin
+jeweils ausdrücklich ohne Fehlschlag/Skip vorhanden. Die Untertests sind
+zusätzlich durch das oben genannte tatsächliche pytest-Abschlussresultat belegt.
+
+Fokus-/Regression benutzt die oben genannten zwölf D4/A1/B1/B3/Tour/15K/
+Stage-Testdateien plus die unveränderte unabhängige Reprodatei, identischen
+Qualitäts-Python, `-B -m pytest -q --tb=short -p no:cacheprovider`, jeweils einen
+neuen `--basetemp` und eigenen JUnit-Nachweis. Keine Quelländerung während
+dieses GREEN-Laufs. Der frühere 4.533er-Gesamtlauf gilt ausdrücklich für b56da33
+vor F1; er wird nicht als neuer vollständiger Suite-Nachweis umetikettiert.
+Unabhängige erneute Abnahme, neuere Familienintegration, frische Linux-QA und
+der separat nur entworfene vertrauenswürdige Updater-Hook bleiben Rootaufgaben.
+
+Neue eingefrorene Code-/Testbytes:
+
+```text
+4964cc4882ce86a3c49f927b2877f3abfca461adcc73103cd60300c38d6eae29  context_runtime_semantics.py
+caea6593694f07a1c20a50a81b2a9feecdad8defde8b178f34caa101c72bbca5  tests/test_context_runtime_semantics.py
+```
