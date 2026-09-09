@@ -31,6 +31,9 @@ from runtime_paths import (
 
 
 ROLLBACK_REASON = "operator-requested-model-rollback"
+# Limit the input image, NOT total process RAM (SQLite/JSON need extra memory).
+MAX_CONTEXT_IMAGE_BYTES = 64 * 1024 * 1024
+_IMAGE_CHUNK_BYTES = 1024 * 1024
 ROLLBACK_SQL = """CREATE TABLE context_model_rollbacks (
     digest TEXT PRIMARY KEY,
     payload BLOB NOT NULL
@@ -81,34 +84,139 @@ def _trusted_existing_file(path):
     return path, (info.st_dev, info.st_ino)
 
 
-@contextmanager
-def _open_database(path, *, writable=False):
-    path, identity = _trusted_existing_file(path)
+def _file_version(info):
+    return (info.st_dev, info.st_ino, info.st_nlink, info.st_mode, info.st_uid, info.st_gid,
+            info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _require_no_companions(path):
     for suffix in ("-wal", "-shm", "-journal"):
         companion = path.with_name(path.name + suffix)
         if os.path.lexists(companion):
             _trusted_existing_file(companion)
+            raise RuntimeArtifactTrustError("context verification requires a sealed stage without SQLite companions")
+
+
+def _check_read_state(path, descriptor, expected, *, header=None):
+    """The read descriptor and its still-trusted pathname must remain one version."""
+    _trusted_existing_file(path)
+    _require_no_companions(path)
+    current, named = os.fstat(descriptor), os.lstat(path)
+    _validate_trusted_runtime_database_stat(path, current)
+    if _file_version(current) != expected[0] or _file_version(named) != expected[1]:
+        raise RuntimeArtifactTrustError("context stage changed during read-only verification")
+    if header is not None:
+        position = os.lseek(descriptor, 0, os.SEEK_CUR)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        actual = os.read(descriptor, 100)
+        os.lseek(descriptor, position, os.SEEK_SET)
+        if actual != header:
+            raise RuntimeArtifactTrustError("context stage header changed during read-only verification")
+        _check_read_state(path, descriptor, expected)
+
+
+def _validate_image_header(header, size):
+    if len(header) != 100 or header[:16] != b"SQLite format 3\x00":
+        raise ArtifactIntegrityError("context database is not a complete SQLite image")
+    if header[18:20] != b"\x01\x01":
+        raise RuntimeArtifactTrustError("context verification requires an online sealed stage in DELETE mode")
+    encoded = int.from_bytes(header[16:18], "big")
+    page_size = 65536 if encoded == 1 else encoded
+    if page_size < 512 or page_size > 65536 or page_size & (page_size-1) or size < page_size or size % page_size:
+        raise ArtifactIntegrityError("context SQLite image has an invalid page size or length")
+
+
+def _read_sealed_image(path, descriptor, expected):
+    _check_read_state(path, descriptor, expected)
+    size = os.fstat(descriptor).st_size
+    if size > MAX_CONTEXT_IMAGE_BYTES:
+        raise RuntimeArtifactTrustError("context image size exceeds the read-only input limit")
+    header = os.read(descriptor, 100)
+    _validate_image_header(header, size)
+    _check_read_state(path, descriptor, expected)
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    image = bytearray(size)
+    position = 0
+    while position < size:
+        _check_read_state(path, descriptor, expected)
+        block = os.read(descriptor, min(_IMAGE_CHUNK_BYTES, size-position))
+        if not block:
+            raise RuntimeArtifactTrustError("context image became truncated while reading")
+        image[position:position+len(block)] = block
+        position += len(block)
+        _check_read_state(path, descriptor, expected)
+    if os.read(descriptor, 1) or image[:100] != header:
+        raise RuntimeArtifactTrustError("context image changed while reading")
+    _check_read_state(path, descriptor, expected, header=header)
+    return image, header
+
+
+@contextmanager
+def _open_sealed_image(path, identity):
+    # SQLite NEVER receives this mutable source pathname. Even an interleaved
+    # writer cannot make this verifier create/recover/update a source sidecar.
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    connection = None
+    try:
+        info = os.fstat(descriptor)
+        _validate_trusted_runtime_database_stat(path, info)
+        if (info.st_dev, info.st_ino) != identity or info.st_nlink != 1:
+            raise RuntimeArtifactTrustError("context stage changed identity while opening its read descriptor")
+        # Windows Python 3.12 may expose different ctime semantics through
+        # fstat and lstat. Track BOTH exact series, never round/ignore either.
+        expected = (_file_version(info), _file_version(os.lstat(path)))
+        if expected[0][:-1] != expected[1][:-1]:
+            raise RuntimeArtifactTrustError("context stage differs between its descriptor and pathname")
+        image, header = _read_sealed_image(path, descriptor, expected)
+        connection = sqlite3.connect(":memory:", timeout=5)
+        deserialize = getattr(connection, "deserialize", None)
+        if not callable(deserialize):
+            raise RuntimeArtifactTrustError("SQLite deserialize capability is required for read-only verification")
+        connection.execute("PRAGMA trusted_schema=OFF")
+        connection.execute("PRAGMA temp_store=MEMORY")
+        connection.execute("PRAGMA query_only=ON")
+        try:
+            deserialize(image)
+        except sqlite3.NotSupportedError as exc:
+            raise RuntimeArtifactTrustError("SQLite deserialize capability is unavailable") from exc
+        # Connection settings are explicit after loading, not inferred from a
+        # version number, serialized header, or the source's connection state.
+        connection.execute("PRAGMA trusted_schema=OFF")
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA temp_store=MEMORY")
+        connection.execute("PRAGMA query_only=ON")
+        _check_read_state(path, descriptor, expected, header=header)
+        yield connection
+        _check_read_state(path, descriptor, expected, header=header)
+    except MemoryError as exc:
+        raise RuntimeArtifactTrustError("insufficient memory for bounded context image verification") from exc
+    except sqlite3.Error as exc:
+        raise ArtifactIntegrityError("context in-memory SQLite verification failed") from exc
+    finally:
+        if connection is not None:
+            connection.close()
+        os.close(descriptor)
+
+
+@contextmanager
+def _open_database(path, *, writable=False):
+    path, identity = _trusted_existing_file(path)
     if not writable:
-        # Opening an unsealed WAL database can create/write an SHM sidecar;
-        # immutable=1 would instead IGNORE its WAL. Neither is a read-only full
-        # verification. Use the existing online stager to produce DELETE mode.
-        with path.open("rb") as handle:
-            header = handle.read(20)
-        if len(header) >= 20 and (header[18] == 2 or header[19] == 2):
-            raise RuntimeArtifactTrustError("WAL context verification requires an online sealed stage")
-        journal = path.with_name(path.name + "-journal")
-        if journal.exists() and journal.stat().st_size:
-            raise RuntimeArtifactTrustError("pending context journal requires an online sealed stage")
-    mode = "rw" if writable else "ro"
-    connection = sqlite3.connect(path.as_uri() + f"?mode={mode}", uri=True, timeout=5)
+        with _open_sealed_image(path, identity) as connection:
+            yield connection
+        return
+    for suffix in ("-wal", "-shm", "-journal"):
+        companion = path.with_name(path.name + suffix)
+        if os.path.lexists(companion):
+            _trusted_existing_file(companion)
+    connection = sqlite3.connect(path.as_uri() + "?mode=rw", uri=True, timeout=5)
     try:
         if _trusted_existing_file(path)[1] != identity:
             raise RuntimeArtifactTrustError("context database changed file identity while opening")
         connection.execute("PRAGMA trusted_schema=OFF")
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA busy_timeout=5000")
-        if not writable:
-            connection.execute("PRAGMA query_only=ON")
         yield connection
         if _trusted_existing_file(path)[1] != identity:
             raise RuntimeArtifactTrustError("context database changed file identity during verification")
@@ -290,7 +398,22 @@ def _verify_snapshots(connection, tables, artifacts, receipts, limitations):
                         frozenset({"home_lambda", "away_lambda"}): "football:goals:90min"}
             if type(payload["base_params"]) is not dict or frozenset(payload["base_params"]) not in families:
                 raise ArtifactIntegrityError("unknown stored context result parameter schema")
-            validate_context_result(payload, family=families[frozenset(payload["base_params"])], effect_artifact=effect)
+            family = families[frozenset(payload["base_params"])]
+            consumed_effect = effect
+            if effect is not None and effect["family"] != family:
+                # B3 retains the inspected identity on an inapplicable effect.
+                # This exception is ONLY the actual unchanged baseline case;
+                # its artifact/hash is still fully validated/resolved above.
+                if (payload["role"] != "not_applied" or payload["comparison_params"] is not None
+                        or payload["comparison_markets"] is not None
+                        or type(payload["factor_roles"]) is not dict
+                        or any(role != "not_applied" for role in payload["factor_roles"].values())
+                        or payload.get("approval_hash") is not None or payload.get("certified_markets", [])
+                        or payload["used_params"] != payload["base_params"]
+                        or payload["used_markets"] != payload["base_markets"]):
+                    raise ArtifactIntegrityError("inapplicable context effect cannot claim a modeled distribution")
+                consumed_effect = None
+            validate_context_result(payload, family=family, effect_artifact=consumed_effect)
             for refs in payload["feature_refs"].values():
                 if not set(refs) <= set(receipts):
                     raise ArtifactIntegrityError("snapshot references missing observation receipts")
@@ -360,8 +483,9 @@ def _verify_connection(connection):
 def verify_context_database(path: Path) -> dict:
     """Verify an existing sealed DB read-only; unsupported evidence is explicit.
 
-    For a live WAL/journal use stage_databases first. This function never
-    creates directories, opens immutable=1 over a live WAL, or repairs a DB.
+    For a live WAL/journal use stage_databases first. SQLite receives only a
+    bounded private in-memory DELETE image, never the source file path. This
+    function creates no directories/companions and never repairs a source DB.
     Structural means current known storage schemas/links, NOT approved bets.
     """
     with _open_database(path) as connection:

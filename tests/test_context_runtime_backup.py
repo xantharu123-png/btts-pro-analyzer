@@ -202,9 +202,18 @@ def test_real_stage_archive_restore_preserves_tours_receipts_and_b3_bytes(tmp_pa
     with closing(sqlite3.connect(path)) as keeper:
         assert keeper.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
         keeper.execute("PRAGMA wal_autocheckpoint=0")
-        add_receipt(path, revision="live-wal", observed_at=NOW+timedelta(hours=2))
+        # Hold a real older read snapshot: an idle connection alone does not
+        # establish that the closing B1 writer leaves uncheckpointed frames.
+        keeper.execute("BEGIN")
+        assert keeper.execute("SELECT count(*) FROM context_observations").fetchone() == (2,)
+        main_before = path.read_bytes()
+        wal_receipt = add_receipt(path, revision="live-wal", observed_at=NOW+timedelta(hours=2))
         before_rows["context_contents"] = stored_rows(path, "context_contents")
         before_rows["context_observations"] = stored_rows(path, "context_observations")
+        assert len(before_rows["context_observations"]) == 3
+        assert keeper.execute("SELECT count(*) FROM context_observations").fetchone() == (2,)
+        assert Path(str(path) + "-wal").stat().st_size > 0
+        assert path.read_bytes() == main_before
         manifest = stage.stage_databases(root, current_stage)
         archive, count = backup.create_archive(tmp_path / "archives", root=current_stage,
                                               logical_root=root, stage_manifest_path=current_stage / "manifest.json", now=NOW)
@@ -226,6 +235,7 @@ def test_real_stage_archive_restore_preserves_tours_receipts_and_b3_bytes(tmp_pa
     assert "d3-snapshot-input-binding-unavailable" in after["limitations"]
     assert "d2-approval-evidence-resolution-unavailable" in after["limitations"]
     assert {table: stored_rows(restored, table) for table in before_rows} == before_rows
+    assert wal_receipt in {row[0] for row in stored_rows(restored, "context_observations")}
     assert compute_once(restored, key, lambda: pytest.fail("restored history recomputed")) == result
     for tour in ("ATP", "WTA"):
         selected = after["tour_states"][tour]
@@ -678,3 +688,363 @@ def test_world_writable_database_rejected_without_modification(tmp_path):
     with pytest.raises(RuntimeArtifactTrustError):
         verify_context_database(actual)
     assert actual.read_bytes() == before
+
+
+def foreign_football_effect():
+    effect = effect_payload()
+    fit = {**effect["heads"]["winner"], "link": "log_rate"}
+    return {**effect, "sport": "football", "family": "football:goals:90min",
+            "heads": {side: deepcopy(fit) for side in ("home", "away")},
+            "population": {"sport": "football", "competitions": ["39"], "formats": ["90min"],
+                           "tours": [None], "surfaces": [None], "indoor": [None]}}
+
+
+@pytest.mark.parametrize("operation", ["verify", "rollback"])
+def test_unconsumed_cross_family_b3_fallback_preserves_history(tmp_path, operation):
+    from context_runtime import verify_context_database
+    from model_artifacts import rollback_model_slots
+
+    path = tmp_path / "models.db"
+    first, _, _ = seeded(path)
+    next_atp = put_tour(path, "ATP", generation=2)
+    current = publish_slots(path, {"tennis:ATP": next_atp}, expected_manifest=first, published_at=NOW)
+    foreign = foreign_football_effect()
+    ref = put_artifact(path, kind="context-effect-v1", payload=foreign, created_at=NOW)
+    key, result = add_context_snapshot(path, ref, foreign)
+    assert result["role"] == "not_applied"
+    assert result["comparison_params"] is result["comparison_markets"] is None
+    assert "context-effect-scope-mismatch" in result["limitations"]
+    before = path.read_bytes()
+    rows = {table: stored_rows(path, table) for table in
+            ("artifacts", "context_observations", "context_contents", "context_snapshots")}
+    if operation == "verify":
+        report = verify_context_database(path)
+        assert report["verification_level"] == "transport_only"
+        assert path.read_bytes() == before
+    else:
+        rollback_model_slots(path, first, expected_manifest=current, published_at=NOW)
+    assert compute_once(path, key, lambda: pytest.fail("valid baseline was recalculated")) == result
+    assert {table: stored_rows(path, table) for table in rows} == rows
+
+
+def test_readonly_verifier_opens_only_query_only_in_memory_sqlite(tmp_path, monkeypatch):
+    from context_runtime import verify_context_database
+
+    path = tmp_path / "models.db"
+    seeded(path)
+    before = path.read_bytes()
+    real_connect = sqlite3.connect
+    calls, images = [], []
+
+    class MemoryOnly(sqlite3.Connection):
+        def deserialize(self, data, *, name="main"):
+            images.append(bytes(data))
+            return super().deserialize(data, name=name)
+
+        def execute(self, sql, *args):
+            if sql == "BEGIN":
+                for setting, expected in (("query_only", 1), ("trusted_schema", 0), ("temp_store", 2)):
+                    assert super().execute("PRAGMA " + setting).fetchone() == (expected,)
+                with pytest.raises(sqlite3.OperationalError, match="readonly"):
+                    super().execute("CREATE TABLE forbidden_write(value)")
+            return super().execute(sql, *args)
+
+    def memory_only(database, *args, **kwargs):
+        calls.append(database)
+        assert database == ":memory:", "readonly SQLite must never see the mutable source path"
+        return real_connect(database, *args, factory=MemoryOnly, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", memory_only)
+    assert verify_context_database(path)["verification_level"] == "structural"
+    assert calls == [":memory:"] and images == [before]
+    assert path.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["models.db"]
+
+
+@pytest.mark.parametrize("boundary", ["descriptor_read", "before_deserialize"])
+def test_sealed_image_rejects_real_wal_transition_without_touching_source(tmp_path, monkeypatch, boundary):
+    from context_runtime import verify_context_database
+    from runtime_paths import RuntimeArtifactTrustError
+
+    path = tmp_path / "models.db"
+    seeded(path)
+    real_connect, real_read = sqlite3.connect, os.read
+    identity = path.stat().st_dev, path.stat().st_ino
+    keeper, captured, calls = None, [], []
+
+    def transition():
+        nonlocal keeper
+        if keeper is not None:
+            return
+        keeper = real_connect(path)
+        assert keeper.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+        keeper.execute("PRAGMA wal_autocheckpoint=0")
+        keeper.execute("UPDATE artifacts SET created_at=?", ((NOW-timedelta(hours=1)).isoformat(),))
+        keeper.commit()
+        assert Path(str(path)+"-wal").stat().st_size > 0
+        captured.append({suffix: Path(str(path)+suffix).read_bytes() for suffix in ("", "-wal", "-shm")})
+        assert captured[0][""][18:20] == bytes([2, 2])
+
+    def read_with_real_writer(fd, amount):
+        info = os.fstat(fd)
+        if boundary == "descriptor_read" and (info.st_dev, info.st_ino) == identity:
+            transition()
+        return real_read(fd, amount)
+
+    class InterleavingMemory(sqlite3.Connection):
+        def deserialize(self, data, *, name="main"):
+            if boundary == "before_deserialize":
+                transition()
+            return super().deserialize(data, name=name)
+
+    def memory_only(database, *args, **kwargs):
+        calls.append(database)
+        assert database == ":memory:", "readonly verification must not open the source in SQLite"
+        return real_connect(database, *args, factory=InterleavingMemory, **kwargs)
+
+    monkeypatch.setattr(os, "read", read_with_real_writer)
+    monkeypatch.setattr(sqlite3, "connect", memory_only)
+    try:
+        with pytest.raises(RuntimeArtifactTrustError):
+            verify_context_database(path)
+        assert len(captured) == 1, "the actual independent writer must run"
+        assert {suffix: Path(str(path)+suffix).read_bytes() for suffix in captured[0]} == captured[0]
+        assert not set(calls) - {":memory:"}
+    finally:
+        if keeper is not None:
+            keeper.close()
+
+
+@pytest.mark.parametrize("suffix", ["-wal", "-shm", "-journal"])
+def test_sealed_image_rejects_even_empty_companions(tmp_path, suffix):
+    from context_runtime import verify_context_database
+    from runtime_paths import RuntimeArtifactTrustError
+
+    path = tmp_path / "models.db"
+    seeded(path)
+    Path(str(path)+suffix).write_bytes(b"")
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    with pytest.raises(RuntimeArtifactTrustError, match="sealed stage"):
+        verify_context_database(path)
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
+
+
+def test_sealed_image_has_a_hard_input_size_limit_before_sqlite_open(tmp_path, monkeypatch):
+    import context_runtime
+    from runtime_paths import RuntimeArtifactTrustError
+
+    path = tmp_path / "models.db"
+    seeded(path)
+    assert context_runtime.MAX_CONTEXT_IMAGE_BYTES == 64 * 1024 * 1024
+    image_bytes = path.stat().st_size
+    monkeypatch.setattr(context_runtime, "MAX_CONTEXT_IMAGE_BYTES", image_bytes)
+    assert context_runtime.verify_context_database(path)["verification_level"] == "structural"
+    monkeypatch.setattr(context_runtime, "MAX_CONTEXT_IMAGE_BYTES", image_bytes-1)
+    monkeypatch.setattr(sqlite3, "connect", lambda *a, **kw: pytest.fail("oversize image reached SQLite"))
+    with pytest.raises(RuntimeArtifactTrustError, match="image size"):
+        context_runtime.verify_context_database(path)
+
+
+@pytest.mark.parametrize("capability", ["missing", "not_supported"])
+def test_missing_deserializer_fails_closed_without_a_file_fallback(tmp_path, monkeypatch, capability):
+    from context_runtime import verify_context_database
+    from runtime_paths import RuntimeArtifactTrustError
+
+    path = tmp_path / "models.db"
+    seeded(path)
+    before = path.read_bytes()
+    real_connect, calls = sqlite3.connect, []
+
+    class NoDeserialize(sqlite3.Connection):
+        if capability == "missing":
+            deserialize = None
+        else:
+            def deserialize(self, *args, **kwargs):
+                raise sqlite3.NotSupportedError("test-only unsupported deserialize")
+
+    def memory_only(database, *args, **kwargs):
+        calls.append(database)
+        assert database == ":memory:"
+        return real_connect(database, *args, factory=NoDeserialize, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", memory_only)
+    with pytest.raises(RuntimeArtifactTrustError, match="deserialize"):
+        verify_context_database(path)
+    assert calls == [":memory:"] and path.read_bytes() == before
+
+
+@pytest.mark.parametrize("mutation", ["experimental", "applied", "comparison", "factor-role", "approval",
+                                     "certified-market", "changed-used", "missing-effect"])
+def test_foreign_effect_exception_never_permits_false_consumption(tmp_path, mutation):
+    from context_runtime import verify_context_database
+
+    path = tmp_path / "models.db"
+    seeded(path)
+    foreign = foreign_football_effect()
+    ref = put_artifact(path, kind="context-effect-v1", payload=foreign, created_at=NOW)
+    _, original = add_context_snapshot(path, ref, foreign)
+    altered = deepcopy(original)
+    if mutation in ("experimental", "applied"):
+        altered["role"] = mutation
+    elif mutation == "comparison":
+        altered["comparison_params"], altered["comparison_markets"] = altered["base_params"], altered["base_markets"]
+    elif mutation == "factor-role":
+        altered["factor_roles"]["load_difference"] = "experimental"
+    elif mutation == "approval":
+        altered["approval_hash"] = "e"*64
+    elif mutation == "certified-market":
+        altered["certified_markets"] = ["winner_a"]
+    elif mutation == "changed-used":
+        altered["used_params"] = {"p_a": .7}
+        altered["used_markets"] = {"winner_a": .7, "winner_b": .3}
+    else:
+        altered["effect_hash"] = "e"*64
+    compute_once(path, "f"*64, lambda: altered)
+    before = path.read_bytes()
+    with pytest.raises(ArtifactIntegrityError):
+        verify_context_database(path)
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("boundary", ["after_image", "before_return"])
+def test_same_file_delete_commit_cannot_overtake_image_capture(tmp_path, monkeypatch, boundary):
+    import context_runtime
+    from runtime_paths import RuntimeArtifactTrustError
+
+    path = tmp_path / "models.db"
+    seeded(path)
+    real_connect, real_verify = sqlite3.connect, context_runtime._verify_connection
+    captured = []
+
+    def commit_actual_change():
+        with closing(real_connect(path)) as writer:
+            assert writer.execute("PRAGMA journal_mode").fetchone() == ("delete",)
+            writer.execute("UPDATE artifacts SET created_at=?", ((NOW-timedelta(hours=1)).isoformat(),))
+            writer.commit()
+        captured.append(path.read_bytes())
+
+    class ChangeAfterImage(sqlite3.Connection):
+        def deserialize(self, data, *, name="main"):
+            if boundary == "after_image":
+                commit_actual_change()
+            return super().deserialize(data, name=name)
+
+    def memory_only(database, *args, **kwargs):
+        assert database == ":memory:"
+        return real_connect(database, *args, factory=ChangeAfterImage, **kwargs)
+
+    def change_before_return(connection):
+        result = real_verify(connection)
+        if boundary == "before_return":
+            commit_actual_change()
+        return result
+
+    monkeypatch.setattr(sqlite3, "connect", memory_only)
+    monkeypatch.setattr(context_runtime, "_verify_connection", change_before_return)
+    with pytest.raises(RuntimeArtifactTrustError):
+        context_runtime.verify_context_database(path)
+    assert len(captured) == 1 and path.read_bytes() == captured[0]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["models.db"]
+
+
+@pytest.mark.parametrize("mutation", ["mtime", "size", "hardlink", "new-journal"])
+def test_source_fingerprint_and_companions_rechecked_before_return(tmp_path, monkeypatch, mutation):
+    import context_runtime
+    from runtime_paths import RuntimeArtifactTrustError
+
+    path = tmp_path / "models.db"
+    seeded(path)
+    original = context_runtime._verify_connection
+    captured = []
+
+    def mutate_after_verification(connection):
+        result = original(connection)
+        if mutation == "mtime":
+            info = path.stat()
+            os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns+1000000000))
+        elif mutation == "size":
+            with path.open("ab") as handle:
+                handle.write(b"x")
+        elif mutation == "hardlink":
+            os.link(path, tmp_path / "external-link.db")
+        else:
+            Path(str(path)+"-journal").write_bytes(b"")
+        captured.append({p.name: p.read_bytes() for p in tmp_path.iterdir()})
+        return result
+
+    monkeypatch.setattr(context_runtime, "_verify_connection", mutate_after_verification)
+    with pytest.raises(RuntimeArtifactTrustError):
+        context_runtime.verify_context_database(path)
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == captured[0]
+
+
+@pytest.mark.parametrize("corruption", ["signature", "truncated", "page-size", "header-mode"])
+def test_sealed_image_rejects_bad_header_without_invoking_sqlite(tmp_path, monkeypatch, corruption):
+    from context_runtime import verify_context_database
+    from runtime_paths import RuntimeArtifactTrustError
+
+    path = tmp_path / "models.db"
+    seeded(path)
+    data = bytearray(path.read_bytes())
+    if corruption == "signature":
+        data[0] = 0
+    elif corruption == "truncated":
+        data = data[:20]
+    elif corruption == "page-size":
+        data[16:18] = bytes([0, 3])
+    else:
+        data[18:20] = bytes([2, 2])
+    path.write_bytes(data)
+    monkeypatch.setattr(sqlite3, "connect", lambda *a, **kw: pytest.fail("invalid header reached SQLite"))
+    with pytest.raises((ArtifactIntegrityError, RuntimeArtifactTrustError)):
+        verify_context_database(path)
+    assert path.read_bytes() == data
+
+
+@pytest.mark.parametrize("failure", [sqlite3.DatabaseError, MemoryError])
+def test_in_memory_setup_failures_are_typed_and_close_the_connection(tmp_path, monkeypatch, failure):
+    from context_runtime import verify_context_database
+    from runtime_paths import RuntimeArtifactTrustError
+
+    path = tmp_path / "models.db"
+    seeded(path)
+    before = path.read_bytes()
+    real_connect, connections = sqlite3.connect, []
+
+    class FailingMemory(sqlite3.Connection):
+        def deserialize(self, data, *, name="main"):
+            raise failure("test-only memory engine setup failure")
+
+    def memory_only(database, *args, **kwargs):
+        assert database == ":memory:"
+        connection = real_connect(database, *args, factory=FailingMemory, **kwargs)
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", memory_only)
+    with pytest.raises((ArtifactIntegrityError, RuntimeArtifactTrustError)):
+        verify_context_database(path)
+    assert len(connections) == 1
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        connections[0].execute("SELECT 1")
+    assert path.read_bytes() == before
+
+
+def test_actual_read_descriptor_for_another_file_is_rejected(tmp_path, monkeypatch):
+    from context_runtime import verify_context_database
+    from runtime_paths import RuntimeArtifactTrustError
+
+    requested, other = tmp_path / "requested.db", tmp_path / "other.db"
+    seeded(requested)
+    seeded(other)
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    real_open = os.open
+
+    def wrong_descriptor(path, flags, *args, **kwargs):
+        return real_open(other if Path(path) == requested else path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", wrong_descriptor)
+    monkeypatch.setattr(sqlite3, "connect", lambda *a, **kw: pytest.fail("wrong file reached SQLite"))
+    with pytest.raises(RuntimeArtifactTrustError, match="identity"):
+        verify_context_database(requested)
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before

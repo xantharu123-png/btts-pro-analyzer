@@ -53,9 +53,11 @@ bleiben gesonderte Controlleraufgaben. Keine UI-, Job-, Cricket-, Quoten-,
 
 ## Umfang der Prüfung
 
-`verify_context_database(path)` öffnet ausschließlich vorhandene Dateien in
-`mode=ro` mit `query_only`, ohne A1-Initialisierung, CREATE, Reparatur oder
-Verzeichniserstellung. Geprüft werden:
+`verify_context_database(path)` liest ausschließlich vorhandene Dateien über
+einen reinen Lesedeskriptor. SQLite erhält **nie den Quellpfad**, sondern nur
+das geprüfte DELETE-Datenbankbild mit `:memory:`/`deserialize`, `query_only`,
+`trusted_schema=OFF` und `temp_store=MEMORY`. Keine A1-Initialisierung, CREATE,
+Reparatur oder Verzeichniserstellung am Quellort. Geprüft werden:
 
 - Reale vertrauenswürdige Datei und Vorfahren, keine Symlinks/Junctions oder
   Mehrfach-Hardlinks; POSIX-Besitzer und Schreibrechte gemäß bestehender
@@ -83,8 +85,12 @@ Verzeichniserstellung. Geprüft werden:
 
 Ein Live-WAL wird nicht mit `immutable=1` übergangen. Ein normaler read-only
 SQLite-WAL-Open könnte SHM-Begleitdateien erzeugen/verändern; daher verlangt
-dieser Prüfer bei WAL oder nichtleerem Journal die bereits existierende
-**Online-Stage**. Ihr DELETE-Snapshot wird vollständig read-only geprüft.
+dieser Prüfer bei **jedem** WAL-/SHM-/Journalbegleiter, auch leer, die bereits
+existierende **Online-Stage** ohne Begleitdateien. Ihr DELETE-Snapshot wird
+vollständig als privates Speicherbild geprüft. Die Eingabebildgrenze beträgt
+64 MiB; sie ist ausdrücklich **keine Gesamt-RAM-Grenze** für SQLite und die
+dekodierten JSON-Objekte. Fehlendes `deserialize` oder Speichermangel führen
+zu einem typisierten Fehler, nicht zu einem dateibasierten Ersatzpfad.
 Es gibt keine neue Stage- oder Wiederherstellungsautorität.
 
 `verify_context_backup_location(path, application_root=...)` prüft den
@@ -108,7 +114,11 @@ B1-Ingestionsreceipts und einem durch B3 erzeugten Snapshot. Die Dummy-
 Experimentwerte sind kein Trainings- oder 200-Event-Nachweis.
 
 Ein zusätzlicher Receipt bleibt zunächst in einem echten uncheckpointeten
-WAL. Anschließend werden die **unveränderten** `stage_databases`,
+WAL. Der verstärkte Test hält eine **wirkliche alte Lesetransaktion**, die
+weiter zwei Receipts sieht, während der frische Leser drei sieht. Nichtleeres
+WAL, unveränderte Hauptdateibytes und die genaue wiederhergestellte neue
+Receiptidentität werden jetzt ausdrücklich geprüft; ein bloß offener Idle-
+Keeper reichte dafür nicht als Nachweis. Anschließend werden die **unveränderten** `stage_databases`,
 `create_archive` und `verify_archive` ausgeführt. Erst nach Prüfung wird exakt
 das erwartete einzelne DB-Mitglied in ein **neues** Restoreverzeichnis
 geschrieben – kein `extractall`, kein memberbestimmter Zielpfad, kein
@@ -133,7 +143,11 @@ Weitere Regressionen:
   und nicht sichere Dateipfade werden zurückgewiesen.
 - Opaque Snapshots und unbekannte Artefaktschemas erreichen nie CLI Exit 0.
 
-## Test- und Bytebelege
+## Erste Implementierung: historische Test- und Bytebelege
+
+Die folgende Tabelle bezeichnet den **ersten** Reviewfreeze `f8ecf65`, nicht
+die anschließend korrigierten aktuellen Bytes. Der unabhängige Gegentest
+deckte danach die beiden unten beschriebenen Fehler auf.
 
 - Initiales echtes RED: **2 Fehler** (fehlende Rollback-/Verifier-APIs).
 - Zweite konkrete RED-Runde: **4 Fehler** (unmögliche deklarierte Publikations-
@@ -175,3 +189,99 @@ behandelt; sie ist keine externe Signatur oder unverlierbarer Loganker.
 Unabhängiges Abschlussreview, Controllerintegration und spätere Deployment-
 Anbindung sind noch separat nachzuweisen. Dieser Auftrag hat nichts gepusht
 oder auf dem VPS ausgeführt.
+
+## Unabhängiger Gegenbefund und freigegebene enge Korrektur
+
+Der komplette unabhängige Bericht wurde gelesen, SHA256
+`ae150cd433898cc52cf730da30d8e3f063efc49e0755cc78152a2b9527d1fb58`.
+Seine vier RED-Fälle (zwei zugrunde liegende Findings) wurden vor Änderung
+selbst reproduziert:
+
+1. Ein durch den öffentlichen B3-Produzenten erzeugter gültiger Basisfallback
+   mit bloß **inspiziertem**, fremdfamiliärem Effekt wurde als korrupt verworfen
+   und verhinderte auch einen regulären Modellrollback.
+2. Ein echter DELETE-zu-WAL-Wechsel zwischen Headerprüfung und SQLite-RO-Open
+   wurde akzeptiert; der Verifier veränderte nachweislich SHM-Byte **104**.
+
+Der Controller hat vor dem Patch beide Korrekturgrenzen ausdrücklich bestätigt.
+
+### Inspizierter Effekt ist nicht konsumierter Effekt
+
+Der fremde Effekt bleibt vollständig aufgelöst, gehasht und typisiert. Nur der
+wirkliche B3-Basisfall wird wie beim Produzenten ohne **konsumiertes** Artefakt
+validiert: `not_applied`, keine Vergleichsparameter/-märkte, alle Faktorrollen
+`not_applied`, keine Approval-/Marktzertifizierung, unveränderte Basisverteilung.
+Ein fehlendes/beschädigtes Artefakt oder ein behaupteter modellierter
+Fremdfamilieneinsatz bleibt ein Fehler. B3-Verträge, bestehende Snapshots und
+Manifest-/Rollbackformate wurden nicht geändert.
+
+### Kein SQLite-Dateiopen durch den read-only Verifier
+
+- SQLite öffnet ausschließlich `:memory:`; echte Tests verbieten jeden
+  dateibasierten `sqlite3.connect` in diesem Pfad.
+- Ein Lesedeskriptor mit vorhandener No-follow-Unterstützung bleibt bis zum
+  Prüfungsende offen. Datei-/Pfadidentität, Linkzahl, Rechte, Eigentümer,
+  Größe, exakte `mtime_ns`/`ctime_ns` und Begleitdateien werden vor/nach und
+  während der Lesephase sowie vor Ergebnisrückgabe geprüft.
+- Auf diesem Windows-Python liefern `fstat` und `lstat` unterschiedliche
+  `ctime`-Semantik. Beide vollständigen Zeitreihen werden jeweils **exakt**
+  gegen den eigenen Ausgangswert geprüft. Es gibt keine Rundung, Toleranz
+  oder Abschaltung einer Zeitprüfung; die sonstigen Anfangsmerkmale müssen
+  außerdem zwischen Handle und Pfad übereinstimmen.
+- Gültige SQLite-Signatur, vollständiger Header, tatsächlicher DELETE-Modus,
+  zulässige Seitengröße und Dateilänge sind erforderlich. Weder ein WAL-Header
+  noch ein Journal wird umgeschrieben oder mit `immutable=1` ignoriert.
+- Maximal 64 MiB Eingabebild, begrenzte Leseblöcke, typisierte Capability-,
+  Speicher- und SQLite-Fehler; Verbindungen und Lesedeskriptor werden beendet.
+  Ein SQL-Schreibversuch gegen die geladene Speicherverbindung wird abgewiesen.
+- Echte konkurrierende SQLite-Schreiber laufen in den Tests während des
+  Deskriptorlesens beziehungsweise vor `deserialize`. Der Verifier weist
+  den geänderten Zustand zurück und verändert nach dem Schreiber **keines**
+  der aufgenommenen Main-/WAL-/SHM-Bytes. Zusätzliche DELETE-Commits vor
+  Rückgabe werden ebenso erkannt wie neue Begleiter/Hardlinks/Dateigrößen.
+
+Die ursprüngliche unabhängige Reprodatei bleibt bytegleich:
+`9a82282541ef7d72146a5be42333dc3b23d6291e0cbf5956fa3d76ffc762eeec`.
+Ihre 14 übrigen Fälle werden unverändert weiter ausgeführt. Nur die zwei
+früher am `?mode=ro`-Hook verankerten Fälle werden beim korrigierten Pfad nicht
+mehr ausgelöst, weil dieser Dateiaufruf **nicht mehr existiert**. Die neuen
+permanenten Interleavings ersetzen diese Timingstelle bei identischer
+Anforderung: tatsächlicher WAL-Wechsel, Ablehnung, exakter Begleitdateivergleich.
+Das ist kein Skip eines weiterhin vorhandenen Fehlers.
+
+### Neue TDD-/Prüfstände
+
+- Erste zusätzliche permanente RED-Runde: **11 fehlgeschlagen** auf dem alten
+  Verhalten. Ein Zwischenlauf traf die echte Windows-`ctime`-Semantik; nach
+  separater exakter Bindung beider Uhren: **72 bestanden, 3 Plattform-Skips**.
+- Weitere typisierte Fehlerprobe: **1 rot, 2 grün**; der beim In-memory-Setup
+  bisher unverpackte SQLite-Fehler wird anschließend korrekt typisiert.
+- Neue D4-Datei insgesamt **96 Fälle** (32 hinzugefügt); die ursprünglichen
+  Fälle wurden nicht gelöscht oder zu Skips umetikettiert.
+- Korrigierter Fokuslauf (A1/B1/B3, Tourzustand, Stage/Archiv, Serverjobs,
+  D4 und die 14 unveränderten unabhängigen Fälle): **669 bestanden,
+  15 erwartete Plattform-Skips, 2 nicht mehr erreichbare alte Hooks abgewählt**,
+  22,04 s, `.pytest_tmp/d4-correction-focus-01`.
+- Abschließende unveränderte Vollsuite: **2.972 bestanden, 18 erwartete
+  Windows/POSIX-Skips, 97 Untertests bestanden**, 69,02 s,
+  `.pytest_tmp/d4-correction-full-01`. Damit sind alle 96 D4-Fälle enthalten,
+  **93 bestanden / 3 Plattform-Skips**. Die unabhängige Nachprüfung der
+  korrigierten Bytes steht vor Integration weiterhin aus.
+
+Lokaler Capabilitynachweis: Python **3.12.14**, SQLite **3.53.1**. Eine echte
+53.248-Byte-DELETE-Testdatenbank wurde rein im Speicher geladen, mit
+`integrity_check=ok` gelesen und exakt zurückserialisiert; der Python-Audit
+sah nur `:memory:`, Quellbytes blieben unverändert. Der Linux-Deploypfad nutzt
+Distributionspakete und garantiert damit keine konkrete `deserialize`-Fähigkeit.
+Ein **echter Linux-/POSIX-Gegenlauf bleibt Pflicht** und wird nicht aus dem
+Windows-Test abgeleitet. Empirik, D2/D3 und produktive Anbindung bleiben offen.
+
+Aktuelle Korrekturbytes vor dem neuen Reviewfreeze:
+
+| Datei | SHA256 |
+| --- | --- |
+| `context_runtime.py` | `c470d35fd60e413c8371aa22baa9097dedc2385a5eee5644ca56e0930b6c10c2` |
+| `tests/test_context_runtime_backup.py` | `3c9839043ca2c046c5d7326ce91fed5efa5bb1c321d4c067fd7fe09bfb94d5f3` |
+
+`model_artifacts.py`, CLI, Stage-, Archiv- und Updatehelper bleiben auf den
+oben dokumentierten unveränderten Bytes. Kein Push, SSH oder VPS-Eingriff.
