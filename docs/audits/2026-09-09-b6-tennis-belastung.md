@@ -163,3 +163,36 @@ alle 1.239 gespeicherten Matchdauern NULL, native Teilnehmer- und echte Ende-Spa
 fehlten. Dieser alte Messbefund wird hier nicht als frischer VPS-Check ausgegeben.
 Weitere Datenbeschaffung, B7-Training, D1/D2-Prüfung und produktive Anbindung bleiben
 explizit nachfolgende Arbeitspakete. Basisprognosen bleiben davon unberührt.
+
+## Nachtrag: unabhängiger Teilnehmer-Revisionsgegencheck
+
+Der Controller reproduzierte auf `a1d6600947bf010403a0fe10e406d92e52227030`
+zwei echte Fehler: Die Auswahl pro Spieler konnte einen aus einem späteren
+nativen Matchstand entfernten Teilnehmer weiterhin mit alter Last führen.
+Gleichzeitige widersprüchliche Teilnehmerpaare konnten außerdem vier Spieler
+demselben Match zuordnen. Beide Root-Repros wurden unverändert rot bestätigt.
+
+Die Korrektur wählt den neuesten kausalen Eingang **für das ganze native Event**,
+nicht pro Spieler. Beide Teilnehmerprojektionen dieses Eingangs müssen gemeinsam
+vollständig vorliegen und hinsichtlich Identität, Termin, Status, Zeit, Zahlen
+und orientierungsbereinigten Satzständen übereinstimmen. Bei gleichzeitig
+widersprüchlichen Paarkonstellationen bleiben alle betroffenen Spieler
+`conflicting`; bei nur einer neuen Teilnehmerprojektion bleiben Werte unbekannt,
+statt den Gegner aus einer alten Revision zu ergänzen. Ein späterer vollständiger
+Teilnehmerstand entzieht entfernten Spielern den vorherigen Belastungsanspruch.
+
+Das ist Vollständigkeit der zwei Projektionen eines einzelnen beobachteten
+Matches, ausdrücklich **keine** Behauptung einer vollständigen Spielerhistorie.
+B1-Receipts werden nicht geändert; eine spätere Korrektur verändert weder Werte
+noch Referenzen eines früheren Cutoffs. Echte native Duplikate bleiben einmal
+gezählt. Der Regressionstest prüft zusätzlich vollständigen Paarwechsel,
+unvollständige neue Eingänge und gekreuzte gleichzeitige Zahlenrevisionen.
+
+Neun permanente Gegenfälle wurden ergänzt (acht vor der Korrektur rot, früherer
+Cutoff bereits korrekt). Der fokussierte Gegenlauf einschließlich beider
+unveränderten Root-Repros besteht mit **340 Tests**. Die vollständige Suite auf
+dem korrigierten unveränderten Code besteht mit **2.585 Tests, 15 erwarteten
+Plattform-Skips und 97 Untertests**, 59,06 Sekunden, Exit 0; Basetemp:
+`.pytest_tmp/b6-native-correction-full-01`. Das erneute Controller-Review bleibt
+vor Integration erforderlich. Es gab keine neuen Quellenabrufe, Änderungen an
+Contracts, Shadow-Historien oder VPS-Zugriffe.

@@ -432,3 +432,67 @@ def test_future_retrospective_receipts_are_audit_only_not_feature_references(tmp
     result = tennis_features(event(), rows, base(), cutoff=NOW)
     assert all(value is None for value in result["values"].values())
     assert all(refs == [] for refs in result["refs"].values())
+
+
+def test_native_participant_correction_removes_old_players_match_claim(tmp_path):
+    original = stored(tmp_path, [native_row("1", "1", "9")], receipt=NOW - timedelta(minutes=2))
+    corrected = stored(tmp_path, [native_row("1", "3", "9")])
+    result = tennis_features(event(), original + corrected, base(), cutoff=NOW)
+    assert result["values"]["observed_sets_1d_a"] is None
+    assert result["refs"]["observed_sets_1d_a"] == []
+    new_event = event(home_id="espn:tennis:ATP:player:3")
+    new_result = tennis_features(new_event, original + corrected, base(new_event), cutoff=NOW)
+    assert new_result["values"]["observed_sets_1d_a"] == 3
+    assert set(new_result["refs"]["observed_sets_1d_a"]) <= {row["digest"] for row in corrected}
+
+
+def test_native_participant_correction_does_not_rewrite_earlier_cutoff(tmp_path):
+    early = NOW - timedelta(minutes=2)
+    original = stored(tmp_path, [native_row("1", "1", "9")], receipt=early)
+    before = tennis_features(event(), original, base(cutoff=early), cutoff=early)
+    corrected = stored(tmp_path, [native_row("1", "3", "9")], cutoff=early, historical=True)
+    assert tennis_features(event(), corrected, base(cutoff=early), cutoff=early) == before
+
+
+@pytest.mark.parametrize("player", ["1", "9", "3", "8"])
+def test_equal_time_different_native_pairs_are_conflicting_for_every_involved_player(tmp_path, player):
+    rows = stored(tmp_path, [native_row("1", "1", "9"), native_row("1", "3", "8")])
+    ev = event(home_id=f"espn:tennis:ATP:player:{player}")
+    result = tennis_features(ev, rows, base(ev), cutoff=NOW)
+    assert result["states"]["observed_sets_1d_a"] == "conflicting"
+    assert result["values"]["observed_sets_1d_a"] is None
+    assert result["refs"]["observed_sets_1d_a"] == []
+
+
+def test_incomplete_new_pair_cannot_borrow_other_player_from_an_old_receipt(tmp_path):
+    old = stored(tmp_path, [native_row("1", "1", "9")], receipt=NOW - timedelta(minutes=2))
+    new = stored(tmp_path, [native_row("1", "1", "9", sets=(3, 2))])
+    new_player_only = tuple(row for row in new if row["subject_id"] == "espn:tennis:ATP:player:1")
+    result = tennis_features(event(), old + new_player_only, base(), cutoff=NOW)
+    assert result["values"]["observed_sets_1d_a"] is None
+    assert result["refs"]["observed_sets_1d_a"] == []
+
+
+def test_latest_complete_event_pair_supersedes_a_wholly_different_old_pair(tmp_path):
+    old = stored(tmp_path, [native_row("1", "1", "9")], receipt=NOW - timedelta(minutes=2))
+    new = stored(tmp_path, [native_row("1", "3", "8", sets=(3, 2))])
+    for player in ("1", "9"):
+        ev = event(home_id=f"espn:tennis:ATP:player:{player}")
+        result = tennis_features(ev, old + new, base(ev), cutoff=NOW)
+        assert result["values"]["observed_sets_1d_a"] is None
+    for player in ("3", "8"):
+        ev = event(home_id=f"espn:tennis:ATP:player:{player}")
+        result = tennis_features(ev, old + new, base(ev), cutoff=NOW)
+        assert result["values"]["observed_sets_1d_a"] == 5
+
+
+def test_crossed_same_pair_fact_revisions_cannot_create_a_new_joint_state(tmp_path):
+    first = stored(tmp_path, [native_row("1", "1", "9", sets=(3, 2))])
+    second = stored(tmp_path, [native_row("1", "1", "9", sets=(2, 0))])
+    crossed = tuple(row for row in first if row["subject_id"].endswith(":1")) + tuple(
+        row for row in second if row["subject_id"].endswith(":9") and row["payload"]["sets"] == 2
+    )
+    assert len(crossed) == 2
+    result = tennis_features(event(), crossed, base(), cutoff=NOW)
+    assert result["states"]["observed_sets_1d_a"] == "conflicting"
+    assert result["values"]["observed_sets_1d_a"] is None

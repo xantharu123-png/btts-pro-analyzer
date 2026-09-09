@@ -42,6 +42,19 @@ def recovery_bounds(*, next_start: datetime, result_observed_at: datetime, ended
     return {"minimum_hours": minimum, "exact_hours": None if end is None else (start - end).total_seconds() / 3600.0}
 
 
+def _joint_match_identity(row: dict) -> str:
+    """The whole source revision, independent of its per-player projection."""
+    payload = dict(row["payload"])
+    if payload["player_id"] > payload["opponent_id"]:
+        payload["player_id"], payload["opponent_id"] = payload["opponent_id"], payload["player_id"]
+        payload["set_scores"] = [
+            {"a": score["b"], "b": score["a"], "completed": score["completed"]}
+            for score in payload["set_scores"]
+        ]
+    return digest({"payload": payload, "competition": row["competition"],
+                   "format": row["format"], "schedule_revision": row["schedule_revision"]})
+
+
 def _usable_history(observations: tuple[dict, ...], *, cutoff: datetime, next_start: datetime) -> tuple[list[dict], set[str]]:
     """Use B1's final usable_refs, not inspected/audit references.
 
@@ -69,35 +82,39 @@ def _usable_history(observations: tuple[dict, ...], *, cutoff: datetime, next_st
         validate_workload_record(row)
         eligible.append(row)
 
-    # Preserve equal-time revisions for B1's conflict decision. A caller may
-    # merge several causal as-of queries; late imports are never eligible above.
-    latest = {}
+    # A source response describes one whole native match, not independent
+    # player careers. Select its newest receipt EVENT-WIDE before examining
+    # subjects: corrected participants must revoke an old player's match claim.
+    # Late imports were excluded above; no prior receipt is changed in storage.
+    by_event = {}
     for row in eligible:
-        key = (row["event_key"], row["subject_id"], row["source"])
-        if key not in latest or row["observed_at"] > latest[key][0]["observed_at"]:
-            latest[key] = [row]
-        elif row["observed_at"] == latest[key][0]["observed_at"]:
-            latest[key].append(row)
-    groups, conflicts = {}, set()
-    for alternatives in latest.values():
-        if len({row["schedule_revision"] for row in alternatives}) > 1:
-            conflicts.add(alternatives[0]["subject_id"])
+        by_event.setdefault(row["event_key"], []).append(row)
+    usable, conflicts = [], set()
+    for history in by_event.values():
+        newest = max(row["observed_at"] for row in history)
+        group = [row for row in history if row["observed_at"] == newest]
+        players = {row["payload"][key] for row in group for key in ("player_id", "opponent_id")}
+        if len(players) != 2 or len({_joint_match_identity(row) for row in group}) != 1:
+            # All participants in the contradictory native event are unsafe,
+            # including any older player whose removal is not established.
+            conflicts.update(row["payload"][key] for row in history for key in ("player_id", "opponent_id"))
             continue
-        for row in alternatives:
-            groups.setdefault((row["event_key"], row["subject_id"], row["schedule_revision"]), []).append(row)
-    usable = []
-    for group in groups.values():
+        if {row["subject_id"] for row in group} != players:
+            # Partial receipt delivery cannot borrow the opponent projection
+            # from an earlier time or manufacture a second numeric reference.
+            continue
         row = group[0]
         state = factor_state(tuple(group), cutoff=cutoff, scheduled_start=next_start,
                              policy=freshness_policy("workload", schedule_revision=row["schedule_revision"], requires_complete=False))
         if state["state"] == "conflicting":
-            conflicts.add(row["subject_id"])
+            conflicts.update(players)
             continue
         chosen = [item for item in group if item["digest"] in state["usable_refs"]]
-        if chosen:
-            # Same native event/subject is one match across duplicate pages and
-            # the native shadow path. Equality is established by B1, not names.
-            usable.append(min(chosen, key=lambda item: item["digest"]))
+        for player in sorted(players):
+            candidates = [item for item in chosen if item["subject_id"] == player]
+            if candidates:
+                # Genuine duplicate pages remain one fact per native player.
+                usable.append(min(candidates, key=lambda item: item["digest"]))
     return usable, conflicts
 
 
