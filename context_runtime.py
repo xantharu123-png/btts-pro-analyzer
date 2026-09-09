@@ -1,22 +1,25 @@
-"""Read-only A1/B1/B3 storage verification, never empirical certification.
+"""Read-only A1/B1/B3 and owning D2 evidence verification, never activation.
 
 Unknown artifact schemas and opaque legacy snapshots retain their bytes and
-report transport_only. D2 report resolution and D3 complete snapshot envelopes
-do not exist yet; public hashes cannot substitute for those evidence contracts.
+report transport_only. Actual D2 reports replay their original sources/fits;
+D3 transports still need their separate owning source/feature replay. Public
+hashes cannot prove source truth or substitute for either evidence contract.
 """
 
 from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime
+import hashlib
 import os
 from pathlib import Path
 import re
 import sqlite3
 
 from context_models.contracts import (
-    digest, require_digest, require_object, validate_context_approval,
-    validate_context_result, validate_effect_artifact,
+    canonical_timestamp, digest, require_digest, require_object, require_text,
+    validate_context_approval, validate_context_result, validate_effect_artifact,
+    validate_event, validate_feature_vector,
 )
 from context_observations import _SELECT, _decode_receipt
 from context_snapshots import _decode_snapshot
@@ -66,6 +69,14 @@ _SCHEMA = {
 }
 _CORE = {"artifacts", "manifests", "active_manifest"}
 _OBSERVATIONS = {"context_contents", "context_observations", "context_event_receipts"}
+# Only owning routes present/reviewed at this packet's exact base revision.
+# New versions retain transport-only status until separately integrated.
+_WORKER_REPLAY_CAPABILITIES = frozenset({
+    ("football:goals:90min", "football-roster-components-v2"),
+    ("tennis:winner", "tennis-performed-load-v2"),
+    ("tennis:serve", "tennis-performed-load-v2"),
+    ("basketball:margin:including_ot", "basketball-rotation-observed-load-v1"),
+})
 
 
 def _sql_identity(sql):
@@ -299,9 +310,10 @@ def _resolve(artifacts, key, *, kind=None):
     return artifact["payload"]
 
 
-def _verify_artifact_types(artifacts, created_at, limitations):
+def _verify_artifact_types(connection, artifacts, created_at, limitations):
     # These are owning structural validators, not test-only fit approvals.
     from tennis.tour_state import _check_predictions, _decode_wrapper
+    from context_runtime_semantics import D2_KINDS, verify_d2_artifacts
 
     for key, envelope in artifacts.items():
         kind, payload = envelope["kind"], envelope["payload"]
@@ -334,11 +346,11 @@ def _verify_artifact_types(artifacts, created_at, limitations):
                 raise ArtifactIntegrityError("approval predates its model training")
             _resolve(artifacts, payload["report_hash"], kind="context-evaluation-v1")
             _resolve(artifacts, payload["experiment_hash"], kind="context-experiment-v1")
-            limitations.add("d2-approval-evidence-resolution-unavailable")
-        elif kind in {"context-evaluation-v1", "context-experiment-v1"}:
-            limitations.add("d2-report-experiment-schema-unavailable")
+        elif kind in D2_KINDS:
+            pass  # All typed references, including inactive ones, below.
         else:
             limitations.add("unrecognized-artifact-schema")
+    return verify_d2_artifacts(connection, artifacts, created_at, limitations)
 
 
 def _verify_slots(slots, artifacts):
@@ -359,18 +371,33 @@ def _verify_slots(slots, artifacts):
                 raise ArtifactIntegrityError("approval has no coupled effect in the same manifest")
 
 
-def _verify_observations(connection, tables):
+def _verify_observations(connection, tables, *, protected_receipts=()):
     if "context_observations" not in tables:
         return {}, 0
+    protected_receipts = set(protected_receipts)
+    protected_contents = {content for ref, content in connection.execute(
+        "SELECT digest,content_digest FROM context_observations") if ref in protected_receipts}
     contents = {}
     for key, raw in connection.execute("SELECT content_digest,payload FROM context_contents"):
         require_digest(key, "observation content identity")
+        if key in protected_contents:
+            # D2 already checked opaque physical bytes and fixed outer JSON
+            # indices. Do not decode an unopened final result body here.
+            if type(raw) is not bytes or hashlib.sha256(raw).hexdigest() != key:
+                raise ArtifactIntegrityError("unopened observation content hash mismatch")
+            contents[key] = None
+            continue
         content = _decode_object(raw, label="observation content")
         if digest(content) != key or key in contents:
             raise ArtifactIntegrityError("observation content hash mismatch")
         contents[key] = content
     receipts = {}
     for row in connection.execute(_SELECT):
+        if row[0] in protected_receipts:
+            # No decoder or source claim: these are only checked SQL indices.
+            receipts[row[0]] = {"digest": row[0], "content_digest": row[1],
+                "event_key": row[2], "observed_at": row[3], "kind": row[7]}
+            continue
         decoded = _decode_receipt(row)
         if decoded["digest"] in receipts:
             raise ArtifactIntegrityError("duplicate observation receipt")
@@ -378,6 +405,47 @@ def _verify_observations(connection, tables):
     if {row["content_digest"] for row in receipts.values()} != set(contents):
         raise ArtifactIntegrityError("observation content has no validated receipt")
     return receipts, len(contents)
+
+
+def _verify_worker_snapshot(payload, key, artifacts, receipts, limitations):
+    from context_transport import _BASE_KEYS, _INPUTS, _input_key, _refs, replay_context_payload
+    require_object(payload, _INPUTS | {"result"}, label="stored worker transport")
+    if type(payload["schema"]) is not int or payload["schema"] != 1:
+        raise ArtifactIntegrityError("known worker transport has an invalid schema")
+    effect = approval = None
+    if payload["effect_hash"] is not None:
+        ref = payload["effect_hash"]
+        effect = {"kind": "context-effect-v1",
+            "payload": _resolve(artifacts, ref, kind="context-effect-v1")}
+    if payload["approval_hash"] is not None:
+        ref = payload["approval_hash"]
+        approval = {"digest": ref, "kind": "context-approval-v1",
+            "payload": _resolve(artifacts, ref, kind="context-approval-v1")}
+    if (canonical_bytes(effect) != canonical_bytes(payload["effect_artifact"])
+            or canonical_bytes(approval) != canonical_bytes(payload["approval"])
+            or approval is not None and effect is None):
+        raise ArtifactIntegrityError("worker artifact transport differs from its actual A1 references")
+    for name in ("observation_refs", "preprocessing_refs"):
+        _refs(payload[name], name)
+    if not set(payload["observation_refs"]) <= set(receipts):
+        raise ArtifactIntegrityError("worker snapshot references missing physical receipts")
+    for ref in payload["preprocessing_refs"]:
+        _resolve(artifacts, ref)
+    event = validate_event(payload["event"])
+    features = validate_feature_vector(payload["features"])
+    base = require_object(payload["base"], _BASE_KEYS, label="stored worker base transport")
+    require_text(base["family"], "stored worker family", code=True)
+    if (event["event_key"] != base["event_key"] or features["event_key"] != base["event_key"]
+            or features["cutoff"] != base["cutoff"] or canonical_timestamp(base["cutoff"]) != base["cutoff"]
+            or not all(set(refs) <= set(payload["observation_refs"]) for refs in features["refs"].values())
+            or _input_key(payload, event, base, features) != key):
+        raise ArtifactIntegrityError("worker transport does not bind its complete input revision")
+    pair = base["family"], features["version"]
+    if pair not in _WORKER_REPLAY_CAPABILITIES:
+        limitations.add("d3-owning-family-replay-unavailable")
+        return
+    replay_context_payload(payload, key=key, effect_artifact=effect, approval=approval)
+    limitations.add("d3-owning-source-feature-replay-unavailable")
 
 
 def _verify_snapshots(connection, tables, artifacts, receipts, limitations):
@@ -388,6 +456,9 @@ def _verify_snapshots(connection, tables, artifacts, receipts, limitations):
         require_digest(key, "snapshot key")
         payload = _decode_snapshot(key, raw, payload_hash)
         count += 1
+        if payload.get("kind") == "context-worker-snapshot-v1":
+            _verify_worker_snapshot(payload, key, artifacts, receipts, limitations)
+            continue
         limitations.add("d3-snapshot-input-binding-unavailable")
         # Recognizable B3 ContextResult has additional typed references. Its
         # missing original Event/Base/FeatureVector still prevents key replay.
@@ -462,16 +533,18 @@ def _verify_connection(connection):
         artifacts[key] = _load_artifact(connection, key)
         created_at[key] = datetime.fromisoformat(_validate_stored_timestamp(created, label="artifact creation time"))
     limitations = set()
-    _verify_artifact_types(artifacts, created_at, limitations)
+    semantics = _verify_artifact_types(connection, artifacts, created_at, limitations)
     manifests, current, chain = _manifest_rows(connection, artifacts, created_at)
     for manifest in manifests.values():
         _verify_slots(manifest["slots"], artifacts)
-    receipts, content_count = _verify_observations(connection, tables)
+    receipts, content_count = _verify_observations(connection, tables,
+        protected_receipts=semantics["protected_receipts"])
     snapshot_count = _verify_snapshots(connection, tables, artifacts, receipts, limitations)
     rollback_count = _verify_rollbacks(connection, tables, manifests, chain)
     slots = manifests[current]["slots"] if current is not None else {}
     report = {"schema": 1, "verification_level": "transport_only" if limitations else "structural",
               "empirical_approval_verified": False, "limitations": sorted(limitations),
+              "d2_verified": semantics["verified"],
               "counts": {"artifacts": len(artifacts), "manifests": len(manifests),
                          "contents": content_count, "observations": len(receipts),
                          "snapshots": snapshot_count, "rollbacks": rollback_count},
