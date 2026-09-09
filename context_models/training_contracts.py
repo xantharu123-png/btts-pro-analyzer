@@ -245,3 +245,124 @@ def resolve_identity_map(envelope: dict, *, observations: tuple[dict, ...],
             else:
                 raise ContextContractError("there is no owning native identity resolver for this receipt")
     return result
+
+
+def validate_resolved_case(value: dict, *, config: dict) -> dict:
+    """Shared D1/D2 case resolver; no scalar-row or public-hash shortcut."""
+    from context_models.training_cases import _validate_case
+    return _validate_case(value, config=config)
+
+
+def validate_fit_result(value: dict, *, config: dict) -> dict:
+    """Check closed report/selection bindings, not empirical source truth.
+
+    D2 must still resolve/recompute actual cases and losses. A syntactically
+    valid fit result cannot grant approval or make an unsupported feed causal.
+    """
+    from context_models.contracts import validate_effect_artifact
+    fields = {"schema", "status", "reason", "family_config_hash", "event_identity_hash", "artifact", "effect_hash",
+        "selected_alpha", "alpha_scores", "candidate_artifacts", "case_hashes", "rows_hash", "training_case_hashes",
+        "tuning_case_hashes", "training_rows_hash", "tuning_rows_hash", "training_events", "tuning_events", "exclusions"}
+    require_object(value, fields, label="context fit result")
+    config = validate_family_config(config)
+    result = _sport_json(value, label="context fit result")
+    if type(result["schema"]) is not int or result["schema"] != 1:
+        raise ContextContractError("unknown fit result schema")
+    if require_text(result["status"], "fit status", code=True) not in {"fitted", "fit_failed", "unsupported", "insufficient_data"}:
+        raise ContextContractError("unknown fitting status")
+    if result["family_config_hash"] != digest(config):
+        raise ContextIntegrityError("fit report belongs to another family configuration")
+    for field in ("rows_hash", "training_rows_hash", "tuning_rows_hash"):
+        require_digest(result[field], field)
+    for field in ("case_hashes", "training_case_hashes", "tuning_case_hashes"):
+        refs = require_list(result[field], field)
+        for ref in refs:
+            require_digest(ref, field)
+        if refs != sorted(set(refs)):
+            raise ContextContractError("fit case refs must be sorted unique hashes")
+    if (not set(result["training_case_hashes"]) <= set(result["case_hashes"])
+            or not set(result["tuning_case_hashes"]) <= set(result["case_hashes"])
+            or set(result["training_case_hashes"]) & set(result["tuning_case_hashes"])):
+        raise ContextIntegrityError("training/tuning case identities overlap or are missing")
+    if result["event_identity_hash"] is not None:
+        require_digest(result["event_identity_hash"], "global native identity map")
+    elif result["case_hashes"]:
+        raise ContextIntegrityError("fit cases need their global identity map")
+    for phase in ("training", "tuning"):
+        count = result[phase+"_events"]
+        if type(count) is not int or count < 0 or count != len(result[phase+"_case_hashes"]):
+            raise ContextIntegrityError("canonical event count differs from its once-only case inventory")
+    exclusions = require_list(result["exclusions"], "fit exclusions")
+    excluded_refs, excluded_events = set(), set()
+    for exclusion in exclusions:
+        require_object(exclusion, {"event_key", "case_hash", "status", "reason"}, label="case exclusion")
+        for field in ("event_key", "status", "reason"):
+            require_text(exclusion[field], field, code=True)
+        require_digest(exclusion["case_hash"], "excluded case")
+        if exclusion["status"] not in {"unsupported", "insufficient_data", "excluded"}:
+            raise ContextContractError("unknown case exclusion status")
+        if exclusion["case_hash"] in excluded_refs or exclusion["event_key"] in excluded_events:
+            raise ContextIntegrityError("one canonical case cannot be excluded twice")
+        excluded_refs.add(exclusion["case_hash"])
+        excluded_events.add(exclusion["event_key"])
+    used_refs = set(result["training_case_hashes"]) | set(result["tuning_case_hashes"])
+    if used_refs & excluded_refs or used_refs | excluded_refs != set(result["case_hashes"]):
+        raise ContextIntegrityError("every requested case needs exactly one train/tune/excluded destination")
+    candidates = result["candidate_artifacts"]
+    if type(candidates) is not dict:
+        raise ContextContractError("fit candidates must map hashes to exact effect artifacts")
+    expected_training_refs = digest({"schema": 1, "family_config_hash": digest(config),
+        "case_hashes": result["training_case_hashes"], "rows_hash": result["training_rows_hash"]})
+    expected_head_rows = result["training_events"] * (2 if config["family"] == "tennis:serve" else 1)
+    for ref, candidate in candidates.items():
+        require_digest(ref, "candidate effect")
+        candidate = validate_effect_artifact(candidate)
+        if digest({"kind": "context-effect-v1", "payload": candidate}) != ref:
+            raise ContextIntegrityError("candidate effect hash differs from exact payload")
+        for field in ("sport", "family", "feature_version", "feature_names", "preprocessing_artifacts",
+                      "joint_calibration", "population", "coverage", "model_variant"):
+            if candidate[field] != config[field]:
+                raise ContextIntegrityError("candidate effect differs from frozen family contract")
+        if candidate["training_end"] != config["train_end"] or candidate["training_refs_hash"] != expected_training_refs:
+            raise ContextIntegrityError("candidate must retain original train-only fitting provenance")
+        if any(head["n_rows"] != expected_head_rows for head in candidate["heads"].values()):
+            raise ContextIntegrityError("fit head counts differ from canonical training events")
+    scores = require_list(result["alpha_scores"], "alpha score inventory")
+    if scores and [score.get("alpha") if type(score) is dict else None for score in scores] != config["alpha_grid"]:
+        raise ContextIntegrityError("fit must retain every declared alpha in order")
+    referenced = set()
+    for score in scores:
+        require_object(score, {"alpha", "status", "mean_brier", "effect_hash", "reason"}, label="alpha score")
+        require_number(score["alpha"], "alpha", minimum=0)
+        if score["status"] == "scored":
+            require_number(score["mean_brier"], "tuning event Brier", minimum=0, maximum=1)
+            ref = require_digest(score["effect_hash"], "scored candidate effect")
+            if ref not in candidates or score["reason"] is not None:
+                raise ContextIntegrityError("scored candidate has no exact artifact or claims a failure")
+            if any(head["alpha"] != score["alpha"] for head in candidates[ref]["heads"].values()):
+                raise ContextIntegrityError("scored regularization differs from actual named-head fits")
+            referenced.add(ref)
+        elif score["status"] == "fit_failed":
+            require_text(score["reason"], "failed alpha reason")
+            if score["mean_brier"] is not None or score["effect_hash"] is not None:
+                raise ContextIntegrityError("failed alpha cannot claim a scored subset or effect")
+        else:
+            raise ContextContractError("unknown alpha candidate status")
+    if referenced != set(candidates):
+        raise ContextIntegrityError("candidate and scored-alpha artifact inventories differ")
+    scored = [score for score in scores if score["status"] == "scored"]
+    if result["status"] == "fitted":
+        require_number(result["selected_alpha"], "selected alpha", minimum=0)
+        if not scored or result["reason"] is not None or result["training_events"] < 2 or result["tuning_events"] < 1:
+            raise ContextIntegrityError("fitted report has no complete train/tune candidate")
+        selected = min(scored, key=lambda score: (score["mean_brier"], -score["alpha"]))
+        if (result["selected_alpha"] != selected["alpha"] or result["effect_hash"] != selected["effect_hash"]
+                or result["artifact"] != candidates[selected["effect_hash"]]):
+            raise ContextIntegrityError("selected artifact violates exact Brier/larger-alpha selection")
+    else:
+        require_text(result["reason"], "unavailable fit reason")
+        if any(result[field] is not None for field in ("artifact", "effect_hash", "selected_alpha")) or scored:
+            raise ContextIntegrityError("unavailable fit cannot supply a selected model")
+        if result["status"] == "fit_failed" and not scores:
+            raise ContextIntegrityError("fit failure report must preserve all attempted alphas")
+    return result
