@@ -921,6 +921,19 @@ def _load_automated_wettfinder_document(
         or len(model_candidates) > MAX_AUTOMATED_MODEL_CANDIDATES
     ):
         return None
+    # Validate optional provenance before Python equality can conflate JSON
+    # schema 1 with true/1.0 across model and price/challenge overlays. Invalid
+    # identity retains the existing whole-document integrity failure; a
+    # genuinely absent legacy field or missing/low quote is not such a failure.
+    for collection in (model_candidates, candidates, challenge_release_candidates):
+        for row in collection:
+            if not isinstance(row, dict):
+                return None
+            if "context_ref" in row:
+                try:
+                    ContextReference.from_dict(row["context_ref"])
+                except ValueError:
+                    return None
     sport_counts: dict[str, int] = {}
     scheduled_by_key: dict[str, datetime] = {}
     for row in model_candidates:
