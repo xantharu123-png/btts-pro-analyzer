@@ -315,11 +315,18 @@ def validate_feature_vector(value: dict) -> dict:
 
 
 def _family(value: object) -> str:
-    return _enum(value, {"football:goals:90min", "tennis:winner", "tennis:serve", "basketball:margin:including_ot"}, "context model family")
+    return _enum(value, {"football:goals:90min", "tennis:winner", "tennis:serve", "basketball:margin:including_ot", "ice_hockey:regulation_goals"}, "context model family")
 
 
 def validate_parameters(value: dict, family: str) -> dict:
     family = _family(family)
+    if family == "ice_hockey:regulation_goals":
+        require_object(value, {"home_lambda", "away_lambda", "overtime_home_probability"}, label="hockey parameters")
+        for name in ("home_lambda", "away_lambda"):
+            if require_number(value[name], name, minimum=0) <= 0:
+                raise ContextContractError("hockey regulation rates must be positive")
+        require_number(value["overtime_home_probability"], "original hockey OT probability", minimum=0, maximum=1)
+        return dict(value)
     if family == "basketball:margin:including_ot":
         require_object(value, {"expected_margin", "residual_scale"}, label="basketball margin parameters")
         require_number(value["expected_margin"], "expected margin")
@@ -403,6 +410,11 @@ def _weighted_refs(value: list, available: set[str], label: str) -> float:
 
 
 def validate_reference_weights(value: dict, history_refs: list[dict], *, family: str) -> dict:
+    if type(value) is dict and type(value.get("kind")) is str and value["kind"] in {"hockey-original-poisson-reference-v1", "hockey-context-comparison-reference-v1"}:
+        if family != "ice_hockey:regulation_goals":
+            raise ContextContractError("hockey reference belongs only to its regulation-goal family")
+        from context_models.ice_hockey import validate_hockey_reference
+        return validate_hockey_reference(value, history_refs)
     if type(value) is dict and value.get("kind") == "basketball-margin-comparison-reference-v1":
         if family != "basketball:margin:including_ot":
             raise ContextContractError("basketball comparison reference belongs only to its margin family")
@@ -499,6 +511,12 @@ def validate_base_distribution(value: dict) -> dict:
         raise ContextContractError("winner parameter and market probability mismatch")
     row["history_refs"] = validate_history_refs(row["history_refs"])
     row["reference_weights"] = validate_reference_weights(row["reference_weights"], row["history_refs"], family=family)
+    if family == "ice_hockey:regulation_goals":
+        from context_models.ice_hockey import hockey_distribution, validate_hockey_base_reference
+        expected = hockey_distribution(row["params"]["home_lambda"], row["params"]["away_lambda"], row["params"]["overtime_home_probability"])
+        if set(row["markets"]) != set(expected) or any(not math.isclose(row["markets"][key], expected[key], rel_tol=0, abs_tol=1e-12) for key in expected):
+            raise ContextContractError("hockey market catalog and common regulation/OT law differ")
+        validate_hockey_base_reference(row)
     if family == "basketball:margin:including_ot":
         from context_models.team_sports import margin_distribution, validate_basketball_base_reference
         expected = margin_distribution(row["params"]["expected_margin"], row["params"]["residual_scale"])
@@ -510,7 +528,8 @@ def validate_base_distribution(value: dict) -> dict:
 
 _HEADS = {"football:goals:90min": ({"home", "away"}, "log_rate"),
           "tennis:winner": ({"winner"}, "logit"), "tennis:serve": ({"hold_a", "hold_b"}, "logit"),
-          "basketball:margin:including_ot": ({"margin"}, "identity")}
+          "basketball:margin:including_ot": ({"margin"}, "identity"),
+          "ice_hockey:regulation_goals": ({"home", "away"}, "log_rate")}
 
 
 def validate_offset_fit(value: dict) -> dict:
@@ -619,6 +638,10 @@ def validate_training_row(value: dict, *, effect_artifact: dict | None = None) -
     require_object(value, fields, label="training row")
     row = dict(value)
     family = _family(row["family"])
+    if family == "ice_hockey:regulation_goals":
+        # C3 has no reviewed owning result/identity/D1 case transport yet.
+        # In particular this family must not fall through to binomial targets.
+        raise ContextContractError("hockey training needs its separate owning D1 outcome/case contract")
     _enum(row["head"], _HEADS[family][0], "training family/head routing")
     require_native_key(row["event_key"], sport=family.split(":")[0])
     require_text(row["block"], "training time block", code=True)
