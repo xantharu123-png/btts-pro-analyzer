@@ -1,5 +1,42 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Fortsetzung am 10. September 2026 — nach dem vollständigen B-Test
+
+Root-Code `f058517011c9841a0650c767c301822b2d29a3c5`: Fußball-Original samt
+Metadatenkorrektur, Basketball/Hockey-Nativebinding samt F1 und einmalige
+E-Sport-Originalaufnahme unabhängig angenommen und integriert. Neuer Root-Stand
+noch nicht als Main-/VPS-Release behandeln; letzter bestätigter Main/VPS `2ba3931`.
+
+- Vollsuite des eingefrorenen Teilrelease-Kandidaten `f2f7611`: **6255 bestanden,
+  20 Windows-Skips, 97 Untertests, 1354,13s**. Deckt spätere P4b2/P6a/UI-Fixes
+  nicht ab. XML3217c046 und eigener Bericht im SDD-Ledger.
+- P5a Root-Nachreview105/0, inklusive aller vier unveränderten Fehlerzeugen.
+  P4b2-F1 unabhängig541 Fokus +71 Gegenproben grün, keine neuen Findings.
+  P6a unabhängig382 Fokus/26 Untertests +2 Originalzeugen +32 Gegenproben grün.
+- E-Sport berechnet im echten Logger/Scan Elo nur einmal. Alte SQL-Werte,
+  First-observation und Settlement bleiben gleich. Alte C4-Karten bleiben lesbar;
+  voller alter numerischer Replay unter neuem Gesamtdateihash bleibt ausdrücklich
+  eine separate Kompatibilitätsgrenze, kein umgeschriebenes Gütesiegel.
+- A655e7a6 ist ausschließlich der geprüfte Updater-Brückencommit. Bf2f7611 enthält
+  dessen Ancestry. Unabhängiges technisches A→B-Review277/0 bestanden, kein echter
+  installierter Übergang. A erst über alten Updater vollständig installieren und
+  dessen neue Bytes verifizieren, **danach erst** B auf Main veröffentlichen.
+- Echter lokaler Browser: gegensätzliche Porto-Vorschläge werden nicht zusammen
+  angezeigt; Analysen sind offen, Filter-/Preiswechsel ändern die Karten nicht.
+  Neuer echter Fehler: bearbeitete Quote zeigt bis zum Submit noch alte Meldung.
+  Separater UI-Fix in `kontext-manual-price-ui-20260910`; A/Main/VPS bleiben bis
+  dessen Prüfung zurückgehalten. Synthetische QA-Daten nur im neuen B-Worktree.
+- Reale Fußball- und Basketball/Hockey-Workeranschlüsse werden anhand konkreter
+  fehlender Seams geprüft; insbesondere keine alten C2/C3-Originalversionen über
+  neue P4a-Daten legen. Keine zusätzliche Empirie- oder Verletzungswirkung behaupten.
+
+Weiterhin gültig: Freigaben übernommen, Cricket ausgeschlossen, kein pauschales
+Markt-/Quotenverbot, keine Echtgeld-/Altprognosenänderung. Geschützter Stagehelper
+SHA1441158 unverändert; sein geerbter Phantomstatus bleibt unangetastet.
+Alle vorherigen Fehlerberichte und neuen Reviews wurden bytegleich erhalten.
+Timer rechnen und deployen keinen Code. Neue Endfreigabe/Gesamtsuite/Browser,
+Main-Push, VPS-Installation, echter Lauf und Quellen-/Wirkungsnachweis getrennt halten.
+
 ## Aktueller Fortsetzungsstand vom 10. September 2026 — 00:20 CEST
 
 Root und gepushter Featurebranch stehen auf `6d03ca0`; GitHub main zuletzt

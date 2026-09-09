@@ -1,5 +1,39 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Accepted original/binding packets and browser release hold — 10 September 2026
+
+Root codef058517 integrates P5a8691022+34b4a5a, P4b2ba73dc9+5a3d0c1, P6ac28ae1e.
+Frozen technical B remainsf2f7611, separate clean tracked worktree. Its actual
+full run is complete6255/20WindowsSkips/97subtests1354.13s, XML3217c046.
+It does not cover the later P4b2/P6a/UI changes. Main/VPS lastverified2ba3931;
+no new main push, installed A or context B. Existing user authority continues.
+
+- P5a Root105/0 accepts all four unchanged original metadata REDs. Exact same
+  scalar projection, no probability/calibration/fit or integer-limit changes.
+- P4b2/F1 independently541focus+71qualified attacks pass; one previously proven
+  invalid SQL-column harness case remains explicitly deselected and preserved.
+  No new finding, no source/empirical/worker approval inferred.
+- P6a independently382focus/26subtests +2original functional witnesses +32new
+  controls. Actual logger/runner once-only Elo, exact parent SQL/float history.
+  Actual old-C4 SQLite restore probe keeps historical cards readable but full
+  old-code replay unsupported; D4 says transport_only, not full qualification.
+- A655e7a6 exact updater-only bridge; B shares its ancestry. Independent updater
+  contract277/0 passes. Original A CRLF pin-test failures remain, separate LF
+  checkout83/7 passes without normalizing any protected file. Actual A→B not run.
+- Real local B browser shows one Porto choice from two opposing raw directions,
+  immediately visible analyses, stable empty-filter roundtrip, no card/order
+  changes from confirmed1.12 or4.00. But changing the form quote before submit
+  leaves the previous price message visible: qualified UI release hold. A new
+  separate manual-price UI fix is authorized; no frozen B source alteration.
+- BB/Hockey P4b3 preflight has real6RED/8controls: baseline/Risk calculation
+  exists but normal catalog/B1/B3 connection and post-fetch clock are absent.
+  Football P5b actual final-calibration/source/shared-worker preflight active.
+
+New full/Root rereview and four independently authored original reports are
+preserved under task-18/task-20 names. Technical work, usable data, D1/D2 effect
+qualification and actual production activation remain distinct. Cricket,
+money, old forecasts and protected helper1441158 remain unchanged.
+
 ## Real Linux DAC and complete Root regression — 10 September 2026, 00:20 CEST
 
 Root/feature remote6d03ca0; latest GitHub main21:56UTC2ba3931, no context deploy.
