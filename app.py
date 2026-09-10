@@ -4707,6 +4707,9 @@ def _automatic_release_overlay(evaluation) -> Optional[WettfinderReleaseOverlay]
 
 
 def _render_wettfinder_card_actions(signal, card, candidate, binding, evaluation) -> None:
+    if signal.uncertainty_contract is not None:
+        st.caption("Preisgrenze nicht belastbar berechnet; deshalb keine Einsatz- oder Speicherempfehlung.")
+        return
     with st.container(key=f"wettfinder_v2_actions_{card.manual_quote_key}"):
         # The short analysis is already visible once inside the card markup.
         with st.container(
@@ -4751,6 +4754,10 @@ def _render_automated_daily_selection() -> None:
     )
     rows = []
     for signal in signals:
+        if signal.uncertainty_contract is not None:
+            card = build_wettfinder_card(signal, signal.reference_quote, now=evaluation_now)
+            rows.append((signal, card, None, wettfinder_quote_binding_candidate(signal), None))
+            continue
         candidate = _automated_signal_candidate(signal)
         binding = wettfinder_quote_binding_candidate(signal)
         evaluation = evaluate_reference_price(

@@ -72,7 +72,7 @@ class ModelSignal:
     key: str            # stabiler, eindeutiger Schlüssel
     label: str          # Anzeige in der Auswahl
     probability: float  # 0..1
-    probability_haircut: float  # absolute Modellunsicherheit, 0..1
+    probability_haircut: Optional[float]  # None only for the owning BB/NHL baseline contract
     evidence_stage: str
     policy_version: str
     detail: str         # Quelle/Kontext für die Transparenz-Zeile
@@ -111,13 +111,18 @@ class ModelSignal:
     away_team_id: Optional[int] = None
     model_scope: Optional[str] = None
     context_ref: Optional[ContextReference] = None
+    uncertainty_contract: Optional[str] = None
+    baseline_view: Optional[dict] = None
 
     def __post_init__(self) -> None:
         if self.context_ref is not None and not isinstance(self.context_ref, ContextReference):
             raise ValueError("Model signal context reference must be immutable")
         if not _valid_probability(self.probability):
             raise ValueError("Model signal probability must be between 0 and 1")
-        if not _valid_haircut(self.probability_haircut, self.probability):
+        if self.uncertainty_contract is not None or self.baseline_view is not None:
+            from team_sports_baseline import validate_signal
+            validate_signal(self)
+        elif not _valid_haircut(self.probability_haircut, self.probability):
             raise ValueError("Model signal haircut is invalid")
         if self.evidence_stage not in {"RESEARCH", "SHADOW", "RELEASED"}:
             raise ValueError("Model signal evidence stage is invalid")
@@ -870,6 +875,18 @@ def _load_automated_wettfinder_document(
     age = current - generated
     if age.total_seconds() < 0 or age > max_age:
         return None
+    if "team_sports_baselines" in document:
+        from team_sports_baseline import SPORTS, validate_batch
+        batches = document["team_sports_baselines"]
+        if type(batches) is not dict or set(batches) - set(SPORTS):
+            return None
+        try:
+            for sport, batch in batches.items():
+                validate_batch(batch, sport)
+                if _parse_iso(batch["checked_at"]) > generated:
+                    return None
+        except (TypeError, ValueError, KeyError, OverflowError):
+            return None
     candidates = document.get("candidates")
     if (
         not isinstance(candidates, list)
@@ -957,6 +974,8 @@ def _load_automated_wettfinder_document(
             "fussball": "football_challenge",
             "tennis": "tennis_shadow",
             "e-sport": "esports_shadow",
+            "basketball": "basketball_baseline",
+            "eishockey": "ice_hockey_baseline",
         }.get(normalized)
         if expected_source is None or row.get("source") != expected_source:
             return None
@@ -1112,14 +1131,27 @@ def _load_automated_wettfinder_document(
             return None
         probability = row.get("probability")
         haircut = row.get("probability_haircut")
-        if not _valid_probability(probability) or not _valid_haircut(
+        if row.get("source") in {"basketball_baseline", "ice_hockey_baseline"}:
+            from team_sports_baseline import validate_row, validate_batch
+            try:
+                validate_row(row)
+                sport_code = row["baseline_view"]["sport"]
+                batch = document["team_sports_baselines"][sport_code]
+                validate_batch(batch, sport_code)
+                if row["baseline_view"] not in batch["entries"]:
+                    return None
+            except (KeyError, TypeError, ValueError):
+                return None
+            expected_minimum = supplied_minimum = None
+        elif not _valid_probability(probability) or not _valid_haircut(
             haircut,
             float(probability),
         ):
             return None
-        expected_minimum = _minimum_odds(float(probability), float(haircut))
-        supplied_minimum = row.get("minimum_odds")
-        if (
+        else:
+            expected_minimum = _minimum_odds(float(probability), float(haircut))
+            supplied_minimum = row.get("minimum_odds")
+        if row.get("source") not in {"basketball_baseline", "ice_hockey_baseline"} and (
             expected_minimum is None
             or isinstance(supplied_minimum, bool)
             or not isinstance(supplied_minimum, (int, float))
@@ -1393,6 +1425,13 @@ def automated_wettfinder_forecasts(
     forecasts: List[ModelSignal] = []
     for row in rows:
         if not isinstance(row, dict):
+            continue
+        if row.get("source") in {"basketball_baseline", "ice_hockey_baseline"}:
+            from team_sports_baseline import baseline_signal
+            try:
+                forecasts.append(baseline_signal(row))
+            except (TypeError, ValueError, KeyError):
+                continue
             continue
         normalized_sport = (
             str(row.get("sport") or "").strip().casefold().replace("ß", "ss")

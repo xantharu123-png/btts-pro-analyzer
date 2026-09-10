@@ -52,7 +52,7 @@ class WettfinderCard:
     market: str
     selection: str
     model_probability: float
-    cautious_probability: float
+    cautious_probability: Optional[float]
     value_threshold: Optional[float]
     observed_odds: Optional[float]
     bookmaker: Optional[str]
@@ -245,6 +245,10 @@ def wettfinder_recommendation_candidate(
 ) -> RecommendationCandidate:
     """Build the complete immutable price candidate represented by a signal."""
 
+    if signal.uncertainty_contract is not None:
+        from team_sports_baseline import validate_signal
+        validate_signal(signal)
+        raise ValueError("a research forecast without a boundary is not a money candidate")
     probability = signal.probability * 100.0
     haircut = signal.probability_haircut * 100.0
     normalized_sport = (
@@ -379,7 +383,19 @@ def build_wettfinder_card(
     remains visible before any release decision exists.
     """
 
-    if price_evaluation is None:
+    unbounded = signal.uncertainty_contract is not None
+    if unbounded:
+        from team_sports_baseline import validate_signal
+        validate_signal(signal)
+        if price_evaluation is not None or release_overlay is not None:
+            raise ValueError("no price/release overlay without a verified boundary")
+        # No BB/NHL quote source is currently qualified by the existing owning
+        # matcher. In particular, matching a free candidate ID is not proof.
+        normalized_quote = _normalise_quote(quote)
+        current_quote = (wettfinder_consensus(normalized_quote, now=now)
+            if quote_matches_candidate(normalized_quote, wettfinder_quote_binding_candidate(signal)) else None)
+        status = ReferencePriceStatus("BOUNDARY_UNAVAILABLE", "Preisgrenze offen", None)
+    elif price_evaluation is None:
         normalized_quote = _normalise_quote(quote)
         status = wettfinder_reference_price_status(
             normalized_quote,
@@ -419,10 +435,18 @@ def build_wettfinder_card(
         current_quote,
         confirmed_tip=confirmed_tip,
     )
+    if unbounded:
+        price_label, price_tone = "Preisgrenze offen", "muted"
     evidence_label, evidence_tone = _evidence_copy(signal, confirmed_tip)
     model_probability = float(signal.probability)
-    cautious_probability = model_probability - float(signal.probability_haircut)
+    cautious_probability = None if unbounded else model_probability - float(signal.probability_haircut)
     analysis = build_forecast_analysis(signal, now=now)
+    if unbounded:
+        from forecast_analysis import ForecastAnalysis
+        prediction = signal.baseline_view["prediction"]
+        analysis = ForecastAnalysis(" ".join(prediction["factors"]),
+            " ".join(prediction["limitations"]),
+            f"Basis: {prediction['training_games']} abgeschlossene Spiele; Teamhistorie {prediction['home_games']}/{prediction['away_games']} (Heim/Gast).")
     return WettfinderCard(
         key=signal.key,
         sport=_clean_text(signal.sport, "Modell"),
@@ -446,6 +470,7 @@ def build_wettfinder_card(
         confirmed_tip=confirmed_tip,
         reference_quote=current_quote,
         manual_quote_key=signal.key,
+        can_check_manual_quote=not unbounded,
         analysis_basis=analysis.basis,
         analysis_caution=analysis.caution,
         analysis_samples=analysis.samples,
@@ -578,6 +603,7 @@ _PRICE_NOTES = {
     "STALE": "Vergleichsquote veraltet. Bitte den Preis neu prüfen.",
     "UNAVAILABLE": "Keine exakt passende Quote. Die Prognose bleibt unverändert.",
     "INVALID_MINIMUM": "Die Value-Grenze ist aktuell nicht belastbar.",
+    "BOUNDARY_UNAVAILABLE": "Für diese Prognose ist keine belastbare Preisgrenze berechnet. Eine Quote bestätigt keinen Wettvorteil.",
 }
 
 
@@ -657,6 +683,13 @@ def _top_card_markup(card: WettfinderCard) -> str:
         price_note = (
             "Die Quote erreicht den Value-Bereich; noch kein freigegebener Tipp."
         )
+    uncertainty_note = (
+        "Für diese Modellprognose sind weder Sicherheitswert noch Preisgrenze bestimmt. "
+        "Daraus folgt keine Einsatzempfehlung."
+        if card.price_code == "BOUNDARY_UNAVAILABLE" else
+        "Sicherheitswert: Modell mit heuristischem Abschlag, keine statistisch bestätigte Mindestchance. "
+        "Der Risikopreis ist eine Rechenschwelle, keine erwartete Buchmacherquote."
+    )
     event_label = escape(card.event_label)
     return (
         f'<article class="wf-top-card" data-key="{escape(card.key, quote=True)}" '
@@ -675,9 +708,7 @@ def _top_card_markup(card: WettfinderCard) -> str:
         "</div>"
         f"{_analysis_markup(card)}"
         f'<div class="wf-metric-grid">{metrics}</div>'
-        '<p class="wf-uncertainty-note">Sicherheitswert: Modell mit heuristischem '
-        'Abschlag, keine statistisch bestätigte Mindestchance. Der Risikopreis '
-        'ist eine Rechenschwelle, keine erwartete Buchmacherquote.</p>'
+        f'<p class="wf-uncertainty-note">{escape(uncertainty_note)}</p>'
         f'<p class="wf-price-note wf-price-note-{escape(card.price_tone, quote=True)}" '
         f'data-price-code="{price_code}">{escape(price_note)}</p>'
         "</article>"

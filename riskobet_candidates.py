@@ -1801,6 +1801,17 @@ def adapt_research_matchwinner(
     from sports_prematch import predict_prematch
     prediction = predict_prematch(sport, event, history, as_of=model_time,
         **({"original_capture": original_capture} if original_capture is not None else {}))
+    return _project_research_prediction(prediction, sport=sport, provider=provider,
+        provider_event_id=provider_event_id, home=home, away=away, home_id=home_id,
+        away_id=away_id, competition=competition, starts_at=starts_at,
+        source_observed_at=source_observed_at, model_time=model_time, cutoff=cutoff,
+        minimum_team_games=minimum_team_games, policy_version=policy_version)
+
+
+def _project_research_prediction(prediction, *, sport, provider, provider_event_id,
+        home, away, home_id, away_id, competition, starts_at, source_observed_at,
+        model_time, cutoff, minimum_team_games, policy_version):
+    """Pure projection of an already computed result; no source or model call."""
     home_games, away_games = prediction.home_games, prediction.away_games
     missing: list[str] = list(prediction.missing)
     if home_games < minimum_team_games:

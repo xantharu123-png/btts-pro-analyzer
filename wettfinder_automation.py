@@ -92,6 +92,7 @@ from riskobet_settlement_automation import run_riskobet_settlements
 from riskobet_store import DEFAULT_DB_PATH as RISKOBET_DB_PATH
 from riskobet_store import DEFAULT_LATEST_PATH as RISKOBET_LATEST_PATH
 from riskobet_store import FrozenRevisionError
+from team_sports_baseline import locked_worker
 
 
 ROOT = Path(__file__).resolve().parent
@@ -576,6 +577,10 @@ def _select_football_record_catalog(
 
 
 def _signal_record(signal: ModelSignal) -> Optional[dict[str, Any]]:
+    if signal.uncertainty_contract is not None:
+        from team_sports_baseline import validate_signal, baseline_row
+        validate_signal(signal)
+        return baseline_row(signal.baseline_view)
     probability = _finite_probability(signal.probability)
     if probability is None:
         return None
@@ -684,7 +689,13 @@ def _ranked_candidates(
         probability = _finite_probability(row.get("probability"))
         conservative = _finite_probability(row.get("conservative_probability"))
         haircut = row.get("probability_haircut")
-        if (
+        if row.get("source") in {"basketball_baseline", "ice_hockey_baseline"}:
+            from team_sports_baseline import validate_row
+            try:
+                validate_row(row)
+            except (TypeError, KeyError, ValueError):
+                continue
+        elif (
             probability is None
             or conservative is None
             or conservative > probability
@@ -709,8 +720,8 @@ def _ranked_candidates(
         valid.sort(
             key=lambda row: (
                 -stage_rank.get(str(row.get("evidence_stage")), -1),
-                -float(row["conservative_probability"]),
-                float(row["probability_haircut"]),
+                -(float(row["conservative_probability"]) if row["conservative_probability"] is not None else float(row["probability"])),
+                float(row["probability_haircut"]) if row["probability_haircut"] is not None else math.inf,
                 str(row.get("key") or ""),
             )
         )
@@ -2554,6 +2565,9 @@ def _default_basketball_risk_source(
         Callable[..., Iterable[Mapping[str, object]]]
     ] = None,
 ) -> RiskSourceBatch:
+    from team_sports_baseline import active_owner, acquire_baseline
+    if active_owner() is not None:
+        return acquire_baseline("basketball", target_date, history_loader)
     from scanners.basketball_scanner import BasketballScanner
 
     scanner = BasketballScanner()
@@ -2580,6 +2594,9 @@ def _default_ice_hockey_risk_source(
         Callable[..., Iterable[Mapping[str, object]]]
     ] = None,
 ) -> RiskSourceBatch:
+    from team_sports_baseline import active_owner, acquire_baseline
+    if active_owner() is not None:
+        return acquire_baseline("ice_hockey", target_date, history_loader)
     from scanners.basketball_scanner import BasketballScanner
 
     scanner = BasketballScanner()
@@ -2846,6 +2863,7 @@ def _research_attempt_summary(
     return summary
 
 
+@locked_worker
 def run_wettfinder(
     *,
     now: Optional[datetime] = None,
@@ -2985,6 +3003,16 @@ def run_wettfinder(
         )
     )
     previous = load_state(state_path)
+    from team_sports_baseline import (SPORTS as BASELINE_SPORTS, BaselineIntegrityError,
+        validate_batch, batch_due, current_batch, source_owner, collected_batch,
+        failed_batch, baseline_row)
+    from context_observations import ContextIntegrityError
+    shared_baselines = previous.get("team_sports_baselines", {})
+    if not isinstance(shared_baselines, dict) or set(shared_baselines) - set(BASELINE_SPORTS):
+        raise BaselineIntegrityError("invalid baseline batch inventory")
+    for sport, batch in shared_baselines.items():
+        validate_batch(batch, sport)
+    shared_baselines = dict(shared_baselines)
     prior_price_checks = previous.get("price_check_attempts", {})
     prior_price_checks = prior_price_checks if isinstance(prior_price_checks, dict) else {}
     previous_football = previous.get("football")
@@ -3259,6 +3287,54 @@ def run_wettfinder(
         source_status["tennis"]["model_refresh"] = tennis_refresh
         if tennis_refresh.get("errors") or tennis_refresh.get("status") in {"failed", "unavailable"}:
             source_status["tennis"]["operational_error_count"] += 1
+    # Prepare actual BB/NHL results before either catalog. A non-due baseline
+    # is a persisted revision, never another call to the underlying source.
+    baseline_due = {sport: batch_due(shared_baselines.get(sport), sport, now=current,
+                    target_date=target) for sport in BASELINE_SPORTS}
+    if production_state and riskobet_sources is None:
+        configured_risk_sources, risk_source_due = _riskobet_default_sources(
+            football_state, now=current, target_date=target,
+            research_due=research_discovery_due or any(baseline_due.values()),
+            **({"history_loaders": riskobet_history_loaders} if riskobet_history_loaders is not None else {}))
+        # Cricket retains its independent old discovery/retry decision.
+        risk_source_due["cricket"] = research_discovery_due
+    else:
+        configured_risk_sources = dict(riskobet_sources or {})
+        risk_source_due = {sport: sport in configured_risk_sources for sport in
+            ("football", "tennis", "basketball", "ice_hockey", "cricket", "esports")}
+    baseline_acquired = False
+    for sport in BASELINE_SPORTS:
+        if sport not in configured_risk_sources and sport not in shared_baselines:
+            continue
+        if sport in shared_baselines and not baseline_due[sport]:
+            risk_source_due[sport] = True
+            continue
+        source = configured_risk_sources.get(sport)
+        if source is None:
+            continue
+        try:
+            with source_owner((lambda: current) if fixed_now else runtime_clock) as owner:
+                result = source() if callable(source) else source
+            baseline_acquired |= owner["captured"]
+            batch = collected_batch(owner, sport, target, result)
+            if batch is not None:
+                shared_baselines[sport] = batch
+            configured_risk_sources[sport] = result
+        except (BaselineIntegrityError, ContextIntegrityError):
+            raise
+        except Exception as exc:
+            baseline_acquired |= owner["captured"]
+            if owner["captured"]:
+                shared_baselines[sport] = failed_batch(sport, target,
+                    current if fixed_now else runtime_clock(), previous=shared_baselines.get(sport))
+            # Isolate source failure without invoking the failed acquisition
+            # again inside the later RisikoBet aggregator.
+            def failed_source(error=exc):
+                raise error
+            configured_risk_sources[sport] = failed_source
+        risk_source_due[sport] = True
+    if not fixed_now and baseline_acquired:
+        current = _utc(runtime_clock())
     source_status["basketball"] = {
         "status": "live_only_no_prematch_model",
         "candidate_count": 0,
@@ -3269,6 +3345,17 @@ def run_wettfinder(
         "candidate_count": 0,
         "operational_error_count": 0,
     }
+    for sport, batch in shared_baselines.items():
+        active_entries, shared_risk_batch = current_batch(batch, now=current)
+        if batch["status"] != "failed":
+            configured_risk_sources[sport] = shared_risk_batch
+        rows = [baseline_row(entry) for entry in active_entries]
+        rows = [row for row in rows if row is not None]
+        source_rows.extend(rows)
+        source_status[sport] = dict(status="reused_shared_baseline" if not baseline_due[sport] else batch["status"],
+            candidate_count=len(rows), operational_error_count=int(batch["status"] != "completed"),
+            checked_at=batch["checked_at"], price_provider_status="unsupported_no_verified_odds_provider",
+            published_recommendation_count=0)
     source_status["cricket"] = {
         "status": "blocked_no_validated_model",
         "candidate_count": 0,
@@ -3677,6 +3764,7 @@ def run_wettfinder(
         "model_candidates": model_candidates,
         "candidates": candidates,
         "challenge_release_candidates": challenge_release_candidates,
+        **({"team_sports_baselines": shared_baselines} if shared_baselines else {}),
         "price_check_attempts": {
             str(row["key"]): (
                 current.isoformat()
@@ -3688,35 +3776,6 @@ def run_wettfinder(
         },
     }
     if enable_riskobet:
-        if production_state and riskobet_sources is None:
-            default_source_kwargs: dict[str, object] = {
-                "now": current,
-                "target_date": target,
-                "research_due": research_discovery_due,
-            }
-            if riskobet_history_loaders is not None:
-                default_source_kwargs["history_loaders"] = (
-                    riskobet_history_loaders
-                )
-            configured_risk_sources, risk_source_due = (
-                _riskobet_default_sources(
-                    football_state,
-                    **default_source_kwargs,
-                )
-            )
-        else:
-            configured_risk_sources = dict(riskobet_sources or {})
-            risk_source_due = {
-                sport: sport in configured_risk_sources
-                for sport in (
-                    "football",
-                    "tennis",
-                    "basketball",
-                    "ice_hockey",
-                    "cricket",
-                    "esports",
-                )
-            }
         try:
             settlement_summary: Optional[dict[str, object]] = None
             should_settle = (
