@@ -27,6 +27,7 @@ class EncodedHistoryCache:
         self._receipts = receipts
         self._generation = receipts._connection.transaction_generation
         self._changes = receipts._connection.total_changes
+        self._schema = self._schema_versions()
         self._max_bytes = max_bytes
         self._invalid = False
         self._entries = OrderedDict()
@@ -40,12 +41,20 @@ class EncodedHistoryCache:
                 "entries": len(self._entries), "entry_bytes": tuple(size for _, size in self._entries.values()),
                 "max_bytes": self._max_bytes}
 
+    def _schema_versions(self):
+        # DDL does not increment total_changes. Temp objects can shadow the
+        # inventory's unqualified table names, so pin both visible schemas.
+        connection = self._receipts._connection
+        return (connection.execute("PRAGMA main.schema_version").fetchone()[0],
+                connection.execute("PRAGMA temp.schema_version").fetchone()[0])
+
     def _check(self, receipts):
         try:
             receipts._check_transaction()
             if (self._invalid or receipts is not self._receipts
                     or receipts._connection.transaction_generation != self._generation
-                    or receipts._connection.total_changes != self._changes):
+                    or receipts._connection.total_changes != self._changes
+                    or self._schema_versions() != self._schema):
                 raise RuntimeArtifactTrustError("encoded history inventory changed during verification")
         except (RuntimeArtifactTrustError, sqlite3.Error):
             self._invalid = True

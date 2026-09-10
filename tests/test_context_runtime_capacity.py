@@ -456,6 +456,37 @@ def test_encoded_history_failed_encoding_discards_pending(encoded_history_fixtur
     assert cache.stats["misses"] == 2
 
 
+@pytest.mark.parametrize("statement", [
+    "DROP TABLE context_observations",
+    "CREATE TABLE cache_schema_change (id INTEGER)",
+    "ALTER TABLE context_observations ADD COLUMN cache_schema_change INTEGER",
+    "CREATE TEMP TABLE context_observations (digest TEXT)",
+])
+@pytest.mark.parametrize("cursor_sql", [False, True])
+@pytest.mark.parametrize("warm", [False, True])
+def test_encoded_history_schema_change_invalidates_original_inventory(
+        encoded_history_fixture, statement, cursor_sql, warm):
+    from context_runtime_history_cache import EncodedHistoryCache
+    from context_runtime_tennis import _replay_history
+    conn, receipts, now = encoded_history_fixture
+    cache = EncodedHistoryCache(receipts)
+    cutoff = now-timedelta(days=1)
+    if warm:
+        assert _replay_history(receipts, cutoff=cutoff, tour="ATP", max_bytes=None, cache=cache) == ()
+    generation, changes = conn.transaction_generation, conn.total_changes
+    executor = conn.cursor() if cursor_sql else conn
+    executor.execute(statement)
+    assert conn.in_transaction
+    assert (conn.transaction_generation, conn.total_changes) == (generation, changes)
+    if statement.startswith("DROP"):
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            _replay_history(receipts, cutoff=cutoff, tour="ATP", max_bytes=None)
+    for _ in range(2):
+        with pytest.raises(RuntimeArtifactTrustError, match="inventory changed"):
+            _replay_history(receipts, cutoff=cutoff, tour="ATP", max_bytes=None, cache=cache)
+    assert cache.stats["entries"] == cache.stats["bytes"] == cache.stats["pending_bytes"] == 0
+
+
 def test_encoded_history_empty_entries_and_tour_keys_are_bounded(encoded_history_fixture):
     from context_runtime_history_cache import EncodedHistoryCache
     from context_runtime_tennis import _replay_history
