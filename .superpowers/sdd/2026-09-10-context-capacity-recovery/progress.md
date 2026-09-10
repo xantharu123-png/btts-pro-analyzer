@@ -1,9 +1,99 @@
-# Context capacity repair execution ledger
+# SDD ledger — plan: docs/superpowers/plans/2026-09-10-context-capacity-recovery.md
 
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
-## Current checkpoint — 10 September 2026, 21:05 UTC: RELEASE HOLD
+## Final Task4 checkpoint — 10 September 2026, 22:25 UTC: RELEASE HOLD
+
+Task4 product52189a6/reportfc7f0c7; independent scoped implementation review
+approved, no introduced code findings. Full immutable fc7 Windows regression:
+6926passed/30skipped/97subtests,1631.90s,tracked QA clean; XML9ee9e3a322e6b15147aae44702b2398fdd8b593832d9a30da6843facefffde44.
+Final native focused run199passed/10skipped in171.42s BUT14196SQLite warnings;
+targeted warning-as-error repro identifies unchangedD2dataset.py:169-174
+numbered/named binding with a positional tuple. Independent review classifies
+this Important compatibility issue outside Task4's frozen owning-source scope.
+
+Current real input PASSED285.297CPU/285.388wall seconds,321584KiBRSS,
+48307receipts/10snapshots and exact unchanged incomplete/transport-only report.
+Fresh88DB backup/actual restore/HMAC and final actual UID997DAC/races passed.
+BUT G1 receipt-plus-consumer growth FAILED300.112CPU/300.233wall,child-9,
+472488KiBRSS,no report,input unchanged. G1 has95406receipts/11snapshots,
+13artifacts,6cutoffs,212172800bytes; sealedSHA01186c29cb6e31aef5815ae3f937d81401b9e72ddaaa30d934864bcf78daa966.
+G2/G3 not executed after the binding G1 failure, explicitly unproven. No limits
+raised, validation calls removed, histories pruned or model/source pins changed.
+
+No main push/updater-only exchange/app deployment. Fresh22:23UTCVPScheck:
+HEAD2dd1116,updater74b1c4b1,app/Caddy+7timers active/enabled,health200/ok.
+Known failed tennis-service state remains. All executed local/native QA jobs
+have ended; only ignored QA artifacts and durable reports were added.
+
+Next scope decision is REQUIRED before further product edits: address the
+remaining per-consumer owning validation cost (not another speculative LRU
+tweak) and separately repair the D2SQL binding with unchanged opaque-header
+checks. These owners are outside approvedTask4. Do not modify them, weaken
+acceptance or deploy merely because local tests/current-data timing passed.
+Task4 implementation work is preserved; capacity outcome and five-sport
+empirical context/model acceptance are not complete. Details/task hashes in
+task-4-native-evidence.md; all inherited WIP and untracked packages retained.
+
+## Task4 scoped implementation reviewed — 10 September 2026, 22:01 UTC
+
+Product checkpoint52189a6; report checkpointfc7f0c7. Real TDD reproduced eight
+cold builds instead of one fitting maximum basis; tests also exposed the
+last-encoding mutation and optional-preparation allocation bounds before fixes.
+Final focused capacity/live/shared run200passed/9Windows skips in114.95s.
+Independent task review finds no actionable product-code defects; scoped code
+approved, overall Task4/release NOT complete. Seven protected/source pins
+freshly rechecked unchanged. See task-4-report.md and task-4-review.md.
+
+Fresh actual88DB backup/isolated restore/HMAC passed34.74wall s, new stage
+betboy-live-backup-pknwmr9p; source context hashd304c164 unchanged. Exact7b6
+native replay failed299.992CPU/300.651wall,child-9,no report. Corrected phase
+trace proves one60.699CPU cold basis,10original checks,then9completed full
+snapshot-feature calls12.859–14.178s each; tenth deliberately interrupted at
+diagnosticCPU275. This is NOT an uninstrumented acceptance pass.
+
+Final fc7 archiveSHA1574c963 is sealed underbetboy-capacity-code-b38toqe5.
+Its exact native CLI PASSED the current input at285.297CPU/285.388wall seconds,
+321584KiBRSS,exit2 exact incomplete/transport-only report,all counts matched,
+input unchanged. Only14.612s wall headroom; growth remains required. Native
+DAC controls passed3write denials/8unsafe classes/parity. Separate clean LF
+QA worktree is detached atfc7f0c7 and running the complete new suite; b397
+outputs are retained. Final focused Linux tests are running. Receipt-plus-
+consumer growth generator is in preparation; root staged only a new synthetic
+working copy underbetboy-task4-growth-mxqhafsc, no live/old fixture edit.
+No main push, updater exchange, app deployment, source-data change or cap
+increase. Root owns integration/index/push/VPS; the growth-fixture agent writes
+only its ignored QA generator. Earlier WIP/worktrees and evidence are retained.
+
+## Approved continuation — 10 September 2026, 21:24 UTC
+
+User explicitly approved the shared fully validated Tennis history basis with
+separate historical cutoffs and unchanged full checks/limits. Task4 in the
+same plan records the bounded implementation and RED/native acceptance.
+Fresh Git check: repair46380d5, GitHub main2dd1116, no tracked WIP; inherited
+untracked review packages remain untouched. Existing isolated repair worktree
+is reused. Task2/3 product bytes are frozen; new source/native QA and release
+are still pending. No repeated directory mode change is permitted/needed.
+
+Preflight interface/self-consistency check:
+
+| Tasks | Producer/consumer or internal check | Result |
+| --- | --- | --- |
+| 1/4 | VerifiedReceiptMapping proof -> shared encoded histories | Reuse proof unchanged; no new decoder or raw trusted flag |
+| 2/4 | Exact D4 CLI/report -> online/quiesced updater checks | Public interface and twelve limitation strings unchanged |
+| 3/4 | Exact release replay -> updater-only installer acceptance | New actual-input evidence required before promotion |
+| 4/4 | Shared basis vs prefix admission and eviction tests | Global64MiB includes pending; complete cold fallback required |
+
+Ruling: validated metadata preplanning may alter which malformed original is
+reported first, but all formerly rejected inputs must still fail and individual
+original/snapshot replay order stays unchanged — no first-error order is part
+of the D4 contract — if incorrect, error precedence needs rework, not data changes.
+Ruling: preserve this existing tracked ledger and all old evidence despite the
+skill's scratch-cleanup convention — continuation/audit evidence belongs to
+the user — cost is retained small documentation files, not changed runtime.
+
+## Previous checkpoint — 10 September 2026, 21:05 UTC: RELEASE HOLD
 
 The explicitly approved12-directory mode procedure completed at20:35:36UTC;
 all original UID/GID/inodes preserved, original metadata durably saved. Real

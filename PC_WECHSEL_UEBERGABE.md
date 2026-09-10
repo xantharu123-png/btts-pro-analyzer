@@ -1,5 +1,65 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Abschluss — 11. September 2026, 00:25 CEST: NICHT deployen
+
+Task4 gemeinsame Historybasis umgesetzt/geprüft: Produkt52189a6,
+Berichts-HEADfc7f0c7, unabhängiges Scoped-Review ohne neue Code-Findings.
+Finale ganze Windows-Suite6926bestanden/30übersprungen/97Untertests,
+1631.90s; QA-Worktreefc7unverändert. XML9ee9e3a3...fffde44.
+Finale Linux-Tests199bestanden/10übersprungen, ABER14196SQLitewarnungen.
+Ursache separat bestätigt: alteD2-Routinecontext_models/dataset.py:169-174,
+?1-Binding mit Tupel; unterWarnung-als-Fehler reproduziert. Nicht unterdrücken.
+
+Echter aktueller Datenstand bestanden:285.297CPU/285.388wall Sekunden,
+48307Belege/10Snapshots,Eingabe unverändert. Größerer korrekter G1Testbestand
+mit95406Belegen/11Snapshots/6Cutoffs scheitert jedoch nach300.112CPU/
+300.233wall Sekunden,keinReport,472488KiBRSS. DamitweiterRELEASEHOLD.
+G1versiegelt212172800B unter`/var/lib/betboy-task4-growth-mxqhafsc/generation-1/context.db`,
+SHA01186c29cb6e31aef5815ae3f937d81401b9e72ddaaa30d934864bcf78daa966.
+Alle Originaldaten erhalten. G2/G3 nicht ausgeführt/nicht belegt.
+
+Neue weitergehende Freigabe nötig: verbleibende wiederholte Validierung in
+der eigentlichen Tennis-Featureanbindung und D2SQL-Kompatibilität bearbeiten.
+Diese Owner sind im bestätigtenTask4ausdrücklich eingefroren; nicht still
+ändern und keinesfalls Daten/Prüfungen/Limits reduzieren. AktuelleModelle
+sind dadurch nicht empirisch freigegeben; fünfSport-Kontextarbeit bleibtoffen.
+
+KeinMain-Push/Updateraustausch/Appdeployment. Frisch22:23UTC bestätigt:
+VPS/Main2dd1116,alterUpdater74b1c4b1,App/Caddy/7Timeraktiv,Healthintern/externok;
+bekannterTennis-Dienstfehler bleibt. Alle Prüfprozesse dieserRunde beendet.
+Berichte/SHAs/Befehle in`.superpowers/sdd/2026-09-10-context-capacity-recovery/`:
+`task-4-native-evidence.md`,`task-4-review.md`,`task-4-report.md`,`progress.md`.
+Ursprüngliche Worktrees/WIP/Outputs/A0/P4b3/Cricket/Stagehelper1441158,
+alle alten Historien/Keys/Marker unverändert. Zwölf Ordnerrechte NICHT erneutändern.
+
+## Fortsetzung — 11. September 2026: gemeinsame Historybasis in Abschlussprüfung
+
+Die zuletzt angefragte Architekturfreigabe liegt ausdrücklich vor. Task4 ist
+lokal umgesetzt: Code52189a6, Bericht-HEADfc7f0c7 auf dem bestehenden separaten
+Reparaturbranch. Eine vollständig validierte kanonische Basis pro Tour wird
+geteilt; alle Originale, historischen Zeitstände und Snapshot-Berechnungen
+werden weiterhin einzeln geprüft. Keine Modell-/Quellprüfer-/Helperänderung.
+Finale gezielte Tests200bestanden/9Windows-Skips; unabhängiges Scoped-Review
+ohne Produktcode-Findings. Das ist keine vollständige Releasefreigabe.
+
+Der erste exakte7b6-Linuxlauf scheiterte weiter amCPU300-Limit. Der Trace zeigt
+jetzt nur einen statt wiederholterHistoryaufbauten, aber zusätzlich13–14CPU
+Sekunden pro einzelner Snapshot-Featureberechnung. Finale native Messung bei
+fc7 bestanden:285.297CPU/285.388wall Sekunden,321584KiBRSS,alle10Snapshots/
+48307Belege geprüft,Eingabe unverändert. Nur14.6s Reserve. Ganze Windows-Suite
+und finale Linux-Regressionsrunde laufen noch; Wachstum mit mehrBelegen UND
+mehrPrognoseprüfungen ist offen. Nicht alte Tests als neuen Gesamterfolg zählen.
+
+Neues vollständiges88DB-Backup/isolierterRestore/HMAC erfolgreich34.74s unter
+`/var/lib/betboy-live-backup-pknwmr9p`; Contextkopie unverändertd304c164...169b9.
+Finaler versiegelter QA-Code:`/var/lib/betboy-capacity-code-b38toqe5/source`,
+Archiv1574c963...dde70f. App/VPS/Main weiterhin2dd1116, alter Updater74b1c4b1;
+noch KEIN neuer Main-Push/Updateraustausch/Deployment. Keine erneuten chmods.
+Aktuelle Belege:`task-4-report.md`,`task-4-review.md`,`task-4-native-evidence.md`
+und`progress.md` in`.superpowers/sdd/2026-09-10-context-capacity-recovery/`.
+Die eigentliche fünf-Sport-Verletzungs-/Belastungsfreigabe bleibt getrennt und
+offen. Cricket sowie alle übernommenen WIP/Daten/Schlüssel/Marker bleiben erhalten.
+
 ## Fortsetzung — 10. September 2026, 23:05 CEST: Release weiterhin HOLD
 
 Die zusätzlich freigegebenen zwölf Ordner wurden erfolgreich0775→0755 gesetzt;
