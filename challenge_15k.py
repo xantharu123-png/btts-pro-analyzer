@@ -2195,8 +2195,11 @@ def scan_daily_challenge(
     allow_above_challenge_probability: bool = False,
     candidate_profile: str = CANDIDATE_PROFILE_CHALLENGE,
     progress_cb=None,
+    original_capture=None,
 ) -> dict[str, Any]:
     """Run one explicit, quota-aware scan over at most fourteen days."""
+    if original_capture is not None and not callable(original_capture):
+        raise ValueError("original_capture must be callable or None")
     if not isinstance(allow_above_challenge_probability, bool):
         raise ValueError("allow_above_challenge_probability must be boolean")
     if candidate_profile not in (
@@ -2565,6 +2568,7 @@ def scan_daily_challenge(
                 allow_above_challenge_probability
             ),
             candidate_profile=candidate_profile,
+            **({"original_capture": original_capture} if original_capture is not None else {}),
         )
         if fixture_id in fixture_team_histories:
             for candidate in fixture_candidates:

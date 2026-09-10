@@ -84,6 +84,7 @@ def test_whole_engine_parent_ast_unchanged_outside_explicit_observing_seams():
 
 
 def test_whole_challenge_module_has_only_the_authorized_closure_type_replacement():
+    from tests.test_football_final_original_a0 import strip_exact_a0_additions
     expected = ast.parse(old_blob("challenge_15k.py"))
     outer = next(node for node in expected.body if isinstance(node, ast.FunctionDef) and node.name == "_conservative_calibration_map")
     loop = next(node for node in outer.body if isinstance(node, ast.For))
@@ -91,6 +92,9 @@ def test_whole_challenge_module_has_only_the_authorized_closure_type_replacement
     assert ast.unparse(loop.body[-1]) == "combined[spec.key] = conservative_curve"
     loop.body[-2:] = ast.parse("from challenge_engine import ConservativeMarketCalibration\ncombined[spec.key] = ConservativeMarketCalibration(tuple(curves))").body
     actual = ast.parse((ROOT / "challenge_15k.py").read_text(encoding="utf-8"))
+    scanner = next(node for node in actual.body if isinstance(node, ast.FunctionDef)
+                   and node.name == "scan_daily_challenge")
+    strip_exact_a0_additions(scanner, "scanner")
     assert ast.dump(actual, include_attributes=False) == ast.dump(expected, include_attributes=False)
 
 

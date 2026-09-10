@@ -451,6 +451,8 @@ def _run_market_scan_worker(
     scope: dict,
     market_kinds: Optional[frozenset[str]] = None,
     progress_cb=None,
+    *,
+    original_capture=None,
 ) -> dict:
     """Hintergrund-Worker für den Markt-Scan (thread-sicher, kein st.*).
 
@@ -458,6 +460,8 @@ def _run_market_scan_worker(
     zurückgegeben — ändert der Nutzer die Auswahl während des Scans,
     erkennt die Seite das wie bisher am Scope-Vergleich.
     """
+    if original_capture is not None and not callable(original_capture):
+        raise ValueError("original_capture must be callable or None")
     provider = ChallengeDataProvider(api_football_key, weather_key)
 
     def model_progress(value: float, text: str) -> None:
@@ -480,6 +484,7 @@ def _run_market_scan_worker(
             allow_above_challenge_probability=True,
             candidate_profile="wettfinder",
             **scan_kwargs,
+            **({"original_capture": original_capture} if original_capture is not None else {}),
         )
     if capture is not None:
         challenge_snapshot["context_capture"] = capture.report()

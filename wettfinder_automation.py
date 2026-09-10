@@ -2105,7 +2105,11 @@ def write_state(document: dict[str, Any], path: str | Path = STATE_PATH) -> None
 def _default_football_scan(
     search_date: date,
     config: AppConfig,
+    *,
+    original_capture=None,
 ) -> dict[str, Any]:
+    if original_capture is not None and not callable(original_capture):
+        raise ValueError("original_capture must be callable or None")
     if not config.api_football_key:
         raise RuntimeError("API_FOOTBALL_KEY is not configured")
     provider = ChallengeDataProvider(
@@ -2121,6 +2125,7 @@ def _default_football_scan(
             MAX_SCAN_FIXTURES,
             allow_above_challenge_probability=True,
             candidate_profile="wettfinder",
+            **({"original_capture": original_capture} if original_capture is not None else {}),
         )
     if capture is not None:
         snapshot["context_capture"] = capture.report()
