@@ -398,6 +398,47 @@ def test_real_sqlite_wal_snapshot_is_covered_by_actual_capacity_reservation(tmp_
         connection.close()
 
 
+@pytest.mark.parametrize("inventory", ["123", "0", "partial", "123\n"])
+def test_complete_guard_capacity_program_resolves_its_own_imports(tmp_path, capsys, inventory):
+    import builtins
+    source = source_function("repair_guard")
+    program = source.split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    for name in ("stage", "recovery", "restore"):
+        (tmp_path / name).mkdir()
+    class IsolatedPath(type(Path())):
+        def lstat(self):
+            assert tmp_path in self.parents, "guard escaped isolated capacity paths"
+            info = super().lstat()
+            values = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+            values["st_uid"] = 0  # Unit principal boundary only; real directories.
+            return SimpleNamespace(**values)
+    def isolated_path(value):
+        return IsolatedPath(tmp_path / "restore" if str(value) == "/var/tmp" else value)
+    def statvfs(path):
+        assert tmp_path in Path(path).parents, "guard escaped isolated capacity mounts"
+        return SimpleNamespace(f_bavail=2**40, f_frsize=1)
+    isolated_os = SimpleNamespace(**{**vars(os), "geteuid": lambda: 0, "statvfs": statvfs})
+    isolated_sys = SimpleNamespace(argv=["-", "capacity", str(tmp_path / "stage"),
+                                         str(tmp_path / "recovery"), inventory])
+    real_import = builtins.__import__
+    def isolated_import(name, *args, **kwargs):
+        if name == "os": return isolated_os
+        if name == "sys": return isolated_sys
+        if name == "pathlib": return SimpleNamespace(Path=isolated_path)
+        if name == "pwd": return SimpleNamespace(getpwnam=lambda _: SimpleNamespace(pw_uid=997, pw_gid=987))
+        return real_import(name, *args, **kwargs)
+    # Execute the FULL unmodified program, with no injected algorithm globals
+    # (especially no re). Only process arguments and platform/DAC paths vary.
+    namespace = {"__builtins__": {**vars(builtins), "__import__": isolated_import}}
+    if inventory == "123":
+        exec(compile(program, "complete-repair-guard", "exec"), namespace)
+        assert capsys.readouterr().out.strip() == str(123 * 2048 + 67108864)
+    else:
+        with pytest.raises(SystemExit, match="no database capacity inventory"):
+            exec(compile(program, "complete-repair-guard", "exec"), namespace)
+        assert capsys.readouterr().out == ""
+
+
 def test_exact_two_argument_request_has_no_caller_remote_or_target_path():
     data = repair_namespace()
     assert data["parse_request"]([TARGET, NEW_SHA]) == (TARGET, NEW_SHA)

@@ -188,3 +188,35 @@ Windows-only real-flock skip, unchanged 340 Task2 passes. Bash `-n` and
 `eb2b1843a58c7b66171feaa832d9425429d6637cf9249992ab986cc4767bcf63`.
 The reviewer report and ignored independent repro remained untouched and
 excluded from the scoped installer/tests/README/implementation-report commit.
+
+## Standalone guard import correction (base 27ceb8b)
+
+Independent re-review found a P1 missed by the earlier AST branch tests: the
+standalone `repair_guard` program used `re.fullmatch` but did not import `re`.
+The 430-test result above therefore did not establish standalone guard
+execution. The unchanged reviewer reproduction produced the exact
+`NameError: name 're' is not defined` before capacity admission/fetch.
+
+A new test executes the entire unmodified guard program with no injected
+algorithm globals. Only process arguments, OS/principal/platform facilities
+and paths are safely isolated; directory metadata comes from real temporary
+directories with transparent unit UID emulation. Four cases (valid inventory,
+zero, partial text, trailing newline) first failed with the missing-import
+NameError. The sole production change adds `import re` to that guard.
+
+After that fix, a Windows test-path adapter initially failed to redirect
+`/var/tmp`; this was corrected in the test, not production. The intermediate
+full run (433 passed, 1 failed, 1 skip) had loaded that old adapter and is not
+final evidence. The corrected full-program cases passed 4/4 without supplying
+`re` or any other missing algorithm import to the executed namespace.
+
+Task2/helper bytes and reviewer artifacts remain unchanged. No VPS, push or
+production action occurred. Final rerun command uses the same two test files
+and flags, with `--basetemp=.pytest_tmp/repair-import-final` and
+`--junitxml=.pytest_tmp/repair-import-final.xml`. Installer LF SHA256 is
+`953e507bcc84760a5deb2028f668cf889bf90f9ca53cb06b2e5edfeb2711b176`.
+
+Final fresh result: **434 passed, 1 skipped in 57.56s**, exit0 (94 Task3
+passes plus unchanged 340 Task2 passes; only the existing Windows real-flock
+skip). Bash `-n` and scoped `diff --check` pass. This corrects the standalone
+import gap but remains a review checkpoint with native/production gates open.

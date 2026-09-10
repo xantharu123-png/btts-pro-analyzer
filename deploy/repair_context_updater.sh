@@ -1943,6 +1943,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import stat
 import sys
 
