@@ -91,6 +91,8 @@ def _replay_history(receipts, *, cutoff, tour, max_bytes, cache=None):
         if cached is not None:
             return cached
         history = cache._lookup_covering(receipts, cutoff=cutoff, tour=tour, max_bytes=max_bytes)
+        if history is not None and cache._basis_cutoffs is not None:
+            return history  # A time view is not a second retained encoded pool.
     if history is None:
         history = _cold_replay_history(receipts, cutoff=cutoff, tour=tour, max_bytes=max_bytes)
     if cache is not None:
@@ -143,6 +145,29 @@ def verify_live_originals(artifacts, created_at, receipts, limitations, *, histo
     from context_runtime_history_cache import EncodedHistoryCache, MAX_ENCODED_HISTORY_BYTES
     from context_runtime_inventory import VerifiedReceiptMapping
     variants, checked, history_cache = None, {}, None
+    if isinstance(receipts, VerifiedReceiptMapping):
+        receipts._check_validation()
+        if receipts._validation_stamp is not None:
+            # Full physical proof precedes planning. Owning metadata validation
+            # can now fail before an earlier original's model/native replay;
+            # individual original and snapshot replay order stays unchanged.
+            cutoffs = {}
+            for ref, envelope in artifacts.items():
+                if envelope["kind"] != ORIGINAL_ARTIFACT_KIND:
+                    continue
+                publication = validate_original_publication(envelope["payload"], created_at=created_at[ref])
+                origin = publication["origin"]
+                tour, cutoff = origin["event"]["tour"], datetime.fromisoformat(origin["cutoff"])
+                cutoffs[tour] = max(cutoffs.get(tour, cutoff), cutoff)
+            if cutoffs:
+                history_cache = EncodedHistoryCache(receipts, max_bytes=MAX_ENCODED_HISTORY_BYTES)
+                history_cache._plan_bases(receipts, cutoffs)
+                for tour, cutoff in cutoffs.items():
+                    # This is cache preparation, not admission of a consumer.
+                    # A too-large maximum must not reject a valid small prefix.
+                    history = _cold_replay_history(receipts, cutoff=cutoff, tour=tour, max_bytes=None)
+                    history_cache._store(receipts, history, cutoff=cutoff, tour=tour)
+                    del history
     # Opaque unopened D2 final receipts are never decoded here or promoted into
     # source inputs. A live original requiring such a receipt will lack its
     # verified native target and fail below, not silently use an older alias.
@@ -151,7 +176,7 @@ def verify_live_originals(artifacts, created_at, receipts, limitations, *, histo
             continue
         if variants is None:
             variants = _code_variants()
-            if isinstance(receipts, VerifiedReceiptMapping):
+            if history_cache is None and isinstance(receipts, VerifiedReceiptMapping):
                 history_cache = EncodedHistoryCache(receipts, max_bytes=MAX_ENCODED_HISTORY_BYTES)
         _verify_live_original(ref, envelope["payload"], artifacts, created_at, receipts, variants, history_max_bytes, history_cache)
         checked[ref] = LiveReplayDescriptor(ref, artifacts, receipts, history_max_bytes, history_cache)

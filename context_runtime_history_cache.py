@@ -28,6 +28,8 @@ class EncodedHistoryCache:
         self._generation = receipts._connection.transaction_generation
         self._changes = receipts._connection.total_changes
         self._schema = self._schema_versions()
+        self._proof = receipts._validation_stamp
+        self._basis_cutoffs = None
         self._max_bytes = max_bytes
         self._invalid = False
         self._entries = OrderedDict()
@@ -54,6 +56,7 @@ class EncodedHistoryCache:
             if (self._invalid or receipts is not self._receipts
                     or receipts._connection.transaction_generation != self._generation
                     or receipts._connection.total_changes != self._changes
+                    or (self._proof is not None and receipts._validation_stamp != self._proof)
                     or self._schema_versions() != self._schema):
                 raise RuntimeArtifactTrustError("encoded history inventory changed during verification")
         except (RuntimeArtifactTrustError, sqlite3.Error):
@@ -61,6 +64,21 @@ class EncodedHistoryCache:
             self._entries.clear()
             self._bytes = self._pending_bytes = 0
             raise
+
+    def _plan_bases(self, receipts, cutoffs):
+        """Keep only bounded cutoff metadata, never caller-granted proof/data."""
+        self._check(receipts)
+        receipts._check_validation()
+        if receipts._validation_stamp is None:
+            return False
+        from context_sources.tennis_status import select_tennis_observations
+        planned = {}
+        for tour, cutoff in cutoffs.items():
+            select_tennis_observations((), cutoff=cutoff, tour=tour)
+            planned[tour] = canonical_timestamp(cutoff)
+        self._proof = receipts._validation_stamp
+        self._basis_cutoffs = planned
+        return True
 
     def _lookup(self, receipts, *, cutoff, tour, max_bytes):
         self._check(receipts)
@@ -116,6 +134,11 @@ class EncodedHistoryCache:
 
     def _store(self, receipts, history, *, cutoff, tour):
         self._check(receipts)
+        key = canonical_timestamp(cutoff), tour
+        if self._basis_cutoffs is not None and self._basis_cutoffs.get(tour) != key[0]:
+            # A missing/evicted/oversized maximum falls back to complete cold
+            # selection. Retaining its prefixes would recreate the old thrash.
+            return
         if self._max_bytes == 0:
             self._counters["bypasses"] += 1
             return
@@ -124,6 +147,7 @@ class EncodedHistoryCache:
             for row in history:
                 self._check(receipts)
                 encoded = canonical_bytes(row)  # One replay-row work buffer, not a giant tuple dump.
+                self._check(receipts)  # Also guard the final/oversized row before bypass.
                 needed = self._pending_bytes + len(encoded)
                 if needed > self._max_bytes:
                     self._counters["bypasses"] += 1
@@ -136,7 +160,6 @@ class EncodedHistoryCache:
             self._check(receipts)
             while len(self._entries) >= _MAX_ENTRIES:
                 self._evict()
-            key = canonical_timestamp(cutoff), tour
             self._entries[key] = (tuple(pending), self._pending_bytes)
             self._bytes += self._pending_bytes
             self._counters["stores"] += 1
