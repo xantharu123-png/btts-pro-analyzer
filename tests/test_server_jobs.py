@@ -5,13 +5,16 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from scripts import backup_runtime_databases as backup
 from scripts import migrate_challenge_ledgers as challenge_migration
@@ -112,7 +115,7 @@ def test_polling_timers_keep_a_persistent_calendar_trigger():
             assert "OnUnitActiveSec=" not in timer
 
 
-def test_update_preflights_before_downtime_and_has_recovery_path():
+def test_update_preflights_before_downtime_and_has_recovery_path(monkeypatch):
     root = Path(__file__).resolve().parents[1]
     update = (root / "deploy" / "update_server.sh").read_text(
         encoding="utf-8"
@@ -163,9 +166,35 @@ def test_update_preflights_before_downtime_and_has_recovery_path():
     assert "requirements.txt unchanged; skipping pip completely" in update
     assert "requirements.txt changed; use the separately reviewed" in update
     assert "pip install" not in update
-    assert "Fresh root-protected backup verified" in update
+    preflight = _shell_function(update, "preflight")
+    context_preflight = _shell_function(update, "preflight_context_runtime")
+    assert "preflight_context_runtime" in preflight
+    assert context_preflight.index("create_online_preflight_backup") < context_preflight.index("verify_context_runtime_from_archive")
+    # This function contains column-zero Python dictionary closers; the older
+    # simple shell extractor would stop inside its producer heredoc.
+    producer = update[update.index("produce_update_backup() {"):update.index("\nverify_clean_worktree() {")]
+    assert producer.index('verify_backup_archive "${partial_archive}"') < producer.index('capture_root_verifier "${partial_archive}.helper.log"')
+    assert producer.index('Full backup restore/authentication verification failed.') < producer.index('os.rename(partial, target)')
+    assert 'launcher.py" backup' in producer
+    assert '"$(trusted_file scripts/backup_runtime_databases.py)" "${partial_archive}"' in producer
+    # Execute both actual phase wrappers; their process boundary is recorded,
+    # not a real service stop or a root archive publication on this host.
+    harness = "set -euo pipefail\nPATH=/usr/bin:/bin\nSTAGE_DIR=stage; RECOVERY_BACKUP_DIR=recovery; PREVIOUS_HEAD=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    harness += "produce_update_backup() { printf '%s|%s|%s|%s\\n' \"$@\"; }\n"
+    for name in ("create_online_preflight_backup", "create_fresh_backup"):
+        harness += _shell_function(update, name) + "\n}\n"
+    result = subprocess.run([_bash_executable()], input=harness + "create_online_preflight_backup\ncreate_fresh_backup\n",
+                            text=True, capture_output=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    online, quiesced = [line.split("|") for line in result.stdout.splitlines()]
+    assert online[:2] == ["online", "stage/backup-online-work"]
+    assert quiesced[:2] == ["quiesced", "stage/backup-quiesced-work"]
+    assert online[2] != quiesced[2] and all(row[2].startswith("recovery/") for row in (online, quiesced))
+    assert online[3] == quiesced[3] == "a" * 40
     assert "PRAGMA quick_check" in update
-    assert '--verify-only "${work_archive}" --recovery-mode' in update
+    helper = str(root / "scripts/backup_runtime_databases.py")
+    assert _backup_launcher_command(update, monkeypatch, "backup", 0, [helper, "fresh.zip"]) == [
+        "/usr/bin/python3", "-I", "-B", helper, "--verify-only", "fresh.zip", "--recovery-mode"]
     assert '"database_count": len(inventory)' in update
     assert 'readonly RECOVERY_BACKUP_DIR=/var/backups/betboy-update' in update
     assert "FAIL-CLOSED: the target migration/app may have touched databases" in update
@@ -2289,7 +2318,7 @@ def test_staged_backup_release_has_no_obsolete_readonly_source_migration():
         assert "--prepare-readonly-sources" not in deploy_source
 
 
-def test_deployers_verify_backup_unit_dac_with_its_supplementary_group():
+def test_deployers_verify_backup_unit_dac_with_its_supplementary_group(tmp_path):
     root = Path(__file__).resolve().parents[1]
     update = (root / "deploy" / "update_server.sh").read_text(encoding="utf-8")
     bootstrap = (root / "deploy" / "bootstrap_server.sh").read_text(
@@ -2307,7 +2336,45 @@ def test_deployers_verify_backup_unit_dac_with_its_supplementary_group():
         assert '"${LEDGER_MIGRATION_MARKER}"' in verify_dac
         assert "/etc/betboy/betboy.env" in verify_dac
         assert "/var/backups/betboy" in verify_dac
-        assert "-name '*.db-wal'" in verify_dac
+        if script == bootstrap:
+            assert "-name '*.db-wal'" in verify_dac
+
+    # Real Unicode/casefold inventory and actual shell DAC loop; only runuser
+    # is recorded rather than impersonating a Linux UID on the test host.
+    app = tmp_path / "app"
+    app.mkdir()
+    runtime = app / "runtime"
+    runtime.mkdir()
+    names = ("normal.db", "Historical.ſQLite", "Historical.ſQLite-WAL", "Other.SQLITE3-shm")
+    for name in names:
+        (runtime / name).write_bytes(b"sqlite fixture inventory")
+    (runtime / "ignore.txt").write_text("not a database", encoding="utf-8")
+    marker = tmp_path / "marker"
+    marker.write_text("fixture marker", encoding="utf-8")
+    harness = "set -euo pipefail\nPATH=/usr/bin:/bin\n"
+    for key, value in {"APP_DIR": app.as_posix(), "STAGE_DIR": tmp_path.as_posix(),
+                       "LEDGER_HMAC_KEY": "key", "LEDGER_MIGRATION_MARKER": marker.as_posix()}.items():
+        harness += f"{key}={shlex.quote(value)}\n"
+    harness += "die() { printf '%s\\n' \"$*\" >&2; exit 1; }\n"
+    harness += "runuser() { printf '%s|' \"$@\"; printf '\\n'; [[ \"${@: -1}\" != \"${FAIL_DAC:-}\" ]]; }\n"
+    harness += _shell_function(update, "enumerate_backup_sources").replace("/usr/bin/python3", shlex.quote(sys.executable)) + "\n}\n"
+    harness += _shell_function(update, "verify_backup_source_dac") + "\n}\nverify_backup_source_dac\nprintf 'accepted\\n'\n"
+    result = subprocess.run([_bash_executable()], input=harness, text=True, encoding="utf-8", capture_output=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    calls = [line[:-1].split("|") for line in result.stdout.splitlines() if line != "accepted"]
+    principal = ["-u", "betboy-backup", "-g", "betboy-backup", "-G", "betboy", "--", "/usr/bin/test"]
+    assert all(call[:8] == principal for call in calls)
+    expected = {*(str(runtime / name).replace("\\", "/") for name in names), runtime.as_posix(), app.as_posix(),
+                "key", marker.as_posix(), "/etc/betboy/betboy.env"}
+    assert {call[-1] for call in calls if call[8:-1] == ["!", "-w"]} == expected
+    assert [call for call in calls if call[8:-1] == ["-w"]] == [principal + ["-w", "/var/backups/betboy"]]
+    # A writable companion must reject, not merely appear in a printed list.
+    inventory = tmp_path / "backup-source-dac.paths"
+    inventory.unlink()
+    result = subprocess.run([_bash_executable()], input="FAIL_DAC=" + shlex.quote((runtime / names[2]).as_posix()) + "\n" + harness,
+                            text=True, encoding="utf-8", capture_output=True, timeout=20)
+    assert result.returncode != 0 and "accepted" not in result.stdout
+    assert "can write live SQLite state" in result.stderr
 
     assert "prepare_backup_storage_and_sources\nverify_backup_source_dac" in update
     assert (
@@ -3070,7 +3137,68 @@ def test_backup_tree_manifest_rejects_boolean_version_and_duplicate_keys(tmp_pat
         backup.restore_backup_tree(duplicate_snapshot, source)
 
 
-def test_updater_publishes_backup_snapshot_only_after_helper_success():
+def _backup_launcher_command(update, monkeypatch, role, uid, arguments):
+    """Run the pinned-byte launcher; simulate only Unix principal/exec limits."""
+    import pytest
+
+    root = Path(__file__).resolve().parents[1]
+    commands, limits = [], []
+
+    class ExecBoundary(Exception):
+        pass
+
+    class HelperPath(type(Path())):
+        def lstat(self):
+            if self.name in {"backup_runtime_databases.py", "betboy-backup-runtime.py"}:
+                return SimpleNamespace(st_mode=stat.S_IFREG | 0o644, st_uid=0, st_nlink=1)
+            return super().lstat()
+
+        def open(self, *args, **kwargs):
+            if self.name == "betboy-backup-runtime.py":
+                return (root / "scripts/backup_runtime_databases.py").open(*args, **kwargs)
+            return super().open(*args, **kwargs)
+
+    def capture(executable, command, environment):
+        assert executable == "/usr/bin/python3"
+        assert all(environment[name] == "1" for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+                                                       "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"))
+        commands.append(command)
+        raise ExecBoundary
+
+    fake_os = SimpleNamespace(**{name: getattr(os, name) for name in dir(os)})
+    fake_os.geteuid = lambda: uid
+    fake_os.execve = capture
+    with monkeypatch.context() as scoped:
+        scoped.setitem(sys.modules, "os", fake_os)
+        scoped.setitem(sys.modules, "pathlib", SimpleNamespace(Path=HelperPath))
+        scoped.setitem(sys.modules, "pwd", SimpleNamespace(getpwnam=lambda name: SimpleNamespace(pw_uid=1001)))
+        scoped.setitem(sys.modules, "resource", SimpleNamespace(RLIMIT_AS=9, RLIMIT_CPU=0, setrlimit=lambda *args: limits.append(args)))
+        scoped.setattr(sys, "argv", ["launcher", role, *arguments])
+        with pytest.raises(ExecBoundary):
+            exec(compile(_shell_python_heredoc(update, "verification_launcher_source"), "actual-updater-launcher", "exec"), {})
+    assert limits == [(9, (2147483648, 2147483648)), (0, (300, 300))]
+    return commands[0]
+
+
+def _capacity_admission(update, monkeypatch, mounts):
+    """Execute actual accounting with simulated devices/free bytes, not DAC."""
+    visits = []
+
+    def free(path):
+        visits.append(path)
+        return SimpleNamespace(f_bavail=mounts[path][1], f_frsize=1)
+
+    fake_os = SimpleNamespace(path=SimpleNamespace(lexists=lambda path: path in mounts),
+        stat=lambda path, **kwargs: SimpleNamespace(st_dev=mounts[path][0], st_mode=stat.S_IFDIR | 0o755, st_uid=0),
+        statvfs=free)
+    with monkeypatch.context() as scoped:
+        scoped.setitem(sys.modules, "os", fake_os)
+        scoped.setattr(sys, "argv", ["capacity", "1024", "1024"])
+        exec(compile(_shell_python_heredoc(update, "check_capacity_space"), "actual-updater-capacity", "exec"), {})
+    return set(visits)
+
+
+def test_updater_publishes_backup_snapshot_only_after_helper_success(monkeypatch):
     root = Path(__file__).resolve().parents[1]
     update = (root / "deploy" / "update_server.sh").read_text(encoding="utf-8")
     snapshot = _shell_function(update, "snapshot_backup_archives")
@@ -3088,12 +3216,33 @@ def test_updater_publishes_backup_snapshot_only_after_helper_success():
 
     verify = _shell_function(update, "verify_backup_service_migration")
     assert "--verify-backup-tree-update" in verify
-    assert "--verify-only" in verify
+    assert verify.index("--verify-backup-tree-update") < verify.index("capture_backup_service_verifier")
+    capture = _shell_function(update, "capture_backup_service_verifier")
+    assert 'verification_launcher_source | runuser -u betboy-backup --' in capture
+    assert '/usr/bin/python3 -I -B - backup-service "${archive}"' in capture
+    assert _backup_launcher_command(update, monkeypatch, "backup-service", 1001, ["scheduled.zip"]) == [
+        "/usr/bin/python3", "-I", "-B", str(Path("/usr/local/libexec/betboy-backup-runtime.py")), "--verify-only", "scheduled.zip"]
+    import pytest
+    # The scheduled role cannot be reused as root or given recovery overrides.
+    for uid, arguments in ((0, ["scheduled.zip"]), (1002, ["scheduled.zip"]),
+                           (1001, ["scheduled.zip", "--recovery-mode"])):
+        with pytest.raises(SystemExit):
+            _backup_launcher_command(update, monkeypatch, "backup-service", uid, arguments)
 
     preflight = _shell_function(update, "preflight")
     assert "du -skx --apparent-size /var/backups/betboy" in preflight
-    assert "database_apparent_kib * 5 + 524288" in preflight
-    assert "independent backup snapshot and restore" in preflight
+    assert preflight.index("enumerate_backup_sources bytes") < preflight.index('check_capacity_space "${backup_apparent_kib}" "${database_apparent_kib}"')
+    assert preflight.index("check_capacity_space") < preflight.index("preflight_context_runtime")
+    # One MiB each of existing backups/databases needs 519/517/388 MiB
+    # respectively. Exact per-mount admission protects each snapshot/restore.
+    mib = 1024**2
+    mounts = {"/var/tmp": (1, 519*mib), "/var/backups/betboy-update": (2, 517*mib), "/var/lib": (3, 388*mib)}
+    assert _capacity_admission(update, monkeypatch, mounts) == set(mounts)
+    for path in mounts:
+        tight = dict(mounts)
+        tight[path] = (mounts[path][0], mounts[path][1] - 1)
+        with pytest.raises(SystemExit, match="insufficient combined"):
+            _capacity_admission(update, monkeypatch, tight)
 
     root_snapshot = _shell_function(update, "snapshot_root_files")
     assert (
@@ -3104,7 +3253,6 @@ def test_updater_publishes_backup_snapshot_only_after_helper_success():
     assert "Backup parent is writable by a non-root account" in root_snapshot
     assert "Backup destination must share its parent filesystem" in root_snapshot
     assert "mountpoint -q /var/backups/betboy" in root_snapshot
-    assert "df -Pk /var/backups" in preflight
 
 
 def test_caddy_frame_policy_is_installed_by_bootstrap_and_updater():
@@ -3123,7 +3271,7 @@ def test_caddy_frame_policy_is_installed_by_bootstrap_and_updater():
             assert source.count(header) == 1
 
 
-def test_backup_user_migration_is_updater_and_rollback_compatible():
+def test_backup_user_migration_is_updater_and_rollback_compatible(monkeypatch):
     root = Path(__file__).resolve().parents[1]
     update = (root / "deploy" / "update_server.sh").read_text(
         encoding="utf-8"
@@ -3162,7 +3310,19 @@ def test_backup_user_migration_is_updater_and_rollback_compatible():
     assert "apply_backup_source_metadata restore" in update
     assert "snapshot_backup_archives" in update
     assert "restore_backup_archives" in update
-    assert 'stat -c \'%d\' /var/tmp' in update
+    import pytest
+    # Sharing one physical device must add all reservations; a separate
+    # recovery mount must never inherit its roomier parent's free space.
+    paths = ("/var/tmp", "/var/backups/betboy-update", "/var/lib")
+    mib = 1024**2
+    assert _capacity_admission(update, monkeypatch, {path: (1, 1424*mib) for path in paths}) == set(paths)
+    with pytest.raises(SystemExit, match="insufficient combined"):
+        _capacity_admission(update, monkeypatch, {path: (1, 1424*mib - 1) for path in paths})
+    mounts = {path: (index, 2048*mib) for index, path in enumerate(paths)}
+    mounts["/var/backups"] = (9, 8192*mib)
+    mounts["/var/backups/betboy-update"] = (2, 0)
+    with pytest.raises(SystemExit, match="insufficient combined"):
+        _capacity_admission(update, monkeypatch, mounts)
     assert 'chown "${BACKUP_DIR_UID}:${BACKUP_DIR_GID}"' in update
     assert "restore_backup_principal_state" in update
     assert "BACKUP_HELPER_WAS_PRESENT" in update
