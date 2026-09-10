@@ -242,6 +242,8 @@ def test_lazy_membership_does_not_decode_unopened_final(tmp_path, monkeypatch):
         assert _replay_history(receipts, cutoff=EVALUATED, tour="ATP", max_bytes=None, cache=cache) == ()
         assert _replay_history(receipts, cutoff=EVALUATED, tour="ATP", max_bytes=None, cache=cache) == ()
         assert cache.stats["hits"] == 1
+        assert _replay_history(receipts, cutoff=EVALUATED-timedelta(days=3650), tour="ATP", max_bytes=0, cache=cache) == ()
+        assert cache.stats["covering_hits"] == 1
     report = runtime.verify_context_database(packet["path"])
     assert "d2-final-source-replay-not-opened" in report["limitations"]
     with closing(sqlite3.connect(packet["path"])) as conn, conn:
@@ -322,6 +324,150 @@ def test_encoded_history_eight_consumers_two_cold_passes(encoded_history_fixture
     assert cache.stats["hits"] == 6 and cache.stats["misses"] == 2
     assert cache.stats["entries"] == 2
     assert cache.stats["bytes"] == sum(len(canonical_bytes(row)) for rows in expected for row in rows)
+
+
+def test_covering_history_later_first_exact_owning_parity(encoded_history_fixture, monkeypatch):
+    from datetime import timezone
+    import context_runtime_tennis as tennis_runtime
+    from context_runtime_history_cache import EncodedHistoryCache
+    from context_sources.tennis_status import select_tennis_observations
+    _, receipts, now = encoded_history_fixture
+    baseline = tuple(receipts.values())
+    receipts.validate_all()
+    cache = EncodedHistoryCache(receipts)
+    cold, calls = tennis_runtime._cold_replay_history, []
+    def counted(*args, **kwargs):
+        calls.append(kwargs["cutoff"])
+        return cold(*args, **kwargs)
+    monkeypatch.setattr(tennis_runtime, "_cold_replay_history", counted)
+    later = now+timedelta(seconds=2)
+    for cutoff in (later, now, later, now, now-timedelta(microseconds=1),
+                   now.astimezone(timezone(timedelta(hours=-5))), now+timedelta(seconds=1)):
+        expected = select_tennis_observations(baseline, cutoff=cutoff, tour="ATP")
+        actual = tennis_runtime._replay_history(receipts, cutoff=cutoff, tour="ATP", max_bytes=None, cache=cache)
+        assert type(actual) is tuple and canonical_bytes(actual) == canonical_bytes(expected)
+        if actual:
+            actual[0]["payload"].clear()  # Neither parent nor independently stored child may be poisoned.
+    assert calls == [later]
+    assert cache.stats["covering_hits"] == 3
+
+
+def test_covering_history_admits_only_retained_subset_bytes(encoded_history_fixture, monkeypatch):
+    import context_runtime_tennis as tennis_runtime
+    from context_runtime_history_cache import EncodedHistoryCache
+    _, receipts, now = encoded_history_fixture
+    receipts.validate_all()
+    cache = EncodedHistoryCache(receipts)
+    later = tennis_runtime._replay_history(receipts, cutoff=now+timedelta(seconds=2), tour="ATP", max_bytes=None, cache=cache)
+    assert len(later) == 2
+    size = len(canonical_bytes(later[0]))
+    assert sum(len(canonical_bytes(row)) for row in later) > size
+    def no_cold(*args, **kwargs):
+        pytest.fail("covering result fell back to full cold reconstruction")
+    monkeypatch.setattr(tennis_runtime, "_cold_replay_history", no_cold)
+    with pytest.raises(RuntimeArtifactTrustError, match="history.*budget"):
+        tennis_runtime._replay_history(receipts, cutoff=now, tour="ATP", max_bytes=size-1, cache=cache)
+    assert cache.stats["entries"] == 1  # Failed subset never published.
+    assert tennis_runtime._replay_history(receipts, cutoff=now, tour="ATP", max_bytes=size, cache=cache) == (later[0],)
+    assert tennis_runtime._replay_history(receipts, cutoff=now-timedelta(days=1), tour="ATP", max_bytes=0, cache=cache) == ()
+
+
+@pytest.mark.parametrize("fallback", ["never_validated", "different_tour", "forward", "missing"])
+def test_covering_history_cold_fallback_requires_proof_and_cover(encoded_history_fixture, monkeypatch, fallback):
+    import context_runtime_tennis as tennis_runtime
+    from context_runtime_history_cache import EncodedHistoryCache
+    _, receipts, now = encoded_history_fixture
+    if fallback != "never_validated":
+        receipts.validate_all()
+    cache = EncodedHistoryCache(receipts, max_bytes=0 if fallback == "missing" else 1024**2)
+    cold, calls = tennis_runtime._cold_replay_history, []
+    def counted(*args, **kwargs):
+        calls.append(kwargs["cutoff"])
+        return cold(*args, **kwargs)
+    monkeypatch.setattr(tennis_runtime, "_cold_replay_history", counted)
+    initial = now if fallback == "forward" else now+timedelta(seconds=2)
+    tennis_runtime._replay_history(receipts, cutoff=initial, tour="ATP", max_bytes=None, cache=cache)
+    requested = now+timedelta(seconds=2) if fallback == "forward" else now
+    tour = "WTA" if fallback == "different_tour" else "ATP"
+    assert tennis_runtime._replay_history(receipts, cutoff=requested, tour=tour, max_bytes=None, cache=cache)
+    assert calls == [initial, requested]
+
+
+@pytest.mark.parametrize("mutation", ["write", "ddl", "temp", "commit", "rollback", "close"])
+@pytest.mark.parametrize("empty", [False, True])
+def test_covering_history_revokes_during_fresh_decode(encoded_history_fixture, monkeypatch, mutation, empty):
+    from types import SimpleNamespace
+    import context_runtime_tennis as tennis_runtime
+    import context_runtime_history_cache as history_cache
+    conn, receipts, now = encoded_history_fixture
+    receipts.validate_all()
+    cache = history_cache.EncodedHistoryCache(receipts)
+    tennis_runtime._replay_history(receipts, cutoff=now+timedelta(seconds=2), tour="ATP", max_bytes=None, cache=cache)
+    owner = history_cache.json.loads
+    def changed(raw):
+        row = owner(raw)
+        if mutation == "write": conn.execute("UPDATE context_observations SET source=source")
+        elif mutation == "ddl": conn.execute("CREATE TABLE covering_mutation (id INTEGER)")
+        elif mutation == "temp": conn.execute("CREATE TEMP TABLE context_observations (digest TEXT)")
+        elif mutation == "close": conn.close()
+        else:
+            getattr(conn, mutation)()
+            conn.execute("BEGIN")
+        return row
+    monkeypatch.setattr(history_cache, "json", SimpleNamespace(loads=changed))
+    cutoff = now-timedelta(days=1) if empty else now
+    for _ in range(2):
+        with pytest.raises((RuntimeArtifactTrustError, sqlite3.ProgrammingError)):
+            tennis_runtime._replay_history(receipts, cutoff=cutoff, tour="ATP", max_bytes=None, cache=cache)
+    assert cache.stats["entries"] == 0
+
+
+@pytest.mark.parametrize("phase", ["decode", "encode"])
+def test_covering_history_interrupted_build_never_publishes(encoded_history_fixture, monkeypatch, phase):
+    from types import SimpleNamespace
+    import context_runtime_tennis as tennis_runtime
+    import context_runtime_history_cache as history_cache
+    _, receipts, now = encoded_history_fixture
+    receipts.validate_all()
+    cache = history_cache.EncodedHistoryCache(receipts)
+    parent = tennis_runtime._replay_history(receipts, cutoff=now+timedelta(seconds=2), tour="ATP", max_bytes=None, cache=cache)
+    def no_cold(*args, **kwargs):
+        pytest.fail("covering result unexpectedly rebuilt cold")
+    monkeypatch.setattr(tennis_runtime, "_cold_replay_history", no_cold)
+    monkeypatch.setattr(history_cache, "json", SimpleNamespace(loads=history_cache.json.loads))
+    target, name = (history_cache.json, "loads") if phase == "decode" else (history_cache, "canonical_bytes")
+    owner = getattr(target, name)
+    def interrupted(*args, **kwargs):
+        raise MemoryError("interrupted covering history build")
+    monkeypatch.setattr(target, name, interrupted)
+    with pytest.raises(MemoryError):
+        tennis_runtime._replay_history(receipts, cutoff=now, tour="ATP", max_bytes=None, cache=cache)
+    assert cache.stats["entries"] == 1 and cache.stats["pending_bytes"] == 0
+    monkeypatch.setattr(target, name, owner)
+    assert tennis_runtime._replay_history(receipts, cutoff=now, tour="ATP", max_bytes=None, cache=cache) == (parent[0],)
+
+
+def test_covering_history_child_survives_parent_eviction(encoded_history_fixture, monkeypatch):
+    import context_runtime_tennis as tennis_runtime
+    from context_runtime_history_cache import EncodedHistoryCache
+    _, receipts, now = encoded_history_fixture
+    receipts.validate_all()
+    later = now+timedelta(seconds=2)
+    expected = tennis_runtime._replay_history(receipts, cutoff=later, tour="ATP", max_bytes=None)
+    cache = EncodedHistoryCache(receipts, max_bytes=sum(len(canonical_bytes(row)) for row in expected))
+    cold, calls = tennis_runtime._cold_replay_history, []
+    def counted(*args, **kwargs):
+        calls.append(kwargs["cutoff"])
+        return cold(*args, **kwargs)
+    monkeypatch.setattr(tennis_runtime, "_cold_replay_history", counted)
+    tennis_runtime._replay_history(receipts, cutoff=later, tour="ATP", max_bytes=None, cache=cache)
+    child = tennis_runtime._replay_history(receipts, cutoff=now, tour="ATP", max_bytes=None, cache=cache)
+    assert child == (expected[0],) and cache.stats["evictions"] == 1
+    child[0]["payload"].clear()
+    assert tennis_runtime._replay_history(receipts, cutoff=now, tour="ATP", max_bytes=None, cache=cache) == (expected[0],)
+    assert tennis_runtime._replay_history(receipts, cutoff=later, tour="ATP", max_bytes=None, cache=cache) == expected
+    assert calls == [later, later]
+    assert cache.stats["peak_bytes"] <= cache.stats["max_bytes"]
 
 
 def test_encoded_history_cache_returns_fresh_nested_objects(encoded_history_fixture):

@@ -32,7 +32,7 @@ class EncodedHistoryCache:
         self._invalid = False
         self._entries = OrderedDict()
         self._bytes = self._pending_bytes = 0
-        self._counters = dict(hits=0, misses=0, stores=0, evictions=0, bypasses=0, peak_bytes=0)
+        self._counters = dict(hits=0, covering_hits=0, misses=0, stores=0, evictions=0, bypasses=0, peak_bytes=0)
 
     @property
     def stats(self):
@@ -79,6 +79,35 @@ class EncodedHistoryCache:
         result = tuple(json.loads(row) for row in encoded)
         self._check(receipts)
         return result
+
+    def _lookup_covering(self, receipts, *, cutoff, tour, max_bytes):
+        """Derive an earlier prefix only from a completed, still-proved pool."""
+        self._check(receipts)
+        receipts._check_validation()
+        if receipts._validation_stamp is None:
+            return None  # Never validated: only the full cold path is permitted.
+        decision = canonical_timestamp(cutoff)
+        key = min((key for key in self._entries if key[1] == tour and key[0] > decision), default=None)
+        if key is None:
+            return None
+        encoded, _ = self._entries[key]
+        self._entries.move_to_end(key)
+        history, used = [], 0
+        for raw in encoded:
+            self._check(receipts)
+            row = json.loads(raw)
+            self._check(receipts)
+            # Completed owning outputs are sorted by (observed_at, digest),
+            # and their evidence fields depend on receipt clocks, not cutoff.
+            if row["observed_at"] > decision:
+                break
+            used += len(raw)  # Admit only the complete retained earlier history.
+            if max_bytes is not None and used > max_bytes:
+                raise RuntimeArtifactTrustError("complete Tennis history exceeds canonical input budget")
+            history.append(row)
+        self._check(receipts)  # Required even for an empty covering entry/result.
+        self._counters["covering_hits"] += 1
+        return tuple(history)
 
     def _evict(self):
         _, (_, size) = self._entries.popitem(last=False)

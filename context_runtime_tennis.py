@@ -85,11 +85,14 @@ def _cold_replay_history(receipts, *, cutoff, tour, max_bytes):
 def _replay_history(receipts, *, cutoff, tour, max_bytes, cache=None):
     # Cache keys must not broaden the owning tuple selector's typed API.
     select_tennis_observations((), cutoff=cutoff, tour=tour)
+    history = None
     if cache is not None:
         cached = cache._lookup(receipts, cutoff=cutoff, tour=tour, max_bytes=max_bytes)
         if cached is not None:
             return cached
-    history = _cold_replay_history(receipts, cutoff=cutoff, tour=tour, max_bytes=max_bytes)
+        history = cache._lookup_covering(receipts, cutoff=cutoff, tour=tour, max_bytes=max_bytes)
+    if history is None:
+        history = _cold_replay_history(receipts, cutoff=cutoff, tour=tour, max_bytes=max_bytes)
     if cache is not None:
         cache._store(receipts, history, cutoff=cutoff, tour=tour)
     return history
