@@ -1947,6 +1947,9 @@ import re
 import stat
 import sys
 
+EXPECTED_MARKER_SHA = "0768f7ca1ca4570827d4a9fafad0edf6b56959ca6f1be5843cbfa2d5e5fcb14d"
+EXPECTED_MARKER_TARGET = "e0240ef8e69549f0d904602909a4eb66accc4a98"
+
 
 def need(condition, message):
     if not condition:
@@ -2053,8 +2056,13 @@ elif action == "continuity" and len(args) == 2:
         raw, identity = read(path, limit)
         records[name] = {"sha256": hashlib.sha256(raw).hexdigest(), "identity": identity}
         if name == "marker":
+            # This is the historical completed migration, not the current app
+            # deployment. The pinned helper intentionally retains it unchanged.
+            need(hashlib.sha256(raw).hexdigest() == EXPECTED_MARKER_SHA,
+                 "production marker digest differs")
             marker = json.loads(raw)
-            need(marker.get("status") == "complete" and marker.get("target_head") == head
+            need(marker.get("status") == "complete"
+                 and marker.get("target_head") == EXPECTED_MARKER_TARGET
                  and marker.get("application_root") == str(app), "incomplete or mismatched production marker")
     need(live_application_identity() == live_identity, "live application path changed during continuity check")
     encoded = (json.dumps(records, sort_keys=True, separators=(",", ":")) + "\n").encode()
@@ -2191,7 +2199,7 @@ verify_repair_production() {
     [[ "${actual}" == "${EXPECTED_PRODUCTION_HEAD}" ]] || die "Unexpected production source HEAD."
     marker_state=$(/usr/bin/python3 -I -B "${helper}" --marker "${LEDGER_MIGRATION_MARKER}" --application-root "${APP_DIR}" status)
     read -r marker_previous marker_status marker_target < <(parse_marker_state "${marker_state}")
-    [[ "${marker_status}" == complete && "${marker_target}" == "${actual}" ]] \
+    [[ "${marker_status}" == complete && "${marker_target}" == e0240ef8e69549f0d904602909a4eb66accc4a98 ]] \
         || die "Repair requires the existing complete production marker."
     repair_guard continuity "${actual}" "${STAGE_DIR}/production-identity.json"
 }

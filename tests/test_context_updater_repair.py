@@ -32,6 +32,8 @@ NEW_SHA = hashlib.sha256(NEW).hexdigest()
 PRODUCTION_OLD_SHA = "74b1c4b1aa88788f6a8e1050905215953b5938faad0009719aa15164a494b78f"
 PRODUCTION_HEAD = "2dd1116b68f3d94e9c24338c6c9dff9b01799221"
 REMOTE = "https://github.com/xantharu123-png/btts-pro-analyzer.git"
+PRODUCTION_MARKER_TARGET = "e0240ef8e69549f0d904602909a4eb66accc4a98"
+PRODUCTION_MARKER_SHA = "0768f7ca1ca4570827d4a9fafad0edf6b56959ca6f1be5843cbfa2d5e5fcb14d"
 
 
 def source_function(name, path=INSTALLER):
@@ -437,6 +439,128 @@ def test_complete_guard_capacity_program_resolves_its_own_imports(tmp_path, caps
         with pytest.raises(SystemExit, match="no database capacity inventory"):
             exec(compile(program, "complete-repair-guard", "exec"), namespace)
         assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("defect", [None, "in_progress", "foreign_target", "app_head"])
+def test_actual_production_verifier_distinguishes_migration_target_from_app_head(defect):
+    import sys
+    marker = {"previous_head": "82101d33e0a06cd48867d06ebf28aa193a04225c",
+              "status": "in_progress" if defect == "in_progress" else "complete",
+              "target_head": TARGET if defect == "foreign_target" else PRODUCTION_MARKER_TARGET}
+    script = "set -Eeuo pipefail\nPATH=/usr/bin:/bin\n"
+    for name, value in {"EXPECTED_PRODUCTION_HEAD": PRODUCTION_HEAD,
+        "ACTUAL_HEAD": TARGET if defect == "app_head" else PRODUCTION_HEAD,
+        "APP_DIR": "/opt/betboy/app", "LEDGER_MIGRATION_MARKER": "/etc/betboy/challenge-ledger-v2-migrated.json",
+        "STAGE_DIR": "/var/private-stage", "MARKER_STATE": json.dumps(marker)}.items():
+        script += f"{name}={shlex.quote(value)}\n"
+    script += 'die() { printf "%s\\n" "$*" >&2; exit 1; }\nverify_root_owned_file() { :; }\n'
+    script += 'git_betboy() { [[ "$*" == "rev-parse HEAD" ]] || return 99; printf "%s\\n" "$ACTUAL_HEAD"; }\n'
+    script += 'sha256sum() { [[ "$*" == /usr/local/libexec/betboy-challenge-migration-marker.py ]] || return 99; printf "f22065efc2f321e4eaff20d9d8d006332ffe3a99c26931fc329dab7b8d62458b  helper\\n"; }\n'
+    script += '/usr/bin/python3() { if [[ "$2" == - ]]; then '
+    # Windows Python emits CRLF; normalize only this test transport to Bash.
+    script += shlex.quote(Path(sys.executable).as_posix()) + ' "$@" | tr -d "\\r"; else '
+    script += '[[ "$*" == "-I -B /usr/local/libexec/betboy-challenge-migration-marker.py --marker $LEDGER_MIGRATION_MARKER --application-root $APP_DIR status" ]] || return 99; '
+    script += 'printf "%s\\n" "$MARKER_STATE"; fi; }\n'
+    script += 'repair_guard() { [[ "$*" == "continuity $EXPECTED_PRODUCTION_HEAD $STAGE_DIR/production-identity.json" ]] || return 99; printf "continuity-called\\n"; }\n'
+    script += source_function("parse_marker_state") + source_function("verify_repair_production")
+    script += '\nverify_repair_production\nprintf "production-accepted\\n"\n'
+    result = subprocess.run([bash()], input=script, text=True, capture_output=True, timeout=15)
+    assert "command not found" not in result.stderr, result.stderr
+    assert (result.returncode == 0) is (defect is None), result.stderr
+    assert ("production-accepted" in result.stdout) is (defect is None)
+    assert ("continuity-called" in result.stdout) is (defect is None)
+
+
+def full_continuity_guard_fixture(tmp_path, marker_raw, *, synthetic_marker_pin=False):
+    """Whole guard, real file IO; reuse explicit unit Unix-metadata boundary."""
+    import builtins
+    data, target, _, state, _ = transaction_fixture(tmp_path)
+    state.mkdir()
+    for directory in ("opt/betboy/app", "usr/local", "etc/betboy"):
+        (tmp_path / directory).mkdir(parents=True, exist_ok=True)
+    marker = tmp_path / "etc/betboy/challenge-ledger-v2-migrated.json"
+    marker.write_bytes(marker_raw)
+    (marker.parent / "challenge-ledger-hmac.key").write_bytes(b"test-only-key")
+    (marker.parent / "betboy.env").write_bytes(b"TEST_ONLY=1\n")
+    def physical(path):
+        path = PurePosixPath(path)
+        if path == PurePosixPath("/usr/local/sbin/betboy-update"): return target
+        if path == PurePosixPath("/usr/local/sbin"): return target.parent
+        if path == PurePosixPath("/var/private"): return state
+        if path == PurePosixPath("/var"): return tmp_path
+        if path == PurePosixPath("/var/private/production.json"): return state / "production.json"
+        return tmp_path.joinpath(*path.parts[1:])
+    class VirtualPath(PurePosixPath):
+        def lstat(self):
+            info = data["Path"](physical(self)).lstat()
+            values = vars(info).copy()
+            if str(self) in {"/opt/betboy", "/opt/betboy/app"}:
+                values.update(st_uid=997, st_gid=987, st_mode=stat.S_IFDIR | 0o750)
+            return SimpleNamespace(**values)
+    isolated_os = SimpleNamespace(**vars(data["os"]))
+    isolated_os.open = lambda path, *args: data["os"].open(physical(path), *args)
+    isolated_os.path = SimpleNamespace(lexists=lambda path: os.path.lexists(physical(path)))
+    imports = {"os": isolated_os, "pathlib": SimpleNamespace(Path=VirtualPath),
+        "pwd": SimpleNamespace(getpwnam=lambda _: SimpleNamespace(pw_uid=997, pw_gid=987))}
+    real_import = builtins.__import__
+    def isolated_import(name, *args, **kwargs):
+        return imports[name] if name in imports else real_import(name, *args, **kwargs)
+    program = source_function("repair_guard").split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    tree = ast.parse(program)
+    # Explicit fixture pins only: keep ALL imports, functions, digest algorithms
+    # and control flow intact. The real 72-ledger marker is never committed.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and node.value == PRODUCTION_OLD_SHA:
+            node.value = hashlib.sha256(OLD).hexdigest()
+        if synthetic_marker_pin and isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == "EXPECTED_MARKER_SHA" for target in node.targets):
+            assert isinstance(node.value, ast.Constant) and node.value.value == PRODUCTION_MARKER_SHA
+            node.value.value = hashlib.sha256(marker_raw).hexdigest()
+    def run(head=PRODUCTION_HEAD):
+        imports["sys"] = SimpleNamespace(argv=["-", "continuity", head, "/var/private/production.json"])
+        exec(compile(tree, "full-continuity-guard", "exec"),
+             {"__builtins__": {**vars(builtins), "__import__": isolated_import}})
+    return run, marker, state / "production.json"
+
+
+def test_guard_preserves_exact_independent_production_pins():
+    program = source_function("repair_guard").split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    tree = ast.parse(program)
+    pins = {node.targets[0].id: node.value.value for node in tree.body if isinstance(node, ast.Assign)
+            and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Constant)}
+    assert pins["EXPECTED_MARKER_SHA"] == PRODUCTION_MARKER_SHA
+    assert pins["EXPECTED_MARKER_TARGET"] == PRODUCTION_MARKER_TARGET
+    assert PRODUCTION_HEAD in [node.value for node in ast.walk(tree) if isinstance(node, ast.Constant)]
+
+
+@pytest.mark.parametrize("defect", [None, "in_progress", "target", "root", "bytes", "changed", "app_head"])
+def test_full_guard_accepts_only_exact_historical_complete_marker(tmp_path, defect):
+    payload = {"application_root": "/opt/betboy/app", "contract_version": 1,
+        "completed_at": "2026-08-25T18:25:23.000000+00:00", "mode": "legacy-v0", "status": "complete",
+        "previous_head": "82101d33e0a06cd48867d06ebf28aa193a04225c",
+        "previous_writer_blob": "f96d8b6c340c184e90d644cc310efebf963de1ad", "target_head": PRODUCTION_MARKER_TARGET,
+        "migration_receipt": {"contract_version": 1, "mode": "legacy-v0", "database_count": 1,
+            "databases": [{"path": "synthetic.db", "source": "v0", "checkpoint_mac": "a" * 64}]}}
+    raw = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    run, marker, proof = full_continuity_guard_fixture(tmp_path, raw, synthetic_marker_pin=True)
+    if defect in (None, "changed"):
+        run()
+        first = proof.read_bytes()
+        if defect is None:
+            run()
+            assert proof.read_bytes() == first
+            assert json.loads(first)["marker"]["sha256"] == hashlib.sha256(raw).hexdigest()
+            return
+    if defect in {"in_progress", "target", "root"}:
+        key, value = {"in_progress": ("status", "in_progress"), "target": ("target_head", PRODUCTION_HEAD),
+                      "root": ("application_root", "/different/app")}[defect]
+        payload[key] = value
+        marker.write_bytes(json.dumps(payload).encode())
+    elif defect in {"bytes", "changed"}:
+        marker.write_bytes(raw + b"\n")
+    with pytest.raises(SystemExit):
+        run(TARGET if defect == "app_head" else PRODUCTION_HEAD)
+    assert (proof.read_bytes() == first) if defect == "changed" else not proof.exists()
 
 
 def test_exact_two_argument_request_has_no_caller_remote_or_target_path():

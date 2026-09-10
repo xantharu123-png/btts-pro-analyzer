@@ -220,3 +220,61 @@ Final fresh result: **434 passed, 1 skipped in 57.56s**, exit0 (94 Task3
 passes plus unchanged 340 Task2 passes; only the existing Windows real-flock
 skip). Bash `-n` and scoped `diff --check` pass. This corrects the standalone
 import gap but remains a review checkpoint with native/production gates open.
+
+## Historical complete marker correction (base e2ae3f6)
+
+Controller's actual live continuity run found another integration error:
+the installer incorrectly required the completed migration's target commit
+to equal the currently deployed application commit. Reading the pinned
+helper confirmed that both `prepare_marker` and `complete_marker` deliberately
+return an existing complete marker unchanged. Ordinary application updates
+therefore do not advance this historical migration target. Earlier statements
+in this report that implied equality of these identities were incorrect.
+
+This exact one-time repair now binds three independent facts:
+
+- App HEAD remains exactly `2dd1116b68f3d94e9c24338c6c9dff9b01799221`.
+- Historical complete marker target is exactly
+  `e0240ef8e69549f0d904602909a4eb66accc4a98`.
+- Marker bytes must match SHA256
+  `0768f7ca1ca4570827d4a9fafad0edf6b56959ca6f1be5843cbfa2d5e5fcb14d`.
+
+The guard still requires complete status, exact application root, safe
+principals and unchanged file/stat/hash continuity. The shell production
+composition independently checks the pinned historical target, then calls
+the full guard. There is no generic complete-only fallback, marker rewrite,
+new migration, changed key, application operation or changed helper.
+
+RED evidence: the actual shell production-verifier composition, including its
+real marker-state parser, rejected the legitimate historical complete target
+(1 failed, 3 negative controls passed). The full guard using the ignored exact
+real marker bytes also rejected it with `incomplete or mismatched production
+marker` before the fix. Afterwards the full guard accepted these exact marker
+bytes and successfully rechecked its persisted continuity evidence twice.
+That local full-program test retains only the explicit OLD executable fixture
+pin and unit OS/DAC isolation; marker digest and algorithms remain real.
+The controller's unchanged actual-VPS principal/executable run remains separate.
+
+Permanent whole-guard tests use a synthetic complete marker. Per controller
+direction, their AST changes only `EXPECTED_MARKER_SHA` to that synthetic
+fixture's digest plus the existing OLD executable fixture pin; no imports,
+functions, hash algorithms or control flow are substituted. A separate test
+asserts the unchanged production SHA/target/AppHEAD literals. Negative tests
+keep the synthetic expected hash fixed while mutating status, target, root or
+bytes, and verify a changed marker cannot overwrite existing continuity proof.
+Wrong App HEAD remains rejected. The actual shell composition additionally
+rejects in-progress markers and foreign marker/app commits.
+
+The real 72-ledger fixture remains strictly ignored: it is not committed,
+embedded in tests or added to any QA archive. Only its digest is published.
+Task2's updater SHA remains `4b814c500f5eb03fb7a28f576210f02759300aa5560ef273834c6eb3195e8c19`.
+Installer LF SHA256 is `8331d9afa47149f888af6959d40f6b40134293c5a38ae05dc416a9f048ec4592`.
+
+Final frozen-source verification: **446 passed, 1 skipped in 62.62s**, exit0
+(106 Task3 passes plus unchanged 340 Task2 passes; existing Windows flock
+skip only). Command used both `tests/test_context_updater_repair.py` and
+`tests/test_context_update_hook.py`, `-q -p no:cacheprovider --tb=short`,
+`--basetemp=.pytest_tmp/repair-marker-final` and
+`--junitxml=.pytest_tmp/repair-marker-final.xml`. Bash `-n` and
+`git -c core.autocrlf=false diff --check` pass. No push/VPS/helper/Task2 edit.
+All reviewer/controller artifacts remain outside this three-file commit.
