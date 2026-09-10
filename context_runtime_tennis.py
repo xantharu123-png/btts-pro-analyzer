@@ -54,9 +54,10 @@ class LiveReplayDescriptor:
     artifacts: object
     receipts: object
     history_max_bytes: int | None
+    history_cache: object = None
 
 
-def _replay_history(receipts, *, cutoff, tour, max_bytes):
+def _cold_replay_history(receipts, *, cutoff, tour, max_bytes):
     """One complete causal tuple; owning selection/validation stays exact.
 
     Select each fully decoded receipt with the unchanged owning tuple API,
@@ -78,7 +79,20 @@ def _replay_history(receipts, *, cutoff, tour, max_bytes):
     return tuple(history)
 
 
-def _verify_live_original(ref, publication, artifacts, created_at, receipts, variants, history_max_bytes):
+def _replay_history(receipts, *, cutoff, tour, max_bytes, cache=None):
+    # Cache keys must not broaden the owning tuple selector's typed API.
+    select_tennis_observations((), cutoff=cutoff, tour=tour)
+    if cache is not None:
+        cached = cache._lookup(receipts, cutoff=cutoff, tour=tour, max_bytes=max_bytes)
+        if cached is not None:
+            return cached
+    history = _cold_replay_history(receipts, cutoff=cutoff, tour=tour, max_bytes=max_bytes)
+    if cache is not None:
+        cache._store(receipts, history, cutoff=cutoff, tour=tour)
+    return history
+
+
+def _verify_live_original(ref, publication, artifacts, created_at, receipts, variants, history_max_bytes, history_cache):
     """Own all decoded state/history in this one call, never in descriptors."""
     from tennis.predict import predict_match
     from tennis.tour_state import _decode_wrapper
@@ -98,7 +112,8 @@ def _verify_live_original(ref, publication, artifacts, created_at, receipts, var
     state = _decode_wrapper(envelope["payload"], event["tour"])
     if state.built_at > decision.timestamp():
         raise ArtifactIntegrityError("live original state was built after its decision")
-    history = _replay_history(receipts, cutoff=decision, tour=event["tour"], max_bytes=history_max_bytes)
+    history = _replay_history(receipts, cutoff=decision, tour=event["tour"], max_bytes=history_max_bytes,
+                              cache=history_cache)
     target = [row for row in history if row["event_key"] == event["event_key"]]
     newest = max((row["observed_at"] for row in target), default=None)
     latest = [row for row in target if row["observed_at"] == newest]
@@ -119,7 +134,9 @@ def _verify_live_original(ref, publication, artifacts, created_at, receipts, var
 
 def verify_live_originals(artifacts, created_at, receipts, limitations, *, history_max_bytes=None):
     """Verify every original, including an unreferenced safe orphan publication."""
-    variants, checked = None, {}
+    from context_runtime_history_cache import EncodedHistoryCache, MAX_ENCODED_HISTORY_BYTES
+    from context_runtime_inventory import VerifiedReceiptMapping
+    variants, checked, history_cache = None, {}, None
     # Opaque unopened D2 final receipts are never decoded here or promoted into
     # source inputs. A live original requiring such a receipt will lack its
     # verified native target and fail below, not silently use an older alias.
@@ -128,8 +145,10 @@ def verify_live_originals(artifacts, created_at, receipts, limitations, *, histo
             continue
         if variants is None:
             variants = _code_variants()
-        _verify_live_original(ref, envelope["payload"], artifacts, created_at, receipts, variants, history_max_bytes)
-        checked[ref] = LiveReplayDescriptor(ref, artifacts, receipts, history_max_bytes)
+            if isinstance(receipts, VerifiedReceiptMapping):
+                history_cache = EncodedHistoryCache(receipts, max_bytes=MAX_ENCODED_HISTORY_BYTES)
+        _verify_live_original(ref, envelope["payload"], artifacts, created_at, receipts, variants, history_max_bytes, history_cache)
+        checked[ref] = LiveReplayDescriptor(ref, artifacts, receipts, history_max_bytes, history_cache)
     # Replaying a recorded name-based model input does NOT prove the native
     # historical player/state association needed by D1 or a passed D2 corpus.
     if checked:
@@ -152,7 +171,8 @@ def verify_live_snapshot(payload, key, originals, *, effect, approval, limitatio
     descriptor = originals[ref]
     original = original_base(descriptor.artifacts[ref]["payload"]["origin"])
     history = _replay_history(descriptor.receipts, cutoff=datetime.fromisoformat(original["cutoff"]),
-        tour=original["reference_weights"]["event"]["tour"], max_bytes=descriptor.history_max_bytes)
+        tour=original["reference_weights"]["event"]["tour"], max_bytes=descriptor.history_max_bytes,
+        cache=descriptor.history_cache)
     _same(base, original, "live worker substituted its published original")
     if payload["features"]["version"] != FEATURE_VERSION:
         raise ArtifactIntegrityError("live winner v1 has no owning feature version of this kind")
