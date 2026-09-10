@@ -357,3 +357,65 @@ required.
 The update intentionally refuses tracked server-side changes. Preserve and
 resolve such files before retrying; never force-reset a production worktree
 without first saving the evidence that made it dirty.
+
+## One-time context-capacity updater repair
+
+`deploy/repair_context_updater.sh` is a separately reviewed, updater-only
+transition for the installed updater SHA256
+`74b1c4b1aa88788f6a8e1050905215953b5938faad0009719aa15164a494b78f`
+and production application commit
+`2dd1116b68f3d94e9c24338c6c9dff9b01799221`. It is not a general bootstrap,
+deployment, permission-repair or migration command. Its sole permanent
+executable destination is `/usr/local/sbin/betboy-update`.
+
+After independent review and the controller's native/real-backup gates, place
+the exact LF installer bytes in an explicitly approved root-owned private
+directory with root-owned, non-writable ancestors. Verify the installer digest
+against the release evidence before running it with exactly two arguments:
+
+```bash
+sudo /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  /usr/bin/bash /var/lib/REVIEWED-PRIVATE-STAGE/repair_context_updater.sh \
+  EXPECTED_40_HEX_TARGET_COMMIT EXPECTED_64_HEX_NEW_UPDATER_SHA256
+```
+
+Both values must come from the reviewed release, not a moving branch name.
+The installer fetches only the hardcoded HTTPS repository and requires that
+exact current `origin/main` commit and updater blob. It holds the existing
+deploy lock. It requires the complete existing production marker and unchanged
+key/configuration/installed-file identities. It never changes database contents,
+keys, markers, units, timer policy, helper pins or application checkout, and it
+does not stop or start services.
+
+Before exchanging bytes it produces a fresh full online archive, makes an
+independent bounded root-private copy, actually restores/verifies every database
+and authenticates applicable Challenge HMAC ledgers with the unchanged pinned
+stdlib helper. Online backups are consistent per-database snapshots, not a
+global common transaction. The exact sealed context copy is then replayed by
+the target D4 code as `betboy`, never by root. A fixed stdlib supervisor binds
+the fresh input SHA, target commit, complete report SHA and measured resources:
+peak RSS must be below 1 GiB and measured CPU/wall time below 300 seconds. The
+existing 2 GiB AS, 300-second CPU, 600-second hard wall plus termination grace,
+and 1 MiB aggregate output boundaries remain in force. Existing D4 continuity
+limitations are not empirical/model approval; resource errors are never an
+allowed limitation.
+
+The root-private `/var/lib/betboy-updater-repair` tree retains the fresh archive,
+accepted evidence, independently fsynced old executable and durable transaction
+journal. The root-owned context staging tree retains source and detailed
+verification/measurement records. The replacement is prepared beside the
+installed executable, fsynced, atomically exchanged and parent-fsynced. An
+operational failure rolls back only a recognized own replacement. Repeating
+the exact command recovers an interrupted exchange or verifies the already
+completed transaction; it never overwrites unknown hashes, foreign replacement
+inodes or corrupt journals. Preserve these files for review rather than deleting
+them to force a retry.
+
+This repository contains local implementation/test evidence only, not proof
+that the repair was executed on production. Native Task-3 transaction/resource
+and fresh real-backup acceptance remain explicit release gates. In particular,
+the installer does not relax source-directory principal checks or repair
+pre-existing writable directories. After a verified updater-only replacement,
+application rollout is a separate explicit ordinary
+`/usr/local/sbin/betboy-update EXPECTED_40_HEX_TARGET_COMMIT` operation followed
+by independent server-HEAD, complete-marker, service/timer and health checks.

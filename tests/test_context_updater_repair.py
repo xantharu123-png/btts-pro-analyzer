@@ -7,6 +7,7 @@ the production CLI.  Unix owner/mode and directory-fsync emulation below is
 explicitly NOT native Linux DAC/crash-durability evidence.
 """
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -31,9 +32,9 @@ PRODUCTION_HEAD = "2dd1116b68f3d94e9c24338c6c9dff9b01799221"
 REMOTE = "https://github.com/xantharu123-png/btts-pro-analyzer.git"
 
 
-def source_function(name):
-    assert INSTALLER.is_file(), "missing Task3 updater-only repair installer"
-    source = INSTALLER.read_text(encoding="utf-8")
+def source_function(name, path=INSTALLER):
+    assert path.is_file(), "missing Task3 updater-only repair installer"
+    source = path.read_text(encoding="utf-8")
     start = source.find(name + "() {")
     assert start >= 0, f"missing actual repair function: {name}"
     lines, delimiter = [], None
@@ -106,24 +107,30 @@ def transaction_fixture(tmp_path, *, failure=None, crash=False):
     candidate.parent.mkdir()
     target.write_bytes(OLD)
     candidate.write_bytes(NEW)
+    evidence = tmp_path / "accepted-evidence.json"
+    evidence.write_text(json.dumps({"schema": 1, "commit": TARGET, "updater_sha256": NEW_SHA,
+        "status": "accepted", "records": {name: {"path": "/var/private/" + name,
+            "sha256": "a" * 64, "size": 1} for name in ("archive", "stage", "report", "production", "restore", "inline", "measurement")}}))
     target.chmod(0o755)
     candidate.chmod(0o644)
     namespace.update(INSTALLED_UPDATER=target, NEW_UPDATER=candidate,
-        REPAIR_STATE_DIR=state, EXPECTED_OLD_SHA256=hashlib.sha256(OLD).hexdigest())
+        REPAIR_STATE_DIR=state, PREFLIGHT_EVIDENCE=evidence, EXPECTED_OLD_SHA256=hashlib.sha256(OLD).hexdigest())
     operations = []
     injected = False
     fd_paths = {}
+    unix_modes = {target: 0o755, candidate: 0o644}
     real_os = namespace["os"]
     fixture_os = SimpleNamespace(**{name: getattr(real_os, name) for name in dir(real_os)})
 
     def metadata(info, path):
-        if os.name != "nt":
-            return info
         values = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
         path = Path(path)
         # Emulate only Unix DAC, not identity, digest, size, links or file I/O.
-        mode = 0o700 if stat.S_ISDIR(info.st_mode) else (0o755 if path == target else 0o600)
+        mode = 0o700 if stat.S_ISDIR(info.st_mode) else unix_modes.get(path, 0o600)
         values.update(st_uid=0, st_gid=0, st_mode=stat.S_IFMT(info.st_mode) | mode)
+        if os.name == "nt":
+            # Windows fd ctime is not Unix inode-change time (native QA is separate).
+            values["st_ctime_ns"] = values["st_mtime_ns"]
         return SimpleNamespace(**values)
 
     class FixturePath(type(Path())):
@@ -139,6 +146,8 @@ def transaction_fixture(tmp_path, *, failure=None, crash=False):
 
     def open_file(path, flags, *args, **kwargs):
         value = checked_path(path)
+        if flags & os.O_CREAT and args:
+            unix_modes[value] = args[0]
         if os.name == "nt" and value.is_dir():
             # Windows cannot os.open/fsync a directory. Keep the request visible.
             descriptor = -(len(fd_paths) + 100)
@@ -150,12 +159,14 @@ def transaction_fixture(tmp_path, *, failure=None, crash=False):
     def trip(name):
         nonlocal injected
         operations.append(name)
-        if failure == name and not injected:
+        selected = failure == name or failure == (name, operations.count(name))
+        if selected and not injected:
             injected = True
             raise Interrupted(name) if crash else OSError(name)
 
     def sync_file(descriptor):
         path = fd_paths[descriptor]
+        operations.append(("fsync_path", str(path)))
         trip("parent_fsync" if path == target.parent else "fsync")
         if descriptor >= 0:
             os.fsync(descriptor)
@@ -167,6 +178,7 @@ def transaction_fixture(tmp_path, *, failure=None, crash=False):
         if is_install:
             trip("before_replace")
         os.replace(source, destination, **kwargs)
+        unix_modes[Path(destination)] = unix_modes.pop(Path(source), 0o600)
         if is_install:
             trip("after_replace")
 
@@ -177,15 +189,16 @@ def transaction_fixture(tmp_path, *, failure=None, crash=False):
     fixture_os.close = lambda fd: None if fd < 0 else os.close(fd)
     fixture_os.fsync = sync_file
     fixture_os.replace = replace_file
+    fixture_os.geteuid = lambda: 0
+    fixture_os.getuid = fixture_os.getgid = lambda: 0
+    fixture_os.chown = fixture_os.fchown = lambda *args: None
+    fixture_os.fchmod = lambda fd, mode: unix_modes.__setitem__(fd_paths[fd], mode)
     if os.name == "nt":
-        fixture_os.geteuid = lambda: 0
-        fixture_os.getuid = fixture_os.getgid = lambda: 0
-        fixture_os.chown = fixture_os.fchown = lambda *args: None
-        fixture_os.fchmod = lambda *args: None
         fixture_os.O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
         fixture_os.O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
+        fixture_os.O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
     namespace.update(os=fixture_os, Path=FixturePath)
-    for name in ("INSTALLED_UPDATER", "NEW_UPDATER", "REPAIR_STATE_DIR"):
+    for name in ("INSTALLED_UPDATER", "NEW_UPDATER", "REPAIR_STATE_DIR", "PREFLIGHT_EVIDENCE"):
         namespace[name] = FixturePath(namespace[name])
     return namespace, target, candidate, state, operations
 
@@ -193,7 +206,7 @@ def transaction_fixture(tmp_path, *, failure=None, crash=False):
 def restart_transaction(data):
     """Discard all production globals: only on-disk recovery evidence survives."""
     restarted = repair_namespace()
-    for name in ("os", "Path", "INSTALLED_UPDATER", "NEW_UPDATER", "REPAIR_STATE_DIR", "EXPECTED_OLD_SHA256"):
+    for name in ("os", "Path", "INSTALLED_UPDATER", "NEW_UPDATER", "REPAIR_STATE_DIR", "PREFLIGHT_EVIDENCE", "EXPECTED_OLD_SHA256"):
         restarted[name] = data[name]
     return restarted
 
@@ -358,3 +371,227 @@ def test_corrupted_durable_journal_cannot_be_recreated_as_success(tmp_path):
     with pytest.raises((ValueError, RuntimeError, SystemExit)):
         data["recover_updater"](TARGET, NEW_SHA)
     assert target.read_bytes() == NEW
+
+
+@pytest.mark.parametrize("payload", [OLD, NEW])
+def test_recovery_rejects_external_same_hash_different_inode(tmp_path, payload):
+    data, target, _, _, _ = transaction_fixture(tmp_path, failure="after_replace", crash=True)
+    with pytest.raises(Interrupted):
+        data["install_updater"](TARGET, NEW_SHA)
+    external = target.parent / "external"
+    external.write_bytes(payload)
+    os.replace(external, target)
+    data = restart_transaction(data)
+    with pytest.raises((ValueError, RuntimeError, SystemExit)):
+        data["recover_updater"](TARGET, NEW_SHA)
+    assert target.read_bytes() == payload
+
+
+def test_unknown_journal_phase_is_preserved_and_never_authorizes_exchange(tmp_path):
+    data, target, _, state, _ = transaction_fixture(tmp_path, failure="after_replace", crash=True)
+    with pytest.raises(Interrupted):
+        data["install_updater"](TARGET, NEW_SHA)
+    journal = state / "transaction.json"
+    value = json.loads(journal.read_text())
+    value["phase"] = "operator-approved-whatever"
+    journal.write_text(json.dumps(value))
+    data = restart_transaction(data)
+    with pytest.raises((ValueError, RuntimeError, SystemExit)):
+        data["recover_updater"](TARGET, NEW_SHA)
+    assert target.read_bytes() == NEW
+    assert json.loads(journal.read_text())["phase"] == "operator-approved-whatever"
+
+
+def test_every_fsync_failure_including_completion_publication_rolls_back(tmp_path):
+    control = tmp_path / "control"
+    control.mkdir()
+    data, _, _, _, operations = transaction_fixture(control)
+    data["install_updater"](TARGET, NEW_SHA)
+    for index in range(1, operations.count("fsync") + 1):
+        case = tmp_path / f"fsync-{index}"
+        case.mkdir()
+        data, target, _, _, _ = transaction_fixture(case, failure=("fsync", index))
+        with pytest.raises((OSError, ValueError, RuntimeError, SystemExit)):
+            data["install_updater"](TARGET, NEW_SHA)
+        assert target.read_bytes() == OLD, f"fsync #{index} left replacement installed"
+        assert target.stat().st_nlink == 1
+
+
+def test_existing_private_state_entry_parent_is_fsynced_before_first_exchange(tmp_path):
+    data, target, _, state, operations = transaction_fixture(tmp_path)
+    state.mkdir()
+    data["install_updater"](TARGET, NEW_SHA)
+    before_exchange = operations[:operations.index("before_replace")]
+    assert ("fsync_path", str(state.parent)) in before_exchange
+    assert ("fsync_path", str(state)) in before_exchange
+    assert target.read_bytes() == NEW
+
+
+SHARED_FUNCTIONS = (
+    "acquire_deploy_lock", "as_betboy", "root_git", "git_betboy", "trusted_file",
+    "target_payload_file", "verify_root_owned_file", "parse_marker_state",
+    "create_trusted_manifests", "context_hook_data", "context_hook_command",
+    "verification_launcher_source", "configure_context_phase", "prepare_verification_launcher",
+    "verify_backup_archive", "capture_root_verifier",
+    "produce_update_backup",
+)
+
+
+def test_frozen_reviewed_preflight_algorithms_are_copied_without_drift():
+    # Deliberate supply-chain parity gate, not a substitute for behavior tests.
+    updater = ROOT / "deploy/update_server.sh"
+    assert hashlib.sha256(updater.read_bytes().replace(b"\r\n", b"\n")).hexdigest() == \
+        "4b814c500f5eb03fb7a28f576210f02759300aa5560ef273834c6eb3195e8c19"
+    for name in SHARED_FUNCTIONS:
+        assert source_function(name) == source_function(name, updater), name
+
+
+def test_all_embedded_python_programs_compile_without_running_root_code():
+    for name in (*SHARED_FUNCTIONS, "repair_data", "repair_guard", "measure_repair_d4"):
+        source = source_function(name)
+        if "<<'PY'\n" in source:
+            start = source.index("<<'PY'\n") + len("<<'PY'\n")
+            compile(source[start:source.index("\nPY", start)], name, "exec")
+
+
+@pytest.mark.parametrize("failure", [None, "download", "commit", "blob"])
+def test_real_fetch_gate_requires_exact_remote_tip_and_blob(tmp_path, failure):
+    source = tmp_path / "source"
+    source.mkdir()
+    raw = tmp_path / "remote-blob"
+    raw.write_bytes(THIRD if failure == "blob" else NEW)
+    fetched = "f" * 40 if failure == "commit" else TARGET
+    harness = "set -Eeuo pipefail\nPATH=/usr/bin:/bin\n"
+    for name, value in {"STAGE_DIR": tmp_path.as_posix(), "TRUSTED_TREE": source.as_posix(),
+        "REPOSITORY_URL": REMOTE, "REQUESTED_HEAD": TARGET, "EXPECTED_NEW_SHA256": NEW_SHA,
+        "FETCHED": fetched, "BLOB": raw.as_posix()}.items():
+        harness += f"{name}={shlex.quote(value)}\n"
+    harness += 'die() { printf "%s\\n" "$*" >&2; exit 1; }\n'
+    harness += 'root_git() {\n'
+    harness += 'if [[ "$1" == init ]]; then [[ "$*" == "init --quiet $TRUSTED_TREE" ]]; return; fi\n'
+    harness += '[[ "$1" == -C && "$2" == "$TRUSTED_TREE" ]] || return 90\nshift 2\n'
+    harness += f'if [[ "$1" == fetch ]]; then [[ "$*" == "fetch --quiet --no-tags {REMOTE} refs/heads/main" ]] || return 91; '
+    harness += ('return 42; ' if failure == "download" else 'return 0; ') + 'fi\n'
+    harness += 'case "$*" in "rev-parse FETCH_HEAD") printf "%s\\n" "$FETCHED";; '
+    harness += '"cat-file blob $REQUESTED_HEAD:deploy/update_server.sh") command cat "$BLOB";; *) return 92;; esac\n}\n'
+    harness += source_function("fetch_repair_source")
+    harness += '\nfetch_repair_source\nprintf "accepted-fetch\\n"\n'
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=15)
+    assert "command not found" not in result.stderr, result.stderr
+    assert (result.returncode == 0) is (failure is None), result.stderr
+    assert ("accepted-fetch" in result.stdout) is (failure is None)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="real flock needs Linux; Windows gate-order coverage is separate")
+def test_real_deploy_flock_rejects_contention_then_releases(tmp_path):
+    import fcntl
+    lock = tmp_path / "deploy.lock"
+    lock.touch()
+    script = "set -Eeuo pipefail\nDEPLOY_LOCK=" + shlex.quote(str(lock)) + "\n"
+    # Root pathname/principal validation is separately native-reviewed. Here
+    # only that boundary is bypassed; the actual Bash FD and flock remain real.
+    script += '/usr/bin/python3() { :; }\ndie() { printf "%s\\n" "$*" >&2; exit 1; }\n'
+    script += source_function("acquire_deploy_lock") + '\nacquire_deploy_lock\nprintf "lock-acquired\\n"\n'
+    with lock.open("rb") as holder:
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result = subprocess.run([bash()], input=script, text=True, capture_output=True, timeout=15)
+        assert result.returncode != 0
+        assert "already holds the deploy lock" in result.stderr
+        assert "lock-acquired" not in result.stdout
+    result = subprocess.run([bash()], input=script, text=True, capture_output=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert "lock-acquired" in result.stdout
+
+
+def measurement_namespace():
+    source = source_function("measure_repair_d4")
+    start = source.index("<<'PY'\n") + len("<<'PY'\n")
+    namespace = {"__name__": "measurement_contract"}
+    exec(compile(source[start:source.index("\nPY", start)], "repair-measurement", "exec"), namespace)
+    return namespace
+
+
+def valid_measurement():
+    return {"schema": 1, "target_commit": TARGET, "updater_sha256": NEW_SHA,
+        "database_sha256": "b" * 64, "report_sha256": "c" * 64, "exit_code": 2,
+        "wall_seconds": 120.5, "cpu_seconds": 119.0, "peak_rss_bytes": 350 * 1024**2}
+
+
+def test_measured_exact_input_within_profile_is_accepted():
+    data = measurement_namespace()
+    data["accept_measurement"](valid_measurement(), TARGET, NEW_SHA, "b" * 64, "c" * 64)
+
+
+@pytest.mark.parametrize("field,value", [("peak_rss_bytes", 1024**3), ("wall_seconds", 300.0),
+    ("cpu_seconds", 300.0), ("exit_code", -9), ("peak_rss_bytes", True),
+    ("wall_seconds", float("nan")), ("wall_seconds", -1), ("target_commit", "f" * 40),
+    ("updater_sha256", "f" * 64), ("database_sha256", "f" * 64),
+    ("report_sha256", "f" * 64), ("schema", True)])
+def test_missing_foreign_or_overbudget_measurement_never_authorizes_install(field, value):
+    data = measurement_namespace()
+    evidence = valid_measurement()
+    evidence[field] = value
+    with pytest.raises((ValueError, RuntimeError, SystemExit)):
+        data["accept_measurement"](evidence, TARGET, NEW_SHA, "b" * 64, "c" * 64)
+
+
+def test_incomplete_measurement_is_not_an_accepted_report():
+    data = measurement_namespace()
+    with pytest.raises((ValueError, RuntimeError, SystemExit)):
+        data["accept_measurement"]({}, TARGET, NEW_SHA, "b" * 64, "c" * 64)
+
+
+@pytest.mark.parametrize("defect", ["missing", "wrong-target", "wrong-digest", "missing-measurement"])
+def test_no_exchange_without_matching_complete_preflight_evidence(tmp_path, defect):
+    data, target, _, _, operations = transaction_fixture(tmp_path)
+    evidence = Path(data["PREFLIGHT_EVIDENCE"])
+    value = json.loads(evidence.read_text())
+    if defect == "missing":
+        evidence.unlink()
+    else:
+        if defect == "wrong-target": value["commit"] = "f" * 40
+        elif defect == "wrong-digest": value["updater_sha256"] = "f" * 64
+        else: del value["records"]["measurement"]
+        evidence.write_text(json.dumps(value))
+    with pytest.raises((OSError, ValueError, RuntimeError, SystemExit)):
+        data["install_updater"](TARGET, NEW_SHA)
+    assert target.read_bytes() == OLD
+    assert "after_replace" not in operations
+
+
+def test_repair_backup_wrapper_uses_fresh_online_full_restore_route(tmp_path):
+    events = tmp_path / "backup-events"
+    harness = "set -Eeuo pipefail\n"
+    for name, value in {"RECOVERY_BACKUP_DIR": "/private/backups", "STAGE_DIR": "/var/lib/betboy-context-update.fixture1",
+        "REQUESTED_HEAD": TARGET, "EXPECTED_PRODUCTION_HEAD": PRODUCTION_HEAD,
+        "EVENTS": events.as_posix()}.items():
+        harness += f"{name}={shlex.quote(value)}\n"
+    harness += 'produce_update_backup() { printf "%s\\n" "$@" >"$EVENTS"; }\n'
+    harness += source_function("verify_repair_backup") + "\nverify_repair_backup\n"
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert events.read_text().splitlines() == ["online",
+        "/var/lib/betboy-context-update.fixture1/backup-online-work",
+        f"/private/backups/repair-{TARGET}-betboy-context-update.fixture1.zip", PRODUCTION_HEAD]
+
+
+@pytest.mark.parametrize("failure", [None, "stage", "measure", "finish"])
+def test_measured_d4_and_closed_report_both_precede_final_production_recheck(tmp_path, failure):
+    events = tmp_path / "d4-events"
+    harness = "set -Eeuo pipefail\nCONTEXT_STAGE_DIR=/private/context\nPREFLIGHT_BACKUP=/private/fresh.zip\n"
+    harness += f"EVENTS={shlex.quote(events.as_posix())}\n"
+    harness += 'die() { printf "%s\\n" "$*" >&2; exit 1; }\n'
+    harness += 'context_hook_data() { printf "%s\\n" "$1" >>"$EVENTS"; '
+    harness += (f'[[ "$1" != {failure} ]] || return 41; ' if failure in {"stage", "finish"} else '')
+    harness += 'if [[ "$1" == stage ]]; then printf "present\\n"; fi; }\n'
+    harness += 'measure_repair_d4() { printf "measure\\n" >>"$EVENTS"; '
+    harness += ('return 42; ' if failure == "measure" else 'printf "2\\n"; ') + '}\n'
+    harness += 'verify_repair_production() { printf "production\\n" >>"$EVENTS"; }\n'
+    harness += source_function("verify_repair_context") + "\nverify_repair_context\n"
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=15)
+    observed = events.read_text().splitlines()
+    assert (result.returncode == 0) is (failure is None), result.stderr
+    if failure is None:
+        assert observed == ["stage", "measure", "finish", "production"]
+    else:
+        assert "production" not in observed
