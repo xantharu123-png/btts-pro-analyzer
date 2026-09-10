@@ -227,7 +227,8 @@ def recover_updater(commit, checksum):
     if current_hash == checksum:
         need(current_identity[:6] == value["replacement"], "new updater inode was externally replaced")
     else:
-        need(current_identity[:6] in (value["original"][:6], value["rollback"]), "old updater inode was externally replaced")
+        need(current_identity == value["original"] or current_identity[:6] == value["rollback"],
+             "old updater inode was externally replaced")
     if value["phase"] == "complete":
         need(current_hash == checksum, "completed updater was externally changed")
         return "complete"
@@ -245,6 +246,10 @@ def recover_updater(commit, checksum):
         os.replace(temporary, INSTALLED_UPDATER)
         sync_directory(INSTALLED_UPDATER.parent)
         need(read_exact(INSTALLED_UPDATER, mode=0o755)[0] == old, "rollback bytes differ")
+    # Recovery may have stopped immediately after the rollback rename. Even an
+    # already-old recognized inode needs this durable directory-entry barrier.
+    sync_directory(INSTALLED_UPDATER.parent)
+    need(read_exact(INSTALLED_UPDATER, mode=0o755)[0] == old, "rollback bytes differ")
     value["phase"] = "rolled_back"
     write_journal(value)
     return "old"
@@ -1876,6 +1881,59 @@ PY
     log "Fresh root-protected ${phase} backup verified: ${destination_archive}"
 }
 
+enumerate_backup_sources() {
+    # One locale-independent discovery contract for byte admission and DAC.
+    # Do not substitute find -iname for Python's Unicode suffix.casefold().
+    /usr/bin/python3 -I -B - "${APP_DIR}" "$1" <<'PY'
+import os
+from pathlib import Path
+import stat
+import sys
+
+root, mode = Path(sys.argv[1]), sys.argv[2]
+if mode not in {"bytes", "paths"}:
+    raise SystemExit("Unknown backup source enumeration mode")
+if root.is_symlink() or root.absolute() != root.resolve(strict=True):
+    raise SystemExit("Unsafe backup source root")
+excluded = {".codex_test_venv", ".git", ".pytest_cache", ".pytest_tmp"} if mode == "paths" else set()
+
+def fail_walk(error):
+    raise SystemExit("Cannot traverse complete backup source inventory") from error
+
+def database_or_companion(name):
+    folded = name.casefold()
+    for companion in ("-wal", "-shm", "-journal"):
+        if folded.endswith(companion):
+            folded = folded[:-len(companion)]
+            break
+    return Path(folded).suffix in {".db", ".sqlite", ".sqlite3"}
+
+total = 0
+for parent, directories, names in os.walk(root, topdown=True, followlinks=False, onerror=fail_walk):
+    current = Path(parent)
+    kept = []
+    for name in directories:
+        if name in excluded:
+            continue
+        if not stat.S_ISDIR((current / name).lstat().st_mode):
+            raise SystemExit("Unsafe backup source directory")
+        kept.append(name)
+    directories[:] = kept
+    for name in names:
+        if not database_or_companion(name):
+            continue
+        path = current / name
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise SystemExit("Unsafe backup source file")
+        total += info.st_size
+        if mode == "paths":
+            sys.stdout.buffer.write(os.fsencode(path.as_posix()) + b"\0")
+if mode == "bytes":
+    print((total + 1023) // 1024)
+PY
+}
+
 # END unchanged Task2 preflight functions.
 
 repair_guard() {
@@ -1901,6 +1959,26 @@ def ancestors(path):
          "unsafe root-private ancestor")
     if path.parent != path:
         ancestors(path.parent)
+
+
+def live_application_identity():
+    # Only these two fixed live directories may belong to the app principal.
+    # Root-private archive/auth/seal paths continue to use ancestors() unchanged.
+    account = pwd.getpwnam("betboy")
+    parent, app = Path("/opt/betboy"), Path("/opt/betboy/app")
+    ancestors(parent.parent)
+    records = {}
+    for name, path in (("parent", parent), ("app", app)):
+        info = path.lstat()
+        allowed = {(account.pw_uid, account.pw_gid)}
+        if name == "parent":
+            allowed.add((0, 0))
+        need(stat.S_ISDIR(info.st_mode) and (info.st_uid, info.st_gid) in allowed
+             and not info.st_mode & 0o022, "unsafe live application principal")
+        records[name] = signature(info)[:6]
+    need(signature(parent.lstat())[:6] == records["parent"]
+         and signature(app.lstat())[:6] == records["app"], "live application path replaced")
+    return records
 
 
 def signature(info):
@@ -1959,11 +2037,8 @@ elif action == "continuity" and len(args) == 2:
     head, proof = args
     need(head == "2dd1116b68f3d94e9c24338c6c9dff9b01799221", "production HEAD changed")
     app = Path("/opt/betboy/app")
-    ancestors(app.parent)
-    info = app.lstat()
-    need(stat.S_ISDIR(info.st_mode) and info.st_uid == pwd.getpwnam("betboy").pw_uid
-         and not info.st_mode & 0o022, "unsafe application root principal")
-    records = {"head": head, "app": signature(info)[:6]}
+    live_identity = live_application_identity()
+    records = {"head": head, **live_identity}
     updater_raw, updater_identity = read("/usr/local/sbin/betboy-update", 2 * 1024 * 1024)
     need(hashlib.sha256(updater_raw).hexdigest() == "74b1c4b1aa88788f6a8e1050905215953b5938faad0009719aa15164a494b78f"
          and stat.S_IMODE(updater_identity[2]) == 0o755 and updater_identity[4] == 0,
@@ -1980,6 +2055,7 @@ elif action == "continuity" and len(args) == 2:
             marker = json.loads(raw)
             need(marker.get("status") == "complete" and marker.get("target_head") == head
                  and marker.get("application_root") == str(app), "incomplete or mismatched production marker")
+    need(live_application_identity() == live_identity, "live application path changed during continuity check")
     encoded = (json.dumps(records, sort_keys=True, separators=(",", ":")) + "\n").encode()
     if os.path.lexists(proof):
         need(read(proof, 65536)[0] == encoded, "production authentication/configuration identity changed")
@@ -2005,20 +2081,12 @@ elif action == "backup-dir" and not args:
     info = destination.lstat()
     need(info.st_gid == 0 and stat.S_IMODE(info.st_mode) == 0o700,
          "existing repair backup destination is not root-private")
-elif action == "capacity" and len(args) == 2:
-    stage, recovery = map(Path, args)
-    app = Path("/opt/betboy/app")
-    excluded = {".codex_test_venv", ".git", ".pytest_cache", ".pytest_tmp", ".venv", "__pycache__", "backups_runtime"}
-    total = 0
-    for current, directories, names in os.walk(app, followlinks=False):
-        directories[:] = [name for name in directories if name not in excluded]
-        for name in names:
-            if Path(name).suffix.casefold() in {".db", ".sqlite", ".sqlite3"}:
-                info = (Path(current) / name).lstat()
-                need(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, "unsafe capacity inventory")
-                total += info.st_size
-    need(total > 0, "no database capacity inventory")
-    maximum = total * 2 + 67108864
+elif action == "capacity" and len(args) == 3:
+    stage, recovery = map(Path, args[:2])
+    # KiB rounded upward by the exact reviewed Task2 enumerator, whose failed
+    # walk aborts the caller before this reservation can be evaluated.
+    need(re.fullmatch(r"[1-9][0-9]*", args[2]) is not None, "no database capacity inventory")
+    maximum = int(args[2]) * 1024 * 2 + 67108864
     # Add reservations on the actual mounts: retained producer+sealed context,
     # root archive copy, independent helper restore. Never reuse shared free space.
     reservations = ((stage, maximum * 4 + 1073741824),
@@ -2154,7 +2222,9 @@ prepare_repair_source() {
     RECOVERY_BACKUP_DIR="${REPAIR_STATE_DIR}/backups"
     repair_guard backup-dir
     verify_repair_production
-    ARCHIVE_MAX_BYTES=$(repair_guard capacity "${STAGE_DIR}" "${RECOVERY_BACKUP_DIR}")
+    local source_kib
+    source_kib=$(enumerate_backup_sources bytes)
+    ARCHIVE_MAX_BYTES=$(repair_guard capacity "${STAGE_DIR}" "${RECOVERY_BACKUP_DIR}" "${source_kib}")
     fetch_repair_source
     create_trusted_manifests
     # The copied backup producer only needs the checked target helper filepath.

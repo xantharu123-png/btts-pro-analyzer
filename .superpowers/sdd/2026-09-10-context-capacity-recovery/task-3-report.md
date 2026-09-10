@@ -125,3 +125,66 @@ application deployment remains a separate subsequent command.
 
 Process used: TDD and verification-before-completion inside the controller's
 subagent-driven plan. The controller owns independent review and deployment.
+
+## Independent-review corrections (10 September, base 347c253)
+
+Read the complete independent review and unchanged ignored reproduction
+harness. All three reported problems reproduced locally before edits: the
+legitimate app-owned live parent was rejected; a real WAL source admitted
+67,117,056 bytes against a 100,782,080-byte SQLite snapshot; restart after
+rollback rename recorded `rolled_back` without an installed-parent fsync.
+Controller additionally reported actual Linux inode reuse defeating the
+original six-field OLD identity comparison. No Linux failure was skipped or
+masked by selecting a different inode.
+
+New RED slice: **15 failed, 67 passed, 1 Windows-flock skip in 4.92s**.
+This includes missing narrowly scoped live-path and copied-inventory seams,
+two directly reproduced missing recovery barriers, and a deterministic
+same-inode/different-time signature test. Fixes:
+
+- Only `/opt/betboy` and `/opt/betboy/app` accept the existing betboy UID and
+  primary GID, with no group/world write. The parent may alternatively be
+  root:root. `/opt` and every private/auth/stage domain remain strictly root
+  owned. Both live-directory identities are checked twice and included in the
+  persistent production continuity comparison. Foreign UID/GID, writable
+  parent/app, symlink, app-owned `/opt` and identity replacement are rejected.
+- An eighteenth function, `enumerate_backup_sources`, is copied byte-for-byte
+  from the unchanged accepted Task2 source. Its complete DB+WAL/SHM/journal,
+  Unicode-casefold and fail-closed walk contract supplies rounded-up KiB to
+  the existing archive/reservation formula. No CPU/AS/wall/output budgets change;
+  only omitted source bytes are now counted, with at most 1023-byte upward
+  inventory rounding. Actual Bash preparation tests show a failed partial
+  inventory cannot reach capacity admission or fetch. Real SQLite WAL/backup
+  tests verify capacity and combined-mount insufficient-space rejection.
+- An untouched OLD executable must match all nine journaled signature fields,
+  not only inode/principal fields. The separately journaled own rollback inode
+  retains its rename-specific rule. Same inode with changed time is rejected
+  without changing either bytes or journal.
+- Every recovery path fsyncs the installed parent before signing `rolled_back`,
+  including an already-old own rollback inode. Tests interrupt both immediately
+  after rollback rename and after its fsync; on a fresh run a failed parent
+  barrier preserves `replacing`, while a successful barrier permits completion.
+
+The unchanged Task2 updater SHA remains
+`4b814c500f5eb03fb7a28f576210f02759300aa5560ef273834c6eb3195e8c19`.
+All eighteen copied functions are covered by exact-source parity. Unit tests
+continue using transparent principal/DAC emulation; actual byte, inode, link,
+timestamp and file I/O behavior is retained. No root app/test imports, VPS
+actions, permission changes, pushes or edits to the reviewer's report occurred.
+
+Fresh verification and immutable checkpoint details follow below. This remains
+a review checkpoint, not deployment approval; controller native Linux rerun,
+fresh full production backup/restore/HMAC and measured target D4 remain gates.
+
+Final frozen-source command:
+
+```powershell
+& C:/Projekt/BetBoy/betboy-app/.codex_test_venv/quality/Scripts/python.exe -B -m pytest tests/test_context_updater_repair.py tests/test_context_update_hook.py -q -p no:cacheprovider --basetemp=.pytest_tmp/repair-review-final --junitxml=.pytest_tmp/repair-review-final.xml --tb=short
+```
+
+Result: **430 passed, 1 skipped in 56.12s**, exit0: 90 Task3 passes, one
+Windows-only real-flock skip, unchanged 340 Task2 passes. Bash `-n` and
+`git -c core.autocrlf=false diff --check` also pass. Installer exact LF SHA256:
+`eb2b1843a58c7b66171feaa832d9425429d6637cf9249992ab986cc4767bcf63`.
+The reviewer report and ignored independent repro remained untouched and
+excluded from the scoped installer/tests/README/implementation-report commit.

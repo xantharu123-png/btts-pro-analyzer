@@ -387,6 +387,13 @@ key/configuration/installed-file identities. It never changes database contents,
 keys, markers, units, timer policy, helper pins or application checkout, and it
 does not stop or start services.
 
+Only the fixed live `/opt/betboy` and `/opt/betboy/app` directories may retain
+the existing app UID/primary GID (without group/world write); both identities
+are bound into the continuity evidence. This is not an exception for any
+root-private staging, authentication or executable path. Capacity admission
+uses the exact reviewed updater inventory, including database WAL/SHM/journal
+companions and Unicode casefold matching; traversal errors abort admission.
+
 Before exchanging bytes it produces a fresh full online archive, makes an
 independent bounded root-private copy, actually restores/verifies every database
 and authenticates applicable Challenge HMAC ledgers with the unchanged pinned
@@ -410,6 +417,10 @@ the exact command recovers an interrupted exchange or verifies the already
 completed transaction; it never overwrites unknown hashes, foreign replacement
 inodes or corrupt journals. Preserve these files for review rather than deleting
 them to force a retry.
+An untouched original requires its full saved file signature, including times,
+so inode reuse alone cannot impersonate it. Recovery also fsyncs the installed
+parent before recording rollback completion when the rollback rename happened
+in an earlier interrupted process.
 
 This repository contains local implementation/test evidence only, not proof
 that the repair was executed on production. Native Task-3 transaction/resource

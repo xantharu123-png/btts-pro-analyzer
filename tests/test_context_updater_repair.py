@@ -7,9 +7,11 @@ the production CLI.  Unix owner/mode and directory-fsync emulation below is
 explicitly NOT native Linux DAC/crash-durability evidence.
 """
 import hashlib
+import ast
 import json
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
 import re
 import shlex
 import shutil
@@ -209,6 +211,191 @@ def restart_transaction(data):
     for name in ("os", "Path", "INSTALLED_UPDATER", "NEW_UPDATER", "REPAIR_STATE_DIR", "PREFLIGHT_EVIDENCE", "EXPECTED_OLD_SHA256"):
         restarted[name] = data[name]
     return restarted
+
+
+def guard_functions():
+    source = source_function("repair_guard")
+    code = source.split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    tree = ast.parse(code)
+    namespace = {"os": os, "stat": stat, "Path": Path}
+    exec(compile(ast.Module(body=[node for node in tree.body if isinstance(node, ast.FunctionDef)],
+                            type_ignores=[]), "guard-functions", "exec"), namespace)
+    return namespace
+
+
+@pytest.mark.parametrize("unsafe", [None, "foreign", "foreign_gid", "group_write", "app_write", "symlink", "root_ancestor", "replaced"])
+def test_live_app_parent_principal_is_narrow_and_identity_bound(unsafe):
+    facts = {"/": (0, 0, 0o755), "/opt": (0, 0, 0o755),
+             "/opt/betboy": (997, 987, 0o750), "/opt/betboy/app": (997, 987, 0o750)}
+    if unsafe == "foreign": facts["/opt/betboy"] = (998, 987, 0o750)
+    if unsafe == "foreign_gid": facts["/opt/betboy"] = (997, 988, 0o750)
+    if unsafe == "group_write": facts["/opt/betboy"] = (997, 987, 0o775)
+    if unsafe == "app_write": facts["/opt/betboy/app"] = (997, 987, 0o775)
+    if unsafe == "root_ancestor": facts["/opt"] = (997, 987, 0o755)
+    calls = {}
+    class LivePath(PurePosixPath):
+        def lstat(self):
+            uid, gid, mode = facts[str(self)]
+            calls[str(self)] = calls.get(str(self), 0) + 1
+            kind = stat.S_IFLNK if unsafe == "symlink" and str(self) == "/opt/betboy" else stat.S_IFDIR
+            inode = 20 + list(facts).index(str(self))
+            if unsafe == "replaced" and str(self) == "/opt/betboy" and calls[str(self)] > 1: inode += 10
+            return SimpleNamespace(st_dev=1, st_ino=inode, st_mode=kind | mode, st_uid=uid,
+                st_gid=gid, st_nlink=2, st_size=0, st_mtime_ns=1, st_ctime_ns=1)
+    data = guard_functions()
+    data.update(Path=LivePath, pwd=SimpleNamespace(getpwnam=lambda _: SimpleNamespace(pw_uid=997, pw_gid=987)))
+    if unsafe:
+        with pytest.raises(SystemExit): data["live_application_identity"]()
+    else:
+        identity = data["live_application_identity"]()
+        assert set(identity) == {"app", "parent"}
+        # This must NOT admit the app principal into any root-private domain.
+        with pytest.raises(SystemExit): data["ancestors"](LivePath("/opt/betboy"))
+
+
+def test_recovery_rejects_original_inode_reuse_with_changed_timestamps(tmp_path):
+    data, target, _, state, _ = transaction_fixture(tmp_path, failure="before_replace", crash=True)
+    with pytest.raises(Interrupted): data["install_updater"](TARGET, NEW_SHA)
+    before = target.stat()
+    os.utime(target, ns=(before.st_atime_ns, before.st_mtime_ns + 1000000000))
+    journal = (state / "transaction.json").read_bytes()
+    with pytest.raises((SystemExit, ValueError, RuntimeError)):
+        restart_transaction(data)["recover_updater"](TARGET, NEW_SHA)
+    assert target.read_bytes() == OLD
+    assert (state / "transaction.json").read_bytes() == journal
+
+
+@pytest.mark.parametrize("barrier_fails", [False, True])
+@pytest.mark.parametrize("interruption", ["after_rename", "after_fsync"])
+def test_restart_after_rollback_rename_requires_parent_barrier(tmp_path, barrier_fails, interruption):
+    data, target, _, state, operations = transaction_fixture(tmp_path, failure="after_replace", crash=True)
+    with pytest.raises(Interrupted): data["install_updater"](TARGET, NEW_SHA)
+    restarted = restart_transaction(data)
+    replace = restarted["os"].replace
+    def crash_after_rollback(source, destination):
+        replace(source, destination)
+        if interruption == "after_rename" and Path(destination) == target and target.read_bytes() == OLD:
+            raise Interrupted("rollback rename")
+    restarted["os"].replace = crash_after_rollback
+    original_sync = restarted["sync_directory"]
+    def crash_after_barrier(path):
+        original_sync(path)
+        if interruption == "after_fsync" and path == restarted["INSTALLED_UPDATER"].parent and target.read_bytes() == OLD:
+            raise Interrupted("rollback parent fsync")
+    restarted["sync_directory"] = crash_after_barrier
+    with pytest.raises(Interrupted): restarted["recover_updater"](TARGET, NEW_SHA)
+    operations.clear()
+    fresh = restart_transaction(restarted)
+    sync = fresh["sync_directory"]
+    def barrier(path):
+        if barrier_fails and path == fresh["INSTALLED_UPDATER"].parent: raise OSError("parent barrier")
+        return sync(path)
+    fresh["sync_directory"] = barrier
+    if barrier_fails:
+        with pytest.raises(OSError): fresh["recover_updater"](TARGET, NEW_SHA)
+        assert json.loads((state / "transaction.json").read_text())["phase"] == "replacing"
+    else:
+        assert fresh["recover_updater"](TARGET, NEW_SHA) == "old"
+        assert ("fsync_path", str(target.parent)) in operations
+        assert json.loads((state / "transaction.json").read_text())["phase"] == "rolled_back"
+    assert target.read_bytes() == OLD
+
+
+@pytest.mark.parametrize("unsafe", [None, "walk", "hardlink", "directory_link"])
+def test_capacity_inventory_includes_companions_unicode_and_fails_closed(tmp_path, capsys, unsafe):
+    source = source_function("enumerate_backup_sources")
+    code = source.split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    files = {"main.db": 4096, "main.db-wal": 200000, "main.db-shm": 32768,
+             "main.db-journal": 8192, "unicode.ſQLITE-WAL": 3333, ".git/retained.db": 2222}
+    for name, size in files.items():
+        path = tmp_path / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(b"x" * size)
+    real_walk = os.walk
+    def walk(*args, **kwargs):
+        if unsafe == "walk": kwargs["onerror"](PermissionError("denied child"))
+        yield from real_walk(*args, **kwargs)
+    class InventoryPath(type(Path())):
+        def lstat(self):
+            info = super().lstat()
+            values = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+            if unsafe == "hardlink" and self.name == "main.db-wal": values["st_nlink"] = 2
+            if unsafe == "directory_link" and self.name == ".git": values["st_mode"] = stat.S_IFLNK | 0o755
+            return SimpleNamespace(**values)
+    tree = ast.parse(code)
+    tree.body = [node for node in tree.body if not isinstance(node, (ast.Import, ast.ImportFrom))]
+    data = {"os": SimpleNamespace(**{**vars(os), "walk": walk}), "Path": InventoryPath,
+            "stat": stat, "sys": SimpleNamespace(argv=["-", str(tmp_path), "bytes"])}
+    if unsafe:
+        with pytest.raises(SystemExit): exec(compile(tree, "inventory", "exec"), data)
+    else:
+        exec(compile(tree, "inventory", "exec"), data)
+        assert int(capsys.readouterr().out) == (sum(files.values()) + 1023) // 1024
+
+
+@pytest.mark.parametrize("inventory_fails", [False, True])
+def test_actual_preparation_requires_complete_inventory_before_capacity_or_fetch(tmp_path, inventory_fails):
+    script = "set -Eeuo pipefail\n"
+    script += f"REQUESTED_HEAD={TARGET}\nEXPECTED_NEW_SHA256={NEW_SHA}\nREPAIR_STATE_DIR=/var/private\n"
+    script += 'repair_data() { printf "old\\n"; }\nid() { printf "987\\n"; }\n'
+    script += 'context_hook_data() { printf "/var/stage\\n"; }\nverify_repair_production() { :; }\n'
+    script += 'repair_guard() { if [[ "$1" == backup-dir ]]; then return; fi; '
+    script += '[[ "$*" == "capacity /var/stage /var/private/backups 123" ]] || return 97; printf "capacity-called\\n" >&2; printf "999\\n"; }\n'
+    script += 'enumerate_backup_sources() { [[ "$*" == bytes ]] || return 98; '
+    script += ('printf "partial\\n"; return 42; ' if inventory_fails else 'printf "123\\n"; ') + '}\n'
+    script += 'fetch_repair_source() { printf "fetch-called\\n"; exit 0; }\n'
+    script += source_function("prepare_repair_source") + '\nprepare_repair_source\n'
+    result = subprocess.run([bash()], input=script, text=True, capture_output=True, timeout=15)
+    assert "command not found" not in result.stderr
+    assert (result.returncode == 0) is (not inventory_fails), result.stderr
+    assert ("capacity-called" in result.stderr) is (not inventory_fails)
+    assert ("fetch-called" in result.stdout) is (not inventory_fails)
+
+
+@pytest.mark.parametrize("insufficient", [False, True])
+def test_real_sqlite_wal_snapshot_is_covered_by_actual_capacity_reservation(tmp_path, capsys, insufficient):
+    import sqlite3
+    database = tmp_path / "context_models.db"
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA wal_autocheckpoint=0")
+        connection.execute("CREATE TABLE items (payload BLOB)")
+        connection.executemany("INSERT INTO items VALUES (zeroblob(1048576))", [()] * 8)
+        connection.commit()
+        with sqlite3.connect(tmp_path / "snapshot") as destination:
+            connection.backup(destination)
+        source = source_function("enumerate_backup_sources")
+        code = source.split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+        tree = ast.parse(code)
+        tree.body = [node for node in tree.body if not isinstance(node, (ast.Import, ast.ImportFrom))]
+        exec(compile(tree, "real-wal-inventory", "exec"), {"os": os, "Path": Path, "stat": stat,
+             "sys": SimpleNamespace(argv=["-", str(tmp_path), "bytes"])})
+        kib = int(capsys.readouterr().out)
+        total = sum(path.stat().st_size for path in tmp_path.glob("context_models.db*"))
+        assert kib == (total + 1023) // 1024
+        guard = source_function("repair_guard").split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+        branches = [node for node in ast.walk(ast.parse(guard)) if isinstance(node, ast.If)
+                    and isinstance(node.test, ast.BoolOp)
+                    and 'action == \'capacity\'' in ast.unparse(node.test)]
+        assert len(branches) == 1
+        class DestinationPath(PurePosixPath):
+            def lstat(self): return SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=0, st_dev=1)
+        def need(condition, message):
+            if not condition: raise SystemExit(message)
+        data = {"args": ["/var/stage", "/var/recovery", str(kib)], "Path": DestinationPath,
+                "need": need, "re": re, "stat": stat, "os": SimpleNamespace(statvfs=lambda _: SimpleNamespace(
+                    f_bavail=1 if insufficient else 2**40, f_frsize=1))}
+        body = ast.Module(body=branches[0].body, type_ignores=[])
+        if insufficient:
+            with pytest.raises(SystemExit, match="insufficient combined"): exec(compile(body, "capacity", "exec"), data)
+        else:
+            exec(compile(body, "capacity", "exec"), data)
+            maximum = int(capsys.readouterr().out)
+            assert maximum == kib * 2048 + 67108864
+            assert maximum > (tmp_path / "snapshot").stat().st_size
+    finally:
+        connection.close()
 
 
 def test_exact_two_argument_request_has_no_caller_remote_or_target_path():
@@ -433,7 +620,7 @@ SHARED_FUNCTIONS = (
     "create_trusted_manifests", "context_hook_data", "context_hook_command",
     "verification_launcher_source", "configure_context_phase", "prepare_verification_launcher",
     "verify_backup_archive", "capture_root_verifier",
-    "produce_update_backup",
+    "produce_update_backup", "enumerate_backup_sources",
 )
 
 
