@@ -125,3 +125,25 @@ Original production source GREEN: complete `tests/test_server_jobs.py`,
 `4b814c500f5eb03fb7a28f576210f02759300aa5560ef273834c6eb3195e8c19`.
 The earlier three-file results remain evidence for the initial port; this
 follow-up did not rerun the broad suite or claim new native/HMAC acceptance.
+
+### Final inline-failure control and fresh trio
+
+The same actual closing segment also now runs with inline-verifier status 1:
+only `inline-boundary` may be observed, with nonzero exit; the helper,
+publication, success log and continuation must all remain unreachable.
+
+Fresh read-time mutations against this final test both give RED:
+
+- Bypassed helper-status guard: 1 failed / 89 deselected / 1.62 s.
+- Inline verifier call changed to `... || true`: 1 failed / 89 deselected /
+  0.78 s. The observed mutant incorrectly ran the helper and published before
+  continuing with exit 0; the actual test rejected this behavior.
+
+Final original-source targeted trio:
+**533 passed, 8 platform skips, 80.82 s**
+(`.pytest_tmp/broad-port-review-final-green.xml`). Counts remain server jobs
+83/7, context hook 340/0, updater repair 110/1. Both shell syntax checks and
+the scoped diff check pass. The production updater was not edited; native
+acceptance and the root-controlled exact-LF broad Windows suite remain
+separate. The independent reviewer has also inspected the new closing segment
+read-only and is binding their final verdict to the forthcoming exact commit.

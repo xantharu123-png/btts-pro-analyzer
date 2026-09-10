@@ -182,13 +182,13 @@ def test_update_preflights_before_downtime_and_has_recovery_path(monkeypatch):
     # the publication command consumes its unchanged heredoc without running
     # root Python or writing an archive on the developer's host.
     completion = producer[producer.index('    verify_backup_archive "${partial_archive}"'):]
-    for helper_status in (0, 1, 137):
+    for inline_status, helper_status in ((0, 0), (0, 1), (0, 137), (1, 0)):
         completion_harness = "set -euo pipefail\nPATH=/usr/bin:/bin\n"
-        completion_harness += f"HELPER_STATUS={helper_status}\n"
+        completion_harness += f"INLINE_STATUS={inline_status}; HELPER_STATUS={helper_status}\n"
         completion_harness += "partial_archive=fixture.partial; destination_archive=fixture.zip; CONTEXT_STAGE_DIR=fixture; phase=online\n"
         completion_harness += "die() { printf 'rejected:%s\\n' \"$*\"; exit 1; }\n"
         completion_harness += "log() { printf 'verified\\n'; }\ntrusted_file() { printf 'fixture-helper'; }\n"
-        completion_harness += "verify_backup_archive() { printf 'inline-boundary\\n'; }\n"
+        completion_harness += "verify_backup_archive() { printf 'inline-boundary\\n'; return \"$INLINE_STATUS\"; }\n"
         completion_harness += "capture_root_verifier() { printf 'helper-boundary\\n'; CONTEXT_COMMAND_STATUS=$HELPER_STATUS; }\n"
         completion_harness += "/usr/bin/python3() { while IFS= read -r line; do :; done; printf 'publication-boundary\\n'; }\n"
         completion_harness += "complete_producer() {\n" + completion
@@ -197,6 +197,10 @@ def test_update_preflights_before_downtime_and_has_recovery_path(monkeypatch):
                                 text=True, capture_output=True, timeout=20)
         assert result.stderr == ""
         lines = result.stdout.splitlines()
+        if inline_status != 0:
+            assert result.returncode != 0
+            assert lines == ["inline-boundary"]
+            continue
         assert lines[:2] == ["inline-boundary", "helper-boundary"]
         if helper_status == 0:
             assert result.returncode == 0
