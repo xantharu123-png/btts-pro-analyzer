@@ -1,5 +1,21 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Manual input F1 accepted — 10 September 2026, approximately 11:26 CEST
+
+Root74d714a integrates frozen C0c0a83f1 and F1acf6b8e. Independent rereview
+addresses both actual UI findings, no new Important source regression. Its one
+Important provenance correction is applied: C0 two-card evidence was AppTest,
+not CUA. The new Root F1 browser report independently proves two cached manual
+decisions, edit/clear/invalid-input isolation, visible initial100.00 and no
+model/order change. Actual320px popover readable; both views1440→320 fit; all
+six synthetic sport filters and separate Risk price-only overlay confirmed.
+Author195bounded+18unchanged controls green; no full-suite claim for this target.
+
+P4b3(a) resumed only after F1 writer froze; still separate unmerged work.
+GitHub main/VPS lastverified2ba3931, no installed bridgeA or B deployment yet.
+Protected helper/raw inherited WIP preserved. Next freeze an LF integrated QA
+target, run full suite once, qualify the release delta, then installed A→B.
+
 ## Account continuation — 10 September 2026, late morning CEST
 
 Existing approvals/spec/20-task plan are retained. Fresh Git checks confirm

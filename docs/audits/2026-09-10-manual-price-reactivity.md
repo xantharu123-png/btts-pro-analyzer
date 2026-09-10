@@ -124,9 +124,12 @@ are superseded by this correction, not erased. Root's actual fresh-browser
 check on `c0a83f191e200b5305acbf06cf23ddfb359a0a91` found blank first and second
 bankroll fields, even after waiting, and an untouched submission correctly
 rejected that blank input. Its independent report also found that invalid
-outcomes lacked the checked-input identity. The primary 1.12 -> 4.00 reactive
-invalidation, two-card isolation and pending/no-stake behavior were confirmed
-separately by Root; this round does not change those rules.
+outcomes lacked the checked-input identity. Root's C0 browser run confirmed the
+primary 1.12 -> 4.00 reactive invalidation and single-card pending/no-stake
+behavior. At that point, two simultaneously cached manual decisions and their
+isolation were proven by AppTest, not by Root's C0 browser run. This round does
+not change those rules. Root's later F1 browser report records its own separate
+two-card check; it does not retroactively upgrade the earlier evidence.
 
 This round is isolated in `kontext-manual-price-round1-20260910`, branched with
 `git -c core.autocrlf=false` from that exact C0 commit. The original worktree,

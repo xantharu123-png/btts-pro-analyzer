@@ -1,5 +1,22 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## UI-Nachprüfung am 10. September 2026 — etwa 11:26 CEST
+
+Root74d714a enthält den angenommenen UI-Fixacf6b8e: echtes Startguthaben100.00,
+leere/ungültige Eingaben nicht ersetzt, jede Entscheidung bindet ihre konkreten
+Eingaben.195Fokustests und18Originalgegenproben grün. Unabhängiger Nachreview
+ohne neue wichtige Codefehler; ungenaue ältere Testzuordnung korrigiert.
+Der echte neue Browserlauf beweist jetzt auch zwei gleichzeitig gespeicherte
+Quotenprüfungen: Änderungen an A lassen B unverändert. Modelltexte/Sortierung
+bleiben gleich. Beide Ansichten passen1440–320px; mobiles Prüffenster lesbar.
+Quotenwechsel in RisikoBet ändert nur die separate Preisanzeige.
+
+Noch keine neue Vollsuite für diesen integrierten Stand, kein Main-/VPS-Release.
+P4b3(a) separat wieder in Arbeit; Fußball-P5b und tatsächliche qualifizierte
+Verletzungs-/Belastungsanbindungen bleiben offen. Cricket weiterhin ausgenommen.
+Frühere Outputs/REDs/geschützter Stagehelper unverändert. Details im neuen
+SDD-Bericht task-19-manual-price-browser-round1-20260910.md.
+
 ## Accountfortsetzung am 10. September 2026 — Vormittag
 
 Spezifikation, Plan, Agenten-/Worktree- und Releasefreigaben übernommen, nicht
