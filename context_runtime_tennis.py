@@ -57,7 +57,11 @@ class LiveReplayDescriptor:
     history_cache: object = None
 
 
-def _cold_replay_history(receipts, *, cutoff, tour, max_bytes):
+class _HistoryBasisOverflow(Exception):
+    """Only optional preparation capacity, never an integrity/admission error."""
+
+
+def _cold_replay_history(receipts, *, cutoff, tour, max_bytes, basis_max_bytes=None):
     """One complete causal tuple; owning selection/validation stays exact.
 
     Select each fully decoded receipt with the unchanged owning tuple API,
@@ -73,9 +77,11 @@ def _cold_replay_history(receipts, *, cutoff, tour, max_bytes):
             continue
         selected = select_tennis_observations((row,), cutoff=cutoff, tour=tour)
         for candidate in selected:
-            if max_bytes is not None:
+            if max_bytes is not None or basis_max_bytes is not None:
                 used += len(canonical_bytes(candidate))
-                if used > max_bytes:
+                if basis_max_bytes is not None and used > basis_max_bytes:
+                    raise _HistoryBasisOverflow
+                if max_bytes is not None and used > max_bytes:
                     raise RuntimeArtifactTrustError("complete Tennis history exceeds canonical input budget")
             history.append(candidate)
     history.sort(key=lambda row: (row["observed_at"], row["digest"]))
@@ -165,7 +171,16 @@ def verify_live_originals(artifacts, created_at, receipts, limitations, *, histo
                 for tour, cutoff in cutoffs.items():
                     # This is cache preparation, not admission of a consumer.
                     # A too-large maximum must not reject a valid small prefix.
-                    history = _cold_replay_history(receipts, cutoff=cutoff, tour=tour, max_bytes=None)
+                    try:
+                        history = _cold_replay_history(receipts, cutoff=cutoff, tour=tour,
+                            max_bytes=None, basis_max_bytes=history_cache._max_bytes)
+                    except _HistoryBasisOverflow:
+                        # Discard only this bounded optional preparation. The
+                        # consumer still cold-validates its complete own cutoff.
+                        # A simultaneous mutation/revocation is never a miss.
+                        history_cache._check(receipts)
+                        history_cache._counters["bypasses"] += 1
+                        continue
                     history_cache._store(receipts, history, cutoff=cutoff, tour=tour)
                     del history
     # Opaque unopened D2 final receipts are never decoded here or promoted into

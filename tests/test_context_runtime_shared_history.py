@@ -265,3 +265,114 @@ def test_shared_oversize_bypass_cannot_hide_last_encoding_mutation(encoded_histo
     with pytest.raises(RuntimeArtifactTrustError):
         cache._store(receipts, rows, cutoff=now+timedelta(seconds=2), tour="ATP")
     assert cache.stats["pending_bytes"] == 0 and cache.stats["entries"] == 0
+
+
+def test_maximum_preparation_keeps_eligible_opposite_tour_owner_validation(encoded_history_fixture, monkeypatch):
+    import json
+    from context_models.contracts import ContextIntegrityError, digest
+    conn, _, _ = encoded_history_fixture
+    for ref, raw in conn.execute("SELECT content_digest,payload FROM context_contents"):
+        content = json.loads(raw)
+        if content["payload"]["tour"] == "WTA":
+            content["payload"]["competition_revision"] = "0" * 64
+            replacement = digest(content)
+            clock = conn.execute("SELECT observed_at FROM context_observations WHERE content_digest=?", (ref,)).fetchone()[0]
+            conn.execute("UPDATE context_contents SET content_digest=?,payload=? WHERE content_digest=?",
+                         (replacement, canonical_bytes(content), ref))
+            conn.execute("UPDATE context_observations SET content_digest=?,digest=? WHERE content_digest=?",
+                         (replacement, digest({"content_digest": replacement, "observed_at": clock}), ref))
+            break
+    else:
+        pytest.fail("missing opposite-tour native receipt")
+    receipts = VerifiedReceiptMapping(conn)
+    receipts.validate_all()  # Fully B1-valid; owning Tennis selection must still reject it.
+    artifacts = dict(VerifiedArtifactMapping(conn).items())
+    # Only ATP consumers: the malformed eligible WTA row is still validated.
+    artifacts = {ref: row for ref, row in artifacts.items()
+                 if row["kind"] != tennis_runtime.ORIGINAL_ARTIFACT_KIND
+                 or row["payload"]["origin"]["event"]["tour"] == "ATP"}
+    created = {ref: datetime.fromisoformat(clock) for ref, clock in conn.execute("SELECT digest,created_at FROM artifacts")}
+    cold, calls = tennis_runtime._cold_replay_history, []
+    def observed(*args, **kwargs):
+        calls.append(kwargs["tour"])
+        return cold(*args, **kwargs)
+    monkeypatch.setattr(tennis_runtime, "_cold_replay_history", observed)
+    with pytest.raises(ContextIntegrityError):
+        tennis_runtime.verify_live_originals(artifacts, created, receipts, set())
+    assert calls == ["ATP"]  # Error propagates, never becomes a cache-miss retry.
+
+
+@pytest.mark.parametrize("admit", [True, False])
+def test_optional_maximum_preparation_stops_at_size_only_overflow(five_groups, monkeypatch, admit):
+    import context_observations
+    _, _, artifacts, created, receipts, order = five_groups
+    selected = select_tennis_observations(tuple(receipts.values()),
+                cutoff=datetime.fromisoformat(max(clock for clock, _ in order)), tour="ATP")
+    assert len(selected) == 10
+    budget = len(canonical_bytes(selected[0]))
+    assert all(len(canonical_bytes(row)) == budget for row in selected)
+    monkeypatch.setattr(history_cache, "MAX_ENCODED_HISTORY_BYTES", budget)
+    decode, decoded = context_observations._decode_receipt, []
+    def observed(raw):
+        decoded.append(raw[0])
+        return decode(raw)
+    monkeypatch.setattr(context_observations, "_decode_receipt", observed)
+    verify, consumers = tennis_runtime._verify_live_original, []
+    def complete_consumer(*args, **kwargs):
+        if not consumers:
+            assert len(decoded) == 2  # Stop optional preparation, not full consumer validation.
+        consumers.append(1)
+        return verify(*args, **kwargs)
+    monkeypatch.setattr(tennis_runtime, "_verify_live_original", complete_consumer)
+    if admit:
+        checked = tennis_runtime.verify_live_originals(artifacts, created, receipts, set(), history_max_bytes=10*budget)
+        assert len(checked) == len(consumers) == 10
+        assert len(decoded) == 2 + 10*10  # All actual consumers still validate complete histories.
+        cache = next(iter(checked.values())).history_cache
+        assert cache.stats["entries"] == 0 and cache.stats["pending_bytes"] == 0
+    else:
+        with pytest.raises(RuntimeArtifactTrustError, match="history.*budget"):
+            tennis_runtime.verify_live_originals(artifacts, created, receipts, set(), history_max_bytes=9*budget)
+        assert len(consumers) == 1 and len(decoded) == 2 + 10
+
+
+def test_optional_overflow_fallback_still_rejects_later_malformed_receipt(five_groups, monkeypatch):
+    import json
+    from context_models.contracts import ContextIntegrityError, digest
+    _, conn, artifacts, created, _, order = five_groups
+    ref, raw = conn.execute("SELECT content_digest,payload FROM context_contents ORDER BY rowid DESC LIMIT 1").fetchone()
+    content = json.loads(raw)
+    content["payload"]["competition_revision"] = "0" * 64
+    replacement = digest(content)
+    clock = conn.execute("SELECT observed_at FROM context_observations WHERE content_digest=?", (ref,)).fetchone()[0]
+    conn.execute("UPDATE context_contents SET content_digest=?,payload=? WHERE content_digest=?",
+                 (replacement, canonical_bytes(content), ref))
+    conn.execute("UPDATE context_observations SET content_digest=?,digest=? WHERE content_digest=?",
+                 (replacement, digest({"content_digest": replacement, "observed_at": clock}), ref))
+    receipts = VerifiedReceiptMapping(conn)
+    receipts.validate_all()
+    monkeypatch.setattr(history_cache, "MAX_ENCODED_HISTORY_BYTES", 1)
+    cold, calls = tennis_runtime._cold_replay_history, []
+    def observed(*args, **kwargs):
+        calls.append(canonical_timestamp(kwargs["cutoff"]))
+        return cold(*args, **kwargs)
+    monkeypatch.setattr(tennis_runtime, "_cold_replay_history", observed)
+    with pytest.raises(ContextIntegrityError):
+        tennis_runtime.verify_live_originals(artifacts, created, receipts, set())
+    assert calls == [max(clock for clock, _ in order), order[0][0]]
+
+
+def test_optional_overflow_does_not_swallow_simultaneous_proof_mutation(five_groups, monkeypatch):
+    _, conn, artifacts, created, receipts, _ = five_groups
+    monkeypatch.setattr(history_cache, "MAX_ENCODED_HISTORY_BYTES", 1)
+    encode = tennis_runtime.canonical_bytes
+    def changed(row):
+        raw = encode(row)
+        conn.execute("UPDATE context_observations SET source=source")
+        return raw
+    monkeypatch.setattr(tennis_runtime, "canonical_bytes", changed)
+    def no_consumer(*args, **kwargs):
+        pytest.fail("revoked preparation fell through to consumer replay")
+    monkeypatch.setattr(tennis_runtime, "_verify_live_original", no_consumer)
+    with pytest.raises(RuntimeArtifactTrustError):
+        tennis_runtime.verify_live_originals(artifacts, created, receipts, set())

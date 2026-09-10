@@ -239,6 +239,7 @@ def test_lazy_membership_does_not_decode_unopened_final(tmp_path, monkeypatch):
         assert {row["digest"] for row in early} == refs
         assert all("source_schema" not in row for row in early)
         cache = EncodedHistoryCache(receipts, max_bytes=1024**2)
+        assert cache._plan_bases(receipts, {"ATP": EVALUATED})
         assert _replay_history(receipts, cutoff=EVALUATED, tour="ATP", max_bytes=None, cache=cache) == ()
         assert _replay_history(receipts, cutoff=EVALUATED, tour="ATP", max_bytes=None, cache=cache) == ()
         assert cache.stats["hits"] == 1
@@ -969,7 +970,8 @@ def test_encoded_history_real_d4_shares_original_snapshot_cache(encoded_history_
     report = runtime.verify_context_database(path)
     assert report["counts"]["snapshots"] == 2
     assert len(caches) == 1
-    assert caches[0].stats["misses"] == 2 and caches[0].stats["hits"] == 2
+    assert caches[0].stats["stores"] == 2 and caches[0].stats["hits"] == 4
+    assert caches[0].stats["misses"] == 0  # Completed per-tour bases precede replay.
 
 
 def test_strict_reader_never_accepts_unprovable_platform(tmp_path):
