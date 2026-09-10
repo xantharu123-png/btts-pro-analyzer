@@ -1934,7 +1934,7 @@ def test_review_rollback_metadata_inventory_rejects_traversal_error(tmp_path, mo
     assert not manifest.exists()
 
 
-@pytest.mark.parametrize("name", ["Historical.DB", "Live.sQLite", "Third.SQLITE3"])
+@pytest.mark.parametrize("name", ["Historical.DB", "Live.sQLite", "Third.SQLITE3", "Historical.ſQLite"])
 def test_review_producer_preserves_casefold_discovery_and_original_path(monkeypatch, tmp_path, capsys, name):
     archive = run_real_producer(monkeypatch, tmp_path, database_name=name)
     capsys.readouterr()
@@ -1944,7 +1944,7 @@ def test_review_producer_preserves_casefold_discovery_and_original_path(monkeypa
         assert captured.read(name).startswith(b"SQLite format 3\x00")
 
 
-@pytest.mark.parametrize("name", ["Historical.DB", "Live.sQLite", "Third.SQLITE3"])
+@pytest.mark.parametrize("name", ["Historical.DB", "Live.sQLite", "Third.SQLITE3", "Historical.ſQLite"])
 def test_review_context_inventory_accepts_other_casefold_database_paths(content_data, tmp_path, name):
     archive, _ = backup_fixture(tmp_path, relative=name)
     proof = content_data["extract_and_seal"](archive, "runtime_state/context_models.db", tmp_path / "none.db",
@@ -1961,12 +1961,19 @@ def casefold_discovery_fixture(tmp_path):
     return app
 
 
+def enumeration_shell_bridge():
+    # Execute the actual stdlib enumeration with this host's trusted Python;
+    # only the installed Linux interpreter location differs in the fixture.
+    return shell_function("enumerate_backup_sources").replace("/usr/bin/python3", shlex.quote(sys.executable))
+
+
 def test_review_capacity_counts_mixedcase_databases_and_companions(tmp_path):
     app = casefold_discovery_fixture(tmp_path)
     body = shell_function("preflight")
     start = body.index("    database_apparent_kib=$(\n")
     end = body.index("\n    )", start) + len("\n    )")
     harness = "set -euo pipefail\nPATH=/usr/bin:/bin\n" + f"APP_DIR={shlex.quote(app.as_posix())}\n"
+    harness += enumeration_shell_bridge()
     harness += body[start:end] + '\nprintf "%s\\n" "$database_apparent_kib"\n'
     result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
@@ -1987,8 +1994,9 @@ chmod() { :; }
 stat() { case "$2" in '%h') printf '1\n';; '%U') printf 'betboy\n';; *) command stat "$@";; esac; }
 runuser() { printf 'dac:%s\n' "${@: -1}"; }
 """ + f"APP_DIR={shlex.quote(app.as_posix())}\nSTAGE_DIR={shlex.quote(tmp_path.as_posix())}\n"
+    harness += enumeration_shell_bridge()
     if failing_find:
-        harness += 'find() { if [[ "$*" == *"-print0"* ]]; then return 9; fi; command find "$@"; }\n'
+        harness += 'enumerate_backup_sources() { printf "partial-path\\0"; return 9; }\n'
     harness += shell_function(function).replace("/var/backups", backup.as_posix())
     harness += f"\n{function}\nprintf 'accepted\\n'\n"
     return harness, app
@@ -2005,7 +2013,7 @@ def test_review_source_metadata_and_dac_cover_casefold_paths(tmp_path, function)
 
 
 @pytest.mark.parametrize("function", ["prepare_backup_storage_and_sources", "verify_backup_source_dac"])
-def test_review_source_metadata_and_dac_reject_incomplete_find(tmp_path, function):
+def test_review_source_metadata_and_dac_reject_incomplete_enumeration(tmp_path, function):
     harness, _ = source_dac_harness(tmp_path, function, failing_find=True)
     result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode != 0 and "accepted" not in result.stdout
@@ -2021,6 +2029,7 @@ def test_review_discovery_query_includes_other_filesystems(tmp_path, function):
         start = body.index("    database_apparent_kib=$(\n")
         end = body.index("\n    )", start) + len("\n    )")
         harness = "set -euo pipefail\nPATH=/usr/bin:/bin\n" + f"APP_DIR={shlex.quote(app.as_posix())}\n"
+        harness += enumeration_shell_bridge()
         action = body[start:end] + '\nprintf "bytes:%s\\n" "$database_apparent_kib"\n'
     else:
         harness, app = source_dac_harness(tmp_path, function)
@@ -2046,3 +2055,49 @@ find() {
     assert result.returncode == 0, result.stderr
     if function == "preflight": assert "bytes:8" in result.stdout
     else: assert (mounted / "cross-device.db").as_posix() in result.stdout
+
+
+@pytest.mark.parametrize("function", ["preflight", "prepare_backup_storage_and_sources", "verify_backup_source_dac"])
+def test_unicode_casefold_discovery_matches_stage_helper(tmp_path, function):
+    if function == "preflight":
+        app = casefold_discovery_fixture(tmp_path)
+        body = shell_function(function)
+        start = body.index("    database_apparent_kib=$(\n")
+        end = body.index("\n    )", start) + len("\n    )")
+        harness = "set -euo pipefail\nPATH=/usr/bin:/bin\n" + f"APP_DIR={shlex.quote(app.as_posix())}\n"
+        harness += enumeration_shell_bridge()
+        harness += body[start:end] + '\nprintf "bytes:%s\\n" "$database_apparent_kib"\n'
+    else:
+        harness, app = source_dac_harness(tmp_path, function)
+    name = "Historical.ſQLite"
+    (app / name).write_bytes(b"x" * 2048)
+    for companion in ("-wal", "-SHM", "-journal"):
+        (app / (name + companion)).write_bytes(b"x" * 1024)
+    result = subprocess.run([bash()], input="export LC_ALL=C\n" + harness,
+        encoding="utf-8", capture_output=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    if function == "preflight": assert "bytes:12" in result.stdout
+    else:
+        for suffix in ("", "-wal", "-SHM", "-journal"):
+            assert (app / (name + suffix)).as_posix() in result.stdout
+
+
+@pytest.mark.parametrize("mode", ["bytes", "paths"])
+def test_unicode_enumerator_rejects_unreadable_subtree_before_inventory_acceptance(tmp_path, monkeypatch, capsys, mode):
+    app = casefold_discovery_fixture(tmp_path)
+    hidden = app / "hidden"
+    hidden.mkdir()
+    (hidden / "Historical.ſQLite").write_bytes(b"hidden")
+    real_scandir = os.scandir
+    def denied_scandir(path):
+        if not isinstance(path, int) and Path(path) == hidden:
+            raise PermissionError(13, "fixture denied", str(path))
+        return real_scandir(path)
+    monkeypatch.setattr(os, "scandir", denied_scandir)
+    monkeypatch.setattr(sys, "argv", ["enumerator", str(app), mode])
+    with pytest.raises(SystemExit, match="Cannot traverse complete"):
+        exec(compile(inline_program("enumerate_backup_sources"), "actual-enumerator", "exec"), {})
+    output = capsys.readouterr().out
+    if mode == "bytes": assert output == ""
+    # Path mode may emit a private partial list; callers must reject its status,
+    # proven by test_review_source_metadata_and_dac_reject_incomplete_enumeration.

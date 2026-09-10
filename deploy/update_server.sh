@@ -2862,6 +2862,59 @@ capture_backup_service_verifier() {
     [[ "${codes[1]}" == 0 ]] || die "Protected backup archive verification failed."
 }
 
+enumerate_backup_sources() {
+    # One locale-independent discovery contract for byte admission and DAC.
+    # Do not substitute find -iname for Python's Unicode suffix.casefold().
+    /usr/bin/python3 -I -B - "${APP_DIR}" "$1" <<'PY'
+import os
+from pathlib import Path
+import stat
+import sys
+
+root, mode = Path(sys.argv[1]), sys.argv[2]
+if mode not in {"bytes", "paths"}:
+    raise SystemExit("Unknown backup source enumeration mode")
+if root.is_symlink() or root.absolute() != root.resolve(strict=True):
+    raise SystemExit("Unsafe backup source root")
+excluded = {".codex_test_venv", ".git", ".pytest_cache", ".pytest_tmp"} if mode == "paths" else set()
+
+def fail_walk(error):
+    raise SystemExit("Cannot traverse complete backup source inventory") from error
+
+def database_or_companion(name):
+    folded = name.casefold()
+    for companion in ("-wal", "-shm", "-journal"):
+        if folded.endswith(companion):
+            folded = folded[:-len(companion)]
+            break
+    return Path(folded).suffix in {".db", ".sqlite", ".sqlite3"}
+
+total = 0
+for parent, directories, names in os.walk(root, topdown=True, followlinks=False, onerror=fail_walk):
+    current = Path(parent)
+    kept = []
+    for name in directories:
+        if name in excluded:
+            continue
+        if not stat.S_ISDIR((current / name).lstat().st_mode):
+            raise SystemExit("Unsafe backup source directory")
+        kept.append(name)
+    directories[:] = kept
+    for name in names:
+        if not database_or_companion(name):
+            continue
+        path = current / name
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise SystemExit("Unsafe backup source file")
+        total += info.st_size
+        if mode == "paths":
+            sys.stdout.buffer.write(os.fsencode(path.as_posix()) + b"\0")
+if mode == "bytes":
+    print((total + 1023) // 1024)
+PY
+}
+
 prepare_backup_storage_and_sources() {
     local database
     local owner
@@ -2885,22 +2938,10 @@ prepare_backup_storage_and_sources() {
     [[ -z "${unsafe_path}" ]] \
         || die "Backup source path must not contain a symlink: ${unsafe_path}"
 
-    # A process substitution loses find's exit status. Admit the complete
+    # A process substitution loses the producer status. Admit the complete
     # root-private path list before applying any source metadata change.
     ( set -o noclobber
-        find -P "${APP_DIR}" \
-            \( -path "${APP_DIR}/.git" \
-               -o -path "${APP_DIR}/.codex_test_venv" \
-               -o -path "${APP_DIR}/.pytest_cache" \
-               -o -path "${APP_DIR}/.pytest_tmp" \) -prune -o \
-            -type f \
-            \( -iname '*.db' -o -iname '*.sqlite' -o -iname '*.sqlite3' \
-               -o -iname '*.db-wal' -o -iname '*.db-shm' \
-               -o -iname '*.sqlite-wal' -o -iname '*.sqlite-shm' \
-               -o -iname '*.sqlite3-wal' -o -iname '*.sqlite3-shm' \
-               -o -iname '*.db-journal' -o -iname '*.sqlite-journal' \
-               -o -iname '*.sqlite3-journal' \) \
-            -print0 >"${inventory}"
+        enumerate_backup_sources paths >"${inventory}"
     ) || die "Cannot traverse complete backup source metadata inventory."
     while IFS= read -r -d '' database; do
         [[ "$(stat -c '%h' "${database}")" == 1 ]] \
@@ -2930,19 +2971,7 @@ verify_backup_source_dac() {
     )
 
     ( set -o noclobber
-        find -P "${APP_DIR}" \
-            \( -path "${APP_DIR}/.git" \
-               -o -path "${APP_DIR}/.codex_test_venv" \
-               -o -path "${APP_DIR}/.pytest_cache" \
-               -o -path "${APP_DIR}/.pytest_tmp" \) -prune -o \
-            -type f \
-            \( -iname '*.db' -o -iname '*.sqlite' -o -iname '*.sqlite3' \
-               -o -iname '*.db-wal' -o -iname '*.db-shm' \
-               -o -iname '*.sqlite-wal' -o -iname '*.sqlite-shm' \
-               -o -iname '*.sqlite3-wal' -o -iname '*.sqlite3-shm' \
-               -o -iname '*.db-journal' -o -iname '*.sqlite-journal' \
-               -o -iname '*.sqlite3-journal' \) \
-            -print0 >"${inventory}"
+        enumerate_backup_sources paths >"${inventory}"
     ) || die "Cannot traverse complete backup source DAC inventory."
     while IFS= read -r -d '' database; do
         "${backup_identity[@]}" /usr/bin/test ! -w "${database}" \
@@ -3625,15 +3654,7 @@ preflight() {
     backup_apparent_kib=$(du -skx --apparent-size /var/backups/betboy \
         | awk 'NR == 1 {print $1}')
     database_apparent_kib=$(
-        find -P "${APP_DIR}" -type f \
-            \( -iname '*.db' -o -iname '*.sqlite' -o -iname '*.sqlite3' \
-               -o -iname '*.db-wal' -o -iname '*.db-shm' \
-               -o -iname '*.sqlite-wal' -o -iname '*.sqlite-shm' \
-               -o -iname '*.sqlite3-wal' -o -iname '*.sqlite3-shm' \
-               -o -iname '*.db-journal' -o -iname '*.sqlite-journal' \
-               -o -iname '*.sqlite3-journal' \) \
-            -printf '%s\n' \
-            | awk '{total += $1} END {print int((total + 1023) / 1024)}'
+        enumerate_backup_sources bytes
     )
     [[ "${backup_apparent_kib}" =~ ^[0-9]+$ \
         && "${database_apparent_kib}" =~ ^[0-9]+$ ]] \
