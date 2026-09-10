@@ -224,6 +224,7 @@ def content_data(data, tmp_path):
 
     data["file_info"] = fixture_info
     data["directory"] = fixture_directory
+    data["sealed_directory"] = fixture_directory
     data["write_new"] = fixture_write
     # Windows fd ctime and named ctime differ; neither proves Unix DAC here.
     if os.name == "nt":
@@ -232,6 +233,9 @@ def content_data(data, tmp_path):
     data["os"] = SimpleNamespace(**{name: getattr(os, name) for name in dir(os)})
     data["os"].chown = lambda *_: None
     data["os"].chmod = lambda path, mode: Path(path).chmod(mode)
+    data["os"].fchown = lambda *_: None
+    data["os"].fchmod = lambda *_: None
+    data["os"].O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
     return data
 
 
@@ -303,7 +307,7 @@ target_payload_file() { printf 'entry\n'; }
 id() { printf '1000\n'; }
 context_hook_data() { printf '%s\n' "$*"; }
 context_hook_command() { cat >/dev/null; CONTEXT_COMMAND_STATUS=0; }
-""" + f"MIGRATION_RESUME_TARGET={int(resuming)}\n" + shell_function("preflight_context_runtime") + "\npreflight_context_runtime\n"
+""" + f"MIGRATION_RESUME_TARGET={int(resuming)}\n" + shell_function("configure_context_phase") + "\nconfigure_context_phase private/online\n"
     result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     args = result.stdout.splitlines()[0].split()
@@ -365,7 +369,12 @@ def test_genuine_archive_rejects_inconsistent_inventory_before_new_copy(content_
     with pytest.raises(ValueError):
         content_data["extract_and_seal"](archive, "runtime_state/context_models.db", target,
             source_head="a" * 40, app_gid=1000)
-    assert not target.exists()
+    if defect == "hash":
+        # Streaming cannot know the digest before writing its private 0600
+        # candidate. It must fail before sealing/reporting that candidate.
+        assert target.exists()
+    else:
+        assert not target.exists()
 
 
 @pytest.mark.parametrize("defect", ["duplicate-member", "traversal", "symlink", "unmanifested"])
@@ -495,14 +504,17 @@ PATH=/usr/bin:/bin
 die() { printf '%s\n' "$*" >&2; exit 1; }
 # Intercept only Unix account/timeout transport on this Windows-capable host.
 # Execute the actual child and actual pipeline; Unix DAC is separate Linux QA.
-as_betboy() { printf '%s|' "$@" >&3; shift 8; "$@"; }
+as_betboy() { printf '%s|' "$@" >&3; shift 13; "$@"; }
 exec 3>&2
 """ + shell_function("context_hook_command") + f"\ncontext_hook_command {shlex.quote(output.as_posix())} {command}\nprintf '%s\\n' \"$CONTEXT_COMMAND_STATUS\"\n"
     result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    if exit_code in {124, 137}:
+        assert result.returncode != 0 and "VerificationResourceError" in result.stderr
+        return
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == str(exit_code)
     assert output.read_bytes() == b"fixture-only\r\n" if os.name == "nt" else output.read_bytes() == b"fixture-only\n"
-    assert result.stderr.startswith("/usr/bin/env|-i|PATH=/usr/bin:/bin|LANG=C.UTF-8|/usr/bin/timeout|--signal=TERM|--kill-after=10s|600s|")
+    assert result.stderr.startswith("/usr/bin/env|-i|PATH=/usr/bin:/bin|LANG=C.UTF-8|OMP_NUM_THREADS=1|OPENBLAS_NUM_THREADS=1|MKL_NUM_THREADS=1|NUMEXPR_NUM_THREADS=1|VECLIB_MAXIMUM_THREADS=1|/usr/bin/timeout|--signal=TERM|--kill-after=10s|600s|")
     assert "|-I|-B|-c|" in result.stderr
 
 
@@ -512,7 +524,7 @@ def test_root_inline_program_imports_only_stdlib_and_never_backup_helpers(data):
     tree = ast.parse(source[begin:source.index("\nPY", begin)])
     imports = {alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
     imports |= {node.module.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
-    assert imports <= {"hashlib", "json", "os", "pathlib", "re", "sqlite3", "stat", "sys", "zipfile"}
+    assert imports <= {"hashlib", "json", "os", "pathlib", "re", "sqlite3", "stat", "sys", "zipfile", "shutil", "tempfile", "resource"}
     assert "extractall" not in source and "importlib" not in source and "pickle" not in source
     assert "betboy-backup" not in shell_function("context_hook_command")
     for file, expected in {
@@ -755,6 +767,7 @@ def verified_context_fixture_archive(tmp_path, image, monkeypatch):
         # at TemporaryDirectory unlink on Windows. All SQL/decisions stay real.
         if os.name == "nt":
             scoped.setattr(sqlite3, "connect", close_on_exit)
+            scoped.setitem(sys.modules, "resource", SimpleNamespace(RLIMIT_AS=9, RLIMIT_CPU=0, setrlimit=lambda *_: None))
         scoped.setattr(sys, "argv", ["fixture-full-verify", str(archive)])
         exec(compile(program, str(UPDATER) + "::verify_backup_archive", "exec"), {"__name__": "fixture_full_backup"})
     result = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/backup_runtime_databases.py"),
@@ -877,15 +890,17 @@ def test_actual_stage_cannot_accept_live_archive_presence_disagreement(content_d
 def test_real_shell_post_backup_route_and_process_checks(tmp_path, presence):
     harness = """set -euo pipefail
 PATH=/usr/bin:/bin
-STAGE_DIR=stage; FRESH_BACKUP=private-archive; VENV_DIR=venv
+STAGE_DIR=stage; CONTEXT_STAGE_DIR=private; FRESH_BACKUP=private-archive; VENV_DIR=venv; TARGET_PAYLOAD=target
 die() { printf 'rejected\n'; exit 1; }
 verify_no_betboy_processes() { printf 'process-check\n'; }
 target_payload_file() { printf 'root-staged-cli\n'; }
 context_hook_command() { printf 'app-user-command:%s\n' "$*"; CONTEXT_COMMAND_STATUS=2; }
+configure_context_phase() { :; }
+verification_launcher_source() { :; }
 """
     stage = "return 1" if presence == "failed-stage" else "printf '%s\\n' " + shlex.quote(presence)
     harness += "context_hook_data() { if [[ $1 == stage ]]; then " + stage + "; else printf 'finish:%s\\n' \"$*\"; fi; }\n"
-    harness += shell_function("verify_context_runtime_before_update") + "\nverify_context_runtime_before_update\nprintf 'after-hook\\n'\n"
+    harness += shell_function("verify_context_runtime_before_update") + shell_function("verify_context_runtime_from_archive") + "\nverify_context_runtime_before_update\nprintf 'after-hook\\n'\n"
     result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
     lines = result.stdout.splitlines()
     assert lines[0] == "process-check"
@@ -894,11 +909,11 @@ context_hook_command() { printf 'app-user-command:%s\n' "$*"; CONTEXT_COMMAND_ST
         assert not any(line.startswith(("finish:", "app-user-command:")) for line in lines)
     elif presence == "present":
         assert result.returncode == 0, result.stderr
-        assert lines[1] == "app-user-command:stage/context-hook/report.json venv/bin/python -I -B root-staged-cli --database stage/context-hook/context_models.db"
-        assert lines[2:] == ["process-check", "finish:finish stage/context-hook 2", "after-hook"]
+        assert lines[1] == "app-user-command:private/quiesced/report.json /usr/bin/python3 -I -B private/launcher.py d4 target private/quiesced/context_models.db"
+        assert lines[2:] == ["process-check", "finish:finish private/quiesced 2 quiesced", "after-hook"]
     else:
         assert result.returncode == 0, result.stderr
-        assert lines == ["process-check", "process-check", "finish:finish stage/context-hook 0", "after-hook"]
+        assert lines == ["process-check", "process-check", "finish:finish private/quiesced 0 quiesced", "after-hook"]
 
 
 def test_real_shell_output_is_bounded_and_already_existing_output_is_never_replaced(tmp_path):
@@ -908,11 +923,11 @@ def test_real_shell_output_is_bounded_and_already_existing_output_is_never_repla
     prefix = """set -euo pipefail
 PATH=/usr/bin:/bin
 die() { exit 1; }
-as_betboy() { shift 8; "$@"; }
+as_betboy() { shift 13; "$@"; }
 """ + shell_function("context_hook_command")
     call = f"\ncontext_hook_command {shlex.quote(output.as_posix())} {command}\n"
     first = subprocess.run([bash()], input=prefix + call, text=True, capture_output=True, timeout=20)
-    assert first.returncode == 0, first.stderr
+    assert first.returncode != 0
     assert output.stat().st_size == 1024 * 1024 + 1
     before = output.read_bytes()
     second = subprocess.run([bash()], input=prefix + call, text=True, capture_output=True, timeout=20)
@@ -920,15 +935,17 @@ as_betboy() { shift 8; "$@"; }
     assert output.read_bytes() == before
 
 
-def test_actual_dependency_python_uses_target_graph_and_deserialize_before_downtime(data, tmp_path):
-    source = shell_function("preflight_context_runtime")
-    begin = source.index("<<'PY'\n") + len("<<'PY'\n")
-    code = source[begin:source.index("\nPY", begin)]
-    result = subprocess.run([sys.executable, "-I", "-B", "-", str(ROOT)], input=code,
+def test_actual_dependency_python_requires_linux_sealed_capability_before_downtime(data, tmp_path, monkeypatch):
+    command, environment, limits = launcher_decision(monkeypatch, ["dependencies", str(ROOT)], uid=1000)
+    assert command[:4] == ["/opt/betboy/venv/bin/python", "-I", "-B", "-c"]
+    assert limits == [(9, (2147483648, 2147483648)), (0, (300, 300))]
+    # Real target imports/SQLite run; Windows must fail this Linux-only probe.
+    result = subprocess.run([sys.executable, "-I", "-B", "-c", command[4], str(ROOT)],
         text=True, capture_output=True, cwd=tmp_path, timeout=90)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == "context-dependencies-v1:ok\n"
-    assert "importlib.import_module(name)" in code
+    if sys.platform == "linux":
+        assert result.returncode == 0 and result.stdout == "context-dependencies-v2:ok\n", result.stderr
+    else:
+        assert result.returncode != 0 and "AssertionError" in result.stderr
     main = UPDATER.read_text().split('preflight "$@"\nremember_unit_state', 1)
     assert len(main) == 2
     assert shell_function("preflight").index("prepare_dependencies") < shell_function("preflight").index("preflight_context_runtime")
@@ -1027,8 +1044,8 @@ def test_failed_or_noisy_dependency_probe_never_advances_to_downtime(data, outpu
         data["main"](["dependencies", "fixture-output", code])
 
 
-def test_64_mib_cap_applies_before_sealing_or_sqlite_parse(content_data, tmp_path):
-    assert content_data["MAX_IMAGE"] == 64 * 1024 * 1024
+def test_one_gib_sealed_cap_applies_before_sealing_or_sqlite_parse(content_data, tmp_path):
+    assert content_data["MAX_IMAGE"] == 1024 * 1024 * 1024
     archive, _ = backup_fixture(tmp_path)
     content_data["MAX_IMAGE"] = 100  # Exercise the same branch without a 64 MiB fixture.
     content_data["sqlite3"] = SimpleNamespace(connect=lambda *_a, **_k: pytest.fail("oversized input reached SQLite"))
@@ -1044,7 +1061,7 @@ def test_real_shell_output_collector_has_its_own_time_bound(tmp_path):
     harness = """set -euo pipefail
 PATH=/usr/bin:/bin
 die() { exit 1; }
-as_betboy() { shift 8; "$@"; }
+as_betboy() { shift 13; "$@"; }
 /usr/bin/timeout() { printf 'collector:%s\n' "$*" >&3; command /usr/bin/timeout "$@"; }
 exec 3>&2
 """ + shell_function("context_hook_command") + f"\ncontext_hook_command {shlex.quote(output.as_posix())} {command}\n"
@@ -1118,6 +1135,8 @@ def test_capacity_phase_distinguishes_real_live_sqlite_commit(content_data, tmp_
     assert (live.stat().st_dev, live.stat().st_ino) == (before.st_dev, before.st_ino)
     (hook / "report.json").write_text(json.dumps(report()))
     if accept_commit:
+        content_data["authentication_state"] = lambda *_: {"key": "fixture-bound-key", "marker": None}
+        (hook / "authentication.json").write_text(json.dumps({"key": "fixture-bound-key", "marker": None}))
         content_data["main"](["finish", str(hook), "0", phase])
         assert capsys.readouterr().out == "Context continuity: structural; no model/effect certification.\n"
     else:
@@ -1156,14 +1175,18 @@ PREVIOUS_HEAD=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 TARGET_HEAD=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 MIGRATION_MARKER_PREVIOUS_HEAD=cccccccccccccccccccccccccccccccccccccccc
 MIGRATION_RESUME_TARGET=0; UPDATE_STARTED=0; FRESH_BACKUP=; PREFLIGHT_BACKUP=
+LEDGER_HMAC_KEY=/etc/betboy/challenge-ledger-hmac.key
+LEDGER_MIGRATION_MARKER=/etc/betboy/challenge-ledger-v2-migrated.json
 BETBOY_TIMERS=(fixture.timer)
 die() { printf 'die:%s\n' "$*"; exit 1; }
 log() { :; }
 id() { printf '1000\n'; }
 target_payload_file() { printf '/fixture/target/%s\n' "$1"; }
-context_hook_command() { cat >/dev/null; CONTEXT_COMMAND_STATUS=0; }
+context_hook_command() { CONTEXT_COMMAND_STATUS=0; }
 context_hook_data() {
     case "$1" in
+        create-private) printf '/var/lib/betboy-context-update.fixture\n' ;;
+        online-auth) printf 'authenticated\n' ;;
         configure) printf 'configure:%s\n' "$*" >&2 ;;
         stage) printf 'stage:%s\n' "$*" >&2; printf 'present\n' ;;
         finish) printf 'finish:%s\n' "$*" >&2 ;;
@@ -1193,7 +1216,10 @@ apply_trusted_payload() { printf 'payload-write\n'; }
 """
     harness += "create_online_preflight_backup() { printf 'online-backup\\n'; PREFLIGHT_BACKUP=online-archive; "
     harness += "printf 'capacity-resource-failure\\n'; return 1; }\n" if online_failure else "return 0; }\n"
-    harness += shell_function("preflight_context_runtime") + shell_function("verify_context_runtime_before_update")
+    harness += "verification_launcher_source() { printf 'fixture launcher\\n'; }\n"
+    harness += "prepare_verification_launcher() { :; }\n"
+    harness += "".join(shell_function(name) for name in ("configure_context_phase", "preflight_context_runtime",
+        "verify_context_runtime_before_update", "verify_context_runtime_from_archive"))
     return harness + source[begin:end] + '\nprintf "archives:%s:%s\\n" "$PREFLIGHT_BACKUP" "$FRESH_BACKUP"\n'
 
 
@@ -1223,31 +1249,11 @@ def test_capacity_success_uses_two_distinct_archives_and_private_phase_hooks():
     assert "/var/lib/betboy-context-update.fixture/quiesced" in stages[1] and "quiesced-archive" in stages[1]
 
 
-def test_capacity_full_var_lib_mount_rejects_before_preflight_capture():
+def test_capacity_full_var_lib_mount_rejects_before_preflight_capture(monkeypatch):
     """A separate full seal mount cannot borrow free space from /var/tmp."""
-    body = shell_function("preflight")
-    start = body.index('    available_kib=$(df -Pk "${APP_DIR}"')
-    end = body.index('    for worker in "${BETBOY_WORKERS[@]}"', start)
-    harness = """set -euo pipefail
-PATH=/usr/bin:/bin
-APP_DIR=/fixture/app
-die() { printf 'rejected:%s\n' "$*"; exit 1; }
-df() {
-    printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n'
-    case "${@: -1}" in
-        /var/lib*) printf 'seal 8388608 8388607 1 100%% /var/lib\n' ;;
-        *) printf 'data 8388608 0 8388608 0%% /\n' ;;
-    esac
-}
-du() { printf '1024 fixture\n'; }
-find() { printf '1048576\n'; }
-stat() { case "${@: -1}" in /var/lib*) printf '3\n';; *) printf '2\n';; esac; }
-"""
-    result = subprocess.run([bash()], input=harness + body[start:end] + "\nprintf 'capacity-accepted\\n'\n",
-        text=True, capture_output=True, timeout=20)
-    assert "command not found" not in result.stderr, result.stderr
-    assert result.returncode != 0, "preflight accepted a full separate /var/lib seal filesystem"
-    assert "capacity-accepted" not in result.stdout
+    with pytest.raises(SystemExit, match="insufficient combined"):
+        capacity_disk_decision(monkeypatch, {"/var/tmp": (2, 8 * 1024**3),
+            "/var/backups": (2, 8 * 1024**3), "/var/lib": (3, 1024)})
 
 
 def test_capacity_output_overflow_is_an_immediate_child_failure(tmp_path):
@@ -1255,8 +1261,9 @@ def test_capacity_output_overflow_is_an_immediate_child_failure(tmp_path):
     command = " ".join(shlex.quote(x) for x in [sys.executable, "-I", "-B", "-c",
         "import sys; sys.stdout.write('x' * (1024 * 1024 + 1))"])
     harness = """set -euo pipefail
+PATH=/usr/bin:/bin
 die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
-as_betboy() { shift 8; "$@"; }
+as_betboy() { shift 13; "$@"; }
 """ + shell_function("context_hook_command")
     result = subprocess.run([bash()], input=harness + f"\ncontext_hook_command {shlex.quote(output.as_posix())} {command}\nprintf 'capture-accepted\\n'\n",
         text=True, capture_output=True, timeout=20)
@@ -1271,6 +1278,7 @@ def test_capacity_child_environment_fixes_all_numerical_threads(tmp_path):
     program = "import json, os; print(json.dumps({name: os.environ.get(name) for name in " + repr(names) + "}))"
     command = " ".join(shlex.quote(x) for x in [sys.executable, "-I", "-B", "-c", program])
     harness = """set -euo pipefail
+PATH=/usr/bin:/bin
 die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
 as_betboy() { "$@"; }
 """ + shell_function("context_hook_command")
@@ -1280,3 +1288,118 @@ as_betboy() { "$@"; }
     assert json.loads(output.read_text()) == {
         "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
         "NUMEXPR_NUM_THREADS": "1", "VECLIB_MAXIMUM_THREADS": "1"}
+
+
+def inline_program(function):
+    source = shell_function(function)
+    start = source.index("<<'PY'\n") + len("<<'PY'\n")
+    return source[start:source.index("\nPY", start)]
+
+
+def launcher_decision(monkeypatch, arguments, *, uid):
+    """Execute the real stdlib launcher up to execve; never impersonate root."""
+    captured, limits = [], []
+
+    class ExecBoundary(Exception):
+        pass
+
+    def record_exec(executable, command, environment):
+        captured.append((executable, command, environment))
+        raise ExecBoundary
+
+    fake_os = SimpleNamespace(**{name: getattr(os, name) for name in dir(os)})
+    fake_os.geteuid = lambda: uid
+    fake_os.execve = record_exec
+    class FixturePath(type(Path())):
+        def lstat(self):
+            info = super().lstat()
+            if os.name == "nt" and self.name == "backup_runtime_databases.py":
+                # Only the Unix DAC edge is simulated; real helper bytes and
+                # the fixed digest/command selection are still validated.
+                return SimpleNamespace(st_mode=stat.S_IFREG | 0o644, st_uid=0, st_nlink=1)
+            return info
+    with monkeypatch.context() as scoped:
+        scoped.setitem(sys.modules, "os", fake_os)
+        scoped.setitem(sys.modules, "pathlib", SimpleNamespace(Path=FixturePath))
+        scoped.setitem(sys.modules, "resource", SimpleNamespace(RLIMIT_AS=9, RLIMIT_CPU=0,
+            setrlimit=lambda *args: limits.append(args)))
+        scoped.setattr(sys, "argv", ["updater-stdlib-launcher", *arguments])
+        with pytest.raises(ExecBoundary):
+            exec(compile(inline_program("verification_launcher_source"), "updater-launcher", "exec"), {})
+    executable, command, environment = captured[0]
+    assert executable == command[0]
+    return command, environment, limits
+
+
+def capacity_disk_decision(monkeypatch, mounts):
+    fake_os = SimpleNamespace(
+        stat=lambda path, **_: SimpleNamespace(st_dev=mounts[path][0]),
+        statvfs=lambda path: SimpleNamespace(f_bavail=mounts[path][1], f_frsize=1))
+    with monkeypatch.context() as scoped:
+        scoped.setitem(sys.modules, "os", fake_os)
+        scoped.setattr(sys, "argv", ["capacity", "1024", "1024"])
+        exec(compile(inline_program("check_capacity_space"), "updater-capacity", "exec"), {})
+
+
+def test_capacity_same_device_reservations_are_added_not_reused(monkeypatch):
+    # Each individual reservation fits 800 MiB; their sum does not.
+    with pytest.raises(SystemExit, match="insufficient combined"):
+        capacity_disk_decision(monkeypatch, {path: (2, 800 * 1024**2)
+            for path in ("/var/tmp", "/var/backups", "/var/lib")})
+    capacity_disk_decision(monkeypatch, {path: (index, 800 * 1024**2)
+        for index, path in enumerate(("/var/tmp", "/var/backups", "/var/lib"))})
+
+
+@pytest.mark.parametrize("kind,uid", [("d4", 1000), ("backup", 0)])
+def test_capacity_launcher_executes_only_fixed_bounded_target(monkeypatch, kind, uid):
+    arguments = [kind, str(ROOT), "/var/lib/betboy-context-update.fixture/online/context_models.db"]
+    if kind == "backup":
+        arguments = [kind, str(ROOT / "scripts/backup_runtime_databases.py"), "/private/fresh.zip"]
+    command, environment, limits = launcher_decision(monkeypatch, arguments, uid=uid)
+    assert limits == [(9, (2147483648, 2147483648)), (0, (300, 300))]
+    assert environment == {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "TMPDIR": "/var/tmp",
+        "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1", "VECLIB_MAXIMUM_THREADS": "1"}
+    if kind == "d4":
+        assert command == ["/opt/betboy/venv/bin/python", "-I", "-B",
+            str(ROOT / "scripts/verify_context_runtime.py"), "--sealed-file", "--database", str(Path(arguments[2]))]
+    else:
+        assert command == ["/usr/bin/python3", "-I", "-B", arguments[1], "--verify-only", str(Path("/private/fresh.zip")), "--recovery-mode"]
+
+
+@pytest.mark.parametrize("arguments,uid", [(["d4", "target", "database"], 0),
+    (["dependencies", "target"], 0), (["backup", "helper", "archive"], 1000),
+    (["shell", "sh", "-c", "untrusted"], 0), (["d4", "target", "database", "--memory"], 1000)])
+def test_capacity_launcher_rejects_role_or_free_argument_override(monkeypatch, arguments, uid):
+    with pytest.raises(SystemExit, match="invalid verification child selection"):
+        launcher_decision(monkeypatch, arguments, uid=uid)
+
+
+@pytest.mark.parametrize("legacy,present,key,marker,accepted", [
+    (True, False, None, None, True), (True, True, None, None, False),
+    (False, True, None, None, False), (True, False, None, {"status": "in_progress"}, False),
+])
+def test_capacity_online_keyless_exception_is_exact_contextless_legacy(content_data, tmp_path, capsys, legacy, present, key, marker, accepted):
+    args = configuration_fixture(content_data, tmp_path, legacy=legacy, present=present)
+    hook = tmp_path / "online-auth"
+    hook.mkdir()
+    (hook / "config.json").write_text(json.dumps(content_data["configuration"](**args)))
+    content_data["os"].geteuid = lambda: 0
+    content_data["authentication_state"] = lambda *_: {"key": key, "marker": marker}
+    command = ["online-auth", str(hook), "/etc/betboy/challenge-ledger-hmac.key", "/etc/betboy/challenge-ledger-v2-migrated.json"]
+    if accepted:
+        content_data["main"](command)
+        assert capsys.readouterr().out == "not_present_legacy\n"
+    else:
+        with pytest.raises(ValueError, match="missing authentication"):
+            content_data["main"](command)
+    assert not (hook / "authentication.json").exists()
+
+
+def test_capacity_online_cannot_relabel_quiesced_proof(content_data, tmp_path, capsys):
+    hook, _, _ = prepared_stage(content_data, tmp_path)
+    capsys.readouterr()
+    (hook / "report.json").write_text(json.dumps(report()))
+    with pytest.raises(ValueError, match="phase mismatch"):
+        content_data["main"](["finish", str(hook), "0", "online"])
+    assert capsys.readouterr().out == ""

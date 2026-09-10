@@ -49,6 +49,8 @@ NEW_APP_STARTED=0
 PREVIOUS_HEAD=""
 TARGET_HEAD=""
 FRESH_BACKUP=""
+PREFLIGHT_BACKUP=""
+CONTEXT_STAGE_DIR=""
 STAGE_DIR=""
 TRUSTED_TREE=""
 ROLLBACK_ROOT=""
@@ -263,6 +265,10 @@ root_git() {
 }
 
 safe_remove_stage() {
+    if [[ -n "${CONTEXT_STAGE_DIR}" ]]; then
+        context_hook_data remove-private "${CONTEXT_STAGE_DIR}" \
+            || log "WARN: preserving private context staging ${CONTEXT_STAGE_DIR}"
+    fi
     if [[ -n "${STAGE_DIR}" && -d "${STAGE_DIR}" \
         && "${STAGE_DIR}" == /var/tmp/betboy-update.* ]]; then
         rm -rf --one-file-system -- "${STAGE_DIR}" \
@@ -1052,6 +1058,7 @@ context_hook_data() {
     # Privileged boundary: only this installed, stdlib-only inline program.
     # Never import the app, its venv, NumPy or the backup's secret contents here.
     /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 \
+        /usr/bin/timeout --signal=TERM --kill-after=10s 600s \
         /usr/bin/python3 -I -B - "$@" <<'PY'
 import hashlib
 import json
@@ -1061,9 +1068,11 @@ import re
 import sqlite3
 import stat
 import sys
+import shutil
+import tempfile
 import zipfile
 
-MAX_IMAGE = 64 * 1024 * 1024
+MAX_IMAGE = 1024 * 1024 * 1024
 MAX_REPORT = 1024 * 1024
 PATH_CONTRACT = "710b8f8b1bfacf35397aad47d8df2fc9c28f6af60a4888540acfac4030331a8c"
 EXCLUDED = {".codex_test_venv", ".git", ".pytest_cache", ".pytest_tmp", ".venv", "__pycache__", "backups_runtime"}
@@ -1227,6 +1236,44 @@ def directory(path, *, owners, direct=True):
     if path.parent != path:
         directory(path.parent, owners=owners, direct=False)
     return info
+
+
+def sealed_directory(path):
+    path = Path(path)
+    info = path.lstat()
+    need(stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022,
+         "sealed directory must have root-owned nonwritable ancestors")
+    if path.parent != path:
+        sealed_directory(path.parent)
+    return info
+
+
+def identity(info):
+    return [info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink]
+
+
+def live_identity(path, app_uid):
+    # Check every current companion for safe ownership, but SQLite may create
+    # or remove companions and commit to the same main inode during online QA.
+    found = live_signature(path, app_uid)
+    return found.get("", [])[:6]
+
+
+def authentication_state(key, marker, app_gid):
+    result = {}
+    for name, path, maximum in (("key", Path(key), 65), ("marker", Path(marker), 65536)):
+        if not os.path.lexists(path):
+            result[name] = None
+            continue
+        raw = read_file(path, maximum=maximum, mode=0o640, gid=app_gid)
+        if name == "key":
+            need(re.fullmatch(rb"[0-9a-f]{64}\n", raw) is not None, "invalid existing authentication key")
+        else:
+            value = decode(raw)
+            need(type(value) is dict and value.get("contract_version") == 1
+                 and value.get("status") in {"in_progress", "complete"}, "invalid existing migration marker")
+        result[name] = {"path": str(path), "hash": sha(raw), "signature": signature(file_info(path, owners={0}, mode=0o640, gid=app_gid))}
+    return result
 
 
 def file_info(path, *, owners, mode=None, gid=None):
@@ -1394,6 +1441,7 @@ def load_config(hook):
 
 def extract_and_seal(archive_path, relative, destination, *, source_head, app_gid):
     archive_path, destination = Path(archive_path), Path(destination)
+    sealed_directory(destination.parent)
     before = file_info(archive_path, owners={0}, mode=0o600, gid=0)
     archive_hash = file_hash(archive_path)
     fd = os.open(archive_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
@@ -1437,12 +1485,29 @@ def extract_and_seal(archive_path, relative, destination, *, source_head, app_gi
             if relative in paths:
                 member = archive.getinfo(relative)
                 need(100 <= member.file_size <= MAX_IMAGE, "context image outside bounded SQLite size")
-                with archive.open(member) as handle:
-                    raw = handle.read(MAX_IMAGE + 1)
                 member_hash = digest(entries[paths.index(relative)]["sha256"])
-                need(len(raw) == member.file_size and sha(raw) == member_hash, "context archive member integrity differs")
-                need(raw[:16] == b"SQLite format 3\x00" and raw[18:20] in {b"\x01\x01", b"\x02\x02"}, "not a complete SQLite backup image")
-                write_new(destination, raw)
+                output_fd = os.open(destination, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                try:
+                    os.fchown(output_fd, 0, 0)
+                    os.fchmod(output_fd, 0o600)
+                    created = identity(os.fstat(output_fd))
+                    total, header, checksum = 0, b"", hashlib.sha256()
+                    with archive.open(member) as handle, os.fdopen(output_fd, "wb", closefd=False) as output:
+                        while chunk := handle.read(1024 * 1024):
+                            total += len(chunk)
+                            need(total <= member.file_size and total <= MAX_IMAGE, "context member exceeds sealed budget")
+                            if len(header) < 100:
+                                header += chunk[:100 - len(header)]
+                            checksum.update(chunk)
+                            output.write(chunk)
+                        output.flush()
+                    os.fsync(output_fd)
+                    need(total == member.file_size and checksum.hexdigest() == member_hash, "context archive member integrity differs")
+                    need(header[:16] == b"SQLite format 3\x00" and header[18:20] in {b"\x01\x01", b"\x02\x02"}, "not a complete SQLite backup image")
+                    need(identity(os.fstat(output_fd)) == created and identity(file_info(destination, owners={0}, mode=0o600)) == created,
+                         "context extraction destination changed")
+                finally:
+                    os.close(output_fd)
         need(signature(os.fstat(fd)) == signature(before)
              and signature(file_info(archive_path, owners={0}, mode=0o600, gid=0)) == signature(before)
              and file_hash(archive_path) == archive_hash, "archive changed during extraction")
@@ -1452,38 +1517,94 @@ def extract_and_seal(archive_path, relative, destination, *, source_head, app_gi
         # Only the newly created private copy receives a SQLite filename.
         # Actual SQLite sealing, never raw-header repair or immutable WAL.
         need(not any(os.path.lexists(str(destination) + s) for s in ("-wal", "-shm", "-journal")), "unsealed copy has companions")
-        connection = sqlite3.connect(destination.as_uri() + "?mode=rw", uri=True, timeout=30)
+        seal_fd = os.open(destination, os.O_RDWR | os.O_NOFOLLOW)
+        created = identity(os.fstat(seal_fd))
+        need(identity(file_info(destination, owners={0}, mode=0o600)) == created, "seal path changed")
+        connection = None
         try:
+            connection = sqlite3.connect(destination.as_uri() + "?mode=rw", uri=True, timeout=30)
             connection.execute("PRAGMA trusted_schema=OFF")
             need(connection.execute("PRAGMA journal_mode=DELETE").fetchone() == ("delete",), "snapshot could not be sealed")
             need(connection.execute("PRAGMA quick_check").fetchall() == [("ok",)], "sealed snapshot SQLite check failed")
         finally:
-            connection.close()
-        need(not any(os.path.lexists(str(destination) + s) for s in ("-wal", "-shm", "-journal")), "snapshot sealing left companions")
-        raw = read_file(destination, maximum=MAX_IMAGE, mode=0o600)
-        need(raw[18:20] == b"\x01\x01", "snapshot is not DELETE mode")
-        os.chown(destination, 0, app_gid)
-        os.chmod(destination, 0o440)
+            if connection is not None:
+                connection.close()
+            try:
+                need(identity(os.fstat(seal_fd)) == created and identity(file_info(destination, owners={0}, mode=0o600)) == created,
+                     "snapshot sealing identity changed")
+                need(not any(os.path.lexists(str(destination) + s) for s in ("-wal", "-shm", "-journal")), "snapshot sealing left companions")
+                need(os.read(seal_fd, 100)[18:20] == b"\x01\x01", "snapshot is not DELETE mode")
+                os.fchown(seal_fd, 0, app_gid)
+                os.fchmod(seal_fd, 0o440)
+                os.fsync(seal_fd)
+            finally:
+                os.close(seal_fd)
     return {"archive_hash": archive_hash, "archive_signature": signature(before), "member_hash": member_hash}
 
 
 def main(args):
     need(getattr(os, "geteuid", lambda: -1)() == 0, "installed updater data boundary requires root")
     command, *args = args
-    if command == "configure":
+    if command == "create-private":
+        need(len(args) == 1 and args[0].isdigit() and int(args[0]) > 0, "invalid private-stage group")
+        sealed_directory("/var/lib")
+        path = Path(tempfile.mkdtemp(prefix="betboy-context-update.", dir="/var/lib"))
+        os.chown(path, 0, int(args[0]))
+        os.chmod(path, 0o750)
+        write_record(path / "identity.json", identity(sealed_directory(path))[:5])
+        print(path)
+    elif command == "remove-private":
+        need(len(args) == 1 and re.fullmatch(r"/var/lib/betboy-context-update\.[a-z0-9_]{8}", args[0]), "not our private stage")
+        path = Path(args[0])
+        # Directory link counts change when our phase subdirectories are added.
+        need(identity(sealed_directory(path))[:5] == decode(read_file(path / "identity.json", mode=0o600)), "private stage replaced")
+        need(shutil.rmtree.avoids_symlink_attacks, "safe private cleanup unavailable")
+        shutil.rmtree(path)
+    elif command == "seal-launcher":
+        need(len(args) == 2 and args[1].isdigit() and int(args[1]) > 0, "invalid launcher principal")
+        path = Path(args[0])
+        need(path.name == "launcher.py", "unknown launcher path")
+        sealed_directory(path.parent)
+        initial = file_info(path, owners={0}, mode=0o600, gid=0)
+        need(0 < initial.st_size < 16384, "invalid launcher size")
+        fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
+        try:
+            need(signature(os.fstat(fd)) == signature(initial), "launcher file replaced")
+            os.fchown(fd, 0, int(args[1]))
+            os.fchmod(fd, 0o440)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    elif command == "configure":
         app, env, target, previous, target_manifest, previous_manifest, old, new, backup_head, hook, uid, gid = args
         need(uid.isdigit() and gid.isdigit() and int(uid) > 0 and int(gid) > 0, "invalid app principal")
         need(all(re.fullmatch(r"[0-9a-f]{40}", revision) for revision in (old, new, backup_head)), "invalid release identity")
         need(env == "/etc/betboy/betboy.env", "unreviewed production config source")
         value = configuration(app, env, target, previous, int(uid), int(gid), target_manifest, previous_manifest, old, new, backup_head)
         hook = Path(hook)
-        directory(hook.parent, owners={0})
+        sealed_directory(hook.parent)
         os.mkdir(hook, 0o750)
         os.chown(hook, 0, int(gid))
         os.chmod(hook, 0o750)
         write_record(hook / "config.json", value)
+    elif command == "online-auth":
+        need(len(args) == 3 and args[1:] == ["/etc/betboy/challenge-ledger-hmac.key", "/etc/betboy/challenge-ledger-v2-migrated.json"], "unknown authentication paths")
+        hook = Path(args[0])
+        config = load_config(hook)
+        auth = authentication_state(args[1], args[2], config["app_gid"])
+        if auth["key"] is None:
+            need(config["legacy"] and not config["present"] and auth["marker"] is None,
+                 "missing authentication is not a keyless contextless legacy installation")
+            print("not_present_legacy")
+        else:
+            write_record(hook / "authentication.json", auth)
+            print("authenticated")
     elif command == "stage":
+        if len(args) == 2:
+            args.append("quiesced")  # Preserve only the old strictly quiesced internal call.
+        need(len(args) == 3 and args[2] in {"online", "quiesced"}, "unknown context phase")
         hook, archive = Path(args[0]), Path(args[1])
+        phase = args[2]
         config = load_config(hook)
         path = Path(config["app"]) / config["relative"]
         live = live_signature(path, config["app_uid"])
@@ -1491,18 +1612,29 @@ def main(args):
         proof = extract_and_seal(archive, config["relative"], destination, source_head=config["backup_head"], app_gid=config["app_gid"])
         need(bool(live) == (proof["member_hash"] is not None), "live/backup context presence differs")
         need(live or config["legacy"], "missing database is not a proved legacy installation")
-        proof.update({"archive": str(archive), "live": live,
+        proof.update({"archive": str(archive), "live": live, "phase": phase,
                       "sealed_hash": file_hash(destination) if live else None,
                       "sealed_signature": signature(file_info(destination, owners={0}, mode=0o440, gid=config["app_gid"])) if live else None})
         write_record(hook / "stage.json", proof)
         print("present" if live else "not_present_legacy")
     elif command == "finish":
+        if len(args) == 2:
+            args.append("quiesced")
+        need(len(args) == 3 and args[2] in {"online", "quiesced"}, "unknown context phase")
         hook, code = Path(args[0]), int(args[1])
         config, proof = load_config(hook), decode(read_file(hook / "stage.json", mode=0o600))
-        need(set(proof) == {"archive", "archive_hash", "archive_signature", "member_hash", "live", "sealed_hash", "sealed_signature"}, "unknown stage receipt")
+        need(set(proof) == {"archive", "archive_hash", "archive_signature", "member_hash", "live", "phase", "sealed_hash", "sealed_signature"}
+             and proof["phase"] == args[2], "unknown stage receipt or phase mismatch")
         need(signature(file_info(proof["archive"], owners={0}, mode=0o600, gid=0)) == proof["archive_signature"]
              and file_hash(proof["archive"]) == proof["archive_hash"], "backup changed after verification")
-        need(live_signature(Path(config["app"]) / config["relative"], config["app_uid"]) == proof["live"], "live source changed during verifier")
+        current_live = live_signature(Path(config["app"]) / config["relative"], config["app_uid"])
+        if proof["phase"] == "quiesced":
+            need(current_live == proof["live"], "live source changed during verifier")
+        else:
+            need(current_live.get("", [])[:6] == proof["live"].get("", [])[:6], "live source identity changed during verifier")
+            auth = decode(read_file(hook / "authentication.json", mode=0o600))
+            need(authentication_state("/etc/betboy/challenge-ledger-hmac.key", "/etc/betboy/challenge-ledger-v2-migrated.json", config["app_gid"]) == auth,
+                 "authentication changed during online verification")
         if proof["member_hash"] is None:
             need(config["legacy"] and not config["present"] and code == 0
                  and not os.path.lexists(hook / "context_models.db"), "invalid legacy absence claim")
@@ -1515,14 +1647,20 @@ def main(args):
             value = validate_report(decode(read_file(hook / "report.json", maximum=MAX_REPORT, mode=0o600)), code)
             print("Context continuity: " + value["verification_level"] + "; no model/effect certification.")
     elif command == "dependencies":
-        need(len(args) == 2 and args[1] == "0" and read_file(args[0], maximum=1024, mode=0o600) == b"context-dependencies-v1:ok\n", "context dependency preflight failed")
+        need(len(args) == 2 and args[1] == "0" and read_file(args[0], maximum=1024, mode=0o600) == b"context-dependencies-v2:ok\n", "context dependency preflight failed")
     else:
         raise ValueError("unknown context hook action")
 
 
 if __name__ == "__main__":
     try:
+        import resource
+        resource.setrlimit(resource.RLIMIT_AS, (2147483648, 2147483648))
+        resource.setrlimit(resource.RLIMIT_CPU, (300, 300))
         main(sys.argv[1:])
+    except MemoryError:
+        print("ContextResourceError", file=sys.stderr)
+        raise SystemExit(1)
     except Exception:
         # Never print provider/env/archive data or arbitrary exception strings.
         print("Context continuity check failed (configuration, integrity, or capability).", file=sys.stderr)
@@ -1532,10 +1670,13 @@ PY
 
 context_hook_command() {
     local output="$1"
+    local output_size
     shift
     local -a codes
     [[ ! -e "${output}" && ! -L "${output}" ]] || die "Context output already exists."
     if as_betboy /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 \
+        OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+        NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
         /usr/bin/timeout --signal=TERM --kill-after=10s 600s \
         "$@" 2>&1 | /usr/bin/timeout --signal=TERM --kill-after=10s 610s \
         /usr/bin/head -c 1048577 >"${output}"; then
@@ -1545,69 +1686,148 @@ context_hook_command() {
     fi
     [[ "${#codes[@]}" == 2 && "${codes[1]}" == 0 ]] \
         || die "Context verifier output could not be captured."
+    output_size=$(stat -c '%s' "${output}") || die "Verification output size unavailable."
+    [[ "${output_size}" =~ ^[0-9]+$ && "${output_size}" -le 1048576 ]] \
+        || die "VerificationResourceError: aggregate output budget exceeded."
+    case "${codes[0]}" in
+        124|137|152) die "VerificationResourceError: child time or memory limit." ;;
+    esac
     CONTEXT_COMMAND_STATUS="${codes[0]}"
 }
 
-preflight_context_runtime() {
-    local hook="${STAGE_DIR}/context-hook"
-    local entry
+verification_launcher_source() {
+    # Only installed-updater literals are emitted. No application import or
+    # caller-supplied executable/code/environment is accepted by this launcher.
+    cat <<'PY'
+import hashlib
+import os
+from pathlib import Path
+import resource
+import stat
+import sys
+
+resource.setrlimit(resource.RLIMIT_AS, (2147483648, 2147483648))
+resource.setrlimit(resource.RLIMIT_CPU, (300, 300))
+environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "TMPDIR": "/var/tmp",
+    "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1", "VECLIB_MAXIMUM_THREADS": "1"}
+kind, *args = sys.argv[1:]
+if kind == "backup" and len(args) == 2 and os.geteuid() == 0:
+    helper, archive = map(Path, args)
+    info = helper.lstat()
+    if (helper.name != "backup_runtime_databases.py" or not stat.S_ISREG(info.st_mode)
+            or info.st_uid != 0 or info.st_nlink != 1 or info.st_mode & 0o022):
+        raise SystemExit("invalid trusted backup child")
+    with helper.open("rb") as source:
+        checksum = hashlib.file_digest(source, "sha256").hexdigest()
+    if checksum != "b37d11a1eec4ebb129797a942ad68ea13861dd3a2b41bfe14644e9f06add5604":
+        raise SystemExit("backup child pin differs")
+    executable = "/usr/bin/python3"
+    command = [executable, "-I", "-B", str(helper), "--verify-only", str(archive), "--recovery-mode"]
+elif kind == "d4" and len(args) == 2 and os.geteuid() != 0:
+    target, database = map(Path, args)
+    executable = "/opt/betboy/venv/bin/python"
+    command = [executable, "-I", "-B", str(target / "scripts/verify_context_runtime.py"),
+        "--sealed-file", "--database", str(database)]
+elif kind == "dependencies" and len(args) == 1 and os.geteuid() != 0:
+    executable = "/opt/betboy/venv/bin/python"
+    program = '''import importlib, sqlite3, sys
+sys.path.insert(0, sys.argv[1])
+for name in ("numpy", "scipy", "pandas", "sklearn", "context_runtime", "context_runtime_input",
+             "context_runtime_semantics", "context_models.evaluator", "context_models.activation",
+             "tennis.tour_state", "context_transport"):
+    importlib.import_module(name)
+assert sys.platform == "linux"
+from context_runtime_input import open_sealed_connection
+assert callable(open_sealed_connection)
+connection = sqlite3.connect(":memory:")
+try:
+    connection.execute("PRAGMA query_only=ON")
+    assert connection.execute("PRAGMA query_only").fetchone() == (1,)
+finally:
+    connection.close()
+print("context-dependencies-v2:ok")
+'''
+    command = [executable, "-I", "-B", "-c", program, args[0]]
+else:
+    raise SystemExit("invalid verification child selection")
+os.execve(executable, command, environment)
+PY
+}
+
+configure_context_phase() {
+    local hook="$1"
     local manifest_previous="${PREVIOUS_HEAD}"
     if [[ "${MIGRATION_RESUME_TARGET}" == 1 ]]; then
         manifest_previous="${MIGRATION_MARKER_PREVIOUS_HEAD}"
     fi
-    entry=$(target_payload_file scripts/verify_context_runtime.py)
+    target_payload_file scripts/verify_context_runtime.py >/dev/null
     context_hook_data configure "${APP_DIR}" /etc/betboy/betboy.env \
         "${TARGET_PAYLOAD}" "${PREVIOUS_PAYLOAD}" \
         "${TARGET_MANIFEST}" "${PREVIOUS_MANIFEST}" "${manifest_previous}" "${TARGET_HEAD}" "${PREVIOUS_HEAD}" \
         "${hook}" "$(id -u betboy)" "$(id -g betboy)"
-    context_hook_command "${hook}/dependencies.txt" "${VENV_DIR}/bin/python" -I -B - "${TARGET_PAYLOAD}" <<'PY'
-import importlib
-import sqlite3
-import sys
+}
 
-sys.path.insert(0, sys.argv[1])
-for name in ("numpy", "scipy", "pandas", "sklearn", "context_runtime", "context_runtime_semantics",
-             "context_models.evaluator", "context_models.activation", "tennis.tour_state", "context_transport"):
-    importlib.import_module(name)
-source = sqlite3.connect(":memory:")
-target = sqlite3.connect(":memory:")
-try:
-    source.execute("CREATE TABLE dependency_probe(value INTEGER)")
-    source.execute("INSERT INTO dependency_probe VALUES(1)")
-    source.commit()
-    target.deserialize(source.serialize())
-    assert target.execute("SELECT value FROM dependency_probe").fetchall() == [(1,)]
-finally:
-    target.close()
-    source.close()
-print("context-dependencies-v1:ok")
-PY
+prepare_verification_launcher() {
+    local launcher="${CONTEXT_STAGE_DIR}/launcher.py"
+    [[ ! -e "${launcher}" && ! -L "${launcher}" ]] || die "Launcher already exists."
+    # Check the producer status in this shell. An unchecked process-substitution
+    # could feed empty/truncated Python to a verifier and lose its failure code.
+    ( set -o noclobber; verification_launcher_source >"${launcher}" ) \
+        || die "Verification launcher could not be written completely."
+    context_hook_data seal-launcher "${launcher}" "$(id -g betboy)"
+}
+
+preflight_context_runtime() {
+    CONTEXT_STAGE_DIR=$(context_hook_data create-private "$(id -g betboy)")
+    local hook="${CONTEXT_STAGE_DIR}/online"
+    local authentication
+    configure_context_phase "${hook}"
+    prepare_verification_launcher
+    context_hook_command "${hook}/dependencies.txt" /usr/bin/python3 -I -B \
+        "${CONTEXT_STAGE_DIR}/launcher.py" dependencies "${TARGET_PAYLOAD}"
     context_hook_data dependencies "${hook}/dependencies.txt" "${CONTEXT_COMMAND_STATUS}"
+    authentication=$(context_hook_data online-auth "${hook}" "${LEDGER_HMAC_KEY}" "${LEDGER_MIGRATION_MARKER}") \
+        || die "Online authentication preflight failed."
+    if [[ "${authentication}" == not_present_legacy ]]; then
+        log "Proven keyless contextless legacy: preserve first-migration post-quiesce backup route."
+        return
+    fi
+    [[ "${authentication}" == authenticated ]] || die "Unknown online authentication state."
+    create_online_preflight_backup
+    verify_context_runtime_from_archive online "${hook}" "${PREFLIGHT_BACKUP}"
 }
 
 verify_context_runtime_before_update() {
-    local hook="${STAGE_DIR}/context-hook"
+    local hook="${CONTEXT_STAGE_DIR}/quiesced"
+    configure_context_phase "${hook}"
+    verify_context_runtime_from_archive quiesced "${hook}" "${FRESH_BACKUP}"
+}
+
+verify_context_runtime_from_archive() {
+    local phase="$1" hook="$2" archive="$3"
     local presence
-    local entry
-    verify_no_betboy_processes
-    presence=$(context_hook_data stage "${hook}" "${FRESH_BACKUP}")
+    [[ "${phase}" == online || "${phase}" == quiesced ]] || die "Unknown context phase."
+    if [[ "${phase}" == quiesced ]]; then verify_no_betboy_processes; fi
+    presence=$(context_hook_data stage "${hook}" "${archive}" "${phase}")
     if [[ "${presence}" == present ]]; then
-        entry=$(target_payload_file scripts/verify_context_runtime.py)
-        context_hook_command "${hook}/report.json" "${VENV_DIR}/bin/python" -I -B \
-            "${entry}" --database "${hook}/context_models.db"
+        context_hook_command "${hook}/report.json" /usr/bin/python3 -I -B "${CONTEXT_STAGE_DIR}/launcher.py" d4 \
+            "${TARGET_PAYLOAD}" "${hook}/context_models.db"
     elif [[ "${presence}" == not_present_legacy ]]; then
         CONTEXT_COMMAND_STATUS=0
     else
         die "Context stage returned an unknown state."
     fi
-    verify_no_betboy_processes
-    context_hook_data finish "${hook}" "${CONTEXT_COMMAND_STATUS}"
+    if [[ "${phase}" == quiesced ]]; then verify_no_betboy_processes; fi
+    context_hook_data finish "${hook}" "${CONTEXT_COMMAND_STATUS}" "${phase}"
 }
 
 verify_backup_archive() {
     local archive="$1"
-    env PYTHONNOUSERSITE=1 PYTHONPATH= \
-        /usr/bin/python3 -I - "${archive}" <<'PY'
+    capture_root_verifier "${archive}.inline.log" /usr/bin/python3 -I -B - "${archive}" <<'PY'
+import resource
+resource.setrlimit(resource.RLIMIT_AS, (2147483648, 2147483648))
+resource.setrlimit(resource.RLIMIT_CPU, (300, 300))
 import hashlib
 import json
 import shutil
@@ -1709,13 +1929,49 @@ with zipfile.ZipFile(archive_path) as archive:
         if current_challenge_present and migration_marker is None:
             raise SystemExit("current challenge backup has no migration marker")
 PY
+    [[ "${CONTEXT_COMMAND_STATUS}" == 0 ]] || die "Full backup verification failed."
+}
+
+capture_root_verifier() {
+    local output="$1"
+    local output_size
+    shift
+    local -a codes
+    [[ ! -e "${output}" && ! -L "${output}" ]] || die "Root verification output already exists."
+    if /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 TMPDIR=/var/tmp \
+        OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+        NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+        /usr/bin/timeout --signal=TERM --kill-after=10s 600s "$@" 2>&1 \
+        | /usr/bin/timeout --signal=TERM --kill-after=10s 610s /usr/bin/head -c 1048577 >"${output}"; then
+        codes=("${PIPESTATUS[@]}")
+    else
+        codes=("${PIPESTATUS[@]}")
+    fi
+    [[ "${#codes[@]}" == 2 && "${codes[1]}" == 0 ]] || die "Full backup output capture failed."
+    output_size=$(stat -c '%s' "${output}") || die "Full backup output size unavailable."
+    [[ "${output_size}" =~ ^[0-9]+$ && "${output_size}" -le 1048576 ]] || die "VerificationResourceError: full backup output budget."
+    case "${codes[0]}" in
+        124|137|152) die "VerificationResourceError: full backup child limit." ;;
+    esac
+    CONTEXT_COMMAND_STATUS="${codes[0]}"
+}
+
+create_online_preflight_backup() {
+    PREFLIGHT_BACKUP="${RECOVERY_BACKUP_DIR}/betboy-online-$(date -u +%Y%m%dT%H%M%SZ)-${PREVIOUS_HEAD:0:12}-$$.zip"
+    produce_update_backup online "${STAGE_DIR}/backup-online-work" "${PREFLIGHT_BACKUP}" "${PREVIOUS_HEAD}"
 }
 
 create_fresh_backup() {
-    local backup_work
+    FRESH_BACKUP="${RECOVERY_BACKUP_DIR}/betboy-preupdate-$(date -u +%Y%m%dT%H%M%SZ)-${PREVIOUS_HEAD:0:12}-$$.zip"
+    produce_update_backup quiesced "${STAGE_DIR}/backup-quiesced-work" "${FRESH_BACKUP}" "${PREVIOUS_HEAD}"
+}
+
+produce_update_backup() {
+    local phase="$1" backup_work="$2" destination_archive="$3" source_head="$4"
     local work_archive
     local partial_archive
-    local stamp
+    [[ "${phase}" == online || "${phase}" == quiesced ]] || die "Unknown backup phase."
+    [[ "${backup_work}" == "${STAGE_DIR}/backup-${phase}-work" ]] || die "Unknown backup work path."
 
     [[ ! -L /var/backups ]] || die "/var/backups must not be a symlink."
     [[ ! -L "${RECOVERY_BACKUP_DIR}" ]] \
@@ -1727,21 +1983,21 @@ create_fresh_backup() {
     (( (8#$(stat -c '%a' "${RECOVERY_BACKUP_DIR}") & 077) == 0 )) \
         || die "Recovery backup directory is accessible outside root."
 
-    stamp=$(date -u +%Y%m%dT%H%M%SZ)
-    backup_work="${STAGE_DIR}/backup-work"
+    [[ ! -e "${backup_work}" && ! -L "${backup_work}" ]] || die "Backup work already exists."
     install -d -m 0700 -o betboy -g betboy "${backup_work}"
-    work_archive="${backup_work}/betboy-preupdate-${stamp}-${PREVIOUS_HEAD:0:12}.zip"
-    FRESH_BACKUP="${RECOVERY_BACKUP_DIR}/${work_archive##*/}"
-    partial_archive="${FRESH_BACKUP}.partial.$$"
-    [[ ! -e "${work_archive}" && ! -e "${FRESH_BACKUP}" \
+    work_archive="${backup_work}/capture.zip"
+    partial_archive="${destination_archive}.partial.$$"
+    [[ ! -e "${work_archive}" && ! -e "${destination_archive}" \
         && ! -e "${partial_archive}" ]] \
         || die "Refusing to overwrite an existing recovery backup."
 
-    log "Creating a trusted backup after all database writers stopped."
-    as_betboy env PYTHONNOUSERSITE=1 PYTHONPATH= \
-        /usr/bin/python3 -I - \
-        "${APP_DIR}" "${work_archive}" "${PREVIOUS_HEAD}" \
+    log "Creating fresh ${phase} backup (online capture consists of per-database snapshots)."
+    context_hook_command "${STAGE_DIR}/backup-${phase}-production.log" /usr/bin/python3 -I -B - \
+        "${APP_DIR}" "${work_archive}" "${source_head}" \
         "${LEDGER_HMAC_KEY}" "${LEDGER_MIGRATION_MARKER}" <<'PY'
+import resource
+resource.setrlimit(resource.RLIMIT_AS, (2147483648, 2147483648))
+resource.setrlimit(resource.RLIMIT_CPU, (300, 300))
 import hashlib
 import json
 import os
@@ -1751,6 +2007,7 @@ import sys
 import tempfile
 import zipfile
 from datetime import datetime, timezone
+from contextlib import closing
 from pathlib import Path
 
 root_argument = Path(sys.argv[1])
@@ -1771,32 +2028,47 @@ excluded = {
     ".codex_test_venv", ".git", ".pytest_cache", ".pytest_tmp",
     ".venv", "__pycache__", "backups_runtime",
 }
-sources = []
-for directory, dirnames, filenames in os.walk(root, followlinks=False):
-    current = Path(directory)
-    kept = []
-    for name in dirnames:
-        child = current / name
-        if name in excluded:
-            continue
-        child_info = child.lstat()
-        if child.is_symlink() or not stat.S_ISDIR(child_info.st_mode):
-            raise SystemExit(f"database path traverses an unsafe directory: {child}")
-        kept.append(name)
-    dirnames[:] = kept
-    for name in filenames:
-        if not name.endswith((".db", ".sqlite", ".sqlite3")):
-            continue
-        source = current / name
-        info = source.lstat()
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-            raise SystemExit(f"database is not one regular file: {source}")
-        try:
-            source.resolve(strict=True).relative_to(root)
-        except ValueError as exc:
-            raise SystemExit(f"database escapes application root: {source}") from exc
-        sources.append(source)
-sources.sort(key=lambda path: path.relative_to(root).as_posix())
+
+
+def stable_identity(info):
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink)
+
+
+def capture_inventory():
+    found, parents = {}, {}
+    for directory, dirnames, filenames in os.walk(root, followlinks=False):
+        current = Path(directory)
+        info = current.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in {0, os.getuid()}
+                or info.st_mode & 0o022):
+            raise SystemExit("unsafe database directory principal")
+        parents[current.relative_to(root).as_posix()] = stable_identity(info)
+        kept = []
+        for name in dirnames:
+            child = current / name
+            if name in excluded:
+                continue
+            child_info = child.lstat()
+            if child.is_symlink() or not stat.S_ISDIR(child_info.st_mode):
+                raise SystemExit("database path traverses an unsafe directory")
+            kept.append(name)
+        dirnames[:] = kept
+        for name in filenames:
+            if not name.endswith((".db", ".sqlite", ".sqlite3")):
+                continue
+            source = current / name
+            info = source.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                    or info.st_uid not in {0, os.getuid()} or info.st_mode & 0o022):
+                raise SystemExit("database is not one safely owned regular file")
+            if source.resolve(strict=True) != source:
+                raise SystemExit("database path identity is ambiguous")
+            found[source.relative_to(root).as_posix()] = stable_identity(info)
+    return found, parents
+
+
+initial_inventory = capture_inventory()
+sources = [root / relative for relative in sorted(initial_inventory[0])]
 if not sources:
     raise SystemExit("no runtime databases found")
 
@@ -1817,11 +2089,20 @@ with tempfile.TemporaryDirectory(prefix="database-stage-", dir=archive_path.pare
         relative = source.relative_to(root)
         destination = stage / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        uri = source.resolve().as_uri() + "?mode=ro"
-        with sqlite3.connect(uri, uri=True, timeout=30) as source_connection:
-            with sqlite3.connect(destination) as destination_connection:
-                source_connection.backup(destination_connection)
-        with sqlite3.connect(destination.resolve().as_uri() + "?mode=ro", uri=True) as connection:
+        descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            expected = initial_inventory[0][relative.as_posix()]
+            if stable_identity(os.fstat(descriptor)) != expected or stable_identity(source.lstat()) != expected:
+                raise SystemExit("database replaced before online backup")
+            uri = source.as_uri() + "?mode=ro"
+            with closing(sqlite3.connect(uri, uri=True, timeout=30)) as source_connection:
+                with closing(sqlite3.connect(destination)) as destination_connection:
+                    source_connection.backup(destination_connection, pages=256, sleep=0.1)
+            if stable_identity(os.fstat(descriptor)) != expected or stable_identity(source.lstat()) != expected:
+                raise SystemExit("database replaced during online backup")
+        finally:
+            os.close(descriptor)
+        with closing(sqlite3.connect(destination.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
             result = connection.execute("PRAGMA quick_check").fetchall()
         if result != [("ok",)]:
             raise SystemExit(f"SQLite quick_check failed: {relative.as_posix()}")
@@ -1918,7 +2199,28 @@ with tempfile.TemporaryDirectory(prefix="database-stage-", dir=archive_path.pare
             archive.write(staged_marker, migration_marker_member.as_posix())
         for entry in inventory:
             archive.write(stage / entry["path"], entry["path"])
+    if capture_inventory() != initial_inventory:
+        raise SystemExit("database inventory or principal changed during online capture")
+    # Existing authentication bytes must bind the capture; never create or
+    # complete a migration marker here. Ordinary DB size/time changes are OK.
+    for path, payload in ((integrity_key_path, key_payload), (migration_marker_path, marker_payload if marker_record else None)):
+        if payload is None:
+            if os.path.lexists(path):
+                raise SystemExit("authentication appeared during capture")
+        else:
+            flags = os.O_RDONLY | os.O_NOFOLLOW
+            descriptor = os.open(path, flags)
+            try:
+                info = os.fstat(descriptor)
+                original = key_info if path == integrity_key_path else marker_info
+                if (stable_identity(info) != stable_identity(original)
+                        or stable_identity(path.lstat()) != stable_identity(original)
+                        or os.read(descriptor, len(payload) + 1) != payload):
+                    raise SystemExit("authentication changed during capture")
+            finally:
+                os.close(descriptor)
 PY
+    [[ "${CONTEXT_COMMAND_STATUS}" == 0 ]] || die "Fresh backup capture failed before acceptance."
     # The staging parent cannot be renamed by betboy. Revoke its only access
     # before any root pathname operation on the newly-created archive.
     chown root:root "${backup_work}"
@@ -1929,14 +2231,14 @@ PY
         || die "Backup helper did not produce one regular betboy-owned archive."
     chown -h root:root "${work_archive}"
     chmod 0600 -- "${work_archive}"
-    verify_backup_archive "${work_archive}"
-    env PYTHONNOUSERSITE=1 PYTHONPATH= \
-        /usr/bin/python3 -I \
-        "$(trusted_file scripts/backup_runtime_databases.py)" \
-        --verify-only "${work_archive}" --recovery-mode
+    # Copy to a new root-owned inode: revoking the producer directory alone
+    # cannot revoke an already-open application file descriptor.
     install -o root -g root -m 0600 "${work_archive}" "${partial_archive}"
     verify_backup_archive "${partial_archive}"
-    /usr/bin/python3 -I - "${partial_archive}" "${FRESH_BACKUP}" <<'PY'
+    capture_root_verifier "${partial_archive}.helper.log" /usr/bin/python3 -I -B "${CONTEXT_STAGE_DIR}/launcher.py" backup \
+        "$(trusted_file scripts/backup_runtime_databases.py)" "${partial_archive}"
+    [[ "${CONTEXT_COMMAND_STATUS}" == 0 ]] || die "Full backup restore/authentication verification failed."
+    /usr/bin/python3 -I - "${partial_archive}" "${destination_archive}" <<'PY'
 import os
 import stat
 import sys
@@ -1971,7 +2273,7 @@ try:
 finally:
     os.close(directory)
 PY
-    log "Fresh root-protected backup verified: ${FRESH_BACKUP}"
+    log "Fresh root-protected ${phase} backup verified: ${destination_archive}"
 }
 
 verify_clean_worktree() {
@@ -3111,6 +3413,31 @@ verify_runtime() {
     verify_public_proxy
 }
 
+check_capacity_space() {
+    /usr/bin/python3 -I -B - "$1" "$2" <<'PY'
+import os
+import sys
+
+backup, databases = (int(value) * 1024 for value in sys.argv[1:])
+if min(backup, databases) < 0:
+    raise SystemExit("invalid capacity inventory")
+# Conservative simultaneous high-water reservation: rollback archive copy,
+# both retained work archives, active snapshot/restore, two published archives
+# and two seals. These are extra bytes, never the same free bytes counted twice.
+requests = (("/var/tmp", backup + databases * 6 + 512 * 1024 * 1024),
+            ("/var/backups", backup + databases * 4 + 512 * 1024 * 1024),
+            ("/var/lib", min(databases, 1024 * 1024 * 1024) * 2 + 256 * 1024 * 1024))
+devices = {}
+for path, required in requests:
+    device = os.stat(path, follow_symlinks=False).st_dev
+    free = os.statvfs(path).f_bavail * os.statvfs(path).f_frsize
+    previous, available = devices.get(device, (0, free))
+    devices[device] = (previous + required, min(available, free))
+if any(required > free for required, free in devices.values()):
+    raise SystemExit("VerificationResourceError: insufficient combined snapshot/restore/seal disk capacity")
+PY
+}
+
 preflight() {
     local required_command
     local worker
@@ -3157,32 +3484,10 @@ preflight() {
             -printf '%s\n' \
             | awk '{total += $1} END {print int((total + 1023) / 1024)}'
     )
-    rollback_available_kib=$(df -Pk /var/tmp | awk 'NR == 2 {print $4}')
-    backup_available_kib=$(df -Pk /var/backups \
-        | awk 'NR == 2 {print $4}')
     [[ "${backup_apparent_kib}" =~ ^[0-9]+$ \
-        && "${database_apparent_kib}" =~ ^[0-9]+$ \
-        && "${rollback_available_kib}" =~ ^[0-9]+$ \
-        && "${backup_available_kib}" =~ ^[0-9]+$ ]] \
+        && "${database_apparent_kib}" =~ ^[0-9]+$ ]] \
         || die "Cannot determine rollback snapshot capacity."
-    rollback_required_kib=$((
-        backup_apparent_kib + database_apparent_kib * 3 + 524288
-    ))
-    backup_required_kib=$((
-        backup_apparent_kib + database_apparent_kib * 2 + 524288
-    ))
-    if [[ "$(stat -c '%d' /var/tmp)" \
-        == "$(stat -c '%d' /var/backups/betboy)" ]]; then
-        shared_required_kib=$((
-            backup_apparent_kib * 2 + database_apparent_kib * 5 + 524288
-        ))
-        (( rollback_available_kib >= shared_required_kib )) \
-            || die "Insufficient shared space for an independent backup snapshot and restore."
-    else
-        (( rollback_available_kib >= rollback_required_kib \
-            && backup_available_kib >= backup_required_kib )) \
-            || die "Insufficient space for an independent backup snapshot and restore."
-    fi
+    check_capacity_space "${backup_apparent_kib}" "${database_apparent_kib}"
     for worker in "${BETBOY_WORKERS[@]}"; do
         if systemctl is-active --quiet "${worker}"; then
             die "Worker ${worker} is active; retry after it finishes."
