@@ -86,9 +86,42 @@ stagehelper SHA remains
 
 ## Remaining gates
 
-This closes the four obsolete-test contracts locally, not the broad Linux
+This closes the four obsolete-test contracts locally, not the broad exact-LF Windows
 suite or deployment gate. Root retains the failed e2 broad-run evidence and
-must obtain the desired exact-LF Linux rerun/review. Native symlink/flock/DAC,
+must obtain the desired exact-LF Windows rerun/review. Separate Linux QA is
+bounded native testing, not a Linux full-suite result. Native symlink/flock/DAC,
 fresh production backup acceptance, permission approval, installer execution,
 frontend/model acceptance and deployment remain separate evidence/authority
 boundaries; this test-only change authorizes none of them.
+
+## Independent review follow-up: producer failure completion
+
+The reviewer found one P2 coverage gap in the first port: replacing the full
+backup helper's `CONTEXT_COMMAND_STATUS == 0` guard with `[[ true ]]` still let
+the before-downtime test pass. Independently reproduced against e74b51a:
+**1 passed, 89 deselected, 1.48 s** with this read-time-only mutation. This was
+a test omission, not a production defect.
+
+Only that test now additionally executes the original producer's closing shell
+segment, from `verify_backup_archive` through publication and its final log.
+The external inline verifier and bounded helper are controlled process-result
+boundaries. The exact publication heredoc remains unchanged but a Bash function
+named `/usr/bin/python3` consumes it and records invocation: no root Python or
+archive mutation is executed on the developer machine.
+
+- Helper status 0 must reach publication, verified logging and continuation.
+- Helper status 1 (verification failure) and 137 (aborted helper) must stop with
+  the real restore/authentication error, without publication, success log or
+  continuation.
+- The identical guard-bypass mutation now produces genuine RED:
+  **1 failed, 89 deselected, 1.66 s**. Its observed output wrongly contained
+  `publication-boundary`, `verified` and `continued` with exit 0. The test
+  rejected that result. No updater bytes were modified for the mutation.
+
+Original production source GREEN: complete `tests/test_server_jobs.py`,
+**83 passed, 7 unavailable-symlink skips, 14.13 s**
+(`.pytest_tmp/broad-port-review-green.xml`). AST syntax and
+`git -c core.autocrlf=false diff --check` pass. Updater SHA remains
+`4b814c500f5eb03fb7a28f576210f02759300aa5560ef273834c6eb3195e8c19`.
+The earlier three-file results remain evidence for the initial port; this
+follow-up did not rerun the broad suite or claim new native/HMAC acceptance.

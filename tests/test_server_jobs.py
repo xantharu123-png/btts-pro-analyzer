@@ -177,6 +177,33 @@ def test_update_preflights_before_downtime_and_has_recovery_path(monkeypatch):
     assert producer.index('Full backup restore/authentication verification failed.') < producer.index('os.rename(partial, target)')
     assert 'launcher.py" backup' in producer
     assert '"$(trusted_file scripts/backup_runtime_databases.py)" "${partial_archive}"' in producer
+    # Execute the actual producer completion, including the status guard. The
+    # full-archive validator and bounded helper expose their process results;
+    # the publication command consumes its unchanged heredoc without running
+    # root Python or writing an archive on the developer's host.
+    completion = producer[producer.index('    verify_backup_archive "${partial_archive}"'):]
+    for helper_status in (0, 1, 137):
+        completion_harness = "set -euo pipefail\nPATH=/usr/bin:/bin\n"
+        completion_harness += f"HELPER_STATUS={helper_status}\n"
+        completion_harness += "partial_archive=fixture.partial; destination_archive=fixture.zip; CONTEXT_STAGE_DIR=fixture; phase=online\n"
+        completion_harness += "die() { printf 'rejected:%s\\n' \"$*\"; exit 1; }\n"
+        completion_harness += "log() { printf 'verified\\n'; }\ntrusted_file() { printf 'fixture-helper'; }\n"
+        completion_harness += "verify_backup_archive() { printf 'inline-boundary\\n'; }\n"
+        completion_harness += "capture_root_verifier() { printf 'helper-boundary\\n'; CONTEXT_COMMAND_STATUS=$HELPER_STATUS; }\n"
+        completion_harness += "/usr/bin/python3() { while IFS= read -r line; do :; done; printf 'publication-boundary\\n'; }\n"
+        completion_harness += "complete_producer() {\n" + completion
+        completion_harness += "\ncomplete_producer\nprintf 'continued\\n'\n"
+        result = subprocess.run([_bash_executable()], input=completion_harness,
+                                text=True, capture_output=True, timeout=20)
+        assert result.stderr == ""
+        lines = result.stdout.splitlines()
+        assert lines[:2] == ["inline-boundary", "helper-boundary"]
+        if helper_status == 0:
+            assert result.returncode == 0
+            assert lines[2:] == ["publication-boundary", "verified", "continued"]
+        else:
+            assert result.returncode != 0
+            assert lines[2:] == ["rejected:Full backup restore/authentication verification failed."]
     # Execute both actual phase wrappers; their process boundary is recorded,
     # not a real service stop or a root archive publication on this host.
     harness = "set -euo pipefail\nPATH=/usr/bin:/bin\nSTAGE_DIR=stage; RECOVERY_BACKUP_DIR=recovery; PREVIOUS_HEAD=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
