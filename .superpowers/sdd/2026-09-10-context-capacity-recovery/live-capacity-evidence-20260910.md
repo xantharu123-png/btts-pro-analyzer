@@ -75,4 +75,14 @@ The same child then attempted the complete99.375-MiB real-copy replay with the n
 
 Afterward the test input SHA256 was rechecked unchanged as `0a7103150e5724160ca789b59b6691eb9e274df0f8c090658217c6f16e926ae5`, root:betboy0440/one link/104202240bytes. Installed updater SHA remains74b1c4b1..., app health`ok`. No repair was installed.
 
-The independent lifecycle defect in this pre-fix source was separately corrected by41067c0/3967778 and independently accepted. That does not explain away or close the observed performance problem. `profile_first_context_history.py` is now a deliberately bounded diagnostic against this preserved pre-fix source, not another acceptance run. Its initial timings are schema0.493s, artifact types3.588s, manifests0.001s, physical observations34.376s; first complete tennis history profiling begins around41s.
+The independent lifecycle defect in this pre-fix source was separately corrected by41067c0/3967778 and independently accepted. That does not explain away or close the observed performance problem.
+
+## Completed targeted performance diagnosis
+
+`profile_first_context_history.py` ran as betboy against the preserved pre-fix source and sealed real copy. It deliberately stopped after20CPU seconds of profiling the first history. This is a diagnostic, not a verification PASS. Complete diagnostic elapsed61.791s, peak189476KiB; schema0.493s, artifact types3.588s, manifests0.001s, physical observations34.376s, original phase started41.046s.
+
+The first-history20.014s profile recorded12542544calls (12051088primitive). Of8615lazy receipt lookups,8614 reached owning Tennis selection and8541 typed selected-receipt validation. Cumulative times: selection11.543s, selected validation11.226s, observation normalization10.083s, lazy receipt lookup8.084s, receipt decode7.377s. These overlap and must not be added. Canonical serialization112375calls consumed4.764s cumulative.
+
+The measured hot path is repeated whole-inventory owning decode and typed selection for original and snapshot replays. No check was removed and no process budget was increased in response. A bounded reuse proposal is under review before implementation.
+
+Separate read-only structural inventory as betboy confirmed50880457physical content bytes. All four originals are ATP: two at2026-09-10T10:00:10.922492Z andtwo at2026-09-10T12:07:13.973931Z. Receipts span2026-09-10T09:59:08.864565Z through2026-09-10T13:37:06.249679Z. There are therefore exactly two distinct causal-history keys for eight original/snapshot consumers in this copy. These are measured properties, not an assumption that future inputs always share cutoffs.
