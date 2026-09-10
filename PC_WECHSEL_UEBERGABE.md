@@ -1,5 +1,32 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Live-Release und neuer Größenbefund — 10. September 2026, 12:25 CEST
+
+Die geprüfte Brücke655e7a6 und danach2dd1116 wurden tatsächlich in dieser
+Reihenfolge über den installierten betboy-update veröffentlicht. Lokal, GitHub
+main und VPS sind2dd1116; App/Healthchecks und sieben Timer laufen. Echte
+Produktionskarten und Desktop-/Mobile-Geometrie geprüft. Timer deployen nicht.
+Der neue SDD-Bericht task-20-live-release-and-storage-20260910.md enthält die
+exakten Hashes, A/B-Backups, Browsergrenzen und unveränderten Ausgangsbelege.
+
+ATP wurde unabhängig neu gebaut; WTA-Frischabruf scheitert weiter. Der geprüfte
+vorhandene WTA-Cache wurde ausdrücklich als alter Stand26.07.2026 veröffentlicht,
+ohne ATP zu verändern. Der ursprüngliche Tennis-Dienstlauf war partial/exit1;
+dies wurde nicht kaschiert. Frisches normales Backup:88Datenbanken verifiziert.
+
+NEUER OFFENER UPDATEBLOCKER: echte Kontextdatenbank100671488B mit47227
+Beobachtungen, aber D4-Prüfer und installierter Updater begrenzen auf64MiB.
+Weiteren Deploy bis sicherer Reparatur-/Migrationsklärung nicht auslösen.
+Keine Daten löschen, Grenzen umgehen oder installierten Root-Code ersetzen.
+Lesende Reviews bestätigen: der installierte Updater blockiert seine eigene
+Reparatur; es braucht eine neue ausdrückliche Freigabe für einen eng geprüften
+Roottool-Übergang. Tennis erfasst auch vollständige alte Abrechnungsantworten:
+47098Tennisbelege plus129parallele Fußballbelege. Kein generischer B1-Dedupfehler.
+P4b3(a)-Round1 ist im unabhängigen Review HOLD (widersprüchliche Terminrevision
+kann Absage aufheben); Fußball-A0 ist separat angenommen. Beide unintegriert.
+Empirisch qualifizierte Verletzungs-/Belastungseffekte bleiben offen; Cricket
+unverändert. Geschützten Stagehelper und übernommene Outputs weiter bewahren.
+
 ## Releaseprüfung am 10. September 2026 — 11:49 CEST
 
 Vollsuite im frischen LF-Checkout286601b abgeschlossen:6552bestanden,

@@ -1,5 +1,33 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Actual A/B installation and post-data blocker — 10 September2026,12:25CEST
+
+Installed A655e7a6 then B2dd1116 through the existing trusted updater, both
+exit0, fresh87DB preupdate archives verified. Installed root-owned updater
+SHA74b1c4b1 was checked before B publication. Local/main/VPS2dd1116. Actual
+public UI readback, no result-market opposites across60Finder cards, direct
+analysis, actual bankroll100.00, responsive geometry and browser logs checked.
+These are separate from6552/20/97 local tests and do not prove good bets.
+
+ATP independently published5fb2d377; WTA live source failed. Explicit documented
+no-refresh build retained ATP exactly and published validated older WTA cache
+d73bf675, honest result_date2026-07-26. Original partial Tennis unit exit1 retained.
+New ordinary backup88DB verified. NEW BLOCKER: context DB100671488B,47227B1
+receipts, freelist0; D4 and installed updater have64MiB bounds. Subsequent update
+would fail, so no further deployment until separately reviewed safe remedy.
+No arbitrary cap increase, data removal, permission/root-script replacement.
+
+P4b3(a) round1 frozen6c8984d,452focus+26subtests, independent rereview HOLD:
+two BB/NHL counterprobes resurrect cancelled baseline by mixing contradictory
+scheduled lineage with later unknown identity. No merge or silent waiver.
+Football A0ecff029 accepted independently,558focus+32; not merged/deployed.
+Both original B3-reference gaps and qualified injury/load activation remain open.
+See task-20-live-release-and-storage-20260910.md for exact evidence and caveats.
+The installed64MiB updater cannot install its own fix through the existing route;
+new explicit bounded roottool-transition authority is required before any such
+VPS change. Separate source read confirms unnecessary settlement-response capture
+and whole-tour snapshot refs. No removal/retiming of stored evidence is approved.
+
 ## Integrated release accepted locally — 10 September 2026,09:49UTC
 
 Exact LF QA286601b:6552passed/20Windows-skips/97subtests,exit0,1279.19s;
