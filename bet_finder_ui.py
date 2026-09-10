@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import re
@@ -657,8 +658,27 @@ class _ManualPriceInputs:
 
     candidate: RecommendationCandidate
     raw_odds: Optional[str]
+    raw_bankroll: Optional[str]
     bankroll: Optional[float]
     confirmed: bool
+
+
+def _manual_bankroll_input(raw: Optional[str]) -> Optional[float]:
+    """Keep the previous widget's finite/minimum-1 boundary without refilling."""
+
+    if not isinstance(raw, str) or not re.fullmatch(
+        r"[+-]?(?:[0-9]+(?:[.,][0-9]*)?|[.,][0-9]+)(?:[eE][+-]?[0-9]+)?",
+        raw.strip(),
+    ):
+        return None
+    value = float(raw.strip().replace(",", "."))
+    return value if math.isfinite(value) and value >= 1.0 else None
+
+
+def _manual_checked_literal(raw: Optional[str]) -> str:
+    """Unambiguous plain text, including empty strings and control characters."""
+
+    return "leer (kein Wert)" if raw is None else json.dumps(raw, ensure_ascii=True)
 
 
 def _invalidate_manual_check(key: str) -> None:
@@ -706,19 +726,21 @@ def _render_manual_check(
                     args=(key,),
                 )
             with bankroll_column:
-                if manual_bankroll_key not in st.session_state:
-                    st.session_state[manual_bankroll_key] = 100.0
-                bankroll = st.number_input(
+                previous_balance = st.session_state.get(manual_bankroll_key)
+                if previous_balance is not None and not isinstance(previous_balance, str):
+                    # Existing numeric-widget state has no raw spelling. Keep
+                    # its actual value; never fill an old None with a balance.
+                    st.session_state[manual_bankroll_key] = str(previous_balance)
+                raw_bankroll = st.text_input(
                     "Aktuelles Wettguthaben",
-                    min_value=1.0,
-                    # Keep the initial balance, but do not silently turn an
-                    # explicitly cleared input back into that old balance.
-                    value=None,
-                    step=10.0,
+                    # A real default survives an unmounted popover. Text
+                    # widgets also preserve a literal clear as an empty string.
+                    value="100.00",
                     key=manual_bankroll_key,
                     on_change=_invalidate_manual_check,
                     args=(key,),
                 )
+                bankroll = _manual_bankroll_input(raw_bankroll)
             confirmed = st.checkbox(
                 f"Auswahl stimmt exakt: {candidate.selection} / {candidate.market}",
                 value=False,
@@ -736,7 +758,9 @@ def _render_manual_check(
         decision_state_key = f"bet_decision_{key}"
         inputs_state_key = f"bet_checked_inputs_{key}"
         changed_state_key = f"bet_manual_changed_{key}"
-        current_inputs = _ManualPriceInputs(candidate, raw_odds, bankroll, confirmed)
+        current_inputs = _ManualPriceInputs(
+            candidate, raw_odds, raw_bankroll, bankroll, confirmed,
+        )
         if submitted:
             decision = _enforce_pending_release(
                 evaluate_candidate_price(
@@ -776,13 +800,15 @@ def _render_manual_check(
                 return None
 
         decision = _enforce_pending_release(decision)
-        if decision.quoted_odds is not None:
-            # Even while a new text edit is still local to the browser (before
-            # blur), explicitly name what the last submitted result evaluated.
-            st.caption(
-                f"Letzte Prüfung: Quote {decision.quoted_odds:.2f} · "
-                f"Wettguthaben {bankroll:.2f} €."
-            )
+        checked_inputs = st.session_state[inputs_state_key]
+        # Include invalid/unchecked submissions too. Plain text never executes
+        # raw user input as Markdown/HTML, and the stored snapshot, not today's
+        # widget locals or rounded evaluator output, identifies the check.
+        st.text(
+            f"Letzte Prüfung: Quote {_manual_checked_literal(checked_inputs.raw_odds)} · "
+            f"Wettguthaben {_manual_checked_literal(checked_inputs.raw_bankroll)} € · "
+            f"Auswahl bestätigt: {'ja' if checked_inputs.confirmed else 'nein'}.",
+        )
 
         if decision.status == "PRICE_REQUIRED":
             st.info(
@@ -792,7 +818,7 @@ def _render_manual_check(
         elif decision.quoted_odds is None:
             st.info(
                 "Keine Preisprüfung möglich. Bitte eine gültige Dezimalquote "
-                "und ein positives Wettguthaben eingeben."
+                "und ein Wettguthaben von mindestens 1 eingeben."
             )
         elif decision.status == "BET":
             st.success(
