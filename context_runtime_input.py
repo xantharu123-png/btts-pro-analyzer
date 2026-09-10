@@ -14,6 +14,7 @@ import sys
 
 from model_artifacts import ArtifactIntegrityError
 from runtime_paths import RuntimeArtifactTrustError
+from context_runtime_transaction import TrackedConnection
 
 
 def _directory_identity(info):
@@ -94,7 +95,8 @@ def open_sealed_connection(path, *, max_bytes):
             _check_seal(path, descriptor, expected, ancestors)
             # The immutable promise is justified by DAC above, not accepted
             # from a caller boolean or used to bypass an untrusted live WAL.
-            connection = sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True, timeout=5)
+            connection = sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True, timeout=5,
+                                         factory=TrackedConnection)
             stack.callback(connection.close)
             connection.execute("PRAGMA trusted_schema=OFF")
             connection.execute("PRAGMA foreign_keys=ON")

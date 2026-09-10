@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import context_runtime as runtime
+from context_runtime_transaction import TrackedConnection
 from model_artifacts import ArtifactIntegrityError, canonical_bytes
 from runtime_paths import RuntimeArtifactTrustError
 from test_context_runtime_backup import seeded, add_receipt, cli
@@ -54,7 +55,7 @@ def test_lazy_inventory_complete_independent_values_and_closed_connection(tmp_pa
     path = tmp_path / "context.db"
     _, atp, wta = seeded(path)
     refs = [add_receipt(path, revision=f"r{i}") for i in range(5)]
-    with closing(sqlite3.connect(path)) as conn:
+    with closing(sqlite3.connect(path, factory=TrackedConnection)) as conn:
         conn.execute("BEGIN")
         artifacts = VerifiedArtifactMapping(conn)
         receipts = VerifiedReceiptMapping(conn)
@@ -74,6 +75,121 @@ def test_lazy_inventory_complete_independent_values_and_closed_connection(tmp_pa
                       lambda: refs[0] in receipts, lambda: list(artifacts)):
         with pytest.raises((sqlite3.ProgrammingError, RuntimeArtifactTrustError)):
             operation()
+
+
+@pytest.mark.parametrize("boundary", ["commit", "rollback", "sql_commit", "sql_rollback",
+    "cursor_commit", "cursor_rollback", "returned_cursor", "script", "cursor_script",
+    "context_commit", "context_rollback", "executemany_rollback", "cursor_executemany_rollback",
+    "isolation_commit", "savepoint_release", "ended", "closed"])
+def test_inventory_transaction_generation_never_revives(tmp_path, monkeypatch, boundary):
+    from context_runtime_inventory import VerifiedArtifactMapping, VerifiedReceiptMapping, ArtifactSubsetMapping
+    import context_observations
+    path = tmp_path / "context.db"
+    _, atp, wta = seeded(path)
+    first, second = add_receipt(path, revision="first"), add_receipt(path, revision="second")
+    original_decoder = context_observations._decode_receipt
+    def guarded(row):
+        if row[0] == first:
+            pytest.fail("protected receipt body decoded")
+        return original_decoder(row)
+    monkeypatch.setattr(context_observations, "_decode_receipt", guarded)
+    with runtime._open_database(path, writable=True) as conn:
+        conn.execute("CREATE TABLE boundary_test (id INTEGER PRIMARY KEY)")
+        for _ in range(2):  # The second pass uses cached transaction SQL.
+            conn.execute("SAVEPOINT held" if boundary == "savepoint_release" else "BEGIN")
+            artifacts = VerifiedArtifactMapping(conn)
+            ordinary = VerifiedReceiptMapping(conn)
+            protected = VerifiedReceiptMapping(conn, protected_receipts={first})
+            subset = ArtifactSubsetMapping(artifacts, [atp, wta])
+            views = [(artifacts, atp), (ordinary, second), (protected, first), (subset, atp)]
+            live_iterators = []
+            for view, key in views:
+                assert key in view
+                assert len(view) == 2
+                assert view[key]
+                iterator = iter(view)
+                next(iterator)
+                live_iterators.append(iterator)
+            if boundary in {"commit", "rollback"}:
+                getattr(conn, boundary)()
+            elif boundary in {"sql_commit", "sql_rollback"}:
+                conn.execute("/* cached boundary */ " + boundary.removeprefix("sql_").upper())
+            elif boundary in {"cursor_commit", "cursor_rollback"}:
+                conn.cursor().execute(boundary.removeprefix("cursor_").upper())
+            elif boundary == "returned_cursor":
+                conn.execute("SELECT 1").execute("COMMIT")
+            elif boundary in {"script", "cursor_script"}:
+                target = conn if boundary == "script" else conn.cursor()
+                target.executescript("BEGIN; SELECT 1;")  # implicit end + new BEGIN inside one call
+            elif boundary in {"context_commit", "context_rollback"}:
+                try:
+                    with conn:
+                        if boundary == "context_rollback": raise RuntimeError("test rollback")
+                except RuntimeError:
+                    pass
+            elif boundary in {"executemany_rollback", "cursor_executemany_rollback"}:
+                target = conn if boundary == "executemany_rollback" else conn.cursor()
+                with pytest.raises(sqlite3.IntegrityError):
+                    target.executemany("INSERT OR ROLLBACK INTO boundary_test VALUES (?)", [(1,), (1,)])
+            elif boundary == "isolation_commit":
+                conn.isolation_level = None  # SQLite's property setter commits.
+            elif boundary == "savepoint_release":
+                conn.execute("RELEASE held")
+            elif boundary == "ended":
+                conn.commit()
+            else:
+                conn.close()
+            if boundary not in {"closed", "ended"} and not conn.in_transaction:
+                conn.execute("BEGIN")
+            for view, key in views:
+                for operation in (lambda: view[key], lambda: len(view), lambda: key in view,
+                                  lambda: list(view), lambda: view.get("0" * 64)):
+                    with pytest.raises((RuntimeArtifactTrustError, sqlite3.ProgrammingError)):
+                        operation()
+            for iterator in live_iterators:
+                with pytest.raises((RuntimeArtifactTrustError, sqlite3.ProgrammingError)):
+                    next(iterator)
+            if boundary == "closed": break
+            conn.rollback()
+
+
+def test_verified_inventory_rejects_untracked_connections(tmp_path):
+    from context_runtime_inventory import VerifiedArtifactMapping, VerifiedReceiptMapping
+    path = tmp_path / "context.db"
+    seeded(path)
+    add_receipt(path)
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute("BEGIN")
+        for factory in (VerifiedArtifactMapping, VerifiedReceiptMapping):
+            with pytest.raises(RuntimeArtifactTrustError, match="tracked"):
+                factory(conn)
+
+
+@pytest.mark.parametrize("boundary", ["commit", "rollback", "context_exit", "autocommit_setters"])
+def test_pep249_end_and_automatic_restart_invalidates_views(tmp_path, boundary):
+    from context_runtime_inventory import VerifiedArtifactMapping, ArtifactSubsetMapping
+    if not hasattr(sqlite3.Connection, "autocommit"):
+        pytest.skip("PEP249 autocommit setting requires Python 3.12")
+    path = tmp_path / "context.db"
+    _, atp, _ = seeded(path)
+    with closing(sqlite3.connect(path, factory=TrackedConnection, autocommit=False)) as conn:
+        artifacts = VerifiedArtifactMapping(conn)
+        subset = ArtifactSubsetMapping(artifacts, [atp])
+        assert conn.in_transaction
+        if boundary == "context_exit":
+            with conn:
+                pass
+        elif boundary == "autocommit_setters":
+            conn.autocommit = True
+            assert not conn.in_transaction
+            conn.autocommit = False
+        else:
+            getattr(conn, boundary)()
+        assert conn.in_transaction  # Boolean alone cannot detect this boundary.
+        for view in (artifacts, subset):
+            with pytest.raises(RuntimeArtifactTrustError):
+                len(view)
+        assert len(VerifiedArtifactMapping(conn)) == 2
 
 
 @pytest.mark.parametrize("damage", ["orphan", "unreferenced_receipt"])
@@ -105,7 +221,7 @@ def test_lazy_membership_does_not_decode_unopened_final(tmp_path, monkeypatch):
         return original(row)
     monkeypatch.setattr(context_observations, "_decode_receipt", guarded)
     monkeypatch.setattr(runtime, "_decode_receipt", guarded)
-    with closing(sqlite3.connect(packet["path"])) as conn:
+    with closing(sqlite3.connect(packet["path"], factory=TrackedConnection)) as conn:
         conn.execute("BEGIN")
         refs = {r for r, event, kind in conn.execute(
             "SELECT digest,event_key,kind FROM context_observations") if event in finals and kind == "match_outcome"}
@@ -131,7 +247,7 @@ def test_original_descriptors_release_histories_between_cutoffs(tmp_path, monkey
     db, predictions, _, _ = configure(monkeypatch, tmp_path)
     run_batch(db, predictions, decision=NOW-timedelta(seconds=1))
     run_batch(db, predictions)
-    with closing(sqlite3.connect(db)) as conn:
+    with closing(sqlite3.connect(db, factory=TrackedConnection)) as conn:
         conn.execute("BEGIN")
         artifacts, receipts = VerifiedArtifactMapping(conn), VerifiedReceiptMapping(conn)
         clocks = {ref: datetime.fromisoformat(clock) for ref, clock in conn.execute("SELECT digest,created_at FROM artifacts")}
@@ -148,7 +264,7 @@ def test_history_budget_rejects_complete_replay_without_truncation(tmp_path, mon
     from context_runtime_tennis import _replay_history
     from test_tennis_live_worker import NOW
     db, _ = _stored(monkeypatch, tmp_path)
-    with closing(sqlite3.connect(db)) as conn:
+    with closing(sqlite3.connect(db, factory=TrackedConnection)) as conn:
         conn.execute("BEGIN")
         receipts = VerifiedReceiptMapping(conn)
         complete = _replay_history(receipts, cutoff=NOW, tour="ATP", max_bytes=None)

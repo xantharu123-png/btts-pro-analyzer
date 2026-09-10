@@ -1,22 +1,27 @@
 """Read-only, uncached views of a caller-held verification transaction.
 
 Only identities are retained. Values are fresh owning-decoder results on each
-lookup. Callers must keep the same transaction open for the views' lifetime.
+lookup. A view is permanently invalid after its original transaction ends.
 """
 from collections.abc import Mapping
 
 import context_observations
 from model_artifacts import _load_artifact
 from runtime_paths import RuntimeArtifactTrustError
+from context_runtime_transaction import TrackedConnection
 
 
 class _TransactionMapping(Mapping):
     def __init__(self, connection):
+        if not isinstance(connection, TrackedConnection):
+            raise RuntimeArtifactTrustError("context inventory requires a tracked connection")
         self._connection = connection
+        self._generation = connection.transaction_generation
         self._check_transaction()
 
     def _check_transaction(self):
-        if not self._connection.in_transaction:
+        if (self._connection.transaction_generation != self._generation
+                or not self._connection.in_transaction):
             raise RuntimeArtifactTrustError("context inventory requires its held transaction")
 
     def __iter__(self):
@@ -70,15 +75,25 @@ class VerifiedReceiptMapping(_TransactionMapping):
 class ArtifactSubsetMapping(Mapping):
     """Identity-only subset; D2 must not recreate a decoded inventory cache."""
     def __init__(self, artifacts, keys):
+        artifacts._check_transaction()
         self._artifacts, self._keys = artifacts, frozenset(keys)
 
     def __getitem__(self, key):
+        self._artifacts._check_transaction()
         if key not in self._keys:
             raise KeyError(key)
         return self._artifacts[key]
 
     def __iter__(self):
-        return iter(self._keys)
+        self._artifacts._check_transaction()
+        for key in self._keys:
+            self._artifacts._check_transaction()
+            yield key
 
     def __len__(self):
+        self._artifacts._check_transaction()
         return len(self._keys)
+
+    def __contains__(self, key):
+        self._artifacts._check_transaction()
+        return key in self._keys

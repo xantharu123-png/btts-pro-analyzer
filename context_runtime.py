@@ -23,6 +23,7 @@ from context_models.contracts import (
 )
 from context_observations import _SELECT, _decode_receipt
 from context_snapshots import _decode_snapshot
+from context_runtime_transaction import TrackedConnection
 from model_artifacts import (
     ArtifactIntegrityError, _decode_object, _load_artifact,
     _validate_stored_timestamp, canonical_bytes,
@@ -182,7 +183,7 @@ def _open_sealed_image(path, identity):
         if expected[0][:-1] != expected[1][:-1]:
             raise RuntimeArtifactTrustError("context stage differs between its descriptor and pathname")
         image, header = _read_sealed_image(path, descriptor, expected)
-        connection = sqlite3.connect(":memory:", timeout=5)
+        connection = sqlite3.connect(":memory:", timeout=5, factory=TrackedConnection)
         deserialize = getattr(connection, "deserialize", None)
         if not callable(deserialize):
             raise RuntimeArtifactTrustError("SQLite deserialize capability is required for read-only verification")
@@ -223,7 +224,7 @@ def _open_database(path, *, writable=False):
         companion = path.with_name(path.name + suffix)
         if os.path.lexists(companion):
             _trusted_existing_file(companion)
-    connection = sqlite3.connect(path.as_uri() + "?mode=rw", uri=True, timeout=5)
+    connection = sqlite3.connect(path.as_uri() + "?mode=rw", uri=True, timeout=5, factory=TrackedConnection)
     try:
         if _trusted_existing_file(path)[1] != identity:
             raise RuntimeArtifactTrustError("context database changed file identity while opening")

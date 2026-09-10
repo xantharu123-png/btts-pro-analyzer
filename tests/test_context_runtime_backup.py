@@ -17,6 +17,7 @@ import zipfile
 import pytest
 
 from context_observations import append_observation
+from context_runtime_transaction import TrackedConnection
 from context_snapshots import compute_once, select_context_result, snapshot_key
 from context_models.contracts import digest
 from model_artifacts import ArtifactIntegrityError, canonical_bytes, load_manifest, put_artifact, publish_slots
@@ -449,7 +450,7 @@ def test_rollback_cas_and_failure_after_audit_insert_are_atomic(tmp_path, monkey
     assert path.read_bytes() == before
     original_connect = sqlite3.connect
     events = []
-    class FailingConnection(sqlite3.Connection):
+    class FailingConnection(TrackedConnection):
         def execute(self, sql, parameters=()):
             if sql.startswith("INSERT INTO context_model_rollbacks"):
                 events.append("audit-inserted")
@@ -457,7 +458,8 @@ def test_rollback_cas_and_failure_after_audit_insert_are_atomic(tmp_path, monkey
                 raise sqlite3.OperationalError("injected after audit insert")
             return super().execute(sql, parameters)
     def failing_connect(*args, **kwargs):
-        return original_connect(*args, **kwargs, factory=FailingConnection)
+        kwargs["factory"] = FailingConnection
+        return original_connect(*args, **kwargs)
     monkeypatch.setattr(context_runtime.sqlite3, "connect", failing_connect)
     with pytest.raises(sqlite3.OperationalError):
         rollback_model_slots(path, first, expected_manifest=second, published_at=NOW)
@@ -740,7 +742,7 @@ def test_readonly_verifier_opens_only_query_only_in_memory_sqlite(tmp_path, monk
     real_connect = sqlite3.connect
     calls, images = [], []
 
-    class MemoryOnly(sqlite3.Connection):
+    class MemoryOnly(TrackedConnection):
         def deserialize(self, data, *, name="main"):
             images.append(bytes(data))
             return super().deserialize(data, name=name)
@@ -756,7 +758,8 @@ def test_readonly_verifier_opens_only_query_only_in_memory_sqlite(tmp_path, monk
     def memory_only(database, *args, **kwargs):
         calls.append(database)
         assert database == ":memory:", "readonly SQLite must never see the mutable source path"
-        return real_connect(database, *args, factory=MemoryOnly, **kwargs)
+        kwargs["factory"] = MemoryOnly
+        return real_connect(database, *args, **kwargs)
 
     monkeypatch.setattr(sqlite3, "connect", memory_only)
     assert verify_context_database(path)["verification_level"] == "structural"
@@ -795,7 +798,7 @@ def test_sealed_image_rejects_real_wal_transition_without_touching_source(tmp_pa
             transition()
         return real_read(fd, amount)
 
-    class InterleavingMemory(sqlite3.Connection):
+    class InterleavingMemory(TrackedConnection):
         def deserialize(self, data, *, name="main"):
             if boundary == "before_deserialize":
                 transition()
@@ -804,7 +807,8 @@ def test_sealed_image_rejects_real_wal_transition_without_touching_source(tmp_pa
     def memory_only(database, *args, **kwargs):
         calls.append(database)
         assert database == ":memory:", "readonly verification must not open the source in SQLite"
-        return real_connect(database, *args, factory=InterleavingMemory, **kwargs)
+        kwargs["factory"] = InterleavingMemory
+        return real_connect(database, *args, **kwargs)
 
     monkeypatch.setattr(os, "read", read_with_real_writer)
     monkeypatch.setattr(sqlite3, "connect", memory_only)
@@ -861,7 +865,7 @@ def test_missing_deserializer_fails_closed_without_a_file_fallback(tmp_path, mon
     before = path.read_bytes()
     real_connect, calls = sqlite3.connect, []
 
-    class NoDeserialize(sqlite3.Connection):
+    class NoDeserialize(TrackedConnection):
         if capability == "missing":
             deserialize = None
         else:
@@ -871,7 +875,8 @@ def test_missing_deserializer_fails_closed_without_a_file_fallback(tmp_path, mon
     def memory_only(database, *args, **kwargs):
         calls.append(database)
         assert database == ":memory:"
-        return real_connect(database, *args, factory=NoDeserialize, **kwargs)
+        kwargs["factory"] = NoDeserialize
+        return real_connect(database, *args, **kwargs)
 
     monkeypatch.setattr(sqlite3, "connect", memory_only)
     with pytest.raises(RuntimeArtifactTrustError, match="deserialize"):
@@ -929,7 +934,7 @@ def test_same_file_delete_commit_cannot_overtake_image_capture(tmp_path, monkeyp
             writer.commit()
         captured.append(path.read_bytes())
 
-    class ChangeAfterImage(sqlite3.Connection):
+    class ChangeAfterImage(TrackedConnection):
         def deserialize(self, data, *, name="main"):
             if boundary == "after_image":
                 commit_actual_change()
@@ -937,7 +942,8 @@ def test_same_file_delete_commit_cannot_overtake_image_capture(tmp_path, monkeyp
 
     def memory_only(database, *args, **kwargs):
         assert database == ":memory:"
-        return real_connect(database, *args, factory=ChangeAfterImage, **kwargs)
+        kwargs["factory"] = ChangeAfterImage
+        return real_connect(database, *args, **kwargs)
 
     def change_before_return(connection):
         result = real_verify(connection)
@@ -1017,13 +1023,14 @@ def test_in_memory_setup_failures_are_typed_and_close_the_connection(tmp_path, m
     before = path.read_bytes()
     real_connect, connections = sqlite3.connect, []
 
-    class FailingMemory(sqlite3.Connection):
+    class FailingMemory(TrackedConnection):
         def deserialize(self, data, *, name="main"):
             raise failure("test-only memory engine setup failure")
 
     def memory_only(database, *args, **kwargs):
         assert database == ":memory:"
-        connection = real_connect(database, *args, factory=FailingMemory, **kwargs)
+        kwargs["factory"] = FailingMemory
+        connection = real_connect(database, *args, **kwargs)
         connections.append(connection)
         return connection
 
