@@ -3,6 +3,30 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
+## Current checkpoint — 10 September 2026, 19:05 UTC
+
+Code `4205db82bb234f0aa07a43510db0576811556090`, installer SHA
+`bdc9c700e646e610a07b22077d4b3d00a592b88e4f241a63f5e011642f7c631c`.
+Task1 current/three-growth native profiles and Task2 code/native controls passed;
+largest-growth headroom remains about one second, not a future-growth promise.
+Task3 independently rereviewed: final451 Linux tests passed; actual isolated
+transaction/DAC/lock/SIGTERM/SIGKILL recovery and unchanged CPU300/wall600+10,
+AS/output/RSS boundaries passed. Whole final production-check function now
+passes read-only with the real historical complete marker and empty env.
+See `task-3-native-evidence-20260910.md` for failures, fixes, hashes and limits.
+
+Production remains `2dd1116` with installed updater `74b1c4b1...`; no repair
+exchange, application deployment, marker/key/database edit or mode correction.
+The user approved versioned QA archive transfer. Separate permission to change
+exactly12 existing0775 directories to0755 is still pending; the complete real
+backup producer fails closed until that boundary is resolved. Fresh full real
+backup/restore/HMAC, measured exact-target D4 and final rollout remain open.
+The broad exact-LF suite on intermediate e2 is running, not yet accepted; final
+marker/env deltas have separate whole-program/native and unit evidence.
+Cricket and unfinished source/empirical model work remain outside this repair.
+
+## Earlier chronological evidence (superseded where noted above)
+
 - Task 1: initial code `b333c3c`; lifecycle fix `41067c0`, report `3967778`. Independent fix re-review APPROVED: stale Mapping revival is closed. Final targeted fix checks124 passed/12 skipped,22lifecycle cases and1actual protected-final guard. Real-data performance is still a separate HOLD; no release acceptance claimed.
 - Task 2: waiting for Task 1 review; streaming normal updater and pre-downtime full capacity proof.
 - Task 3: waiting for Tasks 1-2; narrowly pinned repair installer, Linux real-backup evidence and controlled release.

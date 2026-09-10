@@ -1,5 +1,38 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Kapazitätsreparatur — 10. September 2026, 21:05 CEST
+
+Aktiver separater Worktree:`.worktrees/context-capacity-recovery-20260910`,
+Branch`codex/context-capacity-recovery-20260910`, Codecommit`4205db82`.
+Die ausdrückliche Freigabe zum einmaligen Updater-Austausch und zur Übertragung
+versionierter QA-Archive liegt vor. Noch KEIN Austausch/Deployment ausgeführt:
+Produktions-App weiter`2dd1116`, installierter Updater weiter`74b1c4b1...`.
+
+Finaler Installer unabhängig nachgeprüft;451native Linux-Tests bestanden.
+Echte isolierte Austausch-/Wiederanlauf-/Rechte-/Locktests sowie unveränderte
+CPU300/Wall600+10-/Speicher-/Ausgabelimits bestanden. Die komplette finale
+Produktionsprüfung läuft read-only gegen echte Benutzer, historischen
+Migrationsmarker und leere Konfiguration erfolgreich. Diese beiden legitimen
+Serverzustände werden jetzt korrekt behandelt, nicht auf dem Server umgeschrieben.
+
+NOCH OFFENE ZUSÄTZLICHE FREIGABE: exakt zwölf dokumentierte Serverordner von
+0775 auf0755 setzen. App-Eigentümer/Gruppe/Inhalte bleiben gleich; ein eng
+geprüftes Verfahren mit Metadatenbackup/Rollback ist vorbereitet. Ohne diese
+Freigabe keinen chmod ausführen. Der echte vollständige Backup-Producer lehnt
+die bisherigen gruppenschreibbaren Ordner korrekt ab. Danach erforderlich:
+frisches komplettes Backup/Restore/HMAC, exakt gemessener neuer D4-Lauf und
+kontrollierter Updater-Austausch; normale App-Veröffentlichung erst separat.
+
+Alle Details, Native-SHAs und erhaltenen Fehlerreproduktionen stehen in
+`.superpowers/sdd/2026-09-10-context-capacity-recovery/` (`progress.md`,
+`directory-mode-preflight-20260910.md`, `task-3-native-evidence-20260910.md`).
+Die breite e2-Zwischenstandssuite läuft noch in`context-capacity-final-qa-20260910`;
+keine vollständige Endstand-/VPS-Freigabe behaupten. Reale72-Ledger-Markerfixture
+bleibt ausschließlich ignored, niemals committen/mitarchivieren. Geschützter
+Stagehelper, alte WIP/Outputs und getrennte A0/P4b3-Stände bleiben erhalten.
+Cricket unverändert; empirisch qualifizierte Verletzungs-/Belastungseffekte und
+die übrigen offenen Modell-/Quelldatenarbeiten sind dadurch nicht abgeschlossen.
+
 ## Live-Release und neuer Größenbefund — 10. September 2026, 12:25 CEST
 
 Die geprüfte Brücke655e7a6 und danach2dd1116 wurden tatsächlich in dieser
