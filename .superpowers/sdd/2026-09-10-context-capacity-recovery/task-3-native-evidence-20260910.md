@@ -310,6 +310,40 @@ every e74-to-e903 delta is confined to one test file and two reports; all
 production code is identical. Do not claim that full suite ran at e903 or
 that the historical540pass/1fail run was green.
 
+### Final full-suite and server checkpoint — 19:45 UTC
+
+The complete clean exact-LF Windows run finished at
+`e74b51a7be7b272591b20921f7679eb8f38efbb1`: **6897 passed, 30 skipped,
+97 subtests passed in 1607.26s (26m47s)**, exit0. XML reports zero errors and
+failures; its7024 entries include the97 subtests, so they must not be counted
+as additional ordinary tests. Tracked QA files remained unchanged.
+
+- Full XML: `.pytest_tmp/full-e74b51a-01.xml` in the separate QA worktree.
+- SHA256: `720e79e9c611bffe9e4b71e9b4111523b48c2760c64ec48a4b4cbdf1ec0bd1bb`.
+- Root verified every subsequent e74-to-e903/cf9 delta: only
+  `tests/test_server_jobs.py` and documentation, no product/helper change.
+- After the full run ended, root advanced the clean QA worktree to exact e903
+  and reran the entire changed test file: **83 passed,7 Windows symlink skips
+  in14.28s**, exit0. XML `.pytest_tmp/final-e90320c-serverjobs.xml`.
+  SHA256`bb984168ba3d592cd919ebd2789c085eb4771d5885b699568c8c34252c8beb34`.
+- The final e903 three-file native Linux541-pass run above supplies the actual
+  POSIX cases. Do not claim the whole Windows suite itself ran at e903, nor
+  relabel targeted Linux tests as a complete Linux application suite.
+
+The read-only server snapshot at19:40–19:41 UTC confirmed app HEAD
+`2dd1116b68f3d94e9c24338c6c9dff9b01799221`, installed updater SHA
+`74b1c4b1aa88788f6a8e1050905215953b5938faad0009719aa15164a494b78f`,
+root:root0755,134237bytes. App/Caddy and all seven timers are active/enabled
+with scheduled next runs. The known `betboy-tennis.service` failed state is
+still present; it was not cleared or called healthy.
+
+Internal and public health returned HTTP200/`ok`. A separate Windows client
+check also returned HTTP200/`ok`; its first sandboxed socket attempt was
+denied, then the approved network retry succeeded with TLS verification intact.
+No application import or test suite ran as root, and no server state was
+modified by this read-only snapshot. The repair branch was pushed at cf9;
+the final evidence-only follow-up will be pushed on that same branch, not main.
+
 The previously documented twelve0775-to0755 directory corrections still need
 their separate explicit user approval. No such production chmod was performed.
 Until that permission boundary is resolved, the fresh real full-backup

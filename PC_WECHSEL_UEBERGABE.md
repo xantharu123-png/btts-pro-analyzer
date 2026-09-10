@@ -1,6 +1,6 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Kapazitätsreparatur — 10. September 2026, 21:36 CEST
+## Kapazitätsreparatur — 10. September 2026, 21:45 CEST
 
 Aktiver separater Worktree:`.worktrees/context-capacity-recovery-20260910`,
 Branch`codex/context-capacity-recovery-20260910`, Codecommit`4205db82`.
@@ -31,9 +31,16 @@ Serverjob-Testverträgen, 6877 bestanden / 30 übersprungen / 97 Untertests. Tes
 und zusätzlicher Fehlerabbruch-Gegentest sind unabhängig angenommen. Ein
 alter Linux-Test konnte einen Inode wiederverwenden; der enge Fixture-Fix
 erhält Comparator/Produktivcode und dokumentiert die Erkennungsgrenze.
-Finaler Testfreeze `e90320c`: 541 Linux-Tests ohne Skips bestanden. Die vollständige
-saubere Windows-LF-Suite läuft noch bei e74 mit identischem Produktivcode;
-Folgeänderungen nur Tests/Berichte. Noch keine Vollsuite-/VPS-Freigabe behaupten.
+Finaler Testfreeze `e90320c`: 541 Linux-Tests ohne Skips bestanden. Vollständige
+saubere Windows-LF-Suite bei e74 mit identischem Produktivcode abgeschlossen:
+6897 bestanden, 30 übersprungen, 97 Untertests bestanden, 1607.26s. Anschließend
+bei e903 die einzige geänderte Testdatei frisch nachgeprüft: 83 bestanden,
+7 Windows-Skips, 14.28s. Folgeänderungen betreffen nur Tests/Berichte. Diese
+zwei Läufe nicht als einen neuen Vollsuite-Lauf bei e903 ausgeben.
+Frischer Servercheck: weiterhin `2dd1116` / alter Updater; App, Caddy und sieben
+Timer aktiv/aktiviert, Health intern und öffentlich auch vom PC HTTP200/ok.
+Der bekannte fehlgeschlagene Tennis-Dienstlauf bleibt ausdrücklich offen.
+Noch keine Produktiv- oder Gesamtmodellfreigabe behaupten.
 Reale72-Ledger-Markerfixture
 bleibt ausschließlich ignored, niemals committen/mitarchivieren. Geschützter
 Stagehelper, alte WIP/Outputs und getrennte A0/P4b3-Stände bleiben erhalten.

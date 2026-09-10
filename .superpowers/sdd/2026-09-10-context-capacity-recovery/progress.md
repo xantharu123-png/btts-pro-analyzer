@@ -3,7 +3,7 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
-## Current checkpoint — 10 September 2026, 19:36 UTC
+## Current checkpoint — 10 September 2026, 19:45 UTC
 
 Code `4205db82bb234f0aa07a43510db0576811556090`, installer SHA
 `bdc9c700e646e610a07b22077d4b3d00a592b88e4f241a63f5e011642f7c631c`.
@@ -27,12 +27,23 @@ actual phase/launcher/enumerator/device and error-propagation controls; the
 independent review's additional test gap was closed. A later native old fixture
 failure was proven to reuse a freed inode; e903 makes the intended distinct
 identity deterministic, preserving the record-identical recycling limitation.
-Final test-only freeze`e90320c`: independent APPROVED, fresh native Linux trio
-541passed/0skips46.73s. All product/helper bytes remain4205/6ba. The full clean
-exact-LF Windows suite still runs at e74 with identical production source;
-later deltas are only tests/docs. Do not label it final-commit evidence or
-claim full-suite green before completion. See the native evidence and two
-new regression/triage reports for preserved failures and exact boundaries.
+Final test-only freeze `e90320c`: independent APPROVED, fresh native Linux trio
+541 passed / 0 skips in 46.73s. All product/helper bytes remain 4205/6ba.
+The full clean exact-LF Windows suite at e74 completed: **6897 passed,
+30 skipped, 97 subtests passed in 1607.26s**, no failures/errors. Every later
+delta is tests/docs only; product code is identical. Root then advanced the
+clean QA worktree to e903 and reran its only changed test file: **83 passed,
+7 Windows skips in 14.28s**. The full suite was not rerun at e903; do not
+mislabel the two executions. Both QA checkpoints remained tracked-clean.
+See the native evidence and regression/triage reports for exact XML hashes,
+preserved failures and explicit identity-generation limits.
+
+Fresh read-only server check at 19:40–19:41 UTC: app remains `2dd1116`,
+installed updater remains `74b1c4b1...`; app/Caddy and all seven timers are
+active/enabled. Internal/public health, including a separate Windows client
+request, returns HTTP200/ok. The known `betboy-tennis.service` failed state
+remains visible; it was not cleared or represented as fixed. No service,
+timer, application, key, marker, database or directory mode was changed.
 Cricket and unfinished source/empirical model work remain outside this repair.
 
 ## Earlier chronological evidence (superseded where noted above)
