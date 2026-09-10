@@ -1405,7 +1405,9 @@ def verify_payload(root, manifest_path, revision, app_gid):
         file_info(root / name, owners={0}, mode=0o640, gid=app_gid)
         need(file_hash(root / name) == digest(entry["sha256"]), "trusted payload hash differs")
     actual = set()
-    for parent, dirs, names in os.walk(root, followlinks=False):
+    def fail_walk(error):
+        raise ValueError("Cannot traverse trusted payload inventory") from error
+    for parent, dirs, names in os.walk(root, followlinks=False, onerror=fail_walk):
         for name in dirs:
             directory(Path(parent) / name, owners={0})
         actual.update((Path(parent) / name).relative_to(root).as_posix() for name in names)
@@ -1515,7 +1517,7 @@ def extract_and_seal(archive_path, relative, destination, *, source_head, app_gi
             for entry in entries:
                 need(type(entry) is dict and set(entry) == {"path", "source_size", "backup_size", "sha256"}, "invalid database member record")
                 paths.append(relative_name(entry["path"]))
-                need(Path(entry["path"]).suffix in {".db", ".sqlite", ".sqlite3"}, "non-database inventory entry")
+                need(Path(entry["path"]).suffix.casefold() in {".db", ".sqlite", ".sqlite3"}, "non-database inventory entry")
                 digest(entry["sha256"])
                 integer(entry["source_size"])
                 need(integer(entry["backup_size"]) == archive.getinfo(entry["path"]).file_size, "database inventory size differs")
@@ -2114,7 +2116,9 @@ def stable_identity(info):
 
 def capture_inventory():
     found, parents = {}, {}
-    for directory, dirnames, filenames in os.walk(root, followlinks=False):
+    def fail_walk(error):
+        raise SystemExit("Cannot traverse complete database inventory") from error
+    for directory, dirnames, filenames in os.walk(root, followlinks=False, onerror=fail_walk):
         current = Path(directory)
         info = current.lstat()
         if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in {0, os.getuid()}
@@ -2132,7 +2136,7 @@ def capture_inventory():
             kept.append(name)
         dirnames[:] = kept
         for name in filenames:
-            if not name.endswith((".db", ".sqlite", ".sqlite3")):
+            if Path(name).suffix.casefold() not in {".db", ".sqlite", ".sqlite3"}:
                 continue
             source = current / name
             info = source.lstat()
@@ -2652,7 +2656,10 @@ suffixes = (
 )
 selected: set[Path] = set()
 
-for current, directories, files in os.walk(root, topdown=True, followlinks=False):
+def fail_walk(error):
+    raise SystemExit("Cannot traverse rollback metadata inventory") from error
+
+for current, directories, files in os.walk(root, topdown=True, followlinks=False, onerror=fail_walk):
     current_path = Path(current)
     kept = []
     for name in directories:
@@ -2860,6 +2867,7 @@ prepare_backup_storage_and_sources() {
     local owner
     local parent
     local unsafe_path
+    local inventory="${STAGE_DIR}/backup-source-preparation.paths"
 
     [[ -d /var/backups && ! -L /var/backups ]] \
         || die "/var/backups must be a real directory."
@@ -2868,7 +2876,7 @@ prepare_backup_storage_and_sources() {
     install -d -m 0700 -o betboy-backup -g betboy-backup \
         /var/backups/betboy
 
-    unsafe_path=$(find -P "${APP_DIR}" -xdev \
+    unsafe_path=$(find -P "${APP_DIR}" \
         \( -path "${APP_DIR}/.git" \
            -o -path "${APP_DIR}/.codex_test_venv" \
            -o -path "${APP_DIR}/.pytest_cache" \
@@ -2877,6 +2885,23 @@ prepare_backup_storage_and_sources() {
     [[ -z "${unsafe_path}" ]] \
         || die "Backup source path must not contain a symlink: ${unsafe_path}"
 
+    # A process substitution loses find's exit status. Admit the complete
+    # root-private path list before applying any source metadata change.
+    ( set -o noclobber
+        find -P "${APP_DIR}" \
+            \( -path "${APP_DIR}/.git" \
+               -o -path "${APP_DIR}/.codex_test_venv" \
+               -o -path "${APP_DIR}/.pytest_cache" \
+               -o -path "${APP_DIR}/.pytest_tmp" \) -prune -o \
+            -type f \
+            \( -iname '*.db' -o -iname '*.sqlite' -o -iname '*.sqlite3' \
+               -o -iname '*.db-wal' -o -iname '*.db-shm' \
+               -o -iname '*.sqlite-wal' -o -iname '*.sqlite-shm' \
+               -o -iname '*.sqlite3-wal' -o -iname '*.sqlite3-shm' \
+               -o -iname '*.db-journal' -o -iname '*.sqlite-journal' \
+               -o -iname '*.sqlite3-journal' \) \
+            -print0 >"${inventory}"
+    ) || die "Cannot traverse complete backup source metadata inventory."
     while IFS= read -r -d '' database; do
         [[ "$(stat -c '%h' "${database}")" == 1 ]] \
             || die "Runtime database has multiple hard links: ${database}"
@@ -2893,30 +2918,32 @@ prepare_backup_storage_and_sources() {
             [[ "${parent}" == "${APP_DIR}" ]] && break
             parent=$(dirname "${parent}")
         done
-    done < <(
-        find -P "${APP_DIR}" -xdev \
-            \( -path "${APP_DIR}/.git" \
-               -o -path "${APP_DIR}/.codex_test_venv" \
-               -o -path "${APP_DIR}/.pytest_cache" \
-               -o -path "${APP_DIR}/.pytest_tmp" \) -prune -o \
-            -type f \
-            \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
-               -o -name '*.db-wal' -o -name '*.db-shm' \
-               -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' \
-               -o -name '*.sqlite3-wal' -o -name '*.sqlite3-shm' \
-               -o -name '*.db-journal' -o -name '*.sqlite-journal' \
-               -o -name '*.sqlite3-journal' \) \
-            -print0
-    )
+    done <"${inventory}"
 }
 
 verify_backup_source_dac() {
     local database
     local parent
+    local inventory="${STAGE_DIR}/backup-source-dac.paths"
     local -a backup_identity=(
         runuser -u betboy-backup -g betboy-backup -G betboy --
     )
 
+    ( set -o noclobber
+        find -P "${APP_DIR}" \
+            \( -path "${APP_DIR}/.git" \
+               -o -path "${APP_DIR}/.codex_test_venv" \
+               -o -path "${APP_DIR}/.pytest_cache" \
+               -o -path "${APP_DIR}/.pytest_tmp" \) -prune -o \
+            -type f \
+            \( -iname '*.db' -o -iname '*.sqlite' -o -iname '*.sqlite3' \
+               -o -iname '*.db-wal' -o -iname '*.db-shm' \
+               -o -iname '*.sqlite-wal' -o -iname '*.sqlite-shm' \
+               -o -iname '*.sqlite3-wal' -o -iname '*.sqlite3-shm' \
+               -o -iname '*.db-journal' -o -iname '*.sqlite-journal' \
+               -o -iname '*.sqlite3-journal' \) \
+            -print0 >"${inventory}"
+    ) || die "Cannot traverse complete backup source DAC inventory."
     while IFS= read -r -d '' database; do
         "${backup_identity[@]}" /usr/bin/test ! -w "${database}" \
             || die "Backup service identity can write live SQLite state: ${database}"
@@ -2928,21 +2955,7 @@ verify_backup_source_dac() {
             [[ "${parent}" == "${APP_DIR}" ]] && break
             parent=$(dirname "${parent}")
         done
-    done < <(
-        find -P "${APP_DIR}" -xdev \
-            \( -path "${APP_DIR}/.git" \
-               -o -path "${APP_DIR}/.codex_test_venv" \
-               -o -path "${APP_DIR}/.pytest_cache" \
-               -o -path "${APP_DIR}/.pytest_tmp" \) -prune -o \
-            -type f \
-            \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
-               -o -name '*.db-wal' -o -name '*.db-shm' \
-               -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' \
-               -o -name '*.sqlite3-wal' -o -name '*.sqlite3-shm' \
-               -o -name '*.db-journal' -o -name '*.sqlite-journal' \
-               -o -name '*.sqlite3-journal' \) \
-            -print0
-    )
+    done <"${inventory}"
     "${backup_identity[@]}" /usr/bin/test ! -w "${LEDGER_HMAC_KEY}" \
         || die "Backup service identity can write the ledger integrity key."
     if [[ -e "${LEDGER_MIGRATION_MARKER}" ]]; then
@@ -3612,13 +3625,13 @@ preflight() {
     backup_apparent_kib=$(du -skx --apparent-size /var/backups/betboy \
         | awk 'NR == 1 {print $1}')
     database_apparent_kib=$(
-        find -P "${APP_DIR}" -xdev -type f \
-            \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
-               -o -name '*.db-wal' -o -name '*.db-shm' \
-               -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' \
-               -o -name '*.sqlite3-wal' -o -name '*.sqlite3-shm' \
-               -o -name '*.db-journal' -o -name '*.sqlite-journal' \
-               -o -name '*.sqlite3-journal' \) \
+        find -P "${APP_DIR}" -type f \
+            \( -iname '*.db' -o -iname '*.sqlite' -o -iname '*.sqlite3' \
+               -o -iname '*.db-wal' -o -iname '*.db-shm' \
+               -o -iname '*.sqlite-wal' -o -iname '*.sqlite-shm' \
+               -o -iname '*.sqlite3-wal' -o -iname '*.sqlite3-shm' \
+               -o -iname '*.db-journal' -o -iname '*.sqlite-journal' \
+               -o -iname '*.sqlite3-journal' \) \
             -printf '%s\n' \
             | awk '{total += $1} END {print int((total + 1023) / 1024)}'
     )

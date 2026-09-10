@@ -1568,16 +1568,25 @@ def test_followup_backup_service_launcher_rejects_role_and_overrides(monkeypatch
         launcher_decision(monkeypatch, ["backup-service", "/protected/scheduled.zip", *args], uid=uid)
 
 
-def run_real_producer(monkeypatch, tmp_path, *, mutation=None, maximum=1024**2):
+def run_real_producer(monkeypatch, tmp_path, *, mutation=None, maximum=1024**2,
+        walk_failure=None, database_name="state.db"):
     """Execute complete producer bytes/SQLite/ZIP; simulate only Unix metadata/limits."""
     app = tmp_path / "app"
     app.mkdir()
-    live = app / "state.db"
+    live = app / database_name
     writer = sqlite3.connect(live)
     writer.execute("PRAGMA journal_mode=WAL")
     writer.execute("CREATE TABLE sample(value INTEGER)")
     writer.execute("INSERT INTO sample VALUES(1)")
     writer.commit()
+    if database_name != "state.db":
+        with closing(sqlite3.connect(app / "state.db")) as connection:
+            connection.execute("CREATE TABLE ordinary(value)")
+    hidden = app / "hidden"
+    if walk_failure:
+        hidden.mkdir()
+        with closing(sqlite3.connect(hidden / "historical.db")) as connection:
+            connection.execute("CREATE TABLE historical(value)")
     key, marker = tmp_path / "key", tmp_path / "marker"
     key.write_bytes(b"a" * 64 + b"\n")
     marker.write_text(json.dumps({"contract_version": 1, "status": "in_progress"}))
@@ -1651,8 +1660,18 @@ def run_real_producer(monkeypatch, tmp_path, *, mutation=None, maximum=1024**2):
 
     fake_zip = SimpleNamespace(**{name: getattr(zipfile, name) for name in dir(zipfile)})
     fake_zip.ZipFile = MutatingArchive
+    real_scandir, traversal = os.scandir, 0
+    def failing_scandir(path):
+        nonlocal traversal
+        if not isinstance(path, int):
+            if Path(path) == app: traversal += 1
+            if Path(path) == hidden and (walk_failure == "both" or
+                    walk_failure == "initial" and traversal == 1 or walk_failure == "final" and traversal == 2):
+                raise PermissionError(13, "fixture traversal denied", str(path))
+        return real_scandir(path)
     try:
         with monkeypatch.context() as scoped:
+            if walk_failure: scoped.setattr(os, "scandir", failing_scandir)
             scoped.setitem(sys.modules, "os", fake_os)
             scoped.setitem(sys.modules, "pathlib", SimpleNamespace(Path=FixturePath))
             scoped.setitem(sys.modules, "sqlite3", fake_sqlite)
@@ -1867,3 +1886,163 @@ def test_followup_producer_snapshot_expansion_has_a_total_byte_admission(monkeyp
     with pytest.raises(SystemExit, match="ContextResourceError.*snapshot"):
         run_real_producer(monkeypatch, tmp_path, mutation="growth-over-budget", maximum=65536)
     assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("phase", ["initial", "final", "both"])
+def test_review_complete_producer_rejects_every_traversal_error(monkeypatch, tmp_path, capsys, phase):
+    with pytest.raises(SystemExit, match="Cannot traverse.*database"):
+        run_real_producer(monkeypatch, tmp_path, walk_failure=phase)
+    assert capsys.readouterr().out == ""
+    if phase != "final": assert not (tmp_path / "capture.zip").exists()
+
+
+def test_review_payload_inventory_cannot_hide_unmanifested_subtree(content_data, tmp_path, monkeypatch):
+    args = configuration_fixture(content_data, tmp_path)
+    hidden = args["target"] / "hidden"
+    hidden.mkdir()
+    (hidden / "unmanifested.py").write_text("# must not disappear from completeness proof")
+    real_scandir = os.scandir
+    def failing_scandir(path):
+        if not isinstance(path, int) and Path(path) == hidden:
+            raise PermissionError(13, "fixture traversal denied", str(path))
+        return real_scandir(path)
+    monkeypatch.setattr(os, "scandir", failing_scandir)
+    with pytest.raises(ValueError, match="Cannot traverse.*payload"):
+        content_data["verify_payload"](args["target"], args["target_manifest"], "b" * 40, 1000)
+
+
+def test_review_rollback_metadata_inventory_rejects_traversal_error(tmp_path, monkeypatch):
+    app, hidden = tmp_path / "app", tmp_path / "app/hidden"
+    hidden.mkdir(parents=True)
+    (app / "visible.db").write_bytes(b"visible metadata")
+    (hidden / "state.db").write_bytes(b"hidden metadata")
+    manifest = tmp_path / "metadata.json"
+    real_scandir = os.scandir
+    def failing_scandir(path):
+        if not isinstance(path, int) and Path(path) == hidden:
+            raise PermissionError(13, "fixture traversal denied", str(path))
+        return real_scandir(path)
+    fake_os = SimpleNamespace(**{name: getattr(os, name) for name in dir(os)})
+    # Windows cannot open a directory fd; only that final fsync edge is simulated.
+    fake_os.open = lambda path, flags: os.open(app / "visible.db" if Path(path).is_dir() else path, os.O_RDWR)
+    with monkeypatch.context() as scoped:
+        scoped.setattr(os, "scandir", failing_scandir)
+        scoped.setitem(sys.modules, "os", fake_os)
+        scoped.setattr(sys, "argv", ["metadata", str(app), str(manifest)])
+        with pytest.raises(SystemExit, match="Cannot traverse.*metadata"):
+            exec(compile(inline_program("snapshot_backup_source_metadata"), "actual-metadata", "exec"), {})
+    assert not manifest.exists()
+
+
+@pytest.mark.parametrize("name", ["Historical.DB", "Live.sQLite", "Third.SQLITE3"])
+def test_review_producer_preserves_casefold_discovery_and_original_path(monkeypatch, tmp_path, capsys, name):
+    archive = run_real_producer(monkeypatch, tmp_path, database_name=name)
+    capsys.readouterr()
+    with zipfile.ZipFile(archive) as captured:
+        manifest = json.loads(captured.read("MANIFEST.json"))
+        assert {entry["path"] for entry in manifest["databases"]} == {"state.db", name}
+        assert captured.read(name).startswith(b"SQLite format 3\x00")
+
+
+@pytest.mark.parametrize("name", ["Historical.DB", "Live.sQLite", "Third.SQLITE3"])
+def test_review_context_inventory_accepts_other_casefold_database_paths(content_data, tmp_path, name):
+    archive, _ = backup_fixture(tmp_path, relative=name)
+    proof = content_data["extract_and_seal"](archive, "runtime_state/context_models.db", tmp_path / "none.db",
+        source_head="a" * 40, app_gid=1000)
+    assert proof["member_hash"] is None and not (tmp_path / "none.db").exists()
+
+
+def casefold_discovery_fixture(tmp_path):
+    app = tmp_path / "app"
+    app.mkdir()
+    sizes = {"normal.db": 1, "Historical.DB": 1024, "Live.sQLite": 1024, "Third.SQLITE3": 1024,
+        "Historical.DB-wal": 1024, "Live.sQLite-SHM": 1024, "Third.SQLITE3-journal": 1024, "ignore.txt": 9999}
+    for name, size in sizes.items(): (app / name).write_bytes(b"x" * size)
+    return app
+
+
+def test_review_capacity_counts_mixedcase_databases_and_companions(tmp_path):
+    app = casefold_discovery_fixture(tmp_path)
+    body = shell_function("preflight")
+    start = body.index("    database_apparent_kib=$(\n")
+    end = body.index("\n    )", start) + len("\n    )")
+    harness = "set -euo pipefail\nPATH=/usr/bin:/bin\n" + f"APP_DIR={shlex.quote(app.as_posix())}\n"
+    harness += body[start:end] + '\nprintf "%s\\n" "$database_apparent_kib"\n'
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "7"  # 6,145 bytes round up to 7 KiB, excluding ignore.txt
+
+
+def source_dac_harness(tmp_path, function, *, failing_find=False):
+    app = casefold_discovery_fixture(tmp_path)
+    backup = tmp_path / "backups"
+    backup.mkdir()
+    harness = """set -euo pipefail
+PATH=/usr/bin:/bin
+LEDGER_HMAC_KEY=key; LEDGER_MIGRATION_MARKER=absent-marker
+die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
+install() { :; }
+chgrp() { printf 'metadata:%s\n' "${@: -1}"; }
+chmod() { :; }
+stat() { case "$2" in '%h') printf '1\n';; '%U') printf 'betboy\n';; *) command stat "$@";; esac; }
+runuser() { printf 'dac:%s\n' "${@: -1}"; }
+""" + f"APP_DIR={shlex.quote(app.as_posix())}\nSTAGE_DIR={shlex.quote(tmp_path.as_posix())}\n"
+    if failing_find:
+        harness += 'find() { if [[ "$*" == *"-print0"* ]]; then return 9; fi; command find "$@"; }\n'
+    harness += shell_function(function).replace("/var/backups", backup.as_posix())
+    harness += f"\n{function}\nprintf 'accepted\\n'\n"
+    return harness, app
+
+
+@pytest.mark.parametrize("function", ["prepare_backup_storage_and_sources", "verify_backup_source_dac"])
+def test_review_source_metadata_and_dac_cover_casefold_paths(tmp_path, function):
+    harness, app = source_dac_harness(tmp_path, function)
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    for name in ("normal.db", "Historical.DB", "Live.sQLite", "Third.SQLITE3", "Historical.DB-wal", "Live.sQLite-SHM", "Third.SQLITE3-journal"):
+        assert (app / name).as_posix() in result.stdout
+    assert (app / "ignore.txt").as_posix() not in result.stdout
+
+
+@pytest.mark.parametrize("function", ["prepare_backup_storage_and_sources", "verify_backup_source_dac"])
+def test_review_source_metadata_and_dac_reject_incomplete_find(tmp_path, function):
+    harness, _ = source_dac_harness(tmp_path, function, failing_find=True)
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    assert result.returncode != 0 and "accepted" not in result.stdout
+
+
+@pytest.mark.parametrize("function", ["preflight", "prepare_backup_storage_and_sources", "verify_backup_source_dac"])
+def test_review_discovery_query_includes_other_filesystems(tmp_path, function):
+    # Device membership is the only simulation: a real find prunes a real
+    # subtree when its caller requests -xdev. No privileged mounts are created.
+    if function == "preflight":
+        app = casefold_discovery_fixture(tmp_path)
+        body = shell_function(function)
+        start = body.index("    database_apparent_kib=$(\n")
+        end = body.index("\n    )", start) + len("\n    )")
+        harness = "set -euo pipefail\nPATH=/usr/bin:/bin\n" + f"APP_DIR={shlex.quote(app.as_posix())}\n"
+        action = body[start:end] + '\nprintf "bytes:%s\\n" "$database_apparent_kib"\n'
+    else:
+        harness, app = source_dac_harness(tmp_path, function)
+        split = harness.rindex(f"\n{function}\n")
+        harness, action = harness[:split], harness[split:]
+    mounted = app / "mounted"
+    mounted.mkdir()
+    (mounted / "cross-device.db").write_bytes(b"x" * 1024)
+    harness += r"""
+find() {
+    local value cross=0
+    local -a arguments=()
+    for value in "$@"; do
+        if [[ "$value" == -xdev ]]; then cross=1; else arguments+=("$value"); fi
+    done
+    if [[ "$cross" == 1 ]]; then
+        command find "${arguments[0]}" "${arguments[1]}" \
+            \( -path "$APP_DIR/mounted" -prune \) -o "${arguments[@]:2}"
+    else command find "${arguments[@]}"; fi
+}
+""" + action
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    if function == "preflight": assert "bytes:8" in result.stdout
+    else: assert (mounted / "cross-device.db").as_posix() in result.stdout
