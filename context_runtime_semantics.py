@@ -274,17 +274,19 @@ def verify_d2_artifacts(connection, artifacts, created_at, limitations):
     from context_models.training_cases import assemble_training_cases
 
     verified = {name: [] for name in ("experiments", "datasets", "fits", "cases", "evaluations", "approvals")}
-    known, unknown = {}, set()
+    known_refs, unknown = set(), set()
     clocks = {ref: canonical_timestamp(clock) for ref, clock in created_at.items()}
     for ref, envelope in artifacts.items():
         if envelope["kind"] not in D2_KINDS:
             continue
         if _versioned(envelope["payload"], envelope["kind"]):
-            known[ref] = envelope
+            known_refs.add(ref)
         else:
             unknown.add(ref)
             limitations.add("d2-report-experiment-schema-unavailable" if envelope["kind"] in {
                 "context-experiment-v1", "context-evaluation-v1"} else "d2-unrecognized-artifact-schema")
+    from context_runtime_inventory import ArtifactSubsetMapping
+    known = ArtifactSubsetMapping(artifacts, known_refs)
     if not known and not any(e["kind"] == "context-approval-v1" for e in artifacts.values()):
         return {"verified": verified, "protected_receipts": set()}
 

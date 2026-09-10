@@ -1,4 +1,4 @@
-"""Owning live Tennis replay on D4's already decoded sealed image.
+"""Owning live Tennis replay on D4's transaction-bound lazy inventory.
 
 Known v1 original code, actual predecision tour state, current native B1 event,
 full causal tour inventory and v3 features are replayed. Historical native
@@ -6,6 +6,7 @@ player/state aliases and an empirical effect improvement remain unproved.
 No source request, fit, activation, live SQLite path or old-row rewrite.
 """
 from datetime import datetime
+from dataclasses import dataclass
 import hashlib
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from context_models.tennis_live import (
 from context_models.tennis_v3 import FEATURE_VERSION, tennis_features_v3
 from context_sources.tennis_status import STATUS_SCHEMA, select_tennis_observations
 from model_artifacts import ArtifactIntegrityError, canonical_bytes
+from runtime_paths import RuntimeArtifactTrustError
 
 
 def _same(actual, expected, label):
@@ -46,63 +48,92 @@ def _native_event(row):
         "status": "scheduled", "tour": data["tour"], "surface": None, "indoor": None})
 
 
-def verify_live_originals(artifacts, created_at, receipts, limitations):
-    """Verify every original, including an unreferenced safe orphan publication."""
+@dataclass(frozen=True)
+class LiveReplayDescriptor:
+    artifact_ref: str
+    artifacts: object
+    receipts: object
+    history_max_bytes: int | None
+
+
+def _replay_history(receipts, *, cutoff, tour, max_bytes):
+    """One complete causal tuple; owning selection/validation stays exact.
+
+    Select each fully decoded receipt with the unchanged owning tuple API,
+    then sort the complete result using its original total order. Nothing is
+    latest-only or participant-pruned. No full decoded input inventory exists.
+    """
+    history, used = [], 0
+    for row in receipts.values():
+        if "source_schema" not in row:  # Opaque unopened D2 final.
+            continue
+        selected = select_tennis_observations((row,), cutoff=cutoff, tour=tour)
+        for candidate in selected:
+            if max_bytes is not None:
+                used += len(canonical_bytes(candidate))
+                if used > max_bytes:
+                    raise RuntimeArtifactTrustError("complete Tennis history exceeds canonical input budget")
+            history.append(candidate)
+    history.sort(key=lambda row: (row["observed_at"], row["digest"]))
+    return tuple(history)
+
+
+def _verify_live_original(ref, publication, artifacts, created_at, receipts, variants, history_max_bytes):
+    """Own all decoded state/history in this one call, never in descriptors."""
     from tennis.predict import predict_match
     from tennis.tour_state import _decode_wrapper
-    originals = {ref: envelope["payload"] for ref, envelope in artifacts.items()
-                 if envelope["kind"] == ORIGINAL_ARTIFACT_KIND}
-    if not originals:
-        return {}
-    variants, states, histories, checked = _code_variants(), {}, {}, {}
+    validate_original_publication(publication, created_at=created_at[ref])
+    origin = publication["origin"]
+    original_base(origin)  # Preserve the original's owning distribution check.
+    cutoff, event = origin["cutoff"], origin["event"]
+    decision = datetime.fromisoformat(cutoff)
+    for name, code_hash in origin["code_hashes"].items():
+        if code_hash not in variants[name]:
+            raise ArtifactIntegrityError("original Tennis code has no supported exact replay")
+    state_ref = origin["state_hash"]
+    envelope = artifacts.get(state_ref)
+    if (envelope is None or envelope["kind"] != "tennis-tour-state"
+            or canonical_timestamp(created_at[state_ref]) > cutoff):
+        raise ArtifactIntegrityError("live original lacks its actual predecision tour state")
+    state = _decode_wrapper(envelope["payload"], event["tour"])
+    if state.built_at > decision.timestamp():
+        raise ArtifactIntegrityError("live original state was built after its decision")
+    history = _replay_history(receipts, cutoff=decision, tour=event["tour"], max_bytes=history_max_bytes)
+    target = [row for row in history if row["event_key"] == event["event_key"]]
+    newest = max((row["observed_at"] for row in target), default=None)
+    latest = [row for row in target if row["observed_at"] == newest]
+    if (len(latest) != 1 or latest[0]["source_schema"] != STATUS_SCHEMA
+            or latest[0]["digest"] != origin["native_receipt"]
+            or latest[0]["observed_at"] != origin["native_observed_at"]
+            or latest[0]["payload"]["competition_revision"] != origin["competition_revision"]
+            or latest[0]["payload"]["status"] != "scheduled" or latest[0]["payload"]["issues"]):
+        raise ArtifactIntegrityError("live original native current input was absent or revised")
+    _same(_native_event(latest[0]), event, "live original differs from its native event")
+    recorded = []
+    args = {name: origin["inputs"][name] for name in (
+        "player_a", "player_b", "surface", "best_of", "tour", "indoor")}
+    predict_match(state, **args, as_of=decision, workload_history=(), original_capture=recorded.append)
+    _same(recorded, [{"inputs": origin["inputs"], "values": origin["values"]}],
+          "live original differs from its actual tour model calculation")
+
+
+def verify_live_originals(artifacts, created_at, receipts, limitations, *, history_max_bytes=None):
+    """Verify every original, including an unreferenced safe orphan publication."""
+    variants, checked = None, {}
     # Opaque unopened D2 final receipts are never decoded here or promoted into
     # source inputs. A live original requiring such a receipt will lack its
     # verified native target and fail below, not silently use an older alias.
-    decoded = tuple(row for row in receipts.values() if "source_schema" in row)
-    for ref, publication in originals.items():
-        validate_original_publication(publication, created_at=created_at[ref])
-        origin = publication["origin"]
-        base = original_base(origin)
-        cutoff, event = origin["cutoff"], origin["event"]
-        decision = datetime.fromisoformat(cutoff)
-        for name, code_hash in origin["code_hashes"].items():
-            if code_hash not in variants[name]:
-                raise ArtifactIntegrityError("original Tennis code has no supported exact replay")
-        state_ref = origin["state_hash"]
-        envelope = artifacts.get(state_ref)
-        if (envelope is None or envelope["kind"] != "tennis-tour-state"
-                or canonical_timestamp(created_at[state_ref]) > cutoff):
-            raise ArtifactIntegrityError("live original lacks its actual predecision tour state")
-        state_key = (state_ref, event["tour"])
-        if state_key not in states:
-            states[state_key] = _decode_wrapper(envelope["payload"], event["tour"])
-        state = states[state_key]
-        if state.built_at > decision.timestamp():
-            raise ArtifactIntegrityError("live original state was built after its decision")
-        history_key = (event["tour"], cutoff)
-        if history_key not in histories:
-            histories[history_key] = select_tennis_observations(decoded, cutoff=decision, tour=event["tour"])
-        history = histories[history_key]
-        target = [row for row in history if row["event_key"] == event["event_key"]]
-        newest = max((row["observed_at"] for row in target), default=None)
-        latest = [row for row in target if row["observed_at"] == newest]
-        if (len(latest) != 1 or latest[0]["source_schema"] != STATUS_SCHEMA
-                or latest[0]["digest"] != origin["native_receipt"]
-                or latest[0]["observed_at"] != origin["native_observed_at"]
-                or latest[0]["payload"]["competition_revision"] != origin["competition_revision"]
-                or latest[0]["payload"]["status"] != "scheduled" or latest[0]["payload"]["issues"]):
-            raise ArtifactIntegrityError("live original native current input was absent or revised")
-        _same(_native_event(latest[0]), event, "live original differs from its native event")
-        recorded = []
-        args = {name: origin["inputs"][name] for name in (
-            "player_a", "player_b", "surface", "best_of", "tour", "indoor")}
-        predict_match(state, **args, as_of=decision, workload_history=(), original_capture=recorded.append)
-        _same(recorded, [{"inputs": origin["inputs"], "values": origin["values"]}],
-              "live original differs from its actual tour model calculation")
-        checked[ref] = (base, history)
+    for ref, envelope in artifacts.items():
+        if envelope["kind"] != ORIGINAL_ARTIFACT_KIND:
+            continue
+        if variants is None:
+            variants = _code_variants()
+        _verify_live_original(ref, envelope["payload"], artifacts, created_at, receipts, variants, history_max_bytes)
+        checked[ref] = LiveReplayDescriptor(ref, artifacts, receipts, history_max_bytes)
     # Replaying a recorded name-based model input does NOT prove the native
     # historical player/state association needed by D1 or a passed D2 corpus.
-    limitations.add("d1-original-replay-context-unavailable")
+    if checked:
+        limitations.add("d1-original-replay-context-unavailable")
     return checked
 
 
@@ -118,7 +149,10 @@ def verify_live_snapshot(payload, key, originals, *, effect, approval, limitatio
     ref = digest({"kind": ORIGINAL_ARTIFACT_KIND, "payload": {"schema": 1, "origin": reference}})
     if ref not in originals:
         raise ArtifactIntegrityError("live worker lacks its exact original publication")
-    original, history = originals[ref]
+    descriptor = originals[ref]
+    original = original_base(descriptor.artifacts[ref]["payload"]["origin"])
+    history = _replay_history(descriptor.receipts, cutoff=datetime.fromisoformat(original["cutoff"]),
+        tour=original["reference_weights"]["event"]["tour"], max_bytes=descriptor.history_max_bytes)
     _same(base, original, "live worker substituted its published original")
     if payload["features"]["version"] != FEATURE_VERSION:
         raise ArtifactIntegrityError("live winner v1 has no owning feature version of this kind")

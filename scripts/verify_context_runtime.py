@@ -18,12 +18,15 @@ from context_models.contracts import digest
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, required=True)
+    parser.add_argument("--sealed-file", action="store_true",
+                        help="Explicit Linux root-sealed file input (never a live database)")
     parser.add_argument("--backup-root", type=Path, help="Optional explicit application root for configured-path discovery verification")
     arguments = parser.parse_args(argv)
     try:
         relative = None if arguments.backup_root is None else verify_context_backup_location(
             arguments.database, application_root=arguments.backup_root)
-        report = verify_context_database(arguments.database)
+        report = verify_context_database(arguments.database,
+            input_mode="sealed_file" if arguments.sealed_file else "memory")
         if relative is not None:
             report["backup_location_verified"] = True
     except Exception as exc:

@@ -36,6 +36,8 @@ from runtime_paths import (
 ROLLBACK_REASON = "operator-requested-model-rollback"
 # Limit the input image, NOT total process RAM (SQLite/JSON need extra memory).
 MAX_CONTEXT_IMAGE_BYTES = 64 * 1024 * 1024
+MAX_SEALED_CONTEXT_BYTES = 1024 * 1024 * 1024
+MAX_TENNIS_HISTORY_BYTES = 256 * 1024 * 1024
 _IMAGE_CHUNK_BYTES = 1024 * 1024
 ROLLBACK_SQL = """CREATE TABLE context_model_rollbacks (
     digest TEXT PRIMARY KEY,
@@ -382,34 +384,30 @@ def _verify_observations(connection, tables, *, protected_receipts=()):
     protected_receipts = set(protected_receipts)
     protected_contents = {content for ref, content in connection.execute(
         "SELECT digest,content_digest FROM context_observations") if ref in protected_receipts}
-    contents = {}
+    content_count = 0
     for key, raw in connection.execute("SELECT content_digest,payload FROM context_contents"):
+        content_count += 1
         require_digest(key, "observation content identity")
         if key in protected_contents:
             # D2 already checked opaque physical bytes and fixed outer JSON
             # indices. Do not decode an unopened final result body here.
             if type(raw) is not bytes or hashlib.sha256(raw).hexdigest() != key:
                 raise ArtifactIntegrityError("unopened observation content hash mismatch")
-            contents[key] = None
             continue
         content = _decode_object(raw, label="observation content")
-        if digest(content) != key or key in contents:
+        if digest(content) != key:
             raise ArtifactIntegrityError("observation content hash mismatch")
-        contents[key] = content
-    receipts = {}
-    for row in connection.execute(_SELECT):
-        if row[0] in protected_receipts:
-            # No decoder or source claim: these are only checked SQL indices.
-            receipts[row[0]] = {"digest": row[0], "content_digest": row[1],
-                "event_key": row[2], "observed_at": row[3], "kind": row[7]}
-            continue
-        decoded = _decode_receipt(row)
-        if decoded["digest"] in receipts:
-            raise ArtifactIntegrityError("duplicate observation receipt")
-        receipts[decoded["digest"]] = decoded
-    if {row["content_digest"] for row in receipts.values()} != set(contents):
+    from context_runtime_inventory import VerifiedReceiptMapping
+    receipts = VerifiedReceiptMapping(connection, protected_receipts=protected_receipts)
+    # Complete validation, including inactive/unreferenced rows. Values are
+    # immediately discarded; Mapping iteration itself does not decode bodies.
+    for ref in receipts:
+        receipts[ref]
+    if connection.execute("""SELECT 1 FROM context_contents AS c
+            LEFT JOIN context_observations AS r ON r.content_digest=c.content_digest
+            WHERE r.digest IS NULL LIMIT 1""").fetchone():
         raise ArtifactIntegrityError("observation content has no validated receipt")
-    return receipts, len(contents)
+    return receipts, content_count
 
 
 def _verify_worker_snapshot(payload, key, artifacts, receipts, limitations, live_originals):
@@ -530,15 +528,16 @@ def _verify_rollbacks(connection, tables, manifests, chain):
     return count
 
 
-def _verify_connection(connection):
+def _verify_connection(connection, *, history_max_bytes=None):
     """Inspect one caller-held SQLite transaction without any schema writes."""
     tables = _verify_schema(connection)
-    artifacts, created_at = {}, {}
+    from context_runtime_inventory import VerifiedArtifactMapping
+    artifacts, created_at = VerifiedArtifactMapping(connection), {}
     for key, created in connection.execute("SELECT digest,created_at FROM artifacts"):
         require_digest(key, "artifact identity")
-        if key in artifacts:
+        if key in created_at:
             raise ArtifactIntegrityError("duplicate artifact identity")
-        artifacts[key] = _load_artifact(connection, key)
+        artifacts[key]
         created_at[key] = datetime.fromisoformat(_validate_stored_timestamp(created, label="artifact creation time"))
     limitations = set()
     semantics = _verify_artifact_types(connection, artifacts, created_at, limitations)
@@ -548,7 +547,8 @@ def _verify_connection(connection):
     receipts, content_count = _verify_observations(connection, tables,
         protected_receipts=semantics["protected_receipts"])
     from context_runtime_tennis import verify_live_originals
-    live_originals = verify_live_originals(artifacts, created_at, receipts, limitations)
+    live_originals = verify_live_originals(artifacts, created_at, receipts, limitations,
+                                         history_max_bytes=history_max_bytes)
     snapshot_count = _verify_snapshots(connection, tables, artifacts, receipts, limitations, live_originals)
     rollback_count = _verify_rollbacks(connection, tables, manifests, chain)
     slots = manifests[current]["slots"] if current is not None else {}
@@ -563,20 +563,36 @@ def _verify_connection(connection):
     return {"report": report, "manifests": manifests, "chain": chain, "artifacts": artifacts, "tables": tables}
 
 
-def verify_context_database(path: Path) -> dict:
+def verify_context_database(path: Path, *, input_mode="memory") -> dict:
     """Verify an existing sealed DB read-only; unsupported evidence is explicit.
 
     For a live WAL/journal use stage_databases first. SQLite receives only a
-    bounded private in-memory DELETE image, never the source file path. This
-    function creates no directories/companions and never repairs a source DB.
+    bounded private in-memory DELETE image by default. Explicit sealed_file
+    mode requires a proven Linux root-owned app-unwritable file and ancestry.
+    Neither mode creates companions or repairs a source DB; no auto fallback.
     Structural means current known storage schemas/links, NOT approved bets.
     """
-    with _open_database(path) as connection:
-        connection.execute("BEGIN")
+    history_max_bytes = None  # Preserve admission of existing <=64-MiB images.
+    if input_mode == "memory":
+        reader = _open_database(path)
+    elif input_mode == "sealed_file":
+        from context_runtime_input import open_sealed_connection
+        reader = open_sealed_connection(path, max_bytes=MAX_SEALED_CONTEXT_BYTES)
+        history_max_bytes = MAX_TENNIS_HISTORY_BYTES
+    else:
+        raise RuntimeArtifactTrustError("unsupported context input mode")
+    with reader as connection:
+        if not connection.in_transaction:
+            connection.execute("BEGIN")
         try:
-            report = _verify_connection(connection)["report"]
+            checked = (_verify_connection(connection) if history_max_bytes is None else
+                       _verify_connection(connection, history_max_bytes=history_max_bytes))
+            report = checked["report"]
             connection.rollback()
             return report
+        except MemoryError as exc:
+            connection.rollback()
+            raise RuntimeArtifactTrustError("insufficient memory for context verification") from exc
         except (ValueError, TypeError, KeyError, sqlite3.Error, ArithmeticError, RecursionError) as exc:
             connection.rollback()
             raise ArtifactIntegrityError("context database verification failed") from exc
