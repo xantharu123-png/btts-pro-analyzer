@@ -1191,6 +1191,16 @@ def _load_automated_wettfinder_document(
             scheduled.astimezone(timezone.utc)
         )
 
+    # Check the owning publication count before the current-time projection.
+    # Historical entries may legitimately have been withdrawn before publishing;
+    # the count binds published rows, not all historical batch entries.
+    for sport_code in document.get("team_sports_baselines", {}):
+        source_record = sources.get(sport_code)
+        declared = source_record.get("candidate_count") if type(source_record) is dict else None
+        published = sum(row.get("source") == sport_code + "_baseline" for row in model_candidates)
+        if type(declared) is not int or declared != published:
+            return None
+
     active_model_keys = {
         key for key, scheduled in scheduled_by_key.items()
         if scheduled > current

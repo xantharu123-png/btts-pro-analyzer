@@ -248,17 +248,18 @@ def correction(case, sport, kind, *, observed=None):
 
 @pytest.mark.parametrize("sport", SPORTS)
 @pytest.mark.parametrize("kind", ["cancelled", "started", "unknown", "opponent", "incomplete"])
-def test_native_correction_during_history_prevents_target_calculation(live_worker, sport, kind):
+def test_native_correction_during_history_keeps_unknown_but_rejects_adverse(live_worker, sport, kind):
     case = live_worker(sport)
     case.state["on_history"] = lambda: correction(case, sport, kind)
     doc = case.run()
-    assert not doc["model_candidates"] and not case.state["predictions"]
-    assert not doc["team_sports_baselines"][sport]["entries"]
+    expected = int(kind == "unknown")
+    assert len(doc["model_candidates"]) == len(case.state["predictions"]) == expected
+    assert len(doc["team_sports_baselines"][sport]["entries"]) == expected
 
 
 @pytest.mark.parametrize("sport", SPORTS)
 @pytest.mark.parametrize("kind", ["cancelled", "started", "unknown", "opponent", "incomplete"])
-def test_new_native_correction_within_six_hours_withdraws_both_views_without_refit(live_worker, sport, kind):
+def test_new_native_correction_keeps_unknown_and_withdraws_adverse_without_refit(live_worker, sport, kind):
     from riskobet_automation import load_latest_riskobet
     case = live_worker(sport)
     first = case.run()
@@ -267,10 +268,10 @@ def test_new_native_correction_within_six_hours_withdraws_both_views_without_ref
     correction(case, sport, kind)
     doc = case.run()
     assert counts == (case.state["requests"], case.state["history"], len(case.state["predictions"]))
-    assert not doc["model_candidates"]
+    assert len(doc["model_candidates"]) == int(kind == "unknown")
     latest = load_latest_riskobet(db_path=case.path.with_name("riskobet.db"),
         latest_path=case.path.with_name("riskobet_latest.json"), rehydrate=True)
-    assert not latest.snapshots and not latest.candidates
+    assert len(latest.snapshots) == len(latest.candidates) == int(kind == "unknown")
     # Historical model identity stays intact; only current views withdraw it.
     assert doc["team_sports_baselines"] == first["team_sports_baselines"]
 
@@ -622,7 +623,7 @@ def test_failed_refresh_reuses_one_explicitly_partial_old_view_for_both_consumer
     assert failed["team_sports_baselines"][sport]["checked_at"] != old["checked_at"]
     risk = load_latest_riskobet(db_path=case.path.with_name("riskobet.db"),
         latest_path=case.path.with_name("riskobet_latest.json"), rehydrate=True)
-    assert len(failed["model_candidates"]) == len(risk.snapshots) == int(latest == "scheduled")
+    assert len(failed["model_candidates"]) == len(risk.snapshots) == int(latest in ("scheduled", "unknown"))
     assert len(case.state["predictions"]) == 1 and case.state["history"] == 2
     # A new real schedule response can restore the event. Partial is never a
     # successful six-hour refresh and the original cutoff was not retimed.

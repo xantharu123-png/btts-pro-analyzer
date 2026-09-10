@@ -177,12 +177,46 @@ def batch_due(value, sport, *, now, target_date):
 
 
 def _current_native_event(raw, sport, components, lookup):
-    from context_sources.team_sports_binding import _resolve_input
-    binding, latest = _resolve_input(raw, index=None, sport=sport, components=components, lookup=lookup)
-    if binding["lineage_refs"] and (binding["current_state"] in ("conflicting", "unknown")
-        or any(s.endswith("conflict") or s == "native-original-revision-superseded" for s in binding["reasons"])):
+    from context_sources.team_sports_binding import _compare, _resolve_input
+    binding, _ = _resolve_input(raw, index=None, sport=sport, components=components, lookup=lookup)
+    if not binding["lineage_refs"]:
+        return True  # No native evidence is not evidence against the legacy base.
+    if binding["current_state"] == "conflicting":
+        # Preserve actual alias or simultaneous whole-revision conflicts;
+        # these are distinct from one otherwise coherent unknown status.
         return False
-    return latest is None or latest["payload"]["projection"]["status"] in ("scheduled", "not_completed")
+    refs = set(binding["lineage_refs"])
+    lineage = [row for group in components for row in group if row["digest"] in refs]
+    newest = max(row["observed_at"] for row in lineage)
+    current = [row for row in lineage if row["observed_at"] == newest]
+    identities = set()
+    for row in current:
+        projection = row["payload"]["projection"]
+        identity = tuple(projection[key] for key in ("home_id", "away_id", "scheduled_start"))
+        if (None in identity or identity[0] == identity[1]
+            or set(projection["issues"]) & {"invalid-participants", "invalid-schedule",
+                "competition-id-unavailable", "competition-schedule-unavailable"}):
+            return False
+        # Unknown status is not a contradiction. Known participant, schedule,
+        # season or format contradictions still invalidate this old forecast.
+        # Missing raw legacy IDs alone are not a native-qualification gate.
+        _, conflicts, _ = _compare(raw, row, index=None)
+        if conflicts - {"native-status-conflict"}:
+            return False
+        identities.add(identity)
+    if len(identities) != 1:
+        return False
+    # Keep the newest *determined* lifecycle cohort. A later unknown or merely
+    # not-completed receipt cannot erase a proven cancellation/start. Equal-time
+    # scheduled/adverse revisions remain adverse; only a later known scheduled
+    # revision can restore the unchanged legacy view.
+    determined = [row for row in lineage if row["payload"]["projection"]["status"]
+                  in ("scheduled", "started", "completed", "cancelled")]
+    if not determined:
+        return True
+    latest_status = max(row["observed_at"] for row in determined)
+    return all(row["payload"]["projection"]["status"] == "scheduled"
+               for row in determined if row["observed_at"] == latest_status)
 
 
 def current_batch(value, *, now):
