@@ -236,6 +236,7 @@ def content_data(data, tmp_path):
     data["os"].fchown = lambda *_: None
     data["os"].fchmod = lambda *_: None
     data["os"].O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+    data["os"].O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
     return data
 
 
@@ -524,7 +525,7 @@ def test_root_inline_program_imports_only_stdlib_and_never_backup_helpers(data):
     tree = ast.parse(source[begin:source.index("\nPY", begin)])
     imports = {alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
     imports |= {node.module.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
-    assert imports <= {"hashlib", "json", "os", "pathlib", "re", "sqlite3", "stat", "sys", "zipfile", "shutil", "tempfile", "resource"}
+    assert imports <= {"hashlib", "json", "os", "pathlib", "re", "sqlite3", "stat", "sys", "zipfile", "shutil", "tempfile", "resource", "time"}
     assert "extractall" not in source and "importlib" not in source and "pickle" not in source
     assert "betboy-backup" not in shell_function("context_hook_command")
     for file, expected in {
@@ -1312,15 +1313,22 @@ def launcher_decision(monkeypatch, arguments, *, uid):
     fake_os.execve = record_exec
     class FixturePath(type(Path())):
         def lstat(self):
+            if self.name == "betboy-backup-runtime.py":
+                return SimpleNamespace(st_mode=stat.S_IFREG | 0o644, st_uid=0, st_nlink=1)
             info = super().lstat()
-            if os.name == "nt" and self.name == "backup_runtime_databases.py":
+            if self.name == "backup_runtime_databases.py":
                 # Only the Unix DAC edge is simulated; real helper bytes and
                 # the fixed digest/command selection are still validated.
                 return SimpleNamespace(st_mode=stat.S_IFREG | 0o644, st_uid=0, st_nlink=1)
             return info
+        def open(self, *args, **kwargs):
+            if self.name == "betboy-backup-runtime.py":
+                return (ROOT / "scripts/backup_runtime_databases.py").open(*args, **kwargs)
+            return super().open(*args, **kwargs)
     with monkeypatch.context() as scoped:
         scoped.setitem(sys.modules, "os", fake_os)
         scoped.setitem(sys.modules, "pathlib", SimpleNamespace(Path=FixturePath))
+        scoped.setitem(sys.modules, "pwd", SimpleNamespace(getpwnam=lambda name: SimpleNamespace(pw_uid=1001)))
         scoped.setitem(sys.modules, "resource", SimpleNamespace(RLIMIT_AS=9, RLIMIT_CPU=0,
             setrlimit=lambda *args: limits.append(args)))
         scoped.setattr(sys, "argv", ["updater-stdlib-launcher", *arguments])
@@ -1333,7 +1341,8 @@ def launcher_decision(monkeypatch, arguments, *, uid):
 
 def capacity_disk_decision(monkeypatch, mounts):
     fake_os = SimpleNamespace(
-        stat=lambda path, **_: SimpleNamespace(st_dev=mounts[path][0]),
+        path=SimpleNamespace(lexists=lambda path: path in mounts),
+        stat=lambda path, **_: SimpleNamespace(st_dev=mounts[path][0], st_mode=stat.S_IFDIR | 0o755, st_uid=0),
         statvfs=lambda path: SimpleNamespace(f_bavail=mounts[path][1], f_frsize=1))
     with monkeypatch.context() as scoped:
         scoped.setitem(sys.modules, "os", fake_os)
@@ -1402,4 +1411,459 @@ def test_capacity_online_cannot_relabel_quiesced_proof(content_data, tmp_path, c
     (hook / "report.json").write_text(json.dumps(report()))
     with pytest.raises(ValueError, match="phase mismatch"):
         content_data["main"](["finish", str(hook), "0", "online"])
+    assert capsys.readouterr().out == ""
+
+
+def test_followup_quiesced_configuration_cannot_rebaseline_changed_online_env(content_data, tmp_path):
+    args = configuration_fixture(content_data, tmp_path, present=True, env=b"FIXTURE_MODE=original\n")
+    actual_configuration = content_data["configuration"]
+
+    def fixture_environment_route(*values, **named):
+        if values:
+            values = list(values)
+            assert values[1] == "/etc/betboy/betboy.env"
+            values[1] = args["env_path"]
+        return actual_configuration(*values, **named)
+
+    content_data["configuration"] = fixture_environment_route
+    content_data["os"].geteuid = lambda: 0
+    common = [str(args[key]) for key in ("app", "target", "previous", "target_manifest", "previous_manifest")]
+    def configure(hook):
+        content_data["main"](["configure", common[0], "/etc/betboy/betboy.env", *common[1:],
+            "a" * 40, "b" * 40, "c" * 40, str(hook), "1000", "1000"])
+    configure(tmp_path / "online")
+    args["env_path"].write_bytes(b"FIXTURE_MODE=changed-during-quiesce\n")
+    with pytest.raises(ValueError, match="configuration|phase"):
+        configure(tmp_path / "quiesced")
+    assert not (tmp_path / "quiesced/config.json").exists()
+
+
+def test_followup_extraction_to_seal_replacement_never_rebaselines(content_data, tmp_path):
+    archive, raw = backup_fixture(tmp_path)
+    replacement = tmp_path / "replacement.db"
+    with closing(sqlite3.connect(replacement)) as connection:
+        connection.execute("CREATE TABLE substituted(value INTEGER)")
+        connection.commit()
+    assert replacement.read_bytes() != raw
+    destination = tmp_path / "sealed.db"
+    real_open = content_data["os"].open
+    sqlite_opens = []
+    real_connect = sqlite3.connect
+
+    def swap_before_seal(path, flags, *args, **kwargs):
+        if Path(path) == destination and not flags & os.O_CREAT and replacement.exists():
+            os.replace(replacement, destination)
+        return real_open(path, flags, *args, **kwargs)
+
+    def record_sqlite(*args, **kwargs):
+        sqlite_opens.append(args[0])
+        return real_connect(*args, **kwargs)
+
+    content_data["os"].open = swap_before_seal
+    content_data["sqlite3"] = SimpleNamespace(connect=record_sqlite)
+    with pytest.raises(ValueError, match="identity|changed|digest"):
+        content_data["extract_and_seal"](archive, "runtime_state/context_models.db", destination,
+            source_head="a" * 40, app_gid=1000)
+    assert sqlite_opens == []
+
+
+def test_followup_actual_recovery_mount_not_its_parent_controls_admission(monkeypatch):
+    with pytest.raises(SystemExit, match="insufficient combined"):
+        capacity_disk_decision(monkeypatch, {"/var/tmp": (1, 8 * 1024**3),
+            "/var/backups": (1, 8 * 1024**3), "/var/lib": (1, 8 * 1024**3),
+            "/var/backups/betboy-update": (2, 1024 * 1024)})
+
+
+def completed_archive_fixture(content_data, tmp_path):
+    source, target = tmp_path / "produced.zip", tmp_path / "private.zip"
+    source.write_bytes(b"completed-capture")
+    receipt = tmp_path / "completion.json"
+    receipt.write_text(json.dumps({"schema": 1, "path": str(source), "size": source.stat().st_size,
+        "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "signature": content_data["signature"](source.stat())}))
+    return source, target, receipt
+
+
+def test_followup_root_transfer_rejects_growth_after_producer_completion(content_data, tmp_path):
+    source, target, receipt = completed_archive_fixture(content_data, tmp_path)
+    with source.open("ab") as retained:
+        retained.write(b"post-capture-growth" * 1024)
+        retained.flush()
+        with pytest.raises(ValueError, match="changed after producer"):
+            content_data["copy_completed_archive"](source, target, receipt, 1024**2, source.stat().st_uid, source.stat().st_gid)
+    assert not target.exists()
+
+
+def test_followup_post_migration_backup_verifier_rejects_output_overflow(tmp_path):
+    archive = tmp_path / "scheduled.zip"
+    archive.write_bytes(b"fixture-path-exists")
+    noisy = " ".join(shlex.quote(value) for value in [sys.executable, "-I", "-B", "-c",
+        "import sys; sys.stdout.write('x' * (1024 * 1024 + 1))"])
+    harness = """set -euo pipefail
+PATH=/usr/bin:/bin
+TRUSTED_BACKUP_HELPER=/usr/local/libexec/betboy-backup-runtime.py
+BACKUP_ARCHIVE_INVENTORY=inventory
+die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
+verify_backup_principal() { :; }
+verify_backup_home() { :; }
+trusted_file() { printf 'trusted-helper\n'; }
+systemctl() {
+    case "$1" in start) :;; is-active) printf 'inactive\n';;
+        show) case "$4" in Result) printf 'success\n';; ExecMainStatus) printf '0\n';; esac;; esac
+}
+stat() { case "$2" in '%U:%G') printf 'betboy-backup:betboy-backup\n';; '%a') printf '600\n';; '%h') printf '1\n';; *) command stat "$@";; esac; }
+"""
+    harness += f"STAGE_DIR={shlex.quote(tmp_path.as_posix())}\n/usr/bin/python3() {{ printf '%s\\n' {shlex.quote(archive.as_posix())}; }}\n"
+    harness += 'runuser() { if [[ "$*" == *"/usr/bin/test"* ]]; then return 0; fi; ' + noisy + '; }\n'
+    harness += shell_function("verification_launcher_source") + shell_function("capture_backup_service_verifier") + shell_function("verify_backup_service_migration")
+    harness += "\nverify_backup_service_migration\nprintf 'migration-backup-accepted\\n'\n"
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    assert "command not found" not in result.stderr, result.stderr
+    assert result.returncode != 0, "post-migration full verifier accepted unbounded child output"
+    assert "migration-backup-accepted" not in result.stdout
+
+
+def test_followup_archive_copy_is_independent_and_binds_receipt(content_data, tmp_path):
+    source, target, receipt = completed_archive_fixture(content_data, tmp_path)
+    content_data["copy_completed_archive"](source, target, receipt, 1024**2, source.stat().st_uid, source.stat().st_gid)
+    assert target.read_bytes() == source.read_bytes()
+    assert target.stat().st_ino != source.stat().st_ino
+    source.write_bytes(b"retained writer changes source")
+    assert target.read_bytes() == b"completed-capture"
+
+
+@pytest.mark.parametrize("mutation", ["truncate", "replace", "digest", "oversize", "deadline"])
+def test_followup_archive_copy_rejects_unaccepted_bytes(content_data, tmp_path, mutation):
+    source, target, receipt = completed_archive_fixture(content_data, tmp_path)
+    maximum = 1024**2
+    if mutation == "truncate": source.write_bytes(b"short")
+    elif mutation == "replace":
+        replacement = tmp_path / "replacement.zip"
+        replacement.write_bytes(source.read_bytes())
+        os.replace(replacement, source)
+    elif mutation == "digest":
+        value = json.loads(receipt.read_text())
+        value["sha256"] = "0" * 64
+        receipt.write_text(json.dumps(value))
+    elif mutation == "oversize": maximum = 1
+    else:
+        ticks = iter([0, 601])
+        content_data["time"] = SimpleNamespace(monotonic=lambda: next(ticks))
+    with pytest.raises(ValueError):
+        content_data["copy_completed_archive"](source, target, receipt, maximum, source.stat().st_uid, source.stat().st_gid)
+    if target.exists():
+        assert mutation in {"digest", "deadline"}  # private failed candidate, never published
+
+
+def test_followup_backup_service_launcher_has_exact_principal_and_command(monkeypatch):
+    command, _, limits = launcher_decision(monkeypatch, ["backup-service", "/protected/scheduled.zip"], uid=1001)
+    assert command == ["/usr/bin/python3", "-I", "-B", str(Path("/usr/local/libexec/betboy-backup-runtime.py")),
+        "--verify-only", str(Path("/protected/scheduled.zip"))]
+    assert limits == [(9, (2147483648, 2147483648)), (0, (300, 300))]
+
+
+@pytest.mark.parametrize("uid,args", [(0, []), (1000, []), (1001, ["--recovery-mode"]), (1001, ["helper.py"])])
+def test_followup_backup_service_launcher_rejects_role_and_overrides(monkeypatch, uid, args):
+    with pytest.raises(SystemExit, match="invalid verification child selection"):
+        launcher_decision(monkeypatch, ["backup-service", "/protected/scheduled.zip", *args], uid=uid)
+
+
+def run_real_producer(monkeypatch, tmp_path, *, mutation=None, maximum=1024**2):
+    """Execute complete producer bytes/SQLite/ZIP; simulate only Unix metadata/limits."""
+    app = tmp_path / "app"
+    app.mkdir()
+    live = app / "state.db"
+    writer = sqlite3.connect(live)
+    writer.execute("PRAGMA journal_mode=WAL")
+    writer.execute("CREATE TABLE sample(value INTEGER)")
+    writer.execute("INSERT INTO sample VALUES(1)")
+    writer.commit()
+    key, marker = tmp_path / "key", tmp_path / "marker"
+    key.write_bytes(b"a" * 64 + b"\n")
+    marker.write_text(json.dumps({"contract_version": 1, "status": "in_progress"}))
+    archive = tmp_path / "capture.zip"
+    descriptors, limits = {}, []
+    principal_changed = False
+
+    def metadata(info, path):
+        values = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+        auth = Path(path) in {key, marker}
+        values.update(st_uid=0 if auth else (1002 if principal_changed and Path(path) == app else 1000),
+            st_gid=1000, st_mode=(stat.S_IFDIR | 0o750) if stat.S_ISDIR(info.st_mode) else
+            (stat.S_IFREG | (0o640 if auth else 0o600)))
+        # Windows descriptor ctime is not the Unix inode-change timestamp.
+        if os.name == "nt": values["st_ctime_ns"] = values["st_mtime_ns"]
+        return SimpleNamespace(**values)
+
+    class FixturePath(type(Path())):
+        def lstat(self):
+            return metadata(super().lstat(), self)
+
+    fake_os = SimpleNamespace(**{name: getattr(os, name) for name in dir(os)})
+    def fixture_open(path, flags, *args, **kwargs):
+        descriptor = os.open(path, flags | getattr(os, "O_BINARY", 0), *args, **kwargs)
+        descriptors[descriptor] = Path(path)
+        return descriptor
+    fake_os.open = fixture_open
+    fake_os.fstat = lambda descriptor: metadata(os.fstat(descriptor), descriptors[descriptor])
+    fake_os.getuid = fake_os.getgid = lambda: 1000
+    fake_os.umask = lambda _: None
+    fake_os.O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+
+    class ConcurrentSource(sqlite3.Connection):
+        def backup(self, target, **kwargs):
+            nonlocal principal_changed
+            writer.execute("INSERT INTO sample VALUES(2)")
+            if mutation == "growth-over-budget":
+                writer.execute("INSERT INTO sample VALUES(zeroblob(?))", (maximum * 2,))
+            writer.commit()  # actual same-inode WAL commit while capture is active
+            super().backup(target, **kwargs)
+            if mutation == "add":
+                with closing(sqlite3.connect(app / "added.db")) as added:
+                    added.execute("CREATE TABLE added(value)")
+            elif mutation == "principal": principal_changed = True
+
+    real_connect = sqlite3.connect
+    fake_sqlite = SimpleNamespace(**{name: getattr(sqlite3, name) for name in dir(sqlite3)})
+    fake_sqlite.connect = lambda *args, **kwargs: real_connect(*args, factory=ConcurrentSource, **kwargs)
+
+    class MutatingArchive(zipfile.ZipFile):
+        def close(self):
+            was_open = self.fp is not None
+            super().close()
+            if was_open and mutation == "key-mutate": key.write_bytes(b"b" * 64 + b"\n")
+            elif was_open and mutation == "key-replace":
+                other = tmp_path / "replacement-key"
+                other.write_bytes(key.read_bytes())
+                os.replace(other, key)
+            elif was_open and mutation == "marker-mutate":
+                marker.write_text(json.dumps({"contract_version": 1, "status": "complete"}))
+            elif was_open and mutation in {"remove", "replace"}:
+                # Perform after source descriptors close: this remains a real
+                # filesystem mutation on Windows as well as Unix.
+                writer.close()
+                if mutation == "remove": live.unlink()
+                else:
+                    replacement = tmp_path / "replacement.db"
+                    with closing(sqlite3.connect(replacement)) as other:
+                        other.execute("CREATE TABLE replacement(value)")
+                    os.replace(replacement, live)
+
+    fake_zip = SimpleNamespace(**{name: getattr(zipfile, name) for name in dir(zipfile)})
+    fake_zip.ZipFile = MutatingArchive
+    try:
+        with monkeypatch.context() as scoped:
+            scoped.setitem(sys.modules, "os", fake_os)
+            scoped.setitem(sys.modules, "pathlib", SimpleNamespace(Path=FixturePath))
+            scoped.setitem(sys.modules, "sqlite3", fake_sqlite)
+            scoped.setitem(sys.modules, "zipfile", fake_zip)
+            scoped.setitem(sys.modules, "resource", SimpleNamespace(RLIMIT_FSIZE=1, RLIMIT_AS=9, RLIMIT_CPU=0,
+                setrlimit=lambda *args: limits.append(args)))
+            scoped.setattr(sys, "argv", ["producer", str(app), str(archive), "c" * 40, str(key), str(marker), str(maximum)])
+            exec(compile(inline_program("produce_update_backup"), "actual-update-producer", "exec"), {})
+    finally:
+        writer.close()
+    assert limits == [(9, (2147483648, 2147483648)), (0, (300, 300)), (1, (maximum, maximum))]
+    return archive
+
+
+def test_followup_complete_producer_wal_capture_and_resume_head(monkeypatch, tmp_path, capsys):
+    archive = run_real_producer(monkeypatch, tmp_path)
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["size"] == archive.stat().st_size
+    assert receipt["sha256"] == hashlib.sha256(archive.read_bytes()).hexdigest()
+    with zipfile.ZipFile(archive) as captured:
+        manifest = json.loads(captured.read("MANIFEST.json"))
+        assert manifest["source_head"] == "c" * 40  # actual source, not marker predecessor
+        assert json.loads(captured.read("integrity/challenge-ledger-v2-migrated.json"))["status"] == "in_progress"
+        snapshot = tmp_path / "snapshot.db"
+        snapshot.write_bytes(captured.read("state.db"))
+    with closing(sqlite3.connect(snapshot)) as connection:
+        assert connection.execute("SELECT value FROM sample ORDER BY value").fetchall() == [(1,), (2,)]
+
+
+@pytest.mark.parametrize("mutation", ["add", "remove", "replace", "principal", "key-mutate", "key-replace", "marker-mutate"])
+def test_followup_complete_producer_rejects_inventory_and_auth_changes(monkeypatch, tmp_path, capsys, mutation):
+    with pytest.raises((SystemExit, FileNotFoundError), match="changed|replaced|principal|No such|cannot find"):
+        run_real_producer(monkeypatch, tmp_path, mutation=mutation)
+    assert capsys.readouterr().out == ""  # no completion receipt for a rejected capture
+
+
+@pytest.mark.parametrize("function", ["context_hook_command", "capture_root_verifier"])
+@pytest.mark.parametrize("failure", ["memory", "cpu", "wall", "file-size"])
+def test_followup_resource_failures_are_typed_and_never_continuity(function, failure, tmp_path):
+    status = {"memory": 1, "cpu": 152, "wall": 124, "file-size": 153}[failure]
+    code = "raise MemoryError" if failure == "memory" else f"raise SystemExit({status})"
+    command = " ".join(shlex.quote(value) for value in [sys.executable, "-I", "-B", "-c", code])
+    harness = """set -euo pipefail
+PATH=/usr/bin:/bin
+die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
+as_betboy() { "$@"; }
+""" + shell_function(function)
+    harness += f"\n{function} {shlex.quote((tmp_path / 'output').as_posix())} {command}\nprintf 'accepted\\n'\n"
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    assert result.returncode != 0 and "VerificationResourceError" in result.stderr
+    assert "accepted" not in result.stdout
+
+
+@pytest.mark.parametrize("defect", [None, "sticky", "group-write", "app-owner", "symlink"])
+def test_followup_sealed_ancestry_has_no_sticky_exception(data, defect):
+    from pathlib import PurePosixPath
+    class BoundaryPath(PurePosixPath):
+        def lstat(self):
+            mode, owner = stat.S_IFDIR | 0o755, 0
+            if str(self) == "/var":
+                if defect == "sticky": mode = stat.S_IFDIR | stat.S_ISVTX | 0o777
+                elif defect == "group-write": mode |= 0o020
+                elif defect == "app-owner": owner = 1000
+                elif defect == "symlink": mode = stat.S_IFLNK | 0o777
+            return SimpleNamespace(st_mode=mode, st_uid=owner)
+    data["Path"] = BoundaryPath
+    if defect:
+        with pytest.raises(ValueError, match="sealed directory"):
+            data["sealed_directory"]("/var/lib/private")
+    else: data["sealed_directory"]("/var/lib/private")
+
+
+@pytest.mark.parametrize("replacement", [False, True])
+def test_followup_cleanup_identity_ignores_only_directory_link_count(data, replacement):
+    removed = []
+    root = "/var/lib/betboy-context-update.abcdefgh"
+    info = SimpleNamespace(st_dev=1, st_ino=25 if replacement else 24, st_mode=stat.S_IFDIR | 0o750,
+        st_uid=0, st_gid=1000, st_nlink=5)
+    data["os"] = SimpleNamespace(geteuid=lambda: 0)
+    data["sealed_directory"] = lambda _: info
+    data["read_file"] = lambda *args, **kwargs: json.dumps([1, 24, stat.S_IFDIR | 0o750, 0, 1000]).encode()
+    def remove(path): removed.append(str(path))
+    remove.avoids_symlink_attacks = True
+    data["shutil"] = SimpleNamespace(rmtree=remove)
+    if replacement:
+        with pytest.raises(ValueError, match="private stage replaced"):
+            data["main"](["remove-private", root])
+        assert removed == []
+    else:
+        data["main"](["remove-private", root])
+        assert removed == [str(Path(root))]
+
+
+@pytest.mark.parametrize("failure", ["backup", "d4"])
+def test_followup_second_phase_failure_never_applies_payload(failure):
+    harness = capacity_order_harness(online_failure=False)
+    if failure == "backup":
+        harness = harness.replace("create_fresh_backup() {",
+            "create_fresh_backup() { printf 'quiesced-backup\\n'; return 1;")
+    else:
+        harness = harness.replace("context_hook_command() { CONTEXT_COMMAND_STATUS=0; }",
+            'context_hook_command() { [[ "$1" != */quiesced/* ]] || return 1; CONTEXT_COMMAND_STATUS=0; }')
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    assert result.returncode != 0 and "quiesced-backup" in result.stdout
+    assert "payload-write" not in result.stdout
+
+
+@pytest.mark.parametrize("durable", [False, True])
+def test_followup_recovery_never_uses_online_archive_or_removes_failclosed_evidence(tmp_path, durable):
+    harness = """set -euo pipefail
+PATH=/usr/bin:/bin
+UPDATE_COMPLETE=0; UPDATE_STARTED=1; DATABASE_MIGRATION_STARTED=0; NEW_APP_STARTED=0
+FRESH_BACKUP=quiesced-archive; PREFLIGHT_BACKUP=online-archive; STAGE_DIR=preserved-stage
+PREVIOUS_HEAD=old; TARGET_HEAD=new; PREVIOUS_MANIFEST=old-manifest; PREVIOUS_PAYLOAD=old-payload
+log() { printf '%s\n' "$*"; }
+safe_remove_stage() { printf 'cleanup\n'; }
+stop_all_runtime_units() { printf 'stopped\n'; }
+persist_runtime_autostart_disabled() { printf 'disabled\n'; }
+git_betboy() { [[ "$1" != rev-parse ]] || printf 'old\n'; }
+apply_trusted_payload() { printf 'restore-old:%s\n' "$*"; }
+verify_clean_worktree() { :; }; verify_app_bytes() { :; }
+restore_root_files() { :; }; verify_restored_root_files() { :; }
+restore_unit_state() { printf 'restore-unit-state\n'; }
+"""
+    harness += f"ROLLBACK_ROOT={shlex.quote(tmp_path.as_posix())}\n"
+    harness += f"durable_migration_requires_fail_closed() {{ return {0 if durable else 1}; }}\n"
+    harness += shell_function("recover_update") + "\nrecover_update 1\n"
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    assert result.returncode == 1 and "online-archive" not in result.stdout
+    if durable:
+        assert "quiesced-archive" in result.stdout and "preserved-stage" in result.stdout
+        assert "cleanup" not in result.stdout and "restore-old:" not in result.stdout
+    else:
+        assert "restore-old:old-manifest old-payload" in result.stdout
+        assert "restore-unit-state" in result.stdout and "cleanup" in result.stdout
+
+
+def test_followup_launcher_generation_failure_cannot_seal_or_execute_partial_source(tmp_path):
+    harness = """set -euo pipefail
+PATH=/usr/bin:/bin
+die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
+verification_launcher_source() { printf 'print("partial valid Python")\n'; return 9; }
+context_hook_data() { printf 'must-not-seal\n'; }
+""" + f"CONTEXT_STAGE_DIR={shlex.quote(tmp_path.as_posix())}\n"
+    harness += shell_function("prepare_verification_launcher") + "\nprepare_verification_launcher\nprintf 'accepted\\n'\n"
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    assert result.returncode != 0 and "could not be written completely" in result.stderr
+    assert "must-not-seal" not in result.stdout and "accepted" not in result.stdout
+
+
+def test_followup_root_collector_failure_preserves_child_failure(tmp_path):
+    command = " ".join(shlex.quote(value) for value in [sys.executable, "-I", "-B", "-c", "print('verified')"])
+    harness = """set -euo pipefail
+PATH=/usr/bin:/bin
+die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
+/usr/bin/timeout() { if [[ "$*" == *'610s'* ]]; then return 9; fi; command /usr/bin/timeout "$@"; }
+""" + shell_function("capture_root_verifier")
+    harness += f"\ncapture_root_verifier {shlex.quote((tmp_path / 'output').as_posix())} {command}\nprintf 'accepted\\n'\n"
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    assert result.returncode != 0 and "output capture failed" in result.stderr
+    assert "accepted" not in result.stdout
+
+
+@pytest.mark.parametrize("generator_failure", [False, True])
+def test_followup_backup_service_requires_complete_launcher_and_bounded_success(tmp_path, generator_failure):
+    child = " ".join(shlex.quote(value) for value in [sys.executable, "-I", "-B", "-c",
+        "import sys; sys.stdin.read(); print('verified')"])
+    harness = """set -euo pipefail
+PATH=/usr/bin:/bin
+die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
+"""
+    harness += f"verification_launcher_source() {{ printf 'fixed launcher\\n'; return {9 if generator_failure else 0}; }}\n"
+    harness += "runuser() { " + child + "; }\n" + shell_function("capture_backup_service_verifier")
+    harness += f"\ncapture_backup_service_verifier {shlex.quote((tmp_path / 'output').as_posix())} archive\nprintf 'accepted\\n'\n"
+    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    assert (result.returncode != 0) == generator_failure, result.stderr
+    assert ("accepted" in result.stdout) != generator_failure
+
+
+@pytest.mark.parametrize("damage", ["crc", "truncated"])
+def test_followup_real_zip_integrity_damage_never_seals(content_data, tmp_path, damage):
+    archive, _ = backup_fixture(tmp_path)
+    raw = bytearray(archive.read_bytes())
+    if damage == "truncated": raw = raw[:-30]
+    else:
+        with zipfile.ZipFile(archive) as zipped:
+            member = zipped.getinfo("runtime_state/context_models.db")
+            offset = member.header_offset
+        filename_length = int.from_bytes(raw[offset + 26:offset + 28], "little")
+        extra_length = int.from_bytes(raw[offset + 28:offset + 30], "little")
+        raw[offset + 30 + filename_length + extra_length + 50] ^= 0xFF
+    archive.write_bytes(raw)
+    with pytest.raises((ValueError, zipfile.BadZipFile)):
+        content_data["extract_and_seal"](archive, "runtime_state/context_models.db", tmp_path / "copy.db",
+            source_head="a" * 40, app_gid=1000)
+
+
+def test_followup_exact_sealed_bound_is_inclusive_and_one_byte_over_rejects(content_data, tmp_path):
+    archive, raw = backup_fixture(tmp_path)
+    assert content_data["MAX_IMAGE"] == 1024**3
+    content_data["MAX_IMAGE"] = len(raw)  # exercise exact inequality with real SQLite bytes, not a 1-GiB unit allocation
+    content_data["extract_and_seal"](archive, "runtime_state/context_models.db", tmp_path / "at-limit.db",
+        source_head="a" * 40, app_gid=1000)
+    content_data["MAX_IMAGE"] = len(raw) - 1
+    with pytest.raises(ValueError, match="bounded SQLite size"):
+        content_data["extract_and_seal"](archive, "runtime_state/context_models.db", tmp_path / "over-limit.db",
+            source_head="a" * 40, app_gid=1000)
+    assert not (tmp_path / "over-limit.db").exists()
+
+
+def test_followup_producer_snapshot_expansion_has_a_total_byte_admission(monkeypatch, tmp_path, capsys):
+    with pytest.raises(SystemExit, match="ContextResourceError.*snapshot"):
+        run_real_producer(monkeypatch, tmp_path, mutation="growth-over-budget", maximum=65536)
     assert capsys.readouterr().out == ""

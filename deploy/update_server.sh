@@ -51,6 +51,7 @@ TARGET_HEAD=""
 FRESH_BACKUP=""
 PREFLIGHT_BACKUP=""
 CONTEXT_STAGE_DIR=""
+ARCHIVE_MAX_BYTES=0
 STAGE_DIR=""
 TRUSTED_TREE=""
 ROLLBACK_ROOT=""
@@ -1070,6 +1071,7 @@ import stat
 import sys
 import shutil
 import tempfile
+import time
 import zipfile
 
 MAX_IMAGE = 1024 * 1024 * 1024
@@ -1094,6 +1096,10 @@ RESULT_KEYS = {"status", "schema", "verification_level", "empirical_approval_ver
 def need(condition, reason):
     if not condition:
         raise ValueError(reason)
+
+
+class ContextResourceError(ValueError):
+    """Closed transport admission/deadline failure; never a D4 limitation."""
 
 
 def object_pairs(pairs):
@@ -1252,13 +1258,6 @@ def identity(info):
     return [info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink]
 
 
-def live_identity(path, app_uid):
-    # Check every current companion for safe ownership, but SQLite may create
-    # or remove companions and commit to the same main inode during online QA.
-    found = live_signature(path, app_uid)
-    return found.get("", [])[:6]
-
-
 def authentication_state(key, marker, app_gid):
     result = {}
     for name, path, maximum in (("key", Path(key), 65), ("marker", Path(marker), 65536)):
@@ -1274,6 +1273,55 @@ def authentication_state(key, marker, app_gid):
                  and value.get("status") in {"in_progress", "complete"}, "invalid existing migration marker")
         result[name] = {"path": str(path), "hash": sha(raw), "signature": signature(file_info(path, owners={0}, mode=0o640, gid=app_gid))}
     return result
+
+
+def copy_completed_archive(source, destination, receipt, maximum, app_uid, app_gid):
+    source, destination = Path(source), Path(destination)
+    expected = decode(read_file(receipt, mode=0o600))
+    need(type(expected) is dict and set(expected) == {"schema", "path", "size", "sha256", "signature"}
+         and type(expected["schema"]) is int and expected["schema"] == 1
+         and expected["path"] == str(source), "invalid completed archive receipt")
+    size = integer(expected["size"])
+    if not 0 < size <= maximum:
+        raise ContextResourceError("completed archive exceeds admitted byte budget")
+    expected_hash = digest(expected["sha256"])
+    need(type(expected["signature"]) is list and all(type(value) is int for value in expected["signature"]), "invalid archive signature")
+    initial = file_info(source, owners={0, app_uid}, mode=0o600, gid=app_gid)
+    need(initial.st_uid == app_uid and signature(initial) == expected["signature"] and initial.st_size == size,
+         "archive changed after producer completion")
+    directory(destination.parent, owners={0})
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_BINARY", 0)
+    input_fd = os.open(source, flags)
+    try:
+        need(signature(os.fstat(input_fd)) == expected["signature"], "archive replaced before private copy")
+        output_fd = os.open(destination, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_BINARY", 0), 0o600)
+        try:
+            os.fchown(output_fd, 0, 0)
+            os.fchmod(output_fd, 0o600)
+            created = identity(os.fstat(output_fd))
+            remaining, checksum, deadline = size, hashlib.sha256(), time.monotonic() + 600
+            with os.fdopen(output_fd, "wb", closefd=False) as output:
+                while remaining:
+                    if time.monotonic() >= deadline:
+                        raise ContextResourceError("private archive copy deadline exceeded")
+                    chunk = os.read(input_fd, min(1024 * 1024, remaining))
+                    need(bool(chunk), "archive truncated during private copy")
+                    remaining -= len(chunk)
+                    checksum.update(chunk)
+                    output.write(chunk)
+                output.flush()
+            need(not os.read(input_fd, 1), "archive grew during private copy")
+            need(signature(os.fstat(input_fd)) == expected["signature"]
+                 and signature(file_info(source, owners={0, app_uid}, mode=0o600, gid=app_gid)) == expected["signature"]
+                 and checksum.hexdigest() == expected_hash, "archive changed during private copy")
+            os.fsync(output_fd)
+            need(identity(os.fstat(output_fd)) == created
+                 and identity(file_info(destination, owners={0}, mode=0o600, gid=0)) == created
+                 and os.fstat(output_fd).st_size == size, "private archive destination changed")
+        finally:
+            os.close(output_fd)
+    finally:
+        os.close(input_fd)
 
 
 def file_info(path, *, owners, mode=None, gid=None):
@@ -1518,27 +1566,28 @@ def extract_and_seal(archive_path, relative, destination, *, source_head, app_gi
         # Actual SQLite sealing, never raw-header repair or immutable WAL.
         need(not any(os.path.lexists(str(destination) + s) for s in ("-wal", "-shm", "-journal")), "unsealed copy has companions")
         seal_fd = os.open(destination, os.O_RDWR | os.O_NOFOLLOW)
-        created = identity(os.fstat(seal_fd))
-        need(identity(file_info(destination, owners={0}, mode=0o600)) == created, "seal path changed")
-        connection = None
         try:
+            # `created` is the original extraction inode, not a new baseline.
+            need(identity(os.fstat(seal_fd)) == created
+                 and identity(file_info(destination, owners={0}, mode=0o600)) == created,
+                 "extracted snapshot identity changed before sealing")
+            need(file_hash(destination) == member_hash, "extracted snapshot digest changed before sealing")
             connection = sqlite3.connect(destination.as_uri() + "?mode=rw", uri=True, timeout=30)
-            connection.execute("PRAGMA trusted_schema=OFF")
-            need(connection.execute("PRAGMA journal_mode=DELETE").fetchone() == ("delete",), "snapshot could not be sealed")
-            need(connection.execute("PRAGMA quick_check").fetchall() == [("ok",)], "sealed snapshot SQLite check failed")
-        finally:
-            if connection is not None:
-                connection.close()
             try:
-                need(identity(os.fstat(seal_fd)) == created and identity(file_info(destination, owners={0}, mode=0o600)) == created,
-                     "snapshot sealing identity changed")
-                need(not any(os.path.lexists(str(destination) + s) for s in ("-wal", "-shm", "-journal")), "snapshot sealing left companions")
-                need(os.read(seal_fd, 100)[18:20] == b"\x01\x01", "snapshot is not DELETE mode")
-                os.fchown(seal_fd, 0, app_gid)
-                os.fchmod(seal_fd, 0o440)
-                os.fsync(seal_fd)
+                connection.execute("PRAGMA trusted_schema=OFF")
+                need(connection.execute("PRAGMA journal_mode=DELETE").fetchone() == ("delete",), "snapshot could not be sealed")
+                need(connection.execute("PRAGMA quick_check").fetchall() == [("ok",)], "sealed snapshot SQLite check failed")
             finally:
-                os.close(seal_fd)
+                connection.close()
+            need(identity(os.fstat(seal_fd)) == created and identity(file_info(destination, owners={0}, mode=0o600)) == created,
+                 "snapshot sealing identity changed")
+            need(not any(os.path.lexists(str(destination) + s) for s in ("-wal", "-shm", "-journal")), "snapshot sealing left companions")
+            need(os.read(seal_fd, 100)[18:20] == b"\x01\x01", "snapshot is not DELETE mode")
+            os.fchown(seal_fd, 0, app_gid)
+            os.fchmod(seal_fd, 0o440)
+            os.fsync(seal_fd)
+        finally:
+            os.close(seal_fd)
     return {"archive_hash": archive_hash, "archive_signature": signature(before), "member_hash": member_hash}
 
 
@@ -1575,6 +1624,9 @@ def main(args):
             os.fsync(fd)
         finally:
             os.close(fd)
+    elif command == "copy-archive":
+        need(len(args) == 6 and all(value.isdigit() and int(value) > 0 for value in args[3:]), "invalid private archive copy arguments")
+        copy_completed_archive(args[0], args[1], args[2], int(args[3]), int(args[4]), int(args[5]))
     elif command == "configure":
         app, env, target, previous, target_manifest, previous_manifest, old, new, backup_head, hook, uid, gid = args
         need(uid.isdigit() and gid.isdigit() and int(uid) > 0 and int(gid) > 0, "invalid app principal")
@@ -1582,6 +1634,11 @@ def main(args):
         need(env == "/etc/betboy/betboy.env", "unreviewed production config source")
         value = configuration(app, env, target, previous, int(uid), int(gid), target_manifest, previous_manifest, old, new, backup_head)
         hook = Path(hook)
+        if hook.name == "quiesced":
+            # Keep the online environment/payload/path receipt across downtime.
+            # Authentication is deliberately not copied: marker preparation is
+            # an authorized post-quiesce operation with its own recovery proof.
+            need(load_config(hook.parent / "online") == value, "cross-phase configuration changed")
         sealed_directory(hook.parent)
         os.mkdir(hook, 0o750)
         os.chown(hook, 0, int(gid))
@@ -1658,7 +1715,7 @@ if __name__ == "__main__":
         resource.setrlimit(resource.RLIMIT_AS, (2147483648, 2147483648))
         resource.setrlimit(resource.RLIMIT_CPU, (300, 300))
         main(sys.argv[1:])
-    except MemoryError:
+    except (MemoryError, ContextResourceError):
         print("ContextResourceError", file=sys.stderr)
         raise SystemExit(1)
     except Exception:
@@ -1670,7 +1727,7 @@ PY
 
 context_hook_command() {
     local output="$1"
-    local output_size
+    local output_size line
     shift
     local -a codes
     [[ ! -e "${output}" && ! -L "${output}" ]] || die "Context output already exists."
@@ -1690,8 +1747,13 @@ context_hook_command() {
     [[ "${output_size}" =~ ^[0-9]+$ && "${output_size}" -le 1048576 ]] \
         || die "VerificationResourceError: aggregate output budget exceeded."
     case "${codes[0]}" in
-        124|137|152) die "VerificationResourceError: child time or memory limit." ;;
+        124|137|152|153) die "VerificationResourceError: child time, memory or file-size limit." ;;
     esac
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line=${line%$'\r'}
+        case "${line}" in MemoryError|MemoryError:*|ContextResourceError|ContextResourceError:*)
+            die "VerificationResourceError: child memory or capacity limit." ;; esac
+    done <"${output}"
     CONTEXT_COMMAND_STATUS="${codes[0]}"
 }
 
@@ -1702,6 +1764,7 @@ verification_launcher_source() {
 import hashlib
 import os
 from pathlib import Path
+import pwd
 import resource
 import stat
 import sys
@@ -1712,10 +1775,13 @@ environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "TMPDIR": "/var/tmp",
     "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
     "NUMEXPR_NUM_THREADS": "1", "VECLIB_MAXIMUM_THREADS": "1"}
 kind, *args = sys.argv[1:]
-if kind == "backup" and len(args) == 2 and os.geteuid() == 0:
-    helper, archive = map(Path, args)
+if ((kind == "backup" and len(args) == 2 and os.geteuid() == 0)
+        or (kind == "backup-service" and len(args) == 1
+            and os.geteuid() == pwd.getpwnam("betboy-backup").pw_uid != 0)):
+    helper, archive = (map(Path, args) if kind == "backup" else
+        (Path("/usr/local/libexec/betboy-backup-runtime.py"), Path(args[0])))
     info = helper.lstat()
-    if (helper.name != "backup_runtime_databases.py" or not stat.S_ISREG(info.st_mode)
+    if (helper.name != ("backup_runtime_databases.py" if kind == "backup" else "betboy-backup-runtime.py") or not stat.S_ISREG(info.st_mode)
             or info.st_uid != 0 or info.st_nlink != 1 or info.st_mode & 0o022):
         raise SystemExit("invalid trusted backup child")
     with helper.open("rb") as source:
@@ -1723,7 +1789,9 @@ if kind == "backup" and len(args) == 2 and os.geteuid() == 0:
     if checksum != "b37d11a1eec4ebb129797a942ad68ea13861dd3a2b41bfe14644e9f06add5604":
         raise SystemExit("backup child pin differs")
     executable = "/usr/bin/python3"
-    command = [executable, "-I", "-B", str(helper), "--verify-only", str(archive), "--recovery-mode"]
+    command = [executable, "-I", "-B", str(helper), "--verify-only", str(archive)]
+    if kind == "backup":
+        command.append("--recovery-mode")
 elif kind == "d4" and len(args) == 2 and os.geteuid() != 0:
     target, database = map(Path, args)
     executable = "/opt/betboy/venv/bin/python"
@@ -1934,7 +2002,7 @@ PY
 
 capture_root_verifier() {
     local output="$1"
-    local output_size
+    local output_size line
     shift
     local -a codes
     [[ ! -e "${output}" && ! -L "${output}" ]] || die "Root verification output already exists."
@@ -1951,8 +2019,13 @@ capture_root_verifier() {
     output_size=$(stat -c '%s' "${output}") || die "Full backup output size unavailable."
     [[ "${output_size}" =~ ^[0-9]+$ && "${output_size}" -le 1048576 ]] || die "VerificationResourceError: full backup output budget."
     case "${codes[0]}" in
-        124|137|152) die "VerificationResourceError: full backup child limit." ;;
+        124|137|152|153) die "VerificationResourceError: full backup child limit." ;;
     esac
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line=${line%$'\r'}
+        case "${line}" in MemoryError|MemoryError:*|ContextResourceError|ContextResourceError:*)
+            die "VerificationResourceError: full backup memory or capacity limit." ;; esac
+    done <"${output}"
     CONTEXT_COMMAND_STATUS="${codes[0]}"
 }
 
@@ -1994,7 +2067,7 @@ produce_update_backup() {
     log "Creating fresh ${phase} backup (online capture consists of per-database snapshots)."
     context_hook_command "${STAGE_DIR}/backup-${phase}-production.log" /usr/bin/python3 -I -B - \
         "${APP_DIR}" "${work_archive}" "${source_head}" \
-        "${LEDGER_HMAC_KEY}" "${LEDGER_MIGRATION_MARKER}" <<'PY'
+        "${LEDGER_HMAC_KEY}" "${LEDGER_MIGRATION_MARKER}" "${ARCHIVE_MAX_BYTES}" <<'PY'
 import resource
 resource.setrlimit(resource.RLIMIT_AS, (2147483648, 2147483648))
 resource.setrlimit(resource.RLIMIT_CPU, (300, 300))
@@ -2010,6 +2083,11 @@ from datetime import datetime, timezone
 from contextlib import closing
 from pathlib import Path
 
+maximum_archive = int(sys.argv[6])
+if maximum_archive <= 0:
+    raise SystemExit("invalid archive admission budget")
+resource.setrlimit(resource.RLIMIT_FSIZE, (maximum_archive, maximum_archive))
+os.umask(0o077)
 root_argument = Path(sys.argv[1])
 if root_argument.is_symlink():
     raise SystemExit("application backup root must not be a symlink")
@@ -2085,6 +2163,7 @@ def sha256_file(path: Path) -> str:
 
 with tempfile.TemporaryDirectory(prefix="database-stage-", dir=archive_path.parent) as temp:
     stage = Path(temp)
+    snapshot_total = 0
     for source in sources:
         relative = source.relative_to(root)
         destination = stage / relative
@@ -2096,8 +2175,15 @@ with tempfile.TemporaryDirectory(prefix="database-stage-", dir=archive_path.pare
                 raise SystemExit("database replaced before online backup")
             uri = source.as_uri() + "?mode=ro"
             with closing(sqlite3.connect(uri, uri=True, timeout=30)) as source_connection:
+                page_size = source_connection.execute("PRAGMA page_size").fetchone()[0]
+                def snapshot_progress(status, remaining, total):
+                    # Compressed ZIP size cannot bound SQLite restore growth.
+                    # A callback follows at most 256 pages (16 MiB at SQLite's
+                    # largest page size), covered by the disk safety margin.
+                    if snapshot_total + total * page_size > maximum_archive:
+                        raise SystemExit("ContextResourceError: total snapshot byte budget exceeded")
                 with closing(sqlite3.connect(destination)) as destination_connection:
-                    source_connection.backup(destination_connection, pages=256, sleep=0.1)
+                    source_connection.backup(destination_connection, pages=256, sleep=0.1, progress=snapshot_progress)
             if stable_identity(os.fstat(descriptor)) != expected or stable_identity(source.lstat()) != expected:
                 raise SystemExit("database replaced during online backup")
         finally:
@@ -2106,6 +2192,9 @@ with tempfile.TemporaryDirectory(prefix="database-stage-", dir=archive_path.pare
             result = connection.execute("PRAGMA quick_check").fetchall()
         if result != [("ok",)]:
             raise SystemExit(f"SQLite quick_check failed: {relative.as_posix()}")
+        snapshot_total += destination.stat().st_size
+        if snapshot_total > maximum_archive:
+            raise SystemExit("ContextResourceError: total snapshot byte budget exceeded")
         inventory.append({
             "path": relative.as_posix(),
             "source_size": source.stat().st_size,
@@ -2219,6 +2308,23 @@ with tempfile.TemporaryDirectory(prefix="database-stage-", dir=archive_path.pare
                     raise SystemExit("authentication changed during capture")
             finally:
                 os.close(descriptor)
+    descriptor = os.open(archive_path, os.O_RDWR | os.O_NOFOLLOW)
+    try:
+        captured = os.fstat(descriptor)
+        def archive_signature(info):
+            return [*stable_identity(info), info.st_size, info.st_mtime_ns, info.st_ctime_ns]
+        if not 0 < captured.st_size <= maximum_archive:
+            raise SystemExit("ContextResourceError: archive exceeds admitted byte budget")
+        checksum = hashlib.sha256()
+        while chunk := os.read(descriptor, 1024 * 1024):
+            checksum.update(chunk)
+        if archive_signature(os.fstat(descriptor)) != archive_signature(captured) or archive_signature(archive_path.lstat()) != archive_signature(captured):
+            raise SystemExit("produced archive changed before completion")
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    print(json.dumps({"schema": 1, "path": str(archive_path), "size": captured.st_size,
+        "sha256": checksum.hexdigest(), "signature": archive_signature(captured)}, sort_keys=True))
 PY
     [[ "${CONTEXT_COMMAND_STATUS}" == 0 ]] || die "Fresh backup capture failed before acceptance."
     # The staging parent cannot be renamed by betboy. Revoke its only access
@@ -2229,11 +2335,10 @@ PY
         && "$(stat -c '%U:%G' "${work_archive}")" == betboy:betboy \
         && "$(stat -c '%h' "${work_archive}")" == 1 ]] \
         || die "Backup helper did not produce one regular betboy-owned archive."
-    chown -h root:root "${work_archive}"
-    chmod 0600 -- "${work_archive}"
     # Copy to a new root-owned inode: revoking the producer directory alone
     # cannot revoke an already-open application file descriptor.
-    install -o root -g root -m 0600 "${work_archive}" "${partial_archive}"
+    context_hook_data copy-archive "${work_archive}" "${partial_archive}" "${STAGE_DIR}/backup-${phase}-production.log" \
+        "${ARCHIVE_MAX_BYTES}" "$(id -u betboy)" "$(id -g betboy)"
     verify_backup_archive "${partial_archive}"
     capture_root_verifier "${partial_archive}.helper.log" /usr/bin/python3 -I -B "${CONTEXT_STAGE_DIR}/launcher.py" backup \
         "$(trusted_file scripts/backup_runtime_databases.py)" "${partial_archive}"
@@ -2705,9 +2810,7 @@ verify_backup_service_migration() {
         && "$(stat -c '%a' "${archive}")" == 600 \
         && "$(stat -c '%h' "${archive}")" == 1 ]] \
         || die "Backup service archive failed owner, mode or link policy."
-    runuser -u betboy-backup -- \
-        /usr/bin/python3 -I "${TRUSTED_BACKUP_HELPER}" \
-        --verify-only "${archive}"
+    capture_backup_service_verifier "${STAGE_DIR}/backup-service-verification.log" "${archive}"
     runuser -u betboy -- /usr/bin/test ! -r "${archive}" \
         || die "Application account can read the protected backup archive."
     runuser -u betboy -- /usr/bin/test ! -w "${archive}" \
@@ -2717,6 +2820,39 @@ verify_backup_service_migration() {
     runuser -u betboy-backup -- \
         /usr/bin/test ! -r /etc/betboy/betboy.env \
         || die "Backup account can read the runtime environment secrets."
+}
+
+capture_backup_service_verifier() {
+    local output="$1" archive="$2" output_size line
+    local -a codes
+    [[ ! -e "${output}" && ! -L "${output}" ]] || die "Backup verification output already exists."
+    # The backup principal cannot read the app-group private context tree.
+    # Supply only this fixed stdlib launcher over stdin and retain its status.
+    if verification_launcher_source | runuser -u betboy-backup -- \
+        /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 TMPDIR=/var/tmp \
+        OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+        NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+        /usr/bin/timeout --signal=TERM --kill-after=10s 600s \
+        /usr/bin/python3 -I -B - backup-service "${archive}" 2>&1 \
+        | /usr/bin/timeout --signal=TERM --kill-after=10s 610s /usr/bin/head -c 1048577 >"${output}"; then
+        codes=("${PIPESTATUS[@]}")
+    else
+        codes=("${PIPESTATUS[@]}")
+    fi
+    [[ "${#codes[@]}" == 3 && "${codes[0]}" == 0 && "${codes[2]}" == 0 ]] \
+        || die "Backup verifier launcher or output capture failed."
+    output_size=$(stat -c '%s' "${output}") || die "Backup verifier output size unavailable."
+    [[ "${output_size}" =~ ^[0-9]+$ && "${output_size}" -le 1048576 ]] \
+        || die "VerificationResourceError: backup service output budget."
+    case "${codes[1]}" in
+        124|137|152|153) die "VerificationResourceError: backup service child limit." ;;
+    esac
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line=${line%$'\r'}
+        case "${line}" in MemoryError|MemoryError:*|ContextResourceError|ContextResourceError:*)
+            die "VerificationResourceError: backup service memory or capacity limit." ;; esac
+    done <"${output}"
+    [[ "${codes[1]}" == 0 ]] || die "Protected backup archive verification failed."
 }
 
 prepare_backup_storage_and_sources() {
@@ -3416,6 +3552,7 @@ verify_runtime() {
 check_capacity_space() {
     /usr/bin/python3 -I -B - "$1" "$2" <<'PY'
 import os
+import stat
 import sys
 
 backup, databases = (int(value) * 1024 for value in sys.argv[1:])
@@ -3424,9 +3561,15 @@ if min(backup, databases) < 0:
 # Conservative simultaneous high-water reservation: rollback archive copy,
 # both retained work archives, active snapshot/restore, two published archives
 # and two seals. These are extra bytes, never the same free bytes counted twice.
+recovery = "/var/backups/betboy-update"
+if not os.path.lexists(recovery):
+    recovery = "/var/backups"
+recovery_info = os.stat(recovery, follow_symlinks=False)
+if not stat.S_ISDIR(recovery_info.st_mode) or recovery_info.st_uid != 0 or recovery_info.st_mode & 0o022:
+    raise SystemExit("unsafe recovery capacity path")
 requests = (("/var/tmp", backup + databases * 6 + 512 * 1024 * 1024),
-            ("/var/backups", backup + databases * 4 + 512 * 1024 * 1024),
-            ("/var/lib", min(databases, 1024 * 1024 * 1024) * 2 + 256 * 1024 * 1024))
+            (recovery, backup + databases * 4 + 512 * 1024 * 1024),
+            ("/var/lib", min(databases * 2 + 64 * 1024 * 1024, 1024 * 1024 * 1024) * 2 + 256 * 1024 * 1024))
 devices = {}
 for path, required in requests:
     device = os.stat(path, follow_symlinks=False).st_dev
@@ -3443,12 +3586,7 @@ preflight() {
     local worker
     local available_kib
     local backup_apparent_kib
-    local backup_available_kib
-    local backup_required_kib
     local database_apparent_kib
-    local rollback_available_kib
-    local rollback_required_kib
-    local shared_required_kib
 
     verify_invocation "$@"
     for required_command in \
@@ -3488,6 +3626,7 @@ preflight() {
         && "${database_apparent_kib}" =~ ^[0-9]+$ ]] \
         || die "Cannot determine rollback snapshot capacity."
     check_capacity_space "${backup_apparent_kib}" "${database_apparent_kib}"
+    ARCHIVE_MAX_BYTES=$((database_apparent_kib * 2048 + 67108864))
     for worker in "${BETBOY_WORKERS[@]}"; do
         if systemctl is-active --quiet "${worker}"; then
             die "Worker ${worker} is active; retry after it finishes."
