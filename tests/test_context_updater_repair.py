@@ -533,7 +533,8 @@ def test_guard_preserves_exact_independent_production_pins():
     assert PRODUCTION_HEAD in [node.value for node in ast.walk(tree) if isinstance(node, ast.Constant)]
 
 
-@pytest.mark.parametrize("defect", [None, "in_progress", "target", "root", "bytes", "changed", "app_head"])
+@pytest.mark.parametrize("defect", [None, "in_progress", "target", "root", "bytes", "changed", "app_head",
+    "empty_environment", "empty_key", "empty_marker", "empty_updater"])
 def test_full_guard_accepts_only_exact_historical_complete_marker(tmp_path, defect):
     payload = {"application_root": "/opt/betboy/app", "contract_version": 1,
         "completed_at": "2026-08-25T18:25:23.000000+00:00", "mode": "legacy-v0", "status": "complete",
@@ -543,13 +544,20 @@ def test_full_guard_accepts_only_exact_historical_complete_marker(tmp_path, defe
             "databases": [{"path": "synthetic.db", "source": "v0", "checkpoint_mac": "a" * 64}]}}
     raw = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
     run, marker, proof = full_continuity_guard_fixture(tmp_path, raw, synthetic_marker_pin=True)
-    if defect in (None, "changed"):
+    empty_paths = {"empty_environment": marker.parent / "betboy.env",
+                   "empty_key": marker.parent / "challenge-ledger-hmac.key",
+                   "empty_marker": marker, "empty_updater": tmp_path / "sbin/betboy-update"}
+    if defect in empty_paths:
+        empty_paths[defect].write_bytes(b"")
+    if defect in (None, "changed", "empty_environment"):
         run()
         first = proof.read_bytes()
-        if defect is None:
+        if defect in (None, "empty_environment"):
             run()
             assert proof.read_bytes() == first
             assert json.loads(first)["marker"]["sha256"] == hashlib.sha256(raw).hexdigest()
+            if defect == "empty_environment":
+                assert json.loads(first)["environment"]["sha256"] == hashlib.sha256(b"").hexdigest()
             return
     if defect in {"in_progress", "target", "root"}:
         key, value = {"in_progress": ("status", "in_progress"), "target": ("target_head", PRODUCTION_HEAD),

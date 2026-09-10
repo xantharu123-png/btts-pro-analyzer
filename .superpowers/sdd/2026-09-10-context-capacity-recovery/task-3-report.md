@@ -278,3 +278,37 @@ skip only). Command used both `tests/test_context_updater_repair.py` and
 `--junitxml=.pytest_tmp/repair-marker-final.xml`. Bash `-n` and
 `git -c core.autocrlf=false diff --check` pass. No push/VPS/helper/Task2 edit.
 All reviewer/controller artifacts remain outside this three-file commit.
+
+## Empty optional environment correction (base f438eeb)
+
+Actual native whole-guard integration found that the existing trusted
+`/etc/betboy/betboy.env` is a legitimate zero-byte regular file. Its observed
+root:betboy 0640 / single-link metadata passes the unchanged principal rules.
+The installer had incorrectly applied a nonempty requirement to this optional
+configuration, although an empty environment means no overrides and leaves
+the established Task2 defaults intact. This corrects that earlier assumption;
+the production environment must not be populated or rewritten as a workaround.
+
+Full-guard RED: **1 failed, 3 passed**. Only the empty-environment acceptance
+failed with `unsafe trusted file`; empty key, marker and updater were rejected.
+The narrow fix adds keyword-only `allow_empty=False` to the guard's bounded
+read and enables it only for `name == "environment"` in the fixed trusted-file
+tuple. No CLI option or general empty-file fallback exists. All root ownership,
+write-mode, regular-file, link-count, nofollow, FD/path identity, size upper
+bound and SHA/continuity checks remain unchanged, as do exclusive evidence
+writes. Key, marker, updater, self and evidence reads retain the nonempty default.
+
+The whole-guard success case hashes the actual empty bytes into its evidence
+and validates the identical file again; the three empty critical-input controls
+remain rejected. Tests reuse the transparent unit principal/path isolation,
+with real file bytes and the previously documented synthetic marker/OLD pins.
+Task2/helper bytes, resource limits and installed files are untouched. No VPS,
+production environment change or push occurred. Installer LF SHA256:
+`bdc9c700e646e610a07b22077d4b3d00a592b88e4f241a63f5e011642f7c631c`.
+
+Final fresh verification: **450 passed, 1 skipped in 61.93s**, exit0: 110
+Task3 passes, unchanged 340 Task2 passes, existing Windows-only flock skip.
+The two-suite command used `--basetemp=.pytest_tmp/repair-empty-env-final`
+and `--junitxml=.pytest_tmp/repair-empty-env-final.xml`, otherwise the same
+no-cache flags above. Bash `-n` and scoped diff whitespace checks pass.
+Native production-principal acceptance remains the controller's separate gate.

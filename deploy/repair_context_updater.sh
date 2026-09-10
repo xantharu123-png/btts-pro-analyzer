@@ -1990,12 +1990,13 @@ def signature(info):
             info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns]
 
 
-def read(path, maximum):
+def read(path, maximum, *, allow_empty=False):
     path = Path(path)
     ancestors(path.parent)
     before = path.lstat()
+    minimum = 0 if allow_empty else 1
     need(stat.S_ISREG(before.st_mode) and before.st_uid == 0 and before.st_nlink == 1
-         and not before.st_mode & 0o022 and 0 < before.st_size <= maximum,
+         and not before.st_mode & 0o022 and minimum <= before.st_size <= maximum,
          "unsafe trusted file")
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
@@ -2053,7 +2054,9 @@ elif action == "continuity" and len(args) == 2:
         ("marker", "/etc/betboy/challenge-ledger-v2-migrated.json", 65536),
         ("environment", "/etc/betboy/betboy.env", 1048576),
     ):
-        raw, identity = read(path, limit)
+        # The fixed optional environment may contain no overrides. No other
+        # trusted input (key, marker, executable, self or evidence) may be empty.
+        raw, identity = read(path, limit, allow_empty=name == "environment")
         records[name] = {"sha256": hashlib.sha256(raw).hexdigest(), "identity": identity}
         if name == "marker":
             # This is the historical completed migration, not the current app
