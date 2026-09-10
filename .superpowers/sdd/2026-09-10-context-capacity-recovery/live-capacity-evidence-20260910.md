@@ -86,3 +86,41 @@ The first-history20.014s profile recorded12542544calls (12051088primitive). Of86
 The measured hot path is repeated whole-inventory owning decode and typed selection for original and snapshot replays. No check was removed and no process budget was increased in response. A bounded reuse proposal is under review before implementation.
 
 Separate read-only structural inventory as betboy confirmed50880457physical content bytes. All four originals are ATP: two at2026-09-10T10:00:10.922492Z andtwo at2026-09-10T12:07:13.973931Z. Receipts span2026-09-10T09:59:08.864565Z through2026-09-10T13:37:06.249679Z. There are therefore exactly two distinct causal-history keys for eight original/snapshot consumers in this copy. These are measured properties, not an assumption that future inputs always share cutoffs.
+
+## Prepared synthetic growth fixtures (not model evidence)
+
+New private stage `/var/lib/betboy-capacity-growth-t8512i71` contains one app-owned synthetic working copy and three separate root:betboy0440/single-link/DELETE sealed copies. No existing source, live DB, artifact, snapshot or key was altered. Root performed only standard-library byte/permission staging; generation logic ran as actual betboy uid997 using unchanged owning source validators from the exact59b001d source archive.
+
+Each generation adds the complete47098-receipt Tennis pool from the isolated real base, with explicitly artificial future reception clocks shifted by1/2/3days. The workload result clocks, status paired-receipt identities and competition-reception revisions were consistently rebound and every new row passed the unchanged owning typed Tennis validator before insertion. Original B1 rows, six A1 artifacts and four B3 snapshots remain byte-identical. These are capacity fixtures, never genuine received source data or a claim of improved predictions.
+
+| Generation | Observations/contents | File bytes | SHA256 |
+| --- | --- | --- | --- |
+| 1 | 94595 | 198463488 | `de141b33142f4469de70f74263cd39035d1b562b90efb2878a471051d752305d` |
+| 2 | 141693 | 292982784 | `6d7c10b8c1a6996b9b92e4eee7bf68d64b5d0d0c0fa5fd8895dd2e1355b33e9c` |
+| 3 | 188791 | 387739648 | `3628dee7b82bcfadd320bfc9f28df8d770fc7e31692de690cdcb0ae0919cc953` |
+
+Paths are `generation-1/context.db`, `generation-2/context.db`, `generation-3/context.db` below that private stage. Generation wall times77.444s/79.277s/78.767s; peakRSS38104/38244/38248KiB. Those are **fixture construction** measurements, not D4 capacity passes. All three fresh byte copies were streamed, fsynced, hash/identity-checked, and sealed separately with no SQLite companions. Current-source full D4 benchmarks and concurrent seal races remain pending.
+
+## First full cache benchmark and independently corrected schema lifecycle
+
+Exact `c3bac371dede2f7ac825fc8f38f22f75f69d7919` Git archive SHA256 `a0182b47bd895c8619d6cf3e4456cd2fa3e1df9ae890884a797ac17ae7cda13c`, root-staged at `/var/lib/betboy-capacity-code-21iqlrv_/source`,772members. The unmodified CLI ran as betboy uid997 against the real104202240-byte sealed copy with2GiBAS/300CPU/600wall/1MiBoutput bounds, numeric threads1. An app-user stdlib parent captured actual child return code and rusage; it did not patch model or verifier functions.
+
+Result: **full verification completed**, exit2/`transport_only`,229.188s wall,228.438s CPU,350844KiBpeakRSS. Counts6artifacts/2manifests/47497contents/47497receipts/4snapshots/0rollbacks, unchanged two limitations and emptyD2 lists. Input SHA/stat unchanged; no companions. This provisional profile fits the measured current copy, but does not establish final-revision or growth acceptance.
+
+Independent review then closed a real cache API defect: same-transaction DDL could leave the original transaction/write counters unchanged. Fix7d6595e/report4fad098 pins main and temp schema cookies as well. Scoped independent review APPROVED with16DDL countercases passed; author32cachetests and194adjacenttests passed/12skipped/1deselected. Owning source/model files remain unchanged.
+
+Exact corrected source `4fad0983b7595d1be260b652b216fedb8b9fb8a1` archive SHA256 `ddab7d039d59e43bc397ff6619deebcd67d470f8dd98671867cd8a5df02bf777`,772members, lives separately at `/var/lib/betboy-capacity-code-y4z0hffl/source`. Production was not changed. Largest-generation exact-CLI benchmark is in progress; no outcome is claimed yet.
+
+## Exact corrected source: native DAC and real interleavings
+
+Against that4fad098source, actualbetboy uid997 checks reconfirmed3OS/SQLite write denials,8unsafe fixture classes rejected, and exact small memory/sealed-report equality.
+
+Additionally seven real file-system interleavings were exercised in the newly created `/var/lib/betboy-capacity-races-0ag7o51n` only. Root ran standard-library fixture byte/permission operations; each child imported and executed the app reader **after runuser switched tobetboy**. A bounded stdin/stdout handshake paused the child at the actual read boundary; no source trust validator was disabled.
+
+All seven were rejected with the expected trust error: same-path file replacement, ancestor-directory replacement, changed bytes on the held inode, new WAL sidecar, file permission change, ancestor permission change, and replacement between initial sealing and SQLite's own path open. Existing backups, source trees, input copies and production paths were untouched. These are actual native diagnostic results, not a relabeling of Windows-skipped pytest cases. Aggregate native profile/final release gates remain separate.
+
+## Largest growth profile: cache-only reader still HOLD
+
+Exact4fad098 CLI against generation3 (387739648bytes/188791receipts) ended with childreturncode**-9**, parentrecorded300.040CPU seconds/300.219wall seconds/312792KiBpeakRSS. No D4 report was produced. The measured profile was explicitly rejected. The supervisor's wall/output limits did not fire; its recorded failure is `child_exit`. The input's SHA/stat remained unchanged and no SQLite companions appeared.
+
+This is not a memory-cap failure or permission to increase theCPU limit. The controller approved the narrowly specified completed-inventory/cutoff iteration refinement only after this measured failure. Full physical validation remains mandatory before any later-receipt decoding can be avoided during historical replay. Task2RED-only work is committed624280d (9expected new failures/1controlpass;239oldtests pass); its writer stopped before production changes so Task1 can be refined without concurrent code writers.
