@@ -1,4 +1,12 @@
-# Real-source backup: exact directory-mode preparation, not yet executed
+# Real-source backup: exact directory-mode preparation
+
+## User approval — 10 September 2026, 20:27 UTC
+
+The user explicitly answered yes to the exact twelve modes0775→0755 listed
+below, with original metadata saved first and ownership/content preserved.
+This supersedes the earlier pending-approval wording, not any execution gate.
+At this entry no production mode had yet been changed. The unchanged pinned
+procedure must fresh-check every real target before saving/changing it.
 
 10 September 2026. This is separate from the one-time **updater-only** installer. At this checkpoint no production permission, code, service, database or key was changed.
 
@@ -58,6 +66,35 @@ Final exact procedure passed all seven native cases at `/var/lib/betboy-director
 
 The success fixture also used actual identities: uid997 could still create a file; backup uid995 with the explicit supplementary app group was denied. These are real Linux fixture observations, not emulated Windows DAC or physical power-cut tests.
 
-## Still required
+## Actual approved execution — 10 September 2026, 20:35:36 UTC
+
+The unchanged pinned procedure completed against all twelve real directories.
+Original metadata was durably recorded before any fchmod at
+`/var/lib/betboy-directory-mode-repair-fi_69l74/metadata.json`.
+It finished with `status=complete`, twelve changes0775→0755, the same held
+directory identities/UID997/GID987, and the installed old updater unchanged.
+An independent subsequent stat call confirmed all twelve0755 modes and the
+root:root0600 metadata journal. No source bytes, service, key or database
+contents were edited by this procedure.
+
+Further read-only checks bound all twelve current identities to that journal;
+SHA256`9309b326007e19b73b847f00efaaa638ae0d209633276dad667c99eded503b88`.
+Actual UID997 retains effective write access to all12 directories; backup
+UID995 with the explicit app supplementary group has no effective write
+access to any. Both lack read access to the private diagnostic archive.
+
+The fresh full backup diagnostic then passed at
+`/var/lib/betboy-live-backup-j0co13x8`:88 databases, complete MANIFEST and actual
+isolated restore/HMAC verification, exit0. Archive SHA256
+`21bd2b529cf31451f336d1821ab00578ef8ff54beb377ca3494911edcfac39a4`.
+This resolves the earlier directory-principal blocker; it does not stand in
+for the final installer's fresh exact-target backup/D4/evidence chain.
+
+During the later separately authorized normal deployment, the pre-existing
+`prepare_backup_storage_and_sources` contract may set DB-parent directories
+to0750. Do not add another permission correction or claim that all twelve
+must remain0755: both0750 and0755 preserve the intended absence of group write.
+
+## Historical remaining gates at preparation time
 
 Explicit user approval; exact procedure execution and post-check on the twelve real paths; a new full real backup/isolated restore/HMAC; target D4 with measured resources; installer independent/native acceptance; then the separately controlled updater exchange and ordinary exact-revision app release. None is inferred from the synthetic PASS results.

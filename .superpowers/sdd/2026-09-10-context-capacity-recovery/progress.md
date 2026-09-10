@@ -3,7 +3,47 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
-## Current checkpoint — 10 September 2026, 19:45 UTC
+## Current checkpoint — 10 September 2026, 21:05 UTC: RELEASE HOLD
+
+The explicitly approved12-directory mode procedure completed at20:35:36UTC;
+all original UID/GID/inodes preserved, original metadata durably saved. Real
+UID997 can still write all12 directories; UID995 with app supplementary group
+cannot. Fresh full88DB backup/actual isolated restore/HMAC passed in42.60s.
+See `task-3-live-rollout-20260910.md` for exact hashes/stages and evidence.
+
+BUT the uninstrumented b397 CLI on the current114,929,664-byte sealed input
+failed at300.067CPU/300.163wall seconds, child-9, no report,362,972KiBRSS.
+Input remained unchanged. Main and VPS remain2dd1116 with old updater74b1c4b1;
+no main push, exchange, deployment or resource-limit change took place.
+The actual data now has10 originals/snapshots at5 cutoffs (previously4 at2),
+despite only810 additional receipts. Phase tracing confirms repeated62–68CPU
+second cold history builds, with28,432,021bytes per full cached copy. The
+old synthetic growth fixture did not grow the number of replay consumers.
+
+Independent final review explicitly says RELEASE HOLD. Shared-history-basis
+architecture is proposed for discussion, not implemented. Its permission
+question is pending. The whole exact-b397 Windows suite has now completed:
+6897 passed,30 skipped,97 subtests passed in1704.03s, zero failures/errors;
+tracked QA clean. XML SHA1596c19324d7535c4fd057a362f4aefa3cc5f4fe38b4b7956105bc7b3fef5fbe.
+This is not a substitute for the failed real profile. The bounded trace
+confirmed three complete cold builds, four evictions and a fourth cold
+rebuild at original8; no snapshot feature call was reached. All native QA
+and this Windows run are finished. Stagehelper/A0/P4b3/Cricket and all existing
+histories/outputs remain untouched.
+
+## Approved continuation — 10 September 2026, 20:27 UTC
+
+The user explicitly answered yes to the exact twelve directory mode changes
+0775 to 0755 documented in `directory-mode-preflight-20260910.md`. Preserve
+owners, groups, contents, services, keys and databases, and durably save the
+original metadata before changing a mode. The exact reviewed procedure SHA
+`8be3d721660d7438a251628ea58c3e61a64f760d96d69fee4d6a82d22ebfe304`
+is unchanged. Fresh read-only health confirms the old production HEAD/updater,
+HTTP200/ok internally and publicly, seven active timers, and the still-failed
+tennis service. Actual mode repair, fresh backup/restore and rollout results
+must be recorded separately below; user approval alone is not execution.
+
+## Previous checkpoint — 10 September 2026, 19:45 UTC
 
 Code `4205db82bb234f0aa07a43510db0576811556090`, installer SHA
 `bdc9c700e646e610a07b22077d4b3d00a592b88e4f241a63f5e011642f7c631c`.

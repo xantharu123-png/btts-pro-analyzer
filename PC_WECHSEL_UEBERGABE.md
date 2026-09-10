@@ -1,5 +1,39 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Fortsetzung — 10. September 2026, 23:05 CEST: Release weiterhin HOLD
+
+Die zusätzlich freigegebenen zwölf Ordner wurden erfolgreich0775→0755 gesetzt;
+Eigentümer/Gruppe/Inodes/Inhalte blieben erhalten. Metadatenjournal liegt
+root-privat unter `/var/lib/betboy-directory-mode-repair-fi_69l74/metadata.json`.
+Realer App-Schreibzugriff erhalten; Backup-Benutzer hat dort keinen
+Schreibzugriff. Frisches vollständiges88DB-Backup samt isoliertem Restore/HMAC
+bestanden: `/var/lib/betboy-live-backup-j0co13x8`,42.60s. Nicht erneut chmoden.
+
+Neuer echter Blocker: exakter Leserb39789d scheitert auf aktueller114,929,664B
+Kontextkopie bei300.067CPU/300.163wall Sekunden,child-9,keinReport. Eingabe
+unverändert,keineCompanions,RSS362,972KiB. DeshalbKEIN Main-Push/Updateraustausch/
+App-Deployment. Main/VPS weiter2dd1116, installierter Updaterweiter74b1c4b1.
+
+Ursache eingegrenzt: nur810neueReceipts, aber4→10Tennisoriginale/Snapshots und
+2→5historischeCutoffs. JeCutoff wird~28.4MBHistorykopie gespeichert; reale
+Cold-Neuprüfung kostet62–68CPU Sekunden. Der alte388MBWachstumstest hatte die
+Anzahl der Prognoseprüfungen nicht erhöht. Nicht Grenzen erhöhen oder Daten
+löschen. Architekturvorschlag: gemeinsame vollständig validierte immutable
+Historybasis mit historischenViews, unveränderte Einzel-/Featureprüfungen;
+Freigabe dafür angefragt, noch keine Umsetzung. Frische exakte b397Vollsuite
+abgeschlossen:6897bestanden,30übersprungen,97Untertests,1704.03s,keineFehler.
+QA-Tracked-Diff leer; XML1596c193. Der reale CPU-Abbruch bleibt trotzdemHOLD.
+Der Trace belegt3fertigeColdaufbauten/4Evictions/4.Coldstart beim8.Original;
+keineSnapshotfeatureprüfung wurde erreicht. Alle QA-Prozesse dieser Runde
+sind abgeschlossen. Server-/Remotecheck21:01UTC unverändert2dd1116,Healthok,
+App/Caddy/siebenTimer aktiv; bekannter Tennis-Dienstfehler weiteroffen.
+
+Aktuelle Belege in `.superpowers/sdd/2026-09-10-context-capacity-recovery/`:
+`task-3-live-rollout-20260910.md`, `task-3-final-rollout-review-20260910.md`,
+`task-1-fresh-profile-diagnosis-20260910.md` und `progress.md`.
+Original-WIP/A0/P4b3/geschützterStagehelper1441158/Cricket unverändert. Keine
+Behauptung, Verletzungs-/Müdigkeitsmodelle seien dadurch insgesamt erledigt.
+
 ## Kapazitätsreparatur — 10. September 2026, 21:45 CEST
 
 Aktiver separater Worktree:`.worktrees/context-capacity-recovery-20260910`,

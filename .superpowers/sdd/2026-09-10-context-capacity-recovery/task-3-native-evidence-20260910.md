@@ -1,5 +1,19 @@
 # Task 3 native evidence — release still HOLD
 
+## Latest continuation — 21:05 UTC
+
+The separate user-approved12-directory mode correction and a fresh full88DB
+backup/actual restore/HMAC succeeded. However, the exact b397 CLI on the new
+114,929,664-byte current copy failed atCPU300 without a report. Native tracing
+demonstrates repeated cold history construction and eviction as the number
+of originals/snapshots grew from4 to10. No main push, updater exchange or app
+deployment followed. A shared-history-basis proposal awaits user approval.
+Fresh exact-b397 whole Windows suite passed6897/30skips/97subtests in1704.03s;
+its success does not override the actual capacity failure. All details/hashes
+and mode-journal/effective-DAC results are in `task-3-live-rollout-20260910.md`.
+The older sections below are preserved as historical evidence, not current
+statements that the separate mode approval or backup remains pending.
+
 10 September 2026. Controller evidence, not a statement that the five-sport
 model/source plan is complete. No production updater/application/permission,
 key, marker, database or service change has occurred in these checks.
