@@ -674,6 +674,186 @@ def test_validated_cutoff_filters_only_after_complete_pass(encoded_history_fixtu
     assert _replay_history(receipts, cutoff=now, tour="ATP", max_bytes=None)[0]["payload"]["tour"] == "ATP"
 
 
+def test_streamed_receipts_one_join_preserves_full_owner_counts_and_phases(encoded_history_fixture, monkeypatch):
+    import context_runtime_inventory as inventory
+    import context_observations
+    conn, receipts, _ = encoded_history_fixture
+    events, joins = [], []
+    execute, decode, content = TrackedConnection.execute, context_observations._decode_receipt, inventory._decode_object
+    def observed_execute(self, sql, *args, **kwargs):
+        if self is conn:
+            if "LEFT JOIN context_contents AS c" in sql: joins.append(sql)
+            if "WHERE r.digest IS NULL" in sql: events.append("orphan")
+        return execute(self, sql, *args, **kwargs)
+    def observed_content(*args, **kwargs):
+        events.append("content")
+        return content(*args, **kwargs)
+    def observed_receipt(raw):
+        events.append("receipt")
+        return decode(raw)
+    monkeypatch.setattr(TrackedConnection, "execute", observed_execute)
+    monkeypatch.setattr(inventory, "_decode_object", observed_content)
+    monkeypatch.setattr(context_observations, "_decode_receipt", observed_receipt)
+    assert receipts.validate_all() == 3
+    assert events == ["content"]*3 + ["receipt"]*3 + ["orphan"]
+    assert len(joins) == 1
+
+
+@pytest.mark.parametrize("future_count", [0, 40])
+def test_streamed_cutoff_future_growth_has_constant_python_checks(encoded_history_fixture, monkeypatch, future_count):
+    from context_models.contracts import canonical_timestamp, digest
+    from context_sources.tennis_status import normalize_tennis_status
+    from test_tennis_live_worker import competition
+    conn, receipts, now = encoded_history_fixture
+    for index in range(future_count):
+        clock = now+timedelta(days=index+1)
+        for row in normalize_tennis_status("ATP", "189-2026", competition(), grouping_slug="mens-singles", observed_at=clock):
+            content = digest(row)
+            observed = canonical_timestamp(clock)
+            ref = digest({"content_digest": content, "observed_at": observed})
+            conn.execute("INSERT INTO context_contents VALUES (?,?)", (content, canonical_bytes(row)))
+            conn.execute("INSERT INTO context_observations VALUES (?,?,?,?,?,?,?,?)",
+                (ref, content, row["event_key"], observed, row["schedule_revision"], row["source"], row["subject_id"], row["kind"]))
+    assert receipts.validate_all() == future_count+3
+    joins, checks = [], []
+    execute, check = TrackedConnection.execute, receipts._check_validation
+    def observed_execute(self, sql, *args, **kwargs):
+        if self is conn and "LEFT JOIN context_contents AS c" in sql: joins.append(sql)
+        return execute(self, sql, *args, **kwargs)
+    def observed_check():
+        checks.append(1)
+        return check()
+    monkeypatch.setattr(TrackedConnection, "execute", observed_execute)
+    monkeypatch.setattr(receipts, "_check_validation", observed_check)
+    assert len(tuple(receipts.values_at_or_before(now))) == 2
+    assert len(checks) <= 10
+    assert len(joins) == 1 and "WHERE r.observed_at<=?" in joins[0]
+
+
+@pytest.mark.parametrize("bad_identity", [None, "not-a-digest", b"bad-digest"])
+@pytest.mark.parametrize("protected", [False, True])
+def test_streamed_receipts_reject_null_and_invalid_identity(encoded_history_fixture, bad_identity, protected):
+    from context_runtime_inventory import VerifiedReceiptMapping
+    from context_models.contracts import ContextContractError
+    conn, _, _ = encoded_history_fixture
+    ref = conn.execute("SELECT digest FROM context_observations LIMIT 1").fetchone()[0]
+    conn.execute("UPDATE context_observations SET digest=? WHERE digest=?", (bad_identity, ref))
+    receipts = VerifiedReceiptMapping(conn, protected_receipts={bad_identity} if protected else ())
+    with pytest.raises((ContextContractError, ArtifactIntegrityError, KeyError)):
+        receipts.validate_all()
+    with pytest.raises(RuntimeArtifactTrustError):
+        receipts.validate_all()
+
+
+@pytest.mark.parametrize("clock", ["2000-01-01T00:00:00.000000Z", "2099-01-01T00:00:00.000000Z", "!unknown", "unknown", b"opaque-clock"])
+def test_streamed_cutoff_preserves_all_opaque_refs_and_skips_absent(encoded_history_fixture, monkeypatch, clock):
+    import context_observations
+    from context_runtime_inventory import VerifiedReceiptMapping
+    conn, _, now = encoded_history_fixture
+    all_refs = {row[0] for row in conn.execute("SELECT digest FROM context_observations")}
+    protected = set(sorted(all_refs)[:2])
+    for ref in protected:
+        conn.execute("UPDATE context_observations SET observed_at=? WHERE digest=?", (clock, ref))
+    receipts = VerifiedReceiptMapping(conn, protected_receipts=protected | {"0"*64})
+    decode = context_observations._decode_receipt
+    def guarded(raw):
+        if raw[0] in protected: pytest.fail("opaque protected receipt body decoded")
+        return decode(raw)
+    monkeypatch.setattr(context_observations, "_decode_receipt", guarded)
+    receipts.validate_all()
+    rows = tuple(receipts.values_at_or_before(now+timedelta(seconds=2)))
+    assert len(rows) == 3 and {row["digest"] for row in rows} == all_refs
+    assert all("source_schema" not in row for row in rows if row["digest"] in protected)
+
+
+def test_streamed_cutoff_missing_protected_lookup_cannot_hide_mutation(encoded_history_fixture, monkeypatch):
+    from context_runtime_inventory import VerifiedReceiptMapping
+    conn, _, now = encoded_history_fixture
+    missing = "0"*64
+    receipts = VerifiedReceiptMapping(conn, protected_receipts={missing})
+    receipts.validate_all()
+    execute = TrackedConnection.execute
+    changed = []
+    def mutate_on_absence(self, sql, *args, **kwargs):
+        if self is conn and "WHERE r.digest=?" in sql and args == ((missing,),):
+            execute(self, "UPDATE context_observations SET source=source")
+            changed.append(1)
+        return execute(self, sql, *args, **kwargs)
+    monkeypatch.setattr(TrackedConnection, "execute", mutate_on_absence)
+    with pytest.raises(RuntimeArtifactTrustError):
+        tuple(receipts.values_at_or_before(now))
+    assert changed == [1]
+    with pytest.raises(RuntimeArtifactTrustError):
+        receipts.validate_all()
+
+
+@pytest.mark.parametrize("phase", ["physical", "cutoff"])
+@pytest.mark.parametrize("mutation", ["write", "ddl", "commit", "rollback", "close", "interrupt"])
+def test_streamed_receipts_last_decode_failure_never_completes(encoded_history_fixture, monkeypatch, phase, mutation):
+    import context_observations
+    conn, receipts, now = encoded_history_fixture
+    if phase == "cutoff": receipts.validate_all()
+    owner, calls = context_observations._decode_receipt, []
+    def fail_last(raw):
+        row = owner(raw)
+        calls.append(raw[0])
+        if len(calls) == 3:
+            if mutation == "write": conn.execute("UPDATE context_observations SET source=source")
+            elif mutation == "ddl": conn.execute("CREATE TABLE stream_mutation (id INTEGER)")
+            elif mutation == "close": conn.close()
+            elif mutation == "interrupt": raise KeyboardInterrupt("last receipt interrupted")
+            else:
+                getattr(conn, mutation)()
+                conn.execute("BEGIN")
+        return row
+    monkeypatch.setattr(context_observations, "_decode_receipt", fail_last)
+    with pytest.raises((RuntimeArtifactTrustError, sqlite3.ProgrammingError, KeyboardInterrupt)):
+        if phase == "physical": receipts.validate_all()
+        else: tuple(receipts.values_at_or_before(now+timedelta(seconds=2)))
+    assert len(calls) == 3
+    if phase == "physical":
+        with pytest.raises((RuntimeArtifactTrustError, sqlite3.ProgrammingError)):
+            receipts.validate_all()
+
+
+def test_streamed_receipts_left_join_rejects_missing_content(encoded_history_fixture):
+    from context_models.contracts import ContextIntegrityError
+    conn, receipts, _ = encoded_history_fixture
+    ref = conn.execute("SELECT content_digest FROM context_observations LIMIT 1").fetchone()[0]
+    conn.execute("DELETE FROM context_contents WHERE content_digest=?", (ref,))
+    with pytest.raises(ContextIntegrityError):
+        receipts.validate_all()
+    with pytest.raises(RuntimeArtifactTrustError):
+        receipts.validate_all()
+
+
+def test_streamed_cutoff_empty_query_still_checks_mutation(encoded_history_fixture, monkeypatch):
+    conn, receipts, now = encoded_history_fixture
+    receipts.validate_all()
+    execute = TrackedConnection.execute
+    changed = []
+    def mutate_after_query(self, sql, *args, **kwargs):
+        cursor = execute(self, sql, *args, **kwargs)
+        if self is conn and "WHERE r.observed_at<=?" in sql:
+            execute(self, "UPDATE context_observations SET source=source")
+            changed.append(1)
+        return cursor
+    monkeypatch.setattr(TrackedConnection, "execute", mutate_after_query)
+    with pytest.raises(RuntimeArtifactTrustError):
+        tuple(receipts.values_at_or_before(now-timedelta(days=1)))
+    assert changed == [1]
+
+
+def test_streamed_cutoff_rejects_mutation_after_last_yield(encoded_history_fixture):
+    conn, receipts, now = encoded_history_fixture
+    receipts.validate_all()
+    iterator = receipts.values_at_or_before(now)
+    assert next(iterator) and next(iterator)
+    conn.execute("UPDATE context_observations SET source=source")
+    with pytest.raises(RuntimeArtifactTrustError):
+        next(iterator)
+
+
 def test_validated_cutoff_exact_boundary_and_timezone_parity(encoded_history_fixture):
     from datetime import timezone
     from context_sources.tennis_status import select_tennis_observations

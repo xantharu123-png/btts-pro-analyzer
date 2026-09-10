@@ -109,8 +109,8 @@ class VerifiedReceiptMapping(_TransactionMapping):
                 content = _decode_object(raw, label="observation content")
                 if digest(content) != key:
                     raise ArtifactIntegrityError("observation content hash mismatch")
-            for ref in self:
-                self[ref]  # Every receipt, including inactive/unreferenced/future rows.
+            for row in connection.execute(context_observations._SELECT):
+                self._decode_row(row)  # Every receipt, including inactive/unreferenced/future rows.
             if connection.execute("""SELECT 1 FROM context_contents AS c
                     LEFT JOIN context_observations AS r ON r.content_digest=c.content_digest
                     WHERE r.digest IS NULL LIMIT 1""").fetchone():
@@ -133,13 +133,26 @@ class VerifiedReceiptMapping(_TransactionMapping):
             yield from self.values()  # Never validated: preserve the full cold path.
             return
         decision = canonical_timestamp(cutoff)
-        for ref, clock in self._connection.execute("SELECT digest,observed_at FROM context_observations"):
+        remaining_protected = set(self._protected)
+        for raw in self._connection.execute(context_observations._SELECT + " WHERE r.observed_at<=?", (decision,)):
             self._check_validation()
-            if ref in self._protected or clock <= decision:
+            row = self._decode_row(raw)
+            remaining_protected.discard(raw[0])
+            self._check_validation()
+            yield row
+            self._check_validation()
+        # Protected clocks are not eligibility evidence. Keep their opaque
+        # rows even when SQL did not select them, without an unbounded IN list.
+        for ref in remaining_protected:
+            self._check_validation()
+            try:
                 row = self[ref]
+            except KeyError:
                 self._check_validation()
-                yield row
-                self._check_validation()  # Also guards resumption after the final yield.
+                continue  # A protected identity may genuinely be absent.
+            self._check_validation()
+            yield row
+            self._check_validation()  # Also guards resumption after the final yield.
         self._check_validation()
 
     def __getitem__(self, key):
@@ -147,7 +160,12 @@ class VerifiedReceiptMapping(_TransactionMapping):
         row = self._connection.execute(context_observations._SELECT + " WHERE r.digest=?", (key,)).fetchone()
         if row is None:
             raise KeyError(key)
-        if key in self._protected:
+        return self._decode_row(row)
+
+    def _decode_row(self, row):
+        self._check_transaction()
+        if row[0] in self._protected:
+            require_digest(row[0], "protected observation receipt identity")
             # D2's physical preflight owns outer validation; never body-decode
             # an unopened final even when a consumer explicitly requests it.
             return {"digest": row[0], "content_digest": row[1], "event_key": row[2],
