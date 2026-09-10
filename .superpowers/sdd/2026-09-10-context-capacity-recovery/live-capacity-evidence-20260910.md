@@ -124,3 +124,27 @@ All seven were rejected with the expected trust error: same-path file replacemen
 Exact4fad098 CLI against generation3 (387739648bytes/188791receipts) ended with childreturncode**-9**, parentrecorded300.040CPU seconds/300.219wall seconds/312792KiBpeakRSS. No D4 report was produced. The measured profile was explicitly rejected. The supervisor's wall/output limits did not fire; its recorded failure is `child_exit`. The input's SHA/stat remained unchanged and no SQLite companions appeared.
 
 This is not a memory-cap failure or permission to increase theCPU limit. The controller approved the narrowly specified completed-inventory/cutoff iteration refinement only after this measured failure. Full physical validation remains mandatory before any later-receipt decoding can be avoided during historical replay. Task2RED-only work is committed624280d (9expected new failures/1controlpass;239oldtests pass); its writer stopped before production changes so Task1 can be refined without concurrent code writers.
+
+## Validation-owned cutoff refinement: correctness accepted, capacity still HOLD
+
+Implementation8249c288d69337b50e1fde4209171836abba190f/report73e6abd preserves the complete physical pass before selective repeated decoding. Independent scoped review APPROVED with20targeted tests; author213focused pass/12skipped including the real protected-final case. The native archive is33573476bytes, SHA256`fdbba2c5ce81b480cf98c2ede449dda4514ebb38423b64702783e264d1a7e4d8`,776validated source members at`/var/lib/betboy-capacity-code-w4znixio/source`.
+
+Its unmodified largest-generation CLI again failed: childreturncode**-9**,299.949CPU seconds,301.154wall seconds,352636KiBpeakRSS, no report. Input387739648bytes retained exact SHA/stat and no companions. The supervisor recorded`child_exit`, not its wall/output bound. This does **not** satisfy the supported profile; no updater/app deployment occurred and no budget was raised.
+
+Additional read-only structural metadata on the real sealed copy: the first original cutoff includes47098rows, latest clock10:00:07.203791Z; the second includes47361rows, latest12:07:12.644064Z. The sport of the263-row difference has not yet been measured. Similar prefix sizes do not prove identical owning history tuples or cache reuse.
+
+Task2 now owns the sole production-code writing slot for the already-approved streaming/online-preflight implementation. Task1 follow-up is observational profiling and a read-only proposal only. Task3 read-only decomposition is complete and waits for frozen reviewed Task2 algorithms; the unchanged archive helper already performs an actual isolated restore through`--verify-only`.
+
+## Exact8249 source: observational current-copy phase/cache measurements
+
+`observe_capacity_cache_api.py` ran against that unchanged source as betboy, with2GiBAS/300CPU/620wall and single numerical threads. Timing wrappers call the original functions unchanged; the constructor observer returns the original cache instance and only retains its counters. This is an observational full API run, not a substitute for the unmodified CLI profile. An initial local-script syntax error produced no verification or production mutation and was corrected before this run.
+
+Full API verification completed:242.787wall/243.453processCPU seconds,352716KiBpeakRSS; exact6/2/47497/47497/4/0counts, two unchanged limitations, empirical approvalfalse, input SHA/stat unchanged and no companions. Phase wall times: physical observations32.651s; first cold history64.406s (66.107s including store); second cold history64.290s (65.835s including store); subsequent history hits0.603-0.758s. Original phase136.573s. Four unchanged owning feature calls13.600/14.686/14.700/13.602s; full snapshot phase66.567s. These phases nest and must not all be summed.
+
+Actual cache:2misses,6hits,2stores,0evictions,0bypasses,2entries of28432021bytes each; current/peak total56864042bytes within67108864. No pending bytes. This disproves cache pressure as the cause of the two cold passes; their keys have different cutoffs.
+
+The exact263-row interval is now measured: football injuries108, injury-coverage62, empty-lineups62, native-base31. No tennis rows. Given unchanged owning selector semantics, those new rows do not change the selected Tennis history. A narrowly bounded incremental completed-selection reuse proposal is under read-only review; no implementation is authorized while the Task2 writer is active, no check/model/budget has been changed by this diagnosis.
+
+Reading with the exact Mapping's`SELECT digest FROM artifacts` order resolved another material detail:12:07,10:00,12:07,10:00. Therefore earlier-only incremental reuse would **not** remove the measured duplicate. The reviewed smaller proposal is a clock-bounded prefix of a successful later same-tour immutable cache entry, under the completed inventory/lifetime proof; owning selection is monotone and its added evidence fields depend only on row clocks. The controller incorporated this precise refinement and RED requirements into the plan, but Task2 retains the sole-writer slot until a coherent handoff. No arbitrary reordering of original verification or new trusted decoder is proposed.
+
+Production rechecked after the observational run: exact appHEAD`2dd1116b68f3d94e9c24338c6c9dff9b01799221`, updaterSHA`74b1c4b1aa88788f6a8e1050905215953b5938faad0009719aa15164a494b78f`, internal health`ok`. These are current independent checks, not a new deployment.
