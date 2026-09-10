@@ -2101,3 +2101,57 @@ def test_unicode_enumerator_rejects_unreadable_subtree_before_inventory_acceptan
     if mode == "bytes": assert output == ""
     # Path mode may emit a private partial list; callers must reject its status,
     # proven by test_review_source_metadata_and_dac_reject_incomplete_enumeration.
+
+
+def test_rollback_metadata_prefix_directory_restores_file_and_parents(tmp_path, monkeypatch):
+    app = tmp_path / "app"
+    runtime = app / "runtime_state"
+    prefix = runtime / ".pytest_tmp-keep"
+    prefix.mkdir(parents=True)
+    database = prefix / "history.db"
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute("CREATE TABLE preserved(value INTEGER)")
+    excluded = runtime / ".pytest_tmp"
+    excluded.mkdir()
+    (excluded / "excluded.db").write_bytes(b"exact excluded component remains excluded")
+    manifest = tmp_path / "source-metadata.json"
+    fsync_fixture = tmp_path / "directory-fsync-fixture"
+    fsync_fixture.write_bytes(b"fixture only")
+    for path, mode in ((app, 0o751), (runtime, 0o511), (prefix, 0o500), (database, 0o400)):
+        path.chmod(mode)
+    expected = {str(path): (path.stat().st_uid, path.stat().st_gid, stat.S_IMODE(path.stat().st_mode))
+        for path in (app, runtime, prefix, database)}
+    original_bytes = database.read_bytes()
+    fixture_os = SimpleNamespace(**{name: getattr(os, name) for name in dir(os)})
+    if os.name == "nt":
+        # Actual file/dir chmod and lstat remain real. Only unavailable Unix
+        # chown and directory-fsync edges are simulated; Linux uses both real.
+        fixture_os.chown = lambda *args, **kwargs: None
+        fixture_os.open = lambda path, flags: os.open(fsync_fixture if Path(path).is_dir() else path, os.O_RDWR)
+
+    def execute(function, *arguments):
+        with monkeypatch.context() as scoped:
+            scoped.setitem(sys.modules, "os", fixture_os)
+            scoped.setattr(sys, "argv", [function, str(app), str(manifest), *arguments])
+            exec(compile(inline_program(function), function, "exec"), {})
+
+    try:
+        execute("snapshot_backup_source_metadata")
+        records = json.loads(manifest.read_text())
+        assert {record["path"] for record in records} == set(expected)
+        assert {record["path"]: (record["uid"], record["gid"], record["mode"]) for record in records} == expected
+        assert {record["path"]: record["kind"] for record in records} == {
+            str(app): "directory", str(runtime): "directory", str(prefix): "directory", str(database): "file"}
+        for path in (app, runtime, prefix): path.chmod(0o750)
+        database.chmod(0o600)
+        with pytest.raises(SystemExit, match="metadata mismatch"):
+            execute("apply_backup_source_metadata", "verify")
+        execute("apply_backup_source_metadata", "restore")
+        execute("apply_backup_source_metadata", "verify")
+        assert {str(path): (path.stat().st_uid, path.stat().st_gid, stat.S_IMODE(path.stat().st_mode))
+            for path in (app, runtime, prefix, database)} == expected
+        assert database.read_bytes() == original_bytes
+    finally:
+        # Leave only this fixture writable for ordinary test cleanup.
+        for path in (app, runtime, prefix): path.chmod(0o700)
+        database.chmod(0o600)

@@ -2664,7 +2664,7 @@ for current, directories, files in os.walk(root, topdown=True, followlinks=False
     kept = []
     for name in directories:
         child = current_path / name
-        if name in excluded or name.startswith(".pytest_tmp"):
+        if name in excluded:
             continue
         child_info = child.lstat()
         if child.is_symlink() or not stat.S_ISDIR(child_info.st_mode):
