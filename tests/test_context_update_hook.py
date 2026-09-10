@@ -1051,3 +1051,232 @@ exec 3>&2
     result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     assert result.stderr == "collector:--signal=TERM --kill-after=10s 610s /usr/bin/head -c 1048577\n"
+
+
+# Capacity-recovery RED slice. These exercise existing production functions;
+# ownership emulation in content_data remains explicitly NOT native DAC proof.
+def test_capacity_member_reads_are_at_most_one_mib(content_data, tmp_path, monkeypatch):
+    """A whole-member allocation must fail even for a small valid database."""
+    archive, raw = backup_fixture(tmp_path)
+    actual_read = zipfile.ZipExtFile.read
+    member_reads = []
+
+    def bounded_read(handle, size=-1):
+        if handle.name == "runtime_state/context_models.db":
+            member_reads.append(size)
+            assert 0 < size <= 1024 * 1024, "context extraction requested a whole-image read"
+        return actual_read(handle, size)
+
+    monkeypatch.setattr(zipfile.ZipExtFile, "read", bounded_read)
+    destination = tmp_path / "streamed.db"
+    proof = content_data["extract_and_seal"](archive, "runtime_state/context_models.db", destination,
+        source_head="a" * 40, app_gid=1000)
+    assert member_reads
+    assert proof["member_hash"] == hashlib.sha256(raw).hexdigest()
+    assert destination.read_bytes() == raw
+
+
+def test_capacity_valid_65_mib_member_reaches_sealed_copy(content_data, tmp_path):
+    """The legacy 64-MiB in-memory cap must not reject the new sealed route."""
+    source = tmp_path / "large.db"
+    with closing(sqlite3.connect(source)) as connection:
+        connection.execute("CREATE TABLE transport(payload BLOB)")
+        connection.execute("INSERT INTO transport VALUES(zeroblob(?))", (65 * 1024 * 1024,))
+        connection.commit()
+        assert connection.execute("PRAGMA quick_check").fetchall() == [("ok",)]
+    assert 64 * 1024 * 1024 < source.stat().st_size < 67 * 1024 * 1024
+    raw = source.read_bytes()
+    archive, _ = backup_fixture(tmp_path, raw)
+    destination = tmp_path / "large-sealed.db"
+    proof = content_data["extract_and_seal"](archive, "runtime_state/context_models.db", destination,
+        source_head="a" * 40, app_gid=1000)
+    assert proof["member_hash"] == hashlib.sha256(raw).hexdigest()
+    assert destination.stat().st_size == source.stat().st_size
+    with closing(sqlite3.connect(destination.as_uri() + "?mode=ro", uri=True)) as connection:
+        assert connection.execute("SELECT length(payload) FROM transport").fetchone() == (65 * 1024 * 1024,)
+        assert connection.execute("PRAGMA journal_mode").fetchone() == ("delete",)
+
+
+@pytest.mark.parametrize("phase,accept_commit", [("online", True), ("quiesced", False)])
+def test_capacity_phase_distinguishes_real_live_sqlite_commit(content_data, tmp_path, capsys, phase, accept_commit):
+    """Only online replay may tolerate a normal commit on the same live inode."""
+    args = configuration_fixture(content_data, tmp_path, present=True)
+    args["backup_head"] = "a" * 40
+    archive, raw = backup_fixture(tmp_path)
+    live = args["app"] / "runtime_state/context_models.db"
+    live.write_bytes(raw)
+    hook = tmp_path / phase
+    hook.mkdir()
+    (hook / "config.json").write_text(json.dumps(content_data["configuration"](**args)))
+    content_data["os"].geteuid = lambda: 0
+    content_data["main"](["stage", str(hook), str(archive), phase])
+    assert capsys.readouterr().out == "present\n"
+    before = live.stat()
+    with closing(sqlite3.connect(live)) as connection:
+        connection.execute("INSERT INTO transport VALUES('a real commit during target replay')")
+        connection.commit()
+    assert (live.stat().st_dev, live.stat().st_ino) == (before.st_dev, before.st_ino)
+    (hook / "report.json").write_text(json.dumps(report()))
+    if accept_commit:
+        content_data["main"](["finish", str(hook), "0", phase])
+        assert capsys.readouterr().out == "Context continuity: structural; no model/effect certification.\n"
+    else:
+        with pytest.raises(ValueError, match="live source changed"):
+            content_data["main"](["finish", str(hook), "0", phase])
+        assert capsys.readouterr().out == ""
+
+
+def test_capacity_unknown_phase_cannot_silently_use_quiesced_finish(content_data, tmp_path, capsys):
+    hook, _, _ = prepared_stage(content_data, tmp_path)
+    capsys.readouterr()
+    (hook / "report.json").write_text(json.dumps(report()))
+    with pytest.raises(ValueError):
+        content_data["main"](["finish", str(hook), "0", "unreviewed-phase"])
+    assert capsys.readouterr().out == ""
+
+
+def capacity_order_harness(*, online_failure):
+    """Run the real hook orchestration/main sequence; fake only host mutations.
+
+    ZIP creation and D4 execution have their own real-byte tests. Here their
+    process boundary is recorded so no test can stop this computer's services.
+    """
+    source = UPDATER.read_text(encoding="utf-8")
+    begin = source.index('preflight "$@"\nremember_unit_state')
+    end = source.index('\napply_trusted_payload "${TARGET_MANIFEST}" "${TARGET_PAYLOAD}"', begin)
+    end = source.index("\n", end + 1)
+    harness = """set -euo pipefail
+PATH=/usr/bin:/bin
+STAGE_DIR=/var/tmp/betboy-update.fixture
+CONTEXT_STAGE_DIR=/var/lib/betboy-context-update.fixture
+APP_DIR=/fixture/app; VENV_DIR=/fixture/venv
+TARGET_PAYLOAD=target; PREVIOUS_PAYLOAD=previous
+TARGET_MANIFEST=target-manifest; PREVIOUS_MANIFEST=previous-manifest
+PREVIOUS_HEAD=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+TARGET_HEAD=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+MIGRATION_MARKER_PREVIOUS_HEAD=cccccccccccccccccccccccccccccccccccccccc
+MIGRATION_RESUME_TARGET=0; UPDATE_STARTED=0; FRESH_BACKUP=; PREFLIGHT_BACKUP=
+BETBOY_TIMERS=(fixture.timer)
+die() { printf 'die:%s\n' "$*"; exit 1; }
+log() { :; }
+id() { printf '1000\n'; }
+target_payload_file() { printf '/fixture/target/%s\n' "$1"; }
+context_hook_command() { cat >/dev/null; CONTEXT_COMMAND_STATUS=0; }
+context_hook_data() {
+    case "$1" in
+        configure) printf 'configure:%s\n' "$*" >&2 ;;
+        stage) printf 'stage:%s\n' "$*" >&2; printf 'present\n' ;;
+        finish) printf 'finish:%s\n' "$*" >&2 ;;
+        dependencies) : ;;
+        *) printf 'unexpected-hook:%s\n' "$*" >&2; return 90 ;;
+    esac
+}
+preflight() { preflight_context_runtime; }
+remember_unit_state() { printf 'remember\n'; }
+snapshot_root_files() { printf 'root-snapshot\n'; }
+ensure_backup_principal() { printf 'backup-principal\n'; }
+systemctl() { printf 'service:%s\n' "$*"; }
+wait_for_workers() { :; }
+verify_no_betboy_processes() { :; }
+disable_runtime_autostart() { printf 'autostart-write\n'; }
+ensure_ledger_hmac_key() { printf 'key-ensure\n'; }
+purge_python_caches() { :; }
+verify_untracked_policy() { :; }
+verify_resume_app_bytes() { :; }
+verify_clean_worktree() { :; }
+verify_app_bytes() { :; }
+snapshot_backup_source_metadata() { :; }
+snapshot_backup_archives() { :; }
+prepare_challenge_migration_boundary() { printf 'marker-prepare\n'; }
+create_fresh_backup() { FRESH_BACKUP=quiesced-archive; printf 'quiesced-backup\n'; }
+apply_trusted_payload() { printf 'payload-write\n'; }
+"""
+    harness += "create_online_preflight_backup() { printf 'online-backup\\n'; PREFLIGHT_BACKUP=online-archive; "
+    harness += "printf 'capacity-resource-failure\\n'; return 1; }\n" if online_failure else "return 0; }\n"
+    harness += shell_function("preflight_context_runtime") + shell_function("verify_context_runtime_before_update")
+    return harness + source[begin:end] + '\nprintf "archives:%s:%s\\n" "$PREFLIGHT_BACKUP" "$FRESH_BACKUP"\n'
+
+
+def test_capacity_failure_from_fresh_online_backup_precedes_every_stop_and_write():
+    result = subprocess.run([bash()], input=capacity_order_harness(online_failure=True),
+        text=True, capture_output=True, timeout=20)
+    assert "command not found" not in result.stderr, result.stderr
+    lines = result.stdout.splitlines()
+    assert "online-backup" in lines, "real preflight omitted the required fresh online backup"
+    assert "capacity-resource-failure" in lines
+    assert result.returncode != 0
+    assert not any(line.startswith(("service:", "autostart-write", "key-ensure", "marker-prepare", "payload-write")) for line in lines)
+
+
+def test_capacity_success_uses_two_distinct_archives_and_private_phase_hooks():
+    result = subprocess.run([bash()], input=capacity_order_harness(online_failure=False),
+        text=True, capture_output=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    assert "online-backup" in lines, "the online snapshot cannot be replaced by the quiesced recovery archive"
+    assert lines.index("online-backup") < lines.index("service:stop fixture.timer")
+    assert lines.index("marker-prepare") < lines.index("quiesced-backup") < lines.index("payload-write")
+    assert lines[-1] == "archives:online-archive:quiesced-archive"
+    stages = [line for line in result.stderr.splitlines() if line.startswith("stage:")]
+    assert len(stages) == 2
+    assert "/var/lib/betboy-context-update.fixture/online" in stages[0] and "online-archive" in stages[0]
+    assert "/var/lib/betboy-context-update.fixture/quiesced" in stages[1] and "quiesced-archive" in stages[1]
+
+
+def test_capacity_full_var_lib_mount_rejects_before_preflight_capture():
+    """A separate full seal mount cannot borrow free space from /var/tmp."""
+    body = shell_function("preflight")
+    start = body.index('    available_kib=$(df -Pk "${APP_DIR}"')
+    end = body.index('    for worker in "${BETBOY_WORKERS[@]}"', start)
+    harness = """set -euo pipefail
+PATH=/usr/bin:/bin
+APP_DIR=/fixture/app
+die() { printf 'rejected:%s\n' "$*"; exit 1; }
+df() {
+    printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n'
+    case "${@: -1}" in
+        /var/lib*) printf 'seal 8388608 8388607 1 100%% /var/lib\n' ;;
+        *) printf 'data 8388608 0 8388608 0%% /\n' ;;
+    esac
+}
+du() { printf '1024 fixture\n'; }
+find() { printf '1048576\n'; }
+stat() { case "${@: -1}" in /var/lib*) printf '3\n';; *) printf '2\n';; esac; }
+"""
+    result = subprocess.run([bash()], input=harness + body[start:end] + "\nprintf 'capacity-accepted\\n'\n",
+        text=True, capture_output=True, timeout=20)
+    assert "command not found" not in result.stderr, result.stderr
+    assert result.returncode != 0, "preflight accepted a full separate /var/lib seal filesystem"
+    assert "capacity-accepted" not in result.stdout
+
+
+def test_capacity_output_overflow_is_an_immediate_child_failure(tmp_path):
+    output = tmp_path / "overflow.txt"
+    command = " ".join(shlex.quote(x) for x in [sys.executable, "-I", "-B", "-c",
+        "import sys; sys.stdout.write('x' * (1024 * 1024 + 1))"])
+    harness = """set -euo pipefail
+die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
+as_betboy() { shift 8; "$@"; }
+""" + shell_function("context_hook_command")
+    result = subprocess.run([bash()], input=harness + f"\ncontext_hook_command {shlex.quote(output.as_posix())} {command}\nprintf 'capture-accepted\\n'\n",
+        text=True, capture_output=True, timeout=20)
+    assert output.stat().st_size <= 1024 * 1024 + 1
+    assert result.returncode != 0, "oversized aggregate child output was accepted by the process boundary"
+    assert "capture-accepted" not in result.stdout
+
+
+def test_capacity_child_environment_fixes_all_numerical_threads(tmp_path):
+    output = tmp_path / "threads.json"
+    names = ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"]
+    program = "import json, os; print(json.dumps({name: os.environ.get(name) for name in " + repr(names) + "}))"
+    command = " ".join(shlex.quote(x) for x in [sys.executable, "-I", "-B", "-c", program])
+    harness = """set -euo pipefail
+die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
+as_betboy() { "$@"; }
+""" + shell_function("context_hook_command")
+    result = subprocess.run([bash()], input=harness + f"\ncontext_hook_command {shlex.quote(output.as_posix())} {command}\n",
+        text=True, capture_output=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(output.read_text()) == {
+        "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1", "VECLIB_MAXIMUM_THREADS": "1"}
