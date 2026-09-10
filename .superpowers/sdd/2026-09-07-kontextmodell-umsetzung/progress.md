@@ -1,5 +1,46 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Account continuation — 10 September 2026, late morning CEST
+
+Existing approvals/spec/20-task plan are retained. Fresh Git checks confirm
+Root/remote feature898652b; main and actual VPS remain2ba3931. No context
+deployment, source reset or replacement of inherited WIP. Seven timers planned,
+app/local/public health good; today's original combined Tennis job failed.
+
+- Task19 follow-up: C0c0a83f1 original manual quote staleness is fixed in the
+  actual completed browser rerun. Independent review reports two Important
+  findings: fresh bankroll visibly blank, and invalid explicit checks omit
+  checked-input identity. Original author owns narrow fix round1; C0 preserved.
+  Both original review and Root browser report remain separate evidence.
+  Ruling: replace only this bankroll number widget with a normally editable
+  text input initialized to100.00; preserve finite numeric/min1 validation,
+  explicit-empty=None, raw checked-input identity and existing evaluator/save
+  rules. Streamlit1.59.2 couples the numeric default to clear behavior; the
+  one-shot100/defaultNone workaround is false in the real browser. Cost:
+  this field loses its increment/decrement stepper; no finance/model rule changes.
+- Finder/Risk geometry and navigation checked at1440/1024/761/760/390/320;
+  no document horizontal overflow. Synthetic six-sport filter roundtrips exact.
+  Actual quote edits did not alter five model-card texts/order. Not real bets,
+  empirical quality or production UI acceptance. See task19 Root browser report.
+- Root integration of P4b2/P6a before account stop:526passed/26subtests,23.97s;
+  XMLc6a62188 verified on resume. Fullf2 results do not cover C0/later packets.
+- P4b3(a) remains isolated WIP; four authorized visibility/clock original probes
+  now green, both durable-B3-ref probes correctly still red. Author edits paused
+  during UI correction; self-review noted deduplication/closed-batch obligations.
+  Not merged or included in the technical release.
+- P5b native Football preflight completed and copied byte-identically:
+  cafcac20,2 real missing-worker REDs/10 controls, unchanged16sourcehashes.
+  Original capture and B3 final-worker connection absent; CANC/1H stored status
+  lineage also absent while legacy direct-detail reconciliation still works.
+  Calibrated legacy marginals must not be relabelled as raw B5 probability;
+  zero-rate-change substitution demonstrably changes probability spuriously.
+
+Next: source/protocol/browser correction -> independent scoped rereview ->
+integrated immutable target/full suite -> approved installed A-to-B route.
+Then continue P4b3/P5b and remaining actual source/empirical dependencies.
+No new user approval request is needed for existing scope; no new coefficient,
+historical receipt, source budget or empirical qualification is inferred.
+
 ## Accepted original/binding packets and browser release hold — 10 September 2026
 
 Root codef058517 integrates P5a8691022+34b4a5a, P4b2ba73dc9+5a3d0c1, P6ac28ae1e.

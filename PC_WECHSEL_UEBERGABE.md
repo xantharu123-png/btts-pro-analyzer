@@ -1,5 +1,30 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Accountfortsetzung am 10. September 2026 — Vormittag
+
+Spezifikation, Plan, Agenten-/Worktree- und Releasefreigaben übernommen, nicht
+erneut angefordert. Root/Remote-Feature898652b, GitHub main und tatsächlicher
+VPS frisch2ba3931. App/Caddy und Healthchecks aktiv; sieben Timer geplant,
+heutiger Tennis-Lauf07:17–07:18 CEST wieder Exit1. Noch kein neues Deployment.
+
+UI-C0c0a83f1: echter Quotenwechsel1.12→4.00 invalidiert die alte Bewertung;
+Karten/Sortierung unverändert. Zwei unabhängige Restbefunde werden eng korrigiert:
+Guthaben100 ist im Browser nicht sichtbar, ungültige explizite Prüfungen nennen
+ihre geprüften Eingaben nicht. Ein textbasiertes Guthabenfeld mit erhaltenen
+Zahlen-/Min1-/Preisregeln ist dafür genehmigt; keine Finanzregeländerung.
+Finder/Risk bei1440/1024/761/760/390/320 ohne horizontalen Dokumentüberlauf;
+sechs synthetische Sportfilter funktionieren. Das ist keine echte Sportdaten-
+oder Wirkungsvalidierung. Root-Browserbericht/Originalreview im SDD gesichert.
+
+P4b3(a) ist isolierter uncommitteter WIP: vier Original-Visibility-/Clockfälle
+grün, zwei dauerhafte B3-Referenzfälle noch rot. Während UI-Fix kurz pausiert.
+Fußball-P5b-Preflight abgeschlossen: tatsächlicher Final-Capture/B3-Anschluss
+fehlt; gespeicherte CANC/1H-Korrekturen fehlen, obwohl Legacy-Live-Reconcile
+wirkt. Kalibrierte Legacywerte nicht als Raw-B5 ausgeben. Berichtcafcac20 bleibt
+byte-identisch erhalten. Sourcehashes, geschützter Helper1441158 und fremde
+Outputs unangetastet. Fortsetzen mit UI-Nachreview, neuem eingefrorenem
+Gesamtteststand und geprüftem A→B-Deployment; übrige Modellpakete bleiben offen.
+
 ## Fortsetzung am 10. September 2026 — nach dem vollständigen B-Test
 
 Root-Code `f058517011c9841a0650c767c301822b2d29a3c5`: Fußball-Original samt
