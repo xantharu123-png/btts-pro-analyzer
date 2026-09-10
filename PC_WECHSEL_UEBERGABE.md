@@ -1,6 +1,6 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Kapazitätsreparatur — 10. September 2026, 21:05 CEST
+## Kapazitätsreparatur — 10. September 2026, 21:36 CEST
 
 Aktiver separater Worktree:`.worktrees/context-capacity-recovery-20260910`,
 Branch`codex/context-capacity-recovery-20260910`, Codecommit`4205db82`.
@@ -26,8 +26,15 @@ kontrollierter Updater-Austausch; normale App-Veröffentlichung erst separat.
 Alle Details, Native-SHAs und erhaltenen Fehlerreproduktionen stehen in
 `.superpowers/sdd/2026-09-10-context-capacity-recovery/` (`progress.md`,
 `directory-mode-preflight-20260910.md`, `task-3-native-evidence-20260910.md`).
-Die breite e2-Zwischenstandssuite läuft noch in`context-capacity-final-qa-20260910`;
-keine vollständige Endstand-/VPS-Freigabe behaupten. Reale72-Ledger-Markerfixture
+Die breite e2-Zwischenstandssuite endete mit 4 fehlgeschlagenen alten
+Serverjob-Testverträgen, 6877 bestanden / 30 übersprungen / 97 Untertests. Testport
+und zusätzlicher Fehlerabbruch-Gegentest sind unabhängig angenommen. Ein
+alter Linux-Test konnte einen Inode wiederverwenden; der enge Fixture-Fix
+erhält Comparator/Produktivcode und dokumentiert die Erkennungsgrenze.
+Finaler Testfreeze `e90320c`: 541 Linux-Tests ohne Skips bestanden. Die vollständige
+saubere Windows-LF-Suite läuft noch bei e74 mit identischem Produktivcode;
+Folgeänderungen nur Tests/Berichte. Noch keine Vollsuite-/VPS-Freigabe behaupten.
+Reale72-Ledger-Markerfixture
 bleibt ausschließlich ignored, niemals committen/mitarchivieren. Geschützter
 Stagehelper, alte WIP/Outputs und getrennte A0/P4b3-Stände bleiben erhalten.
 Cricket unverändert; empirisch qualifizierte Verletzungs-/Belastungseffekte und

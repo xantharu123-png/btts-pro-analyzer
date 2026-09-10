@@ -3,7 +3,7 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
-## Current checkpoint — 10 September 2026, 19:05 UTC
+## Current checkpoint — 10 September 2026, 19:36 UTC
 
 Code `4205db82bb234f0aa07a43510db0576811556090`, installer SHA
 `bdc9c700e646e610a07b22077d4b3d00a592b88e4f241a63f5e011642f7c631c`.
@@ -21,8 +21,18 @@ The user approved versioned QA archive transfer. Separate permission to change
 exactly12 existing0775 directories to0755 is still pending; the complete real
 backup producer fails closed until that boundary is resolved. Fresh full real
 backup/restore/HMAC, measured exact-target D4 and final rollout remain open.
-The broad exact-LF suite on intermediate e2 is running, not yet accepted; final
-marker/env deltas have separate whole-program/native and unit evidence.
+The broad exact-LF e2 run ended with4 failed,6877 passed,30 skipped and97
+subtests passed in1647.97s. Its four old server-job contracts were ported with
+actual phase/launcher/enumerator/device and error-propagation controls; the
+independent review's additional test gap was closed. A later native old fixture
+failure was proven to reuse a freed inode; e903 makes the intended distinct
+identity deterministic, preserving the record-identical recycling limitation.
+Final test-only freeze`e90320c`: independent APPROVED, fresh native Linux trio
+541passed/0skips46.73s. All product/helper bytes remain4205/6ba. The full clean
+exact-LF Windows suite still runs at e74 with identical production source;
+later deltas are only tests/docs. Do not label it final-commit evidence or
+claim full-suite green before completion. See the native evidence and two
+new regression/triage reports for preserved failures and exact boundaries.
 Cricket and unfinished source/empirical model work remain outside this repair.
 
 ## Earlier chronological evidence (superseded where noted above)

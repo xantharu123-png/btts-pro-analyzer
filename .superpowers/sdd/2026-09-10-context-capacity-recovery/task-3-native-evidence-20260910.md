@@ -195,9 +195,120 @@ worktree lacked the`.pytest_tmp` parent. A focused reproduction showed WinError3
 at basetemp creation. This was corrected by creating that ignored directory;
 none of its setup errors counts as a product test failure or test acceptance.
 
-A fresh broad suite is running in the clean exact-LF e2 QA worktree with the
-parent present. It is an intermediate source baseline, not yet a result and
-not acceptance of the still-pending marker fix.
+The broad suite completed in the clean exact-LF e2 QA worktree with the parent
+present: **4 failed, 6877 passed, 30 skipped, 97 subtests passed in1647.97s**.
+XML`.pytest_tmp/full-e2ae3f6-01.xml`, SHA256
+`8679e0ad8fced68ab47099d0cab3ab539f90ebbcc11891098da85bceca7b8082`.
+The worktree's tracked files remained clean. This is a failed intermediate
+source baseline, not a final-source full-suite acceptance.
+
+All four failures are in legacy`tests/test_server_jobs.py` contracts:
+
+- `test_update_preflights_before_downtime_and_has_recovery_path` expects the
+  old backup success string/direct invocation instead of phase-aware output
+  and the fixed launcher.
+- `test_deployers_verify_backup_unit_dac_with_its_supplementary_group` expects
+  the superseded shell-find pattern instead of the exact Unicode-safe source
+  enumerator used with the real backup principal and supplementary group.
+- `test_updater_publishes_backup_snapshot_only_after_helper_success` expects
+  a direct verify-only flag and the old capacity formula in the caller,
+  instead of the fixed launcher and combined-device accounting.
+- `test_backup_user_migration_is_updater_and_rollback_compatible` expects a
+  shell-stat fragment instead of actual device accounting.
+
+Task2's author is independently reproducing these REDs and porting exactly
+those four tests to executable behavior checks. Before-downtime ordering,
+real restore/HMAC, backup-UID DAC, role separation and complete combined-mount
+accounting must remain asserted. No production source change is authorized
+by that test-only port. Independent review and a fresh final frozen broad
+run remain pending.
+
+### Four-test port and additional native regression run
+
+Test-only commit`e74b51a7be7b272591b20921f7679eb8f38efbb1` independently
+reproduced the four old REDs, then passed533 tests/8Windows skips in76.14s.
+The independent review reproduced one remaining test-sensitivity gap: ignoring
+the real producer's failed restore/HMAC helper status was not rejected by the
+ported preflight test. Actual original shell behavior does reject statuses1
+and137 before publication; this is a test gap, not an observed production
+bypass. A narrowly scoped executable closing-path test is being added.
+
+Root started the full exact-LF Windows suite at frozen e74 at19:16 UTC in
+`context-capacity-final-qa-20260910`; it is still running. No source in that
+worktree is edited while it runs. The subsequent test-only review correction
+must be verified separately; do not falsely label e74 as that later revision.
+
+The exact versioned e74 archive was transferred under the user's QA approval:
+SHA256`b8888f3138bed728ebdeac91f762b38146a713f5e9e22549cffe2c16a49a8b05`,
+33,709,730bytes,796members. Only ordinary QA UID1000 executes its tests.
+The broader native run includes server-jobs, updater hook and repair tests:
+
+- First controller setup lacked an explicit QA import path under Python`-I`:
+  one collection error, no test acceptance. Directory`repair-final-e74b51a-tjtr40k8`.
+- Second setup reached old synthetic migration fixtures, but SSH umask0002
+  created their policy files0664. Read-only stat confirmed ubuntu:ubuntu0664;
+  the local policy trust check correctly rejected them. Three failures/17pass
+  before maxfail; directory`repair-final-e74b51a-8gl74ycy`.
+- The QA-only runner now sets umask0077 before creating new fixtures and
+  `-o pythonpath=.`. No existing file, production permission or trust rule was
+  changed. This run completed **540passed/1failed in46.36s**,47.017supervised,
+  directory`/tmp/betboy-context-qa.9xr68INa/repair-final-e74b51a-k33qbubp`.
+- The remaining native failure is the unchanged old
+  `test_backup_tree_update_rejects_identical_replacement_and_two_archives`:
+  unlinking and recreating identical content did not trigger the expected
+  replacement rejection. Linux inode reuse is a hypothesis under independent
+  read-only triage, not yet a proven harmless fixture error. The pinned backup
+  helper remains unchanged; no full native-green claim is valid.
+
+### Final scoped regression closure — e90320c
+
+The status-propagation test gap was closed by test-only commits`1fc22969` and
+`067de6a3`: actual producer completion rejects inline-verifier failure and
+helper statuses1/137 before publication, success logging or continuation.
+Six independent read-time fault variants are now rejected. Independent final
+server-jobs83pass/7Windows skips15.21s; author's final trio533pass/8skips80.82s.
+Neither result is relabelled as a new full-suite or real backup run.
+
+The inode diagnostic ran as ordinary UID1000 against the unchanged pinned
+backup helper in a new QA fixture tree:
+`/tmp/betboy-context-qa.9xr68INa/inode-diagnosis-f5_kjhy9`.
+Revised ignored harness SHA256
+`2d0796370218b23697ad1492e93b1dcede2096861c806ac6b19d61a279187a8f`.
+All8 unlink/recreate cases reused the original dev/inode and matched all9
+stored fields; only mtime/ctime changed. Distinct-inode same-byte replacement,
+same-inode changed bytes, and two new archives were all rejected. Thus the old
+test failed to guarantee the identity change it claimed to test. Fully
+record-identical inode recycling remains undetected by that unchanged helper;
+this is not a universal historical-replacement detection guarantee.
+
+Test-only`e90320c02c40f152546b4b7b7c4bb3548fb4c9dc` creates its replacement
+while the original exists, asserts a distinct POSIX identity on the same
+filesystem, then replaces it. The Linux rejection, Windows behavior and
+two-archive expectation remain unchanged. Comparator/helper/installer/updater
+bytes and all pins are untouched. Independent fixture review APPROVED with
+83server-jobs passes/7Windows skips13.86s and actual-record fault sensitivity.
+See`task-3-backup-tree-inode-triage.md` and
+`task-2-broad-regression-independent-review.md` for the explicit bounds.
+
+Root's fresh final three-file native Linux run now passes **541tests,0skips,
+0errors in46.73s**,47.439supervised, ordinary UID1000:
+
+- Exact e903 Git archive SHA256
+  `c70530ec62e73e1aae76f973fea7c69aaa3600ea8746836e7f2c4b706c4426e9`,
+  33,715,644bytes,797members.
+- QA result/fixtures
+  `/tmp/betboy-context-qa.9xr68INa/repair-final-e90320c-fqnjbo05`.
+- JUnit `repair-final-linux.xml`: UID/GID1000:1000, mode0600,81,868bytes;
+  SHA256`e2c4ef7d1645c513e3e9705086bac4db21fe12e603ba5e2d4b326192df3e5cbe`.
+- All of`test_server_jobs.py`,`test_context_update_hook.py`, and
+  `test_context_updater_repair.py`; no root pytest/application import.
+- This is a bounded native regression run, not the full application suite,
+  a production backup, measured real-data D4 acceptance or a deployment.
+
+The clean e74 exact-LF Windows full suite is still running. Root checked that
+every e74-to-e903 delta is confined to one test file and two reports; all
+production code is identical. Do not claim that full suite ran at e903 or
+that the historical540pass/1fail run was green.
 
 The previously documented twelve0775-to0755 directory corrections still need
 their separate explicit user approval. No such production chmod was performed.
