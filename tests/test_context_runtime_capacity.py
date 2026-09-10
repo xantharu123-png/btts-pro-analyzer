@@ -234,6 +234,10 @@ def test_lazy_membership_does_not_decode_unopened_final(tmp_path, monkeypatch):
         from context_runtime_history_cache import EncodedHistoryCache
         from context_runtime_tennis import _replay_history
         from context_dataset_helpers import EVALUATED
+        receipts.validate_all()
+        early = tuple(receipts.values_at_or_before(EVALUATED-timedelta(days=3650)))
+        assert {row["digest"] for row in early} == refs
+        assert all("source_schema" not in row for row in early)
         cache = EncodedHistoryCache(receipts, max_bytes=1024**2)
         assert _replay_history(receipts, cutoff=EVALUATED, tour="ATP", max_bytes=None, cache=cache) == ()
         assert _replay_history(receipts, cutoff=EVALUATED, tour="ATP", max_bytes=None, cache=cache) == ()
@@ -403,8 +407,9 @@ def test_encoded_history_budget_failure_does_not_publish_partial_entry(encoded_h
     assert cache.stats["hits"] == 1
 
 
+@pytest.mark.parametrize("validated", [False, True])
 @pytest.mark.parametrize("damage", ["future_unrelated", "other_tour_typed"])
-def test_encoded_history_cold_path_keeps_full_validation(encoded_history_fixture, damage):
+def test_encoded_history_cold_path_keeps_full_validation(encoded_history_fixture, damage, validated):
     from context_runtime_history_cache import EncodedHistoryCache
     from context_runtime_inventory import VerifiedReceiptMapping
     from context_runtime_tennis import _replay_history
@@ -429,7 +434,11 @@ def test_encoded_history_cold_path_keeps_full_validation(encoded_history_fixture
         pytest.fail("missing other-tour fixture")
     receipts = VerifiedReceiptMapping(conn)
     cache = EncodedHistoryCache(receipts, max_bytes=1024**2)
+    if validated and damage == "other_tour_typed":
+        receipts.validate_all()  # B1-valid damage must still reach eligible opposite-tour owning validation.
     with pytest.raises(ContextIntegrityError):
+        if validated and damage == "future_unrelated":
+            receipts.validate_all()
         _replay_history(receipts, cutoff=now, tour="ATP", max_bytes=None, cache=cache)
     assert cache.stats["entries"] == 0
 
@@ -485,6 +494,124 @@ def test_encoded_history_schema_change_invalidates_original_inventory(
         with pytest.raises(RuntimeArtifactTrustError, match="inventory changed"):
             _replay_history(receipts, cutoff=cutoff, tour="ATP", max_bytes=None, cache=cache)
     assert cache.stats["entries"] == cache.stats["bytes"] == cache.stats["pending_bytes"] == 0
+
+
+def test_validated_cutoff_filters_only_after_complete_pass(encoded_history_fixture, monkeypatch):
+    import context_observations
+    from context_runtime_tennis import _replay_history
+    from context_models.contracts import canonical_timestamp
+    conn, receipts, now = encoded_history_fixture
+    all_refs = set(receipts)
+    eligible = {ref for ref, clock in conn.execute("SELECT digest,observed_at FROM context_observations")
+                if clock <= canonical_timestamp(now)}
+    assert len(all_refs) == 3 and len(eligible) == 2
+    decoded, owner = [], context_observations._decode_receipt
+    def counted(raw):
+        decoded.append(raw[0])
+        return owner(raw)
+    monkeypatch.setattr(context_observations, "_decode_receipt", counted)
+    assert {row["digest"] for row in receipts.values_at_or_before(now)} == all_refs
+    assert set(decoded) == all_refs
+    decoded.clear()
+    assert receipts.validate_all() == 3
+    assert set(decoded) == all_refs
+    decoded.clear()
+    assert {row["digest"] for row in receipts.values_at_or_before(now)} == eligible
+    assert set(decoded) == eligible
+    from context_runtime_inventory import VerifiedReceiptMapping
+    assert {row["digest"] for row in VerifiedReceiptMapping(conn).values_at_or_before(now)} == all_refs
+    decoded.clear()
+    result = _replay_history(receipts, cutoff=now, tour="ATP", max_bytes=None)
+    assert len(result) == 1 and result[0]["payload"]["tour"] == "ATP"
+    assert set(decoded) == eligible  # Actual cold replay uses the completed capability.
+    result[0]["payload"].clear()
+    assert _replay_history(receipts, cutoff=now, tour="ATP", max_bytes=None)[0]["payload"]["tour"] == "ATP"
+
+
+def test_validated_cutoff_exact_boundary_and_timezone_parity(encoded_history_fixture):
+    from datetime import timezone
+    from context_sources.tennis_status import select_tennis_observations
+    from context_runtime_tennis import _replay_history
+    _, receipts, now = encoded_history_fixture
+    baseline = tuple(receipts.values())
+    receipts.validate_all()
+    for cutoff in (now-timedelta(microseconds=1), now, now+timedelta(seconds=1),
+                   now.astimezone(timezone(timedelta(hours=5, minutes=30)))):
+        for tour in ("ATP", "WTA"):
+            expected = select_tennis_observations(baseline, cutoff=cutoff, tour=tour)
+            actual = _replay_history(receipts, cutoff=cutoff, tour=tour, max_bytes=None)
+            assert type(actual) is tuple and canonical_bytes(actual) == canonical_bytes(expected)
+
+
+@pytest.mark.parametrize("failure", ["interrupt", "mutation", "orphan", "future_index", "content"])
+def test_validated_cutoff_failed_pass_never_reseals(encoded_history_fixture, monkeypatch, failure):
+    import context_observations
+    from context_models.contracts import ContextIntegrityError, canonical_timestamp
+    conn, receipts, now = encoded_history_fixture
+    owner = context_observations._decode_receipt
+    if failure in {"interrupt", "mutation"}:
+        def interrupted(raw):
+            if failure == "interrupt":
+                raise KeyboardInterrupt("interrupted full receipt validation")
+            conn.execute("UPDATE context_observations SET source=source")
+            return owner(raw)
+        monkeypatch.setattr(context_observations, "_decode_receipt", interrupted)
+    elif failure == "orphan":
+        conn.execute("DELETE FROM context_observations WHERE digest=(SELECT digest FROM context_observations LIMIT 1)")
+    elif failure == "future_index":
+        conn.execute("UPDATE context_observations SET observed_at=?", (canonical_timestamp(now+timedelta(days=10)),))
+    else:
+        conn.execute("UPDATE context_contents SET payload=?", (b'{}',))
+    with pytest.raises((KeyboardInterrupt, RuntimeArtifactTrustError, ArtifactIntegrityError, ContextIntegrityError)):
+        receipts.validate_all()
+    monkeypatch.setattr(context_observations, "_decode_receipt", owner)
+    for _ in range(2):
+        with pytest.raises(RuntimeArtifactTrustError):
+            tuple(receipts.values_at_or_before(now))
+        with pytest.raises(RuntimeArtifactTrustError):
+            receipts.validate_all()
+
+
+@pytest.mark.parametrize("mutation", ["write", "drop", "create", "alter", "temp", "commit", "rollback", "close"])
+def test_validated_cutoff_rejects_mutation_and_started_iterators(encoded_history_fixture, mutation):
+    conn, receipts, now = encoded_history_fixture
+    receipts.validate_all()
+    iterator = receipts.values_at_or_before(now+timedelta(seconds=5))
+    if mutation != "drop":  # SQLite prohibits DROP while any read cursor is active.
+        assert next(iterator)
+    sql = {"write": "UPDATE context_observations SET source=source",
+           "drop": "DROP TABLE context_observations",
+           "create": "CREATE TABLE validation_mutation (id INTEGER)",
+           "alter": "ALTER TABLE context_snapshots ADD COLUMN validation_mutation INTEGER",
+           "temp": "CREATE TEMP TABLE context_observations (digest TEXT)"}
+    if mutation in sql:
+        conn.cursor().execute(sql[mutation])
+    elif mutation in {"commit", "rollback"}:
+        getattr(conn, mutation)()
+        conn.execute("BEGIN")
+    else:
+        conn.close()
+    for operation in (lambda: next(iterator), lambda: tuple(receipts.values_at_or_before(now)), receipts.validate_all):
+        with pytest.raises((RuntimeArtifactTrustError, sqlite3.ProgrammingError)):
+            operation()
+
+
+def test_validated_cutoff_failure_revokes_existing_warm_cache(encoded_history_fixture, monkeypatch):
+    import context_observations
+    from context_runtime_history_cache import EncodedHistoryCache
+    from context_runtime_tennis import _replay_history
+    _, receipts, now = encoded_history_fixture
+    cache = EncodedHistoryCache(receipts)
+    expected = _replay_history(receipts, cutoff=now, tour="ATP", max_bytes=None, cache=cache)
+    assert expected
+    def interrupted(raw):
+        raise KeyboardInterrupt("failed full validation after baseline cache fill")
+    monkeypatch.setattr(context_observations, "_decode_receipt", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        receipts.validate_all()
+    with pytest.raises(RuntimeArtifactTrustError):
+        _replay_history(receipts, cutoff=now, tour="ATP", max_bytes=None, cache=cache)
+    assert cache.stats["entries"] == 0
 
 
 def test_encoded_history_empty_entries_and_tour_keys_are_bounded(encoded_history_fixture):

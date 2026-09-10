@@ -64,8 +64,11 @@ def _cold_replay_history(receipts, *, cutoff, tour, max_bytes):
     then sort the complete result using its original total order. Nothing is
     latest-only or participant-pruned. No full decoded input inventory exists.
     """
+    from context_runtime_inventory import VerifiedReceiptMapping
     history, used = [], 0
-    for row in receipts.values():
+    rows = (receipts.values_at_or_before(cutoff) if isinstance(receipts, VerifiedReceiptMapping)
+            else receipts.values())
+    for row in rows:
         if "source_schema" not in row:  # Opaque unopened D2 final.
             continue
         selected = select_tennis_observations((row,), cutoff=cutoff, tour=tour)

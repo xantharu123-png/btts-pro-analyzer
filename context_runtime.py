@@ -382,33 +382,9 @@ def _verify_slots(slots, artifacts):
 def _verify_observations(connection, tables, *, protected_receipts=()):
     if "context_observations" not in tables:
         return {}, 0
-    protected_receipts = set(protected_receipts)
-    protected_contents = {content for ref, content in connection.execute(
-        "SELECT digest,content_digest FROM context_observations") if ref in protected_receipts}
-    content_count = 0
-    for key, raw in connection.execute("SELECT content_digest,payload FROM context_contents"):
-        content_count += 1
-        require_digest(key, "observation content identity")
-        if key in protected_contents:
-            # D2 already checked opaque physical bytes and fixed outer JSON
-            # indices. Do not decode an unopened final result body here.
-            if type(raw) is not bytes or hashlib.sha256(raw).hexdigest() != key:
-                raise ArtifactIntegrityError("unopened observation content hash mismatch")
-            continue
-        content = _decode_object(raw, label="observation content")
-        if digest(content) != key:
-            raise ArtifactIntegrityError("observation content hash mismatch")
     from context_runtime_inventory import VerifiedReceiptMapping
     receipts = VerifiedReceiptMapping(connection, protected_receipts=protected_receipts)
-    # Complete validation, including inactive/unreferenced rows. Values are
-    # immediately discarded; Mapping iteration itself does not decode bodies.
-    for ref in receipts:
-        receipts[ref]
-    if connection.execute("""SELECT 1 FROM context_contents AS c
-            LEFT JOIN context_observations AS r ON r.content_digest=c.content_digest
-            WHERE r.digest IS NULL LIMIT 1""").fetchone():
-        raise ArtifactIntegrityError("observation content has no validated receipt")
-    return receipts, content_count
+    return receipts, receipts.validate_all()
 
 
 def _verify_worker_snapshot(payload, key, artifacts, receipts, limitations, live_originals):
