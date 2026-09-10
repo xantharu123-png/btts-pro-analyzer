@@ -2973,8 +2973,19 @@ def test_backup_tree_update_rejects_identical_replacement_and_two_archives(tmp_p
     snapshot = tmp_path / "rollback" / "backup-tree"
     backup.snapshot_backup_tree(source, snapshot)
 
-    protected.unlink()
-    protected.write_bytes(b"runtime")
+    # Keep the original alive while allocating its replacement: unlink/write
+    # may recycle the same inode and leave all saved record fields identical.
+    original_identity = protected.stat()
+    replacement = tmp_path / "runtime-replacement.tar.gz"
+    replacement.write_bytes(b"runtime")
+    replacement.chmod(original_identity.st_mode & 0o7777)
+    if os.name != "nt":
+        replacement_identity = replacement.stat()
+        assert replacement_identity.st_dev == original_identity.st_dev
+        assert (replacement_identity.st_dev, replacement_identity.st_ino) != (
+            original_identity.st_dev, original_identity.st_ino
+        )
+    os.replace(replacement, protected)
     (source / "betboy-sqlite-20300102T000000Z.zip").write_bytes(b"new")
     if os.name == "nt":
         assert backup.verify_backup_tree_update(
