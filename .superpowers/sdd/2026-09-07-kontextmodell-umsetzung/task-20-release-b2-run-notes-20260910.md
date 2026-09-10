@@ -50,3 +50,32 @@ or success is claimed yet. Use the existing quality Python with `-B -m pytest
   create/verify a fresh backup after stopping all database writers for each
   actual deployment step. No A/Main/B mutation is authorized merely by the
   current partial local test output; full release verification remains open.
+
+## Completed integrated run, 10 September 2026, 09:49 UTC
+
+The second full attempt completed with exit0: **6552 passed,20 skipped,
+97 subtests passed in1279.19s**. JUnit has6669 cases,0failures,0errors,
+20skips,time1279.054; its start timestamp is2026-09-10T11:27:11.132420+02:00.
+XML `.pytest_tmp/context-release-b2-full-20260910-02.xml` SHA256:
+`9dd05fc2e22879c8d8367bb83e5cb6e92183e8621aba91f0f99201a545610237`.
+The20skips are the platform's unavailable symlink privilege and POSIX
+umask/permission tests, not application failures. Their complete names/reasons
+remain in the XML. Separate actual Linux/DAC evidence is in the owning reports;
+this Windows result does not itself execute those platform checks.
+
+Fresh LF QA tracked status is empty. UI, runtime resolver, protected stage
+helper, updater and bootstrap raw hashes still exactly equal the five values
+recorded before the run above. No application or test edit was made to repair
+the qualified first launch. `286601b -> 887cb47` changes only this execution
+note and the independent final deployment-delta report. Final publication may
+add only handoff/evidence documents before freezing the release hash; verify
+that complete diff explicitly rather than claiming a new full-suite execution.
+
+Remote main remains2ba3931, feature887cb47. Fresh VPS read remains2ba3931 with
+clean tracked tree, active app, inactive batch writers except the known failed
+Tennis unit. Installed old updater is root:root0755,nlink1,SHAa07ad24c92f207c9d1124acee37fb4b0e443dae39876dad6c1948b55bb725cbb.
+Root accepts the independently reviewed technical partial release, original
+ordered A-then-B route, and separately verified manual-price UI. No empirical
+injury/load effect or unfinished P4b3/P5b is added to that acceptance. Actual
+installation, fresh backups and postdeployment observation are next, not yet
+claimed by this completed local test record.

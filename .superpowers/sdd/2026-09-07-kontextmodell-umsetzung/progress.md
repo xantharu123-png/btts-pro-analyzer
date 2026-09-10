@@ -1,5 +1,30 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Integrated release accepted locally — 10 September 2026,09:49UTC
+
+Exact LF QA286601b:6552passed/20Windows-skips/97subtests,exit0,1279.19s;
+JUnit6669cases,0failures/0errors,SHA9dd05fc2e22879c8d8367bb83e5cb6e92183e8621aba91f0f99201a545610237.
+The original failed launch was a separately preserved missing-parent fixture
+setup diagnosis; no source or test was changed for the successful rerun.
+UI/runtime/helper/updater/bootstrap raw hashes retained, QA tracked status
+empty. Root887cb47 adds only two reports. Final docs-only release freeze must
+retain exact tested application/test/deployment bytes. Independent final delta
+review and separate actual CUA UI acceptance are both closed for this subset.
+
+Main/VPS fresh2ba3931, old installed updater root:root0755/nlink1/a07ad24c.
+Root now accepts executing the reviewed A655e7a6 -> final-B ordered installed
+updater route. No actual installation/backup/postdeploy success claimed yet.
+Tennis source failure remains real; postdeploy check must distinguish ATP
+progress from unavailable WTA, not merely clear the failed unit.
+
+P4b3(a) author froze2aecc10:376passed/26subtests,4original controls pass,
+2original durable-B3-reference probes remain red. Independent review active;
+not merged or included in this release. P5b-A0 now sole implementation writer
+in separate LF887cb47-based worktree. Narrow exact-AST parity accommodation
+approved in its owning brief; parent engine/closure checks and original
+default-worker/B3 RED witnesses stay intact. Real qualified context effects,
+source/historical dependencies and remaining B3 publication remain unfinished.
+
 ## Manual input F1 accepted — 10 September 2026, approximately 11:26 CEST
 
 Root74d714a integrates frozen C0c0a83f1 and F1acf6b8e. Independent rereview

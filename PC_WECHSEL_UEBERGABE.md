@@ -1,5 +1,26 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Releaseprüfung am 10. September 2026 — 11:49 CEST
+
+Vollsuite im frischen LF-Checkout286601b abgeschlossen:6552bestanden,
+20Windows-Skips,97Untertests,1279.19s. XML9dd05fc2, unveränderte Quellhashes
+und leeres QA-Tracked-Diff belegt. Root887cb47 unterscheidet sich nur in zwei
+Prüfberichten. Unabhängiger abschließender Deployment-Deltareview ohne neuen
+technischen Blocker; echter UI-Preis-/Mobile-Nachweis liegt separat vor.
+
+GitHub main und VPS frisch2ba3931, noch keine Brücke installiert. Nächster
+Schritt: exaktA655e7a6 auf main und über den alten installierten Updater
+deployen; dessen neue root-eigene Bytes prüfen; erst dann den dokumentierten
+finalen B-Stand auf main veröffentlichen und über denselben installierten
+Einstieg deployen. Keine Timer-Pull-Funktion, kein Root-Bootstrap-Ersatz.
+
+P4b3(a) separat2aecc10 eingefroren und im unabhängigen Review; nicht Bestandteil
+dieses Releases. Fußball-P5b-A0 ist ein genehmigter optionaler Final-Original-
+Callback, als alleinige Implementierungsarbeit isoliert begonnen. Dauerhafte
+B3-Verknüpfung und empirisch qualifizierte Verletzungs-/Belastungseffekte
+bleiben offen. Cricket unverändert. Bestehende REDs, Outputs und geschützter
+Stagehelper werden nicht überschrieben oder als erledigt umgedeutet.
+
 ## UI-Nachprüfung am 10. September 2026 — etwa 11:26 CEST
 
 Root74d714a enthält den angenommenen UI-Fixacf6b8e: echtes Startguthaben100.00,
