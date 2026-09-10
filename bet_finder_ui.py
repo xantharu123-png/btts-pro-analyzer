@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import re
@@ -651,6 +652,46 @@ def _reference_execution_source(
     )
 
 
+@dataclass(frozen=True)
+class _ManualPriceInputs:
+    """Exact form-independent inputs of one explicitly requested check."""
+
+    candidate: RecommendationCandidate
+    raw_odds: Optional[str]
+    raw_bankroll: Optional[str]
+    bankroll: Optional[float]
+    confirmed: bool
+
+
+def _manual_bankroll_input(raw: Optional[str]) -> Optional[float]:
+    """Keep the previous widget's finite/minimum-1 boundary without refilling."""
+
+    if not isinstance(raw, str) or not re.fullmatch(
+        r"[+-]?(?:[0-9]+(?:[.,][0-9]*)?|[.,][0-9]+)(?:[eE][+-]?[0-9]+)?",
+        raw.strip(),
+    ):
+        return None
+    value = float(raw.strip().replace(",", "."))
+    return value if math.isfinite(value) and value >= 1.0 else None
+
+
+def _manual_checked_literal(raw: Optional[str]) -> str:
+    """Unambiguous plain text, including empty strings and control characters."""
+
+    return "leer (kein Wert)" if raw is None else json.dumps(raw, ensure_ascii=True)
+
+
+def _invalidate_manual_check(key: str) -> None:
+    """Discard only display state; editing never calculates or persists a tip."""
+
+    decision_key = f"bet_decision_{key}"
+    inputs_key = f"bet_checked_inputs_{key}"
+    if decision_key in st.session_state or inputs_key in st.session_state:
+        st.session_state[f"bet_manual_changed_{key}"] = True
+    st.session_state.pop(decision_key, None)
+    st.session_state.pop(inputs_key, None)
+
+
 def _render_manual_check(
     candidate: RecommendationCandidate,
     *,
@@ -671,34 +712,55 @@ def _render_manual_check(
             "Optional: Nur nötig, wenn die tatsächlich angebotene Quote mit "
             "der automatischen Marktübersicht verglichen werden soll."
         )
-        with st.form(f"bet_price_{key}", border=False):
+        # Forms hold edits in the browser until submit and can leave a previous
+        # result looking current. Keep the existing scoped layout, but let each
+        # edit invalidate that result on its ordinary Streamlit rerun.
+        with st.container(key=f"bet_price_{key}", border=False):
             price_column, bankroll_column = st.columns(2)
             with price_column:
                 raw_odds = st.text_input(
                     f"{price_source} für {candidate.selection}",
                     placeholder="z. B. 1,95",
                     key=odds_widget_key,
+                    on_change=_invalidate_manual_check,
+                    args=(key,),
                 )
             with bankroll_column:
-                bankroll = st.number_input(
+                previous_balance = st.session_state.get(manual_bankroll_key)
+                if previous_balance is not None and not isinstance(previous_balance, str):
+                    # Existing numeric-widget state has no raw spelling. Keep
+                    # its actual value; never fill an old None with a balance.
+                    st.session_state[manual_bankroll_key] = str(previous_balance)
+                raw_bankroll = st.text_input(
                     "Aktuelles Wettguthaben",
-                    min_value=1.0,
-                    value=100.0,
-                    step=10.0,
+                    # A real default survives an unmounted popover. Text
+                    # widgets also preserve a literal clear as an empty string.
+                    value="100.00",
                     key=manual_bankroll_key,
+                    on_change=_invalidate_manual_check,
+                    args=(key,),
                 )
+                bankroll = _manual_bankroll_input(raw_bankroll)
             confirmed = st.checkbox(
                 f"Auswahl stimmt exakt: {candidate.selection} / {candidate.market}",
                 value=False,
                 key=f"bet_confirmed_{key}",
+                on_change=_invalidate_manual_check,
+                args=(key,),
             )
-            submitted = st.form_submit_button(
+            submitted = st.button(
                 "Eigene Quote prüfen",
+                key=f"bet_check_{key}",
                 type="primary",
                 use_container_width=True,
             )
 
         decision_state_key = f"bet_decision_{key}"
+        inputs_state_key = f"bet_checked_inputs_{key}"
+        changed_state_key = f"bet_manual_changed_{key}"
+        current_inputs = _ManualPriceInputs(
+            candidate, raw_odds, raw_bankroll, bankroll, confirmed,
+        )
         if submitted:
             decision = _enforce_pending_release(
                 evaluate_candidate_price(
@@ -709,6 +771,8 @@ def _render_manual_check(
                 )
             )
             st.session_state[decision_state_key] = decision
+            st.session_state[inputs_state_key] = current_inputs
+            st.session_state.pop(changed_state_key, None)
             if (
                 save_source
                 and confirmed
@@ -725,19 +789,36 @@ def _render_manual_check(
             if (
                 not isinstance(decision, PriceDecision)
                 or decision.candidate != candidate
+                or st.session_state.get(inputs_state_key) != current_inputs
             ):
                 # The Streamlit widget key can outlive a refreshed model row.
-                # Never show or act on a manual price decision calculated for
-                # a previous immutable candidate snapshot.
-                st.session_state.pop(decision_state_key, None)
+                # Missing legacy input bindings cannot certify a current check.
+                # This also catches changed inputs in a non-widget rerun.
+                _invalidate_manual_check(key)
+                if st.session_state.get(changed_state_key):
+                    st.info("Eingabe geändert – neu prüfen.")
                 return None
 
         decision = _enforce_pending_release(decision)
+        checked_inputs = st.session_state[inputs_state_key]
+        # Include invalid/unchecked submissions too. Plain text never executes
+        # raw user input as Markdown/HTML, and the stored snapshot, not today's
+        # widget locals or rounded evaluator output, identifies the check.
+        st.text(
+            f"Letzte Prüfung: Quote {_manual_checked_literal(checked_inputs.raw_odds)} · "
+            f"Wettguthaben {_manual_checked_literal(checked_inputs.raw_bankroll)} € · "
+            f"Auswahl bestätigt: {'ja' if checked_inputs.confirmed else 'nein'}.",
+        )
 
         if decision.status == "PRICE_REQUIRED":
             st.info(
                 f"Quote und exakte Auswahl bestätigen. Value-Grenze "
                 f"{candidate.minimum_odds:.2f}."
+            )
+        elif decision.quoted_odds is None:
+            st.info(
+                "Keine Preisprüfung möglich. Bitte eine gültige Dezimalquote "
+                "und ein Wettguthaben von mindestens 1 eingeben."
             )
         elif decision.status == "BET":
             st.success(

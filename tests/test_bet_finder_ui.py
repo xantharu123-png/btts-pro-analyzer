@@ -193,12 +193,11 @@ def test_compact_manual_quote_uses_streamlit_popover_not_legacy_expander(monkeyp
 
     monkeypatch.setattr(ui.st, "popover", lambda label: calls.append(label) or _Surface())
     monkeypatch.setattr(ui.st, "caption", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(ui.st, "form", lambda *_args, **_kwargs: _Surface())
+    monkeypatch.setattr(ui.st, "container", lambda *_args, **_kwargs: _Surface())
     monkeypatch.setattr(ui.st, "columns", lambda _count: (_Surface(), _Surface()))
-    monkeypatch.setattr(ui.st, "text_input", lambda *_args, **_kwargs: "")
-    monkeypatch.setattr(ui.st, "number_input", lambda *_args, **_kwargs: 100.0)
+    monkeypatch.setattr(ui.st, "text_input", lambda label, **_kwargs: "100.00" if label == "Aktuelles Wettguthaben" else "")
     monkeypatch.setattr(ui.st, "checkbox", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(ui.st, "form_submit_button", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(ui.st, "button", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(ui.st, "session_state", {})
 
     assert ui._render_manual_check(
@@ -235,14 +234,13 @@ def test_manual_price_state_is_discarded_when_model_candidate_changes(monkeypatc
 
     monkeypatch.setattr(ui.st, "popover", lambda _label: _Surface())
     monkeypatch.setattr(ui.st, "caption", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(ui.st, "form", lambda *_args, **_kwargs: _Surface())
+    monkeypatch.setattr(ui.st, "container", lambda *_args, **_kwargs: _Surface())
     monkeypatch.setattr(ui.st, "columns", lambda _count: (_Surface(), _Surface()))
-    monkeypatch.setattr(ui.st, "text_input", lambda *_args, **_kwargs: "")
-    monkeypatch.setattr(ui.st, "number_input", lambda *_args, **_kwargs: 100.0)
+    monkeypatch.setattr(ui.st, "text_input", lambda label, **_kwargs: "100.00" if label == "Aktuelles Wettguthaben" else "")
     monkeypatch.setattr(ui.st, "checkbox", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(
         ui.st,
-        "form_submit_button",
+        "button",
         lambda *_args, **_kwargs: False,
     )
     monkeypatch.setattr(ui.st, "session_state", state)
@@ -420,12 +418,11 @@ def test_pending_manual_quote_confirmation_never_persists_a_bet(monkeypatch):
 
     monkeypatch.setattr(ui.st, "popover", lambda _label: _Surface())
     monkeypatch.setattr(ui.st, "caption", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(ui.st, "form", lambda *_args, **_kwargs: _Surface())
+    monkeypatch.setattr(ui.st, "container", lambda *_args, **_kwargs: _Surface())
     monkeypatch.setattr(ui.st, "columns", lambda _count: (_Surface(), _Surface()))
-    monkeypatch.setattr(ui.st, "text_input", lambda *_args, **_kwargs: "2.10")
-    monkeypatch.setattr(ui.st, "number_input", lambda *_args, **_kwargs: 100.0)
+    monkeypatch.setattr(ui.st, "text_input", lambda label, **_kwargs: "100.00" if label == "Aktuelles Wettguthaben" else "2.10")
     monkeypatch.setattr(ui.st, "checkbox", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(ui.st, "form_submit_button", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(ui.st, "button", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(ui.st, "info", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(ui.st, "session_state", {})
     monkeypatch.setattr(
