@@ -8,8 +8,8 @@ import hashlib
 import sqlite3
 
 import context_observations
-from context_models.contracts import canonical_timestamp, digest, require_digest
-from model_artifacts import ArtifactIntegrityError, _decode_object, _load_artifact
+from context_models.contracts import ContextContractError, canonical_timestamp, digest, require_digest
+from model_artifacts import ArtifactIntegrityError, _decode_object, _load_artifact, canonical_bytes
 from runtime_paths import RuntimeArtifactTrustError
 from context_runtime_transaction import TrackedConnection
 
@@ -63,6 +63,7 @@ class VerifiedReceiptMapping(_TransactionMapping):
         super().__init__(connection)
         self._protected = frozenset(protected_receipts)
         self._validation_stamp = None
+        self._validating = False
 
     def _check_transaction(self):
         super()._check_transaction()
@@ -88,12 +89,67 @@ class VerifiedReceiptMapping(_TransactionMapping):
 
     def validate_all(self):
         """Own the complete physical pass; no caller can grant completion."""
+        return self._validate_complete()[0]
+
+    def _validate_all_with_tennis(self, artifacts):
+        """Fixed same-transaction co-owner, not a callback or supplied-row API."""
+        return self._validate_complete(artifacts)
+
+    def _try_plan_tennis(self, cache, artifacts):
+        try:
+            return cache._begin_coordinated(artifacts)
+        except (ContextContractError, ArtifactIntegrityError):
+            # Leave this frame/exception context before releasing metadata.
+            # Existing postphysical planning will reproduce the real error.
+            return False
+
+    def _decode_row_with_tennis(self, raw, cache):
+        from context_sources.tennis_status import (
+            STATUS_SCHEMA, SOURCE_SCHEMA, _validate_tennis_source_tail,
+        )
+        row = None
+        try:
+            self._check_transaction()
+            if raw[0] in self._protected:
+                self._decode_row(raw)
+                return True
+            # Real, unchanged physical owner immediately precedes the complete
+            # shared source tail in this non-yielding frame. Nothing receives
+            # the decoded object between these checks. Raw[8] is the canonical
+            # content just checked by that exact physical decoder invocation.
+            row = context_observations._decode_receipt(raw)
+            if (row["source_schema"] not in (STATUS_SCHEMA, SOURCE_SCHEMA)
+                    or row["observed_at"] > max(cache._original_cutoffs.values())):
+                return True
+            try:
+                _validate_tennis_source_tail(row, raw[8])
+            except ContextContractError:
+                return False  # Never catch physical, resource or lifetime errors.
+            row.update(evidence_class="prospective", effective_at=row["observed_at"],
+                       publication_resolution=None)
+            return cache._append_coordinated(row)
+        finally:
+            row = raw = None
+
+    def _validate_complete(self, artifacts=None):
+        if self._validating:
+            raise RuntimeArtifactTrustError("receipt inventory validation is already active")
+        self._validating = True
+        cache = None
         try:
             self._check_validation()
             if self._validation_stamp is not None:
-                return self._validated_content_count
+                return self._validated_content_count, None
             stamp = self._inventory_stamp()
             connection = self._connection
+            if (type(self) is VerifiedReceiptMapping and type(artifacts) is VerifiedArtifactMapping
+                    and artifacts._connection is connection and artifacts._generation == self._generation):
+                from context_runtime_history_cache import EncodedHistoryCache, MAX_ENCODED_HISTORY_BYTES
+                artifacts._check_transaction()
+                cache = EncodedHistoryCache(self, max_bytes=MAX_ENCODED_HISTORY_BYTES)
+                if not self._try_plan_tennis(cache, artifacts):
+                    cache._cancel_coordinated()
+                    cache = None
             protected_contents = {content for ref, content in connection.execute(
                 "SELECT digest,content_digest FROM context_observations") if ref in self._protected}
             content_count = 0
@@ -109,8 +165,20 @@ class VerifiedReceiptMapping(_TransactionMapping):
                 content = _decode_object(raw, label="observation content")
                 if digest(content) != key:
                     raise ArtifactIntegrityError("observation content hash mismatch")
-            for row in connection.execute(context_observations._SELECT):
-                self._decode_row(row)  # Every receipt, including inactive/unreferenced/future rows.
+            content = raw = key = None  # End content-phase work before pending rows accumulate.
+            query = context_observations._SELECT
+            if cache is not None:
+                query += " ORDER BY r.observed_at,r.digest"
+            for row in connection.execute(query):
+                if cache is None:
+                    self._decode_row(row)  # Every inactive/unreferenced/future receipt.
+                else:
+                    keep = self._decode_row_with_tennis(row, cache)
+                    cache._check(self)
+                    if not keep or cache._build_cancelled:
+                        cache._cancel_coordinated()  # Row/helper/exception frames ended.
+                        cache = None
+            row = None
             if connection.execute("""SELECT 1 FROM context_contents AS c
                     LEFT JOIN context_observations AS r ON r.content_digest=c.content_digest
                     WHERE r.digest IS NULL LIMIT 1""").fetchone():
@@ -119,12 +187,50 @@ class VerifiedReceiptMapping(_TransactionMapping):
                 raise RuntimeArtifactTrustError("receipt inventory changed during complete validation")
             self._validated_content_count = content_count
             self._validation_stamp = stamp  # Publish only after all checks succeed.
-            return content_count
+            if cache is not None:
+                cache._check(self)
+                # The sole preproof transition is inside this actual completed
+                # physical/source owner. Direct stores and ordinary validation
+                # never execute this branch or acquire source completeness.
+                cache._proof = stamp
+                if not cache._seal_coordinated():
+                    cache._cancel_coordinated()
+                    cache = None
+                else:
+                    # A row seal alone still proves no completeness. Only this
+                    # finished operation can bind each exact entry serial.
+                    for key in cache._entries:
+                        serial = cache._seals[key]
+                        charge = len(canonical_bytes((key, serial))) + 32
+                        while cache._bytes + charge > cache._max_bytes and cache._queries:
+                            cache._drop_query(next(reversed(cache._queries)))
+                        if cache._bytes + charge > cache._max_bytes:
+                            break
+                        cache._check_selected_proof(self)
+                        cache._owned[key] = serial, charge
+                        cache._charge_metadata(charge)
+                        released = cache._bind_coordinated_queries(key, serial)
+                        cache._charge_metadata(-released)
+                        cache._check_selected_proof(self)
+                    # No planning/query-key locals survive optional cancellation.
+                    key = None
+                    if cache._build_cancelled or len(cache._owned) != len(cache._entries):
+                        cache._cancel_coordinated()
+                        cache = None
+                    else:
+                        cache._coordinated_artifacts = artifacts
+                        cache._building = False
+                        cache._check_selected_proof(self)
+            return content_count, cache
         except BaseException:
             # An interrupt must not leave a partial proof available for reuse.
             self._validation_failed = True
             self._validation_stamp = None
+            if cache is not None:
+                cache._cancel_coordinated()
             raise
+        finally:
+            self._validating = False
 
     def values_at_or_before(self, cutoff):
         """Skip future decoding only under this mapping's completed proof."""

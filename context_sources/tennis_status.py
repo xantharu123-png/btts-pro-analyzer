@@ -258,6 +258,15 @@ def _validate_selected_tennis_receipt_cold(row: dict) -> dict:
     if (row["evidence_class"] != "prospective" or row["effective_at"] != clock
             or row["publication_resolution"] is not None):
         raise ContextContractError("tennis status v3 consumes actual prospective receipts only")
+    return _validate_tennis_source_tail(row, content_bytes)
+
+
+def _validate_tennis_source_tail(row, content_bytes):
+    """Source predicates shared by cold B1 and the fixed physical co-owner.
+
+    No proof is returned. Only that co-owner may reuse its immediately preceding
+    real physical decode; arbitrary selected inputs always run the prefix above.
+    """
     if row["source"] != "espn" or row["sport"] != "tennis":
         raise ContextContractError("tennis status source differs")
     if row["source_schema"] == STATUS_SCHEMA:
@@ -266,7 +275,7 @@ def _validate_selected_tennis_receipt_cold(row: dict) -> dict:
         # checks above independently constrain its identifiers and payload;
         # all remaining fields below are canonical literals, hashes or clock.
         # Thus normalizing this expected envelope again cannot change it.
-        expected = _record_fields(normalized["payload"], normalized["event_key"], native_clock)
+        expected = _record_fields(row["payload"], row["event_key"], native_clock)
         if canonical_bytes(expected) != content_bytes:
             raise ContextIntegrityError("native tennis status envelope binding differs")
     elif row["source_schema"] == SOURCE_SCHEMA:

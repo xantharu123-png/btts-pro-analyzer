@@ -164,14 +164,27 @@ def _verify_live_original(ref, publication, artifacts, created_at, receipts, var
           "live original differs from its actual tour model calculation")
 
 
-def verify_live_originals(artifacts, created_at, receipts, limitations, *, history_max_bytes=None):
+def verify_live_originals(artifacts, created_at, receipts, limitations, *, history_max_bytes=None, history_cache=None):
     """Verify every original, including an unreferenced safe orphan publication."""
     from context_runtime_history_cache import EncodedHistoryCache, MAX_ENCODED_HISTORY_BYTES
     from context_runtime_inventory import VerifiedReceiptMapping
-    variants, checked, history_cache = None, {}, None
+    variants, checked = None, {}
+    if history_cache is not None:
+        # Supplied objects, ordinary row seals and caller cutoff plans do not
+        # confer completeness. Only the fixed inventory operation binds this
+        # actual artifact mapping and all complete entry serials.
+        if (type(history_cache) is not EncodedHistoryCache
+                or history_cache._coordinated_artifacts is not artifacts
+                or not history_cache._owned):
+            history_cache = None
+        else:
+            history_cache._check_selected_proof(receipts)
+            if any(not history_cache._owned_current(receipts, key, history_cache._seals.get(key))
+                   for key in history_cache._entries):
+                history_cache = None
     if isinstance(receipts, VerifiedReceiptMapping):
         receipts._check_validation()
-        if receipts._validation_stamp is not None:
+        if receipts._validation_stamp is not None and history_cache is None:
             # Full physical proof precedes planning. Owning metadata validation
             # can now fail before an earlier original's model/native replay;
             # individual original and snapshot replay order stays unchanged.

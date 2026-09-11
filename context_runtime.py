@@ -521,11 +521,16 @@ def _verify_connection(connection, *, history_max_bytes=None):
     manifests, current, chain = _manifest_rows(connection, artifacts, created_at)
     for manifest in manifests.values():
         _verify_slots(manifest["slots"], artifacts)
-    receipts, content_count = _verify_observations(connection, tables,
-        protected_receipts=semantics["protected_receipts"])
+    history_cache = None
+    if "context_observations" in tables:
+        from context_runtime_inventory import VerifiedReceiptMapping
+        receipts = VerifiedReceiptMapping(connection, protected_receipts=semantics["protected_receipts"])
+        content_count, history_cache = receipts._validate_all_with_tennis(artifacts)
+    else:
+        receipts, content_count = {}, 0
     from context_runtime_tennis import verify_live_originals
     live_originals = verify_live_originals(artifacts, created_at, receipts, limitations,
-                                         history_max_bytes=history_max_bytes)
+                                         history_max_bytes=history_max_bytes, history_cache=history_cache)
     snapshot_count = _verify_snapshots(connection, tables, artifacts, receipts, limitations, live_originals)
     rollback_count = _verify_rollbacks(connection, tables, manifests, chain)
     slots = manifests[current]["slots"] if current is not None else {}

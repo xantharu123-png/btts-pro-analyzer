@@ -88,6 +88,9 @@ class EncodedHistoryCache:
         self._building = self._build_cancelled = False
         self._serial = 0
         self._bytes = self._pending_bytes = 0
+        self._coordinated_pending = None
+        self._coordinated_sizes = {}
+        self._coordinated_artifacts = None
         self._counters = dict(hits=0, covering_hits=0, misses=0, stores=0, evictions=0, bypasses=0, peak_bytes=0)
 
     @property
@@ -95,7 +98,8 @@ class EncodedHistoryCache:
         """Private diagnostic counters, never added to the public D4 report."""
         return {**self._counters, "bytes": self._bytes, "pending_bytes": self._pending_bytes,
                 "entries": len(self._entries), "entry_bytes": tuple(size for _, size in self._entries.values()),
-                "metadata_slots": len(self._entries) + len(self._queries),
+                "metadata_slots": len(self._entries) + len(self._queries)
+                    + (len(self._coordinated_pending) if self._coordinated_pending is not None else 0),
                 "metadata_bytes": self._metadata_bytes,
                 "max_bytes": self._max_bytes}
 
@@ -117,6 +121,7 @@ class EncodedHistoryCache:
                 raise RuntimeArtifactTrustError("encoded history inventory changed during verification")
         except (RuntimeArtifactTrustError, sqlite3.Error):
             self._invalid = True
+            self._discard_coordinated()
             self._entries.clear()
             self._seals.clear()
             self._clear_original_metadata()
@@ -144,6 +149,7 @@ class EncodedHistoryCache:
                 receipts._check_transaction()
         except (RuntimeArtifactTrustError, sqlite3.Error):
             self._invalid = True
+            self._discard_coordinated()
             self._entries.clear()
             self._seals.clear()
             self._clear_original_metadata()
@@ -227,10 +233,22 @@ class EncodedHistoryCache:
     def _plan_original_publications(self, artifacts, created_at):
         """Keep publication/key work locals out of the subsequent basis frame."""
         from context_models.tennis_live import ORIGINAL_ARTIFACT_KIND, validate_original_publication
+        complete = True
         for ref, envelope in artifacts.items():
             if envelope["kind"] != ORIGINAL_ARTIFACT_KIND:
                 continue
-            publication = validate_original_publication(envelope["payload"], created_at=created_at[ref])
+            if created_at is None:
+                # Only the fixed physical owner uses this path, with the exact
+                # artifact mapping on its own connection/generation.
+                from datetime import datetime
+                from model_artifacts import _validate_stored_timestamp
+                stored = artifacts._connection.execute(
+                    "SELECT created_at FROM artifacts WHERE digest=?", (ref,)).fetchone()
+                clock = datetime.fromisoformat(_validate_stored_timestamp(
+                    stored[0], label="artifact creation time"))
+            else:
+                clock = created_at[ref]
+            publication = validate_original_publication(envelope["payload"], created_at=clock)
             origin = publication["origin"]
             tour, cutoff = origin["event"]["tour"], origin["cutoff"]
             # Both maxima are discovered even after optional query space
@@ -243,6 +261,8 @@ class EncodedHistoryCache:
                     self._original_cutoffs[tour] = cutoff
                     self._planning_bytes += charge
                     self._charge_metadata(charge)
+                else:
+                    complete = False
             elif cutoff > self._original_cutoffs[tour]:
                 self._original_cutoffs[tour] = cutoff
             key = origin["event"]["event_key"], cutoff, tour
@@ -253,6 +273,142 @@ class EncodedHistoryCache:
                     and self._bytes + charge <= self._max_bytes):
                 self._queries[key] = _OriginalQuery(key, charge)
                 self._charge_metadata(charge)
+        return complete
+
+    def _discard_coordinated(self):
+        """Release the only pending owner before removing its charge."""
+        if self._coordinated_pending is not None:
+            self._coordinated_pending.clear()
+        self._coordinated_pending = None
+        self._coordinated_sizes.clear()
+        self._coordinated_artifacts = None
+
+    def _cancel_coordinated(self):
+        self._discard_coordinated()
+        self._entries.clear()
+        self._seals.clear()
+        self._clear_original_metadata()
+        self._bytes = self._pending_bytes = 0
+        self._building = self._build_cancelled = False
+
+    def _begin_coordinated(self, artifacts):
+        """Plan only; this method cannot grant physical/source completeness."""
+        self._building = True
+        complete = self._plan_original_publications(artifacts, None)
+        self._check(self._receipts)
+        if not complete or not self._original_cutoffs or self._build_cancelled:
+            return False
+        # Two fixed pending containers, counters and final artifact owner pin.
+        # Existing planning charge already includes both tour/cutoff maps.
+        charge = 256 * len(self._original_cutoffs) + 128
+        while self._bytes + charge > self._max_bytes and self._queries:
+            self._drop_query(next(reversed(self._queries)))
+        if self._bytes + charge > self._max_bytes:
+            return False
+        self._planning_bytes += charge
+        self._charge_metadata(charge)
+        self._basis_cutoffs = dict(self._original_cutoffs)
+        self._coordinated_pending = {tour: [] for tour in self._original_cutoffs}
+        self._coordinated_sizes = {tour: 0 for tour in self._original_cutoffs}
+        return True
+
+    def _append_coordinated(self, row):
+        """Encode optional data; neither rows nor calls mint any authority."""
+        encoded = None
+        try:
+            self._check(self._receipts)
+            if self._build_cancelled:
+                return False
+            tour = row["payload"]["tour"]
+            if tour not in self._basis_cutoffs or row["observed_at"] > self._basis_cutoffs[tour]:
+                return True
+            encoded = canonical_bytes(row)
+            self._check(self._receipts)
+            if self._build_cancelled:
+                return False
+            needed = self._pending_bytes + len(encoded)
+            while self._bytes + needed > self._max_bytes and self._queries:
+                self._drop_query(next(reversed(self._queries)))
+            if self._bytes + needed > self._max_bytes:
+                self._counters["bypasses"] += 1
+                return False
+            self._coordinated_pending[tour].append(encoded)
+            self._coordinated_sizes[tour] += len(encoded)
+            self._pending_bytes = needed
+            self._counters["peak_bytes"] = max(self._counters["peak_bytes"], self._bytes + needed)
+            return True
+        finally:
+            # No encoded work-buffer alias may survive caller cancellation.
+            encoded = row = None
+
+    def _seal_coordinated_row(self, tour, ordinal):
+        """Independent full cold seal; never the source-tail shortcut."""
+        from context_sources.tennis_status import _validate_selected_tennis_receipt_cold
+        validated = None
+        try:
+            self._check_selected_proof(self._receipts)
+            validated = json.loads(self._coordinated_pending[tour][ordinal])
+            _validate_selected_tennis_receipt_cold(validated)
+            self._check_selected_proof(self._receipts)
+            if self._build_cancelled:
+                return False
+            self._fold_original_queries(validated, tour=tour,
+                size=len(self._coordinated_pending[tour][ordinal]), ordinal=ordinal)
+            self._check_selected_proof(self._receipts)
+            return not self._build_cancelled
+        finally:
+            validated = None
+
+    def _seal_coordinated(self):
+        """Publish row seals only. The full physical owner grants completeness."""
+        self._check_selected_proof(self._receipts)
+        for tour in self._original_cutoffs:
+            ordinal = 0
+            while ordinal < len(self._coordinated_pending[tour]):
+                if not self._seal_coordinated_row(tour, ordinal):
+                    return False
+                ordinal += 1
+        self._check_selected_proof(self._receipts)
+        if self._build_cancelled:
+            return False
+        for tour, cutoff in self._original_cutoffs.items():
+            key = cutoff, tour
+            # Freeze references to the same encoded bytes. The popped list's
+            # temporary dies inside this non-callback expression, before any
+            # accounting move; no second encoding or retained pool is made.
+            self._entries[key] = (tuple(self._coordinated_pending.pop(tour)), self._coordinated_sizes[tour])
+            self._bytes += self._coordinated_sizes[tour]
+            self._pending_bytes -= self._coordinated_sizes[tour]
+            self._serial += 1
+            self._seals[key] = self._serial
+            self._counters["stores"] += 1
+        self._discard_coordinated()
+        self._check_selected_proof(self._receipts)
+        return not self._build_cancelled
+
+    def _bind_coordinated_queries(self, key, serial):
+        """Return released bytes only after all dropped key/draft aliases die.
+
+        The caller uncharges after this helper frame and its bounded iterator
+        have ended. No dropped reservation can finance another allocation here.
+        This binds queries, not source/aggregate completeness or owned markers.
+        """
+        released = 0
+        for query_key in tuple(self._queries):
+            if query_key[2] != key[1]:
+                continue
+            needed = _OriginalQuery.reservation(query_key, self._max_bytes, serial)
+            difference = needed - self._queries[query_key].charge
+            if self._bytes + max(0, difference) > self._max_bytes:
+                released += self._queries.pop(query_key).charge
+                continue
+            if difference > 0:
+                self._charge_metadata(difference)
+            else:
+                released -= difference
+            self._queries[query_key].charge = needed
+            self._queries[query_key].basis, self._queries[query_key].serial = key, serial
+        return released
 
     def _prepare_originals(self, receipts, artifacts, created_at):
         """Own publication planning; callers provide neither keys nor proof."""
@@ -462,6 +618,9 @@ class EncodedHistoryCache:
 
     def _store(self, receipts, history, *, cutoff, tour):
         # A caller's valid rows cannot establish aggregate completeness.
+        if self._building:
+            self._build_cancelled = True
+            return
         self._drop_original_tour_queries(tour)
         self._store_encoded(receipts, history, cutoff=cutoff, tour=tour)
 
