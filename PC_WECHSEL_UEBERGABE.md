@@ -1,5 +1,35 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktuell — Korrektur72421d3 geprüft; echter Serverdaten-Test läuft
+
+Task10 und sein gefundenerCallbackfehler sind committed. Die gezielte Korrektur
+bestand239Dispatch/Witness- und56Inventurtests; unabhängiges Nachreview24Fälle
+und ursprünglicher Fehlervergleich grün. Alle bisherigen Prüfregeln/Grenzen
+und mathematischen Modelle unverändert. Root besitzt wieder Index/Integration.
+Exaktes Archiv841Datei-/Verzeichniseinträge nach Hashprüfung aufVPS versiegelt:
+`/var/lib/betboy-capacity-code-5es6n672/source`. Vollständige CLI-Prüfung dieser
+72421d3Bytes auf echter30Analyse-Kopie läuft alsUID997 Kind206801. Noch kein
+neues Kapazitätsergebnis; früheres Scheitern nicht durch lokaleTests ersetzt.
+Zusätzliche31/32/33Analyse-Kopien fertig/versiegelt, ihreD4Prüfung noch offen.
+Root sichert/pusht den Reparaturstand samt Belegen, nochkeinmain/VPSRollout.
+Code/Testbytes bleiben724; aktuelleAnweisungen/Nachweise inSDD`progress.md`,
+`task-10-native-evidence.md`, `task-10-p2-rereview.md`. Main/VPS2dd1116 und
+alterUpdater unverändert; App/Caddy/sevenTimersaktiv, Healthbeideok, separater
+Tennisjob weiterhinfailed. KeineCricket/A0/P4b3/empirischeFünfsport-Abnahme.
+
+## Fortsetzung — Task10-Code eingefroren, neue Server-Testkopien entstehen
+
+Die beiden freigegebenen Prüfroutinen sind geändert;117neue Grenzfälle grün.
+Der größere gezielte Lauf auf exakten Produktbytes läuft noch. Implementierer
+besitzt Index/zweiCodefiles/neuenTest/Report; Root nur Controllerdoku undQA.
+Unabhängig geprüfter Generator samt äußerer Begrenzung ist auf dem VPS im
+isolierten Testbereich versiegelt. Er ergänzt echte31/32/33Testanalysen über
+unveränderte Modellbesitzer auf einer Kopie des gesamten frischen30erBestands.
+G1 läuft; noch keine neue D4-Abnahme. Produktionsdaten, main/VPS2dd1116 und
+installierterUpdater unverändert. Kein lokales Grün ersetzt die fehlgeschlagene
+reale Kapazitätsprüfung. GenauerFortsetzungspunkt: SDD`task-10-native-evidence.md`
+und`task-10-brief.md`; kein erneutes Fragen nach derselben Rolloutfreigabe.
+
 ## Fortsetzung — Task10 vorbereitet, gleiche Prüfregeln und Grenzen
 
 Zwischenstand06ab4af ist auf dem Reparaturbranch gepusht und remote bestätigt.

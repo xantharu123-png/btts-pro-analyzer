@@ -3,6 +3,39 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
+## Task10 corrected code72421d3 — real current-first native running
+
+The actualcallbackP2 is fixed by exactlytwo second-cookie exacttypechecks;
+fourRED then239dispatch/witness+56inventoryGREEN. ScopedindependentAPPROVED,
+24freshcontrols plusbase/candidate actualreproducer match. Rootreadallreports,
+verifiedexactfourpathcommitandemptyindex. Prior1223tests stay4a-only.
+Corrected841memberarchiveSHA45a5...3dd1 checked/transferred/hashmatched and
+rootsealed at`/var/lib/betboy-capacity-code-5es6n672/source`. Newmeasurewrapper
+SHA85a781...fe8d independentlyreviewed includingunchangedlimitsandexactrepin.
+Current-first actual30snapshot CLI nowrunningUID997 child206801; noresultyet.
+NewG1/G2/G3 31/32/33distinctqueries completed/sealed, notD4accepted yet.
+Rootownsindex/controllerdocs/publication; allproduct/testbytes frozen724.
+No fullsuite/mainpush/updaterexchange/appdeployment yet; main/VPS2dd unchanged.
+Exactevidence/pins in`task-10-native-evidence.md`; preserveearlierfailures.
+
+## Task10 implementation freeze / stronger growth QA in progress
+
+4a27fb9 committed exactfourpaths; finalproduct focus1223pass/12skips and
+complete117newmodule separatelypassed. Root read fullreport/verifiedindex.
+Independent delta235pass but one realcallback P2: changedconnectionclass after
+mainread bypassesnewsubclassexecute attemp. Samewriter regained exacttwo
+checkingfiles/newtest/report/index for narrowly specified RED/type-recheckfix;
+review findings must close before nativeacceptance. 4aarchive transferred and
+hashmatched only, notrootstaged or applicationexecuted. Rootcontroller WIP
+remains separate; intermediate1214pass is explicitly not finalproduct evidence.
+Root remains controllerdocs/ignoredQA only. Fresh growth harness and bounded
+supervisor independently APPROVED after two cleanup fixes; exactgenerator
+uploaded/hashmatched/rootsealed. Synthetic31/32/33query G1/G2/G3 completed/sealed
+from entire fresh30baseline; productiondata untouched. Fresh Task10current-first
+native and allrelease gates remain pending. Live recheck confirms oldsource/
+updater, activeapp/Caddy/seventimers, bothhealthok and samefailedTennisjob. Details/pins:
+`task-10-native-evidence.md`. Latest actualD4 failure still means RELEASE HOLD.
+
 ## Task10 internal ruling — exact predicates, cheaper dispatch only
 
 Root read the complete fresh30analysis and actual first-feature profile:
