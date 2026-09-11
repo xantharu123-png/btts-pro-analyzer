@@ -3,6 +3,48 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
+## Approved owner-check repair continuation — 11 September 2026, 14:42 UTC
+
+Latest user: "ja und dann commite pushe und pulle doch einfach alles wieso sollst du das nicht machen". This explicitly supplies the previously requested Tennis/D2 checking scope extension and repeats commit/push/deploy authority. No second permission prompt is needed for these actions. Results, data, validation strength and resource limits remain unchanged; only passing release evidence permits production promotion.
+
+Fresh local baseline: HEAD/repair upstream7cf1e94, linked worktree on `codex/context-capacity-recovery-20260910`, no tracked changes, nine inherited untracked review diff packages preserved. Existing full fc7 source test evidence is the unchanged-code baseline, not a claim about the upcoming patch. Reuse existing isolation; no dependency reinstall or worktree recreation.
+
+Continuation preflight:
+
+| Tasks | Producer/consumer or internal contract | Finding |
+| --- | --- | --- |
+| 5/5 | Named SQL parameters -> real SQLite preflight | Mapping bind only; same opaque bytes/projections; no label body use |
+| 5/D2 evaluator | Dataset source -> implementation_hashes | Hash changes naturally; old reports must not be relabelled/whitelisted |
+| 5/1,4 | Physical outer checks -> complete inventory/replay | Unopened-final and full corrupt-row rejection unchanged |
+| 6/4 | Sealed encoded basis -> per-consumer selected receipt checks | One extra full owner seal, exact current types/bytes, same actual feature calls |
+| 6/1 | Completed physical proof/transaction -> scoped witness lifetime | Existing mapping unchanged; revocation hard-fails, no caller authority |
+| 5/6 | D2 unopened headers and changed dataset hash -> full D4 run | Disjoint edits; final real-input and protected-final proof required |
+| 6/6 | Cold validator, ContextVar and cache serial/cursor | Signature unchanged, no arbitrary callback, no retained row/byte aliases; type misses preserve cold behavior |
+| 5,6/2,3 | New exact verifier -> frozen updater/installer | All native current/growth and full release proofs must be renewed |
+
+Task5 is the bounded D2 binding repair; root retains plan/ledger/handoff and native/push duties. Only one child receives implementation/index ownership. Task6 implementation will start after that writer returns and its checking interface is documented. All old failures remain recorded; none is converted to a pass by this approval.
+
+Task5 implementation/index owner: `/root/d2_binding_task5`, base7cf1e94. Read-only bounded design owner `/root/tennis_check_design` completed its report; it edited only `task-6-design-analysis.md`. Controller fully read the design and its original-type/provenance refinement, then recorded Task6 before dispatch. Scope uses existing bytes plus new cold owning seal and strict current-value checking; mathematical v3/v2 files remain unchanged. No generic trusted callback or second byte cache is allowed.
+
+Task6 interface/self-consistency check: selected source wrapper retains the public signature consumed by unchangedv3; cache factory is private and proof-producing only after full cold validation; runtime scope surrounds the same feature call; global64MiB incl pending and256MiB admission remain unchanged. Same-key replacement/eviction must remove old seal and keep byte accounting exact. Ineligible types must preserve cold admission rather than imposing stricter schema. New source file hash is not among original CODE_PATHS or evaluator math hashes; no compatibility whitelist is needed/permitted.
+
+Fresh root native diagnosis: exactfc7 G1 input95406receipts/11snapshots, SHA01186c29...966, one91.672CPU cold basis56865423B, no evictions/bypasses; full physical41.045CPU; eleven originals114.188CPU inclusive basis. Nine full snapshot features9.140–10.133CPU each; tenth deliberately interrupted at diagnosticCPU275. Total276.824CPU/275.898wall,472448KiBRSS, input unchanged. Not a complete verification or acceptance pass. Harness `.pytest_tmp/trace_task6_baseline_growth_g1.py` SHA373640761c788b759201749cfa41c3a7609ebe8bf01960c7bcd8e6a9d8b2a723, run asUID997 with fixed limits on root-sealed input; job ended. GitHub repair7cf1e94/main2dd1116 and VPS2dd1116/old updater freshly confirmed; App/Caddy/seven timers and bothHTTP200/ok, knownTennis partial failure unchanged.
+
+Task 5: implementation/review complete (commits7cf1e94..cbfe6ce, spec compliant,
+quality Approved; no Critical/Important findings). Root received an empty
+index. Focused Windows262passed/9skipped plus2explicit boundaries, all with
+DeprecationWarning as errors. Native warning-as-error and cross-task D4/full
+suite remain explicitly controller-owned release gates; see task-5-review.md.
+
+Task 5: minor (deferred): regression compares two unordered SQLite scans as
+ordered lists; final whole-branch review must triage multiset comparison.
+
+Task6 native fixture preparation complete, NOT verification: unchanged fc7
+owners generated G2 with95407receipts/12snapshots/7cutoffs and G3 with95408/
+13/8. Root-sealed hashes12157b36...eed4 and79954e45...d0ec. Existing current,
+G1 and baseline bytes preserved. No production or budget changes. Full
+paths, timing, source and seal evidence are in task-6-native-evidence.md.
+
 ## Final Task4 checkpoint — 10 September 2026, 22:25 UTC: RELEASE HOLD
 
 Task4 product52189a6/reportfc7f0c7; independent scoped implementation review

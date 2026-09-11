@@ -1,5 +1,11 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Fortsetzung freigegeben — 11. September 2026, 16:42 CEST
+
+Die neu angefragte Freigabe liegt jetzt vor: Tennis- und D2-Prüfroutinen reparieren, danach committen, pushen und kontrolliert auf dem VPS deployen. Keine erneute Freigabefrage für denselben Umfang. Rechenergebnisse, Daten/Historien und Prüf-/Ressourcengrenzen bleiben unverändert. Der darunter dokumentierte Wachstumstest bleibt ein echter Releaseblocker, bis der neue Stand ihn besteht.
+
+Reparaturworktree unverändert übernommen auf `7cf1e94`; keine neuen Produktiv-/VPS-Änderungen zum Start. Plan/SDD führen Task5 (D2-SQL-Kompatibilität) und anschließend die gezielte Tennis-Prüfkostenreparatur. Bestehende Worktrees und ungetrackte Nachweise bleiben erhalten. Main/VPS werden erst nach bestandener frischer Abnahme über den bereits freigegebenen Updater-Reparatur- und normalen Deploymentpfad aktualisiert.
+
 ## Aktueller Abschluss — 11. September 2026, 00:25 CEST: NICHT deployen
 
 Task4 gemeinsame Historybasis umgesetzt/geprüft: Produkt52189a6,
