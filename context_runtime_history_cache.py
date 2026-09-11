@@ -114,11 +114,30 @@ class EncodedHistoryCache:
             raise
 
     def _check_selected_proof(self, receipts):
-        self._check(receipts)
-        receipts._check_validation()
-        if receipts._validation_stamp != self._proof:
+        try:
+            if self._proof is None or receipts._validation_stamp is None:
+                # A missing/unfinished proof does not check fresh schemas.
+                self._check(receipts)
+                receipts._check_validation()
+                if receipts._validation_stamp != self._proof:
+                    raise RuntimeArtifactTrustError("encoded history inventory changed during verification")
+            else:
+                # The completed inventory owns the fresh generation, write
+                # and main/temp schema check. Never authorize from a stored
+                # tuple without first asking that exact proof's owner.
+                receipts._check_validation()
+                if (self._invalid or receipts is not self._receipts
+                        or receipts._validation_stamp != self._proof
+                        or self._proof != (self._generation, self._changes, *self._schema)
+                        or receipts._connection.total_changes != self._changes):
+                    raise RuntimeArtifactTrustError("encoded history inventory changed during verification")
+                receipts._check_transaction()
+        except (RuntimeArtifactTrustError, sqlite3.Error):
             self._invalid = True
-            self._check(receipts)
+            self._entries.clear()
+            self._seals.clear()
+            self._bytes = self._pending_bytes = 0
+            raise
 
     @contextmanager
     def _selected_receipt_scope(self, receipts, *, cutoff, tour):

@@ -53,11 +53,11 @@ def rehash(row):
 
 def test_repeated_full_snapshots_replace_only_cold_receipt_derivation(five_groups, monkeypatch):
     db, _, artifacts, created, receipts, order = five_groups
-    owner, calls = status.validate_tennis_status_record, []
+    owner, calls = status._validate_selected_tennis_receipt_cold, []
     def counted(row):
         calls.append(1)
         return owner(row)
-    monkeypatch.setattr(status, "validate_tennis_status_record", counted)
+    monkeypatch.setattr(status, "_validate_selected_tennis_receipt_cold", counted)
     checked = rt.verify_live_originals(artifacts, created, receipts, set())
     assert len(calls) == 20  # Ten selected rows, then one independent owning seal.
     calls.clear()
@@ -89,14 +89,14 @@ def test_final_row_interrupted_owner_seal_publishes_nothing(encoded_history_fixt
     _, receipts, now = encoded_history_fixture
     receipts.validate_all()
     rows = rt._cold_replay_history(receipts, cutoff=now+timedelta(seconds=2), tour="ATP", max_bytes=None)
-    owner, calls = status.validate_tennis_status_record, []
+    owner, calls = status._validate_selected_tennis_receipt_cold, []
     def interrupted(row):
         result = owner(row)
         calls.append(1)
         if len(calls) == len(rows):
             raise KeyboardInterrupt("last owning seal interrupted")
         return result
-    monkeypatch.setattr(status, "validate_tennis_status_record", interrupted)
+    monkeypatch.setattr(status, "_validate_selected_tennis_receipt_cold", interrupted)
     cache = hc.EncodedHistoryCache(receipts)
     with pytest.raises(KeyboardInterrupt):
         cache._store(receipts, rows, cutoff=now, tour="ATP")
@@ -431,3 +431,65 @@ def test_scope_preserves_feature_tuple_container_contract(encoded_history_fixtur
     with cache._selected_receipt_scope(receipts, cutoff=cutoff, tour="ATP"):
         with pytest.raises(ValueError, match="complete owning B1 tuple"):
             tennis_features_v3(event(), container(rows), base(cutoff=cutoff), cutoff=cutoff)
+
+
+@pytest.mark.parametrize("schema", ["main", "temp"])
+@pytest.mark.parametrize("boundary", ["before-row", "after-row"])
+@pytest.mark.parametrize("mutation", ["write", "main-ddl", "temp-ddl", "restart", "close"])
+def test_remaining_proof_queries_cannot_hide_row_mutation(encoded_history_fixture, monkeypatch, schema, boundary, mutation):
+    conn, receipts, cutoff, rows, cache = prepared(encoded_history_fixture)
+    execute, seen = TrackedConnection.execute, []
+    def changed(connection, sql, *args, **kwargs):
+        cursor = execute(connection, sql, *args, **kwargs)
+        if connection is conn and sql == "PRAGMA "+schema+".schema_version":
+            seen.append(1)
+            if len(seen) == (1 if boundary == "before-row" else 2):
+                if mutation == "write": execute(conn, "UPDATE context_observations SET source=source")
+                elif mutation == "main-ddl": execute(conn, "CREATE TABLE query_mutation (id INTEGER)")
+                elif mutation == "temp-ddl": execute(conn, "CREATE TEMP TABLE query_mutation (id INTEGER)")
+                elif mutation == "close": conn.close()
+                else:
+                    conn.rollback()
+                    execute(conn, "BEGIN")
+        return cursor
+    with pytest.raises((RuntimeArtifactTrustError, sqlite3.ProgrammingError)):
+        with cache._selected_receipt_scope(receipts, cutoff=cutoff, tour="ATP"):
+            monkeypatch.setattr(TrackedConnection, "execute", changed)
+            status.validate_selected_tennis_receipt(rows[0])
+    assert seen and hc._selected_receipt_witness.get() is None
+    assert cache._invalid and not cache._seals
+    assert cache.stats["entries"] == cache.stats["bytes"] == cache.stats["pending_bytes"] == 0
+    with pytest.raises((RuntimeArtifactTrustError, sqlite3.ProgrammingError)):
+        cache._check_selected_proof(receipts)
+
+
+@pytest.mark.parametrize("schema", ["main", "temp"])
+@pytest.mark.parametrize("mutation", ["write", "restart"])
+def test_completed_boundary_rechecks_changes_and_transaction_after_queries(encoded_history_fixture, monkeypatch, schema, mutation):
+    conn, receipts, _, _, cache = prepared(encoded_history_fixture)
+    execute, fired = TrackedConnection.execute, []
+    def changed(connection, sql, *args, **kwargs):
+        cursor = execute(connection, sql, *args, **kwargs)
+        if connection is conn and sql == "PRAGMA "+schema+".schema_version" and not fired:
+            fired.append(1)
+            if mutation == "write": execute(conn, "UPDATE context_observations SET source=source")
+            else:
+                conn.rollback()
+                execute(conn, "BEGIN")
+        return cursor
+    monkeypatch.setattr(TrackedConnection, "execute", changed)
+    with pytest.raises(RuntimeArtifactTrustError):
+        cache._check_selected_proof(receipts)
+    assert fired == [1] and cache._invalid and not cache._seals
+    assert cache.stats["entries"] == cache.stats["bytes"] == cache.stats["pending_bytes"] == 0
+
+
+def test_failed_authoritative_proof_clears_cache_immediately(encoded_history_fixture):
+    conn, receipts, _, _, cache = prepared(encoded_history_fixture)
+    conn.execute("CREATE TEMP TABLE new_schema (id INTEGER)")
+    with pytest.raises(RuntimeArtifactTrustError): cache._check_selected_proof(receipts)
+    assert receipts._validation_failed and receipts._validation_stamp is None
+    assert cache._invalid and not cache._seals
+    assert cache.stats["entries"] == cache.stats["bytes"] == cache.stats["pending_bytes"] == 0
+    conn.execute("DROP TABLE new_schema")
+    with pytest.raises(RuntimeArtifactTrustError): receipts.validate_all()

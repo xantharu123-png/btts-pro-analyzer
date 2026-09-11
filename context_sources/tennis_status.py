@@ -6,6 +6,7 @@ Workload-v1 remains unchanged; status-v1 binds its two actual receipt hashes.
 """
 from contextlib import closing
 from datetime import datetime
+import hashlib
 from pathlib import Path
 import re
 
@@ -98,17 +99,21 @@ def _core_issues(payload):
     return issues
 
 
-def _record(payload, event_key, clock):
+def _record_fields(payload, event_key, clock):
     # 'unresolved' is an explicit missing tournament, never a verified alias.
     tournament = payload["tournament_id"] or "unresolved"
-    return normalize_observation({"event_key": event_key, "sport": "tennis",
+    return {"event_key": event_key, "sport": "tennis",
         "competition": f"espn:{payload['tour']}:tournament:{tournament}",
         "format": "singles" if payload["grouping_slug"] == _SLUGS[payload["tour"]] else "unsupported",
         "subject_id": event_key, "kind": "event_status", "source": "espn", "source_schema": STATUS_SCHEMA,
         "source_revision": digest(payload),
         "schedule_revision": digest({"event_key": event_key, "scheduled_start": payload["scheduled_start"]}),
         "published_at": None, "publication_proof": None, "valid_from": canonical_timestamp(clock),
-        "valid_until": None, "complete": False, "payload": payload}, observed_at=clock)
+        "valid_until": None, "complete": False, "payload": payload}
+
+
+def _record(payload, event_key, clock):
+    return normalize_observation(_record_fields(payload, event_key, clock), observed_at=clock)
 
 
 def normalize_tennis_status(tour: str, tournament_id, competition: dict, *, grouping_slug,
@@ -163,7 +168,7 @@ def normalize_tennis_status(tour: str, tournament_id, competition: dict, *, grou
     return (status, *workload)
 
 
-def validate_tennis_status_record(row: dict) -> dict:
+def _validate_tennis_status_payload(row):
     payload = require_object(row["payload"], _PAYLOAD, label="native tennis status projection")
     tour = _tour(payload["tour"])
     prefix = f"espn:tennis:{tour}:match:"
@@ -220,6 +225,11 @@ def validate_tennis_status_record(row: dict) -> dict:
                        "observed_at": clock, "projection": projection})
     if payload["competition_revision"] != expected:
         raise ContextIntegrityError("native competition reception identity differs")
+    return payload, clock
+
+
+def validate_tennis_status_record(row: dict) -> dict:
+    payload, clock = _validate_tennis_status_payload(row)
     if canonical_bytes(_record(payload, row["event_key"], datetime.fromisoformat(clock))) != canonical_bytes({key: row[key] for key in OBSERVATION_FIELDS}):
         raise ContextIntegrityError("native tennis status envelope binding differs")
     return payload
@@ -240,8 +250,9 @@ def _validate_selected_tennis_receipt_cold(row: dict) -> dict:
     clock = canonical_timestamp(row["observed_at"])
     content = {key: row[key] for key in OBSERVATION_FIELDS}
     normalized = normalize_observation(content, observed_at=datetime.fromisoformat(clock))
-    if (clock != row["observed_at"] or canonical_bytes(content) != canonical_bytes(normalized)
-            or digest(content) != row["content_digest"]
+    content_bytes = canonical_bytes(content)
+    if (clock != row["observed_at"] or content_bytes != canonical_bytes(normalized)
+            or hashlib.sha256(content_bytes).hexdigest() != row["content_digest"]
             or digest({"content_digest": row["content_digest"], "observed_at": clock}) != row["digest"]):
         raise ContextIntegrityError("selected tennis receipt/content identity differs")
     if (row["evidence_class"] != "prospective" or row["effective_at"] != clock
@@ -250,7 +261,14 @@ def _validate_selected_tennis_receipt_cold(row: dict) -> dict:
     if row["source"] != "espn" or row["sport"] != "tennis":
         raise ContextContractError("tennis status source differs")
     if row["source_schema"] == STATUS_SCHEMA:
-        validate_tennis_status_record(row)
+        _, native_clock = _validate_tennis_status_payload(row)
+        # This call already normalized the actual closed content. The native
+        # checks above independently constrain its identifiers and payload;
+        # all remaining fields below are canonical literals, hashes or clock.
+        # Thus normalizing this expected envelope again cannot change it.
+        expected = _record_fields(normalized["payload"], normalized["event_key"], native_clock)
+        if canonical_bytes(expected) != content_bytes:
+            raise ContextIntegrityError("native tennis status envelope binding differs")
     elif row["source_schema"] == SOURCE_SCHEMA:
         if row["kind"] != "workload" or row["format"] != "singles":
             raise ContextContractError("legacy workload kind/format mismatch")
