@@ -38,6 +38,13 @@ templates, so equivalent brief/review packaging uses explicit apply_patch/Git
 steps with recordedimmutableSHAs. No skillscript was falsely claimed executed.
 No new product implementation yet; root owns index until the brief checkpoint.
 
+Task9 brief/design checkpointbc2d0ce committed. Exact07d975f Linux focus
+subsequently405passed/10skipped218.42s,XML415/0failures/0errors:9root-staged
+fixture tests skipped inordinaryUID1000QA plus1non-Linuxcase. Separate actual
+UID9973DAC/8unsafe-class and7race controls allPASS. Actual-currentcapacity
+remainsFAIL; no whole suite/main/updater/app mutation. Trailing blank in the
+new brief is corrected in the following documentation-only checkpoint.
+
 ## Latest Task8 checkpoint — fix round1 committed, scoped rereview pending
 
 LATEST OUTCOME:07d975f actual-current native FAILED at300.046CPU/300.135wall,

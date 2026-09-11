@@ -206,6 +206,18 @@ Exact archived07d975f ordinaryUID1000 Linux projection/witness/shared/capacity/
 live-Tennis regressions launched separately with warnings as errors and a
 newQA extraction. No result yet. Whole repository suite still not started.
 
+Subsequent exact07d975f Linux result:405passed/10skipped in218.42s,
+219.134supervised wall,exit0,empty stderr. Immutable archiveSHA bc19bce5...75d9,
+ordinaryUID1000 stage`/tmp/betboy-context-qa.9xr68INa/task8-07d975f-dsnqko26`.
+This is the five named focused modules, not the whole repository. Skip reason
+inspection remains explicit; actual root-sealed UID997 controls above passed.
+
+Read-only XML confirms415tests/0failures/0errors/10skips. Nine skip because
+ordinaryUID1000QA did not receive CONTEXT_CAPACITY_TEST_ROOT; these exact
+DAC/unsafe-class behaviors separately passed asUID997 against rootsealed
+fixtures above. One non-Linux-fail-closed case is inapplicable on Linux.
+None of these skipped unit cases is relabelled passed.
+
 Pending. No Task8 source was uploaded, tested, pushed to main or deployed at
 this record's creation. Earlier reviewed repair checkpoints are published
 only on `codex/context-capacity-recovery-20260910` through06db3be (Task8 plan,
