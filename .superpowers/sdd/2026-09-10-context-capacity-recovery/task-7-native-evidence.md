@@ -47,5 +47,25 @@ decoding unrelated history; receipt-only lookup and a direct SQL shortcut
 were rejected as insufficient. Any new projection needs explicit equivalent
 full source/admission/lifetime checks, bounded accounting, fallback and review.
 
+## Bounded exact17cfbbc phase diagnosis
+
+Harness `.pytest_tmp/trace_task7_fresh_17cfbbc_phases.py`, SHA
+`a9b3d2eeb7a80b2568681737437d590e34ee809963abf31c8a2d48a6b63e54e9`,
+is the prior read-only trace with only source path/revision updated. It ran
+asUID997 on the same sealed input with AS2GiB/CPU300 and a deliberate
+diagnosticCPU275/wall295 stop. All observed functions delegate unchanged.
+
+Physical receipts44.991CPU/45.114wall; cold basis85.677CPU/85.721wall;
+independent seal23.607CPU/23.614wall. All26 original checks completed in
+166.146CPU/166.221wall (including cold and seal). Their26 history
+materializations alone took41.658CPU; individual original calls1.634–3.761CPU.
+Snapshots started at217.514wall. Twelve completed features1.848–2.197CPU,
+whole snapshot calls4.004–4.351CPU; the thirteenth feature was interrupted.
+One58390805-byte entry, no eviction/bypass,37covering+2exact hits by stop.
+Total276.913CPU/276.101wall,484200KiBpeakRSS, input unchanged. No noise was
+observed in the captured trace remainder; deliberate interruption means it
+is not a complete verification or release pass. This directly measures the
+original-history reconstruction targeted by Task8, not its achieved saving.
+
 No final full17cfbbc suite, G1/G2/G3 native pass, whole-branch approval,
 main push, updater exchange or application deployment is claimed here.

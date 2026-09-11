@@ -171,6 +171,36 @@ source checks, predictor and full snapshot histories/features remain required.
 This is not an implemented shortcut or release approval; architect may edit
 only task-8-design-analysis.md, root owns all other files/index/native actions.
 
+Controller code/review/hold/handoff checkpointbedcf12 pushed normally to the
+existing repair branch (remote prior65cd304), not main. Working/index clean
+at that checkpoint apart from the new ignored Task8 design report. Free VPS
+space18,900,369,408bytes read-only; no cleanup/deletion needed or performed.
+
+Task7 bounded trace completed: physical44.991CPU, cold85.677, seal23.607,
+all26 originals166.146inclusive; original history reconstruction41.658CPU.
+Snapshots start217.514wall;12complete features1.848–2.197CPU before13th
+deliberate interrupt. Total276.913CPU/276.101wall,484200KiBRSS, input unchanged;
+single58390805Bbasis/no pressure. Native trace is diagnostic, not acceptance.
+
+Ruling: Task8 may replace only the original check's internal unused full-history
+tuple with an equivalent owner-derived latest-target/completeness/admission
+projection — broader approved spec requires exact evidence and calculations,
+not that internal representation; the user's existing Tennis-checking repair
+authority covers this — cost if wrong is rejection/parity/capacity rework,
+never changed data, source/model hashes or weakened validation. This explicitly
+supersedes Task4's complete-tuple sentence for originals only. Snapshots retain
+their complete fresh tuple and every unchanged owning feature/transport call.
+
+Task8 preflight: root read the full broader spec and full revised design.
+Native sufficiency is whole-prefix bytes plus latest-target multiplicity and
+unique ordinal, counting ALL target rows. Important design hole closed before
+implementation: direct _store validates rows but not their completeness; it
+may mint neither aggregate nor complete-history fallback authority. Only a
+cache-owned fixed full builder may activate entry-serial/proof-bound markers.
+Unowned exact/covering subsets must cold-fallback, not silently be consumed.
+Global64MiB incl planned/draft/marker bytes and32entry+query slots; full owner
+checks, invalidation, predictor and every snapshot replay remain unchanged.
+
 ## Final Task4 checkpoint — 10 September 2026, 22:25 UTC: RELEASE HOLD
 
 Task4 product52189a6/reportfc7f0c7; independent scoped implementation review
