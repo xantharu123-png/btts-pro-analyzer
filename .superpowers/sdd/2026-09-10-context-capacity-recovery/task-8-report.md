@@ -166,3 +166,82 @@ Skills used: test-driven-development (real RED/GREEN contract tests, real owners
 ## Commit/index handoff
 
 The index was verified empty before exact staging. Only the six assigned product/test files above and this force-added report enter the Task8 commit, using `git -c core.autocrlf=false`. The controller's progress/handoff/native documents are excluded. Final commit identity and post-commit empty-index evidence are returned to the controller in the final handoff, avoiding a self-referential commit hash inside this report.
+
+## Review fix round 1 of 5 — dropped scalar-draft lifetime
+
+Base: `7bab03c481a7d6053ef53ad796527bad259adfd4`. Binding independent review: `task-8-review.md`. This amendment supersedes the initial report's no-known-accounting-defect assessment: the reviewer found an Important retained-reference defect not covered by counter-only checks.
+
+The review was confirmed against the actual seal loop. Python kept the last `query` loop local alive in `_store_encoded` across later `_make_room` calls. Removing that record from `_queries` and subtracting its reservation therefore did not release the record. With the exact 13,690-byte fixture history budget, pending canonical history could fill the budget while an uncharged query draft still existed.
+
+The initial correction moved only the unchanged per-row scalar loop into `_fold_original_queries`. Its frame and loop local are released when the call returns, before the existing later proof checks and before the next row's pressure/accounting operations. The same already decoded and independently cold-owner-validated row, tour, canonical byte length and ordinal are passed through. The related enclosing-frame findings and final corrections are recorded separately below. No scan, decoder, metadata reservation, query predicate, seal boundary, completeness/fallback authority or model/native behavior is changed.
+
+The new regression observes actual record lifetime, not only counters. A test-only subclass adds weak-reference support to the real `_OriginalQuery`; its initialization, reservation and fold logic remain real, and the observer keeps weak references only. On the real persisted ten-original fixture, the test inspects the existing final seal boundary when pending bytes equal the entire cache budget and retained query/metadata counts are zero. All ten removed records must already be dead, and the complete encoded entry must still be retained. No source/inventory validator or owning builder is replaced.
+
+Exact RED command, before the product correction:
+
+```powershell
+& C:/Projekt/BetBoy/betboy-app/.codex_test_venv/quality/Scripts/python.exe -B -m pytest -q -p no:cacheprovider -W error::DeprecationWarning tests/test_context_runtime_original_projection.py -k dropped_query_records --basetemp=.pytest_tmp/task8-fix1-red
+```
+
+Result: `1 failed, 83 deselected in 2.46s`, exit 1. Assertion: `dropped query record outlived its metadata charge`; actual live weak-reference count was `1`, expected `0`, despite zero charged metadata/queries.
+
+The same targeted command with `--basetemp=.pytest_tmp/task8-fix1-green` after correction: `1 passed, 83 deselected in 2.28s`, exit 0.
+
+Complete requested covering regression, no broader/native suite:
+
+```powershell
+& C:/Projekt/BetBoy/betboy-app/.codex_test_venv/quality/Scripts/python.exe -B -m pytest -q -rs -p no:cacheprovider -W error::DeprecationWarning tests/test_context_runtime_original_projection.py tests/test_context_runtime_shared_history.py tests/test_context_runtime_receipt_witness.py tests/test_context_runtime_capacity.py --basetemp=.pytest_tmp/task8-fix1-covering
+```
+
+Fold-only covering result: `365 passed, 9 skipped in 186.99s (0:03:06)`, exit 0. Nine skips were exactly the real Linux DAC/sealed-reader fixtures unavailable on Windows (one real-DAC case and eight sealed-reader variants). This completed run belongs ONLY to the initial fold-helper hashes below; it was not interrupted or represented as final coverage of later enclosing-frame changes.
+
+Initial fold-only SHA-256 values (raw workspace bytes):
+
+- `context_runtime_history_cache.py`: `3daade89708a2caf97757bc2daab37895d8a3bcd1ec5de987f06af6245f8fe22`.
+- `tests/test_context_runtime_original_projection.py`: `0ffdc5585d49952da9163613193bde690d31dcdc004afb45f7e357ee2b73033e`.
+- Unchanged `context_runtime_original_projection.py`: `ddc5632cc3e8f8ad9379799d0953f76e9d2d6cf733b6a0b5f9566c5c7302036b`.
+- Unchanged `context_runtime_tennis.py`: `61c6ffce8ef4837329a18792d465660e9de91cdddd69051207fe22eb7bee98cd`.
+
+### Related enclosing-frame checks requested by the controller
+
+While the fold-only covering run continued, the controller identified two related possible aliases in the same accounting/lifetime class: `_store`'s final `query_key` and `_prepare_originals`' final `key` plus validated publication temporaries. They were reproduced before further product edits, after the earlier covering run had completed.
+
+- With the query weak-reference count already zero at the full-pending-budget boundary, a known single key probe still had reference count 3 instead of the expected 2 (the probe plus `getrefcount`'s argument). The remaining reference was in the planning parent frame.
+- Before `_store_encoded` began, the key probe likewise had reference count 3 rather than 2 because `_store` retained its final dropped key.
+- Immediately before cold-basis preparation, weak references still saw the final validated publication and its origin copy (2 live temporaries, expected 0). The observing validator wrapper always calls the complete real publication validator; it adds only weak-reference-capable dictionary wrappers to the validated returned copies.
+
+The first reference-count assertion exposed pytest's temporary expression reference as well; measurement was moved to a preceding assignment so assertion rewriting does not own a key. The corrected, still-RED run was:
+
+```powershell
+& C:/Projekt/BetBoy/betboy-app/.codex_test_venv/quality/Scripts/python.exe -B -m pytest -q -p no:cacheprovider -W error::DeprecationWarning tests/test_context_runtime_original_projection.py -k 'dropped_query_records or direct_store_releases or planning_releases' --basetemp=.pytest_tmp/task8-fix1-related-red-2
+```
+
+Result: `3 failed, 83 deselected in 4.40s`, exit 1, with the exact 3-versus-2, 3-versus-2 and 2-versus-0 observations above. The earlier instrumentation run (`task8-fix1-related-red`) also had three failures; it is not used for the corrected key-reference count.
+
+The unchanged planning loop now executes in `_plan_original_publications`, whose local key/publication/origin/envelope references end before basis preparation. The unchanged same-tour drop loop now executes in `_drop_original_tour_queries`, whose key references end before encoded construction starts. The existing cache owner still performs all real publication validation and the fixed full cold preparation; there is no new caller authority, changed numerical/model code or altered gate/order. The same three targeted tests passed with `task8-fix1-related-green`: `3 passed, 83 deselected in 4.08s`, exit 0.
+
+Both key-lifetime cases now also cover actual valid planning identities with 4,096-digit event identifiers. A single explicitly observer-owned key reference is subtracted from the lifetime measurement; weak record/publication observers retain no strong references. The long-ID fixtures deliberately test planning and retention only, not native acceptance of a changed event. Broader targeted planning/pressure/caller-key/serial/two-tour/excess/subset coverage then ran:
+
+```powershell
+& C:/Projekt/BetBoy/betboy-app/.codex_test_venv/quality/Scripts/python.exe -B -m pytest -q -p no:cacheprovider -W error::DeprecationWarning tests/test_context_runtime_original_projection.py -k 'dropped_query_records or direct_store_releases or planning_releases or planning or pressure or caller_cutoffs or large_serial or both_tour or all_excess or direct_store_cannot' --basetemp=.pytest_tmp/task8-fix1-related-final
+```
+
+Result: `22 passed, 66 deselected in 16.91s`, exit 0.
+
+Final owner-coverage command explicitly requested by the controller for the final changed planning/drop state:
+
+```powershell
+& C:/Projekt/BetBoy/betboy-app/.codex_test_venv/quality/Scripts/python.exe -B -m pytest -q -rs -p no:cacheprovider -W error::DeprecationWarning tests/test_context_runtime_original_projection.py tests/test_context_runtime_shared_history.py tests/test_context_runtime_capacity.py::test_encoded_history_real_d4_shares_original_snapshot_cache --basetemp=.pytest_tmp/task8-fix1-final-owner-covering
+```
+
+Final owner-coverage result: `118 passed in 85.15s (0:01:25)`, exit 0, with no skips. The earlier four-file run and this final targeted coverage remain separately attributed; the 962-test/full-repository/native suites were not repeated in this round.
+
+Final fix-round SHA-256 values:
+
+- `context_runtime_history_cache.py`: `ae30feb5624797fd32e00541d748c0ba6a18acf62fa04c623b1ea0b29cf7b06a`.
+- `tests/test_context_runtime_original_projection.py`: `94b9467aaa586da49db99c2bb998fe22472d630d0cb79ca5a509aba83a930cf8`.
+- `context_runtime_original_projection.py` and `context_runtime_tennis.py` retain the unchanged hashes listed in the fold-only subsection. Scoped diff checks also show no change to source/model/native owners, inventory, transaction or input modules.
+
+Self-review: the fold helper has no pressure/accounting operations, does not return or retain query/row references, and ends on every successful fold before the seal advances. The planning and drop work-frame locals now end before their next construction phase. The lifetime tests distinguish a dead query record from a still-owned key and directly inspect the validated publication copies' lifetime. Existing proof checks, interrupted/reentrant seal cancellation, post-cold lifetime checks, and pinned owned/full fallback code are untouched. This round changes only the cache file, its projection regression file, and this report. Receiving-code-review, TDD and verification-before-completion skills informed the verification and fix.
+
+No independent re-review, native performance, broader final-suite or release acceptance is claimed by this fix round. The prior 7bab QA archive was uploaded by the controller but never staged/executed; this fix requires a new exact pin. Controller-owned documentation/native-preparation WIP remains unstaged. Exact commit identity and empty-index evidence follow in the implementer handoff.

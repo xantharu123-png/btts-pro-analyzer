@@ -224,40 +224,44 @@ class EncodedHistoryCache:
             self._evict()
         return self._bytes + needed <= self._max_bytes
 
+    def _plan_original_publications(self, artifacts, created_at):
+        """Keep publication/key work locals out of the subsequent basis frame."""
+        from context_models.tennis_live import ORIGINAL_ARTIFACT_KIND, validate_original_publication
+        for ref, envelope in artifacts.items():
+            if envelope["kind"] != ORIGINAL_ARTIFACT_KIND:
+                continue
+            publication = validate_original_publication(envelope["payload"], created_at=created_at[ref])
+            origin = publication["origin"]
+            tour, cutoff = origin["event"]["tour"], origin["cutoff"]
+            # Both maxima are discovered even after optional query space
+            # is exhausted. There are only two validated tour names.
+            if tour not in self._original_cutoffs:
+                charge = 128  # Two canonical fixed-width tour/cutoff maps.
+                while self._bytes + charge > self._max_bytes and self._queries:
+                    self._drop_query(next(reversed(self._queries)))
+                if self._bytes + charge <= self._max_bytes:
+                    self._original_cutoffs[tour] = cutoff
+                    self._planning_bytes += charge
+                    self._charge_metadata(charge)
+            elif cutoff > self._original_cutoffs[tour]:
+                self._original_cutoffs[tour] = cutoff
+            key = origin["event"]["event_key"], cutoff, tour
+            if key in self._queries:
+                continue
+            charge = _OriginalQuery.reservation(key, self._max_bytes, self._serial + 1)
+            if (len(self._queries) < min(_MAX_ORIGINAL_QUERIES, _MAX_ENTRIES - max(2, len(self._entries)))
+                    and self._bytes + charge <= self._max_bytes):
+                self._queries[key] = _OriginalQuery(key, charge)
+                self._charge_metadata(charge)
+
     def _prepare_originals(self, receipts, artifacts, created_at):
         """Own publication planning; callers provide neither keys nor proof."""
         from datetime import datetime
-        from context_models.tennis_live import ORIGINAL_ARTIFACT_KIND, validate_original_publication
         self._check_selected_proof(receipts)
         if self._proof is None:
             return
         try:
-            for ref, envelope in artifacts.items():
-                if envelope["kind"] != ORIGINAL_ARTIFACT_KIND:
-                    continue
-                publication = validate_original_publication(envelope["payload"], created_at=created_at[ref])
-                origin = publication["origin"]
-                tour, cutoff = origin["event"]["tour"], origin["cutoff"]
-                # Both maxima are discovered even after optional query space
-                # is exhausted. There are only two validated tour names.
-                if tour not in self._original_cutoffs:
-                    charge = 128  # Two canonical fixed-width tour/cutoff maps.
-                    while self._bytes + charge > self._max_bytes and self._queries:
-                        self._drop_query(next(reversed(self._queries)))
-                    if self._bytes + charge <= self._max_bytes:
-                        self._original_cutoffs[tour] = cutoff
-                        self._planning_bytes += charge
-                        self._charge_metadata(charge)
-                elif cutoff > self._original_cutoffs[tour]:
-                    self._original_cutoffs[tour] = cutoff
-                key = origin["event"]["event_key"], cutoff, tour
-                if key in self._queries:
-                    continue
-                charge = _OriginalQuery.reservation(key, self._max_bytes, self._serial + 1)
-                if (len(self._queries) < min(_MAX_ORIGINAL_QUERIES, _MAX_ENTRIES - max(2, len(self._entries)))
-                        and self._bytes + charge <= self._max_bytes):
-                    self._queries[key] = _OriginalQuery(key, charge)
-                    self._charge_metadata(charge)
+            self._plan_original_publications(artifacts, created_at)
             self._check_selected_proof(receipts)
             self._basis_cutoffs = dict(self._original_cutoffs)
             # The second dictionary contains the same bounded scalar cutoffs;
@@ -450,12 +454,22 @@ class EncodedHistoryCache:
         self._bytes -= size
         self._counters["evictions"] += 1
 
-    def _store(self, receipts, history, *, cutoff, tour):
-        # A caller's valid rows cannot establish aggregate completeness.
+    def _drop_original_tour_queries(self, tour):
+        """Release dropped key locals before another encoded build can start."""
         for query_key in tuple(self._queries):
             if query_key[2] == tour:
                 self._drop_query(query_key)
+
+    def _store(self, receipts, history, *, cutoff, tour):
+        # A caller's valid rows cannot establish aggregate completeness.
+        self._drop_original_tour_queries(tour)
         self._store_encoded(receipts, history, cutoff=cutoff, tour=tour)
+
+    def _fold_original_queries(self, row, *, tour, size, ordinal):
+        """Release loop-local drafts before the next pressure/accounting step."""
+        for query in self._queries.values():
+            if query.key[2] == tour:
+                query.fold(row, size, ordinal)
 
     def _store_encoded(self, receipts, history, *, cutoff, tour):
         self._check(receipts)
@@ -507,9 +521,8 @@ class EncodedHistoryCache:
                 if plain:
                     validated = json.loads(encoded)
                     _validate_selected_tennis_receipt_cold(validated)
-                    for query in self._queries.values():
-                        if query.key[2] == tour:
-                            query.fold(validated, len(encoded), len(pending))
+                    self._fold_original_queries(validated, tour=tour,
+                        size=len(encoded), ordinal=len(pending))
                     del validated
                 self._check(receipts)
                 if self._build_cancelled:

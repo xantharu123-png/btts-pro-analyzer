@@ -243,6 +243,105 @@ def test_pressure_drops_optional_proof_without_truncating_history(five_groups, b
         assert not cache._owned and not cache._queries
 
 
+def _with_long_last_query(artifacts):
+    from context_models.contracts import digest
+    artifacts = deepcopy(artifacts)
+    publication = next(row["payload"] for row in reversed(artifacts.values())
+                       if row["kind"] == replay.ORIGINAL_ARTIFACT_KIND)
+    event = publication["origin"]["event"]
+    event["event_key"] = "espn:tennis:ATP:match:" + "9"*4096
+    event["schedule_revision"] = digest({"event_key":event["event_key"], "scheduled_start":event["scheduled_start"]})
+    return artifacts  # Planning-only fixture; no claim of native acceptance.
+
+
+@pytest.mark.parametrize("long_key", [False, True])
+def test_dropped_query_records_die_before_pending_history_fills_budget(five_groups, monkeypatch, long_key):
+    # A loop-local draft must not keep an uncharged query alive after pressure.
+    import sys
+    import weakref
+    _, _, artifacts, created, receipts, order = five_groups
+    if long_key:
+        artifacts = _with_long_last_query(artifacts)
+    maximum = datetime.fromisoformat(max(clock for clock, _ in order))
+    history = replay._cold_replay_history(receipts, cutoff=maximum, tour="ATP", max_bytes=None)
+    total = sum(len(canonical_bytes(row)) for row in history)
+    del history
+    references, inspections, last_key = [], [], [None]
+    original_query = cache_module._OriginalQuery
+    class ObservedQuery(original_query):
+        __slots__ = ("__weakref__",)
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            references.append(weakref.ref(self))  # The observer owns no draft.
+            last_key[0] = self.key  # One explicit probe reference, not cache ownership.
+    monkeypatch.setattr(cache_module, "_OriginalQuery", ObservedQuery)
+    cache = cache_module.EncodedHistoryCache(receipts, max_bytes=total)
+    check = cache._check
+    def observed(receipts):
+        check(receipts)
+        if cache._building and cache._pending_bytes == total:
+            assert not cache._queries and cache.stats["metadata_bytes"] == 0
+            live = sum(reference() is not None for reference in references)
+            inspections.append((cache._pending_bytes, live))
+            assert live == 0, "dropped query record outlived its metadata charge"
+            key_references = sys.getrefcount(last_key[0])
+            assert key_references == 2  # Probe + getrefcount argument only.
+    monkeypatch.setattr(cache, "_check", observed)
+    cache._prepare_originals(receipts, artifacts, created)
+    assert len(references) == 10 and inspections == [(total, 0)]
+    assert cache.stats["entry_bytes"] == (total,)
+    assert cache.stats["pending_bytes"] == 0
+
+
+@pytest.mark.parametrize("long_key", [False, True])
+def test_direct_store_releases_dropped_query_key_before_encoding(five_groups, monkeypatch, long_key):
+    import sys
+    _, _, artifacts, created, receipts, order = five_groups
+    if long_key:
+        artifacts = _with_long_last_query(artifacts)
+    cache = cache_module.EncodedHistoryCache(receipts)
+    cache._prepare_originals(receipts, artifacts, created)
+    maximum = datetime.fromisoformat(max(clock for clock, _ in order))
+    key_probe = next(reversed(cache._queries))  # One known observer-owned reference.
+    store, observations = cache._store_encoded, []
+    def observed(*args, **kwargs):
+        assert not cache._queries
+        references = sys.getrefcount(key_probe)
+        observations.append(references)
+        assert references == 2  # Probe + getrefcount argument only.
+        return store(*args, **kwargs)
+    monkeypatch.setattr(cache, "_store_encoded", observed)
+    cache._store(receipts, (), cutoff=maximum, tour="ATP")
+    assert observations == [2]
+
+
+def test_planning_releases_validated_publication_temporaries_before_cold_basis(five_groups, monkeypatch):
+    import weakref
+    import context_models.tennis_live as live
+    _, _, artifacts, created, receipts, _ = five_groups
+    validate, references = live.validate_original_publication, []
+    class ObservedObject(dict):
+        __slots__ = ("__weakref__",)
+    def observed_publication(*args, **kwargs):
+        publication = validate(*args, **kwargs)  # Keep the complete real owner check.
+        publication["origin"] = ObservedObject(publication["origin"])
+        publication = ObservedObject(publication)
+        references.extend((weakref.ref(publication), weakref.ref(publication["origin"])))
+        return publication
+    monkeypatch.setattr(live, "validate_original_publication", observed_publication)
+    cache = cache_module.EncodedHistoryCache(receipts)
+    prepare, boundaries = cache._prepare_original_basis, []
+    def observed_basis(*args, **kwargs):
+        alive = sum(reference() is not None for reference in references)
+        boundaries.append(alive)
+        assert alive == 0, "planning payload temporary survived into basis preparation"
+        return prepare(*args, **kwargs)
+    monkeypatch.setattr(cache, "_prepare_original_basis", observed_basis)
+    cache._prepare_originals(receipts, artifacts, created)
+    assert len(references) == 20 and boundaries == [0]
+
+
 def test_maximum_slot_pressure_deduplicates_but_validates_excess_publications(five_groups, monkeypatch):
     _, _, artifacts, created, receipts, _ = five_groups
     originals = [item for item in artifacts.items() if item[1]["kind"] == replay.ORIGINAL_ARTIFACT_KIND]
