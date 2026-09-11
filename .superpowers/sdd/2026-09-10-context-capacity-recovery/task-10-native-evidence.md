@@ -148,3 +148,93 @@ backup/restore/HMAC and then-current input must pass before normal main push,
 reviewed updater-only exchange and separate exact app deployment. Neither
 synthetic construction nor transport-only D4 claims empirical prediction
 quality, provider freshness or completion of the separate failed Tennis job.
+
+## Actual30 input PASS, stronger G1 native running
+
+Exact724 actual30 CLI completed childreturncode2 as expected for its precise
+incomplete/transport_only report:288.095CPU/288.261wall,485440KiBRSS;
+all99774contents/receipts,32artifacts,30snapshots,2manifests,0rollbacks match.
+Input SHA/fullidentity unchanged and no companions. Full report retained both
+exact D1/D3 limitations and empirical_approval_verified false; no empirical
+validation inferred. This supersedes the previous1c65adafailure on this exact
+baseline, not larger or future data. The11.739secondwall reserve is small.
+
+Sameexact724 CLI now runs strongerG1(31distinctqueries/snapshots), child206920,
+UID997, input268824576B/SHA04e7...94b. No G1result yet. Root elected to defer
+the costly finalfullsuite until these strongergrowth results; no test/budget
+relaxation. Separate QAworktree was trackedclean at1c65ada and is now detached
+at exact724 withtrackedcleanstate; prior1c65XML/testoutputs retained. No test
+has yet been run in that advanced QAcheckout. Native helper/source unchanged.
+
+Controller checkpoint0f074a2ecf5f9da7b4cde6006ed459d90a5f9b44 was normally
+pushed and exactremoteconfirmed; it contains corrected724code plusonly7docs.
+GitHubmain remains2dd1116. No forcepush, mainpromotion, installedhelperchange,
+appdeployment, cleanup/deletion, productiondata change or new authority assumed.
+
+## Strong G1 FAILED; bounded phase attribution completed
+
+The exact724 uninstrumented G1 CLI completed its supervisor with
+childreturncode-9:299.975CPU/300.165wall,485792KiBRSS, no report.
+Input268824576B/SHA04e7db378a84fb90fb115db4aed6508ae295d0b99adb9f5626eba03a1f43b94b
+retained its full identity/hash, with no companions. This is a right-censored
+CPU300 failure, not a completed runtime or a passing exit2 report.
+Actual30 PASS does not supersede this failure. G2/G3 remain unmeasured;
+new final724 fullsuite is deliberately deferred. RELEASE HOLD.
+
+Read-only diagnostic helper `.pytest_tmp/trace_task10_growth_g1_phases.py`
+SHAb9964f19b5bdee574a2c3778befb34619379bcc4597dee8e04edaf5582ad4d74
+wrapped timing/counters around unchanged owners. It used same sealed source
+and G1 input, UID997/GID987, AS2GiB/CPU300, deliberate diagnostic stop275CPU/
+295wall, outer305s timeout with bounded10s kill, and bounded metadata output.
+This instrumented run is not acceptance. The first invocation mistakenly
+used system `/usr/bin/python3` and failed importing pandas; no package was
+installed and no product failure is inferred. That attempt finished
+4.287CPU/3.135wall/49252KiBRSS with input unchanged. The second invocation
+used the existing `/opt/betboy/venv/bin/python` and completed its bounded trace.
+
+The correct diagnostic stopped during snapshot28 of31, after all31 originals.
+Emitted summary:277.179CPU/276.087wall,485744KiBRSS, diagnostic_only true,
+complete_verification_claimed false, returned_without_interrupt false,
+input_unchanged true. Start of originals94.407elapsed, snapshots110.785elapsed.
+Observed costs (nested phases, DO NOT ADD together):
+
+| Owner or phase | Completed / invoked | CPU seconds |
+| --- | --- | --- |
+| All original replay phase |31 /31|16.374|
+| Projected native lookup |31 /31,30hits|0.006216|
+| Owned-full overflow lookup |1 /1|1.360743|
+| Covering reconstruction |27 /28|48.002107|
+| Full Tennis v3 features |27 /27|67.041|
+| Full worker-snapshot owner |27 /28|162.075564|
+
+Covering and worker totals include the interrupted28th call. Cache remained
+one encoded basis58392186B, total58401081B, metadata8895B/31slots, no eviction
+or bypass, no exact snapshot hit. First18 snapshots use1.05-1.54CPU per
+history reconstruction and1.70-2.01CPU features; later19-27 use2.34-3.09CPU
+reconstruction and3.51-3.98CPU features. A later-cutoff snapshot also has a
+larger causal history; growth is not just an extra optional original key.
+
+Preserved local raw capture:
+`.pytest_tmp/task10-g1-native-phase-capture-72421d3.jsonl`,
+SHAbd1771ff03a93dff67d1156ba8a81f48c2caad2b14b5a50fcd4e823def8e99a1.
+It contains295JSON records plus an explicit capture note. The first schema/
+artifact/manifest events appeared in tool output but preceded stored chunks;
+this file is a partial raw capture plus the complete emitted summary, not a
+claim that the initial trace prefix was saved. No protected payloads/keys
+were printed or downloaded; only bounded phase/query/cache metadata.
+
+Read-only Task11 analysis rules out rolling batches as the primary G1 fix:
+one excess query already has only one owned-basis traversal. Non-owning
+learned prefix descriptors could amortize repeated cutoffs, but their gain
+requires later reconstructions to use the existing exact-hit edge contract
+instead of all existing per-row covering checks. This needs a proof-contract
+decision, not silent implementation under unchanged-frequency authority.
+No300second pass or material preserved-frequency repair is demonstrated.
+No Task11 product/test/helper implementation is authorized by its report.
+
+Final fresh read-only VPS check still confirms2dd1116, original updater
+SHA74b1c4b1aa88788f6a8e1050905215953b5938faad0009719aa15164a494b78f,
+rootroot0755/134237B, app/Caddy and7timers active/enabled/scheduled,
+internal/public HTTP200/bodyok. Separate betboy-tennis.service stillFAILED;
+it was not reset. No native/fullsuite job remains active; code/testbytes724,
+QAtrackedclean724, earlieroutputs retained. No mainpush/updater/appdeployment.

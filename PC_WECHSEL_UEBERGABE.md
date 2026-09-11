@@ -1,5 +1,41 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Verbindlicher Fortsetzungsstand — 11. September 2026, Wachstumstest gescheitert
+
+Der geprüfte Reparaturcode ist `72421d3bdbec4ab15a3d2953cb153e867e7e340a`.
+Er ist samt Review und bisheriger Dokumentation auf dem Reparaturbranch
+`codex/context-capacity-recovery-20260910` gepusht (Checkpoint `0f074a2`).
+Nicht mit einer Veröffentlichung auf `main` oder dem VPS verwechseln.
+
+Die echte Kopie mit 30 Analysen besteht die vollständige Serverprüfung:
+288,095 CPU-/288,261 Wandsekunden, 485440 KiB Spitzen-RAM.
+Die größere Kopie mit 31 verschiedenen Analyseabfragen scheitert dagegen:
+299,975 CPU-/300,165 Wandsekunden, Prozess beendet, kein vollständiger Report.
+Alle Eingabedaten blieben unverändert. Die vorbereiteten 32-/33er-Kopien
+wurden noch nicht als D4 geprüft. Deshalb bleibt die Veröffentlichung gestoppt.
+
+Die anschließende begrenzte Messung ist abgeschlossen, kein Test läuft mehr.
+Der einzelne zusätzliche Originalabruf kostet nur 1,36 CPU-Sekunden.
+Erneute Historienrekonstruktion und vollständige Feature-Prüfungen dominieren.
+Der untersuchte nächste Ansatz würde die Wiederholungsfrequenz interner
+Prüfungen ändern; das ist nicht stillschweigend durch die Zusage
+„unveränderte Prüfungen“ gedeckt. Task11 ist nur Analyse, kein neuer Code.
+Vor einer solchen Änderung ist eine ausdrückliche Vertragsentscheidung nötig.
+Keine Grenzerhöhung, Kürzung, Modelländerung oder künstliche Freigabe.
+
+`main`, GitHub-`main` und VPS stehen weiterhin auf `2dd1116`; installierter
+Updater unverändert. Frisch lesend geprüft: App und Caddy aktiv, alle sieben
+Timer aktiv und geplant, interne/öffentliche Healthchecks jeweils `200/ok`.
+Der separate Tennis-Tagesjob bleibt `failed` und wurde nicht zurückgesetzt.
+Die letzte große Vollsuite (7292 + 97 Untertests) gehört zu `1c65ada`,
+nicht zu `72421d3`. Der neue Gesamt-Testlauf wurde nach G1-Fail zurückgestellt.
+
+Exakte Belege/Fortsetzung: SDD `progress.md`, `task-10-native-evidence.md`,
+`task-11-growth-analysis.md`. Code/Testbytes bleiben eingefroren; Root besitzt
+Index und Integration. Bekannte Worktrees und alte Ausgaben sind erhalten.
+Cricket, A0/P4b3 und die empirische Fünfsport-Abnahme bleiben offen/ausgenommen.
+Die nachfolgenden „läuft“-Abschnitte sind ältere, nicht aktuelle Checkpoints.
+
 ## Aktuell — Korrektur72421d3 geprüft; echter Serverdaten-Test läuft
 
 Task10 und sein gefundenerCallbackfehler sind committed. Die gezielte Korrektur

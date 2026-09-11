@@ -23,16 +23,34 @@ Executable brief and RED/validation requirements:
 `.superpowers/sdd/2026-09-10-context-capacity-recovery/task-10-brief.md`.
 Analysis: `fresh30-capacity-analysis.md` in the same SDD directory.
 
-- [ ] Task10.1: deterministic real dispatch/allocation RED plus independent
+- [x] Task10.1: deterministic real dispatch/allocation RED plus independent
   exact-type and actual SQLite lifecycle/override/cleanup boundaries.
-- [ ] Task10.2: same-order recursive loop/fixed leaf tuple and exact-owner
+- [x] Task10.2: same-order recursive loop/fixed leaf tuple and exact-owner
   short-lived local tracked cursor, retaining canonical comparison and every
   fresh proof/cookie boundary; original subclass route preserved.
-- [ ] Task10.3: focused regression, exact two-product/new-test/report commit,
+- [x] Task10.3: focused regression, exact two-product/new-test/report commit,
   independent immutable-delta review; no author push or native/fullsuite.
 - [ ] Task10.4: current-first exact native acceptance, meaningful larger
   consumer controls, final tests/review/backup/current-data and separate release
   actions. Prior complete fullsuite7292/30/97 is evidence at1c65ada only.
+
+Task10 corrected code72421d3 and scoped P2 rereview are complete. Actual
+30snapshot input passed288.095CPU/288.261wall/485440KiBRSS with full unchanged
+report/input. Stronger31-query G1 FAILED at299.975CPU/300.165wall/
+485792KiBRSS, child-9 and no report; input unchanged. Stronger32/33 controls
+are constructed/sealed but not D4-run. Task10.4 remains open: no final724
+fullsuite, main promotion, updater exchange or app deployment. Exact
+reports/pins are in SDD`task-10-native-evidence.md`.
+
+The completed bounded G1 diagnostic attributes only1.360743CPU to its one
+overflow original. Rolling batches therefore cannot remove a G1 traversal.
+Learned non-owning prefixes could reduce repeated covering work, but would
+change those later consumers from per-row checks to the existing exact-hit
+edge contract. This is a new proof-contract decision, not an unchanged-
+frequency Task10 refinement. `task-11-growth-analysis.md` is a read-only
+proposal; no Task11 implementation is approved and no same-frequency
+material fix is demonstrated. Keep source/limits/models frozen pending a
+concrete boundary decision; do not silently lower checks or label G1 passed.
 
 Rolling query batches and replacing the canonical-byte witness are excluded
 from Task10. A microbenchmark or an older26snapshot PASS cannot authorize

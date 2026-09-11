@@ -3,6 +3,41 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
+## Latest status: Task10 growth FAILED; release remains on hold
+
+Exact code72421d3 passes actual30 input at288.095CPU/288.261wall,
+485440KiBRSS with the full unchanged report and unchanged input.
+The stronger31-query/snapshot G1 fails at299.975CPU/300.165wall,
+485792KiBRSS, child-9, without a report. Its full input identity/SHA is
+unchanged and no companions appeared. G2/G3 are sealed but not D4-run.
+Task10.1-3 are complete; Task10.4 and release are NOT complete.
+
+The bounded diagnostic on exact724 G1 completed all31 originals, then
+stopped deliberately during snapshot28/31. No acceptance is inferred.
+Only one original overflow used owned-full history (1.360743CPU);30
+projections were hits. Repeated covering reconstruction consumed48.002107CPU
+over27 completed calls plus an interrupted28th; full27 feature calls
+consumed67.041CPU. These nested costs must not be added to worker totals.
+No eviction/bypass occurred. Raw partial capture and complete emitted
+summary are retained; exact pins and limitation are in task-10-native-evidence.md.
+
+Task11 is read-only diagnosis/proposal, not implementation authority.
+Rolling batches remove no traversal for G1's single excess query. Learned
+non-owning prefix views would change later per-row covering proof frequency
+to the existing exact-hit edge contract. That is not the promised unchanged
+checking frequency and must not be silently implemented. No material
+same-frequency repair is demonstrated; a boundary decision is required.
+Product/test bytes stay724. No new feature/model/helper/limit/data change.
+
+Final724 fullsuite was intentionally deferred after growth failed.
+QA is tracked-clean detached724; earlier1c65 outputs remain intact.
+Controller0f074a2 was normally pushed and remote verified. Main/GitHubmain/
+VPS remain2dd1116; installed updater74b1c4b1 is unchanged. Fresh read-only
+VPS check: app/Caddy and all7 timers active/enabled, both health endpoints
+200/ok, separate betboy-tennis.service still failed (not reset).
+No native or fullsuite job remains running. Root owns index/integration.
+Older running/pending paragraphs below are preserved historical checkpoints.
+
 ## Task10 corrected code72421d3 — real current-first native running
 
 The actualcallbackP2 is fixed by exactlytwo second-cookie exacttypechecks;
