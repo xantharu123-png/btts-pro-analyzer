@@ -3,6 +3,83 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
+## Task9 scope ruling and preflight —11September2026
+
+Ruling: under the user's already explicit equivalent Tennis/D2 checking
+repair authority, reopen only D4 observation/original orchestration, inventory,
+cache and the narrow shared Tennis source-tail check for Task9's fixed
+physical/source co-traversal — actual07d975f projection works but fullinput
+fails, and real profiles identify repeated physical+genericB1 checks — if the
+same-frame provenance, full source predicate matrix or mandatory cold fallback
+is wrong, the patch must be reworked/rejected before production; no acceptance
+contract, math, data or cap may change. This supersedes Task8's internal
+fixed-cold-builder path and listed owner freezes only for the named design.
+
+Ruling: permit ordered unfiltered physical receipt traversal on the new private
+route, preserving all content/receipt/orphan phases and every row — existing
+SQL within-phase order was unspecified, and sorting avoids an unaccounted
+Python pool — if SQLite sort overhead prevents the fixed profile, release
+remains HOLD; no index/schema/cap workaround. Public ordinary routes retain
+their existing behavior.
+
+| Interfaces/tasks | Preflight check and resolution |
+| --- | --- |
+|9physical ->9source|Fixed real decoder and immediate complete source-tail in same frame; physical proof alone never sourceproof; no callback/flag|
+|9source ->6/8seal|Independent full cold validation of every fresh decoded pending row retained; no residual-helper seal|
+|9pending ->8ownedprojection|One chargedpool, allmetadata, final physical/source completion plus exactserialproof; direct_store still cannot mint authority|
+|9planning ->5D2|Actual artifact map+persisted timestamps only; protected final bodies opaque; sourcefailure deferred with actual fullcold rejection|
+|9runtime ->2/3updater|SameCLI/report/admission/math; new exactcurrent/growth/fullsuite/backup proof required; scripts/pins frozen|
+|9standalone/fallback|Public source and ordinary inventory behavior unchanged; alreadyvalidated input has no invented source proof|
+|9failure/lifetime|No retained exception/traceback/row/key afteruncharging; resources and lifecycle failhard, notoptional cancellation|
+
+Main read full task9design and authored exact plan/brief. Installed skill6.3.0
+files/scripts disappeared midturn; main previously read complete workflow and
+templates, so equivalent brief/review packaging uses explicit apply_patch/Git
+steps with recordedimmutableSHAs. No skillscript was falsely claimed executed.
+No new product implementation yet; root owns index until the brief checkpoint.
+
+## Latest Task8 checkpoint — fix round1 committed, scoped rereview pending
+
+LATEST OUTCOME:07d975f actual-current native FAILED at300.046CPU/300.135wall,
+486572KiBRSS,child-9/supervisor1,no report. Input SHA/full identity unchanged,
+no companions. Its scoped correctness approval is not native acceptance.
+Code07d975f is normally pushed on repair branch only. Final whole suite and
+whole-branch release review were not started; no main/updater/app mutation.
+Bounded phase diagnosis now running from the same exact source/input,
+CPU275diagnostic stop under unchangedCPU300/AS2GiB; not a verification pass.
+Original author supplied read-only control-flow diagnosis: expected26query
+capacity fits; record actual projection hit/miss and outer snapshot overhead
+before choosing further work. Root owns index/docs; no product writer active.
+
+Subsequent checkpoint: Fix1 scoped rereview APPROVED, all3reference paths
+addressed,0open/new findings. Task8 fix round1/5 (3addressed,0open;
+commits7bab03c..07d975f). Exact07d975f pushed normally after fresh remote
+confirmation06db3be/main2dd1116; no force. Actual-current native job201336
+is running from exact root-sealedstagebetboy-capacity-code-b3xcmdb8.
+Native/full-suite/release acceptance remains pending. Protected16file hashes
+were freshly verified. New final whole-branch package is prepared only:
+`review-2dd1116..07d975f.diff`,60commits/1439160bytes; not yet dispatched.
+
+Final fix `07d975fb54a62ecb976c8040823e16fe45d9f16f` addresses the independently
+confirmed dropped-query reference and the controller's same-class enclosing
+key/publication references. All were reproduced RED, then fixed with short-lived
+owner frames. Final projection/shared/real-D4 coverage:118passed in85.15s,
+no skips. The earlier365passed/9Linuxskips belongs only to the fold-only
+intermediate hashes;962passed/12skips belongs to7bab before Fix1. Root read
+the complete appended report and received an empty index. Scoped package
+`review-7bab03c..07d975f.diff` contains1commit/27699bytes; fresh rereviewer
+`/root/tennis_check_task8_rereview` is read-only. No native/full-suite approval
+is inferred. Product cache SHAae30feb5624797fd32e00541d748c0ba6a18acf62fa04c623b1ea0b29cf7b06a.
+
+Exact07d975f Git archive:33863927bytes,826safe members,102786203expanded bytes,
+SHAbc19bce5fbf9bf14a83642b246c044fb0bee342509ac99c2b312205d7bdf75d9.
+Approved upload completed to the existing isolated QA directory; no application
+execution or production mutation yet. Rejected7bab archive is retained,
+never staged or used as acceptance. Main/VPS remain2dd1116, repair upstream
+06db3be until next explicit publication. Fixed limits and all saved inputs
+remain unchanged. Historical largest188791-receipt input is additional native
+regression evidence, not a substitute for current/G1-G3 consumer growth.
+
 ## Approved owner-check repair continuation — 11 September 2026, 14:42 UTC
 
 Latest user: "ja und dann commite pushe und pulle doch einfach alles wieso sollst du das nicht machen". This explicitly supplies the previously requested Tennis/D2 checking scope extension and repeats commit/push/deploy authority. No second permission prompt is needed for these actions. Results, data, validation strength and resource limits remain unchanged; only passing release evidence permits production promotion.
@@ -200,6 +277,64 @@ cache-owned fixed full builder may activate entry-serial/proof-bound markers.
 Unowned exact/covering subsets must cold-fallback, not silently be consumed.
 Global64MiB incl planned/draft/marker bytes and32entry+query slots; full owner
 checks, invalidation, predictor and every snapshot replay remain unchanged.
+
+Task8 plan/design/extracted brief committed as06db3be before dispatch. Fresh
+implementer `/root/tennis_check_task8` owns only assigned product/tests/report
+and Git index from that base; root performs separate ignored QA preparation
+and handoff/ledger edits without staging. No native or full-suite process is
+running. Last actual repair push remainsbedcf12; no main/updater/app change.
+
+Fresh remote check confirmedbedcf12 on repair and2dd1116 on main. Root then
+pushed exact06db3be normally to the existing repair ref (exit0), without
+touching the implementer's index or its new uncommitted product/test work.
+Task8 RED is independently distinguishable from acceptance: implementer
+reports6expected failures, including110versus20original cache decodes and
+direct valid-subset completeness failures. Task8 implementation remains open.
+
+Task8 author checkpoint, NOT acceptance:82new projection cases plus concrete
+RED/GREEN followups for two-map plan-byte undercharge, interrupted marker
+cleanup, reentrant final-seal replacement and a missing post-cold fallback
+cache-lifetime boundary. First larger focused run was interrupted with one
+obsolete cache-hit assertion; that contract now distinguishes snapshot hits
+from original projection queries. Complete final focused run restarted by
+the author in session79145. Immutable17 development oracle reports13persisted
+fixtures (3equal reports/10equal rejections) and exact direct-native error/
+12accepted original-call parity. Full report and independent review remain
+pending; root has not run native/full-suite or deployed Task8.
+
+Task8 implementation7bab03c committed with962focusedpassed/12platformskips
+in556.58s,83newprojection cases, final hashes unchanged, empty index returned.
+Controller read the complete final report. Fresh independent reviewer
+`/root/tennis_check_task8_review` is checking immutable06db3be..7bab03c via
+the91046-byte package; no scoped verdict yet. Only exact Git archive7bab
+(33858223B,826members,expanded102770637B,SHA2055c1f4...644a4) was uploaded
+to the already authorized QA path. No source stage/native/app execution yet.
+
+Task8 independent review NEEDS FIXES: one Important dropped-query lifetime
+finding, no Critical/Minor. `_store_encoded` retains its last `query` after
+pressure removes its charge; real fixture13690Bpending/0metadata still holds
+268Bdraft. Root verified the loop/frame reasoning against current code and
+recorded full review in task-8-review.md. Fix round1/5 resumes the original
+implementer, base7bab03c; only this defect plus lifetime regression/covering
+tests/report may change. Native execution remains paused. Unchanged protected
+hashes have root evidence; full-suite/native/release cannot-verify items stay
+open controller gates, not accepted or waived.
+
+Root final-coverage check recovered the preserved historical188791-receipt/
+4-snapshot generation3 (387739648B,SHA3628dee7...cc953), previously passedc4
+with~1sheadroom. It is added as an extra exact native regression alongside,
+not instead of, current and Task4G1-G3consumer-growth profiles. No dataset
+generation/edit, validator/budget change or native execution occurred here.
+
+Task8 fix1progress: original fold-frame defect reproduced with an actual
+weakref lifetime test, fixed by a short-lived folding helper. Four covering
+modules365passed/9Linuxskips186.99s on that first fix. Root then identified
+the same class in caller planning/drop frames; author independently reproduced
+three REDs (two retained keys and validated publication temporaries) and
+factored only those existing owner loops into short-lived helpers. Three
+targeted GREENs; final complete projection/shared plus real-D4-cache case
+requested on this updated code. Prior365result must not be relabelled as the
+later source. Same fixround1; no native execution or new release authority.
 
 ## Final Task4 checkpoint — 10 September 2026, 22:25 UTC: RELEASE HOLD
 

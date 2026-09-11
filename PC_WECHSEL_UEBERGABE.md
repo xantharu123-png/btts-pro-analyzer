@@ -1,5 +1,39 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Task9 vorbereitet — gemeinsame technische Prüfung, weiterhin kein Release
+
+07d975f ist auf dem Reparaturbranch gepusht und scoped korrekt, besteht den
+aktuellen vollständigen Datenbestand aber noch nicht unter300CPU-Sekunden.
+26/26Original-Projektionen greifen, keine Query-/Cache-Verdrängung; spätere
+vollständige Snapshots kosten rund9CPU-Sekunden statt4. Task9-Design/Plan/Brief
+begrenzen die nächste interne Prüfroutinenänderung: echter physischer Decoder
+und komplette Tennis-Quellprüfung direkt im selben Besitz-/Aufrufrahmen,
+separate vollständige Gegenprüfung bleibt. Root-Ruling unter vorhandener
+Prüfreparaturfreigabe dokumentiert; keine Mathematik-/Daten-/Limitänderung.
+Noch keine Task9-Implementierung. Vollsuite/Gesamtreview/aktuellerVPS-PASS und
+Deployment fehlen weiterhin. BekannterTennisjob-Fehler nicht als behoben melden.
+
+## Neuester Stand — Task8-Fix lokal committed, Serverabnahme offen
+
+NEUESTE ABNAHME:07d975f besteht den aktuellen Serverbestand weiterhin NICHT:
+300.046CPU/300.135wall Sekunden,486572KiBRSS,kein vollständiger Report.
+Eingabe unverändert. Scoped-Nachprüfung hat alle drei Referenzfindings bestätigt
+geschlossen; das ersetzt den fehlgeschlagenen Ressourcentest nicht.07d975f
+ist auf Reparaturbranch gepusht; Main/VPS/Updater unverändert. Vollsuite und
+finales Gesamt-Review noch nicht gestartet. Begrenzte Phasendiagnose läuft.
+
+Reparaturcode `07d975fb54a62ecb976c8040823e16fe45d9f16f`. Unabhängiges Review
+fand zuvor eine echte versteckte Referenz außerhalb der Cache-Abrechnung;
+Fixrunde1 behebt sie samt verwandten Schlüssel-/Publikationsreferenzen.
+118gezielte Tests auf dem finalen Fix sind bestanden. Frische unabhängige
+Nachprüfung läuft; noch kein neuer vollständiger oder nativer Abnahmelauf.
+Exaktes07d975f-Archiv nur in die freigegebene isolierte VPS-QA übertragen.
+Main/VPS bleiben2dd1116, Reparatur-Upstream06db3be. Keine erneute Freigabe
+für denselben Commit-/Push-/Deploymentumfang nötig; tatsächliche bestandene
+Abnahme bleibt Voraussetzung. Task7-CPU-Fehler ist bis dahin nicht aufgehoben.
+Alle Details im aktuellen SDD-progress.md und task-8-report.md/-review.md/
+-native-evidence.md. Frühere Zwischenstände darunter bleiben historisch.
+
 ## Aktueller Zwischenstand — 11. September 2026: geprüft, aber noch kein Deployment
 
 Reparaturbranch `codex/context-capacity-recovery-20260910`, Produktcode `17cfbbc`.
@@ -15,18 +49,25 @@ kein vollständiger Report. Eingabe unverändert. Ältere13-Analyse-G3-Kopie
 bestand899 in283.876wall Sekunden, ersetzt aber nicht den aktuellen Bestand.
 Backup aller88Datenbanken samt tatsächlichem Restore/HMAC ist geprüft.
 
-GitHub-Reparaturbranch wurde bis65cd304 normal gepusht; der folgende Stand
-wird separat gesichert. Main/VPS bleiben2dd1116, Updater74b1c4b1; kein Main-Push,
+GitHub-Reparaturbranch wurde bis06db3be normal gepusht, einschließlich
+Task8-Plan/Brief und Design. Main/VPS bleiben2dd1116, Updater74b1c4b1; kein Main-Push,
 Updateraustausch oder Appdeployment. App/Caddy und7Timer aktiv, Healthchecksok;
 bekannter betboy-tennis.service-Fehler bleibt sichtbar. Keine Daten/Limits,
 Modelle, Schlüssel/Marker oder geschützten Helper geändert.
 
-Nächster Schritt ist eine rein lesende Architekturprüfung einer gleichwertigen
-spielbezogenen Originalprüfung, nicht das Weglassen historischer Belege oder
-Snapshot-Berechnungen. Native Nachweise und alle offenen Grenzen liegen in
+Task8 wird jetzt von `/root/tennis_check_task8` abBASE06db3be umgesetzt:
+Eine intern vollständig erzeugte und unabhängig geprüfte Historybasis liefert
+den vollständigen spielbezogenen Originalnachweis, ohne für jedes Original
+die gesamte History erneut zu materialisieren. Jede Snapshot-Berechnung erhält
+weiterhin ihre vollständige frische History. Die exakte17cfbbc-Diagnose misst
+41.658CPU Sekunden allein für die26Original-Historyrekonstruktionen; das ist
+kein Nachweis, dass Task8 die Ressourcengrenze bereits besteht. Vollständige
+Herleitung, unveränderte Rechen-/Prüfgrenzen und unabhängige/native Abnahme
+bleiben verbindlich. Keine Originaldaten werden entfernt. Nachweise liegen in
 `.superpowers/sdd/2026-09-10-context-capacity-recovery/progress.md`,
 `task-6-native-evidence.md`, `task-7-report.md`, `task-7-review.md` und
-`task-7-native-evidence.md`. Bestehende Worktrees/WIP/A0/P4b3/Cricket bleiben
+`task-7-native-evidence.md` und `task-8-design-analysis.md`/`task-8-brief.md`.
+Bestehende Worktrees/WIP/A0/P4b3/Cricket bleiben
 unberührt. Dieselbe erteilte Commit-/Push-/Deploymentfreigabe nicht erneut abfragen.
 
 ## Fortsetzung freigegeben — 11. September 2026, 16:42 CEST
