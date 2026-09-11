@@ -1,5 +1,151 @@
 # Task 9 native and release evidence
 
+## RELEASE HOLD — freshest30-snapshot input exceeds unchanged CPU limit
+
+The final uninstrumented exact1c65ada run on the fresh265793536-byte input
+completed unsuccessfully: UID997 child204585 was killed at299.978CPU/
+300.233wall seconds,486496KiBpeakRSS, childexit-9/supervisor1, no complete
+report. InputSHA/fullidentity stayed unchanged; no companions. The previous
+26-snapshot PASS does not supersede this newer30-snapshot FAILURE. No main
+push, updater replacement or app deployment is permitted by these results.
+
+Final clean exact-LF Windows fullsuite at1c65ada did complete successfully:
+7292passed,30skipped,97subtests passed in1792.20s. XML7419cases/0failures/
+0errors/30skips, SHA3c43c93450f547379364c728689108df2bdd711c20cc3b1b48bab820fac3bae9,
+`.pytest_tmp/final-1c65ada-full-1.xml` in the detached final-QA worktree.
+QA HEAD verified1c65ada, tracked-clean. This is separate from the later
+test-onlybc9d26833-case GREEN and scoped independent3-case GREEN.
+
+Final scoped review has closed the whole review's sole Minor; both complete
+reports were read by root. Full review SHA
+cb6e98c9fff3b69f7993e72a88a43127d6ae7f632e16c36c79fc5d4738b4abe8;
+scoped rereview SHA695df422b11866b9c81c431ba296af68b169026874dbaa90bdb78344d1ddccae.
+Code review success and7292local tests do not override the latest real-input
+capacity failure. The current repair checkpoint will be committed/pushed
+normally on its repair branch only, keeping main/VPS2dd1116 intact.
+
+A read-only followup analyst`/root/fresh30_capacity_analysis` is examining
+remaining repeat costs within the already approved equivalent-checking scope.
+No new implementation, model/owner-feature edit, history pruning or budget
+increase is authorized/inferred by that diagnostic. The actual old Tennis
+worker HTTPError/timeout and broad empirical tasks also remain open.
+
+## Freshness, Linux integration and scoped test-review checkpoint
+
+The sole test correction is committed as
+`bc9d268d1e70fa89dd1cfa387667ee32a04aa421`, parent194155d. Complete module
+33passed165.27s with allwarnings aserrors. Independent scoped rereview
+APPROVED, original Minor closed and no new findings;3outer-projection cases
+passed/30deselected53.09s. Root read the full fix and rereview reports.
+Immutable scoped package7921B,
+SHA6614a48bb6576ebd731039568c7030f31ca899e1eea06ff65720824049860bbf.
+All product/deploy/helper bytes remain exact1c65ada; the fullsuite running on
+1c65ada is not falsely relabeled as a fullsuite atbc9d268.
+
+Exact1c65ada Linux integration completed:405passed/10skipped222.68s
+(223.233supervised), stage
+`/tmp/betboy-context-qa.9xr68INa/task9-1c65ada-integration-574vlg8k`.
+The10skips are the same9root-staged native-fixture cases absent from ordinary
+UID1000QA and1non-Linux case; actual UID997/race evidence is separate above.
+
+Fresh real complete backup/actualrestore/HMAC passed for88databases,40.35CPU/
+41.49wall seconds,621512KiBpeakRSS. Retained server-only archive:
+`/var/lib/betboy-live-backup-onf6j2mg/private-backups/complete.zip`,
+99310644bytes,SHA4e5695f469c9b919bfd9fdefd88b3820467e5811d8a22592bf86e208c8042e5c.
+Admission1133961216bytes. Helper
+`check_live_task9_backup.py` SHAdbf91f23f1d4a7ac69efb09c229b2c714b4356d5a113ba83b141025eb016b6db.
+No keys/archive contents were displayed/downloaded, and production source,
+updater, services and data stayed unchanged.
+
+The freshly sealed actual context copy changed to265793536bytes with
+99774contents/receipts,32artifacts,30snapshots,2manifests,0rollbacks:
+`/var/lib/betboy-live-backup-onf6j2mg/context-current.db`,
+SHA77d3bd030fc10e15194e9255f560bcfa9a33ba39392aa7706c425ce67c08d031.
+The independent read-only counter first assumed an optional rollback table
+existed and failed with no-such-table; only that diagnostic was corrected to
+the existing optional-table contract. The subsequent fixed count and identity
+check passed. No database or acceptance rule changed.
+The native supervisor was extended only with this exact new path/hash/count
+pin, SHA42bc0ceeb9831780fcfeac233bac8a87b5b1d7d75d02988a807d3f4092a86df6.
+Fresh complete exact1c65ada verification now runs asUID997 child204585; its
+result remains pending. An older input PASS cannot certify this grown input.
+
+## Latest acceptance checkpoint — native profiles and real DAC passed
+
+All five exact1c65ada uninstrumented native profiles now passed. The retained
+historical largest completed with188791receipts/6artifacts/4snapshots,
+136.778CPU/136.809wall seconds and325704KiBpeakRSS (UID997 child203725).
+It returned the complete expected transport-only report, empiricalfalse,
+unchanged twoD1/D3 limitations, childexit2/supervisor0. InputSHA/fullidentity
+remained unchanged and no companions appeared. Historical largest input:
+`/var/lib/betboy-capacity-growth-t8512i71/generation-3/context.db`,
+387739648bytes, SHA3628dee7b82bcfadd320bfc9f28df8d770fc7e31692de690cdcb0ae0919cc953.
+This is distinct from the latest actual-input262.838wall result below.
+
+The exact source stage also passed native UID997 checks: all3actual write,
+rename and SQLite-write attempts denied;8unsafe classes rejected; small
+in-memory/sealed reports equal. All7actual interleaved file lifecycle changes
+were rejected using new synthetic fixtures only, retained at
+`/var/lib/betboy-capacity-races-m7obfp6f`. No production file was mutated.
+
+Exact archive Linux owner cohort:75passed in13.68s (14.545supervised),
+ordinaryUID1000, source1c65ada, QA stage
+`/tmp/betboy-context-qa.9xr68INa/task9-1c65ada-owner-9ieab7c3`.
+Linux integration cohort and clean Windows fullsuite remain running.
+
+The one final whole-branch review is complete: APPROVED with0Critical/
+Important findings and one nonblocking Minor test issue. Independent cohorts
+482passed/1skip and302passed/12skips, total784passed/13platformskips. Root
+read its complete report. An unordered SQL scan is incorrectly compared as
+an ordered test list; fresh test-only writer`/root/sql_order_test_fix` owns
+only`tests/test_context_dataset.py`, its report and index. A covering-index
+RED plus exact-key/multiplicity-preserving fix and narrow rereview are pending.
+No product SQL sorting is authorized and no second full review is needed.
+
+Fresh complete backup/actual restore/HMAC, latest-data recheck, final source
+freeze, main push, updater repair and separate app deployment remain open.
+Nothing above establishes empirical betting-model approval or successful
+daily Tennis refresh. Earlier checkpoints below are chronological evidence.
+
+## Actual-current exact native profile — PASS
+
+Prepared receipt-plus-consumer growth controls, same exact1c65ada code and
+unchanged native boundaries (these are named historical synthetic fixtures,
+not a claim of arbitrary future growth beyond the latest actual input):
+
+| Input | Receipts / artifacts / snapshots | CPU / wall seconds | Peak RSS KiB | Result |
+| --- | --- | --- | --- | --- |
+| G1 |95406 /13 /11|149.837 /149.913|473360|PASS|
+| G2 |95407 /14 /12|158.630 /158.686|477756|PASS|
+| G3 |95408 /15 /13|170.628 /170.665|477988|PASS|
+
+All three yielded full expected reports with2manifests/0rollbacks and unchanged
+transport-only limitations/empiricalfalse. Hash/fullidentity unchanged, no
+companions, childexit2/supervisor0. The retained historical largest is now the
+next serial native measurement. No production changes.
+
+Exact source1c65ada, stage`betboy-capacity-code-iym7re_h`, UID997 child203242:
+262.690CPU/262.838wall seconds,486420KiBpeakRSS. Childexit2 with the COMPLETE
+expected report; supervisor0 and measured_profile_accepted=true. All99521
+contents/receipts,28artifacts,26snapshots,2manifests,0rollbacks match independent
+counts. InputSHA/fullidentity unchanged; no WAL/SHM/journal companions.
+The report remains`transport_only`/`incomplete`, empiricalfalse, exactly
+`d1-original-replay-context-unavailable` and
+`d3-owning-source-feature-replay-unavailable`. This is the technical capacity
+PASS which prior07d975f lacked, not empirical approval or a successful daily
+Tennis worker claim. Fixed resource limits were unchanged.
+
+Next evidence is in progress, not yet accepted: G1 receipt-plus-consumer growth
+asUID997 child203403; clean exact-LF1c65ada whole repository suite in
+`context-capacity-final-qa-20260910`, basetemp/XML`final-1c65ada-full-1`.
+No other heavy native job runs concurrently. The first and only final
+whole-branch review is now dispatched against BASE2dd1116..HEAD194155d,
+whose product/tests are exact1c65ada. Immutable package1594867bytes,
+SHA5896f0e34944cd9127cd755f5d1c59332ca515411d423de480dbd18bf6f55f80,
+reviewer`/root/capacity_whole_branch_review`. Remaining growth/fullsuite/
+review/backup/release gates must still pass. Repair branch normally pushed
+through194155d; main/GitHubmain/VPS remain2dd1116, old updater unchanged.
+
 ## Current implementation/review/archive checkpoint
 
 Task9 code/report committed `1c65adae1e9de85a6d457cf452f21c4d9cbb589e`.

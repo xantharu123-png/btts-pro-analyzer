@@ -3,7 +3,53 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
+## LATEST — fresh30-snapshot capacity FAILURE, main/VPS unchanged
+
+Fresh full88DB backup/actualrestore/HMAC passed41.49s, but its new actual
+context has99774receipts/32artifacts/30snapshots instead of26. Exact1c65ada
+unmodified CLI failed at299.978CPU/300.233wall seconds,486496KiBRSS, child-9,
+no report; input SHA/identity unchanged. All earlier26/G1/G2/G3/largest PASS
+evidence is preserved but cannot certify this newer input. RELEASE HOLD.
+Clean exact1c65ada Windows fullsuite7292passed/30skips/97subtests1792.20s;
+Linux integration405passed/10skips222.68s, owner75passed. Final whole review
+and narrowbc9d268SQL-test rereview APPROVED, no open code findings; root read
+all complete reports. The test-onlyfix33passed/allwarnings errors, independent
+3passed. One final Linux dataset module onbc9d268 is running independently.
+Root owns index and will save/push this repair checkpoint only. Read-only
+followup analysis of remaining snapshot checking costs is in progress, not
+an approved new implementation. No main/VPS/updater/data/limit/model change.
+Details and XML/input hashes: `task-9-native-evidence.md`.
+
+## Latest acceptance checkpoint — Task9 profiles passed, release pending
+
+Exact1c65ada current/G1/G2/G3/historical-largest native profiles all PASS under
+the unchanged limits. Current262.838wall seconds; historical largest136.809wall
+with188791receipts. Actual UID9973DAC/8unsafe-class and7interleaved lifecycle
+controls passed; Linux owner75passed. Full Windows suite and Linux integration
+are running. Final whole-branch review DONE ONCE, APPROVED with one Minor
+unordered-SQL-test issue, no Critical/Important findings. Fresh test-only
+writer`/root/sql_order_test_fix` owns the exact test/report and index; root
+retains separate controller docs/native jobs. Narrow rereview follows the
+test-only fix; no repeated full review. Main/GitHubmain/VPS still2dd1116,
+updater unchanged. Fresh real backup/restore/HMAC, actual-data confirmation,
+publication and the two separate VPS operations have not run yet. Preserve
+the existing failed Tennis-worker state honestly. Native details are in
+`task-9-native-evidence.md`; historical checkpoints below remain preserved.
+
 ## Task9 scope ruling and preflight —11September2026
+
+LATEST: exact1c65ada actual-current native PASS,262.690CPU/262.838wall,
+486420KiBRSS,complete expected transport-only report, all99521receipts and
+26snapshots, inputSHA/fullidentity unchanged/no companions. Old300CPU failure
+is now superseded for this exact input/source, not for unlimited future growth
+or empirical model approval. G1child203403 and cleanQAwhole suite1c65ada are
+running. First/only final whole-branch review dispatched to
+`/root/capacity_whole_branch_review`, BASE2dd1116..HEAD194155d (code1c65ada),
+package1594867B/SHA5896f0e34944cd9127cd755f5d1c59332ca515411d423de480dbd18bf6f55f80.
+Carry Task5 Minor unordered SQL test comparison. Root retains index/native/
+fullsuite/controllerdocs; reviewer only writes its exact final review report.
+Repair branch has been normally pushed194155d; main/VPS/old updater remain
+unchanged. Do not dispatch a second full review or claim all release gates passed.
 
 Latest Task9 checkpoint: implementation locally committed
 `1c65adae1e9de85a6d457cf452f21c4d9cbb589e`, exact five allowed product modules,

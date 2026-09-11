@@ -1,5 +1,40 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## AKTUELL — frischer30-Analyse-Bestand scheitert, noch kein Deployment
+
+Die letzte echte Serverprüfung ist fehlgeschlagen: aktuelles Vollbackup
+enthält30statt26gespeicherte Analysen,99774Belege/32Artefakte,265793536Bytes.
+Exakter1c65ada-Lauf wurde nach299,978CPU-/300,233Wandsekunden beendet, kein
+vollständiger Report; Daten unverändert. Frühere kleinere Profile bestanden,
+belegen aber diesen gewachsenen Bestand nicht. Grenzen werden nicht erhöht.
+Vollbackup aller88DBs samt tatsächlichem Restore/HMAC bestanden41,49s.
+Lokale exakte Vollsuite:7292Tests und97Untertests bestanden,30Skips1792,20s.
+Gesamtreview und gezieltes Nachreview sind freigegeben, letzter SQL-Testfix
+bc9d268ohneProduktänderung; das ersetzt den fehlgeschlagenen Serverlauf nicht.
+Main/GitHubmain/VPS bleiben2dd1116, alterUpdater unverändert. Reparaturstand
+wird auf seinem Branch gesichert/gepusht, noch nicht als fertig deployed.
+Nur lesende Anschlussanalyse der übrigen Prüfkosten läuft. Mathematische
+Modelle/Quellfeatures/Cricket/A0/P4b3/Daten/Budgets bleiben unverändert; der
+separate Tennis-Tagesfehler und empirische Modellarbeiten bleiben offen.
+Aktuelle genaue Nachweise: SDD`progress.md` und`task-9-native-evidence.md`.
+
+## Neuester Stand — Task9 besteht Serverprofile, Veröffentlichung noch offen
+
+Alle fünf exakten1c65ada-Serverprofile sind bestanden: aktueller Bestand
+262,838s; G1/G2/G3 je149,913/158,686/170,665s; historische größte Kopie mit
+188791Belegen136,809s. Grenzen, Mathematik und vollständige Prüfungen bleiben
+unverändert. Echte UID997-Berechtigungsprüfungen und sieben Dateirennen grün;
+Linux-Tennis-Kohorte75Tests bestanden. Vollsuite und Linuxintegration laufen.
+Das einmalige Gesamtabschlussreview ist APPROVED ohne schwere Findings;
+eine instabile SQL-Reihenfolgeannahme im Test wird separat mit echtem RED
+und gezieltem Nachreview korrigiert. Produktdateien bleiben dabei identisch.
+Noch fehlen frisches Vollbackup mit Restore/HMAC, Bestätigung der aktuellen
+Daten und tatsächliche Veröffentlichung. Main/GitHubmain/VPS bleiben2dd1116;
+kein Updateraustausch oder Appdeployment erfolgt. Die erteilte Freigabe gilt.
+Bekannter Tennis-Tagesfehler und empirische Modellabnahme bleiben gesondert.
+Neueste Details stehen in SDD`progress.md` und`task-9-native-evidence.md`.
+Darunterstehende Laufzustände sind ältere, absichtlich erhaltene Nachweise.
+
 ## Aktueller Stand — Task9 geprüft, aktueller VPS-Test läuft
 
 07d975f ist auf dem Reparaturbranch gepusht und scoped korrekt, besteht den
