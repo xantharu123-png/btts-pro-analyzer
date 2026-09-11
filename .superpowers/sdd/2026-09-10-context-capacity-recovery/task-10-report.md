@@ -226,3 +226,82 @@ Both focused cohort processes completed and were reaped. Final frozen-product
 diff check passed; every tracked path outside the two authorized product
 modules is unchanged from the base. Before staging, index was empty. No open
 test failure remains; native/platform skips and all release gates remain open.
+
+## Task10 P2 correction after independent review
+
+Date: 2026-09-11. Correction base is
+`4a27fb98f2379866a90abf3031082ab9a0fd4bf4`. The earlier final-product hashes and
+1223-test cohort above describe that original Task10 commit, not this corrected
+candidate. Root read and accepted the real P2 in the complete independent
+`task-10-review.md` (SHA256
+`987e9633286070970aaee160cb6459f8aaa93649829dadcefb04ec2d07cef75c`).
+The reviewer report is not edited by this implementer.
+
+A real SQLite trace callback can change the connection's `__class__` to a
+layout-compatible TrackedConnection subclass during the actual main PRAGMA.
+The prior second-cookie guard checked methods, instance overrides and factory,
+but not the current connection type. It could bypass the new subclass execute
+override, including an OperationalError veto. The only production correction
+adds `type(connection) is TrackedConnection` to that second guard in each of
+the two already authorized modules. Every other production line is unchanged.
+Changed types now take original connection.execute dispatch for temp. Ordinary
+exact connections still use one local tracked cursor, with existing cleanup.
+
+Four new tests use the actual SQLite trace callback to perform the class
+transition, for inventory/cache and delegating/veto-producing execute overrides.
+There is no product monkeypatch or fabricated query result. A delegating Python
+profile observes actual constructed cursors; assertions retain actual SQL order,
+override dispatch, veto propagation and closure of the initial local cursor.
+All previous 117 cases and all preexisting test modules remain unmodified.
+
+Same quality executable, Python flags and fixed single-thread environment as
+above. Exact correction run arguments appended to that prefix:
+
+```text
+tests/test_context_runtime_check_dispatch.py
+  -k trace_callback_connection_class_transition
+  --basetemp=.pytest_tmp/task10-p2-red-1 --tb=short
+
+tests/test_context_runtime_check_dispatch.py
+  tests/test_context_runtime_receipt_witness.py
+  --basetemp=.pytest_tmp/task10-p2-green-1
+
+tests/test_context_runtime_capacity.py
+  -k "inventory or schema or failed_pass_never_reseals or failure_revokes_existing_warm_cache or rejects_mutation_and_started_iterators"
+  --basetemp=.pytest_tmp/task10-p2-inventory-green-1
+```
+
+| Run | Result |
+| --- | --- |
+| RED on unmodified 4a27fb9 product | 4 failed, 117 deselected, 0.99s: both delegating cases omitted the override call; both veto cases failed to raise |
+| Corrected full dispatch + witness modules | 239 passed, 28.76s: all 121 dispatch cases plus 118 unchanged witness cases |
+| Corrected narrow inventory/schema/lifecycle/cleanup controls | 56 passed, 87 deselected, 8.43s |
+
+Both GREEN processes completed and were reaped. No new skipped or failed case.
+Read-only development comparison additionally executed the review reproducer
+against the original immutable `40d40147...` modules (loaded via git show into
+ephemeral namespaces) and the corrected current source. Both boundaries and
+both subclass behaviors match exactly: delegating returns inventory `(1,0,0,0)`
+or cache `(0,0)` with exactly one temp override call; veto raises the identical
+OperationalError message with exactly that same call. No development oracle
+or helper was saved into product/tests.
+
+Corrected working-byte SHA256 values:
+
+```text
+context_runtime_history_cache.py 2f13f3064222a5ee9e7fa5a432ff47b36e611322ccede3e31217c2400e8178cc
+context_runtime_inventory.py 2425653f02b1ff4b11fd6ec39f13bb9a3ca5061b3185af65cc41c44a816e36de
+tests/test_context_runtime_check_dispatch.py 56f4f697b6a4e89b692afc9364f79539f2bc17ce73618c9d74bf690f5bae4848
+context_runtime_transaction.py ecec258d9b67964da29b9da91859c5d80ed24100765b04e14db5269b8d4e8e5b
+scripts/stage_runtime_databases.py 1441158c542e97a19b193fa0cd091b645ec6442d6d8157f1d4fceabbba72b026
+```
+
+Frozen owner/model/source/helper diffs and whitespace checks remain clean.
+No additional full 23-module cohort was run: root explicitly requires fresh
+corrected native current-input acceptance first, then the final fullsuite.
+The prior 1223-test evidence stays attached to 4a27fb9. No new performance or
+resource-capacity claim accompanies this two-predicate correction. All limits,
+source/feature/predictor/proof obligations and release gates remain unchanged.
+Only the original exact four paths are staged/committed for this correction;
+root progress/handoff/native/QA WIP remains untouched. No push, SSH, fullsuite,
+deployment, subagents or additional scope by the implementer.

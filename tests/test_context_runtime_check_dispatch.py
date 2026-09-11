@@ -398,3 +398,45 @@ def test_actual_sqlite_interrupt_on_second_cookie_closes_cursor(encoded_history_
     with pytest.raises(sqlite3.ProgrammingError, match="closed cursor"): fetch(cursors[0])
     assert receipts._validation_failed and receipts._validation_stamp is None
     if boundary == "cache": assert cache._invalid and not cache._entries
+
+
+@pytest.mark.parametrize("boundary", ["inventory", "cache"])
+@pytest.mark.parametrize("veto", [False, True])
+def test_trace_callback_connection_class_transition_preserves_second_dispatch(boundary, veto):
+    calls, statements, cursors = [], [], []
+    class ReentrantConnection(TrackedConnection):
+        def execute(self, sql, *args, **kwargs):
+            calls.append(sql)
+            if veto and sql == TEMP:
+                raise sqlite3.OperationalError("second dispatch veto")
+            return super().execute(sql, *args, **kwargs)
+    with closing(sqlite3.connect(":memory:", factory=TrackedConnection)) as conn:
+        conn.execute("BEGIN")
+        receipts = VerifiedReceiptMapping(conn)
+        cache = hc.EncodedHistoryCache(receipts)
+        action = receipts._inventory_stamp if boundary == "inventory" else cache._schema_versions
+        def trace(sql):
+            statements.append(sql)
+            if sql == MAIN:
+                conn.__class__ = ReentrantConnection
+        def observe(frame, event, arg):
+            if event == "return" and frame.f_code is TrackedConnection.cursor.__code__:
+                cursors.append(arg)
+        previous = sys.getprofile()
+        conn.set_trace_callback(trace)
+        try:
+            sys.setprofile(observe)
+            if veto:
+                with pytest.raises(sqlite3.OperationalError, match="second dispatch veto"):
+                    action()
+            else:
+                assert action()[-2:] == (0, 0)
+            assert type(conn) is ReentrantConnection
+            assert calls == [TEMP]
+            assert statements == ([MAIN] if veto else [MAIN, TEMP])
+            assert len(cursors) == (1 if veto else 2)
+            with pytest.raises(sqlite3.ProgrammingError, match="closed cursor"):
+                cursors[0].fetchone()
+        finally:
+            sys.setprofile(previous)
+            conn.set_trace_callback(None)

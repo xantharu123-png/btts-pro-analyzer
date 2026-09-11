@@ -88,7 +88,8 @@ class VerifiedReceiptMapping(_TransactionMapping):
             cursor = connection.cursor()
             try:
                 main = cursor.execute("PRAGMA main.schema_version").fetchone()[0]
-                if (TrackedConnection.execute is _TRACKED_EXECUTE
+                if (type(connection) is TrackedConnection
+                        and TrackedConnection.execute is _TRACKED_EXECUTE
                         and TrackedConnection.cursor is _TRACKED_CURSOR
                         and "execute" not in connection.__dict__ and "cursor" not in connection.__dict__
                         and connection.row_factory is None):
