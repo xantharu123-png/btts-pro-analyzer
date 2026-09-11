@@ -107,6 +107,27 @@ def _replay_history(receipts, *, cutoff, tour, max_bytes, cache=None):
     return history
 
 
+def _original_native_candidate(receipts, event, decision, max_bytes, cache):
+    if cache is not None:
+        projected = cache._lookup_original_native(receipts, event_key=event["event_key"],
+            cutoff=decision, tour=event["tour"], max_bytes=max_bytes)
+        if projected is not None:
+            return projected
+        history = cache._lookup_owned_original_history(receipts, cutoff=decision,
+            tour=event["tour"], max_bytes=max_bytes)
+    else:
+        history = None
+    if history is None:
+        # Never consume a generic row-sealed subset as a complete original.
+        history = _replay_history(receipts, cutoff=decision, tour=event["tour"], max_bytes=max_bytes, cache=None)
+        if cache is not None:
+            cache._check_selected_proof(receipts)  # Preserve the post-cold/empty lifetime boundary.
+    target = [row for row in history if row["event_key"] == event["event_key"]]
+    newest = max((row["observed_at"] for row in target), default=None)
+    latest = [row for row in target if row["observed_at"] == newest]
+    return min(2, len(latest)), latest[0] if len(latest) == 1 else None
+
+
 def _verify_live_original(ref, publication, artifacts, created_at, receipts, variants, history_max_bytes, history_cache):
     """Own all decoded state/history in this one call, never in descriptors."""
     from tennis.predict import predict_match
@@ -127,18 +148,14 @@ def _verify_live_original(ref, publication, artifacts, created_at, receipts, var
     state = _decode_wrapper(envelope["payload"], event["tour"])
     if state.built_at > decision.timestamp():
         raise ArtifactIntegrityError("live original state was built after its decision")
-    history = _replay_history(receipts, cutoff=decision, tour=event["tour"], max_bytes=history_max_bytes,
-                              cache=history_cache)
-    target = [row for row in history if row["event_key"] == event["event_key"]]
-    newest = max((row["observed_at"] for row in target), default=None)
-    latest = [row for row in target if row["observed_at"] == newest]
-    if (len(latest) != 1 or latest[0]["source_schema"] != STATUS_SCHEMA
-            or latest[0]["digest"] != origin["native_receipt"]
-            or latest[0]["observed_at"] != origin["native_observed_at"]
-            or latest[0]["payload"]["competition_revision"] != origin["competition_revision"]
-            or latest[0]["payload"]["status"] != "scheduled" or latest[0]["payload"]["issues"]):
+    count, candidate = _original_native_candidate(receipts, event, decision, history_max_bytes, history_cache)
+    if (count != 1 or candidate["source_schema"] != STATUS_SCHEMA
+            or candidate["digest"] != origin["native_receipt"]
+            or candidate["observed_at"] != origin["native_observed_at"]
+            or candidate["payload"]["competition_revision"] != origin["competition_revision"]
+            or candidate["payload"]["status"] != "scheduled" or candidate["payload"]["issues"]):
         raise ArtifactIntegrityError("live original native current input was absent or revised")
-    _same(_native_event(latest[0]), event, "live original differs from its native event")
+    _same(_native_event(candidate), event, "live original differs from its native event")
     recorded = []
     args = {name: origin["inputs"][name] for name in (
         "player_a", "player_b", "surface", "best_of", "tour", "indoor")}
@@ -158,32 +175,8 @@ def verify_live_originals(artifacts, created_at, receipts, limitations, *, histo
             # Full physical proof precedes planning. Owning metadata validation
             # can now fail before an earlier original's model/native replay;
             # individual original and snapshot replay order stays unchanged.
-            cutoffs = {}
-            for ref, envelope in artifacts.items():
-                if envelope["kind"] != ORIGINAL_ARTIFACT_KIND:
-                    continue
-                publication = validate_original_publication(envelope["payload"], created_at=created_at[ref])
-                origin = publication["origin"]
-                tour, cutoff = origin["event"]["tour"], datetime.fromisoformat(origin["cutoff"])
-                cutoffs[tour] = max(cutoffs.get(tour, cutoff), cutoff)
-            if cutoffs:
-                history_cache = EncodedHistoryCache(receipts, max_bytes=MAX_ENCODED_HISTORY_BYTES)
-                history_cache._plan_bases(receipts, cutoffs)
-                for tour, cutoff in cutoffs.items():
-                    # This is cache preparation, not admission of a consumer.
-                    # A too-large maximum must not reject a valid small prefix.
-                    try:
-                        history = _cold_replay_history(receipts, cutoff=cutoff, tour=tour,
-                            max_bytes=None, basis_max_bytes=history_cache._max_bytes)
-                    except _HistoryBasisOverflow:
-                        # Discard only this bounded optional preparation. The
-                        # consumer still cold-validates its complete own cutoff.
-                        # A simultaneous mutation/revocation is never a miss.
-                        history_cache._check(receipts)
-                        history_cache._counters["bypasses"] += 1
-                        continue
-                    history_cache._store(receipts, history, cutoff=cutoff, tour=tour)
-                    del history
+            history_cache = EncodedHistoryCache(receipts, max_bytes=MAX_ENCODED_HISTORY_BYTES)
+            history_cache._prepare_originals(receipts, artifacts, created_at)
     # Opaque unopened D2 final receipts are never decoded here or promoted into
     # source inputs. A live original requiring such a receipt will lack its
     # verified native target and fail below, not silently use an older alias.

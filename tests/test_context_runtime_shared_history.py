@@ -83,7 +83,7 @@ def test_five_interleaved_groups_share_one_completed_basis(five_groups, monkeypa
         result[0]["payload"]["participant_ids"].append("poison")
     assert calls == [maximum]
     assert cache.stats["entries"] == 1 and cache.stats["stores"] == 1
-    assert cache.stats["bytes"] == budget // 2
+    assert cache.stats["bytes"] == budget // 2 + cache.stats["metadata_bytes"]
     assert cache.stats["peak_bytes"] <= budget and cache.stats["pending_bytes"] == 0
 
 
@@ -351,7 +351,7 @@ def test_optional_overflow_fallback_still_rejects_later_malformed_receipt(five_g
                  (replacement, digest({"content_digest": replacement, "observed_at": clock}), ref))
     receipts = VerifiedReceiptMapping(conn)
     receipts.validate_all()
-    monkeypatch.setattr(history_cache, "MAX_ENCODED_HISTORY_BYTES", 1)
+    monkeypatch.setattr(history_cache, "MAX_ENCODED_HISTORY_BYTES", 256)
     cold, calls = tennis_runtime._cold_replay_history, []
     def observed(*args, **kwargs):
         calls.append(canonical_timestamp(kwargs["cutoff"]))
@@ -364,7 +364,7 @@ def test_optional_overflow_fallback_still_rejects_later_malformed_receipt(five_g
 
 def test_optional_overflow_does_not_swallow_simultaneous_proof_mutation(five_groups, monkeypatch):
     _, conn, artifacts, created, receipts, _ = five_groups
-    monkeypatch.setattr(history_cache, "MAX_ENCODED_HISTORY_BYTES", 1)
+    monkeypatch.setattr(history_cache, "MAX_ENCODED_HISTORY_BYTES", 256)
     encode = tennis_runtime.canonical_bytes
     def changed(row):
         raw = encode(row)

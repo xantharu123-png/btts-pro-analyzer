@@ -974,7 +974,8 @@ def test_encoded_history_real_d4_shares_original_snapshot_cache(encoded_history_
     report = runtime.verify_context_database(path)
     assert report["counts"]["snapshots"] == 2
     assert len(caches) == 1
-    assert caches[0].stats["stores"] == 2 and caches[0].stats["hits"] == 4
+    assert caches[0].stats["stores"] == 2 and caches[0].stats["hits"] == 2
+    assert len(caches[0]._queries) == 2  # Originals project; only snapshots materialize full entries.
     assert caches[0].stats["misses"] == 0  # Completed per-tour bases precede replay.
 
 
