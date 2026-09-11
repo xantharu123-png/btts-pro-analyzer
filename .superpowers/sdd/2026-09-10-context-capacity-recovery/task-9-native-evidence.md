@@ -1,5 +1,38 @@
 # Task 9 native and release evidence
 
+## Followup diagnostic and final SQL-test Linux result
+
+Repair checkpoint06ab4afa783b8977b64a24b110d0b04ebe3cf9d1 was normally pushed
+and remote-reverified. GitHubmain remains2dd1116; no deployment occurred.
+
+Finalbc9d268 exact Git QA archive33916092B/835safe members/102946685expandedB,
+SHA2a046570c8c66ffb7c7668061994a09e32225214ee1a573db01a35f3fb5f294e,
+was transferred to its checked new approved QA filename and hash-matched.
+The first full Linux dataset module exceeded its separate240s harness timeout;
+it is NOT reported as passed. Stage`task9-bc9d268-dataset-4_itnyh_` preserved.
+The exact changed outer-projection cases plus adjacent capability boundary
+were then selected explicitly in a fresh stage, same archived source and
+unchanged240s harness:3passed/30deselected56.16s (56.689supervised), no skips,
+stage`task9-bc9d268-dataset-urolmtoe`. This targeted result does not relabel the
+earlier whole-module timeout. Windows33-case whole-module GREEN is separate.
+
+The bounded exact1c65ada first snapshot-feature cProfile used the fresh sealed
+30-snapshot input unchanged. It ended after one completed feature (not an
+acceptance run): first call at109.913s,20501rows, profile4.3025s; witness
+matching4.0275; fresh proof1.7058; plain-type guard1.3226; canonical encoding
+0.8704; actual base feature math0.0576. Total116.634CPU/115.216wall seconds,
+346424KiBRSS (resource total includes startup outside wall timer). No full
+verification claimed, no data mutation. All diagnostic/native jobs now ended.
+
+Root read the entire independent`fresh30-capacity-analysis.md`, including the
+14real-row status/workload microbenchmarks and the distinct above30-query
+owned-prefix fallback. It recommends only same-order loop/type dispatch and
+local exact-owner tracked-cursor allocation savings first; replacing canonical
+comparison or rolling original batches is not implemented or authorized here.
+Task10 brief/plan records this bounded continuation with every check and cap
+retained. The freshest exact-input failure remains the release decision until
+a new candidate genuinely passes current-first and larger-consumer controls.
+
 ## RELEASE HOLD — freshest30-snapshot input exceeds unchanged CPU limit
 
 The final uninstrumented exact1c65ada run on the fresh265793536-byte input

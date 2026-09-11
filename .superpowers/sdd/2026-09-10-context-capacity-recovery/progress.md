@@ -3,6 +3,32 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
+## Task10 internal ruling — exact predicates, cheaper dispatch only
+
+Root read the complete fresh30analysis and actual first-feature profile:
+most cost is repeated witness/type/fresh-schema checking, not feature math.
+Under the existing equivalent checking authority, reopen only inventory and
+history-cache allocation/dispatch as defined in`task-10-brief.md`: same-order
+recursive guard with fixed five leaf types, literal canonical bytes retained;
+one local tracked cursor per schema pair only for exact owners, old subclass
+route retained. Every SQL cookie/before-after/final/empty check and cold owner
+stays mandatory. Transaction helper/math/model/source/schema/caps stay frozen.
+If those semantics cannot be preserved, omit the seam; no workaround.
+
+Self-consistency: JSON guard -> unchanged canonical witness; cursor -> same
+tracked main/temp statements and ownership; proof -> same freshness/lifecycle
+consumers; original/snapshot -> same full predictor/feature/transport calls;
+updater -> same CLI/admission/limits. No new producer/consumer API or proof
+authority is introduced. New deterministic dispatch/allocation RED is required.
+One new implementation writer will own exactly two product paths/newtest/report
+and index after the brief checkpoint. Root owns all native/fullsuite/release.
+No second whole-branch review; independently review the new immutable delta.
+
+06ab4af checkpoint normally pushed and remote verified; main/VPS2dd1116.
+FinalSQL-test exactbc9 Linux selected3passed56.16s; separate whole-module
+240s harness timeout preserved, not relabeled. All native/fullsuite jobs ended.
+Current30snapshotFAIL remains RELEASE HOLD. Task10 is not implemented yet.
+
 ## LATEST — fresh30-snapshot capacity FAILURE, main/VPS unchanged
 
 Fresh full88DB backup/actualrestore/HMAC passed41.49s, but its new actual

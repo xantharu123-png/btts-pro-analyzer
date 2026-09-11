@@ -1,5 +1,21 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Fortsetzung — Task10 vorbereitet, gleiche Prüfregeln und Grenzen
+
+Zwischenstand06ab4af ist auf dem Reparaturbranch gepusht und remote bestätigt.
+Die begrenzte Messung ist beendet: fast alle Feature-Prüfkosten entfallen auf
+Wiederholungen von Typ-/Byte-/SQLite-Prüfungen, nicht auf die Modellrechnung.
+Task10-Brief/Plan erlaubt nur deren unveränderte Ausführung mit weniger
+Generator-/Cursor-Verwaltung in zwei Prüfroutinen. Keine abgeschwächte Regel,
+keine höheren Grenzen, keine Daten-/Modelländerung. Ein frischer Implementierer
+mit RED und unabhängigem Delta-Review folgt; noch kein Task10-Produktcode.
+Alle bisherigen Jobs sind beendet. Finaler SQL-Test auch Linux3Fälle bestanden;
+der vorherige breite Linuxmodul-Timeout bleibt gesondert dokumentiert.
+Der frische30Analyse-Bestand scheitert weiterhin; main/VPS2dd1116 unverändert.
+Aktuelle Anweisungen: SDD`task-10-brief.md`, `fresh30-capacity-analysis.md`,
+`progress.md`, `task-9-native-evidence.md`. Gleich erteilte Freigaben gelten,
+aber nur echte neue Serverabnahme erlaubt den freigegebenen Rollout.
+
 ## AKTUELL — frischer30-Analyse-Bestand scheitert, noch kein Deployment
 
 Die letzte echte Serverprüfung ist fehlgeschlagen: aktuelles Vollbackup

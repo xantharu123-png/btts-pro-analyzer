@@ -10,6 +10,34 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-07-kontextmodell-design.md`, especially D4 and Task 20; exact recovery rationale in `.superpowers/sdd/2026-09-07-kontextmodell-umsetzung/task-20-context-size-recovery-preflight-20260910.md`. The controller also read the independently authored recovery implementation preflight in the original controller worktree. This is a repair of the accepted implementation, not new product design.
 
+## Task10 approved internal checking-dispatch continuation
+
+The latest exact1c65ada30-snapshot input failed CPU300 despite complete local
+and scoped code acceptance. Root's measured first-feature profile attributes
+nearly all feature-pass cost to unchanged witness/type/SQLite checks. Under
+the existing equivalent-checking repair authority, only the two narrowly
+specified allocation/dispatch seams are reopened; no acceptance predicate,
+model/feature/source output, history or resource cap may change.
+
+Executable brief and RED/validation requirements:
+`.superpowers/sdd/2026-09-10-context-capacity-recovery/task-10-brief.md`.
+Analysis: `fresh30-capacity-analysis.md` in the same SDD directory.
+
+- [ ] Task10.1: deterministic real dispatch/allocation RED plus independent
+  exact-type and actual SQLite lifecycle/override/cleanup boundaries.
+- [ ] Task10.2: same-order recursive loop/fixed leaf tuple and exact-owner
+  short-lived local tracked cursor, retaining canonical comparison and every
+  fresh proof/cookie boundary; original subclass route preserved.
+- [ ] Task10.3: focused regression, exact two-product/new-test/report commit,
+  independent immutable-delta review; no author push or native/fullsuite.
+- [ ] Task10.4: current-first exact native acceptance, meaningful larger
+  consumer controls, final tests/review/backup/current-data and separate release
+  actions. Prior complete fullsuite7292/30/97 is evidence at1c65ada only.
+
+Rolling query batches and replacing the canonical-byte witness are excluded
+from Task10. A microbenchmark or an older26snapshot PASS cannot authorize
+release. Preserve earlier task/evidence history below.
+
 ## Global Constraints
 
 - **User-approved amendment, 11 September 2026:** the latest explicit approval permits narrowly repairing the Tennis and D2 checking routines after Task4's measured growth failure, then committing/pushing and controlled VPS deployment. This supersedes the earlier owner-file freeze only for these equivalent checking changes. It does not permit changed model mathematics, data/history deletion, weaker validations, higher resource caps, rewritten archived evidence or compatibility hash whitelists. Tasks5/6 document the new work; old Task4 constraints/evidence remain historical. The normal exact updater route remains required.
