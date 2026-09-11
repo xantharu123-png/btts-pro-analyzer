@@ -1,4 +1,5 @@
 """D2 pre-opening dataset inventory and source resolution boundaries."""
+from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timedelta
 import sqlite3
@@ -271,7 +272,8 @@ def test_outer_projection_capability_failure_is_explicit_and_never_decodes_label
             dataset._physical_receipt_preflight(connection)
 
 
-def test_outer_projection_binds_each_opaque_receipt_by_named_mapping_without_decoding(prepared, tmp_path, monkeypatch):
+@pytest.mark.parametrize("covering_index", [False, True], ids=["table-scan", "covering-payload-index"])
+def test_outer_projection_binds_each_opaque_receipt_by_named_mapping_without_decoding(prepared, tmp_path, monkeypatch, covering_index):
     import context_models.dataset as dataset
     packet = copy_packet(prepared, tmp_path)
 
@@ -288,9 +290,23 @@ def test_outer_projection_binds_each_opaque_receipt_by_named_mapping_without_dec
         lambda *args: pytest.fail("outer projection decoded a protected receipt body"),
     )
     with sqlite3.connect(packet["path"], factory=BindingCapture) as connection:
+        if covering_index:
+            connection.execute("CREATE INDEX test_covering_payload ON context_contents(payload)")
+            expected_plan = connection.execute(
+                "EXPLAIN QUERY PLAN SELECT payload FROM context_contents"
+            ).fetchall()
+            actual_plan = connection.execute(
+                "EXPLAIN QUERY PLAN SELECT content_digest,payload FROM context_contents"
+            ).fetchall()
+            assert any("COVERING INDEX test_covering_payload" in row[3] for row in expected_plan)
+            assert not any("test_covering_payload" in row[3] for row in actual_plan)
         expected = [row[0] for row in connection.execute("SELECT payload FROM context_contents")]
         connection.named_bindings = []
 
         dataset._physical_receipt_preflight(connection)
 
-        assert connection.named_bindings == [{"opaque": opaque} for opaque in expected]
+        assert all(set(binding) == {"opaque"} for binding in connection.named_bindings)
+        if covering_index:
+            # These unordered SQL scans legitimately visit the same bytes differently.
+            assert [binding["opaque"] for binding in connection.named_bindings] != expected
+        assert Counter(binding["opaque"] for binding in connection.named_bindings) == Counter(expected)
