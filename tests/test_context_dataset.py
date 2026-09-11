@@ -269,3 +269,28 @@ def test_outer_projection_capability_failure_is_explicit_and_never_decodes_label
         connection.create_function("json_valid", 1, lambda value: 0)
         with pytest.raises(ContextIntegrityError, match="projection capability"):
             dataset._physical_receipt_preflight(connection)
+
+
+def test_outer_projection_binds_each_opaque_receipt_by_named_mapping_without_decoding(prepared, tmp_path, monkeypatch):
+    import context_models.dataset as dataset
+    packet = copy_packet(prepared, tmp_path)
+
+    class BindingCapture(sqlite3.Connection):
+        def execute(self, sql, parameters=(), /):
+            cursor = super().execute(sql, parameters)
+            if isinstance(parameters, dict):
+                self.named_bindings.append(parameters.copy())
+            return cursor
+
+    monkeypatch.setattr(
+        dataset,
+        "_decode_receipt",
+        lambda *args: pytest.fail("outer projection decoded a protected receipt body"),
+    )
+    with sqlite3.connect(packet["path"], factory=BindingCapture) as connection:
+        expected = [row[0] for row in connection.execute("SELECT payload FROM context_contents")]
+        connection.named_bindings = []
+
+        dataset._physical_receipt_preflight(connection)
+
+        assert connection.named_bindings == [{"opaque": opaque} for opaque in expected]

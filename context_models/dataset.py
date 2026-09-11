@@ -166,12 +166,12 @@ def _physical_receipt_preflight(connection):
         for content_ref, opaque in connection.execute("SELECT content_digest,payload FROM context_contents"):
             if type(opaque) is not bytes or hashlib.sha256(opaque).hexdigest() != require_digest(content_ref):
                 raise ContextIntegrityError("opaque B1 content bytes lost their physical identity")
-            outer = connection.execute("""SELECT json_type(CAST(?1 AS TEXT)),
-                json_extract(CAST(?1 AS TEXT),'$.event_key'),
-                json_extract(CAST(?1 AS TEXT),'$.schedule_revision'),
-                json_extract(CAST(?1 AS TEXT),'$.source'),
-                json_extract(CAST(?1 AS TEXT),'$.subject_id'),
-                json_extract(CAST(?1 AS TEXT),'$.kind')""", (opaque,)).fetchone()
+            outer = connection.execute("""SELECT json_type(CAST(:opaque AS TEXT)),
+                json_extract(CAST(:opaque AS TEXT),'$.event_key'),
+                json_extract(CAST(:opaque AS TEXT),'$.schedule_revision'),
+                json_extract(CAST(:opaque AS TEXT),'$.source'),
+                json_extract(CAST(:opaque AS TEXT),'$.subject_id'),
+                json_extract(CAST(:opaque AS TEXT),'$.kind')""", {"opaque": opaque}).fetchone()
             keys = [row[0] for row in connection.execute("SELECT key FROM json_each(CAST(? AS TEXT))", (opaque,))]
             if outer[0] != "object" or len(keys) != len(OBSERVATION_FIELDS) or set(keys) != OBSERVATION_FIELDS:
                 raise ContextIntegrityError("physical B1 content has an invalid closed outer header")
