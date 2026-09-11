@@ -1,6 +1,6 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Task9 vorbereitet — gemeinsame technische Prüfung, weiterhin kein Release
+## Aktueller Stand — Task9 geprüft, aktueller VPS-Test läuft
 
 07d975f ist auf dem Reparaturbranch gepusht und scoped korrekt, besteht den
 aktuellen vollständigen Datenbestand aber noch nicht unter300CPU-Sekunden.
@@ -10,10 +10,33 @@ begrenzen die nächste interne Prüfroutinenänderung: echter physischer Decoder
 und komplette Tennis-Quellprüfung direkt im selben Besitz-/Aufrufrahmen,
 separate vollständige Gegenprüfung bleibt. Root-Ruling unter vorhandener
 Prüfreparaturfreigabe dokumentiert; keine Mathematik-/Daten-/Limitänderung.
-Noch keine Task9-Implementierung. Vollsuite/Gesamtreview/aktuellerVPS-PASS und
-Deployment fehlen weiterhin. BekannterTennisjob-Fehler nicht als behoben melden.
+Task9-Code ist mit `1c65adae1e9de85a6d457cf452f21c4d9cbb589e` lokal committed
+und unabhängig APPROVED ohne offene Findings. Exakter Produktlauf1109Tests
+bestanden/12Plattform-Skips; finale75neue Fälle und spätere Zählerverstärkung
+separat grün. Reviewer365+32Tests und12zusätzliche gespeicherte Quellfälle grün.
+Der reale Regressionstest zeigte vorher20statt10physische Decodierungen.
+Root besitzt wieder den Index; Produkt-/Testdateien bleiben eingefroren.
+Exaktes Archiv33907914Bytes, SHAa3df9e45...847e00, geprüft übertragen und
+unter`/var/lib/betboy-capacity-code-iym7re_h/source` root-versiegelt.
+Aktueller vollständiger CLI-Lauf auf99521Belegen/26Analysen läuft alsUID997,
+Kind203242, mit unveränderten Grenzen. Noch kein Mess-/Abnahmeergebnis.
+Vollsuite/Gesamtreview/aktuellerVPS-PASS und Deployment fehlen weiterhin.
+Main/GitHubmain/VPS bleiben2dd1116; bekannterTennisjob-Fehler nicht als behoben
+melden. Task8-Diagnosen und Linux-Prüfungen sind beendet; nur der neue aktuelle
+Task9-CLI-Lauf ist aktiv. Task9 muss zuerst diesen Bestand bestehen, danach
+Wachstum/Vollsuite/Review/Backup und die getrennten Deployment-Schritte.
+Gleiche Commit-/Push-/Deploymentfreigabe nicht nochmals abfragen.
+Verbindliche aktuelle Details: SDD`progress.md`, `task-9-brief.md`,
+`task-9-design-analysis.md` und `task-9-native-evidence.md`.
+Die darunterstehenden Zwischenstände bleiben historische Nachweise.
 
-## Neuester Stand — Task8-Fix lokal committed, Serverabnahme offen
+Der bestehende Tennis-Tagesfehler ist inzwischen konkret aus dem Systemjournal
+bestätigt (nur feste Statusfelder gelesen): ATP `retained_fresh`, WTA
+`failed`/`HTTPError`, Neuaufbau rc1 nach17s; anschließender Tages-Scan nach900s
+abgebrochen. Weder Providerursache noch erfolgreicher neuer Tageslauf sind
+damit belegt. Kein Reset/Restart oder geändertes Job-Zeitlimit durchgeführt.
+
+## Historischer Zwischenstand — Task8-Fix committed, Serverabnahme offen
 
 NEUESTE ABNAHME:07d975f besteht den aktuellen Serverbestand weiterhin NICHT:
 300.046CPU/300.135wall Sekunden,486572KiBRSS,kein vollständiger Report.

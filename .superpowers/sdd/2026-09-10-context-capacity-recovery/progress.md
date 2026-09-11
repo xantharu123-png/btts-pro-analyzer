@@ -5,6 +5,33 @@ User approved the one-time updater-only replacement with independent review, fre
 
 ## Task9 scope ruling and preflight —11September2026
 
+Latest Task9 checkpoint: implementation locally committed
+`1c65adae1e9de85a6d457cf452f21c4d9cbb589e`, exact five allowed product modules,
+one new test module and complete report. Root read the full report and verified
+the empty index and unchanged18frozen paths. Exact-product22module focus:
+1109passed/12skipped659.74s; final75-case module75passed15.47s, with the later
+generic-normalization count strengthening separately1passed/74deselected2.44s.
+The intermediate1107passed run is not relabeled final. Immutable07d975f parity:
+71persisted outcomes and178validator comparisons all equal. No native/suite/
+release result is inferred. Root owns index again. Fresh scoped independent
+reviewer `/root/tennis_check_task9_review` is read-only on immutable
+`review-d138ac5..1c65ada.diff` (84508bytes,
+SHAbe0bace35d8fbfe712a2a74a6768f4c234c8e492fc1faa7bf63757218c80d5f5).
+It is not the final whole-branch release review. Product/test bytes frozen;
+controller documentation/ignored QA work may continue. No main/updater/app
+mutation or Task9 native execution yet.
+
+Subsequent scoped review is APPROVED, no actionable findings. Reviewer ran
+365focused+32inventory cases and12extra persisted workload controls; main read
+the complete report. Exact1c65ada archive33907914bytes/832members,
+SHAa3df9e45e9cc0c067197716b44930d6e7eea77557296193e6dab5ca011847e00,
+transferred with matching hash and staged by unchanged rootstdlib helper in
+`/var/lib/betboy-capacity-code-iym7re_h/source`. Current-first uninstrumented
+CLI is running asUID997, child203242, with unchangedCPU300/AS2GiB and sealed
+253333504-byte actual input. No result or release acceptance yet. Root is
+saving review/transport evidence in a documentation-only checkpoint; exact
+candidate product/test bytes and running immutable source remain1c65ada.
+
 Ruling: under the user's already explicit equivalent Tennis/D2 checking
 repair authority, reopen only D4 observation/original orchestration, inventory,
 cache and the narrow shared Tennis source-tail check for Task9's fixed
@@ -44,6 +71,14 @@ fixture tests skipped inordinaryUID1000QA plus1non-Linuxcase. Separate actual
 UID9973DAC/8unsafe-class and7race controls allPASS. Actual-currentcapacity
 remainsFAIL; no whole suite/main/updater/app mutation. Trailing blank in the
 new brief is corrected in the following documentation-only checkpoint.
+
+Task9 implementation/index owner `/root/tennis_check_task9` dispatched from
+BASEd138ac5b14e94ac37a6b089bf3efbda3a7dc0c92 after clean exact checkpoint and
+normal repair-branch push. It has read brief/design/rulings; RED-first work
+is in progress. Root owns only separate controller documentation/ignoredQA
+helpers while writer is active; do not stage/commit or dispatch anotherwriter.
+All Task8 native/diagnostic/Linux jobs are complete, none running. Main/VPS
+remain2dd1116, oldupdater74b1c4b1; no resource/header/source/hash relaxations.
 
 ## Latest Task8 checkpoint — fix round1 committed, scoped rereview pending
 
