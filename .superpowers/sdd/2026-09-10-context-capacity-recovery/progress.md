@@ -3,6 +3,49 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
+## Current closeout 12 September: B0 executed, necessary StorageSTOP
+
+B approval is recorded; no repeat B question. Fresh backup/restore/HMAC88 DBs,
+sealed input73ec1691/270233600B. Baseline100553 receipts,31snapshots,
+ATP42099/58390805B,WTA54819/75669070B. Independently reviewed helper9b4d3a0f
+and8small owner tests; native baseline and3generated portions completed with
+same source724/input/runtime/seals, exit0. Complete metadata logs and exact
+instrument/test byte archive are in evidence/task14-*.
+
+First real necessary size overflow at146782new synthetic ATP receipts:
+268435847B>268435456 by391B. Tag1/2 each70000, tag3 stops at6782. No full
+199snapshot/growth database or D4/7day pass. No old data mutated or new
+production code. Native CPU with backup332.16, execution wall333.21;
+conservative chronological23:19:00–23:46:11UTC=1631s. No further native run.
+
+Independent resultreviewSHA5776a9f72111c24b046aa8c997c9d06f944ae54f856c5e2c88458652c686dfd2.
+Root result task-14-sizing-result.md. New storage/input decision document
+docs/superpowers/specs/2026-09-12-kontextspeicher-entscheidung.md remains
+UNAPPROVED. It explicitly proposes a new bounded version, not secretly changed
+legacy caps. Existing B/push/controlled rollout permission remains but does not
+authorize this separately reserved storage boundary. No B productwork yet.
+Final decisiondocumentSHA08f296bfd0b7c43e4934367ec2533f29464b28f9dc7d2ada218ea194ae4645ba;
+independent documentreviewSHA185d45dc272d611c636f64bd34fcbec00965a84fe11cc7f3aec75ca9192f0f0f.
+
+Fresh remote main and server2dd1116; oldUpdater74b1c4b1. App/Caddy/7timers
+active+enabled/health200ok; separate failed dailytennis unchanged. No deploy,
+user/key/service installation, fullsuite restart, source/model/feature/math/
+odds changes or Cricket work. All native sizing sessions ended; Root owns
+index and final preservation of these narrowly scoped diagnostic/doc files.
+
+## Current authority12September: B explicitly approved; B0 first
+
+User "ja maxhrn" answers the concrete final request for isolated verifier,
+protected proof state,1800CPU/3600total preparation and mandatory sizing first.
+Reviewed spec498e63c5 is now approved; no repeated B-authority question.
+Its separate storage/input-contract stop remains binding if B0 actually fails.
+Starting clean HEAD6a0ba81, product/testbytes724. Root owns index/VPS/integration.
+Existing reviewed unmodified backuphelper64eab26e starts fresh online backup,
+restore/HMAC and root-sealed context copy; no D4/fullcapacity claim follows.
+One diagnostic size-harness author owns only ignored QA helper/own report and
+scoped ignored selftests. Independent review precedes its execution. Source
+data/model/feature/math/Cricket/livejobs/limits stay unchanged. No Bproductpatch.
+
 ## Current closeout12September: A1 STOP; concrete B decision ready
 
 Executed approved plan05f7e6f through its conditional boundary. No new product

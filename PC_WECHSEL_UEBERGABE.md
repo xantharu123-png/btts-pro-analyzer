@@ -1,5 +1,60 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neuester Abschluss 12. September 2026 — B0 gemessen, Speicherentscheidung offen
+
+Die Freigabe „ja maxhrn“ für B wurde ausgeführt: zuerst frisches Backup/Restore/
+Kontointegrität (88 DBs), dann die unabhängige geprüfte native Größenprobe.
+Quelle72421d3 blieb unverändert. Echte versiegelte Kontextdatei73ec1691:
+100553Belege,31Snapshots,270233600Bytes; volle ATP-Historie58390805Bytes,
+WTA75669070Bytes. Rund92.496Prozent der Ist-Snapshotbytes sind Referenzlisten.
+
+**B0 StorageSTOP:**146782tatsächlich neu erzeugte/normalisierte/dekodierte/
+ausgewählte synthetische ATP-Belege ergeben268435847kanonische Historybytes,
+391über256MiB. Zwei70000er-Portionen vollständig, dritte nach6782Zeilen beendet.
+Das ist eine notwendige synthetische Größenprüfung, kein künftiger Echtspielplan,
+kein prognostizierter Ausfalltag, kein199Snapshot-/D4-/Sieben-Tage-PASS.
+Keine alte Zeile verändert, keine Wachstumskopie oder neuen Snapshots geschrieben.
+
+Alle vier Messlogs unverändert/Exit0, unabhängig vollständig gegengeprüft.
+Native Kosten mit Backup332.16CPU/333.21Wandsekunden; konservative gesamte
+Auftragszeit1631Sekunden (23:19:00–23:46:11UTC). Keine weiteren nativen Tests
+nach dem tatsächlichen Größenfehler, keine neue Produktvollsuite oder B-Code.
+Helper und8Owner-Gegentests samt exakten Bytes im Evidencearchiv erhalten.
+
+Aktueller Ergebnisbericht:
+`.superpowers/sdd/2026-09-10-context-capacity-recovery/task-14-sizing-result.md`.
+Rohlogs/Hashes und ausführliche Reviewbelege stehen im gleichen SDD-Bereich.
+Neue noch NICHT freigegebene Entscheidungsvorlage:
+`docs/superpowers/specs/2026-09-12-kontextspeicher-entscheidung.md`.
+Fester VorschlagSHA08f296bfd0b7c43e4934367ec2533f29464b28f9dc7d2ada218ea194ae4645ba;
+unabhängig als Entscheidungsvorlage geprüft, Review185d45dc272d611c636f64bd34fcbec00965a84fe11cc7f3aec75ca9192f0f0f.
+Sie schlägt verlustfreie versionierte Speicherung und vollständige blockweise
+Verarbeitung vor; neue explizite Gesamtgrenzen müssen genehmigt werden.
+Die bereits gegebene B-/Commit-/Push-/kontrollierte Rolloutfreigabe gilt weiter,
+ersetzt aber nicht diese im B-Vertrag ausdrücklich getrennte Speicherentscheidung.
+
+GitHub main und VPS2dd1116 unverändert, alter Updater74b1c4b1. App/Caddy/7Timer
+aktiv+enabled, beide Healthchecks200ok; separater Tennis-Tagesjob failed bleibt
+offen. A0/P4b3, Cricket und empirische Kontextabnahmen bleiben außerhalb dieses
+Schritts. Kein App-/Updaterrollout, keine Schlüssel-/Benutzer-/Dienstinstallation.
+Root besitzt weiter Index/VPS; andere Worktrees und bekannte ungetrackte Dateien
+bleiben unverändert. Der nachfolgende Zwischenstand „B0 läuft“ ist überholt.
+
+## Neueste Freigabe12.September2026 — B angenommen, B0 läuft zuerst
+
+Auf die konkrete Frage nach isoliertem Prüfer, geschützten Nachweisen und
+maximal1800CPU-/3600Gesamtsekunden Vorbereitung antwortete der Nutzer
+„ja maxhrn“. Der B-Vertrag498e63c5 ist damit freigegeben; nicht erneut fragen.
+B0 beginnt mit einer frischen echten Backup-/Restore-/HMAC-Kette und versiegelter
+Kontextkopie. Danach begrenzte Messung ausgewählter kanonischer Historiemaße,
+vorhandener Snapshotreferenzen und sourcegültig generierter ATP-Größenprobe.
+Keine volle7Tage-Abnahme aus einer Hochrechnung ableiten. Bei tatsächlicher
+Größenüberschreitung gemäß Vertrag erst separate Speicher-/Eingabeentscheidung;
+keine stillen Grenzerhöhungen, Kürzung oder historischen Umschreibungen.
+Noch kein B-Produktpatch oder Server-Rollout. Ausgangspunkt6a0ba81 sauber,
+Produktbytes72421d3; Root besitzt Index, Integration und VPS-Ausführung.
+Die nachfolgende alte „B-Entscheidung offen“-Angabe ist damit überholt.
+
 ## Aktuell12.September2026 — A1 beendet, konkrete B-Entscheidung offen
 
 Die jüngste Freigabe „ja alles machen“ zum Kapazitätsplan05f7e6f wurde bis zur

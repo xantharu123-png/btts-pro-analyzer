@@ -1,0 +1,30 @@
+{
+  "read_only": true,
+  "phase": "storage_decision_after_B0_stop",
+  "date_local": "2026-09-12",
+  "timestamp_precision": "date only; exact command timestamp not recorded",
+  "commands": ["/usr/bin/df -B1 /var/lib /opt/betboy", "/usr/bin/free -b"],
+  "exit_code": 0,
+  "filesystem": {
+    "device": "/dev/sda1",
+    "mount": "/",
+    "bytes": 40483942400,
+    "used_bytes": 25411739648,
+    "available_bytes": 15055425536
+  },
+  "memory": {
+    "total_bytes": 4005441536,
+    "used_bytes": 828055552,
+    "free_bytes": 472997888,
+    "shared_bytes": 1024000,
+    "buff_cache_bytes": 3010035712,
+    "available_bytes": 3177385984
+  },
+  "swap": {
+    "total_bytes": 2147479552,
+    "used_bytes": 536576,
+    "free_bytes": 2146942976
+  },
+  "capacity_reserved": false,
+  "future_capacity_guarantee": false
+}

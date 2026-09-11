@@ -1,0 +1,48 @@
+{
+  "startUTC": "2026-09-11T23:19:00Z",
+  "startIsConservative": true,
+  "maxWallSeconds": 3600,
+  "maxCpuSeconds": 1800,
+  "cpuSeconds": 332.16,
+  "nativeExecutionWallSeconds": 333.21,
+  "peakRssKiB": 632128,
+  "backupComplete": true,
+  "helperSHA": "9b4d3a0f8501dda9d0ab0bb3714bcf4f59d5487d2ccdc5f23cefda56f07327f4",
+  "testSHA": "eac0ef49826fdda95efe66414e414cd0022bae79c1dc8cd3f3e1cc1a963aa197",
+  "runs": [
+    {
+      "mode": "baseline",
+      "cpuSeconds": 84,
+      "wallSeconds": 84.06,
+      "exit": 0
+    },
+    {
+      "mode": "generated",
+      "day": 1,
+      "cpuSeconds": 98.44,
+      "wallSeconds": 98.63,
+      "exit": 0,
+      "storageStop": false
+    },
+    {
+      "mode": "generated",
+      "day": 2,
+      "cpuSeconds": 97.2,
+      "wallSeconds": 97.24,
+      "exit": 0,
+      "storageStop": false
+    },
+    {
+      "mode": "generated",
+      "day": 3,
+      "cpuSeconds": 11.74,
+      "wallSeconds": 11.76,
+      "exit": 0,
+      "storageStop": true
+    }
+  ],
+  "endedUTC": "2026-09-11T23:46:11Z",
+  "elapsedConservativeSeconds": 1631,
+  "status": "necessary_history_size_stop",
+  "additionalNativeRunsAuthorized": false
+}

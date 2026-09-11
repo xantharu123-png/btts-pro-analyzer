@@ -1,7 +1,22 @@
 # Stufe B — konditioneller Umsetzungsplan
 
-Stand:12.September2026. Entwurf, **noch keine B-Implementierungsfreigabe**.
-Verbindlicher zu entscheidender Vertrag:
+Stand:12.September2026. **B-Vertrag mit „ja maxhrn“ ausdrücklich freigegeben.**
+Die Antwort bezieht sich auf die konkrete abschließende Frage nach isoliertem
+Prüfer, geschützten Nachweisen, maximal1800CPU-/3600Gesamtsekunden Vorbereitung
+und vorgeschaltetem Speichercheck. Die zugrunde liegende unabhängig geprüfte
+SpezifikationSHA498e63c5641adaccdd4d284fa9b57ad93c02ba834e9abd6bf4064636d6b12da1
+bleibt als unveränderter Freigabestand erhalten; deren frühere Statusformulierungen
+werden durch diese neue Entscheidung abgelöst. Keine erneute B-Freigabe einholen.
+Nicht eingeschlossen sind unverändert eine neue Speicher-/Eingabearchitektur,
+größere Grenzen oder Umschreiben alter Daten, falls B0 tatsächlich scheitert.
+
+**Aktuelles Ergebnis:** B0 ist nativ ausgeführt und unabhängig gegengeprüft.
+Die erste tatsächliche Überschreitung der256MiB-Historiengrenze liegt bei
+146782zusätzlichen synthetischen ATP-Belegen (268435847Bytes). Deshalb kein
+B-Produktcode. Die vertraglich geforderte gesonderte, noch nicht freigegebene
+[Speicherentscheidung C](../specs/2026-09-12-kontextspeicher-entscheidung.md)
+liegt vor. Keine weitere B-Freigabe verlangen; nur diese neue Grenze ist offen.
+Verbindlicher freigegebener Vertrag:
 [Versionierte Prüfnachweise](../specs/2026-09-12-versionierte-pruefnachweise.md).
 Die vorherige Planfreigabe erlaubte diese B-Ausarbeitung nach A1 STOP;
 Commit/Push/Deployment bleiben bereits erlaubt, wenn technische Abnahmen tragen.
@@ -10,9 +25,9 @@ Commit/Push/Deployment bleiben bereits erlaubt, wenn technische Abnahmen tragen.
 
 1. Unabhängiges Architekturreview auf festem Dokumentstand abschließen und
    konkrete Findings lösen, ohne die neue Betriebsgrenze als genehmigt zu buchen.
-2. Der Nutzer entscheidet einmal den konkret beschriebenen B-Nachweis-/Lebens-
+2. Erledigt: Der Nutzer hat den konkret beschriebenen B-Nachweis-/Lebens-
    zyklusvertrag inklusive isoliertem Prüfer, separatem Proofschlüssel/-speicher,
-   neuer Vorprüfgesamtgrenze1800CPU/3600Sekunden und enger Bootstrapintegration.
+   neuer Vorprüfgesamtgrenze1800CPU/3600Sekunden und enger Bootstrapintegration entschieden.
 3. Zuerst die Größenprobe durchführen. Das vorläufige7Tage-Profil kann laut
    unabhängiger Rechnung Eingabe1GiB/Historie256MiB überschreiten. Falls bestätigt,
    **vor B-Produktcode die separate Speicherarchitektur vorlegen**. Kein
@@ -52,6 +67,7 @@ Sportberechnungen erfordern einen anderen expliziten Vertrag.
 - [x] Reale Aggregatdaten erhoben und getrennte Speichergefahr berechnet.
 - [x] Konkreter B-Entwurf und konditionelle Ausführungsschritte dokumentiert.
 - [x] Unabhängiges B-Architekturreview abgeschlossen / P2 durch vorab vollständige Runtimeclosure und Lazy-Import-Gegentest behoben; geprüftes SpecSHA498e63c5641adaccdd4d284fa9b57ad93c02ba834e9abd6bf4064636d6b12da1.
-- [ ] Neuer B-Betriebs-/Nachweisvertrag entschieden.
-- [ ] Größenprobe / ggf. gesonderter Speichervertrag abgeschlossen.
+- [x] Neuer B-Betriebs-/Nachweisvertrag ausdrücklich entschieden („ja maxhrn“).
+- [x] Größenprobe tatsächlich ausgeführt: notwendiger History-StorageSTOP, kein vollständiger Sieben-Tage-PASS; Quellen/Eingabe unverändert.
+- [ ] Gesonderten Speichervertrag entscheiden; Vorlage C noch nicht genehmigt.
 - [ ] B-Produktcode, Tests, Kapazitätsabnahme und Deployment abgeschlossen.
