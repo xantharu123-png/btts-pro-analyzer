@@ -3,6 +3,21 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
+## Latest user request: plan only, no implementation
+
+The user asks how to solve the capacity failure and explicitly requests a
+plan before any new code. New proposal:
+`docs/superpowers/plans/2026-09-11-pruefarchitektur-kapazitaet.md`.
+It separates bounded in-run prefix reuse (A) from separately approved
+cross-run/version-bound verification architecture (B), with feasibility,
+equivalence, growth, reserve and release decisions. Neither A nor B has
+implementation approval. The240second reserve and7day horizon are proposed
+planning targets, not silently adopted current acceptance or measured facts.
+Only documentation is authored. No product/tests/helpers/VPS mutation or
+new test execution. Source724 and the following G1FAIL/releaseHOLD stand.
+Locally verified clean starting HEADf2763b2; production facts below are from
+the prior live check, not a new server verification during this plan task.
+
 ## Latest status: Task10 growth FAILED; release remains on hold
 
 Exact code72421d3 passes actual30 input at288.095CPU/288.261wall,

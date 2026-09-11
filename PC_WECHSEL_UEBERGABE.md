@@ -1,5 +1,16 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neueste Nutzeranweisung — nur planen, noch keinen Code schreiben
+
+Der Nutzer verlangt einen Lösungsplan zum Kapazitätsfehler. Er ist unter
+`docs/superpowers/plans/2026-09-11-pruefarchitektur-kapazitaet.md` gespeichert:
+begrenzte Wiederverwendung innerhalb eines Prüflaufs (A), klare Kosten-/Abnahme-
+Stoppregel und separat freizugebende dauerhafte Prüfarchitektur (B).
+Dies ist keine Umsetzungsfreigabe für A oder B. Produktcode bleibt unverändert
+auf den in `72421d3` enthaltenen Bytes; keine neuen Tests oder VPS-Aktionen.
+Der letzte vor dieser Planung bestätigte Reparaturbranch-Checkpoint ist
+`f2763b2`. Die nachfolgenden Fehlerbefunde und Release-Sperre bleiben gültig.
+
 ## Verbindlicher Fortsetzungsstand — 11. September 2026, Wachstumstest gescheitert
 
 Der geprüfte Reparaturcode ist `72421d3bdbec4ab15a3d2953cb153e867e7e340a`.

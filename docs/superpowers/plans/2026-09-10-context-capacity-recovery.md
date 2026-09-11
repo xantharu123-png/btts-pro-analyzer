@@ -1,5 +1,12 @@
 # Context capacity recovery implementation plan
 
+**Latest request, 11 September 2026: planning only.** The proposed next
+architecture and explicit decision points are in
+[`2026-09-11-pruefarchitektur-kapazitaet.md`](2026-09-11-pruefarchitektur-kapazitaet.md).
+This new plan does not grant implementation approval or supersede existing
+checking/resource contracts. Task10 growth remains failed; no release follows
+from merely saving the proposal.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Restore full D4 verification and the normal controlled update path for the existing, growing context database without discarding history or weakening semantic checks.
