@@ -1,6 +1,25 @@
 # BetBoy: Plan zur Behebung des Kapazitätsfehlers im Datenprüfer
 
-Stand: 11. September 2026. **Nur Planung; keine Umsetzungsfreigabe.**
+Stand: 11. September 2026. **Plan zur Ausführung freigegeben: „ja alles machen“.**
+
+Neueste Entscheidung: Der Nutzer hat nach Vorlage dieses Plans die Ausführung
+freigegeben. Damit beginnen Machbarkeitsnachweis, gegebenenfalls Stufe-A-Umbau
+mit unabhängiger Prüfung und die vorgesehene Stufe-B-Ausarbeitung bei fehlender
+Tragfähigkeit. Das vorgeschlagene240-Sekunden-Reserveziel und der aus realem
+Wachstum abzuleitende7-Tage-Horizont gelten für diese Ausführung. Das ist keine
+Bestätigung bereits bestandener Tests. Für B bleibt der konkret auszuarbeitende
+Nachweis-/Lebenszyklusvertrag samt seinen ausdrücklich neuen Betriebsgrenzen
+vor einer Produktionsänderung gesondert zu prüfen und zur Entscheidung vorzulegen.
+Die folgenden ursprünglichen Planungshinweise bleiben als Historie erhalten.
+
+Ausführungsergebnis12.September: **A1 STOP**, kein A-Produktpatch. Unabhängige
+Traceauswertung plus12neue native Diagnosepaare zeigen keinen tragfähigen
+Weg zum240Sekunden-Ziel. B ist jetzt
+[konkret spezifiziert](../specs/2026-09-12-versionierte-pruefnachweise.md),
+mit [konditioneller Umsetzung](2026-09-12-versionierte-pruefnachweise-umsetzung.md).
+Die echte Live-Metadatenabfrage zählt inzwischen31Analysen. Die vorläufige
+7Tage-Größenrechnung warnt zusätzlich vor Eingabe-/Historiengrenzen; B-Reuse
+allein löst diese nicht. Keine Kapazitäts-/Releasefreigabe oder neue Produktbytes.
 
 Der Nutzer verlangt ausdrücklich einen Plan und noch keinen Programmcode.
 Dieses Dokument ändert weder bestehende Prüfverträge noch Ressourcenlimits.
@@ -355,19 +374,20 @@ an die konkrete geprüfte Generation ist eine Anforderung unseres Vertrags.
 
 | Offene Entscheidung | Zuständig | Zeitpunkt / Blockierung |
 | --- | --- | --- |
-| Darf der vorgeschlagene interne Wiederholungsvertrag A geändert werden? | Nutzer, auf Grundlage dieses Plans | Vor Produktcode; aktuell nur Planung beauftragt |
-| Wie viel Einsparung bleibt nach frischem Dekodieren und unveränderten Feature-Prüfungen tatsächlich? | Engineering | Vor einem vollständigen A-Umbau; begrenzter Machbarkeitsnachweis |
+| Darf der vorgeschlagene interne Wiederholungsvertrag A geändert werden? | Nutzer, auf Grundlage dieses Plans | Mit „ja alles machen“ freigegeben; A1 beendet den unzureichenden Ansatz vor Produktcode |
+| Wie viel Einsparung bleibt nach frischem Dekodieren und unveränderten Feature-Prüfungen tatsächlich? | Engineering | Trace und12Paare ausgewertet; kein ausreichender Nutzen, A1 STOP |
 | Welche konkrete Datenmenge bildet sieben weitere Betriebstage ab? | Engineering anhand gemessener Schreibfrequenz | Vor Festlegung des Pflichtprofils; kein pauschales Zählen von Karten |
-| Wird das vorgeschlagene 240-Sekunden-Reserveziel verbindlicher Teil der Abnahme? | Nutzer im Rahmen der späteren Planfreigabe | Vor Implementierung; bisheriger Grenzwert bleibt 300 Sekunden |
-| Reicht A oder benötigt der definierte Bereich Stufe B? | Engineering mit unabhängigem Review | Nach Kosten-/Äquivalenznachweis, spätestens nach Pflichtprofilen |
+| Wird das vorgeschlagene 240-Sekunden-Reserveziel verbindlicher Teil der Abnahme? | Nutzer im Rahmen der Planfreigabe | Freigegeben; kein gemessener Pass. B benötigt separat definierten Vorprüf-Lebenszyklus |
+| Reicht A oder benötigt der definierte Bereich Stufe B? | Engineering mit unabhängigem Review | A reicht nicht; B entworfen, zusätzlicher Größen-/Speicherentscheid vorgeschaltet |
 | Welche Nachweis- und Invalidierungsarchitektur B ist korrekt? | Engineering und unabhängiges Review, Freigabe durch Nutzer | Separat vor B-Code; nicht implizit durch A genehmigt |
 
 ## 12. Status dieses Dokuments
 
 - [x] Reale Ausgangsbefunde und Codepfade abgeglichen.
 - [x] Optionen, Empfehlung, Risiken, Abnahmen und Stoppregeln dokumentiert.
-- [ ] Umsetzung von Stufe A ausdrücklich freigegeben.
-- [ ] Stufe A implementiert und unabhängig geprüft.
+- [x] Umsetzung von Stufe A im Rahmen des Machbarkeits-/Stoppvertrags freigegeben.
+- [x] Stufe-A-Wirtschaftlichkeit gemessen; gemäß Stoppvertrag kein Produktumbau.
+- [ ] Stufe A implementiert (entfällt nach A1 STOP, nicht als umgesetzt verbuchen).
 - [ ] Kapazitätsabnahme einschließlich vereinbartem Wachstumsprofil bestanden.
 - [ ] Falls erforderlich: Stufe-B-Vertrag entworfen, geprüft und freigegeben.
 - [ ] Release vollständig geprüft und kontrolliert deployed.

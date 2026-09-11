@@ -3,6 +3,56 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
+## Current closeout12September: A1 STOP; concrete B decision ready
+
+Executed approved plan05f7e6f through its conditional boundary. No new product
+candidate: independent G1 repeat-ceiling analysis rejects a plausible240second
+reserve for A. Additional bounded native pairs completed12/12,184.453215CPU /
+183.117809wall,469032KiBRSS, exact724/sealedG1unchanged, exit0. This deliberate
+snapshot-hook diagnostic completed no D4report and must not become acceptance.
+
+Afterward minimal live read txn:99776receipts/31originals+snapshots/16ATPcutoffs,
+268824576logicalbytes at22:12:37UTC. Not the syntheticG1 despite same size/count.
+Provisional7day dimensions589776/199/114, conditional input1.153GB and canonical
+ATP history345MB raise separate frozen1GiB/256MiB concerns; actual future sizes
+unknown. No shrinking the proposed profile or bypassing admission under reuse.
+
+Concrete Bspec docs/superpowers/specs/2026-09-12-versionierte-pruefnachweise.md
+SHA498e63c5641adaccdd4d284fa9b57ad93c02ba834e9abd6bf4064636d6b12da1.
+Independent review complete; oneP2closed by predeclared runtime closure checked
+before reuse, including lazy/native/resource/searchpath negative test. Review
+appendixSHAf6ab66eac0ce1b830c9d9f2c3cc5bfa0ee5c72b538959ff95765c4ebae409876.
+Conditional Bexecution plan saved. Source/testbytes still724. No B approval,
+implementation, extra service/key/account, cap/storage migration or deployment.
+
+Next explicit decision is B's new persistent proof/lifecycle boundary, not
+repeat push permission: isolated proofowner/runtime, separate root proofkey,
+1800CPU/3600total preparation proposal and unchanged bounded finalcheck. Then
+actual growth-size probe FIRST; if caps exceeded, separate storage/input
+contract before Bproductcode. Fullsuite/native release remains held. Existing
+main/updater/app-release authority only becomes executable after actual gates.
+
+Fresh read-only VPS identity/services plus remote refs: main/VPS2dd1116,
+oldUpdater74b1c4b1root:root0755/134237B. App/Caddy and7timers active/enabled,
+timers scheduled, internal/public200ok. Dailytennis.servicefailed unchanged.
+No fullsuite restarted; historical1c65results cannot certify724 or futureB.
+Root owns index/integration. All diagnostics exited; no heavy QA remains.
+New named reports task12result/feasibility/diagnosticreview, task13growth/design
+review and minimized raw evidence are preserved for account/PC continuation.
+
+## Current authority: execute the approved architecture/capacity plan
+
+The user replied "ja alles machen" after the complete plan05f7e6f. Execute
+StageA feasibility/equivalence and only a justified candidate, with240second
+reserve/real7day growth planning. If the measured ceiling is insufficient,
+proceed to the explicitly planned concreteStageB design/review and boundary
+decision, not another speculative same-frequency patch. Existing release
+and protected model/data/helper constraints remain in force. Root owns
+index/integration. Read-only analyst owns task-12-stage-a-feasibility.md.
+StartHEAD05f7e6f trackedclean; source/testbytes still724. Root prepares bounded
+ignored QA measuring real earlier-prefix reconstruction vs optimistic fresh
+JSON-only cost, plus metadata-only growth inspection. No acceptance inferred.
+
 ## Latest user request: plan only, no implementation
 
 The user asks how to solve the capacity failure and explicitly requests a

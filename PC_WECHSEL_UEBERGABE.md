@@ -1,5 +1,63 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktuell12.September2026 — A1 beendet, konkrete B-Entscheidung offen
+
+Die jüngste Freigabe „ja alles machen“ zum Kapazitätsplan05f7e6f wurde bis zur
+darin ausdrücklich vorgesehenen Architekturentscheidung ausgeführt. **A1 STOP:**
+kleine Wiederverwendung spart zu wenig; kein neuer A-Produktpatch. Unabhängige
+Traceauswertung und12vollständige native Diagnosepaare dokumentiert. Der neue
+Diagnoselauf endet ordentlich nach184,453215CPU-/183,117809Wandsekunden mit
+unveränderter G1-Eingabe; er ist ausdrücklich kein D4-/Kapazitätspass.
+
+Echte Live-Metadaten22:12UTC:99776Belege,31Originale/Snapshots,16ATP-Cutoffs,
+268824576DBBytes. Nicht mit der synthetischen G1-Datei verwechseln. Das
+vorläufige7Tage-Profil589776/199/114ist nicht abgenommen; bedingte Größenrechnung
+warnt vor1GiB-Eingabe und256MiB-kanonischer Historie. B-Prüfreuse löst diese
+Speichergrenzen nicht. Keine Datenkürzung, höhere Limits oder kleinergerechnete
+Probe verwenden, um einen Pass zu erhalten.
+
+Entscheidungsvorlage:
+`docs/superpowers/specs/2026-09-12-versionierte-pruefnachweise.md`,
+SHA498e63c5641adaccdd4d284fa9b57ad93c02ba834e9abd6bf4064636d6b12da1.
+Unabhängig geprüft; einziger P2(Closure vor Reuse, auch lazy/native/resources)
+gezielt behoben und nachgeprüft. Konditioneller Ablauf:
+`docs/superpowers/plans/2026-09-12-versionierte-pruefnachweise-umsetzung.md`.
+
+**Nächster Schritt:** Nutzer entscheidet den konkret neuen B-Nachweis-/
+Betriebsvertrag: eigener isolierter Prüfer, root-geschützter Proofbestand,
+eigener Proofschlüssel, explizite1800CPU-/3600Gesamtsekunden-Vorbereitung bei
+unverändert begrenztem Abschlusscheck. Nicht erneut nach Commit/Push fragen.
+Danach zuerst echte Größenprobe; bei Überschreitung separate Speicher-/
+Eingabevertragsentscheidung vor B-Code. B nicht durch alte „alles“-Antworten
+als schon genehmigt behandeln; der freigegebene Plan verlangte diese konkrete
+neue Entscheidung ausdrücklich. Kein Produkt-/Serverpatch bis dahin.
+
+Sämtliche Produkt-/Testbytes weiterhin72421d3. Dokumente/Metadaten werden normal
+auf dem Reparaturbranch gesichert; kein main-Push/Updateraustausch/Appdeployment.
+GitHubmain/VPS frisch2dd1116, alterUpdater74b1c4b1root:root0755/134237Bytes.
+App/Caddy aktiv+enabled, siebenTimer aktiv+enabled+geplant; beideHealth200/ok.
+Separaterbetboy-tennis.serviceweiterhinfailed, nicht zurückgesetzt. Keine neue
+Vollsuite; alte7292+97Untertests gehören weiterhin1c65ada, nicht724 oder B.
+Keine laufenden QA-Prozesse. Root besitzt Integration, bekannte alte Ausgaben
+und andere Worktrees unangetastet. Cricket/A0/P4b3/empirische Modelle separat.
+
+Belege: SDDtask-12-stage-a-result.md, task-12-stage-a-feasibility.md,
+task-12-diagnostic-review.md, task-13-growth-sizing.md,
+task-13-stage-b-design-review.md und evidence/task12*/task13*.
+Die folgenden „aktuell/läuft/nur planen“-Abschnitte sind ältere Historie.
+
+## Aktuelle Ausführung — Plan mit „ja alles machen“ freigegeben
+
+Der neue Kapazitätsplan ist zur Ausführung freigegeben. Zuerst läuft ein
+begrenzter Machbarkeitsnachweis für A gegen240Sekunden Reserve und einen
+aus echten Wachstumsdaten abzuleitenden7Tage-Horizont. Kein blinder A-Umbau,
+wenn schon die Ersparnisgrenze nicht reicht; dann konkret B ausarbeiten.
+Die gespeicherten G1-Phasen werden unabhängig ausgewertet. Root besitzt Index
+und Integration. Noch kein neuer Produktpatch oder Release; ursprüngliche
+Produktbytes72421d3 und bisherige Freigabegrenzen gelten bis zur konkreten
+Umsetzung. Ausgangs-HEAD05f7e6f ist sauber geprüft. Alte „nur planen“-Abschnitte
+darunter sind durch die neue Nutzeranweisung abgelöst.
+
 ## Neueste Nutzeranweisung — nur planen, noch keinen Code schreiben
 
 Der Nutzer verlangt einen Lösungsplan zum Kapazitätsfehler. Er ist unter
