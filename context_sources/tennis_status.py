@@ -226,6 +226,14 @@ def validate_tennis_status_record(row: dict) -> dict:
 
 
 def validate_selected_tennis_receipt(row: dict) -> dict:
+    from context_runtime_history_cache import _SelectedReceiptScope, _selected_receipt_witness
+    witness = _selected_receipt_witness.get()
+    if type(witness) is _SelectedReceiptScope and witness._matches(row):
+        return row
+    return _validate_selected_tennis_receipt_cold(row)
+
+
+def _validate_selected_tennis_receipt_cold(row: dict) -> dict:
     """Validate actual selected B1 transport before using any source field."""
     require_object(row, set(OBSERVATION_FIELDS) | {"digest", "content_digest", "observed_at",
         "evidence_class", "effective_at", "publication_resolution"}, label="selected tennis receipt")

@@ -6,6 +6,7 @@ player/state aliases and an empirical effect improvement remain unproved.
 No source request, fit, activation, live SQLite path or old-row rewrite.
 """
 from datetime import datetime
+from contextlib import nullcontext
 from dataclasses import dataclass
 import hashlib
 from pathlib import Path
@@ -224,8 +225,12 @@ def verify_live_snapshot(payload, key, originals, *, effect, approval, limitatio
         raise ArtifactIntegrityError("live winner v1 has no owning feature version of this kind")
     _same(payload["observation_refs"], sorted(row["digest"] for row in history),
           "live worker omitted or added causal tour observations")
-    features = tennis_features_v3(payload["event"], history, original,
-                                 cutoff=datetime.fromisoformat(original["cutoff"]))
+    decision = datetime.fromisoformat(original["cutoff"])
+    scope = (descriptor.history_cache._selected_receipt_scope(descriptor.receipts,
+        cutoff=decision, tour=original["reference_weights"]["event"]["tour"])
+        if descriptor.history_cache is not None else nullcontext())
+    with scope:
+        features = tennis_features_v3(payload["event"], history, original, cutoff=decision)
     _same(payload["features"], features, "live worker features differ from actual source replay")
     replay_context_payload(payload, key=key, effect_artifact=effect, approval=approval)
     # Actual native source completeness and historical state joins remain

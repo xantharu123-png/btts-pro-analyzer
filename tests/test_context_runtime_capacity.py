@@ -245,6 +245,10 @@ def test_lazy_membership_does_not_decode_unopened_final(tmp_path, monkeypatch):
         assert cache.stats["hits"] == 1
         assert _replay_history(receipts, cutoff=EVALUATED-timedelta(days=3650), tour="ATP", max_bytes=0, cache=cache) == ()
         assert cache.stats["covering_hits"] == 1
+        # The new checking scope must not open protected D2 final bodies,
+        # including when the selected Tennis basis is entirely empty.
+        with cache._selected_receipt_scope(receipts, cutoff=EVALUATED, tour="ATP"):
+            pass
     report = runtime.verify_context_database(packet["path"])
     assert "d2-final-source-replay-not-opened" in report["limitations"]
     with closing(sqlite3.connect(packet["path"])) as conn, conn:

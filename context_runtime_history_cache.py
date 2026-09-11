@@ -4,6 +4,8 @@ Only completed owning-selector outputs are stored. Pressure evicts/bypasses;
 it does not change input admission or permit an incomplete causal history.
 """
 from collections import OrderedDict
+from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 import sqlite3
 
@@ -15,6 +17,49 @@ from runtime_paths import RuntimeArtifactTrustError
 
 MAX_ENCODED_HISTORY_BYTES = 64 * 1024 * 1024
 _MAX_ENTRIES = 32  # Also bound metadata for zero-byte (empty) histories.
+_selected_receipt_witness = ContextVar("_selected_receipt_witness", default=None)
+
+
+def _plain_json(value):
+    """Eligibility, not schema acceptance: aliases must go to the cold owner."""
+    kind = type(value)
+    if kind is dict:
+        return all(type(key) is str and _plain_json(item) for key, item in value.items())
+    if kind is list:
+        return all(_plain_json(item) for item in value)
+    return kind in (str, int, float, bool, type(None))
+
+
+class _SelectedReceiptScope:
+    """Non-owning cursor. No entry, bytes, decoded rows or iterators survive."""
+    __slots__ = ("_cache", "_receipts", "_key", "_serial", "_ordinal", "_active")
+
+    def __init__(self, cache, receipts, key, serial):
+        self._cache, self._receipts = cache, receipts
+        self._key, self._serial = key, serial
+        self._ordinal, self._active = 0, True
+
+    def _matches(self, row):
+        if not self._active:
+            return False
+        cache = self._cache
+        cache._check_selected_proof(self._receipts)
+        raw = None
+        if self._serial is not None and cache._seals.get(self._key) == self._serial:
+            # Only one row reference, never a whole-entry local alias across
+            # canonicalization (which may evict/replace the current entry).
+            if self._key in cache._entries and self._ordinal < len(cache._entries[self._key][0]):
+                raw = cache._entries[self._key][0][self._ordinal]
+                self._ordinal += 1
+        matched = False
+        if raw is not None:
+            try:
+                matched = _plain_json(row) and canonical_bytes(row) == raw
+            except (TypeError, ValueError, OverflowError, RecursionError):
+                pass  # The unchanged owner decides acceptance of every miss.
+        cache._check_selected_proof(self._receipts)
+        return (matched and self._key in cache._entries
+                and cache._seals.get(self._key) == self._serial)
 
 
 class EncodedHistoryCache:
@@ -33,6 +78,8 @@ class EncodedHistoryCache:
         self._max_bytes = max_bytes
         self._invalid = False
         self._entries = OrderedDict()
+        self._seals = {}
+        self._serial = 0
         self._bytes = self._pending_bytes = 0
         self._counters = dict(hits=0, covering_hits=0, misses=0, stores=0, evictions=0, bypasses=0, peak_bytes=0)
 
@@ -62,8 +109,35 @@ class EncodedHistoryCache:
         except (RuntimeArtifactTrustError, sqlite3.Error):
             self._invalid = True
             self._entries.clear()
+            self._seals.clear()
             self._bytes = self._pending_bytes = 0
             raise
+
+    def _check_selected_proof(self, receipts):
+        self._check(receipts)
+        receipts._check_validation()
+        if receipts._validation_stamp != self._proof:
+            self._invalid = True
+            self._check(receipts)
+
+    @contextmanager
+    def _selected_receipt_scope(self, receipts, *, cutoff, tour):
+        self._check_selected_proof(receipts)
+        from context_sources.tennis_status import select_tennis_observations
+        select_tennis_observations((), cutoff=cutoff, tour=tour)
+        decision = canonical_timestamp(cutoff)
+        key = (decision, tour)
+        if key not in self._entries:
+            key = min((key for key in self._entries if key[1] == tour and key[0] > decision), default=None)
+        serial = self._seals.get(key) if self._proof is not None else None
+        witness = _SelectedReceiptScope(self, receipts, key, serial)
+        token = _selected_receipt_witness.set(witness)
+        try:
+            yield witness
+        finally:
+            witness._active = False
+            _selected_receipt_witness.reset(token)
+            self._check_selected_proof(receipts)  # Also empty histories / final row / exceptions.
 
     def _plan_bases(self, receipts, cutoffs):
         """Keep only bounded cutoff metadata, never caller-granted proof/data."""
@@ -128,7 +202,8 @@ class EncodedHistoryCache:
         return tuple(history)
 
     def _evict(self):
-        _, (_, size) = self._entries.popitem(last=False)
+        key, (_, size) = self._entries.popitem(last=False)
+        self._seals.pop(key, None)
         self._bytes -= size
         self._counters["evictions"] += 1
 
@@ -142,10 +217,25 @@ class EncodedHistoryCache:
         if self._max_bytes == 0:
             self._counters["bypasses"] += 1
             return
+        # Replacement must remove both the former bytes and their proof.
+        previous = self._entries.pop(key, None)
+        if previous is not None:
+            self._bytes -= previous[1]
+        self._seals.pop(key, None)
+        del previous
         pending = []
+        sealable = True
+        from context_sources.tennis_status import _validate_selected_tennis_receipt_cold
         try:
             for row in history:
                 self._check(receipts)
+                try:
+                    plain = _plain_json(row)
+                except RecursionError:
+                    plain = False
+                if not plain:
+                    _validate_selected_tennis_receipt_cold(row)
+                    sealable = False
                 encoded = canonical_bytes(row)  # One replay-row work buffer, not a giant tuple dump.
                 self._check(receipts)  # Also guard the final/oversized row before bypass.
                 needed = self._pending_bytes + len(encoded)
@@ -154,6 +244,9 @@ class EncodedHistoryCache:
                     return
                 while self._bytes + needed > self._max_bytes:
                     self._evict()
+                if plain:
+                    _validate_selected_tennis_receipt_cold(json.loads(encoded))
+                self._check(receipts)
                 pending.append(encoded)
                 self._pending_bytes = needed
                 self._counters["peak_bytes"] = max(self._counters["peak_bytes"], self._bytes + needed)
@@ -161,6 +254,9 @@ class EncodedHistoryCache:
             while len(self._entries) >= _MAX_ENTRIES:
                 self._evict()
             self._entries[key] = (tuple(pending), self._pending_bytes)
+            self._serial += 1
+            if sealable and self._proof is not None:
+                self._seals[key] = self._serial
             self._bytes += self._pending_bytes
             self._counters["stores"] += 1
         finally:
