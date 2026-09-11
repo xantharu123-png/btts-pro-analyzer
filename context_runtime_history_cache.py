@@ -10,8 +10,9 @@ import json
 import sqlite3
 
 from context_models.contracts import canonical_timestamp
-from context_runtime_inventory import VerifiedReceiptMapping
+from context_runtime_inventory import VerifiedReceiptMapping, _TRACKED_EXECUTE, _TRACKED_CURSOR
 from context_runtime_original_projection import _OriginalQuery
+from context_runtime_transaction import TrackedConnection
 from model_artifacts import canonical_bytes
 from runtime_paths import RuntimeArtifactTrustError
 
@@ -20,16 +21,23 @@ MAX_ENCODED_HISTORY_BYTES = 64 * 1024 * 1024
 _MAX_ENTRIES = 32  # Also bound metadata for zero-byte (empty) histories.
 _MAX_ORIGINAL_QUERIES = 30  # Reserve the two possible tour entries.
 _selected_receipt_witness = ContextVar("_selected_receipt_witness", default=None)
+_PLAIN_JSON_LEAVES = (str, int, float, bool, type(None))
 
 
 def _plain_json(value):
     """Eligibility, not schema acceptance: aliases must go to the cold owner."""
     kind = type(value)
     if kind is dict:
-        return all(type(key) is str and _plain_json(item) for key, item in value.items())
+        for key, item in value.items():
+            if type(key) is not str or not _plain_json(item):
+                return False
+        return True
     if kind is list:
-        return all(_plain_json(item) for item in value)
-    return kind in (str, int, float, bool, type(None))
+        for item in value:
+            if not _plain_json(item):
+                return False
+        return True
+    return kind in _PLAIN_JSON_LEAVES
 
 
 class _SelectedReceiptScope:
@@ -107,6 +115,33 @@ class EncodedHistoryCache:
         # DDL does not increment total_changes. Temp objects can shadow the
         # inventory's unqualified table names, so pin both visible schemas.
         connection = self._receipts._connection
+        if (type(self) is EncodedHistoryCache and type(self._receipts) is VerifiedReceiptMapping
+                and type(connection) is TrackedConnection
+                and TrackedConnection.execute is _TRACKED_EXECUTE
+                and TrackedConnection.cursor is _TRACKED_CURSOR
+                and "execute" not in connection.__dict__ and "cursor" not in connection.__dict__
+                and connection.row_factory is None):
+            cursor = connection.cursor()
+            try:
+                main = cursor.execute("PRAGMA main.schema_version").fetchone()[0]
+                # A callback may change dispatch/factory during the first read.
+                # Such a change must still reach the original second dispatch.
+                if (TrackedConnection.execute is _TRACKED_EXECUTE
+                        and TrackedConnection.cursor is _TRACKED_CURSOR
+                        and "execute" not in connection.__dict__ and "cursor" not in connection.__dict__
+                        and connection.row_factory is None):
+                    temp = cursor.execute("PRAGMA temp.schema_version").fetchone()[0]
+                else:
+                    temp = connection.execute("PRAGMA temp.schema_version").fetchone()[0]
+            except BaseException as error:
+                try:
+                    cursor.close()
+                except BaseException as cleanup:
+                    raise error from cleanup
+                raise
+            else:
+                cursor.close()
+            return main, temp
         return (connection.execute("PRAGMA main.schema_version").fetchone()[0],
                 connection.execute("PRAGMA temp.schema_version").fetchone()[0])
 

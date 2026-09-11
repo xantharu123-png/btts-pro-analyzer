@@ -14,6 +14,11 @@ from runtime_paths import RuntimeArtifactTrustError
 from context_runtime_transaction import TrackedConnection
 
 
+# Capture only the internal methods, never an overridden instance callback.
+_TRACKED_EXECUTE = TrackedConnection.execute
+_TRACKED_CURSOR = TrackedConnection.cursor
+
+
 class _TransactionMapping(Mapping):
     def __init__(self, connection):
         if not isinstance(connection, TrackedConnection):
@@ -73,6 +78,33 @@ class VerifiedReceiptMapping(_TransactionMapping):
     def _inventory_stamp(self):
         self._check_transaction()
         connection = self._connection
+        if (type(self) is VerifiedReceiptMapping and type(connection) is TrackedConnection
+                and TrackedConnection.execute is _TRACKED_EXECUTE
+                and TrackedConnection.cursor is _TRACKED_CURSOR
+                and "execute" not in connection.__dict__ and "cursor" not in connection.__dict__
+                and connection.row_factory is None):
+            # Keep the original value-evaluation order before allocating.
+            generation, changes = connection.transaction_generation, connection.total_changes
+            cursor = connection.cursor()
+            try:
+                main = cursor.execute("PRAGMA main.schema_version").fetchone()[0]
+                if (TrackedConnection.execute is _TRACKED_EXECUTE
+                        and TrackedConnection.cursor is _TRACKED_CURSOR
+                        and "execute" not in connection.__dict__ and "cursor" not in connection.__dict__
+                        and connection.row_factory is None):
+                    temp = cursor.execute("PRAGMA temp.schema_version").fetchone()[0]
+                else:
+                    temp = connection.execute("PRAGMA temp.schema_version").fetchone()[0]
+            except BaseException as error:
+                try:
+                    cursor.close()
+                except BaseException as cleanup:
+                    # A closed database must not replace a primary interrupt.
+                    raise error from cleanup
+                raise
+            else:
+                cursor.close()
+            return generation, changes, main, temp
         return (connection.transaction_generation, connection.total_changes,
                 connection.execute("PRAGMA main.schema_version").fetchone()[0],
                 connection.execute("PRAGMA temp.schema_version").fetchone()[0])
