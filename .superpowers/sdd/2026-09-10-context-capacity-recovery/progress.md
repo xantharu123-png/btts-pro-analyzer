@@ -117,6 +117,60 @@ final-row/empty/DDL/closure/eviction controls and fixed native resource caps
 remain binding. Native savings are unproved; one combined candidate is to be
 measured against the real26-snapshot copy after independent task review.
 
+Controller checkpoint65cd304 (Task6 code/review/failure evidence plus Task7
+brief) pushed normally to the existing repair branch after fresh ls-remote
+confirmed upstreamb4ee364 and main2dd1116. No force, main push or deployment.
+`/root/tennis_check_task7` now has sole assigned product/test/index ownership
+fromBASE65cd304. Root preserves the active899 full-suite run and performs
+separate native QA/documentation only. Whole-branch899 diff remains unreviewed.
+
+Exact899 full Windows suite completed:7020passed,30skipped,97subtests passed
+in1678.77s, exit0; XML0failures/0errors, SHA05ea6097...f0cef0. Detached QA
+tracked-clean. This supports899 correctness only; Task7 needs its own final
+regression and actual native current-data capacity is still FAILED.
+
+Fresh ordinary-SSH read-only health check confirms production2dd1116 and
+old updater74b1c4b1(root:root0755,134237B), app/Caddy active/enabled, all seven
+timers active/enabled, internal/publicHTTP200/ok. The known failed
+betboy-tennis.service remains failed and was not reset or called repaired.
+Local exact hashes reconfirm unchanged installerbdc9c700/updater4b814c50,
+stagehelper1441158c/backupb37d11a1, inventorya4f0f9a2/transactionecec258d,
+v3/v2model and all six original CODE_PATHS. No live production mutation.
+
+Exact899 G3 native CLI PASS282.270CPU/283.876wall,477704KiBRSS, complete
+expected13-snapshot transport-only report, supervisor0/child2, input unchanged,
+no companions. The actual26-snapshot current-data FAIL is NOT superseded.
+Task7 implementer informed; G3 transport acceptance is not empirical approval.
+
+Task7 implementation17cfbbc:887focusedpassed/12platformskips511.56s; final
+202witness/equivalence tests27.60s;169immutable owner outcomes and104full
+features match899 byte-for-byte/error-class. Index returned empty, controller
+changes preserved. Independent `/root/tennis_check_task7_review`: spec PASS,
+quality Approved, no new findings; sequential final-schema-read limitation
+explicitly remains, no atomic-DDL guarantee. Root read complete report and
+review and owns all subsequent index/native/publication work.
+
+Exact17cfbbc archivec59e848d...1e85ef (33823429B/819members) uploaded and sealed
+at`/var/lib/betboy-capacity-code-4yp86fps/source`. Actual26-snapshot native
+measurement started asUID997 child199986 with unchanged resource/report/input
+checks. No acceptance yet; final full suite waits for this decisive profile
+to avoid retesting a capacity-ineligible source. See task-7-native-evidence.md.
+
+Task7 actual-current17cfbbc native FAIL300.063CPU/300.141wall,483664KiBRSS,
+child-9/no report, supervisor1, input unchanged/no companions. No final full
+run/G1-G3/whole-branch release approval was inferred; main/updater/app remain
+unchanged. Equivalent local cost reductions do not make this profile fit.
+
+Read-only architect confirms no existing validated-inventory API proves the
+latest eligible target native row (including equal-time non-status competitors)
+without unrelated history decoding. Root requested a bounded design for an
+owner-derived original-only projection produced during the existing full
+independent seal pass, with full prefix-byte admission, exact native uniqueness,
+bounded/charged metadata and complete old fallback. All physical/eligible
+source checks, predictor and full snapshot histories/features remain required.
+This is not an implemented shortcut or release approval; architect may edit
+only task-8-design-analysis.md, root owns all other files/index/native actions.
+
 ## Final Task4 checkpoint — 10 September 2026, 22:25 UTC: RELEASE HOLD
 
 Task4 product52189a6/reportfc7f0c7; independent scoped implementation review

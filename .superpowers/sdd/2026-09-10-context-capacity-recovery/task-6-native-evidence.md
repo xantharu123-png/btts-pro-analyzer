@@ -27,10 +27,15 @@ and unchanged input. No mathematical monkeypatching or root app imports.
 
 Full Windows QA on detached899 started separately with unique
 `.pytest_tmp/final-8992386-full` and JUnit `.pytest_tmp/final-8992386-full.xml`.
+It has now finished at exact899:7020passed,30skipped,97subtests passed,
+1678.77seconds, exit0. JUnit7147tests/0failures/0errors/30skips, SHA
+`05ea609734102c3aa729be36ac3fb576332b3cc3b41182b0c9f1f40583f0cef0`.
+The detached QA checkout remains tracked-clean. This is899 evidence, not
+the upcoming Task7 candidate and not a native capacity or deployment pass.
 Native actual-current profile FAILED: child-9 at299.977CPU/300.165wall seconds,
 480156KiBpeakRSS, no report, measured_profile_accepted=false. Exact input SHA
 and metadata unchanged, no companions. This is a real release failure, not an
-allowed transport-only limitation. Full Windows suite remains in progress;
+allowed transport-only limitation. Full Windows suite passed separately;
 no main push, updater exchange, production app change or cap modification.
 The new actual26-snapshot input must pass before release; old smaller or
 synthetic evidence cannot supersede this failure. Further bounded phase
@@ -186,7 +191,19 @@ copies now exist separately; none has yet passed the new candidate verifier.
 
 ## New-source acceptance
 
-Pending implementation and independent review. No current/G1/G2/G3 pass is
-claimed for the upcoming Task6 patch. Fresh final full suite, actual Linux roles,
-read-only controls, complete backup/restore/HMAC, updater-only exchange and
-separate normal exact app deployment remain required.
+Exact899 Task6 implementation and scoped review completed. The actual-current
+26-snapshot profile FAILED as documented above; final release remains HOLD.
+
+The same exact uninstrumented899 CLI on the preserved independent G3 input
+subsequently PASSED:282.270CPU/283.876wall,477704KiBpeakRSS, child exit2 with
+the complete expected `incomplete`/`transport_only` report. Counts remain
+95408contents/receipts,15artifacts,13snapshots,2manifests,0rollbacks; exactly
+the two existing D1/D3 limitations, empirical_approval_verified=false.
+Expected SHA79954e45...d0ec and all input metadata unchanged, no companions;
+supervisor exit0, measured_profile_accepted=true. This is the prescribed
+transport replay acceptance for G3 only, not empirical quality or current-data
+capacity approval. G1/G2 at899 were not rerun. Root notified Task7 implementer.
+
+Upcoming Task7 source requires fresh native/current/growth and full regression
+evidence. Actual Linux roles, read-only controls, complete backup/restore/HMAC,
+updater-only exchange and separate normal exact app deployment remain gated.

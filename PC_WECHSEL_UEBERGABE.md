@@ -1,5 +1,34 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Zwischenstand — 11. September 2026: geprüft, aber noch kein Deployment
+
+Reparaturbranch `codex/context-capacity-recovery-20260910`, Produktcode `17cfbbc`.
+Task5 D2-Binding korrigiert und echte Linux-Warnung-als-Fehler-Prüfung bestanden.
+Task6/7 Tennis-Prüfkostenkorrekturen sind separat unabhängig geprüft, ohne neue
+Code-Findings. Vollsuite auf8992386:7020bestanden/30Skips/97Untertests; Task7
+auf17cfbbc:887gezielte Tests bestanden/12Plattform-Skips und202finale
+Witness-/Äquivalenztests. Keine neue komplette17cfbbc-Vollsuite behaupten.
+
+Echter Releaseblocker bleibt: aktuelle253333504Byte-Kontextkopie mit99521Belegen
+und26Analysen scheitert auch bei17cfbbc nach300.063CPU/300.141wall Sekunden,
+kein vollständiger Report. Eingabe unverändert. Ältere13-Analyse-G3-Kopie
+bestand899 in283.876wall Sekunden, ersetzt aber nicht den aktuellen Bestand.
+Backup aller88Datenbanken samt tatsächlichem Restore/HMAC ist geprüft.
+
+GitHub-Reparaturbranch wurde bis65cd304 normal gepusht; der folgende Stand
+wird separat gesichert. Main/VPS bleiben2dd1116, Updater74b1c4b1; kein Main-Push,
+Updateraustausch oder Appdeployment. App/Caddy und7Timer aktiv, Healthchecksok;
+bekannter betboy-tennis.service-Fehler bleibt sichtbar. Keine Daten/Limits,
+Modelle, Schlüssel/Marker oder geschützten Helper geändert.
+
+Nächster Schritt ist eine rein lesende Architekturprüfung einer gleichwertigen
+spielbezogenen Originalprüfung, nicht das Weglassen historischer Belege oder
+Snapshot-Berechnungen. Native Nachweise und alle offenen Grenzen liegen in
+`.superpowers/sdd/2026-09-10-context-capacity-recovery/progress.md`,
+`task-6-native-evidence.md`, `task-7-report.md`, `task-7-review.md` und
+`task-7-native-evidence.md`. Bestehende Worktrees/WIP/A0/P4b3/Cricket bleiben
+unberührt. Dieselbe erteilte Commit-/Push-/Deploymentfreigabe nicht erneut abfragen.
+
 ## Fortsetzung freigegeben — 11. September 2026, 16:42 CEST
 
 Die neu angefragte Freigabe liegt jetzt vor: Tennis- und D2-Prüfroutinen reparieren, danach committen, pushen und kontrolliert auf dem VPS deployen. Keine erneute Freigabefrage für denselben Umfang. Rechenergebnisse, Daten/Historien und Prüf-/Ressourcengrenzen bleiben unverändert. Der darunter dokumentierte Wachstumstest bleibt ein echter Releaseblocker, bis der neue Stand ihn besteht.
