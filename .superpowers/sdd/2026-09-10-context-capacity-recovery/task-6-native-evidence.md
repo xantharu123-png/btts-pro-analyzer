@@ -4,6 +4,93 @@
 construction and new-source acceptance. Construction is not a D4 pass and none
 of these synthetic records is real provider or empirical model evidence.
 
+## Reviewed Task6 candidate — exact8992386
+
+After independent task review (no findings), exact commit
+`89923867a00904253f75a4a6ace5c793e8e988b8` is the immutable execution target.
+Git archive33806601bytes,815members, SHA
+`b7de590def4d2654d29eea36f06c85410ac21801909788cb15a57733d55e9650`.
+The root stdlib stager additionally checks the archive's Git PAX commit and
+extracts only safe regular files/directories to a fresh root-sealed tree:
+`/var/lib/betboy-capacity-code-a_qm6fl8/source` (root:betboy0440 files/0750dirs).
+The unchanged valid seed and separate unsafe fixtures are beside it.
+
+Stager `.pytest_tmp/prepare_task6_candidate_source.py` SHA
+`0c0427f286169241db854cc1328c5c987d51499eeb89120479a0c1a3a63f9359`.
+Measurement harness `.pytest_tmp/measure_task6_profiles.py` SHA
+`1b6c88a0224faca38ebadccbe9745d16d160d5b4a15d8a05f6b0d05ace0b50a0`.
+These are controller QA helpers, not installed application code. The latter
+pins899 and each approved immutable input path/hash/physical counts, executes
+the actual unchanged CLI asUID997, preserves AS2GiB/CPU300/wall600/output1MiB,
+and requires measuredCPU/wall<300 andRSS<1GiB plus the exact complete D4 report
+and unchanged input. No mathematical monkeypatching or root app imports.
+
+Full Windows QA on detached899 started separately with unique
+`.pytest_tmp/final-8992386-full` and JUnit `.pytest_tmp/final-8992386-full.xml`.
+Native actual-current profile FAILED: child-9 at299.977CPU/300.165wall seconds,
+480156KiBpeakRSS, no report, measured_profile_accepted=false. Exact input SHA
+and metadata unchanged, no companions. This is a real release failure, not an
+allowed transport-only limitation. Full Windows suite remains in progress;
+no main push, updater exchange, production app change or cap modification.
+The new actual26-snapshot input must pass before release; old smaller or
+synthetic evidence cannot supersede this failure. Further bounded phase
+diagnosis is permitted within the approved equivalent checking repair.
+
+## Fresh real backup — 11 September, approximately15:22UTC
+
+### Exact899 bounded phase follow-up (diagnosis only)
+
+Observation-only harness `.pytest_tmp/trace_task6_fresh_899_phases.py`, SHA
+`a852e881564f623058d35b0fc9c8b77ab5885d9ea36c9e0b5a748ccd65834526`,
+delegated every observed function on the same sealed current input and899
+source, asUID997 with unchanged AS2GiB/CPU300. Diagnostic timers deliberately
+stopped atCPU275/wall295; no full verification or release pass was claimed.
+
+- Schema1.110CPU, artifact types2.501CPU, physical receipts42.950CPU.
+- One maximum ATP basis at2026-09-11T13:37:47.102511Z: cold92.532CPU,
+  independent selected-owner seal27.422CPU;58390805retained bytes fit64MiB.
+- No eviction or bypass; cache overflow is not this failure's cause.
+- All26 original replays completed by223.805wall seconds. The originals
+  phase took174.936CPU inclusive cold construction and sealing (not absolute
+  time since verification began).
+- Ten old-cutoff snapshots completed: feature calls2.280–2.718CPU, complete
+  individual snapshot calls4.399–4.916CPU, plus roughly0.4s outer work each.
+  The eleventh feature was deliberately interrupted after0.251CPU.
+- Total276.999CPU/276.013wall,480480KiBpeakRSS; exact input unchanged.
+  Calls: one cold, one seal,26 originals,37 history requests,11 features
+  (ten complete). Two exact and35 covering hits, one retained basis.
+- Diagnostic interruption caused a generator-unwind message from the
+  unchanged tracked connection: `Cannot operate on a closed database`.
+  This trace therefore is not pristine acceptance output and not a CLI pass.
+
+Read-only source profiling identifies duplicated schema-stamp queries in
+the selected witness and duplicate normalization/serialization within the
+selected native-status owner. Local microbenchmarks are hypotheses about
+savings, not proof that removing this duplicate work meets nativeCPU300.
+All actual model and consumer replays remain mandatory.
+
+The same pinned reviewed stdlib diagnostic926f9f91 produced and actually
+restored/authenticated all88databases under the deploy lock. Source updater
+4b814c50/helperb37d11a1 unchanged; the source-revision label6ba2c68 identifies
+the pinned backup implementation, not a new D4 run. No services, live data,
+installed updater or application revision were changed.
+
+- Stage `/var/lib/betboy-live-backup-_04ttiwe`.
+- Private archive92703087bytes, SHA
+  `8e5ecab47133edac6a903555ce6367979bf281a892bc3dbf70ff958f7a3d9b23`.
+- Admission1105928192bytes; whole chain38.03CPU/38.70wall,591016KiBRSS,exit0.
+- Root-sealed current copy253333504bytes, SHA
+  `ced192e70a7240606906087df08b8e82be227189f06728e7c62dfb3b186d2f05`.
+- Read-only immutableSQLite inspection asUID997 confirms99521contents and
+  receipts,28artifacts,26snapshots,2manifests,0rollbacks. The optional rollback
+  table does not yet exist. Input hash/metadata unchanged; no companions.
+
+This new real input replaces the old114929664-byte current copy for final
+current-data acceptance. Old G1/G2/G3 growth copies remain preserved and
+required, but do not substitute for the now-larger actual consumer count.
+The Task6 implementer was informed; no acceptance or resource limit changed.
+The installer must still produce and bind its own fresh backup/evidence.
+
 ## Initial live state
 
 Read-only SSH checks confirmed GitHub main and actual VPS on

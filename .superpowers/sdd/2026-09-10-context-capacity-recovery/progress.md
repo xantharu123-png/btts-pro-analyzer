@@ -39,11 +39,83 @@ suite remain explicitly controller-owned release gates; see task-5-review.md.
 Task 5: minor (deferred): regression compares two unordered SQLite scans as
 ordered lists; final whole-branch review must triage multiset comparison.
 
+Task5 native warning-as-error gate PASS at exactb4ee364:4passed in187.82s,
+supervisor188.476s,exit0,empty stderr. Includes original failing protected-final
+membership, new real named binding, corrupt unopened outer index and changed
+source/evaluator rejection. Archive25cada24be467b60427455281e1ce214f3038f6eafb150d3aeb78e88f7f1c9d4,
+813members; isolatedUID1000QA d2-binding-b4ee364-ksnx7v9p. Task6/root final D4
+and whole-suite gates remain open. New task6 owner `/root/tennis_check_task6`
+has sole assigned product/test/index ownership fromBASEb4ee364.
+
+Exactb4ee364 was pushed normally to the existing repair branch after native
+Task5 acceptance; remote previously7cf1e94, push exit0. Main2dd1116 and the
+application/updater are unchanged. This is backup/publication of a coherent
+reviewed intermediate state, not an application release.
+
+Fresh full88DB backup/actual isolated restore/HMAC PASS38.70wall s on11Sep,
+stagebetboy-live-backup-_04ttiwe, archive8e5ecab4...9b23. New current sealed
+context253333504B SHAced192e7...d2f05 has99521receipts/28artifacts/26snapshots,
+substantially newer than yesterday's114929664B/10snapshots. Final current-data
+acceptance must use this latest actual input; preserved old G1-G3 remain
+additional synthetic proofs. Root informed Task6; limits/checks unchanged.
+
+Integration preflight: local main checkout remains2dd1116 with no tracked WIP.
+Existing untracked .playwright-cli, two audit reports, market-benchmark plan
+and output/playwright/riskobet-preview-state/seed_riskobet_preview.py remain
+untouched. Current repair ancestry includes main, so a final fast-forward is
+possible if remote main is still unchanged. Recheck before integration; no
+force/reset/clean and no automatic worktree/evidence deletion.
+
+Task6 code8992386:657focusedpassed/9skipped in568.42s,93new witness cases,
+30complete snapshot replays, cold body and all mathematical/CODE_PATHS bytes
+unchanged. Empty index returned. Independent `/root/tennis_check_task6_review`
+reports spec compliant and quality Approved, no findings. Native/full-suite,
+cross-task and release evidence remain open, not implied by that approval.
+Exact899 archiveb7de590def4d2654d29eea36f06c85410ac21801909788cb15a57733d55e9650,
+815members, root-sealed underbetboy-capacity-code-a_qm6fl8. Final QA checkout
+is detached899 with prior outputs preserved. Root owns all following tests,
+integration, index and VPS actions.
+
+Task6 actual-current899 native gate FAILED at299.977CPU/300.165wall,
+child-9/no report,480156KiBRSS;253333504Binputced192e7 unchanged, no companions.
+No main/updater/app publication; current hold remains real. Full Windows899
+suite still running. Root will diagnose phases on this actual26-snapshot
+input under the same limits; no unmeasured approximation/cap increase or
+history deletion is allowed. Whole-branch review has not been dispatched;
+its prepared899 package is not an approval. G1-G3 new-source gate not yet run.
+
 Task6 native fixture preparation complete, NOT verification: unchanged fc7
 owners generated G2 with95407receipts/12snapshots/7cutoffs and G3 with95408/
 13/8. Root-sealed hashes12157b36...eed4 and79954e45...d0ec. Existing current,
 G1 and baseline bytes preserved. No production or budget changes. Full
 paths, timing, source and seal evidence are in task-6-native-evidence.md.
+
+Task6 bounded actual899 trace completed, diagnosis only: physical42.950CPU,
+cold92.532, independent seal27.422; all26 originals end223.805wall. A single
+58390805-byte basis fits64MiB with no evictions/bypasses. Ten old-cutoff
+snapshots complete at4.399–4.916CPU each; diagnostic stops at276.999CPU with
+the eleventh interrupted. Input unchanged. The intentional signal caused
+tracked-generator closed-database unwind noise, explicitly not a clean pass.
+See native evidence; this disproves overflow as the current failure cause.
+
+Ruling: within the user's explicitly approved equivalent Tennis checking
+repair, Task7 may eliminate duplicate work inside one selected native-status
+owner call and consolidate redundant checks of the same completed inventory
+stamp — neither acceptance nor mathematics changes — if equivalence or
+sufficient capacity is not demonstrated, preserve rejection and release HOLD.
+This narrowly supersedes Task6's verbatim cold-body requirement for the
+source-only duplicate derivation; the independent seal, strict current
+canonical-byte comparison, every lifetime boundary and cold fallback stay.
+
+Task7 preflight: source factoring produces only locally derived fields and
+bytes consumed in that same call; standalone status validation retains full
+normalization, no caller proof or cache. Cache proof fusion consumes the
+existing unchanged inventory stamp and must preserve permanent revocation,
+wrong mapping rejection and cache clearing. Both share witness tests but no
+other production file. Owner/model/source hashes, future/opposite-tour rows,
+final-row/empty/DDL/closure/eviction controls and fixed native resource caps
+remain binding. Native savings are unproved; one combined candidate is to be
+measured against the real26-snapshot copy after independent task review.
 
 ## Final Task4 checkpoint — 10 September 2026, 22:25 UTC: RELEASE HOLD
 
