@@ -356,6 +356,7 @@ def run_single_process(argv, *, uid, gid, cwd, workspace_fd, file_size_bytes,
     minimum_free = peak_rss = 0
     previous_sample = started
     maximum_gap = 0
+    rss_pending_since = None
     try:
         selector = selectors.DefaultSelector()
         info = os.fstat(held)
@@ -421,14 +422,31 @@ def run_single_process(argv, *, uid, gid, cwd, workspace_fd, file_size_bytes,
                     else:
                         completed = os.waitstatus_to_exitcode(status)
                         usage = measured
+                        if rss_pending_since is not None:
+                            terminal_gap = time.clock_gettime_ns(time.CLOCK_BOOTTIME) - rss_pending_since
+                            if not 0 <= terminal_gap < int(POLL_SECONDS * 10**9):
+                                reason = reason or "rss_observation_lost"
                 if completed is None and readback is not None:
-                    state = _status(_read_small(f"/proc/{pid}/status"))
-                    if state.get("State", "").split()[:1] != ["Z"]:
-                        peak_rss = max(peak_rss, _rss(state))
-                        if peak_rss >= RSS_BYTES:
-                            reason = reason or "rss_limit"
-                        if state.get("Threads") != "1":
-                            reason = reason or "kernel_task_count"
+                    if rss_pending_since is not None:
+                        # exit_mm can remove VmHWM before State becomes Z or
+                        # wait4 reports termination. Only the same child's
+                        # terminal rusage can resolve that observation, never
+                        # a later apparently healthy /proc sample. Allow at
+                        # most one ordinary poll interval within the ORIGINAL
+                        # deadline; persistent uncertainty is a measured STOP.
+                        if now - rss_pending_since >= int(POLL_SECONDS * 10**9):
+                            reason = reason or "rss_observation_lost"
+                    else:
+                        state = _status(_read_small(f"/proc/{pid}/status"))
+                        if state.get("State", "").split()[:1] != ["Z"]:
+                            if state.get("Threads") != "1":
+                                reason = reason or "kernel_task_count"
+                            if "VmHWM" not in state:
+                                rss_pending_since = now
+                            else:
+                                peak_rss = max(peak_rss, _rss(state))
+                                if peak_rss >= RSS_BYTES:
+                                    reason = reason or "rss_limit"
 
             if reason is not None:
                 if completed is None:

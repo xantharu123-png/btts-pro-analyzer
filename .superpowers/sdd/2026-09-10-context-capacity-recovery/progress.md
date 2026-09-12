@@ -67,6 +67,19 @@ Task35 builder integration580pass and Root integration6pass; Task38 independent
 review running. Task39 read-only global growth/owner gap audit running.
 No inference from these primitives to full growth, B proofs, restore or rollout.
 
+Later fresh repair-branch remote898398295056aabd68d35da3ab58441c5c46f34a
+includes reviewed Task35/38 builders; main stays2dd1116. Task38 combined359pass.
+Task33/36 archivec79bb10 actually transferred and freshly sealed at
+/var/lib/betboy-native-probe-2gcraxxf: terminalexit0/wall12.54s. One real probe
+thenRED: missing VmHWM at exit transition, terminalexit1/wall1.59s; no returned
+case cost and full60CPU chargeSTOP retained. Entire raw5988B report SHA6f22075b
+preserved in evidence/task41-native-run1.json. No app/service/oldfile change.
+Task41/42 final narrow supervisorae9fec1f closes terminal pending-deadline and
+thread-observation regressions;270combinedpass, still needs native second run.
+Task40 adds106 normal protocol tests. Task39 complete concrete build gaps read;
+Task43 fixed copy/MEMORY-reader and Task44 in-connection real receipt operation
+are separately scoped implementations, not complete corpus/lifecycle/B work.
+
 ## Current closeout 12 September: B0 executed, necessary StorageSTOP
 
 B approval is recorded; no repeat B question. Fresh backup/restore/HMAC88 DBs,

@@ -33,7 +33,7 @@ PACKAGES = ("numpy", "numpy.libs", "scipy", "scipy.libs")
 HELPERS = {
     "context_preparation_process_guard": "62fcfcacaa7e658eefa8a2f8ceced9dc465846a8ca61dc38c2691dc9984685e4",
     "context_preparation_budget": "fb12aa3b2170dc2dbed7d70d2aa5846d5928b4fda42de00d4828f9f411482478",
-    "context_preparation_supervisor": "21c63e0cdf47000c2d3c66e24851635b844a1feb30091d55521ed6dd311f31de",
+    "context_preparation_supervisor": "ae9fec1f9a7798455f21f5ac4588f714bc31803602ed51128686e3f9c17ea16d",
 }
 
 

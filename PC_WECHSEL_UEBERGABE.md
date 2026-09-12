@@ -35,7 +35,10 @@ auf `codex/context-capacity-recovery-20260910` gepusht; GitHub danach lesend
 exakt bestätigt. GitHub main bleibt `2dd1116b68f3d94e9c24338c6c9dff9b01799221`.
 Nachfolgender geprüfter Bausteinstand `d643f4884bbfa6dcf88b292c6f6fbd1c666a9867`
 ist ebenfalls auf diesem Reparaturbranch gepusht und frisch remote bestätigt.
-Kein main-Push und kein behaupteter aktueller Server-C-Stand.
+Danach Diagnosecode `c79bb10` und geprüfte History-/Tennis-Integration
+`898398295056aabd68d35da3ab58441c5c46f34a` ebenfalls auf dem Reparaturbranch
+gepusht, letzter Stand frisch remote bestätigt. Kein main-Push und kein
+behaupteter aktueller Server-C-Stand.
 Separate bekannte Tagesjob- und empirische Modell-/Quellenarbeit sowie Cricket
 bleiben außerhalb C/B.
 
@@ -69,11 +72,19 @@ SQLite-Profil separat unabhängig 393 grün, NoExec-Guard 212 grün/fünf native
 Skips; Supervisor-Erstreview fand und schloss sieben reale Lifecycle-Probleme.
 NoExec-Folgereview 173 grün, zusätzlicher enger Parent-Umgebungsreview194 grün.
 Task33/36 kleiner nativer Diagnosepfad und Root-Sealer sind fertig und in
-Task37 unabhängig mit134 portablen Prüfungen gegengeprüft. Noch kein nativer
-Start: vor Ausführung exakt versionieren, übertragen und separat versiegeln.
+Task37 unabhängig mit134 portablen Prüfungen gegengeprüft. Danach tatsächliches
+neues QA-Sealing auf dem VPS erfolgreich (12,54s), erster nativer Diagnose-
+versuch RED (1,59s): beim Beenden fehlte VmHWM vor Zombie-State. Voller Charge
+und alle Artefakte erhalten, nichts an App/alten Dateien/Diensten verändert.
+Task41/42 korrigieren genau diese Exit-Messrace;270 Gegenprüfungen grün.
+Zweiter nativer Start noch offen, vollständige genaue Evidenz in Task41.
 Task35 verbindet nur die neuen C-History-/Tennis-Builder mit dem geprüften
-SQLite-Profil (580 lokal grün, Root-Integration6 grün); Task38 prüft diese
-neuen Bytes unabhängig. Weiterhin keine Produktionsaufrufroute.
+SQLite-Profil (580 lokal grün, Root-Integration6 grün); Task38 abgeschlossen,
+359 unabhängige/kombinierte Tests grün. Task40 erhält106 native Protokoll-
+regressionen als normale Tests. Task39 benennt weiterhin fehlenden vollständigen
+Corpus-/Consumer-/Reopen-Datenfluss. Task43 fester Copy-/Readeranschluss und
+Task44 echte transaktionsgebundene Receiptoperation in Arbeit; kein fertiger
+Gesamtaufbau. Weiterhin keine Produktionsaufrufroute.
 Der neue Coordinator muss frisch und geheimnisfrei starten: Fork kopiert
 Arbeitsspeicher; ein B-Schlüsselpublisher darf nicht als Worker-Parent dienen.
 VPS rein lesend: Linux6.8, gepipter Apport-Absturzhandler, Python3.12.3. Daher
