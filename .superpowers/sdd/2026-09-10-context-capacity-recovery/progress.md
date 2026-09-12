@@ -21,6 +21,60 @@ scripts at their original relative paths and the bounded1000-result JSON, so
 the reported mechanism survives an account/PC change. They are not product
 entrypoints. Generated databases, profiles, XML and all failed-run directories
 remain retained locally/ignored; no runtime database or secret enters Git.
+Documentation/review checkpoint726ba04212c2e3cb91a572d7e084cc419c2ebaf6
+is also pushed and freshly confirmed; main remains2dd1116. Task54 now ACTIVE,
+BASE726ba04, sole implementation writer /root/c_corpus_consumer_integration.
+Only new tests/test_context_storage_corpus_consumer.py and task-54-report.md
+are authorized; a real missing product seam must be reported before widening
+that scope. Root retains index/Git/server, native follow-up and independent review.
+
+Task54 candidatecac8db725b4c9ffac6bbcb4f81817d90da2823c9 is now committed
+locally, NOT yet pushed/approved. Author returned/froze the sole writer.
+Actual final module5pass18.198s (XML40fbea9cb5d5dc62cf5d865d73d7c8437c12370138dc6f5d4e267902244efaea)
+and coupled34pass/353deselected51.482s (XMLa862ee49768eb08c2818d8d0750b362e933d975602128ab6bd135917d8ac2907)
+freshly parsed/hashed by Root, zero failures/errors/skips/nonempty stderr.
+Test5a59f75d0a3093238031159a813ce81b6c633c63105cab0338ed376a7bac7649;
+report2c4ac7741bdd81b475e6a75ae69ea4173e391c161aa36b0c5d024407eb61a637
+fully read; later report-only heading correction accurately distinguishes
+main/journal values, not ATP/WTA. No product-source edit from Task54.
+Full review package task-54-review-726ba04-complete.diff47610bytes includes
+all918 insertions across the two owned files from dispatch BASE726ba04.
+Independent reviewer /root/c_chain_integration_review is ACTIVE; no second
+implementation writer. Same-count/native-membership and real allocation-error
+requirements are mapped to actual selected unchanged-owner tests in the report;
+independent spec review must still evaluate that map and the complete chain.
+
+Task 54: complete (commits726ba04..cac8db7, spec compliant and quality approved;
+one non-blocking Minor). Final reviewd387a88691c2454febf1cced49289f5fb461f0cf77919be291de19e56c417583
+fully read/hash-checked by Root. No Critical/Important finding; no suite rerun.
+Its cannot-verify native/global/B/restore items are the explicitly separate
+later gates, not an inferred pass or missing local product API. The reviewer
+confirmed the exact unchanged owner tests correctly cover delegated negatives.
+Task 54: minor (deferred): M1, test line487 checks old Original created_at,
+not the new stored timestamp; actual unchanged writer stores supplied clock.
+Final validation must directly compare the new row before/after reopen. Root
+asked the original author for report-only precision correction; code/tests
+remain frozen, no new implementation or repeat suite. Carry M1 to final review.
+That report-only correction is now complete493c4d4cacc198c6bed4d69bd0ea542eed678553be502ab88c91ca9988b92f26;
+Root read the exact reporting diff and freshly checked both
+report/test hashes. The review's2c4ac77 report pin is its original input;
+the correction narrows the claim, not the code or the retained test evidence.
+
+Task57 is PREPARED ONLY in task-57-brief.md. The next harness must execute the
+final reviewed Task54 callable, not repeat Task50's minimal numerical probe.
+The ordinary-login package-name observation at16:37:57UTC is recorded in
+task-57-native-catalogue-observation.md; no imports/copies/installation occurred.
+Ruling: the small native diagnostic will use parent90CPU + two90CPU children,
+one permanently retained300CPU reservation and total600s boot-inclusive wall;
+this is a stricter diagnostic, not C's full300CPU-worker/growth allowance.
+The same clean stdlib parent includes copy/sealing cost, avoids an omitted
+sealer subprocess and never imports product before the guarded UID drop.
+Existing guard/supervisor/budget stay unchanged. Why: their single pending
+reservation is limited to300CPU and an executing parent cannot authorize a
+terminal self-refund. Cost if wrong: a retained failed bounded diagnostic,
+not a raised C gate or production change. Final detailed interface/pins and
+catalogue still depend on Task54 review and Task57's separate implementation
+and independent review. No B runtime-closure, global-cost or native quota claim.
 
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.

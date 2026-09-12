@@ -17,8 +17,8 @@ und unabhängigem Review abgeschlossen, nicht der gesamte C-/B-Pfad.
 Task52 hat eine echte alte/neue Einzelwert-Zulässigkeitslücke nachgewiesen:
 die neue History sperrte große bisher akzeptierte Zeilen. Task53 behebt das
 mit gebundenem Altlesepfad in History UND Tennis; vollständige alte Bytes
-werden verglichen, keine neue Einzelwertgrenze. Task51 setzt danach den
-echten Tennis-Consumer fort. Anforderungen/Befunde liegen im SDD-Verzeichnis.
+werden verglichen, keine neue Einzelwertgrenze. Der ebenfalls geprüfte Task51
+baut darauf den echten Tennis-Consumer auf. Anforderungen/Befunde liegen im SDD-Verzeichnis.
 Main weiterhin `2dd1116`. Feste Rohkopie mit
 begrenztem Reader unabhängig geprüft (197 bestanden, zwei Windows-Skips).
 Der dritte isolierte VPS-Nachtest hat jetzt alle sechs Diagnosefälle bestanden:
@@ -32,14 +32,21 @@ Apprevision `2dd1116`, App/Caddy aktiv, interner Healthcheck `ok`, keine
 Test-UID-Prozesse übrig. Der echte einzelne Receiptappend ist unabhängig
 geprüft (316 bestanden, keine Skips) und nach Accountwechsel gepusht/frisch
 remote bestätigt; nochmals136 gezielte Tests bestanden. Task48 verbindet Kopie
-und neue Receipts und ist nun unabhängig geprüft. Task51 bleibt mit erhaltenen
-Tests erhalten; der echte Consumer ist nun unabhängig geprüft. Task54 ist als
-durchgehender kleiner Corpus-/Source-/Consumervergleich vorbereitet, noch nicht
-implementiert. Task56 hat rein lesend den dafür benötigten nativen Code-/
-Abhängigkeitskatalog eingegrenzt; ein echter nativer Kettenlauf fehlt noch.
+und neue Receipts und ist nun unabhängig geprüft. Task54 ist jetzt mit
+`cac8db725b4c9ffac6bbcb4f81817d90da2823c9` lokal committed und unabhängig
+freigegeben: durchgehender echter ATP-/WTA-Alt-/Neu-Vergleich, genau drei neue
+Belege, vollständige Rohdaten/Analysebytes und Rücklesen nach dem Speichern.
+Finale lokale Läufe:5 neue Tests sowie34 gezielt gekoppelte Tests bestanden.
+Ein kleiner fehlender Testvergleich des neuen Original-Zeitstempels ist als
+Task54-M1 dokumentiert; kein Produktfehler nachgewiesen. Der Reportanspruch
+wird entsprechend präzisiert. Push dieses neuen Standes steht noch bevor.
+Task57 bereitet den tatsächlichen isolierten nativen Kettenlauf vor; Task56
+und die neue Paketnamenaufnahme sind nur lesende Vorbereitung. Ein echter
+nativer Kettenlauf fehlt noch.
 VPS-Platzaufnahme16:16UTC:14125256704Bytes frei, keine Ressourcenabnahme.
 Native Speicher-/CPU-Werte sind durch lokale Tests nicht belegt.
-Diese Datenkette, die vollständigen Größenprofile und B sind noch nicht fertig.
+Der kleine lokale Kettenvergleich ist abgeschlossen. Native Kette, vollständige
+Größenprofile, globale Ressourcenbilanz und B sind noch nicht fertig.
 Keine C-Produktivaufrufroute, kein main-Push oder Appdeployment daraus ableiten.
 
 Der Nutzer hat die konkrete Speicherfrage mit **„ja“** beantwortet.

@@ -71,9 +71,12 @@ only to `new-consumers/consumers.sqlite`.
 
 Before consumer commit, the same-call old/new comparison covers unrounded
 prediction, complete canonical feature bytes, origin, selection reason, full
-observation membership, Original payload/hash/created-at, snapshot key, full
+observation membership, canonical Original payload/hash, snapshot key, full
 canonical bytes, raw SHA, legacy payload digest and consumer reference.  The
-caller keeps the consumer transaction open, then closes `prepared` (and its
+old oracle timestamp is checked against the controlled requested clock; the new
+stored Original timestamp is not directly asserted by this integration test
+(Task54-M1, retained for final validation).  The caller keeps the consumer
+transaction open, then closes `prepared` (and its
 feature owner), History and Source before `commit_build()`.  A real injected
 late `PreparedTennisConsumer.close()` failure causes caller rollback; a cold
 reopen sees no consumer tables while all prior private corpus/parts/history/
@@ -231,6 +234,10 @@ failed artifact was removed.
 - No positive empirical approval/effect was manufactured.  The observed real
   selection reason is `effect-unavailable`, with unresolved native-state
   identity preserved exactly.
+- Task54-M1: canonical Original payload/hash parity is covered, but the new
+  stored Original `created_at` column is not directly compared here.  Its exact
+  timestamp remains a final-validation assertion gap; no timestamp defect was
+  demonstrated by the independent review.
 - No global manifest, B authenticity/reuse, restore, device/UI, VPS/deployment
   or release claim is made.
 
