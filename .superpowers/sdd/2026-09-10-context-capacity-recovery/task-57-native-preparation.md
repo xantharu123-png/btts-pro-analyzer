@@ -419,3 +419,40 @@ Next finding/ruling and actual native timezone source observations are in
 task-57-fix5-brief.md and the ledger. Exact UTC/Zurich public data can be bound
 and copied into the existing seal; no system directory allowance, fallback
 package, limit relaxation or product change. A fresh round5 author is next.
+
+Separate postflight20:10:48UTC: productionHEAD2dd1116 unchanged, actual app and
+Caddy active/running/enabled. Internal/public server healthok; separate Windows
+publicHTTP200 at20:10:54UTC. Known failed daily Tennis service untouched.
+Initial timer list had six NEXT values plus Wettfinder NEXT=- during its current
+invocation. Immediate scoped readback: that service completed20:11:02UTC with
+Result=success; timer now active/waiting/enabled and next20:37:00UTC. No unit
+was started, reset or edited for this check. Do not turn the transient prior
+timer display into either an unverified timer failure or an omitted observation.
+
+## FIX5 reviewed candidate and extended external readback
+
+Candidatebc6305c272dec2da6e917ff362d16ce70c6cc167 changes only the four harness/
+test files and appended report. Final60/0/0/0 in13.916s independently parsed,
+XML103fab346b690eadaa131e62d2aa7e6e1547af956efac2297178bf09bd32d0b2.
+Scoped reviewc95e57399ff0730de02bca314a5a255a2312b3a1a40edbe1f508f9d2ac9d66e1
+is SPEC COMPLIANT / QUALITY APPROVED with no new findings; fully read by Root.
+Catalogue is nowv2, SHA48fd59c0660843c530a079c53556b630622085e0ce09f0b9878e7230371dd935,
+with exact field timezone_data. Source/copy timezone pins, modes and layout
+are recorded in the FIX5 report; no oldv1 launcher/manifest reuse is authorized.
+
+Fresh immutable local archive `.pytest_tmp/task57-candidate-bc6305c-python.tar`:
+9277440bytes SHA4f2e84b9958619d77885285354946d65a9a0149e78a78567b2a8401b6cdb0328,
+440actual nonhidden tracked Python members/8921196source bytes, full archive
+validator and all four reviewed source pins matched. Read-only20:44:30UTC VPS
+preflight confirms13,322,948,608bytes free, unchanged Python/GNU-time hashes,
+fresh task57-bc6305c-05 archive/catalogue/job paths absent, appHEAD2dd1116.
+
+Root's separate readback-v2 now checks both exact original regular timezone
+files and both copies, full per-read before/after FD/path identity, hashes,
+owners/modes and exact three-directory readonly data tree. Source ancestors
+are metadata-only observations; UTC alias is lstat/readlink-only and unadmitted.
+Existing code/dependency/archive/catalogue/report/journal/physical/process
+checks remain. This independent stdlib-only readback has CPU45/AS2GiB/wall90
+bounds and local nonterminal detection; its49-statement AST parsed locally.
+It observes terminal state; it does not reconstruct historical custody or
+prove transitive B closure. Actual inventory/upload/stdin/native results follow.

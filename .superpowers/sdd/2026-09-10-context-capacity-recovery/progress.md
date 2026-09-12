@@ -400,6 +400,79 @@ QA stop, no relaxed authority. Exact files/hashes and required negatives in
 task-57-fix5-brief.md. Round5 requires a fresh most-capable author. No global
 C/B/native-chain pass or production change follows from this preparation.
 
+Checkpointbcdcc6bbc7c89c263b9960cd32beca242cbfe4be pushed/freshly matched,
+main2dd1116 unchanged. FIX5 ACTIVE, fresh sole implementation writer
+/root/c_native_chain_fix5 (gpt-6-astra/xhigh), dispatchBASEbcdcc6b,
+FIX_BASEdf874ba; brief52eb8bfdb06e737e6a5ae6c7516e06279c0366ca57e2c53f535a13cd11d38959.
+Root owns separate ledger/server readbacks only. Actual20:10:48UTC production
+HEAD2dd1116, betboy-app/Caddy active/running/enabled, both server healthchecks
+ok and independent Windows publicHTTP200 at20:10:54UTC. Known failed separate
+betboy-tennis.service remains unchanged. Timer snapshot has six concrete NEXT
+dates and Wettfinder NEXT=- while its trigger from20:07:01UTC is being checked;
+do not claim seven newly scheduled deadlines from this snapshot.
+Immediate focused follow-up resolves that transient state: Wettfinder service
+is inactive/dead with Result=success, completed20:11:02UTC; timer active/waiting/
+enabled with next20:37:00UTC. No timer or service was changed/reset. The earlier
+NEXT=- observation is preserved, not mistaken for a demonstrated timer defect.
+
+FIX5 author clarified the stdlib's optional tzdata fallback. Root boundary
+clarification: a narrow audit denial of tzdata imports is within the existing
+no-fallback ruling, not a new permitted input. It must be demonstrated through
+real ZoneInfo missing-key/importlib/resources execution with an existing but
+unadmitted fixture package; a manually emitted audit event is insufficient.
+Exact-file denial still applies and no ZoneInfo/reader replacement or arbitrary
+import shim is authorized. A missing import event must be reported, not treated
+as broader proven interception. Cost of a wrong mechanism is stopped QA/rework,
+not a broadened namespace. Source writer remains solely the FIX5 author.
+
+Fresh baseline metadata20:21:28UTC (not a consumer/Source/D2 approval): actual
+/var/lib/betboy-live-backup-ssfvf5xs/context-current.db270233600bytes remains
+SHA73ec16911c7d66e894a0f92c6600e3486e34b57c4176b30938638d3669146ffa,
+root:9870440. Existing tables:active_manifest1,artifacts33,context_contents100553,
+context_observations100553,context_snapshots31,manifests2; no unknown tables.
+Artifacts are31 tennis-live-winner-original-v1 plus2 tennis-tour-state.
+Actual clock range09-10T09:59:08.864565Z..09-11T23:07:34.262393Z unchanged.
+The first read-only aggregate command incorrectly assumed the optional
+context_model_rollbacks table existed and stopped with no-such-table; no write
+occurred. Corrected schema-first metadata command reports that known optional
+table absent. Future full raw preservation means every present admitted table,
+not adding or inventing a seventh table in this six-table real baseline.
+No payload/final evidence opened; only SHA and aggregate metadata, actual
+second processCPU1.073087155s under30CPU/AS2GiB diagnostic limits.
+
+FIX5 author returned sole writer and froze four executable/test files. Root
+read the complete appended report18dedb6a9f33f55152ab98a35932ff9f5ccc092cc184016496d2ae30c0c71bae,
+verified its exact pins and parsed final XML103fab346b690eadaa131e62d2aa7e6e1547af956efac2297178bf09bd32d0b2:
+60/0/0/0 in13.916s, no subsequent executable/test edits. Earlier REDs and the
+unproven transient Windows equality failure remain recorded; two prompt-return
+metadata probes had no explicit subprocess timeout, an execution-process minor.
+Exact five-file candidatebc6305c272dec2da6e917ff362d16ce70c6cc167 is committed,
+not yet pushed or independently accepted. Source diff/checks are clean.
+Scoped re-review /root/c_native_chain_fix1_review is ACTIVE against prior
+reviewed executable FIX_BASEdf874ba, not HEAD~1. Complete package133843bytes
+SHAee00c748b353e6695595b8c9cadf8316fc074155aa1c32697a2f52bff368d69a;
+no redundant suite/native rerun requested. Native acceptance remains pending.
+Root prepared a separate stdlib readback-v2 that includes exact timezone
+originals/copies and readonly directory membership; old code/dependency-only
+readback will not be presented as verification of these two new inputs.
+Fresh immutable archive9277440bytes SHA4f2e84b9958619d77885285354946d65a9a0149e78a78567b2a8401b6cdb0328
+contains440 actual nonhidden Python members/8921196 source bytes; full actual
+archive validation and all four author pins match. Read-only20:44:30UTC VPS
+preflight:13322948608bytes free, exact Python/GNU-time hashes unchanged,
+new task57-bc6305c-05 archive/catalogue/job paths absent, app still2dd1116.
+No upload/new guarded job/application change has occurred at this checkpoint.
+
+Task57: fix round5/5 (both scoped timezone catalogue/custody and real guarded
+reader findings addressed,0 new findings; FIX_BASEdf874ba..bc6305c).
+Independent reviewc95e57399ff0730de02bca314a5a255a2312b3a1a40edbe1f508f9d2ac9d66e1
+is SPEC COMPLIANT / QUALITY APPROVED, fully read/hash-checked by Root; no test
+rerun. Its native/global limitations remain explicit later acceptance gates,
+not missing local findings. Exact package is archived as42277byte gzip
+SHA bb8d2448487184d623dcd2af1a56f468e483aff06624ce7576ef47d05645e818;
+Root decoded and matched the original full ee00c748 package. Raw local package
+is retained, not recursively versioned or deleted. Actual Task57 acceptance
+still awaits terminal/custody/full readback of the next isolated native run.
+
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
 Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,
