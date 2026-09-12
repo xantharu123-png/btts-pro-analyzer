@@ -4,7 +4,7 @@ Inventory mode is read-only preparation, NOT the measured execution/sealer.
 The root owner must review and pin its output before the separate fresh parent
 starts. Source archive must be exported by Root from the reviewed Git commit.
 """
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import hashlib
 import io
 import json
@@ -15,7 +15,7 @@ import sys
 import tarfile
 
 
-FORMAT = "betboy-native-context-chain-catalogue-v1"
+FORMAT = "betboy-native-context-chain-catalogue-v2"
 MIB = 1024**2
 GIB = 1024**3
 ARCHIVE_CAP = 64 * MIB
@@ -25,6 +25,14 @@ DEPENDENCY_CAP = GIB
 MAX_FILES = 30000
 ATTEMPTS = ("ATP/positive", "ATP/late-cleanup", "WTA/positive")
 DEPENDENCY_SOURCE = Path("/tmp/betboy-context-qa.9xr68INa/venv/lib/python3.12/site-packages")
+# Root-observed public regular files only. The UTC symlink is explanatory
+# evidence, never a source path or generic link-following permission.
+TIMEZONE_DATA = (
+    ("Europe/Zurich", "/usr/share/zoneinfo/Europe/Zurich", 1909,
+     "2b9418ed48e3d9551c84a4786e185bd2181d009866c040fbd729170d038629ef"),
+    ("UTC", "/usr/share/zoneinfo/Etc/UTC", 114,
+     "8b85846791ab2c8a5463c83a5be3c043e2570d7448434d41398969ed47e3e6f2"),
+)
 # Closed observed installation selection, including lazy numerical and pytest
 # support and metadata. Unrelated installers and training packages are excluded.
 PACKAGES = (
@@ -118,6 +126,18 @@ def records(values, maximum):
     return found
 
 
+def timezone_manifest():
+    return [{"path": key, "source": source, "size": size, "sha256": checksum}
+            for key, source, size, checksum in TIMEZONE_DATA]
+
+
+def timezone_entries(values):
+    require(type(values) is list and values == timezone_manifest(), "nonfixed timezone catalogue")
+    entries = [{k: v for k, v in item.items() if k != "source"} for item in values]
+    records(entries, 65536)
+    return entries
+
+
 def archive_members(raw, entries):
     require(type(raw) is bytes and len(raw) <= ARCHIVE_CAP, "archive exceeded")
     expected = records(entries, ARCHIVE_CAP)
@@ -178,15 +198,19 @@ def resource_plan(archive_bytes, code_bytes, dependency_bytes, dependency_sizes)
     attempts = sum(attempt_slots().values()) + 6 * MIB
     controls = 2 * MANIFEST_CAP + 12 * MIB  # includes 2MiB reviewed stdin/launcher allowance
     metadata = 128 * MIB  # includes copied directory and per-file allocation slack
-    total = archive_bytes + code_bytes + dependency_bytes + attempts + controls + metadata
+    timezone_sizes = [x[2] for x in TIMEZONE_DATA]
+    timezone_bytes = sum(timezone_sizes)
+    total = archive_bytes + code_bytes + dependency_bytes + timezone_bytes + attempts + controls + metadata
     # Originals coexist with ALL planned new work. Their separate metadata
     # allowance is never borrowed from the copied-tree allocation slack.
-    original_logical = archive_bytes + dependency_bytes + MANIFEST_CAP
-    original_allocated = allocated_slot(archive_bytes) + sum(allocated_slot(n) for n in dependency_sizes) + MANIFEST_CAP
+    original_logical = archive_bytes + dependency_bytes + timezone_bytes + MANIFEST_CAP
+    original_allocated = allocated_slot(archive_bytes) + sum(allocated_slot(n) for n in
+                         [*dependency_sizes, *timezone_sizes]) + MANIFEST_CAP
     original_metadata = 128 * MIB
     active = total + max(original_logical, original_allocated) + original_metadata
     require(total <= 8 * GIB and active <= 4 * GIB, "complete diagnostic plan exceeded")
     return {"archive": archive_bytes, "code": code_bytes, "dependencies": dependency_bytes,
+            "timezone_data": timezone_bytes,
             "attempt_reservation": attempts, "control_reservation": controls,
             "metadata_reservation": metadata, "total": total, "active_input_ceiling": active,
             "original_logical_reservation": original_logical,
@@ -343,6 +367,67 @@ def copy_file(source, target, entry):
             os.close(dst)
 
 
+def hold_timezone_inputs(stack, values):
+    """Exact public data FDs stay held through both children and final recheck."""
+    timezone_entries(values)
+    held = []
+    for item in values:
+        path = Path(item["source"]).absolute()
+        fd, before = stack.enter_context(opened(path))
+        require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1
+                and before.st_size == item["size"], "timezone input type/size differs")
+        if sys.platform == "linux":
+            require(before.st_uid == before.st_gid == 0 and stat.S_IMODE(before.st_mode) == 0o644,
+                    "timezone source owner/mode differs")
+        held.append((fd, before, path))
+    recheck_timezone_inputs(held, values)
+    return held
+
+
+def recheck_timezone_inputs(held, values):
+    timezone_entries(values)
+    require(len(held) == len(values), "timezone held input count differs")
+    for (fd, before, path), item in zip(held, values):
+        expected, current = identity(before), identity(os.fstat(fd))
+        # Match opened's existing portable FD contract. Windows fstat ctime
+        # is not the path epoch; the complete pathname epoch is still bound.
+        # Linux always compares every field, including st_ctime_ns.
+        fd_equal = current == expected if sys.platform == "linux" else current[:-1] == expected[:-1]
+        require(path == Path(item["source"]).absolute() and
+                fd_equal and expected == identity(path.lstat()),
+                "held timezone input changed")
+        require(file_record(path, 65536) == {"size": item["size"], "sha256": item["sha256"]},
+                "timezone input hash differs")
+
+
+def timezone_copy_identities(root, values):
+    """Full two-file data subtree, no linked/extra/writable data namespace."""
+    entries = timezone_entries(values)
+    sample = workspace_sample(root, {x["path"]: allocated_slot(x["size"]) for x in entries}, 128 * MIB)
+    require([{k: v for k, v in x.items() if k != "allocated"} for x in sample["files"]] == entries,
+            "sealed timezone bytes differ")
+    paths = [root.parent, *[root / x["path"] for x in sample["directories"]],
+             *[root / x["path"] for x in sample["files"]]]
+    result = []
+    for path in paths:
+        info = path.lstat()
+        is_directory = stat.S_ISDIR(info.st_mode)
+        require(is_directory or stat.S_ISREG(info.st_mode) and info.st_nlink == 1,
+                "linked timezone copy")
+        # Windows directory chmod does not implement POSIX DAC. Only the
+        # native branch can establish root ownership and directory read-only.
+        require((is_directory and sys.platform != "linux") or not info.st_mode & 0o222,
+                "writable timezone copy")
+        if sys.platform == "linux":
+            require(info.st_uid == info.st_gid == 0, "timezone copy is not root-owned")
+        result.append((str(path), identity(info)))
+    return result
+
+
+def recheck_timezone_copies(root, values, previous):
+    require(timezone_copy_identities(root, values) == previous, "sealed timezone identity changed")
+
+
 def walk(root, selected=None):
     """Bounded, no-linked members; rechecks every directory epoch after traversal."""
     entries, epochs = [], []
@@ -429,14 +514,17 @@ def workspace_sample(root, slots, metadata_cap):
             "metadata_allocated": metadata_allocated}
 
 
-def original_input_plan(archive, manifest, dependency_root, archive_size, dependencies):
+def original_input_plan(archive, manifest, dependency_root, archive_size, dependencies, timezone_data):
     """Closed original file slots plus relevant containing-directory metadata."""
     archive, manifest, dependency_root = (p.absolute() for p in (archive, manifest, dependency_root))
     records(dependencies, DEPENDENCY_CAP)
+    timezone_entries(timezone_data)
     files = [{"path": str(archive), "logical": archive_size, "allocated": allocated_slot(archive_size)},
              {"path": str(manifest), "logical": MANIFEST_CAP, "allocated": MANIFEST_CAP}]
     files += [{"path": str(dependency_root / x["path"]), "logical": x["size"],
                "allocated": allocated_slot(x["size"])} for x in dependencies]
+    files += [{"path": str(Path(x["source"]).absolute()), "logical": x["size"],
+               "allocated": allocated_slot(x["size"])} for x in timezone_data]
     require(len({x["path"] for x in files}) == len(files), "original input paths overlap")
     directories = {str(p) for x in files for p in Path(x["path"]).parents}
     directories.add(str(dependency_root))
@@ -490,7 +578,7 @@ def check_active_inputs(original, workspace, plan):
 
 def validate_manifest(value, commit):
     require(type(value) is dict and set(value) == {"format", "commit", "archive", "code", "dependencies",
-            "dependency_source", "packages", "runtime", "plan"}, "catalogue shape")
+            "dependency_source", "packages", "runtime", "plan", "timezone_data"}, "catalogue shape")
     require(value["format"] == FORMAT and value["commit"] == commit and type(commit) is str
             and len(commit) == 40 and all(c in "0123456789abcdef" for c in commit), "reviewed commit differs")
     require(value["dependency_source"] == DEPENDENCY_SOURCE.as_posix() and value["packages"] == list(PACKAGES),
@@ -501,8 +589,10 @@ def validate_manifest(value, commit):
     for name, expected in (HELPERS | {TASK54: TASK54_SHA}).items():
         require(code[name]["sha256"] == expected, "independently reviewed owner pin differs")
     deps = records(value["dependencies"], DEPENDENCY_CAP)
+    timezone_data = timezone_entries(value["timezone_data"])
     require({n.split("/", 1)[0] for n in deps} == set(PACKAGES), "incomplete/foreign dependency roots")
-    destinations = ["code/" + n for n in code] + ["dependencies/" + n for n in deps] + list(attempt_slots())
+    destinations = (["code/" + n for n in code] + ["dependencies/" + n for n in deps]
+                    + ["runtime-data/zoneinfo/" + x["path"] for x in timezone_data] + list(attempt_slots()))
     directories = {str(p) for n in destinations for p in PurePosixPath(n).parents}
     require(len(destinations) + len(directories) + 32 < MAX_FILES, "aggregate namespace exceeds bound")
     ar = value["archive"]
@@ -538,9 +628,13 @@ def inventory(archive_path, commit):
     code.sort(key=lambda x: x["path"])
     archive_members(raw, code)
     dependencies = walk(DEPENDENCY_SOURCE, PACKAGES)
+    timezone_data = timezone_manifest()
+    with ExitStack() as held:
+        hold_timezone_inputs(held, timezone_data)
     executable = Path("/proc/self/exe").resolve()
     result = {"format": FORMAT, "commit": commit, "archive": ar, "code": code,
               "dependencies": dependencies, "dependency_source": DEPENDENCY_SOURCE.as_posix(),
+              "timezone_data": timezone_data,
               "packages": list(PACKAGES), "runtime": {
                   "executable": str(executable), "executable_sha256": file_record(executable)["sha256"],
                   "python": sys.version, "kernel": list(os.uname()), "stdlib_search_path": list(sys.path),

@@ -36,6 +36,409 @@ def entry(name, raw):
     return {"path": name, "size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
+def timezone_records():
+    # Independent exact native contract; these constants do not assert that
+    # the Linux originals were opened by this portable test suite.
+    return [
+        {"path": "Europe/Zurich", "source": "/usr/share/zoneinfo/Europe/Zurich", "size": 1909,
+         "sha256": "2b9418ed48e3d9551c84a4786e185bd2181d009866c040fbd729170d038629ef"},
+        {"path": "UTC", "source": "/usr/share/zoneinfo/Etc/UTC", "size": 114,
+         "sha256": "8b85846791ab2c8a5463c83a5be3c043e2570d7448434d41398969ed47e3e6f2"},
+    ]
+
+
+def tzif_fixture(key):
+    """Legitimate deterministic TZif2, not native tzdb-byte equivalence.
+
+    Zurich's POSIX tail supplies the real CET/CEST transition rule for 2026;
+    no ZoneInfo reader, calculation, or product clock is replaced.
+    """
+    import struct
+    infos = [(0, 0, 0)] if key == "UTC" else [(3600, 0, 0), (7200, 1, 4)]
+    abbreviations = b"UTC\0" if key == "UTC" else b"CET\0CEST\0"
+    header = b"TZif2" + b"\0" * 15 + struct.pack(">6l", 0, 0, 0, 0, len(infos), len(abbreviations))
+    body = b"".join(struct.pack(">lbb", *info) for info in infos) + abbreviations
+    tail = b"UTC0" if key == "UTC" else b"CET-1CEST,M3.5.0,M10.5.0/3"
+    return (header + body) * 2 + b"\n" + tail + b"\n"
+
+
+def timezone_sources(tmp_path, c, monkeypatch):
+    records = []
+    for key in ("Europe/Zurich", "UTC"):
+        source = tmp_path / "originals" / key
+        source.parent.mkdir(parents=True, exist_ok=True)
+        raw = tzif_fixture(key)
+        source.write_bytes(raw)
+        records.append({**entry(key, raw), "source": str(source)})
+    # Only catalogue constants in this isolated test module are changed, not
+    # source/copy validation, the real held-FD/copy reader, or worker ZoneInfo.
+    monkeypatch.setattr(c, "TIMEZONE_DATA", tuple(
+        (x["path"], x["source"], x["size"], x["sha256"]) for x in records), raising=False)
+    return records
+
+
+def test_timezone_catalogue_rejects_missing_extra_changed_and_aliases():
+    import copy
+    c = module("native_context_chain_catalogue")
+    assert hasattr(c, "timezone_entries"), "closed timezone catalogue is missing"
+    expected = timezone_records()
+    assert c.timezone_entries(expected) == [
+        {k: v for k, v in x.items() if k != "source"} for x in expected]
+    for mutate in (lambda x: x.pop(), lambda x: x.append(dict(x[0])),
+                   lambda x: x.append({**x[0], "path": "Europe/Berlin"}),
+                   lambda x: x[0].update(path="Europe/../Europe/Zurich"),
+                   lambda x: x[1].update(source="/usr/share/zoneinfo/UTC"),
+                   lambda x: x[1].update(source="/usr/share/zoneinfo/Etc/./UTC"),
+                   lambda x: x[0].update(size=1910), lambda x: x[0].update(sha256="f" * 64),
+                   lambda x: x.reverse()):
+        changed = copy.deepcopy(expected)
+        mutate(changed)
+        with pytest.raises(c.ChainError):
+            c.timezone_entries(changed)
+
+
+def test_timezone_plan_charges_original_and_copied_bytes_before_admission(tmp_path):
+    c = module("native_context_chain_catalogue")
+    plan = c.resource_plan(3, 12, 3, [3])
+    assert plan.get("timezone_data") == 2023, "timezone copies omitted from pre-copy reservation"
+    assert plan["original_logical_reservation"] == 6 + 2023 + 8388608
+    assert plan["original_allocated_reservation"] == 16384 + 8388608
+    original = c.original_input_plan(tmp_path / "archive", tmp_path / "manifest", tmp_path / "deps",
+                                     3, [entry("one.py", b"abc")], timezone_records())
+    files = {x["path"]: x for x in original["files"]}
+    for source, logical in (("/usr/share/zoneinfo/Europe/Zurich", 1909),
+                            ("/usr/share/zoneinfo/Etc/UTC", 114)):
+        path = str(Path(source).absolute())
+        assert files[path] == {"path": path, "logical": logical, "allocated": 4096}
+        assert str(Path(source).absolute().parent) in original["directories"]
+    assert str(Path("/usr/share/zoneinfo").absolute()) in original["directories"]
+    assert plan["total"] == 399507474 + 2023
+    assert plan["metadata_reservation"] == plan["original_metadata_reservation"] == 134217728
+    assert plan["active_input_ceiling"] == plan["total"] + 16384 + 8388608 + 134217728
+    with pytest.raises(c.ChainError, match="active allocation"):
+        c.check_active_inputs({"logical": 0, "allocated": plan["active_input_ceiling"] - plan["total"] + 1},
+                              {"logical": 0, "allocated": 0}, plan)
+
+
+@pytest.mark.parametrize("mutation", ["none", "changed-source", "replaced-source", "hardlink-source", "changed-copy", "replaced-copy"])
+def test_timezone_real_held_copies_and_rechecks(tmp_path, monkeypatch, mutation):
+    from contextlib import ExitStack, nullcontext
+    import os
+    c = module("native_context_chain_catalogue")
+    p = module("native_context_chain")
+    assert hasattr(c, "hold_timezone_inputs"), "held timezone input binding is missing"
+    data = timezone_sources(tmp_path, c, monkeypatch)
+    job = tmp_path / "seal"
+    job.mkdir()
+    source = Path(data[0]["source"])
+    if mutation == "hardlink-source":
+        os.link(source, tmp_path / "alias")
+        with ExitStack() as held, pytest.raises(c.ChainError):
+            c.hold_timezone_inputs(held, data)
+        assert list(job.iterdir()) == []
+        return
+    with pytest.raises(c.ChainError) if mutation == "changed-source" else nullcontext(), ExitStack() as held:
+        inputs = c.hold_timezone_inputs(held, data)
+        if mutation == "changed-source":
+            raw = source.read_bytes()
+            source.write_bytes(raw[:-1] + b"x")
+            c.recheck_timezone_inputs(inputs, data)
+            pytest.fail("changed timezone source remained admitted")
+        class Actions:
+            def check(self):
+                pass
+            def copy(self, copier, src, dst, item):
+                copier(src, dst, item)
+        p.copy_timezone_data(vars(c), Actions(), job, data, lambda: None)
+        copies = job / "runtime-data/zoneinfo"
+        expected = [{k: v for k, v in x.items() if k != "source"} for x in data]
+        assert c.walk(copies) == expected
+        for item in data:
+            assert (copies / item["path"]).read_bytes() == Path(item["source"]).read_bytes()
+        baseline = c.timezone_copy_identities(copies, data)
+        c.recheck_timezone_inputs(inputs, data)
+        if mutation == "replaced-source":
+            replacement = tmp_path / "replacement"
+            replacement.write_bytes(source.read_bytes())
+            alternate = replacement.lstat()
+            actual_lstat = Path.lstat
+            # Windows cannot replace a held CRT FD: use a real alternate inode
+            # only at final pathname readback, not fabricated metadata.
+            with monkeypatch.context() as patch:
+                patch.setattr(Path, "lstat", lambda path, *a, **kw: alternate if path == source else actual_lstat(path, *a, **kw))
+                with pytest.raises(c.ChainError):
+                    c.recheck_timezone_inputs(inputs, data)
+        elif mutation in ("changed-copy", "replaced-copy"):
+            target = copies / "Europe/Zurich"
+            os.chmod(target, 0o600)
+            if mutation == "changed-copy":
+                target.write_bytes(b"changed")
+            else:
+                target.rename(tmp_path / "retained-original")
+                target.write_bytes(source.read_bytes())
+            target.chmod(0o444)
+            with pytest.raises(c.ChainError):
+                c.recheck_timezone_copies(copies, data, baseline)
+        else:
+            c.recheck_timezone_copies(copies, data, baseline)
+
+
+@pytest.mark.parametrize("field,native", [("st_ctime_ns", False), ("st_mtime_ns", False),
+    ("st_size", False), ("st_ino", False), ("st_dev", False), ("st_nlink", False),
+    ("st_mode", False), ("st_ctime_ns", True)])
+def test_timezone_portable_fd_ctime_uses_existing_opened_contract(tmp_path, monkeypatch, field, native):
+    from contextlib import ExitStack
+    from types import SimpleNamespace
+    c = module("native_context_chain_catalogue")
+    data = timezone_sources(tmp_path, c, monkeypatch)
+    actual_fstat = c.os.fstat
+    def fd_ctime(fd):
+        info = actual_fstat(fd)
+        values = {key: getattr(info, key) for key in (
+            "st_dev", "st_ino", "st_mode", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")}
+        values[field] += 100
+        return SimpleNamespace(**values)
+    # Explicit portable-stat seam: all bytes, FDs and pathname metadata stay
+    # real. Native Linux equality must retain ctime and is never altered.
+    monkeypatch.setattr(c, "sys", SimpleNamespace(platform="win32"))
+    with ExitStack() as held:
+        inputs = c.hold_timezone_inputs(held, data)
+        with monkeypatch.context() as patch:
+            patch.setattr(c, "os", SimpleNamespace(**(vars(c.os) | {"fstat": fd_ctime})))
+            if native:
+                # Exercise only the native comparison branch, not an invented
+                # Windows kernel/native no-follow filesystem observation.
+                patch.setattr(c, "sys", SimpleNamespace(platform="linux"))
+            if field == "st_ctime_ns" and not native:
+                c.recheck_timezone_inputs(inputs, data)
+            else:
+                with pytest.raises(c.ChainError, match="held timezone input changed"):
+                    c.recheck_timezone_inputs(inputs, data)
+
+
+def test_timezone_path_ctime_epoch_is_not_relaxed_on_portable_host(tmp_path, monkeypatch):
+    from contextlib import ExitStack
+    from types import SimpleNamespace
+    c = module("native_context_chain_catalogue")
+    data = timezone_sources(tmp_path, c, monkeypatch)
+    source = Path(data[0]["source"])
+    actual_lstat = Path.lstat
+    with ExitStack() as held:
+        inputs = c.hold_timezone_inputs(held, data)
+        def path_ctime(path, *args, **kwargs):
+            info = actual_lstat(path, *args, **kwargs)
+            if path != source:
+                return info
+            values = {key: getattr(info, key) for key in (
+                "st_dev", "st_ino", "st_mode", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")}
+            values["st_ctime_ns"] += 100
+            return SimpleNamespace(**values)
+        with monkeypatch.context() as patch:
+            patch.setattr(Path, "lstat", path_ctime)
+            with pytest.raises(c.ChainError, match="held timezone input changed"):
+                c.recheck_timezone_inputs(inputs, data)
+
+
+def test_timezone_actual_zoneinfo_uses_only_sealed_members_and_no_fallback(tmp_path):
+    import subprocess
+    import sys
+    seal = tmp_path / "seal"
+    data_root = seal / "runtime-data/zoneinfo"
+    for key in ("Europe/Zurich", "UTC", "Europe/Unlisted"):
+        target = data_root / key
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(tzif_fixture("UTC" if key == "UTC" else "Europe/Zurich"))
+    # Real existing fallback source and data; no import/reader mocks. Leave it
+    # outside admitted roots and include it only in the subprocess import path.
+    fallback = tmp_path / "fallback/tzdata/zoneinfo/Europe"
+    fallback.mkdir(parents=True)
+    for directory in (fallback, fallback.parent, fallback.parent.parent):
+        (directory / "__init__.py").write_text("raise RuntimeError('UNADMITTED tzdata executed')\n", encoding="ascii")
+    (fallback / "Missing").write_bytes(tzif_fixture("Europe/Zurich"))
+    (tmp_path / "writable").mkdir()
+    (tmp_path / "writable/UTC").write_bytes(tzif_fixture("UTC"))
+    script = r'''
+import datetime, json, os, runpy, sys, zoneinfo
+from pathlib import Path
+w = runpy.run_path(sys.argv[1], run_name="_timezone_test")
+root = Path(sys.argv[2])
+if not hasattr(os, "O_DIRECTORY"):
+    os.O_DIRECTORY = 0
+seal = root / "seal"
+data_root = seal / "runtime-data/zoneinfo"
+manifest = {"code": [], "dependencies": [], "timezone_data": [
+    {"path": "Europe/Zurich"}, {"path": "UTC"}], "runtime": {"stdlib_search_path": list(sys.path)}}
+observed = w["observe_python_files"](root / "code", seal, root / "writable", manifest)
+# This case isolates exact audit admission; the next regression executes the
+# real binding and its readonly/complete-tree checks.
+zoneinfo.reset_tzpath((str(data_root),))
+zoneinfo.ZoneInfo.clear_cache()
+utc, zurich = zoneinfo.ZoneInfo("UTC"), zoneinfo.ZoneInfo("Europe/Zurich")
+assert datetime.datetime(2026, 1, 15, tzinfo=utc).utcoffset() == datetime.timedelta(0)
+assert datetime.datetime(2026, 1, 15, tzinfo=zurich).utcoffset() == datetime.timedelta(hours=1)
+assert datetime.datetime(2026, 7, 15, tzinfo=zurich).utcoffset() == datetime.timedelta(hours=2)
+assert datetime.datetime(2026, 10, 25, 2, 30, tzinfo=zurich, fold=0).utcoffset() == datetime.timedelta(hours=2)
+assert datetime.datetime(2026, 10, 25, 2, 30, tzinfo=zurich, fold=1).utcoffset() == datetime.timedelta(hours=1)
+os.chdir(root / "writable")
+for path in ("/usr/share/zoneinfo/UTC", "/usr/share/zoneinfo/Etc/UTC", "/usr/share/zoneinfo/Europe/Zurich",
+             str(data_root / "Europe/Unlisted"), "../seal/runtime-data/zoneinfo/Europe/Unlisted",
+             "../seal/runtime-data/zoneinfo/UTC"):
+    try:
+        open(path, "rb")
+    except w["ChainError"]:
+        pass
+    else:
+        raise AssertionError("unplanned timezone read allowed: " + path)
+for mode in ("wb", "r+b", "ab"):
+    try:
+        open(data_root / "UTC", mode)
+    except w["ChainError"]:
+        pass
+    else:
+        raise AssertionError("sealed timezone write allowed")
+try:
+    zoneinfo.ZoneInfo("Europe/Unlisted")
+except w["ChainError"]:
+    pass
+else:
+    raise AssertionError("unlisted sealed data loaded")
+sys.path.insert(0, str(root / "fallback"))
+try:
+    zoneinfo.ZoneInfo("Europe/Missing")
+except w["ChainError"] as exc:
+    assert exc.file_context["event"] == "open", "resources fallback did not reach exact file admission"
+    assert Path(exc.file_context["path"]).is_relative_to(root / "fallback"), exc.file_context
+else:
+    raise AssertionError("actual tzdata fallback was not denied")
+assert "tzdata" not in sys.modules
+print(json.dumps({"utc": utc.key, "zurich": zurich.key, "observations": observed}))
+'''
+    result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", script,
+                             str(HERE / "native_context_chain_worker.py"), str(tmp_path)],
+                            capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["utc"] == "UTC" and payload["zurich"] == "Europe/Zurich"
+    assert payload["observations"]["open:" + str(data_root / "UTC")] >= 1
+    assert (data_root / "UTC").read_bytes() == tzif_fixture("UTC")
+
+
+def test_timezone_binding_follows_guard_and_precedes_product(tmp_path, monkeypatch):
+    w = module("native_context_chain_worker")
+    events = []
+    assert hasattr(w, "bind_timezone_data"), "worker sealed timezone binding is missing"
+    def guard():
+        events.append("guard")
+        raise w.ChainError("unprotected")
+    monkeypatch.setattr(w, "require_guard", guard)
+    monkeypatch.setattr(w, "bind_timezone_data", lambda *_: pytest.fail("data binding before guard"))
+    monkeypatch.setattr(w, "invoke_cases", lambda *_: pytest.fail("product before guard"))
+    with pytest.raises(w.ChainError, match="unprotected"):
+        w.run("ATP")
+    assert events == ["guard"]
+
+
+@pytest.mark.parametrize("mutation", ["none", "writable", "extra", "preloaded-fallback"])
+def test_timezone_real_binding_rejects_writable_or_incomplete_seal(tmp_path, monkeypatch, mutation):
+    import subprocess
+    import sys
+    c = module("native_context_chain_catalogue")
+    data = timezone_sources(tmp_path, c, monkeypatch)
+    root = tmp_path / "seal/runtime-data/zoneinfo"
+    for item in data:
+        target = root / item["path"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(Path(item["source"]).read_bytes())
+        target.chmod(0o444)
+    if mutation == "writable":
+        (root / "UTC").chmod(0o600)
+    if mutation == "extra":
+        (root / "extra-empty-directory").mkdir()
+    for directory in (root / "Europe", root, root.parent):
+        directory.chmod(0o555)
+    (tmp_path / "seal/attempts/ATP").mkdir(parents=True)
+    (tmp_path / "seal/catalogue.json").write_text(json.dumps({
+        "code": [], "dependencies": [], "timezone_data": data,
+        "runtime": {"stdlib_search_path": []}}), encoding="ascii")
+    script = r'''
+import datetime, json, os, sys, types, zoneinfo
+from pathlib import Path
+c = {"__name__": "_tz_catalogue"}
+exec(compile(Path(sys.argv[1]).read_bytes(), sys.argv[1], "exec"), c)
+w = {"__name__": "_tz_worker"}
+exec(compile(Path(sys.argv[2]).read_bytes(), sys.argv[2], "exec"), w)
+root, values, mutation = Path(sys.argv[3]), json.loads(sys.argv[4]), sys.argv[5]
+c["TIMEZONE_DATA"] = tuple((x["path"], x["source"], x["size"], x["sha256"]) for x in values)
+if not hasattr(os, "O_DIRECTORY"):
+    os.O_DIRECTORY = 0
+manifest = {"code": [{"path": "catalogue.json"}], "dependencies": [], "timezone_data": values,
+            "runtime": {"stdlib_search_path": list(sys.path)}}
+if mutation == "preloaded-fallback":
+    sys.modules["tzdata"] = types.ModuleType("tzdata")
+observed = w["observe_python_files"](root / "seal", root / "seal", root / "work", manifest)
+before = zoneinfo.TZPATH
+try:
+    if mutation == "none":
+        # Execute actual worker ordering but stop exactly at the product
+        # boundary. The guard state here is a labelled portable seam, not
+        # native proof; binding, file audit and ZoneInfo remain real.
+        events = []
+        class ProductBoundary(Exception):
+            pass
+        def guarded():
+            events.append("guard")
+            return {"portable-order-only": True}
+        actual_binding = w["bind_timezone_data"]
+        def binding(*args):
+            assert events == ["guard"]
+            actual_binding(*args)
+            events.append("data-bound")
+        def product(*args):
+            assert events == ["guard", "data-bound"]
+            events.append("product")
+            raise ProductBoundary
+        w["__file__"] = str(root / "seal/code/tests/native_context_chain_worker.py")
+        w["require_guard"] = guarded
+        w["load_catalogue"] = lambda path: c
+        # Avoid a second hook, while preserving the already-installed actual
+        # one; the real catalogue JSON reader/decoder remains unchanged.
+        w["observe_python_files"] = lambda *args: observed
+        w["bind_timezone_data"] = binding
+        w["invoke_cases"] = product
+        # Catalogue JSON is a fixed control read normally preceding the audit.
+        # It is explicitly admitted here because this isolated test installed
+        # its hook before calling run, so it can observe the complete ordering.
+        os.chdir(root / "seal/attempts/ATP")
+        try:
+            w["run"]("ATP")
+        except ProductBoundary:
+            pass
+        assert events == ["guard", "data-bound", "product"]
+    else:
+        w["bind_timezone_data"](c, root / "seal", manifest)
+except (w["ChainError"], c["ChainError"]):
+    assert mutation != "none", "valid sealed timezone tree rejected"
+    assert zoneinfo.TZPATH == before, "failed binding changed the search path"
+    print(json.dumps({"rejected": mutation}))
+else:
+    assert mutation == "none", "unsafe timezone binding admitted"
+    assert zoneinfo.TZPATH == (str(root / "seal/runtime-data/zoneinfo"),)
+    utc = zoneinfo.ZoneInfo("UTC")
+    zurich = zoneinfo.ZoneInfo("Europe/Zurich")
+    assert datetime.datetime(2026, 1, 15, tzinfo=utc).utcoffset() == datetime.timedelta(0)
+    assert datetime.datetime(2026, 1, 15, tzinfo=zurich).utcoffset() == datetime.timedelta(hours=1)
+    assert datetime.datetime(2026, 7, 15, tzinfo=zurich).utcoffset() == datetime.timedelta(hours=2)
+    print(json.dumps({"keys": [utc.key, zurich.key], "observations": observed}))
+'''
+    result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", script,
+                             str(HERE / "native_context_chain_catalogue.py"),
+                             str(HERE / "native_context_chain_worker.py"), str(tmp_path), json.dumps(data), mutation],
+                            capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stdout + result.stderr
+    observed = json.loads(result.stdout)
+    assert observed.get("rejected") == (None if mutation == "none" else mutation)
+
+
 def test_plan_predeclares_three_attempts_without_reset_allowance():
     c = module("native_context_chain_catalogue")
     plan = c.attempt_slots()
@@ -401,6 +804,7 @@ def test_manifest_requires_exact_owner_pins_roots_and_plan(source_flavour, monke
     deps = sorted([entry(n if n.endswith(".py") else n + "/member", b"") for n in c.PACKAGES], key=lambda x: x["path"])
     manifest = {"format": c.FORMAT, "commit": "a" * 40, "archive": {"size": 0, "sha256": "b" * 64},
         "code": code, "dependencies": deps, "dependency_source": installation,
+        "timezone_data": timezone_records(),
         "packages": list(c.PACKAGES), "runtime": {"executable": "/usr/bin/python3.12", "executable_sha256": "c" * 64,
             "python": "observed", "kernel": [], "stdlib_search_path": [],
             "closure_status": "observed-system-runtime-not-transitive-B-closure"},
@@ -418,6 +822,8 @@ def test_manifest_requires_exact_owner_pins_roots_and_plan(source_flavour, monke
         with pytest.raises(c.ChainError, match="nonfixed dependency installation"):
             c.validate_manifest(changed, "a" * 40)
     for mutate in (lambda m: m["dependencies"].pop(),
+                   lambda m: m.pop("timezone_data"),
+                   lambda m: m["timezone_data"][1].update(source="/usr/share/zoneinfo/UTC"),
                    lambda m: m["code"].append(dict(m["code"][0])),
                    lambda m: m["plan"].update(retained_cpu_ns=270000000000),
                    lambda m: m.update(worker="unreviewed.py"),
@@ -563,6 +969,47 @@ def test_missing_reservation_prevents_first_copy_and_file_writer(tmp_path):
         pytest.fail("copy entered without the durable reservation")
     with pytest.raises(p.ChainError):
         actions.copy(forbidden_copy, None, None, None)
+    c = module("native_context_chain_catalogue")
+    with pytest.raises(p.ChainError):
+        p.copy_timezone_data(vars(c), actions, tmp_path, timezone_records(), lambda: None)
+    assert not (tmp_path / "runtime-data").exists()
+
+
+def test_timezone_launcher_reconstructs_actual_pinned_catalogue_and_rejects_alias(tmp_path):
+    c = module("native_context_chain_catalogue")
+    names = sorted(c.REQUIRED)
+    contents = {name: (HERE.parent / name).read_bytes() for name in names}
+    raw = archive([(name, body, tarfile.REGTYPE) for name, body in contents.items()])
+    archive_path = tmp_path / "archive.tar"
+    archive_path.write_bytes(raw)
+    code = [entry(name, body) for name, body in contents.items()]
+    dependencies = sorted([entry(n if n.endswith(".py") else n + "/member", b"") for n in c.PACKAGES],
+                          key=lambda item: item["path"])
+    manifest = {"format": c.FORMAT, "commit": "a" * 40, "archive": {
+        "size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}, "code": code,
+        "dependencies": dependencies, "dependency_source": "/tmp/betboy-context-qa.9xr68INa/venv/lib/python3.12/site-packages",
+        "timezone_data": timezone_records(), "packages": list(c.PACKAGES),
+        "runtime": {"executable": "/usr/bin/python3.12", "executable_sha256": "c" * 64,
+                    "python": "fixture-only", "kernel": [], "stdlib_search_path": [],
+                    "closure_status": "observed-system-runtime-not-transitive-B-closure"},
+        "plan": c.resource_plan(len(raw), sum(x["size"] for x in code), 0, [])}
+    manifest_path = tmp_path / "manifest.json"
+    encoded = json.dumps(manifest).encode("ascii")
+    manifest_path.write_bytes(encoded)
+    launcher = c.launcher(archive_path, manifest["archive"]["sha256"], manifest_path,
+                          hashlib.sha256(encoded).hexdigest())
+    namespace = {"__name__": "_actual_stdin_test"}
+    exec(launcher, namespace)
+    actual = namespace["load_catalogue"]()
+    assert actual["timezone_entries"](manifest["timezone_data"]) == [
+        {k: v for k, v in x.items() if k != "source"} for x in timezone_records()]
+    manifest["timezone_data"][1]["source"] = "/usr/share/zoneinfo/UTC"
+    bad = json.dumps(manifest).encode("ascii")
+    # Separate retained candidate, not replacement of the admitted manifest.
+    changed_path = tmp_path / "alias-manifest.json"
+    changed_path.write_bytes(bad)
+    with pytest.raises(c.ChainError, match="timezone"):
+        c.launcher(archive_path, manifest["archive"]["sha256"], changed_path, hashlib.sha256(bad).hexdigest())
 
 
 def test_actual_bootstrap_catalogue_pin_rejects_modified_in_memory_bytes(monkeypatch):
@@ -586,7 +1033,8 @@ def test_i1_original_allocation_and_metadata_are_measured_not_inferred(tmp_path,
     deps.mkdir()
     member = deps / "one.py"
     member.write_bytes(b"abc")
-    plan = c.original_input_plan(archive_path, manifest_path, deps, 3, [entry("one.py", b"abc")])
+    data = timezone_sources(tmp_path, c, monkeypatch)
+    plan = c.original_input_plan(archive_path, manifest_path, deps, 3, [entry("one.py", b"abc")], data)
     actual_opened = c.opened
     changed = {}
     @contextmanager
@@ -607,8 +1055,8 @@ def test_i1_original_allocation_and_metadata_are_measured_not_inferred(tmp_path,
     assert str(deps) in {item["path"] for item in baseline["directories"]}
     assert baseline["metadata_allocated"] > 0
     resource = c.resource_plan(3, 12, 3, [3])
-    assert resource["original_allocated_reservation"] == 8192 + c.MANIFEST_CAP
-    assert resource["original_logical_reservation"] == 6 + c.MANIFEST_CAP
+    assert resource["original_allocated_reservation"] == 16384 + c.MANIFEST_CAP
+    assert resource["original_logical_reservation"] == 6 + sum(x["size"] for x in data) + c.MANIFEST_CAP
     assert resource["active_input_ceiling"] == (resource["total"] +
         resource["original_allocated_reservation"] + resource["original_metadata_reservation"])
     assert resource["metadata_reservation"] == resource["original_metadata_reservation"] == 128 * c.MIB
@@ -621,6 +1069,10 @@ def test_i1_original_allocation_and_metadata_are_measured_not_inferred(tmp_path,
     with pytest.raises(c.ChainError, match="identity"):
         c.sample_original_inputs(plan, previous=changed_identity)
     changed[str(member)] = 16  # logical3 still fits; actual8192 exceeds4096 slot
+    with pytest.raises(c.ChainError, match="allocation"):
+        c.sample_original_inputs(plan, previous=baseline)
+    changed.clear()
+    changed[data[0]["source"]] = 16
     with pytest.raises(c.ChainError, match="allocation"):
         c.sample_original_inputs(plan, previous=baseline)
     changed.clear()

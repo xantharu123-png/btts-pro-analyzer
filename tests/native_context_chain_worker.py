@@ -118,6 +118,10 @@ as such; their actual no-follow custody belongs to the catalogue reader.
 """
     permitted = {str(code / x["path"]) for x in manifest["code"]}
     permitted |= {str(seal / "dependencies" / x["path"]) for x in manifest["dependencies"]}
+    timezone_root = seal / "runtime-data/zoneinfo"
+    timezone_system = Path("/usr/share/zoneinfo").absolute()
+    timezone_files = {str(timezone_root / x["path"]) for x in manifest.get("timezone_data", [])}
+    permitted |= timezone_files
     # -B prevents cache writes, not reads. Deny the exact interpreter cache
     # probe for each admitted source BEFORE opening it, including if a cache
     # exists. FileNotFoundError lets CPython read the admitted source instead;
@@ -139,6 +143,8 @@ as such; their actual no-follow custody belongs to the catalogue reader.
         require(key in observed or len(observed) < 3000, "Python file observation bound exceeded")
         observed[key] = observed.get(key, 0) + 1
     def audit(event, args):
+        if event == "import" and args and isinstance(args[0], str):
+            require(args[0] != "tzdata" and not args[0].startswith("tzdata."), "unplanned tzdata fallback import")
         if event not in ("open", "sqlite3.connect") or not args or not isinstance(args[0], (str, bytes)):
             return
         name = os.fsdecode(args[0])
@@ -156,6 +162,16 @@ as such; their actual no-follow custody belongs to the catalogue reader.
         if event == "open" and len(args) > 2 and type(args[2]) is int and args[2] & os.O_DIRECTORY:
             return
         p = Path(name)
+        # No filesystem lookup: normalize only to recognize relative traversal
+        # into the protected data tree. Descriptor-relative bare-name opens
+        # retain the existing catalogue no-follow-FD custody contract.
+        data_path = Path(os.path.abspath(name))
+        if str(p) in timezone_files:
+            if (event != "open" or len(args) <= 2 or type(args[2]) is not int or
+                    args[2] & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND)):
+                reject("unplanned timezone data write")
+        elif data_path.is_relative_to(timezone_root) or data_path.is_relative_to(timezone_system):
+            reject("unplanned timezone data read")
         if p.suffix.lower() in (".pkl", ".pickle", ".csv", ".xlsx", ".xls"):
             reject("unplanned training/fallback data access")
         if event == "open" and str(p) in denied_caches:
@@ -179,6 +195,22 @@ as such; their actual no-follow custody belongs to the catalogue reader.
     return observed
 
 
+def bind_timezone_data(c, seal, manifest):
+    """After guard/audit, point the actual stdlib reader only at the data seal.
+
+    No reader/import shim: unknown fallback package bytes still fail the
+    exact-member file audit, including resources/importlib-driven imports.
+    """
+    require(not any(n == "tzdata" or n.startswith("tzdata.") for n in sys.modules),
+            "preloaded tzdata fallback is not permitted")
+    root = seal / "runtime-data/zoneinfo"
+    c["timezone_copy_identities"](root, manifest["timezone_data"])
+    import zoneinfo
+    zoneinfo.reset_tzpath((str(root),))
+    zoneinfo.ZoneInfo.clear_cache()
+    require(zoneinfo.TZPATH == (str(root),), "sealed timezone search path differs")
+
+
 def run(tour):
     state = require_guard()
     code = Path(__file__).absolute().parents[1]
@@ -191,6 +223,7 @@ def run(tour):
              if key.startswith(tour + "/")}
     samples = []
     file_observations = observe_python_files(code, seal, work, manifest)
+    bind_timezone_data(c, seal, manifest)
     # Only now can actual pytest and product modules enter this interpreter.
     sys.path[:0] = [str(code), str(code / "tests"), str(seal / "dependencies")]
     def sample(label):

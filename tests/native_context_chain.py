@@ -18,7 +18,7 @@ import types
 
 
 MIB = 1024**2
-CATALOGUE_SHA256 = "93d38e46c17b9796088cfad66ea1667413b702b93f8310ac43b6e6ee7ac648f9"
+CATALOGUE_SHA256 = "48fd59c0660843c530a079c53556b630622085e0ce09f0b9878e7230371dd935"
 WORKER_FORMAT = "betboy-native-context-chain-worker-v1"
 TASK54_SHA256 = "5a59f75d0a3093238031159a813ce81b6c633c63105cab0338ed376a7bac7649"
 PROPERTY_KEYS = frozenset("tour source_sha256 corpus_sha256 ledger_sha256 parts_sha256 history_sha256 features_sha256 consumer_sha256 receipt_inventory_digest old_coverage_digest feature_canonical_sha256 snapshot_key snapshot_raw_sha256 snapshot_payload_digest original_hash protected_receipt_count semantic_limitations budget_plan budget_reserved setup_budget_plan setup_budget_reserved setup_workspace_bytes union_reserved_bytes union_observed_bytes after_corpus_bytes after_parts_bytes after_history_bytes after_feature_bytes final_workspace_bytes final_free_bytes".split())
@@ -140,6 +140,25 @@ class ReservedActions:
     def copy(self, copy, source, target, item):
         self.check()
         copy(source, target, item)
+
+
+def copy_timezone_data(c, actions, job, values, checkpoint):
+    c["timezone_entries"](values)
+    actions.check()
+    root = job / "runtime-data/zoneinfo"
+    root.mkdir(mode=0o755, parents=True)
+    directories = {root.parent, root}
+    for item in values:
+        checkpoint()
+        target = root / item["path"]
+        target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+        directories.add(target.parent)
+        actions.copy(c["copy_file"], Path(item["source"]), target, item)
+        # The target is exclusively new and owned by this parent. This also
+        # supplies the portable Windows read-only file attribute in QA.
+        os.chmod(target, 0o444)
+    for path in sorted(directories, key=lambda p: len(p.parts), reverse=True):
+        os.chmod(path, 0o555)
 
 
 def accept_result(result, tour):
@@ -294,7 +313,7 @@ def main(argv):
     plan = manifest["plan"]
     archive, manifest_path = Path(args["--archive"]), Path(args["--manifest"])
     originals_plan = c["original_input_plan"](archive, manifest_path, c["DEPENDENCY_SOURCE"],
-                                               manifest["archive"]["size"], manifest["dependencies"])
+                                               manifest["archive"]["size"], manifest["dependencies"], manifest["timezone_data"])
     require(sum(x["logical"] for x in originals_plan["files"]) == plan["original_logical_reservation"]
             and sum(x["allocated"] for x in originals_plan["files"]) == plan["original_allocated_reservation"]
             and originals_plan["metadata_cap"] == plan["original_metadata_reservation"], "original plan differs")
@@ -320,6 +339,7 @@ def main(argv):
     # metadata/allocation reserve, not mistaken for exact logical content size.
     fixed.update({"code/" + x["path"]: (x["size"] + 4095) // 4096 * 4096 for x in manifest["code"]})
     fixed.update({"dependencies/" + x["path"]: (x["size"] + 4095) // 4096 * 4096 for x in manifest["dependencies"]})
+    fixed.update({"runtime-data/zoneinfo/" + x["path"]: c["allocated_slot"](x["size"]) for x in manifest["timezone_data"]})
     fixed.update({"attempts/" + name: cap for name, cap in c["attempt_slots"]().items()})
     job_fd = os.open(job, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     handle = budget_module.PreparationBudget.create(job_fd, identity)
@@ -331,6 +351,7 @@ def main(argv):
         archive_fd, archive_stat = inputs.enter_context(c["opened"](archive))
         dependency_fd, dependency_stat = inputs.enter_context(c["opened"](c["DEPENDENCY_SOURCE"], directory=True))
         manifest_fd, manifest_stat = inputs.enter_context(c["opened"](manifest_path))
+        timezone_inputs = c["hold_timezone_inputs"](inputs, manifest["timezone_data"])
         raw = c["data_bytes"](archive, c["ARCHIVE_CAP"], manifest["archive"]["sha256"])
         require(len(raw) == manifest["archive"]["size"], "archive length differs")
         archive_info = c["identity"](archive.lstat())
@@ -344,6 +365,8 @@ def main(argv):
                                (str(manifest_path), c["identity"](manifest_stat))] + [
                 (str(c["DEPENDENCY_SOURCE"] / name), expected) for name, expected in dependency_identities]:
             require(baseline_files[path] == expected, "original observation differs from admitted identity")
+        for _fd, info, path in timezone_inputs:
+            require(baseline_files[str(path)] == c["identity"](info), "timezone original observation differs")
         baseline_directories = {x["path"]: x["identity"] for x in original_baseline["directories"]}
         require(baseline_directories[str(c["DEPENDENCY_SOURCE"])] ==
                 (dependency_stat.st_dev, dependency_stat.st_ino, dependency_stat.st_mode), "original root identity differs")
@@ -364,6 +387,9 @@ def main(argv):
                     actions.write(destination, members[item["path"]])
                 else:
                     actions.copy(c["copy_file"], c["DEPENDENCY_SOURCE"] / item["path"], destination, item)
+        c["recheck_timezone_inputs"](timezone_inputs, manifest["timezone_data"])
+        copy_timezone_data(c, actions, job, manifest["timezone_data"], lambda: window.check(190))
+        timezone_copies = c["timezone_copy_identities"](job / "runtime-data/zoneinfo", manifest["timezone_data"])
         (job / "attempts").mkdir(mode=0o755)
         for tour in ("ATP", "WTA"):
             directory = job / "attempts" / tour
@@ -388,6 +414,8 @@ def main(argv):
                 require(c["identity"]((c["DEPENDENCY_SOURCE"] / name).lstat()) == expected, "dependency input identity changed")
             require(c["walk"](job / "code") == manifest["code"], "sealed code changed")
             require(c["walk"](job / "dependencies") == manifest["dependencies"], "sealed dependencies changed")
+            c["recheck_timezone_inputs"](timezone_inputs, manifest["timezone_data"])
+            c["recheck_timezone_copies"](job / "runtime-data/zoneinfo", manifest["timezone_data"], timezone_copies)
             for tour, view in completed_views.items():
                 require(c["walk"](job / "attempts" / tour) == view, "previous child private outputs changed")
             observed = c["workspace_sample"](job, fixed, plan["metadata_reservation"])

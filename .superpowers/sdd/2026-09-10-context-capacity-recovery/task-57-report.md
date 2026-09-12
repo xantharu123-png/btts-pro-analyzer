@@ -1165,3 +1165,266 @@ probe. The real sealed native namespace has no PyArrow; its next independently
 reviewed guarded run is authoritative. The portable import diagnostic remains
 honestly partial. This final paragraph is report-only; no further code/test
 change or probe followed the preceding handback.
+
+## FIX5 appendix — exact UTC/Zurich runtime-data binding
+
+Status: **DONE_WITH_CONCERNS; portable harness verification only.** Root supplied
+dispatch BASE `bcdcc6bbc7c89c263b9960cd32beca242cbfe4be` and previous reviewed
+executable FIX_BASE `df874ba7a29ee41ef27d48eb7a726520bd6fdcc4`. This writer made
+no Git query, mutation, commit, server/network/install/delete or subagent call.
+The FIX5 brief was read first and its actual SHA256 was verified as
+`52eb8bfdb06e737e6a5ae6c7516e06279c0366ca57e2c53f535a13cd11d38959`.
+The original Task57 brief, required native preparation observations, Task54
+brief/report, and FIX4 appendix were read before implementation. Systematic
+Debugging, TDD, implementer and Verification-before-completion instructions
+governed the scoped work; no new architecture or runtime allowance was inferred.
+
+The declared and actual edit surface is exactly these four files plus this
+append-only report:
+
+- `tests/native_context_chain_catalogue.py`: closed version2 timezone records,
+  original/copy reservations, held inputs, sealed-data hash/identity checks.
+- `tests/native_context_chain.py`: revised catalogue pin, original/fixed slot
+  integration, same-parent reserved copy/seal, existing-boundary rechecks.
+- `tests/native_context_chain_worker.py`: exact readonly copied-data admission,
+  guard-before-data binding, real stdlib ZoneInfo search-path/cache binding,
+  no undeclared tzdata fallback or original system data reads.
+- `tests/test_native_context_chain.py`: real catalogue/copy/ZoneInfo/launcher
+  and boundary regressions, including retained RED/GREEN evidence below.
+
+### Finding and bounded mechanism
+
+Root's actual df874ba-04 native failure was the logged denied open of
+`/usr/share/zoneinfo/UTC`, not a guessed path. Root's no-import observation
+identified that path as a symlink to `Etc/UTC`, and independently observed the
+canonical regular UTC and Zurich files. This writer did not repeat that native
+observation or treat the symlink as input custody. Fresh local source inspection
+confirmed `scripts/tennis_daily.py:31,50` imports stdlib ZoneInfo and constructs
+`ZoneInfo("Europe/Zurich")` on the existing Task54 import route.
+
+Inspection of the approved interpreter's actual stdlib
+`Lib/zoneinfo/_tzpath.py` and `_common.py` showed that `reset_tzpath` does not
+disable fallback: missing keys enter `importlib.resources.files(package_name)`.
+Root explicitly confirmed that a narrow import-event denial plus the existing
+exact-file admission is within the no-fallback ruling; no reader/import shim
+was authorized or added. The real missing-key regression provides an existing,
+unadmitted test `tzdata` package and data. Actual `ZoneInfo("Europe/Missing")`
+reaches an `open` rejection under that fixture's fallback path, asserted from
+the actual exception's `file_context`. Thus fallback coverage does not depend
+on assuming that all importlib imports emit an `import` audit event. The import
+event denial is only an additional narrow rejection when that event is emitted.
+Binding rejects any already-loaded `tzdata`/submodule. Native package names and
+stdlib search paths are unchanged, and no PyArrow permission/probe was added.
+
+### Exact wire contract and Root's required native readback extension
+
+The catalogue format is now **`betboy-native-context-chain-catalogue-v2`**.
+The exact new top-level field is **`timezone_data`** (not `runtime_data`). Its
+ordered contents are:
+
+```json
+[
+  {"path":"Europe/Zurich","source":"/usr/share/zoneinfo/Europe/Zurich","size":1909,"sha256":"2b9418ed48e3d9551c84a4786e185bd2181d009866c040fbd729170d038629ef"},
+  {"path":"UTC","source":"/usr/share/zoneinfo/Etc/UTC","size":114,"sha256":"8b85846791ab2c8a5463c83a5be3c043e2570d7448434d41398969ed47e3e6f2"}
+]
+```
+
+Missing, extra, duplicate, renamed, reordered, differently hashed/sized or
+source-aliased records fail validation. This includes substituting the observed
+`/usr/share/zoneinfo/UTC` symlink as the source. Inventory reads only these two
+fixed canonical regular files through the existing no-follow held-FD mechanism;
+native source files must be single-link root:root regular0644. Each source is
+bounded65536bytes, exact-sized and SHA-verified. No system tree enumeration,
+generic symlink resolution or tzdata installation becomes authority.
+
+The exact additional new-seal layout is:
+
+```text
+JOB/runtime-data/                         root:root 0555
+JOB/runtime-data/zoneinfo/                root:root 0555
+JOB/runtime-data/zoneinfo/Europe/         root:root 0555
+JOB/runtime-data/zoneinfo/Europe/Zurich   root:root 0444, 1909 bytes, SHA above
+JOB/runtime-data/zoneinfo/UTC             root:root 0444, 114 bytes, SHA above
+```
+
+`runtime-data` is not on any executable or module search path. Only after
+`require_guard`, catalogue/control loading and the Python-file audit does the
+worker validate the complete readonly two-file subtree, call the actual
+`zoneinfo.reset_tzpath((str(JOB / "runtime-data/zoneinfo"),))`, and clear the
+actual ZoneInfo cache. Only then can product/dependency imports and the actual
+Task54 callable begin. No timezone arithmetic, class, reader, prediction,
+validator, fixture clock or acceptance callable is replaced.
+
+For Root's next independently reviewed native run, **extend the external
+readback to both original regular timezone files and both copied files**,
+including exact paths, owners, modes, logical/allocated sizes, hashes and
+held/boundary identity evidence. Reusing only the previous code/dependency
+readback would omit these new inputs. Observe the UTC alias separately as
+explanatory metadata only; it is not copied/admitted. The native manifest,
+archive and stdin must all be regenerated and freshly pinned by Root from the
+reviewed new commit; no old version1 manifest/launcher is interchangeable.
+
+### Budget and custody integration
+
+`plan["timezone_data"] == 2023` records the two copied logical sizes. At fixed
+archive/code/dependency arguments, the existing total/new-work reservation
+increases by2023bytes, original logical reservation by2023, original allocated
+reservation by8192 (4096 per source), and active-input ceiling by10215. Code and
+archive size changes themselves are separately incorporated by inventory as
+before. The existing128MiB new-copy metadata/allocation reserve and separate
+128MiB original metadata reserve are unchanged, not silently shared. Every
+original containing directory, including `/usr/share/zoneinfo/Etc` and
+`/usr/share/zoneinfo/Europe`, enters the exact original metadata plan and actual
+allocation observation. The copy slots are exactly4096bytes each under
+`plan.json["slots"]`, with the layout above; copy directory metadata and rounded
+allocation slack are charged within the existing new-work metadata allowance.
+
+The immutable manifest hash still binds installation identity. Its exact
+timezone paths/size/hash/key fields are validated before new work, and the
+original timezone observations join the pre-copy aggregate source allocation
+check. Both source FDs are held by the same parent's existing ExitStack through
+both children/final close. Their complete Linux FD/path epochs and hashes are
+rechecked before copying and at the existing before/after-worker boundaries.
+Full copied file hashes, exact file/directory membership, readonly ownership
+and complete copy/directory identities are rechecked at those same boundaries.
+Changed same-content replacement is not accepted merely because hashes match.
+The reserved copy entrypoint checks the actual durable300CPU ticket before
+creating its data directories or copying. Failure retains partial artifacts.
+
+No supervisor, guard, budget owner, helper pin or limit setter changed. The
+parent90s/two child90s hardCPU bounds, conservative retained300CPU charge,
+600wall envelope, AS2GiB, RSS<1GiB, per-file/output limits, original/new-work
+ceilings and free-reserve calculation stay in force. This remains accounting
+plus observed custody, not a filesystem quota or whole-host sandbox.
+
+### Tests and self-review
+
+Deterministic legitimate TZif2 fixtures are authored in the test module; no
+local/system timezone installation was read or installed for fixture input.
+UTC uses UTC0 and Zurich uses the CET/CEST POSIX transition rule, interpreted
+by the real stdlib reader. Actual fixture behavior covers zero UTC offset,
+Zurich winter+01:00/summer+02:00 and both folds of the October2026 repeated
+hour. These are portable mechanism tests, **not native source-byte proof**.
+
+Other coverage includes closed catalogue rejection; source and copy aggregate
+reservations; real no-follow copy/hash/held-identity behavior; hardlinked source
+rejection; retained changed/replaced source/copy cases; readonly/missing/extra
+data-tree and preloaded-fallback rejection; direct original-system/unlisted
+data/write denial; actual resources fallback; and guard/data/product ordering.
+The positive ordering test executes the real worker `run` up to a stopped
+product-boundary sentinel with a labelled portable guard-state seam; it does
+not claim kernel guard installation. The actual catalogue JSON reader, sealed
+data validation, file audit and ZoneInfo reader are exercised separately and
+are not replaced by success stubs. Real launcher reconstruction executes its
+fixed parent definitions and loads the actual revised pinned catalogue from
+the emitted stdin; a freshly hashed alias manifest is still rejected.
+
+Run28 exposed two intermittent unchanged-fixture FD/path equality failures.
+A subsequent read-only inspection of the retained first failure file found
+all compared fields equal; **the transient failures were not proven to be
+ctime differences**, because their exact compared values were not captured at
+failure. The new recheck was nevertheless stricter on Windows than the existing
+reviewed `opened` contract. A focused deterministic ctime-only regression was
+written and observed RED before aligning only the portable fstat comparison:
+it excludes solely FD `st_ctime_ns`, matching `opened`, while complete before/
+after pathname epochs remain compared. Explicit tests reject FD mtime, size,
+inode, device, link-count and mode drift; native comparison still rejects
+ctime drift; portable pathname ctime drift is also rejected. There is no
+timestamp tolerance, sleep, retry-until-green or weakened Linux equality.
+
+Self-review also found that the old generic relative-file behavior could admit
+a relative traversal into the new data tree. This was reproduced as a real RED
+(`../seal/runtime-data/zoneinfo/Europe/Unlisted` was readable), then closed only
+for the timezone data/system trees through lexical absolute normalization and
+exact-member rejection. No filesystem lookup or directory-wide read admission
+was introduced, and the existing descriptor-relative no-follow copier contract
+remains unchanged. Changed/replaced copy regressions restore0444 before checking
+so they cannot pass merely on a write-permission mismatch.
+
+### Actual commands and retained RED/GREEN results
+
+All runs below used the approved existing QA interpreter, disabled plugin
+autoload/bytecode/cacheprovider, fresh retained basetemp/XML, captured output
+and a real60second subprocess timeout. All isolated ZoneInfo/audit subprocess
+tests additionally have real20second timeouts. Only the owned amended harness
+module was run; its existing actual Task54 adapter case is included once in
+the final module run. No full product or unchanged native guard suite ran.
+
+The exact command prefix and every executed suffix are below. Each row's
+`arguments` replaces `ARGUMENTS` in the literal Python list; `RUN` replaces the
+listed run stem in both paths:
+
+```powershell
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
+$env:PYTHONDONTWRITEBYTECODE='1'
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -c 'import subprocess,sys; r=subprocess.run([sys.executable,"-B","-m","pytest","-q","-p","no:cacheprovider","-o","junit_family=xunit1","tests/test_native_context_chain.py",ARGUMENTS,"--basetemp=.pytest_tmp/task57-fix5-RUN-bt-N","--junitxml=.pytest_tmp/task57-fix5-RUN-N.xml"],capture_output=True,text=True,timeout=60); print(r.stdout); print(r.stderr); sys.exit(r.returncode)'
+```
+
+| RUN / N | Exact additional arguments (omit ARGUMENTS and its comma when empty) | Tests / failures / errors / skips | XML seconds | Actual console summary |
+|---|---|---:|---:|---|
+| red /26 | `"-k","timezone"` |10/10/0/0|0.608|10 failed,36 deselected in0.68s; missing closed catalogue/budget/held binding and actual ZoneInfo read rejected |
+| green /27 | `"-k","timezone or manifest_requires or i1_original or actual_bootstrap_catalogue"` |19/0/0/0|1.494|19 passed,31 deselected in1.57s |
+| green /28 | `"-k","timezone or missing_reservation or i1_original"` |17/2/0/0|1.590|2 failed,15 passed,34 deselected in1.67s; intermittent portable held-input equality described above |
+| red /29 | `"-k","timezone_portable_fd_ctime"` |1/1/0/0|0.398|1 failed,51 deselected in0.50s; deterministic portable FD-ctime mismatch |
+| red /30 | `"-k","timezone_actual_zoneinfo"` |1/1/0/0|0.460|1 failed,58 deselected in0.54s; actual relative unlisted data read escaped audit |
+| green /31 | `"-k","timezone or manifest_requires or missing_reservation or i1_original or actual_bootstrap_catalogue"` |29/0/0/0|1.690|29 passed,30 deselected in1.76s |
+| final /32 | empty |60/0/0/0|13.916|**60 passed in13.92s; exit0** |
+
+Run32 was the single final full owned-module run. No executable or test edit
+followed it. Source pins and XML counts/times/hashes were freshly read after
+completion. Two short read-only interpreter metadata inspections (base-prefix
+print and retained-file stat comparison) were invoked directly without a
+subprocess timeout wrapper and returned promptly; this is an execution-process
+minor, not a claim that those two invocations had the bounded test wrapper.
+The stat inspection printed equal dev/inode/mode/link/size/mtime/ctime triplets
+for the retained file and did not reproduce run28. No live diagnostic process
+or further native/full-import attempt remains from this writer.
+
+```text
+.pytest_tmp/task57-fix5-red-26.xml   b98f1addcf4dc4134e33283393cfec5f1d66c1760020a2450315144016d183c6
+.pytest_tmp/task57-fix5-green-27.xml 7e25213a1adb240a513a84a9b40a09e73ca921e0f62ead2fa805601285a9fc3f
+.pytest_tmp/task57-fix5-green-28.xml 40ae5df1de554404f91d0aa50d37d50ca5907f4130353757739ae0dd747c2b4e
+.pytest_tmp/task57-fix5-red-29.xml   01c870de3532f713fe4edb479fbea25e030ad91ad6678acab0820f60ce49d49b
+.pytest_tmp/task57-fix5-red-30.xml   ff8e826b191c7baf7c733bb34a5106f6e8bfd651b76607c0d354da4aaea01b6b
+.pytest_tmp/task57-fix5-green-31.xml e505156c65709cc9f9ec8d3e6309ba2e036b08b539c41249dfb49cf4d519e9e4
+.pytest_tmp/task57-fix5-final-32.xml 103fab346b690eadaa131e62d2aa7e6e1547af956efac2297178bf09bd32d0b2
+```
+
+Final exact executable/test pins (actual bytes, SHA256):
+
+```text
+tests/native_context_chain.py           28324 73befce90e1087c27350258387c1454527838b7242b767227bafd69cb4f3fff7
+tests/native_context_chain_catalogue.py 33537 48fd59c0660843c530a079c53556b630622085e0ce09f0b9878e7230371dd935
+tests/native_context_chain_worker.py    14194 afaa8e2cfa01bb6f3d99db2b51f975569ddf84a911d0d3f3f67b840a2fa1d711
+tests/test_native_context_chain.py      55919 8d78df5ada52785f17be17d29b97b75f616b95d1b341b0fdaf1f941301c45bd0
+```
+
+The parent's actual `CATALOGUE_SHA256` matches the catalogue above. Fresh
+read-only hashes also confirm the unchanged independently reviewed owners:
+
+```text
+tests/test_context_storage_corpus_consumer.py 5a59f75d0a3093238031159a813ce81b6c633c63105cab0338ed376a7bac7649
+context_preparation_process_guard.py         62fcfcacaa7e658eefa8a2f8ceced9dc465846a8ca61dc38c2691dc9984685e4
+context_preparation_budget.py                fb12aa3b2170dc2dbed7d70d2aa5846d5928b4fda42de00d4828f9f411482478
+context_preparation_supervisor.py            c6c1c8e82107d48b66d7714577004e7d9e7e400525620b23070d4258ab554dc8
+```
+
+### Remaining concerns and explicit writer return
+
+This is closure of the two specifically authorized timezone inputs, not
+transitive B runtime closure or native ATP/WTA acceptance. Native execution,
+held-custody/kernel/terminal observations and the extended original+copy
+readback above remain Root's independently reviewed next step. The existing
+unrelated local PyArrow import difference was not reopened. Large existing
+harness/test modules were kept within the required four-file surface rather
+than split or restructured. Deferred Task54-M1 and other original test minors,
+full590553/199/199/114 growth profiles, protected whole-C/global-cost owner,
+B/restore/whole-suite/main/VPS rollout and release remain open. Cricket,
+A0/P4b3, daily-job/product semantics, frozen specifications and all source data
+remain unchanged.
+
+**This FIX5 writer explicitly returns sole implementation-writer authority to
+Root.** All four executable/test files are frozen at the pins above; only this
+report append followed final run32. No further edits, test runs or external
+operations are pending. Root owns independent review, Git/index/commit and any
+new native inventory, archive/stdin pinning, transfer or guarded execution.
