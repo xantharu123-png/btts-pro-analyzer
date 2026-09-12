@@ -5,6 +5,30 @@ User approved the one-time updater-only replacement with independent review, fre
 
 ## Current authority 12 September: C approved; bounded storage implementation
 
+Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
+0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
+Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,
+no findings. Reviewer checked the retained XML and named copy/append/limit
+couplings; did not repeat tests or claim native/global acceptance. Cross-task
+external seals, full aggregate budgets/native measurements, actual History/
+Consumer/Source/B/restore remain the explicit incomplete integration gates,
+not inferred from Task48's closed observed descriptor. Code not yet pushed at
+this entry; next documentation checkpoint will preserve review and push repair.
+
+Task52: complete audit, confirmed P1; task-52-history-value-audit.md records
+actual old acceptance/new default-block rejection of a16778570-byte selected
+row in a16838656-byte legacy DB. One probe pass records the new failure, not
+compatibility success. Old artifact/owning/source modules unchanged.
+Ruling: implement the source-backed old-large-row exception through BOTH
+History and Tennis as Task53 before Task51 — approved C4/C6 require preserving
+actual old admission, while the earlier per-row assertion violates C4 — cost
+if wrong is adapter rework; native allocation/CPU remains a separate gate.
+Task53 requirements are in task-53-brief.md. One implementation writer;
+Task51 remains paused and its inherited testcap fix still belongs there.
+Current interface check: History resolver feeds prefix/events and chosen-row
+Tennis staging; canonical full-byte digest/counts must not become locator
+digests/counts. Backend format changes are separate from semantic versions.
+
 Account continuation verified against files and Git: a0c949e contains the
 reviewed Task44/49 append; now pushed to the repair branch and independently
 confirmed by fresh ls-remote, main remains2dd1116. Fresh account-resume checks
@@ -36,6 +60,12 @@ to that task, without editing its files under the paused implementer.
 | 51/Snapshotparts | Real prepared Original and full refs -> caller-owned output | Same-call/canonical differential and savepoint checks remain required. |
 | 48/48 | Main+ledger caps and exact row identity | Same-count replacement/INT64_MAX/close-reopen checks remain within existing task. |
 | 51/51 | Existing JSON admission vs new block processing | Preserve existing per-value admission; remove only the inherited test's accidental new cap. |
+
+Task52: named cross-task admission doubt under read-only audit. Existing
+history.py rejects one selected canonical row larger than the processing block.
+Check whether a real old source-valid record can reach that branch before
+deciding it is a contract defect; no product edit or widened cap is authorized
+by the audit itself. Task48 remains the sole implementation writer.
 
 Previous continuation: repair branch6d7e2017e2d9d0f2fe29e385af3de83f4dae6dbe
 freshly remote-confirmed; main remains2dd1116. Task43/45 fixed-copy integration
