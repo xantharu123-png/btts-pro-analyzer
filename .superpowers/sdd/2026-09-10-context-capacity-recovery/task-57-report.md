@@ -613,3 +613,261 @@ or cap/math/product/helper/Task54 change occurred in FIX2.
 
 The five owned artifacts are frozen for review. This writer explicitly returns
 sole implementation-writer authority to Root; no further action is pending.
+
+## Fix round 3 — deny exact bytecode probes while allowing admitted source fallback
+
+FIX_BASE is `ba9c88f`; current dispatch HEAD is `48425b6`, as supplied by Root.
+This writer made no Git operation. Only the owned worker, focused test file
+and this report changed; parent and catalogue bytes/pin remain unchanged.
+
+### Native failure versus independently reproduced cause
+
+Root reported that the first native job at
+`/var/lib/betboy-context-chain-task57-ba9c88f-02` stopped on ATP with exit125,
+child CPU181298000ns, elapsed222570897ns, RSS60125184bytes and actual
+guard UID/GID65534, CPU90s, FSIZE4MiB. WTA was not attempted. Retained worker
+stderr reported `ChainError: unplanned Python file read`, followed by
+`betboy-native-launch-failed`. Root's parent terminal observation was GNUtime
+exit1/wall40.38s/user28.34s/system6.84s/maxRSS63456KiB, with the full300CPU-s
+reservation retained. Root separately reported unchanged copied trees/members,
+the retained STOP journal, and no remaining UID65534 process. These native
+observations are Root-supplied; this writer did not access the server or native
+artifact bundle, and does not substitute local timings for them.
+
+Before any source fix, the existing real `pytest` import was run locally under
+the unchanged worker `observe_python_files` audit hook in an isolated
+`-I -S -B` Python process. An observation-only preceding audit callback captured
+the first attempted pathname, without authorizing it. The actual failure was:
+
+```text
+exception: ChainError
+message: unplanned Python file read
+last_open: C:\Projekt\BetBoy\betboy-app\.venv\Lib\site-packages\pytest\__pycache__\__init__.cpython-312.pyc
+mode: r
+flags: 32896
+dont_write_bytecode: 1
+```
+
+Thus CPython still probes bytecode reads under `-B`; that flag suppresses cache
+writes, not the initial read probe. The catalogue deliberately excludes
+bytecode, so a generic `ChainError` prevented normal fallback to the admitted
+source even when no bytecode existed. This is the independently proven local
+same-route cause. The original native stderr did NOT name the rejected path;
+the local pathname is not falsely presented as a directly observed native
+pathname. Root received this diagnosis before authorizing the scoped fix.
+
+One preceding exploratory invocation selected the QA environment's own
+`Lib/site-packages`, where pytest was absent, and returned `ModuleNotFoundError`
+with no open event. The read-only command
+`& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -c 'import sys,pytest; print(sys.executable); print(pytest.__file__); print(sys.path)'`
+identified the existing repository `.venv/Lib/site-packages` used by this QA
+interpreter. No installation/path configuration was changed. The corrected
+probe declared existing local non-bytecode files only; this is local import
+diagnosis, not native catalogue admission or transitive runtime evidence.
+
+### Minimal correction and contracts
+
+For each exact admitted `.py` file, the worker derives only that interpreter's
+cache pathname using `importlib.util.cache_from_source`. A read-only open of
+that exact cache path is recorded as a bounded `denied-bytecode-probe` and
+raises `FileNotFoundError` before the actual open, whether or not a conflicting
+cache exists. CPython then executes the already admitted source. Cache bytes
+are never granted permission, opened, read or executed by this correction.
+Writes/creates/truncations/appends at these paths raise `ChainError`; unknown
+source, unknown bytecode and unknown cache files still use the existing
+fail-closed unplanned-file rejection. No directory wildcard, runtime path,
+catalogue entry, package, quota/cap, resource formula or guard changed.
+
+Denied cache probes share the existing3000-key observation bound with ordinary
+Python file events and remain part of measured child work/output. Existing
+source permits, stdlib/proc observations, workspace treatment and training-data
+denials are unchanged. This remains supplemental Python audit accounting, not
+a native filesystem sandbox or complete runtime closure.
+
+The new isolated subprocess regression uses the actual import machinery and
+actual worker hook. Both a missing cache and a timestamp/size-valid conflicting
+cache must execute `admitted-source`, never `UNADMITTED-CACHE`. It also verifies
+that direct cache reads fail as not-found, cache writes fail, unrelated source,
+direct bytecode and another source's cache remain denied, the denial is
+observed, and existing cache bytes remain unchanged. The Windows-only local
+fixture supplies the absent `os.O_DIRECTORY` bit as zero so the audit route can
+run; it does not simulate native guard success or change the worker's native
+requirements. These imports never call `run()` or weaken `require_guard()`.
+
+### Actual local import recheck
+
+The corrected real-package diagnostic command was:
+
+```powershell
+$task57Probe = @'
+import json, os, runpy, sys
+from pathlib import Path
+w = runpy.run_path(str(Path('tests/native_context_chain_worker.py').absolute()), run_name='_task57_probe')
+if not hasattr(os, 'O_DIRECTORY'):
+    os.O_DIRECTORY = 0
+site = Path('C:/Projekt/BetBoy/betboy-app/.venv/Lib/site-packages')
+entries = [{'path': p.relative_to(site).as_posix()} for p in site.rglob('*') if p.is_file() and p.suffix not in ('.pyc', '.pyo')]
+last = []
+def trace(event, args):
+    if event == 'open' and args and isinstance(args[0], (str, bytes)):
+        last[:] = [os.fsdecode(args[0]), args[1], args[2]]
+sys.addaudithook(trace)
+observed = w['observe_python_files'](site, Path('.pytest_tmp/task57-no-seal').absolute(), Path('.pytest_tmp/task57-no-work').absolute(), {'code': entries, 'dependencies': [], 'runtime': {'stdlib_search_path': list(sys.path)}})
+sys.path.insert(0, str(site))
+try:
+    import pytest
+except BaseException as exc:
+    print(json.dumps({'exception': type(exc).__name__, 'message': str(exc), 'last_open': last, 'dont_write_bytecode': sys.flags.dont_write_bytecode}))
+    raise SystemExit(1)
+print(json.dumps({'status': 'import-success', 'pytest_source': pytest.__file__, 'denied_bytecode_probes': sum(n for key, n in observed.items() if key.startswith('denied-bytecode-probe:')), 'observed_keys': len(observed)}))
+'@
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -I -S -B -c $task57Probe
+```
+
+The pre-fix successful-path footer was only `print('import-success')`, and the
+return from `observe_python_files` was unused; the same import failed before
+that footer with the exact path shown above. The initial wrong-site exploratory
+probe differed only in the selected site directory and likewise did not reach
+its footer. No probe script/output file was created; exact captured diagnostic
+outputs are retained here and in the tool transcript.
+
+Post-fix output (exit0):
+
+```json
+{"status":"import-success","pytest_source":"C:\\Projekt\\BetBoy\\betboy-app\\.venv\\Lib\\site-packages\\pytest\\__init__.py","denied_bytecode_probes":96,"observed_keys":257}
+```
+
+### Fresh retained RED/GREEN and final pins
+
+All tests ran in the worktree with the approved QA interpreter and these exact
+settings/commands:
+
+```powershell
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
+$env:PYTHONDONTWRITEBYTECODE='1'
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -m pytest -q -p no:cacheprovider -o junit_family=xunit1 tests/test_native_context_chain.py -k test_admitted_import_uses_source_without_permitting_bytecode --basetemp=.pytest_tmp/task57-fix3-red-bt-18 --junitxml=.pytest_tmp/task57-fix3-red-18.xml
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -m pytest -q -p no:cacheprovider -o junit_family=xunit1 tests/test_native_context_chain.py -k test_admitted_import_uses_source_without_permitting_bytecode --basetemp=.pytest_tmp/task57-fix3-green-bt-19 --junitxml=.pytest_tmp/task57-fix3-green-19.xml
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -m pytest -q -p no:cacheprovider -o junit_family=xunit1 tests/test_native_context_chain.py --basetemp=.pytest_tmp/task57-fix3-final-bt-20 --junitxml=.pytest_tmp/task57-fix3-final-20.xml
+```
+
+| Retained XML | Tests/failures/errors/skips | XML seconds | Interpretation |
+|---|---:|---:|---|
+| `task57-fix3-red-18.xml` | 2/2/0/0 | 0.397 | Both actual imports fail at the rejected cache probe;30 deselected |
+| `task57-fix3-green-19.xml` | 2/0/0/0 | 0.362 | Both imports execute admitted source with cache access denied;30 deselected |
+| `task57-fix3-final-20.xml` | 32/0/0/0 | 7.707 | Final tests also include unknown-cache rejection and cache-byte preservation |
+
+Console times were0.46s,0.42s,7.71s respectively. All XML counts/times were
+separately parsed after final GREEN. No implementation/test edit followed that
+final run. This was one full owned-module run, not the product/guard suite.
+
+```text
+.pytest_tmp/task57-fix3-red-18.xml   2aabe4d0364b7f3fee223c0cb5f3b0757498c65d34088d31c9cc2c7fd5f97274
+.pytest_tmp/task57-fix3-green-19.xml d7b5967e0f13cf19b76e55aff016c525bc3bace9a791d25fe156575f9246a580
+.pytest_tmp/task57-fix3-final-20.xml e1eeb552854c3b065bede760e8ee820645599ef5b824afc985e257de7a3b9115
+tests/native_context_chain.py           1325881bed452574159568d6fba93dae6c091d7baf0ee2388adb86108e3038e8
+tests/native_context_chain_catalogue.py 93d38e46c17b9796088cfad66ea1667413b702b93f8310ac43b6e6ee7ac648f9
+tests/native_context_chain_worker.py    584f90ba46e3c2895eb5ea6bbca67956c407da45e37473d5314dcb4e0f83573d
+tests/test_native_context_chain.py      37b9135da0050ded6d9f5ce74c26486ff27a74e4b9b606eeba7fed40532dca5c
+```
+
+Parent/catalogue and its pin are unchanged from FIX2. Report hash is returned
+externally after writing. Root must review the FIX3 bytes before any fresh
+archive/catalogue/stdin generation and any separately authorized native attempt.
+The original stopped job, full reservation and all earlier candidate/failure
+artifacts remain retained. No refund, cleanup or reuse is introduced.
+
+All five owned artifacts are frozen and sole implementation-writer authority
+is explicitly returned to Root. No Git/server/network/dependency/subagent or
+native retry was performed; product/Task54/guard are unchanged. MinorM1 remains
+deferred. Local32-test GREEN and successful local pytest import do not clear
+the native import/runtime/custody/global-C/B/terminal/release gates.
+
+### Requested additional portable ATP-route diagnostic — incomplete, no route claim
+
+After the preceding freeze, Root requested one additional bounded diagnostic:
+the real `invoke_cases('ATP', ...)` under the real audit hook, using an explicit
+local source/dependency catalogue. Source and test files remained frozen.
+The local installation is `.venv/Lib/site-packages`, not a native
+`seal/dependencies` copy, so the proposed local-only exact whitelist used the
+common repository ancestor with individual relative file entries. It did not
+add that ancestor as a permitted directory or pretend this was native manifest
+validation. The diagnostic attempted to hash current worktree files named by
+the retained native inventory and all observed existing local non-bytecode
+installation files, rather than guess a smaller package closure.
+
+Exact attempted command:
+
+```powershell
+$task57RouteProbe = @'
+import hashlib, json, os, runpy, sys
+from pathlib import Path
+checkout = Path.cwd()
+common = Path('C:/Projekt/BetBoy/betboy-app')
+site = common / '.venv/Lib/site-packages'
+work = checkout / '.pytest_tmp/task57-fix3-route-21/ATP'
+assert not work.exists(), 'fresh diagnostic directory required'
+w = runpy.run_path(str(checkout / 'tests/native_context_chain_worker.py'), run_name='_task57_actual_route')
+if not hasattr(os, 'O_DIRECTORY'):
+    os.O_DIRECTORY = 0
+native = json.loads((checkout / '.pytest_tmp/task57-native-inventory-eddc926-01.json').read_bytes())
+paths = [checkout / item['path'] for item in native['code']]
+paths += [p for p in site.rglob('*') if p.is_file() and '__pycache__' not in p.parts and p.suffix not in ('.pyc', '.pyo')]
+assert len(paths) < 30000
+records = []
+for path in sorted(set(paths)):
+    assert path.is_file() and not path.is_symlink()
+    raw = path.read_bytes()
+    records.append({'path': path.relative_to(common).as_posix(), 'size': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()})
+assert sum(item['size'] for item in records) < 1024**3
+catalogue_sha = hashlib.sha256(json.dumps(records, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+work.mkdir(parents=True)
+(work / 'positive').mkdir()
+(work / 'late-cleanup').mkdir()
+last = []
+def trace(event, args):
+    if event == 'open' and args and isinstance(args[0], (str, bytes)):
+        last[:] = [os.fsdecode(args[0]), args[1], args[2]]
+sys.addaudithook(trace)
+observed = w['observe_python_files'](common, work / 'unused-seal', work, {'code': records, 'dependencies': [], 'runtime': {'stdlib_search_path': list(sys.path)}})
+sys.path[:0] = [str(checkout), str(checkout / 'tests'), str(site)]
+samples = []
+try:
+    result = w['invoke_cases']('ATP', work, samples.append)
+except BaseException as exc:
+    print(json.dumps({'status': 'FAILED', 'exception': type(exc).__name__, 'message': str(exc), 'last_open': last, 'sample_count': len(samples), 'catalogue_sha256': catalogue_sha, 'catalogue_files': len(records)}))
+    raise SystemExit(1)
+print(json.dumps({'status': 'actual-ATP-route-complete-portable-only', 'catalogue_sha256': catalogue_sha, 'catalogue_files': len(records), 'catalogue_bytes': sum(x['size'] for x in records), 'denied_bytecode_probes': sum(n for key,n in observed.items() if key.startswith('denied-bytecode-probe:')), 'observed_keys': len(observed), 'samples': samples, 'result': result}, sort_keys=True))
+'@
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -I -S -B -c $task57RouteProbe
+```
+
+No result was emitted. The local preparation had not created its workspace
+after roughly two minutes, so the owning exec session37713 was manually
+interrupted with Ctrl-C; it returned exit1 and empty output. This was a manual
+stop of the local diagnostic, NOT a measured native deadline or automatic
+resource-limit pass. The script had aggregate assertions but no hard watchdog;
+those assertions had not yielded an admission result. Without phase tracing,
+the precise enumeration/hash operation still in progress is not established.
+There is no completed catalogue SHA or actual ATP-route execution to report.
+
+The observed diagnostic Python PIDs415780 and416560 had matching local start
+time `2026-09-12 21:08:27`. A CIM command-line inspection was access-denied;
+`Get-Process` supplied only process IDs/start times/runtime paths and resource
+observations. After the exact owning-session interrupt,
+`Get-Process -Id 415780,416560 -ErrorAction SilentlyContinue` returned no process
+and `Test-Path .pytest_tmp/task57-fix3-route-21` returned `False`. No native
+process/artifact, other task or existing environment was stopped or cleaned.
+
+The whole local installation's exact catalogue was therefore not completed
+within this diagnostic attempt. No narrower local package set was guessed,
+no directory allowance was widened, and no second route attempt was made.
+This explicitly leaves later ordinary-import/whole-route audit admission
+unverified; the successful first real pytest import and final32-test evidence
+must not be promoted into that stronger claim.
+
+All four source/test hashes above were freshly rechecked unchanged afterward
+at `2026-09-12T21:10:48+02:00`; no QA rerun was needed for this report-only
+addition. The report is refrozen with its new externally returned hash, and
+sole implementation-writer authority is again returned to Root. The incomplete
+local diagnostic is retained as evidence here/tool transcript, not erased or
+silently replaced with a success claim.

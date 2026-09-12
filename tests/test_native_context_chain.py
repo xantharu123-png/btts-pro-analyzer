@@ -130,6 +130,82 @@ def test_worker_refuses_unprotected_or_optimized_entry_before_import(tmp_path):
         w.parse_arguments(["ATP", str(tmp_path), "unexpected"])
 
 
+@pytest.mark.parametrize("cache_present", [False, True])
+def test_admitted_import_uses_source_without_permitting_bytecode(tmp_path, cache_present):
+    import importlib.util
+    import marshal
+    import struct
+    import subprocess
+    import sys
+    source = tmp_path / "admitted_module.py"
+    source.write_text("value = 'admitted-source'\n", encoding="ascii")
+    cache = Path(importlib.util.cache_from_source(str(source)))
+    if cache_present:
+        cache.parent.mkdir()
+        compiled = compile("value = 'UNADMITTED-CACHE'\n", str(source), "exec")
+        info = source.stat()
+        cache.write_bytes(importlib.util.MAGIC_NUMBER + struct.pack("<III", 0, int(info.st_mtime), info.st_size) + marshal.dumps(compiled))
+    (tmp_path / "unknown.py").write_text("value = 'unplanned'\n", encoding="ascii")
+    (tmp_path / "unknown.pyc").write_bytes(b"unplanned bytecode")
+    unknown_cache = Path(importlib.util.cache_from_source(str(tmp_path / "unknown.py")))
+    unknown_cache.parent.mkdir(exist_ok=True)
+    unknown_cache.write_bytes(b"unplanned cache")
+    cache_before = cache.read_bytes() if cache_present else None
+    script = r'''
+import importlib, importlib.util, json, os, runpy, sys
+from pathlib import Path
+w = runpy.run_path(sys.argv[1], run_name="_task57_audit_test")
+root = Path(sys.argv[2])
+# Windows has no directory-open flag; this seam supplies its absent zero bit
+# only for local Python-audit protocol QA, never native guard evidence.
+if not hasattr(os, "O_DIRECTORY"):
+    os.O_DIRECTORY = 0
+last = []
+def trace(event, args):
+    if event == "open" and args and isinstance(args[0], (str, bytes)):
+        last[:] = [os.fsdecode(args[0])]
+sys.addaudithook(trace)
+observed = w["observe_python_files"](root, root / "seal", root / "work", {
+    "code": [{"path": "admitted_module.py"}], "dependencies": [],
+    "runtime": {"stdlib_search_path": list(sys.path)}})
+sys.path.insert(0, str(root))
+try:
+    admitted = importlib.import_module("admitted_module")
+    assert admitted.value == "admitted-source", "unadmitted cache executed"
+    for name in ("unknown.py", "unknown.pyc", importlib.util.cache_from_source(str(root / "unknown.py"))):
+        try:
+            (root / name).read_bytes()
+        except w["ChainError"]:
+            pass
+        else:
+            raise AssertionError("unplanned file was readable: " + name)
+    cache = importlib.util.cache_from_source(str(root / "admitted_module.py"))
+    try:
+        open(cache, "rb")
+    except FileNotFoundError:
+        pass
+    else:
+        raise AssertionError("admitted-source bytecode was readable")
+    try:
+        open(cache, "wb")
+    except w["ChainError"]:
+        pass
+    else:
+        raise AssertionError("bytecode write was permitted")
+    assert any(key.startswith("denied-bytecode-probe:") for key in observed)
+    print(json.dumps({"value": admitted.value, "observations": observed}))
+except BaseException as exc:
+    print(json.dumps({"exception": type(exc).__name__, "message": str(exc), "last_open": last}))
+    raise SystemExit(1)
+'''
+    result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", script,
+                             str(HERE / "native_context_chain_worker.py"), str(tmp_path)],
+                            capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["value"] == "admitted-source"
+    assert (cache.read_bytes() if cache.exists() else None) == cache_before
+
+
 def test_unknown_empty_directory_and_linked_source_are_rejected(tmp_path):
     c = module("native_context_chain_catalogue")
     assert hasattr(c, "workspace_sample"), "whole namespace observation is missing"

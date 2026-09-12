@@ -6,6 +6,7 @@ identity drop, irreversible guard, SIGSTOP and actual kernel readback.
 import ctypes
 import dataclasses
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -106,8 +107,17 @@ as such; their actual no-follow custody belongs to the catalogue reader.
 """
     permitted = {str(code / x["path"]) for x in manifest["code"]}
     permitted |= {str(seal / "dependencies" / x["path"]) for x in manifest["dependencies"]}
+    # -B prevents cache writes, not reads. Deny the exact interpreter cache
+    # probe for each admitted source BEFORE opening it, including if a cache
+    # exists. FileNotFoundError lets CPython read the admitted source instead;
+    # this is not permission to read bytecode or an additional directory root.
+    denied_caches = {str(Path(importlib.util.cache_from_source(name)))
+                     for name in permitted if name.endswith(".py")}
     system = tuple(Path(p) for p in manifest["runtime"]["stdlib_search_path"] if Path(p).is_absolute())
     observed = {}
+    def record(key):
+        require(key in observed or len(observed) < 3000, "Python file observation bound exceeded")
+        observed[key] = observed.get(key, 0) + 1
     def audit(event, args):
         if event not in ("open", "sqlite3.connect") or not args or not isinstance(args[0], (str, bytes)):
             return
@@ -118,12 +128,16 @@ as such; their actual no-follow custody belongs to the catalogue reader.
             return
         p = Path(name)
         require(p.suffix.lower() not in (".pkl", ".pickle", ".csv", ".xlsx", ".xls"), "unplanned training/fallback data access")
+        if event == "open" and str(p) in denied_caches:
+            require(len(args) > 2 and type(args[2]) is int and
+                    not args[2] & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND),
+                    "unplanned bytecode write")
+            record("denied-bytecode-probe:" + name)
+            raise FileNotFoundError(2, "bytecode denied; admitted source required", name)
         if p.is_absolute() and not p.is_relative_to(work):
             require(str(p) in permitted or str(p) in ("/proc/self/maps", "/proc/self/status")
                     or any(p == base or p.is_relative_to(base) for base in system), "unplanned Python file read")
-        key = event + ":" + name
-        require(key in observed or len(observed) < 3000, "Python file observation bound exceeded")
-        observed[key] = observed.get(key, 0) + 1
+        record(event + ":" + name)
     sys.addaudithook(audit)
     return observed
 
