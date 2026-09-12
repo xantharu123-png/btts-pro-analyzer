@@ -2,11 +2,16 @@
 
 ## Aktuell 12. September 2026 — C freigegeben, verlustfreier Speicherumbau läuft
 
-Neuester geprüfter Code-Commit: `d787db43170ad2296a02640cdf6091db1f533f4a`.
-Task53:424 Tests bestanden, keine Warnungen; unabhängiges Review freigegeben,
-keine offenen Befunde in diesem Teil. Der letzte vor diesem Doku-Checkpoint
-frisch bestätigte Reparatur-Push war `0a9ba295514cbc5385f8017573101bef833fa77b`;
-der neue tatsächliche Push wird im SDD-Ledger separat festgehalten.
+Neuester unabhängig geprüfter Code-Commit:
+`4d538203d2b50c61b6dfba9e7681b7e0061e9f56`, auf dem Reparaturbranch gepusht
+und frisch mit GitHub abgeglichen. Main bleibt `2dd1116`, kein Appdeployment.
+Task51 ist damit im engen Scope abgeschlossen: echter gleicher Tennisaufruf,
+vollständige Referenzen/Analysebytes und atomare Speicherung. Der unabhängige
+Reviewbefund zum letzten Abschluss-/Rückrollpfad ist nach echter RED-Probe
+behoben und unabhängig nachgeprüft; keine offenen Befunde aus diesem Teil.
+Finaler gekoppelter Lauf:411 bestanden in84,95s. Die früheren704 Tests sind
+separat als Vor-Rowid-Stand dokumentiert, nicht als kompletter neuer Produktlauf.
+Task53 (`d787db4`):424 Tests bestanden und unabhängiges Review freigegeben.
 Task48 (vollständige echte Kopie plus neue Belege) ist mit72 bestandenen Tests
 und unabhängigem Review abgeschlossen, nicht der gesamte C-/B-Pfad.
 Task52 hat eine echte alte/neue Einzelwert-Zulässigkeitslücke nachgewiesen:
@@ -28,9 +33,12 @@ Test-UID-Prozesse übrig. Der echte einzelne Receiptappend ist unabhängig
 geprüft (316 bestanden, keine Skips) und nach Accountwechsel gepusht/frisch
 remote bestätigt; nochmals136 gezielte Tests bestanden. Task48 verbindet Kopie
 und neue Receipts und ist nun unabhängig geprüft. Task51 bleibt mit erhaltenen
-Tests erhalten und bearbeitet nach Task53 den echten Consumer. Task54 ist als
+Tests erhalten; der echte Consumer ist nun unabhängig geprüft. Task54 ist als
 durchgehender kleiner Corpus-/Source-/Consumervergleich vorbereitet, noch nicht
-implementiert. Native Speicher-/CPU-Werte sind durch424 lokale Tests nicht belegt.
+implementiert. Task56 hat rein lesend den dafür benötigten nativen Code-/
+Abhängigkeitskatalog eingegrenzt; ein echter nativer Kettenlauf fehlt noch.
+VPS-Platzaufnahme16:16UTC:14125256704Bytes frei, keine Ressourcenabnahme.
+Native Speicher-/CPU-Werte sind durch lokale Tests nicht belegt.
 Diese Datenkette, die vollständigen Größenprofile und B sind noch nicht fertig.
 Keine C-Produktivaufrufroute, kein main-Push oder Appdeployment daraus ableiten.
 

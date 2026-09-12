@@ -1,9 +1,21 @@
 # Task54 — actual small Corpus / Source / Tennis producer integration
 
-Prepared by Root while Task53 is under independent review. NOT activated.
-Start only after the actual Task51 consumer is independently approved and its
-exact final API/bytes have been rebound here. This is an integration acceptance
-task inside approved C, not a new design decision or native/global certificate.
+Prepared by Root; ready for controller activation after the now-completed
+independent Task51 review. This is an integration acceptance task inside
+approved C, not a new design decision or native/global certificate.
+
+Task51 reviewed product commit4d538203d2b50c61b6dfba9e7681b7e0061e9f56,
+independent fix review89158bc8d8ab2c0f6311873bd2be41c4bc8219d18b52f109106641de7985158b:
+all findings addressed, no new Critical/Important breakage. Actual final scoped
+411 tests pass; this is not the whole project or native/global acceptance.
+`tennis_consumer.py` SHA6ccda0e62cb3325150df6b8b7c0bb2582be2835974b0c5839a3471c608ad99ce;
+`refs.py` SHAa2c5f99d5b455a1a6e4150a45008020f111eeeffa2e52e7916db728da59be0a8.
+The public prepare/put API in task-51-brief.md is unchanged. Its caller-owned
+publication binds the actual prepared guard after the final footprint inside
+the existing savepoint. PublishedTennisConsumer remains detached result data,
+not a later-cleanup or commit certificate. Root records the actual dispatch
+BASE and sole-writer identity in the ledger; do not infer activation from this
+preparation note alone.
 
 ## Ownership
 
@@ -69,6 +81,15 @@ CPU300/AS2GiB/RSS1GiB/output1MiB or global1800CPU/3600wall admission.
    Reopen the completed outputs read-only and check again through actual
    parts/ref readers. Full materialization is allowed ONLY for the explicitly
    small independent test oracle, not smuggled into a new production loop.
+
+The returned PublishedTennisConsumer is detached data, not commit/cleanup
+authority. Retain the caller-owned new-consumer transaction until all required
+preparation/feature/input-owner cleanup and final checks have succeeded; in
+particular `prepared.close()` must occur before accepting/committing that build.
+A failure during a real late close must roll back/no-success, not occur after
+the consumer is already committed. Keep earlier private corpus/old-parts files
+and all failed output files. Do not confuse the disposable legacy fixture/
+Shadow setup with the profiled one-writer C phase; count its setup separately.
 
 ## Single-job local reservations and completion boundary
 

@@ -5,6 +5,23 @@ User approved the one-time updater-only replacement with independent review, fre
 
 ## Current authority 12 September: C approved; bounded storage implementation
 
+Task 51: complete (commits9b7d779..4d53820, review clean after fix round1).
+Current independently reviewed product4d538203d2b50c61b6dfba9e7681b7e0061e9f56
+is pushed and freshly ls-remote-confirmed on the repair branch. Main remains
+2dd1116b68f3d94e9c24338c6c9dff9b01799221. No application/VPS deployment.
+Final fix review89158bc8d8ab2c0f6311873bd2be41c4bc8219d18b52f109106641de7985158b
+is fully read and hash-checked by Root: P1 addressed, no new breakage or
+out-of-scope findings. Final411-pass actual XML is retained separately from
+the earlier704 pre-rowid run. All native/global/Corpus-D2/B/restore gates remain.
+Task54 requirements now bind those actual reviewed APIs/bytes and required
+cleanup-before-commit. Root will dispatch a fresh sole implementer after the
+documentation checkpoint; Task55/56 are completed read-only diagnostics only.
+The documentation checkpoint also preserves the two exact Task55 diagnostic
+scripts at their original relative paths and the bounded1000-result JSON, so
+the reported mechanism survives an account/PC change. They are not product
+entrypoints. Generated databases, profiles, XML and all failed-run directories
+remain retained locally/ignored; no runtime database or secret enters Git.
+
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
 Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,
@@ -75,6 +92,131 @@ Large old values remain a native allocation gate, not a new per-row exclusion.
 Reviewed product d787db4; documentation checkpoint and repair-branch push next.
 Task51 will then be activated as sole writer with the unchanged approved brief;
 Task54 remains prepared only and must rebind Task51's final reviewed API.
+
+Actual push COMPLETE:9b7d779495fb38c22c62af957a680dc90c91d870 freshly confirmed
+on origin/codex/context-capacity-recovery-20260910; GitHub main remains
+2dd1116b68f3d94e9c24338c6c9dff9b01799221. Task51 /root/c_snapshot_review
+explicitly activated as sole implementation writer at BASE9b7d779. No main/
+production change. Task53 independently approved product remainsd787db4.
+
+Root local actual corpus diagnostic (no product/test edit) completed1000 true
+new statuses through unchangedTask48, complete copy/add/readback/physical
+validation:87.125CPU/87.6031347wall for corpus;87.390625CPU/87.9073814wall whole.
+Instrument .pytest_tmp/corpus-cost-diagnostic-20260912-01.py and its fresh
+bt-01 tree retained; exact stdout saved in evidence/task55-local-corpus-1000.json.
+Output2084864B, ledger606307B, unchanged source61440B; local actualworkspace
+2695267B against35651584 reserved. No native/growth/consumer/B pass inferred.
+Task55 /root/c_corpus_review activated for bounded read-only100/200-record
+cProfile diagnosis of actual hotpaths, not repeat1000 or product edits. Named
+hypothesis: per-field guard calls trigger full copied-writer/profile/namespace/
+free-space scans. No boundary may be removed without measured owner analysis.
+Task51 remains the sole product writer; Task55 may only write ignored probe,
+measurement artifacts and its diagnosis report.
+
+Task55 diagnosis COMPLETE, Root read full report and actual summary/profile,
+all5 listed instrument/stat/result hashes match. Report SHA
+36303d3f762dba02a90bfbabc297136e1547837c68fd959ba9392182dfc9b2ae.
+100 actual additions complete owner10.625CPU/10.7022744wall with cProfile,
+then cold validation100/100. Root's per-field hypothesis was disproved for
+these inline fields:3000 field-hash calls0.007266s, none call Build.check.
+404 full checks (400 from four append boundaries),2893source checks and
+223580 Windows lstat calls dominate; nested cumulative times are not additive.
+All results, source and failed attempts retained. The native shallower namespace
+is unmeasured; no extrapolated native pass/fail or cap change is justified.
+Engineering option recorded: reuse identical ancestor observations only inside
+one truly controlled observation, preserving all meaningful before/after and
+external/iterator/transaction/commit boundaries. Such custody is not conferred
+by these local profiles. No optimization implementation authorized by this
+entry; first finish Task51/54 and bind the actual native small chain/catalogue.
+
+Task51 local boundary stage: author reports37/37GREEN in54.65s and a later
+selected7/7GREEN in10.54s. These are intermediate results, not the final freeze.
+Two genuine retained REDs were isolated: same-call capture could overwrite the
+actually loaded state identity, and final source/code lifetime failure occurred
+after the output savepoint. Both are corrected in the current candidate; final
+coupled regression and independent review remain required. Distinguish those
+product failures from the earlier fixture/setup failures in the author's report.
+The actual old-state16777846-byte BLOB remains admissible with unchanged
+SQLite1000000000 length limit and full old/new snapshot comparison.
+Ruling: the bounded in-connection physical metadata preflight may precede the
+unchanged old artifact owners, without becoming raw/D2 permission or adding a
+payload admission cap — preserves old ownership and source binding; if wrong,
+the consumer adapter must be corrected before its downstream integration.
+Exact scope is appended to task-51-brief.md; Task51 remains the sole writer.
+Ruling: the metadata framing includes real rowids unconditionally for these
+three closed-schema tables — fresh checked context_runtime._SCHEMA and
+inventory._raw_rows already require them, so no new old-value admission rule
+or WITHOUT ROWID fallback is introduced; if wrong, the metadata adapter and
+its narrow regression must be revised. Preserve the in-progress pre-framing
+coupled run as evidence of its own bytes, then run the changed-file coverage
+on the final frame change instead of repeating all unchanged lower layers.
+Task56 /root/c_native_chain_preflight activated for bounded read-only import/
+custody preflight of the next actual native small chain, using its explicit
+brief and Task54. Own report only; no second implementation writer or server
+mutation. Existing NumPy/SciPy diagnostic is not that actual consumer route.
+Task51 coupled scope09 completed:704passed/0failures/errors/skips in398.56s
+(XML398.540), exit0. Root freshly parsed/hash-checked the actual XML:
+a219b9a209bb6610c495c62f13125cbd84cab5a5b853102a66e90314523cdbab.
+Product8102695ad7b1b457ed1a6cb96308f06b610171f7ec8f3050e254762b4accefe7 /
+tests5d960f12be1ab0bcd4a06bb4ba038ad38570e11325a0af14e8da21261f1b7612.
+These are PRE-rowid framing bytes, not the next final candidate; the narrow
+actual-rowid RED/change/consumer coverage and independent review are pending.
+Task51 final changed-file54/54 completed40.60s (XML40.596), Root verified actual
+XML21f3e3f4fdf155d814cd4f1519d7e95f900d83135539b6a7fd460807ea1099e7,
+final productfcd05c52f7c550510ee82c110efe1559f07bc9495b20dbedd874b018ac6e0de5 /
+testsbd0a496008ba6e671b562f433a5c27226784e9f77a8404fb061498e239c9bc2c.
+Root fully read final report59de09117646a35b6cb10ce08ea3bce301101cb3f403d34cd9e2c1e59a8d7589.
+Author relinquished writer. Exact four-file checkpointf777e9ea2b6313e187d911877f5669a832ee5786
+committed locally, not yet pushed. Independent Task51 reviewer /root/c_consumer_review
+active on BASE9b7d779..f777e9e package108164B SHA
+ad322b68ecb6e66c8d4b826b20d90ab6af7ea6cbc0c37e4c4c33a39fd9ffab7d.
+The provided package script now completes including its size print when launched
+with an explicit Bash PATH; no repeated package generation or .gitignore reset.
+Task54 remains prepared only. Root clarified the already-required cleanup
+boundary: all required cleanup, including prepared.close(), must precede the
+caller accepting/committing the new consumer; late failure cannot follow a
+successful commit. This same sequencing correction was returned to the read-only
+Task56 report author before that report is used for native orchestration.
+Task51 initial independent review: SPEC ISSUES / QUALITY NEEDS FIXES, one
+Important P1. Root read full report946b0b6ababe6ca5426ef8236f66c7983d3b93c0acf847ca5ce0e0fc04d12af6.
+The last consumer input guard runs before refs._atomic's post-yield footprint
+I/O, allowing actual feature/source release there without a final guard before
+RELEASE. No other Critical/Important/Minor findings. Reviewer independently
+checked full diff and all12 XML counts/hashes, no suite reruns.
+Task51: fix round1/5 starts atf777e9e, original implementer resumes sole writer.
+Ruling: permit a narrow optional final input-validation hook in the existing
+refs._atomic rollback owner and its focused tests, after footprint before
+RELEASE — avoids duplicating transaction logic and closes the demonstrated
+cross-owner ordering gap; if wrong, shared C2 callers need rework/re-review.
+Defaults/schema/limits/old semantics remain unchanged; scope and genuine RED/
+affected-test requirements appended to task-51-brief.md. No repair push/main/
+deployment of this candidate until the finding is independently addressed.
+Task56 corrected read-only report complete SHA
+7e1f367923c026253715be6802d00fce680b4aeefd3352dbf559d459f0295cf1,
+Root read initial report and all corrected cleanup/setup paragraphs. It maps
+actual local/lazy imports and native orchestration gaps, not a measured runtime
+closure or native pass. No product/test/server mutation from Task56.
+Task51 fix1 genuine RED12 reproduced on unchangedf777 product:1failed,
+54deselected in2.30s, exit1. The real late disk_usage call returns ordinary
+values then closes only the real feature owner after Original/header insertion;
+put still returned normally (DID NOT RAISE). Author now implements only the
+authorized optional refs._atomic final_validate check after footprint, inside
+existing rollback scope, with the consumer passing its bound live guard.
+All ordinary callers keep the default no-hook behavior. No final fix pass yet.
+Task51 fix1 final freeze4d538203d2b50c61b6dfba9e7681b7e0061e9f56 committed
+locally after Root fully read the fix append and verified all4 code/test pins
+plus reportb334b9084d681f82a30b853aac480f3e6076fab557b3ff0b403316bee040ef6a.
+Actual final411pass/0failures/errors/skips in84.95s, XML84.937 and SHA
+64cd5582a4c4a734c9a3c8cefec66cfce968f810d054dc029f0dd0a573a184fb.
+Root freshly parsed XML; author relinquished writer. Scoped re-review
+/root/c_consumer_fix1_review active, FIX_BASEf777e9e..4d53820,
+package37151B SHAc599431481709a7590b01817cdaea585aa9c2442d8e395f9de7b50251a29bc26.
+No fix approval or repair/main push inferred before that verdict.
+Limited actual read-only VPS package/space observation at16:16:47Z complete,
+available14125256704B; candidate package apparent sizes recorded separately
+in task-56-vps-package-observation.md. Piped-shell first attempt failed before
+the package loop; corrected literal SSH query exited0. No package imports,
+data copy, native rerun, database/service mutation or resource acceptance.
 
 Account continuation verified against files and Git: a0c949e contains the
 reviewed Task44/49 append; now pushed to the repair branch and independently
