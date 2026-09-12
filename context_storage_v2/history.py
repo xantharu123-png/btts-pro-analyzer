@@ -35,7 +35,7 @@ from .contracts import DEFAULT_LIMITS, StorageIntegrityError, StorageLimitError,
 from .sqlite_profile import SQLiteWriterPlan, open_fresh_writer
 
 
-HISTORY_VERSION = "context-complete-tennis-history-v2"
+HISTORY_VERSION = "context-complete-tennis-history-v3"
 SELECTION_VERSION = "espn-tennis-complete-tour-v1"
 _TRACKED_METHODS = {name: getattr(TrackedConnection, name) for name in (
     "execute", "cursor", "commit", "rollback", "close", "deserialize", "executescript")}
@@ -46,6 +46,80 @@ _RECEIPT_ATTRIBUTES = frozenset({"_connection", "_generation", "_validation_fail
 _OPAQUE_FIELDS = frozenset({"digest", "content_digest", "event_key", "observed_at", "kind"})
 _LIMIT_FIELDS = ("input_bytes", "tour_history_bytes", "block_bytes", "workspace_bytes",
                  "min_free_bytes", "blocks_per_set")
+_HISTORY_COLUMNS = "digest,observed_at,event_key,content_digest,mode,canonical_size,canonical_sha,payload"
+
+
+def _physical_query():
+    return context_observations._SELECT.replace(
+        "FROM context_observations AS r", "FROM main.context_observations AS r").replace(
+        "LEFT JOIN context_contents AS c", "LEFT JOIN main.context_contents AS c")
+
+
+def _update_bytes(digest, payload, block_bytes):
+    # This bounds hashing updates, NOT the actual old reader's allocation.
+    # The source decoder and canonical_bytes still hold one complete old value.
+    data = memoryview(payload)
+    for offset in range(0, len(data), block_bytes):
+        digest.update(data[offset:offset + block_bytes])
+
+
+def _canonical_sha(payload, block_bytes):
+    result = hashlib.sha256()
+    _update_bytes(result, payload, block_bytes)
+    return result.hexdigest()
+
+
+def _resolve_row(source, stored, *, cutoff, tour, limits):
+    """One common build/read resolver on the SAME actual held Source owner.
+
+    Source mode keeps the old object admission contract, bounded by complete
+    source/tour limits and the outer native worker envelope, not a new row cap.
+    SQL logical index keys may themselves be large old values: they are not
+    encoded processing blocks and no SQLITE_LIMIT_LENGTH is installed for them.
+    """
+    source.check()
+    ref, observed, event_key, content, mode, size, sha, payload = stored
+    require_digest(ref)
+    require_digest(content)
+    require_digest(sha)
+    require_native_key(event_key, sport="tennis")
+    if (type(size) is not int or not 0 < size <= limits.tour_history_bytes
+            or canonical_timestamp(observed) != observed or observed > cutoff):
+        raise StorageIntegrityError("history locator size or cutoff is invalid")
+    if mode == "inline":
+        if type(payload) is not bytes or len(payload) > limits.block_bytes:
+            raise StorageIntegrityError("inline history row is not a bounded canonical blob")
+        row = _decode_object(payload, label="complete history row")
+        validate_selected_tennis_receipt(row)
+    elif mode == "source":
+        if payload is not None or size <= limits.block_bytes or ref in source.protected:
+            raise StorageIntegrityError("source history locator has ambiguous mode or protected receipt")
+        cursor = sqlite3.Connection.execute(source.connection,
+            _physical_query() + " WHERE r.digest=?", (ref,))
+        try:
+            raw = cursor.fetchone()
+        finally:
+            cursor.close()
+        source.check()
+        if raw is None:
+            raise StorageIntegrityError("source history receipt is absent")
+        decoded = VerifiedReceiptMapping._decode_row(source.receipts, raw)
+        source.check()
+        selected = select_tennis_observations((decoded,),
+            cutoff=datetime.fromisoformat(cutoff), tour=tour)
+        if len(selected) != 1:
+            raise StorageIntegrityError("source history receipt no longer selects exactly one row")
+        row = selected[0]
+        payload = canonical_bytes(row)
+    else:
+        raise StorageIntegrityError("history row has an unknown storage mode")
+    if ((row["digest"], row["observed_at"], row["event_key"], row["content_digest"])
+            != (ref, observed, event_key, content)
+            or row["payload"]["tour"] != tour or len(payload) != size
+            or _canonical_sha(payload, limits.block_bytes) != sha):
+        raise StorageIntegrityError("history row differs from its complete indexed identity")
+    source.check()
+    return row, payload
 
 
 def _limits_stamp(limits):
@@ -302,7 +376,7 @@ class HistoryView:
     The object is deliberately not a tuple and has no public alternate-connection
     constructor. It does not confer HMAC or source/provider completeness approval.
     """
-    __slots__ = ("_state", "_binding", "_failed", "_closed", "_owns_connection")
+    __slots__ = ("_state", "_binding", "_failed", "_closed", "_owns_connection", "_parent")
 
     def __init__(self, *args, **kwargs):
         raise StorageIntegrityError("build_history owns complete history publication")
@@ -339,6 +413,8 @@ class HistoryView:
         try:
             if type(self) is not HistoryView or self._closed or self._failed:
                 raise StorageIntegrityError("history view is closed, failed, or not its owning type")
+            if self._parent is not None:
+                self._parent.assert_intact()
             state, connection = self._state, self._state.connection
             state.source.check()
             if _limits_stamp(state.limits) != state.limits_stamp:
@@ -360,19 +436,19 @@ class HistoryView:
 
     def _rows(self, where="", arguments=()):
         self.assert_intact()
-        query = ("SELECT digest,observed_at,event_key,payload FROM main.history WHERE observed_at<=? "
+        query = ("SELECT " + _HISTORY_COLUMNS + " FROM main.history WHERE observed_at<=? "
                  + ("AND " + where if where else "") + " ORDER BY observed_at,digest")
         cursor = sqlite3.Connection.execute(self._state.connection, query, (self.cutoff, *arguments))
         try:
-            for ref, observed, event_key, payload in cursor:
+            for stored in cursor:
                 self.assert_intact()
-                if type(payload) is not bytes or len(payload) > self._state.limits.block_bytes:
-                    raise StorageIntegrityError("history row is not its bounded canonical blob")
-                row = _decode_object(payload, label="complete history row")
-                if (row["digest"], row["observed_at"], row["event_key"]) != (ref, observed, event_key):
-                    raise StorageIntegrityError("history row differs from its indexed identity")
+                row, payload = _resolve_row(self._state.source, stored,
+                    cutoff=self.cutoff, tour=self.tour, limits=self._state.limits)
+                self.assert_intact()
+                del payload
                 yield row
                 self.assert_intact()
+                del row, stored
         except BaseException as error:
             if not isinstance(error, GeneratorExit):
                 object.__setattr__(self, "_failed", True)
@@ -383,6 +459,22 @@ class HistoryView:
 
     def iter_rows(self):
         return self._rows()
+
+    def _receipt(self, ref):
+        """Resolve a chosen receipt through this bound view, never caller data."""
+        require_digest(ref)
+        iterator = self._rows("digest=?", (ref,))
+        try:
+            row = next(iterator, None)
+            if row is None or next(iterator, None) is not None:
+                raise StorageIntegrityError("chosen history receipt is absent or ambiguous")
+            self.assert_intact()
+            return row
+        except BaseException:
+            object.__setattr__(self, "_failed", True)
+            raise
+        finally:
+            iterator.close()
 
     def as_of(self, cutoff: datetime):
         """An owning-validated earlier prefix on this same complete tour spool.
@@ -402,6 +494,7 @@ class HistoryView:
         object.__setattr__(result, "_failed", False)
         object.__setattr__(result, "_closed", False)
         object.__setattr__(result, "_owns_connection", False)
+        object.__setattr__(result, "_parent", self)
         count = used = 0
         digest = hashlib.sha256()
         try:
@@ -416,8 +509,9 @@ class HistoryView:
                 count += 1
                 if used > self._state.limits.tour_history_bytes:
                     raise StorageLimitError("complete prefix exceeds canonical history budget")
-                digest.update(len(payload).to_bytes(8, "big"))
-                digest.update(payload)
+                _update_bytes(digest, len(payload).to_bytes(8, "big"), self._state.limits.block_bytes)
+                _update_bytes(digest, payload, self._state.limits.block_bytes)
+                del row, payload
             self.assert_intact()
             object.__setattr__(result, "_binding", replace(result.binding, row_count=count,
                 canonical_bytes=used, selected_digest=digest.hexdigest()))
@@ -542,7 +636,7 @@ def build_history(receipts, *, directory, cutoff: datetime, tour: str,
             _resource_check(private, path, limits)
 
         check_build()
-        connection.execute("CREATE TABLE main.history(digest TEXT PRIMARY KEY, observed_at TEXT NOT NULL, event_key TEXT NOT NULL, payload BLOB NOT NULL) WITHOUT ROWID")
+        connection.execute("CREATE TABLE main.history(digest TEXT PRIMARY KEY, observed_at TEXT NOT NULL, event_key TEXT NOT NULL, content_digest TEXT NOT NULL, mode TEXT NOT NULL, canonical_size INTEGER NOT NULL, canonical_sha TEXT NOT NULL, payload BLOB) WITHOUT ROWID")
         connection.execute("CREATE INDEX main.history_order ON history(observed_at,digest)")
         connection.execute("CREATE INDEX main.history_event_order ON history(event_key,observed_at,digest)")
         connection.execute("CREATE TABLE main.events(event_key TEXT PRIMARY KEY, first_observed_at TEXT NOT NULL, first_digest TEXT NOT NULL, latest_observed_at TEXT NOT NULL) WITHOUT ROWID")
@@ -554,10 +648,7 @@ def build_history(receipts, *, directory, cutoff: datetime, tour: str,
         # not hide behind metadata. The unchanged source selector owns causality.
         # Preserve the physical owner's column projection, qualifying only its
         # two actual source tables; TEMP names must never change resolution.
-        physical_query = context_observations._SELECT.replace(
-            "FROM context_observations AS r", "FROM main.context_observations AS r").replace(
-            "LEFT JOIN context_contents AS c", "LEFT JOIN main.context_contents AS c")
-        for raw in sqlite3.Connection.execute(source.connection, physical_query):
+        for raw in sqlite3.Connection.execute(source.connection, _physical_query()):
             source.check()
             row = VerifiedReceiptMapping._decode_row(receipts, raw)
             source.check()
@@ -576,26 +667,30 @@ def build_history(receipts, *, directory, cutoff: datetime, tour: str,
                 opaque_count += 1
                 if source_count % 256 == 0:
                     check_build()
+                del row, raw
                 continue
             if "source_schema" not in row:
                 raise StorageIntegrityError("unprotected receipt has no physical source schema")
             for selected in select_tennis_observations((row,), cutoff=cutoff, tour=tour):
                 payload = canonical_bytes(selected)
-                if len(payload) > limits.block_bytes:
-                    raise StorageLimitError("one canonical history row exceeds v2 block budget")
                 used += len(payload)
                 if used > limits.tour_history_bytes:
                     raise StorageLimitError("complete Tennis history exceeds v2 canonical budget")
                 count += 1
-                connection.execute("INSERT INTO main.history VALUES (?,?,?,?)", (
-                    selected["digest"], selected["observed_at"], selected["event_key"], payload))
+                inline = len(payload) <= limits.block_bytes
+                connection.execute("INSERT INTO main.history VALUES (?,?,?,?,?,?,?,?)", (
+                    selected["digest"], selected["observed_at"], selected["event_key"],
+                    selected["content_digest"], "inline" if inline else "source", len(payload),
+                    _canonical_sha(payload, limits.block_bytes), payload if inline else None))
                 connection.execute("""INSERT INTO main.events VALUES (?,?,?,?)
                     ON CONFLICT(event_key) DO UPDATE SET
                     first_observed_at=CASE WHEN (excluded.first_observed_at,excluded.first_digest)<(first_observed_at,first_digest) THEN excluded.first_observed_at ELSE first_observed_at END,
                     first_digest=CASE WHEN (excluded.first_observed_at,excluded.first_digest)<(first_observed_at,first_digest) THEN excluded.first_digest ELSE first_digest END,
                     latest_observed_at=max(latest_observed_at,excluded.latest_observed_at)""", (
                     selected["event_key"], selected["observed_at"], selected["digest"], selected["observed_at"]))
+                del selected, payload
             source.check()
+            del row, raw
             if source_count % 256 == 0:
                 check_build()
         source.check()
@@ -605,11 +700,15 @@ def build_history(receipts, *, directory, cutoff: datetime, tour: str,
             raise StorageIntegrityError("history protected reference is absent from the full inventory")
         digest = hashlib.sha256()
         verified_count = verified_used = 0
-        for (payload,) in connection.execute("SELECT payload FROM main.history ORDER BY observed_at,digest"):
-            digest.update(len(payload).to_bytes(8, "big"))
-            digest.update(payload)
+        for stored in connection.execute("SELECT " + _HISTORY_COLUMNS + " FROM main.history ORDER BY observed_at,digest"):
+            writer.check_profile()
+            resolved, payload = _resolve_row(source, stored, cutoff=decision, tour=tour, limits=limits)
+            writer.check_profile()
+            _update_bytes(digest, len(payload).to_bytes(8, "big"), limits.block_bytes)
+            _update_bytes(digest, payload, limits.block_bytes)
             verified_count += 1
             verified_used += len(payload)
+            del resolved, payload
             if verified_count % 256 == 0:
                 check_build()
         if (count, used) != (verified_count, verified_used):
@@ -642,6 +741,7 @@ def build_history(receipts, *, directory, cutoff: datetime, tour: str,
         object.__setattr__(result, "_failed", False)
         object.__setattr__(result, "_closed", False)
         object.__setattr__(result, "_owns_connection", True)
+        object.__setattr__(result, "_parent", None)
         result.assert_intact()
         return result
     except BaseException as exc:

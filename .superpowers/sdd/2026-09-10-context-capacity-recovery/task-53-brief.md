@@ -117,3 +117,27 @@ test summary, report path and any concrete unresolved concern.
 
 Task53 is not Task51, the complete small producer chain, a measured growth or
 global budget pass, B, empirical injuries/fatigue approval, restore or rollout.
+
+## Pre-review correction ruling after freeze07
+
+Actual freeze07:422 passed/1 failed,475.32s, two warnings. The 65536-byte
+real-FULL assertion now fits with the changed representation; retain true
+4096/32768 FULL failures and explicitly verify the actual 65536 outcome for
+the final chosen format. Correct _union_refs generator teardown before closing
+its writer (focused RED first). Use -o junit_family=xunit1 for existing
+record_property tests; do not alter that source-adapter test to suppress noise.
+
+The all-reference chosen-row format was optional, not a required new contract.
+Actual unchanged paired test is6.439s versus retained old1.406/1.470s; the
+78-match/156-receipt floating-sum test is70.005s versus16.861/18.388s. Historical
+walltimes alone are not a controlled causal/native benchmark, but the repeated
+owning lookup is a concrete new work path. Ruling: keep bounded small chosen
+rows inline and use explicit owning History references only when their actual
+canonical value exceeds the processing block. Preserve source/view checks,
+exact metadata/association and all full cold validations; do not remove those
+to gain time. Record a focused before/after measurement using the existing
+paired and summation tests and the exact-byte large-workload regression before
+the final combined rerun. No strict flaky walltime assertion and no native-fit
+claim. If the named change does not account for the cost, report that evidence
+rather than stack speculative optimizations. Cost if wrong: scoped format/test
+rework, not changed math, source admission, caps or hidden data pruning.

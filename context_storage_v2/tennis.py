@@ -12,6 +12,7 @@ keep the owning HistoryView and this result open until consumption completes.
 """
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timedelta
 from dataclasses import fields
 import hashlib
@@ -45,10 +46,10 @@ from context_storage_v2.history import (
     _configure_read_connection, _private_build_directory, _read_policy_epoch,
 )
 from context_storage_v2.sqlite_profile import SQLiteWriterPlan, open_fresh_writer
-from model_artifacts import canonical_bytes
+from model_artifacts import _decode_object, canonical_bytes
 
 
-FORMAT_VERSION = "context-tennis-features-stream-v2"
+FORMAT_VERSION = "context-tennis-features-stream-v3"
 # This is an additional cap of this NEW optional helper. It is not the existing
 # legacy input/cache budget and does not claim a pre-existing FeatureVector cap.
 MAX_MATERIALIZATION_BYTES = 64 * 1024**2
@@ -85,12 +86,6 @@ def _limits_identity(limits):
         raise StorageLimitError("published Tennis output needs the exact C limits")
     StorageLimits.__post_init__(limits)
     return tuple((field.name, getattr(limits, field.name)) for field in fields(StorageLimits))
-
-
-def _row(blob: bytes) -> dict:
-    # These are this owner's canonical, already fully validated private rows,
-    # not an alternative decoder for untrusted input database payloads.
-    return json.loads(blob)
 
 
 def _participants(row):
@@ -213,7 +208,7 @@ def _paired_status(group, participants):
     return tuple(pair), tuple(sorted(required | {head["digest"]})), None
 
 
-def _stage_usable(connection, history, event, *, cutoff, next_start, check_build):
+def _stage_usable(connection, history, event, *, cutoff, next_start, check_build, block_bytes):
     participants = {event["home_id"], event["away_id"]}
     v2_conflicts, conflicts, unknown, modes = set(), set(), set(), set()
     sequence = 0
@@ -251,20 +246,40 @@ def _stage_usable(connection, history, event, *, cutoff, next_start, check_build
                 continue
             sequence += 1
             side = "a" if row["subject_id"] == event["home_id"] else "b"
-            connection.execute("INSERT INTO tennis_chosen VALUES(?,?,?,?)",
-                (sequence, side, canonical_bytes(row),
+            raw = canonical_bytes(row)  # Actual old object, not a bounded allocation claim.
+            inline = len(raw) <= block_bytes
+            connection.execute("INSERT INTO tennis_chosen VALUES(?,?,?,?,?,?)",
+                (sequence, side, row["digest"], "inline" if inline else "source", raw if inline else None,
                  canonical_bytes(association if association is not None else (row["digest"],))))
+            del raw
     mode = ("no-history" if not modes else "unavailable-status" if "unavailable-status" in modes
             else "mixed-status-legacy" if len(modes) > 1 else next(iter(modes)))
     return v2_conflicts, conflicts, unknown, mode
 
 
-def _rows(connection, side):
+def _rows(connection, history, side, block_bytes):
     cursor = connection.execute(
-        "SELECT row,association FROM tennis_chosen WHERE side=? ORDER BY sequence", (side,))
+        "SELECT receipt,mode,row,association FROM tennis_chosen WHERE side=? ORDER BY sequence", (side,))
     try:
-        for raw, association in cursor:
-            yield _row(raw), json.loads(association)
+        for receipt, mode, raw, association in cursor:
+            history.assert_intact()
+            if mode == "inline":
+                if type(raw) is not bytes or len(raw) > block_bytes:
+                    raise StorageIntegrityError("chosen inline Tennis row exceeds its bounded format")
+                # This is this writer's already cold-validated, immutable small
+                # canonical row, not an alternate old source decoder or cache.
+                row = _decode_object(raw, label="chosen inline Tennis row")
+                if (row["digest"] != receipt or row["observed_at"] > history.cutoff
+                        or row["payload"]["tour"] != history.tour):
+                    raise StorageIntegrityError("chosen inline Tennis receipt binding differs")
+            elif mode == "source" and raw is None:
+                row = history._receipt(receipt)
+            else:
+                raise StorageIntegrityError("chosen Tennis row mode is ambiguous")
+            history.assert_intact()
+            yield row, json.loads(association)
+            history.assert_intact()
+            del row, raw
     finally:
         cursor.close()
 
@@ -274,15 +289,15 @@ def _add_refs(connection, pool, refs):
                            ((pool, ref) for ref in refs))
 
 
-def _window_rows(connection, side, start, stop):
-    for row, _ in _rows(connection, side):
+def _window_rows(connection, history, side, start, stop, block_bytes):
+    for row, _ in _rows(connection, history, side, block_bytes):
         ended = row["payload"]["actual_end"]
         if ended is not None and start <= ended < stop:
             yield row
 
 
-def _compute_header(connection, event, base, *, cutoff, v2_conflicts,
-                    conflicts, unknown, mode, target_state, target_refs, check_build):
+def _compute_header(connection, history, event, base, *, cutoff, v2_conflicts,
+                    conflicts, unknown, mode, target_state, target_refs, check_build, block_bytes):
     """Execute the old arithmetic in the same side/window/row order.
 
     In particular Python's original builtins.sum consumes a disk generator;
@@ -306,7 +321,7 @@ def _compute_header(connection, event, base, *, cutoff, v2_conflicts,
         latest_receipt, latest_end, latest_unknown = None, None, None
         all_pool = side + ".all"
         if blocked is None:
-            for row, associated in _rows(connection, side):
+            for row, associated in _rows(connection, history, side, block_bytes):
                 payload = row["payload"]
                 count += 1
                 if count % 128 == 0:
@@ -329,7 +344,7 @@ def _compute_header(connection, event, base, *, cutoff, v2_conflicts,
             measured = dict.fromkeys(METRICS, 0)
             window_pool = f"{side}.window.{days}"
             if blocked is None:
-                for row, associated in _rows(connection, side):
+                for row, associated in _rows(connection, history, side, block_bytes):
                     payload, ended = row["payload"], row["payload"]["actual_end"]
                     if ended is None or not start <= ended < stop:
                         continue
@@ -346,7 +361,7 @@ def _compute_header(connection, event, base, *, cutoff, v2_conflicts,
                 name = f"observed_{metric}_{days}d"
                 side_names.add(name)
                 total = (sum(row["payload"][metric]
-                    for row in _window_rows(connection, side, start, stop)
+                    for row in _window_rows(connection, history, side, start, stop, block_bytes)
                     if row["payload"][metric] is not None) if measured[metric] else None)
                 put(f"{name}_{side}", total, (f"{side}.measured.{days}.{metric}",), blocked)
                 complete = int(bool(window_count) and measured[metric] == window_count and not uncertain) if count else None
@@ -632,8 +647,11 @@ def tennis_features_streaming(event: dict, history_view, base: dict, *,
     """New explicit owner; never enters the old tuple-only API with a fake type.
 
     The caller owns the complete C/B workspace cost and worker CPU/RAM limits.
-    This component additionally caps its own SQLite file, single selected rows,
-    and its free-space reserve. It does not claim whole-release admission.
+    This component additionally caps its own SQLite file and free-space reserve.
+    Small chosen rows remain bounded canonical BLOBs; large chosen rows retain
+    bound History receipt references. The old reader's allocation is subject to
+    the unchanged outer native envelope, not a new processing-block row cap.
+    It does not claim whole-release admission.
     ``main_cap_bytes`` is logical main M with a separate journal-M reservation,
     not native enforcement or physical/global admission. The native owner uses
     an already reserved private empty ``owned_directory`` (direct child of
@@ -669,8 +687,6 @@ def tennis_features_streaming(event: dict, history_view, base: dict, *,
     # Validate the full selected source stream BEFORE event/player filtering.
     for row in history_view.iter_rows():
         _validate_selected_tennis_receipt_cold(row)
-        if len(canonical_bytes(row)) > limits.block_bytes:
-            raise StorageLimitError("selected Tennis row requires a separately reviewed large-value adapter")
     history_view.assert_intact()
     directory = Path(work_directory)
     if directory.is_symlink() or not directory.is_dir():
@@ -694,32 +710,37 @@ def tennis_features_streaming(event: dict, history_view, base: dict, *,
         # Keep the public-reader variable separate: writer owns every build
         # cursor/blob and closes them before its single commit handoff.
         check_build()
-        build_connection.execute("CREATE TABLE tennis_chosen(sequence INTEGER PRIMARY KEY, side TEXT NOT NULL, row BLOB NOT NULL, association BLOB NOT NULL)")
+        build_connection.execute("CREATE TABLE tennis_chosen(sequence INTEGER PRIMARY KEY, side TEXT NOT NULL, receipt TEXT NOT NULL, mode TEXT NOT NULL, row BLOB, association BLOB NOT NULL)")
         build_connection.execute("CREATE INDEX tennis_chosen_side ON tennis_chosen(side,sequence)")
         build_connection.execute("CREATE TABLE tennis_ref_projection(pool TEXT NOT NULL, ref TEXT NOT NULL, PRIMARY KEY(pool,ref)) WITHOUT ROWID")
         create_schema(build_connection)
         check_build()
         v2_conflicts, conflicts, unknown, mode = _stage_usable(
             build_connection, history_view, event, cutoff=decision, next_start=next_start,
-            check_build=check_build)
+            check_build=check_build, block_bytes=limits.block_bytes)
         check_build()
         target_state, target_refs = _target_state(history_view.event(event["event_key"]), event)
-        header, plans = _compute_header(build_connection, event, base, cutoff=decision,
+        header, plans = _compute_header(build_connection, history_view, event, base, cutoff=decision,
             v2_conflicts=v2_conflicts, conflicts=conflicts, unknown=unknown, mode=mode,
-            target_state=target_state, target_refs=target_refs, check_build=check_build)
+            target_state=target_state, target_refs=target_refs, check_build=check_build,
+            block_bytes=limits.block_bytes)
 
         def checked_refs(pools, literals):
-            for index, ref in enumerate(_union_refs(build_connection, pools, literals)):
-                if index % 128 == 0:
-                    check_build()
-                yield ref
+            with closing(_union_refs(build_connection, pools, literals)) as references:
+                for index, ref in enumerate(references):
+                    if index % 128 == 0:
+                        check_build()
+                    yield ref
             check_build()
 
         descriptors, cache = {}, {}
         for name, ref_plan in plans.items():
             if ref_plan not in cache:
                 check_build()
-                cache[ref_plan] = put_refset(build_connection, checked_refs(*ref_plan), limits=limits)
+                # A failed put_refset can retain its input in an exception
+                # traceback. Close both generator layers before writer teardown.
+                with closing(checked_refs(*ref_plan)) as references:
+                    cache[ref_plan] = put_refset(build_connection, references, limits=limits)
             descriptors[name] = cache[ref_plan]
         history_view.assert_intact()
         check_build()  # No commit if the free reserve or exact writer profile drifted.

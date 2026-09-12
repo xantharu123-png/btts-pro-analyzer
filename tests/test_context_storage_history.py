@@ -329,15 +329,28 @@ def test_output_connection_is_really_read_only_and_other_writer_cannot_commit(re
                 pass
 
 
-@pytest.mark.parametrize("which", ["tour", "block", "input", "workspace", "free"])
+@pytest.mark.parametrize("which", ["tour", "input", "workspace", "free"])
 def test_hard_budgets_do_not_return_a_partial_history(real_history, tmp_path, which):
-    kwargs = {"tour_history_bytes": 1} if which == "tour" else {"block_bytes": 1} if which == "block" else (
+    kwargs = {"tour_history_bytes": 1} if which == "tour" else (
         {"input_bytes": 1} if which == "input" else {"workspace_bytes": 1} if which == "workspace"
         else {"min_free_bytes": 2**63})
     with source(real_history) as (_, receipts):
         with pytest.raises(StorageLimitError):
             build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                           input_identity=_sha(real_history), limits=StorageLimits(**kwargs))
+
+
+def test_tiny_processing_blocks_use_source_rows_without_new_payload_blobs(real_history, tmp_path):
+    # A processing block is not an inherited per-object admission maximum.
+    with source(real_history) as (_, receipts):
+        expected = _cold_replay_history(receipts, cutoff=NOW, tour="ATP", max_bytes=None)
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path,
+                cutoff=NOW, tour="ATP", input_identity=_sha(real_history),
+                limits=StorageLimits(block_bytes=1)) as view:
+            assert canonical_bytes(tuple(view.iter_rows())) == canonical_bytes(expected)
+            assert view._state.connection.execute(
+                "SELECT count(*) FROM main.history WHERE mode='source' AND payload IS NULL"
+            ).fetchone() == (len(expected),)
 
 
 def test_sqlite_page_cap_prevents_oversized_allocation_before_periodic_measurement(real_history, tmp_path):
