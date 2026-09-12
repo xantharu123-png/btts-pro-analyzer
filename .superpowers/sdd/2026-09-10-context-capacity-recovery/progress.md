@@ -235,6 +235,42 @@ packages: their required unified-diff blank context markers contain one space.
 Those reviewed/hash-bound evidence bytes are preserved, not reformatted. Source
 commits passed their own whitespace checks; the metadata checkpoint checks the
 four Markdown/handoff files separately and verifies both archive hashes.
+Checkpointa339a82b5f64722fc4520f7d67b427d19819683b is pushed and freshly
+ls-remote matched; GitHub main remains2dd1116. Actual copy-only code archive
+upload and read-only native member inventory completed; see
+task-57-native-preparation.md for exact command, source/archive/manifest pins,
+real counters/reservations and preserved failures. No root native job yet.
+Task57 follow-up fix round2 ACTIVE: the actual documented Windows launcher
+rejects the genuine native inventory because str(DEPENDENCY_SOURCE) uses host
+backslashes. Root confirmed identical packages and matching .as_posix path.
+Original /root/c_native_chain_harness is sole writer for minimal representation
+correction, parent pin and focused cross-platform regression; no validator
+bypass, manifest rewriting, new limits, product or helper change. The empty
+failed launcher and stderr1077bytes stay retained and were never root-executed.
+The prior code review remains historical success ateddc926, not proof the
+cross-platform startup worked. Actual native/growth/B/restore/deployment remain.
+Task57 fix2 author frozen/returned writer; actual source/report pins checked,
+full new report appendix read. Fresh final XML30/0/0/0 in7.349s,
+SHAa3744757d577550ff9d460206a9e4d52a99c5fd1a5b5cbccf09ac3feb860992a.
+Parent1325881bed452574159568d6fba93dae6c091d7baf0ee2388adb86108e3038e8;
+catalogue93d38e46c17b9796088cfad66ea1667413b702b93f8310ac43b6e6ee7ac648f9;
+testd5f47de6f70d90f88981105f4e01e1fa7426474094b5f456ce37d0ea73b2cb4d;
+worker unchanged. Report8d7bafc03f792813811f22cc78cbb24cbbe1270564be6f4ae6d75b7d468af68d.
+Committed locallyba9c88f6d9710088024c5db25854bce90b3a88c8 (4files133insert5delete),
+not yet pushed. Root verified eddc926..a339 changes no Python source. Scoped
+review /root/c_native_chain_fix1_review resumed with exact previous-review
+baseeddc926..ba9c88f package201101bytes, SHAac3b8f8d0ff4100ed4a4264340264a506afee50ce993445de5398c1048d3653e;
+it also retains intervening controller docs/archived review packages as text.
+New local candidate task57-candidate-ba9c88f-python.tar is9226240bytes,
+SHAfa889029d72fa110d1a65bf2c0fb1fc7b5d7ab988c49d4838e2a8748e9629801;
+actual exact440 non-hidden tracked Python members/no duplicates. Not uploaded.
+Old sources/archive/inventory/failed launcher remain unchanged and retained.
+Task 57: fix round2/5 (canonical-path finding addressed,0 open Important;
+commitseddc926..ba9c88f). Scoped review0c3cb6e2ca8a18e4380271fc2d09df08770e537431eea976a22c934a0ad90db5
+fully read/hash-checked: no new Critical/Important breakage. Actual regenerated
+archive/catalogue/launcher/guarded/terminal evidence remains Root's next action,
+not implied by the30 portable passes. MinorM1 remains deferred. Sourceba9c88f
+is now independently reviewed; metadata checkpoint and fresh repair push follow.
 
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.

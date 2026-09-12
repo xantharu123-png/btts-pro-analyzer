@@ -55,6 +55,12 @@ Vorinstallation. App/main werden dadurch nicht verändert.
 Aktueller rein lesender VPS-Check17:49UTC:weiterhin2dd1116, App/Caddy aktiv,
 interner Healthcheck ok, sieben nächste Timertermine, keine Test-UID-Prozesse.
 Der bekannte tägliche Tennisdienst bleibt fehlgeschlagen und ist nicht behoben.
+Nachtrag native Vorbereitung:geprüfter Zwischenstanda339a82 gepusht; genaues
+Codearchiv isoliert übertragen,4540 tatsächliche Paketdateien lesend erfasst.
+Noch kein eigentlicher Prüflauf:der lokale Windows-Starter scheiterte am festen
+Linux-Pfadformat. Minimal behoben alsba9c88f lokal (30 bestandene Tests),
+unabhängiges Nachreview jetzt sauber abgeschlossen. Keine Normalisierung fremder Pfade, keine
+Rootausführung des leeren fehlgeschlagenen Starters und kein Appdeployment.
 VPS-Platzaufnahme16:16UTC:14125256704Bytes frei, keine Ressourcenabnahme.
 Native Speicher-/CPU-Werte sind durch lokale Tests nicht belegt.
 Der kleine lokale Kettenvergleich ist abgeschlossen. Native Kette, vollständige
