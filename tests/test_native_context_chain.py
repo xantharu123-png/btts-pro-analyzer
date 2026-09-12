@@ -50,16 +50,43 @@ def timezone_records():
 def tzif_fixture(key):
     """Legitimate deterministic TZif2, not native tzdb-byte equivalence.
 
-    Zurich's POSIX tail supplies the real CET/CEST transition rule for 2026;
-    no ZoneInfo reader, calculation, or product clock is replaced.
+    Literal 2026 transitions also exercise dateutil's TZif-v1 reader; the
+    POSIX tail keeps ZoneInfo's rule. Neither actual reader is replaced.
     """
     import struct
     infos = [(0, 0, 0)] if key == "UTC" else [(3600, 0, 0), (7200, 1, 4)]
     abbreviations = b"UTC\0" if key == "UTC" else b"CET\0CEST\0"
-    header = b"TZif2" + b"\0" * 15 + struct.pack(">6l", 0, 0, 0, 0, len(infos), len(abbreviations))
+    # 2026-01-01 00:00Z establishes standard time before 2026-03-29 01:00Z
+    # and 2026-10-25 01:00Z. dateutil derives DST deltas from the prior entry.
+    transitions = [] if key == "UTC" else [1767225600, 1774746000, 1792890000]
+    indexes = b"" if key == "UTC" else b"\x00\x01\x00"
+    header = b"TZif2" + b"\0" * 15 + struct.pack(">6l", 0, 0, 0, len(transitions), len(infos), len(abbreviations))
     body = b"".join(struct.pack(">lbb", *info) for info in infos) + abbreviations
     tail = b"UTC0" if key == "UTC" else b"CET-1CEST,M3.5.0,M10.5.0/3"
-    return (header + body) * 2 + b"\n" + tail + b"\n"
+    first = b"".join(struct.pack(">l", value) for value in transitions) + indexes + body
+    second = b"".join(struct.pack(">q", value) for value in transitions) + indexes + body
+    return header + first + header + second + b"\n" + tail + b"\n"
+
+
+def timezone_dependencies(seal):
+    """Copy real existing dateutil/six bytes, including its bundled fallback.
+
+    This portable fixture is not a native dependency catalogue or install.
+    """
+    import shutil
+    source = Path(importlib.util.find_spec("dateutil").origin).parent
+    members = [(path, Path("dateutil") / path.relative_to(source))
+               for path in source.rglob("*") if path.is_file()
+               and (path.suffix == ".py" or path.name == "dateutil-zoneinfo.tar.gz")]
+    members.append((Path(importlib.util.find_spec("six").origin), Path("six.py")))
+    records = []
+    for source_path, relative in members:
+        target = seal / "dependencies" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source_path, target)
+        records.append(entry(relative.as_posix(), target.read_bytes()))
+    assert any(x["path"] == "dateutil/zoneinfo/dateutil-zoneinfo.tar.gz" for x in records)
+    return records
 
 
 def timezone_sources(tmp_path, c, monkeypatch):
@@ -357,11 +384,12 @@ def test_timezone_real_binding_rejects_writable_or_incomplete_seal(tmp_path, mon
     for directory in (root / "Europe", root, root.parent):
         directory.chmod(0o555)
     (tmp_path / "seal/attempts/ATP").mkdir(parents=True)
+    dependencies = timezone_dependencies(tmp_path / "seal")
     (tmp_path / "seal/catalogue.json").write_text(json.dumps({
-        "code": [], "dependencies": [], "timezone_data": data,
+        "code": [], "dependencies": dependencies, "timezone_data": data,
         "runtime": {"stdlib_search_path": []}}), encoding="ascii")
     script = r'''
-import datetime, json, os, sys, types, zoneinfo
+import datetime, json, os, sys, types
 from pathlib import Path
 c = {"__name__": "_tz_catalogue"}
 exec(compile(Path(sys.argv[1]).read_bytes(), sys.argv[1], "exec"), c)
@@ -371,12 +399,11 @@ root, values, mutation = Path(sys.argv[3]), json.loads(sys.argv[4]), sys.argv[5]
 c["TIMEZONE_DATA"] = tuple((x["path"], x["source"], x["size"], x["sha256"]) for x in values)
 if not hasattr(os, "O_DIRECTORY"):
     os.O_DIRECTORY = 0
-manifest = {"code": [{"path": "catalogue.json"}], "dependencies": [], "timezone_data": values,
-            "runtime": {"stdlib_search_path": list(sys.path)}}
+manifest = json.loads((root / "seal/catalogue.json").read_bytes())
+manifest["runtime"]["stdlib_search_path"] = list(sys.path)
+(root / "seal/catalogue.json").write_text(json.dumps(manifest), encoding="ascii")
 if mutation == "preloaded-fallback":
     sys.modules["tzdata"] = types.ModuleType("tzdata")
-observed = w["observe_python_files"](root / "seal", root / "seal", root / "work", manifest)
-before = zoneinfo.TZPATH
 try:
     if mutation == "none":
         # Execute actual worker ordering but stop exactly at the product
@@ -386,49 +413,58 @@ try:
         class ProductBoundary(Exception):
             pass
         def guarded():
+            assert "dateutil" not in sys.modules and "zoneinfo" not in sys.modules
+            assert str(root / "seal/dependencies") not in sys.path
             events.append("guard")
             return {"portable-order-only": True}
+        actual_observer = w["observe_python_files"]
+        def observing(*args):
+            assert events == ["guard"]
+            value = actual_observer(*args)
+            events.append("audit")
+            return value
         actual_binding = w["bind_timezone_data"]
         def binding(*args):
-            assert events == ["guard"]
+            assert events == ["guard", "audit"]
             actual_binding(*args)
             events.append("data-bound")
         def product(*args):
-            assert events == ["guard", "data-bound"]
+            assert events == ["guard", "audit", "data-bound"]
+            from dateutil.tz import tz
+            import zoneinfo
+            assert tz.TZPATHS == [str(root / "seal/runtime-data/zoneinfo")]
+            assert tz.TZFILES == [] and zoneinfo.TZPATH == tuple(tz.TZPATHS)
             events.append("product")
             raise ProductBoundary
         w["__file__"] = str(root / "seal/code/tests/native_context_chain_worker.py")
         w["require_guard"] = guarded
         w["load_catalogue"] = lambda path: c
-        # Avoid a second hook, while preserving the already-installed actual
-        # one; the real catalogue JSON reader/decoder remains unchanged.
-        w["observe_python_files"] = lambda *args: observed
+        w["observe_python_files"] = observing
         w["bind_timezone_data"] = binding
         w["invoke_cases"] = product
-        # Catalogue JSON is a fixed control read normally preceding the audit.
-        # It is explicitly admitted here because this isolated test installed
-        # its hook before calling run, so it can observe the complete ordering.
         os.chdir(root / "seal/attempts/ATP")
         try:
             w["run"]("ATP")
         except ProductBoundary:
             pass
-        assert events == ["guard", "data-bound", "product"]
+        assert events == ["guard", "audit", "data-bound", "product"]
     else:
+        observed = w["observe_python_files"](root / "seal", root / "seal", root / "work", manifest)
         w["bind_timezone_data"](c, root / "seal", manifest)
 except (w["ChainError"], c["ChainError"]):
     assert mutation != "none", "valid sealed timezone tree rejected"
-    assert zoneinfo.TZPATH == before, "failed binding changed the search path"
+    assert "zoneinfo" not in sys.modules, "failed admission loaded the reader"
     print(json.dumps({"rejected": mutation}))
 else:
     assert mutation == "none", "unsafe timezone binding admitted"
+    import zoneinfo
     assert zoneinfo.TZPATH == (str(root / "seal/runtime-data/zoneinfo"),)
     utc = zoneinfo.ZoneInfo("UTC")
     zurich = zoneinfo.ZoneInfo("Europe/Zurich")
     assert datetime.datetime(2026, 1, 15, tzinfo=utc).utcoffset() == datetime.timedelta(0)
     assert datetime.datetime(2026, 1, 15, tzinfo=zurich).utcoffset() == datetime.timedelta(hours=1)
     assert datetime.datetime(2026, 7, 15, tzinfo=zurich).utcoffset() == datetime.timedelta(hours=2)
-    print(json.dumps({"keys": [utc.key, zurich.key], "observations": observed}))
+    print(json.dumps({"keys": [utc.key, zurich.key]}))
 '''
     result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", script,
                              str(HERE / "native_context_chain_catalogue.py"),

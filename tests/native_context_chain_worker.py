@@ -122,6 +122,10 @@ as such; their actual no-follow custody belongs to the catalogue reader.
     timezone_system = Path("/usr/share/zoneinfo").absolute()
     timezone_files = {str(timezone_root / x["path"]) for x in manifest.get("timezone_data", [])}
     permitted |= timezone_files
+    # dateutil's bundled archive is already catalogued dependency data. It is
+    # not an admitted timezone source: deny its module/resource opens even
+    # when importlib/pkgutil bypass an import audit event or use relative paths.
+    dateutil_fallback = seal / "dependencies/dateutil/zoneinfo"
     # -B prevents cache writes, not reads. Deny the exact interpreter cache
     # probe for each admitted source BEFORE opening it, including if a cache
     # exists. FileNotFoundError lets CPython read the admitted source instead;
@@ -145,6 +149,8 @@ as such; their actual no-follow custody belongs to the catalogue reader.
     def audit(event, args):
         if event == "import" and args and isinstance(args[0], str):
             require(args[0] != "tzdata" and not args[0].startswith("tzdata."), "unplanned tzdata fallback import")
+            require(args[0] != "dateutil.zoneinfo" and not args[0].startswith("dateutil.zoneinfo."),
+                    "unplanned dateutil timezone fallback import")
         if event not in ("open", "sqlite3.connect") or not args or not isinstance(args[0], (str, bytes)):
             return
         name = os.fsdecode(args[0])
@@ -166,6 +172,8 @@ as such; their actual no-follow custody belongs to the catalogue reader.
         # into the protected data tree. Descriptor-relative bare-name opens
         # retain the existing catalogue no-follow-FD custody contract.
         data_path = Path(os.path.abspath(name))
+        if data_path.is_relative_to(dateutil_fallback):
+            reject("unplanned dateutil timezone fallback read")
         if str(p) in timezone_files:
             if (event != "open" or len(args) <= 2 or type(args[2]) is not int or
                     args[2] & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND)):
@@ -196,19 +204,34 @@ as such; their actual no-follow custody belongs to the catalogue reader.
 
 
 def bind_timezone_data(c, seal, manifest):
-    """After guard/audit, point the actual stdlib reader only at the data seal.
+    """After guard/audit, configure both actual readers to the same data seal.
 
-    No reader/import shim: unknown fallback package bytes still fail the
-    exact-member file audit, including resources/importlib-driven imports.
+    Only the admitted dateutil dependency enters before product imports, to
+    configure itself. No replacement reader, cache seed or import shim.
     """
-    require(not any(n == "tzdata" or n.startswith("tzdata.") for n in sys.modules),
-            "preloaded tzdata fallback is not permitted")
+    require(not any(n == "_zoneinfo" or n == prefix or n.startswith(prefix + ".")
+                    for n in sys.modules for prefix in ("zoneinfo", "tzdata", "dateutil")),
+            "preloaded timezone reader or fallback is not permitted")
+    dependencies = seal / "dependencies"
+    members = {x["path"] for x in manifest["dependencies"]}
+    require({"dateutil/__init__.py", "dateutil/tz/__init__.py", "dateutil/tz/tz.py"} <= members,
+            "timezone reader dependency admission missing")
     root = seal / "runtime-data/zoneinfo"
     c["timezone_copy_identities"](root, manifest["timezone_data"])
     import zoneinfo
     zoneinfo.reset_tzpath((str(root),))
     zoneinfo.ZoneInfo.clear_cache()
     require(zoneinfo.TZPATH == (str(root),), "sealed timezone search path differs")
+    # The clean -I -S worker has only stdlib paths so far. Make the existing
+    # sealed dependency path available here, after guard/audit; project paths
+    # are added by run only after both readers have been configured.
+    sys.path.insert(0, str(dependencies))
+    from dateutil.tz import tz
+    require(Path(tz.__file__) == dependencies / "dateutil/tz/tz.py",
+            "timezone reader dependency origin differs")
+    tz.TZPATHS = [str(root)]
+    tz.TZFILES = []
+    tz.gettz.cache_clear()
 
 
 def run(tour):
@@ -224,8 +247,9 @@ def run(tour):
     samples = []
     file_observations = observe_python_files(code, seal, work, manifest)
     bind_timezone_data(c, seal, manifest)
-    # Only now can actual pytest and product modules enter this interpreter.
-    sys.path[:0] = [str(code), str(code / "tests"), str(seal / "dependencies")]
+    # Only now can actual pytest and product modules enter this interpreter;
+    # the sealed dependency path was installed for reader configuration above.
+    sys.path[:0] = [str(code), str(code / "tests")]
     def sample(label):
         require(len(samples) < 40, "quiescent observation count exceeded")
         observed = c["workspace_sample"](work, slots, 4 * MIB)
