@@ -2,14 +2,18 @@
 
 ## Aktuell 12. September 2026 — C freigegeben, verlustfreier Speicherumbau läuft
 
-Neuester geprüfter Code-Commit: `a52b4b7ed46bb6e8c67d0b90c516163a7c2566fe`,
-noch nicht gepusht an diesem Eintrag; vorheriger Reparatur-Push `8a1f599`.
+Neuester geprüfter Code-Commit: `d787db43170ad2296a02640cdf6091db1f533f4a`.
+Task53:424 Tests bestanden, keine Warnungen; unabhängiges Review freigegeben,
+keine offenen Befunde in diesem Teil. Der letzte vor diesem Doku-Checkpoint
+frisch bestätigte Reparatur-Push war `0a9ba295514cbc5385f8017573101bef833fa77b`;
+der neue tatsächliche Push wird im SDD-Ledger separat festgehalten.
 Task48 (vollständige echte Kopie plus neue Belege) ist mit72 bestandenen Tests
 und unabhängigem Review abgeschlossen, nicht der gesamte C-/B-Pfad.
 Task52 hat eine echte alte/neue Einzelwert-Zulässigkeitslücke nachgewiesen:
-die neue History sperrt große bisher akzeptierte Zeilen. Task53 behebt das
-mit gebundenem Altlesepfad in History UND Tennis; Task51 bleibt bis dahin
-pausiert. Anforderungen und Befunde liegen im SDD-Verzeichnis dieses Plans.
+die neue History sperrte große bisher akzeptierte Zeilen. Task53 behebt das
+mit gebundenem Altlesepfad in History UND Tennis; vollständige alte Bytes
+werden verglichen, keine neue Einzelwertgrenze. Task51 setzt danach den
+echten Tennis-Consumer fort. Anforderungen/Befunde liegen im SDD-Verzeichnis.
 Main weiterhin `2dd1116`. Feste Rohkopie mit
 begrenztem Reader unabhängig geprüft (197 bestanden, zwei Windows-Skips).
 Der dritte isolierte VPS-Nachtest hat jetzt alle sechs Diagnosefälle bestanden:
@@ -24,7 +28,9 @@ Test-UID-Prozesse übrig. Der echte einzelne Receiptappend ist unabhängig
 geprüft (316 bestanden, keine Skips) und nach Accountwechsel gepusht/frisch
 remote bestätigt; nochmals136 gezielte Tests bestanden. Task48 verbindet Kopie
 und neue Receipts und ist nun unabhängig geprüft. Task51 bleibt mit erhaltenen
-Tests vorerst pausiert und bearbeitet nach Task53 den echten Consumer.
+Tests erhalten und bearbeitet nach Task53 den echten Consumer. Task54 ist als
+durchgehender kleiner Corpus-/Source-/Consumervergleich vorbereitet, noch nicht
+implementiert. Native Speicher-/CPU-Werte sind durch424 lokale Tests nicht belegt.
 Diese Datenkette, die vollständigen Größenprofile und B sind noch nicht fertig.
 Keine C-Produktivaufrufroute, kein main-Push oder Appdeployment daraus ableiten.
 

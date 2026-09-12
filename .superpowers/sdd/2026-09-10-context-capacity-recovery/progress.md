@@ -29,6 +29,53 @@ Current interface check: History resolver feeds prefix/events and chosen-row
 Tennis staging; canonical full-byte digest/counts must not become locator
 digests/counts. Backend format changes are separate from semantic versions.
 
+Repair push subsequently completed: 0a9ba295514cbc5385f8017573101bef833fa77b
+fresh ls-remote confirms it; GitHub main remains2dd1116b68f3d94e9c24338c6c9dff9b01799221.
+Task53 sole writer /root/c_large_row_fix (base product a52, docs-only0a9 later).
+Read-only VPS baseline refresh2026-09-12T14:23:54Z: actual270233600B, owner0:987,
+mode440, inode2049:2137436; SHA73ec16911c7d66e894a0f92c6600e3486e34b57c4176b30938638d3669146ffa unchanged.
+Actual counters100553contents/receipts,31snapshots,33artifacts (31originals+
+2tourstates); receipt clocks2026-09-10T09:59:08.864565Z..2026-09-11T23:07:34.262393Z.
+ATP42099/WTA54819/football3635 raw receipts remain present. This metadata read
+is not full raw/semantic revalidation. Free14131765248B; existing older QA tree
+7467720102 apparent bytes and successful native seal207449438 apparent bytes.
+Those are observed occupation, not new-C quota admission or physical peaks.
+No deletion/upload/app mutation. First metadata command failed in the local
+PowerShell parser before SSH; corrected read-only stdin script then exited0.
+
+Task53 first combined freeze07 not complete:422pass/1failed in475.32s. Only
+failure is old65536 FULL fixture now fitting; two warnings include actual
+generator teardown and xunit2 record_property. Root parsed fresh423/1/0/0 XML.
+Ruling: preserve small bounded chosen payloads inline, large values use bound
+History references — all-reference staging is optional and measured paired/
+summation tests are about4x slower than retained prechange runs — verify the
+specific work-path change with focused byte-correct tests, no cap/math/source
+relaxation or speculative native claim. Full details in task-53-brief.md.
+Task51 /root/c_snapshot_review resumed for read-only preparation only, not a
+second writer. Existing Task53 author owns this pre-review correction.
+
+Task53 final local freeze d787db43170ad2296a02640cdf6091db1f533f4a:
+424 passed / 0 failures/errors/skips and no warnings in201.11s. Root freshly
+verified all four product/test SHA values and final XML60f081ba2e96af6abd26355fba1b8be780808c2d29e05cc557e4839ec8b82c8a.
+The genuine ref-generator teardown RED is fixed. Final mixed staging preserves
+the unchanged65536 FULL assertion; no per-value cap or source/math change.
+Paired/summation actual final1.799/24.118s, not native budget admission.
+Author relinquished writer. Focused code/brief/report committed, not yet pushed;
+independent review /root/c_large_row_review active, basea52b4b7..d787db4.
+Complete package132011B SHA13446daf3e481aa4a917fe6bda1ef9c98df383d05a08315561fda8f2530b726d.
+Generator's cosmetic wc/tr size print failed; real package bytes/EOF checked,
+not regenerated. Task51 remains prepared and paused until this review closes.
+Task54 read-only integration preflight exists, no new producer route yet.
+
+Task53 independent review COMPLETE: Spec compliant / quality Approved; no
+Critical/Important/Minor scoped changes. Root read the complete report and
+verified SHAc60a333081da0762bb79fcd79f71de5b88a4035b19985f197894b8996e5a76e3.
+Reviewer checked full diff and actual retained XML, no redundant test rerun.
+Large old values remain a native allocation gate, not a new per-row exclusion.
+Reviewed product d787db4; documentation checkpoint and repair-branch push next.
+Task51 will then be activated as sole writer with the unchanged approved brief;
+Task54 remains prepared only and must rebind Task51's final reviewed API.
+
 Account continuation verified against files and Git: a0c949e contains the
 reviewed Task44/49 append; now pushed to the repair branch and independently
 confirmed by fresh ls-remote, main remains2dd1116. Fresh account-resume checks
