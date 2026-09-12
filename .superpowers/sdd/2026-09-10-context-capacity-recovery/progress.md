@@ -272,6 +272,55 @@ archive/catalogue/launcher/guarded/terminal evidence remains Root's next action,
 not implied by the30 portable passes. MinorM1 remains deferred. Sourceba9c88f
 is now independently reviewed; metadata checkpoint and fresh repair push follow.
 
+Checkpoint48425b6be1801062cc2d796777211b8785dcac92 is pushed and freshly
+ls-remote matched. Reviewedba9c88f archive/catalogue/stdin were regenerated,
+verified and actually used on the VPS. First guarded runba9c88f-02 FAILED:
+ATP exit125/unplanned Python file read; WTA never launched. Actual parent
+terminal40.38wall/28.34user/6.84system seconds, no native pass. Full300CPU
+reservation remains stopped/unmeasured in the original root journal. Detailed
+pins, input/copy equality and actual no-remaining-UID65534 readback are in
+task-57-native-preparation.md and its retained compressed raw evidence.
+Postflight actual app/Caddy/health/seven timers unchanged, production2dd1116;
+the known failed daily Tennis service is not fixed or reset.
+Task57 follow-up fix round3 ACTIVE, dispatchBASE48425b6 / FIX_BASEba9c88f,
+same sole writer/root index contract. Real local isolated pytest import with
+the unchanged audit hook reproduces rejection of its initial .pyc cache probe;
+the native stderr did not identify the exact rejected path. Ruling: deny the
+precise cache probe for an admitted source as FileNotFoundError for normal
+source fallback, never admit bytecode or widen whole paths — reviewed source
+must execute, -B does not prevent cache reads — wrong ruling costs retained
+failed QA, not relaxed input authority. Actual-import/unknown-file RED/GREEN,
+independent scoped review and fresh preparation precede any new native run.
+No full C/B/restore/main/VPS application completion claim.
+
+Task57 FIX3 author refrozen and writer returned: worker584f90ba46e3c2895eb5ea6bbca67956c407da45e37473d5314dcb4e0f83573d,
+test37b9135da0050ded6d9f5ce74c26486ff27a74e4b9b606eeba7fed40532dca5c;
+parent/catalogue unchanged. Root read the complete new report appendix and
+independently parsed final32/0/0/0 in7.707s XML
+e1eeb552854c3b065bede760e8ee820645599ef5b824afc985e257de7a3b9115.
+Report47ebf15f9cfef37ff8a2db2f371918ae92c33eacd517c14c663302ea0335fb98
+also records an incomplete separately requested local full-route catalogue
+attempt: no result/workspace, owning session manually stopped, its two PIDs
+confirmed absent; no route/native-success claim and no source change afterward.
+Exact three-file FIX3 commit97e3bb64cfc4c0e81f4d55262db2de1b613760b6 exists
+locally. Scoped reviewer /root/c_native_chain_fix1_review resumed, previous
+reviewbaseba9c88f..97e3bb6 package247084bytes SHA
+8b7201e132ad1c489e3da1b7e51c3bdf3abf7d8794fd164cb90fca9d58215dc5.
+New local-only immutable candidate archive9236480bytes SHA
+1aca4741b3dc21767da361784c21445694a38f3b87c75da3bd05ec7a08b0f465,
+440 tracked non-hidden Python members. No new upload/native invocation yet.
+
+Task 57: fix round3/5 (cache-probe finding addressed,0 open Important;
+commitsba9c88f..97e3bb6). Scoped review8317f74a9e8923306c6af95af60679e0efb8684d5b270f83bc36937b29495b16
+fully read/hash-checked by Root: SPEC COMPLIANT / QUALITY APPROVED, no new
+Critical/Important breakage. This proves the local reproduced mechanism, not
+the exact unknown pathname of the original native failure. That stronger
+path-level claim remains unavailable in the original stderr. Both frozen
+C/B spec hashes freshly match. Root independently validated every archive
+member and the final worker hash; code total8882016bytes. Next: preserve the
+review/native failure/raw gzip/handoff, push repair, actual new catalogue and
+fresh guarded job. No current app/main deployment or full C/B completion.
+
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
 Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,

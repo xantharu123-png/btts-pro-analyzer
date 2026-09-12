@@ -2,6 +2,21 @@
 
 ## Aktuell 12. September 2026 — C freigegeben, verlustfreier Speicherumbau läuft
 
+Neuester Nachtrag19:03UTC: Reparaturbranch48425b6 ist gepusht; der erste echte
+isolierte Task57-VPS-Kettenlauf ist NICHT bestanden. ATP brach beim Import mit
+`unplanned Python file read` ab, WTA wurde nicht gestartet. Alle Dateien und
+die vollständige300CPU-Reservierung bleiben erhalten; kein Testprozess läuft
+weiter. Reale alte/neue Quellkopien wurden bytegenau unverändert nachgeprüft.
+Lokal ist der Auslöser reproduziert: Python sucht trotz `-B` zuerst eine
+Bytecode-Cachedatei. Der enge Quellcode-Fallback ist als97e3bb6 lokal committed,
+mit32 bestandenen Tests und unabhängigem Review freigegeben; kein Bytecode
+oder ganzer Ordner wird freigegeben. Ein zusätzlicher lokaler Gesamttest kam
+nicht bis zur Ausführung; neuer nativer Lauf fehlt noch. Details und Rohbelege:
+`.superpowers/sdd/2026-09-10-context-capacity-recovery/task-57-native-preparation.md`.
+App/main bleiben2dd1116, App/Caddy und beide Healthchecks funktionieren,
+sieben Timer sind geplant; der separate tägliche Tennisfehler bleibt offen.
+Die folgenden älteren Fortschritte sind Baustein-Nachweise, kein Gesamtabschluss.
+
 Neuester unabhängig geprüfter Code-Commit:
 `4d538203d2b50c61b6dfba9e7681b7e0061e9f56`, auf dem Reparaturbranch gepusht
 und frisch mit GitHub abgeglichen. Main bleibt `2dd1116`, kein Appdeployment.
