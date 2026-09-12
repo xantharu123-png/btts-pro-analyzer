@@ -119,6 +119,22 @@ not a native filesystem quota. Do not claim the full growth writer envelope.
 
 ## Verification and handoff
 
+Bootstrap ruling: do not assume new protected sibling scripts already exist
+on the VPS or run an earlier uncharged root sealer. The read-only catalogue
+launcher emits fixed stdin bytes containing only the reviewed parent,
+catalogue and three helper members from the pinned archive. Root must verify
+and record the emitted stdin SHA and archive SHA before the fresh clean
+env-i / python3 -I -S -B invocation. Bind the actually executed held member
+bytes to that same archive/manifest; reject substitution, mismatched pins and
+mutable-path replacement, with no arbitrary module/path/exec fallback. Initial
+ordinary-user-owned archive/manifest are DATA through no-follow held FDs,
+never executable paths. This same parent creates and binds the exact fresh
+job directory under the existing protected/searchable parent, records the
+durable300CPU reservation before copies/children, and charges all new bootstrap,
+directory, launcher/control, copy/seal and terminal-custody costs. Include the
+real first-launch procedure and focused no-pre-reservation-copy/child tests.
+Read-only inventory or emitted launcher bytes are not native or B acceptance.
+
 Add focused RED/GREEN protocol/manifest tests: exact catalogue completion and
 rejection, bounded copy failures/retention, fixed cases/CLI, resource-plan sums,
 guard-before-product ordering, output parsing, changed inputs, late-close
