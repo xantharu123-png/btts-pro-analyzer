@@ -39,10 +39,22 @@ Belege, vollständige Rohdaten/Analysebytes und Rücklesen nach dem Speichern.
 Finale lokale Läufe:5 neue Tests sowie34 gezielt gekoppelte Tests bestanden.
 Ein kleiner fehlender Testvergleich des neuen Original-Zeitstempels ist als
 Task54-M1 dokumentiert; kein Produktfehler nachgewiesen. Der Reportanspruch
-wird entsprechend präzisiert. Push dieses neuen Standes steht noch bevor.
-Task57 bereitet den tatsächlichen isolierten nativen Kettenlauf vor; Task56
-und die neue Paketnamenaufnahme sind nur lesende Vorbereitung. Ein echter
-nativer Kettenlauf fehlt noch.
+wurde entsprechend präzisiert. Code samt Review/Übergabe ist als `ca663ec`
+gepusht und frisch remote abgeglichen; main unverändert `2dd1116`.
+Task57 ist als Prüftreiber abgeschlossen:eddc926 lokal committed,28 Tests
+bestanden in10,123s; beide wichtigen Reviewbefunde behoben und unabhängig
+nachgeprüft. Tatsächliche Originalbelegung wird erfasst, ein Start ohne vorherige
+Reservierung ist abgesichert. Ein plattformspezifischer Testhinweis bleibt für
+die abschließende Linux-Prüfung dokumentiert. Das ist noch kein nativer Erfolg.
+Der geprüfte Stand wird jetzt separat auf dem Reparaturbranch gesichert;
+erst danach folgen tatsächliche Paketaufnahme und isolierter VPS-Kettenlauf.
+Task56 und die bisherigen Paketnamenaufnahmen sind nur lesende Vorbereitung.
+Der neue Treiber hält die genau geprüften Startbytes selbst; derselbe begrenzte
+Prozess verbucht Kopie, Isolation und beide Testläufe, ohne versteckte
+Vorinstallation. App/main werden dadurch nicht verändert.
+Aktueller rein lesender VPS-Check17:49UTC:weiterhin2dd1116, App/Caddy aktiv,
+interner Healthcheck ok, sieben nächste Timertermine, keine Test-UID-Prozesse.
+Der bekannte tägliche Tennisdienst bleibt fehlgeschlagen und ist nicht behoben.
 VPS-Platzaufnahme16:16UTC:14125256704Bytes frei, keine Ressourcenabnahme.
 Native Speicher-/CPU-Werte sind durch lokale Tests nicht belegt.
 Der kleine lokale Kettenvergleich ist abgeschlossen. Native Kette, vollständige

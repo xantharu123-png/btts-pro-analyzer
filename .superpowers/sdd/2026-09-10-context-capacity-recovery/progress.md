@@ -76,6 +76,166 @@ not a raised C gate or production change. Final detailed interface/pins and
 catalogue still depend on Task54 review and Task57's separate implementation
 and independent review. No B runtime-closure, global-cost or native quota claim.
 
+Checkpointca663ec16d9df53b5e90efd3fafdb324be4a1362 (including approvedcac8db7
+and exact review/M1 correction/native brief) is now pushed and freshly matched
+by ls-remote; main still2dd1116b68f3d94e9c24338c6c9dff9b01799221.
+Task57 ACTIVE from BASEca663ec16d9df53b5e90efd3fafdb324be4a1362, sole
+implementation writer /root/c_native_chain_harness. New harness/tests/report
+only; actual native upload/run follows separate independent review. No app
+change and no product/Task54 edit are authorized for this writer.
+The author declared exactly tests/native_context_chain_catalogue.py,
+tests/native_context_chain.py, tests/native_context_chain_worker.py,
+tests/test_native_context_chain.py and task-57-report.md before edits.
+Task57 Ruling: pinned reviewed stdlib catalogue may execute via a non-retained
+runpy namespace, preserving the unchanged supervisor's exact stdlib/three-helper
+module whitelist. Actual executed bytes/path must remain bound, not a hash-then-
+runpy race on writable source. Why: no new whitelist or product import in the
+root parent; cost if wrong is a stopped diagnostic or a review-blocking custody
+defect, never implied launch permission.
+Task57 Ruling: worker-local observation wrapping of real
+WorkspaceBudget.check_quiescent is allowed because Task54 has no intermediate
+callback API. Call actual owner first, sample only at completed quiescent
+boundaries, return the identical observation unchanged and propagate sampling/
+cleanup errors. Setup/C/retries and all measurement I/O/CPU stay charged.
+Why: obtain actual native intermediate observations without changing Task54 or
+faking a validator; cost if wrong is a retained failed diagnostic/additional
+overhead, not weakened C limits or a native quota claim.
+Task57 Ruling: an actual UnreapedChild uses the existing explicit stopped-
+custody exception: retain the same PID/pidfd, disable only this parent's wall
+alarm before fallible stop/report I/O can unwind ownership, keep the already
+durable full reservation charged even if later I/O fails, then SIGSTOP until
+explicit operator resume permits same-child kill/wait4. No next case/retry or
+600s-completed/success claim. Normal deadlines and CPU/AS/FSIZE stay unchanged.
+Why: a timer must not discard custody of a still-unreaped owned child; cost if
+wrong is operator intervention on a stopped isolated diagnostic. Focused
+protocol tests only; no deliberately stranded real VPS child is authorized.
+
+Task57 Ruling: no new preinstalled root-owned bootstrap is assumed. A read-only
+catalogue launcher emits one fixed stdin program containing only the exact
+reviewed parent, catalogue and three helper members from the pinned archive.
+Root verifies and records those stdin bytes and archive SHA before execution.
+The fresh env-i / python3 -I -S -B parent binds its actually executed held
+members to that same archive/manifest; no arbitrary module/path or exec fallback.
+Initial ordinary-user-owned archive/manifest are data only, admitted through
+held no-follow FDs with full identity, size, namespace and hash checks. They
+are never executed from mutable paths. That same clean parent creates/binds
+the exact fresh job directory and durably reserves300CPU before any new copies
+or child, including all bootstrap, directory, copy/seal and control costs.
+Why: the former protected-sibling assumption could not bootstrap on the VPS
+without an unmeasured new root install. Cost if wrong is a review-blocking
+launch/custody defect, not permission to copy code outside the charged job.
+Focused tests bind byte/pin mismatch, member substitution, mutable-path change
+and no pre-reservation copy/child. Inventory/launcher generation alone is not
+native C or B acceptance. The author's26-pass local freeze is pending Root
+evidence verification and independent full harness review; no native run yet.
+
+Task57 author has frozen/relinquished implementation. Root fully read all four
+new source/test files and the full report; final local XML freshly parsed:
+26passed,0failures/errors/skips,12.054s, no nonempty stderr,
+SHA27d18ae6671de17200843423567765749bed4e8a5df686f034f3d01b85326559.
+Parent6d02567951b0b7612e620960eb4754e7793c11df289cb0826187ef7d081d6c2a;
+catalogue946cabc787dc1b57904c6931fde3b191278b072525122e5e01a40156f832227c;
+workeree08091b3aec6e9a579e9fe3811392854198fe676bacdcae786dcb1217f5f302;
+testd5f5643177c1bee89bf048292fe7da6d8ce4b53fed1538a2fa41ba1f4f967527.
+All eleven retained XML runs were parsed; the earlier08 freeze preceded final
+protocol/parser test refinements and is not the final-byte result. Root asked
+only for report precision: remove a whitespace typo from a historical XML
+hash, and exclude hidden tracked diagnostic Python from the explicit archive
+export (the closed catalogue correctly rejects hidden paths). No code change
+or repeat test requested. Independent review and actual native chain pending.
+Those two report-only corrections are now frozen with report
+cd197b23d0480c1fd175a28314058a2b7f32c915027208c9a87f2d0152928851,
+fully checked by Root; code/test pins unchanged. Task57 candidate85294fdf9f94ee55dd66984ddfdc7f741badc6e9
+is locally committed, not pushed or approved. Full review package from dispatch
+BASEca663 includes all six files/1836 insertions,103104bytes,
+SHA928faf2dd63824273e6edbbfb05ac23550a0a2c23434afa3ff091205d752f99c.
+Independent /root/c_native_chain_review ACTIVE, exact task review only. No new
+implementation writer or native execution. Root prepared but did not upload
+the immutable local candidate archive task57-candidate-85294fd-python.tar:
+9216000bytes, SHA4ba8f06a2c9edbf19588f528a79b1c713447bc26bdfc4033421112c117d52a49.
+Actual tar file list exactly equals440 non-hidden tracked Python paths, no
+duplicate/non-Python/hidden path;10 hidden diagnostic paths excluded. All three
+harness sources and the real Task54 acceptance source are present. This is
+local packaging only, not the native member inventory or runtime admission.
+Task57 Ruling during independent review: actual logical AND allocated admission
+must also cover the held original archive/dependency inputs and their metadata/
+manifest, not just new workspace copies. The brief explicitly keeps both sides
+active; unobserved original allocation cannot be assumed inside metadata slack.
+Why: the4GiB small-diagnostic active-input check must count the actual admitted
+inputs. Cost if wrong: a scoped accounting correction/review, not an increased
+cap or a native-quota/B claim. Reviewer is assessing the concrete gap normally;
+no final verdict or implementation dispatch follows from the question alone.
+Fresh separate read-only VPS health at2026-09-12T17:49:48Z confirms actual
+production HEAD2dd1116b68f3d94e9c24338c6c9dff9b01799221, app/Caddy active,
+internal HTTP health ok, all seven timers with scheduled next runs, and no
+UID65534 processes. Known betboy-tennis.service remains failed; it was not
+cleared or labelled fixed. No inventory/tooling upload/native execution or
+production/service/timer/data mutation occurred during this health read.
+
+Task57 independent review82e9243c1a461b09c327cf65a156a4ec67c0b29754e2f9bdf135cd8a335efec4
+fully read/hash-checked by Root: SPEC issues found / QUALITY needs fixes.
+I1 Important: original active archive/dependency/manifest allocations and
+metadata unmeasured, despite logical copies/continuity checks. I2 Important:
+required no-pre-reservation-child orchestration regression missing. Both are
+accepted task gaps. Task57 fix round1/5 ACTIVE, FIX_BASE85294fdf9f94ee55dd66984ddfdc7f741badc6e9,
+original /root/c_native_chain_harness resumed as sole implementation writer;
+same five owned files and tests/test_native_context_chain.py covering scope.
+No native transfer/run until scoped correction review. Root resolves the
+review's cannot-verify native catalogue/terminal/closure/globalC/B/restore/main
+items as genuinely still-open later gates, not missing supplied local evidence.
+Task 57: minor (deferred): reviewM1, replacement test currently patches only
+Windows Path.lstat and will not trigger Linux dir_fd/os.stat branch. Final
+Linux protocol validation must scope/provide the actual corresponding seam;
+no reader defect or native success inferred from the Windows-only fixture.
+Task57 fix1 Ruling: unchanged caps mean the binding4GiB active-input,8GiB
+new-work and all CPU/wall/AS/RSS/output/attempt caps, not preservation of an
+incomplete derived active_input_ceiling formula. Recompute that derived
+ceiling from the corrected explicit original-input plan if needed within the
+same fixed limits. Preserve full simultaneous original+future-new reservations;
+do not borrow unused future slots or double-spend metadata allowance. Named
+allocation slots still require actual logical/allocated/identity measurements.
+Why: locking the erroneous formula would obscure the missing occupation rather
+than correct admission. Cost if wrong: scoped resource-plan rework; no increased
+spec limit, native filesystem quota or full-growth acceptance is authorized.
+Task57 fix1 author reports implementation complete; Root freshly parsed the
+actual final owned-module XML28/0/0/0 in10.123s,
+SHAbb6965f51d1c6bae4d901a85c39208be1f5e49c66f23b6f9ac45f3b84bf8deab.
+Current parent0f40b25aa928c12387f5faf11424044445114b08a23aad8e1c9dfb6e53356d19;
+catalogue85348268e86765b34aa71206c6e1904053bc0e91c4659ecf163b1d901a1d4aff;
+teste754ca1fc7780913a0a0c434714304147e5f7cbd3ec7d2ed7f0c09d1c020bec7;
+worker remains unchangedee08091b3aec6e9a579e9fe3811392854198fe676bacdcae786dcb1217f5f302.
+I1 missing admission RED retained; I2 existing-correct regression initially
+passed, and a separate temporary omitted-admit mutation genuinely failed before
+restoration/final GREEN. Report appendix/freeze and scoped re-review still
+pending; no native run, no claim either Important is independently closed yet.
+Fix1 report appendix is now fully read and hash-checked1638524087c7930206eac4bc9bd0c8837ea226249add80cbce1e39d7d7445ea9;
+sole writer returned. Fix committed locally aseddc926d22f8266d8d3d3baba6a26d7b55b1f3ad,
+4files356insert15delete, not pushed. Scoped review /root/c_native_chain_fix1_review
+ACTIVE against previous reviewed HEAD85294fd only; package43815bytes,
+SHA59e3bac49e834a0b84b3c9179a96abfb4fc491653d1480a1673281656af74bea.
+New local candidate archive task57-candidate-eddc926-python.tar9226240bytes,
+SHA60d01a0a875e2fe258f803dc6b877a5ed957591d003f6e56ea28339a1fa3eae9,
+actual exact440 non-hidden tracked Python members/no duplicates. Old85294fd
+archive retained and not reused. Neither candidate has been uploaded or run;
+native catalogue/admission follow an approved scoped review only.
+Task 57: fix round1/5 (2 addressed,0 open Important; commits85294fd..eddc926).
+Scoped reviewf34b8dcd35c848db9f554f067b0358b492d76296eba40ce617f3b83080c873ea
+fully read/hash-checked by Root: I1/I2 addressed, no new Critical/Important
+breakage. The reported unchanged Minor/native/global items remain explicitly
+deferred later gates; none is silently marked accepted.
+Task 57: complete (commitsca663ec..eddc926, harness review clean after fix1,
+one deferred platform-fixture Minor). This closes harness implementation only.
+Root now owns immutable archive/copy-only upload, actual read-only native member
+inventory, exact reviewed stdin and the separate guarded small native run with
+external terminal/custody observations. No main or app deployment follows from
+Task57 completion. Final source remainseddc926; controller review/ledger files
+are to be checkpointed/pushed separately. All failed/candidate artifacts stay.
+Controller evidence staging check stopped on the two exact generated.diff
+packages: their required unified-diff blank context markers contain one space.
+Those reviewed/hash-bound evidence bytes are preserved, not reformatted. Source
+commits passed their own whitespace checks; the metadata checkpoint checks the
+four Markdown/handoff files separately and verifies both archive hashes.
+
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
 Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,
