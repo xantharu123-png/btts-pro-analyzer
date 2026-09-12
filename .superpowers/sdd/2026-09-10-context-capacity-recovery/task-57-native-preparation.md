@@ -456,3 +456,69 @@ checks remain. This independent stdlib-only readback has CPU45/AS2GiB/wall90
 bounds and local nonterminal detection; its49-statement AST parsed locally.
 It observes terminal state; it does not reconstruct historical custody or
 prove transitive B closure. Actual inventory/upload/stdin/native results follow.
+
+## Actual fourth guarded runbc6305c-05 — second timezone reader
+
+Review checkpointb38432c28686a399d19ac9680f017f2fcf5b6c00 pushed and freshly
+matched; main2dd1116 unchanged. Archive9277440bytes uploaded/hash-matched at
+`/tmp/betboy-context-qa.9xr68INa/task57-bc6305c-05.tar`, SHA
+4f2e84b9958619d77885285354946d65a9a0149e78a78567b2a8401b6cdb0328.
+Actual normal-user inventory exit0/3735ms/stderr0 yields679868bytes SHA
+0a7002d1362dd989dbc7743f49844c4a6a57e141cfd56ac818bb74bc09e6f6e6,
+440code/8921196bytes,4540dependencies/217788209bytes, exact2timezone2023bytes.
+Plan total635496324/active1015531396, original logical235456280/allocated245817344,
+unchanged134217728original metadata and fixed diagnostic limits. Runtime pins
+remain unchanged. Actual local launcher exit0/339ms/stderr0 yields142764bytes
+SHA64e5f89560a9e91db123bd2b7cd7a23665e60c56968c98ceac6d63d38ad3bdd2.
+Root AST-checked2statements, five exact immutable source members/helper pins
+and full bootstrap reconstruction. Uploaded catalogue hash matches.
+20:52:17UTC last preflight verifies archive/catalogue/runtime/exact2timezone
+source hashes, freshjobabsence/noUID65534PID/free13312925696bytes.
+
+```text
+umask 022; exec sudo -n /usr/bin/time -f "TASK57_TIME exit=%x wall=%e user=%U system=%S maxrss_kib=%M" env -i PATH=/usr/bin:/bin LANG=C.UTF-8 /usr/bin/python3 -I -S -B - --manifest /tmp/betboy-context-qa.9xr68INa/task57-bc6305c-05-catalogue.json --manifest-sha256 0a7002d1362dd989dbc7743f49844c4a6a57e141cfd56ac818bb74bc09e6f6e6 --archive /tmp/betboy-context-qa.9xr68INa/task57-bc6305c-05.tar --directory /var/lib/betboy-context-chain-task57-bc6305c-05 --commit bc6305c272dec2da6e917ff362d16ce70c6cc167 --launcher-sha256 64e5f89560a9e91db123bd2b7cd7a23665e60c56968c98ceac6d63d38ad3bdd2
+```
+
+Terminal actualSSHexit1/local32668ms. GNUtime exit1/wall31.88/user22.71/
+system5.21/maxRSS132184KiB. stdout0; stderr579bytes SHA
+c421497be49f58d65f5c1ed0e5981855be9813df9a0e2ee6484da518dca4e570.
+Parent correctly refused nonzero child; no success report or WTA launch.
+ATP-output1285bytes SHA9ec913d70059ec96d5cef877ec3813003eada922cbd17cc2ac1a5f64853e4057:
+exit125/nonzero_exit, CPU3063563000ns/wall3122473382ns/RSS135356416,
+supervisor24888773ns, maxgap51507201ns/minfree13060911104. KernelUID/GID65534,
+PID224724/CPU90/FSIZE4194304/one seccomp/initialRSS60690432. Exact364outputbytes
+SHA090c69cf50f2d87b02028d8b1d60dbb54a97bbdba2e90389a1e320b0b0feed99:
+ChainError unplanned timezone data read, open `/usr/share/zoneinfo/UTC`,
+flags524288, pathSHAc53fc1bf542fbbb1244e33b6ce647c4c05e4cdf1d08542c7c898c852d3f2b223,
+untruncated. All3private attempts empty; no Task54 setup took place.
+
+Full independent readback-v2 at20:54:39UTC exit0/stderr0 verifies all440code
+and4540dependency member bytes/hashes/root:root0444 plus both exact timezone
+originalsroot0644/copiesroot0444 and all3readonly0555 data directories. Source/
+copy identities stable during each read, exact membership, noUID65534process.
+Job4988files/476dirs,240745776logical/252014592allocated/free13060870144.
+Actual journal1751bytes/root0600:
+`b764d67226dfba5ab97281d19a7ef903b542f810e4b212591d772c3f63ad488f.jsonl`,
+SHAa8ea64899f6ddf85803dbee903df4f4758eae0c567d4755f9b44b590b46e9d94,
+init/reserve300CPU/stop-unmeasured; no refund/settlement. Plan2099607bytes
+SHA02e05830879d43822bf7aae3c9567f0a71f4b841ad6a281589d4153feaa8e176;
+failure125bytes SHA8dfe0443b4a40511eaf94e7dae9f5529eb5dd8347ad6661e4fe964916968ea38.
+Raw2207195bytes SHA1ac5efbf7da049e9c6a4b5ece571d65ac163d244fdc4dd5df22988dbad306c82;
+exactgzip204860bytes SHAa57ed0ffc4054bdf1680c811fd1b707da1db9b1522b3da5e5eccd972dc562504,
+Root decoded and matched. All four Task57charges1200CPU-s plus Task50's270
+remain1470 conservative diagnostic CPU-s; not protected global-C/B accounting.
+
+Bounded read-only actual Pandas import diagnosis20:58:42UTC now proves a
+different reader: compiled pandas/_libs/tslibs/timezones.pyx:43 calls actual
+dateutil.gettz (tz.py1557/1640/464), which opens original systemUTC despite the
+real sealed worker ZoneInfo binding. No product tests executed, no writes,
+normalUID1000, CPU15/AS2GiB/wall25, exit0 with expected denial/0.632462640CPU-s.
+Script SHA50bfe280658c57c95e3528909c917cfb8b8da0ec1f0bca9f7846eeaa75c1c216,
+resultSHAbf49a28b4b6eda232da27fc0bc7b4e6d9968235bf87b8166f07be6f408b067a7,
+both retained/versioned under evidence. No values/locals/secret data printed;
+only bounded filenames/functions/line numbers and actual file denial.
+Native catalogue dateutil/tz/tz.py62855bytes SHA
+1149c474c7de4e15e263a978b21f7205a6d9eb7fcf3b3cb4d734ac87db619f5a
+matches Root's actually read local source. Existing TZPATHS/TZFILES/cache and
+bundled-zone fallback explain the gap. Breaker ruling/Task58 contract are in
+the ledger and owning plan. No fifth blind retry, Task57fix6 or native-pass claim.

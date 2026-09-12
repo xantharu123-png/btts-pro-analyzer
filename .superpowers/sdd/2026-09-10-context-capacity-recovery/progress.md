@@ -473,6 +473,49 @@ Root decoded and matched the original full ee00c748 package. Raw local package
 is retained, not recursively versioned or deleted. Actual Task57 acceptance
 still awaits terminal/custody/full readback of the next isolated native run.
 
+Actual fourth Task57 runbc6305c-05 FAILED at31.88wall/27.92CPU seconds,
+SSHexit1; no Task54 setup, WTA or acceptance report. All four retained Task57
+300CPU reservations =1200CPU-s plus Task50's270 =1470 diagnostic CPU-s, no
+refund or global-C/B certificate. Full external v2 readback at20:54:39UTC
+verifies all440/4540 code/dependency members AND the2original/2copied timezone
+files, root modes/identities/hashes/exactreadonly directories; no UID65534 PID.
+The same system UTC read is denied, now by the explicit timezone rejection.
+Actual read-only20:58:42UTC diagnostic identifies Pandas' compiled timezone
+initializer -> dateutil.gettz -> original system UTC. It uses the real sealed
+worker audit/ZoneInfo binding and only imports Pandas under normalUID1000,
+CPU15/AS2GiB/wall25; exit0 reports expected denial/0.632462640CPU-s, not native
+acceptance. Exact script/result retained in evidence; full native readback
+gzip204860bytes SHAa57ed0ffc4054bdf1680c811fd1b707da1db9b1522b3da5e5eccd972dc562504
+decodes to2207195bytes SHA1ac5efbf7da049e9c6a4b5ece571d65ac163d244fdc4dd5df22988dbad306c82.
+
+Task57: Ruling: after the five-round cap, this actual second-reader omission
+is real and load-bearing — keep Task57 native acceptance OPEN and route the
+smallest dual-reader binding prerequisite into Task58, not a sixth allowlist
+round — the real Pandas/dateutil trace proves the required config boundary;
+cost if wrong is retained failed QA/rework, never a granted system path or
+relaxed budget. Source/dateutil bytes are native-hash matched. Its existing
+bundled-zone fallback is within generic dependency membership, so Task58 must
+explicitly close that data route too. Task58 contract appended to the owning
+plan; no product model, helper, parent/catalogue, frozen C/B spec or production
+change. Other Task57 local findings remain addressed; actual native readiness
+and full590553/199/199/114/globalC/B/restore/fullsuite/main/VPS remain open.
+
+Task58 preflight: extracted brief89lines SHA
+8da08ac0c77a03d995cce5cbf470c489155121335e71ca254f94f78aff4292ca,
+read completely by Root; same approved C/B scope, no new user decision.
+
+| Pair / task | Producer and consumer | Preflight finding / resolution |
+|---|---|---|
+| Task57/58 worker | reviewed two-file seal and exact audit -> real ZoneInfo/dateutil/Pandas imports | Existing ZoneInfo-only contract omitted actual second reader; configure its existing paths/cache after guard/audit and before product, deny bundled data, keep catalogue/parent fixed. |
+| Task54/58 | unchanged actual callable -> amended worker import prelude | No test/callable/data replacement or fixed-budget change; native acceptance still must be measured, not inferred from import success. |
+| Task58 internally | owned worker/tests -> real reader/path/cache/fallback tests | Exact owned files, native-hash source, observed trace and real timed subprocesses align; optional focused test module avoids unrelated refactoring. |
+
+Ruling: the old Task57 wording "before dependency imports" is refined only
+for guarded configuration of the already admitted dateutil dependency itself;
+both real readers must be bound before Pandas/product imports — a reader's
+existing module configuration requires loading that module — cost if wrong
+is stopped QA/rework, not permission for arbitrary pre-guard or parent imports.
+
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
 Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,
