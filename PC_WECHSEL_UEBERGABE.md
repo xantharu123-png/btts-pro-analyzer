@@ -2,16 +2,22 @@
 
 ## Aktuell 12. September 2026 — C freigegeben, verlustfreier Speicherumbau läuft
 
-Neuester Zwischenstand: Reparaturbranch `ce057a5d5f62395199113e8f9a9ffa0db5dc5f74`
+Neuester geprüfter Code-Commit: `a0c949e551f4305f5420647a328ed0045646daf4`
 gepusht und frisch bestätigt; main weiterhin `2dd1116`. Feste Rohkopie mit
 begrenztem Reader unabhängig geprüft (197 bestanden, zwei Windows-Skips).
-Die zweite isolierte VPS-Prozessdiagnose blieb rot: der Worker beendete sich
-korrekt, aber die eigene 50ms-Warteplanung verzögerte seinen Abschlusscheck.
-Enger Fix jetzt unabhängig geprüft, 437 kombinierte lokale Tests bestanden.
-Ein dritter nativer Nachtest steht noch aus. Beide bisherigen Diagnoseversuche
-bleiben vollständig erhalten und konservativ mit insgesamt180CPU-s belastet.
-Task46/47 enthalten genaue Bytes, Messungen und Grenzen. Task48 verbindet
-Kopie und echte neue Receipts; Task51 bearbeitet den echten Consumeranschluss.
+Der dritte isolierte VPS-Nachtest hat jetzt alle sechs Diagnosefälle bestanden:
+Exit0 und2,61s tatsächliche äußere Wallzeit. Der geprüfte enge Pollfix besteht
+zusätzlich437 kombinierte lokale Tests. Task50 enthält den vollständigen
+bytegleichen nativen Report samt eigener Reichweite; dessen unabhängiger
+Ergebnisabgleich bestätigt die Konsistenz, kein C-Gesamtpass.
+Die ersten beiden roten Versuche bleiben vollständig erhalten, alle drei
+Versuche konservativ mit insgesamt270CPU-s belastet. Neuer letzter VPS-Read:
+Apprevision `2dd1116`, App/Caddy aktiv, interner Healthcheck `ok`, keine
+Test-UID-Prozesse übrig. Der echte einzelne Receiptappend ist unabhängig
+geprüft (316 bestanden, keine Skips) und nach Accountwechsel gepusht/frisch
+remote bestätigt; nochmals136 gezielte Tests bestanden. Task48 verbindet Kopie
+und neue Receipts; der neu gestartete Autor arbeitet wieder. Task51 bleibt mit
+erhaltenen Tests vorerst pausiert und bearbeitet danach den echten Consumer.
 Diese Datenkette, die vollständigen Größenprofile und B sind noch nicht fertig.
 Keine C-Produktivaufrufroute, kein main-Push oder Appdeployment daraus ableiten.
 

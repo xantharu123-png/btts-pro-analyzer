@@ -5,17 +5,50 @@ User approved the one-time updater-only replacement with independent review, fre
 
 ## Current authority 12 September: C approved; bounded storage implementation
 
-Latest continuation: repair branch ce057a5d5f62395199113e8f9a9ffa0db5dc5f74
+Account continuation verified against files and Git: a0c949e contains the
+reviewed Task44/49 append; now pushed to the repair branch and independently
+confirmed by fresh ls-remote, main remains2dd1116. Fresh account-resume checks
+of both append test files:136pass/0skip in4.49s, retained XML
+.pytest_tmp/task49-account-resume-01.xml SHA256
+c7746b13df561089cb239ebdcdc2c2d8365e1644c940f299b4325774e3f70f10.
+Task50 actual native report and exact original JSON are now independently
+reconciled (task-50-result-independent-review.md): no material contradiction
+or scope overclaim. This checkpoint preserves those results; the reviewer did
+not repeat the native run or infer outer terminal measurements from JSON.
+Task48 and Task51 have inherited untracked WIP, not completed results.
+Ruling: reuse the existing worktree and tracked ledger without running the
+workspace script that overwrites .gitignore — all setup already exists and
+preserving inherited audit artifacts takes precedence; no runtime consequence.
+Ruling: resume Task48 as the only implementation writer, then Task51 — serial
+SDD implementation avoids cross-task edits; it may delay the second task.
+Task48 requirements are consolidated in task-48-brief.md; Root retains index
+ownership and independent reviews remain required before task completion.
+Task51 requirements are consolidated in task-51-brief.md, not dispatched yet.
+Actual inherited tests still set SQLITE_LIMIT_LENGTH to the block size; this
+contradicts the already rejected per-value cap and is explicitly routed back
+to that task, without editing its files under the paused implementer.
+
+| Continuation interface | Producer -> consumer | Fresh check / required action |
+| --- | --- | --- |
+| 44/48 | Actual in-connection append -> full source-plus-additions corpus | Append committed/reviewed; Task48 still must prove exact membership and closure. |
+| 48/History | Closed observed corpus -> fresh held RO inventory/VerifiedReceiptMapping | A result descriptor is not permission; reopen and validate the entire real database. |
+| History/51 | Live exact HistoryView -> same-source state/native/predict/features | Existing tests bind actual source; no reconstruction from a path or synthetic state. |
+| 51/Snapshotparts | Real prepared Original and full refs -> caller-owned output | Same-call/canonical differential and savepoint checks remain required. |
+| 48/48 | Main+ledger caps and exact row identity | Same-count replacement/INT64_MAX/close-reopen checks remain within existing task. |
+| 51/51 | Existing JSON admission vs new block processing | Preserve existing per-value admission; remove only the inherited test's accidental new cap. |
+
+Previous continuation: repair branch6d7e2017e2d9d0f2fe29e385af3de83f4dae6dbe
 freshly remote-confirmed; main remains2dd1116. Task43/45 fixed-copy integration
-committed,197pass/2Windows-only skips. Native diagnostic2 used5a3a3af in a NEW
-seal /var/lib/betboy-native-probe-ncx37y3f: sealerexit0/9.56s, probeexit1/1.40s.
-Child actually exited0 with strict terminal RSS/CPU, but own50ms pending poll
-caused rss_observation_lost. Full report a0a60f17 retained; two attempts charged
-180CPU conservatively, all files retained. Task46/47 narrow5ms pending poll
-now independently reviewed;437 combined portable regressions pass. New native
-attempt3 still required. Task44 receipt operation235pass is frozen, Task49
-independent review in progress. Task48 actual copied-corpus/ledger owner and
-Task51 actual consumer bridge are scoped work, NOT complete global C/B.
+committed,197pass/2Windows-only skips. Task46/47 narrow5ms pending poll reviewed
+and437 combined portable regressions pass. Native attempt3 now SIX cases pass:
+NEW seal /var/lib/betboy-native-probe-wu61odle, sealerexit0/9.82s, actual
+probeexit0/2.61s, full raw15789B report b27bbcde retained in Task50 evidence.
+Old attempts1/2 remain RED, all three attempts/artifacts charged270CPU
+conservatively. This is diagnostic-only, not DELETE/FULL/C-corpus/B approval.
+Fresh postflight: app2dd1116/app+Caddyactive/internalhealthok, no testUIDprocess.
+Task44/49 receipt operation independently reviewed316pass/0skip. Task48 actual
+copied-corpus/ledger owner and Task51 actual consumer bridge are scoped work,
+NOT complete global C/B. Do not shrink accepted input values to block size.
 
 Latest explicit "ja" approves C specification08f296bfd0b7c43e4934367ec2533f29464b28f9dc7d2ada218ea194ae4645ba.
 B498e63c5 remains approved. No repeated authority question. Frozen older decision
