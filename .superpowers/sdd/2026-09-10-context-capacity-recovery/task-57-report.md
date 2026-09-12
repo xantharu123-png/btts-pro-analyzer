@@ -340,3 +340,167 @@ The five owned files are frozen. This writer explicitly relinquishes sole-writer
 authority to Root for metadata/Git packaging and independent review. There is
 no pending native execution, dependency operation, cleanup or out-of-scope edit
 from this writer.
+
+## Fix round 1/5 — I1 and I2 (supersedes the prior source freeze)
+
+FIX_BASE is `85294fdf9f94ee55dd66984ddfdc7f741badc6e9`. The independent review
+`task-57-independent-review.md` (SHA256
+`82e9243c1a461b09c327cf65a156a4ec67c0b29754e2f9bdf135cd8a335efec4`) was read,
+including both accepted Important findings verbatim. This correction changes
+only the owned catalogue, parent, focused tests, and this report. The owned
+worker remains byte-identical. Product, Task54, existing helpers and Root-owned
+metadata were not edited. No Git/index, server/native execution, network,
+dependency installation, cleanup or subagent operation was performed.
+
+### I1 — explicit original-input allocation and metadata
+
+The previous derived active ceiling omitted actual original allocation and
+the original manifest/metadata. It is replaced, not treated as evidence that
+the originals happened to fit a slack allowance. For archive logical bytes A,
+exported code logical bytes C, dependency file lengths d_i and D=sum(d_i):
+
+```text
+P(n) = 4096 * ceil(n / 4096)
+N = A + C + D + attempt_reservation + control_reservation + 128MiB
+OL = A + D + 8MiB
+OA = P(A) + sum(P(d_i)) + 8MiB
+OM = 128MiB
+derived active_input_ceiling = N + max(OL, OA) + OM
+```
+
+N is the unchanged complete new-work reservation, including all three retained
+attempts, controls, copies, and its own128MiB metadata/allocation slack. OL/OA
+are separate original file logical/allocated reservations, including the
+original manifest's bounded8MiB slot. OM is a separate original directory
+metadata reservation, never borrowed from new-work slack. The fixed4GiB
+active-input and8GiB new-work limits are unchanged; the derived plan must fit
+them. All CPU/wall/AS/RSS/output/attempt limits and full300CPU-s retained charge
+are unchanged. Per-file4096 rounding is an admission cap, not an assertion of
+real filesystem allocation: a larger actual allocation fails closed.
+
+Before creating the job/journal, the parent predeclares exact original file
+paths and relevant containing directories, including the dependency root and
+all ancestors of the archive, manifest and selected dependency files. Directory
+paths are deduplicated within this original-input plan. This bounds the active
+input namespace, not unrelated contents of an ancestor directory. The plan is
+bound into the budget installation identity. After the durable reservation and
+original input/hash admission, but before copying or any child, the parent
+samples original logical lengths and actual `st_blocks * 512` from the
+no-follow held descriptors. Missing allocation observations fail; there is no
+zero/fallback estimate. Full file identities are bound to the already held
+archive/manifest observations and admitted dependency identities; the held
+dependency-root identity is checked too. Root-directory descriptor handling
+was added so its relevant metadata can also be measured by the Linux path.
+
+The bounded `plan.json` now retains the original slots, initial per-file and
+directory observations, and identities alongside the unchanged new-work slots.
+The full evidence must fit its existing8MiB slot before it is written. No
+additional evidence slot or copy/child before reservation was introduced.
+
+At each existing pre/post-worker boundary, the parent repeats original file
+allocation and directory metadata observations, verifies original identities,
+and adds those actual totals to the actual new-workspace totals. The originals
+must independently fit `active_input_ceiling - N`, even while some new work has
+not yet been written: future slots cannot fund an original overrun. Existing
+original hashes/held-descriptor checks and copied-tree/output checks remain.
+The report includes original logical/allocated/metadata totals, the complete
+original observation digest, and simultaneous original+new totals per boundary.
+These scans' CPU/I/O remain measured work inside the same parent window.
+
+Directory identity continuity uses device/inode/mode; its actual size and block
+occupation are remeasured rather than assumed constant merely because an
+ancestor may legitimately change elsewhere. This remains bounded quiescent
+sampling, not a filesystem quota or transitive runtime/global-C/B proof.
+
+The I1 regression uses real temporary files/descriptors and explicit synthetic
+`st_blocks` values for portable protocol QA. It verifies original manifest and
+directory inclusion,4096 allocated versus3 logical bytes, an8192-byte allocation
+overrun of a4096 slot, original metadata overflow, original identity mismatch,
+the corrected formula, and rejection of an original active-ceiling overrun
+even when the new workspace is empty. It does not claim Linux allocation
+evidence or native guard execution.
+
+### I2 — admission-before-workspace/child regression
+
+The new focused test calls the actual `orchestrate` with a rejecting admission
+callback and forbidden workspace-open and supervisor-launch spies. The exact
+event sequence must be `recheck, admit`: no workspace opening, child, second
+case, retained output or custody action may occur. The existing implementation
+already had the correct ordering and required no lasting orchestration change.
+To verify the new regression's sensitivity, `admit()` was temporarily omitted
+using a scoped patch: the test genuinely failed at the forbidden workspace
+opening. That mutation was restored immediately, before final validation.
+
+### Fresh retained verification
+
+All commands below ran in the named worktree with these exact process settings:
+
+```powershell
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
+$env:PYTHONDONTWRITEBYTECODE='1'
+```
+
+```powershell
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -m pytest -q -p no:cacheprovider -o junit_family=xunit1 tests/test_native_context_chain.py -k 'test_i1 or test_i2' --basetemp=.pytest_tmp/task57-fix1-red-bt-12 --junitxml=.pytest_tmp/task57-fix1-red-12.xml
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -m pytest -q -p no:cacheprovider -o junit_family=xunit1 tests/test_native_context_chain.py -k 'test_i1 or test_i2' --basetemp=.pytest_tmp/task57-fix1-green-bt-13 --junitxml=.pytest_tmp/task57-fix1-green-13.xml
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -m pytest -q -p no:cacheprovider -o junit_family=xunit1 tests/test_native_context_chain.py -k test_i2 --basetemp=.pytest_tmp/task57-fix1-i2-red-bt-14 --junitxml=.pytest_tmp/task57-fix1-i2-red-14.xml
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -m pytest -q -p no:cacheprovider -o junit_family=xunit1 tests/test_native_context_chain.py --basetemp=.pytest_tmp/task57-fix1-final-bt-15 --junitxml=.pytest_tmp/task57-fix1-final-15.xml
+```
+
+| Retained XML | Tests/failures/errors/skips | XML seconds | Interpretation |
+|---|---:|---:|---|
+| `task57-fix1-red-12.xml` | 2/1/0/0 | 0.207 | Genuine I1 missing-original-plan RED; I2 already passed;26 deselected |
+| `task57-fix1-green-13.xml` | 2/0/0/0 | 0.164 | Focused I1/I2 GREEN;26 deselected |
+| `task57-fix1-i2-red-14.xml` | 1/1/0/0 | 0.207 | Genuine temporary omitted-admit mutation RED;27 deselected |
+| `task57-fix1-final-15.xml` | 28/0/0/0 | 10.123 | Final restored sources, full owned test module only |
+
+The pytest console elapsed times were respectively0.28s,0.23s,0.27s,10.12s;
+all four XML files were separately parsed after the final run. No test or
+implementation bytes changed after final GREEN. Earlier26-test evidence above
+is historical and does not validate this fix. All basetemps/XML remain retained.
+
+XML SHA256 (all under `.pytest_tmp/`):
+
+```text
+task57-fix1-red-12.xml      7cf62d20dda658fa917890874cfb75e0cfad9e254ddcbd1d9bbbcfae8e7451be
+task57-fix1-green-13.xml    2b00b0a41e9699f7701b4c3afc1b5fbd8d3e94dd9b4303b022b0c4927a453f67
+task57-fix1-i2-red-14.xml   d6f32931a279aebfe959475a8b3e802ba388cbee7b367f38d51b3bd38023d5f3
+task57-fix1-final-15.xml    bb6965f51d1c6bae4d901a85c39208be1f5e49c66f23b6f9ac45f3b84bf8deab
+```
+
+Final reviewed-candidate code SHA256:
+
+```text
+tests/native_context_chain.py           0f40b25aa928c12387f5faf11424044445114b08a23aad8e1c9dfb6e53356d19
+tests/native_context_chain_catalogue.py 85348268e86765b34aa71206c6e1904053bc0e91c4659ecf163b1d901a1d4aff
+tests/native_context_chain_worker.py    ee08091b3aec6e9a579e9fe3811392854198fe676bacdcae786dcb1217f5f302
+tests/test_native_context_chain.py      e754ca1fc7780913a0a0c434714304147e5f7cbd3ec7d2ed7f0c09d1c020bec7
+```
+
+The parent's catalogue pin equals the final catalogue SHA above. The reviewed
+Task54 and three helper pins remain unchanged. This report's final SHA is
+returned externally to Root after writing, avoiding a self-referential hash.
+
+### Packaging, remaining gates and writer handback
+
+Root's retained local85294fd candidate archive is not reused after these source
+changes. Following independent fix review and a new Root-owned commit, repeat
+the exact closed non-hidden tracked-Python export selection documented above,
+then regenerate the read-only native catalogue and exact reviewed stdin
+launcher from that new archive. The corrected resource plan requires a freshly
+generated catalogue; an old catalogue/launcher/archive combination will not
+validate. Root must record/check the new commit, archive, catalogue and stdin
+pins before the same fresh `env -i ... python3 -I -S -B -` launch described above.
+There is still no preinstalled new root sealer, no pre-reservation copy/child,
+and no native execution performed or authorized by this local test run.
+
+Reviewer MinorM1 (Windows-specific replacement fixture) remains deferred to
+final validation by Root's explicit instruction; it was not changed in this
+fix loop. Task54-M1 and every earlier native/global-C/B/runtime/terminal/release
+gate remain open. Local28-test GREEN includes the existing actual three-attempt
+Task54 integration, but does not certify Linux startup or resources.
+
+FIX1 is complete for independent review with those explicit later concerns.
+All five owned artifacts are frozen. This agent explicitly relinquishes sole
+implementation-writer authority to Root; no further edits, processes, native
+actions, or cleanup are pending from this writer.

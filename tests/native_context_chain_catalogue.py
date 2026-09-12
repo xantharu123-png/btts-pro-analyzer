@@ -164,22 +164,34 @@ def attempt_slots():
     return result
 
 
-def resource_plan(archive_bytes, code_bytes, dependency_bytes):
+def allocated_slot(size):
+    return ((size + 4095) // 4096) * 4096
+
+
+def resource_plan(archive_bytes, code_bytes, dependency_bytes, dependency_sizes):
     integer(archive_bytes, ARCHIVE_CAP)
     integer(code_bytes, ARCHIVE_CAP)
     integer(dependency_bytes, DEPENDENCY_CAP)
+    require(sum(integer(size, MEMBER_CAP) for size in dependency_sizes) == dependency_bytes,
+            "dependency allocation plan differs")
     # All code/dependency files remain active inputs, not just corpus DBs.
     attempts = sum(attempt_slots().values()) + 6 * MIB
     controls = 2 * MANIFEST_CAP + 12 * MIB  # includes 2MiB reviewed stdin/launcher allowance
     metadata = 128 * MIB  # includes copied directory and per-file allocation slack
     total = archive_bytes + code_bytes + dependency_bytes + attempts + controls + metadata
-    # Original archive/dependency inputs remain admitted while their full
-    # copies are rechecked; neither side is silently excluded from active input.
-    active = 2 * archive_bytes + code_bytes + 2 * dependency_bytes + attempts + controls + metadata
+    # Originals coexist with ALL planned new work. Their separate metadata
+    # allowance is never borrowed from the copied-tree allocation slack.
+    original_logical = archive_bytes + dependency_bytes + MANIFEST_CAP
+    original_allocated = allocated_slot(archive_bytes) + sum(allocated_slot(n) for n in dependency_sizes) + MANIFEST_CAP
+    original_metadata = 128 * MIB
+    active = total + max(original_logical, original_allocated) + original_metadata
     require(total <= 8 * GIB and active <= 4 * GIB, "complete diagnostic plan exceeded")
     return {"archive": archive_bytes, "code": code_bytes, "dependencies": dependency_bytes,
             "attempt_reservation": attempts, "control_reservation": controls,
             "metadata_reservation": metadata, "total": total, "active_input_ceiling": active,
+            "original_logical_reservation": original_logical,
+            "original_allocated_reservation": original_allocated,
+            "original_metadata_reservation": original_metadata,
             "parent_cpu_seconds": 90, "child_cpu_seconds": [90, 90], "hard_cpu_sum": 270,
             "retained_cpu_ns": 300000000000, "wall_seconds": 600, "child_wall_seconds": 90,
             "child_fsize": 4 * MIB, "parent_fsize": max(archive_bytes, MEMBER_CAP),
@@ -220,6 +232,11 @@ uses the Linux dir_fd branch and observes st_blocks separately.
     try:
         parent = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
         fds.append(parent)
+        if path == Path("/") and directory:
+            before = os.fstat(parent)
+            yield parent, before
+            require(identity(before) == identity(os.fstat(parent)), "root directory changed")
+            return
         for component in path.parts[1:-1]:
             child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
             before = os.fstat(child)
@@ -412,6 +429,65 @@ def workspace_sample(root, slots, metadata_cap):
             "metadata_allocated": metadata_allocated}
 
 
+def original_input_plan(archive, manifest, dependency_root, archive_size, dependencies):
+    """Closed original file slots plus relevant containing-directory metadata."""
+    archive, manifest, dependency_root = (p.absolute() for p in (archive, manifest, dependency_root))
+    records(dependencies, DEPENDENCY_CAP)
+    files = [{"path": str(archive), "logical": archive_size, "allocated": allocated_slot(archive_size)},
+             {"path": str(manifest), "logical": MANIFEST_CAP, "allocated": MANIFEST_CAP}]
+    files += [{"path": str(dependency_root / x["path"]), "logical": x["size"],
+               "allocated": allocated_slot(x["size"])} for x in dependencies]
+    require(len({x["path"] for x in files}) == len(files), "original input paths overlap")
+    directories = {str(p) for x in files for p in Path(x["path"]).parents}
+    directories.add(str(dependency_root))
+    require(len(files) + len(directories) < MAX_FILES, "original namespace exceeded")
+    return {"files": sorted(files, key=lambda x: x["path"]), "directories": sorted(directories),
+            "metadata_cap": 128 * MIB}
+
+
+def sample_original_inputs(plan, previous=None):
+    """Measure original held-FD costs, including allocation (never infer slack)."""
+    files, directories = [], []
+    for slot in plan["files"]:
+        with opened(Path(slot["path"])) as (_fd, info):
+            require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, "original file type/link differs")
+            require(hasattr(info, "st_blocks") and info.st_blocks >= 0, "original allocation unavailable")
+            require(0 <= info.st_size <= slot["logical"], "original logical slot exceeded")
+            allocated = info.st_blocks * 512
+            require(allocated <= slot["allocated"], "original allocation slot exceeded")
+            files.append({"path": slot["path"], "logical": info.st_size, "allocated": allocated,
+                          "identity": identity(info)})
+    for name in plan["directories"]:
+        with opened(Path(name), directory=True) as (_fd, info):
+            require(stat.S_ISDIR(info.st_mode), "original metadata type differs")
+            require(hasattr(info, "st_blocks") and info.st_blocks >= 0, "original metadata allocation unavailable")
+            directories.append({"path": name, "logical": info.st_size, "allocated": info.st_blocks * 512,
+                                "identity": (info.st_dev, info.st_ino, info.st_mode)})
+    metadata_logical = sum(x["logical"] for x in directories)
+    metadata_allocated = sum(x["allocated"] for x in directories)
+    require(max(metadata_logical, metadata_allocated) <= plan["metadata_cap"], "original metadata reservation exceeded")
+    if previous is not None:
+        for kind, current in (("files", files), ("directories", directories)):
+            require([(x["path"], x["identity"]) for x in current] ==
+                    [(x["path"], x["identity"]) for x in previous[kind]], "original input identity changed")
+    return {"files": files, "directories": directories,
+            "logical": sum(x["logical"] for x in files) + metadata_logical,
+            "allocated": sum(x["allocated"] for x in files) + metadata_allocated,
+            "metadata_logical": metadata_logical, "metadata_allocated": metadata_allocated}
+
+
+def check_active_inputs(original, workspace, plan):
+    # Even before copies exist, no original may spend future new-work slots.
+    original_limit = plan["active_input_ceiling"] - plan["total"]
+    require(max(original["logical"], original["allocated"]) <= original_limit,
+            "original active allocation ceiling exceeded")
+    require(max(workspace["logical"], workspace["allocated"]) <= plan["total"], "new work ceiling exceeded")
+    totals = {key: original[key] + workspace[key] for key in ("logical", "allocated")}
+    require(max(totals.values()) <= plan["active_input_ceiling"] <= 4 * GIB,
+            "simultaneous active allocation ceiling exceeded")
+    return totals
+
+
 def validate_manifest(value, commit):
     require(type(value) is dict and set(value) == {"format", "commit", "archive", "code", "dependencies",
             "dependency_source", "packages", "runtime", "plan"}, "catalogue shape")
@@ -438,7 +514,8 @@ def validate_manifest(value, commit):
             "stdlib_search_path", "closure_status"}, "runtime observation shape")
     sha(runtime["executable_sha256"])
     require(runtime["closure_status"] == "observed-system-runtime-not-transitive-B-closure", "false runtime closure")
-    expected = resource_plan(ar["size"], sum(x["size"] for x in code.values()), sum(x["size"] for x in deps.values()))
+    expected = resource_plan(ar["size"], sum(x["size"] for x in code.values()), sum(x["size"] for x in deps.values()),
+                             [x["size"] for x in deps.values()])
     require(value["plan"] == expected, "resource plan differs")
     return value
 
@@ -468,7 +545,8 @@ def inventory(archive_path, commit):
                   "executable": str(executable), "executable_sha256": file_record(executable)["sha256"],
                   "python": sys.version, "kernel": list(os.uname()), "stdlib_search_path": list(sys.path),
                   "closure_status": "observed-system-runtime-not-transitive-B-closure"},
-              "plan": resource_plan(ar["size"], sum(x["size"] for x in code), sum(x["size"] for x in dependencies))}
+              "plan": resource_plan(ar["size"], sum(x["size"] for x in code), sum(x["size"] for x in dependencies),
+                                    [x["size"] for x in dependencies])}
     validate_manifest(result, commit)
     encoded = canonical(result)
     require(len(encoded) <= MANIFEST_CAP, "catalogue output exceeded")

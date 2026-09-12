@@ -18,7 +18,7 @@ import types
 
 
 MIB = 1024**2
-CATALOGUE_SHA256 = "946cabc787dc1b57904c6931fde3b191278b072525122e5e01a40156f832227c"
+CATALOGUE_SHA256 = "85348268e86765b34aa71206c6e1904053bc0e91c4659ecf163b1d901a1d4aff"
 WORKER_FORMAT = "betboy-native-context-chain-worker-v1"
 TASK54_SHA256 = "5a59f75d0a3093238031159a813ce81b6c633c63105cab0338ed376a7bac7649"
 PROPERTY_KEYS = frozenset("tour source_sha256 corpus_sha256 ledger_sha256 parts_sha256 history_sha256 features_sha256 consumer_sha256 receipt_inventory_digest old_coverage_digest feature_canonical_sha256 snapshot_key snapshot_raw_sha256 snapshot_payload_digest original_hash protected_receipt_count semantic_limitations budget_plan budget_reserved setup_budget_plan setup_budget_reserved setup_workspace_bytes union_reserved_bytes union_observed_bytes after_corpus_bytes after_parts_bytes after_history_bytes after_feature_bytes final_workspace_bytes final_free_bytes".split())
@@ -292,6 +292,12 @@ def main(argv):
     require(all(p.stat().st_mode & 0o001 for p in [job.parent, *job.parent.parents]), "existing job parent is not child-searchable")
     require(not os.path.lexists(job), "no directory reuse/retry")
     plan = manifest["plan"]
+    archive, manifest_path = Path(args["--archive"]), Path(args["--manifest"])
+    originals_plan = c["original_input_plan"](archive, manifest_path, c["DEPENDENCY_SOURCE"],
+                                               manifest["archive"]["size"], manifest["dependencies"])
+    require(sum(x["logical"] for x in originals_plan["files"]) == plan["original_logical_reservation"]
+            and sum(x["allocated"] for x in originals_plan["files"]) == plan["original_allocated_reservation"]
+            and originals_plan["metadata_cap"] == plan["original_metadata_reservation"], "original plan differs")
     require(os.statvfs(job.parent).f_bavail * os.statvfs(job.parent).f_frsize >= 4 * 1024**3 + plan["total"], "initial complete free reserve")
     # This new directory's creation is inside the same kernel-start window and
     # predeclared metadata allowance; journal inode identity follows creation.
@@ -302,7 +308,8 @@ def main(argv):
     identity = budget_module.BudgetIdentity(
         input_digest=manifest["archive"]["sha256"], execution_digest=hash_value(manifest["code"]),
         runtime_digest=hash_value(runtime), installation_digest=hash_value({"manifest": args["--manifest-sha256"],
-            "job": str(job), "dev": job_info.st_dev, "ino": job_info.st_ino}), profile_digest=hash_value(plan))
+            "job": str(job), "dev": job_info.st_dev, "ino": job_info.st_ino,
+            "originals": originals_plan}), profile_digest=hash_value(plan))
     journal_name = hash_value(dataclasses.asdict(identity)) + ".jsonl"
     # Complete fixed slots exist in memory BEFORE the first journal writer.
     fixed = {"archive.tar": (manifest["archive"]["size"] + 4095) // 4096 * 4096,
@@ -321,12 +328,8 @@ def main(argv):
     try:
         ticket = handle.reserve(hash_value({"diagnostic": "task57-atp-wta-once", "plan": plan}), 300 * 10**9)
         actions = ReservedActions(handle, ticket)
-        actions.write(job / "plan.json", c["canonical"]({"slots": fixed, "plan": plan}))
-        actions.write(job / "catalogue.json", manifest_raw)
-        archive = Path(args["--archive"])
         archive_fd, archive_stat = inputs.enter_context(c["opened"](archive))
         dependency_fd, dependency_stat = inputs.enter_context(c["opened"](c["DEPENDENCY_SOURCE"], directory=True))
-        manifest_path = Path(args["--manifest"])
         manifest_fd, manifest_stat = inputs.enter_context(c["opened"](manifest_path))
         raw = c["data_bytes"](archive, c["ARCHIVE_CAP"], manifest["archive"]["sha256"])
         require(len(raw) == manifest["archive"]["size"], "archive length differs")
@@ -335,6 +338,21 @@ def main(argv):
         require(c["walk"](c["DEPENDENCY_SOURCE"], c["PACKAGES"]) == manifest["dependencies"], "dependency admission incomplete")
         dependency_identities = [(x["path"], c["identity"]((c["DEPENDENCY_SOURCE"] / x["path"]).lstat()))
                                  for x in manifest["dependencies"]]
+        original_baseline = c["sample_original_inputs"](originals_plan)
+        baseline_files = {x["path"]: x["identity"] for x in original_baseline["files"]}
+        for path, expected in [(str(archive), c["identity"](archive_stat)),
+                               (str(manifest_path), c["identity"](manifest_stat))] + [
+                (str(c["DEPENDENCY_SOURCE"] / name), expected) for name, expected in dependency_identities]:
+            require(baseline_files[path] == expected, "original observation differs from admitted identity")
+        baseline_directories = {x["path"]: x["identity"] for x in original_baseline["directories"]}
+        require(baseline_directories[str(c["DEPENDENCY_SOURCE"])] ==
+                (dependency_stat.st_dev, dependency_stat.st_ino, dependency_stat.st_mode), "original root identity differs")
+        c["check_active_inputs"](original_baseline, {"logical": 0, "allocated": 0}, plan)
+        encoded_plan = c["canonical"]({"slots": fixed, "plan": plan, "originals_plan": originals_plan,
+                                        "originals_observed": original_baseline})
+        require(len(encoded_plan) <= c["MANIFEST_CAP"], "complete original plan evidence exceeded")
+        actions.write(job / "plan.json", encoded_plan)
+        actions.write(job / "catalogue.json", manifest_raw)
         actions.write(job / "archive.tar", raw)
         for prefix, entries in (("code", manifest["code"]), ("dependencies", manifest["dependencies"])):
             (job / prefix).mkdir(mode=0o755)
@@ -373,12 +391,17 @@ def main(argv):
             for tour, view in completed_views.items():
                 require(c["walk"](job / "attempts" / tour) == view, "previous child private outputs changed")
             observed = c["workspace_sample"](job, fixed, plan["metadata_reservation"])
+            originals = c["sample_original_inputs"](originals_plan, previous=original_baseline)
+            active = c["check_active_inputs"](originals, observed, plan)
             values = observed["files"]
             logical, allocated = observed["logical"], observed["allocated"]
             free = os.fstatvfs(job_fd).f_bavail * os.fstatvfs(job_fd).f_frsize
             require(max(logical, allocated) <= plan["total"] and free >= 4 * 1024**3 + plan["total"] - logical, "complete union physical/free observation failed")
             require(len(boundaries) < 8, "parent boundary count exceeded")
             boundaries.append({"logical": logical, "allocated": allocated, "free": free,
+                               "originals": {key: originals[key] for key in
+                                   ("logical", "allocated", "metadata_logical", "metadata_allocated")},
+                               "originals_sha256": hash_value(originals), "simultaneous_active": active,
                                "inventory_sha256": hash_value(values), "boot_ns": window.check()})
         def retain(tour, result):
             native = dataclasses.asdict(result)

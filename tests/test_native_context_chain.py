@@ -44,9 +44,9 @@ def test_plan_predeclares_three_attempts_without_reset_allowance():
     assert plan["ATP/positive/whole-job/corpus/receipt-additions.bin"] == 1048576
     assert plan["ATP/late-cleanup/legacy-setup/context.db-journal"] == 4194304
     assert plan["WTA/positive/whole-job/new-consumers/consumers.sqlite-journal"] == 4194304
-    assert c.resource_plan(10000, 20000, 30000)["attempt_reservation"] == 235929600
+    assert c.resource_plan(10000, 20000, 30000, [30000])["attempt_reservation"] == 235929600
     with pytest.raises(c.ChainError):
-        c.resource_plan(10000, 4 * 1024**3, 30000)
+        c.resource_plan(10000, 4 * 1024**3, 30000, [30000])
 
 
 @pytest.mark.parametrize("mutation", ["missing", "extra", "duplicate", "link", "changed", "oversized"])
@@ -202,7 +202,7 @@ def test_manifest_requires_exact_owner_pins_roots_and_plan():
         "packages": list(c.PACKAGES), "runtime": {"executable": "/usr/bin/python3.12", "executable_sha256": "c" * 64,
             "python": "observed", "kernel": [], "stdlib_search_path": [],
             "closure_status": "observed-system-runtime-not-transitive-B-closure"},
-        "plan": c.resource_plan(0, sum(x["size"] for x in code), 0)}
+        "plan": c.resource_plan(0, sum(x["size"] for x in code), 0, [])}
     assert c.validate_manifest(manifest, "a" * 40) is manifest
     import copy
     for mutate in (lambda m: m["dependencies"].pop(),
@@ -361,3 +361,79 @@ def test_actual_bootstrap_catalogue_pin_rejects_modified_in_memory_bytes(monkeyp
         p.load_catalogue()
     monkeypatch.setattr(p, "_REVIEWED_BOOTSTRAP", {"tests/native_context_chain_catalogue.py": raw})
     assert p.load_catalogue()["TASK54_SHA"] == "5a59f75d0a3093238031159a813ce81b6c633c63105cab0338ed376a7bac7649"
+
+
+def test_i1_original_allocation_and_metadata_are_measured_not_inferred(tmp_path, monkeypatch):
+    c = module("native_context_chain_catalogue")
+    assert hasattr(c, "original_input_plan"), "original physical-input plan is missing"
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    archive_path, manifest_path, deps = tmp_path / "archive.tar", tmp_path / "manifest.json", tmp_path / "deps"
+    archive_path.write_bytes(b"arc")
+    manifest_path.write_bytes(b"{}")
+    deps.mkdir()
+    member = deps / "one.py"
+    member.write_bytes(b"abc")
+    plan = c.original_input_plan(archive_path, manifest_path, deps, 3, [entry("one.py", b"abc")])
+    actual_opened = c.opened
+    changed = {}
+    @contextmanager
+    def allocated_open(path, directory=False):
+        with actual_opened(path, directory=directory) as (fd, info):
+            # Portable accounting regression: file bytes/identity are real;
+            # st_blocks is synthetic, not a Linux allocation observation.
+            attrs = {key: getattr(info, key) for key in ("st_dev", "st_ino", "st_mode", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")}
+            attrs["st_blocks"] = changed.get(str(path), 8)
+            yield fd, SimpleNamespace(**attrs)
+    monkeypatch.setattr(c, "opened", allocated_open)
+    baseline = c.sample_original_inputs(plan)
+    files = {item["path"]: item for item in baseline["files"]}
+    assert files[str(archive_path)]["logical"] == 3
+    assert files[str(archive_path)]["allocated"] == 4096
+    assert files[str(manifest_path)]["logical"] == 2
+    assert files[str(member)]["allocated"] == 4096
+    assert str(deps) in {item["path"] for item in baseline["directories"]}
+    assert baseline["metadata_allocated"] > 0
+    resource = c.resource_plan(3, 12, 3, [3])
+    assert resource["original_allocated_reservation"] == 8192 + c.MANIFEST_CAP
+    assert resource["original_logical_reservation"] == 6 + c.MANIFEST_CAP
+    assert resource["active_input_ceiling"] == (resource["total"] +
+        resource["original_allocated_reservation"] + resource["original_metadata_reservation"])
+    assert resource["metadata_reservation"] == resource["original_metadata_reservation"] == 128 * c.MIB
+    c.check_active_inputs(baseline, {"logical": resource["total"], "allocated": resource["total"]}, resource)
+    oversized = dict(baseline, allocated=resource["active_input_ceiling"] - resource["total"] + 1)
+    with pytest.raises(c.ChainError, match="active allocation"):
+        c.check_active_inputs(oversized, {"logical": 0, "allocated": 0}, resource)
+    changed_identity = {**baseline, "files": [dict(x) for x in baseline["files"]]}
+    changed_identity["files"][0]["identity"] = ()
+    with pytest.raises(c.ChainError, match="identity"):
+        c.sample_original_inputs(plan, previous=changed_identity)
+    changed[str(member)] = 16  # logical3 still fits; actual8192 exceeds4096 slot
+    with pytest.raises(c.ChainError, match="allocation"):
+        c.sample_original_inputs(plan, previous=baseline)
+    changed.clear()
+    changed[str(deps)] = (128 * 1024**2 // 512) + 1
+    with pytest.raises(c.ChainError, match="metadata"):
+        c.sample_original_inputs(plan)
+
+
+def test_i2_rejected_admission_precedes_any_workspace_open_or_child(tmp_path, monkeypatch):
+    p = module("native_context_chain")
+    from types import SimpleNamespace
+    events = []
+    def forbidden_open(*_args, **_kwargs):
+        events.append("workspace-open")
+        pytest.fail("workspace opened before durable admission")
+    def forbidden_child(*_args, **_kwargs):
+        events.append("child")
+        pytest.fail("native child launched before durable admission")
+    monkeypatch.setattr(p, "os", SimpleNamespace(open=forbidden_open, O_RDONLY=0, O_DIRECTORY=0, O_NOFOLLOW=0))
+    def reject():
+        events.append("admit")
+        raise p.ChainError("no durable reservation")
+    with pytest.raises(p.ChainError, match="no durable reservation"):
+        p.orchestrate(SimpleNamespace(run_single_process=forbidden_child), worker=tmp_path / "worker.py",
+            attempt_root=tmp_path / "attempts", window=SimpleNamespace(check=lambda *_: events.append("window")),
+            recheck=lambda: events.append("recheck"), retain=lambda *_: events.append("retained-output"),
+            custody=lambda *_: events.append("custody"), admit=reject)
+    assert events == ["recheck", "admit"]
