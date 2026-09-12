@@ -2,16 +2,15 @@
 
 ## Aktuell 12. September 2026 — C freigegeben, verlustfreier Speicherumbau läuft
 
-Neuer Stand: FIX4 ist alsdf874ba lokal committed, mit36 bestandenen gezielten
-Tests und unabhängig freigegebenem Review.9007150 ist bereits gepusht. Der enge Fix
-behandelt NumPys genaue optionale Metadatenabfrage als fehlend, ohne unbekannte
-Dateien freizugeben; andere Ablehnungen nennen nun den konkreten Pfad.
-Die kleine VPS-Kette ist weiterhin nicht bestanden: beide bisherigen Läufe
-endeten vor dem Aufbau, alle Fehlerdateien und Reservierungen sind erhalten.
-Der portable Gesamtimport bleibt wegen zusätzlichem lokalem PyArrow unvollständig;
-der echte geschlossene VPS-Nachtest fehlt noch. Keine alten Daten verändert.
-Anforderungen, Nachweise und Fortsetzung stehen im Task57-Ledger. Nicht als
-App- oder Gesamtabschluss lesen; main/App weiterhin2dd1116.
+Neuer Stand:120814a ist gepusht/frisch remote bestätigt; FIX4-Code df874ba ist
+mit36 gezielten Tests unabhängig freigegeben. Der tatsächliche dritte kleine
+VPS-Lauf ist jedoch gestoppt: nun konkret fehlende Zeitzonendatei UTC, weiterhin
+vor Task54-Aufbau, kein WTA-Lauf. Alle drei Fehlerstände/Reservierungen bleiben
+erhalten, keine Testprozesse übrig. Nächster enger FIX5: die tatsächlich
+benötigten öffentlichen UTC-/Zürich-Dateien exakt katalogisieren und im
+isolierten Prüfpaket bereitstellen, keine Systemordnerfreigabe. Anforderungen,
+Rohbelege und Fortsetzung stehen im Task57-Ledger/FIX5-Brief. Kein Gesamt- oder
+Appabschluss; main/App weiterhin2dd1116, keine alten Daten verändert.
 
 Neuester Nachtrag19:03UTC: Reparaturbranch48425b6 ist gepusht; der erste echte
 isolierte Task57-VPS-Kettenlauf ist NICHT bestanden. ATP brach beim Import mit

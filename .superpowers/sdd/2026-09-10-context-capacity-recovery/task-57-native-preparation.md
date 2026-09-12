@@ -359,3 +359,63 @@ preparation only. Native package inventory, reviewed emitted stdin, remote
 hashes, actual guarded execution and separate external terminal/readback must
 be recorded next. Both prior failed jobs and all870CPU-s conservative
 diagnostic charges remain retained. No application/main deployment.
+
+## Actual third guarded rundf874ba-04 — required timezone data missing
+
+Reviewed checkpoint120814ab971b4d6f03aeae02ab8c5a81277ed6b5 pushed and freshly
+ls-remote matched; main2dd1116 unchanged. The exact reviewed9246720-byte archive
+was uploaded to fresh `/tmp/betboy-context-qa.9xr68INa/task57-df874ba-04.tar`,
+remote SHA7d5f3857584a8c87b39c10cd34621a80f407cbf69df8bb39c99f9f1b1e619c43.
+Normal-user held93d38e46 catalogue inventory returned exit0/4416ms/empty stderr.
+Local manifest679530bytes SHAc1753bd765bcc219911674a1f41f7bb370aca20fdbbe06e66765e5b0141b09b2,
+440code/8889435bytes and4540dependencies/217788209bytes; exact runtime unchanged.
+Plan total635431820/active1015430028, original logical235423537/allocated245780480,
+plus134217728 original metadata. All fixed limits unchanged.
+
+Local held-source launcher exited0/418ms/empty stderr. Emitted stdin136270bytes
+SHAc6f3d93e0911b60a07e5e851717ec4c8f6e9155b76500ff7b8a7c3f5d0811a9a;
+Root independently AST-checked its two statements, exact five embedded source
+members and full reconstruction. Catalogue uploaded to fresh
+`/tmp/betboy-context-qa.9xr68INa/task57-df874ba-04-catalogue.json`.
+20:00:09UTC remote hashes matched archive/catalogue/Python/GNU-time;
+13575450624bytes free. Actual held stdin executed with:
+
+```text
+umask 022; exec sudo -n /usr/bin/time -f "TASK57_TIME exit=%x wall=%e user=%U system=%S maxrss_kib=%M" env -i PATH=/usr/bin:/bin LANG=C.UTF-8 /usr/bin/python3 -I -S -B - --manifest /tmp/betboy-context-qa.9xr68INa/task57-df874ba-04-catalogue.json --manifest-sha256 c1753bd765bcc219911674a1f41f7bb370aca20fdbbe06e66765e5b0141b09b2 --archive /tmp/betboy-context-qa.9xr68INa/task57-df874ba-04.tar --directory /var/lib/betboy-context-chain-task57-df874ba-04 --commit df874ba7a29ee41ef27d48eb7a726520bd6fdcc4 --launcher-sha256 c6f3d93e0911b60a07e5e851717ec4c8f6e9155b76500ff7b8a7c3f5d0811a9a
+```
+
+Actual terminal SSHexit1/local41822ms. GNU-time exit1/wall40.94/user29.14/
+system7.17/maxRSS132128KiB. Retained stdout0, stderr579bytes SHA
+e0d9db28a8fab6ac6cdf7aadbc6c47427a9f2089ad5c3b1841f5ad7e89548f44;
+parent accept_result correctly rejected nonzero child, no success report.
+
+Actual ATP-output.json1281bytes SHA
+3b092aea7bd5a09cc85daa4909a55837a9c8f68144ead213da167d3aa22f279f:
+exit125/nonzero_exit, CPU3863069000ns/wall3964996145ns/RSS135450624bytes,
+parent supervision38746209ns, sample gap52593644ns, minimum free13323509760.
+Kernel UID/GID65534/PID223356/CPU90/FSIZE4194304/one seccomp filter,
+initialRSS59260928. Exact362byte output SHA
+a659e278b54e124bcd61cc912e9b9aab90a081b7330e4c528d67c5663f2ee094 records
+the actual denied `/usr/share/zoneinfo/UTC`, event open/flags524288,
+pathSHAc53fc1bf542fbbb1244e33b6ce647c4c05e4cdf1d08542c7c898c852d3f2b223,
+untruncated. No WTA execution; the three attempt directories are empty.
+
+Actual20:02:34UTC full readback exited0/stderr0, verified all440/4540 copied
+members by full size/SHA/root:root0444 and original/copy archive/catalogue.
+4986files/473directories,240667548logical/251936768allocated/free13323468800;
+no UID65534 process. Root read full journal events init/reserve300CPU/stop-
+unmeasured; no settlement/refund. Journal1751bytes/root0600,
+`99f8aff214f96ac6debc056a865d7b447c5caade5310feb6e90676575cfb4c97.jsonl`
+SHA2a4d4979c8570868412618a7fe1c4b65a9b81e63157f85b494474bfb0c44d3a1.
+Failure125bytes SHA8dfe0443b4a40511eaf94e7dae9f5529eb5dd8347ad6661e4fe964916968ea38;
+plan2098513bytes SHA8fa235a2bcf9e40f42c2ee0ddf89e219fe41eef10cf340db79d407257aa09202.
+Exact raw2201988bytes SHA0ef1d803bd6399a54d5edbef81a38f5d58f2f6d3125f6d76e938ed4c35d7cf65,
+versioned gzip203648bytes SHA6478294e04c8d2d4a805b4703e5f0faa905a1a86ddbe2f413b78ab23f8e3f6fc,
+independently decoded/matched by Root. All three Task57 charges900CPU-s plus
+Task50's270 remain retained;1170 conservative diagnostic CPU-s is not a
+protected global-C/B cost certificate.
+
+Next finding/ruling and actual native timezone source observations are in
+task-57-fix5-brief.md and the ledger. Exact UTC/Zurich public data can be bound
+and copied into the existing seal; no system directory allowance, fallback
+package, limit relaxation or product change. A fresh round5 author is next.

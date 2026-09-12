@@ -377,6 +377,29 @@ Root decompressed it and matched full raw2c14485f SHA. No artifact removed.
 Next: push reviewed repair checkpoint, actual new native inventory/launcher,
 then a separate guardeddf874ba-04 job and full terminal/readback observation.
 
+Checkpoint120814ab971b4d6f03aeae02ab8c5a81277ed6b5 pushed/freshly matched;
+GitHub main2dd1116 unchanged. Realdf874ba-04 run STOPPED before Task54 setup:
+actual denied path /usr/share/zoneinfo/UTC, ATP exit125/3.863069CPU/3.964996145wall,
+RSS135450624. External parent exit1/40.94wall/29.14user/7.17system, no WTA.
+Actual20:02:34UTC full readback verifies all440code/4540dependencies and both
+original/copy archive/catalogue, empty attempt directories, no UID65534 PID.
+Job240667548logical/251936768allocated/free13323468800. Raw2201988bytes SHA
+0ef1d803bd6399a54d5edbef81a38f5d58f2f6d3125f6d76e938ed4c35d7cf65;
+versioned gzip203648bytes SHA6478294e04c8d2d4a805b4703e5f0faa905a1a86ddbe2f413b78ab23f8e3f6fc,
+Root independently decoded/matched. Full300CPU retained; Task57 total900 plus
+Task50's270 =1170 conservative diagnostic CPU-s, no refund/reset/deletion.
+
+Task57 FIX5 preparation: exact actual runtime-data gap, not another unknown
+pathname. Root actual no-import20:04:29UTC lstat/hash observation and existing
+daily source require UTC plus Europe/Zurich. Ruling: bind only the two exact
+regular canonical timezone files in the closed manifest, source and sealed-copy
+budgets/rechecks; configure stdlib zoneinfo after guard to the exact sealed
+two-key tree, never grant original system/directory/fallback access — needed
+real runtime bytes were omitted — cost if wrong is localized rework/retained
+QA stop, no relaxed authority. Exact files/hashes and required negatives in
+task-57-fix5-brief.md. Round5 requires a fresh most-capable author. No global
+C/B/native-chain pass or production change follows from this preparation.
+
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
 Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,
