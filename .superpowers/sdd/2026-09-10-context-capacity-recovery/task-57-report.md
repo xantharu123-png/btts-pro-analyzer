@@ -871,3 +871,297 @@ addition. The report is refrozen with its new externally returned hash, and
 sole implementation-writer authority is again returned to Root. The incomplete
 local diagnostic is retained as evidence here/tool transcript, not erased or
 silently replaced with a success claim.
+
+## Fix round 4 — fresh-owner bounded actual-import diagnosis
+
+Fresh implementation owner `/root/c_native_chain_fix4`; dispatch HEAD
+`9007150fde783c9ef8d0c453146f8a78a05f3ba0`, previous executable FIX_BASE
+`97e3bb64cfc4c0e81f4d55262db2de1b613760b6`, both supplied by Root. No Git
+operation was performed. FIX4 brief SHA was verified as
+`858e1721d2d2725f7f16bd791092cdd573b82f114f5c2b7c8f0091cc6e7eb2d0`.
+The contemplated edit surface was declared before editing: owned worker,
+owned focused test file, and this appended report only. Parent/catalogue and
+all product/Task54/guard/supervisor/budget files are outside this fix surface.
+
+### Actual local missing read, before any authority change
+
+A fresh actual `import test_context_storage_corpus_consumer` under the
+unchanged real worker audit hook failed on this exact local read:
+
+```text
+C:\Projekt\BetBoy\betboy-app\.venv\Lib\site-packages\numpy-2.5.2.dist-info\direct_url.json
+event=open, mode=r, flags=32896
+exception=ChainError, message=unplanned Python file read
+observed_keys=545
+```
+
+The preceding name inventory completed with5160 exact individual files across
+440 native-manifest code names and37 explicitly selected existing local roots.
+It did not hash the installation, scan unrelated roots, create any fixture
+directory/database, or call the acceptance function. A real subprocess timeout
+of30seconds covered the inventory and import together. The subprocess returned
+exit1 before the deadline; parent stderr was empty. All actual diagnostic
+stdout, including the full28-frame traceback rendered without source-file
+reads, is retained in the tool transcript. This is a portable name-inventory
+diagnostic, NOT a sealed native catalogue, hash proof, fixture run or guard run.
+
+The concrete trace is Task54 import -> snapshots -> context_transport ->
+context_models.offset -> scipy.optimize -> scipy.linalg -> scipy._lib._util
+-> scipy._lib._array_api -> scipy._external.array_api_compat.numpy ->
+clone_module -> NumPy's lazy testing import -> numpy.testing._private.extbuild
+-> numpy.testing._private.utils:72 -> importlib.metadata.PathDistribution.
+read_text -> pathlib read_text/open -> worker.audit:138. SciPy's clone_module
+uses an actual star import, which reaches NumPy's testing attribute; no test
+collection or pytest.main was invoked.
+
+Read-only local inspection found `direct_url.json` absent (`Test-Path=False`).
+NumPy's actual utils.py lines60-83 perform `distribution('numpy')` followed by
+`np_dist.read_text('direct_url.json') or '{}'` on Python<3.13. The stdlib's
+PathDistribution.read_text suppresses FileNotFoundError, IsADirectoryError,
+KeyError, NotADirectoryError and PermissionError, but not the worker's generic
+ChainError. Thus a probe for an absent OPTIONAL metadata file becomes fatal.
+Local NumPy utils.py SHA is
+`b74466b5e87c9525033393e32c2c186c35dbd6f44dc6ede6e7839737e0f2f217`.
+
+Native manifest `.pytest_tmp/task57-native-inventory-97e3bb6-03.json` was
+freshly verified as SHA
+`7692f06a247196eeae16d122685e9aab73d6c4b1e0e730a66ff9f0179dc8d0b8`.
+It likewise has NO `numpy-2.5.1.dist-info/direct_url.json`, but DOES bind
+`numpy/testing/_private/utils.py`,101390bytes, SHA
+`b55731515d2b64349472e88dbefbf18b7791e14fb5234c7d0b10f9ece07cbfcc`.
+That is not yet proof of the actual native denied pathname: native NumPy is
+2.5.1, local NumPy is2.5.2, and original native stderr omitted the pathname.
+Root was informed of the mechanism before any implementation/file-admission
+choice and asked only for native source lines55-85 and exact direct_url.json
+lstat observation. This writer performed no server operation.
+
+### Exact bounded diagnostic command
+
+Executed once, from this worktree, using the approved QA interpreter:
+
+```powershell
+$task57Fix4Probe = @'
+import json, subprocess, sys
+script = r'''
+import json, os, runpy, sys, traceback
+from pathlib import Path
+checkout = Path.cwd()
+common = Path('C:/Projekt/BetBoy/betboy-app')
+site = common / '.venv/Lib/site-packages'
+w = runpy.run_path(str(checkout / 'tests/native_context_chain_worker.py'), run_name='_task57_fix4_import')
+if not hasattr(os, 'O_DIRECTORY'):
+    os.O_DIRECTORY = 0
+native = json.loads((checkout / '.pytest_tmp/task57-native-inventory-97e3bb6-03.json').read_bytes())
+roots = ('_pytest', 'certifi', 'certifi-2026.7.22.dist-info', 'charset_normalizer', 'charset_normalizer-3.5.0.dist-info', 'dateutil', 'idna', 'idna-3.18.dist-info', 'iniconfig', 'iniconfig-2.3.0.dist-info', 'numpy', 'numpy-2.5.2.dist-info', 'numpy.libs', 'packaging', 'packaging-26.3.dist-info', 'pandas', 'pandas-3.0.5.dist-info', 'pandas.libs', 'pluggy', 'pluggy-1.6.0.dist-info', 'py.py', 'pygments', 'pygments-2.20.0.dist-info', 'pytest', 'pytest-9.1.1.dist-info', 'python_dateutil-2.9.0.post0.dist-info', 'requests', 'requests-2.34.2.dist-info', 'scipy', 'scipy-1.18.0.dist-info', 'scipy.libs', 'six-1.17.0.dist-info', 'six.py', 'urllib3', 'urllib3-2.7.0.dist-info', 'colorama', 'colorama-0.4.6.dist-info')
+paths = [checkout / item['path'] for item in native['code']]
+for root in roots:
+    selected = site / root
+    assert selected.exists() and not selected.is_symlink(), root
+    if selected.is_file():
+        paths.append(selected)
+        continue
+    for directory, names, files in os.walk(selected, followlinks=False):
+        names[:] = [n for n in names if n != '__pycache__']
+        assert len(Path(directory).relative_to(selected).parts) <= 20
+        for name in files:
+            if not name.endswith(('.pyc', '.pyo')):
+                p = Path(directory) / name
+                assert not p.is_symlink()
+                paths.append(p)
+                assert len(paths) < 8000
+entries = [{'path': p.relative_to(common).as_posix()} for p in paths]
+print(json.dumps({'phase':'local-name-inventory','files':len(entries),'selected_roots':len(roots),'native_seal':False}), flush=True)
+last = []
+def trace(event, args):
+    if event == 'open' and args and isinstance(args[0], (str, bytes)):
+        last[:] = [os.fsdecode(args[0]), args[1], args[2]]
+sys.addaudithook(trace)
+observed = w['observe_python_files'](common, checkout / '.pytest_tmp/task57-no-seal-fix4', checkout / '.pytest_tmp/task57-no-work-fix4', {'code': entries, 'dependencies': [], 'runtime': {'stdlib_search_path': list(sys.path)}})
+sys.path[:0] = [str(checkout), str(checkout / 'tests'), str(site)]
+try:
+    import test_context_storage_corpus_consumer as acceptance
+except BaseException as exc:
+    frames = []
+    tb = exc.__traceback__
+    while tb is not None:
+        frames.append({'file':tb.tb_frame.f_code.co_filename,'function':tb.tb_frame.f_code.co_name,'line':tb.tb_lineno})
+        tb = tb.tb_next
+    print(json.dumps({'status':'FAILED','exception':type(exc).__name__,'message':str(exc),'last_open':last,'frames':frames,'observed_keys':len(observed)}), flush=True)
+    raise SystemExit(1)
+print(json.dumps({'status':'actual-task54-import-success-portable-only','source':acceptance.__file__,'observed_keys':len(observed)}), flush=True)
+'''
+try:
+    result = subprocess.run([sys.executable, '-I', '-S', '-B', '-c', script], capture_output=True, text=True, timeout=30)
+except subprocess.TimeoutExpired as exc:
+    print(json.dumps({'status':'TIMEOUT','timeout_seconds':30,'stdout':str(exc.stdout),'stderr':str(exc.stderr)}))
+    raise SystemExit(2)
+print(json.dumps({'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr}))
+raise SystemExit(result.returncode)
+'@
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -I -S -B -c $task57Fix4Probe
+```
+
+The Windows-only os.O_DIRECTORY=0 seam supplies an absent flag for local
+Python-audit QA only. It does not bypass or simulate require_guard/run, alter
+the native guard, or establish that the local dependencies may be executed
+under native root custody. At this diagnosis checkpoint no worker, test,
+parent or catalogue source bytes had been edited.
+
+### Root's native parity observation and bounded correction ruling
+
+Root subsequently supplied a new read-only native observation: the exact
+original NumPy utils.py was101390bytes with the manifest's SHA
+`b55731515d2b64349472e88dbefbf18b7791e14fb5234c7d0b10f9ece07cbfcc`.
+Its lines60-72 contain the same distribution lookup, Python<3.13 branch and
+`json.loads(np_dist.read_text('direct_url.json') or '{}', ...)` operation.
+Exact `lstat` found direct_url.json ABSENT in both the original installation's
+`numpy-2.5.1.dist-info` and the actual root-sealed job97e3bb6-03 dependencies
+counterpart. No native dependency was imported for that observation. These
+are Root-supplied native source/absence observations, not a directly recorded
+pathname from the previous native failure.
+
+Root's explicit ruling was to implement only the proven optional NumPy probe
+denial as FileNotFoundError when that exact target is not admitted, anchored
+to the already admitted NumPy distribution METADATA path. An actually
+catalogued direct_url.json must retain normal exact read admission. Unknown
+bytes must never be opened/allowed, no generic unknown-file-to-ENOENT or
+directory allowance is permitted. Root additionally authorized bounded
+denied-path/event/flags diagnostics without extra reads and directed this
+writer to stop/report any different next denial before expanding.
+
+### Implemented scope and genuine regression behavior
+
+Only `tests/native_context_chain_worker.py`,
+`tests/test_native_context_chain.py`, and this report changed. The worker
+derives the exact sibling `direct_url.json` of each exact admitted NumPy
+distribution `METADATA` filename, then subtracts already admitted targets.
+It does not enumerate directories or admit a metadata directory, alter the
+manifest, read metadata to discover authority, or add any file to `permitted`.
+Read-only probes in that derived deny set raise FileNotFoundError BEFORE the
+open, even if unadmitted bytes happen to exist. This preserves real stdlib
+optional-file handling while guaranteeing those bytes are never read.
+WRONLY/RDWR/CREATE/TRUNCATE/APPEND attempts remain ChainError. The denial is
+recorded under `denied-optional-metadata-probe:` within the unchanged shared
+3000-key bound. Reviewed bytecode-probe behavior remains unchanged.
+
+Other unplanned absolute reads and training-data rejections remain fatal
+ChainError, now carrying the actual event, raw pathname prefix<=512characters,
+explicit truncation flag, SHA256 of the full os.fsencode pathname, and actual
+audit flags (or null when absent/outside signed64-bit range). No rejected file
+is reopened or inspected for this diagnostic. `failure_bytes` emits the same
+failed-worker JSON format plus that optional context, ASCII-escaped, one line,
+<=8192bytes, within the existing charged stderr/output envelope. Guard/order,
+parent/catalogue pins, input authority, resource limits/accounting and native
+execution procedure did not change.
+
+New actual-subprocess regressions use `importlib.metadata.distribution('numpy')`
+and its real PathDistribution.read_text with fixture files, not a mocked
+metadata reader. Absent and present-but-unadmitted origin bytes yield None;
+explicitly admitted bytes are read unchanged. Direct unadmitted reads fail as
+not-found, write/create/truncate/append modes fail as ChainError, and unknown
+sibling names/unanchored NumPy versions/other distributions still fail as
+ChainError. Existing bytes are rechecked unchanged in the parent process.
+The diagnostic regression rejects actual os.open calls, checks the emitted
+failure JSON, full pathname digest and escaped/truncated long non-BMP paths,
+and independently observes that no extra open occurs while reporting. Both
+regressions run isolated/no-site/no-bytecode with real20second subprocess
+timeouts; no native guard claim follows from these portable fixtures.
+
+### Actual RED/GREEN and final changed-harness coverage
+
+Every command below used the approved QA interpreter from this worktree:
+
+```powershell
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
+$env:PYTHONDONTWRITEBYTECODE='1'
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -m pytest -q -p no:cacheprovider -o junit_family=xunit1 tests/test_native_context_chain.py -k 'numpy_optional_metadata_probe or rejected_file_failure' --basetemp=.pytest_tmp/task57-fix4-red-bt-22 --junitxml=.pytest_tmp/task57-fix4-red-22.xml
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -m pytest -q -p no:cacheprovider -o junit_family=xunit1 tests/test_native_context_chain.py -k 'numpy_optional_metadata_probe or rejected_file_failure' --basetemp=.pytest_tmp/task57-fix4-green-bt-23 --junitxml=.pytest_tmp/task57-fix4-green-23.xml
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -m pytest -q -p no:cacheprovider -o junit_family=xunit1 tests/test_native_context_chain.py -k 'numpy_optional_metadata_probe or rejected_file_failure' --basetemp=.pytest_tmp/task57-fix4-green-bt-24 --junitxml=.pytest_tmp/task57-fix4-green-24.xml
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -m pytest -q -p no:cacheprovider -o junit_family=xunit1 tests/test_native_context_chain.py --basetemp=.pytest_tmp/task57-fix4-final-bt-25 --junitxml=.pytest_tmp/task57-fix4-final-25.xml
+```
+
+| Retained XML | Tests/failures/errors/skips | XML seconds | Actual result |
+|---|---:|---:|---|
+| task57-fix4-red-22.xml | 4/3/0/0 | 0.903 | Absent/unadmitted real metadata lookups fail with ChainError; diagnostic boundary missing; admitted case already passes;32 deselected |
+| task57-fix4-green-23.xml | 4/1/0/0 | 0.981 | All three metadata states pass; diagnostic test exposes its own incorrect input-flags expectation;32 deselected |
+| task57-fix4-green-24.xml | 4/0/0/0 | 0.773 | All new mechanism/boundary tests pass;32 deselected |
+| task57-fix4-final-25.xml | 36/0/0/0 | 9.433 | Single full owned-module run, including all previous cache/protocol/real-callable cases;exit0 |
+
+Console times were0.97s,1.04s,0.83s,9.43s. All XML counts/times/hashes were
+freshly parsed. The run23 test incorrectly expected os.open's caller flags to
+equal CPython's audit flags; CPython may add O_CLOEXEC/O_NOINHERIT. Its corrected
+expectation uses the independent preceding real audit event, never the code
+under test. The long-path case was also strengthened from accented BMP to
+non-BMP characters. No worker edit was needed after run23, and no worker/test
+edit followed final run25. No product or unchanged native-guard suite ran.
+
+```text
+.pytest_tmp/task57-fix4-red-22.xml   40072aedfb26e246567cabb35f2c8988ef0669bb8954e104521f4f81c15c2131
+.pytest_tmp/task57-fix4-green-23.xml 9260369db816686b8dad13d8b9a0c8508c971d66ede8f9bbb69c077abc4f7afc
+.pytest_tmp/task57-fix4-green-24.xml 0c1e1dca35af77131c83e73634b9647bd6ea7e489bd6b201ee98f31385ce251e
+.pytest_tmp/task57-fix4-final-25.xml a0a3337736df5abc812fa308a8c020da862da72f5467f17d0ac2bb99e994dfe0
+tests/native_context_chain.py           1325881bed452574159568d6fba93dae6c091d7baf0ee2388adb86108e3038e8
+tests/native_context_chain_catalogue.py 93d38e46c17b9796088cfad66ea1667413b702b93f8310ac43b6e6ee7ac648f9
+tests/native_context_chain_worker.py    b05e45ab5ac2d2a76fedc88245ad76dd28c85f4eee7006d45c096a693ab989cd
+tests/test_native_context_chain.py      b2ffb4539d081df0e7cbdd4204eb5b4948853ae02575003311ffcd538004ccb4
+```
+
+### Bounded full-import recheck reaches a different local-only package
+
+After the correction, the exact retained30second diagnostic command above
+was repeated once by extracting its unique PowerShell code block from this
+report (asserting exactly one `$task57Fix4Probe = @'` marker) and executing
+that unchanged command with ScriptBlock.Create. This is an exact replay of
+the logged command, not another package selection, new timeout, or full route.
+The inventory again completed with5160names/37roots; stdout returned exit1
+with1311observed keys, no stderr, and this DIFFERENT next denial:
+
+```text
+C:\Projekt\BetBoy\betboy-app\.venv\Lib\site-packages\pyarrow\__pycache__\__init__.cpython-312.pyc
+event=open, mode=r, flags=32896
+exception=ChainError, message=unplanned Python file read
+```
+
+The full traceback is retained in the tool transcript: Task54 import:30 ->
+test_tennis_live_worker:11 -> scripts.tennis_daily:37 -> tennis.data_loader:34
+-> pandas:34 -> pandas.compat:28 -> pandas.compat.pyarrow:12 -> actual Python
+import machinery -> worker.audit/reject. This establishes that the actual
+local import crossed the corrected NumPy metadata phase, not that the whole
+import/fixture completed.
+
+The previously observed local installation contains PyArrow, whereas the
+fixed native package selection and native top-level installation observation
+contain no PyArrow. Exposing the whole existing local site-packages search
+root makes pandas discover that extra local optional package; it is NOT in
+the diagnostic's exact local admission names. Its attempted cache is thus
+correctly still denied as unknown. Root was immediately informed; no PyArrow
+permission, extra package, cache exception or catalogue expansion was added.
+No further import attempt followed this different denial. A separately ruled
+name-limited local import namespace or the reviewed native job can distinguish
+any next native phase; this portable incomplete import is not promoted to a
+native or full-chain success.
+
+### Status and sole-writer handback
+
+**DONE_WITH_CONCERNS** for this narrow proven metadata-probe correction and
+bounded rejection observation. All owned source/test bytes are frozen at the
+hashes above; report SHA is returned separately after append. Root alone owns
+Git/index, independent review, new immutable candidate/inventory/stdin pins,
+and any native transfer/execution. This writer explicitly relinquishes sole
+implementation-writer authority to Root and has no pending source edits.
+
+The prior native path was never directly logged, the full local Task54 import
+still stops on its extra optional PyArrow installation, and no FIX4 native
+execution occurred. All prior failed jobs, outputs, directories and durable
+charges remain retained. Native ATP/WTA/custody, full growth profiles,
+protected all-cost owner, C/B closure, restore, whole-suite, main/VPS rollout
+and release remain open. Task54-M1 stays deferred. No Git/server/network,
+installation, cleanup, subagent, Task54/product/helper/guard/budget, frozen
+specification or deployment action was performed by this writer.
+
+Root's final continuation ruling preserves these36-test source bytes frozen:
+no additional PyArrow admission, environment copy or namespace-emulation
+probe. The real sealed native namespace has no PyArrow; its next independently
+reviewed guarded run is authoritative. The portable import diagnostic remains
+honestly partial. This final paragraph is report-only; no further code/test
+change or probe followed the preceding handback.

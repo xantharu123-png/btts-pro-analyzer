@@ -214,6 +214,123 @@ def test_unknown_empty_directory_and_linked_source_are_rejected(tmp_path):
         c.workspace_sample(tmp_path, {"allowed/file": 100}, 1048576)
 
 
+@pytest.mark.parametrize("optional_state", ["absent", "unadmitted", "admitted"])
+def test_numpy_optional_metadata_probe_never_reads_uncatalogued_bytes(tmp_path, optional_state):
+    import subprocess
+    import sys
+    dependencies = tmp_path / "seal/dependencies"
+    metadata = dependencies / "numpy-2.5.1.dist-info"
+    metadata.mkdir(parents=True)
+    (metadata / "METADATA").write_text("Name: numpy\nVersion: 2.5.1\n", encoding="ascii")
+    optional = metadata / "direct_url.json"
+    if optional_state != "absent":
+        optional.write_bytes(b'{"url":"retained-metadata"}')
+    before = optional.read_bytes() if optional.exists() else None
+    script = r'''
+import importlib.metadata, json, os, runpy, sys
+from pathlib import Path
+w = runpy.run_path(sys.argv[1], run_name="_task57_metadata_test")
+root, state = Path(sys.argv[2]), sys.argv[3]
+if not hasattr(os, "O_DIRECTORY"):
+    os.O_DIRECTORY = 0
+members = [{"path": "numpy-2.5.1.dist-info/METADATA"}]
+if state == "admitted":
+    members.append({"path": "numpy-2.5.1.dist-info/direct_url.json"})
+observed = w["observe_python_files"](root / "code", root / "seal", root / "work", {
+    "code": [], "dependencies": members, "runtime": {"stdlib_search_path": list(sys.path)}})
+dependencies = root / "seal/dependencies"
+sys.path.insert(0, str(dependencies))
+distribution = importlib.metadata.distribution("numpy")
+assert distribution.read_text("METADATA") == "Name: numpy\nVersion: 2.5.1\n"
+value = distribution.read_text("direct_url.json")
+if state == "admitted":
+    assert value == '{"url":"retained-metadata"}'
+    assert not any(key.startswith("denied-optional-metadata-probe:") for key in observed)
+else:
+    assert value is None, "uncatalogued optional metadata was read"
+    target = dependencies / "numpy-2.5.1.dist-info/direct_url.json"
+    try:
+        target.read_bytes()
+    except FileNotFoundError:
+        pass
+    else:
+        raise AssertionError("uncatalogued optional bytes were readable")
+    for flags in (os.O_WRONLY, os.O_RDWR, os.O_WRONLY | os.O_CREAT,
+                  os.O_WRONLY | os.O_TRUNC, os.O_WRONLY | os.O_APPEND):
+        try:
+            os.open(target, flags)
+        except w["ChainError"]:
+            pass
+        else:
+            raise AssertionError("uncatalogued metadata write was permitted")
+    assert observed["denied-optional-metadata-probe:" + str(target)] == 2
+# Neither another filename in the same distribution nor an unanchored
+# NumPy/other distribution receives the optional-metadata denial semantics.
+for name in ("numpy-2.5.1.dist-info/other.json", "numpy-9.9.dist-info/direct_url.json",
+             "other-2.5.1.dist-info/direct_url.json"):
+    try:
+        (dependencies / name).read_bytes()
+    except w["ChainError"]:
+        pass
+    else:
+        raise AssertionError("unknown metadata escaped closed-file rejection")
+print(json.dumps({"state": state, "value": value, "observations": observed}))
+'''
+    result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", script,
+                             str(HERE / "native_context_chain_worker.py"), str(tmp_path), optional_state],
+                            capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["state"] == optional_state
+    assert (optional.read_bytes() if optional.exists() else None) == before
+
+
+def test_rejected_file_failure_reports_bounded_context_without_extra_reads(tmp_path):
+    import subprocess
+    import sys
+    script = r'''
+import hashlib, json, os, runpy, sys
+from pathlib import Path
+w = runpy.run_path(sys.argv[1], run_name="_task57_failure_test")
+root = Path(sys.argv[2])
+if not hasattr(os, "O_DIRECTORY"):
+    os.O_DIRECTORY = 0
+opened = []
+def trace(event, args):
+    if event == "open":
+        opened.append(args)
+sys.addaudithook(trace)
+w["observe_python_files"](root / "code", root / "seal", root / "work", {
+    "code": [], "dependencies": [], "runtime": {"stdlib_search_path": list(sys.path)}})
+for name in (str(root / 'unknown-"\n.json'), str(root / ("\U0001f642" * 3000))):
+    before = len(opened)
+    try:
+        os.open(name, os.O_RDONLY)
+    except w["ChainError"] as exc:
+        encoded = w["failure_bytes"](exc)
+    else:
+        raise AssertionError("unplanned read was not rejected")
+    assert len(opened) == before + 1, "diagnostic opened another file"
+    assert len(encoded) <= 8192 and encoded.count(b"\n") == 1
+    result = json.loads(encoded)
+    assert result["phase"] == "failed" and result["exception"] == "ChainError"
+    assert result["message"] == "unplanned Python file read"
+    context = result["file_context"]
+    # CPython may add O_CLOEXEC/O_NOINHERIT to os.open's requested flags.
+    # Compare with the independently observed actual event, not its input.
+    assert context["event"] == "open" and context["flags"] == opened[-1][2]
+    assert context["path"] == name[:512]
+    assert context["path_truncated"] == (len(name) > 512)
+    assert context["path_sha256"] == hashlib.sha256(os.fsencode(name)).hexdigest()
+    os.write(2, encoded)
+'''
+    result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", script,
+                             str(HERE / "native_context_chain_worker.py"), str(tmp_path)],
+                            capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stdout + result.stderr
+    reports = [json.loads(line) for line in result.stderr.splitlines()]
+    assert len(reports) == 2 and all(item["phase"] == "failed" for item in reports)
+
+
 def test_actual_fixed_driver_runs_task54_and_retains_real_rollback(tmp_path):
     w = module("native_context_chain_worker")
     assert hasattr(w, "invoke_cases"), "direct actual Task54 invocation interface is missing"

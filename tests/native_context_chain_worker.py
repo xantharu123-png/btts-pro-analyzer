@@ -18,12 +18,23 @@ MIB = 1024**2
 
 
 class ChainError(RuntimeError):
-    pass
+    file_context = None
 
 
 def require(value, message):
     if not value:
         raise ChainError(message)
+
+
+def failure_bytes(exc):
+    """One bounded failure record; never reopen a rejected path for diagnosis."""
+    payload = {"format": FORMAT, "phase": "failed", "exception": type(exc).__name__[:64],
+               "message": str(exc)[:512]}
+    if isinstance(exc, ChainError) and exc.file_context is not None:
+        payload["file_context"] = exc.file_context
+    encoded = json.dumps(payload, ensure_ascii=True).encode("ascii") + b"\n"
+    require(len(encoded) <= 8192, "failure diagnostic exceeds bound")
+    return encoded
 
 
 def parse_arguments(args):
@@ -113,6 +124,15 @@ as such; their actual no-follow custody belongs to the catalogue reader.
     # this is not permission to read bytecode or an additional directory root.
     denied_caches = {str(Path(importlib.util.cache_from_source(name)))
                      for name in permitted if name.endswith(".py")}
+    # NumPy probes this optional installation-origin file through the stdlib's
+    # PathDistribution.read_text. Derive only the exact sibling of an already
+    # admitted NumPy METADATA file. Missing/unadmitted bytes remain unreadable;
+    # an actually catalogued origin file retains its normal exact admission.
+    denied_optional_metadata = {
+        str(p.with_name("direct_url.json")) for p in map(Path, permitted)
+        if p.name == "METADATA" and p.parent.name.startswith("numpy-")
+        and p.parent.name.endswith(".dist-info")
+    } - permitted
     system = tuple(Path(p) for p in manifest["runtime"]["stdlib_search_path"] if Path(p).is_absolute())
     observed = {}
     def record(key):
@@ -122,21 +142,38 @@ as such; their actual no-follow custody belongs to the catalogue reader.
         if event not in ("open", "sqlite3.connect") or not args or not isinstance(args[0], (str, bytes)):
             return
         name = os.fsdecode(args[0])
+        def reject(message):
+            flags = args[2] if event == "open" and len(args) > 2 else None
+            error = ChainError(message)
+            error.file_context = {
+                "event": event, "path": name[:512], "path_truncated": len(name) > 512,
+                "path_sha256": hashlib.sha256(os.fsencode(name)).hexdigest(),
+                "flags": flags if type(flags) is int and -(2**63) <= flags < 2**63 else None,
+            }
+            raise error
         # Directory traversal is protected by no-follow directory descriptors,
         # not a language-level audit-path reconstruction.
         if event == "open" and len(args) > 2 and type(args[2]) is int and args[2] & os.O_DIRECTORY:
             return
         p = Path(name)
-        require(p.suffix.lower() not in (".pkl", ".pickle", ".csv", ".xlsx", ".xls"), "unplanned training/fallback data access")
+        if p.suffix.lower() in (".pkl", ".pickle", ".csv", ".xlsx", ".xls"):
+            reject("unplanned training/fallback data access")
         if event == "open" and str(p) in denied_caches:
             require(len(args) > 2 and type(args[2]) is int and
                     not args[2] & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND),
                     "unplanned bytecode write")
             record("denied-bytecode-probe:" + name)
             raise FileNotFoundError(2, "bytecode denied; admitted source required", name)
+        if event == "open" and str(p) in denied_optional_metadata:
+            if (len(args) <= 2 or type(args[2]) is not int or
+                    args[2] & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND)):
+                reject("unplanned optional metadata write")
+            record("denied-optional-metadata-probe:" + name)
+            raise FileNotFoundError(2, "uncatalogued optional NumPy metadata denied", name)
         if p.is_absolute() and not p.is_relative_to(work):
-            require(str(p) in permitted or str(p) in ("/proc/self/maps", "/proc/self/status")
-                    or any(p == base or p.is_relative_to(base) for base in system), "unplanned Python file read")
+            if not (str(p) in permitted or str(p) in ("/proc/self/maps", "/proc/self/status")
+                    or any(p == base or p.is_relative_to(base) for base in system)):
+                reject("unplanned Python file read")
         record(event + ":" + name)
     sys.addaudithook(audit)
     return observed
@@ -198,7 +235,5 @@ if __name__ == "__main__":
     except BaseException as exc:
         # The unchanged supervisor suppresses arbitrary tracebacks. Preserve a
         # bounded diagnostic reason in its charged stderr before propagating.
-        error = json.dumps({"format": FORMAT, "phase": "failed", "exception": type(exc).__name__,
-                            "message": str(exc)[:512]}, ensure_ascii=True).encode("ascii") + b"\n"
-        os.write(2, error)
+        os.write(2, failure_bytes(exc))
         raise
