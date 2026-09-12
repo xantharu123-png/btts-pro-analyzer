@@ -24,6 +24,9 @@ from test_context_tennis_capture import NOW, competition, persist, records
 from test_tennis_context_features import base, event
 
 
+TEST_MAIN_CAP_BYTES = 4 * 1024**2
+
+
 @contextmanager
 def sealed_shape_reader(db):
     # A real read-only file/held transaction, not a claimed Linux DAC seal.
@@ -60,7 +63,8 @@ def test_complete_inventory_and_earlier_views_share_one_source_generation(tmp_pa
         receipts = VerifiedReceiptMapping(con)
         receipts.validate_all()
         with build_history(receipts, directory=work, cutoff=NOW, tour="ATP",
-                           input_identity=original_sha) as maximum:
+                           input_identity=original_sha,
+                           main_cap_bytes=TEST_MAIN_CAP_BYTES) as maximum:
             with maximum.as_of(cutoff) as prefix:
                 assert prefix.path == maximum.path
                 expected_history = _cold_replay_history(receipts, cutoff=cutoff,
@@ -68,7 +72,8 @@ def test_complete_inventory_and_earlier_views_share_one_source_generation(tmp_pa
                 basis = base(ev, cutoff=cutoff)
                 expected = tennis_features_v3(ev, expected_history, basis, cutoff=cutoff)
                 with tennis_features_streaming(ev, prefix, basis, cutoff=cutoff,
-                                               work_directory=work) as features:
+                                               work_directory=work,
+                                               main_cap_bytes=TEST_MAIN_CAP_BYTES) as features:
                     assert b"".join(features.iter_canonical_chunks()) == canonical_bytes(expected)
                     assert features.canonical_digest() == hashlib.sha256(canonical_bytes(expected)).hexdigest()
                     assert features.history_binding.input_identity == original_sha
@@ -89,10 +94,12 @@ def test_actual_result_cannot_outlive_source_transaction(tmp_path):
         receipts = VerifiedReceiptMapping(con)
         receipts.validate_all()
         with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
-                           input_identity=original_sha) as history:
+                           input_identity=original_sha,
+                           main_cap_bytes=TEST_MAIN_CAP_BYTES) as history:
             ev = event()
             result = tennis_features_streaming(ev, history, base(ev), cutoff=NOW,
-                                               work_directory=tmp_path)
+                                               work_directory=tmp_path,
+                                               main_cap_bytes=TEST_MAIN_CAP_BYTES)
             try:
                 stream = result.iter_canonical_chunks()
                 next(stream)
@@ -115,7 +122,8 @@ def test_private_history_temp_schema_cannot_hide_complete_rows(tmp_path):
         receipts = VerifiedReceiptMapping(con)
         receipts.validate_all()
         history = build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
-                                input_identity=hashlib.sha256(db.read_bytes()).hexdigest())
+                                input_identity=hashlib.sha256(db.read_bytes()).hexdigest(),
+                                main_cap_bytes=TEST_MAIN_CAP_BYTES)
         try:
             assert len(list(history.iter_rows())) == 3
             private = history._state.connection

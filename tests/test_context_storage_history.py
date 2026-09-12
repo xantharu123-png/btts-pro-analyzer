@@ -21,6 +21,9 @@ from runtime_paths import RuntimeArtifactTrustError
 from test_context_tennis_capture import NOW, competition, persist, records
 
 
+TEST_MAIN_CAP_BYTES = 4 * 1024**2
+
+
 def _sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -61,7 +64,7 @@ def test_matches_entire_unchanged_cold_tuple_bytes_order_and_repeated_reads(real
     cutoff = NOW + timedelta(minutes=shift)
     with source(real_history) as (_, receipts):
         expected = _cold_replay_history(receipts, cutoff=cutoff, tour=tour, max_bytes=None)
-        with build_history(receipts, directory=tmp_path, cutoff=cutoff, tour=tour,
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=cutoff, tour=tour,
                            input_identity=_sha(real_history)) as view:
             assert type(view) is HistoryView
             assert canonical_bytes(tuple(view.iter_rows())) == canonical_bytes(expected)
@@ -85,7 +88,7 @@ def test_events_preserve_first_occurrence_and_every_revision_without_materialize
         ordered = {}
         for row in expected:
             ordered.setdefault(row["event_key"], []).append(row)
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                            input_identity=_sha(real_history)) as view:
             groups = list(view.iter_events())
             assert [group.event_key for group in groups] == list(ordered)
@@ -104,7 +107,7 @@ def test_events_preserve_first_occurrence_and_every_revision_without_materialize
 
 def test_caller_mutating_returned_rows_never_changes_repeated_read(real_history, tmp_path):
     with source(real_history) as (_, receipts):
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                            input_identity=_sha(real_history)) as view:
             iterator = view.iter_rows()
             row = next(iterator)
@@ -118,7 +121,7 @@ def test_caller_mutating_returned_rows_never_changes_repeated_read(real_history,
 @pytest.mark.parametrize("operation", ["commit", "rollback", "restart", "close", "factory", "callback_override"])
 def test_source_lifetime_or_custom_connection_invalidates_all_repeatable_handles(real_history, tmp_path, operation):
     with source(real_history) as (connection, receipts):
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                            input_identity=_sha(real_history)) as view:
             group = next(view.iter_events())
             iterator = view.iter_rows()
@@ -141,7 +144,7 @@ def test_source_lifetime_or_custom_connection_invalidates_all_repeatable_handles
 @pytest.mark.parametrize("operation", ["commit", "rollback", "restart", "factory", "trace", "progress", "authorizer"])
 def test_private_output_connection_mutation_or_callbacks_fail_closed(real_history, tmp_path, operation):
     with source(real_history) as (_, receipts):
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                            input_identity=_sha(real_history)) as view:
             connection = view._state.connection
             try:
@@ -169,7 +172,7 @@ def test_private_output_connection_mutation_or_callbacks_fail_closed(real_histor
                                       "cache", "mmap", "max_pages"])
 def test_readonly_spool_schema_database_and_journal_changes_invalidate_next_row(real_history, tmp_path, operation):
     with source(real_history) as (_, receipts):
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                            input_identity=_sha(real_history)) as view:
             iterator = view.iter_rows()
             next(iterator)
@@ -194,9 +197,20 @@ def test_readonly_spool_schema_database_and_journal_changes_invalidate_next_row(
                 connection.execute("DROP TABLE temp.discarded")
                 assert connection.execute("SELECT count(*) FROM temp.sqlite_schema").fetchone() == (0,)
             elif operation == "attach":
-                connection.execute("ATTACH DATABASE ':memory:' AS unrelated")
+                with pytest.raises(sqlite3.OperationalError, match="too many attached"):
+                    connection.execute("ATTACH DATABASE ':memory:' AS unrelated")
+                connection.execute("PRAGMA query_only=ON")
+                view.assert_intact()  # The stricter reader rejected the mutation itself.
+                assert next(iterator)
+                iterator.close()
+                return
             elif operation == "temp_journal":
-                assert connection.execute("PRAGMA temp.journal_mode=OFF").fetchone() == ("off",)
+                assert connection.execute("PRAGMA temp.journal_mode=OFF").fetchone() == ("memory",)
+                connection.execute("PRAGMA query_only=ON")
+                view.assert_intact()  # Defensive mode prevented the journal change.
+                assert next(iterator)
+                iterator.close()
+                return
             elif operation == "cache":
                 connection.execute("PRAGMA main.cache_size=-4194304")
             elif operation == "mmap":
@@ -216,17 +230,17 @@ def test_readonly_spool_schema_database_and_journal_changes_invalidate_next_row(
                 view.assert_intact()
 
 
-def test_held_history_reader_cannot_switch_temporary_storage_to_memory(real_history, tmp_path):
+def test_held_history_reader_cannot_switch_temporary_storage_to_file(real_history, tmp_path):
     with source(real_history) as (_, receipts):
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                            input_identity=_sha(real_history)) as view:
             connection = view._state.connection
-            assert connection.execute("PRAGMA temp_store").fetchone() == (1,)
+            assert connection.execute("PRAGMA temp_store").fetchone() == (2,)
             with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
-                connection.execute("PRAGMA temp_store=MEMORY")
+                connection.execute("PRAGMA temp_store=FILE")
             # SQLite refuses the change without ending the held transaction;
             # ending/restarting that transaction is independently rejected.
-            assert connection.execute("PRAGMA temp_store").fetchone() == (1,)
+            assert connection.execute("PRAGMA temp_store").fetchone() == (2,)
             view.assert_intact()
             assert len(list(view.iter_rows())) == view.row_count
 
@@ -234,7 +248,7 @@ def test_held_history_reader_cannot_switch_temporary_storage_to_memory(real_hist
 @pytest.mark.parametrize("consumer", ["rows", "events", "event", "latest_rows", "prefix"])
 def test_temp_shadow_cannot_silently_change_any_complete_history_consumer(real_history, tmp_path, consumer):
     with source(real_history) as (_, receipts):
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                            input_identity=_sha(real_history)) as view:
             group = next(view.iter_events())
             connection = view._state.connection
@@ -256,13 +270,13 @@ def test_temp_shadow_cannot_silently_change_any_complete_history_consumer(real_h
 
 def test_source_owner_changed_connection_and_protected_set_are_rejected(real_history, tmp_path):
     with source(real_history) as (connection, receipts):
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                            input_identity=_sha(real_history)) as view:
             receipts._protected = frozenset({"0" * 64})
             with pytest.raises(StorageIntegrityError):
                 view.assert_intact()
         receipts._protected = frozenset()
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                            input_identity=_sha(real_history)) as view:
             receipts._connection = sqlite3.connect(real_history)
             try:
@@ -275,7 +289,7 @@ def test_source_owner_changed_connection_and_protected_set_are_rejected(real_his
 
 def test_source_file_mutation_after_publication_invalidates_view(real_history, tmp_path):
     with source(real_history) as (_, receipts):
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                            input_identity=_sha(real_history)) as view:
             with real_history.open("ab") as stream:
                 stream.write(b"changed")
@@ -286,7 +300,7 @@ def test_source_file_mutation_after_publication_invalidates_view(real_history, t
 def test_clean_context_exit_checks_mutation_after_the_last_read(real_history, tmp_path):
     with source(real_history) as (_, receipts):
         with pytest.raises(StorageIntegrityError):
-            with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+            with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                                input_identity=_sha(real_history)) as view:
                 assert len(list(view.iter_rows())) == 12
                 with real_history.open("ab") as stream:
@@ -295,7 +309,7 @@ def test_clean_context_exit_checks_mutation_after_the_last_read(real_history, tm
 
 def test_output_connection_is_really_read_only_and_other_writer_cannot_commit(real_history, tmp_path):
     with source(real_history) as (_, receipts):
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                            input_identity=_sha(real_history)) as view:
             with pytest.raises(sqlite3.OperationalError):
                 view._state.connection.execute("DELETE FROM history")
@@ -322,14 +336,14 @@ def test_hard_budgets_do_not_return_a_partial_history(real_history, tmp_path, wh
         else {"min_free_bytes": 2**63})
     with source(real_history) as (_, receipts):
         with pytest.raises(StorageLimitError):
-            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+            build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                           input_identity=_sha(real_history), limits=StorageLimits(**kwargs))
 
 
 def test_sqlite_page_cap_prevents_oversized_allocation_before_periodic_measurement(real_history, tmp_path):
     with source(real_history) as (_, receipts):
         with pytest.raises(sqlite3.DatabaseError) as caught:
-            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+            build_history(receipts, main_cap_bytes=4096, directory=tmp_path, cutoff=NOW, tour="ATP",
                           input_identity=_sha(real_history), limits=StorageLimits(workspace_bytes=8192))
         assert caught.value.sqlite_errorcode == sqlite3.SQLITE_FULL
         unfinished = list(tmp_path.glob("context-history-*/history.sqlite"))
@@ -348,14 +362,14 @@ def test_limits_instance_cannot_shadow_its_owner_validation(real_history, tmp_pa
     object.__setattr__(limits, "__post_init__", lambda: None)
     with source(real_history) as (_, receipts):
         with pytest.raises(StorageLimitError):
-            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+            build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                           input_identity=_sha(real_history), limits=limits)
 
 
 def test_later_valid_limits_change_cannot_redefine_published_history(real_history, tmp_path):
     limits = StorageLimits()
     with source(real_history) as (_, receipts):
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP",
                            input_identity=_sha(real_history), limits=limits) as view:
             iterator = view.iter_rows()
             next(iterator)
@@ -371,10 +385,10 @@ def test_unvalidated_owner_direct_iterables_and_wrong_identity_never_become_view
     with source(real_history, validate=False) as (_, receipts):
         for value in (receipts, [], {}, iter(())):
             with pytest.raises(StorageIntegrityError):
-                build_history(value, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history))
+                build_history(value, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history))
     with source(real_history) as (_, receipts):
         with pytest.raises(StorageIntegrityError):
-            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity="0" * 64)
+            build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity="0" * 64)
     with pytest.raises(StorageIntegrityError):
         HistoryView(complete=True)
 
@@ -398,7 +412,7 @@ def test_invalid_recognized_other_tour_source_payload_is_validated_before_filter
     append_observation(db, invalid, observed_at=at)  # Generic physical transport remains valid.
     with source(db) as (_, receipts):
         with pytest.raises(ContextIntegrityError):
-            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(db))
+            build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(db))
 
 
 def test_unknown_source_not_promoted_and_protected_final_stays_unopened(tmp_path):
@@ -412,7 +426,7 @@ def test_unknown_source_not_promoted_and_protected_final_stays_unopened(tmp_path
     protected = append_observation(db, final, observed_at=at)
     with source(db, protected=(protected,)) as (_, receipts):
         expected = _cold_replay_history(receipts, cutoff=NOW, tour="ATP", max_bytes=None)
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(db)) as view:
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(db)) as view:
             assert expected == () and list(view.iter_rows()) == []
             assert view.binding.source_receipt_count == 2 and view.binding.opaque_receipt_count == 1
             assert unknown != protected
@@ -421,12 +435,12 @@ def test_unknown_source_not_promoted_and_protected_final_stays_unopened(tmp_path
 def test_unknown_protected_reference_and_nonfinal_protection_fail_closed(real_history, tmp_path):
     with source(real_history, protected=("0" * 64,)) as (_, receipts):
         with pytest.raises(StorageIntegrityError, match="protected reference"):
-            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history))
+            build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history))
     with sqlite3.connect(real_history) as connection:
         ref = connection.execute("SELECT digest FROM context_observations LIMIT 1").fetchone()[0]
     with source(real_history, protected=(ref,)) as (_, receipts):
         with pytest.raises(StorageIntegrityError, match="closed final"):
-            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history))
+            build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history))
 
 
 def test_builder_interruption_never_publishes_or_reuses_partial_file(real_history, tmp_path, monkeypatch):
@@ -443,8 +457,8 @@ def test_builder_interruption_never_publishes_or_reuses_partial_file(real_histor
         with monkeypatch.context() as local:
             local.setattr(implementation, "select_tennis_observations", interrupted)
             with pytest.raises(RuntimeError, match="controlled build interruption"):
-                build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history))
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history)) as view:
+                build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history))
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history)) as view:
             assert view.row_count == 12
             assert len(list(tmp_path.glob("context-history-*"))) == 2
 
@@ -456,13 +470,13 @@ def test_same_source_digest_cannot_appear_twice_in_complete_physical_scan(real_h
         with monkeypatch.context() as local:
             local.setattr(implementation.context_observations, "_SELECT", original + " UNION ALL " + original)
             with pytest.raises(sqlite3.IntegrityError):
-                build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history))
+                build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history))
 
 
 @pytest.mark.parametrize("tour", ["ATP", "WTA"])
 def test_earlier_cutoffs_share_one_complete_spool_and_exact_cold_prefixes(real_history, tmp_path, tour):
     with source(real_history) as (_, receipts):
-        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour=tour,
+        with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour=tour,
                            input_identity=_sha(real_history)) as parent:
             for delta in (timedelta(days=20), timedelta(hours=4, microseconds=1),
                           timedelta(hours=4), timedelta(hours=2), timedelta()):
@@ -488,7 +502,7 @@ def test_earlier_cutoffs_share_one_complete_spool_and_exact_cold_prefixes(real_h
 
 def test_prefix_cannot_widen_and_parent_close_invalidates_every_child(real_history, tmp_path):
     with source(real_history) as (_, receipts):
-        parent = build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history))
+        parent = build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history))
         prefix = parent.as_of(NOW - timedelta(hours=2))
         with pytest.raises(StorageIntegrityError):
             prefix.as_of(NOW)
@@ -513,7 +527,7 @@ def test_large_single_event_uses_bounded_row_and_group_iteration(tmp_path):
     with source(db) as (_, receipts):
         tracemalloc.start()
         try:
-            with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(db)) as view:
+            with build_history(receipts, main_cap_bytes=TEST_MAIN_CAP_BYTES, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(db)) as view:
                 groups = view.iter_events()
                 group = next(groups)
                 assert next(groups, None) is None
@@ -526,3 +540,265 @@ def test_large_single_event_uses_bounded_row_and_group_iteration(tmp_path):
                 assert peak < 8 * 1024**2
         finally:
             tracemalloc.stop()
+
+
+def _trace_build_connections(monkeypatch, filename):
+    """Test-only base callback injection, before the new reader is bound."""
+    original, captured = sqlite3.connect, []
+    def traced(database, *args, **kwargs):
+        connection = original(database, *args, **kwargs)
+        if filename in str(database):
+            statements = []
+            sqlite3.Connection.set_trace_callback(connection, statements.append)
+            captured.append((connection, statements))
+        return connection
+    monkeypatch.setattr(sqlite3, "connect", traced)
+    return captured
+
+
+def _assert_single_memory_build(captured, *, main_cap, cache_kib):
+    assert len(captured) == 2  # Exactly one writer, then one new read-only reader.
+    writer, sql = captured[0]
+    reader, read_sql = captured[1]
+    assert type(writer) is TrackedConnection
+    assert sql[0] == read_sql[0] == "PRAGMA temp_store=MEMORY"
+    assert "PRAGMA main.synchronous=FULL" in sql
+    assert "PRAGMA main.journal_mode=DELETE" in sql
+    assert "PRAGMA temp_store=FILE" not in sql + read_sql
+    assert [item for item in sql if item.startswith("BEGIN")] == ["BEGIN IMMEDIATE"]
+    assert sql.count("COMMIT") == 1
+    assert sql.index("BEGIN IMMEDIATE") < next(i for i, item in enumerate(sql) if item.startswith("CREATE"))
+    assert not any(item.startswith("ROLLBACK") for item in sql)
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        writer.execute("SELECT 1")
+    assert reader.execute("PRAGMA temp_store").fetchone() == (2,)
+    assert reader.execute("PRAGMA main.cache_size").fetchone() == (-cache_kib,)
+    assert reader.execute("PRAGMA main.max_page_count").fetchone() == (main_cap // 4096,)
+    assert reader.execute("PRAGMA main.mmap_size").fetchone() == (0,)
+    assert reader.execute("PRAGMA threads").fetchone() == (0,)
+    assert reader.getlimit(sqlite3.SQLITE_LIMIT_ATTACHED) == 0
+    assert reader.getlimit(sqlite3.SQLITE_LIMIT_WORKER_THREADS) == 0
+
+
+def test_fresh_profile_and_owned_slots_preserve_every_cold_row(real_history, tmp_path, monkeypatch):
+    import context_storage_v2.history as implementation
+    owned = tmp_path / "reserved-history"
+    owned.mkdir()
+    before = _sha(real_history)
+    with source(real_history) as (_, receipts):
+        expected = _cold_replay_history(receipts, cutoff=NOW, tour="ATP", max_bytes=None)
+        captured = _trace_build_connections(monkeypatch, "history.sqlite")
+        with build_history(receipts, directory=tmp_path, owned_directory=owned,
+                           cutoff=NOW, tour="ATP", input_identity=before,
+                           main_cap_bytes=TEST_MAIN_CAP_BYTES) as view:
+            assert view.path == owned / "history.sqlite"
+            _assert_single_memory_build(captured, main_cap=TEST_MAIN_CAP_BYTES, cache_kib=8192)
+            assert type(captured[1][0]) is implementation._ReadConnection
+            assert canonical_bytes(tuple(view.iter_rows())) == canonical_bytes(expected)
+            assert view.binding.spool_digest == _sha(view.path)
+        assert list(owned.iterdir()) == [owned / "history.sqlite"]
+        with pytest.raises(StorageIntegrityError, match="empty"):
+            build_history(receipts, directory=tmp_path, owned_directory=owned,
+                          cutoff=NOW, tour="ATP", input_identity=before,
+                          main_cap_bytes=TEST_MAIN_CAP_BYTES)
+        assert _sha(real_history) == before
+    assert not list(tmp_path.glob("context-history-*"))
+
+
+@pytest.mark.parametrize("bad", [None, 0, -4096, 1, 4097, True, 4096.0, 2**32 + 4096])
+def test_explicit_history_main_slot_never_silently_rounds_or_widens(real_history, tmp_path, bad):
+    with source(real_history) as (_, receipts):
+        with pytest.raises(StorageLimitError):
+            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+                          input_identity=_sha(real_history), main_cap_bytes=bad)
+    assert not list(tmp_path.glob("context-history-*"))
+
+
+@pytest.mark.parametrize("limits", [StorageLimits(input_bytes=TEST_MAIN_CAP_BYTES - 1),
+                                    StorageLimits(workspace_bytes=2 * TEST_MAIN_CAP_BYTES - 1)])
+def test_history_requires_both_full_logical_slots_within_limits(real_history, tmp_path, limits):
+    with source(real_history) as (_, receipts):
+        with pytest.raises(StorageLimitError):
+            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+                          input_identity=_sha(real_history), main_cap_bytes=TEST_MAIN_CAP_BYTES, limits=limits)
+    assert not list(tmp_path.glob("context-history-*"))
+
+
+@pytest.mark.parametrize("kind", ["file", "journal", "extra", "nested", "relative"])
+def test_owned_history_namespace_is_never_adopted_or_replaced(real_history, tmp_path, kind):
+    owned = tmp_path / "reserved-history"
+    owned.mkdir()
+    names = {"file": "history.sqlite", "journal": "history.sqlite-journal", "extra": "unplanned.bin"}
+    foreign = None
+    if kind in names:
+        foreign = owned / names[kind]
+        foreign.write_bytes(b"unrelated existing bytes")
+    elif kind == "nested":
+        owned = owned / "unreserved-child"
+        owned.mkdir()
+    else:
+        owned = Path("reserved-history")
+    with source(real_history) as (_, receipts):
+        with pytest.raises(StorageIntegrityError):
+            build_history(receipts, directory=tmp_path, owned_directory=owned,
+                          cutoff=NOW, tour="ATP", input_identity=_sha(real_history),
+                          main_cap_bytes=TEST_MAIN_CAP_BYTES)
+    if foreign is not None:
+        assert foreign.read_bytes() == b"unrelated existing bytes"
+    assert not list(tmp_path.glob("context-history-*"))
+
+
+@pytest.mark.parametrize("phase", ["after_schema", "before_commit", "after_commit"])
+def test_history_reserve_loss_stops_without_publishing_and_retains_charged_path(real_history, tmp_path, monkeypatch, phase):
+    import context_storage_v2.history as implementation
+    original_open, original_check = implementation.open_fresh_writer, implementation._resource_check
+    writers = []
+    def captured(*args, **kwargs):
+        result = original_open(*args, **kwargs)
+        writers.append(result)
+        return result
+    def checked(*args, **kwargs):
+        original_check(*args, **kwargs)
+        writer = writers[0]
+        connection = writer.connection
+        if writer.committed:
+            fail = phase == "after_commit"
+        else:
+            schema_ready = connection.execute("SELECT count(*) FROM sqlite_schema WHERE name='seen'").fetchone() == (1,)
+            complete = schema_ready and connection.execute("SELECT count(*) FROM seen").fetchone() == (18,)
+            fail = (phase == "after_schema" and schema_ready) or (phase == "before_commit" and complete)
+        if fail:
+            raise StorageLimitError("controlled observed reserve loss")
+    monkeypatch.setattr(implementation, "open_fresh_writer", captured)
+    monkeypatch.setattr(implementation, "_resource_check", checked)
+    before = _sha(real_history)
+    with source(real_history) as (_, receipts):
+        with pytest.raises(StorageLimitError, match="reserve loss") as failure:
+            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=before,
+                          main_cap_bytes=TEST_MAIN_CAP_BYTES)
+    writer = writers[0]
+    assert writer.closed and writer.committed == (phase == "after_commit")
+    assert writer.connection is None and writer.path.exists()
+    assert any(str(writer.path.parent) in note for note in failure.value.__notes__)
+    with sqlite3.connect(writer.path.as_uri() + "?mode=ro", uri=True) as check:
+        names = check.execute("SELECT name FROM sqlite_schema").fetchall()
+        assert bool(names) == (phase == "after_commit")
+    assert _sha(real_history) == before
+
+
+@pytest.mark.parametrize("change", ["cache", "max_pages", "threads", "attach_limit", "extensions"])
+def test_history_builder_profile_drift_abandons_the_complete_transaction(real_history, tmp_path, monkeypatch, change):
+    import context_storage_v2.history as implementation
+    original = implementation.select_tennis_observations
+    opened = implementation.open_fresh_writer
+    writers, changed = [], False
+    def capture(*args, **kwargs):
+        writer = opened(*args, **kwargs)
+        writers.append(writer)
+        return writer
+    def drift(rows, **kwargs):
+        nonlocal changed
+        selected = original(rows, **kwargs)
+        if rows and not changed:
+            changed = True
+            c = writers[0].connection
+            if change == "attach_limit":
+                c.setlimit(sqlite3.SQLITE_LIMIT_ATTACHED, 1)
+            elif change == "extensions":
+                c.setconfig(sqlite3.SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION, True)
+            else:
+                c.execute({"cache": "PRAGMA cache_size=-1", "max_pages": "PRAGMA max_page_count=2048",
+                           "threads": "PRAGMA threads=1"}[change])
+        return selected
+    monkeypatch.setattr(implementation, "open_fresh_writer", capture)
+    monkeypatch.setattr(implementation, "select_tennis_observations", drift)
+    with source(real_history) as (_, receipts):
+        with pytest.raises(StorageIntegrityError):
+            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+                          input_identity=_sha(real_history), main_cap_bytes=TEST_MAIN_CAP_BYTES)
+    assert writers[0].closed and not writers[0].committed
+    with sqlite3.connect(writers[0].path.as_uri() + "?mode=ro", uri=True) as check:
+        assert check.execute("SELECT name FROM sqlite_schema").fetchall() == []
+
+
+@pytest.mark.parametrize("change", ["attach_limit", "threads_limit", "extensions", "defensive", "trusted_schema"])
+def test_history_reader_new_native_policy_fields_are_lifetime_bound(real_history, tmp_path, change):
+    with source(real_history) as (_, receipts):
+        with build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history),
+                           main_cap_bytes=TEST_MAIN_CAP_BYTES) as view:
+            c = view._state.connection
+            if change.endswith("limit"):
+                c.setlimit(sqlite3.SQLITE_LIMIT_ATTACHED if change == "attach_limit"
+                           else sqlite3.SQLITE_LIMIT_WORKER_THREADS, 1)
+            else:
+                c.setconfig({"extensions": sqlite3.SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION,
+                             "defensive": sqlite3.SQLITE_DBCONFIG_DEFENSIVE,
+                             "trusted_schema": sqlite3.SQLITE_DBCONFIG_TRUSTED_SCHEMA}[change],
+                            change != "defensive")
+            with pytest.raises(StorageIntegrityError):
+                list(view.iter_rows())
+
+
+@pytest.mark.parametrize("cap", [4096, 16384, 32768])
+def test_real_history_full_rolls_back_the_first_schema_and_all_rows(real_history, tmp_path, monkeypatch, cap):
+    import context_storage_v2.history as implementation
+    opened, writers = implementation.open_fresh_writer, []
+    def capture(*args, **kwargs):
+        writer = opened(*args, **kwargs)
+        writers.append(writer)
+        return writer
+    monkeypatch.setattr(implementation, "open_fresh_writer", capture)
+    before = _sha(real_history)
+    with source(real_history) as (_, receipts):
+        with pytest.raises(sqlite3.DatabaseError) as failure:
+            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP",
+                          input_identity=before, main_cap_bytes=cap)
+    assert failure.value.sqlite_errorcode == sqlite3.SQLITE_FULL
+    writer = writers[0]
+    assert writer.closed and not writer.committed and writer.connection is None
+    assert writer.path.stat().st_size <= cap
+    assert any(str(writer.path.parent) in note for note in failure.value.__notes__)
+    with sqlite3.connect(writer.path.as_uri() + "?mode=ro", uri=True) as check:
+        assert check.execute("SELECT name FROM sqlite_schema").fetchall() == []
+    assert _sha(real_history) == before
+
+
+def test_history_main_cap_has_no_implicit_default(real_history, tmp_path):
+    with source(real_history) as (_, receipts):
+        with pytest.raises(TypeError, match="main_cap_bytes"):
+            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history))
+    assert not list(tmp_path.glob("context-history-*"))
+
+
+@pytest.mark.parametrize("failure", ["memory_setting", "memory_readback", "compile_override"])
+def test_readonly_profile_failure_never_returns_a_history_or_deletes_completed_bytes(real_history, tmp_path, monkeypatch, failure):
+    import context_storage_v2.history as implementation
+    original, captured = sqlite3.connect, []
+    def connect(database, *args, **kwargs):
+        connection = original(database, *args, **kwargs)
+        if kwargs.get("factory") is implementation._ReadConnection:
+            captured.append(connection)
+            execute = connection.execute
+            def controlled(sql, *args):
+                if failure == "memory_setting" and sql == "PRAGMA temp_store=MEMORY":
+                    raise sqlite3.OperationalError("controlled unavailable reader setting")
+                if failure == "memory_readback" and sql == "PRAGMA temp_store":
+                    return execute("SELECT 1")
+                if failure == "compile_override" and sql == "PRAGMA compile_options":
+                    return execute("SELECT 'TEMP_STORE=0'")
+                return execute(sql, *args)
+            connection.execute = controlled  # Explicit test injection before reader binding.
+        return connection
+    with source(real_history) as (_, receipts):
+        monkeypatch.setattr(sqlite3, "connect", connect)
+        with pytest.raises((sqlite3.OperationalError, StorageIntegrityError)) as caught:
+            build_history(receipts, directory=tmp_path, cutoff=NOW, tour="ATP", input_identity=_sha(real_history),
+                          main_cap_bytes=TEST_MAIN_CAP_BYTES)
+    assert len(captured) == 1
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        sqlite3.Connection.execute(captured[0], "SELECT 1")
+    completed = list(tmp_path.glob("context-history-*/history.sqlite"))
+    assert len(completed) == 1
+    assert any(str(completed[0].parent) in note for note in caught.value.__notes__)
+    with original(completed[0].as_uri() + "?mode=ro", uri=True) as check:
+        assert check.execute("SELECT count(*) FROM history").fetchone() == (12,)

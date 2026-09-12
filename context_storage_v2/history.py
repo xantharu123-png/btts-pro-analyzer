@@ -32,6 +32,7 @@ from context_sources.tennis_status import STATUS_SCHEMA, select_tennis_observati
 from model_artifacts import _decode_object, canonical_bytes
 
 from .contracts import DEFAULT_LIMITS, StorageIntegrityError, StorageLimitError, StorageLimits
+from .sqlite_profile import SQLiteWriterPlan, open_fresh_writer
 
 
 HISTORY_VERSION = "context-complete-tennis-history-v2"
@@ -87,6 +88,85 @@ def _resource_check(directory, path, limits):
         raise StorageLimitError("private history workspace exceeds its budget")
     if path.exists() and path.stat().st_size > limits.input_bytes:
         raise StorageLimitError("history spool exceeds the complete-input envelope")
+
+
+def _private_build_directory(root, owned_directory, *, prefix):
+    """Known-slot mode or local-only allocation; neither is global admission.
+
+    The native owner MUST supply its already reserved, private empty directory.
+    Random local allocations require complete outer enumeration, including all
+    failed attempts; an exception note alone is not an inventory or a seal.
+    """
+    root = Path(root).absolute()
+    if not root.is_dir() or root.is_symlink():
+        raise StorageIntegrityError("C build allocation root must be an existing real directory")
+    if owned_directory is None:
+        private = Path(tempfile.mkdtemp(prefix=prefix, dir=root))
+        try:
+            os.chmod(private, 0o700)
+        except BaseException as exc:
+            exc.add_note("Failed private C directory allocation retained: " + str(private))
+            raise
+        return private
+    private = Path(owned_directory)
+    if not private.is_absolute() or private.parent != root:
+        raise StorageIntegrityError("owned C build directory must be an absolute direct child")
+    info = private.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode)
+            or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+            or info.st_dev != root.stat().st_dev):
+        raise StorageIntegrityError("owned C build directory must be ordinary and on the same device")
+    if next(private.iterdir(), None) is not None:
+        raise StorageIntegrityError("owned C build directory must be empty; no resume or replacement")
+    return private
+
+
+def _read_policy_epoch(connection):
+    return (
+        connection.getlimit(sqlite3.SQLITE_LIMIT_ATTACHED),
+        connection.getlimit(sqlite3.SQLITE_LIMIT_WORKER_THREADS),
+        connection.getconfig(sqlite3.SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION),
+        connection.getconfig(sqlite3.SQLITE_DBCONFIG_DEFENSIVE),
+        connection.getconfig(sqlite3.SQLITE_DBCONFIG_TRUSTED_SCHEMA),
+    )
+
+
+def _configure_read_connection(connection, plan):
+    """Configure a NEW RO connection before TEMP work, never the source owner.
+
+    Reader temp memory remains subject to the outer native AS/RSS limits. The
+    exact existing reader types/lifetime checks are not replaced by a wrapper.
+    """
+    connection.execute("PRAGMA temp_store=MEMORY")  # FIRST SQL on this reader.
+    if connection.execute("PRAGMA temp_store").fetchone() != (2,):
+        raise StorageIntegrityError("C reader MEMORY temp_store is unavailable")
+    cursor = connection.execute("PRAGMA compile_options")
+    try:
+        rows = cursor.fetchmany(257)
+    finally:
+        cursor.close()
+    if (len(rows) > 256 or any(type(row[0]) is not str or len(row[0]) > 256 for row in rows)
+            or [row[0] for row in rows if row[0].startswith("TEMP_STORE=")]
+            not in (["TEMP_STORE=1"], ["TEMP_STORE=2"], ["TEMP_STORE=3"])):
+        raise StorageIntegrityError("C reader build does not establish effective MEMORY temp_store")
+    for category in (sqlite3.SQLITE_LIMIT_ATTACHED, sqlite3.SQLITE_LIMIT_WORKER_THREADS):
+        connection.setlimit(category, 0)
+    for category, value in (
+        (sqlite3.SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION, False),
+        (sqlite3.SQLITE_DBCONFIG_DEFENSIVE, True),
+        (sqlite3.SQLITE_DBCONFIG_TRUSTED_SCHEMA, False),
+    ):
+        connection.setconfig(category, value)
+    for name, value in (
+        ("query_only", 1), ("main.cache_size", -plan.cache_kib),
+        ("main.mmap_size", 0), ("main.max_page_count", plan.max_page_count),
+        ("threads", 0), ("trusted_schema", 0),
+    ):
+        connection.execute(f"PRAGMA {name}={value}")
+        if connection.execute(f"PRAGMA {name}").fetchone() != (value,):
+            raise StorageIntegrityError("C reader could not install its bounded policy: " + name)
+    if _read_policy_epoch(connection) != (0, 0, False, True, False):
+        raise StorageIntegrityError("C reader attachment/thread/configuration limits are unavailable")
 
 
 @dataclass(frozen=True)
@@ -211,9 +291,9 @@ def _storage_epoch(connection):
                    for pragma in ("PRAGMA main.schema_version", "PRAGMA temp.schema_version",
                                   "PRAGMA main.journal_mode", "PRAGMA temp.journal_mode",
                                   "PRAGMA main.cache_size", "PRAGMA main.mmap_size",
-                                  "PRAGMA main.max_page_count", "PRAGMA temp_store"))
+                                  "PRAGMA main.max_page_count", "PRAGMA temp_store", "PRAGMA threads"))
     databases = tuple(sqlite3.Connection.execute(connection, "PRAGMA database_list"))
-    return schema, databases
+    return schema, databases, _read_policy_epoch(connection)
 
 
 class HistoryView:
@@ -423,14 +503,24 @@ class EventHistory:
 
 
 def build_history(receipts, *, directory, cutoff: datetime, tour: str,
-                  input_identity: str, limits=DEFAULT_LIMITS) -> HistoryView:
+                  input_identity: str, main_cap_bytes: int, owned_directory=None,
+                  limits=DEFAULT_LIMITS) -> HistoryView:
     """Visit the full validated mapping and atomically complete a private spool.
 
     ``directory`` is an existing QA allocation root. This function never edits
     source data and never returns a partial view. Failed private files are left
     for the caller's bounded cleanup policy, not silently deleted or reused.
+    ``main_cap_bytes`` reserves logical main M plus journal M, not a global or
+    physical quota. The native owner must pre-admit those and all other slots,
+    enforce file/AS/RSS/CPU limits and use a known empty ``owned_directory``.
+    Its fixed names are history.sqlite and history.sqlite-journal. Without an
+    owned directory this is only a local convenience allocation, to be fully
+    enumerated by its caller. Success exposes ``view.path``; failure retains
+    the directory and adds its path to the exception, never a budget release.
     """
     limits_stamp = _limits_stamp(limits)
+    plan = SQLiteWriterPlan(main_cap_bytes=main_cap_bytes, cache_kib=8192)
+    SQLiteWriterPlan._validate_limits(plan, limits)
     select_tennis_observations((), cutoff=cutoff, tour=tour)
     decision = canonical_timestamp(cutoff)
     source = _source(receipts, input_identity, limits)
@@ -439,32 +529,26 @@ def build_history(receipts, *, directory, cutoff: datetime, tour: str,
         raise StorageIntegrityError("history allocation root must be an existing directory")
     if shutil.disk_usage(allocation_root).free < limits.min_free_bytes:
         raise StorageLimitError("history build lacks its free-space reserve")
-    private = Path(tempfile.mkdtemp(prefix="context-history-", dir=allocation_root))
-    os.chmod(private, 0o700)
+    private = _private_build_directory(allocation_root, owned_directory, prefix="context-history-")
     path = private / "history.sqlite"
-    connection = sqlite3.connect(path, timeout=0)
+    writer = None
     published = None
     try:
-        os.chmod(path, 0o600)
-        connection.execute("PRAGMA main.journal_mode=DELETE")
-        connection.execute("PRAGMA temp_store=FILE")
-        connection.execute("PRAGMA main.cache_size=-8192")
-        connection.execute("PRAGMA main.mmap_size=0")
-        connection.execute("PRAGMA trusted_schema=OFF")
-        page_size = connection.execute("PRAGMA main.page_size").fetchone()[0]
-        max_pages = min(limits.input_bytes, limits.workspace_bytes) // page_size
-        if max_pages < 1:
-            raise StorageLimitError("history allocation cannot hold one SQLite page")
-        actual_max = connection.execute(f"PRAGMA main.max_page_count={max_pages}").fetchone()[0]
-        if actual_max != max_pages:
-            raise StorageLimitError("history could not install its hard SQLite allocation cap")
+        writer = open_fresh_writer(path, plan=plan, limits=limits)
+        connection = writer.connection  # Exact TrackedConnection; BEGIN precedes all DDL.
+
+        def check_build():
+            writer.check_profile()
+            _resource_check(private, path, limits)
+
+        check_build()
         connection.execute("CREATE TABLE main.history(digest TEXT PRIMARY KEY, observed_at TEXT NOT NULL, event_key TEXT NOT NULL, payload BLOB NOT NULL) WITHOUT ROWID")
         connection.execute("CREATE INDEX main.history_order ON history(observed_at,digest)")
         connection.execute("CREATE INDEX main.history_event_order ON history(event_key,observed_at,digest)")
         connection.execute("CREATE TABLE main.events(event_key TEXT PRIMARY KEY, first_observed_at TEXT NOT NULL, first_digest TEXT NOT NULL, latest_observed_at TEXT NOT NULL) WITHOUT ROWID")
         connection.execute("CREATE INDEX main.events_order ON events(first_observed_at,first_digest)")
         connection.execute("CREATE TABLE main.seen(digest TEXT PRIMARY KEY) WITHOUT ROWID")
-        connection.execute("BEGIN")
+        check_build()
         count = used = source_count = opaque_count = 0
         # No SQL cutoff/tour filter: corrupt future/foreign physical records may
         # not hide behind metadata. The unchanged source selector owns causality.
@@ -491,7 +575,7 @@ def build_history(receipts, *, directory, cutoff: datetime, tour: str,
                 require_native_key(row["event_key"])
                 opaque_count += 1
                 if source_count % 256 == 0:
-                    _resource_check(private, path, limits)
+                    check_build()
                 continue
             if "source_schema" not in row:
                 raise StorageIntegrityError("unprotected receipt has no physical source schema")
@@ -513,7 +597,7 @@ def build_history(receipts, *, directory, cutoff: datetime, tour: str,
                     selected["event_key"], selected["observed_at"], selected["digest"], selected["observed_at"]))
             source.check()
             if source_count % 256 == 0:
-                _resource_check(private, path, limits)
+                check_build()
         source.check()
         if source_count != sqlite3.Connection.execute(source.connection, "SELECT count(*) FROM main.context_observations").fetchone()[0]:
             raise StorageIntegrityError("complete history did not visit every receipt")
@@ -526,12 +610,14 @@ def build_history(receipts, *, directory, cutoff: datetime, tour: str,
             digest.update(payload)
             verified_count += 1
             verified_used += len(payload)
+            if verified_count % 256 == 0:
+                check_build()
         if (count, used) != (verified_count, verified_used):
             raise StorageIntegrityError("completed history count or canonical byte total changed")
-        connection.commit()
+        source.check()
+        check_build()  # Reserve/profile failure must precede the only build commit.
+        writer.commit_build()  # Closes all normal writer cursors/blobs/connection/FD.
         _resource_check(private, path, limits)
-        connection.close()
-        connection = None
         _companions_absent(path)
         before = _identity(path)
         spool_digest = _hash_file(path, limits.block_bytes)
@@ -542,13 +628,7 @@ def build_history(receipts, *, directory, cutoff: datetime, tour: str,
                                     timeout=0, factory=_ReadConnection)
         published._history_poisoned = False
         published._history_bound = False
-        published.execute("PRAGMA trusted_schema=OFF")
-        published.execute("PRAGMA query_only=ON")
-        published.execute("PRAGMA main.cache_size=-8192")
-        published.execute("PRAGMA main.mmap_size=0")
-        published.execute("PRAGMA temp_store=FILE")
-        if published.execute(f"PRAGMA main.max_page_count={max_pages}").fetchone() != (max_pages,):
-            raise StorageLimitError("history reader could not preserve its SQLite allocation cap")
+        _configure_read_connection(published, plan)
         published.execute("BEGIN")
         published.execute("SELECT count(*) FROM main.history").fetchone()
         storage_epoch = _storage_epoch(published)
@@ -564,10 +644,11 @@ def build_history(receipts, *, directory, cutoff: datetime, tour: str,
         object.__setattr__(result, "_owns_connection", True)
         result.assert_intact()
         return result
-    except BaseException:
+    except BaseException as exc:
+        exc.add_note("Unpublished or failed C history directory retained: " + str(private))
         if published is not None:
             published.close()
         raise
     finally:
-        if connection is not None:
-            connection.close()
+        if writer is not None:
+            writer.close()

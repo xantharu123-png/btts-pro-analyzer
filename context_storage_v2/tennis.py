@@ -20,7 +20,6 @@ from pathlib import Path
 import shutil
 import sqlite3
 import stat
-import tempfile
 from types import MappingProxyType
 
 from context_models.contracts import (
@@ -42,6 +41,10 @@ from context_runtime_transaction import TrackedConnection
 from context_storage_v2.contracts import (
     DEFAULT_LIMITS, StorageIntegrityError, StorageLimitError, StorageLimits,
 )
+from context_storage_v2.history import (
+    _configure_read_connection, _private_build_directory, _read_policy_epoch,
+)
+from context_storage_v2.sqlite_profile import SQLiteWriterPlan, open_fresh_writer
 from model_artifacts import canonical_bytes
 
 
@@ -72,8 +75,9 @@ def _read_storage_epoch(connection):
                    for statement in ("PRAGMA main.schema_version", "PRAGMA temp.schema_version",
                        "PRAGMA main.journal_mode", "PRAGMA temp.journal_mode",
                        "PRAGMA main.max_page_count", "PRAGMA main.cache_size",
-                       "PRAGMA main.mmap_size", "PRAGMA temp_store"))
-    return pragmas, tuple(sqlite3.Connection.execute(connection, "PRAGMA database_list"))
+                       "PRAGMA main.mmap_size", "PRAGMA temp_store", "PRAGMA threads"))
+    return (pragmas, tuple(sqlite3.Connection.execute(connection, "PRAGMA database_list")),
+            _read_policy_epoch(connection))
 
 
 def _limits_identity(limits):
@@ -209,13 +213,13 @@ def _paired_status(group, participants):
     return tuple(pair), tuple(sorted(required | {head["digest"]})), None
 
 
-def _stage_usable(connection, history, event, *, cutoff, next_start, allocation, limits):
+def _stage_usable(connection, history, event, *, cutoff, next_start, check_build):
     participants = {event["home_id"], event["away_id"]}
     v2_conflicts, conflicts, unknown, modes = set(), set(), set(), set()
     sequence = 0
     for event_index, group in enumerate(history.iter_events(exclude_event=event["event_key"])):
         if event_index % 128 == 0:
-            _ensure_space(allocation, limits)
+            check_build()
         relevant, has_status = set(), False
         for row in group.iter_rows():
             has_status |= row["source_schema"] == STATUS_SCHEMA
@@ -278,7 +282,7 @@ def _window_rows(connection, side, start, stop):
 
 
 def _compute_header(connection, event, base, *, cutoff, v2_conflicts,
-                    conflicts, unknown, mode, target_state, target_refs, allocation, limits):
+                    conflicts, unknown, mode, target_state, target_refs, check_build):
     """Execute the old arithmetic in the same side/window/row order.
 
     In particular Python's original builtins.sum consumes a disk generator;
@@ -306,7 +310,7 @@ def _compute_header(connection, event, base, *, cutoff, v2_conflicts,
                 payload = row["payload"]
                 count += 1
                 if count % 128 == 0:
-                    _ensure_space(allocation, limits)
+                    check_build()
                 receipt, ended = _instant(payload["result_observed_at"]), payload["actual_end"]
                 latest_receipt = receipt if latest_receipt is None else max(latest_receipt, receipt)
                 if ended is not None:
@@ -331,7 +335,7 @@ def _compute_header(connection, event, base, *, cutoff, v2_conflicts,
                         continue
                     window_count += 1
                     if window_count % 128 == 0:
-                        _ensure_space(allocation, limits)
+                        check_build()
                     incomplete += payload["incomplete_match"]
                     _add_refs(connection, window_pool, associated)
                     for metric in METRICS:
@@ -435,17 +439,17 @@ def _union_refs(connection, pools, literals):
 
 class StreamingTennisFeatures:
     """An explicit complete numeric header plus immutable blocked references."""
-    __slots__ = ("_connection", "_temporary", "_path", "_stamp", "_history",
+    __slots__ = ("_connection", "_path", "_stamp", "_history",
                  "_header", "_refs", "_limits", "_changes", "_closed", "_generation",
                  "_failed", "_connection_attributes", "_storage_epoch", "_limits_identity")
     format_version = FORMAT_VERSION
 
-    def __init__(self, *, connection=None, temporary=None, path=None, history=None,
+    def __init__(self, *, connection=None, path=None, history=None,
                  header=None, refs=None, limits=None, _token=None):
         if _token is not _RESULT_TOKEN:
             raise StorageIntegrityError("tennis_features_streaming owns complete result publication")
         for name, value in {
-            "_connection": connection, "_temporary": temporary, "_path": path,
+            "_connection": connection, "_path": path,
             "_history": history, "_header": canonical_bytes(header),
             "_refs": MappingProxyType(dict(refs)), "_limits": limits,
             "_closed": False, "_failed": False, "_stamp": _stamp(path),
@@ -522,6 +526,11 @@ class StreamingTennisFeatures:
         self.assert_intact()
         return len(self._header) + sum(
             descriptor.canonical_bytes - 2 for descriptor in self._refs.values())
+
+    @property
+    def path(self):
+        """Diagnostic retained artifact path, not a seal or permission to mutate."""
+        return self._path
 
     @property
     def output_bytes(self):
@@ -604,12 +613,9 @@ class StreamingTennisFeatures:
     def close(self):
         if not self._closed:
             object.__setattr__(self, "_closed", True)
-            try:
-                self._connection.close()
-            finally:
-                # Only this exact private TemporaryDirectory is removed. It
-                # contains no source/history DB, and no old user data.
-                self._temporary.cleanup()
+            self._connection.close()
+            # Retain this generation and every failed attempt for its outer
+            # inventory. Closing a Python handle does not release a disk slot.
 
     def __enter__(self):
         self.assert_intact()
@@ -621,12 +627,20 @@ class StreamingTennisFeatures:
 
 def tennis_features_streaming(event: dict, history_view, base: dict, *,
                               cutoff: datetime, work_directory: Path,
+                              main_cap_bytes: int, owned_directory=None,
                               limits: StorageLimits = DEFAULT_LIMITS):
     """New explicit owner; never enters the old tuple-only API with a fake type.
 
     The caller owns the complete C/B workspace cost and worker CPU/RAM limits.
     This component additionally caps its own SQLite file, single selected rows,
     and its free-space reserve. It does not claim whole-release admission.
+    ``main_cap_bytes`` is logical main M with a separate journal-M reservation,
+    not native enforcement or physical/global admission. The native owner uses
+    an already reserved private empty ``owned_directory`` (direct child of
+    work_directory), with fixed features.sqlite/features.sqlite-journal names.
+    Omitted owned_directory is local convenience only and requires complete
+    outer enumeration. Success exposes result.path; errors note the retained
+    directory. Neither failure nor close deletes artifacts or releases budget.
     """
     from context_storage_v2.history import HistoryView
     from context_storage_v2.refs import create_schema, put_refset
@@ -635,6 +649,8 @@ def tennis_features_streaming(event: dict, history_view, base: dict, *,
     if type(limits) is not StorageLimits:
         raise StorageLimitError("Tennis streaming requires explicit fixed storage limits")
     StorageLimits.__post_init__(limits)
+    plan = SQLiteWriterPlan(main_cap_bytes=main_cap_bytes, cache_kib=4096)
+    SQLiteWriterPlan._validate_limits(plan, limits)
     event, base = validate_event(event), validate_base_distribution(base)
     if not isinstance(cutoff, datetime):
         raise ContextContractError("Tennis streaming requires an aware cutoff datetime")
@@ -659,63 +675,78 @@ def tennis_features_streaming(event: dict, history_view, base: dict, *,
     directory = Path(work_directory)
     if directory.is_symlink() or not directory.is_dir():
         raise StorageIntegrityError("Tennis work directory must be an existing real directory")
-    directory = directory.resolve(strict=True)
+    directory = directory.absolute()
     _ensure_space(directory, limits)
-    temporary = tempfile.TemporaryDirectory(prefix="tennis-features-", dir=directory)
-    path = Path(temporary.name) / "features.sqlite"
+    private = _private_build_directory(directory, owned_directory, prefix="tennis-features-")
+    path = private / "features.sqlite"
+    writer = None
     connection = None
     try:
-        connection = sqlite3.connect(path, factory=TrackedConnection)
-        connection.execute("PRAGMA page_size=4096")
-        connection.execute("PRAGMA temp_store=FILE")
-        connection.execute("PRAGMA cache_size=-4096")
-        connection.execute("PRAGMA mmap_size=0")
-        connection.execute("PRAGMA journal_mode=DELETE")
-        if min(limits.input_bytes, limits.workspace_bytes) < 4096:
-            raise StorageLimitError("Tennis output cannot hold even one bounded SQLite page")
-        connection.execute(f"PRAGMA max_page_count={min(limits.input_bytes, limits.workspace_bytes) // 4096}")
-        connection.execute("BEGIN")
-        connection.execute("CREATE TABLE tennis_chosen(sequence INTEGER PRIMARY KEY, side TEXT NOT NULL, row BLOB NOT NULL, association BLOB NOT NULL)")
-        connection.execute("CREATE INDEX tennis_chosen_side ON tennis_chosen(side,sequence)")
-        connection.execute("CREATE TABLE tennis_ref_projection(pool TEXT NOT NULL, ref TEXT NOT NULL, PRIMARY KEY(pool,ref)) WITHOUT ROWID")
-        create_schema(connection)
+        writer = open_fresh_writer(path, plan=plan, limits=limits)
+        build_connection = writer.connection  # Exact TrackedConnection; BEGIN already held.
+
+        def check_build():
+            observed = writer.check_profile()
+            _ensure_space(private, limits)
+            if observed.main_file_bytes + observed.journal_file_bytes > limits.workspace_bytes:
+                raise StorageLimitError("private Tennis allocation exceeds its C envelope")
+
+        # Keep the public-reader variable separate: writer owns every build
+        # cursor/blob and closes them before its single commit handoff.
+        check_build()
+        build_connection.execute("CREATE TABLE tennis_chosen(sequence INTEGER PRIMARY KEY, side TEXT NOT NULL, row BLOB NOT NULL, association BLOB NOT NULL)")
+        build_connection.execute("CREATE INDEX tennis_chosen_side ON tennis_chosen(side,sequence)")
+        build_connection.execute("CREATE TABLE tennis_ref_projection(pool TEXT NOT NULL, ref TEXT NOT NULL, PRIMARY KEY(pool,ref)) WITHOUT ROWID")
+        create_schema(build_connection)
+        check_build()
         v2_conflicts, conflicts, unknown, mode = _stage_usable(
-            connection, history_view, event, cutoff=decision, next_start=next_start,
-            allocation=directory, limits=limits)
-        _ensure_space(directory, limits)
+            build_connection, history_view, event, cutoff=decision, next_start=next_start,
+            check_build=check_build)
+        check_build()
         target_state, target_refs = _target_state(history_view.event(event["event_key"]), event)
-        header, plans = _compute_header(connection, event, base, cutoff=decision,
+        header, plans = _compute_header(build_connection, event, base, cutoff=decision,
             v2_conflicts=v2_conflicts, conflicts=conflicts, unknown=unknown, mode=mode,
-            target_state=target_state, target_refs=target_refs, allocation=directory, limits=limits)
+            target_state=target_state, target_refs=target_refs, check_build=check_build)
+
+        def checked_refs(pools, literals):
+            for index, ref in enumerate(_union_refs(build_connection, pools, literals)):
+                if index % 128 == 0:
+                    check_build()
+                yield ref
+            check_build()
+
         descriptors, cache = {}, {}
-        for name, plan in plans.items():
-            if plan not in cache:
-                _ensure_space(directory, limits)
-                cache[plan] = put_refset(connection, _union_refs(connection, *plan), limits=limits)
-            descriptors[name] = cache[plan]
+        for name, ref_plan in plans.items():
+            if ref_plan not in cache:
+                check_build()
+                cache[ref_plan] = put_refset(build_connection, checked_refs(*ref_plan), limits=limits)
+            descriptors[name] = cache[ref_plan]
         history_view.assert_intact()
-        connection.commit()
-        connection.close()
+        check_build()  # No commit if the free reserve or exact writer profile drifted.
+        writer.commit_build()
         # Never hand the private writer to a reader guarded merely by the
         # reversible query_only PRAGMA. The OS-opened main database is read-only.
-        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, factory=TrackedConnection)
-        connection.execute("PRAGMA cache_size=-4096")
-        connection.execute("PRAGMA mmap_size=0")
-        connection.execute(f"PRAGMA max_page_count={min(limits.input_bytes, limits.workspace_bytes) // 4096}")
-        connection.execute("PRAGMA query_only=ON")
+        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True,
+                                     timeout=0, factory=TrackedConnection)
+        _configure_read_connection(connection, plan)
         connection.execute("BEGIN")
         # A read establishes the held snapshot, not merely the deferred BEGIN.
         connection.execute("SELECT count(*) FROM tennis_chosen").fetchone()
         _ensure_space(directory, limits)
-        result = StreamingTennisFeatures(connection=connection, temporary=temporary,
-            path=path, history=history_view, header=header, refs=descriptors, limits=limits,
+        result = StreamingTennisFeatures(connection=connection, path=path,
+            history=history_view, header=header, refs=descriptors, limits=limits,
             _token=_RESULT_TOKEN)
         result.assert_intact()
         return result
     except BaseException as exc:
         if connection is not None:
             connection.close()
-        temporary.cleanup()
         if isinstance(exc, sqlite3.Error) and getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_FULL:
-            raise StorageLimitError("Tennis output exceeded its bounded SQLite allocation") from exc
+            error = StorageLimitError("Tennis output exceeded its bounded SQLite allocation")
+            error.add_note("Unpublished or failed C Tennis directory retained: " + str(private))
+            raise error from exc
+        exc.add_note("Unpublished or failed C Tennis directory retained: " + str(private))
         raise
+    finally:
+        if writer is not None:
+            writer.close()
