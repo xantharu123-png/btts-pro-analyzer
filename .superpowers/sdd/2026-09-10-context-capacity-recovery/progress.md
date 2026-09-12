@@ -56,6 +56,17 @@ only new C history/tennis writer-profile integration. Root owns supervisor,
 integration/index/server. No native crash/core probe or host configuration edit.
 No new service/cgroup, native corpus job, model/Cricket change or rollout.
 
+Newest reviewed primitive commit d643f4884bbfa6dcf88b292c6f6fbd1c666a9867
+pushed and fresh remote-confirmed on this repair branch; main remains2dd1116.
+Task34 narrow parent review194pass. Task33/36 probe and root sealer have final
+Task37 independent review134pass, no remaining concrete diagnostic finding;
+not yet transferred or executed natively. Probe3abe69fc, worker22cfd8f1,
+sealer10fbfee4 exact hashes in the respective reports. A fresh env-i invocation,
+new private seal, outer terminal measurement and operator custody still apply.
+Task35 builder integration580pass and Root integration6pass; Task38 independent
+review running. Task39 read-only global growth/owner gap audit running.
+No inference from these primitives to full growth, B proofs, restore or rollout.
+
 ## Current closeout 12 September: B0 executed, necessary StorageSTOP
 
 B approval is recorded; no repeat B question. Fresh backup/restore/HMAC88 DBs,
