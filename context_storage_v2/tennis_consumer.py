@@ -584,7 +584,7 @@ def put_tennis_consumer(connection, prepared, *, created_at):
         # Check the caller's actual publication clock before allocating output.
         validate_original_publication({"schema": 1, "origin": header["base"]["reference_weights"]}, created_at=created_at)
         _timestamp(created_at)
-        with refs._atomic(connection, limits):
+        with refs._atomic(connection, limits, final_validate=prepared.assert_intact):
             refs.create_schema(connection)
             snapshots.create_schema(connection)
             with closing(_source_references(prepared)) as complete_history:

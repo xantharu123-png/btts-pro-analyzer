@@ -104,3 +104,34 @@ This is not the entire small Corpus->History->Consumer integration, the global
 590553-receipt/199-consumer growth owner, native capacity, empirical injuries/
 fatigue acceptance, authenticated B verifier, restore or production release.
 Return concise status, report path, test summary and concrete concerns only.
+
+## Independent review fix round 1 — post-footprint input lifetime
+
+Fix BASE is f777e9ea2b6313e187d911877f5669a832ee5786. Read the exact Important
+P1 in task-51-independent-review.md. The final consumer input check precedes
+`refs._atomic`'s own post-yield filesystem footprint check; that later I/O can
+lose a real source/history/feature lifetime before savepoint release.
+
+Root scope ruling: keep the existing shared rollback owner, extending its
+private `_atomic` API only if needed with an optional final input validator
+after its existing footprint check and before releasing that savepoint. The
+ordinary no-validator paths must remain unchanged. A validator failure belongs
+inside the same existing rollback/error-conversion scope. Do not duplicate the
+transaction mechanism in the new consumer or stack another final footprint
+operation after the last input check. The bound consumer guard is a live check,
+not a serializable success token or new source/model authority.
+
+In addition to the original three owned files, this round may edit only
+`context_storage_v2/refs.py` and `tests/test_context_storage_refs.py` for that
+narrow existing-owner seam. No schema/format/default limit changes. Root owns
+the brief, ledger, review report and Git. Reproduce the actual late disk-usage
+failure first by closing the genuine feature owner, then test full rollback to
+the caller's prior marker/no Published result, unchanged caller transaction,
+ordinary successful path, one final validator call and validator-error handling.
+
+Cover changed consumer and refs modules plus genuinely affected existing
+`test_context_storage_snapshots.py`, `test_context_storage_ref_chunks.py` and
+`test_context_storage_snapshot_source.py`. No full704/project rerun merely to
+repeat unaffected history/model tests. Keep all initial RED and final artifacts,
+exact commands, byte pins and remaining bounds in an appended fix-round report.
+Return a coherent freeze/sole-writer handback for scoped independent re-review.

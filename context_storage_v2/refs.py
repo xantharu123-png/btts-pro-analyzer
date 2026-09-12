@@ -160,13 +160,18 @@ def _check_footprint(connection, limits):
 
 
 @contextmanager
-def _atomic(connection, limits):
+def _atomic(connection, limits, *, final_validate=None):
+    """Keep an optional owning input check inside the final rollback boundary."""
     _check_footprint(connection, limits)
     name = "v2_refs_" + uuid4().hex
     connection.execute(f"SAVEPOINT {name}")
     try:
         yield
         _check_footprint(connection, limits)
+        if final_validate is not None:
+            # The live owning check follows the existing footprint I/O. Its
+            # exception still rolls back this savepoint; no proof is returned.
+            final_validate()
     except BaseException as exc:
         # SQLite can itself roll back the *whole* caller transaction on FULL or
         # I/O failure.  Do not hide that failure behind a missing-savepoint error;

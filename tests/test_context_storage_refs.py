@@ -512,3 +512,87 @@ def test_huge_nul_metadata_is_rejected_before_a_large_python_fetch(connection):
         assert tracemalloc.get_traced_memory()[1] < 1024**2
     finally:
         tracemalloc.stop()
+
+
+@pytest.mark.parametrize("with_validator", [False, True])
+def test_atomic_final_validator_follows_real_footprint_once_without_committing(connection, monkeypatch, with_validator):
+    events = []
+    actual_usage = refs.shutil.disk_usage
+    def measured_usage(path):
+        result = actual_usage(path)
+        events.append("footprint")
+        return result
+    def validate_pending_input():
+        assert connection.in_transaction
+        assert connection.execute("SELECT * FROM pending_publication").fetchall() == [("complete",)]
+        events.append("validate")
+    monkeypatch.setattr(refs.shutil, "disk_usage", measured_usage)
+    options = {"final_validate": validate_pending_input} if with_validator else {}
+    with refs._atomic(connection, DEFAULT_LIMITS, **options):
+        connection.execute("CREATE TABLE pending_publication(value TEXT)")
+        connection.execute("INSERT INTO pending_publication VALUES('complete')")
+        events.append("body")
+    assert events == ["footprint", "body", "footprint"] + (["validate"] if with_validator else [])
+    assert connection.in_transaction
+    assert connection.execute("SELECT * FROM pending_publication").fetchall() == [("complete",)]
+    connection.rollback()
+    connection.execute("BEGIN")
+    assert connection.execute("SELECT name FROM sqlite_schema WHERE name='pending_publication'").fetchall() == []
+
+
+@pytest.mark.parametrize("failure", ["input-lifetime", "ordinary", "actual-sqlite"])
+def test_atomic_final_validator_failure_rolls_back_with_existing_error_conversion(connection, failure):
+    connection.execute("CREATE TABLE caller_marker(value TEXT)")
+    connection.execute("INSERT INTO caller_marker VALUES('keep')")
+    calls = []
+    def validate_pending_input():
+        assert connection.execute("SELECT * FROM pending_publication").fetchall() == [("complete",)]
+        calls.append("validate")
+        if failure == "input-lifetime":
+            raise StorageIntegrityError("actual input lifetime stopped")
+        if failure == "ordinary":
+            raise ValueError("actual input validator stopped")
+        connection.execute("SELECT * FROM absent_validator_input")
+    expected = ValueError if failure == "ordinary" else StorageIntegrityError
+    with pytest.raises(expected) as error:
+        with refs._atomic(connection, DEFAULT_LIMITS, final_validate=validate_pending_input):
+            connection.execute("CREATE TABLE pending_publication(value TEXT)")
+            connection.execute("INSERT INTO pending_publication VALUES('complete')")
+    assert calls == ["validate"]
+    assert connection.in_transaction
+    assert connection.execute("SELECT * FROM caller_marker").fetchall() == [("keep",)]
+    assert connection.execute("SELECT name FROM sqlite_schema WHERE name='pending_publication'").fetchall() == []
+    if failure == "actual-sqlite":
+        assert isinstance(error.value.__cause__, sqlite3.OperationalError)
+        assert error.value.__cause__.sqlite_errorcode == sqlite3.SQLITE_ERROR
+    else:
+        assert error.value.__cause__ is None
+
+
+@pytest.mark.parametrize("failure", ["body", "post-yield-footprint"])
+def test_atomic_final_validator_is_not_called_after_an_earlier_failure(connection, monkeypatch, failure):
+    connection.execute("CREATE TABLE caller_marker(value TEXT)")
+    connection.execute("INSERT INTO caller_marker VALUES('keep')")
+    usage_calls = 0
+    actual_usage = refs.shutil.disk_usage
+    def measured_usage(path):
+        nonlocal usage_calls
+        result = actual_usage(path)
+        usage_calls += 1
+        if usage_calls == 2 and failure == "post-yield-footprint":
+            raise OSError("actual final footprint measurement interrupted")
+        return result
+    validator_calls = []
+    def validate_pending_input():
+        validator_calls.append("validate")
+    monkeypatch.setattr(refs.shutil, "disk_usage", measured_usage)
+    expected = RuntimeError if failure == "body" else StorageIntegrityError
+    with pytest.raises(expected):
+        with refs._atomic(connection, DEFAULT_LIMITS, final_validate=validate_pending_input):
+            connection.execute("CREATE TABLE pending_publication(value TEXT)")
+            if failure == "body":
+                raise RuntimeError("actual publication interrupted")
+    assert validator_calls == []
+    assert connection.in_transaction
+    assert connection.execute("SELECT * FROM caller_marker").fetchall() == [("keep",)]
+    assert connection.execute("SELECT name FROM sqlite_schema WHERE name='pending_publication'").fetchall() == []

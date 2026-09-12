@@ -1,0 +1,46 @@
+# Task 51 independent task review
+
+## Spec Compliance
+
+- **Issues found:** one Important lifetime/atomic-publication gap remains at `context_storage_v2/tennis_consumer.py:609-610`, coupled to `context_storage_v2/refs.py:169`. The final input guard is not actually after the final external operation preceding savepoint release. This does not satisfy brief requirement 7 for released prepared state/source/history/features through the final operation.
+- Otherwise the reviewed task implements the specified real same-call consumer, complete streaming reference transport and Original/snapshot publication. The differential and negative checks below support those conclusions; this is not whole-branch, native, empirical or release approval.
+- The package includes the controller's brief amendment as a fourth changed file. It agrees with the supplied final brief and rowid ruling; this is not treated as an unauthorized product expansion by the implementer.
+- **Cannot verify from this task:** fresh complete Corpus/copy/D2/protected-receipt integration, imported runtime/dependency authentication, native allocation/custody/resource limits, global growth, B/restore and production readiness remain separate gates. The report explicitly preserves these boundaries at `task-51-report.md:329-359`; no positive empirical approval or resolution of native state identity is inferred.
+
+## Strengths
+
+- `tests/test_context_storage_tennis_consumer.py:110` and the final XML's ATP/WTA cases exercise the actual old capture/predict/persist/finish oracle and compare Original identity, unrounded capture, complete canonical feature/snapshot bytes, snapshot key and consumer reference. The production implementation calls the actual predictor and restricts same-call capture to `inputs` and `values`; the original identity-override RED is retained and now passes (`tests/test_context_storage_tennis_consumer.py:509`).
+- `tests/test_context_storage_tennis_consumer.py:275` checks missing, additional, duplicate and same-count-swapped membership using real C2 refset publication. The implementation replays complete canonical history, compares the sorted actual keys against every stored key and checks the feature/native subset; it does not substitute a short observation list into the legacy full-list API.
+- `tests/test_context_storage_tennis_consumer.py:327` uses a real old-admitted state BLOB larger than 16 MiB. Retained XML records 16,777,846 bytes and unchanged SQLite length limit 1,000,000,000. UTF-16 and opaque inactive bytes are also exercised. The metadata scan binds actual signed rowids incrementally without claiming content/D2 authority (`tests/test_context_storage_tennis_consumer.py:780`).
+- `tests/test_context_storage_tennis_consumer.py:524` retains the genuine final-code-read rollback regression. `tests/test_context_storage_tennis_consumer.py:730` checks post-cleanup commit/reopen decoding, while `tests/test_context_storage_tennis_consumer.py:755` verifies that late real feature-close failure prevents the caller commit and retains files. FULL/TOOBIG, identity collisions and once-only publication have meaningful behavior assertions in the complete diff.
+- The 613-line new module has a single adapter responsibility, decomposed into bounded metadata/header/reference/identity helpers and explicit preparation/publication lifetimes. Existing prediction math, odds owners, source policy and old modules are unchanged. The task reuses actual selection, eligibility, comparison and result validators; the transport-specific composition was checked against the named old coupling below.
+
+## Issues
+
+### Critical (Must Fix)
+
+- None identified within this task's review scope.
+
+### Important (Should Fix)
+
+- **P1: Keep input lifetime validation inside the rollback scope after the actual final footprint I/O.** `context_storage_v2/tennis_consumer.py:609` performs the last `prepared.assert_intact()`, but exiting `with refs._atomic(...)` subsequently runs `refs._check_footprint` at `context_storage_v2/refs.py:169`. That helper performs actual file/companion `stat` and `shutil.disk_usage` calls (`context_storage_v2/refs.py:134-140`) before releasing the savepoint at line 183. It only validates the output, not the prepared source/history/features. If a genuine feature/history/source lifetime is lost during that final I/O, all checks return normally, the savepoint releases, and line 610 returns `PublishedTennisConsumer` without another prepared-state check. This is the same scoped failure class as the existing code-file-read regression, at a later real operation; it is not a demand to solve general hostile Python execution or native sealing. Keep an enclosing rollback scope alive through the existing post-yield footprint checks and perform the last input check inside that scope, immediately before its release. Add the narrow regression described below; a check only after all savepoints release would again leave partial output on error.
+
+### Minor (Nice to Have)
+
+- None identified that warrants a separate task finding.
+
+## Checks and evidence
+
+- Read the requested reviewer template completely and applied its task-only spec/quality method. Read all 1,858 lines of the complete supplied review package once in bounded consecutive chunks to EOF. No Git diff was regenerated and no changed source/test file was reread; hashes were measured without displaying changed-file contents. No repository/index/Git/server/dependency changes or subagents were used.
+- Confirmed supplied brief SHA256 `9157416ea0cf7550cc91eb7fe63786b8d3aa173f942dfda501561b91e14fadc8`, report SHA256 `59de09117646a35b6cb10ce08ea3bce301101cb3f403d34cd9e2c1e59a8d7589` and package SHA256 `ad322b68ecb6e66c8d4b826b20d90ab6af7ea6cbc0c37e4c4c33a39fd9ffab7d` for BASE `9b7d779495fb38c22c62af957a680dc90c91d870` / HEAD `f777e9ea2b6313e187d911877f5669a832ee5786`.
+- Current product SHA256 is `fcd05c52f7c550510ee82c110efe1559f07bc9495b20dbedd874b018ac6e0de5`; current test SHA256 is `bd0a496008ba6e671b562f433a5c27226784e9f77a8404fb061498e239c9bc2c`. Both match the reported final 54-test version.
+- Parsed all 12 retained Task51 XML files and verified their SHA256, test-case counts, failure/error/skip counts and durations against the report. In run order, tests/failures are `5/5, 5/5, 17/17, 17/0, 35/8, 2/2, 37/0, 10/4, 7/0, 704/0, 2/2, 54/0`; every run has zero errors/skips. The actual final XML is `.pytest_tmp/task51-final-consumer-11.xml:1`, SHA256 `21f3e3f4fdf155d814cd4f1519d7e95f900d83135539b6a7fd460807ea1099e7`, 54 cases, 40.596 seconds, with no warning/system-out/system-err nodes. This establishes no warning evidence in that retained XML, not a separate reconstruction of console output.
+- Read the actual named failure messages and retained traces in `.pytest_tmp/task51-gaps-red-05.xml:1` and `.pytest_tmp/task51-rowid-red-10.xml:1`: the identity probe did not raise, the savepoint probe retained seven extra tables, and both rowid metadata hashes incorrectly remained equal. The corresponding named cases are present and passing in final XML. No author suite was rerun.
+- The 704-pass `.pytest_tmp/task51-final-scope-09.xml:1` is correctly described as pre-rowid product evidence, not as a run on final bytes. This review does not treat that explicit version separation as a defect.
+- **Named external coupling: actual savepoint/lifetime ordering.** Inspected only `context_storage_v2/refs.py:101-197` and generation symbol locations to establish the active-transaction requirement, footprint operations, rollback behavior and post-yield release order. This focused check establishes the Important finding above; it is not an audit of the whole C2 owner.
+- **Named external coupling: canonical transport/result and selector semantics.** Inspected `context_transport.py:49-80`, `111-166`, `201-292`, and `tennis/live_context.py:67-118` (plus immediate surrounding class context) to compare actual feature binding, full-reference descriptor/key construction, result invariants and genuine inventory selection. The adapter preserves these inspected semantics while replacing the unbounded observation-list transport. One combined tool output truncated external excerpts/XML, so only the missing relevant excerpts/messages were retrieved in a smaller follow-up; no changed-file hunk was reread.
+- **Narrow test recommended, not run:** extend `tests/test_context_storage_tennis_consumer.py:524` to close the actual `prepared.features` during the real post-yield footprint's final `shutil.disk_usage` call, after snapshot publication. Require a raised lifetime error, no Published result, caller transaction still active and only its preexisting marker table remaining. The existing 54 tests do not inject at this later boundary. No extra fixture/test writes were made because the review's sole write exception is this report; the finding follows directly from the inspected control flow.
+
+## Assessment
+
+- **Task quality: Needs fixes.** The implementation and retained differentials are substantial and correctly scoped, but the final nested owner operation still outlives the last input check before successful publication. Fix and narrowly validate that ordering before marking Task51 approved; later native/global/empirical/B gates remain unchanged.

@@ -544,6 +544,46 @@ def test_final_code_read_lifetime_failure_is_still_inside_the_output_savepoint(t
             assert connection.execute("SELECT name FROM sqlite_schema WHERE type='table'").fetchall() == [("caller_marker",)]
 
 
+def test_final_footprint_disk_usage_lifetime_failure_rolls_back_before_publication(tmp_path, monkeypatch):
+    from context_storage_v2 import tennis_consumer as owner
+
+    with actual_case(tmp_path, monkeypatch) as case, prepare(case) as prepared:
+        feature = prepared.features
+        actual_hashes = owner._code_hashes
+        actual_usage = owner.refs.shutil.disk_usage
+        code_reads = 0
+        interruptions = []
+        def actual_final_code_read():
+            nonlocal code_reads
+            value = actual_hashes()
+            code_reads += 1
+            return value
+        def actual_usage_then_close_feature(path):
+            measured = actual_usage(path)
+            if code_reads == 2 and not interruptions:
+                # The final body guard has already completed. This is real
+                # post-yield footprint I/O, with the complete writes present.
+                assert connection.execute("SELECT count(*) FROM v2_snapshot_headers").fetchone() == (1,)
+                assert connection.execute("SELECT count(*) FROM artifacts").fetchone() == (1,)
+                feature.close()
+                interruptions.append(path)
+            return measured
+        with open_fresh_writer(tmp_path / "output.sqlite", plan=SQLiteWriterPlan(CAP)) as writer:
+            connection = writer.connection
+            connection.execute("CREATE TABLE caller_marker(value TEXT)")
+            connection.execute("INSERT INTO caller_marker VALUES('keep')")
+            monkeypatch.setattr(owner, "_code_hashes", actual_final_code_read)
+            monkeypatch.setattr(owner.refs.shutil, "disk_usage", actual_usage_then_close_feature)
+            with pytest.raises(StorageIntegrityError):
+                owner.put_tennis_consumer(connection, prepared, created_at=NOW+timedelta(seconds=1))
+            assert len(interruptions) == 1
+            assert connection.in_transaction
+            assert connection.execute("SELECT name FROM sqlite_schema WHERE type='table'").fetchall() == [("caller_marker",)]
+            assert connection.execute("SELECT * FROM caller_marker").fetchall() == [("keep",)]
+            with pytest.raises(StorageIntegrityError):
+                prepared.__enter__()
+
+
 def _paired_receipts(db):
     from test_context_tennis_capture import persist, records
     clock = NOW-timedelta(hours=1)

@@ -362,3 +362,155 @@ Product and tests are frozen at the hashes above. After this report's final
 readback/hash, this agent relinquishes the sole writer role to Root. No extra
 implementation, test rerun, cleanup or Git/server action is pending from this
 agent without a new scoped assignment.
+
+## Independent review fix round 1 of 5 — final post-footprint lifetime
+
+This append supersedes the earlier no-known-finding handback for the specific
+P1 found independently after that handback. The earlier report, failed tests,
+successful tests and version distinctions above are retained, not rewritten.
+FIX_BASE supplied by Root is `f777e9ea2b6313e187d911877f5669a832ee5786`.
+The complete independent review was read before changes and matched SHA256
+`946b0b6ababe6ca5426ef8236f66c7983d3b93c0acf847ca5ce0e0fc04d12af6`.
+The updated brief with Root's exact private-owner seam ruling matched
+`67b7c5ae159f4fb02c393db0f81702e7fdcc44f5af06e0b924b4ceee7aecd88c`.
+
+### Finding, genuine RED and minimal correction
+
+The reviewer identified that the last body-level `prepared.assert_intact()`
+still preceded `refs._atomic`'s own post-yield `_check_footprint`. That existing
+helper performs real path/companion stats and `shutil.disk_usage`, then releases
+the savepoint without checking the consumer's actual input owners again.
+Thus a genuine feature/history/source lifetime loss during that later I/O
+could return a Published result. A check after RELEASE would not repair the
+required rollback behavior.
+
+The new retained consumer regression was run **before either product edit**.
+It invokes the actual old oracle, actual new preparation and output writer.
+A wrapper executes both actual code-file reads. After the second, a wrapper
+executes the real `disk_usage` and closes the actual held feature owner before
+returning the real measured values. At that point the actual output already
+contains one Original and one snapshot header. There is no fake validator
+return, replacement footprint result, skipped owner or invented native proof.
+The original product returned normally: **DID NOT RAISE StorageIntegrityError**.
+That is the independent review's actual failure boundary, not an assumed one.
+
+Only two narrow product edits followed:
+
+- Private `refs._atomic(connection, limits, *, final_validate=None)` calls the
+  optional live validator immediately after its existing post-yield footprint
+  check and before its existing RELEASE, within the same `try`/rollback/error-
+  conversion scope. It adds no second transaction owner or extra footprint
+  operation after the validator. No validator is called on an earlier body or
+  footprint failure. Return values are not a proof/token or authorization.
+- The consumer's outer invocation supplies the bound real
+  `prepared.assert_intact`. Existing body/code-file guards remain. All other
+  existing `_atomic` callers retain the default no-validator path unchanged.
+  There is no new caller Boolean, format/schema/limit change or source policy.
+
+The unchanged genuine RED now requires a raised lifetime error, no Published
+result, rollback of Original/refs/parts, the caller transaction still active
+with only its prior marker table and `('keep',)` row, and no prepared reuse.
+Seven direct shared-owner cases additionally exercise both default/validator
+success, actual footprint ordering, exactly one final validation, no implicit
+commit, input-lifetime and ordinary exceptions, a real SQLite query error with
+unchanged conversion/cause, and absence of validation after body/footprint
+failure. The test hooks perform real measurements and real SQLite work; their
+call-order assertions serve the final-check ordering contract rather than
+replace it with a mocked success condition.
+
+The old code-file-read regression is unchanged and passes too. The fix was
+review-reception/root-cause/TDD driven: verify the supplied control flow, retain
+the concrete RED, implement only the adjudicated seam, then run fresh coupled
+verification. No unrelated guard, source loader or native capability was added.
+
+### Scope and exact execution record
+
+This round changes exactly five authorized files: the original consumer,
+consumer test and appended report, plus the explicitly authorized `refs.py`
+and `tests/test_context_storage_refs.py`. Root retains the brief/review/ledger
+and Git. No Git/index/server/dependency/cleanup action or subagent occurred.
+No files or failed artifacts were removed. The 704-test/project suite was not
+repeated for this narrow shared-owner change.
+
+All commands use the common PowerShell environment/runtime/pytest prefix
+recorded above, `junit_family=xunit1`, and fresh retained paths. Exact suffixes:
+
+```text
+tests/test_context_storage_tennis_consumer.py -k final_footprint_disk_usage --basetemp=.pytest_tmp/task51-fix1-consumer-red-bt-12 --junitxml=.pytest_tmp/task51-fix1-consumer-red-12.xml
+
+tests/test_context_storage_refs.py -k atomic_final_validator --basetemp=.pytest_tmp/task51-fix1-seam-red-bt-13 --junitxml=.pytest_tmp/task51-fix1-seam-red-13.xml
+
+tests/test_context_storage_tennis_consumer.py tests/test_context_storage_refs.py -k 'final_footprint_disk_usage or atomic_final_validator or final_code_read' --basetemp=.pytest_tmp/task51-fix1-focused-green-bt-14 --junitxml=.pytest_tmp/task51-fix1-focused-green-14.xml
+
+tests/test_context_storage_tennis_consumer.py tests/test_context_storage_refs.py tests/test_context_storage_snapshots.py tests/test_context_storage_ref_chunks.py tests/test_context_storage_snapshot_source.py --basetemp=.pytest_tmp/task51-fix1-final-scope-bt-15 --junitxml=.pytest_tmp/task51-fix1-final-scope-15.xml
+```
+
+| XML | Result / exit | Console time | XML suite time |
+| --- | --- | ---: | ---: |
+| `task51-fix1-consumer-red-12.xml` | 1 failed, 54 deselected / 1 | 2.30s | 2.299s |
+| `task51-fix1-seam-red-13.xml` | 6 failed, 1 passed, 99 deselected / 1 | 0.47s | 0.400s |
+| `task51-fix1-focused-green-14.xml` | 9 passed, 152 deselected / 0 | 3.07s | 3.068s |
+| `task51-fix1-final-scope-15.xml` | 411 passed / 0 | 84.95s | 84.937s |
+
+All four runs have zero errors and zero skips. The seam RED's six failures are
+the absent `final_validate` keyword before its implementation; the unchanged
+default path already passed. These are distinguished from the one genuine
+late-I/O publication failure in consumer RED 12. Final session `72641` completed
+Exit 0 without any product/test edits during execution and no warnings reported.
+The five complete test-file counts are consumer **55**, refs **106**, snapshots
+**96**, ref chunks **71**, source adapter **83**, totaling **411**. These are the
+approved genuinely coupled files, not an assertion about unrerun legacy suites.
+The final run still records actual old state BLOB size **16,777,846** and
+unchanged source SQLite length limit **1,000,000,000**.
+
+```text
+task51-fix1-consumer-red-12.xml
+83be17c2afc36a51d3941566d0816d7bf37b85b8e7cb05147d4af8f2661598aa
+task51-fix1-seam-red-13.xml
+734d78aa4663be7526d88c5c39dfde91ff5c105483ef1aafb1c9c7fd06c638b6
+task51-fix1-focused-green-14.xml
+5de4d8e1340c9c7e72d657704a129684a530937c568e9b96f59ac0b021977c43
+task51-fix1-final-scope-15.xml
+64cd5582a4c4a734c9a3c8cefec66cfce968f810d054dc029f0dd0a573a184fb
+```
+
+### Fix freeze byte pins and remaining boundaries
+
+Before product changes, consumer/refs hashes were respectively
+`fcd05c52f7c550510ee82c110efe1559f07bc9495b20dbedd874b018ac6e0de5` /
+`e80492be96ea0aacd5bb2038018c90bf8201d3e4a616d2574c456d5f9899cb2b`.
+Before this round's test additions, consumer/refs test hashes were respectively
+`bd0a496008ba6e671b562f433a5c27226784e9f77a8404fb061498e239c9bc2c` /
+`0b8d9d7b52834b0fa6f51a7deffb8db5dc1912413bad213b1fd47199b7d16e83`.
+The following four final hashes were measured before and after final scope 15,
+and the tested bytes did not change:
+
+```text
+context_storage_v2/tennis_consumer.py
+6ccda0e62cb3325150df6b8b7c0bb2582be2835974b0c5839a3471c608ad99ce
+context_storage_v2/refs.py
+a2c5f99d5b455a1a6e4150a45008020f111eeeffa2e52e7916db728da59be0a8
+tests/test_context_storage_tennis_consumer.py
+aa09fb9c249ff136ae1f40d31842e3ae7d19e6e1aeb93c768ba813cc0ccd4ff8
+tests/test_context_storage_refs.py
+e13831a8af9672dea0ff0044c05469f04b7ecff20f4ea99dbe8cabfa055f5a8b
+```
+
+Unedited coupled modules remain snapshots
+`f5dc0903874bede9fbbe3196146ba0b4b000d6a962916afd1d24efdb625f14ba`, ref chunks
+`49c41fac294bb6255e083cb07afad592a1460c84215dfa98842e233d8ef6d63d`, and source
+adapter `f080d605dbbaf45baae197f9f948539d8ff832a2b294327cdc845d4d6df31753`.
+Their test hashes are respectively
+`77639cc754b0ef35285ad80c41a684fa63106e8f4d4dffb494ff8916f4a33d1b`,
+`01ac74ca49a06745beaf988a4e1e33284d299feaae181eea6b9ae063636c063f`, and
+`67662d8b7965620d18ef6b6a9e30fb006314b345b377805990da5f9c48379f34`.
+
+The specific independently identified P1 is addressed by the retained real
+regression and final coupled run. Scoped independent re-review is still needed;
+this implementer's fix report is not that approval. All earlier native
+AS/RSS/CPU/disk/custody, code/dependency/root-seal, complete Corpus/D2, global
+growth, empirical, B/restore and production boundaries remain unchanged and
+unproved here. No general hostile-Python or asynchronous-owner guarantee is
+invented by the new private callback. After this append's final readback/hash,
+the agent hands all five files back to Root and relinquishes the sole writer
+role; no further edits, tests, cleanup or external actions are pending.
