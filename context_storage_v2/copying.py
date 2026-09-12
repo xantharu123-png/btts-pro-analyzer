@@ -119,7 +119,107 @@ def _hash_file(path, block_bytes, check):
     return hasher.hexdigest()
 
 
-def copy_legacy(source, *, directory, expected_source_sha256, limits=DEFAULT_LIMITS) -> CopyReceipt:
+def _copy_directory(directory, owned_directory):
+    """Choose a known reserved slot, or retain the local-only convenience path.
+
+    The outer native owner must keep the namespace private and exclusive, and
+    pre-reserve this exact directory. An empty directory is not such a seal.
+    """
+    if owned_directory is None:
+        return Path(tempfile.mkdtemp(prefix="context-copy-", dir=directory))
+    allocation = Path(owned_directory)
+    if (not allocation.is_absolute() or allocation.parent != directory
+            or ".." in allocation.parts):
+        raise StorageIntegrityError("owned copy directory must be an absolute direct child")
+    identity = _directory_identity(allocation)
+    if (getattr(allocation.lstat(), "st_file_attributes", 0)
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)):
+        raise StorageIntegrityError("owned copy directory must not be a reparse point")
+    if identity[0] != _directory_identity(directory)[0]:
+        raise StorageIntegrityError("owned copy directory must be on the workspace device")
+    with os.scandir(allocation) as entries:
+        if next(entries, None) is not None:
+            raise StorageIntegrityError("owned copy directory must be empty; no resume or replacement")
+    return allocation
+
+
+def _copy_reader_query(reader, sql, *, max_rows=1):
+    """Bound the internally fixed profile queries and close their cursors."""
+    cursor = reader.execute(sql)
+    try:
+        rows = cursor.fetchmany(max_rows + 1)
+    finally:
+        cursor.close()
+    if len(rows) > max_rows:
+        raise StorageIntegrityError("copy reader profile readback exceeds its bound")
+    return rows
+
+
+def _check_copy_reader(reader, *, page_size, page_count):
+    # Boundary readbacks are not a defence against hostile Python callbacks or
+    # an unsealed namespace. This internal reader is never handed to the caller.
+    if (type(reader) is not TrackedConnection or reader.row_factory is not None
+            or reader.text_factory is not str or reader.isolation_level is not None
+            or reader.autocommit != sqlite3.LEGACY_TRANSACTION_CONTROL
+            or reader.__dict__.keys() - {"_transaction_generation"}):
+        raise StorageIntegrityError("copy reader connection policy changed")
+    for name, expected in (
+        ("temp_store", 2), ("main.cache_size", -4096), ("main.mmap_size", 0),
+        ("main.max_page_count", page_count), ("main.page_count", page_count),
+        ("main.page_size", page_size), ("threads", 0), ("query_only", 1),
+        ("trusted_schema", 0),
+    ):
+        rows = _copy_reader_query(reader, "PRAGMA " + name)
+        if (len(rows) != 1 or len(rows[0]) != 1
+                or type(rows[0][0]) is not int or rows[0][0] != expected):
+            raise StorageIntegrityError("copy reader bounded policy changed: " + name)
+    for category in (sqlite3.SQLITE_LIMIT_ATTACHED, sqlite3.SQLITE_LIMIT_WORKER_THREADS):
+        value = reader.getlimit(category)
+        if type(value) is not int or value != 0:
+            raise StorageIntegrityError("copy reader attach/thread limit changed")
+    for category, expected in (
+        (sqlite3.SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION, False),
+        (sqlite3.SQLITE_DBCONFIG_DEFENSIVE, True),
+        (sqlite3.SQLITE_DBCONFIG_TRUSTED_SCHEMA, False),
+    ):
+        if reader.getconfig(category) is not expected:
+            raise StorageIntegrityError("copy reader configuration changed")
+
+
+def _configure_copy_reader(reader, *, page_size, page_count):
+    """Only a NEW RO connection, not a writer plan or a source-owner retune."""
+    if type(reader) is not TrackedConnection or reader.in_transaction:
+        raise StorageIntegrityError("copy verification needs a fresh exact reader")
+    _copy_reader_query(reader, "PRAGMA temp_store=MEMORY")  # FIRST SQL.
+    rows = _copy_reader_query(reader, "PRAGMA temp_store")
+    if (len(rows) != 1 or len(rows[0]) != 1 or type(rows[0][0]) is not int
+            or rows[0][0] != 2):
+        raise StorageIntegrityError("copy reader MEMORY temp_store is unavailable")
+    rows = _copy_reader_query(reader, "PRAGMA compile_options", max_rows=256)
+    if (any(len(row) != 1 or type(row[0]) is not str or len(row[0]) > 256 for row in rows)
+            or [row[0] for row in rows if row[0].startswith("TEMP_STORE=")]
+            not in (["TEMP_STORE=1"], ["TEMP_STORE=2"], ["TEMP_STORE=3"])):
+        raise StorageIntegrityError("SQLite build does not establish copy reader MEMORY temp_store")
+    for category in (sqlite3.SQLITE_LIMIT_ATTACHED, sqlite3.SQLITE_LIMIT_WORKER_THREADS):
+        reader.setlimit(category, 0)
+    for category, value in (
+        (sqlite3.SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION, False),
+        (sqlite3.SQLITE_DBCONFIG_DEFENSIVE, True),
+        (sqlite3.SQLITE_DBCONFIG_TRUSTED_SCHEMA, False),
+    ):
+        reader.setconfig(category, value)
+    for statement in (
+        "PRAGMA query_only=ON", "PRAGMA trusted_schema=OFF",
+        "PRAGMA main.cache_size=-4096", "PRAGMA main.mmap_size=0",
+        f"PRAGMA main.max_page_count={page_count}", "PRAGMA threads=0",
+    ):
+        _copy_reader_query(reader, statement)
+    # Neither page size, encoding, schema, journal mode nor raw bytes is set.
+    _check_copy_reader(reader, page_size=page_size, page_count=page_count)
+
+
+def copy_legacy(source, *, directory, expected_source_sha256, owned_directory=None,
+                limits=DEFAULT_LIMITS) -> CopyReceipt:
     """Create one new private copy; no source writes, reused output or commits.
 
     The caller supplies an already sealed source and the whole new job workspace.
@@ -128,6 +228,14 @@ def copy_legacy(source, *, directory, expected_source_sha256, limits=DEFAULT_LIM
     POSIX DAC sealing and other processes' allocations require the owning native
     boundary, not a caller-supplied success flag. Failure returns no receipt and
     intentionally leaves any newly created partial output charged to the job.
+    Native callers MUST supply their pre-reserved, private empty absolute direct
+    child ``owned_directory``; its fixed output name is legacy-copy.sqlite.
+    Omission is a local-only convenience allocation, not a global reservation.
+    The internally new RO reader uses effective MEMORY TEMP, bounded cache,
+    mmap/worker/attach/extension policy and the source's actual page dimensions.
+    The held source is never reconfigured; its owner must install the appropriate
+    source policy before pinning. Native AS/RSS/CPU/FSIZE/global accounting and
+    complete failed-attempt enumeration remain outside this copy boundary.
     """
     limit_identity = _limits_identity(limits)
     if type(expected_source_sha256) is not str or re.fullmatch(r"[0-9a-f]{64}", expected_source_sha256) is None:
@@ -166,6 +274,7 @@ def copy_legacy(source, *, directory, expected_source_sha256, limits=DEFAULT_LIM
         raise StorageLimitError("one SQLite page exceeds the explicit copy block limit")
     if max(source_size, image_size) + source_size > limits.input_bytes:
         raise StorageLimitError("combined complete source and copy exceed input admission")
+    allocation = allocation_identity = reader_guard = None
 
     def source_check():
         if _limits_identity(limits) != limit_identity:
@@ -178,6 +287,12 @@ def copy_legacy(source, *, directory, expected_source_sha256, limits=DEFAULT_LIM
         _no_companions(source_path)
         if _directory_identity(directory) != directory_identity:
             raise StorageIntegrityError("complete copy workspace identity changed")
+        if allocation is not None and _directory_identity(allocation) != allocation_identity:
+            raise StorageIntegrityError("complete copy allocation directory changed")
+        if reader_guard is not None:
+            reader_guard.check()
+            _check_copy_reader(reader, page_size=page_size, page_count=page_count)
+            reader_guard.check()
 
     def capacity_check(remaining):
         source_check()
@@ -192,13 +307,14 @@ def copy_legacy(source, *, directory, expected_source_sha256, limits=DEFAULT_LIM
     if source_hash != expected_source_sha256:
         raise StorageIntegrityError("complete copy input differs from its sealed source digest")
     capacity_check(source_size)
-    allocation = Path(tempfile.mkdtemp(prefix="context-copy-", dir=directory))
+    allocation = _copy_directory(directory, owned_directory)
     copied_path = allocation / "legacy-copy.sqlite"
     # Atomic exclusive creation prevents overwriting even an unexpectedly
     # pre-existing output. The native owner additionally owns the private tree.
-    fd = os.open(copied_path, os.O_CREAT | os.O_EXCL | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
-    source_fd = reader = None
+    fd = source_fd = reader = None
     try:
+        allocation_identity = _directory_identity(allocation)
+        fd = os.open(copied_path, os.O_CREAT | os.O_EXCL | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
         # Keep this exact newly-created descriptor until verification finishes.
         # Never reopen an output by path for writing: a replacement at such a
         # reopen could overwrite an unrelated existing database before rejection.
@@ -249,10 +365,13 @@ def copy_legacy(source, *, directory, expected_source_sha256, limits=DEFAULT_LIM
         copy_identity = _file_identity(copied_path)
         if copy_identity[4] != source_size:
             raise StorageIntegrityError("complete copy image size differs from source dimensions")
-        reader = sqlite3.connect(copied_path.as_uri() + "?mode=ro", uri=True, factory=TrackedConnection)
-        reader.execute("PRAGMA query_only=ON")
-        reader.execute("PRAGMA trusted_schema=OFF")
+        reader = sqlite3.connect(copied_path.as_uri() + "?mode=ro", uri=True,
+            factory=TrackedConnection, timeout=0, isolation_level=None,
+            autocommit=sqlite3.LEGACY_TRANSACTION_CONTROL, cached_statements=0)
+        _configure_copy_reader(reader, page_size=page_size, page_count=page_count)
         reader.execute("BEGIN")
+        reader_guard = _HeldRead(reader)
+        source_check()
         complete = compare_raw(source, reader, limits=limits)
         if complete != before:
             raise StorageIntegrityError("complete copy source inventory changed")
@@ -265,10 +384,20 @@ def copy_legacy(source, *, directory, expected_source_sha256, limits=DEFAULT_LIM
         return CopyReceipt(COPY_FORMAT, copied_path, source_hash, copy_hash, source_size,
                            copy_identity[4], complete)
     except sqlite3.Error as exc:
-        raise StorageIntegrityError("complete private copy could not be established") from exc
+        error = StorageIntegrityError("complete private copy could not be established")
+        error.add_note("Unpublished or failed C copy directory retained: " + str(allocation))
+        raise error from exc
+    except BaseException as exc:
+        exc.add_note("Unpublished or failed C copy directory retained: " + str(allocation))
+        raise
     finally:
-        if reader is not None:
-            reader.close()
-        if source_fd is not None:
-            os.close(source_fd)
-        os.close(fd)
+        try:
+            if reader is not None:
+                reader.close()
+        finally:
+            try:
+                if source_fd is not None:
+                    os.close(source_fd)
+            finally:
+                if fd is not None:
+                    os.close(fd)
