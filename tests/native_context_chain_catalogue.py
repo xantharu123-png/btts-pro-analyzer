@@ -493,7 +493,7 @@ def validate_manifest(value, commit):
             "dependency_source", "packages", "runtime", "plan"}, "catalogue shape")
     require(value["format"] == FORMAT and value["commit"] == commit and type(commit) is str
             and len(commit) == 40 and all(c in "0123456789abcdef" for c in commit), "reviewed commit differs")
-    require(value["dependency_source"] == str(DEPENDENCY_SOURCE) and value["packages"] == list(PACKAGES),
+    require(value["dependency_source"] == DEPENDENCY_SOURCE.as_posix() and value["packages"] == list(PACKAGES),
             "nonfixed dependency installation")
     code = records(value["code"], ARCHIVE_CAP)
     require(set(REQUIRED) <= code.keys() and all(n.endswith(".py") and not n.startswith(".") for n in code),
@@ -540,7 +540,7 @@ def inventory(archive_path, commit):
     dependencies = walk(DEPENDENCY_SOURCE, PACKAGES)
     executable = Path("/proc/self/exe").resolve()
     result = {"format": FORMAT, "commit": commit, "archive": ar, "code": code,
-              "dependencies": dependencies, "dependency_source": str(DEPENDENCY_SOURCE),
+              "dependencies": dependencies, "dependency_source": DEPENDENCY_SOURCE.as_posix(),
               "packages": list(PACKAGES), "runtime": {
                   "executable": str(executable), "executable_sha256": file_record(executable)["sha256"],
                   "python": sys.version, "kernel": list(os.uname()), "stdlib_search_path": list(sys.path),

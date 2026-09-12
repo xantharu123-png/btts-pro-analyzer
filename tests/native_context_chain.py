@@ -18,7 +18,7 @@ import types
 
 
 MIB = 1024**2
-CATALOGUE_SHA256 = "85348268e86765b34aa71206c6e1904053bc0e91c4659ecf163b1d901a1d4aff"
+CATALOGUE_SHA256 = "93d38e46c17b9796088cfad66ea1667413b702b93f8310ac43b6e6ee7ac648f9"
 WORKER_FORMAT = "betboy-native-context-chain-worker-v1"
 TASK54_SHA256 = "5a59f75d0a3093238031159a813ce81b6c633c63105cab0338ed376a7bac7649"
 PROPERTY_KEYS = frozenset("tour source_sha256 corpus_sha256 ledger_sha256 parts_sha256 history_sha256 features_sha256 consumer_sha256 receipt_inventory_digest old_coverage_digest feature_canonical_sha256 snapshot_key snapshot_raw_sha256 snapshot_payload_digest original_hash protected_receipt_count semantic_limitations budget_plan budget_reserved setup_budget_plan setup_budget_reserved setup_workspace_bytes union_reserved_bytes union_observed_bytes after_corpus_bytes after_parts_bytes after_history_bytes after_feature_bytes final_workspace_bytes final_free_bytes".split())

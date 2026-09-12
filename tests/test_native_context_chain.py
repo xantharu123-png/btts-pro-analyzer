@@ -193,18 +193,37 @@ def test_kernel_start_parser_uses_start_tick_not_import_stopwatch():
         p.boot_start(raw, 100, 124)
 
 
-def test_manifest_requires_exact_owner_pins_roots_and_plan():
+@pytest.mark.parametrize("source_flavour", ["native", "windows", "posix"])
+def test_manifest_requires_exact_owner_pins_roots_and_plan(source_flavour, monkeypatch):
     c = module("native_context_chain_catalogue")
+    from pathlib import PurePosixPath, PureWindowsPath
+    # The manifest is Linux data even when the read-only launcher runs on
+    # Windows. Exercise the real validator with both path representations;
+    # do not derive the expected wire string from the implementation.
+    installation = "/tmp/betboy-context-qa.9xr68INa/venv/lib/python3.12/site-packages"
+    if source_flavour != "native":
+        path_type = PureWindowsPath if source_flavour == "windows" else PurePosixPath
+        monkeypatch.setattr(c, "DEPENDENCY_SOURCE", path_type(installation))
     code = sorted([entry(n, (HERE.parent / n).read_bytes()) for n in c.REQUIRED], key=lambda x: x["path"])
     deps = sorted([entry(n if n.endswith(".py") else n + "/member", b"") for n in c.PACKAGES], key=lambda x: x["path"])
     manifest = {"format": c.FORMAT, "commit": "a" * 40, "archive": {"size": 0, "sha256": "b" * 64},
-        "code": code, "dependencies": deps, "dependency_source": str(c.DEPENDENCY_SOURCE),
+        "code": code, "dependencies": deps, "dependency_source": installation,
         "packages": list(c.PACKAGES), "runtime": {"executable": "/usr/bin/python3.12", "executable_sha256": "c" * 64,
             "python": "observed", "kernel": [], "stdlib_search_path": [],
             "closure_status": "observed-system-runtime-not-transitive-B-closure"},
         "plan": c.resource_plan(0, sum(x["size"] for x in code), 0, [])}
     assert c.validate_manifest(manifest, "a" * 40) is manifest
     import copy
+    for alias in (installation + "/", installation.replace("/", "\\"),
+                  installation.replace("/tmp/", "//tmp/"),
+                  installation.replace("/venv/", "/venv/./"),
+                  installation.replace("/venv/", "/other/../venv/"),
+                  installation.replace("9xr68INa", "9xr68ina"),
+                  installation.replace("/tmp/", "/other/"), "C:" + installation):
+        changed = copy.deepcopy(manifest)
+        changed["dependency_source"] = alias
+        with pytest.raises(c.ChainError, match="nonfixed dependency installation"):
+            c.validate_manifest(changed, "a" * 40)
     for mutate in (lambda m: m["dependencies"].pop(),
                    lambda m: m["code"].append(dict(m["code"][0])),
                    lambda m: m["plan"].update(retained_cpu_ns=270000000000),

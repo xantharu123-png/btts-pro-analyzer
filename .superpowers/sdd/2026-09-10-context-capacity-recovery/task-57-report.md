@@ -504,3 +504,112 @@ FIX1 is complete for independent review with those explicit later concerns.
 All five owned artifacts are frozen. This agent explicitly relinquishes sole
 implementation-writer authority to Root; no further edits, processes, native
 actions, or cleanup are pending from this writer.
+
+## Fix round 2 — Windows launcher fixed Linux-path representation
+
+This follow-up starts from Root-reported HEAD
+`a339a82b5f64722fc4520f7d67b427d19819683b`, docs-only after reviewed source
+`eddc926`. Root owns verification of that exact Git lineage and all packaging;
+this writer performed no Git operation. The prior FIX1 freeze is superseded
+only by the source/report pins below.
+
+### Observed preparation failure and minimal correction
+
+Root's normal-user native read-only inventory succeeded using the exact reviewed
+catalogue. Its retained local artifact is
+`.pytest_tmp/task57-native-inventory-eddc926-01.json`,679529bytes, SHA256
+`d5f7ee70a1d0fd4599a462f335edeebf0a8fb7e8fda5921a16c1d9519279465e`
+(freshly hashchecked by this writer). It names the fixed canonical Linux root
+`/tmp/betboy-context-qa.9xr68INa/venv/lib/python3.12/site-packages`.
+
+The subsequent Windows launcher failed in `launcher -> validate_manifest` at
+the exact installation-string check, before archive-selected bootstrap
+generation and before any root native job/reservation. Retained evidence:
+
+```text
+.pytest_tmp/task57-eddc926-01-stdin.py       0 bytes
+SHA256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+.pytest_tmp/task57-eddc926-01-stdin.stderr   1077 bytes
+SHA256 2659d240e26f39333ac5dcffbbfd632e6ad5e94e7aa284356d62d19a90a8de53
+ChainError: nonfixed dependency installation
+```
+
+This writer read the complete retained traceback and independently checked
+both sizes/hashes. The source used `str(DEPENDENCY_SOURCE)` for a manifest
+wire-format value. On Windows that host-dependent `Path` representation uses
+backslashes, unlike the fixed Linux path in the native inventory. The previous
+test derived its fixture string using that same faulty representation, masking
+the mismatch.
+
+The minimal fix changes exactly two catalogue expressions: comparison and
+inventory serialization now use `DEPENDENCY_SOURCE.as_posix()`. The incoming
+manifest value is still compared by exact string equality: it is NOT parsed,
+normalized, aliased, rewritten or granted another allowed root. The parent
+catalogue pin was updated to the amended bytes. Runtime filesystem access still
+uses the existing `Path` object; no native path, installation, helper, Task54,
+product, resource cap, accounting formula or execution flow was changed.
+
+The focused manifest test now uses an independently literal Linux root and
+exercises the real validator with host-native, `PureWindowsPath` and
+`PurePosixPath` representations of the fixed installation. All three must
+accept the canonical Linux manifest. Trailing slash, backslashes, doubled
+leading slash, dot component, parent-traversal alias, case change, different
+root and drive-prefixed input must all be rejected. Existing exact owner-pin,
+package-root and resource-plan rejection checks remain in every case.
+
+### Fresh RED and final GREEN
+
+The exact commands ran only in this worktree, retaining fresh basetemp/XML:
+
+```powershell
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
+$env:PYTHONDONTWRITEBYTECODE='1'
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -m pytest -q -p no:cacheprovider -o junit_family=xunit1 tests/test_native_context_chain.py -k test_manifest_requires_exact_owner_pins_roots_and_plan --basetemp=.pytest_tmp/task57-fix2-red-bt-16 --junitxml=.pytest_tmp/task57-fix2-red-16.xml
+& '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -m pytest -q -p no:cacheprovider -o junit_family=xunit1 tests/test_native_context_chain.py --basetemp=.pytest_tmp/task57-fix2-final-bt-17 --junitxml=.pytest_tmp/task57-fix2-final-17.xml
+```
+
+RED:2failed,1passed,27deselected; both Windows/host-native cases failed at the
+actual `nonfixed dependency installation` check, while the POSIX representation
+passed. Console0.34s; parsed XML3tests/2failures/0errors/0skips,0.272s.
+
+Final GREEN after both catalogue edits and the parent-pin update:30passed,
+console7.35s; parsed XML30tests/0failures/0errors/0skips,7.349s. This was the
+single full owned-module run for FIX2; no broader suite or repeated full run.
+No implementation/test bytes changed afterward. XML SHA256:
+
+```text
+.pytest_tmp/task57-fix2-red-16.xml   6f9515010cf5869e7e49e8b025649ce3249b6fc6e0ce70b53ff0623835559d1f
+.pytest_tmp/task57-fix2-final-17.xml a3744757d577550ff9d460206a9e4d52a99c5fd1a5b5cbccf09ac3feb860992a
+```
+
+Final candidate source SHA256:
+
+```text
+tests/native_context_chain.py           1325881bed452574159568d6fba93dae6c091d7baf0ee2388adb86108e3038e8
+tests/native_context_chain_catalogue.py 93d38e46c17b9796088cfad66ea1667413b702b93f8310ac43b6e6ee7ac648f9
+tests/native_context_chain_worker.py    ee08091b3aec6e9a579e9fe3811392854198fe676bacdcae786dcb1217f5f302
+tests/test_native_context_chain.py      d5f47de6f70d90f88981105f4e01e1fa7426474094b5f456ce37d0ea73b2cb4d
+```
+
+The worker remains unchanged. Report SHA is returned externally after writing.
+The fix is limited to those owned catalogue/parent/test/report files; no other
+file was edited apart from the retained focused-test artifacts.
+
+### Continued preparation gate and freeze
+
+All previous candidates, uploads, inventory, empty launcher and failure output
+remain retained and must not be silently replaced/reused as amended-source
+evidence. Root will verify/review the minimal correction and regenerate the
+new immutable-commit archive, native read-only inventory and reviewed Windows
+stdin launcher with fresh names/pins using the previously documented closed
+export and launch procedure. This writer did not regenerate or execute a native
+launcher and makes no claim that the actual guarded native job has started.
+Root reports that no native job/reservation started during the failed Windows
+preparation; this fix adds only local protocol evidence.
+
+MinorM1 remains explicitly deferred; all native/runtime/global-C/B/terminal and
+release gates remain open. No server/network/dependency/cleanup/subagent action
+or cap/math/product/helper/Task54 change occurred in FIX2.
+
+The five owned artifacts are frozen for review. This writer explicitly returns
+sole implementation-writer authority to Root; no further action is pending.
