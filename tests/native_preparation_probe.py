@@ -36,7 +36,7 @@ WORKER_FORMAT = "betboy-native-preparation-worker-v1"
 HELPERS = {
     "context_preparation_process_guard": "62fcfcacaa7e658eefa8a2f8ceced9dc465846a8ca61dc38c2691dc9984685e4",
     "context_preparation_budget": "fb12aa3b2170dc2dbed7d70d2aa5846d5928b4fda42de00d4828f9f411482478",
-    "context_preparation_supervisor": "ae9fec1f9a7798455f21f5ac4588f714bc31803602ed51128686e3f9c17ea16d",
+    "context_preparation_supervisor": "c6c1c8e82107d48b66d7714577004e7d9e7e400525620b23070d4258ab554dc8",
 }
 WORKER_SHA256 = "22cfd8f16f8c047f298206e2f249d53fc3ef420dfbfff36f35a68c44ecc27d0e"
 MIB = 1024**2

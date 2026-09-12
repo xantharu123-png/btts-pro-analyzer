@@ -2,6 +2,19 @@
 
 ## Aktuell 12. September 2026 — C freigegeben, verlustfreier Speicherumbau läuft
 
+Neuester Zwischenstand: Reparaturbranch `ce057a5d5f62395199113e8f9a9ffa0db5dc5f74`
+gepusht und frisch bestätigt; main weiterhin `2dd1116`. Feste Rohkopie mit
+begrenztem Reader unabhängig geprüft (197 bestanden, zwei Windows-Skips).
+Die zweite isolierte VPS-Prozessdiagnose blieb rot: der Worker beendete sich
+korrekt, aber die eigene 50ms-Warteplanung verzögerte seinen Abschlusscheck.
+Enger Fix jetzt unabhängig geprüft, 437 kombinierte lokale Tests bestanden.
+Ein dritter nativer Nachtest steht noch aus. Beide bisherigen Diagnoseversuche
+bleiben vollständig erhalten und konservativ mit insgesamt180CPU-s belastet.
+Task46/47 enthalten genaue Bytes, Messungen und Grenzen. Task48 verbindet
+Kopie und echte neue Receipts; Task51 bearbeitet den echten Consumeranschluss.
+Diese Datenkette, die vollständigen Größenprofile und B sind noch nicht fertig.
+Keine C-Produktivaufrufroute, kein main-Push oder Appdeployment daraus ableiten.
+
 Der Nutzer hat die konkrete Speicherfrage mit **„ja“** beantwortet.
 C-Spezifikation `08f296bfd0b7c43e4934367ec2533f29464b28f9dc7d2ada218ea194ae4645ba`
 ist freigegeben; die darunter archivierte Angabe „Speicherentscheidung offen“

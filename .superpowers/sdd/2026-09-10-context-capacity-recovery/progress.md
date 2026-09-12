@@ -5,6 +5,18 @@ User approved the one-time updater-only replacement with independent review, fre
 
 ## Current authority 12 September: C approved; bounded storage implementation
 
+Latest continuation: repair branch ce057a5d5f62395199113e8f9a9ffa0db5dc5f74
+freshly remote-confirmed; main remains2dd1116. Task43/45 fixed-copy integration
+committed,197pass/2Windows-only skips. Native diagnostic2 used5a3a3af in a NEW
+seal /var/lib/betboy-native-probe-ncx37y3f: sealerexit0/9.56s, probeexit1/1.40s.
+Child actually exited0 with strict terminal RSS/CPU, but own50ms pending poll
+caused rss_observation_lost. Full report a0a60f17 retained; two attempts charged
+180CPU conservatively, all files retained. Task46/47 narrow5ms pending poll
+now independently reviewed;437 combined portable regressions pass. New native
+attempt3 still required. Task44 receipt operation235pass is frozen, Task49
+independent review in progress. Task48 actual copied-corpus/ledger owner and
+Task51 actual consumer bridge are scoped work, NOT complete global C/B.
+
 Latest explicit "ja" approves C specification08f296bfd0b7c43e4934367ec2533f29464b28f9dc7d2ada218ea194ae4645ba.
 B498e63c5 remains approved. No repeated authority question. Frozen older decision
 documents are retained; their preapproval status is superseded by this entry and

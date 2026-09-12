@@ -459,7 +459,12 @@ def run_single_process(argv, *, uid, gid, cwd, workspace_fd, file_size_bytes,
                     selector.unregister(key.fd)
                 continue
 
-            for key, _ in selector.select(POLL_SECONDS):
+            # Once RSS is pending, waiting the whole 50-ms acceptance window
+            # can itself make an already terminal child fail the next wait4
+            # check (especially after both log pipes reached EOF). Poll sooner,
+            # without moving that original deadline or accepting a late reap.
+            poll_seconds = POLL_SECONDS / 10 if rss_pending_since is not None else POLL_SECONDS
+            for key, _ in selector.select(poll_seconds):
                 chunk = os.read(key.fd, min(65536, OUTPUT_BYTES - observed + 1))
                 if not chunk:
                     selector.unregister(key.fd)

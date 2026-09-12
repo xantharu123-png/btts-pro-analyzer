@@ -249,7 +249,7 @@ def test_missing_rss_known_single_task_then_same_child_terminal(trace_factory, s
     assert result.observed_output_bytes == len(result.stdout_prefix)
     expected_hash = hashlib.sha256(b"O" + len(result.stdout_prefix).to_bytes(4, "big") + result.stdout_prefix)
     assert result.output_digest == expected_hash.hexdigest()
-    assert trace.poll_timeouts == [0.05, 0.05]
+    assert trace.poll_timeouts == [0.005, 0.005]
     assert trace.proc_reads == 1 and not trace.killed and not trace.live_fds
 
 
