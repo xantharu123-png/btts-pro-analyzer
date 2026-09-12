@@ -65,6 +65,21 @@ The existing C2 non-observation header cap is 1MiB; it may bound the actual
 canonical feature header. Full tour histories/observation references must
 stream and must not be collected because the small differential fixture fits.
 
+Root's recorded implementation ruling: a bounded read-only physical metadata
+scan over the actual artifact/manifest rows may precede the existing recursive
+artifact owners. Bind rowids, actual SQLite types, byte lengths and framing
+incrementally; do not collect all payloads/keys or treat that metadata digest
+as D2 authority. The held Source's complete file identity remains the byte
+binding, and the old owners retain actual consumed-JSON/type/semantic admission.
+Unrelated opaque rows do not acquire a new JSON restriction. Keep source and
+transaction lifetime checks through the final operation. This preserves the
+old owners without claiming that their full A1/D2 allocations are streaming;
+native allocation and the fresh Corpus/D2 integration remain later checks.
+The three actual tables use the unchanged closed `context_runtime._SCHEMA`
+ordinary rowid definitions; C RawInventory already reads their actual rowids.
+Bind those real integer rowids in deterministic traversal. There is no new
+WITHOUT ROWID fallback or schema variant in this task.
+
 At continuation the inherited test fixture still called
 `con.setlimit(SQLITE_LIMIT_LENGTH, DEFAULT_LIMITS.block_bytes)` even though
 the above per-value-cap proposal was rejected. Remove that accidental fixture
