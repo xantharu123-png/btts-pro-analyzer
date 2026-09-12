@@ -1,5 +1,44 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktuell 12. September 2026 — C freigegeben, verlustfreier Speicherumbau läuft
+
+Der Nutzer hat die konkrete Speicherfrage mit **„ja“** beantwortet.
+C-Spezifikation `08f296bfd0b7c43e4934367ec2533f29464b28f9dc7d2ada218ea194ae4645ba`
+ist freigegeben; die darunter archivierte Angabe „Speicherentscheidung offen“
+ist überholt. B bleibt ebenfalls freigegeben. Nicht nochmals danach fragen.
+Ausführungsplan: `docs/superpowers/plans/2026-09-12-kontextspeicher-umsetzung.md`.
+
+Isolierter Worktree `context-capacity-recovery-20260910`, Start `b2e811a`.
+Neue, noch nicht produktiv aufgerufene Module unter `context_storage_v2`:
+vollständiges typisiertes Rohinventar, gemeinsame Referenzblöcke, vollständige
+plattengestützte Tourhistorie und rechnerisch identischer Tennis-Lesepfad.
+Zusätzlich umgesetzt: durchgehend FD-gebundene vollständige Rohkopie und
+Snapshot-Quelladapter mit vollständigem Coveragevergleich, Rücklesen nach
+Schließen/Öffnen und explizitem Erhalt unbekannter Rohobjekte. Unabhängige
+Reviews fanden und schlossen Dateitausch-, WAL- und NUL-Metadatenfälle;
+Tests/RED-Belege bleiben dokumentiert, nicht vom späteren Grün überschrieben.
+Ein Autor pro Bereich; Root besitzt Index/Integration/VPS. Die unabhängigen
+Bausteinreviews sind abgeschlossen, die Gesamtsuite läuft noch.
+Bausteine sind KEIN C-/B-/Releaseabschluss.
+Alte Modell-/Quell-/Feature-/Verifierdateien bleiben in diesem Abschnitt gleich.
+
+Neue explizite Grenzen: Eingabesatz4GiB, kanonische Tourhistorie1GiB,
+Verarbeitungsblöcke16MiB, gesamter neuer QA-/Aufbau-/Ausgabebereich8GiB,
+freie Reserve4GiB. Unveränderte WorkerCPU/RAM- und gesamte B-Vorbereitungsgrenzen.
+Noch kein neuer nativer C-Vorbereitungsauftrag, keine C-Migration und kein Rollout.
+Frischer lesender VPS-Check dieser Ausführung: Apprevision `2dd1116`, App/Caddy
+aktiv, interner Healthcheck `ok`; Wettfinderlauf09:07:28–09:13:57CEST erfolgreich,
+nächster Timer09:37. Updaterhash `74b1c4b1` stammt weiterhin aus voriger Prüfung.
+Frischer GitHub-Abgleich: main2dd1116, Reparaturbranchb2e811a. Noch kein neuer
+Commit/Push dieser Implementierung. Kein behaupteter aktueller Server-C-Stand.
+Separate bekannte Tagesjob- und empirische Modell-/Quellenarbeit sowie Cricket
+bleiben außerhalb C/B.
+
+Fortsetzung ohne Lücke: `.superpowers/sdd/2026-09-10-context-capacity-recovery/task-16-controller.md`
+enthält die aktuellen Testläufe, Findings, Besitzgrenzen und konkrete nächste
+Arbeit. Globale Mehrdatei-/TEMP-/Budgetkontrolle, echter kompletter Wachstumsbestand,
+B-Nachweise/Bootstrap, native Messungen/Restore und Rollout stehen noch aus.
+
 ## Neuester Abschluss 12. September 2026 — B0 gemessen, Speicherentscheidung offen
 
 Die Freigabe „ja maxhrn“ für B wurde ausgeführt: zuerst frisches Backup/Restore/

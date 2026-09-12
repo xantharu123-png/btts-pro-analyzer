@@ -3,6 +3,33 @@
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
+## Current authority 12 September: C approved; bounded storage implementation
+
+Latest explicit "ja" approves C specification08f296bfd0b7c43e4934367ec2533f29464b28f9dc7d2ada218ea194ae4645ba.
+B498e63c5 remains approved. No repeated authority question. Frozen older decision
+documents are retained; their preapproval status is superseded by this entry and
+docs/superpowers/plans/2026-09-12-kontextspeicher-umsetzung.md.
+Startb2e811a tracked-clean, same isolated repair branch. One writer per new
+context_storage_v2 module: refs/history/tennis plus Root inventory/contracts.
+Old product owners and limits unchanged; no new production call route yet.
+Targeted local tests/reviews in progress, not native C/B or release acceptance.
+Global input4GiB/history1GiB/block16MiB/workspace8GiB/reserve4GiB apply to the
+explicit new mode; existing CPU/RAM/whole-preparation budgets remain binding.
+No new native preparation job, server mutation, commit/push or rollout in this
+checkpoint. Last previous live proof2dd1116/updater74b1 is not a fresh check.
+Root owns index/integration and will preserve coherent reviewed increments.
+
+Continuation: C1 exact fixed-FD raw copy and complete source-backed C2b snapshot
+conversion/reopen integration now implemented. Actual independent copy-reopen /
+WAL and C2 NUL-size findings were reproduced and corrected; full history/Tennis
+reader-lifetime findings are closed. Source adapter final independent review
+and complete project regression run are in progress. Current targeted evidence,
+exact scopes and all remaining C/B/native gates: task-16-controller.md plus
+task16/17/18/19 author/reviewer reports. Do not infer overall completion.
+Fresh read-only servercheck confirmed2dd1116/app/Caddy/internalhealth and a
+successful actual Wettfinder run; separate dailytennis failure remains. Fresh
+GitHub main2dd1116/repairbranchb2e811a. No new native preparation or rollout yet.
+
 ## Current closeout 12 September: B0 executed, necessary StorageSTOP
 
 B approval is recorded; no repeat B question. Fresh backup/restore/HMAC88 DBs,
