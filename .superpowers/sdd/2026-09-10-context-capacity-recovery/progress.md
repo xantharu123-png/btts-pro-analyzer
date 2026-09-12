@@ -12,23 +12,49 @@ docs/superpowers/plans/2026-09-12-kontextspeicher-umsetzung.md.
 Startb2e811a tracked-clean, same isolated repair branch. One writer per new
 context_storage_v2 module: refs/history/tennis plus Root inventory/contracts.
 Old product owners and limits unchanged; no new production call route yet.
-Targeted local tests/reviews in progress, not native C/B or release acceptance.
+Targeted local primitive tests/reviews complete, not native C/B or release acceptance.
 Global input4GiB/history1GiB/block16MiB/workspace8GiB/reserve4GiB apply to the
 explicit new mode; existing CPU/RAM/whole-preparation budgets remain binding.
-No new native preparation job, server mutation, commit/push or rollout in this
-checkpoint. Last previous live proof2dd1116/updater74b1 is not a fresh check.
+No new native preparation job, server mutation or rollout in this checkpoint.
+Reviewed primitive milestone c5912a7cb8ae095b7e7f63a0b3ce6ae2aaf9052a committed
+and pushed to the repair branch; exact remote read confirms it, main stays2dd1116.
+Last previous updater74b1 is not a fresh updater-hash check.
 Root owns index/integration and will preserve coherent reviewed increments.
 
 Continuation: C1 exact fixed-FD raw copy and complete source-backed C2b snapshot
 conversion/reopen integration now implemented. Actual independent copy-reopen /
 WAL and C2 NUL-size findings were reproduced and corrected; full history/Tennis
-reader-lifetime findings are closed. Source adapter final independent review
-and complete project regression run are in progress. Current targeted evidence,
+reader-lifetime findings are closed. Source adapter final independent review is
+complete; the c5912a7 complete regression run ended with six isolated-runtime
+dependency failures (7897 pass/30 skips/97 subtests). The unchanged owning hook
+module now passes340/340 in a fresh local QA venv with actual -I SciPy imports;
+the original red full-suite evidence is retained, not relabeled as green.
+New full exact-byte regression is still required. Current targeted evidence,
 exact scopes and all remaining C/B/native gates: task-16-controller.md plus
 task16/17/18/19 author/reviewer reports. Do not infer overall completion.
 Fresh read-only servercheck confirmed2dd1116/app/Caddy/internalhealth and a
 successful actual Wettfinder run; separate dailytennis failure remains. Fresh
-GitHub main2dd1116/repairbranchb2e811a. No new native preparation or rollout yet.
+GitHub main2dd1116/repairbranchc5912a7. No new native preparation or rollout yet.
+Task20 measured genuine local 5k/50k canonical reads, not native acceptance.
+Task21 owns only a new chunk API/tests, Task22 reviews global disk/TEMP writer
+admission, Task23 owns only a new stdlib preparation-budget primitive/tests.
+These additions are not included in the already collected c5912a7 full suite.
+Task21/26 snapshot chunk integration now355 related tests and118 independent
+old/new differentials green; full byte/digest identities exact. Genuine local
+50k whole-read wall2.162368->0.243204s, not native/growth extrapolation.
+Task24 fixed-plan accounting and actual Device-Fix independently90pass/3native
+Windows symlink skips, with real initial RED probes preserved. Task23 independent
+review closed91pass/3Linuxskips. Task29 full frozen prelude completed8114pass,
+31skips/97subtests in2052.78s; three new native/profile test modules explicitly
+excluded and later changed bytes require another whole-suite run.
+Task27/32 SQLite profile393pass; Task28/31 NoExec guard212pass/5Linuxskips.
+Task30 supervisor original seven RED lifecycle findings closed; NoExec followup
+173pass. Task34 separately reviews the narrow fresh secret-free parent/env
+boundary (fork inherits heap; no key-holding B publisher may launch workers).
+Task33 builds but has not executed the small native diagnostic. Task35 owns
+only new C history/tennis writer-profile integration. Root owns supervisor,
+integration/index/server. No native crash/core probe or host configuration edit.
+No new service/cgroup, native corpus job, model/Cricket change or rollout.
 
 ## Current closeout 12 September: B0 executed, necessary StorageSTOP
 

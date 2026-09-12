@@ -41,6 +41,42 @@ def packet(*, family="tennis:winner", with_effect=False):
     return key, payload, raw, _payload_digest(key, payload)
 
 
+@pytest.mark.parametrize("family", ["tennis:winner", "tennis:serve"])
+@pytest.mark.parametrize("with_effect", [False, True])
+def test_snapshot_build_and_reconstruction_use_complete_byte_reader_not_scalar(
+        connection, monkeypatch, family, with_effect):
+    key, payload, raw, original_digest = packet(family=family, with_effect=with_effect)
+    expected_arguments = arguments(connection, payload=payload, key=key)
+    def no_scalar(*_args, **_kwargs):
+        pytest.fail("byte-oriented snapshots must not invoke the unchanged scalar reader")
+    monkeypatch.setattr(refs, "iter_refset", no_scalar)
+    descriptor = snapshots.put_snapshot_parts(connection, **expected_arguments)
+    for chunk_size in (3, 67, 4096):
+        assert b"".join(snapshots.iter_snapshot_bytes(connection, descriptor,
+            chunk_bytes=chunk_size)) == raw
+    snapshots.validate_all(connection)
+    assert descriptor.payload_digest == original_digest
+
+
+def test_snapshot_chunk_reconstruction_retains_all_many_reference_bytes(connection):
+    key, payload, _raw, _original_digest = packet()
+    # Explicit synthetic transport cardinality, never a source/model-valid
+    # replacement for an owner-generated large sports profile.
+    payload["observation_refs"] = sorted(hashlib.sha256(str(n).encode()).hexdigest()
+                                          for n in range(5000))
+    raw = canonical_bytes(payload)
+    descriptor = snapshots.put_snapshot_parts(connection,
+        **arguments(connection, payload=payload, key=key))
+    hasher, total = hashlib.sha256(), 0
+    for piece in snapshots.iter_snapshot_bytes(connection, descriptor, chunk_bytes=997):
+        assert piece == raw[total:total+len(piece)]
+        hasher.update(piece)
+        total += len(piece)
+    assert total == len(raw) == descriptor.payload_bytes
+    assert hasher.hexdigest() == hashlib.sha256(raw).hexdigest() == descriptor.raw_payload_sha256
+    assert descriptor.payload_digest == _payload_digest(key, payload)
+
+
 @pytest.mark.parametrize("encoding", ["UTF-8", "UTF-16le", "UTF-16be"])
 def test_full_snapshot_transport_and_nul_admission_respect_sql_text_encoding(tmp_path, encoding):
     connection = sqlite3.connect(tmp_path / "encoding.sqlite", factory=TrackedConnection)

@@ -151,3 +151,52 @@ Global4GiB inputs and8GiB new workspace cannot be inferred from per-file checks.
 No whole capacity proof, empirical model approval or completed rollout claim.
 Concrete next-owner sequence, without a renewed approval question or silently
 widened resource values: docs/superpowers/plans/2026-09-12-kontextspeicher-gesamtintegration.md.
+
+## Later preservation and continuation checkpoint
+
+Reviewed primitives committed as c5912a7cb8ae095b7e7f63a0b3ce6ae2aaf9052a and
+pushed to codex/context-capacity-recovery-20260910. Independent fresh ls-remote
+confirms this exact repair SHA; main remains2dd1116b68f3d94e9c24338c6c9dff9b01799221.
+No main integration, server pull, new native C job, migration or deployment.
+The earlier no-commit paragraphs above describe their earlier checkpoints only.
+Full project pytest is still running; no full-suite pass is inferred from dots.
+
+Task20 local measured 5k/50k genuine refsets and full canonical snapshot reads;
+all complete byte/hash comparisons match. Report task-20-perf.md distinguishes
+normal timing, separate traced SQL counts and unmeasured native/RAM/global claims.
+Task21 adds a separate chunk-oriented API without changing scalar lifetime
+semantics or any c5912a7 runtime bytes. Task22 independently designs/checks actual
+global disk/TEMP admission. Task23 owns a separate stdlib-only conservative
+preparation-cost primitive. None is yet a production call route or B proof.
+
+## Later completed regression / native prerequisites checkpoint
+
+Task19 full regression ended RED:7897pass/6failed/30skips/97subtests. All six
+were isolated CLI children missing SciPy through inherited PYTHONPATH. Task25
+fresh local QA venv resolves the actual -I dependency path; all340 unchanged
+hook tests then pass. The original red JUnit is retained.
+
+Task29 newer frozen C-prelude full regression completed8114pass/31skips/
+97subtests in2052.78s, XML SHAf49d97c48366439f90f6e4b53b0c57efcb88b7763f58b9aae4a1de1c552e5d11.
+Three then-under-development native/profile modules explicitly excluded;
+see task-29-full-prelude-regression.md for exact command/bytes/limits.
+
+Independent reviews: Task23 budget91pass/3native skips; Task24 workspace90pass/
+3symlink skips; Task26 chunk snapshot118 independent pass plus355 related;
+Task27/32 SQLite393pass; Task28/31 NoExec guard212pass/5native skips. Task30
+supervisor first review found seven actual lifecycle/FD/output problems, all
+closed; NoExec followup173pass. Task34 parent environment followup underway.
+Task33 small real native diagnostic not yet executed; Task35 begins integration
+of only new C history/tennis writers with the reviewed SQLite profile.
+
+Fresh secret-free root -I-S-B parent with env-i before Python is mandatory:
+fork without exec copies heap, so future B key publisher must be a different
+process. Exact current Python environ/modules do not prove past memory state.
+VPS read-only confirmed6.8.0-138-generic/x86_64, piped Apport/core handler and
+Python3.12.3; CORE0 alone does not bound host reports. New guard sets/reads
+Dumpable0, forbids later exec/credential/dumpable setters; no global host setting
+changed or actual crash probe. Child's GET_DUMPABLE is distinct from parent's
+proc/limits/capabilities measurement. No broad no-logs/physical-quota claim.
+
+No new native C corpus, B implementation, migration, main push, VPS pull or
+deployment yet. c5912a7 remains last published repair-branch milestone.

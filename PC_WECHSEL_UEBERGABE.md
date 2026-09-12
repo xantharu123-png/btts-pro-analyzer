@@ -18,7 +18,8 @@ Schließen/Öffnen und explizitem Erhalt unbekannter Rohobjekte. Unabhängige
 Reviews fanden und schlossen Dateitausch-, WAL- und NUL-Metadatenfälle;
 Tests/RED-Belege bleiben dokumentiert, nicht vom späteren Grün überschrieben.
 Ein Autor pro Bereich; Root besitzt Index/Integration/VPS. Die unabhängigen
-Bausteinreviews sind abgeschlossen, die Gesamtsuite läuft noch.
+Bausteinreviews sind abgeschlossen. Der erste Gesamtlauf ist beendet; genaue
+Einordnung und korrigierte lokale QA-Umgebung stehen weiter unten.
 Bausteine sind KEIN C-/B-/Releaseabschluss.
 Alte Modell-/Quell-/Feature-/Verifierdateien bleiben in diesem Abschnitt gleich.
 
@@ -29,8 +30,10 @@ Noch kein neuer nativer C-Vorbereitungsauftrag, keine C-Migration und kein Rollo
 Frischer lesender VPS-Check dieser Ausführung: Apprevision `2dd1116`, App/Caddy
 aktiv, interner Healthcheck `ok`; Wettfinderlauf09:07:28–09:13:57CEST erfolgreich,
 nächster Timer09:37. Updaterhash `74b1c4b1` stammt weiterhin aus voriger Prüfung.
-Frischer GitHub-Abgleich: main2dd1116, Reparaturbranchb2e811a. Noch kein neuer
-Commit/Push dieser Implementierung. Kein behaupteter aktueller Server-C-Stand.
+Bausteinstand `c5912a7cb8ae095b7e7f63a0b3ce6ae2aaf9052a` ist committed und
+auf `codex/context-capacity-recovery-20260910` gepusht; GitHub danach lesend
+exakt bestätigt. GitHub main bleibt `2dd1116b68f3d94e9c24338c6c9dff9b01799221`.
+Kein main-Push und kein behaupteter aktueller Server-C-Stand.
 Separate bekannte Tagesjob- und empirische Modell-/Quellenarbeit sowie Cricket
 bleiben außerhalb C/B.
 
@@ -38,6 +41,40 @@ Fortsetzung ohne Lücke: `.superpowers/sdd/2026-09-10-context-capacity-recovery/
 enthält die aktuellen Testläufe, Findings, Besitzgrenzen und konkrete nächste
 Arbeit. Globale Mehrdatei-/TEMP-/Budgetkontrolle, echter kompletter Wachstumsbestand,
 B-Nachweise/Bootstrap, native Messungen/Restore und Rollout stehen noch aus.
+Der erste Gesamtlauf auf c5912a7 ergab 7897 bestanden, 6 fehlgeschlagen,
+30 Skips und 97 Untertests. Alle sechs Fehler gehörten zum Update-Hook: seine
+echten isolierten CLI-Kinder sahen SciPy nicht, obwohl der Elternprozess es
+über PYTHONPATH fand. Keine Test-/Produktänderung dafür. Eine neue lokale
+QA-venv bindet den vorhandenen Dependency-Pfad auch unter `-I`; danach bestehen
+alle 340 unveränderten Tests dieses Moduls. Der erste rote Gesamtlauf bleibt
+rote Evidenz und ist kein nachträglich behaupteter Gesamtsuiten-Pass.
+Details/Hashes: task-25-local-qa-runtime.md. Neue spätere Module sind vom alten
+Gesamtlauf nicht abgedeckt; ein vollständiger Lauf des nächsten eingefrorenen
+Standes bleibt erforderlich.
+
+Task21/26: eigene Chunk-Schnittstelle in den neuen Snapshot-Leser integriert;
+355 verbundene Tests plus 118 unabhängige Alt/Neu-Proben bestanden. Wirkliche
+vollständige 5k-/50k-Snapshot-Reads lokal etwa acht-/neunmal schneller, sämtliche
+Bytes/Digests gleich. Kein nativer Größen-/CPU-Pass. Task24: globaler fester
+Accountingplan plus unabhängiger Device-Fix geprüft (90 pass, drei echte
+Windows-Symlink-Skips); weder native Quota noch atomarer Filesystemsnapshot.
+Task23 Vorbereitungskostenbuch unabhängig geprüft: 91 bestanden, drei native
+Linux-Skips; öffentliche Journalhashes sind keine Authentisierung. Task29 ist
+nun abgeschlossen: 8114 bestanden, 31 Skips, 97 Untertests, 2052,78 Sekunden.
+Die drei neuen SQLite-/Guard-/Supervisor-Testmodule waren ausdrücklich nicht
+in diesem Vollsuitenlauf; Details/Bytebindung: task-29-full-prelude-regression.md.
+SQLite-Profil separat unabhängig 393 grün, NoExec-Guard 212 grün/fünf native
+Skips; Supervisor-Erstreview fand und schloss sieben reale Lifecycle-Probleme.
+NoExec-Folgereview 173 grün, zusätzlicher enger Parent-Umgebungsreview läuft.
+Task33 erstellt jetzt einen kleinen echten nativen Diagnosepfad (noch nicht
+ausgeführt); Task35 verbindet nur die neuen C-History-/Tennis-Builder mit dem
+geprüften SQLite-Profil. Weiterhin keine Produktionsaufrufroute.
+Der neue Coordinator muss frisch und geheimnisfrei starten: Fork kopiert
+Arbeitsspeicher; ein B-Schlüsselpublisher darf nicht als Worker-Parent dienen.
+VPS rein lesend: Linux6.8, gepipter Apport-Absturzhandler, Python3.12.3. Daher
+Dumpable0 vor Workerarbeit und kein anschließendes exec; keine Host-/sysctl-
+Änderung, kein absichtlich ausgelöster Crash. Keine globale Core-/Logfreiheit
+aus einer lokalen Simulation behaupten.
 
 ## Neuester Abschluss 12. September 2026 — B0 gemessen, Speicherentscheidung offen
 

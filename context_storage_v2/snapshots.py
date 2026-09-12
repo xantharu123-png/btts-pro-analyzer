@@ -25,6 +25,7 @@ from model_artifacts import _decode_object, canonical_bytes
 
 from .contracts import DEFAULT_LIMITS, StorageIntegrityError, StorageLimitError
 from . import refs
+from .ref_chunks import iter_canonical_ref_chunks
 
 
 FORMAT_VERSION = 2
@@ -245,12 +246,11 @@ def _payload_pieces(connection, descriptor, header, limits):
         if key != "observation_refs":
             yield canonical_bytes(header[key])
             continue
-        yield b"["
-        for ref_index, reference in enumerate(refs.iter_refset(connection, descriptor.observation_refs, limits=limits)):
-            if ref_index:
-                yield b","
-            yield b'"' + reference.encode("ascii") + b'"'
-        yield b"]"
+        # This byte-oriented adapter now uses the separately reviewed byte
+        # reader. The public scalar reference API retains its per-value checks;
+        # no check or reference is silently removed from that old interface.
+        yield from iter_canonical_ref_chunks(connection, descriptor.observation_refs,
+            limits=limits, chunk_bytes=min(65536, limits.block_bytes))
     yield b"}"
 
 
