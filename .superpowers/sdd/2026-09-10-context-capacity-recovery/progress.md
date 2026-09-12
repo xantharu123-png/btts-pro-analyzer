@@ -321,6 +321,62 @@ member and the final worker hash; code total8882016bytes. Next: preserve the
 review/native failure/raw gzip/handoff, push repair, actual new catalogue and
 fresh guarded job. No current app/main deployment or full C/B completion.
 
+Checkpoint9007150fde783c9ef8d0c453146f8a78a05f3ba0 pushed/freshly remote matched.
+The exact reviewed FIX3 candidate was actually inventoried/uploaded/launched
+as97e3bb6-03. Actual guarded ATP failed again before any Task54 setup/write:
+exit125/unplanned Python read,1.716124CPU/1.757707859elapsed seconds,91897856RSS.
+Parent external terminal40.32wall/28.02user/7.36system; WTA never launched.
+Both original/copy inventories match, all private attempts empty, no UID65534
+PID. Full300CPU charge retained; total Task57 charges600 plus Task50's270.
+No reset/refund/reuse/deletion. Full exact readback compressed in evidence,
+all pins/commands and separate scope in task-57-native-preparation.md.
+Task57 FIX4 ACTIVE fromHEAD9007150 / FIX_BASE97e3bb6. Fresh sole writer
+/root/c_native_chain_fix4, most-capable available gpt-6-astra/xhigh, follows
+the mandatory round4 escalation; previous author has returned writer.
+Task57-fix4-brief.md SHA858e1721d2d2725f7f16bd791092cdd573b82f114f5c2b7c8f0091cc6e7eb2d0.
+Bounded local actual full import found missing optional NumPy direct_url.json.
+Root's native source55–85/SHA/lstat-only observation confirms same3.12 branch
+and absence in both original and sealed NumPy2.5.1 directories; no package
+execution. Ruling: exact absent optional metadata -> denying FileNotFoundError,
+anchored to admitted NumPy metadata; actual admitted target remains readable,
+unknown bytes remain denied — faithful optional absence, no wildcard — wrong
+ruling costs stopped QA, not broader authority. Add bounded denied-path/event/
+flags failure observation, no extra read, so future errors are not opaque.
+Actual original native pathname remains an inference, not a captured fact.
+All next native/growth/global-C/B/restore/whole-suite/app rollout gates remain.
+
+FIX4 author returned sole writer, source/tests frozen. Root read the full
+appended report78f6687ef79dc5382ea31d06220cce8be34e9fbd585256b23cfe4d93a5fc0de0,
+parsed actual final XML36/0/0/0 in9.433s, SHA
+a0a3337736df5abc812fa308a8c020da862da72f5467f17d0ac2bb99e994dfe0,
+and committed exactly worker/tests/report asdf874ba7a29ee41ef27d48eb7a726520bd6fdcc4.
+Workerb05e45ab5ac2d2a76fedc88245ad76dd28c85f4eee7006d45c096a693ab989cd;
+testsb2ffb4539d081df0e7cbdd4204eb5b4948853ae02575003311ffcd538004ccb4.
+Parent/catalogue unchanged. The portable full import now reaches an extra
+local-only PyArrow denial; no new admission or namespace emulation was added.
+Real closed native execution remains pending. Independent scoped review uses
+full97e3bb6..df874ba package308795bytes SHA
+2c14485fb54d31a756c3a6443416116e9672f653ddc7764a1a30fb6283c41722,
+not HEAD~1. Final native result will be separate from this review.
+Root archive preparation only:440 exact Python members/8889435source bytes,
+9246720archive bytes SHA7d5f3857584a8c87b39c10cd34621a80f407cbf69df8bb39c99f9f1b1e619c43;
+every member and worker hash independently checked. Native19:51:03UTC
+read-only preflight finds freshdf874ba-04 targets absent, no UID65534 process,
+13585653760bytes free and unchanged Python/GNU-time hashes. No new run yet.
+
+Task 57: fix round4/5 (2 addressed,0 open Important; commits97e3bb6..df874ba).
+Independent task-57-fix4-review.md SHA
+49d598b37ef71476e3d902bfc5b8465d000e40fa538a71532a72ecbbb7aaf4e9:
+SPEC COMPLIANT / QUALITY APPROVED, no new findings. Root read it fully and
+verified its hash. Native/source-inference and global gates remain explicit.
+The complete raw review package remains locally preserved unchanged; its
+byte-exact gzip is versioned to avoid recursively embedding prior patches in
+later review text. Gzip97938bytes SHA
+12ed79b35f8ebb6e76c5b1dd8c08f0b22e30d4d7119317f5e05c0c1541ef8b16;
+Root decompressed it and matched full raw2c14485f SHA. No artifact removed.
+Next: push reviewed repair checkpoint, actual new native inventory/launcher,
+then a separate guardeddf874ba-04 job and full terminal/readback observation.
+
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
 Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,

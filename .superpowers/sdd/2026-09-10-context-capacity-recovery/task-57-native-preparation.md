@@ -220,3 +220,142 @@ The new local immutable archive is9236480bytes, SHA
 all440members/8882016source bytes and exact worker SHA independently checked.
 Actual new upload/inventory/launcher/guarded/terminal evidence follows only
 after this review checkpoint. Nothing above grants a native or release pass.
+
+## Actual second guarded run97e3bb6-03 — stopped before setup
+
+Controller checkpoint9007150fde783c9ef8d0c453146f8a78a05f3ba0 was pushed and
+freshly ls-remote matched; GitHub main remained2dd1116. FIX3 code was therefore
+reviewed and remotely preserved before the next actual native execution.
+
+Read-only preflight19:19:34UTC confirmed the three new paths absent, no
+UID65534 process, unchanged Python/GNU-time hashes, and13847932928bytes free.
+The exact9236480-byte archive97e3bb6 was uploaded to the new
+`/tmp/betboy-context-qa.9xr68INa/task57-97e3bb6-03.tar`; remote SHA matched
+1aca4741b3dc21767da361784c21445694a38f3b87c75da3bd05ec7a08b0f465.
+No old candidate was overwritten.
+
+The same held93d38e46 catalogue source ran as ordinary user with exact argv:
+
+```text
+env -i PATH=/usr/bin:/bin LANG=C.UTF-8 /usr/bin/python3 -I -S -B - inventory /tmp/betboy-context-qa.9xr68INa/task57-97e3bb6-03.tar 97e3bb64cfc4c0e81f4d55262db2de1b613760b6
+```
+
+Exit0/local transport4639ms, stderr0bytes. Exact local
+`.pytest_tmp/task57-native-inventory-97e3bb6-03.json`:679530bytes, SHA
+7692f06a247196eeae16d122685e9aab73d6c4b1e0e730a66ff9f0179dc8d0b8.
+440code/8882016bytes and4540dependency/217788209bytes; runtime unchanged.
+New reservation635414161bytes, active ceiling1015400081; original allocated
+245768192/logical235413297 plus134217728 original metadata. All fixed limits
+unchanged. Root read the complete plan/runtime and exact worker record.
+
+The reviewed local `launcher` CLI validated this exact archive/manifest and
+generated `.pytest_tmp/task57-97e3bb6-03-stdin.py`,136270bytes, exit0/stderr0.
+SHA remainedc6f3d93e0911b60a07e5e851717ec4c8f6e9155b76500ff7b8a7c3f5d0811a9a
+because parent/catalogue/helpers did not change. Separate AST/5-source/exact
+bootstrap reconstruction passed. The exact catalogue was uploaded to
+`task57-97e3bb6-03-catalogue.json`. Fresh19:22:25UTC readback confirmed both
+remote hashes/runtime hashes, absent job and13838004224bytes free.
+
+Actual command, using the held/hashed exact binary stdin:
+
+```text
+umask 022; exec sudo -n /usr/bin/time -f "TASK57_TIME exit=%x wall=%e user=%U system=%S maxrss_kib=%M" env -i PATH=/usr/bin:/bin LANG=C.UTF-8 /usr/bin/python3 -I -S -B - --manifest /tmp/betboy-context-qa.9xr68INa/task57-97e3bb6-03-catalogue.json --manifest-sha256 7692f06a247196eeae16d122685e9aab73d6c4b1e0e730a66ff9f0179dc8d0b8 --archive /tmp/betboy-context-qa.9xr68INa/task57-97e3bb6-03.tar --directory /var/lib/betboy-context-chain-task57-97e3bb6-03 --commit 97e3bb64cfc4c0e81f4d55262db2de1b613760b6 --launcher-sha256 c6f3d93e0911b60a07e5e851717ec4c8f6e9155b76500ff7b8a7c3f5d0811a9a
+```
+
+Terminal SSH exit1/local transport41189ms; actual GNU time exit1/wall40.32s/
+user28.02s/system7.36s/maxRSS89744KiB. Parent `accept_result` rejected the
+nonzero child. Exact local stdout0bytes; stderr578bytes, SHA
+806f231ca3915c284a2856099eda330ed49850c6fd32804b05c66be53ed6ab03.
+Files remain `.pytest_tmp/task57-native-run-97e3bb6-03.stdout`/`.stderr`.
+
+Actual ATP result:890bytes SHA
+b46674f277806eea7e6593b3a59f8e5fdbec72dad221a3730b1b8974c79a4e72.
+Exit125/nonzero_exit, CPU1716124000ns, elapsed1757707859ns, RSS91897856bytes;
+parent supervision19374420ns, maximum sample gap51552489ns,
+minimum free13586079744bytes. Guard readbackUID/GID65534/PID222235,
+CPU90/FSIZE4194304/one seccomp filter/initialRSS60301312. Retained stderr167bytes
+has the same generic `unplanned Python file read`, not a pathname, followed by
+`betboy-native-launch-failed`; stdout empty. No WTA result exists.
+
+Separate read-only inspection found no Task54 setup or data file: the three
+private attempt directories are empty. At19:30:06UTC the complete readback
+again verified all440/4540 copied members by actual size/SHA/root:root0444,
+and original/copy archive+catalogue equality. Job4986files/473directories,
+240649498logical/251916288allocated bytes,13586022400bytes free; no UID65534 PID.
+
+- Budget journal `be5cd6877f5a3fe5dbb4ee00049eea963c8cf0b5c4782aecc10b58ac1f67a238.jsonl`:
+  1751bytes, root0600, SHA5bb63c2f912ab90f2b161180f02aa0ca209da68acd817f442bfc2c405a5fc44b.
+  Actual init/reserve300CPU/stop-unmeasured, no settlement/refund.
+- Failure125bytes, SHA8dfe0443b4a40511eaf94e7dae9f5529eb5dd8347ad6661e4fe964916968ea38;
+  STOP/native_pass=false/retain-all-no-retry. Plan2098513bytes,
+  SHA46d07c153851ba2d4a703fb5a3f8d2a5ad023091c572adaed6f4649a795a3c90.
+- Local raw readback2201596bytes, SHA
+  45e4a1dce8ffe82f0fc8d83572af9f8fabebed761a395f30b3baadb40a37a5b1.
+- `evidence/task57-native-run-97e3bb6-03-readback.json.gz`:203400bytes,
+  SHAba155a1ee08f206e7218fe0f782dd9823c2c342c0e7f9c3ca58cf5dc5bb5869a;
+  independently decoded and compared to the full exact raw SHA above.
+
+Two actual Task57 attempts now retain600CPU-s; earlier Task50 retains270CPU-s.
+All870 conservative diagnostic CPU-s remain recorded, with no discarded
+attempt or refunded slot. This does not turn these separate diagnostics or
+local development into the missing protected global-C/B cost registry.
+
+## Fresh FIX4 owner and actual optional-metadata diagnosis
+
+Per SDD round4, fresh most-capable owner `/root/c_native_chain_fix4`
+(gpt-6-astra/xhigh) received task-57-fix4-brief.md fromHEAD9007150,
+FIX_BASE97e3bb6. Only worker/tests/report may change; Root owns all native work.
+No source edit preceded its bounded30s local actual-import diagnostic.
+
+That one subprocess used5160 exact local names/37 observed selected package
+roots, not the unrelated full installation. It failed at absent
+`numpy-2.5.2.dist-info/direct_url.json`: SciPy optimize -> array API ->
+NumPy testing `_private/utils.py` -> actual importlib.metadata read_text.
+This is an optional installation-origin record; the stdlib expects not-found
+to return no origin, but the generic ChainError escapes that handling.
+
+Root then independently read native NumPy source lines55–85 without importing
+it. Exact source101390bytes, SHA
+b55731515d2b64349472e88dbefbf18b7791e14fb5234c7d0b10f9ece07cbfcc matches the
+manifest. Lines60–72 call `distribution('numpy')` and, on this actual3.12
+runtime, `np_dist.read_text('direct_url.json') or '{}'`. Actual lstat confirms
+the file absent both in the original2.5.1 installation and the root-sealed
+97e3bb6-03 dependency copy. This is source/absence parity, not a retrospectively
+captured native exception pathname.
+
+Ruling: deny only this exact optional metadata probe as FileNotFoundError when
+the target is NOT an admitted member, anchored to the already admitted NumPy
+distribution metadata; if actually catalogued, preserve the exact admitted
+read. Never grant/read unknown bytes or turn arbitrary unknown paths into
+silent absence. Also attach bounded denied-path/event/flags diagnostics to
+other unplanned reads without new I/O or authority. Why: faithfully represent
+this observed optional-file absence and make future failures diagnosable.
+Cost if wrong: retained failed QA, not a relaxed path or resource envelope.
+The author must prove actual metadata absent/admitted/unadmitted/unknown/write
+semantics and the bounded actual import route with fresh RED/GREEN before
+independent re-review. Different new denials require Root diagnosis, not a
+growing blind allowlist. No further native attempt has started.
+
+## FIX4 reviewed candidate — before the next native execution
+
+The narrow worker/test/report commit isdf874ba7a29ee41ef27d48eb7a726520bd6fdcc4.
+Root freshly verified final36/0/0/0 XML in9.433s and actual source hashes.
+Independent review49d598b37ef71476e3d902bfc5b8465d000e40fa538a71532a72ecbbb7aaf4e9
+is SPEC COMPLIANT / QUALITY APPROVED with no new finding; read fully by Root.
+The portable full import remains partial at an extra local-only PyArrow
+installation; it was not admitted or reproduced as a native failure.
+
+Immutable local archive `.pytest_tmp/task57-candidate-df874ba-python.tar`:
+9246720bytes, SHA7d5f3857584a8c87b39c10cd34621a80f407cbf69df8bb39c99f9f1b1e619c43,
+440actual Python members/8889435source bytes, all checked through the actual
+catalogue member validator. Worker SHA
+b05e45ab5ac2d2a76fedc88245ad76dd28c85f4eee7006d45c096a693ab989cd.
+Parent/catalogue/helpers and fixed native limits remain unchanged.
+
+Fresh read-only preflight19:51:03UTC: new `task57-df874ba-04.tar`,
+`task57-df874ba-04-catalogue.json`, and root job directory absent; no UID65534
+process,13585653760bytes free, exact Python/GNU-time hashes unchanged. This is
+preparation only. Native package inventory, reviewed emitted stdin, remote
+hashes, actual guarded execution and separate external terminal/readback must
+be recorded next. Both prior failed jobs and all870CPU-s conservative
+diagnostic charges remain retained. No application/main deployment.
