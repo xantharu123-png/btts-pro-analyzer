@@ -610,6 +610,95 @@ Tasks48/51/54/58; its full-generation, chunk/reopen and global-accounting gaps
 remain real. Do not redispatch that completed broad reconstruction or repeat
 the small native failure loop. C/B specs remain byte-frozen and approved.
 
+Task59 ACTIVE from BASE32c7edd1c5d4b178ac80cdead8848be63b2fa91d,
+sole implementation writer /root/c_growth_profile_builder (sol/high), owned
+two new QA profile modules and task-59-report.md only. Root retains index/Git/
+server. No existing product/tests/guard changes or second implementation writer.
+Read-only /root/c_growth_execution_seam (astra/high) examines the next concrete
+execution seam, not a repeat of Task39's broad reconstruction. Its only output
+is task-60-execution-seam.md; Root continues baseline/integration preparation.
+Fresh read-only native baseline observation08:03:05UTC passed, SSHexit0,
+no source mutations: task-59-baseline-metadata.md records full file identity,
+all100553receipt metadata and the proposed collision-free receipt-ID range.
+This is planning metadata only; actual Source/D2/model and all-key collision
+admission still belong to the eventual full owner.
+
+Task60 execution-seam read-only report6ef248db031f85e7465b012c8740a87e7ded8abab66b54399104f3f0f42d64b0
+fully read by Root; no new tests/native/product work. It recommends a fixed
+actual1024-row native receipt diagnostic before choosing a cold-reopen/portion
+API from measured Linux phase cost. Root accepted that order; Task60 now
+specifies its independently testable one-shot durable admission prerequisite,
+not B proofs/keys/publisher or a repeated small-chain run.
+
+Task60 preflight and rulings:
+
+| Pair/task | Actual interface and check | Resolution |
+| --- | --- | --- |
+| Task60 -> existing PreparationBudget | actual create/reserve/stop, accounting only | No settle_claim/refund; full300CPU remains charged. Stable family lookup precedes actual budget creation. |
+| Task60 -> Task59/future receipt driver | full bound profile vs fixed diagnostic slice | Family excludes mutable slice/clock/seed/path choices; complete plan is separately bound, never a way to rename a retry. |
+| Task60 -> unchanged native supervisor | root stdlib/three-helper module whitelist | New QA module must execute from held compiled namespace; it may use existing budget helper, not import a fourth helper into parent whitelist. |
+| Task60 internally | prior partial admissions vs a new reviewed identity | Any ambiguous/nonterminal old entry blocks the registry. New identity can follow only complete cross-bound retained terminal records. |
+| Task60 -> C/B whole-job evidence | durable local diagnostic admission vs full preparation/publisher | No Source/seal/closure/size/native execution or B approval follows from registry success; those actual owners remain later tasks. |
+
+Ruling: use a one-shot consumed-family registry with no recovery/settlement API
+for the next quantitative diagnostic, rather than inventing a generic checkpoint
+protocol before actual Linux costs are known — it closes directory-based retry
+while retaining every possible phase charge. Cost if wrong: a stopped isolated
+diagnostic and registry rework, never relaxed limits or a production bypass.
+Ruling: genuinely changed reviewed baseline/execution/runtime requests are
+separate diagnostic lifecycles; changing only seed/clock/slice/path is not —
+the family key and retained-history binding enforce that distinction. Existing
+1770CPU reservations and the separate metadata diagnostic's20CPU enforced
+ceiling/measured3.247115605CPU (no durable budget ticket) remain recorded,
+not reassigned or refunded as an alleged successful C preparation. Cost if wrong: admission
+refusal/rework, not a fabricated full1800/3600 acceptance.
+
+Task59 candidate7bb292ee5d11cca36836e289f4a50ed8c9fffa5c is committed
+locally, not yet approved/pushed. Author returned sole writer; Root verified
+code dd48769d00d8080c6fc542be88a3e5f28d0a54986af1c9ab2ac2984b643fad42,
+tests08232b3998a227f1b5eee16551cc593dc9611229105f5d7e0e74cd0150e8bebb,
+reportadf93b84fb857c3980ae0e1a0d9d821f39132c80dfe4fcb6ec9a10453375fc3f.
+Fresh retained XMLd5c32e12efa541650a4e911fa5e8a267327e455743175777d133e87ed35eeb71
+parsed29tests/0failures/0errors/0skips,time9.812s; actual console29passed9.86s,
+child/outer0/0, stderr empty and complete wrapper retained in report. No rerun.
+Independent /root/c_growth_profile_review (sol/high) ACTIVE against exact
+32c7edd..7bb292e package42869bytes. Task59 not marked complete before verdicts.
+Task60 report-only correction58075156575182ae31606f72fb151679b9f0ec7bda5c88518268d5c753efef93
+fully read/hash checked: metadata20CPU was a hard limit, not durable ticket;
+future full reference-block/snapshot/active/retained footprint still unmeasured.
+
+Task59 initial review NOT compliant / NEEDS FIXES, one Important I1:
+required explicit best_of/indoor seed inputs were replaced with3/None.
+Root verified module:221-247 against real consumer:284-306; no product change
+is needed, only the unfinished QA input seam. Full review in task-59-review.md.
+Task59 fix round1/5 ACTIVE on candidate7bb292e with original author
+/root/c_growth_profile_builder, same two QA modules/report only. No test rerun
+or native invocation has yet addressed this finding.
+Ruling: make the new QA seed a closed mapping with competition,tournament_id,
+surface,best_of,indoor; derive grouping from the explicit tour. Require all
+prediction inputs, preserving explicitNone where allowed, with canonical
+surface inHard/Clay/Grass/Carpet/None, exact best_of3or5 and indoorbool/None.
+Why: the actual consumer accepts those independently of the raw native fixture;
+hardcoded defaults cannot test its real input binding. Cost if wrong: QA-seed
+adapter rework before integration, no changed model or production default.
+
+Task59: fix round1/5 (1addressed,0open; commits7bb292e..6ce7702).
+Author returned sole writer. Root matched code584bd2c9c14aee3abe5b5dc2f537ebc25914cd7d63b7dabf6d0abb306798e2c9,
+testsbf917cebeb86939d351e979ea5d4f23213566adafba9050c41a2974932d69829,
+reportb0388a5ab77361c5cf346a1f575667ff6b50dd6abc908d099508cd28dc31d726.
+Actual retained XMLde7d64682098d5cb739b5e74473eef7a3babb4f41985ae2bc65e7559acc69ee6
+parsed42/0failure/0error/0skip,time9.734; console42passed9.78s,
+actual child/outer0/0,empty stderr/no timeout. Correct RED1failed41deselected
+is separately retained; no unchanged full-suite or native repetition.
+Task59: complete (commits32c7edd..6ce7702, review clean after fix round1).
+Independent scoped review of28262byte package: I1 ADDRESSED, no new breakage
+or out-of-scope observations; combined spec compliant / quality approved.
+Full baseline/Source/D2/native-growth/global-C/B/restore/release still open.
+Task60 final143line brief SHAef5f804de1d3e86e5b881d33e5035030904c89488f1c70b8c932702ffb9665fb
+fully read by Root; native flock/fsync references are linked there. Next is
+its sole implementer after the exact repair-branch documentation checkpoint;
+no new registry or native launch has yet occurred, main/VPS still2dd1116.
+
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
 Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,
