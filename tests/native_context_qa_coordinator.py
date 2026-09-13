@@ -160,6 +160,19 @@ def _cpu_ns(usage):
     return math.ceil(seconds*NS)
 
 
+def scanner_failure_bytes(step, exc):
+    """Bounded structural diagnosis, never exception values or frame locals."""
+    trace, current, examined = [], exc.__traceback__, 0
+    while current is not None and examined < 64:
+        code = current.tb_frame.f_code
+        trace.append(dict(file=os.path.basename(code.co_filename)[-160:],
+                          function=code.co_name[:80], line=current.tb_lineno))
+        current, examined = current.tb_next, examined+1
+    return json.dumps(dict(format='betboy-scanner-error-v1', step=step,
+        exception=type(exc).__name__[:80], trace=trace[-8:], trace_truncated=current is not None),
+        sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode('ascii')
+
+
 def _scanner_child(step, c, request, retained_raw, write_fd, read_fd, allowance, parent_pid):
     # Child must never unwind inherited Python owners, even on setup failure.
     try:
@@ -187,7 +200,11 @@ def _scanner_child(step, c, request, retained_raw, write_fd, read_fd, allowance,
         c['write_all'](write_fd, raw)
         os.close(write_fd)
         os._exit(0)
-    except BaseException:
+    except BaseException as exc:
+        try:
+            c['write_all'](write_fd, scanner_failure_bytes(step, exc))
+        except BaseException:
+            pass  # Exit remains failure even if its diagnostic pipe is broken.
         os._exit(125)
 
 

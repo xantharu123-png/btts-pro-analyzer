@@ -109,6 +109,20 @@ def test_cpu_conversion_is_conservative():
             m._cpu_ns(SimpleNamespace(ru_utime=number, ru_stime=0))
 
 
+def test_failed_scanner_retains_structural_diagnosis_without_values_or_locals():
+    import json
+    m = load('native_context_qa_coordinator')
+    private_value = 'must-not-be-logged'
+    try:
+        raise ValueError(private_value)
+    except ValueError as exc:
+        raw = m.scanner_failure_bytes('A2', exc)
+    result = json.loads(raw)
+    assert len(raw) < 8192 and private_value.encode() not in raw
+    assert result['exception'] == 'ValueError' and result['step'] == 'A2'
+    assert result['trace'][-1]['function'] == 'test_failed_scanner_retains_structural_diagnosis_without_values_or_locals'
+
+
 @pytest.mark.skipif(sys.platform != 'linux', reason='actual Linux root fork/pidfd/wait4 required')
 @pytest.mark.parametrize('fault', ['none', 'exception', 'empty', 'oversize', 'wall', 'cpu'])
 def test_native_scanner_is_reaped_on_success_and_every_failure(monkeypatch, fault):
@@ -143,6 +157,8 @@ def test_native_scanner_is_reaped_on_success_and_every_failure(monkeypatch, faul
                 m.run_scanner('A1', c.__dict__, {}, None, allowance=1, deadline=deadline, supervisor=supervisor)
             assert stopped.value.measurement['child_exit_code'] is not None
             assert stopped.value.measurement['child_cpu_ns'] is not None
+            if fault == 'exception':
+                assert b'betboy-scanner-error-v1' in stopped.value.prefix
         assert os.getpid() == original_parent
         with pytest.raises(ChildProcessError):
             os.waitpid(-1, os.WNOHANG)
