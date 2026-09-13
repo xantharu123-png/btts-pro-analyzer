@@ -4915,10 +4915,15 @@ def render_wettfinder() -> None:
         with st.container(key="wettfinder_v2_mode"):
             mode = _segmented(
                 "Modus",
-                ["Automatisch", "Eigene Suche"],
+                ["Automatisch", "Eigene Suche", "3 a day"],
                 "wettfinder_mode_v2",
                 "Automatisch",
             )
+        if mode == "3 a day":
+            from daily3_ui import render_daily3
+
+            render_daily3(st)
+            return
         if mode == "Automatisch":
             _render_automated_daily_selection()
             return

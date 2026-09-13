@@ -795,7 +795,7 @@ def test_wettfinder_defaults_to_automatic_and_hides_custom_search_controls(
     assert calls == ["automatic"]
     assert recording_st.segmented_controls[0][:3] == (
         "Modus",
-        ("Automatisch", "Eigene Suche"),
+        ("Automatisch", "Eigene Suche", "3 a day"),
         "Automatisch",
     )
     assert recording_st.selectboxes == []
@@ -803,6 +803,19 @@ def test_wettfinder_defaults_to_automatic_and_hides_custom_search_controls(
         kind == "subheader" and value == "Eigene Suche"
         for kind, value in recording_st.messages
     )
+
+
+def test_daily3_mode_routes_to_its_view_without_starting_other_finders(monkeypatch):
+    import daily3_ui
+    recording_st = _RecordingStreamlit(widget_values={"wettfinder_mode_v2": "3 a day"})
+    calls = []
+    monkeypatch.setattr(app, "st", recording_st)
+    monkeypatch.setattr(daily3_ui, "render_daily3", lambda st: calls.append(("daily3", st)))
+    monkeypatch.setattr(app, "_render_automated_daily_selection", lambda: calls.append("automatic"))
+    monkeypatch.setattr(app, "_render_selected_finder", lambda *_a, **_k: calls.append("manual"))
+    app.render_wettfinder()
+    assert calls == [("daily3", recording_st)]
+    assert recording_st.selectboxes == []
 
 
 def test_wettfinder_manual_mode_keeps_every_sport_horizon_market_and_all_tab(

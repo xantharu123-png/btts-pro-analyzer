@@ -598,6 +598,15 @@ def esports_signals(
                 provider_event_id=str(row["match_id"]),
                 competitor_a_id=str(row["team1_id"]) if row.get("team1_id") else None,
                 competitor_b_id=str(row["team2_id"]) if row.get("team2_id") else None,
+                context_evidence={
+                    "schema": "esports-card-basis-v1",
+                    "provider_event_id": str(row["match_id"]),
+                    "modeled_at": row["logged_at"],
+                    "competitor_a": str(row["team1"]),
+                    "competitor_b": str(row["team2"]),
+                    "elo_a": row.get("elo1"), "elo_b": row.get("elo2"),
+                    "series_type": row.get("series_type"),
+                },
             )
         )
     return signals
@@ -1346,6 +1355,12 @@ def _automated_analysis_fields(row: dict, *, now: datetime) -> dict:
         "model_scope": row.get("model_scope"),
         "modeled_at": row.get("modeled_at"),
         "input_cutoff_at": row.get("input_cutoff_at"),
+        "model_version": row.get("model_version"),
+        "fixture_source": row.get("fixture_source"),
+        "provider_event_id": row.get("provider_event_id"),
+        "competitor_a_id": row.get("competitor_a_id"),
+        "competitor_b_id": row.get("competitor_b_id"),
+        "context_evidence": row.get("context_evidence") if isinstance(row.get("context_evidence"), dict) else None,
     }
 
 

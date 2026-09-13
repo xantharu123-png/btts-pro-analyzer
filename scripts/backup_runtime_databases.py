@@ -1813,6 +1813,53 @@ def _challenge_databases_present(databases: list[Path], root: Path) -> bool:
     )
 
 
+def _daily3_database(path: Path, name: str) -> bool:
+    return (name == 'runtime_state/daily3.db' or _database_has_table(path, 'daily3_heads')
+            or _database_has_table(path, 'daily3_events'))
+
+
+def verify_daily3_database(path: Path, integrity_key_bytes: bytes) -> None:
+    """Authenticate the archived state without importing mutable app code.
+
+    Accounting replay is additionally exercised by the Daily3 restore tests;
+    this independent verifier checks the exact events and current checkpoints.
+    """
+    key = _decoded_integrity_key(integrity_key_bytes)
+    def encoded(value):
+        return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    def signed(kind, value):
+        return hmac.new(key, b'betboy-daily3-v1\0'+kind.encode()+b'\0'+encoded(value).encode('ascii'), hashlib.sha256).hexdigest()
+    with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True)) as con:
+        con.row_factory = sqlite3.Row
+        heads = {row['scope']: row for row in con.execute('SELECT * FROM daily3_heads')}
+        states = {}
+        for row in con.execute('SELECT * FROM daily3_events ORDER BY scope, sequence'):
+            scope = row['scope']
+            count, previous = states.get(scope, (0, '0'*64))
+            if (not _is_lower_hex(scope, 32) or not _is_lower_hex(row['action_id'], 32)
+                    or type(row['sequence']) is not int or row['sequence'] != count+1
+                    or row['previous_mac'] != previous or type(row['payload']) is not str
+                    or len(row['payload']) > 16384):
+                raise RuntimeError('Daily3 backup has invalid event fields')
+            try:
+                if encoded(json.loads(row['payload'])) != row['payload']:
+                    raise ValueError('noncanonical event')
+            except (ValueError, TypeError) as exc:
+                raise RuntimeError('Daily3 backup has invalid event payload') from exc
+            mac = signed('event', [scope, count+1, row['action_id'], row['payload'], previous])
+            if type(row['mac']) is not str or not hmac.compare_digest(mac, row['mac']):
+                raise RuntimeError('Daily3 backup event authentication failed')
+            states[scope] = (count+1, mac)
+        if set(heads) != set(states):
+            raise RuntimeError('Daily3 backup account/history membership differs')
+        for scope, (count, tail) in states.items():
+            head = heads[scope]
+            if (type(head['sequence']) is not int or head['sequence'] != count or head['tail'] != tail
+                    or type(head['mac']) is not str
+                    or not hmac.compare_digest(head['mac'], signed('head', [scope, count, tail]))):
+                raise RuntimeError('Daily3 backup current checkpoint authentication failed')
+
+
 def create_archive(
     output_dir: Path,
     *,
@@ -1872,6 +1919,8 @@ def create_archive(
         raise RuntimeError(
             "Challenge databases require their ledger integrity key in the backup"
         )
+    if key_bytes is None and any(_daily3_database(path, path.relative_to(root).as_posix()) for path in databases):
+        raise RuntimeError('Daily3 databases require their ledger integrity key in the backup')
     marker_bytes = (
         _read_migration_marker(Path(migration_marker_path))
         if migration_marker_path is not None
@@ -2246,6 +2295,10 @@ def verify_archive(archive_path: Path, *, recovery_mode: bool = False) -> int:
                         raise RuntimeError(
                             f"SQLite restore check failed: {info.filename}"
                         )
+                    if _daily3_database(restored, info.filename):
+                        if key_bytes is None:
+                            raise RuntimeError('Daily3 backup is missing its ledger integrity key')
+                        verify_daily3_database(restored, key_bytes)
                     must_authenticate = (
                         info.filename in known_challenge_names
                         or challenge_table is not None
