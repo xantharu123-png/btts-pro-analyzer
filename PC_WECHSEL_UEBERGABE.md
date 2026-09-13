@@ -2,6 +2,16 @@
 
 ## Fortsetzung 13. September 2026 — Abbruch abgeglichen
 
+Aktueller Abschluss dieses Schritts: Der echte kleine VPS-Test ist nach der
+Fortsetzung nun BESTANDEN. Source588843d, Reparaturbranch-Checkpoint1ce94c8
+vorher gepusht/frisch bestätigt. Tatsächlicher Exit0 nach75,44s; ATP und WTA
+inklusive Rückrollfall und vollständiger Nachprüfung erfolgreich. Alle neuen
+QA-Daten bleiben isoliert/erhalten, keine Testprozesse übrig. Ausführlicher
+Beleg: `.superpowers/sdd/2026-09-10-context-capacity-recovery/task-58-native-evidence-20260913.md`.
+Task58/kleine native Kette nicht wieder neu beginnen. Jetzt folgt die vollständige
+C-Integration, dann B-/Restore-/Vollsuite-/Release-Prüfung. App/main unverändert;
+kein Nachweis einer bereits fertigen Verletzungs-/Müdigkeits- oder Wettqualität.
+
 Task58-Code `588843d` ist lokal committed und unabhängig ohne Befunde
 freigegeben. Review und vollständiges Prüfpaket sind erhalten. Der angekündigte
 neue VPS-Test war vor dem Abbruch noch NICHT gestartet: frische Prüfung um

@@ -566,6 +566,23 @@ review/archive and dirty controller documents are intact. Continue at the
 review-documentation/push checkpoint, then fresh catalogue/guarded native run;
 no repeat implementation, no abandoned-process kill, no main/app deployment.
 
+Task58/Task57 native small-chain PASS,13September07:19:50UTC. Reviewed588843d
+ran after controller1ce94c8 was pushed/freshly matched. Actual SSH/GNUtimeexit0,
+75.44wall/59.35user/11.47system seconds,165408KiBmaxRSS. ATP/WTA exit0 with
+actual unchanged Task54 full comparisons/reopen; ATP injected late cleanup
+cold-reopens without consumer tables. Both guarded limits verified, no workers,
+failure or custody record. Root's complete v2readback3854863bytes SHA
+65437a1ceed6b8a2cdba71bf9934f6fa3726f86f35ffd0e47d2a47bd086fbbd5
+checks441code/4540dependency copies, archive/catalogue and both TZ originals/
+copies. Raw retained and lossless gzip279548bytes SHA
+f82754e2949f134daca2b07d14e858b041e32bee0a2acb3230b87daecd4828e5
+decoded/pinned. Read task-58-native-evidence-20260913.md for exact commands,
+terminal/child/control hashes, limits and remaining gates. No native retry or
+new source patch was needed. Native old failures/all charges remain retained.
+Do not mistake this small pass for590553/199/199/114profile acceptance, global
+C/B accounting, restore, empirical effects or release. Task54M1 and the lost
+older local final outer exit remain explicit; full-suite gate still pending.
+
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
 Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,
