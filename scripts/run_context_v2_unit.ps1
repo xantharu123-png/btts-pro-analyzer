@@ -21,6 +21,7 @@ if ($Mode -eq 'qualification') {
     if ($LASTEXITCODE -ne 0 -or $qaNames.Count -lt 100) { throw 'Full tracked Python source selection failed' }
 }
 $qaRun = Join-Path $qaWork ('.pytest_tmp/qav2-unit-'+$Revision.Substring(0,7)+'-'+$Mode)
+if ($DryRun) { $qaRun += '-dryrun' }
 if (Test-Path -LiteralPath $qaRun) { throw 'Retained unit transport already exists; no implicit retry' }
 New-Item -ItemType Directory -Path $qaRun | Out-Null
 $qaArchivePath = Join-Path $qaRun 'source.tar'

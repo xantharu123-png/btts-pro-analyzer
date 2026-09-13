@@ -100,9 +100,10 @@ else:
     module = dict(__name__='_root_unit_coordinator', __file__='<held-root-unit-coordinator>')
     exec(compile(members['tests/native_context_qa_coordinator.py'], module['__file__'], 'exec'), module)
     results = []
-    for fault in ('none', 'exception', 'empty', 'oversize', 'wall', 'cpu'):
+    for fault in ('none', 'raised-ceiling', 'exception', 'empty', 'oversize', 'wall', 'cpu'):
         read_fd, write_fd = os.pipe()
         def action(*_args):
+            assert resource.getrlimit(resource.RLIMIT_CPU) == ((300, 300) if fault == 'raised-ceiling' else (1, 1))
             try:
                 os.fstat(write_fd)
             except OSError:
@@ -121,14 +122,14 @@ else:
         try:
             deadline = time.clock_gettime_ns(time.CLOCK_BOOTTIME)+(1 if fault == 'wall' else 8)*10**9
             try:
-                data, result = module['run_scanner']('A1', c, {}, None, allowance=1,
+                data, result = module['run_scanner']('A1', c, {}, None, allowance=300 if fault == 'raised-ceiling' else 1,
                     deadline=deadline, supervisor=helpers['context_preparation_supervisor'])
             except module['ScannerStopped'] as exc:
-                assert fault != 'none' and exc.measurement['child_exit_code'] is not None
+                assert fault not in ('none', 'raised-ceiling') and exc.measurement['child_exit_code'] is not None
                 assert exc.measurement['child_cpu_ns'] is not None
                 result = dict(status='expected-stop', measurement=exc.measurement)
             else:
-                assert fault == 'none' and data == b'{"actual":true}' and result['child_exit_code'] == 0
+                assert fault in ('none', 'raised-ceiling') and data == b'{"actual":true}' and result['child_exit_code'] == 0
             try:
                 os.waitpid(-1, os.WNOHANG)
             except ChildProcessError:
