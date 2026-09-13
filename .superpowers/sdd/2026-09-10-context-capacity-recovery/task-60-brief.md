@@ -100,6 +100,19 @@ cross-binding the final stopped journal head. Failure before terminal durability
 retains the entire charge and consumed family; do not claim successful cleanup.
 No `pass`/native-success/C/B authorization is produced by a registry entry.
 
+**Crash-acknowledgement precision:** no persisted format can prove that an old
+caller received the final fsync acknowledgement. A failed write/sync permanently
+poisons that live owner, and any incomplete/nonterminal/noncanonical or
+non-cross-bound historical state blocks the whole registry. The same consumed
+family always remains denied. A later fresh process may consider a genuinely
+different reviewed family only if the complete canonical terminal entry and
+complete retained journal already agree on the exact stopped head/identity/
+charge, and it freshly syncs both existing files and their directories before
+any new admission. Failure of that read/check/sync denies admission. This proves
+present durability of stopped historical data, NOT success of the former
+close call; no repair, truncation, roll-forward, retry, reset or refund occurs.
+An in-process known-failed owner is never revived by reading those same bytes.
+
 **TDD steps and concrete assertions:**
 
 - [ ] Add RED tests for absent admission implementation, then the real protocol:
@@ -110,7 +123,11 @@ No `pass`/native-success/C/B authorization is produced by a registry entry.
   (not a public native bypass) and actual existing budget `_attach` test pattern.
   Inject failures at each registry write/fsync/directory-fsync, budget create/
   reserve, admitted update and close boundary: no owner/ticket escapes before
-  durability, raw partial bytes stay, and next admission always denies.
+  durability, raw partial bytes stay, and the same-family next admission always
+  denies. Incomplete or unbound terminal history blocks all families. Separately
+  test full terminal bytes left by a final-sync failure: current owner stays
+  poisoned; only a fresh process's complete historical checks and fresh syncs
+  may establish stopped history for a genuinely different reviewed family.
 - [ ] Exact clock/deadline/boot change, duplicate/noncanonical JSON, bad scalar
   types, overlarge records/index, reordered/truncated registry, absent/replaced/
   linked/same-count-different journal, inode/path changes, unknown files and

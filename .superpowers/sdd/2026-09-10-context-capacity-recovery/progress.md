@@ -699,6 +699,40 @@ fully read by Root; native flock/fsync references are linked there. Next is
 its sole implementer after the exact repair-branch documentation checkpoint;
 no new registry or native launch has yet occurred, main/VPS still2dd1116.
 
+Checkpointd4491d38ace996ec3090130214fd193e64539fac is now pushed and freshly
+ls-remote matched; remote main still2dd1116. Task60 ACTIVE from BASEd4491d3,
+sole implementer /root/c_diagnostic_admission (astra/high), exact two new QA
+modules/task-60-report.md only; Root retains Git/index/server and controller docs.
+No native launch. Root has read the actual budget create/reserve/stop protocol
+and fixed Task57/58 parent, catalogue and worker integration points.
+
+Task60 Ruling: final fsync acknowledgement cannot be recovered from persisted
+bytes alone. Any failed boundary permanently poisons that live owner and same
+family; incomplete/nonterminal/unbound history blocks the entire registry.
+A fresh process may admit a genuinely different reviewed family only after
+complete canonical stopped cross-binding and fresh sync of retained files plus
+directories. That establishes current durability, never prior close success,
+and neither repairs history nor retries/refunds a consumed family. Why: the
+original every-error/every-future-process denial claim was unimplementable when
+complete terminal bytes had been written before the final fsync raised. Cost
+if wrong: a refused isolated diagnostic or admission rework, not a production
+change, old-family restart or a fabricated accounting/Source/native success.
+Plan and brief amended before author implementation; covering crash assertions
+are explicit, no external acknowledgement credential or recovery API added.
+
+Task60 author returned sole writer, statusDONE_WITH_CONCERNS only for explicit
+native/root branch and later independent/global gates. Root read its full report
+bfd47eaf8316fbac50033a3aee82488b22efc09ef43cb32cdbbbefcefd6cb61f and matched
+codef0b0821195d6ebce89bc47e5d37f21dedc36fc8e223678816a932b1aae5d60ad,
+tests53ca8c1b23a455c71d59cf236c1b6f95e4d2fecdb442d457ae9859db5fa9094a.
+Final actual XML144871b78857f9c3651d45807876d9de8e14203f71050820b77d465f4b6eb0a4
+parsed83tests,0failures/errors,2native-onlyskips,time9.455; console81passed9.52s,
+actual session78975 completed child/outer0/0 (chunksb27ca6/39da2a),empty stderr.
+Native Linux root/DAC/flock/fsync are not yet proven; no unchanged suite rerun,
+native launch or Task60 approval. Final brief3d3f2c767c5656c30aa0c3900324d41228cacc894a2c8a0833cad5f043dbdb56
+includes Root's acknowledgement ruling. Root will commit exact Task60 files
+and dispatch its full spec/quality review from BASEd4491d3.
+
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
 Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,
