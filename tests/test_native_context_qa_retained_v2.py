@@ -64,9 +64,9 @@ def native_tree(tmp_path, monkeypatch):
     def meta(path):
         info = path.lstat()
         return dict(path=str(path), identity=list(c.old()['identity'](info)), allocated=c._allocation(info))
-    value = meta(fifo)
-    value['ancestors'] = [meta(p) for p in fifo.parents if p.is_relative_to(root)]
     try:
+        value = meta(fifo)
+        value['ancestors'] = [meta(p) for p in fifo.parents if p.is_relative_to(root)]
         yield c, root, fifo, value
     finally:
         # These three nodes are created only by this fresh fixture. Do not leave

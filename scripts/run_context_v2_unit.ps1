@@ -20,12 +20,12 @@ $qaRun = Join-Path $qaWork ('.pytest_tmp/qav2-unit-'+$Revision.Substring(0,7)+'-
 if (Test-Path -LiteralPath $qaRun) { throw 'Retained unit transport already exists; no implicit retry' }
 New-Item -ItemType Directory -Path $qaRun | Out-Null
 $qaArchivePath = Join-Path $qaRun 'source.tar'
-& git -c safe.directory=$($qaWork.Replace('\','/')) -C $qaWork archive --format=tar --output=$qaArchivePath $Revision -- @qaNames
+& git -c core.autocrlf=false -c safe.directory=$($qaWork.Replace('\','/')) -C $qaWork archive --format=tar --output=$qaArchivePath $Revision -- @qaNames
 if ($LASTEXITCODE -ne 0) { throw 'Exact tracked-source archive failed' }
 $qaArchive = [IO.File]::ReadAllBytes($qaArchivePath)
 if ($qaArchive.Length -gt 2097152) { throw 'Unit archive exceeds bound' }
 $qaChecksum = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($qaArchive)).ToLowerInvariant()
-$qaTemplateLines = & git -c safe.directory=$($qaWork.Replace('\','/')) -C $qaWork show "${Revision}:scripts/qa_context_v2_unit_entry.py"
+$qaTemplateLines = & git -c core.autocrlf=false -c safe.directory=$($qaWork.Replace('\','/')) -C $qaWork show "${Revision}:scripts/qa_context_v2_unit_entry.py"
 if ($LASTEXITCODE -ne 0) { throw 'Unit entry must exist in the exact requested revision' }
 $qaTemplate = ($qaTemplateLines -join [char]10)+[char]10
 foreach ($qaPair in @(@('SOURCE_REVISION',$Revision),@('ARCHIVE_SHA256',$qaChecksum),@('NATIVE_MODE',$Mode),@('ARCHIVE_BASE64',[Convert]::ToBase64String($qaArchive)))) {

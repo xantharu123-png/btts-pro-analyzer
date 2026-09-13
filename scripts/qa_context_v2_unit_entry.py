@@ -46,6 +46,15 @@ with tarfile.open(fileobj=io.BytesIO(raw), mode='r:') as archive:
         assert len(data) == member.size
         members[member.name] = data
 
+# Validate the immutable helper pins before even creating a test directory.
+# A transport line-ending conversion must fail here, not inside a FIFO fixture.
+parent = dict(__name__='_root_unit_parent', __file__='<held-root-unit-parent>')
+exec(compile(members['tests/native_context_receipt_diagnostic.py'], parent['__file__'], 'exec'), parent)
+base_names = ('tests/native_context_receipt_diagnostic.py', 'tests/native_context_receipt_diagnostic_catalogue.py',
+              'tests/native_context_chain_catalogue.py', 'tests/native_context_diagnostic_admission.py',
+              'context_preparation_process_guard.py', 'context_preparation_budget.py', 'context_preparation_supervisor.py')
+c = parent['load_catalogue']({name: members[name] for name in base_names})
+
 root = Path('/tmp' if expected_uid else '/var/lib') / ('betboy-context-qav2-unit-'+revision[:7]+'-'+mode+'-01')
 assert root.parent.resolve() == root.parent and not os.path.lexists(root)
 os.umask(0o077)
@@ -87,12 +96,6 @@ if mode == 'portable-native':
     output = dict(mode=mode, source_revision=revision, exit_code=result.returncode,
                   stdout=result.stdout.decode('utf-8', errors='replace'), stderr=result.stderr.decode('utf-8', errors='replace'))
 else:
-    parent = dict(__name__='_root_unit_parent', __file__='<held-root-unit-parent>')
-    exec(compile(members['tests/native_context_receipt_diagnostic.py'], parent['__file__'], 'exec'), parent)
-    base_names = ('tests/native_context_receipt_diagnostic.py', 'tests/native_context_receipt_diagnostic_catalogue.py',
-                  'tests/native_context_chain_catalogue.py', 'tests/native_context_diagnostic_admission.py',
-                  'context_preparation_process_guard.py', 'context_preparation_budget.py', 'context_preparation_supervisor.py')
-    c = parent['load_catalogue']({name: members[name] for name in base_names})
     helpers = parent['load_helpers'](c, {name: members[name] for name in base_names})
     module = dict(__name__='_root_unit_coordinator', __file__='<held-root-unit-coordinator>')
     exec(compile(members['tests/native_context_qa_coordinator.py'], module['__file__'], 'exec'), module)
