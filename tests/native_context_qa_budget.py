@@ -5,6 +5,7 @@ This closed protocol durably reserves A/B/C together before the first scan. It
 does not reset or modify the older preparation/admission journals. Replay is
 read-only: there is deliberately no resume, repair, refund or retry operation.
 """
+from copy import copy
 import json
 import os
 import threading
@@ -175,6 +176,8 @@ class QaBudget:
         self.pid, self.failed, self.closed = os.getpid(), False, False
         self.lock = threading.Lock()
         self.state = _State()
+        self._verified_raw = b''
+        self._verified_snapshot = None
         need(authorization in PROFILES, 'explicit authorized QA profile required')
         need(store.read() == b'', 'existing package cannot be restarted')
         sample = clock()
@@ -187,8 +190,22 @@ class QaBudget:
 
     def _check(self):
         need(not self.closed and not self.failed and self.pid == os.getpid(), 'lost original QA owner')
-        actual = replay(self.store.read())
-        need(actual.snapshot() == self.state.snapshot(), 'held QA journal changed')
+        # Re-read the complete held file on EVERY check. Byte equality with the
+        # exact durable readback is not a same-stat shortcut: rewriting one byte,
+        # appending, truncating or replacing the held file still fails. Replaying
+        # the same already accepted bytes twice per copied file wasted control
+        # CPU in a parent that has only 60 whole-lifetime CPU seconds.
+        need(self.store.read() == self._verified_raw, 'held QA journal changed')
+        need(self.state.snapshot() == self._verified_snapshot, 'accepted QA state changed')
+
+    def assert_running(self):
+        self._check()
+        need(self.state.status in ('reserved', 'running'), 'QA package is not active')
+        # Observe actual CPU/clock/deadline on a separate state, just as the old
+        # read-only replay did. Do not mutate the state derived from the journal.
+        observed = copy(self.state)
+        sample = self._measurement()
+        observed.observe(sample['clock'], sample['parent_cpu_ns'])
 
     def _append(self, event, body):
         need(not self.closed and not self.failed and self.pid == os.getpid(), 'lost original QA owner')
@@ -201,9 +218,12 @@ class QaBudget:
             candidate.apply(record)
             self.store.append(legacy._canonical(record)+b'\n')
             # No admission until append, file+directory fsync and readback succeeded.
-            actual = replay(self.store.read())
+            verified_raw = self.store.read()
+            actual = replay(verified_raw)
             need(actual.snapshot() == candidate.snapshot(), 'durable QA reservation differs')
             self.state = actual
+            self._verified_raw = verified_raw
+            self._verified_snapshot = actual.snapshot()
         except BaseException:
             self.failed = True
             raise

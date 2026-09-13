@@ -305,6 +305,7 @@ class Coordinator:
         self.held = ExitStack()
         self.namespace = helpers['admission']['_NativeNamespace'](REGISTRY, JOB)
         self.store = self.account = None
+        self._previous_qa_bytes = None
         try:
             need(not self.namespace.names(), 'one-shot V2 registry already used')
             fd = os.open(c['QA_JOURNAL'], os.O_RDWR|os.O_CREAT|os.O_EXCL|os.O_APPEND|os.O_NOFOLLOW|os.O_CLOEXEC,
@@ -333,25 +334,30 @@ class Coordinator:
             self.close()
             raise
 
+    def check_previous_package(self):
+        previous = self.c['old']()['data_bytes'](Path(PRIOR_REGISTRY)/self.c['QA_JOURNAL'], MIB,
+            self.request['previous_costs']['prior_qa_journal_sha256'])
+        if self._previous_qa_bytes is None:
+            old_state = self.qa['replay'](previous).snapshot()
+            need(old_state['charged_cpu_ns'] == 900*NS and
+                 old_state['binding']['authorization'] == self.qa['AUTHORIZATION'] and
+                 old_state['completed_steps'] == ['A1'] and old_state['pending']['step'] == 'A2',
+                 'previous failed qualification state changed; no fresh-budget reset')
+            self._previous_qa_bytes = previous
+        # The complete previous file is freshly read and hash-checked above,
+        # not merely trusted via cached metadata. Identical accepted bytes need
+        # no second semantic replay; a changed file cannot acquire old authority.
+        need(previous == self._previous_qa_bytes, 'previous qualification bytes changed')
+
     def assert_admitted(self):
         self.namespace.check()
         self.store.check()
-        previous = self.c['old']()['data_bytes'](Path(PRIOR_REGISTRY)/self.c['QA_JOURNAL'], MIB,
-            self.request['previous_costs']['prior_qa_journal_sha256'])
-        old_state = self.qa['replay'](previous).snapshot()
-        need(old_state['charged_cpu_ns'] == 900*NS and
-             old_state['binding']['authorization'] == self.qa['AUTHORIZATION'] and
-             old_state['completed_steps'] == ['A1'] and old_state['pending']['step'] == 'A2',
-             'previous failed qualification state changed; no fresh-budget reset')
+        self.check_previous_package()
         info = os.fstat(self.store.fd)
         need(info.st_uid == info.st_gid == 0 and stat.S_IMODE(info.st_mode) == 0o600,
              'private native V2 accounting seal changed')
         need(self.namespace.names() == {self.c['QA_JOURNAL']}, 'V2 registry membership changed')
-        state = self.account.snapshot()
-        need(state['status'] in ('reserved', 'running') and state['charged_cpu_ns'] == 900*NS,
-             'whole QA package is not held')
-        observed = self.qa['replay'](self.store.read())
-        observed.observe(self.account._measurement()['clock'], time.process_time_ns())
+        self.account.assert_running()
 
     def check_controls(self):
         self.assert_admitted()

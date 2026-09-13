@@ -150,6 +150,56 @@ def test_failed_scanner_retains_structural_diagnosis_without_values_or_locals():
     assert result['trace'][-1]['function'] == 'test_failed_scanner_retains_structural_diagnosis_without_values_or_locals'
 
 
+def previous_package_fixture():
+    import hashlib
+    m = load('native_context_qa_coordinator')
+    owner = m.Coordinator.__new__(m.Coordinator)
+    owner._previous_qa_bytes = None
+    raw = b'exact previously accepted journal bytes\n'
+    reads, replays = [], []
+    state = dict(charged_cpu_ns=900*m.NS, binding=dict(authorization='old-fixed-authorization'),
+                 completed_steps=['A1'], pending=dict(step='A2'))
+    source = dict(raw=raw)
+    expected_sha = hashlib.sha256(raw).hexdigest()
+    def read(path, maximum, expected):
+        assert path.as_posix() == m.PRIOR_REGISTRY+'/qa-coordination-v2.jsonl'
+        assert maximum == m.MIB and expected == expected_sha
+        reads.append(source['raw'])
+        if hashlib.sha256(source['raw']).hexdigest() != expected:
+            raise ValueError('held bytes differ')
+        return source['raw']
+    def replay(data):
+        replays.append(data)
+        return SimpleNamespace(snapshot=lambda: copy.deepcopy(state))
+    owner.c = dict(old=lambda:dict(data_bytes=read), QA_JOURNAL='qa-coordination-v2.jsonl')
+    owner.qa = dict(replay=replay, AUTHORIZATION='old-fixed-authorization')
+    owner.request = dict(previous_costs=dict(prior_qa_journal_sha256=expected_sha))
+    return owner, source, reads, replays, state
+
+
+def test_previous_package_is_fully_read_each_time_but_identical_state_is_parsed_once():
+    owner, source, reads, replays, _ = previous_package_fixture()
+    for _ in range(20):
+        owner.check_previous_package()
+    assert reads == [source['raw']]*20 and replays == [source['raw']]
+    source['raw'] = source['raw'].replace(b'accepted', b'rejected')
+    with pytest.raises(ValueError, match='bytes'):
+        owner.check_previous_package()
+    assert len(reads) == 21 and len(replays) == 1
+
+
+@pytest.mark.parametrize('mutation', ['charge', 'authorization', 'completed', 'pending'])
+def test_previous_package_cache_never_accepts_invalid_old_reservation(mutation):
+    owner, _, _, _, state = previous_package_fixture()
+    if mutation == 'charge': state['charged_cpu_ns'] = 0
+    if mutation == 'authorization': state['binding']['authorization'] = 'other'
+    if mutation == 'completed': state['completed_steps'] = ['A1', 'A2']
+    if mutation == 'pending': state['pending']['step'] = 'B'
+    with pytest.raises(Exception, match='qualification state changed'):
+        owner.check_previous_package()
+    assert owner._previous_qa_bytes is None
+
+
 @pytest.mark.skipif(sys.platform != 'linux', reason='actual Linux root fork/pidfd/wait4 required')
 @pytest.mark.parametrize('fault', ['none', 'exception', 'empty', 'oversize', 'wall', 'cpu'])
 def test_native_scanner_is_reaped_on_success_and_every_failure(monkeypatch, fault):

@@ -192,3 +192,100 @@ def test_existing_package_cannot_be_reopened_with_new_identity(package):
                 clock=lambda: legacy.ClockSample(BOOT, meter['now'], meter['now'], meter['now']), parent_cpu=lambda: 0)
     finally:
         store.close()
+
+
+def test_unchanged_owner_checks_read_all_bytes_without_replaying_history(package, monkeypatch):
+    owner, path, _ = package
+    for step in ('A1', 'A2'):
+        owner.begin(step)
+        finish(owner, step)
+    expected = qa.replay(path.read_bytes()).snapshot()
+    reads = []
+    read = owner.store.read
+    def observed_read():
+        raw = read()
+        reads.append(raw)
+        return raw
+    def redundant_replay(_raw):
+        raise AssertionError('unchanged accepted journal was replayed again')
+    monkeypatch.setattr(owner.store, 'read', observed_read)
+    monkeypatch.setattr(qa, 'replay', redundant_replay)
+    for _ in range(20):
+        owner.assert_running()
+        assert owner.snapshot() == expected
+    assert len(reads) == 40 and all(raw == path.read_bytes() for raw in reads)
+
+
+@pytest.mark.parametrize('mutation', ['truncate', 'append', 'same-length'])
+def test_fast_owner_checks_reject_changed_bytes_even_with_restored_mtime(package, mutation):
+    owner, path, _ = package
+    owner.assert_running()
+    original = path.stat()
+    raw = path.read_bytes()
+    changed = (raw[:-1] if mutation == 'truncate' else raw+b'{}\n'
+               if mutation == 'append' else raw.replace(b'900000000000', b'800000000000'))
+    assert changed != raw
+    path.write_bytes(changed)
+    os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns))
+    with pytest.raises(Exception):
+        owner.assert_running()
+
+
+@pytest.mark.parametrize('change', [dict(cpu=60*NS+1), dict(cpu=0), dict(now=999*NS),
+    dict(now=98*NS), dict(boot='22222222-2222-2222-2222-222222222222'), dict(offset=0)])
+def test_fast_owner_check_preserves_every_live_resource_and_clock_guard(package, change):
+    owner, path, meter = package
+    before = path.read_bytes()
+    meter.update(change)
+    with pytest.raises(Exception):
+        owner.assert_running()
+    assert path.read_bytes() == before
+
+
+def test_fast_owner_checks_do_not_skip_durable_replay_after_append(package, monkeypatch):
+    owner, path, _ = package
+    real_replay, observed = qa.replay, []
+    def replay(raw):
+        observed.append(raw)
+        return real_replay(raw)
+    monkeypatch.setattr(qa, 'replay', replay)
+    owner.begin('A1')
+    assert observed[-1] == path.read_bytes()
+    assert real_replay(observed[-1]).snapshot() == owner.snapshot()
+    count = len(observed)
+    owner.assert_running()
+    assert len(observed) == count
+
+
+def test_fast_owner_check_never_reopens_stopped_or_closed_owner(package):
+    owner, _, _ = package
+    owner.stop('bounded test stop')
+    with pytest.raises(Exception, match='active'):
+        owner.assert_running()
+    owner.close()
+    with pytest.raises(Exception):
+        owner.assert_running()
+
+
+def test_fast_owner_check_rejects_inherited_owner(package, monkeypatch):
+    owner, _, _ = package
+    monkeypatch.setattr(qa.os, 'getpid', lambda: owner.pid+1)
+    with pytest.raises(Exception, match='owner'):
+        owner.assert_running()
+
+
+def test_fast_owner_check_preserves_in_memory_state_integrity(package):
+    owner, path, _ = package
+    before = path.read_bytes()
+    owner.state.binding['limits']['A'] += NS
+    with pytest.raises(Exception, match='state changed'):
+        owner.assert_running()
+    assert path.read_bytes() == before
+
+
+def test_returned_snapshot_cannot_change_the_accepted_owner_state(package):
+    owner, _, _ = package
+    snapshot = owner.snapshot()
+    snapshot['binding']['limits']['A'] += NS
+    owner.assert_running()
+    assert owner.snapshot()['binding']['limits'] == qa.LIMITS
