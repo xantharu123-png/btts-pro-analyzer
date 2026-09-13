@@ -3,6 +3,15 @@
 Stand13.09.2026,13:45UTC. Dies ist ein Entscheidungsvermerk, kein neuer
 freigegebener Modell-, Budget- oder Implementierungsvertrag.
 
+Nachtrag 13.09.2026 nach der Daily3-Freigabe: Der Nutzer hat ausdrücklich die
+Ausarbeitung der nötigen Prüfablaufänderung beauftragt. Der konkrete neue
+Plan steht in `docs/superpowers/plans/2026-09-13-updateweg-pruefkoordination.md`.
+Er schlägt vier weiterhin vollständige Beobachtungen unter einem gemeinsamen
+V2-Koordinator, ein beziffertes einmaliges zusätzliches Engineeringpaket und
+den exakt begrenzten historischen FIFO-Metadatenvertrag vor. Das ist noch keine
+Freigabe oder Ausführung dieser neuen 900-CPU-/900-Wandsekunden-Zuteilung.
+Kein Code-/Server-/Budgetjournal-/Bestandswechsel durch diese Ausarbeitung.
+
 ## Was jetzt wirklich abgeschlossen ist
 
 Task58 kleiner nativer Datenpfad, Task60 Zulassungsprotokoll und Task61

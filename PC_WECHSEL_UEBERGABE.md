@@ -1,5 +1,25 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neueste Fortsetzung 13. September 2026 — Prüfkoordination ausgearbeitet, noch kein Code
+
+Der Nutzer hat die Ausarbeitung der erforderlichen Prüfablaufänderung bestätigt.
+Konkreter Plan: `docs/superpowers/plans/2026-09-13-updateweg-pruefkoordination.md`.
+Er trennt die produktive 64-MiB-Grenze von den vier historischen QA-Vollscans,
+behält alle vier Beobachtungen und den 240-CPU-Daten-Worker bei. Neu vorgeschlagen:
+ein gemeinsamer V2-Koordinator mit drei gebundenen Teilreserven, insgesamt einmalig
+zusätzlich höchstens 900 CPU-/900 Wandsekunden für eine Diagnosequalifikation;
+kein Gratisbudget aus alten Journals oder ein behaupteter 1800/3600-C/B-Pass.
+Genau bekannter historischer FIFO soll im neuen V2-Format nur metadatengebunden
+erfasst werden, nie geöffnet/ausgelassen. Diese neuen Details brauchen noch
+Umsetzungsfreigabe, keine bereits erteilten C/B-/Git-/Releasefreigaben erneut holen.
+
+Keine Produktivcode-, Test-, QA-Daten-, Server- oder Timeränderung in diesem Schritt.
+Die offene C/B-Integration samt Restore/Updater-Einführung bleibt Voraussetzung
+des angeforderten VPS-Pulls. Daily3-Regeln einschließlich Übernachtregel bleiben
+bestätigt; seine Dokumentation liegt inzwischen auf main `f84d9a6`. Letzter
+VPS-Abgleich 18:12 UTC: `2dd1116`, App/Caddy/Health erreichbar; Tennis-Dienst failed.
+Kein aktueller VPS-Zustand aus diesem Plan abgeleitet, kein neuer SSH-Lauf.
+
 ## Neueste Fortsetzung 13. September 2026, 18:04 UTC — Übernachtregel angenommen; VPS-Pull offen
 
 Der Nutzer bestätigte „ja passt und vps pullen“. Daily3-Übernachtregel ist

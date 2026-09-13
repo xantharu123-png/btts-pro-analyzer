@@ -1,5 +1,25 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-10-context-capacity-recovery.md
 
+## Current checkpoint — 13 September 2026: revised QA coordination plan drafted only
+
+User approved drafting the required process-contract change after the confirmed
+VPS64MiB/current477MiB blocker. New plan:
+`docs/superpowers/plans/2026-09-13-updateweg-pruefkoordination.md`.
+It preserves four complete retained observations, proposes a closed V2 owner
+and a separately explicit additional900CPU/900wall one-shot engineering package
+with three300CPU sub-reservations. Existing diagnostic worker240/parent60 and
+actual C/B preparation1800/3600 are not relabeled or silently enlarged. All
+historical costs/unknowns remain. Exact retained FIFO metadata-only V2 contract
+is proposed, never a deletion, wildcard exclusion or active-source admission.
+
+This turn changed documentation only: no code, tests, scans, admission, native
+measurement, new ticket, SSH or VPS mutation. New numerical/process details
+are not yet implementation/native authority. No Task64 implementation started.
+C/B integration, appropriate installer proof path, restore, full suite and
+release remain open. Daily3 docs were separately promoted to mainf84d9a6;
+its overnight rule is approved. Last VPS observation was18:12UTC2dd1116,
+app/Caddy/healthok and tennisfailed, not refreshed or redeployed in this step.
+
 ## Current checkpoint — 13 September 2026,13:45UTC: Task63 native pass; retained process contract decision required
 
 Sourcebb54ec58eadcab0e9c0ae065aa258cb7a8f337d6, Task63 code reviewa2ad7685...
