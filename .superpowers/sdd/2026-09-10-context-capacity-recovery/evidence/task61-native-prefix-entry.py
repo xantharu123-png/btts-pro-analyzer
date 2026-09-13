@@ -20,8 +20,8 @@ assert dict(os.environ) == {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
 mode = "PREFIX_MODE"
 assert mode in ("prepare", "success", "failure")
 pins = {
-    "tests/native_context_receipt_diagnostic.py": "249aa84f12de528d0bbb268de794582ff44bcc6eb1330099793aa1de86a1feb5",
-    "tests/native_context_receipt_diagnostic_catalogue.py": "c05241df7965b5b185f2df63945806eb89d5b4a37f3fa69c4bd400e17b8249d7",
+    "tests/native_context_receipt_diagnostic.py": "22faafb79d08f956b11693106cf933f4e6c9869f755c6f3e23628b5f5cca17c1",
+    "tests/native_context_receipt_diagnostic_catalogue.py": "8ebd29f82bd8c92a8601adf8a339f9eb27ddbdf7dcb02bcc0f61d56ea03012e8",
     "tests/native_context_chain_catalogue.py": "48fd59c0660843c530a079c53556b630622085e0ce09f0b9878e7230371dd935",
     "tests/native_context_diagnostic_admission.py": "f0b0821195d6ebce89bc47e5d37f21dedc36fc8e223678816a932b1aae5d60ad",
     "context_preparation_process_guard.py": "62fcfcacaa7e658eefa8a2f8ceced9dc465846a8ca61dc38c2691dc9984685e4",

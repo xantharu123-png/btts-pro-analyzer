@@ -8,11 +8,11 @@ $prefixTemplatePath = Join-Path $prefixWorkspace '.superpowers/sdd/2026-09-10-co
 if ((Get-Item -LiteralPath $prefixTemplatePath).Length -gt 65536) { throw 'Prefix template control cap' }
 $prefixTemplateBytes = [IO.File]::ReadAllBytes($prefixTemplatePath)
 if ($prefixTemplateBytes.Length -gt 65536) { throw 'Prefix template control cap' }
-if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($prefixTemplateBytes)).ToLowerInvariant() -ne '5e1bd97571eaf3c306e304aff4d339a880fcdb69a1baf1f06501a502e640f868') { throw 'Prefix template pin differs' }
+if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($prefixTemplateBytes)).ToLowerInvariant() -ne '8a12928c139ad006491335dd2d272e7225c1bb3a13484d3a4d95ba0085cc9e76') { throw 'Prefix template pin differs' }
 $prefixTemplate = [Text.UTF8Encoding]::new($false, $true).GetString($prefixTemplateBytes)
 $prefixPins = [ordered]@{
-    'tests/native_context_receipt_diagnostic.py' = '249aa84f12de528d0bbb268de794582ff44bcc6eb1330099793aa1de86a1feb5'
-    'tests/native_context_receipt_diagnostic_catalogue.py' = 'c05241df7965b5b185f2df63945806eb89d5b4a37f3fa69c4bd400e17b8249d7'
+    'tests/native_context_receipt_diagnostic.py' = '22faafb79d08f956b11693106cf933f4e6c9869f755c6f3e23628b5f5cca17c1'
+    'tests/native_context_receipt_diagnostic_catalogue.py' = '8ebd29f82bd8c92a8601adf8a339f9eb27ddbdf7dcb02bcc0f61d56ea03012e8'
     'tests/native_context_chain_catalogue.py' = '48fd59c0660843c530a079c53556b630622085e0ce09f0b9878e7230371dd935'
     'tests/native_context_diagnostic_admission.py' = 'f0b0821195d6ebce89bc47e5d37f21dedc36fc8e223678816a932b1aae5d60ad'
     'context_preparation_process_guard.py' = '62fcfcacaa7e658eefa8a2f8ceced9dc465846a8ca61dc38c2691dc9984685e4'

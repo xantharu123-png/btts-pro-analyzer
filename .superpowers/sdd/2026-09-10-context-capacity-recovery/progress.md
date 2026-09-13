@@ -1,6 +1,6 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-10-context-capacity-recovery.md
 
-## Current checkpoint — 13 September 2026: Task61 fix round1 rereview active
+## Current checkpoint — 13 September 2026: Task61 approved local code; native probes next
 
 Continue the approved C -> B -> complete QA -> main/push/controlled VPS release.
 Do not repeat completed Task58 native ATP/WTA/late-cleanup acceptance.
@@ -32,7 +32,11 @@ complete reserve/slots, I3 fixed backup reserve, I4 actual main rejection test),
 no Critical/minor findings. Spec/quality need fixes. The same author regains
 sole writer for these four findings only; Root does no product/QA-module edits.
 Native prefix/real-baseline gates remain open; no Task61 native invocation yet.
-Task61: fix round1/5 implemented, pending scoped rereview (I1-I4 and T1).
+Task61: fix round1/5 closed (5 addressed,0 open Important; T2 deferred Minor).
+Independent scoped review4f9eb5eadb5647f159e4155568f8a4329053bf45d46b1113c11a250035a70310
+confirms I1-I4/T1 ADDRESSED, speccompliant/qualityapproved, no new Important.
+Root read the entire review and retains all explicit native/full-C/B/restore/
+release cannot-verify items for actual execution, not as assumed completion.
 Code1632072, previous reviewed codefec316f; Root-af01d8a is controller evidence
 only. Author returned all writer ownership. Report6c3a05f7b99b78c8d22cd8ae492fc5c4883157157a7b936d1b0d0ffa9a8961c4
 records actual final50passed/2nativeSkipped97.67s, child/outer0/stderr empty,
@@ -42,7 +46,16 @@ XMLa177500a9d45be51616361f96b425caa08828dc9e5f961e039459def69185419
 short-time quantization, preserved in report; production bounds unchanged.
 Reviewer `/root/c_receipt_diagnostic_review` holds scoped fec316f..1632072
 package141900B/SHAa467a1d208632b55e1e301a278d2d2481f3160b0c58badca94a5fdc30bb68ec4.
-No native Task61 execution or Root repinning yet. Source archive prepared
+Root mechanically repinned only5literal hashes in prefix entry/runner to the
+approved1632072 bytes; actual diff ad3cb5 confirms no logic changes. Entry SHA
+8a12928c139ad006491335dd2d272e7225c1bb3a13484d3a4d95ba0085cc9e76,
+runnerfd7a6ab0c8df60dcf648a19fa925417619fb5d53ee214bc5007176821bb673a5.
+Fixed1203-byte probe5818c8a838e817651c6bd0e9e76158df4f029eb0bb2bc6d5d74de1d189fa37be
+unchanged. Actual dryrunprepare/success/failure exit0, each392417stdinbytes:
+prepare3db3f066fff89e765b0480a76d484c22fa635d1e1fb1c8ca8e339d652e48e262;
+success705e3d55e46496199a1dcc7a4b2c506caf0a5012c8d3aed1e32106cabf86b660;
+failure1e6bbcc4f46ee559ea05e8defb04ab0b2fe935de9356a2f2ae2daa741ffac07f.
+No native Task61 execution yet. Source archive prepared
 locally only: .pytest_tmp/task61-1632072-01.tar,449tracked nonhidden Python
 members9533440bytes/SHAdaf6ac61183bb3a42f8401f7568b2020a0f4bdef07d07a72d295e61363bc4d4c;
 actual c39417 exit0 checked archived source/helper/generator/corpus pins.
