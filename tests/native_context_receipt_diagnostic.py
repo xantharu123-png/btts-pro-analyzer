@@ -311,11 +311,11 @@ def accept_result(c, result, manifest, progress, job):
     return payload
 
 
-def custody_stop(exc, report):
+def custody_stop(exc, report, *, retained_cpu_ns=300*10**9):
     signal.setitimer(signal.ITIMER_REAL, 0)
     try:
         report(dict(status='operator-custody-required-NOT-complete', parent_pid=os.getpid(), child_pid=exc.pid,
-                    owned_pidfd=exc.pidfd, retained_cpu_ns=300*10**9, native_pass=False))
+                    owned_pidfd=exc.pidfd, retained_cpu_ns=retained_cpu_ns, native_pass=False))
     except BaseException:
         pass  # Report failure never discards the same unreaped PID/pidfd.
     while True:
@@ -341,8 +341,19 @@ def main(argv):
     start, deadline = startup()
     args = arguments(argv)
     c = load_catalogue(globals().get('_REVIEWED_BOOTSTRAP'))
-    old, sources = c['old'](), globals()['_REVIEWED_BOOTSTRAP']
+    sources = globals()['_REVIEWED_BOOTSTRAP']
     helpers = load_helpers(c, sources)
+    return _run_prepared(args, c, sources, helpers, start, deadline)
+
+
+def _run_prepared(args, c, sources, helpers, start, deadline, *, coordination=None):
+    """Shared execution body; V2 is owned by the separate aggregate coordinator.
+
+    The V1 CLI cannot enable V2 via an argument or a manifest flag. The held V2
+    coordinator supplies actual synchronous scan/worker calls, never a success
+    boolean, and retains the original process and full-package budget custody.
+    """
+    old = c['old']()
     supervisor = helpers['context_preparation_supervisor']
     supervisor._require_native_owner()
     def check_time(reserve=0):
@@ -362,18 +373,27 @@ def main(argv):
     retained_raw = old['data_bytes'](retained_path, 8*MIB, manifest['retained']['sha256'])
     runtime = c['runtime_observation']()
     installation = c['installation_observation'](runtime)
-    c['validate_manifest'](manifest, args['--commit'], retained_raw=retained_raw, runtime=runtime, installation=installation)
+    validator = 'validate_manifest' if coordination is None else 'validate_manifest_v2'
+    c[validator](manifest, args['--commit'], retained_raw=retained_raw, runtime=runtime, installation=installation)
     require(manifest['admission']['job_directory'] == str(job) and manifest['admission']['registry_directory'] == str(registry), 'CLI namespace differs')
     inputs = {x['path']: x['cap'] for x in manifest['allocation']['inputs']}
     require(inputs.get(str(manifest_path)) == 8*MIB and inputs.get(str(archive_path)) == manifest['archive']['size'], 'CLI controls differ')
-    require(c['digest'](c['bootstrap_source'](sources)) == args['--launcher-sha256'], 'Root-pinned executing stdin differs')
+    if coordination is None:
+        require(c['digest'](c['bootstrap_source'](sources)) == args['--launcher-sha256'], 'Root-pinned executing stdin differs')
+    else:
+        coordination.assert_bootstrap(args['--launcher-sha256'])
     archive_raw = old['data_bytes'](archive_path, 64*MIB, manifest['archive']['sha256'])
     members = old['archive_members'](archive_raw, manifest['code'])
     require(all(members[name] == raw for name, raw in sources.items()), 'executed held sources differ from actual archive')
     c['protected'](job, directory=True, searchable=True)
     c['protected'](registry, directory=True)
-    require(not list(job.iterdir()) and not list(registry.iterdir()), 'fixed first diagnostic empty registry/job required')
-    c['validate_retained'](retained_raw, observe=True)
+    expected_registry = [] if coordination is None else [c['QA_JOURNAL']]
+    require(not list(job.iterdir()) and sorted(p.name for p in registry.iterdir()) == expected_registry,
+            'fixed diagnostic registry/job membership required')
+    if coordination is None:
+        c['validate_retained'](retained_raw, observe=True)
+    else:
+        coordination.bind_prepared(manifest, retained_raw)
     plan = manifest['allocation']
     root_info = job.lstat()
     held = ExitStack()
@@ -390,9 +410,10 @@ def main(argv):
         check_space(free=usage.f_bavail*usage.f_frsize, total=plan['total'], occupied=0,
                     backup_rollback_reserve=plan['backup_rollback_reserve'])
         identity = helpers['context_preparation_budget'].BudgetIdentity(**manifest['admission']['identity'])
-        owner = helpers['admission']['admit_diagnostic'](str(registry), identity=identity,
+        owner = (helpers['admission']['admit_diagnostic'](str(registry), identity=identity,
             purpose=manifest['admission']['purpose'], profile_kind='atp-heavy',
             plan_digest=manifest['admission']['plan_digest'], job_directory=str(job), retained_history_digest=c['digest'](retained_raw))
+            if coordination is None else coordination)
         owner.assert_admitted()
         c['sample_active_inputs'](admitted_inputs, plan, previous=active_inputs)
         snapshot = owner.snapshot()
@@ -423,6 +444,8 @@ def main(argv):
             usage = os.statvfs(job)
             check_space(free=usage.f_bavail*usage.f_frsize, total=plan['total'], occupied=occupied,
                         backup_rollback_reserve=plan['backup_rollback_reserve'])
+            if coordination is not None:
+                coordination.check_controls()
             owner.assert_admitted()
             return observed
         # Every allocation/copy follows actual durable Task60 admission.
@@ -450,12 +473,18 @@ def main(argv):
         os.chown(attempt / 'corpus', 65534, 65534)
         os.chown(attempt, 65534, 65534)
         recheck(); check_time(255)
+        if coordination is not None:
+            coordination.observe_retained('A3', retained_raw)
         fd = os.open(attempt, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             try:
-                result = launch_once(helpers, job / 'code/tests/native_context_receipt_diagnostic_worker.py', attempt, fd)
+                if coordination is None:
+                    result = launch_once(helpers, job / 'code/tests/native_context_receipt_diagnostic_worker.py', attempt, fd)
+                else:
+                    result = coordination.run_worker(helpers, job / 'code/tests/native_context_receipt_diagnostic_worker.py', attempt, fd)
             except supervisor.UnreapedChild as exc:
-                custody_stop(exc, lambda data: write_new(c, job / 'custody.json', c['canonical'](data), MIB))
+                custody_stop(exc, lambda data: write_new(c, job / 'custody.json', c['canonical'](data), MIB),
+                             retained_cpu_ns=(300 if coordination is None else 900)*10**9)
                 raise
         finally:
             os.close(fd)
@@ -469,14 +498,19 @@ def main(argv):
             record = old['file_record'](progress_path, maximum=262144)
             progress = old['data_bytes'](progress_path, 262144, record['sha256'])
         parsed = c['parse_progress'](progress)
-        c['validate_retained'](retained_raw, observe=True)
+        if coordination is None:
+            c['validate_retained'](retained_raw, observe=True)
+        else:
+            coordination.observe_retained('C', retained_raw)
         observed = recheck()
         payload = accept_result(c, result, manifest, progress, job)
         owner.assert_admitted()
-        owner.close()
+        if coordination is None:
+            owner.close()
         owner = None
         report = dict(status='complete-external-terminal-observation-required', native_pass=False,
-            retained_cpu_ns=300*10**9, parent_start_boot_ns=start, parent_end_boot_ns=check_time(),
+            retained_cpu_ns=(300 if coordination is None else 900)*10**9,
+            parent_start_boot_ns=start, parent_end_boot_ns=check_time(),
             parent_whole_cpu_ns=time.process_time_ns(), progress=parsed, worker=payload,
             active_inputs_sha256=c['digest'](c['canonical'](active_inputs)),
             inventory_sha256=c['digest'](c['canonical'](observed)))
@@ -486,14 +520,15 @@ def main(argv):
         if owner is not None:
             try:
                 write_new(c, job / 'failure.json', c['canonical'](dict(status='STOP', native_pass=False,
-                    exception=type(exc).__name__, retained_cpu_ns=300*10**9, cleanup='retain-all-no-retry',
+                    exception=type(exc).__name__, retained_cpu_ns=(300 if coordination is None else 900)*10**9,
+                    cleanup='retain-all-no-retry',
                     progress=None if parsed is None else {k:v for k,v in parsed.items() if k != 'frames'})), MIB)
             except BaseException:
                 pass  # Charge remains in unchanged durable owner even if report I/O fails.
         raise
     finally:
         try:
-            if owner is not None:
+            if owner is not None and coordination is None:
                 owner.close()
         finally:
             held.close()

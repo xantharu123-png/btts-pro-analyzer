@@ -16,6 +16,8 @@ import types
 import dataclasses
 
 FORMAT = 'betboy-native-receipt-diagnostic-catalogue-v1'
+FORMAT_V2 = 'betboy-native-receipt-diagnostic-catalogue-v2'
+QA_JOURNAL = 'qa-coordination-v2.jsonl'
 PROGRESS_FORMAT = 'betboy-receipt-diagnostic-progress-v1'
 PREFIX = 'betboy-receipt-diagnostic-child-cpu-handoff-v1'
 MIB, GIB = 1024**2, 1024**3
@@ -451,20 +453,23 @@ def retained_root(path):
     return _retained_root_portable(path)
 
 
-def _retained_root_linux(path):
+def _retained_root_linux(path, *, historical_fifo=None):
     """One absolute root binding, then a depth-bounded no-follow FD stack."""
     path = Path(path)
     identity = old()['identity']
     checksum = hashlib.sha256()
     counts = dict(files=0, directories=0, symlinks=0, logical=0, allocated=0)
+    if historical_fifo is not None:
+        counts['fifos'] = 0
+    fifo_seen = False
     def same(before, after):
         require(identity(before) == identity(after) and _allocation(before) == _allocation(after),
                 'retained named/held epoch or allocation drift')
     def emit(record):
-        counts[{'directory': 'directories', 'regular': 'files', 'symlink': 'symlinks'}[record['kind']]] += 1
+        counts[{'directory': 'directories', 'regular': 'files', 'symlink': 'symlinks', 'fifo': 'fifos'}[record['kind']]] += 1
         counts['logical'] += record['size']
         counts['allocated'] += record['allocated']
-        require(counts['files'] + counts['directories'] + counts['symlinks'] <= 200000 and
+        require(counts['files'] + counts['directories'] + counts['symlinks'] + counts.get('fifos', 0) <= 200000 and
                 max(counts['logical'], counts['allocated']) <= 64*GIB, 'retained namespace bound exceeded')
         checksum.update(canonical(record) + b'\n')
     def names(fd):
@@ -491,6 +496,7 @@ def _retained_root_linux(path):
         finally:
             os.close(fd)
     def visit(fd, current, rel, before):
+        nonlocal fifo_seen
         require(len(PurePosixPath(rel).parts) <= 32 and len(os.fsencode(current)) <= 2048,
                 'retained path/depth bound')
         same(before, os.fstat(fd))
@@ -511,6 +517,14 @@ def _retained_root_linux(path):
                 require(type(target) is bytes and len(target) <= 4096, 'retained inert link target bound')
                 data = dict(size=info.st_size, sha256=digest(target))
                 kind = 'symlink'
+            elif stat.S_ISFIFO(info.st_mode) and historical_fifo is not None:
+                require(not fifo_seen and str(item) == historical_fifo['path'] and
+                        list(identity(info)) == historical_fifo['identity'] and
+                        _allocation(info) == historical_fifo['allocated'], 'historical FIFO identity changed')
+                # A FIFO has no regular file body. Never open it, even nonblocking.
+                fifo_seen = True
+                data = dict(size=info.st_size, sha256=None)
+                kind = 'fifo'
             else:
                 require(stat.S_ISREG(info.st_mode) and 0 <= info.st_size <= 8*GIB,
                         'retained regular type/size bound')
@@ -533,7 +547,55 @@ def _retained_root_linux(path):
         same(first, before)
         visit(fd, path, '.', before)
         same(first, path.lstat())
+    if historical_fifo is not None:
+        require(fifo_seen, 'declared historical FIFO is missing')
     return dict(path=str(path), identity=list(identity(first)), membership_sha256=checksum.hexdigest(), **counts)
+
+
+HISTORICAL_FIFO = '/tmp/betboy-context-retained-task62-6eb267a-01/green/fixtures/test_native_fifo_refused_witho0/fifo'
+HISTORICAL_FIFO_ROOT = '/tmp/betboy-context-retained-task62-6eb267a-01'
+
+
+def validate_historical_fifo(value, *, observe=False):
+    """Closed metadata exception for one retained negative test, never inputs."""
+    shape(value, 'path identity allocated ancestors')
+    require(value['path'] == HISTORICAL_FIFO, 'only the exact historical FIFO is permitted')
+    require(type(value['identity']) is list and len(value['identity']) == 7, 'FIFO identity shape')
+    for n in value['identity']:
+        integer(n, 2**128-1)
+    integer(value['allocated'], 64*GIB)
+    require(stat.S_ISFIFO(value['identity'][2]), 'declared test node is not FIFO')
+    expected = []
+    current = PurePosixPath(HISTORICAL_FIFO).parent
+    while current.is_relative_to(HISTORICAL_FIFO_ROOT):
+        expected.append(str(current))
+        current = current.parent
+    require(type(value['ancestors']) is list and len(value['ancestors']) == len(expected), 'FIFO ancestor binding incomplete')
+    for item, name in zip(value['ancestors'], expected):
+        shape(item, 'path identity allocated')
+        require(item['path'] == name and type(item['identity']) is list and len(item['identity']) == 7,
+                'FIFO ancestor identity shape')
+        for n in item['identity']:
+            integer(n, 2**128-1)
+        integer(item['allocated'], 64*GIB)
+        require(stat.S_ISDIR(item['identity'][2]), 'FIFO ancestor must be a directory')
+    if observe:
+        for item in [value, *value['ancestors']]:
+            info = Path(item['path']).lstat()
+            require(list(old()['identity'](info)) == item['identity'] and _allocation(info) == item['allocated'],
+                    'historical FIFO/ancestor epoch changed')
+    return value
+
+
+def retained_root_v2(path, *, historical_fifo):
+    """Explicit Linux-only V2 entry; V1 continues to reject every special file."""
+    require(sys.platform == 'linux', 'historical V2 requires actual Linux no-follow descriptors')
+    validate_historical_fifo(historical_fifo, observe=True)
+    special = historical_fifo if str(path) == HISTORICAL_FIFO_ROOT else None
+    result = _retained_root_linux(path, historical_fifo=special)
+    result.setdefault('fifos', 0)
+    validate_historical_fifo(historical_fifo, observe=True)
+    return result
 
 
 def _retained_root_portable(path):
@@ -593,16 +655,27 @@ def _retained_root_portable(path):
 
 
 def validate_retained(raw, *, observe=False):
+    return _validate_retained(raw, observe=observe, version=1)
+
+
+def validate_retained_v2(raw, *, observe=False):
+    return _validate_retained(raw, observe=observe, version=2)
+
+
+def _validate_retained(raw, *, observe, version):
     value = decode(raw)
     require(canonical(value) == raw, 'retained control must be canonical exact bytes')
-    shape(value, 'format roots backup_rollback_reserve')
-    require(value['format'] == 'betboy-receipt-diagnostic-retained-v1', 'retained format')
+    shape(value, 'format roots backup_rollback_reserve' + (' historical_fifo' if version == 2 else ''))
+    require(value['format'] == 'betboy-receipt-diagnostic-retained-v' + str(version), 'retained format')
+    if version == 2:
+        validate_historical_fifo(value['historical_fifo'], observe=observe)
+    count_keys = ('files', 'directories', 'symlinks') + (('fifos',) if version == 2 else ())
     require(type(value['backup_rollback_reserve']) is int and value['backup_rollback_reserve'] == 4*GIB,
             'fixed additional four GiB backup/rollback reserve required')
     require(type(value['roots']) is list and 0 < len(value['roots']) <= 256, 'complete retained roots required')
     seen = []
     for item in value['roots']:
-        shape(item, 'path identity membership_sha256 files directories symlinks logical allocated category charged_cpu_ns journals')
+        shape(item, 'path identity membership_sha256 files directories symlinks logical allocated category charged_cpu_ns journals' + (' fifos' if version == 2 else ''))
         name = absolute(item['path'])
         require(not any(PurePosixPath(name).is_relative_to(p) or PurePosixPath(p).is_relative_to(name) for p in seen),
                 'overlapping retained roots')
@@ -611,9 +684,11 @@ def validate_retained(raw, *, observe=False):
         require(type(item['identity']) is list and len(item['identity']) == 7, 'retained identity shape')
         for n in item['identity']:
             integer(n, 2**128-1)
-        for key in ('files', 'directories', 'symlinks'):
+        for key in count_keys:
             integer(item[key], 200000)
-        require(sum(item[k] for k in ('files', 'directories', 'symlinks')) <= 200000, 'retained root entry bound')
+        require(sum(item[k] for k in count_keys) <= 200000, 'retained root entry bound')
+        if version == 2:
+            require(item['fifos'] == (1 if name == HISTORICAL_FIFO_ROOT else 0), 'exact historical FIFO membership required')
         for key in ('logical', 'allocated'):
             integer(item[key], 64*GIB)
         require(item['category'] in ('historical-qa', 'backup', 'rollback', 'reused-input'), 'retained category')
@@ -621,10 +696,13 @@ def validate_retained(raw, *, observe=False):
             integer(item['charged_cpu_ns'])
         validate_journals(Path(name), item['journals'], observe=observe)
         if observe:
-            observed = retained_root(name)
+            observed = (retained_root_v2(name, historical_fifo=value['historical_fifo'])
+                        if version == 2 else retained_root(name))
             require(all(item[k] == v for k, v in observed.items()), 'retained complete inventory changed')
     require(seen == sorted(seen), 'retained roots not sorted')
-    require(sum(x[k] for x in value['roots'] for k in ('files', 'directories', 'symlinks')) <= 500000,
+    if version == 2:
+        require(HISTORICAL_FIFO_ROOT in seen, 'historical FIFO root omitted')
+    require(sum(x[k] for x in value['roots'] for k in count_keys) <= 500000,
             'retained aggregate entry bound')
     require(max(sum(x[k] for x in value['roots']) for k in ('logical', 'allocated')) <= 64*GIB,
             'retained aggregate byte bound')
@@ -922,23 +1000,49 @@ def allocation_plan(value, *, archive_path, manifest_path, retained_path, regist
               dict(path=value['baseline']['path'], cap=value['baseline']['size'])]
     inputs += [dict(path=value['dependency_root'] + '/' + x['path'], cap=x['size']) for x in value['dependencies']]
     inputs += [dict(path=x['source'], cap=x['size']) for x in value['timezone_data']]
+    coordination_slots = None
+    if value['format'] == FORMAT_V2:
+        control_root = str(PurePosixPath(str(manifest_path)).parent)
+        inputs.append(dict(path=control_root+'/request.json', cap=MIB))
+        coordination_slots = {'code.tar': value['archive']['size'], 'request.json': MIB,
+                              'retained.json': MANIFEST_CAP, 'catalogue.json': MANIFEST_CAP,
+                              'coordination-result.json': MIB, 'coordination-failure.json': MIB}
     require(len({x['path'] for x in inputs}) == len(inputs), 'aliased original inputs')
     registry_slots = {name: MIB for name in registry_names}
-    registry_slots.update({'diagnostic-admissions.jsonl': MIB, digest(canonical(value['admission']['identity'])) + '.jsonl': MIB})
+    if value['format'] == FORMAT_V2:
+        registry_slots.update({QA_JOURNAL: MIB})
+    else:
+        registry_slots.update({'diagnostic-admissions.jsonl': MIB, digest(canonical(value['admission']['identity'])) + '.jsonl': MIB})
     total = sum(old()['allocated_slot'](n) for n in (*slots.values(), *registry_slots.values())) + 129*MIB
-    return dict(slots=dict(sorted(slots.items())), metadata_cap=128*MIB,
+    if coordination_slots is not None:
+        total += sum(old()['allocated_slot'](n) for n in coordination_slots.values())+MIB
+    result = dict(slots=dict(sorted(slots.items())), metadata_cap=128*MIB,
         registry_slots=dict(sorted(registry_slots.items())), registry_metadata_cap=MIB,
         inputs=sorted(inputs, key=lambda x: x['path']), input_metadata_cap=128*MIB,
         new_job_cap=8*GIB, active_input_cap=4*GIB, free_reserve=4*GIB,
         backup_rollback_reserve=value['_retained_data']['backup_rollback_reserve'], total=total)
+    if coordination_slots is not None:
+        result['coordination_slots'] = coordination_slots
+    return result
 
 
 def validate_manifest(value, commit, *, retained_raw, runtime, installation):
+    return _validate_manifest(value, commit, retained_raw=retained_raw, runtime=runtime, installation=installation, version=1)
+
+
+def validate_manifest_v2(value, commit, *, retained_raw, runtime, installation):
+    return _validate_manifest(value, commit, retained_raw=retained_raw, runtime=runtime, installation=installation, version=2)
+
+
+def _validate_manifest(value, commit, *, retained_raw, runtime, installation, version):
     shape(value, 'format commit archive code dependencies dependency_root packages timezone_data runtime baseline profile retained allocation admission')
-    require(value['format'] == FORMAT and value['commit'] == commit and type(commit) is str and
+    require(value['format'] == (FORMAT_V2 if version == 2 else FORMAT) and value['commit'] == commit and type(commit) is str and
             len(commit) == 40 and all(x in '0123456789abcdef' for x in commit), 'reviewed commit/format differs')
     code = old()['records'](value['code'], ARCHIVE_CAP)
     require(set(PINS | HELPERS) | {PARENT_NAME, CATALOGUE_NAME, WORKER_NAME} <= set(code), 'required execution member missing')
+    if version == 2:
+        require({'tests/native_context_qa_coordinator.py', 'tests/native_context_qa_budget.py'} <= set(code),
+                'V2 coordinator/budget source missing')
     require(all(n.endswith('.py') and not n.startswith('.') for n in code), 'Python source-only archive')
     for name, expected in (PINS | HELPERS).items():
         require(code[name]['sha256'] == expected, 'unchanged owner pin differs')
@@ -959,7 +1063,7 @@ def validate_manifest(value, commit, *, retained_raw, runtime, installation):
     sha(installation['machine_id_sha256'])
     require(installation['executable'] == runtime['executable'] and
             installation['executable_sha256'] == runtime['executable_sha256'], 'installation executable differs')
-    retained = validate_retained(retained_raw)
+    retained = validate_retained_v2(retained_raw) if version == 2 else validate_retained(retained_raw)
     shape(value['retained'], 'path size sha256')
     absolute(value['retained']['path'])
     require(value['retained']['size'] == len(retained_raw) and value['retained']['sha256'] == digest(retained_raw),
@@ -968,19 +1072,22 @@ def validate_manifest(value, commit, *, retained_raw, runtime, installation):
     shape(admission, 'registry_directory job_directory purpose profile_kind identity plan_digest retained_history_digest')
     registry, job = absolute(admission['registry_directory']), absolute(admission['job_directory'])
     require(not PurePosixPath(registry).is_relative_to(job) and not PurePosixPath(job).is_relative_to(registry), 'registry/job overlap')
-    require(admission['purpose'] == 'context-receipt-corpus-diagnostic-v1' and admission['profile_kind'] == 'atp-heavy', 'purpose/profile differs')
+    require(admission['purpose'] == 'context-receipt-corpus-diagnostic-v' + str(version) and admission['profile_kind'] == 'atp-heavy', 'purpose/profile differs')
     require(admission['identity'] == budget_identity(value, runtime, installation), 'recomputed complete identity differs')
     require(admission['retained_history_digest'] == digest(retained_raw) and
             admission['plan_digest'] == digest(canonical({k: v for k, v in value.items() if k != 'admission'})),
             'acyclic full plan/history differs')
     a = value['allocation']
-    shape(a, 'slots metadata_cap registry_slots registry_metadata_cap inputs input_metadata_cap new_job_cap active_input_cap free_reserve backup_rollback_reserve total')
+    shape(a, 'slots metadata_cap registry_slots registry_metadata_cap inputs input_metadata_cap new_job_cap active_input_cap free_reserve backup_rollback_reserve total' +
+          (' coordination_slots' if version == 2 else ''))
     require(type(a['inputs']) is list and len(a['inputs']) >= 4, 'explicit original input plan required')
     for item in a['inputs']:
         shape(item, 'path cap')
         absolute(item['path']); integer(item['cap'], GIB)
     source_names = {value['baseline']['path'], value['retained']['path']} | {
         value['dependency_root'] + '/' + x['path'] for x in value['dependencies']} | {x['source'] for x in value['timezone_data']}
+    if version == 2:
+        source_names.add(str(PurePosixPath(value['retained']['path']).parent)+'/request.json')
     controls = [x for x in a['inputs'] if x['path'] not in source_names]
     require(len(controls) == 2, 'exact archive/manifest slots required')
     # Exact archive and manifest paths are further disambiguated by launcher CLI.
@@ -1019,13 +1126,27 @@ def launcher(archive_path, archive_sha256, manifest_path, manifest_sha256):
 
 def inventory(archive_path, commit, *, manifest_path, retained_path, retained_sha256,
               registry_directory, job_directory):
+    return _inventory(archive_path, commit, manifest_path=manifest_path, retained_path=retained_path,
+        retained_sha256=retained_sha256, registry_directory=registry_directory, job_directory=job_directory, version=1)
+
+
+def inventory_v2(archive_path, commit, *, manifest_path, retained_path, retained_sha256,
+                 registry_directory, job_directory):
+    return _inventory(archive_path, commit, manifest_path=manifest_path, retained_path=retained_path,
+        retained_sha256=retained_sha256, registry_directory=registry_directory, job_directory=job_directory, version=2)
+
+
+def _inventory(archive_path, commit, *, manifest_path, retained_path, retained_sha256,
+               registry_directory, job_directory, version):
     runtime = runtime_observation()
     installation = installation_observation(runtime)
     for path in (registry_directory, job_directory):
         protected(Path(path), directory=True)
-        require(not list(Path(path).iterdir()), 'fixed first diagnostic requires existing empty registry/job')
+        expected = [QA_JOURNAL] if version == 2 and path == registry_directory else []
+        require(sorted(p.name for p in Path(path).iterdir()) == expected, 'fixed diagnostic namespace membership differs')
     retained_raw = old()['data_bytes'](Path(retained_path), MANIFEST_CAP, retained_sha256)
-    retained = validate_retained(retained_raw, observe=True)
+    retained = (validate_retained_v2(retained_raw, observe=True) if version == 2
+                else validate_retained(retained_raw, observe=True))
     ar = old()['file_record'](Path(archive_path), maximum=ARCHIVE_CAP)
     raw = old()['data_bytes'](Path(archive_path), ARCHIVE_CAP, ar['sha256'])
     code = []
@@ -1042,7 +1163,7 @@ def inventory(archive_path, commit, *, manifest_path, retained_path, retained_sh
     code.sort(key=lambda x: x['path'])
     old()['archive_members'](raw, code)
     dependencies = old()['walk'](old()['DEPENDENCY_SOURCE'], old()['PACKAGES'])
-    value = dict(format=FORMAT, commit=commit, archive=ar, code=code, dependencies=dependencies,
+    value = dict(format=FORMAT_V2 if version == 2 else FORMAT, commit=commit, archive=ar, code=code, dependencies=dependencies,
         dependency_root=old()['DEPENDENCY_SOURCE'].as_posix(), packages=list(old()['PACKAGES']),
         timezone_data=old()['timezone_manifest'](), runtime=runtime, baseline=baseline(), profile=fixed_profile(),
         retained=dict(path=absolute(str(retained_path)), size=len(retained_raw), sha256=digest(retained_raw)))
@@ -1050,11 +1171,11 @@ def inventory(archive_path, commit, *, manifest_path, retained_path, retained_sh
     require(old()['file_record'](Path(BASELINE_PATH), maximum=270233600) ==
             dict(size=270233600, sha256=BASELINE_SHA), 'fresh baseline bytes differ')
     value['admission'] = dict(registry_directory=absolute(str(registry_directory)), job_directory=absolute(str(job_directory)),
-        purpose='context-receipt-corpus-diagnostic-v1', profile_kind='atp-heavy',
+        purpose='context-receipt-corpus-diagnostic-v' + str(version), profile_kind='atp-heavy',
         identity=budget_identity(value, runtime, installation), retained_history_digest=digest(retained_raw))
     value['allocation'] = allocation_plan(dict(value, _retained_data=retained), archive_path=archive_path,
         manifest_path=manifest_path, retained_path=retained_path)
     value['admission']['plan_digest'] = digest(canonical({k: v for k, v in value.items() if k != 'admission'}))
-    validate_manifest(value, commit, retained_raw=retained_raw, runtime=runtime, installation=installation)
+    _validate_manifest(value, commit, retained_raw=retained_raw, runtime=runtime, installation=installation, version=version)
     require(len(canonical(value)) <= MANIFEST_CAP, 'manifest cap')
     return canonical(value)

@@ -1,5 +1,19 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Fortsetzung 13. September 2026 — Reparatur tatsächlich implementiert, native Prüfung folgt
+
+Der Nutzer verlangt jetzt ausdrücklich die Umsetzung, keine weitere Planungsrunde.
+Der V2-Koordinator, sein gemeinsames A/B/C-Konto und der eng begrenzte historische
+FIFO-Leser sind als Code vorhanden. Vier Vollbeobachtungen und der bisherige
+240-CPU-Daten-Worker bleiben erhalten. V1-Einstiege bleiben getrennt. Lokale
+enge Regression: 89 bestanden, 15 Linux-Skips, 7 langsame Fälle abgewählt;
+vorherige breitere Runde: 111 bestanden/30 Plattform-Skips. Noch kein nativer
+V2-Gesamtnachweis, keine C/B-Abnahme, keine Daily3-Funktion und kein Deployment.
+Die nächsten Aktionen sind kleine native Gegenproben und die begrenzte gemeinsame
+Qualifikation. Alte QA-Dateien und fehlgeschlagene Läufe werden nicht bereinigt.
+Frischer VPS-Abgleich 19:06 UTC: App/Caddy aktiv; Tennis und Wettfinder failed.
+HEAD separat als App-UID bestätigt: weiterhin 2dd1116. Kein Servercode verändert.
+
 ## Neueste Fortsetzung 13. September 2026 — Prüfkoordination ausgearbeitet, noch kein Code
 
 Der Nutzer hat die Ausarbeitung der erforderlichen Prüfablaufänderung bestätigt.
