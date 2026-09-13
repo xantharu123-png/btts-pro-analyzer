@@ -1,0 +1,58 @@
+# Read-only production status alongside Task61
+
+No service restart, reset-failed, manual pipeline run, product/data edit,
+provider call, main push or application deployment was performed here.
+This operational observation does not substitute for C/B release acceptance.
+
+## Observed service state
+
+2026-09-13T10:26:29Z, actual SSH/tool exit0, chunk6b6ecf:
+
+- `/opt/betboy/app` HEAD2dd1116b68f3d94e9c24338c6c9dff9b01799221.
+- betboy-app and Caddy active; internal/public health both `ok`.
+- Known betboy-tennis.service failed; now betboy-wettfinder.service failed too.
+
+Read-only systemd fields chunk387d71, exit0: Wettfinder ran10:07:31–10:14:03UTC,
+Result=exit-code, ExecMainCode=1, ExecMainStatus=1. Its45-minute limit was not
+reached. Timer was active/waiting for10:37UTC. These are timestamped observations,
+not a claim that the same timer deadline or state remains current forever.
+
+Bounded journal inspection chunk343998, exit0,10:28:48UTC returned11 redacted
+messages. No traceback occurred. The actual job printed degraded,358 model
+candidates,0 candidates; football status completed/context refreshed/scope51.
+The marker's preceding `{previous_head,status,target_head}` JSON is the
+ExecCondition `require-complete` report, NOT an automatic Git pull/deploy.
+Existing deployment unit/source2dd1116 proves that distinction.
+
+## Newest published artifact inspected after account continuation
+
+At12:02:12UTC, read-only tool8251e2 exit0 opened only the published
+`/opt/betboy/app/runtime_state/wettfinder_latest.json` through a held read FD.
+Size9973860, SHAfb8e923e820b96737b89391a7515eb04682f2b67201ecff937aa1d1b52f12977;
+stable held-file epoch, generated_at11:37:18.049963UTC. This is a NEWER run than
+the earlier10:07 failure, not retrospective evidence for the older artifact.
+No full artifact, forecasts, secrets or runtime database was transferred.
+
+- Global run_status degraded, operational_error_count1,345 model candidates,
+  0 strict candidates. Football completed, context refreshed, operational0.
+- The contributing failure is forecast_evidence.settlement operational1,
+  with `football:result_identity_mismatch`. Its separate
+  `esports:event_budget_reached` is also reported.
+- RisikoBet partial,131 candidates, operational0. Settlement reports ambiguous
+  revisions/event limits/missing matching settled results, operational0.
+- Tennis and E-Sport persisted-model readers report operational0; basketball
+  and ice hockey still label live-only/no prematch model on this old release.
+  Cricket unchanged/out of scope.
+
+At production code2dd1116, `forecast_evidence_settlement.py` rejects a Football
+result when fixture ID, scheduled instant, home ID, away ID or required identity
+shape differs from the saved prediction. The published aggregate does NOT say
+which field differed. A changed kickoff is possible, but not established; do
+not claim that cause without event-specific read-only evidence. The pipeline
+then preserves independent forecasts, writes its result and returns1 because
+operational_error_count is nonzero. This is not evidence of a process crash,
+missing code pull, false winning/losing bet, or permission to relax identity.
+
+Root records this separate open triage item for later operational acceptance.
+Current Task61 author remains scoped to I1-I4/T1, with no competing production
+fix writer. Do not clear this observed failure solely to make systemd green.

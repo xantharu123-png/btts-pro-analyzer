@@ -1,11 +1,12 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-10-context-capacity-recovery.md
 
-## Current checkpoint — 13 September 2026: Task61 independent review active
+## Current checkpoint — 13 September 2026: Task61 fix round1 rereview active
 
 Continue the approved C -> B -> complete QA -> main/push/controlled VPS release.
 Do not repeat completed Task58 native ATP/WTA/late-cleanup acceptance.
-Root/repair HEAD is fec316ff05545fff89217399cfbf872f19ee6c7f; the last
-freshly verified pushed repair branch is eaa60ac619f4c0900f5d44beefbb8ab79cd9e7c4.
+Root/repair HEAD1632072216b33d85b0343c1f389f762356b62d0a;
+last freshly verified pushed repair branch af01d8a4a52d1170c8139c253aae4a31dae04cac
+(actual push/ls-remote561451 exit0).
 Task60 code8574747 is locally
 independently approved; its separate reviewed native operator counterpart
 actually passed09:35:47UTC with external exit0 and matching retained hash
@@ -24,9 +25,43 @@ hashes, report SHAe20b50e04b781cf0a9f6ce0a38a3cdda7ea564e70964d89b6f7705c95ccab9
 XML SHA4c9e52df9fd576f1d31a76e93fe3672470d6b62f0406d02239f7608a014bcd33
 (41cases,0failures,0errors,2skips). Actual1024small-source owner includes a17MiB
 old value. Independent reviewer `/root/c_receipt_diagnostic_review` (astra/high)
-holds full142893-byte eaa60ac..fec316f task-61-review-01.diff; review and native
-prefix/real-baseline gates remain open. Do not repeat unchanged focused suite
-or Task58 native acceptance. No implementation writer is active during review.
+reviewed full142893-byte eaa60ac..fec316f task-61-review-01.diff; final report
+SHA96af3f0bb785bfbfd39b5003116112801fefee84d8e481532b96223746c3507d
+finds four Important issues (I1 actual input allocation/metadata, I2 phase-time
+complete reserve/slots, I3 fixed backup reserve, I4 actual main rejection test),
+no Critical/minor findings. Spec/quality need fixes. The same author regains
+sole writer for these four findings only; Root does no product/QA-module edits.
+Native prefix/real-baseline gates remain open; no Task61 native invocation yet.
+Task61: fix round1/5 implemented, pending scoped rereview (I1-I4 and T1).
+Code1632072, previous reviewed codefec316f; Root-af01d8a is controller evidence
+only. Author returned all writer ownership. Report6c3a05f7b99b78c8d22cd8ae492fc5c4883157157a7b936d1b0d0ffa9a8961c4
+records actual final50passed/2nativeSkipped97.67s, child/outer0/stderr empty,
+session58858/terminal0f1a82. Root freshly matched all5code/script hashes and
+XMLa177500a9d45be51616361f96b425caa08828dc9e5f961e039459def69185419
+(52cases0fail0error2skips). Two prior final failures were test-only Windows
+short-time quantization, preserved in report; production bounds unchanged.
+Reviewer `/root/c_receipt_diagnostic_review` holds scoped fec316f..1632072
+package141900B/SHAa467a1d208632b55e1e301a278d2d2481f3160b0c58badca94a5fdc30bb68ec4.
+No native Task61 execution or Root repinning yet. Source archive prepared
+locally only: .pytest_tmp/task61-1632072-01.tar,449tracked nonhidden Python
+members9533440bytes/SHAdaf6ac61183bb3a42f8401f7568b2020a0f4bdef07d07a72d295e61363bc4d4c;
+actual c39417 exit0 checked archived source/helper/generator/corpus pins.
+Ruling: I3 enforces exactly4GiB additional backup/rollback reserve for this
+fixed diagnostic, not a caller-selected lower value — this matches the already
+selected Root envelope and keeps the fixed input contract — if a larger reserve
+is later needed, it requires an explicit new bound/ruling, never a silent bypass.
+All review cannot-verify native/C/B/restore/release items remain explicit later
+gates. Root prepared prefix transport only; it is not executed and must be
+repinned to the finally reviewed source if any held member changes.
+Separate Root prefix-transport review SHA0864a2b761be6f64895d963632409cd5488ec68b85095bc1648d0330e64fe176
+requires T1 held-template read (Important). The same active author additionally
+owns only evidence/task61-native-prefix-run.ps1 for that correction; no second
+implementation writer. Root will perform only final reviewed artifact repinning.
+Task61: minor (deferred): transport T2 has no explicit local SSH-log byte cap;
+fixed native JSON is capped65536bytes, but generic failure logs are not. Carry
+this specific defensive-hardening finding to final review; no claim of hard
+transport-output bounds. External SSH/parent-death/custody observations remain
+required and no timeout may be described as a successful child reap.
 
 Root prepared actual metadata in .pytest_tmp/task61-retained-metadata-01.json
 (85 older roots, SHA2e1699479e0bae473ac9f8bfd7038dbac4ec7bf9f2060081cfc6652ec4be1171)
@@ -42,6 +77,22 @@ must remeasure. No removal of retained files, same-family retries or refunds.
 
 Production fresh09:32:10UTC remains2dd1116, app/Caddy active and both health
 checks ok; separate known betboy-tennis.service remains failed/out of scope.
+Later10:26:29UTC actual check6b6ecf stillHEAD2dd1116/app+healthok, but
+betboy-wettfinder.service also failed (completed pipeline returning1/degraded,
+not timeout/crash). Newest published11:37 artifact read12:02:12UTC identifies
+forecast_evidence settlement football:result_identity_mismatch, operational1;
+football discovery/context itselfcompleted/operational0. See
+live-wettfinder-status-20260913.md for timestamps, hashes and explicit limits.
+No identity policy relaxed, service reset/restarted or provider request made.
+The user resumed this same work on a new account; prior writer quota error was
+confirmed, then the same author resumed successfully with WIP retained. Actual
+fix1-green-01 exit0:7passed/40deselected0.90s; final freeze/review still pending.
+After the account switch the former superpowers6.3.0 skill directory is absent
+(actual read17bae1). Continue the approved task brief/ledger/review contract
+directly, without reinstalling a plugin or repeating design/approval. Generate
+scoped immutable review packages from exact Git ranges as artifacts; use the
+previously read review rules (findings I1-I4/T1 only plus new fix breakage).
+This is a missing workflow utility, not missing repository work or task authority.
 Full490000-growth C, global source/resources/cost, B, restore, full regression,
 final review and main/VPS update remain open. Never infer deployment from a
 repair-branch push: existing timers do not pull or deploy code automatically.
