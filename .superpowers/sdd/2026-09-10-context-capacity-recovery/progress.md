@@ -1,6 +1,27 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-10-context-capacity-recovery.md
 
-## Current checkpoint — 13 September 2026: Task61 native prefix passed; input preparation review
+## Current checkpoint — 13 September 2026: Task61 catalogue preparation STOP before admission
+
+Latest actual evidence supersedes the preparation-pending statements below.
+Root/repair HEAD and pushed repair33b758cfb371b1f923f47c98c25e44c802465e26;
+GitHub main remains2dd1116 (actual push/ls-remote2fbe23 exit0).
+Independent preparation review37875733ef4a9c17e85b48305bd65e144c350fd645458dcaaae15156e062d00d
+approved the exact fixed instruments; Root read it and rehashed all three.
+Upload actualbf10ce/SSH0 passed at12:38:47UTC; separate6cf9f4 readback confirms
+exact archive9533440B/SHAdaf6ac61183bb3a42f8401f7568b2020a0f4bdef07d07a72d295e61363bc4d4c,
+root0444 and three new correctly protected input/registry/job roots.
+The one fixed catalogue preparation then STOPPED: session24529/5c540b,
+SSH137/outer1, actualSIGKILL, GNUtime74.12wall/46.68user/13.18sys/32176KiBRSS.
+Its printed time exit0 is not success; the actual signal and SSH exit govern.
+No retained.json or catalogue.json was created. Fresh07a5ee readback12:41:22UTC
+shows unchanged archive only, empty registry/job, no UID65534 process.
+Thus no actual Task61 admission or receipt worker occurred;300CPU unconsumed.
+No retry/deletion/namespacerotation; all previous/native artifacts retained.
+See task-61-native-preparation-evidence.md for hashes/costs/cannot-verify scope.
+Same author now performs bounded read-only algorithm diagnosis; Root owns
+controller evidence/Git. Limits and full-C/B/restore/release gates unchanged.
+
+### Prior Task61 implementation and prefix evidence (still valid)
 
 Continue the approved C -> B -> complete QA -> main/push/controlled VPS release.
 Do not repeat completed Task58 native ATP/WTA/late-cleanup acceptance.
