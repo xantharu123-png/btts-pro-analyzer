@@ -1,10 +1,10 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-10-context-capacity-recovery.md
 
-## Current checkpoint — 13 September 2026: Task61 approved local code; native probes next
+## Current checkpoint — 13 September 2026: Task61 native prefix passed; input preparation review
 
 Continue the approved C -> B -> complete QA -> main/push/controlled VPS release.
 Do not repeat completed Task58 native ATP/WTA/late-cleanup acceptance.
-Root/repair HEAD1632072216b33d85b0343c1f389f762356b62d0a;
+Root/repair reviewed source1632072216b33d85b0343c1f389f762356b62d0a;
 last freshly verified pushed repair branch af01d8a4a52d1170c8139c253aae4a31dae04cac
 (actual push/ls-remote561451 exit0).
 Task60 code8574747 is locally
@@ -55,10 +55,23 @@ unchanged. Actual dryrunprepare/success/failure exit0, each392417stdinbytes:
 prepare3db3f066fff89e765b0480a76d484c22fa635d1e1fb1c8ca8e339d652e48e262;
 success705e3d55e46496199a1dcc7a4b2c506caf0a5012c8d3aed1e32106cabf86b660;
 failure1e6bbcc4f46ee559ea05e8defb04ab0b2fe935de9356a2f2ae2daa741ffac07f.
-No native Task61 execution yet. Source archive prepared
+Actual native prepare/success/failure protocols subsequently passed at
+12:17:56/12:18:38/12:18:58UTC, external tool/SSH0, expected children0/125.
+Postexit12:19:59UTC shows no relevant PID/UID65534 process, exact preserved
+root3dirs/1file16384allocatedB. Full evidence task-61-native-prefix-evidence.md.
+This closes only the two previously skipped native protocol categories, not
+the real100553+1024 data run. The actual300CPU admission is still unconsumed.
+New fixed original-archive/control preparation instruments are under separate
+review by `/root/c_receipt_diagnostic_review`; no upload/catalogue execution yet.
+Local syntax and both transport dryruns46deaf exit0; exact catalogue
+stdin474157B/SHA88368cf0e0733fd54a94d7bddbe07ce2c30e08c3385da654f7de67845be2e76d.
+All existing native roots/logs remain retained; no deletion or same-family retry.
+Source archive prepared
 locally only: .pytest_tmp/task61-1632072-01.tar,449tracked nonhidden Python
 members9533440bytes/SHAdaf6ac61183bb3a42f8401f7568b2020a0f4bdef07d07a72d295e61363bc4d4c;
 actual c39417 exit0 checked archived source/helper/generator/corpus pins.
+Actual reviewed old archive_members validator8686dc exit0 subsequently
+accepted the entire449-member archive, without executing archive members.
 Ruling: I3 enforces exactly4GiB additional backup/rollback reserve for this
 fixed diagnostic, not a caller-selected lower value — this matches the already
 selected Root envelope and keeps the fixed input contract — if a larger reserve
