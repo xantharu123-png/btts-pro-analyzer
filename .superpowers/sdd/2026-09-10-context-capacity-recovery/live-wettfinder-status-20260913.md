@@ -56,3 +56,24 @@ missing code pull, false winning/losing bet, or permission to relax identity.
 Root records this separate open triage item for later operational acceptance.
 Current Task61 author remains scoped to I1-I4/T1, with no competing production
 fix writer. Do not clear this observed failure solely to make systemd green.
+# Fresh status at 12:48-12:49 UTC, 13 September 2026
+
+Read-only SSH chunk `1dc041`, exit0, confirms application Git HEAD remains
+`2dd1116b68f3d94e9c24338c6c9dff9b01799221`; main was separately confirmed at
+that same commit in `fc57e8`. Internal and public HTTP health returned `ok`.
+All seven timers have a next scheduled run. This is not a code pull/deployment.
+
+The actual app unit is **betboy-app.service**, not betboy.service. Separate
+readback `ed1713`, exit0, confirms loaded/active/running and ExecMainStatus0.
+Caddy is active/running. The mistaken betboy.service query's inactive result
+is not evidence of an app outage. An earlier git query (`ba8564`) stopped on
+dubious ownership before any service query; the subsequent read used only
+per-command safe.directory, never changed global Git configuration.
+
+`betboy-wettfinder.service` remains failed, actual latest execution
+12:37:02-12:43:19 UTC, exit1. `betboy-tennis.service` remains failed, latest
+05:17:05-05:32:17 UTC, exit1. The next Wettfinder timer was13:07 UTC at this
+observation; do not present a timestamped next run as a current promise.
+No failed state was cleared, no service/timer restarted, and no latest artifact
+or database was modified. The earlier precise error-attribution evidence below
+has not been replaced by a newly inspected artifact in this status-only check.

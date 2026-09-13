@@ -1,0 +1,696 @@
+diff --git a/.superpowers/sdd/2026-09-10-context-capacity-recovery/task-62-report.md b/.superpowers/sdd/2026-09-10-context-capacity-recovery/task-62-report.md
+new file mode 100644
+index 0000000..86e8a2d
+--- /dev/null
++++ b/.superpowers/sdd/2026-09-10-context-capacity-recovery/task-62-report.md
+@@ -0,0 +1,173 @@
++# Task62 held-FD retained traversal report
++
++Sole writer accepted at BASE68c1ff89042d26a9c9454a308e3fe65defa8947a.
++Read complete Task62 brief and Task61 native preparation evidence. No native
++success inferred from the signal9/SSH137/outer1 preparation STOP; exact last
++root remains unknown. All preparation artifacts/costs remain retained.
++
++Pre-code declaration: public retained_root(path) and its exact output stay
++unchanged. New private _retained_root_linux(path) holds the reviewed root entry
++once and opens descendants relative to held directory FDs. The previous body
++is retained unchanged as _retained_root_portable(path). Only retained traversal
++and tightly local support change; no builder reuse, cache, helper/pin/limit or
++parent/worker change. Linux native tests are explicit skips on Windows; a
++separately labeled modeled-FD adapter checks control flow with real local file
++bytes, but cannot prove native openat/DAC/no-follow semantics.
++
++## Implementation / self-review
++
++The Linux branch calls the unchanged reviewed opened(root,directory=True)
++exactly once. That helper retains the absolute ancestor/root chain. Descendant
++directories/files are opened by name with dir_fd pointing at their live parent,
++O_NOFOLLOW/O_NONBLOCK/O_CLOEXEC (plus O_DIRECTORY for directories). The maximum
++held child stack is bounded by existing depth32; ancestors are not reopened for
++each descendant. No old helper is modified. Each child FD has a try/finally
++close covering its fstat, read, recursive visit and final named-binding checks.
++
++Every regular path, including every hardlink alias, still reads through EOF in
++bounded1MiB pieces, verifies the complete length and hashes all bytes. There is
++no digest reuse or read-buffer optimization in this patch. Every native regular
++file gets complete seven-field named/held epoch comparisons and allocation
++comparison before/after reading. Symlinks use raw byte readlink targets and
++no-follow named stats, never an opened target. Directories get sorted complete
++membership enumeration before/after, held epoch/allocation checks and final
++named binding while the parent remains held. Root named/held comparison and
++the old helper's final ancestor checks remain intact.
++
++The original portable body is retained verbatim under its private route; only
++the public dispatcher is new. Native canonical output uses identical record
++keys, serialization order, counts, raw identities, allocation and SHA algorithms.
++The new scanner repeats directory enumeration to explicitly verify membership;
++this is additional checking cost, not a claimed timing optimization. All existing
++file8GiB/total64GiB/entries200000/child50000/depth32/path2048 limits are unchanged.
++No journal, allocation-plan, second-pass, parent, worker or resource-limit code
++was changed. No approval to retry the stopped preparation is implied.
++
++## Focused tests and limitations
++
++The modeled adapter uses actual Windows file contents/stats and deliberately
++modeled directory-FD operations. It substitutes mtime for ctime in its seven
++identity fields because Windows fstat differs; it is NOT native epoch/openat
++proof. Native tests use actual OS dir_fd calls and all original identity fields.
++
++Coverage includes canonical inventory equivalence on branching/deep trees,
++empty/large/mixed-name files, exact single root-entry/relative descendant opens,
++FD cleanup on read/stat/scandir/close errors, held/named file epoch changes,
++directory epoch/replacement, membership change, grow/shrink and unsupported
++types. Close-error injection releases the descriptor and then raises, verifying
++that the error propagates and the remaining owned stack unwinds; it is not a
++promise to recover arbitrary permanent failures of an OS close operation.
++Bounds cover child count, whole entry count, depth, path, file size and aggregate
++allocation. Native-only cases additionally cover actual symlink/file/directory/
++root replacement, FIFO refusal, exact old/new canonical equivalence, per-alias
++full reads across fresh calls, and /proc/self/fd leak checks.
++
++The native ancestor-open-scaling test is runnable against the previous catalogue
++as well as the new one: its original-algorithm comparison falls back to public
++retained_root, so the actual old-code failure is excess absolute root opens,
++not a missing private symbol. That native RED/GREEN was NOT executed here.
++Root's later isolated Linux test must establish it; Windows skips are explicit.
++
++All local commands used the existing interpreter
++`.pytest_tmp/qa-python312-c-01/Scripts/python.exe`, PYTEST_DISABLE_PLUGIN_AUTOLOAD=1,
++PYTHONDONTWRITEBYTECODE=1, `-B -m pytest -q -p no:cacheprovider`, and only
++`tests/test_native_context_receipt_retained_walk.py` unless stated below.
++Basename NAME means exact `--basetemp=.pytest_tmp/NAME` and
++`--junitxml=.pytest_tmp/NAME.xml`.
++
++- task62-red-01, chunkba3d08, actual exit1:
++  `1 failed, 1 passed, 1 skipped in 0.36s`. The modeled relative-FD path did not
++  exist (AttributeError for _retained_root_linux); native scaling skipped.
++- task62-green-01, chunka1f9be, actual exit0:
++  `2 passed, 1 skipped in 0.32s`.
++- task62-errors-01, chunk69a943, actual exit0:
++  `16 passed, 20 skipped in 0.80s`.
++- task62-bounds-01, session95445/terminal9c4fe7, actual exit0:
++  `22 passed, 21 skipped in 9.57s`.
++- task62-final-01, session24410/terminalf53f2e, actual child/outer0,
++  `23 passed, 21 skipped in 10.10s`, stderr empty, wall10.71900000000096.
++  It included the adjacent historical-hardlink test below. Afterwards only the
++  new test's native baseline comparison was made compatible with the pre-patch
++  catalogue; no implementation change. The final freeze was rerun below.
++
++No Task58, entire Task61 module, repository suite, native execution, VPS/network,
++Git/index, installation, cleanup or subagent operation was performed.
++
++## Minimal future isolated Linux QA input set
++
++Exactly these three source files preserve their relative layout:
++
++1. tests/test_native_context_receipt_retained_walk.py
++2. tests/native_context_receipt_diagnostic_catalogue.py
++3. tests/native_context_chain_catalogue.py (unchanged pinned SHA
++   48fd59c0660843c530a079c53556b630622085e0ce09f0b9878e7230371dd935)
++
++Imports are pytest plus stdlib. No product modules, helpers, seed, archive,
++retained data, database, Task61 parent/worker or conftest is required for this
++new module. Python3.12 and the already selected pytest runtime suffice. Normal
++QA UID1000 needs only its own fresh writable fixture/output root and readable
++/proc/self/fd; native tests create their own hardlinks, inert symlinks and FIFO.
++Root rights are NOT required, and importing pytest as Root is not requested.
++
++Suggested isolated command (future Root-controlled operation, NOT executed here):
++
++```sh
++PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 python3 -B -m pytest --noconftest -q -p no:cacheprovider tests/test_native_context_receipt_retained_walk.py --basetemp=FRESH_QA_PATH --junitxml=FRESH_XML_PATH
++```
++
++Use the known ordinary-user pytest environment, no installation. The optional
++adjacent historical-hardlink regression below requires the fourth test module;
++it is not necessary in the minimal three-file native transport. No wall-time,
++capacity, full-C/B or release success is promised by this input declaration.
++
++## Final focused freeze
++
++Exact bounded final command from the dispatch worktree:
++
++```powershell
++$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
++$env:PYTHONDONTWRITEBYTECODE='1'
++& .pytest_tmp/qa-python312-c-01/Scripts/python.exe -B -c 'import os,subprocess,sys,json,time; env=dict(os.environ,PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",PYTHONDONTWRITEBYTECODE="1"); command=[sys.executable,"-B","-m","pytest","tests/test_native_context_receipt_retained_walk.py","tests/test_native_context_receipt_diagnostic.py::test_historical_hardlink_occupancy_is_inert_but_active_slots_reject_it","-q","-p","no:cacheprovider","--basetemp=.pytest_tmp/task62-final-02","--junitxml=.pytest_tmp/task62-final-02.xml"]; start=time.monotonic(); result=subprocess.run(command,env=env,capture_output=True,timeout=120); print(json.dumps(dict(command=command,child_exit=result.returncode,stdout=result.stdout.decode("utf-8",errors="replace"),stderr=result.stderr.decode("utf-8",errors="replace"),wall_seconds=time.monotonic()-start),sort_keys=True)); sys.exit(result.returncode)'
++```
++
++Actual launch chunkcf1b73/session75112, terminal chunka16f74:
++
++```text
++child_exit: 0
++outer/tool exit: 0
++stdout:
++..s..............sssssssssssssssssss......s.                             [100%]
++23 passed, 21 skipped in 11.23s
++stderr: empty
++outer wall_seconds: 11.90599999999904
++```
++
++Post-run readback chunk752f1a, actual exit0:
++
++| Frozen artifact | SHA256 |
++| --- | --- |
++| tests/native_context_receipt_diagnostic_catalogue.py | a17c62e6fec58735974f74be59e16dfd2d7ac9061da58239eac35a4f3a202185 |
++| tests/test_native_context_receipt_retained_walk.py | d71f669ded5272ef18e3907f7f1d5b628a72e1a35c4aa604d55cfe9a9438a68e |
++| .pytest_tmp/task62-final-02.xml | 89da0b0cfbd71566930355f95a28d3836eae6ef024d2fc699e1906bbfeda5846 |
++
++Intermediate retained XML hashes:
++
++| XML under .pytest_tmp | SHA256 |
++| --- | --- |
++| task62-red-01.xml | 42318b2a921b665f93d4556360d242df54f2b5a45396f71474907759b9d79475 |
++| task62-green-01.xml | 839ace94a422d29a26eb6b8ce4eb0436c41715e50160f25fd2aedaadc0bc3adc |
++| task62-errors-01.xml | bb648d4299be719acee3b7c337ed15a1564c7f0560cf82403aba89a833b2d2bc |
++| task62-bounds-01.xml | f91cb8271abcfb668b33460ead7227e7e2b36f640c51cf3f4d444cd43ba5b69a |
++| task62-final-01.xml | 1035cccecd38d17bf2a5141e719a5d22ddccf650b53dff2059b8ef702bb3df8a |
++
++No source/test changes followed final-02; only this report was completed.
++Native RED/GREEN and actual metadata/FD semantics remain unexecuted gates;
++23 portable/model passes are not Linux acceptance. Actual retained-union
++performance under unchanged60/240/300 and1800/3600 limits remains unknown.
++
++Sole-writer return: ownership of the catalogue's Task62 retained slice, the
++new focused test module and this report is explicitly returned to Root.
++I will make no further writes without dispatch. Root owns independent review,
++Git/index, all transport/pin changes and any separately authorized native QA
++or measurement. All prior artifacts/costs and empty diagnostic job/registry
++remain outside this local-only implementation; no cleanup/retry was performed.
+diff --git a/tests/native_context_receipt_diagnostic_catalogue.py b/tests/native_context_receipt_diagnostic_catalogue.py
+index 6e290fb..b04c426 100644
+--- a/tests/native_context_receipt_diagnostic_catalogue.py
++++ b/tests/native_context_receipt_diagnostic_catalogue.py
+@@ -259,20 +259,111 @@ def sample_exact_slots(root, slots, metadata_cap, *, previous=None):
+     require(max(metadata_logical, metadata_allocated) <= metadata_cap, 'metadata reservation exceeded')
+     result = dict(files=sorted(files, key=lambda x: x['path']), directories=sorted(directories, key=lambda x: x['path']),
+         logical=sum(x['size'] for x in files) + metadata_logical,
+         allocated=sum(x['allocated'] for x in files) + metadata_allocated,
+         metadata_logical=metadata_logical, metadata_allocated=metadata_allocated)
+     require(previous is None or result == previous, 'quiescent inventory changed')
+     return result
+ 
+ 
+ def retained_root(path):
++    if sys.platform == 'linux':
++        return _retained_root_linux(path)
++    return _retained_root_portable(path)
++
++
++def _retained_root_linux(path):
++    """One absolute root binding, then a depth-bounded no-follow FD stack."""
++    path = Path(path)
++    identity = old()['identity']
++    checksum = hashlib.sha256()
++    counts = dict(files=0, directories=0, symlinks=0, logical=0, allocated=0)
++    def same(before, after):
++        require(identity(before) == identity(after) and _allocation(before) == _allocation(after),
++                'retained named/held epoch or allocation drift')
++    def emit(record):
++        counts[{'directory': 'directories', 'regular': 'files', 'symlink': 'symlinks'}[record['kind']]] += 1
++        counts['logical'] += record['size']
++        counts['allocated'] += record['allocated']
++        require(counts['files'] + counts['directories'] + counts['symlinks'] <= 200000 and
++                max(counts['logical'], counts['allocated']) <= 64*GIB, 'retained namespace bound exceeded')
++        checksum.update(canonical(record) + b'\n')
++    def names(fd):
++        result = []
++        with os.scandir(fd) as entries:
++            for entry in entries:
++                require(len(result) < 50000, 'retained directory count exceeded')
++                result.append(entry.name)
++        return sorted(result)
++    @contextmanager
++    def child(parent, name, before, *, directory=False):
++        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
++        if directory:
++            flags |= os.O_DIRECTORY
++        fd = os.open(name, flags, dir_fd=parent)
++        try:
++            held = os.fstat(fd)
++            require(stat.S_ISDIR(held.st_mode) if directory else stat.S_ISREG(held.st_mode),
++                    'retained opened type differs')
++            same(before, held)
++            yield fd
++            same(before, os.fstat(fd))
++            same(before, os.stat(name, dir_fd=parent, follow_symlinks=False))
++        finally:
++            os.close(fd)
++    def visit(fd, current, rel, before):
++        require(len(PurePosixPath(rel).parts) <= 32 and len(os.fsencode(current)) <= 2048,
++                'retained path/depth bound')
++        same(before, os.fstat(fd))
++        emit(dict(path=rel, kind='directory', identity=list(identity(before)),
++                  size=before.st_size, allocated=_allocation(before), sha256=None))
++        children = names(fd)
++        for name in children:
++            item = current / name
++            key = name if rel == '.' else rel + '/' + name
++            require(len(os.fsencode(item)) <= 2048, 'retained path bound')
++            info = os.stat(name, dir_fd=fd, follow_symlinks=False)
++            if stat.S_ISDIR(info.st_mode):
++                with child(fd, name, info, directory=True) as nested:
++                    visit(nested, item, key, info)
++                continue
++            if stat.S_ISLNK(info.st_mode):
++                target = os.readlink(os.fsencode(name), dir_fd=fd)
++                require(type(target) is bytes and len(target) <= 4096, 'retained inert link target bound')
++                data = dict(size=info.st_size, sha256=digest(target))
++                kind = 'symlink'
++            else:
++                require(stat.S_ISREG(info.st_mode) and 0 <= info.st_size <= 8*GIB,
++                        'retained regular type/size bound')
++                with child(fd, name, info) as source:
++                    hasher, length = hashlib.sha256(), 0
++                    while block := os.read(source, MIB):
++                        length += len(block)
++                        require(length <= info.st_size, 'retained regular grew')
++                        hasher.update(block)
++                    require(length == info.st_size, 'retained regular shrank')
++                    data = dict(size=length, sha256=hasher.hexdigest())
++                kind = 'regular'
++            same(info, os.stat(name, dir_fd=fd, follow_symlinks=False))
++            emit(dict(path=key, kind=kind, identity=list(identity(info)), allocated=_allocation(info), **data))
++        require(children == names(fd), 'retained directory membership changed')
++        same(before, os.fstat(fd))
++    first = path.lstat()
++    require(stat.S_ISDIR(first.st_mode), 'non-directory/linked namespace')
++    with old()['opened'](path, directory=True) as (fd, before):
++        same(first, before)
++        visit(fd, path, '.', before)
++        same(first, path.lstat())
++    return dict(path=str(path), identity=list(identity(first)), membership_sha256=checksum.hexdigest(), **counts)
++
++
++def _retained_root_portable(path):
+     """Stream complete bounded membership; return only digest/counts/totals."""
+     path = Path(path)
+     checksum = hashlib.sha256()
+     counts = dict(files=0, directories=0, symlinks=0, logical=0, allocated=0)
+     def emit(record):
+         counts[{'directory': 'directories', 'regular': 'files', 'symlink': 'symlinks'}[record['kind']]] += 1
+         counts['logical'] += record['size']
+         counts['allocated'] += record['allocated']
+         require(counts['files'] + counts['directories'] + counts['symlinks'] <= 200000 and
+                 max(counts['logical'], counts['allocated']) <= 64*GIB, 'retained namespace bound exceeded')
+diff --git a/tests/test_native_context_receipt_retained_walk.py b/tests/test_native_context_receipt_retained_walk.py
+new file mode 100644
+index 0000000..5c12c7e
+--- /dev/null
++++ b/tests/test_native_context_receipt_retained_walk.py
+@@ -0,0 +1,395 @@
++"""Task62 focused walker QA; modeled FD calls are NOT native openat proof."""
++from contextlib import contextmanager
++import hashlib
++import importlib.util
++import os
++from pathlib import Path
++import stat
++import sys
++from types import SimpleNamespace
++
++import pytest
++
++ROOT = Path(__file__).absolute().parents[1]
++
++
++def catalogue():
++    name = 'task62_catalogue'
++    spec = importlib.util.spec_from_file_location(name, ROOT/'tests/native_context_receipt_diagnostic_catalogue.py')
++    c = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(c)
++    c.old()
++    return c
++
++
++def reference(c, root):
++    """Independent path-based typed inventory oracle, no optimized walker call."""
++    records = []
++    def visit(path, name):
++        info = path.lstat()
++        kind = 'directory' if stat.S_ISDIR(info.st_mode) else 'symlink' if stat.S_ISLNK(info.st_mode) else 'regular'
++        if kind == 'directory':
++            checksum = None
++        elif kind == 'symlink':
++            checksum = hashlib.sha256(os.fsencode(os.readlink(path))).hexdigest()
++        else:
++            assert stat.S_ISREG(info.st_mode)
++            h = hashlib.sha256()
++            with path.open('rb') as stream:
++                while block := stream.read(1024**2):
++                    h.update(block)
++            checksum = h.hexdigest()
++        records.append(dict(path=name,kind=kind,identity=list(c.old()['identity'](info)),
++                            allocated=c._allocation(info),size=info.st_size,sha256=checksum))
++        if kind == 'directory':
++            for child in sorted(path.iterdir(),key=lambda p:p.name):
++                visit(child,child.name if name=='.' else name+'/'+child.name)
++    visit(root,'.')
++    return dict(path=str(root),identity=records[0]['identity'],
++        membership_sha256=hashlib.sha256(b''.join(c.canonical(r)+b'\n' for r in records)).hexdigest(),
++        files=sum(r['kind']=='regular' for r in records),directories=sum(r['kind']=='directory' for r in records),
++        symlinks=sum(r['kind']=='symlink' for r in records),logical=sum(r['size'] for r in records),
++        allocated=sum(r['allocated'] for r in records))
++
++
++def tree(root, *, links=False):
++    (root/'a'/'deep'/'lower').mkdir(parents=True)
++    (root/'Z').mkdir()
++    (root/'empty').write_bytes(b'')
++    (root/'a'/'one').write_bytes(b'one')
++    (root/'a'/'deep'/'lower'/'large').write_bytes(b'large'*300000)
++    (root/'Z'/' mixed name ').write_bytes(b'mixed')
++    if links:
++        os.link(root/'a'/'one',root/'hardlink')
++        os.symlink('../outside-not-read',root/'a'/'inert')
++        os.symlink('a',root/'directory-link')
++
++
++class ModeledFD:
++    """Real file bytes/stats, modeled directory FDs; never labeled Linux QA."""
++    O_RDONLY=os.O_RDONLY
++    O_NOFOLLOW=0x20000000
++    O_DIRECTORY=0x10000000
++    O_NONBLOCK=0x08000000
++    O_CLOEXEC=0x04000000
++    fsencode=staticmethod(os.fsencode)
++    def __init__(self):
++        self.directories={}
++        self.files=set()
++        self.opens=[]
++        self.next_fd=-100
++    def path(self,name,dir_fd=None):
++        return Path(name) if dir_fd is None else self.directories[dir_fd]/os.fsdecode(name)
++    def open(self,name,flags,*,dir_fd=None):
++        path=self.path(name,dir_fd)
++        self.opens.append((str(name),dir_fd,flags))
++        if path.is_symlink():
++            raise OSError('modeled O_NOFOLLOW')
++        if flags & self.O_DIRECTORY:
++            assert path.is_dir()
++            self.next_fd-=1
++            self.directories[self.next_fd]=path
++            return self.next_fd
++        fd=os.open(path,os.O_RDONLY|getattr(os,'O_BINARY',0))
++        self.files.add(fd)
++        return fd
++    def close(self,fd):
++        if fd in self.directories:
++            del self.directories[fd]
++        else:
++            os.close(fd)
++            self.files.remove(fd)
++    def fstat(self,fd):
++        return self.directories[fd].stat() if fd in self.directories else os.fstat(fd)
++    def stat(self,name,*,dir_fd=None,follow_symlinks=False):
++        assert follow_symlinks is False
++        return self.path(name,dir_fd).lstat()
++    def scandir(self,fd):
++        assert fd in self.directories
++        return os.scandir(self.directories[fd])
++    def readlink(self,name,*,dir_fd=None):
++        return os.fsencode(os.readlink(self.path(name,dir_fd)))
++    def read(self,fd,count):
++        return os.read(fd,count)
++
++
++def modeled(c, monkeypatch):
++    adapter=ModeledFD()
++    old=dict(c.old())
++    calls=[]
++    @contextmanager
++    def opened(path,directory=False):
++        assert directory is True
++        calls.append(str(path))
++        fd=adapter.open(path,adapter.O_RDONLY|adapter.O_DIRECTORY|adapter.O_NOFOLLOW)
++        try:
++            yield fd,adapter.fstat(fd)
++        finally:
++            adapter.close(fd)
++    old['opened']=opened
++    # Windows fstat has different ctime precision. This model substitutes the
++    # mtime field for ctime; native tests retain the actual seven-field identity.
++    old['identity']=lambda info:(info.st_dev,info.st_ino,info.st_mode,info.st_nlink,info.st_size,info.st_mtime_ns,info.st_mtime_ns)
++    monkeypatch.setattr(c,'_OLD_CATALOGUE',old)
++    monkeypatch.setattr(c,'os',adapter)
++    return adapter,calls
++
++
++def test_modeled_fd_walk_uses_one_root_entry_and_relative_descendants(tmp_path,monkeypatch):
++    c=catalogue()
++    tree(tmp_path)
++    adapter,calls=modeled(c,monkeypatch)
++    expected=reference(c,tmp_path)
++    actual=c._retained_root_linux(tmp_path)
++    assert c.canonical(actual)==c.canonical(expected)
++    assert calls==[str(tmp_path)]
++    assert len(adapter.opens)==actual['files']+actual['directories']
++    assert all(parent is not None and '/' not in name and '\\' not in name for name,parent,_ in adapter.opens[1:])
++    assert all(flags & adapter.O_NOFOLLOW and flags & adapter.O_CLOEXEC for _,_,flags in adapter.opens[1:])
++    assert not adapter.files and not adapter.directories
++
++
++def test_portable_unchanged_inventory_matches_independent_oracle(tmp_path):
++    c=catalogue()
++    tree(tmp_path)
++    assert c.canonical(c.retained_root(tmp_path))==c.canonical(reference(c,tmp_path))
++
++
++@pytest.mark.skipif(sys.platform!='linux',reason='actual Linux dir_fd/openat/no-follow evidence required')
++def test_native_ancestor_open_scaling_and_complete_equivalence(tmp_path,monkeypatch):
++    c=catalogue()
++    tree(tmp_path,links=True)
++    before=reference(c,tmp_path)
++    legacy=getattr(c,'_retained_root_portable',c.retained_root)
++    assert c.canonical(legacy(tmp_path))==c.canonical(before)
++    actual_open=os.open
++    calls=[]
++    def tracked(name,flags,*args,**kwargs):
++        calls.append((str(name),kwargs.get('dir_fd')))
++        return actual_open(name,flags,*args,**kwargs)
++    monkeypatch.setattr(os,'open',tracked)
++    result=c.retained_root(tmp_path)
++    assert c.canonical(result)==c.canonical(before)
++    assert sum(name=='/' for name,_ in calls)==1
++    assert len(calls)==len(tmp_path.parts)-1+result['files']+result['directories']
++    assert all(name=='/' or parent is not None for name,parent in calls)
++
++
++def changed(info, **values):
++    fields={name:getattr(info,name) for name in dir(info) if name.startswith('st_')}
++    return SimpleNamespace(**dict(fields,**values))
++
++
++FAULTS=('read','stat','scandir','close','file_epoch','named_epoch','directory_epoch',
++        'directory_replacement','file_replacement','grow','shrink','membership','unsupported','allocation')
++
++
++def faulty_walk(c, adapter, root, monkeypatch, fault):
++    """Faults reach real walker call boundaries; all must refuse a result."""
++    original={name:getattr(adapter,name) for name in ('read','stat','scandir','close','fstat','open')}
++    fired=[]
++    if fault in ('read','grow','shrink'):
++        def read(fd,count):
++            raw=original['read'](fd,count)
++            if not fired and raw:
++                fired.append(fault)
++                if fault=='read': raise OSError('injected read error')
++                if fault=='grow': return raw+b'longer'
++                return b''
++            return raw
++        monkeypatch.setattr(adapter,'read',read)
++    elif fault=='scandir':
++        def scandir(fd):
++            fired.append(fault)
++            raise OSError('injected scandir error')
++        monkeypatch.setattr(adapter,'scandir',scandir)
++    elif fault=='close':
++        def close(fd):
++            original['close'](fd)
++            if not fired:
++                fired.append(fault)
++                raise OSError('injected post-release close error')
++        monkeypatch.setattr(adapter,'close',close)
++    elif fault in ('file_epoch','directory_epoch','directory_replacement','allocation'):
++        seen={}
++        def fstat(fd):
++            info=original['fstat'](fd)
++            seen[fd]=seen.get(fd,0)+1
++            wantdir=fault in ('directory_epoch','directory_replacement')
++            if not fired and stat.S_ISDIR(info.st_mode)==wantdir and (not wantdir or seen[fd]>=2):
++                fired.append(fault)
++                if fault=='directory_replacement': return changed(info,st_ino=info.st_ino+1)
++                if fault=='allocation': return changed(info,st_size=8*1024**3+1)
++                return changed(info,st_mtime_ns=info.st_mtime_ns+1)
++            return info
++        monkeypatch.setattr(adapter,'fstat',fstat)
++    elif fault=='membership':
++        calls={}
++        def scandir(fd):
++            calls[fd]=calls.get(fd,0)+1
++            if not fired and calls[fd]==2:
++                fired.append(fault)
++                @contextmanager
++                def empty(): yield iter(())
++                return empty()
++            return original['scandir'](fd)
++        monkeypatch.setattr(adapter,'scandir',scandir)
++    else:
++        seen={}
++        def named(name,**kwargs):
++            info=original['stat'](name,**kwargs)
++            key=(kwargs.get('dir_fd'),str(name))
++            seen[key]=seen.get(key,0)+1
++            if not fired and stat.S_ISREG(info.st_mode) and (fault not in ('named_epoch','file_replacement') or seen[key]>=2):
++                fired.append(fault)
++                if fault=='stat': raise OSError('injected stat error')
++                if fault=='unsupported': return changed(info,st_mode=stat.S_IFIFO|0o600)
++                if fault=='file_replacement': return changed(info,st_ino=info.st_ino+1)
++                return changed(info,st_mtime_ns=info.st_mtime_ns+1)
++            return info
++        monkeypatch.setattr(adapter,'stat',named)
++    with pytest.raises(Exception):
++        c._retained_root_linux(root)
++    assert fired==[fault]
++
++
++@pytest.mark.parametrize('fault',FAULTS)
++def test_modeled_error_paths_refuse_and_close_all_owned_descriptors(tmp_path,monkeypatch,fault):
++    c=catalogue()
++    tree(tmp_path)
++    adapter,_=modeled(c,monkeypatch)
++    faulty_walk(c,adapter,tmp_path,monkeypatch,fault)
++    assert not adapter.files and not adapter.directories
++
++
++def native_facade(c,monkeypatch):
++    adapter=SimpleNamespace(**{name:getattr(os,name) for name in (
++        'O_RDONLY','O_DIRECTORY','O_NOFOLLOW','O_NONBLOCK','O_CLOEXEC','open','close','fstat','stat','scandir','readlink','read','fsencode')})
++    monkeypatch.setattr(c,'os',adapter)
++    return adapter
++
++
++@pytest.mark.skipif(sys.platform!='linux',reason='actual Linux error/unwind descriptor proof required')
++@pytest.mark.parametrize('fault',FAULTS)
++def test_native_error_paths_refuse_and_close_all_owned_descriptors(tmp_path,monkeypatch,fault):
++    c=catalogue()
++    tree(tmp_path,links=True)
++    adapter=native_facade(c,monkeypatch)
++    before=set(os.listdir('/proc/self/fd'))
++    faulty_walk(c,adapter,tmp_path,monkeypatch,fault)
++    assert set(os.listdir('/proc/self/fd'))==before
++
++
++@pytest.mark.skipif(sys.platform!='linux',reason='actual no-follow named replacement and symlink proof required')
++@pytest.mark.parametrize('target',['file','directory','symlink','root'])
++def test_native_real_replacements_are_rejected_without_fd_leaks(tmp_path,monkeypatch,target):
++    c=catalogue()
++    root=tmp_path/'tree'
++    root.mkdir()
++    (root/'file').write_bytes(b'original content')
++    (root/'directory').mkdir()
++    os.symlink('missing-one',root/'symlink')
++    adapter=native_facade(c,monkeypatch)
++    actual_open,actual_readlink=adapter.open,adapter.readlink
++    fired=[]
++    def opened(name,flags,**kwargs):
++        if not fired and target in ('file','directory') and name==target:
++            fired.append(target)
++            (root/target).rename(root/(target+'-preserved'))
++            os.symlink('missing-target',root/target)
++        elif not fired and target=='root':
++            fired.append(target)
++            root.rename(tmp_path/'preserved-root')
++            root.mkdir()
++        return actual_open(name,flags,**kwargs)
++    def readlink(name,**kwargs):
++        result=actual_readlink(name,**kwargs)
++        if target=='symlink' and not fired:
++            fired.append(target)
++            (root/'symlink').unlink()
++            os.symlink('missing-two',root/'symlink')
++        return result
++    monkeypatch.setattr(adapter,'open',opened)
++    monkeypatch.setattr(adapter,'readlink',readlink)
++    before=set(os.listdir('/proc/self/fd'))
++    with pytest.raises(Exception): c.retained_root(root)
++    assert fired==[target]
++    assert set(os.listdir('/proc/self/fd'))==before
++
++
++@pytest.mark.skipif(sys.platform!='linux',reason='actual per-alias native content reads required')
++def test_native_hardlinks_and_fresh_calls_never_skip_content_reads(tmp_path,monkeypatch):
++    c=catalogue()
++    (tmp_path/'original').write_bytes(b'content'*200000)
++    os.link(tmp_path/'original',tmp_path/'alias')
++    adapter=native_facade(c,monkeypatch)
++    actual=adapter.read
++    lengths=[]
++    def read(fd,size):
++        raw=actual(fd,size)
++        lengths.append(len(raw))
++        return raw
++    monkeypatch.setattr(adapter,'read',read)
++    first=c.retained_root(tmp_path)
++    second=c.retained_root(tmp_path)
++    assert first==second
++    assert sum(lengths)==4*1400000
++    assert first['files']==2
++
++
++@pytest.mark.parametrize('bound',['depth','path','file_size','directory_count','entry_count','allocation'])
++def test_modeled_bounds_refuse_without_leaks(tmp_path,monkeypatch,bound):
++    c=catalogue()
++    tree(tmp_path)
++    adapter,_=modeled(c,monkeypatch)
++    if bound=='path':
++        monkeypatch.setattr(adapter,'fsencode',lambda name:b'x'*2049)
++    elif bound=='depth':
++        # Exercise the actual recursion/depth condition using a deterministic
++        # component-count proxy, not a relaxed production depth constant.
++        actual=c.PurePosixPath
++        monkeypatch.setattr(c,'PurePosixPath',lambda name:SimpleNamespace(parts=('x',)*33) if name!='.' else actual(name))
++    elif bound in ('directory_count','entry_count'):
++        actual=adapter.scandir
++        limit=50001 if bound=='directory_count' else 49999
++        original_stat=adapter.stat
++        target=(tmp_path/'a'/'one').lstat()
++        @contextmanager
++        def scandir(fd):
++            if bound=='directory_count' or adapter.directories[fd].name in ('Z','deep','lower','a'):
++                yield (SimpleNamespace(name=str(n)) for n in range(limit))
++            else:
++                with actual(fd) as items: yield items
++        if bound=='entry_count':
++            def stat_name(name,**kwargs):
++                if str(name).isdigit(): return changed(target,st_mode=stat.S_IFLNK|0o777,st_size=1)
++                return original_stat(name,**kwargs)
++            monkeypatch.setattr(adapter,'stat',stat_name)
++            monkeypatch.setattr(adapter,'readlink',lambda *args,**kwargs:b'x')
++            # Four synthetic wide directories plus root metadata exceed200000.
++            for name in ('deep','lower'): (tmp_path/name).mkdir()
++        monkeypatch.setattr(adapter,'scandir',scandir)
++    elif bound=='allocation':
++        monkeypatch.setattr(c,'_allocation',lambda info:65*1024**3)
++    else:
++        actual=adapter.stat
++        def observed(name,**kwargs):
++            info=actual(name,**kwargs)
++            if stat.S_ISREG(info.st_mode):
++                return changed(info,st_size=8*1024**3+1)
++            return info
++        monkeypatch.setattr(adapter,'stat',observed)
++    with pytest.raises(Exception): c._retained_root_linux(tmp_path)
++    assert not adapter.files and not adapter.directories
++
++
++@pytest.mark.skipif(sys.platform!='linux',reason='actual Linux FIFO refusal must not block or leak')
++def test_native_fifo_refused_without_open_or_fd_leak(tmp_path,monkeypatch):
++    c=catalogue()
++    os.mkfifo(tmp_path/'fifo')
++    adapter=native_facade(c,monkeypatch)
++    def forbidden(*args,**kwargs): raise AssertionError('unsupported FIFO reached open')
++    monkeypatch.setattr(adapter,'open',forbidden)
++    before=set(os.listdir('/proc/self/fd'))
++    with pytest.raises(c.DiagnosticError): c.retained_root(tmp_path)
++    assert set(os.listdir('/proc/self/fd'))==before

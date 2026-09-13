@@ -1,5 +1,42 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neueste Fortsetzung 13. September 2026 — Vorbereitung gemessen, nicht deployed
+
+Nachtrag13:16UTC: Task62-Code `6eb267a` ist unabhängig freigegeben; echter
+Linux-Gegenvergleich bestanden: Altcode scheitert am erwarteten Fehler,
+Neucode43 Tests bestanden/keine Skips, SSH0, Ergebnisse separat zurückgelesen,
+keine Testprozesse übrig. Noch keine Messung des gesamten großen Altbestands.
+Vor dem Datenlauf wurde zusätzlich das echte1024-FD-Limit erkannt; mindestens
+4546 Dateien sollen gleichzeitig gehalten werden. Task63 regelt dafür die
+begrenzte prozesslokale Reservierung und einmalig gehaltene Vorfahren, ohne
+die bisherigen Identitätsprüfungen zu reduzieren. Siehe aktuellen SDD-Ledger.
+
+Der Accountwechsel ist abgeglichen; der bereits bestandene kleine native
+Task58-Test und die beiden Task61-Prozessprotokolle werden nicht wiederholt.
+Reparaturbranch `codex/context-capacity-recovery-20260910` ist bis
+`68c1ff89042d26a9c9454a308e3fe65defa8947a` committed und remote bestätigt.
+GitHub main und VPS stehen dagegen weiterhin auf
+`2dd1116b68f3d94e9c24338c6c9dff9b01799221` — kein Produktivdeployment.
+
+Das geprüfte Codearchiv1632072 wurde erfolgreich in den isolierten VPS-Bereich
+übertragen. Der anschließende einzige Kontrolllauf wurde nach74,12Wandsekunden
+mit Signal9 beendet, passend zur festen60CPU-Sekunden-Grenze. Noch vor der
+ersten vollständigen Bestandsdatei; kein Datenlauf, kein neuer Beleg und keine
+300CPU-Zulassung. Archiv unverändert, Job/Registry leer, kein Testkind übrig.
+Alle Kosten und Fehlbelege bleiben erhalten; kein unveränderter Neustart.
+Task62 optimiert ausschließlich wiederholtes Öffnen der Verzeichnispfade,
+ohne Datei-/Hash-/Vollständigkeitsprüfungen oder Grenzwerte wegzulassen.
+Autor arbeitet daran; Review und tatsächliche Linux-Messung bleiben offen.
+Details/Writer im SDD-Ledger, Task61-native-preparation-evidence und Task62-Brief.
+
+Frisch12:48/12:49UTC: betboy-app und Caddy aktiv, interne/öffentliche Healthchecks
+`ok`, sieben Timer geplant. Wettfinder- und Tennis-Dienst bleiben fehlgeschlagen.
+Timer berechnen, sie pullen/deployen keinen Code. Vollständiges C, B, Restore,
+Vollsuite, Betriebsabnahme und kontrollierter main-/VPS-Rollout bleiben offen.
+Das ist weiterhin kein Beleg für fertig validierte Verletzungs-/Müdigkeitseffekte
+oder bessere Wetten. Die schon erteilten C-/B-/Commit-/Push-/Deploymentfreigaben
+gelten weiter. Keine erneute Freigabe wegen alter eingefrorener Überschriften.
+
 ## Fortsetzung 13. September 2026 — Abbruch abgeglichen
 
 Aktueller Abschluss dieses Schritts: Der echte kleine VPS-Test ist nach der

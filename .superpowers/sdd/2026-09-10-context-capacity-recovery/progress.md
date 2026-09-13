@@ -1,6 +1,30 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-10-context-capacity-recovery.md
 
-## Current checkpoint — 13 September 2026: Task61 catalogue preparation STOP before admission
+## Current checkpoint — 13 September 2026: Task62 native units pass; Task63 FD reservation next
+
+Latest source6eb267a294244bcb6375c5045cc5231c1109d611; Task62 bounded review
+892d53d942a5cd90aef328f6376e9fdce8586541d2a1b476ac60ad3606953998 APPROVED.
+Root read full report/review and verified final local23pass/21Linuxskip XML.
+Actual native unit f5caa6/session75927/ab5d1d: intended old-code RED1failure,
+new43passed/0skips/0errors21.41s, actual SSH/outer0. External22.42wall,
+21.99user/0.24sys/49700KiBRSS; normal UID1000 synthetic fixtures only.
+Separate816095 readback13:15:50UTC matches all code/archive/XML hashes and
+no relevant unit processes; new retained QA root60178432occupiedB preserved.
+See task-62-native-unit-evidence.md, not a large-retained/capacity pass.
+Task62 transport I1 outer-wall finding fixed by group timeout210+5s, scoped
+revieweed754246874c1cfd9470ad04dda5a89b2fd75990f656759959ed9d39063f59b approved.
+All prior costs/failures/T2/M1 remain explicit. No Task58 repetition.
+
+Separate actual root NOFILE967751:1024soft/1048576hard.4546 original files
+alone cannot fit. Local exact dependency-path arithmetic299047 gives468
+unique ancestors,5014 shared FD demand versus54876 old-chain FDs (not fresh
+native inventory). Task63 brief records the explicit process-local bounded
+soft reservation/shared lifetime contract; no global/App/helper limit change.
+No actual receipt admission/worker yet; registry/job still unused. Root owns
+Git/evidence/native, Task63 implementation/review is next. C/B/restore/release
+and both failed operational jobs remain open.
+
+### Earlier Task61 preparation STOP (preserved, not retried unchanged)
 
 Latest actual evidence supersedes the preparation-pending statements below.
 Root/repair HEAD and pushed repair33b758cfb371b1f923f47c98c25e44c802465e26;
