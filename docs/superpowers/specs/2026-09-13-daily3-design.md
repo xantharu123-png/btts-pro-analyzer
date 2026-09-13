@@ -1,9 +1,10 @@
 # 3 a day keeps the job away — Produktspezifikation v1
 
 Stand: 13.09.2026. Interne Feature-ID: `daily3`.
-Status: Die unten bezeichneten Nutzerregeln sind bestätigt. Die daraus
-abgeleitete technische/UX-Fassung ist ein Entwurf zur Prüfung, kein bereits
-implementiertes oder für Echtgeld freigegebenes Produkt.
+Aktueller Status: Die Nutzerregeln sind bestätigt; ein lokaler Funktionsstand
+ist in `aca7256d474a2f144fb08e53c13a71a09ff726d3` implementiert. Die Details des
+tatsächlichen v1-Vertrags stehen in Abschnitt 12. Produktionsfreigabe und
+VPS-Übernahme sind weiterhin offen, nicht durch lokale Tests ersetzt.
 Freigabenachtrag 13.09.2026: Mit „ja passt und vps pullen“ hat der Nutzer
 auch die Übernachtregel ausdrücklich angenommen und die Übernahme auf den
 VPS beauftragt. Das ist keine Behauptung einer bereits implementierten Funktion
@@ -302,9 +303,10 @@ automatische Wettplatzierung als stillschweigender nächster Schritt.
 | `tip_store.py:TipStore` | Akzeptiert BET/RELEASED und nur WON/LOST/VOID, speichert Geld als REAL; daher kein Daily3-Geldledger und kein uneingeschränkt passender Importpfad |
 | `account_identity.py:storage_scope` | Dauerhaften Browser-Scope nutzen; nicht mit sicherem globalem Personenlimit verwechseln |
 
-Geplante neue Verantwortung, noch kein Code: Daily3-Kandidatenauswahl,
-centgenaue Tagesrechnung/Persistenz und eigener UI-Adapter. Vorhandene Modelle,
-Quotenbeobachtungen und Ergebnisquellen bleiben gemeinsam verwendet.
+Inzwischen lokal implementierte Verantwortung: Daily3-Kandidatenauswahl,
+centgenaue Tagesrechnung/Persistenz und eigener UI-Adapter. Vorhandene Modelle
+und Quotenbeobachtungen werden gemeinsam verwendet; die reale Abrechnung wird
+in v1 ausdrücklich manuell anhand des Buchmacherbelegs bestätigt.
 
 ## 9. Erfolgsmessung
 
@@ -350,3 +352,66 @@ Für die Abgrenzung vom Einkommensversprechen siehe
 [Gambling Commission: Think about why you are gambling](https://www.gamblingcommission.gov.uk/public-and-players/guide/page/think-about-why-you-are-gambling).
 Am 13.09.2026 gelesen; dies sind allgemeine Verbraucherhinweise, keine Schweizer
 Rechtsberatung und keine empirische Bestätigung der BetBoy-Prognosen.
+
+## 12. Implementierungsnachtrag — tatsächlicher Vertrag und Grenzen
+
+Die späteren ausdrücklichen Umsetzungsaufträge wurden ausgeführt, ohne erneut
+die bestätigten Produktregeln abzufragen. Zugang: `Wettfinder → 3 a day`;
+die fünf Hauptseiten und der bisherige automatische Standard bleiben unverändert.
+
+### Auswahl, nicht behauptete Sicherheit
+
+Policy `daily3-evidence-diversity-v1`: Nur heutige, noch nicht gestartete Events
+mit höchstens 2,5 Stunden altem, individuell zuordenbarem Modellbeleg. Auswahl
+aus dem vollständigen gespeicherten Pool vor dem Schnitt auf die verbliebenen
+Slots: Sport-/Marktvielfalt, neuerer Modellstand, Beginn, stabile Event-/Auswahlschlüssel.
+Nur gegenseitig ausschließende Richtungen desselben Events/Modellstands werden
+untereinander nach Modellwahrscheinlichkeit verglichen. Kein sportübergreifender
+Wahrscheinlichkeitssicherheitsrang, keine empirische Kalibrierungsbehauptung.
+Quote, Mindestquote, Haircut, RELEASED-Status und Kontostand verändern diesen
+Modellvergleich nicht. Es werden weder drei Treffer erzwungen noch einfache
+Torlinien kategorisch verboten. Der vollständige normale Wettfinder bleibt erhalten.
+
+Fußball nutzt exakt gebundene Torerwartungen/Stichproben. Tennis nutzt belegte
+Belag-/Aufschlagmodellangaben, E-Sport gespeicherte Elo-Eingaben. Fehlende
+Verletzungs-/Müdigkeitswirkung wird nicht als Vorteil erfunden. Basketball und
+Eishockey haben noch keinen solchen Daily3-Begründungsadapter; das ist offene
+Arbeit, kein fertiggestellter Fünf-Sport-Qualitätsnachweis. Cricket bleibt draußen.
+
+Eine native ID und vollständige Zeit-/Teilnehmer-Aliase werden im Beleg gebunden.
+Ein exakter Alias-Kollisionsfall ist nicht als weiteres unterschiedliches Event
+freigegeben, auch wenn später die Datenquelle/ID wechselt. Es gibt keine unscharfe
+Namenszusammenführung und keine Identitätsumschreibung im Modellkatalog.
+
+### Reale Buchführung und Darstellung
+
+Getrennte SQLite-Datenbank `runtime_state/daily3.db`, transaktionale Ganzrappen-
+rechnung, idempotente Aktionen und revidierbare, nicht überschriebene Belege.
+Der vorhandene Ledger-Schlüssel authentisiert jede Ereigniszeile und den aktuellen
+Scope-Kopf mit eigenem Daily3-HMAC-Namensraum. Kein Eingriff in alte 15K-Konten.
+Der Backuphelfer verifiziert diese Signaturen unabhängig vom importierbaren Appcode;
+ein Daily3-only-Backup ohne Schlüssel wird nicht veröffentlicht. Ein vollständiger
+Rollback der gesamten DB samt gültigem Kopf bleibt ohne externen Anker unerkennbar.
+
+Einsatz und tatsächlich angebotene Quote sind leer einzugeben, exakter Markt
+explizit zu bestätigen. Vormerkung reserviert Geld/Slot, ist keine Platzierung.
+Platzierung und tatsächlich gutgeschriebener Gesamtbetrag nach Gebühren brauchen
+eigene Bestätigung und Beleg. Void zählt als getätigter Slot; nur ausdrücklich
+nicht platzierte Vormerkungen werden freigegeben. Keine automatische Auszahlung
+aus Quote/Modell, kein automatisches All-in und keine Buchmacheranbindung.
+
+Offene Vortagswetten blockieren neue Budgets und weitere Vormerkungen auch nach
+einem verspäteten Nachtrag. Bereits extern platzierte Wetten können mit klarer
+Abweichungskennzeichnung erfasst werden, ohne erfundene Modellwahrscheinlichkeit;
+tatsächliche negative Salden werden nicht künstlich aufgefüllt. Das ist kein
+globales Personenlimit: Der bestehende Browser-Scope ist keine geräteübergreifend
+authentisierte Identität, und externe Platzierungen sind nicht kontrollierbar.
+
+Pro/Contra, Datenstand und Quote sind direkt sichtbar; die Eingabefelder werden
+bei neuem Analyse-/Vergleichspreisstand neu aufgebaut. Bei Bestätigung wird die
+aktuelle vollständige Auswahl erneut aus dem gespeicherten Artefakt gelesen;
+kein zusätzlicher Provider-/Modelllauf. Gespeicherte Verträge bleiben unverändert.
+
+Nachweise/Restarbeiten: [Implementierungs- und VPS-Prüfbericht](../../audits/2026-09-13-daily3-implementation-native-qa.md).
+Lokale Tests und Browserprüfung sind keine Freigabe als sichere Einkommensquelle
+und ersetzen weder die offene Modellvalidierung noch den kontrollierten Release.

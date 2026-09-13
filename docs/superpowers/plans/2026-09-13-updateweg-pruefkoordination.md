@@ -3,11 +3,13 @@
 Stand: 13.09.2026. Gelesener Reparaturstand:
 `0296b09306da5e820968c23a485c25b9e12c8a2c`.
 
-**Status: ausgearbeiteter Plan, keine Implementierung oder Ausführungsfreigabe
-für die neu vorgeschlagenen Budgets.** Der Nutzer hat die Ausarbeitung mit
-„ja“ beauftragt. Die bestehenden C-/B-/Commit-/Push-/Deploymentfreigaben werden
-nicht erneut verlangt. Neu zu entscheiden ist nur der unten genau bezeichnete
-QA-Prozess-/Budgetvertrag einschließlich des historischen FIFO-Testknotens.
+**Aktueller Nachtrag: später beauftragt und implementiert; der einmalige
+900-s-Diagnoseauftrag wurde ausgeführt und ist in A2 fehlgeschlagen.** Kein
+C/B-Pass, keine Freigabe für weitere 900 s und kein Reset des erhaltenen Journals.
+[Gemessener Ausgang und verbleibende Grenzen](../../audits/2026-09-13-daily3-implementation-native-qa.md).
+Die folgenden Abschnitte erhalten den ursprünglichen Planvertrag. Die bestehenden
+C-/B-/Commit-/Push-/Deploymentfreigaben werden nicht erneut verlangt; zusätzliche
+Messbudgets oder eine andere Teilreserveverteilung wären neue Entscheidungen.
 
 ## 1. Zwei Probleme, zwei Nachweise
 

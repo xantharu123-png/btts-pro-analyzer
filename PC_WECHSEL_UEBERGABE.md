@@ -1,5 +1,41 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Stand 13. September 2026 — Daily3 lokal implementiert; VPS-Freigabe offen
+
+Diese Fortsetzung ersetzt die Statusaussagen der älteren Abschnitte darunter.
+Keine neue Planungs-/Namens-/Budgetfreigabe einholen: Der Nutzer verlangt die
+Umsetzung samt Commit, Push und kontrollierter Serverübernahme.
+
+- Reparatur-Worktree: `.worktrees/context-capacity-recovery-20260910`, Branch
+  `codex/context-capacity-recovery-20260910`. Daily3-Code: `aca7256d474a2f144fb08e53c13a71a09ff726d3`;
+  begrenzte Scanner-Fehlerdiagnose: `de6b12b`. Den späteren Dokumentations-/Pushstand mit Git prüfen.
+- Daily3 enthält die CHF-50-Tagesrechnung, höchstens drei verschiedene Events,
+  manuell bestätigte echte Einsätze/Rückzahlungen, keine erwarteten Gewinngutschriften,
+  keinen Nachschuss, Übernachtregel und flache Karten. Nicht live, keine Buchmachertransaktionen.
+- Schlussregression: **869 bestanden, 21 Plattform-Skips, 97 Untertests bestanden**.
+  Das ist die unten im Audit bezeichnete gezielte Kombination, keine Vollsuite/Produktionsabnahme.
+- Browser mit isolierten Testdaten: 20 CHF bei Quote 1,12 reserviert/als platziert
+  bestätigt, Rückzahlung 22,40 CHF: verfügbar 52,40 CHF, netto 2,40 CHF. Kein Geld bewegt.
+  Kein DOM-Überlauf bei 1440/1080/760/320 px. Mobil keine pixelgenaue Designabnahme.
+  Eigener Testserver beendet, temporärer Tab geschlossen und Viewport zurückgesetzt.
+- Der echte einmalige 900-CPU-/900-Wandsekunden-V2-Auftrag ist **fehlgeschlagen**:
+  A1 107,575990 CPU-s, A2 Exit 125 nach 108,389114 CPU-s; Daten-Worker B nicht gestartet.
+  Alte Exception wurde im Kind verschluckt; genaue Ursache weiterhin unbekannt.
+  Diagnosecode verbessert, kein neuer Vollversuch gestartet und kein Budget zurückgesetzt.
+- Rund 216 CPU-s für zwei A-Scans lassen nur rund 84 s der A-Reserve. Ein dritter
+  ähnlich teurer Scan passt voraussichtlich nicht. Kein unautorisiertes Umverteilen
+  der 300/300/300-Teilreserven oder neuer 900-s-Auftrag. Vollständige C/B-, Restore-
+  und Updaterabnahme sowie Deployment bleiben offen.
+- Letzter frischer VPS-Abgleich dieser Fortsetzung: HEAD `2dd1116b68f3d94e9c24338c6c9dff9b01799221`,
+  `betboy-app.service`/Caddy aktiv, lokaler Healthcheck `ok`; Tennis Exit 1,
+  Wettfinder zuletzt Result=success. Keine Servercode-/Timeränderung. GitHub main `f84d9a6`.
+
+Ehrlicher Funktionsumfang und offene Modellarbeit stehen im
+[`docs/audits/2026-09-13-daily3-implementation-native-qa.md`](docs/audits/2026-09-13-daily3-implementation-native-qa.md).
+Basketball-/Hockey-Begründungsadapter, empirische Kontextwirkung und sportübergreifende
+Prognosequalität sind dadurch nicht erledigt. Cricket bleibt ausgenommen.
+Alle übernommenen `qa19-*`-Ordner und historischen Serverprüfdaten bleiben erhalten.
+
 ## Fortsetzung 13. September 2026 — Reparatur tatsächlich implementiert, native Prüfung folgt
 
 Der Nutzer verlangt jetzt ausdrücklich die Umsetzung, keine weitere Planungsrunde.
