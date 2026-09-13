@@ -25,7 +25,7 @@ revision = "SOURCE_REVISION"
 expected_sha = "ARCHIVE_SHA256"
 mode = "NATIVE_MODE"
 raw = base64.b64decode("ARCHIVE_BASE64", validate=True)
-assert mode in ('portable-native', 'root-process')
+assert mode in ('portable-native', 'root-process', 'catalogue-preflight')
 assert len(revision) == 40 and len(raw) <= 2*1024**2 and hashlib.sha256(raw).hexdigest() == expected_sha
 assert (sys.flags.isolated, sys.flags.no_site, sys.flags.dont_write_bytecode, sys.flags.optimize) == (1, 1, 1, 0)
 assert dict(os.environ) == {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'}
@@ -54,6 +54,34 @@ base_names = ('tests/native_context_receipt_diagnostic.py', 'tests/native_contex
               'tests/native_context_chain_catalogue.py', 'tests/native_context_diagnostic_admission.py',
               'context_preparation_process_guard.py', 'context_preparation_budget.py', 'context_preparation_supervisor.py')
 c = parent['load_catalogue']({name: members[name] for name in base_names})
+
+if mode == 'catalogue-preflight':
+    # Read-only diagnosis of the nonhistorical catalogue prerequisites. This
+    # deliberately does NOT count as one of the four full observations or a
+    # successful qualification. It creates neither registry nor budget nor DB.
+    inputs = Path('/var/lib/betboy-context-qa-v2-inputs-01')
+    old_archive = c['old']()['data_bytes'](inputs/'code.tar', 64*1024**2,
+        'f76e3f5aa9c79758661c908d5b9b57b2709029e2e6bfea80139b2f59f528853a')
+    validate = c['validate_retained_v2']
+    c['validate_retained_v2'] = lambda raw, **kwargs: validate(raw, observe=False)
+    try:
+        retained = c['old']()['file_record'](inputs/'retained.json', maximum=8*1024**2)
+        catalogue = c['inventory_v2'](str(inputs/'code.tar'), '9bd588af9798974d42e8868e4c0a38dcf01aae0f',
+            manifest_path=str(inputs/'catalogue.json'), retained_path=str(inputs/'retained.json'),
+            retained_sha256=retained['sha256'], registry_directory='/var/lib/betboy-context-qa-v2-registry-01',
+            job_directory='/var/lib/betboy-context-qa-v2-job-01')
+        print(json.dumps(dict(preflight_only=True, native_pass=False, source_revision=revision,
+            old_archive_revision='9bd588af9798974d42e8868e4c0a38dcf01aae0f',
+            retained_not_observed=True, catalogue_bytes=len(catalogue), cpu_seconds=time.process_time())), flush=True)
+    except BaseException as exc:
+        frames=[]; tb=exc.__traceback__
+        while tb:
+            frames.append(dict(file=tb.tb_frame.f_code.co_filename, function=tb.tb_frame.f_code.co_name, line=tb.tb_lineno))
+            tb=tb.tb_next
+        print(json.dumps(dict(preflight_only=True, native_pass=False, source_revision=revision,
+            retained_not_observed=True, exception=type(exc).__name__, trace=frames[-8:], cpu_seconds=time.process_time())), flush=True)
+        raise SystemExit(1)
+    raise SystemExit(0)
 
 root = Path('/tmp' if expected_uid else '/var/lib') / ('betboy-context-qav2-unit-'+revision[:7]+'-'+mode+'-01')
 assert root.parent.resolve() == root.parent and not os.path.lexists(root)
@@ -103,7 +131,7 @@ else:
     for fault in ('none', 'raised-ceiling', 'exception', 'empty', 'oversize', 'wall', 'cpu'):
         read_fd, write_fd = os.pipe()
         def action(*_args):
-            assert resource.getrlimit(resource.RLIMIT_CPU) == ((300, 300) if fault == 'raised-ceiling' else (1, 1))
+            assert resource.getrlimit(resource.RLIMIT_CPU) == ((400, 400) if fault == 'raised-ceiling' else (1, 1))
             try:
                 os.fstat(write_fd)
             except OSError:
@@ -122,11 +150,13 @@ else:
         try:
             deadline = time.clock_gettime_ns(time.CLOCK_BOOTTIME)+(1 if fault == 'wall' else 8)*10**9
             try:
-                data, result = module['run_scanner']('A1', c, {}, None, allowance=300 if fault == 'raised-ceiling' else 1,
+                data, result = module['run_scanner']('A1', c, {}, None, allowance=400 if fault == 'raised-ceiling' else 1,
                     deadline=deadline, supervisor=helpers['context_preparation_supervisor'])
             except module['ScannerStopped'] as exc:
                 assert fault not in ('none', 'raised-ceiling') and exc.measurement['child_exit_code'] is not None
                 assert exc.measurement['child_cpu_ns'] is not None
+                if fault == 'exception':
+                    assert b'betboy-scanner-error-v1' in exc.prefix
                 result = dict(status='expected-stop', measurement=exc.measurement)
             else:
                 assert fault in ('none', 'raised-ceiling') and data == b'{"actual":true}' and result['child_exit_code'] == 0

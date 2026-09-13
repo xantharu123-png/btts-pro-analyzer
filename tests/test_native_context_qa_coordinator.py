@@ -109,6 +109,33 @@ def test_cpu_conversion_is_conservative():
             m._cpu_ns(SimpleNamespace(ru_utime=number, ru_stime=0))
 
 
+@pytest.mark.parametrize('fault', ['none', 'file-writable', 'directory-writable', 'foreign-owner', 'other-group-ancestor', 'hardlink'])
+def test_frozen_baseline_readonly_group_is_not_write_authority(monkeypatch, fault):
+    import stat
+    c = load('native_context_receipt_diagnostic_catalogue')
+    baseline = Path(c.BASELINE_PATH)
+    def info(path):
+        leaf = path == baseline
+        group = 1001 if path in (baseline, baseline.parent) else 0
+        mode = stat.S_IFREG|0o440 if leaf else stat.S_IFDIR|0o750
+        owner, links = 0, 1
+        if fault == 'file-writable' and leaf: mode |= 0o020
+        if fault == 'directory-writable' and path == baseline.parent: mode |= 0o002
+        if fault == 'foreign-owner' and leaf: owner = 1001
+        if fault == 'other-group-ancestor' and path == baseline.parent.parent: group = 1001
+        if fault == 'hardlink' and leaf: links = 2
+        return SimpleNamespace(st_uid=owner, st_gid=group, st_mode=mode, st_nlink=links)
+    monkeypatch.setattr(Path, 'lstat', info)
+    monkeypatch.setattr(Path, 'is_symlink', lambda p: False)
+    if fault == 'none':
+        assert c.protected(baseline).st_gid == 1001
+        with pytest.raises(Exception):
+            c.protected(baseline.parent, directory=True)
+    else:
+        with pytest.raises(Exception):
+            c.protected(baseline)
+
+
 def test_failed_scanner_retains_structural_diagnosis_without_values_or_locals():
     import json
     m = load('native_context_qa_coordinator')

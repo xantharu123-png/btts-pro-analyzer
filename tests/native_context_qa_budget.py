@@ -14,8 +14,10 @@ import context_preparation_budget as legacy
 NS = 10**9
 FORMAT = 'betboy-context-qa-budget-v2'
 AUTHORIZATION = '2026-09-13-coordination-qualification-01'
+AUTHORIZATION_02 = '2026-09-13-coordination-qualification-02'
 STEPS = ('A1', 'A2', 'A3', 'B', 'C')
 LIMITS = {'A': 300*NS, 'B': 300*NS, 'C': 300*NS}
+PROFILES = {AUTHORIZATION: LIMITS, AUTHORIZATION_02: {'A': 400*NS, 'B': 300*NS, 'C': 200*NS}}
 CHARGE = sum(LIMITS.values())
 WALL = 900*NS
 PARENT = 60*NS
@@ -76,16 +78,17 @@ class _State:
         need(self.status not in ('complete', 'stopped'), 'terminal package cannot be reused')
         if event == 'reserve':
             legacy._closed(body, 'authorization identity history_digest start_boot_ns deadline_boot_ns boot_id limits charge_cpu_ns clock parent_cpu_ns'.split(), 'QA reservation')
-            need(self.count == 0 and body['authorization'] == AUTHORIZATION, 'one explicit package only')
+            need(self.count == 0 and body['authorization'] in PROFILES, 'one explicit package only')
+            limits = PROFILES[body['authorization']]
             legacy._identity(legacy.BudgetIdentity(**body['identity']))
             legacy._digest(body['history_digest'], 'declared historical workload')
             integer(body['start_boot_ns']); integer(body['deadline_boot_ns'])
             need(body['deadline_boot_ns'] == body['start_boot_ns'] + WALL, 'deadline was renewed')
             legacy._closed(body['limits'], LIMITS, 'aggregate phase limits')
             for key in LIMITS:
-                integer(body['limits'][key], LIMITS[key])
+                integer(body['limits'][key], limits[key])
             integer(body['charge_cpu_ns'], CHARGE)
-            need(body['limits'] == LIMITS and body['charge_cpu_ns'] == CHARGE, 'partial or altered reservation')
+            need(body['limits'] == limits and body['charge_cpu_ns'] == CHARGE, 'partial or altered reservation')
             self.binding = clone(body)
             self.observe(body['clock'], body['parent_cpu_ns'])
             self.status = 'reserved'
@@ -97,13 +100,13 @@ class _State:
                 need(self.pending is None and len(self.steps) < len(STEPS) and
                      body['step'] == STEPS[len(self.steps)], 'missing, repeated or concurrent QA step')
                 phase = body['step'][0]
-                remaining = (WORKER if phase == 'B' else LIMITS[phase]) - self.child_cpu[phase]
+                remaining = (WORKER if phase == 'B' else self.binding['limits'][phase]) - self.child_cpu[phase]
                 integer(body['allowance_cpu_ns'], remaining)
                 need(body['allowance_cpu_ns'] == remaining // NS * NS and remaining >= NS,
                      'child must receive only the whole-second remaining phase allowance')
                 # Keep postscan wall time reserved before admitting the data worker.
                 if phase == 'B':
-                    need(self.binding['deadline_boot_ns'] - self.clock.boot_after_ns > WORKER + LIMITS['C'],
+                    need(self.binding['deadline_boot_ns'] - self.clock.boot_after_ns > WORKER + self.binding['limits']['C'],
                          'insufficient time for worker and required postscan')
                 self.pending = clone(body)
                 self.status = 'running'
@@ -118,7 +121,7 @@ class _State:
                 legacy._digest(body['evidence_digest'], 'held complete child evidence')
                 phase = body['step'][0]
                 self.child_cpu[phase] += body['child_cpu_ns']
-                need(self.child_cpu[phase] <= (WORKER if phase == 'B' else LIMITS[phase]),
+                need(self.child_cpu[phase] <= (WORKER if phase == 'B' else self.binding['limits'][phase]),
                      'cumulative phase CPU exceeded')
                 self.steps.append(body['step'])
                 self.pending = None
@@ -166,17 +169,19 @@ def replay(raw):
 
 class QaBudget:
     """Single-process protocol handle over a separately held durable journal."""
-    def __init__(self, store, *, identity, history_digest, process_start_boot_ns, clock, parent_cpu):
+    def __init__(self, store, *, identity, history_digest, process_start_boot_ns, clock, parent_cpu,
+                 authorization=AUTHORIZATION):
         self.store, self.clock, self.parent_cpu = store, clock, parent_cpu
         self.pid, self.failed, self.closed = os.getpid(), False, False
         self.lock = threading.Lock()
         self.state = _State()
+        need(authorization in PROFILES, 'explicit authorized QA profile required')
         need(store.read() == b'', 'existing package cannot be restarted')
         sample = clock()
-        binding = dict(authorization=AUTHORIZATION, identity=legacy._identity(identity),
+        binding = dict(authorization=authorization, identity=legacy._identity(identity),
                        history_digest=history_digest, start_boot_ns=process_start_boot_ns,
                        deadline_boot_ns=process_start_boot_ns+WALL, boot_id=sample.boot_id,
-                       limits=dict(LIMITS), charge_cpu_ns=CHARGE,
+                       limits=dict(PROFILES[authorization]), charge_cpu_ns=CHARGE,
                        clock=legacy._clock(sample), parent_cpu_ns=parent_cpu())
         self._append('reserve', binding)
 
@@ -212,7 +217,7 @@ class QaBudget:
         self._check()
         need(type(step) is str and step in STEPS, 'unknown step')
         phase = step[0]
-        limit = WORKER if phase == 'B' else LIMITS[phase]
+        limit = WORKER if phase == 'B' else self.state.binding['limits'][phase]
         allowance = (limit-self.state.child_cpu[phase]) // NS * NS
         self._append('begin', dict(step=step, allowance_cpu_ns=allowance, **self._measurement()))
         return allowance // NS

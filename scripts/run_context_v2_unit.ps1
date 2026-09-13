@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$Revision,
-    [Parameter(Mandatory=$true)][ValidateSet('portable-native','root-process','qualification')][string]$Mode,
+    [Parameter(Mandatory=$true)][ValidateSet('portable-native','root-process','catalogue-preflight','qualification')][string]$Mode,
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'

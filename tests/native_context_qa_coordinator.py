@@ -23,9 +23,11 @@ import time
 MIB, GIB, NS = 1024**2, 1024**3, 10**9
 COORDINATOR = 'tests/native_context_qa_coordinator.py'
 BUDGET = 'tests/native_context_qa_budget.py'
-INPUT = '/var/lib/betboy-context-qa-v2-inputs-01'
-REGISTRY = '/var/lib/betboy-context-qa-v2-registry-01'
-JOB = '/var/lib/betboy-context-qa-v2-job-01'
+INPUT = '/var/lib/betboy-context-qa-v2-inputs-02'
+REGISTRY = '/var/lib/betboy-context-qa-v2-registry-02'
+JOB = '/var/lib/betboy-context-qa-v2-job-02'
+AUTHORIZATION = '2026-09-13-coordination-qualification-02'
+PRIOR_REGISTRY = '/var/lib/betboy-context-qa-v2-registry-01'
 SELECTORS = (('/var/lib', 'betboy-', ('betboy-backup',)),
              ('/var/tmp', 'betboy-update.', ()),
              ('/tmp', 'betboy-context-', ()), ('/tmp', 'betboy-tour-', ()),
@@ -75,7 +77,7 @@ def bootstrap_source(sources, base_names):
 def validate_request(c, value):
     c['shape'](value, 'format authorization commit archive roots historical_fifo previous_costs')
     need(value['format'] == 'betboy-context-qa-request-v2' and
-         value['authorization'] == '2026-09-13-coordination-qualification-01', 'fixed explicit QA request required')
+         value['authorization'] == AUTHORIZATION, 'fixed explicit QA request required')
     need(type(value['commit']) is str and len(value['commit']) == 40 and
          all(x in '0123456789abcdef' for x in value['commit']), 'fixed full source revision required')
     c['shape'](value['archive'], 'path size sha256')
@@ -97,10 +99,14 @@ def validate_request(c, value):
     need(all(not PurePosixPath(a).is_relative_to(b) for a in names for b in names if a != b), 'historical roots overlap')
     c['validate_historical_fifo'](value['historical_fifo'])
     costs = value['previous_costs']
-    c['shape'](costs, 'primary_reserved_cpu_ns synthetic_reserved_cpu_ns unjournaled_cpu_ns evidence_sha256')
+    c['shape'](costs, 'primary_reserved_cpu_ns synthetic_reserved_cpu_ns unjournaled_cpu_ns evidence_sha256 prior_qa_reserved_cpu_ns prior_qa_journal_sha256')
     need(type(costs['primary_reserved_cpu_ns']) is int and costs['primary_reserved_cpu_ns'] == 1680*NS and
          type(costs['synthetic_reserved_cpu_ns']) is int and costs['synthetic_reserved_cpu_ns'] == 600*NS and
          costs['unjournaled_cpu_ns'] is None, 'old known charges and unknown costs must remain explicit')
+    need(type(costs['prior_qa_reserved_cpu_ns']) is int and costs['prior_qa_reserved_cpu_ns'] == 900*NS,
+         'previous failed qualification charge must not be refunded')
+    c['sha'](costs['prior_qa_journal_sha256'])
+    need(PRIOR_REGISTRY in names, 'previous QA journal must remain in the fully observed history')
     c['sha'](costs['evidence_sha256'])
     return value
 
@@ -210,7 +216,7 @@ def _scanner_child(step, c, request, retained_raw, write_fd, read_fd, allowance,
 
 def run_scanner(step, c, request, retained_raw, *, allowance, deadline, supervisor):
     """Measure one fixed scanner with wait4; CPU is never child self-report."""
-    need(sys.platform == 'linux' and type(allowance) is int and 1 <= allowance <= 300, 'bounded native scanner required')
+    need(sys.platform == 'linux' and type(allowance) is int and 1 <= allowance <= 400, 'bounded native scanner required')
     read_fd, write_fd = os.pipe2(os.O_CLOEXEC)
     pid = pidfd = terminal = usage = None
     result, peak_combined = bytearray(), 0
@@ -313,7 +319,8 @@ class Coordinator:
                 profile_digest=c['digest'](c['canonical'](c['fixed_profile']())))
             self.account = qa['QaBudget'](self.store, identity=identity,
                 history_digest=c['digest'](request_raw), process_start_boot_ns=start,
-                clock=helpers['context_preparation_budget']._system_clock, parent_cpu=time.process_time_ns)
+                clock=helpers['context_preparation_budget']._system_clock, parent_cpu=time.process_time_ns,
+                authorization=AUTHORIZATION)
             self.held.enter_context(c['old']()['opened'](Path(INPUT)/'request.json'))
             self.held.enter_context(c['old']()['opened'](Path(INPUT)/'code.tar'))
             need(c['old']()['data_bytes'](Path(INPUT)/'request.json', MIB, c['digest'](request_raw)) == request_raw,
@@ -329,6 +336,13 @@ class Coordinator:
     def assert_admitted(self):
         self.namespace.check()
         self.store.check()
+        previous = self.c['old']()['data_bytes'](Path(PRIOR_REGISTRY)/self.c['QA_JOURNAL'], MIB,
+            self.request['previous_costs']['prior_qa_journal_sha256'])
+        old_state = self.qa['replay'](previous).snapshot()
+        need(old_state['charged_cpu_ns'] == 900*NS and
+             old_state['binding']['authorization'] == self.qa['AUTHORIZATION'] and
+             old_state['completed_steps'] == ['A1'] and old_state['pending']['step'] == 'A2',
+             'previous failed qualification state changed; no fresh-budget reset')
         info = os.fstat(self.store.fd)
         need(info.st_uid == info.st_gid == 0 and stat.S_IMODE(info.st_mode) == 0o600,
              'private native V2 accounting seal changed')

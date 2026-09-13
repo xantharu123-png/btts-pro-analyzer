@@ -965,7 +965,13 @@ def protected(path, directory=False, *, searchable=False):
     chain = (path, *path.parents)
     for index, item in enumerate(chain):
         info = item.lstat()
-        require(info.st_uid == info.st_gid == 0 and not info.st_mode & 0o022 and not item.is_symlink(),
+        # The frozen DATA baseline was deliberately sealed root:betboy 0440
+        # under root:betboy 0750. Its group has no write authority. Accept that
+        # existing read-only group only for these exact two data-path nodes;
+        # executables, controls and every other ancestor still require root:root.
+        baseline_node = path == Path(BASELINE_PATH) and item in (path, path.parent)
+        require(info.st_uid == 0 and (info.st_gid == 0 or baseline_node)
+                and not info.st_mode & 0o022 and not item.is_symlink(),
                 'root-owned nonwritable protected ancestor required')
         require(stat.S_ISDIR(info.st_mode) if index or directory else stat.S_ISREG(info.st_mode) and info.st_nlink == 1,
                 'protected input type differs')

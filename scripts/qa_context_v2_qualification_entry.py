@@ -71,11 +71,15 @@ for path in paths:
         category='backup' if path.startswith(('/var/backups/', '/var/lib/betboy-live-backup-')) else 'historical-qa',
         charged_cpu_ns=None,
         journals=sorted(({key: item[key] for key in journal_keys} for item in known if item['root'] == path), key=lambda item:item['path'])))
-request = dict(format='betboy-context-qa-request-v2', authorization='2026-09-13-coordination-qualification-01',
+prior_qa_path = Path(coordinator['PRIOR_REGISTRY'])/c['QA_JOURNAL']
+prior_qa_record = c['old']()['file_record'](prior_qa_path, maximum=1024**2)
+prior_qa = c['old']()['data_bytes'](prior_qa_path, 1024**2, prior_qa_record['sha256'])
+request = dict(format='betboy-context-qa-request-v2', authorization=coordinator['AUTHORIZATION'],
     commit=revision, archive=dict(path=coordinator['INPUT']+'/code.tar', size=len(archive_raw), sha256=archive_sha),
     roots=roots, historical_fifo=fifo,
     previous_costs=dict(primary_reserved_cpu_ns=1680*10**9, synthetic_reserved_cpu_ns=600*10**9,
-                        unjournaled_cpu_ns=None, evidence_sha256=hashlib.sha256(known_raw).hexdigest()))
+                        unjournaled_cpu_ns=None, evidence_sha256=hashlib.sha256(known_raw).hexdigest(),
+                        prior_qa_reserved_cpu_ns=900*10**9, prior_qa_journal_sha256=hashlib.sha256(prior_qa).hexdigest()))
 coordinator['validate_request'](c, request)
 request_raw = c['canonical'](request)
 assert len(request_raw) <= 1024**2 and paths == coordinator['selected_history']()

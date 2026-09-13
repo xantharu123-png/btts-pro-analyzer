@@ -28,6 +28,37 @@ def package(tmp_path):
     owner.close()
 
 
+def test_second_explicit_package_has_new_split_without_reinterpreting_old_records(tmp_path):
+    path = tmp_path/'second-qa.jsonl'
+    store = legacy._FileJournal(os.open(path, os.O_RDWR|os.O_CREAT|os.O_EXCL|getattr(os, 'O_BINARY', 0), 0o600))
+    owner = qa.QaBudget(store, identity=legacy.BudgetIdentity(*(x*64 for x in 'abcde')),
+        history_digest='f'*64, process_start_boot_ns=99*NS,
+        clock=lambda: legacy.ClockSample(BOOT, 100*NS, 1700000100*NS, 100*NS),
+        parent_cpu=lambda: NS, authorization=qa.AUTHORIZATION_02)
+    try:
+        assert owner.snapshot()['binding']['limits'] == {'A': 400*NS, 'B': 300*NS, 'C': 200*NS}
+        assert owner.begin('A1') == 400
+        finish(owner, 'A1', 108*NS)
+        assert owner.begin('A2') == 292
+        finish(owner, 'A2', 109*NS)
+        assert owner.begin('A3') == 183
+        finish(owner, 'A3', 108*NS)
+        assert owner.begin('B') == 240
+        finish(owner, 'B', 239*NS)
+        assert owner.begin('C') == 200
+        finish(owner, 'C', 108*NS)
+        owner.complete('2'*64)
+        assert qa.replay(path.read_bytes()).snapshot()['charged_cpu_ns'] == 900*NS
+        # A public rehash cannot relabel the changed 400/300/200 split as the
+        # old authorization; old package expectations remain unchanged.
+        record = json.loads(path.read_bytes().splitlines()[0])
+        record['body']['authorization'] = qa.AUTHORIZATION
+        with pytest.raises(Exception, match='reservation|counter'):
+            qa.replay(legacy._canonical(record)+b'\n')
+    finally:
+        owner.close()
+
+
 def finish(owner, step, cpu=NS, **overrides):
     args = dict(child_cpu_ns=cpu, child_peak_rss_bytes=1024, child_exit_code=0, evidence_digest='1'*64)
     args.update(overrides)
