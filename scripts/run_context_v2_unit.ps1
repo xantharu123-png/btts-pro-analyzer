@@ -21,7 +21,7 @@ if ($Mode -eq 'qualification') {
     if ($LASTEXITCODE -ne 0 -or $qaNames.Count -lt 100) { throw 'Full tracked Python source selection failed' }
 }
 $qaRun = Join-Path $qaWork ('.pytest_tmp/qav2-unit-'+$Revision.Substring(0,7)+'-'+$Mode)
-if ($DryRun) { $qaRun += '-dryrun' }
+if ($DryRun) { $qaRun += '-dryrun-'+[guid]::NewGuid().ToString('N') }
 if (Test-Path -LiteralPath $qaRun) { throw 'Retained unit transport already exists; no implicit retry' }
 New-Item -ItemType Directory -Path $qaRun | Out-Null
 $qaArchivePath = Join-Path $qaRun 'source.tar'
@@ -39,13 +39,13 @@ if ($Mode -eq 'qualification') {
     foreach ($qaMeta in @(@('KNOWN_JOURNALS','.pytest_tmp/task61-known-journals-01.json'),@('PRIOR_ROOTS','.pytest_tmp/task61-retained-metadata-01.json'))) {
         $qaMetaBytes = [IO.File]::ReadAllBytes((Join-Path $qaWork $qaMeta[1]))
         if ($qaMetaBytes.Length -gt 262144) { throw 'Retained metadata exceeds bound' }
-        $qaPairs += ,@($qaMeta[0]+'_BASE64',[Convert]::ToBase64String($qaMetaBytes))
-        $qaPairs += ,@($qaMeta[0]+'_SHA256',[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($qaMetaBytes)).ToLowerInvariant())
+        $qaPairs += ,@(($qaMeta[0]+'_BASE64'),[Convert]::ToBase64String($qaMetaBytes))
+        $qaPairs += ,@(($qaMeta[0]+'_SHA256'),[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($qaMetaBytes)).ToLowerInvariant())
     }
 } else { $qaPairs += ,@('NATIVE_MODE',$Mode) }
 foreach ($qaPair in $qaPairs) {
     $qaToken = '"'+$qaPair[0]+'"'
-    if ([regex]::Matches($qaTemplate,[regex]::Escape($qaToken)).Count -ne 1) { throw 'Unit template placeholder differs' }
+    if ([regex]::Matches($qaTemplate,[regex]::Escape($qaToken)).Count -ne 1) { throw "QA template placeholder differs: $qaToken" }
     $qaTemplate = $qaTemplate.Replace($qaToken,'"'+$qaPair[1]+'"')
 }
 $qaPayload = [Text.Encoding]::UTF8.GetBytes($qaTemplate)
