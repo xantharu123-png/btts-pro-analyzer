@@ -1,8 +1,41 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Fortsetzung 13. September 2026 — Abbruch abgeglichen
+
+Task58-Code `588843d` ist lokal committed und unabhängig ohne Befunde
+freigegeben. Review und vollständiges Prüfpaket sind erhalten. Der angekündigte
+neue VPS-Test war vor dem Abbruch noch NICHT gestartet: frische Prüfung um
+07:10:46UTC bestätigt fehlende neue QA-Pfade und keine Testprozesse. Auch lokal
+laufen keine Python-/SSH-/Git-Prozesse und keine Unteragenten mehr.
+App/VPS bleiben `2dd1116`, App und Caddy laufen, interner Healthcheck `ok`.
+Der nächste Schritt ist der Push des geprüften Reparaturstands und danach der
+isolierte native Test, kein Produktivdeployment. Die frühere Verlustmeldung
+zum äußeren Test-Exit bleibt dokumentiert; XML73/0/0/0 ersetzt diesen Beleg nicht.
+Gesamt-C, B, Restore, Vollsuite und main/VPS-Abschluss bleiben ausdrücklich offen.
+
 ## Aktuell 12. September 2026 — C freigegeben, verlustfreier Speicherumbau läuft
 
-Neuer Stand:120814a ist gepusht/frisch remote bestätigt; FIX4-Code df874ba ist
+Neuester verifizierter Checkpoint: `0aa6e23c684ea9bb87c9bead6132f4bc8f2226e0`
+ist auf `codex/context-capacity-recovery-20260910` gepusht und frisch bestätigt;
+GitHub main und VPS-App bleiben `2dd1116`. Nicht alles ist erledigt.
+FIX5-Code `bc6305c` hat60 gezielte Tests und ein unabhängiges sauberes Review.
+Der vierte tatsächliche kleine VPS-Kettenlauf scheitert trotzdem noch VOR dem
+Datentest: Pandas benutzt zusätzlich dateutil für UTC. Das ist durch einen
+begrenzten tatsächlichen Import mit vollständigem Aufruferpfad belegt, keine
+vermutete Ursache. Beide Original-/Kopie-Zeitzonendateien sowie sämtliche440
+Code- und4540 Abhängigkeitsdateien sind separat vollständig nachgeprüft.
+Alle Fehlversuche/Reservierungen bleiben erhalten; keine Testprozesse übrig.
+Task58 ergänzt gerade als enges Vorhaben den zweiten tatsächlichen Leser und
+sperrt dessen alternative gebündelte Zeitzonendaten. Anforderungen, Bytepins,
+Prüfbefunde und aktueller alleiniger Writer stehen im SDD-Ledger/Task58-Brief.
+Keine Wiederholung einer sechsten blinden Task57-Fixrunde, keine neue
+Systemordnerberechtigung, keine Modell-/Quoten-/Produktivdatenänderung.
+Offen bleiben der echte native Kettenpass, vollständige590553/199/199/114-Profile,
+globale C-Bilanz, B-Nachweise/Restore, Vollsuite und endgültiger main/VPS-Rollout.
+Die schriftlichen C-/B-Verträge sind freigegeben; alte "noch nicht freigegeben"-
+Überschriften in den eingefrorenen Entwürfen verlangen keine erneute Zustimmung.
+
+Historischer Zwischenstand:120814a ist gepusht/frisch remote bestätigt; FIX4-Code df874ba ist
 mit36 gezielten Tests unabhängig freigegeben. Der tatsächliche dritte kleine
 VPS-Lauf ist jedoch gestoppt: nun konkret fehlende Zeitzonendatei UTC, weiterhin
 vor Task54-Aufbau, kein WTA-Lauf. Alle drei Fehlerstände/Reservierungen bleiben

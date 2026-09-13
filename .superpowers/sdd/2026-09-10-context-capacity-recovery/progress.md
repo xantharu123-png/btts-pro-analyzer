@@ -516,6 +516,56 @@ both real readers must be bound before Pandas/product imports — a reader's
 existing module configuration requires loading that module — cost if wrong
 is stopped QA/rework, not permission for arbitrary pre-guard or parent imports.
 
+Checkpoint0aa6e23c684ea9bb87c9bead6132f4bc8f2226e0 pushed/freshly matched;
+main2dd1116 unchanged. Task58 ACTIVE fromBASE0aa6e23, fresh sole writer
+/root/c_timezone_reader_binding (gpt-6-astra/high), exact brief8da08ac0.
+Root owns only separate ledger/native evidence while the writer is active;
+no Git/index or implementation edits by Root. Exact already executed readback-v2
+PowerShell command is now retained as evidence/task57-native-readback-bc6305c-05.ps1,
+so account continuation need not reconstruct it from volatile tool state.
+It creates new local observation files and will refuse to overwrite the already
+retained run paths; no automatic rerun/delete is authorized by retaining it.
+
+Task58 writer returned; candidate588843d1da2b32bdb864fe21fe577f513dd421e6
+contains exactly worker/old harness tests/new focused timezone tests/report.
+Root read all amended executable/test bytes and full report
+ab2e548199a6f71f89aa225a21380689c5d5598ce4de36511847b7b1a59e4420;
+all pins/checks match. Actual final XML73/0/0/0,16.939s, SHA
+09d7d9e6d8447baebb57a2c8493dea9b0358259325eab49eb75fe822f6966ab4,
+and17retained real reader subprocess JSONs allreturncode0/stderr empty freshly
+parsed by Root. Final outer console/exit was lost by the author's orchestration;
+no rerun or inferredexit0. Successful read-only Get-Process enumeration at
+21:19:40.5062949UTC finds0Python processes; current absence is not recovered exit.
+Independent fresh reviewer /root/c_timezone_binding_review (gpt-5.6-sol/high)
+ACTIVE on complete BASE0aa6e23..588843d package50120bytes SHA
+85d47b778799e5dad619a02986819bd7129a853c44296f836e1cd31d2c5de954.
+Both spec/quality verdicts required; native/global acceptance remains pending.
+
+Task58 independent review completed: SPEC COMPLIANT / QUALITY APPROVED,
+no Critical/Important/Minor findings. Root fully read and hash-checked
+task-58-independent-review.md, SHA226c277a3247e2acf6da351a1d2bf1c3bd505874e95f6b6c2aac83537b3e1d5d.
+The missing outer pytest exit/console remains an explicit evidence gap; no
+suite was repeated to conceal it. Native Task54/global C/B/restore remain open.
+Full review package50120bytes is retained raw and as16972byte gzip
+evidence/task58-review-0aa6e23-complete.diff.gz, SHA
+8137124cc68a32b0020c07e653acc1cbe05fadc8c7e61ecb74e95103cdbc4a96.
+Root decoded it to the exact original85d47b77 package hash.
+Immutable588843d Python archive9287680bytes, SHA
+de224152bc37c5eaa6e9d039be7f92058c44ead061177f5467ac585a6d2ef617,
+contains441 members/8937194source bytes; actual catalogue.archive_members
+validated every member and all unchanged parent/catalogue/helper/Task54 pins.
+
+13 September07:09-07:10UTC interruption reconciliation: no local Python/SSH/
+Git processes and no live subagents remain. Read-only VPS observation07:10:46
+finds no UID65534 processes; all three proposed task58-588843d-01 job/archive/
+catalogue paths are absent. Thus the announced native check had NOT started;
+the prior commentary was ahead of the actual preparation stage. App revision
+2dd1116b68f3d94e9c24338c6c9dff9b01799221, app/Caddy active/running, local VPS
+health ok. No runtime/UI-hang cause inferred from these observations. Retained
+review/archive and dirty controller documents are intact. Continue at the
+review-documentation/push checkpoint, then fresh catalogue/guarded native run;
+no repeat implementation, no abandoned-process kill, no main/app deployment.
+
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
 Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,
