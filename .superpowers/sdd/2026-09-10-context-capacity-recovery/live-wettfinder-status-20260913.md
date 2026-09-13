@@ -6,6 +6,17 @@ This operational observation does not substitute for C/B release acceptance.
 
 ## Observed service state
 
+Latest read-only580c22 exit0,2026-09-13T13:45:47Z: VPS HEAD2dd1116 unchanged;
+actual betboy-app.service and Caddy loaded/active/running, status0. Internal
+and public curl health both `ok`. Seven timers listed with future deadlines.
+Wettfinder latest run13:37:12–13:43:27UTC failed, ExecMainStatus1/exit-code;
+Tennis05:17:05–05:32:17UTC failed, status1. These are fresh service fields,
+not a new published-artifact diagnosis. The earlier identity-mismatch artifact
+below must not be blindly attributed to this newer failed run. No service,
+timer, code, database, marker or credentials changed; no reset-failed.
+
+### Earlier observations
+
 2026-09-13T10:26:29Z, actual SSH/tool exit0, chunk6b6ecf:
 
 - `/opt/betboy/app` HEAD2dd1116b68f3d94e9c24338c6c9dff9b01799221.

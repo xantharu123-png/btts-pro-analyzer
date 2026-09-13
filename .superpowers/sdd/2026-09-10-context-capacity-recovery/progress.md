@@ -1,6 +1,37 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-10-context-capacity-recovery.md
 
-## Current checkpoint — 13 September 2026: Task62 native units pass; Task63 FD reservation next
+## Current checkpoint — 13 September 2026,13:45UTC: Task63 native pass; retained process contract decision required
+
+Sourcebb54ec58eadcab0e9c0ae065aa258cb7a8f337d6, Task63 code reviewa2ad7685...
+APPROVED/noCriticalImportant. Root read complete source/test/report/review and
+freshly matched local27pass/16nativeSkip XML. Exact native2c543f SSH/outer0:
+35pass/1namedportableSkip,0failures/errors,2.81s; GNU3.28wall/2.69user/0.46sys,
+RSS40976KiB. Actual old1024EMFILE and new1100held/closure cases ran. Separate
+580c22 readback13:45:47UTC matches all artifacts, no ordinaryUIDQA processes.
+New synthetic QA root14,245,888du-allocatedB is retained. No main/worker change.
+See task-63-native-unit-evidence.md for exact pins, scope and accounting.
+
+Actual one-root measurement216f4e/session82187/e86c3d also PASS: all56895files,
+17409dirs/1932links, scan47.558612911CPU-s, external47.67CPU/59.41wall/38328KiB.
+Readback18eae7 confirms PID absent. No complete retained-union measurement or
+speedup ratio. Independent cost review74ffbe39... identifies TWO complete
+observations in each cumulativeCPU60 process (preparation and parent), FOUR
+in total. At unchanged cost this one root twice alone is95.117225822CPU-s;
+this is extrapolation, not a hard future lower bound. No further expensive
+unchanged run, admission/worker or free renewed budget. Before continuing
+that path an explicit process/resource-contract decision is required.
+See naechste-entscheidungsgrenze-20260913.md. Task62 retainedFIFO-v2 policy
+remains separately unimplemented; never delete/skip/open the known negative
+FIFO to force acceptance. No Task64 implementation dispatched.
+
+Task63 sole writer returned; all review agents done. Root owns handoff/Git.
+Repair was pushed through4e47314 in c6a019; final newer push must be checked
+in Git rather than inferred here. Production fresh580c22 stays2dd1116,
+betboy-app/Caddy active and healthok,7timers planned, both Wettfinder/Tennis
+jobs failed. No reset-failed/restart. Full C/B, real admission/corpus, restore,
+current full suite/release and empirical context claims remain OPEN.
+
+### Earlier checkpoint: Task62 native units pass; Task63 FD reservation next
 
 Latest source6eb267a294244bcb6375c5045cc5231c1109d611; Task62 bounded review
 892d53d942a5cd90aef328f6376e9fdce8586541d2a1b476ac60ad3606953998 APPROVED.

@@ -1,6 +1,30 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Neueste Fortsetzung 13. September 2026 — Vorbereitung gemessen, nicht deployed
+## Neueste Fortsetzung 13. September 2026,13:45UTC — zwei Fixes nativ geprüft; Vertragsentscheidung offen
+
+Task62 Dateileser und Task63 begrenzte Dateiverwaltung sind unabhängig geprüft
+und tatsächlich unter Linux bestätigt:43Tests sowie35Tests/1benannter
+Windows-Skip. Task63 Source `bb54ec58eadcab0e9c0ae065aa258cb7a8f337d6`;
+letzten Dokumentations-/Push-Commit anhand Git prüfen. Keine Testprozesse übrig.
+Keine Task58-/Task60-/Task61-Protokollwiederholung.
+
+Der vollständige größte Alt-QA-Ordner benötigt gemessen47,56CPU-Sekunden.
+Die bestehende Kette liest jeden alten Ordner viermal, zweimal pro Prozess
+mit jeweils60CPU-Gesamtlimit. Ein weiterer unveränderter großer Lauf ist
+nicht begründet. Kein neues Task61-Ticket verbraucht, kein entsprechender
+Worker gestartet, keine stille
+Grenzwerterhöhung. Jetzt zuerst explizite Prüfarchitektur-/Budgetentscheidung
+gemäß `naechste-entscheidungsgrenze-20260913.md` im aktuellen SDD-Verzeichnis.
+Der historische FIFO-Negativtest bleibt erhalten; seine v2-Erfassung ist
+noch nicht implementiert. Größeres C/B, Restore, Vollsuite und Rollout offen.
+
+Frisch580c22: VPS/main `2dd1116`, App/Caddy aktiv, beide Healthchecks `ok`,
+sieben Timer geplant; Wettfinder und Tennis dennoch fehlgeschlagen. Die Timer
+berechnen, pullen/deployen keinen Code. Reparatur bisher nur im Reparaturbranch,
+kein main-Push oder Produktivdeployment und kein Beleg für fertige empirische
+Kontexteffekte. Alle alten Kosten/Fehler/WIP bleiben erhalten.
+
+## Frühere Fortsetzung 13. September 2026,13:16UTC — historischer Zwischenstand
 
 Nachtrag13:16UTC: Task62-Code `6eb267a` ist unabhängig freigegeben; echter
 Linux-Gegenvergleich bestanden: Altcode scheitert am erwarteten Fehler,
