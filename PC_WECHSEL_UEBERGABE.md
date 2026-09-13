@@ -1,5 +1,35 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neuester Stand 14. September 2026 — zweiter Serverprüflauf beendet, kein Deployment
+
+Der zweite explizit genehmigte 900-s-Auftrag mit A400/B300/C200 lief auf
+`9d92ed862d16d08596fd8f5c33c7e033462b0326`. A1 und A2 bestanden; anschließend
+SIGKILL/Exit137 am 60-CPU-Limit des Steuerprozesses, noch vor A3/B/C.
+Die alte A2-Ursache ist nachgewiesen und korrigiert: root:betboy 0440/0750
+der exakt eingefrorenen Datenbasis war fälschlich als unsicher abgelehnt worden.
+Kein Serverrecht oder ursprünglicher Datenbestand wurde verändert.
+
+Zusätzliche lokale Korrektur `b9da5a3b9d183a7359b69056936eeeafe03a81f2`:
+unveränderte Journalbytes werden bei jeder Kontrolle weiter vollständig gelesen,
+aber nicht tausendfach unnötig nachgespielt. Neue Buchungen behalten fsync,
+Readback und vollständigen Replay; alle ursprünglichen Budget-/Frischegrenzen bleiben.
+124 gezielte lokale Tests bestanden/15 Plattform-Skips; echt Linux81/6Root-Skips.
+Große Repository-Suite beendet: 9630 bestanden, 2 Fehler, 91 Skips, 97 Untertests.
+Beide Fehler anschließend reproduziert und mit `dfe6068c6fc69bd9b2e8da17c8bc748d0fece583`
+behoben: veralteter Daily3-Verifier-Testpin und zu langer temporärer Windows-
+Berichtsname. Danach141/2Skips und223/3Skips in den betroffenen Tests bestanden.
+Keinen grünen finalen Vollsuiten- oder nativen Gesamtlauf daraus ableiten.
+
+**Kein dritter großer Lauf, keine Wiederverwendung eines verbrauchten Kontos.**
+Die Parent-Korrektur beweist weder ausreichende A-Reserve noch abgeschlossene
+C/B-/Restore-/Releaseprüfung. Beide Fehleraufträge und alle `qa19-*` bleiben erhalten.
+Produktion frisch weiterhin `2dd1116`, App/Caddy/Health erreichbar. Sieben Timer
+geplant; Tennis und Wettfinder weiterhin Result=exit-code/Status1. Daily3 nicht live.
+Alle eigenen lokalen Testprozesse beendet; kein dritter großer VPS-Prüfauftrag.
+Git-Pushstand anhand des echten Remotes prüfen, kein Main-/VPS-Erfolg aus Commit ableiten.
+Exakte Daten und offene Grenzen:
+[`docs/audits/2026-09-13-second-qualification.md`](docs/audits/2026-09-13-second-qualification.md).
+
 ## Aktueller Stand 13. September 2026 — Daily3 lokal implementiert; VPS-Freigabe offen
 
 Diese Fortsetzung ersetzt die Statusaussagen der älteren Abschnitte darunter.

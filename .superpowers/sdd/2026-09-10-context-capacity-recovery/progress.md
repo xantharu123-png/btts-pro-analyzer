@@ -1,5 +1,35 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-10-context-capacity-recovery.md
 
+## Current checkpoint — second authorized 900-second qualification stopped before A3
+
+The user explicitly authorized package02 with A400/B300/C200 and requested
+completion. Source9d92ed8 fixes the reproduced frozen-data root:betboy readonly
+ownership rejection, preserving all writer/type/control boundaries. Exact
+native package02 completed A1 (133686437001ns child CPU) and A2
+(140158398000ns), then died SIGKILL/SSH137 at the parent60 CPU boundary while
+finishing preparation. Overall385.60wall,262.19user+71.78sys; no A3/B/C,
+no accepted report, no refund. Full old and new namespaces remain intact.
+
+Codeb9da5a3 removes redundant semantic replay of already accepted journal bytes
+at each copy. Every held byte is still freshly read and compared every time;
+in-memory accepted state is independently compared, every append still has
+fsync/readback/full replay, live clocks/CPU/deadline and prior charges remain.
+Targeted124pass/15platformSkip and actual ordinary-UID Linux81pass/6rootSkip.
+No third package or capacity acceptance. A remaining126.155s before A3 may
+still be insufficient; do not treat the parent optimization as a full fix.
+The broader local suite completed:9630pass,2fail,91skip,97subtests;1992.61s,
+outer1. Both failures were subsequently reproduced and fixed indfe6068:
+the stale pre-Daily3 verifier pin and the Windows248-target/262-temp path
+overflow. Final targeted runtime/CLI/updater141pass/2skip plus affected
+consumer/Daily3223pass/3skip. No final whole-suite or native capacity PASS.
+
+Fresh14Sep00:05Europe/Zurich production2dd1116/app+Caddy active/healthok,
+seven timers planned, but tennis AND wettfinder jobs exit1. No deployment/updater exchange.
+Daily3 code is present but not live; full C/B, restore, correct installer path
+and release remain open. Exact archive/cost/result evidence is in
+`docs/audits/2026-09-13-second-qualification.md`. Prior entries below are
+historical, including their now-obsolete "plan only" statements.
+
 ## Current checkpoint — 13 September 2026: revised QA coordination plan drafted only
 
 User approved drafting the required process-contract change after the confirmed

@@ -2,6 +2,12 @@
 
 Stand dieser Fortsetzung: 13.09.2026. Keine Behauptung „alles fertig/live“.
 
+**Neuerer belegter Stand:** Die unten noch unbekannte A2-Ursache ist inzwischen
+nachgewiesen und korrigiert. Ein ausdrücklich freigegebener zweiter 900-s-Auftrag
+hat A1/A2 bestanden, wurde danach aber am Parent-CPU-Limit beendet. Kein Deployment.
+Siehe [zweite Qualifikation und verbleibende Grenzen](2026-09-13-second-qualification.md).
+Die nachfolgenden Messungen bleiben als ursprünglicher Lauf erhalten.
+
 ## Gesicherter Code
 
 - Branch `codex/context-capacity-recovery-20260910`, Worktree

@@ -3,10 +3,12 @@
 Stand: 13.09.2026. Gelesener Reparaturstand:
 `0296b09306da5e820968c23a485c25b9e12c8a2c`.
 
-**Aktueller Nachtrag: später beauftragt und implementiert; der einmalige
-900-s-Diagnoseauftrag wurde ausgeführt und ist in A2 fehlgeschlagen.** Kein
-C/B-Pass, keine Freigabe für weitere 900 s und kein Reset des erhaltenen Journals.
-[Gemessener Ausgang und verbleibende Grenzen](../../audits/2026-09-13-daily3-implementation-native-qa.md).
+**Aktueller Nachtrag: implementiert; beide ausdrücklich freigegebenen
+900-s-Diagnoseaufträge wurden ausgeführt und sind unvollständig beendet.**
+Im zweiten Auftrag A400/B300/C200 bestanden A1 und A2, danach erreichte der
+Steuerprozess sein 60-CPU-Limit. Ursache lokal korrigiert, kein dritter großer
+Versuch, kein C/B-Pass und kein Reset eines erhaltenen Journals.
+[Zweiter tatsächlicher Ausgang und verbleibende Grenzen](../../audits/2026-09-13-second-qualification.md).
 Die folgenden Abschnitte erhalten den ursprünglichen Planvertrag. Die bestehenden
 C-/B-/Commit-/Push-/Deploymentfreigaben werden nicht erneut verlangt; zusätzliche
 Messbudgets oder eine andere Teilreserveverteilung wären neue Entscheidungen.
