@@ -165,6 +165,160 @@ def child_names(path, maximum):
     return sorted(names)
 
 
+def _active_descriptor_reservation(limits, descriptors, files, directories):
+    require(type(limits) is tuple and len(limits) == 2 and
+            all(type(n) is int for n in limits), 'exact NOFILE tuple required')
+    soft, hard = limits
+    require(0 <= soft <= 32768 and hard >= soft, 'original NOFILE envelope differs')
+    require(type(descriptors) is list and 0 < len(descriptors) <= 128 and
+            all(type(n) is int and 0 <= n < 128 for n in descriptors) and
+            len(set(descriptors)) == len(descriptors), 'bounded actual descriptor observation required')
+    require(type(files) is int and type(directories) is int and files > 0 and directories > 0 and
+            files + directories <= 30000, 'active descriptor count bound')
+    baseline = max(descriptors) + 1
+    required = baseline + files + directories + 128
+    require(required <= 32768 and hard >= required, 'existing hard NOFILE cannot cover full reservation')
+    return dict(original_soft=soft, desired_soft=max(soft, required), hard=hard, baseline=baseline,
+                files=files, directories=directories, required=required, ceiling=32768, reserve=128)
+
+
+def _active_resource():
+    import resource
+    return resource
+
+
+class _ActiveInputOwner:
+    """Process-bound FD table ownership; serialized observations cannot own it."""
+    def __init__(self, paths, ancestors):
+        self.pid, self.closed, self.nodes = os.getpid(), False, {}
+        self.resource = _active_resource()
+        self.original = self.resource.getrlimit(self.resource.RLIMIT_NOFILE)
+        descriptors = []
+        with os.scandir('/proc/self/fd') as entries:
+            for entry in entries:
+                require(len(descriptors) < 128 and type(entry.name) is str and
+                        entry.name.isascii() and entry.name.isdecimal() and len(entry.name) <= 8,
+                        'bounded native FD-number observation required')
+                number = int(entry.name)
+                require(str(number) == entry.name, 'canonical native FD number required')
+                descriptors.append(number)
+        self.observation = _active_descriptor_reservation(self.original, descriptors, len(paths), len(ancestors))
+        self.expected = self.observation['desired_soft'], self.original[1]
+        try:
+            self.resource.setrlimit(self.resource.RLIMIT_NOFILE, self.expected)
+            self.check_limit()
+        except BaseException:
+            self.restore()
+            raise
+
+    def check_limit(self):
+        require(not self.closed and self.pid == os.getpid(), 'active descriptor owner lifetime differs')
+        require(self.resource.getrlimit(self.resource.RLIMIT_NOFILE) == self.expected,
+                'active NOFILE reservation drift')
+
+    def restore(self):
+        require(self.pid == os.getpid(), 'cannot restore another process descriptor owner')
+        require(self.resource.getrlimit(self.resource.RLIMIT_NOFILE)[1] == self.original[1],
+                'hard NOFILE drift prevents soft-only restoration')
+        self.resource.setrlimit(self.resource.RLIMIT_NOFILE, self.original)
+        require(self.resource.getrlimit(self.resource.RLIMIT_NOFILE) == self.original,
+                'original soft NOFILE restoration failed')
+
+    def named(self, path):
+        if path.parent == path:
+            return os.stat(str(path), follow_symlinks=False)
+        return os.stat(path.name, dir_fd=self.nodes[path.parent][1], follow_symlinks=False)
+
+    def check_node(self, node):
+        path, fd, before, directory = node
+        require(before is not None, 'incomplete input descriptor binding')
+        named, held = self.named(path), os.fstat(fd)
+        require(old()['identity'](before) == old()['identity'](named) == old()['identity'](held) and
+                _allocation(before) == _allocation(named) == _allocation(held), 'held/named active input drift')
+        require(stat.S_ISDIR(held.st_mode) if directory else stat.S_ISREG(held.st_mode) and held.st_nlink == 1,
+                'active input type/link differs')
+        return held
+
+    def open_all(self, paths, ancestors):
+        self.check_limit()
+        for directory, names in ((True, sorted(ancestors, key=lambda p:(len(p.parts), str(p)))), (False, paths)):
+            for path in names:
+                info = self.named(path)
+                require(stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode) and info.st_nlink == 1,
+                        'active input must be no-follow directory or single-link regular')
+                flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
+                if directory:
+                    flags |= os.O_DIRECTORY
+                parent = {} if path.parent == path else {'dir_fd':self.nodes[path.parent][1]}
+                fd = os.open(str(path) if path.parent == path else path.name, flags, **parent)
+                node = [path, fd, info, directory]
+                self.nodes[path] = node  # Ownership begins before the first fstat.
+                self.check_node(node)
+        self.check_limit()
+        return dict(files=[tuple(self.nodes[p][:3]) for p in paths],
+                    directories=[tuple(self.nodes[p][:3]) for p in ancestors], _descriptor_owner=self)
+
+    def close(self):
+        require(self.pid == os.getpid(), 'cannot unwind another process descriptor owner')
+        if self.closed:
+            return
+        errors, released = [], True
+        try:
+            self.check_limit()
+        except BaseException as exc:
+            errors.append(exc)
+        for node in self.nodes.values():
+            try:
+                self.check_node(node)
+            except BaseException as exc:
+                errors.append(exc)
+        for _path, fd, before, _directory in reversed(tuple(self.nodes.values())):
+            try:
+                os.close(fd)
+            except BaseException as exc:
+                errors.append(exc)
+                try:
+                    current = os.fstat(fd)
+                except OSError as state:
+                    released &= state.errno == 9  # EBADF proves this descriptor is no longer live.
+                else:
+                    # In this isolated single-threaded owner, no new FD is
+                    # allocated during unwind. Retry once only if this exact
+                    # still-live inode remains owned; never retry a closed FD.
+                    if (current.st_dev, current.st_ino) != (before.st_dev, before.st_ino):
+                        released = False
+                        continue
+                    try:
+                        os.close(fd)
+                    except BaseException as second:
+                        errors.append(second)
+                        try:
+                            os.fstat(fd)
+                        except OSError as state:
+                            released &= state.errno == 9
+                        else:
+                            released = False
+        self.closed = True
+        if released:
+            try:
+                self.restore()
+            except BaseException as exc:
+                errors.append(exc)
+        else:
+            errors.append(DiagnosticError('descriptor cleanup uncertain; soft reservation retained'))
+        if errors:
+            raise DiagnosticError('active descriptor unwind/restoration failed') from errors[0]
+
+
+@contextmanager
+def _held_active_linux(paths, ancestors):
+    owner = _ActiveInputOwner(paths, ancestors)
+    try:
+        yield owner.open_all(paths, ancestors)
+    finally:
+        owner.close()
+
+
 def hold_active_inputs(stack, plan):
     """Hold only declared files and their unique ancestor directory union."""
     require(type(plan['inputs']) is list and 0 < len(plan['inputs']) <= 30000, 'active input count')
@@ -172,6 +326,8 @@ def hold_active_inputs(stack, plan):
     require(all(p.is_absolute() for p in paths) and len(set(paths)) == len(paths), 'active input paths differ')
     ancestors = sorted({p for path in paths for p in path.parents}, key=str)
     require(len(paths) + len(ancestors) <= 30000 and all(len(p.parts) <= 32 for p in paths), 'active metadata count/depth')
+    if sys.platform == 'linux':
+        return stack.enter_context(_held_active_linux(paths, ancestors))
     binding = {'files': [], 'directories': []}
     for kind, names in (('directories', ancestors), ('files', paths)):
         for path in names:
@@ -184,7 +340,17 @@ def sample_active_inputs(binding, plan, *, previous=None):
     """Measure physical blocks and epochs, never infer occupancy from caps."""
     caps = {item['path']: item['cap'] for item in plan['inputs']}
     files, directories = [], []
+    owner = binding.get('_descriptor_owner')
+    if owner is not None:
+        require(type(owner) is _ActiveInputOwner, 'actual held descriptor owner required')
+        owner.check_limit()
+        require({str(p) for p in owner.nodes if not owner.nodes[p][3]} == set(caps) and
+                binding['files'] == [tuple(owner.nodes[Path(item['path'])][:3]) for item in plan['inputs']] and
+                binding['directories'] == [tuple(owner.nodes[p][:3]) for p in sorted(
+                    (p for p in owner.nodes if owner.nodes[p][3]), key=str)], 'complete held input membership differs')
     def checked(path, fd, before):
+        if owner is not None:
+            return owner.check_node(owner.nodes[path])
         named = path.lstat()
         require(old()['identity'](before) == old()['identity'](named), 'held active input epoch changed')
         current = named if fd is None else os.fstat(fd)
@@ -197,7 +363,18 @@ def sample_active_inputs(binding, plan, *, previous=None):
         info = checked(path, fd, before)
         require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, 'active input must be single-link regular')
         cap = caps[str(path)]
-        record = old()['file_record'](path, maximum=cap)
+        if owner is None:
+            record = old()['file_record'](path, maximum=cap)
+        else:
+            require(0 <= info.st_size <= cap, 'held active input logical bound')
+            os.lseek(fd, 0, os.SEEK_SET)
+            hasher, length = hashlib.sha256(), 0
+            while block := os.read(fd, min(MIB, cap + 1 - length)):
+                length += len(block)
+                require(length <= cap, 'held active input grew')
+                hasher.update(block)
+            require(length == info.st_size, 'held active input length changed')
+            record = dict(size=length, sha256=hasher.hexdigest())
         allocated = _allocation(info)
         require(max(record['size'], allocated) <= old()['allocated_slot'](cap), 'active physical input exceeds slot')
         require(_allocation(checked(path, fd, before)) == allocated, 'active physical input changed during sample')
@@ -215,7 +392,10 @@ def sample_active_inputs(binding, plan, *, previous=None):
     result = dict(files=sorted(files, key=lambda x:x['path']), directories=sorted(directories, key=lambda x:x['path']),
         logical=sum(x['size'] for x in files)+metadata_logical,
         allocated=sum(x['allocated'] for x in files)+metadata_allocated,
-        metadata_logical=metadata_logical, metadata_allocated=metadata_allocated)
+        metadata_logical=metadata_logical, metadata_allocated=metadata_allocated,
+        descriptors=None if owner is None else dict(owner.observation))
+    if owner is not None:
+        owner.check_limit()
     require(max(result['logical'], result['allocated']) + plan['total'] <= plan['active_input_cap'],
             'actual active input and new-job union exceeded')
     require(previous is None or result == previous, 'held active physical inventory changed')
