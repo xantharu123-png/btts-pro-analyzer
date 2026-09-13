@@ -165,6 +165,63 @@ def child_names(path, maximum):
     return sorted(names)
 
 
+def hold_active_inputs(stack, plan):
+    """Hold only declared files and their unique ancestor directory union."""
+    require(type(plan['inputs']) is list and 0 < len(plan['inputs']) <= 30000, 'active input count')
+    paths = [Path(item['path']) for item in plan['inputs']]
+    require(all(p.is_absolute() for p in paths) and len(set(paths)) == len(paths), 'active input paths differ')
+    ancestors = sorted({p for path in paths for p in path.parents}, key=str)
+    require(len(paths) + len(ancestors) <= 30000 and all(len(p.parts) <= 32 for p in paths), 'active metadata count/depth')
+    binding = {'files': [], 'directories': []}
+    for kind, names in (('directories', ancestors), ('files', paths)):
+        for path in names:
+            fd, info = stack.enter_context(old()['opened'](path, directory=kind == 'directories'))
+            binding[kind].append((path, fd, info))
+    return binding
+
+
+def sample_active_inputs(binding, plan, *, previous=None):
+    """Measure physical blocks and epochs, never infer occupancy from caps."""
+    caps = {item['path']: item['cap'] for item in plan['inputs']}
+    files, directories = [], []
+    def checked(path, fd, before):
+        named = path.lstat()
+        require(old()['identity'](before) == old()['identity'](named), 'held active input epoch changed')
+        current = named if fd is None else os.fstat(fd)
+        # Windows fstat omits the final change-time field; native uses all seven.
+        end = None if sys.platform == 'linux' else -1
+        require(old()['identity'](current)[:end] == old()['identity'](named)[:end] and
+                _allocation(current) == _allocation(named), 'held active input allocation/identity changed')
+        return current
+    for path, fd, before in binding['files']:
+        info = checked(path, fd, before)
+        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, 'active input must be single-link regular')
+        cap = caps[str(path)]
+        record = old()['file_record'](path, maximum=cap)
+        allocated = _allocation(info)
+        require(max(record['size'], allocated) <= old()['allocated_slot'](cap), 'active physical input exceeds slot')
+        require(_allocation(checked(path, fd, before)) == allocated, 'active physical input changed during sample')
+        files.append(dict(path=str(path), identity=list(old()['identity'](before)), allocated=allocated, **record))
+    for path, fd, before in binding['directories']:
+        info = checked(path, fd, before)
+        require(stat.S_ISDIR(info.st_mode), 'active ancestor is not directory')
+        directories.append(dict(path=str(path), identity=list(old()['identity'](before)), size=info.st_size,
+                                allocated=_allocation(info)))
+    metadata_logical = sum(x['size'] for x in directories)
+    metadata_allocated = sum(x['allocated'] for x in directories)
+    require(plan['input_metadata_cap'] == 128*MIB and plan['active_input_cap'] == 4*GIB,
+            'fixed active input envelope differs')
+    require(max(metadata_logical, metadata_allocated) <= plan['input_metadata_cap'], 'active metadata reservation exceeded')
+    result = dict(files=sorted(files, key=lambda x:x['path']), directories=sorted(directories, key=lambda x:x['path']),
+        logical=sum(x['size'] for x in files)+metadata_logical,
+        allocated=sum(x['allocated'] for x in files)+metadata_allocated,
+        metadata_logical=metadata_logical, metadata_allocated=metadata_allocated)
+    require(max(result['logical'], result['allocated']) + plan['total'] <= plan['active_input_cap'],
+            'actual active input and new-job union exceeded')
+    require(previous is None or result == previous, 'held active physical inventory changed')
+    return result
+
+
 def sample_exact_slots(root, slots, metadata_cap, *, previous=None):
     """No unknown-file allowance; large caps belong to exact declared slots."""
     root = Path(root).absolute()
@@ -269,7 +326,8 @@ def validate_retained(raw, *, observe=False):
     require(canonical(value) == raw, 'retained control must be canonical exact bytes')
     shape(value, 'format roots backup_rollback_reserve')
     require(value['format'] == 'betboy-receipt-diagnostic-retained-v1', 'retained format')
-    integer(value['backup_rollback_reserve'], 64*GIB)
+    require(type(value['backup_rollback_reserve']) is int and value['backup_rollback_reserve'] == 4*GIB,
+            'fixed additional four GiB backup/rollback reserve required')
     require(type(value['roots']) is list and 0 < len(value['roots']) <= 256, 'complete retained roots required')
     seen = []
     for item in value['roots']:

@@ -165,19 +165,6 @@ def launch_once(helpers, worker, attempt, fd, *, parent_pid=None):
         require(resource.getrlimit(resource.RLIMIT_CPU) == (60, 60), 'parent hardCPU60 changed')
 
 
-def admitted_run(admit, prepare, launch):
-    owner = admit()  # Never enters either action on rejection.
-    try:
-        owner.assert_admitted()
-        prepare(owner)
-        owner.assert_admitted()
-        result = launch(owner)
-        owner.assert_admitted()
-        return result
-    finally:
-        owner.close()  # Unchanged Task60; failed close is not success/recovery.
-
-
 def write_new(c, path, raw, cap, mode=0o444):
     require(type(raw) is bytes and len(raw) <= cap, 'exact output/control cap')
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -232,6 +219,7 @@ def check_space(*, free, total, occupied, backup_rollback_reserve):
     require(all(type(x) is int and x >= 0 for x in (free, total, occupied, backup_rollback_reserve)),
             'exact physical allocation counters required')
     require(total <= 8*GIB and occupied <= total, 'whole new job allocation exceeded')
+    require(backup_rollback_reserve == 4*GIB, 'fixed additional four GiB backup/rollback reserve required')
     required = 4*GIB + total - occupied + backup_rollback_reserve
     require(free >= required, 'free plus outstanding and backup/rollback reserve unavailable')
     return required
@@ -293,12 +281,26 @@ def accept_result(c, result, manifest, progress, job):
     actual_returns = [x['body'] for x in prefix['frames'] if x['body']['event'] in ('end', 'fail')]
     require(len(payload['phases']) == len(actual_returns), 'phase summary membership differs')
     for summary, event in zip(payload['phases'], actual_returns):
-        c['shape'](summary, 'phase occurrence inclusive_cpu_ns inclusive_wall_ns returned call_count call_cpu_ns call_wall_ns')
+        c['shape'](summary, 'phase occurrence inclusive_cpu_ns inclusive_wall_ns returned call_count call_cpu_ns call_wall_ns allocation_before allocation_after')
         require(summary['phase'] == event['phase'] and type(summary['occurrence']) is int and
                 summary['occurrence'] == event['occurrence'] and type(summary['returned']) is bool and
                 summary['returned'] == (event['event'] == 'end'), 'phase scalar identity differs')
         for key in ('inclusive_cpu_ns', 'inclusive_wall_ns'):
             c['integer'](summary[key])
+        for name in ('allocation_before', 'allocation_after'):
+            allocation = summary[name]
+            c['shape'](allocation, 'logical allocated metadata_logical metadata_allocated free required_free inventory_sha256 checker_cpu_ns checker_wall_ns')
+            c['sha'](allocation['inventory_sha256'])
+            for key in ('logical', 'allocated'):
+                c['integer'](allocation[key], manifest['allocation']['total'])
+            for key in ('metadata_logical', 'metadata_allocated'):
+                c['integer'](allocation[key], manifest['allocation']['metadata_cap'])
+            for key in ('free', 'required_free'):
+                c['integer'](allocation[key])
+            require(allocation['required_free'] == 8*GIB + manifest['allocation']['total'] - allocation['allocated'] and
+                    allocation['free'] >= allocation['required_free'], 'child complete phase reserve differs')
+            for clock in ('cpu', 'wall'):
+                c['integer'](allocation['checker_' + clock + '_ns'], summary['inclusive_' + clock + '_ns'])
         if summary['phase'] == 'append':
             require(type(summary['call_count']) is int and summary['call_count'] == 1024, 'actual append call count differs')
             c['integer'](summary['call_cpu_ns'], summary['inclusive_cpu_ns'])
@@ -378,12 +380,8 @@ def main(argv):
     owner = None
     parsed = None
     try:
-        admitted_inputs = []
-        for item in plan['inputs']:
-            path = Path(item['path'])
-            fd, info = held.enter_context(old['opened'](path))
-            record = old['file_record'](path, maximum=item['cap'])
-            admitted_inputs.append((path, fd, info, record))
+        admitted_inputs = c['hold_active_inputs'](held, plan)
+        active_inputs = c['sample_active_inputs'](admitted_inputs, plan)
         require(old['walk'](Path(manifest['dependency_root']), tuple(manifest['packages'])) == manifest['dependencies'], 'complete dependencies differ')
         c['protected'](Path(c['BASELINE_PATH']))
         require(old['file_record'](Path(c['BASELINE_PATH']), maximum=270233600) ==
@@ -396,6 +394,7 @@ def main(argv):
             purpose=manifest['admission']['purpose'], profile_kind='atp-heavy',
             plan_digest=manifest['admission']['plan_digest'], job_directory=str(job), retained_history_digest=c['digest'](retained_raw))
         owner.assert_admitted()
+        c['sample_active_inputs'](admitted_inputs, plan, previous=active_inputs)
         snapshot = owner.snapshot()
         deadline = min(deadline, snapshot['binding']['deadline_boot_ns'])
         def write(name, raw):
@@ -407,9 +406,7 @@ def main(argv):
             require(c['runtime_observation']() == runtime and c['installation_observation'](runtime) == installation,
                     'runtime/installation identity drift')
             require((job.lstat().st_dev, job.lstat().st_ino) == (root_info.st_dev, root_info.st_ino), 'held job changed')
-            for path, fd, info, record in admitted_inputs:
-                require(old['identity'](info) == old['identity'](os.fstat(fd)) == old['identity'](path.lstat()), 'held active input epoch changed')
-                require(old['file_record'](path, maximum=inputs[str(path)]) == record, 'held active input bytes changed')
+            c['sample_active_inputs'](admitted_inputs, plan, previous=active_inputs)
             observed = c['sample_exact_slots'](job, plan['slots'], plan['metadata_cap'])
             observed_files = {x['path']: x for x in observed['files']}
             for prefix, entries in (('code', manifest['code']), ('dependencies', manifest['dependencies']),
@@ -431,7 +428,7 @@ def main(argv):
         # Every allocation/copy follows actual durable Task60 admission.
         write('catalogue.json', manifest_raw)
         write('archive.tar', archive_raw)
-        write('plan.json', c['canonical'](plan))
+        write('plan.json', c['canonical'](dict(allocation=plan, active_inputs=active_inputs)))
         for prefix, entries in (('code', manifest['code']), ('dependencies', manifest['dependencies']),
                                 ('runtime-data/zoneinfo', manifest['timezone_data'])):
             for item in entries:
@@ -481,6 +478,7 @@ def main(argv):
         report = dict(status='complete-external-terminal-observation-required', native_pass=False,
             retained_cpu_ns=300*10**9, parent_start_boot_ns=start, parent_end_boot_ns=check_time(),
             parent_whole_cpu_ns=time.process_time_ns(), progress=parsed, worker=payload,
+            active_inputs_sha256=c['digest'](c['canonical'](active_inputs)),
             inventory_sha256=c['digest'](c['canonical'](observed)))
         write_new(c, job / 'report.json', c['canonical'](report), MIB)
         return 0

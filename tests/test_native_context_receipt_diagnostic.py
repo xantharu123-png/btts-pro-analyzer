@@ -105,17 +105,12 @@ def test_exact_slots_stream_larger_than_old_member_cap_and_reject_unknown(tmp_pa
         c.sample_exact_slots(tmp_path, {'baseline': size}, 1024**2)
 
 
-def test_rejected_admission_never_copies_or_forks(tmp_path):
-    d = load('native_context_receipt_diagnostic')
-    calls = []
-    def rejected():
-        calls.append('admission')
-        raise RuntimeError('rejected')
-    with pytest.raises(RuntimeError):
-        d.admitted_run(rejected, lambda owner: calls.append('copy'),
-                       lambda owner: calls.append('fork'))
-    assert calls == ['admission']
-    assert list(tmp_path.iterdir()) == []
+def test_rejected_admission_never_copies_or_forks(tmp_path, monkeypatch):
+    d, c, argv, events, job, baseline = actual_main_fixture(tmp_path, monkeypatch)
+    with pytest.raises(RejectedAdmission):
+        d.main(argv)
+    assert events == ['admission']
+    assert list(job.iterdir()) == []
 
 
 def test_guard_before_import_rejects_portable_worker():
@@ -158,7 +153,12 @@ def test_real_sample_calls_actual_corpus_once(tmp_path, monkeypatch):
         work = tmp_path / 'work'
         (work / 'corpus').mkdir(parents=True)
         progress = c.Progress(work / 'progress.jsonl')
-        result = w.measure_corpus(held, profile, sealed, work, progress)
+        import types
+        manifest, _, _, _ = manifest_fixture(c)
+        monkeypatch.setattr(os, 'statvfs', lambda path:types.SimpleNamespace(f_bavail=40*1024**3, f_frsize=1), raising=False)
+        checker = w.WorkerAllocation(c.__dict__, manifest['allocation'], work)
+        recorder = w.PhaseRecorder(progress, allocation_check=checker)
+        result = w.measure_corpus(held, profile, sealed, work, progress, recorder=recorder)
         progress.close()
         assert calls == [1]
         assert result.submitted_observations == result.new_contents == result.new_receipts == 1024
@@ -170,6 +170,17 @@ def test_real_sample_calls_actual_corpus_once(tmp_path, monkeypatch):
         assert {table.name: table for table in result.inventory.tables if table.name in untouched} == untouched
         parsed = c.parse_progress((work / 'progress.jsonl').read_bytes())
         assert parsed['completed'] == 1024
+        assert checker.calls == 2*len(recorder.summary) < 128
+        for phase in recorder.summary:
+            for boundary in ('allocation_before','allocation_after'):
+                observation = phase[boundary]
+                assert observation['required_free'] > 8*1024**3
+                assert observation['free'] == 40*1024**3
+                assert 0 <= observation['checker_cpu_ns'] <= phase['inclusive_cpu_ns']
+                assert 0 <= observation['checker_wall_ns'] <= phase['inclusive_wall_ns']
+        for clock in ('cpu','wall'):
+            assert sum(phase[b]['checker_'+clock+'_ns'] for phase in recorder.summary
+                       for b in ('allocation_before','allocation_after')) > 0
 
 
 @pytest.mark.skipif(sys.platform != 'linux' or os.environ.get('BETBOY_TASK61_NATIVE') != 'prepared',
@@ -555,3 +566,245 @@ def test_source_close_still_closes_actual_connection_if_progress_io_fails(tmp_pa
             connection.execute('SELECT 1')
     finally:
         progress.close()
+
+
+class RejectedAdmission(RuntimeError):
+    pass
+
+
+def actual_main_fixture(tmp_path, monkeypatch):
+    """Real main/I/O; substitute only native/read-only catalogue preflight.
+
+    The sealed baseline's fixed 270MB fingerprint check is an explicit fixture,
+    not a claim about local synthetic bytes. Active-file FDs/stats and directory
+    sampling remain actual. No write/launch seam is stubbed into success.
+    """
+    import types
+    import signal
+    import time
+    import context_preparation_budget as budget
+    d = load('native_context_receipt_diagnostic')
+    c = load('native_context_receipt_diagnostic_catalogue')
+    job, registry, controls = tmp_path/'job', tmp_path/'registry', tmp_path/'controls'
+    job.mkdir(); registry.mkdir(); controls.mkdir()
+    archive, manifest_path, retained_path, baseline = [controls/n for n in ('code.tar','manifest.json','retained.json','baseline.db')]
+    archive.write_bytes(b'reviewed archive fixture')
+    retained_path.write_bytes(b'{}')
+    baseline.write_bytes(b'actual eight byte fixture')
+    events = []
+    def forbidden(name):
+        def call(*a, **k):
+            events.append(name)
+            raise AssertionError('actual main reached ' + name + ' before admission')
+        return call
+    for name in ('write_new', 'copy_exact', 'launch_once'):
+        monkeypatch.setattr(d, name, forbidden(name))
+    def reject(*a, **k):
+        events.append('admission')
+        raise RejectedAdmission('actual Task60 call site rejected')
+    runtime, installation = {'fixture':'runtime'}, {'fixture':'installation'}
+    sources = {'tests/fixture.py': b'pass\n'}
+    manifest = dict(archive=dict(size=archive.stat().st_size,sha256=c.digest(archive.read_bytes())),
+        code=[], dependencies=[], packages=[], dependency_root=str(controls),
+        admission=dict(job_directory=str(job),registry_directory=str(registry), purpose='context-receipt-corpus-diagnostic-v1',
+            plan_digest='a'*64,identity=dict(zip(('input_digest','execution_digest','runtime_digest','installation_digest','profile_digest'),
+                (x*64 for x in 'abcde')))),
+        retained=dict(path=str(retained_path), sha256=c.digest(retained_path.read_bytes())))
+    manifest['allocation'] = dict(inputs=[dict(path=str(p),cap=8*1024**2 if p == manifest_path else p.stat().st_size)
+        for p in (archive,retained_path,baseline)] + [dict(path=str(manifest_path),cap=8*1024**2)],
+        input_metadata_cap=128*1024**2, active_input_cap=4*1024**3,total=2*1024**3,backup_rollback_reserve=4*1024**3)
+    manifest['allocation']['inputs'].sort(key=lambda x:x['path'])
+    manifest_path.write_bytes(c.canonical(manifest))
+    actual_old = c.old()
+    old = dict(actual_old)
+    actual_file_record = old['file_record']
+    def file_record(path, maximum=c.MEMBER_CAP):
+        if Path(path) == baseline and maximum == 270233600:
+            return dict(size=270233600,sha256='f'*64)
+        return actual_file_record(path, maximum)
+    old.update(file_record=file_record, archive_members=lambda raw,code:sources, walk=lambda *a:[])
+    monkeypatch.setattr(c, '_OLD_CATALOGUE', old)
+    monkeypatch.setattr(c, 'validate_manifest', lambda value,*a,**k:value)
+    monkeypatch.setattr(c, 'validate_retained', lambda *a,**k:{})
+    monkeypatch.setattr(c, 'runtime_observation', lambda:runtime)
+    monkeypatch.setattr(c, 'installation_observation', lambda runtime:installation)
+    monkeypatch.setattr(c, 'bootstrap_source', lambda sources:b'held bootstrap fixture')
+    monkeypatch.setattr(c, 'protected', lambda path,**k:Path(path).lstat())
+    monkeypatch.setattr(c, 'BASELINE_PATH', str(baseline))
+    monkeypatch.setattr(c, 'BASELINE_SHA', 'f'*64)
+    monkeypatch.setattr(d, '_REVIEWED_BOOTSTRAP', sources, raising=False)
+    monkeypatch.setattr(d, 'startup', lambda:(10**9,3601*10**9))
+    monkeypatch.setattr(d, 'load_catalogue', lambda sources:c.__dict__)
+    monkeypatch.setattr(d, 'load_helpers', lambda *a:dict(
+        context_preparation_supervisor=types.SimpleNamespace(_require_native_owner=lambda:None),
+        context_preparation_budget=budget, admission={'admit_diagnostic':reject}))
+    monkeypatch.setattr(signal, 'SIGALRM', 999, raising=False)
+    monkeypatch.setattr(signal, 'ITIMER_REAL', 0, raising=False)
+    monkeypatch.setattr(signal, 'signal', lambda *a:None)
+    monkeypatch.setattr(signal, 'setitimer', lambda *a:None, raising=False)
+    monkeypatch.setattr(time, 'CLOCK_BOOTTIME', 7, raising=False)
+    monkeypatch.setattr(time, 'clock_gettime_ns', lambda key:2*10**9, raising=False)
+    monkeypatch.setattr(os, 'statvfs', lambda path:types.SimpleNamespace(f_bavail=40*1024**3,f_frsize=1),raising=False)
+    values = [str(manifest_path),c.digest(manifest_path.read_bytes()),str(archive),str(job),str(registry),'d'*40,
+              c.digest(b'held bootstrap fixture')]
+    argv = [part for pair in zip(d.FLAGS,values) for part in pair]
+    return d,c,argv,events,job,baseline
+
+
+@pytest.mark.parametrize('overrun', ['file', 'metadata'])
+def test_actual_main_rejects_active_physical_or_metadata_overrun_before_admission(tmp_path,monkeypatch,overrun):
+    d,c,argv,events,job,baseline = actual_main_fixture(tmp_path,monkeypatch)
+    actual = c._allocation
+    target = baseline.stat().st_ino
+    def allocated(info):
+        if overrun == 'file' and info.st_ino == target:
+            return 4097  # input logical length <one block, physical slot one block.
+        if overrun == 'metadata' and stat.S_ISDIR(info.st_mode):
+            return 129*1024**2
+        return actual(info)
+    monkeypatch.setattr(c,'_allocation',allocated)
+    with pytest.raises(c.DiagnosticError):
+        d.main(argv)
+    assert events == [] and list(job.iterdir()) == []
+
+
+def test_fully_rehashed_manifest_cannot_change_exact_four_gib_backup_reserve():
+    import copy
+    c=load('native_context_receipt_diagnostic_catalogue')
+    for reserve in (0,4*1024**3-1,4*1024**3+1):
+        value,raw,runtime,installation=manifest_fixture(c)
+        retained=c.decode(raw)
+        retained['backup_rollback_reserve']=reserve
+        raw=c.canonical(retained)
+        value['retained'].update(size=len(raw),sha256=c.digest(raw))
+        value['admission']['retained_history_digest']=c.digest(raw)
+        value['allocation']=c.allocation_plan(dict(value,_retained_data=retained),archive_path='/var/lib/task61-inputs/code.tar',
+            manifest_path='/var/lib/task61-inputs/manifest.json',retained_path=value['retained']['path'])
+        value['admission']['plan_digest']=c.digest(c.canonical({k:v for k,v in value.items() if k!='admission'}))
+        with pytest.raises(Exception):
+            c.validate_manifest(value,'d'*40,retained_raw=raw,runtime=runtime,installation=installation)
+
+
+@pytest.mark.parametrize('fault',['reserve','unexpected','overallocated'])
+def test_actual_copy_phase_checks_whole_reserve_and_exact_worker_slots(tmp_path,monkeypatch,fault):
+    w=load('native_context_receipt_diagnostic_worker')
+    c=load('native_context_receipt_diagnostic_catalogue')
+    from test_context_storage_receipt_corpus import source
+    from context_storage_v2 import receipt_corpus as owner
+    from context_growth_profile import build_growth_profile
+    from datetime import datetime
+    import types
+    manifest,_,_,_=manifest_fixture(c)
+    work=tmp_path/'work'
+    (work/'corpus').mkdir(parents=True)
+    p=c.Progress(work/'progress.jsonl')
+    checker=w.WorkerAllocation(c.__dict__,manifest['allocation'],work)
+    recorder=w.PhaseRecorder(p,allocation_check=checker)
+    actual_copy=owner.copy_legacy
+    free={'bytes':40*1024**3}
+    monkeypatch.setattr(os,'statvfs',lambda path:types.SimpleNamespace(f_bavail=free['bytes'],f_frsize=1),raising=False)
+    actual_allocation=c._allocation
+    corrupt_inode={'value':None}
+    def allocated(info):
+        if info.st_ino==corrupt_inode['value']:
+            return 512*1024**2+4096
+        return actual_allocation(info)
+    monkeypatch.setattr(c,'_allocation',allocated)
+    def copy(*args,**kwargs):
+        result=actual_copy(*args,**kwargs)
+        if fault=='reserve':
+            free['bytes']=8*1024**3  # above old4GiB threshold, below complete reserve.
+        elif fault=='unexpected':
+            (work/'unknown').write_bytes(b'unplanned')
+        else:
+            corrupt_inode['value']=result.path.stat().st_ino
+        return result
+    monkeypatch.setattr(owner,'copy_legacy',copy)
+    with source(tmp_path) as (path,sealed,held):
+        profile=build_growth_profile('atp-heavy',baseline_sha256=sealed,
+            start_at=datetime.fromisoformat(c.fixed_profile()['start_at']),first_native_id=8000000000000000000,
+            atp_fixture=c.fixed_profile()['atp_fixture'])
+        try:
+            with pytest.raises(Exception):
+                w.measure_corpus(held,profile,sealed,work,p,recorder=recorder)
+        finally:
+            p.close()
+    prefix=c.parse_progress((work/'progress.jsonl').read_bytes())
+    assert prefix['completed']==0 and not prefix['terminal']
+    assert (work/'corpus/legacy-copy.sqlite').is_file()
+
+
+@pytest.mark.parametrize('drift', ['physical', 'file_epoch', 'directory_epoch', 'aggregate'])
+def test_active_input_binding_rejects_later_drift_and_measures_union(tmp_path, monkeypatch, drift):
+    from contextlib import ExitStack
+    c=load('native_context_receipt_diagnostic_catalogue')
+    path=tmp_path/'input'
+    path.write_bytes(b'actual input')
+    plan=dict(inputs=[dict(path=str(path),cap=8192)],input_metadata_cap=128*1024**2,
+              active_input_cap=4*1024**3,total=1024**3)
+    actual=c._allocation
+    physical={'extra':0}
+    monkeypatch.setattr(c,'_allocation',lambda info:actual(info)+(physical['extra'] if info.st_ino==path.stat().st_ino else 0))
+    with ExitStack() as held:
+        binding=c.hold_active_inputs(held,plan)
+        initial=c.sample_active_inputs(binding,plan)
+        assert initial['files'][0]['allocated']==4096
+        assert {r['path'] for r in initial['directories']} == {str(p) for p in path.parents}
+        assert initial['allocated']==4096+initial['metadata_allocated']
+        if drift=='physical':
+            physical['extra']=4096  # still within slot, but no longer the bound observation.
+        elif drift=='aggregate':
+            plan['total']=4*1024**3
+        elif drift=='file_epoch':
+            before=path.stat()
+            os.utime(path,ns=(before.st_atime_ns,before.st_mtime_ns+1000000000))
+        else:
+            before=tmp_path.stat()
+            os.utime(tmp_path,ns=(before.st_atime_ns,before.st_mtime_ns+1000000000))
+        with pytest.raises(c.DiagnosticError):
+            c.sample_active_inputs(binding,plan,previous=initial)
+        # Real held contexts intentionally reject epoch mutations when closed.
+        if drift in ('file_epoch','directory_epoch'):
+            with pytest.raises(Exception):
+                held.close()
+
+
+def test_transport_uses_held_template_after_path_changes(tmp_path):
+    import shutil
+    shell=shutil.which('pwsh')
+    if shell is None:
+        pytest.skip('PowerShell7 required for local transport fixture')
+    transport=ROOT/'.superpowers/sdd/2026-09-10-context-capacity-recovery/evidence/task61-native-prefix-run.ps1'
+    template=transport.with_name('task61-native-prefix-entry.py')
+    fixture=tmp_path/'template.py'
+    fixture.write_bytes(template.read_bytes())
+    # Evaluate actual parsed acquisition/replacement statements only. No bundle
+    # collection, SSH branch, production template edit, or changed literal pin.
+    script=r'''
+$ErrorActionPreference='Stop'
+$tokens=$null; $errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($env:TASK61_TRANSPORT_FIXTURE_SCRIPT,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'transport syntax error'}
+$prefixTemplatePath=$env:TASK61_TRANSPORT_FIXTURE_TEMPLATE
+$prefixBundleBytes=[byte[]]@(1,2,3); $Mode='prepare'
+$items=@($ast.EndBlock.Statements)
+$first=3
+$pins=0
+while($items[$pins].Extent.Text -notmatch '^\$prefixPins\s*='){$pins++}
+for($i=$first;$i -lt $pins;$i++){. ([scriptblock]::Create($items[$i].Extent.Text))}
+[IO.File]::WriteAllText($prefixTemplatePath,'unreviewed replacement')
+$after=0
+while($items[$after].Extent.Text -notmatch '^\$prefixBundleBytes\s*='){$after++}
+for($i=$after+1;$i -lt $items.Count;$i++){
+  if($items[$i].Extent.Text -match '^if \(\$DryRun\)'){break}
+  . ([scriptblock]::Create($items[$i].Extent.Text))
+}
+if($prefixProgram.Contains('unreviewed replacement')){throw 'reopened template'}
+if(-not $prefixProgram.Contains('AQID')){throw 'held replacement not used'}
+'held_template_ok syntax_ok'
+'''
+    completed=subprocess.run([shell,'-NoProfile','-NonInteractive','-Command',script],
+        env=dict(os.environ,TASK61_TRANSPORT_FIXTURE_SCRIPT=str(transport),TASK61_TRANSPORT_FIXTURE_TEMPLATE=str(fixture)),
+        capture_output=True,timeout=30)
+    assert completed.returncode==0, (completed.stdout,completed.stderr)
+    assert b'held_template_ok syntax_ok' in completed.stdout

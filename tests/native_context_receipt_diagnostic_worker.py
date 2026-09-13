@@ -50,9 +50,40 @@ def held_namespace(path, *, expected=None, supplied=None):
     return namespace
 
 
+class WorkerAllocation:
+    """Exact child slots; conservatively reserve every other job/registry byte."""
+    def __init__(self, catalogue, plan, work):
+        self.c, self.plan, self.work, self.calls = catalogue, plan, Path(work), 0
+        self.slots = {name[len('attempt/'):]: cap for name, cap in plan['slots'].items()
+                      if name.startswith('attempt/')}
+        require(plan['backup_rollback_reserve'] == 4*1024**3 and type(plan['backup_rollback_reserve']) is int,
+                'fixed additional four GiB backup/rollback reserve required')
+        catalogue['integer'](plan['total'], 8*1024**3)
+
+    def __call__(self, phase, boundary):
+        cpu, wall = time.process_time_ns(), time.monotonic_ns()
+        self.calls += 1
+        require(self.calls <= 128 and phase in self.c['PHASES'] and boundary in ('begin', 'end'),
+                'bounded real phase allocation boundary required')
+        observed = self.c['sample_exact_slots'](self.work, self.slots, self.plan['metadata_cap'])
+        require(max(observed['logical'], observed['allocated']) <= self.plan['total'], 'child whole allocation exceeded')
+        usage = os.statvfs(self.work)
+        free = usage.f_bavail * usage.f_frsize
+        # No occupancy credit for root-only files or registry; those remain
+        # fully outstanding here, even if the parent observed them earlier.
+        required = 8*1024**3 + self.plan['total'] - observed['allocated']
+        require(free >= required, 'child free plus complete outstanding/backup reserve unavailable')
+        result = {k:observed[k] for k in ('logical', 'allocated', 'metadata_logical', 'metadata_allocated')}
+        result.update(free=free, required_free=required,
+                      inventory_sha256=self.c['digest'](self.c['canonical'](observed)))
+        result.update(checker_cpu_ns=time.process_time_ns()-cpu, checker_wall_ns=time.monotonic_ns()-wall)
+        return result
+
+
 class PhaseRecorder:
-    def __init__(self, progress):
+    def __init__(self, progress, *, allocation_check=None):
         self.progress = progress
+        self.allocation_check, self.allocations = allocation_check, {}
         self.stack, self.occurrences, self.summary = [], {}, []
         self.completed = self.new_contents = self.new_receipts = 0
         self.append_cpu = self.append_wall = 0
@@ -72,9 +103,23 @@ class PhaseRecorder:
         started = time.process_time_ns(), time.monotonic_ns()
         self.stack.append((phase, occurrence, started))
         self.emit('begin', phase, occurrence, started)
+        self.allocations[(phase, occurrence)] = None
+        if self.allocation_check is not None:
+            try:
+                self.allocations[(phase, occurrence)] = self.allocation_check(phase, 'begin')
+            except BaseException as exc:
+                self.end(exc, check=False)
+                raise
 
-    def end(self, exc=None):
+    def end(self, exc=None, *, check=True):
         phase, occurrence, started = self.stack[-1]
+        after, checker_error = None, None
+        if check and self.allocation_check is not None:
+            try:
+                after = self.allocation_check(phase, 'end')
+            except BaseException as error:
+                checker_error = error
+                exc = error
         self.emit('end' if exc is None else 'fail', phase, occurrence, started, exc)
         self.stack.pop()
         require(len(self.summary) < 64, 'phase summary bound')
@@ -82,7 +127,10 @@ class PhaseRecorder:
             inclusive_wall_ns=time.monotonic_ns()-started[1], returned=exc is None,
             call_count=self.append_calls if phase == 'append' else None,
             call_cpu_ns=self.append_cpu if phase == 'append' else None,
-            call_wall_ns=self.append_wall if phase == 'append' else None))
+            call_wall_ns=self.append_wall if phase == 'append' else None,
+            allocation_before=self.allocations.pop((phase, occurrence)), allocation_after=after))
+        if checker_error is not None:
+            raise checker_error
 
     @contextmanager
     def phase(self, phase):
@@ -281,7 +329,7 @@ def run(mode):
     require(c['canonical'](manifest) == manifest_raw, 'canonical child manifest required')
     c['validate_profile'](manifest['profile'])
     progress = c['Progress'](work / 'progress.jsonl')
-    recorder = PhaseRecorder(progress)
+    recorder = PhaseRecorder(progress, allocation_check=WorkerAllocation(c, manifest['allocation'], work))
     source = None
     try:
         with recorder.phase('worker_setup'):
