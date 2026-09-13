@@ -57,17 +57,20 @@ oder dadurch getestet.
 
 ## Offen — nicht als bestätigt darstellen
 
-1. Vorgeschlagene Übernachtregel: kein neues Tagesbudget bei noch offenen
-   Vorgängerwetten, ungeklärten Reservierungen oder Korrekturen.
-2. Entwurf einer manuellen Einsatzbestätigung ohne automatische Einsatzformel.
-3. Preisneutrale fachliche Rangfolge mit nachvollziehbarer Vergleichbarkeit;
-   keine erfundene Kalibrierung durch diese Spezifikation.
-4. Vertrag zur Bestätigung realer Rückzahlungen einschließlich Teilabrechnung,
-   Korrekturen, Rundungen und Gebühren vor erneuter Gewinnverwendung.
-5. Zugang innerhalb Wettfinder und flache Desktop-/Mobile-Skizze.
+Nachtrag: Die Übernachtregel wurde am 13.09.2026 mit „ja passt und vps pullen“
+bestätigt. Sie ist nicht mehr offen. Noch auszuarbeiten bleiben:
 
-Nächster Schritt: schriftliche Fassung prüfen, offene Produktregel klären und
+1. Entwurf einer manuellen Einsatzbestätigung ohne automatische Einsatzformel.
+2. Preisneutrale fachliche Rangfolge mit nachvollziehbarer Vergleichbarkeit;
+   keine erfundene Kalibrierung durch diese Spezifikation.
+3. Vertrag zur Bestätigung realer Rückzahlungen einschließlich Teilabrechnung,
+   Korrekturen, Rundungen und Gebühren vor erneuter Gewinnverwendung.
+4. Zugang innerhalb Wettfinder und flache Desktop-/Mobile-Skizze.
+
+Nächster Schritt: die noch offenen fachlichen Details ausarbeiten und
 Wireframe/begrenzten Implementierungsplan erstellen. Keine erneute Nachfrage
-zu bereits bestätigtem Namen, Währung oder CHF-50-Nettoverlustdefinition.
+zu bereits bestätigtem Namen, Währung, CHF-50-Nettoverlustdefinition oder
+Übernachtregel. Zum angeforderten VPS-Pull siehe
+[frischen Betriebsabgleich](2026-09-13-daily3-vps-preflight.md).
 Der ältere C/B-Reparaturstand bleibt separat offen; neue Daily3-Zustimmung
 ersetzt keine fehlende CPU-/Prüfarchitekturentscheidung und keinen Releasebeleg.

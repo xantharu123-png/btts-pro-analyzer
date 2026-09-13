@@ -1,5 +1,22 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neueste Fortsetzung 13. September 2026, 18:04 UTC — Übernachtregel angenommen; VPS-Pull offen
+
+Der Nutzer bestätigte „ja passt und vps pullen“. Daily3-Übernachtregel ist
+damit freigegeben, nicht erneut abfragen. Spezifikation und Rechenprüfnotiz
+sind aktualisiert; Daily3 ist noch nicht implementiert. Für die Übernahme
+werden ausschließlich diese Dokumente betrachtet, kein C/B-Code-Merge.
+
+Frisch per SSH: VPS main `2dd1116`, App/Caddy und beide Healthchecks `ok`;
+sieben Timer geplant, Tennis-/Wettfinder-Dienste dennoch `failed`.
+Installierter Updater weiterhin SHA `74b1c4b1aa88788f6a8e1050905215953b5938faad0009719aa15164a494b78f`:
+64-MiB-Grenze, echte Datenbank 499855360 Byte (rund 477 MiB). Er stoppt die
+App vor der vollständigen Größenprüfung. Deshalb kein absehbar scheiternder
+Updateaufruf, kein direkter Git-Pull als Umgehung, kein Serverneustart.
+Aktueller Nachweis: `docs/audits/2026-09-13-daily3-vps-preflight.md`.
+Der beauftragte VPS-Pull bleibt offen; eine Dokumentationsfreigabe ersetzt
+keine ausstehende C/B-Prüfarchitekturentscheidung. Vorherige QA-Daten erhalten.
+
 ## Neueste Fortsetzung 13. September 2026 — Daily3-Spezifikation, keine Implementierung
 
 Aktueller Nutzerauftrag ist der neue Bereich `3 a day keeps the job away`.
@@ -16,9 +33,9 @@ App-Test und kein Echtgeld-Release. Produktivcode, main und VPS unverändert;
 Dokumentation wird ausschließlich im bestehenden Reparaturbranch gesichert.
 Den tatsächlichen Commit-/Push-Stand anhand Git prüfen.
 
-Noch nicht freigegeben: vorgeschlagene Übernachtregel ohne neues Budget bei
-offenen Vorgängerwetten; genaue Rangfolge, reale Ergebnisbestätigung und
-erste UI-Skizze sind ebenfalls noch auszuarbeiten. Bereits bestätigte
+Damals noch offen, inzwischen oben bestätigt: Übernachtregel ohne neues
+Budget bei offenen Vorgängerwetten. Genaue Rangfolge, reale Ergebnisbestätigung
+und erste UI-Skizze sind weiterhin auszuarbeiten. Bereits bestätigte
 CHF-/Budget-/Namensregeln nicht erneut abfragen. Keine Daily3-Antwort als
 Freigabe der älteren C/B-CPU-Vertragsänderung auslegen. Der vorherige
 Reparaturstand und alle erhaltenen QA-Dateien bleiben davon unberührt.

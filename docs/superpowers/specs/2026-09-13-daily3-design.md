@@ -4,6 +4,10 @@ Stand: 13.09.2026. Interne Feature-ID: `daily3`.
 Status: Die unten bezeichneten Nutzerregeln sind bestätigt. Die daraus
 abgeleitete technische/UX-Fassung ist ein Entwurf zur Prüfung, kein bereits
 implementiertes oder für Echtgeld freigegebenes Produkt.
+Freigabenachtrag 13.09.2026: Mit „ja passt und vps pullen“ hat der Nutzer
+auch die Übernachtregel ausdrücklich angenommen und die Übernahme auf den
+VPS beauftragt. Das ist keine Behauptung einer bereits implementierten Funktion
+und keine Freigabe der separat offenen C/B-Prüfarchitekturänderung.
 Repository-Bezug: Reparaturbranch `codex/context-capacity-recovery-20260910`,
 gelesener Code `9ccdf4262c7e69ee73160eb31540e0a4a2851ba7`.
 
@@ -27,6 +31,7 @@ Tagesauswahl mit einer nachvollziehbaren Einsatz- und Ergebnisrechnung.
 | Gewinne | Bereits abgerechnete Gewinne dürfen innerhalb des Tages weiterverwendet werden |
 | Verlustgrenze | Maximal CHF 50,00 netto gegenüber dem Tagesstart; kein Limit vom Zwischenhöchststand |
 | Nachzahlen | Kein zusätzlicher Eigenmittel-Nachschuss am selben Tag |
+| Übernachtregel | Kein neues Tagesbudget, solange der vorherige Lauf noch offene Wetten, ungeklärte Reservierungen oder Korrekturen enthält |
 | Einsatzautomatik | Kein automatisches All-in; das Tagesbudget ist kein fester Einsatz pro Wette |
 | Echtgeld | Kein verpflichtender virtueller/Paper-Modus für den Nutzer |
 | Bedienung | Nutzer bestätigt und platziert selbst; keine automatische Buchmachertransaktion |
@@ -199,12 +204,13 @@ Zeitbasis als Entwurf: serverseitiger Kalendertag `Europe/Zurich`, Zeitstempel
 zusätzlich in UTC. Pro dauerhafter Nutzer-ID und Zürcher Datum nur ein Tageslauf.
 Kein automatisches Nachfüllen, kein Reset über Clientuhr, Sessionneustart oder Tab.
 
-Konservative v1-Entwurfsentscheidung: Solange ein vorheriger Tageslauf noch
+Am 13.09.2026 bestätigte Übernachtregel: Solange ein vorheriger Tageslauf noch
 offene Platzierungen, ungeklärte Reservierungen oder Korrekturen hat, wird kein
 neues Tagesbudget freigegeben. Die Modellansicht bleibt zugänglich. Nach Abschluss
 beginnt ein neuer Tag nur durch ausdrückliche Bestätigung und wieder höchstens
 mit CHF 50; alte Gewinne/Restbeträge werden nicht automatisch hinzuaddiert.
-Diese Übernachtregel ist neu vorgeschlagen, nicht bereits vom Nutzer bestätigt.
+Diese Übernachtregel ist bestätigt und darf nicht erneut als offene
+Produktentscheidung oder lediglich als Vorschlag geführt werden.
 
 Der vorhandene Browser-Nutzerscope ist kein verifiziertes personen- oder
 buchmacherübergreifendes Konto. Das Limit gilt nur für diesen dokumentierten
@@ -268,8 +274,9 @@ Scope, vollständige Backups inklusive Belegen und tatsächlich geprüfter Resto
 Vor Echtgeld-Freigabe: definierte Modellauswahl, passender Abrechnungsvertrag,
 Budget-/Nebenläufigkeitstests, Browserabnahme und kontrollierter Release.
 Der momentan offene Kontext-/Speicher-Reparaturstand wird nicht durch ein
-neues Feature als abgeschlossen erklärt. Keine neuen Timer oder VPS-Änderungen
-im Rahmen dieser Spezifikation.
+neues Feature als abgeschlossen erklärt. Keine neuen Timer oder Modell-/Runtime-
+Änderungen im Rahmen dieser Spezifikation. Die beauftragte Übernahme der
+Dokumentation ist von einer noch ausstehenden Funktionsfreigabe getrennt.
 
 ## 7. P1 und P2
 
@@ -316,7 +323,6 @@ oder CHF 150 pro Tag sind kein vorab zugesichertes Akzeptanzkriterium.
 
 | Thema | Zuständig | Zeitpunkt |
 | --- | --- | --- |
-| Entwurfsregel Tageswechsel bei offenen Wetten | Nutzer/Produkt | Vor Umsetzung der Budgetfreigabe ausdrücklich prüfen |
 | Preisunabhängige fachliche Tagesrangfolge und belegbare Vergleichbarkeit | Modell/Entwicklung | Vor Empfehlungscode quantifizieren und mit eingefrorenen Beispielen abnehmen |
 | Reale Ergebnisbestätigung und Umgang mit nicht unterstützten Abrechnungstypen | Produkt/Entwicklung | Vor Wiederverwendung realer Gewinne festlegen |
 | Kurzer Zugang `3 a day` innerhalb Wettfinder | Nutzer/UX | Mit erstem Wireframe prüfen; voller Name unverändert |
@@ -329,6 +335,8 @@ Budget-/Slot-/Preisneutralitäts- und Abrechnungstests; (4) Umsetzung/Review;
 (5) reale Daten-/Restore-/Browserabnahme; (6) Commit/Push und kontrolliertes
 VPS-Deployment erst nach Freigabe. Kein Termin und kein aktueller Testerfolg
 für ein noch nicht implementiertes Feature werden erfunden.
+Die Budget-/Namens- und Übernachtregeln sind bereits bestätigt; deren Freigabe
+wird in diesen Phasen nicht erneut eingeholt.
 
 ## 11. Quellen und Reichweite
 
