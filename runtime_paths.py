@@ -305,7 +305,10 @@ def atomic_write_bytes(path: Path, payload: bytes, *, replace_existing: bool = T
             f"runtime artifact target must not be a symlink: {target}"
         )
     descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{target.name}.",
+        # Keep staging shorter than hash-named reports: repeating the entire
+        # target basename made valid Windows paths exceed MAX_PATH. mkstemp
+        # still creates a unique exclusive file in the same atomic-write directory.
+        prefix=".betboy-",
         suffix=".tmp",
         dir=target.parent,
     )

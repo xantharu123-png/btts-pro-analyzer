@@ -1,6 +1,6 @@
-"""Updater-only repair RED contract: real local bytes, no VPS or app deployment.
+"""Updater-only repair contract: real local bytes, no VPS or app deployment.
 
-The implementation does not exist yet.  The requested internal seams are
+The exercised implementation seams are
 ``repair_main`` (Bash orchestration) and ``repair_data`` (stdlib-only Python,
 import-safe except for its __main__ dispatch).  No test override is added to
 the production CLI.  Unix owner/mode and directory-fsync emulation below is
@@ -800,7 +800,19 @@ SHARED_FUNCTIONS = (
 def test_frozen_reviewed_preflight_algorithms_are_copied_without_drift():
     # Deliberate supply-chain parity gate, not a substitute for behavior tests.
     updater = ROOT / "deploy/update_server.sh"
-    assert hashlib.sha256(updater.read_bytes().replace(b"\r\n", b"\n")).hexdigest() == \
+    raw = updater.read_bytes().replace(b"\r\n", b"\n")
+    assert hashlib.sha256(raw).hexdigest() == \
+        "bb34a71932ce58cb875d64af5e3738b02f82d96bf2a8f64ea5159f0e88a02762"
+    # Daily3 changed ONLY the reviewed backup verifier's source pin in this
+    # frozen updater. Bind the new helper bytes and prove that reversing exactly
+    # that one substitution recovers the earlier reviewed whole-file digest.
+    # The expected installed production-updater pin is deliberately unchanged.
+    old_helper = b"b37d11a1eec4ebb129797a942ad68ea13861dd3a2b41bfe14644e9f06add5604"
+    new_helper = b"65f28869e773fcaa5bcc186648f440e1f764ffafa656b92211180eb857f09646"
+    helper = (ROOT / "scripts/backup_runtime_databases.py").read_bytes().replace(b"\r\n", b"\n")
+    assert hashlib.sha256(helper).hexdigest().encode("ascii") == new_helper
+    assert raw.count(new_helper) == 1 and old_helper not in raw
+    assert hashlib.sha256(raw.replace(new_helper, old_helper)).hexdigest() == \
         "4b814c500f5eb03fb7a28f576210f02759300aa5560ef273834c6eb3195e8c19"
     for name in SHARED_FUNCTIONS:
         assert source_function(name) == source_function(name, updater), name

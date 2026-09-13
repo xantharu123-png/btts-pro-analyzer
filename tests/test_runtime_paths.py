@@ -183,7 +183,42 @@ def test_atomic_write_keeps_previous_file_if_replace_fails(
         runtime_paths.atomic_write_text(target, "new")
 
     assert target.read_text(encoding="utf-8") == "old"
-    assert not list(tmp_path.glob(".state.json.*.tmp"))
+    assert {item.name for item in tmp_path.iterdir()} == {"state.json"}
+
+
+@pytest.mark.parametrize('replace_existing', [True, False])
+def test_atomic_temp_name_is_short(tmp_path, monkeypatch, replace_existing):
+    target = tmp_path / ('e'*64+'.json')
+    create = runtime_paths.tempfile.mkstemp
+    seen = []
+    def bounded_name(*args, **kwargs):
+        # A valid hash-named report must not gain another copy of its whole
+        # basename in the temporary path; this broke Windows MAX_PATH at 262.
+        assert len(kwargs['prefix']) <= 20
+        descriptor, name = create(*args, **kwargs)
+        seen.append(Path(name))
+        return descriptor, name
+    monkeypatch.setattr(runtime_paths.tempfile, 'mkstemp', bounded_name)
+    runtime_paths.atomic_write_bytes(target, b'complete', replace_existing=replace_existing)
+    assert target.read_bytes() == b'complete'
+    assert len(seen) == 1 and seen[0].parent == target.parent
+    assert not seen[0].exists()
+
+
+@pytest.mark.skipif(runtime_paths.os.name != 'nt', reason='actual Windows path-length regression')
+def test_hash_report_deep_path(tmp_path):
+    # Original full-suite export: parent178 / target248 / temporary262 chars.
+    remaining = 178-len(str(tmp_path))-1
+    if remaining < 1:
+        pytest.skip('test workspace already exceeds the original parent length')
+    parent = tmp_path / ('p'*remaining)
+    parent.mkdir()
+    assert len(str(parent)) == 178
+    target = parent / ('f'*64+'.json')
+    assert len(str(target)) == 248
+    runtime_paths.atomic_write_bytes(target, b'complete', replace_existing=False)
+    assert target.read_bytes() == b'complete'
+    assert list(parent.iterdir()) == [target]
 
 
 def test_model_state_rejects_symlink_pickle(
