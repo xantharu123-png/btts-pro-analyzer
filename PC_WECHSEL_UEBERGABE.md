@@ -1,5 +1,28 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neueste Fortsetzung 13. September 2026 — Daily3-Spezifikation, keine Implementierung
+
+Aktueller Nutzerauftrag ist der neue Bereich `3 a day keeps the job away`.
+Bestätigt: CHF 50 eigenes Tagesbudget, höchstens drei Einzelwetten auf
+unterschiedliche Events, abgerechnete Gewinne am selben Tag weiterverwenden,
+kein Nachschuss und höchstens CHF 50 netto Verlust gegenüber Tagesstart.
+Kein automatisches All-in, keine automatische Wettplatzierung und keine
+Garantie von CHF 150 Gewinn. Cricket bleibt ausgenommen.
+
+Schriftlicher Entwurf: `docs/superpowers/specs/2026-09-13-daily3-design.md`.
+Codeabgleich und begrenzte Rechenprüfung:
+`docs/audits/2026-09-13-daily3-spec-check.md`. Die Rechenprüfung ist kein
+App-Test und kein Echtgeld-Release. Produktivcode, main und VPS unverändert;
+Dokumentation wird ausschließlich im bestehenden Reparaturbranch gesichert.
+Den tatsächlichen Commit-/Push-Stand anhand Git prüfen.
+
+Noch nicht freigegeben: vorgeschlagene Übernachtregel ohne neues Budget bei
+offenen Vorgängerwetten; genaue Rangfolge, reale Ergebnisbestätigung und
+erste UI-Skizze sind ebenfalls noch auszuarbeiten. Bereits bestätigte
+CHF-/Budget-/Namensregeln nicht erneut abfragen. Keine Daily3-Antwort als
+Freigabe der älteren C/B-CPU-Vertragsänderung auslegen. Der vorherige
+Reparaturstand und alle erhaltenen QA-Dateien bleiben davon unberührt.
+
 ## Neueste Fortsetzung 13. September 2026,13:45UTC — zwei Fixes nativ geprüft; Vertragsentscheidung offen
 
 Task62 Dateileser und Task63 begrenzte Dateiverwaltung sind unabhängig geprüft
