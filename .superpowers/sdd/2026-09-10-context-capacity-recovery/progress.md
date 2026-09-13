@@ -583,6 +583,33 @@ Do not mistake this small pass for590553/199/199/114profile acceptance, global
 C/B accounting, restore, empirical effects or release. Task54M1 and the lost
 older local final outer exit remain explicit; full-suite gate still pending.
 
+13September user explicitly requests all remaining work and eventual server
+update. Existing isolated worktree confirmed (not a submodule); HEAD86b08eb,
+tracked-clean, only the five inherited untracked QA directories. No new
+worktree/setup/baseline rerun: this continues the already established workspace
+and preserves completed owners/tests. Normal timers calculate; no automatic
+Git pull/deploy is inferred. Root retains the approved main/push/VPS operation
+after the actual remaining full C/B/restore/final gates, not before.
+
+Task59 preflight for the next real full-data input seam:
+
+| Pair/task | Produced/consumed interface | Finding and resolution |
+| --- | --- | --- |
+| Task59 -> Task48/current corpus | lazy genuine normalized(record,clock) inputs | Existing scalar append owns normalization/collision/complete preservation; generator must not bypass it or imply corpus completion. |
+| Task59 -> Task51 consumer | exact native fixture/observed/cutoff and prediction inputs for168 actual calls | Capture receipts must be inside490000. State/Source/D2 remains the real future held owner, not a generator label. |
+| Task59 -> global C owner | fixed plan/ordinal/native-ID namespace and full key schedule | Global owner must verify baseline collision freedom, actual rows, disjoint old/new coverage, slots/costs; no authority deserialized from this profile. |
+| Task59 internally | full schedule enumeration vs real receipt/status generation | Cheap all-schedule counters are unit evidence only; actual normalization for representative rows/all consumers. Full stored native generation remains a separate gate. |
+
+Ruling: implement a pure bounded QA profile producer before the full-growth
+worker, rather than modifying existing lifetime/append checks based on the
+Windows-only timing — it supplies a concrete input/consumer plan for the now
+working real native chain. Cost if wrong: isolated QA-generator rework, not
+changed product behavior, source truth or weakened resource acceptance.
+Ruling: Task39's original missing corpus/consumer bridges are now covered by
+Tasks48/51/54/58; its full-generation, chunk/reopen and global-accounting gaps
+remain real. Do not redispatch that completed broad reconstruction or repeat
+the small native failure loop. C/B specs remain byte-frozen and approved.
+
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
 Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,
