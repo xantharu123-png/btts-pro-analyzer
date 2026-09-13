@@ -733,6 +733,56 @@ native launch or Task60 approval. Final brief3d3f2c767c5656c30aa0c3900324d41228c
 includes Root's acknowledgement ruling. Root will commit exact Task60 files
 and dispatch its full spec/quality review from BASEd4491d3.
 
+Task 60: complete (commits d4491d3..8574747, review clean).
+Independent astra/high review `/root/c_diagnostic_admission_review` found spec
+COMPLIANT and quality APPROVED, no Critical/Important/Minor findings. Root saved
+the final verdict and its report-only line-reference clarification in
+task-60-review.md. The unchanged native helper coupling was independently read.
+Cannot-verify native Linux/DAC/flock/fsync, actual driver/resource enforcement,
+and baseline/full-C/B/restore/empirical/release are resolved as explicit later
+gates, not inferred passes or omitted local Task60 APIs. The final81passed /
+2native-skipped evidence remains the actual author run; no unchanged repeat.
+
+Task61 preflight/self-consistency table (Root read both complete companions):
+
+| Shared tasks/interface | Producer versus consumer | Finding/resolution |
+| --- | --- | --- |
+| 60 -> 61 | public admission snapshot/one-shot history versus native driver | Use actual admission/binding mappings; empty job, empty first registry or fully validated stopped history; no raw budget/refund. |
+| 59 -> 61 | lazy normalized receipts versus actual corpus observations | Fixed ordinary1024 rows; complete490000 range/seed bound and checked, no full-growth claim. |
+| 48 -> 61 | held TrackedConnection and whole corpus namespace versus phase output | Use actual owner once, progress outside corpus-owned directory; all old rows/checks remain. |
+| 57/58 -> 61 | old catalogue128MiB and parent90/worker90 versus large seal/60+240 | New exact-slot streaming and explicit child-only pre-drop limit prefix; old helper bytes stay fixed. |
+| 61 internally | parent60 hard limit versus worker240 inherited hard limit | Fixed actual supervisor child-function prefix; parent never raised, failures exit125 without inherited owner unwind. |
+| 61 internally | progress after SIGKILL versus supervisor pipe behavior | Bounded durable hash-linked frames; final complete valid prefix is diagnostic evidence, never a completed corpus. |
+| 61 -> C/B | new-job8GiB versus retained historical QA/free reserve | Count previous allocated history honestly without double future allocation; no cleanup or global-C/B proof. |
+| 61 internally | manifest identities/retained inventory versus self hashes | Acyclic plan excluding admission; explicit new-input slots, stable machine/executable identity, no job-path family reset. |
+
+Ruling: Task61 registry may contain only the historical state already admitted
+by Task60, while its job must be empty; the actual first native case uses a
+fresh empty registry — avoids contradicting the reviewed owner's complete
+stopped-history contract — cost if wrong is native admission refusal/rework,
+never erasure or retry authority.
+Ruling: implement the fixed child-only prefix on actual supervisor child entry,
+not os.fork or a parent limit raise — actual Linux hard-limit inheritance makes
+60/240 otherwise impossible after dropping privilege — cost if wrong is a
+retained failed isolated test; actual native prefix proof is mandatory before
+the1024 diagnostic and unchanged numerical limits remain binding.
+Ruling: one durable progress file outside corpus namespace and streaming
+per-slot caps replace neither Task48 validation nor old catalogue limits —
+SIGKILL can lose pipe output and the baseline exceeds128MiB — cost if wrong is
+measurement overhead/failed diagnostic, never acceptance of unverified rows.
+Ruling: historical QA remains occupied reserve, not newly written output of
+this diagnostic, while all new-job parts/failures count within8GiB — avoids
+double-counting future allocation without omitting retained files — cost if
+wrong is accounting rework/no admission, never file deletion or limit increase.
+Ruling: installation identity uses bounded root-owned machine-id hash plus
+executable identity, not job/seed/clock; plan hash excludes admission only —
+prevents renamed retries and self-hash cycles — cost if wrong is false refusal
+or required identity redesign, not a silent new budget or changed source seal.
+
+Task61 PREPARED ONLY. Native preflight metadata, exact selected seed and current
+baseline are pinned in the brief and companion; no new source-data copy,
+registry, child launch, product/main/VPS update or repeated Task58 execution.
+
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.
 Independent task-48-independent-review.md: SPEC COMPLIANT / QUALITY APPROVED,
