@@ -266,6 +266,97 @@ def sample_exact_slots(root, slots, metadata_cap, *, previous=None):
 
 
 def retained_root(path):
+    if sys.platform == 'linux':
+        return _retained_root_linux(path)
+    return _retained_root_portable(path)
+
+
+def _retained_root_linux(path):
+    """One absolute root binding, then a depth-bounded no-follow FD stack."""
+    path = Path(path)
+    identity = old()['identity']
+    checksum = hashlib.sha256()
+    counts = dict(files=0, directories=0, symlinks=0, logical=0, allocated=0)
+    def same(before, after):
+        require(identity(before) == identity(after) and _allocation(before) == _allocation(after),
+                'retained named/held epoch or allocation drift')
+    def emit(record):
+        counts[{'directory': 'directories', 'regular': 'files', 'symlink': 'symlinks'}[record['kind']]] += 1
+        counts['logical'] += record['size']
+        counts['allocated'] += record['allocated']
+        require(counts['files'] + counts['directories'] + counts['symlinks'] <= 200000 and
+                max(counts['logical'], counts['allocated']) <= 64*GIB, 'retained namespace bound exceeded')
+        checksum.update(canonical(record) + b'\n')
+    def names(fd):
+        result = []
+        with os.scandir(fd) as entries:
+            for entry in entries:
+                require(len(result) < 50000, 'retained directory count exceeded')
+                result.append(entry.name)
+        return sorted(result)
+    @contextmanager
+    def child(parent, name, before, *, directory=False):
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+        if directory:
+            flags |= os.O_DIRECTORY
+        fd = os.open(name, flags, dir_fd=parent)
+        try:
+            held = os.fstat(fd)
+            require(stat.S_ISDIR(held.st_mode) if directory else stat.S_ISREG(held.st_mode),
+                    'retained opened type differs')
+            same(before, held)
+            yield fd
+            same(before, os.fstat(fd))
+            same(before, os.stat(name, dir_fd=parent, follow_symlinks=False))
+        finally:
+            os.close(fd)
+    def visit(fd, current, rel, before):
+        require(len(PurePosixPath(rel).parts) <= 32 and len(os.fsencode(current)) <= 2048,
+                'retained path/depth bound')
+        same(before, os.fstat(fd))
+        emit(dict(path=rel, kind='directory', identity=list(identity(before)),
+                  size=before.st_size, allocated=_allocation(before), sha256=None))
+        children = names(fd)
+        for name in children:
+            item = current / name
+            key = name if rel == '.' else rel + '/' + name
+            require(len(os.fsencode(item)) <= 2048, 'retained path bound')
+            info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode):
+                with child(fd, name, info, directory=True) as nested:
+                    visit(nested, item, key, info)
+                continue
+            if stat.S_ISLNK(info.st_mode):
+                target = os.readlink(os.fsencode(name), dir_fd=fd)
+                require(type(target) is bytes and len(target) <= 4096, 'retained inert link target bound')
+                data = dict(size=info.st_size, sha256=digest(target))
+                kind = 'symlink'
+            else:
+                require(stat.S_ISREG(info.st_mode) and 0 <= info.st_size <= 8*GIB,
+                        'retained regular type/size bound')
+                with child(fd, name, info) as source:
+                    hasher, length = hashlib.sha256(), 0
+                    while block := os.read(source, MIB):
+                        length += len(block)
+                        require(length <= info.st_size, 'retained regular grew')
+                        hasher.update(block)
+                    require(length == info.st_size, 'retained regular shrank')
+                    data = dict(size=length, sha256=hasher.hexdigest())
+                kind = 'regular'
+            same(info, os.stat(name, dir_fd=fd, follow_symlinks=False))
+            emit(dict(path=key, kind=kind, identity=list(identity(info)), allocated=_allocation(info), **data))
+        require(children == names(fd), 'retained directory membership changed')
+        same(before, os.fstat(fd))
+    first = path.lstat()
+    require(stat.S_ISDIR(first.st_mode), 'non-directory/linked namespace')
+    with old()['opened'](path, directory=True) as (fd, before):
+        same(first, before)
+        visit(fd, path, '.', before)
+        same(first, path.lstat())
+    return dict(path=str(path), identity=list(identity(first)), membership_sha256=checksum.hexdigest(), **counts)
+
+
+def _retained_root_portable(path):
     """Stream complete bounded membership; return only digest/counts/totals."""
     path = Path(path)
     checksum = hashlib.sha256()
