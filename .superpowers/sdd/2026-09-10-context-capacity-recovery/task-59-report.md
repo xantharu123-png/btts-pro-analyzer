@@ -213,3 +213,109 @@ QA directories were preserved. No unchanged whole suite was run.
 Task 59's sole-writer authority is explicitly returned to Root. Root alone now
 owns independent review, Git/index/commit and the subsequent full-growth native
 integration.
+
+## Fix round 1/5 — explicit closed tour-seed prediction inputs
+
+This addendum supersedes only the earlier report statements that described a
+bare native fixture, fixed tournament `189-2026`, or invented consumer
+`best_of=3` / `indoor=None`. Finding I1 was accepted verbatim:
+
+> the seed contract omits caller-supplied best_of and indoor, then silently
+> invents 3 and None. Consequently the generator cannot represent or preserve
+> an indoor fixture or best-of-five prediction input, despite the brief
+> requiring explicit prediction inputs. Tests cement the substitution by
+> supplying no such inputs at tests/test_context_growth_profile.py:34-50 and
+> asserting the constants at:150-152. Define a precise tour-seed input shape
+> carrying the native competition plus surface,best_of,indoor; validate/freeze
+> it and copy those values unchanged into every descriptor, with tests for
+> non-default ATP and WTA values.
+
+The binding seed input is now a closed mapping with exactly these five required
+keys and no others:
+
+```python
+{
+    "competition": dict,       # actual scheduled native singles competition
+    "tournament_id": str,     # validated by real status normalization
+    "surface": "Hard" | "Clay" | "Grass" | "Carpet" | None,
+    "best_of": 3 | 5,         # exact int; bool is rejected
+    "indoor": bool | None,    # explicit key; None is a supplied value
+}
+```
+
+Grouping remains derived solely from tour (`mens-singles` / `womens-singles`).
+The full mapping is detached through canonical bytes before inspection; only
+the native competition is retained as immutable bytes, while tournament,
+surface, best-of and indoor are validated immutable scalars in `TourSeed`.
+`native_fixture` still yields a fresh competition copy. Every one of the 168
+descriptors copies the four supplied tournament/prediction values unchanged.
+No compatibility path for the unreleased bare fixture exists.
+
+The tests now use ATP `tournament_id=901-2026`, `surface=Clay`, `best_of=5`,
+`indoor=True`, and mixed-profile WTA `tournament_id=902-2026`, `surface=Grass`,
+`best_of=3`, `indoor=False`. These non-default values flow through all normal
+consumer and physical decoder/source-validator checks. A separate ATP case
+proves explicit `surface=None` and `indoor=None`. Caller mutation covers the
+nested competition plus all four scalar inputs. Parameterized boundaries reject
+every omitted key, an unknown key, invalid surface values, bool/4 best-of,
+non-bool indoor and an invalid tournament before an iterator is returned.
+All original counts, clocks, event IDs, player IDs/names and isolation behavior
+remain unchanged.
+
+### Fix-round TDD evidence
+
+Focused RED exact command:
+
+```powershell
+$env:PYTHONDONTWRITEBYTECODE='1'; $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'; & '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -c 'import datetime,json,os,subprocess,sys,time; cmd=[sys.executable,"-B","-m","pytest","-q","-p","no:cacheprovider","-o","junit_family=xunit1","tests/test_context_growth_profile.py","-k","explicit_none_prediction_inputs_are_preserved_without_defaults","--basetemp=.pytest_tmp/task59-fix1-red-bt-a73d2e","--junitxml=.pytest_tmp/task59-fix1-red-a73d2e.xml"]; started=datetime.datetime.now(datetime.timezone.utc); begin=time.monotonic(); p=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=os.environ.copy()); print("TASK59_FIX1_RED_SESSION_START="+json.dumps({"wrapper_pid":os.getpid(),"child_pid":p.pid,"started_at":started.isoformat(),"timeout_seconds":60,"command":cmd},separators=(",",":"))); timed_out=False
+try: out,err=p.communicate(timeout=60)
+except subprocess.TimeoutExpired: timed_out=True; p.kill(); out,err=p.communicate()
+ended=datetime.datetime.now(datetime.timezone.utc); print("TASK59_FIX1_RED_STDOUT_BEGIN"); print(out,end=""); print("TASK59_FIX1_RED_STDOUT_END"); print("TASK59_FIX1_RED_STDERR_BEGIN"); print(err,end=""); print("TASK59_FIX1_RED_STDERR_END"); print("TASK59_FIX1_RED_SESSION_END="+json.dumps({"child_exit":p.returncode,"timed_out":timed_out,"ended_at":ended.isoformat(),"wall_seconds":round(time.monotonic()-begin,6)},separators=(",",":"))); sys.exit(124 if timed_out else p.returncode)' ; $code=$LASTEXITCODE; Write-Output "TASK59_FIX1_RED_OUTER_EXIT=$code"; exit $code
+```
+
+Captured RED terminal summary: wrapper PID `142936`, child PID `141980`, start
+`2026-09-13T08:26:43.976879+00:00`, end
+`2026-09-13T08:26:44.624783+00:00`, wrapper wall `0.64` seconds, timeout 60,
+`timed_out=false`, child/outer exit `1/1`, stderr empty. Stdout reported
+`1 failed, 41 deselected in 0.28s`; the expected failure was the old `_seed`
+passing the new closed mapping directly to `normalize_tennis_status`, whose real
+native `_id` rejected missing competition ID `None`. Execution-tool envelope:
+chunk `31ba2d`, wall `0.8919907` seconds, exit 1, original token count 698.
+
+Corrected full-module GREEN exact command:
+
+```powershell
+$env:PYTHONDONTWRITEBYTECODE='1'; $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'; & '.pytest_tmp/qa-python312-c-01/Scripts/python.exe' -B -c 'import datetime,json,os,subprocess,sys,time; cmd=[sys.executable,"-B","-m","pytest","-q","-p","no:cacheprovider","-o","junit_family=xunit1","tests/test_context_growth_profile.py","--basetemp=.pytest_tmp/task59-fix1-final-bt-ec721f","--junitxml=.pytest_tmp/task59-fix1-final-ec721f.xml"]; started=datetime.datetime.now(datetime.timezone.utc); begin=time.monotonic(); p=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=os.environ.copy()); print("TASK59_FIX1_SESSION_START="+json.dumps({"wrapper_pid":os.getpid(),"child_pid":p.pid,"started_at":started.isoformat(),"timeout_seconds":120,"command":cmd},separators=(",",":"))); timed_out=False
+try: out,err=p.communicate(timeout=120)
+except subprocess.TimeoutExpired: timed_out=True; p.kill(); out,err=p.communicate()
+ended=datetime.datetime.now(datetime.timezone.utc); print("TASK59_FIX1_STDOUT_BEGIN"); print(out,end=""); print("TASK59_FIX1_STDOUT_END"); print("TASK59_FIX1_STDERR_BEGIN"); print(err,end=""); print("TASK59_FIX1_STDERR_END"); print("TASK59_FIX1_SESSION_END="+json.dumps({"child_exit":p.returncode,"timed_out":timed_out,"ended_at":ended.isoformat(),"wall_seconds":round(time.monotonic()-begin,6)},separators=(",",":"))); sys.exit(124 if timed_out else p.returncode)' ; $code=$LASTEXITCODE; Write-Output "TASK59_FIX1_OUTER_EXIT=$code"; exit $code
+```
+
+Exact captured GREEN terminal text:
+
+```text
+TASK59_FIX1_SESSION_START={"wrapper_pid":140220,"child_pid":139120,"started_at":"2026-09-13T08:27:41.165033+00:00","timeout_seconds":120,"command":["C:\\Projekt\\BetBoy\\betboy-app\\.worktrees\\context-capacity-recovery-20260910\\.pytest_tmp\\qa-python312-c-01\\Scripts\\python.exe","-B","-m","pytest","-q","-p","no:cacheprovider","-o","junit_family=xunit1","tests/test_context_growth_profile.py","--basetemp=.pytest_tmp/task59-fix1-final-bt-ec721f","--junitxml=.pytest_tmp/task59-fix1-final-ec721f.xml"]}
+TASK59_FIX1_STDOUT_BEGIN
+..........................................                               [100%]
+42 passed in 9.78s
+TASK59_FIX1_STDOUT_END
+TASK59_FIX1_STDERR_BEGIN
+TASK59_FIX1_STDERR_END
+TASK59_FIX1_SESSION_END={"child_exit":0,"timed_out":false,"ended_at":"2026-09-13T08:27:51.315305+00:00","wall_seconds":10.156}
+TASK59_FIX1_OUTER_EXIT=0
+```
+
+Execution-tool envelope: chunk `535166`, wall `10.3895225` seconds, exit 0,
+original token count 216. No CPU, RSS or AS measurements were captured by this
+unit-test wrapper; none are inferred.
+
+| Fix-round file | Bytes | SHA-256 of corrected tested bytes |
+| --- | ---: | --- |
+| `tests/context_growth_profile.py` | 15,382 | `584bd2c9c14aee3abe5b5dc2f537ebc25914cd7d63b7dabf6d0abb306798e2c9` |
+| `tests/test_context_growth_profile.py` | 16,481 | `bf917cebeb86939d351e979ea5d4f23213566adafba9050c41a2974932d69829` |
+| `.pytest_tmp/task59-fix1-red-a73d2e.xml` | 2,039 | `29f082a24f67ab576f6399e41703097ff0c9f3d34dd4689d5244dfb2e9bdee52` |
+| `.pytest_tmp/task59-fix1-final-ec721f.xml` | 9,028 | `de7d64682098d5cb739b5e74473eef7a3babb4f41985ae2bc65e7559acc69ee6` |
+
+No product/existing-test/other-report, Git/index, server, network or package was
+touched, and no unchanged suite was rerun. Task 59 fix-round 1/5 sole-writer
+authority is explicitly returned to Root for commit and scoped re-review.

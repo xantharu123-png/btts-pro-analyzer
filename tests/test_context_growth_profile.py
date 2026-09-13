@@ -31,8 +31,8 @@ FIRST_ID = 8_000_000_000_000_000_000
 BASELINE = "1" * 64
 
 
-def _fixture(tour):
-    return {
+def _fixture(tour, *, tournament_id=None, surface="Hard", best_of=3, indoor=None):
+    competition = {
         "id": "201" if tour == "ATP" else "202",
         "date": "2026-09-13T17:00:00Z",
         "surface": "Hard",
@@ -48,6 +48,13 @@ def _fixture(tour):
             {"id": "12" if tour == "ATP" else "22", "athlete": {"displayName": tour + " Beta"}},
         ],
     }
+    return {
+        "competition": competition,
+        "tournament_id": tournament_id or ("901-2026" if tour == "ATP" else "902-2026"),
+        "surface": surface,
+        "best_of": best_of,
+        "indoor": indoor,
+    }
 
 
 def _profile(kind):
@@ -56,8 +63,8 @@ def _profile(kind):
         baseline_sha256=BASELINE,
         start_at=START,
         first_native_id=FIRST_ID,
-        atp_fixture=_fixture("ATP"),
-        wta_fixture=_fixture("WTA") if kind == "mixed" else None,
+        atp_fixture=_fixture("ATP", surface="Clay", best_of=5, indoor=True),
+        wta_fixture=_fixture("WTA", surface="Grass", best_of=3, indoor=False) if kind == "mixed" else None,
     )
 
 
@@ -146,10 +153,11 @@ def test_consumers_are_inside_daily_total_and_have_exact_prediction_clocks(kind)
         assert descriptor.observed_at <= descriptor.cutoff < scheduled_start
         assert descriptor.created_at >= descriptor.cutoff
         assert descriptor.grouping_slug == ("mens-singles" if descriptor.tour == "ATP" else "womens-singles")
-        assert descriptor.tournament_id == "189-2026"
-        assert descriptor.surface == "Hard"
-        assert descriptor.best_of == 3
-        assert descriptor.indoor is None
+        expected = {
+            "ATP": ("901-2026", "Clay", 5, True),
+            "WTA": ("902-2026", "Grass", 3, False),
+        }[descriptor.tour]
+        assert (descriptor.tournament_id, descriptor.surface, descriptor.best_of, descriptor.indoor) == expected
         grouped[descriptor.day_index, descriptor.tour, descriptor.cutoff] += 1
     assert len(grouped) == 98
     assert sum(count == 2 for count in grouped.values()) == (70 if kind == "mixed" else 70)
@@ -209,7 +217,11 @@ def test_repeatable_slices_and_nested_fixture_mutations_cannot_change_emissions(
         first_native_id=FIRST_ID, atp_fixture=atp, wta_fixture=None)
     wanted = (69_975, 69_976, 69_999, 70_000)
     first = [next(profile.iter_receipts(start=index, stop=index + 1)) for index in wanted]
-    atp["competitors"][0]["id"] = "999"
+    atp["competition"]["competitors"][0]["id"] = "999"
+    atp["tournament_id"] = "999-2099"
+    atp["surface"] = "Grass"
+    atp["best_of"] = 5
+    atp["indoor"] = True
     first[0][0]["payload"]["participant_ids"][0] = "changed"
     descriptor_fixture = profile.consumers()[0].native_fixture
     descriptor_fixture["competitors"][0]["id"] = "888"
@@ -218,6 +230,9 @@ def test_repeatable_slices_and_nested_fixture_mutations_cannot_change_emissions(
     assert second == third
     assert second[0][0]["payload"]["participant_ids"][0] != "changed"
     assert profile.consumers()[0].native_fixture["competitors"][0]["id"] == "11"
+    assert (profile.consumers()[0].tournament_id, profile.consumers()[0].surface,
+            profile.consumers()[0].best_of, profile.consumers()[0].indoor) == (
+                "901-2026", "Hard", 3, None)
     assert [entry.ordinal for entry in islice(profile.iter_schedule(), 69_975, 70_001)] == list(range(69_975, 70_001))
     assert list(profile.iter_receipts(start=12, stop=12)) == []
 
@@ -266,15 +281,60 @@ def test_mixed_requires_both_tours_and_malformed_native_seed_fails_before_iterat
         build_growth_profile("mixed", baseline_sha256=BASELINE, start_at=START,
             first_native_id=FIRST_ID, atp_fixture=_fixture("ATP"), wta_fixture=None)
     malformed_status = _fixture("ATP")
-    malformed_status["status"] = {"type": {"state": "pre"}}
+    malformed_status["competition"]["status"] = {"type": {"state": "pre"}}
     with pytest.raises((ContextContractError, ValueError), match="scheduled|status|ATP"):
         build_growth_profile("atp-heavy", baseline_sha256=BASELINE, start_at=START,
             first_native_id=FIRST_ID, atp_fixture=malformed_status, wta_fixture=None)
     malformed_players = _fixture("ATP")
-    malformed_players["competitors"][1]["id"] = malformed_players["competitors"][0]["id"]
+    malformed_players["competition"]["competitors"][1]["id"] = malformed_players["competition"]["competitors"][0]["id"]
     with pytest.raises((ContextContractError, ValueError), match="participant|ATP"):
         build_growth_profile("atp-heavy", baseline_sha256=BASELINE, start_at=START,
             first_native_id=FIRST_ID, atp_fixture=malformed_players, wta_fixture=None)
+
+
+def test_explicit_none_prediction_inputs_are_preserved_without_defaults():
+    profile = build_growth_profile("atp-heavy", baseline_sha256=BASELINE, start_at=START,
+        first_native_id=FIRST_ID,
+        atp_fixture=_fixture("ATP", tournament_id="777-2030", surface=None, best_of=3, indoor=None),
+        wta_fixture=None)
+    assert {(item.tournament_id, item.surface, item.best_of, item.indoor)
+            for item in profile.consumers()} == {("777-2030", None, 3, None)}
+
+
+@pytest.mark.parametrize("missing", ["competition", "tournament_id", "surface", "best_of", "indoor"])
+def test_closed_seed_mapping_rejects_every_missing_field_before_iteration(missing):
+    seed = _fixture("ATP")
+    del seed[missing]
+    with pytest.raises((ContextContractError, TypeError, ValueError), match="seed|fields|mapping"):
+        build_growth_profile("atp-heavy", baseline_sha256=BASELINE, start_at=START,
+            first_native_id=FIRST_ID, atp_fixture=seed, wta_fixture=None)
+
+
+@pytest.mark.parametrize(
+    "field,value,match",
+    [
+        ("surface", "Sand", "surface"),
+        ("surface", 1, "surface"),
+        ("best_of", True, "best_of"),
+        ("best_of", 4, "best_of"),
+        ("indoor", 0, "indoor"),
+        ("tournament_id", "invalid", "scheduled|tournament"),
+    ],
+)
+def test_closed_seed_mapping_rejects_invalid_explicit_inputs_before_iteration(field, value, match):
+    seed = _fixture("ATP")
+    seed[field] = value
+    with pytest.raises((ContextContractError, TypeError, ValueError), match=match):
+        build_growth_profile("atp-heavy", baseline_sha256=BASELINE, start_at=START,
+            first_native_id=FIRST_ID, atp_fixture=seed, wta_fixture=None)
+
+
+def test_closed_seed_mapping_rejects_unknown_fields_before_iteration():
+    seed = _fixture("ATP")
+    seed["grouping_slug"] = "mens-singles"
+    with pytest.raises((ContextContractError, TypeError, ValueError), match="seed|fields|mapping"):
+        build_growth_profile("atp-heavy", baseline_sha256=BASELINE, start_at=START,
+            first_native_id=FIRST_ID, atp_fixture=seed, wta_fixture=None)
 
 
 @pytest.mark.parametrize("start,stop", [(-1, None), (0, 490_001), (2, 1), (False, 1), (0, True), (1.0, 2)])

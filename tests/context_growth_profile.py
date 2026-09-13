@@ -2,9 +2,12 @@
 
 Declared immutable shapes
 -------------------------
-``TourSeed`` contains ``tour``, ``tournament_id``, ``grouping_slug``,
-``surface``, ``best_of``, ``indoor`` and immutable ``_fixture_bytes``.
-``native_fixture`` decodes a fresh copy and never exposes stored authority.
+Each builder tour input is a closed mapping with exactly ``competition``,
+``tournament_id``, ``surface``, ``best_of`` and ``indoor``. ``TourSeed``
+contains the validated/frozen values as ``tour``, ``tournament_id``,
+tour-derived ``grouping_slug``, ``surface``, ``best_of``, ``indoor`` and
+immutable ``_fixture_bytes``. ``native_fixture`` decodes a fresh competition
+copy and never exposes stored authority.
 
 ``GrowthScheduleEntry`` contains scalar ``ordinal``, ``day_index``,
 ``day_ordinal``, ``tour``, ``native_id``, ``observed_at``, ``receive_bucket``,
@@ -43,10 +46,10 @@ CONSUMERS_PER_DAY = 24
 MAX_SIGNED_64 = 2**63 - 1
 _BURST_BUCKET_ORDER = (0, 2, 1, 4, 3, 6, 5, 8, 7, 9)
 _KINDS = frozenset({"atp-heavy", "mixed", "burst"})
-_TOUR_DETAILS = {
-    "ATP": ("mens-singles", "189-2026"),
-    "WTA": ("womens-singles", "189-2026"),
-}
+_TOUR_GROUPING = {"ATP": "mens-singles", "WTA": "womens-singles"}
+_FILLER_TOURNAMENT_ID = "189-2026"
+_SURFACES = frozenset({"Hard", "Clay", "Grass", "Carpet"})
+_SEED_FIELDS = {"competition", "tournament_id", "surface", "best_of", "indoor"}
 
 
 def _fixture_copy(raw: bytes) -> dict:
@@ -58,7 +61,7 @@ class TourSeed:
     tour: str
     tournament_id: str
     grouping_slug: str
-    surface: str
+    surface: str | None
     best_of: int
     indoor: bool | None
     _fixture_bytes: bytes
@@ -93,7 +96,7 @@ class GrowthConsumerDescriptor:
     observed_at: datetime
     cutoff: datetime
     created_at: datetime
-    surface: str
+    surface: str | None
     best_of: int
     indoor: bool | None
     _fixture_bytes: bytes
@@ -189,8 +192,8 @@ class GrowthProfile:
             grouping_slug = descriptor.grouping_slug
         else:
             fixture = _ordinary_fixture(self.first_native_id + ordinal, ordinal, day_index, self.start_at)
-            tournament_id = _TOUR_DETAILS[tour][1]
-            grouping_slug = _TOUR_DETAILS[tour][0]
+            tournament_id = _FILLER_TOURNAMENT_ID
+            grouping_slug = _TOUR_GROUPING[tour]
         rows = normalize_tennis_status(
             tour,
             tournament_id,
@@ -220,31 +223,43 @@ def _checked_add(clock: datetime, **parts: int) -> datetime:
 
 def _seed(tour: str, fixture: object, start_at: datetime) -> TourSeed:
     if type(fixture) is not dict:
-        raise ContextContractError(f"{tour} growth profile requires a native fixture object")
+        raise ContextContractError(f"{tour} growth profile seed must be a closed mapping")
+    if set(fixture) != _SEED_FIELDS:
+        raise ContextContractError(f"{tour} growth profile seed has unknown or missing fields")
     try:
-        frozen = canonical_bytes(fixture)
-        detached = _fixture_copy(frozen)
+        detached = _fixture_copy(canonical_bytes(fixture))
+        frozen = canonical_bytes(detached["competition"])
     except (TypeError, ValueError, OverflowError) as exc:
-        raise ContextContractError(f"{tour} native fixture is not canonical data") from exc
-    grouping_slug, tournament_id = _TOUR_DETAILS[tour]
+        raise ContextContractError(f"{tour} growth profile seed is not canonical data") from exc
+    tournament_id = detached["tournament_id"]
+    surface = detached["surface"]
+    best_of = detached["best_of"]
+    indoor = detached["indoor"]
+    if surface is not None and (type(surface) is not str or surface not in _SURFACES):
+        raise ContextContractError(f"{tour} prediction surface must be Hard, Clay, Grass, Carpet or None")
+    if type(best_of) is not int or best_of not in (3, 5):
+        raise ContextContractError(f"{tour} prediction best_of must be the exact integer 3 or 5")
+    if indoor is not None and type(indoor) is not bool:
+        raise ContextContractError(f"{tour} prediction indoor must be an exact boolean or None")
+    competition = _fixture_copy(frozen)
+    grouping_slug = _TOUR_GROUPING[tour]
     rows = normalize_tennis_status(
         tour,
         tournament_id,
-        detached,
+        competition,
         grouping_slug=grouping_slug,
         observed_at=start_at,
     )
     if len(rows) != 1 or rows[0]["payload"]["status"] != "scheduled" or rows[0]["payload"]["issues"]:
         raise ContextContractError(f"{tour} native fixture must be one intact scheduled singles status")
-    competitors = detached.get("competitors")
+    competitors = competition.get("competitors")
     if type(competitors) is not list or len(competitors) != 2:
         raise ContextContractError(f"{tour} native fixture needs two participants")
     for participant in competitors:
         if type(participant) is not dict or type(participant.get("athlete")) is not dict:
             raise ContextContractError(f"{tour} native fixture participant metadata is malformed")
         require_text(participant["athlete"].get("displayName"), f"{tour} prediction participant name")
-    surface = require_text(detached.get("surface"), f"{tour} prediction surface")
-    return TourSeed(tour, tournament_id, grouping_slug, surface, 3, None, frozen)
+    return TourSeed(tour, tournament_id, grouping_slug, surface, best_of, indoor, frozen)
 
 
 def _consumer_coordinates(kind: str, consumer_index: int) -> tuple[str, int, int]:
