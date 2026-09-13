@@ -1,5 +1,52 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-10-context-capacity-recovery.md
 
+## Current checkpoint — 13 September 2026: Task61 independent review active
+
+Continue the approved C -> B -> complete QA -> main/push/controlled VPS release.
+Do not repeat completed Task58 native ATP/WTA/late-cleanup acceptance.
+Root/repair HEAD is fec316ff05545fff89217399cfbf872f19ee6c7f; the last
+freshly verified pushed repair branch is eaa60ac619f4c0900f5d44beefbb8ab79cd9e7c4.
+Task60 code8574747 is locally
+independently approved; its separate reviewed native operator counterpart
+actually passed09:35:47UTC with external exit0 and matching retained hash
+readback. See task-60-native-evidence-20260913.md for the exact limited claim.
+
+Task61 author `/root/c_native_receipt_diagnostic` (astra/high) explicitly
+returned sole-writer ownership. Its four new QA modules and report are frozen
+and committed as fec316f, dispatch BASEeaa60ac. Root owns controller documents,
+Git/index and all native operations. Latest288-line extracted
+brief SHA6df2a7ead36134e567c41f8a3bb34a0748177cad6dbcaf109984a45223b70460
+contains Root's retained-link/multi-journal/prefix-test rulings. Root preflight
+companion SHA5a9d6ceb6f7ad4e907608e5dcf7557645fd0634a1aa3384539b755645b87bf71.
+Final actual focused suite39passed/2native-only skips in81.62s, child/outer0,
+stderr empty; session87658/terminal12bd98. Root freshly matched all four code
+hashes, report SHAe20b50e04b781cf0a9f6ce0a38a3cdda7ea564e70964d89b6f7705c95ccab92b,
+XML SHA4c9e52df9fd576f1d31a76e93fe3672470d6b62f0406d02239f7608a014bcd33
+(41cases,0failures,0errors,2skips). Actual1024small-source owner includes a17MiB
+old value. Independent reviewer `/root/c_receipt_diagnostic_review` (astra/high)
+holds full142893-byte eaa60ac..fec316f task-61-review-01.diff; review and native
+prefix/real-baseline gates remain open. Do not repeat unchanged focused suite
+or Task58 native acceptance. No implementation writer is active during review.
+
+Root prepared actual metadata in .pytest_tmp/task61-retained-metadata-01.json
+(85 older roots, SHA2e1699479e0bae473ac9f8bfd7038dbac4ec7bf9f2060081cfc6652ec4be1171)
+and task61-known-journals-01.json (16 exact known journal descriptors, SHA
+4b88319870c1cc504a52e1842f29d40337cf1c355f5e098c5ae242a8ad5536cd).
+The new Task60 protocol root is additional49152bytes and must be in the fresh
+retained inventory. Historical primary journal charges and external sealer
+allowances are distinct; task-61-known-journals-20260913.md corrects labels.
+No complete retained-content inventory or Task61 catalogue/registry/native
+prefix/receipt launch yet. Root selected4GiB future backup/rollback reserve
+in addition to4GiB free reserve and exact job allocations; native admission
+must remeasure. No removal of retained files, same-family retries or refunds.
+
+Production fresh09:32:10UTC remains2dd1116, app/Caddy active and both health
+checks ok; separate known betboy-tennis.service remains failed/out of scope.
+Full490000-growth C, global source/resources/cost, B, restore, full regression,
+final review and main/VPS update remain open. Never infer deployment from a
+repair-branch push: existing timers do not pull or deploy code automatically.
+
+
 Base: `82ca31d4340ed2dabd2a9812eb6bcadfbd757a5a`; branch `codex/context-capacity-recovery-20260910`.
 User approved the one-time updater-only replacement with independent review, fresh backup and rollback. No data deletion or unrelated deployment is authorized by this repair.
 
@@ -782,6 +829,88 @@ or required identity redesign, not a silent new budget or changed source seal.
 Task61 PREPARED ONLY. Native preflight metadata, exact selected seed and current
 baseline are pinned in the brief and companion; no new source-data copy,
 registry, child launch, product/main/VPS update or repeated Task58 execution.
+
+Checkpoint eaa60ac619f4c0900f5d44beefbb8ab79cd9e7c4 is committed, pushed to the
+repair branch and freshly matched by ls-remote (actual escalated exit0,
+chunk0f1472; preceding sandbox network refusal retained). Remote main remains
+2dd1116b68f3d94e9c24338c6c9dff9b01799221; no deployment.
+Task61 ACTIVE from that BASE, sole implementer `/root/c_native_receipt_diagnostic`
+(astra/high). Root fully read the224-line extracted brief SHA
+c11ee652dffe91533a14a03da5ed985307ecbb41b6368fae95cb39453fc2bb29 and both
+companions; native preflight companion SHA
+aeddc7bc8c48a81adad5329d38bfd364adb1a69cf6ed502b87d89af48844630e.
+Author owns only four new QA modules/report; Root retains all Git/index/server
+actions, performs separate read-only input preparation, and will dispatch the
+single independent task review after the author returns implementation custody.
+
+Task61 retained-shape preflight, actual2026-09-13T09:26:14Z, SSH/tool exit0,
+chunkf7c8ad,8.116927s tool wait,6.05427074CPU/15232KiBRSS, no durable ticket.
+Instrument evidence/task61-retained-metadata-read.py SHA
+5d8d68972520f422ad55d5fbb2f23385914bfa8bcaa930e3e1b019440d993401;
+raw metadata-only JSON retained in .pytest_tmp/task61-retained-metadata-01.json.
+85 exact selected QA/backup/rollback roots total20390694912 per-path allocated
+bytes; fresh free12525854720. No content hashes, quiescent global snapshot,
+Source authority or new native driver execution. Hardlink aliases make the
+allocated sum a conservative occupied upper bound, not deduplicated usage.
+The largest existing QA root has56895 regular/17409 directory/1932 symlink
+entries and88 multiply linked regular entries; twenty-one older negative-test
+fixture roots also preserve one symlink/two hardlinked entries each.
+
+Ruling: historical retained occupancy needs its own typed no-follow scanner,
+including inert symlink target-byte hashes and regular nlink, bounded200000
+entries/root and500000 total rather than the author's unimplemented30000 cap
+— existing negative-test evidence must remain accounted without being deleted
+or falsely promoted to active input/code — cost if wrong is refused admission,
+measurement overhead or scanner rework. All active source/code/job link/DAC
+rules and C memory/disk/CPU/output limits remain unchanged. Other special file
+types reject; per-path hardlink counting remains conservative, no free reserve
+is fabricated. The explicit clarification is in the owning Task61 text/brief;
+author updates its pre-code schema and covers distinction in focused tests.
+
+Task61 Ruling: test-only native_prefix_test uses an exact separate Root-owned
+namespace and fixed stdlib probe, each mode in a fresh clean root interpreter;
+the real diagnostic CLI has no probe mode and still needs actual admission —
+proves the new inherited60/240 handoff before spending the real1024-row case —
+cost if wrong is test/prefix rework and retained isolated evidence, never a
+selectable production worker or relaxed guard. Exact API/path/failure binding
+is in the owning brief. The failure uses the same actual prefix with an
+intentionally wrong expected-parent binding, not a fake supervisor or bypass.
+
+Task60 actual native protocol counterpart PASS09:35:47UTC, two isolated cases /
+eight asserted groups, not a pytest count. Instrument independently APPROVED,
+SHA b73951134de6d0ffd06d2a9e3ebd0a8501864eb52953d9be857d98e7930132b1;
+stdin627d8ef424b98052fb5197ae19ab2a38bd7fcf4291fbd631535faa6b662af526,
+107692bytes. Actual tool/SSH/child0, GNUtime0.22wall/0.13user/0.02sys,
+20736KiBRSS, no unexpected stderr. Both fresh synthetic tickets retain300CPU;
+closed and intentionally poisoned histories both preserved, no native worker.
+Separate post-exit four-file hash readback matches; new exact test root49152B.
+See task-60-native-evidence-20260913.md for scope, raw-output hashes and commands.
+Historical engineering tickets total2370CPU, explicitly not a single completed
+C1800CPU lifecycle. No Task61 source/resource/prefix or real-growth/native pass.
+Fresh production09:32:10UTC unchanged2dd1116, app/Caddy active/health ok;
+known separate tennis service still failed. No main/VPS/service mutation.
+
+Task61 Ruling: retained root controls use an explicit complete list of known
+execution journals rather than one head/ticket per namespace — the new native
+protocol fixture already contains two actual independent journals — cost if
+wrong is refused inventory/admission or schema rework, never lost poisoned
+evidence, repaired history or fabricated historical cost. Root declarations
+distinguish real execution evidence from similarly named unit-test files;
+all bytes still enter complete membership hashing. The held budget replay
+checks every declared journal, and unknown unjournaled cost keeps the root
+total unknown. Exact closed fields are frozen in the owning Task61 text.
+
+Task61 fresh16-journal read-only replay09:48:35UTC/chunk448c67 exit0,0.117310958CPU
+corrects the earlier broad durable-cost label: eight primary old journals
+hold1680CPU, separate sealer allowances90CPU yield conservative1770. Adding
+the two new protocol admissions gives2280CPU in the ten primary journals,
+2370 including separate sealer allowances. The six older embedded synthetic
+fixtures additionally retain three1CPU pending claims and three1ns settled
+claims, not actual measured execution costs. All complete states/identities/
+heads/tickets remain in .pytest_tmp/task61-known-journals-01.json; see
+task-61-known-journals-20260913.md. No journal was reopened, continued,
+settled, refunded or changed. This current correction supersedes the earlier
+phrasing without removing old evidence; no full-C lifecycle claim follows.
 
 Task48: complete in narrow scope, code a52b4b7. Actual final owner run72pass,
 0failure/error/skip in44.22s; XML eceee5000035520c57a12fa114b09a97e58c2a6f3fc407cd9d08314bcc2fbbdf.

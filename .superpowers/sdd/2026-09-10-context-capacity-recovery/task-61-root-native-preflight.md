@@ -112,3 +112,54 @@ Enforced CPU20/AS512MiB/FSIZE0/CORE0/alarm30; reported CPU1.921772020s before
 output, post-import wall1.882077372s, peak20388KiB. No durable budget ticket or
 whole-job accounting claim. This is separate read-only input preparation,
 not another changed-input native-capacity attempt or refund of prior charges.
+
+## Follow-up complete shape and planning reserve
+
+Metadata-only instrument `evidence/task61-retained-metadata-read.py` SHA
+5d8d68972520f422ad55d5fbb2f23385914bfa8bcaa930e3e1b019440d993401 ran
+at09:26:14UTC, actual SSH/tool exit0/chunkf7c8ad. Its complete raw JSON is
+`.pytest_tmp/task61-retained-metadata-01.json`, SHA
+2e1699479e0bae473ac9f8bfd7038dbac4ec7bf9f2060081cfc6652ec4be1171.
+It opens no file content and establishes no execution reserve. Actual reported
+CPU6.05427074s, RSS15232KiB, hardCPU30/AS512MiB/FSIZE0/alarm45; no durable ticket.
+
+85 selected existing QA/backup/rollback roots total20390694912 per-path allocated
+bytes. Because hardlinks are deliberately counted at each path, this is a
+conservative occupied upper bound, not unique filesystem allocation. Actual
+filesystem available bytes12525854720 already reflect occupied history; do not
+subtract that20.39GB again as future allocation. The old/tmpQA root has56895
+regular files,17409directories,1932symlinks and88 hardlinked regular entries.
+Many old negative-test namespaces likewise contain deliberately invalid links.
+They cannot be erased or treated as executable/source seals. The owning brief's
+separate typed no-follow retained-history contract handles them explicitly.
+
+Selectors include `/var/lib/betboy-*` except persistent service key-staging
+`betboy-backup`, `/var/tmp/betboy-update.*`, `/tmp/betboy-context-*`,
+`/tmp/betboy-tour-*`, and `/var/backups/betboy*` except unrelated SSH-key backup
+`betboy-ssh`. These exclusions are explicit planning scope boundaries, not
+exclusions within any admitted retained root. Filesystem available bytes still
+include every occupied file. The later actual inventory must refresh membership
+and include newly created separate QA namespaces/controls through exact slots.
+
+Subsequent Task60 native protocol checks created the explicitly recorded
+`/var/lib/betboy-admission-task60-protocol-8574747-01`,49152allocated bytes and
+two retained synthetic300CPU tickets. It must be added to retained inputs;
+the09:26 metadata report is therefore not current admission evidence.
+
+Read-only app planning size query (chunk eaa53d, final SSH/tool exit0):
+
+```text
+sudo -n /usr/bin/timeout --signal=TERM --kill-after=2 30s /usr/bin/du --bytes --summarize --exclude=.git --exclude=.venv --exclude=.pytest_tmp --exclude=.pytest_cache --exclude=__pycache__ --exclude=.codex_test_venv --exclude=backups_runtime -- /opt/betboy/app
+/usr/bin/df -B1 --output=avail /var/lib
+```
+
+Observed1252376962 logical bytes in code/data excluding the named tool/cache
+areas; filesystem free12525584384. No content opened. The printed du result is
+retained, but the final command status is df's rather than a separate du status.
+Root selects an additional **4GiB** future backup/rollback reserve for Task61,
+on top of unchanged4GiB free reserve and exact still-outstanding job allocations.
+It exceeds three times this observed code/data envelope (3757130886bytes).
+This is a conservative diagnostic planning reserve, not a completed backup,
+quiescent live inventory, compressed-size promise or later rollout sizing proof.
+The actual Task61 admission must freshly check available/reserved space; the
+full-C/release owner must later measure its complete actual backup/rollback plan.

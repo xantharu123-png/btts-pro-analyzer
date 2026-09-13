@@ -138,6 +138,22 @@ may drive such fixed subprocesses, but no automatic sudo/SSH/native invocation
 is allowed in ordinary local tests. Root explicitly provisions/runs native QA
 after independent review, with bounded wall/CPU and retained terminal results.
 
+Concrete test-only API clarification: `native_prefix_test(mode, *, root)` uses
+only `/var/lib/betboy-receipt-prefix-task61-01`, with separately Root-provisioned
+fresh `success`/`failure` subdirectories and one root-sealed stdlib-only
+`probe.py`. Declare its immutable probe bytes/producer in the new QA module;
+Root checks their reviewed hash before provisioning. No arbitrary probe source,
+automatic sudo/SSH/install or extra diagnostic CLI mode. Each mode is a separate
+fresh clean root interpreter with parent hard60. Positive test uses the actual
+prefix and unchanged supervisor/guard/SIGSTOP/readback/reaping, argv exactly
+`(sealed_probe, "receipt-v1")`; fixed small output then exit. Negative test may
+bind the exact prefix to deliberately wrong expected parent PID solely within
+this test entry, requiring actual child125 and reap without inherited owner
+cleanup. No bypass flag is added inside the production prefix. Normal main
+still binds its actual worker/admission and cannot choose the probe. Root
+records these as isolated kernel protocol tests, not the1024-row execution,
+real data authority, empirical proof or a new free preparation lifecycle.
+
 M=512MiB main, M DELETE journal, L=1MiB two-bank ledger; reserve each in the
 entire job before writes. Progress262144bytes, stdout128KiB, stderr8KiB, report/
 failure/custody controls and allocation/metadata slack are separate exact slots.
@@ -158,6 +174,54 @@ explicit new input/control slots separately to avoid a self-hashing inventory;
 no implicit wildcard exclusions, unknown-file allowance or sparse savings.
 Admission refuses missing/unstable/incomplete retained inventory or insufficient
 reserve. Root's historical du totals are not this complete proof. No deletion.
+
+**Retained-history input clarification after fresh native shape inspection:**
+the preserved old QA root contains76236 entries including1932 intentional
+symlinks and88 hardlinked regular entries. This is inert negative-test history,
+not new code/source admission. Use a separate closed typed retained record:
+`path`, `kind`, `identity`, `size`, `allocated`, `sha256`, where kind is exactly
+`directory`, `regular` or `symlink`. Directory sha256 is null. Hash all regular
+bytes through held no-follow identity, including exact nlink; for a symlink
+hash its bounded raw link-target bytes (<=4096), lstat before/after and never
+follow, open, import or authorize its destination. Other types reject.
+Existing active input/code/job single-link/root-DAC rules stay unchanged.
+No retroactive chmod or deletion of historical files. Bind complete ancestor
+and membership epochs; historical writable metadata is not Source authority.
+Root records count regular entries as `files`, directory entries as `directories`
+and link entries as `symlinks`. Bound per-root total200000, all roots500000,
+root count256, depth32, per-directory50000children and path2048UTF-8 bytes;
+retain streamed hashing, fixed control/output/memory/CPU/file/64GiB aggregate
+bounds. The old proposed30000 cap was an unimplemented QA-control choice,
+not a product limit; it cannot require dropping preserved historical evidence.
+Per-path allocated sums may conservatively count a hardlinked inode twice:
+label this as occupied upper-bound bookkeeping, not unique physical usage or
+future reserve. Fresh filesystem available bytes remains the free-space check.
+
+Retained roots can contain multiple actual budgets: replace the companion's
+single journal_head/ticket pair with exact root keys `path`, `identity`,
+`membership_sha256`, `files`, `directories`, `symlinks`, `logical`, `allocated`,
+`category`, `charged_cpu_ns`, `journals`. `journals` is a sorted unique list of
+closed entries: `path` (relative), `identity` (complete BudgetIdentity),
+`journal_head`, `ticket` (actual complete Reservation or null), `state`
+(`stopped`, `pending`, `accounting-open`), `charged_cpu_ns`, `settled_cpu_ns`,
+`category` (`historical-measurement`, `synthetic-protocol`, `unknown`). Root
+explicitly declares known execution journals from retained evidence; similarly
+named unit-test files are not presumed genuine executions. All descendants
+still enter the complete byte/membership inventory. Replay each declared
+journal read-only with the held pinned budget helper and compare its actual
+identity/head/state/ticket; no historical reopen/reservation/settlement. A
+poisoned pending journal stays pending and fully charged. Root charged_cpu_ns
+is null if unknown unjournaled history prevents a complete cost total; even a
+known total is historical accounting, never a full-C settled-cost claim.
+
+Historical-label correction from fresh actual replay: the companion's1770CPU
+is a conservative prior engineering allowance, comprising1680CPU in eight
+primary journals plus90CPU of separate sealer allowances, not1770CPU journaled.
+Two new Task60 protocol admissions each retain300CPU; six embedded older
+roundtrip/recovery journal fixtures also remain and have explicitly synthetic
+values. Exact16-journal readback and category distinctions are in
+`task-61-known-journals-20260913.md`; these observations are not new lifecycle
+credit and cannot replace the actual fresh retained inventory.
 
 ### Actual owner and persistent phase protocol
 
