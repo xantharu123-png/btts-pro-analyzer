@@ -1,5 +1,21 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neuester Stand 14. September 2026 — Tennis-Laufzeitfix, noch kein VPS-Release
+
+Neue gezielte Reparatur: vollständige Tennis-Historie pro Tour/Entscheidung
+indexieren, je Karte alle relevanten Event-Revisionen statt erneut die gesamte
+Tour verarbeiten; vollständige Snapshot-Referenzen unverändert. Begrenzter
+Feldnamen-Cache und erhaltene Diagnoseausgabe bei Pipeline-Timeout.
+917 gezielte Tests bestanden/1 Plattform-Skip. Echter 1000-Receipt-VPS-Vergleich:
+zehn Featureberechnungen 2,5638 → 0,3489 CPU-s bei identischen Werten/Referenzen.
+Das ist weder eine Gesamtperformanceabnahme noch ein Deployment.
+Frische Produktion weiter 2dd1116/Updater74b1; Datenbank jetzt600219648 Byte.
+Tennis-Timeout/WTA-HTTP503 und Fußball-Resultatzuordnung bleiben betrieblich offen.
+Keine Quotenregeln, Datenhistorie, QA-Budgets oder Freigaben verändert.
+Details: `docs/audits/2026-09-14-tennis-runtime-repair.md`.
+Kein dritter großer QA-Lauf. Eine Vereinfachung des festgefahrenen Updatevertrags
+ist als separate Entscheidung nötig, nicht stillschweigend umgesetzt.
+
 ## Neuester Stand 14. September 2026 — zweiter Serverprüflauf beendet, kein Deployment
 
 Der zweite explizit genehmigte 900-s-Auftrag mit A400/B300/C200 lief auf

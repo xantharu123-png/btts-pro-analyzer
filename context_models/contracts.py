@@ -8,6 +8,7 @@ must never manufacture healthy players, observed durations or model approval.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from functools import lru_cache
 import hashlib
 import math
 import re
@@ -36,6 +37,20 @@ _PRICE_WORDS = re.compile(
 
 
 def _is_price_name(name: str) -> bool:
+    # Repeated schema keys dominate large history reads. Cache only this pure
+    # classification, with bounded key count AND length; values are still
+    # checked on every call by _sport_json.
+    if type(name) is str and len(name) <= 128:
+        return _cached_price_name(name)
+    return _classify_price_name(name)
+
+
+@lru_cache(maxsize=512)
+def _cached_price_name(name: str) -> bool:
+    return _classify_price_name(name)
+
+
+def _classify_price_name(name: str) -> bool:
     # Normalized producers own their exact allowlists. This independent guard
     # also catches conventional camelCase, concatenated and numbered price keys.
     separated = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)

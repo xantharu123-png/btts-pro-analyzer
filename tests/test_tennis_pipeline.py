@@ -2,9 +2,24 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import logging
+import subprocess
 from pathlib import Path
 
 from scripts import run_daily_pipeline
+
+
+def test_timeout_preserves_partial_output_and_nonzero_result(monkeypatch, caplog):
+    def timed_out(*args, **kwargs):
+        assert kwargs["env"]["PYTHONUNBUFFERED"] == "1"
+        raise subprocess.TimeoutExpired("tennis", 900,
+            output=b"scan-stage: model-finish\n", stderr=b"partial-stderr\xff")
+    monkeypatch.setattr(run_daily_pipeline.subprocess, "run", timed_out)
+    with caplog.at_level(logging.INFO):
+        assert run_daily_pipeline.run_step(logging.getLogger("test-pipeline"),
+            "Tages-Scan", "tennis_daily.py", [], 900) is None
+    assert "model-finish" in caplog.text and "partial-stderr" in caplog.text
+    assert "TIMEOUT" in caplog.text
 
 
 def test_python_executable_falls_back_to_current_interpreter(

@@ -27,6 +27,7 @@ from context_snapshots import _decode_snapshot, compute_once
 from context_transport import (KIND, calculate_context_payload, context_consumer_reference,
     context_payload_key)
 from model_artifacts import _load_active, _load_artifact, canonical_bytes, put_artifact
+from tennis.history_projection import PreparedTennisHistory
 
 
 _CURRENT = ContextVar("tennis_live_original_worker", default=None)
@@ -263,15 +264,17 @@ class LiveWorker:
             for item in qualified:
                 key = (item["fixture"]["tour"], canonical_timestamp(item["decision"]))
                 if key not in histories:
-                    histories[key] = tennis_observations_as_of(self.path, cutoff=item["decision"], tour=key[0])
+                    histories[key] = PreparedTennisHistory(
+                        tennis_observations_as_of(self.path, cutoff=item["decision"], tour=key[0]))
             with _reader(self.path) as connection:
                 inventory = _Inventory(connection)
                 for item in qualified:
-                    observations = histories[item["fixture"]["tour"], canonical_timestamp(item["decision"])]
+                    history = histories[item["fixture"]["tour"], canonical_timestamp(item["decision"])]
+                    observations = history.for_event(_event(item["binding"]["row"]))
                     origin, event, base, features = self._original(item, connection, observations, code_hashes)
                     effect, effect_hash, approval, reason = inventory.select(event, base, features)
                     inputs = {"event": event, "base": base, "features": features,
-                        "observation_refs": sorted({row["digest"] for row in observations}), "preprocessing_refs": [],
+                        "observation_refs": history.observation_refs, "preprocessing_refs": [],
                         "effect_artifact": effect, "effect_hash": effect_hash, "approval": approval}
                     descriptor = {"schema": 1, "kind": KIND, **inputs,
                         "approval_hash": approval["digest"] if approval is not None else None}

@@ -65,14 +65,22 @@ def run_step(log: logging.Logger, name: str, script: str,
         # PYTHONUTF8: Kind-Prozesse laufen ohne Konsole (Aufgabenplanung);
         # sonst faellt stdout auf cp1252 zurueck und Umlaute/Sonderzeichen
         # (z. B. "−0,7 %") lassen den Scan mit UnicodeEncodeError crashen.
-        env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+        env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
+               "PYTHONUNBUFFERED": "1"}
         proc = subprocess.run(
             [str(python_executable()), str(ROOT / "scripts" / script), *args],
             capture_output=True, text=True, timeout=timeout,
             cwd=str(ROOT), creationflags=CREATE_NO_WINDOW, env=env,
         )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
         log.error("%s: TIMEOUT nach %ds", name, timeout)
+        # subprocess can return bytes here even with text=True. Keep the last
+        # completed stage visible instead of discarding all diagnostic output.
+        chunks = [value.decode("utf-8", errors="replace") if isinstance(value, bytes)
+                  else value or "" for value in (exc.stdout, exc.stderr)]
+        out = "\n".join(chunks).strip()
+        if out:
+            log.error("%s: letzte Ausgabe vor Abbruch\n%s", name, out[-2500:])
         return None
     except OSError as exc:
         log.error("%s: Start fehlgeschlagen: %s", name, exc)
