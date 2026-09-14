@@ -14,11 +14,12 @@ import challenge_engine as engine
 from tests.test_football_original_capture import canonical, values
 
 BASE = "bb297bbd34ca80eb83129e87cf1559cc44ae20df"
+APPROVED_DAILY_REFRESH = "a1d15b6972f01ba617a62381bacf7bf08a168b1f"
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def old_blob(path):
-    return subprocess.run(["git", "show", BASE + ":" + path], cwd=ROOT,
+def old_blob(path, *, revision=BASE):
+    return subprocess.run(["git", "show", revision + ":" + path], cwd=ROOT,
                           check=True, capture_output=True).stdout
 
 
@@ -83,13 +84,23 @@ def test_whole_engine_parent_ast_unchanged_outside_explicit_observing_seams():
     assert ast.dump(actual, include_attributes=False) == ast.dump(expected, include_attributes=False)
 
 
-def test_whole_challenge_module_has_only_the_authorized_closure_type_replacement():
+def test_whole_challenge_module_matches_capture_and_reviewed_daily_refresh():
     expected = ast.parse(old_blob("challenge_15k.py"))
     outer = next(node for node in expected.body if isinstance(node, ast.FunctionDef) and node.name == "_conservative_calibration_map")
     loop = next(node for node in outer.body if isinstance(node, ast.For))
     assert isinstance(loop.body[-2], ast.FunctionDef) and loop.body[-2].name == "conservative_curve"
     assert ast.unparse(loop.body[-1]) == "combined[spec.key] = conservative_curve"
     loop.body[-2:] = ast.parse("from challenge_engine import ConservativeMarketCalibration\ncombined[spec.key] = ConservativeMarketCalibration(tuple(curves))").body
+    # The separately reviewed a1d15b6 release added a bounded optional xG
+    # budget and explicit modeled fixture IDs to this orchestration function.
+    # Pin that exact real function; every other module node and the original
+    # probability/calibration comparisons still use the original parent.
+    approved = ast.parse(old_blob("challenge_15k.py", revision=APPROVED_DAILY_REFRESH))
+    approved_scan = next(node for node in approved.body if isinstance(node, ast.FunctionDef)
+                         and node.name == "scan_daily_challenge")
+    index = next(index for index, node in enumerate(expected.body)
+                 if isinstance(node, ast.FunctionDef) and node.name == "scan_daily_challenge")
+    expected.body[index] = approved_scan
     actual = ast.parse((ROOT / "challenge_15k.py").read_text(encoding="utf-8"))
     assert ast.dump(actual, include_attributes=False) == ast.dump(expected, include_attributes=False)
 

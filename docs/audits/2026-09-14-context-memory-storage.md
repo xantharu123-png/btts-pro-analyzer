@@ -14,8 +14,8 @@ ausdrücklich mit „ja“ erteilt. Erst danach wurde ausschließlich diese DB
 in `/tmp/betboy-memory.IzioJU/data/context.db` kopiert: 2.246.602.752 Bytes,
 29,10 s, SQLite `integrity_check=ok`. Keine Konten/Einsätze/Secrets kopiert.
 Echte RAM-Prüfung, verlustfreie QA-Kompaktierung und operative Prüfung sind
-inzwischen bestanden. Der Produktionsabschluss wird separat nachgewiesen;
-diese QA-Ergebnisse sind noch kein erfolgreiches Deployment.
+bestanden. Die produktive Kompaktierung und der reguläre Updater wurden
+ebenfalls abgeschlossen; der tatsächliche Tennis-Gesamtlauf ist davon getrennt.
 
 ## Implementierte Reparatur
 
@@ -122,9 +122,18 @@ statt Dateikopie einer offenen WAL-Datenbank. 112 Snapshots, 454.405 Inhalte,
   aktuellen Updater/Helper-Hash als auch die bytegleiche Rekonstruktion seines
   eingefrorenen Vorgängers durch Rücknahme ausschließlich dieses einen Pins.
   Produktionscode unverändert; 111 Tests bestanden, ein Linux-spezifischer Skip.
-- Abschließende Vollsuite läuft in drei getrennten Testverzeichnissen mit
-  disjunkten Dateilisten (`.pytest_tmp/memory-final-shard[0-2].xml`).
-  Erst vollständige XML-Ergebnisse aller drei Teile als Abschluss zählen.
+- Breite disjunkte Dateirunden endeten zunächst mit 2.172 / 2.064 / 2.385
+  bestandenen Tests und jeweils einem Fehler. Ein Fußball-Paritätstest bezog
+  die bereits veröffentlichte Orchestrierungsänderung `a1d15b6` nicht ein.
+  Nur diese Funktion wird jetzt gegen genau diesen echten Commit geprüft;
+  Engine und übrige Mathematik bleiben gegen den ursprünglichen Parent fixiert.
+  Alle 26 betroffenen Paritätstests bestanden.
+- Die beiden anderen Befunde betreffen eingefrorene Native-C-Auditprofile:
+  zwei deklarierte Producer-Lockslots benötigen 8.192 zusätzliche Bytes;
+  außerdem stimmen die alten unabhängig geprüften Owner-Hashes nicht mehr.
+  Die Profile wurden NICHT durch pauschales Aktualisieren der Pins freigegeben.
+  Nachfolgende Nicht-Native-Dateirunden: 748 / 1.539 / 772 bestanden,
+  3 / 14 / 7 Skips. Diese Teilrunden sind KEIN grüner Vollsuitennachweis.
 
 ## Produktionsumstellung vor dem regulären Updater
 
@@ -139,23 +148,59 @@ ausschließlich von dieser Reparatur erzeugte QA-Datei verlustfrei komprimiert:
 230.812.793 Bytes, vollständiger Rücklese-SHA256 gleich dem bereits geprüften
 Root-Seal. 707.687.303 zusätzliche Bytes frei; Produktionsdaten und alle echten
 Backups unverändert. Beide QA-Archive bleiben wiederherstellbar erhalten.
-Keinen alten Worker vor erfolgreichem Update starten. Keine erneute produktive
-Kompaktierung nötig. Standard-Updater, tatsächlicher Tennisabschluss und
-Browser-Nachweis sind im separaten Releasebericht zu prüfen.
+Keine erneute produktive Kompaktierung nötig. Der reguläre root-eigene Updater
+endete am 14.09. um 23:46:18 CEST erfolgreich auf
+`1ec38a9f6f4530f85260ee57877e155a176e2ad6`; GitHub main und lokaler Main waren
+exakt gleich. App und sieben Timer aktiv/aktiviert, beide Healthchecks `ok`.
+Online- und Stillstandsbackup jeweils mit 89 DBs verifiziert:
+`/var/backups/betboy-update/betboy-online-20260914T213653Z-442b60fe6804-372885.zip`
+und `betboy-preupdate-20260914T214007Z-442b60fe6804-372885.zip`.
+Der zusätzliche Backupdienst endete 23:45:21 ebenfalls erfolgreich.
 
-## Noch für den Produktionsabschluss erforderlich
+Echte Browserseite nach frischem Laden geprüft: 0 Console-Fehler, 9 Warnungen,
+keine Streamlit-Ausnahme. Desktop 1440 Pixel und Mobil 390 Pixel;
+Dokumentbreite bei Mobil exakt 390 Pixel, kein horizontaler Überlauf.
+Die Ausgabe zeigte Teildaten/0 Modelle am Tagesende; daraus wird keine neue
+Prognosequalität oder vollständig erfolgreiche Datenpipeline abgeleitet.
 
-1. Zustimmung zur echten Kontext-DB-Kopie erhalten, Kopie erfolgreich erstellt.
-2. Echte begrenzte Volumen-/RAM- und verlustfreie Kopieprüfungen bestanden.
-3. Main übernehmen und pushen. Die unveränderte Updater-Reserve benötigt vor
-   Kompaktierung 22.551.273.472 Bytes, nach der nachgewiesenen Kompaktierung
-   rechnerisch rund 14.702.608.384 Bytes. Deshalb Produktion zuerst in kontrollierter
-   Wartung bei gestoppten Writern, mit geprüftem root-privaten Backup und exaktem
-   gepushtem Reparaturcode verlustfrei kompaktieren. Alten Code bis zum erfolgreichen
-   regulären Updater NICHT wieder starten; bei Fehlschlag alten DB-Zustand kontrolliert
-   aus dem Backup wiederherstellen. Keine Reserve senken, keine Backups löschen.
-4. Einen echten Tennisabschluss und den überlappenden Wettfinderbetrieb prüfen;
-   Softwaretests allein beweisen keinen behobenen Produktions-OOM.
+## Echter Paralleltest und nachgewiesener Folgefehler
+
+Wettfinder 23:46:15–23:55:44, 1.840.050.176 Bytes Dienst-MemoryPeak, kein OOM
+oder SQLite-Lock. Exit 1/Teildaten wegen Pending-Tennisprognose 1419:
+`ContextIntegrityError`. Der eng begrenzte read-only-Belegvergleich bestätigte
+für WTA-Event 183831 einen tatsächlich ausgetauschten Gegner, später auch einen
+neuen Termin. Alte Prognose nicht auf das neue Teilnehmerpaar umschreiben.
+
+Tennis-Rebuild: ATP frisch beibehalten, WTA weiterhin HTTPError/Stand 26.07.
+Eigentlicher Tageslauf 23:48:45–00:00:17: 691 Sekunden, 117 Spiele, 57 vorbereitete
+Prognosen, 25.743 Empfangsbeobachtungen gespeichert. Kein Timeout/OOM;
+Dienst-MemoryPeak 1.623.814.144 Bytes. Danach Abbruch bei der Speicherung an
+`ValueError: tennis revision cannot change player identity or orientation`.
+Die Speicherreparatur beseitigt somit nicht automatisch sämtliche Ablaufprobleme.
+
+Der enge Nachfolgepatch erhält das vollständige Überschreibverbot, verwendet
+dafür aber einen eigenen `FixtureIdentityConflict`. `LiveWorker.finish` fängt
+ausschließlich diesen Konflikt je Karte ab, meldet ihn strukturiert als
+Teildaten und speichert unabhängige weitere Karten. Andere Integritätsfehler
+bleiben Fehler. Der CLI-Abschluss berücksichtigt jetzt auch erst während
+`finish` entstandene Fehler und bleibt dann Exit 1, statt Erfolg vorzutäuschen.
+Regressionen beweisen unveränderte frühere Revisionen, Speicherung des nächsten
+unabhängigen Spiels, korrekten Teildaten-Exit und Weiterreichen fremder Fehler.
+214 gezielte lokale / 188 Linux-Tests bestanden. Linux ausschließlich im
+vorhandenen privaten QA mit synthetischen Daten; keine Pakete installiert.
+Zusätzliche breite Tennis-/Snapshot-/Transport-Runde auf dem Nachfolgepatch:
+1.872 bestanden, drei Skips, 7.882 nicht ausgewählte Tests; 208,50 s.
+Nachweis: `.pytest_tmp/memory-identity-broad.xml`. Dies ersetzt keine
+Neuqualifizierung der eingefrorenen Native-C-Auditprofile.
+
+## Verbleibende Nachweise
+
+Den Nachfolgepatch nach den Tests committen, pushen und regulär deployen;
+danach echten vollständig abgearbeiteten Tennislauf prüfen. Teildaten wegen
+Quellen-/Identitätskonflikten nicht mit gesundem Gesamtbetrieb gleichsetzen.
+Der konkrete nachfolgende Hash und Laufstatus stehen im Releasebericht.
+Die alten Native-C-Prüfprofile bedürfen einer eigenen Neuqualifizierung;
+kein impliziter C2-Semantik- oder empirischer Modell-Pass.
 
 Produktionsbasis bei dieser Fortsetzung: `442b60f`. Isolierte Code- und
 synthetische Testkopien: `/tmp/betboy-memory.IzioJU/`. Die vorhandene

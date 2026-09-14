@@ -1019,11 +1019,15 @@ def main() -> int:
         batch.finish()
     report = capture.report()
     print(f"Kontext-Capture: {report['status']}")
+    final_errors = []
     if batch.pending:
-        results = {id(item["result"]): item["result"] for item in batch.pending}.values()
+        results = list({id(item["result"]): item["result"] for item in batch.pending}.values())
         print(f"Nach Datenempfang gespeichert: {sum(item['stored'] for item in results)} neue Predictions")
+        final_errors = [error for item in results for error in item["errors"]]
+        if final_errors:
+            print("Prognose-Abschluss mit Teildaten: " + json.dumps(final_errors, ensure_ascii=True))
         print("Shadow-Stand:", shadow.summary())
-    return 1 if report["issues"] else result
+    return 1 if report["issues"] or final_errors else result
 
 
 def _run_daily(args) -> int:

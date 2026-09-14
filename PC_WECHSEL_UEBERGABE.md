@@ -1,44 +1,48 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Aktueller Auftrag 14. September 2026 – RAM und redundante Referenzen
+## Aktueller Auftrag 14./15. September 2026 – Speicher und Tennis-Abschluss
 
-Reparatur im Branch `codex/context-capacity-recovery-20260910`: vollständiges
-Inventar zeilenweise validieren und direkt kompakt indexieren; gemeinsame
-binäre Referenzblöcke statt wiederholter Tourlisten; verlustfreie atomare
-Kompaktierung vorbereitet. 1.923 gezielte lokale Tests und 827 Linux-Tests
-bestanden. Jetzt auch echter Volumennachweis bestanden: WTA 490.336 KiB RSS,
-ATP 367.388 KiB RSS; Test-DB 2.246.602.752 → 938.500.096 Bytes, alle Daten
-unverändert. Operative Root-Seal-Prüfung bestanden. Vollsuite läuft noch;
-noch KEIN echter Produktionsnachweis.
+Die Speicherreparatur ist auf dem VPS live: regulärer Updater für
+`1ec38a9f6f4530f85260ee57877e155a176e2ad6` am 14.09. um 23:46:18 CEST
+erfolgreich beendet. App, interner/öffentlicher Healthcheck und sieben Timer
+anschließend geprüft. Keine erneute Migration/Kompaktierung ausführen und
+keinen alten Inline-only-Code starten.
 
-Die ergänzende Kopierfreigabe wurde am selben Abend ausdrücklich mit „ja“
-erteilt: ausschließlich `context_models.db` im selben privaten VPS-QA-Ordner,
-keine Konten/Einsätze/Secrets. Integritätsgeprüfte Kopie mit 2.246.602.752 Bytes
-erstellt; echter RAM-Test und verlustfreie QA-Kompaktierung bestanden.
-VPS-Basis bis zum Deployment `442b60f`; Reparaturcode `bf22681`.
-Wartung am 14.09. um 23:21 CEST gestartet: App und sieben Timer gestoppt und
-bis zum neuen Code deaktiviert. Kein alter Worker darf jetzt gestartet werden.
-Root-Unit `codex-context-memory-repair-20260914.service` hat die freigegebene
-Kompaktierung abgeschlossen: 2.246.610.944 → 938.508.288 Bytes, 112 Snapshots,
-alle logischen Inhalte gleich. Ihr anschließender Updater-Vorcheck endete an
-der Staging-Platzreserve, Code blieb `442b60f`. Danach auch die eigene zweite
-QA-Kopie verlustfrei komprimiert und nochmals 707.687.303 Bytes gewonnen.
-Zustand: `/var/lib/betboy-context-verifier/memory-maintenance-8jmzb2v5/state.json`.
-Backup aller 89 DBs um 23:26 erfolgreich verifiziert:
-`/var/lib/betboy-context-verifier/memory-maintenance-8jmzb2v5/backup/betboy-sqlite-20260914T212142Z.zip`.
-Jetzt den regulären Updater mit dem aktuellen gepushten Main ausführen und
-HEAD/Health/alle Timer prüfen. Keine erneute Kompaktierung erforderlich.
-Aktuellen tatsächlichen Releaseabschluss in
+Produktive Kontext-DB nach geprüftem 89-DB-Backup verlustfrei von
+2.246.610.944 auf 938.508.288 Bytes reduziert; 112 Snapshots und sämtliche
+logischen Inhalte/Hashes unverändert. Die beiden eigens freigegebenen QA-
+Kopien liegen komprimiert als `context.db.gz` vor, nicht mehr als `.db`.
+Historische Produktionsdaten, Geldbewegungen und echte Backups nicht gelöscht.
+Wartungsbeleg/Backup: `/var/lib/betboy-context-verifier/memory-maintenance-8jmzb2v5/`.
+QA-Reader: WTA 490.336 KiB, ATP 367.388 KiB Peak-RSS; dies sind ausdrücklich
+keine Peaks des vollständigen Dienstes.
+
+Echter Paralleltest: Wettfinder 23:46–23:55 ohne OOM/SQLite-Lock, aber Teildaten
+wegen eines geänderten Tennis-Gegners. Tennis-Tageslauf 23:48:45–00:00:17
+erreichte die Speicherung nach 691 s, ohne 900-s-Timeout/OOM; Abbruch an
+`tennis revision cannot change player identity or orientation`.
+Provider-Event WTA 183831 war zwischenzeitlich einem anderen Gegner zugeordnet.
+Das ist KEIN vollständig erfolgreicher Tennislauf.
+
+Enger Nachfolgepatch: eigener `FixtureIdentityConflict`, bestehende Historie
+bleibt unveränderbar; nur dieser Konflikt wird je Karte berichtet, unabhängige
+Karten werden weiter gespeichert. Abschlussfehler bleiben sichtbar und der
+Tageslauf liefert bei Teildaten weiterhin Exit 1. Andere Integritätsfehler
+werden nicht verschluckt. 214 gezielte lokale und 188 synthetische Linux-Tests
+bestanden. Den echten Nachfolge-Deploy/-Lauf ausschließlich im Releasebericht
+prüfen, nicht aus diesen Tests ableiten.
+
+Keine grüne Vollsuite behaupten: eingefrorene Native-C-Auditprofile passen
+nicht mehr zu den geänderten Owner-Dateien/Slotgrößen; ihre Pins wurden nicht
+pauschal umgeschrieben. WTA-Quelldownload weiterhin HTTPError, Modellstand
+26.07.; empirische Verletzungs-/Müdigkeitsaktivierung separat offen.
+Cricket, Quoten, Einsätze und Modellfreigaben unverändert.
+
+Aktuellen tatsächlichen Abschluss in
 `output/playwright/context-memory-release-20260914.md` lesen.
-Vor dem regulären Updater wird die produktive Kontextdatenbank gesichert und
-im gestoppten Zustand verlustfrei kompaktiert, damit die unveränderte
-Updater-Platzreserve erfüllt wird. Bis zum neuen Code keinen alten Worker starten.
-Noch KEINE produktive Kompaktierung oder erfolgreiches Deployment behaupten.
-Isoliertes QA: `/tmp/betboy-memory.IzioJU/`, Testdatenbank `data/context.db`.
-Details und nächste Schritte:
-`docs/audits/2026-09-14-context-memory-storage.md`.
+Details: `docs/audits/2026-09-14-context-memory-storage.md`.
 
-## Aktueller Auftrag 14. September 2026 — Tennis-Abschluss und Parallelität
+## Vorheriger Zwischenstand 14. September 2026 — Tennis-Abschluss und Parallelität
 
 Abendstand: `151fe06` wurde regulär deployed, 89 DBs jeweils in Online- und
 Stillstandsbackup verifiziert. Echter Wettfinder-Parallellauf 17:57–18:00 CEST

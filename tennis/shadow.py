@@ -48,6 +48,10 @@ class FixtureNotRefreshable(ValueError):
     """The latest observed fixture state forbids a model append."""
 
 
+class FixtureIdentityConflict(ValueError):
+    """A provider event now names a different pair; never rewrite its history."""
+
+
 _EXPECTED_UNSET = object()
 
 _SCHEMA = """
@@ -1066,7 +1070,7 @@ def store_prediction(
                 (existing[0],),
             ).fetchone()
             if tuple(stored[:2]) != (prediction.player_a, prediction.player_b):
-                raise ValueError("tennis revision cannot change player identity or orientation")
+                raise FixtureIdentityConflict("tennis revision cannot change player identity or orientation")
             _guard_expected_fixture_snapshot(
                 conn,
                 int(existing[0]),

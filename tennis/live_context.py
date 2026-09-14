@@ -344,6 +344,18 @@ class LiveWorker:
                 row_id = shadow.store_prediction(fx["match_date"], fx["tour"], fx["tournament"], item["prediction"], **kwargs)
                 if row_id > 0 or item["success_counter"] == "refreshed":
                     item["result"][item["success_counter"]] += 1
+            except shadow.FixtureIdentityConflict as exc:
+                # A replaced opponent invalidates only this immutable event
+                # lineage. Retain the error and original rows, but finish the
+                # independent fixtures. Other integrity failures still raise.
+                item["result"]["skipped"] += 1
+                item["result"]["errors"].append({
+                    "tour": fx.get("tour"),
+                    "provider_event_id": fx.get("provider_event_id"),
+                    "reason": "fixture_identity_conflict",
+                    "error_type": type(exc).__name__,
+                })
+                item["result"]["status"] = "partial"
             except shadow.FixtureNotRefreshable:
                 item["result"]["skipped"] += 1
         self.finished = True
