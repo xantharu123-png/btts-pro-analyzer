@@ -23,7 +23,7 @@ from context_models.contracts import (
     validate_base_distribution, validate_context_approval, validate_context_result,
     validate_effect_artifact, validate_event, validate_feature_vector,
 )
-from model_artifacts import _connect as _artifact_connect, _decode_object
+from model_artifacts import _connect as _artifact_connect
 from context_json import canonical_context_bytes as canonical_bytes, context_digest as digest
 from runtime_paths import RuntimeArtifactTrustError, prepare_trusted_runtime_database_path
 
@@ -73,6 +73,8 @@ def _connect(path: Path):
             payload BLOB NOT NULL,
             payload_digest TEXT NOT NULL
         )""")
+        from context_snapshot_storage import create_schema
+        create_schema(connection)
         connection.commit()
     except BaseException:
         connection.rollback()
@@ -107,10 +109,11 @@ def _payload_digest(key: str, payload: dict) -> str:
     return digest({"key": key, "payload": payload})
 
 
-def _decode_snapshot(key: str, payload: object, payload_digest: object) -> dict:
+def _decode_snapshot(key: str, payload: object, payload_digest: object, *, connection=None, reference_data=None) -> dict:
     try:
         require_digest(payload_digest, "snapshot payload digest")
-        decoded = _decode_object(payload, label="context snapshot")
+        from context_snapshot_storage import unpack_payload
+        decoded = unpack_payload(payload, connection, reference_data)
         _finite_json(decoded)
         if _payload_digest(key, decoded) != payload_digest:
             raise ContextIntegrityError("snapshot payload identity mismatch")
@@ -185,20 +188,24 @@ def compute_once(path: Path, key: str, compute: Callable[[], dict]) -> dict:
             ).fetchone()
             connection.commit()
             if existing is not None:
-                result = _decode_snapshot(key, *existing)
+                result = _decode_snapshot(key, *existing, connection=connection)
             else:
                 calculated = compute()
                 if type(calculated) is not dict:
                     raise ContextContractError("snapshot callback must return a JSON object")
                 try:
                     _finite_json(calculated)
-                    payload = canonical_bytes(calculated)
+                    from context_snapshot_storage import pack_payload, store_references
+                    payload, shared_reference = pack_payload(calculated)
                     payload_hash = _payload_digest(key, calculated)
                 except (ValueError, TypeError, OverflowError, RecursionError) as exc:
                     raise ContextContractError("snapshot callback did not return canonical finite JSON") from exc
                 # Return exactly the persisted representation even on first
                 # creation: later mutation of the callback object is harmless.
-                result = _decode_snapshot(key, payload, payload_hash)
+                # Detach through the unchanged logical format before the short
+                # SQL publication; shared bytes are checked in that transaction.
+                result = _decode_snapshot(key, payload, payload_hash,
+                    reference_data=shared_reference[1] if shared_reference is not None else None)
                 check_lock()
                 connection.execute("BEGIN IMMEDIATE")
                 # Recheck at publication, including an unexpected older writer
@@ -206,8 +213,10 @@ def compute_once(path: Path, key: str, compute: Callable[[], dict]) -> dict:
                 current = connection.execute(
                     "SELECT payload,payload_digest FROM context_snapshots WHERE key=?", (key,),
                 ).fetchone()
-                if current is not None and current != (payload, payload_hash):
+                if current is not None and (current[1] != payload_hash or
+                        canonical_bytes(_decode_snapshot(key, *current, connection=connection)) != canonical_bytes(result)):
                     raise ContextIntegrityError("snapshot changed during its first calculation")
+                store_references(connection, shared_reference)
                 connection.execute(
                     "INSERT OR IGNORE INTO context_snapshots(key,payload,payload_digest) VALUES (?,?,?)",
                     (key, payload, payload_hash),

@@ -200,9 +200,12 @@ def test_real_symlink_companion_is_rejected_if_host_supports_symlinks(tmp_path):
 def test_default_existing_delete_database_remains_byte_identical(tmp_path):
     path, reference, payload = saved(tmp_path)
     before = path.read_bytes()
+    # The producer already owns a stable coordination sidecar. Reading must
+    # create nothing; it must not remove that sidecar to satisfy this assertion.
+    before_entries = {item.name for item in tmp_path.iterdir()}
     assert read(path, reference, payload)["projection"]["used_probability"] == .6
     assert path.read_bytes() == before
-    assert set(item.name for item in tmp_path.iterdir()) == {path.name}
+    assert set(item.name for item in tmp_path.iterdir()) == before_entries
 
 
 def test_normal_wal_synchronization_files_are_allowed_not_model_writes(tmp_path):

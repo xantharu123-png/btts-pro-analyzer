@@ -30,6 +30,8 @@ _TABLES = {
         "source", "subject_id", "kind")),
     "context_snapshots": (("key", "text", False), ("payload", "blob", False),
                           ("payload_digest", "text", False)),
+    "context_snapshot_references": (("digest", "text", False), ("payload", "blob", False)),
+    "context_snapshot_reference_blocks": (("digest", "text", False), ("payload", "blob", False)),
     "manifests": (("digest", "text", False), ("predecessor", "text", True),
                   ("payload", "blob", False), ("published_at", "text", False)),
 }

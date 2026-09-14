@@ -31,7 +31,7 @@ def packet(*, family="tennis:winner", with_effect=False, count=None):
 
 
 @contextmanager
-def source(tmp_path, packets=(), *, raw_rows=(), optional=True, encoding="UTF-8", writable=False):
+def source(tmp_path, packets=(), *, raw_rows=(), optional=True, encoding="UTF-8", writable=False, legacy=True):
     path = tmp_path / ("source-" + uuid4().hex + ".sqlite")
     writer = sqlite3.connect(path)
     writer.execute(f"PRAGMA encoding='{encoding}'")
@@ -41,9 +41,12 @@ def source(tmp_path, packets=(), *, raw_rows=(), optional=True, encoding="UTF-8"
     writer.commit()
     writer.close()
     for key, payload in packets:
-        # Exercise the actual unchanged persistence owner, not just manually
-        # stamped JSON rows or standalone parts descriptors.
+        # Exercise the current owner, then retain the exact old inline bytes
+        # for these explicit LEGACY-adapter fixtures. New storage is separate.
         assert compute_once(path, key, lambda payload=payload: payload) == payload
+        if legacy:
+            with sqlite3.connect(path) as inline:
+                inline.execute("UPDATE context_snapshots SET payload=? WHERE key=?", (canonical_bytes(payload), key))
     writer = sqlite3.connect(path)
     writer.executemany("INSERT INTO context_snapshots VALUES(?,?,?)", raw_rows) if raw_rows else None
     writer.commit()
@@ -85,6 +88,16 @@ def contents(con):
 
 def adapt(con, output, *, limits=DEFAULT_LIMITS):
     return owner.adapt_source_snapshots(con, output, inventory_raw(con, limits=limits), limits=limits)
+
+
+def test_shared_storage_keeps_complete_raw_inventory_without_false_legacy_adapter_claim(tmp_path):
+    key, payload = packet(count=500)
+    with source(tmp_path, [(key, payload)], legacy=False) as (_, con), target(tmp_path) as output:
+        descriptor = adapt(con, output)
+        assert descriptor.adapted_count == 0 and descriptor.unadapted_count == 1
+        assert output.execute("SELECT reason FROM v2_snap_source_rows").fetchone() == ("shared-reference-storage",)
+        assert {"context_snapshot_references", "context_snapshot_reference_blocks"} <= {t.name for t in descriptor.source_inventory.tables}
+        owner.validate_source_coverage(con, output, descriptor)
 
 
 @pytest.mark.parametrize("family", ["tennis:winner", "tennis:serve"])

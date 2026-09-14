@@ -82,6 +82,8 @@ def verify_context_deployment(path, *, input_mode="memory"):
             connection.execute("BEGIN")
         try:
             tables = _verify_schema(connection)
+            from context_snapshot_storage import verify_reference_storage
+            verify_reference_storage(connection, tables)
             artifacts = VerifiedArtifactMapping(connection)
             created_at = {require_digest(ref, "artifact identity"): datetime.fromisoformat(
                 _validate_stored_timestamp(created, label="artifact creation time"))

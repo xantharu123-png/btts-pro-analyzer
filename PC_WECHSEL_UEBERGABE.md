@@ -1,5 +1,21 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Auftrag 14. September 2026 – RAM und redundante Referenzen
+
+Reparatur im Branch `codex/context-capacity-recovery-20260910`: vollständiges
+Inventar zeilenweise validieren und direkt kompakt indexieren; gemeinsame
+binäre Referenzblöcke statt wiederholter Tourlisten; verlustfreie atomare
+Kompaktierung vorbereitet. 1.923 gezielte lokale Tests und 827 Linux-Tests
+bestanden. KEIN grüner Vollsuiten- oder echter Volumen-/Produktionsnachweis.
+
+Die neue Kopie der produktiven Kontextdatenbank wurde von der Aktionsprüfung
+abgelehnt (frühere QA-Erlaubnis galt nur für Code). Ergänzende Zustimmung
+angefragt, noch ausstehend. NICHT kopiert, nicht anderweitig umgangen, nicht
+deployed oder produktiv kompaktiert. Main/VPS-Basis bleibt `442b60f`.
+Isoliertes QA `/tmp/betboy-memory.IzioJU/` enthält Code und synthetische Tests.
+Details und nächste Schritte:
+`docs/audits/2026-09-14-context-memory-storage.md`.
+
 ## Aktueller Auftrag 14. September 2026 — Tennis-Abschluss und Parallelität
 
 Abendstand: `151fe06` wurde regulär deployed, 89 DBs jeweils in Online- und

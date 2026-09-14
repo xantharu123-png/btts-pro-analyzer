@@ -49,7 +49,8 @@ def test_closed_schema_empty_optional_tables_are_inventoried():
         before = con.total_changes, con.transaction_generation
         one, two = inventory_raw(con), inventory_raw(con)
         assert one == two
-        assert len(one.tables) == 7
+        assert len(one.tables) == 9
+        assert {"context_snapshot_references", "context_snapshot_reference_blocks"} <= {t.name for t in one.tables}
         assert sum(t.row_count for t in one.tables) == 3
         assert (con.total_changes, con.transaction_generation) == before
         assert con.in_transaction

@@ -66,7 +66,7 @@ def _read_context_snapshot(path: Path, reference: dict, *, expected_event: dict,
             raise ContextIntegrityError("referenced worker context snapshot is missing")
         if row[0] != reference["key"] or row[2] != reference["payload_digest"]:
             raise ContextIntegrityError("stored context reference and payload identity differ")
-        payload = _decode_snapshot(*row)
+        payload = _decode_snapshot(*row, connection=connection)
         base = payload.get("base")
         if type(base) is not dict:
             raise ContextIntegrityError("context snapshot base must be an object")

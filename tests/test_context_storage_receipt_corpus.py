@@ -51,6 +51,8 @@ def source(tmp_path, *, encoding="UTF-8", page_size=4096, large=False, max_rowid
         writer.execute("INSERT INTO context_contents(rowid,content_digest,payload) VALUES(?,?,?)",
                        (2**63 - 1 if max_rowid else -7, key, raw))
         if all_rows:
+            writer.execute("INSERT INTO context_snapshot_references VALUES(?,?)", (key, b"opaque\0reference-set"))
+            writer.execute("INSERT INTO context_snapshot_reference_blocks VALUES(?,?)", (key, b"opaque\0reference-block"))
             writer.execute("INSERT INTO manifests VALUES(?,?,?,?)", (key, None, raw, "old\x00clock"))
             writer.execute("INSERT INTO active_manifest VALUES(1,?)", (key,))
             writer.execute("INSERT INTO context_model_rollbacks VALUES(?,?)", (key, raw))
@@ -377,12 +379,12 @@ def test_source_merge_cursor_closes_if_opening_its_output_peer_fails(tmp_path, m
                 cursor.close()
 
 
-def test_all_seven_nonempty_original_tables_keep_every_old_rowid_type_and_byte(tmp_path):
+def test_all_owning_nonempty_tables_keep_every_old_rowid_type_and_byte(tmp_path):
     settings = options(tmp_path)
     settings["limits"] = replace(DEFAULT_LIMITS, block_bytes=32768)
     with source(tmp_path, encoding="UTF-16le", large=True, all_rows=True) as (path, sealed, connection):
         original = inventory_raw(connection, limits=settings["limits"])
-        assert len(original.tables) == 7 and all(table.row_count == 1 for table in original.tables)
+        assert len(original.tables) == 9 and all(table.row_count == 1 for table in original.tables)
         reference_path = tmp_path / "legacy-reference.sqlite"
         shutil.copyfile(path, reference_path)
         for value, clock in observations():
@@ -393,7 +395,8 @@ def test_all_seven_nonempty_original_tables_keep_every_old_rowid_type_and_byte(t
             # Independent physical row checks, including a NULL predecessor,
             # a real INTEGER id, raw future JSON and NUL-bearing UTF-16 TEXT.
             for table in ("artifacts", "manifests", "active_manifest", "context_contents",
-                          "context_observations", "context_snapshots", "context_model_rollbacks"):
+                          "context_observations", "context_snapshots", "context_model_rollbacks",
+                          "context_snapshot_references", "context_snapshot_reference_blocks"):
                 old_row = connection.execute(f'SELECT rowid,* FROM "{table}"').fetchone()
                 assert output.execute(f'SELECT rowid,* FROM "{table}" WHERE rowid=?', (old_row[0],)).fetchone() == old_row
         assert result.new_contents == result.new_receipts == 3

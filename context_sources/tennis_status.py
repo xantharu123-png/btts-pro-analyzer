@@ -287,7 +287,7 @@ def _validate_tennis_source_tail(row, content_bytes):
     return row
 
 
-def tennis_observations_as_of(path: Path, *, cutoff: datetime, tour: str) -> tuple[dict, ...]:
+def tennis_observations_as_of(path: Path, *, cutoff: datetime, tour: str, prepared=False):
     """Whole causal tour history BEFORE event/schedule/participant projection.
 
     Uses existing B1 identity validation, no latest-per-subject pruning or
@@ -300,21 +300,43 @@ def tennis_observations_as_of(path: Path, *, cutoff: datetime, tour: str) -> tup
         raise ContextContractError("tennis reader needs an actual cutoff datetime")
     decision = canonical_timestamp(cutoff)
     path = Path(path)
-    if not path.exists():
-        return ()
-    with closing(_connect(path)) as connection:
-        connection.execute("BEGIN")
-        stored_rows = list(connection.execute(_SELECT))
-        connection.commit()
-    # SQLite owns only the consistent byte read, not the much longer CPU
-    # validation. Release each raw row as it is decoded to limit peak memory.
-    rows = []
-    for index, stored in enumerate(stored_rows):
-        # Decode before scope pruning: an altered outer index cannot hide a
-        # correction which remains in the actual B1 inventory.
-        rows.append(_decode_receipt(stored))
-        stored_rows[index] = None
-    return select_tennis_observations(tuple(rows), cutoff=cutoff, tour=tour)
+    from tempfile import TemporaryFile
+    import marshal
+    from tennis.history_projection import PreparedTennisHistory
+
+    # Freeze one complete SQL image to a private, automatically removed spool.
+    # No list of raw rows or tour-wide tree of decoded dictionaries is retained.
+    # Close SQL BEFORE CPU validation, including when a second worker writes.
+    # marshal is only the local scalar/tuple transport, never executable pickle.
+    with TemporaryFile(prefix="betboy-tennis-history-") as spool:
+        count = 0
+        if path.exists():
+            with closing(_connect(path)) as connection:
+                connection.execute("BEGIN")
+                for stored in connection.execute(_SELECT):
+                    marshal.dump(stored, spool)
+                    count += 1
+                connection.commit()
+        spool.seek(0)
+        def selected_rows():
+            for _ in range(count):
+                # Decode the ENTIRE inventory before source/tour/time pruning:
+                # a changed outer index must not hide any corrupt correction.
+                row = _decode_receipt(marshal.load(spool))
+                selected = _select_tennis_row(row, decision, tour)
+                if selected is not None:
+                    yield selected
+        if prepared:
+            return PreparedTennisHistory.from_selected_rows(selected_rows())
+        return tuple(sorted(selected_rows(), key=lambda row: (row["observed_at"], row["digest"])))
+
+
+def _select_tennis_row(row, decision, tour):
+    if row["observed_at"] > decision or row["source_schema"] not in {STATUS_SCHEMA, SOURCE_SCHEMA}:
+        return None
+    selected = {**row, "evidence_class": "prospective", "effective_at": row["observed_at"], "publication_resolution": None}
+    validate_selected_tennis_receipt(selected)
+    return selected if row["payload"]["tour"] == tour else None
 
 
 def select_tennis_observations(rows: tuple[dict, ...], *, cutoff: datetime, tour: str) -> tuple[dict, ...]:
@@ -330,10 +352,7 @@ def select_tennis_observations(rows: tuple[dict, ...], *, cutoff: datetime, tour
     decision = canonical_timestamp(cutoff)
     result = []
     for row in rows:
-        if row["observed_at"] > decision or row["source_schema"] not in {STATUS_SCHEMA, SOURCE_SCHEMA}:
-            continue
-        selected = {**row, "evidence_class": "prospective", "effective_at": row["observed_at"], "publication_resolution": None}
-        validate_selected_tennis_receipt(selected)
-        if row["payload"]["tour"] == tour:
+        selected = _select_tennis_row(row, decision, tour)
+        if selected is not None:
             result.append(selected)
     return tuple(sorted(result, key=lambda row: (row["observed_at"], row["digest"])))

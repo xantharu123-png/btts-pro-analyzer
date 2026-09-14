@@ -120,9 +120,9 @@ def test_cached_snapshot_decode_does_not_hold_sqlite(monkeypatch, tmp_path):
     db = tmp_path / "context.db"
     expected = snapshots.compute_once(db, "a"*64, lambda: {"x": 1})
     decode = snapshots._decode_snapshot
-    def checked(*args):
+    def checked(*args, **kwargs):
         writer_probe(db)
-        return decode(*args)
+        return decode(*args, **kwargs)
     monkeypatch.setattr(snapshots, "_decode_snapshot", checked)
     assert snapshots.compute_once(db, "a"*64, lambda: pytest.fail("cached result recomputed")) == expected
 
@@ -190,9 +190,9 @@ def test_pending_prechecks_share_history_and_decode_outside_sqlite(monkeypatch, 
     def checked_read(*args, **kwargs):
         calls.append(1)
         return read(*args, **kwargs)
-    def checked_decode(*args):
+    def checked_decode(*args, **kwargs):
         writer_probe(db)
-        return decode(*args)
+        return decode(*args, **kwargs)
     monkeypatch.setattr(live_context, "tennis_observations_as_of", checked_read)
     monkeypatch.setattr(live_context, "_decode_snapshot", checked_decode)
     batch = live_context.LiveWorker(db)

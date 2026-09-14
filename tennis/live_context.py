@@ -28,7 +28,6 @@ from context_transport import (KIND, calculate_context_payload, context_consumer
     context_payload_key)
 from model_artifacts import _load_active, _load_artifact, put_artifact
 from context_json import canonical_context_bytes as canonical_bytes
-from tennis.history_projection import PreparedTennisHistory
 
 
 _CURRENT = ContextVar("tennis_live_original_worker", default=None)
@@ -180,12 +179,14 @@ class LiveWorker:
             publication = _load_artifact(connection, sidecar["original_artifact_hash"])
             created_at = _artifact_created_at(connection, sidecar["original_artifact_hash"])
             saved = connection.execute("SELECT payload,payload_digest FROM context_snapshots WHERE key=?", (ref["key"],)).fetchone()
+            from context_snapshot_storage import freeze_reference_bytes
+            reference_data = None if saved is None else freeze_reference_bytes(saved[0], connection)
         if publication["kind"] != ORIGINAL_ARTIFACT_KIND:
             raise ContextIntegrityError("pending context has no owning original publication")
         validate_original_publication(publication["payload"], created_at=created_at)
         if saved is None:
             raise ContextIntegrityError("pending context snapshot is absent")
-        payload = _decode_snapshot(ref["key"], *saved)
+        payload = _decode_snapshot(ref["key"], *saved, reference_data=reference_data)
         origin = publication["payload"]["origin"]
         if (not _equal(context_consumer_reference(ref["key"], payload), ref)
                 or not _equal(payload["base"], original_base(origin))
@@ -195,8 +196,8 @@ class LiveWorker:
             raise ContextIntegrityError("pending original/forecast/context bytes differ")
         history_key = (row["tour"], canonical_timestamp(decision_at))
         if history_key not in self._pending_histories:
-            self._pending_histories[history_key] = PreparedTennisHistory(
-                tennis_observations_as_of(self.path, cutoff=decision_at, tour=row["tour"]))
+            self._pending_histories[history_key] = tennis_observations_as_of(
+                self.path, cutoff=decision_at, tour=row["tour"], prepared=True)
         observations = self._pending_histories[history_key].for_event(event)
         history = [record for record in observations if record["event_key"] == event["event_key"]]
         newest = max((record["observed_at"] for record in history), default=None)
@@ -290,8 +291,8 @@ class LiveWorker:
             for item in qualified:
                 key = (item["fixture"]["tour"], canonical_timestamp(item["decision"]))
                 if key not in histories:
-                    histories[key] = PreparedTennisHistory(
-                        tennis_observations_as_of(self.path, cutoff=item["decision"], tour=key[0]))
+                    histories[key] = tennis_observations_as_of(
+                        self.path, cutoff=item["decision"], tour=key[0], prepared=True)
             with _reader(self.path) as connection:
                 inventory = _Inventory(connection)
             state_refs = self._verify_states(qualified)

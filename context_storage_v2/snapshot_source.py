@@ -32,7 +32,7 @@ _FORMAT = "betboy-snapshot-source-coverage-v2"
 _TABLE = "context_snapshots"
 _ZERO = "0" * 64
 _CHUNK_BYTES = 64 * 1024
-_REASONS = frozenset({"unknown-header", "header-limit", "invalid-key", "invalid-payload-digest"})
+_REASONS = frozenset({"unknown-header", "header-limit", "invalid-key", "invalid-payload-digest", "shared-reference-storage"})
 _ROW_COLUMNS = (
     "key_field_digest", "key_bytes", "payload_digest_field_digest", "payload_digest_bytes",
     "source_row_digest", "raw_payload_sha256", "payload_bytes", "status", "reason",
@@ -461,6 +461,15 @@ def _read_row(source, guard, raw, limits, encoding, *, output=None):
             with nullcontext() if output is None else _atomic(output, limits):
                 if key is None:
                     raise _Unadapted("invalid-key")
+                from context_snapshot_storage import MAGIC
+                if payload.peek() == MAGIC[0]:
+                    if payload.take(len(MAGIC)) != MAGIC:
+                        raise StorageIntegrityError("unknown source snapshot encoding")
+                    # This legacy JSON adapter must not claim a reconstruction
+                    # whose raw source is now a different physical encoding.
+                    # Complete raw inventory includes both shared tables, and
+                    # the owning runtime decoder retains logical verification.
+                    raise _Unadapted("shared-reference-storage")
                 scanner = _Scanner(payload, limits)
                 if output is None:
                     for _reference in scanner:

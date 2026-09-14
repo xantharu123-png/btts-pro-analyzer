@@ -50,6 +50,8 @@ def _database(path, *, encoding="UTF-8", page_size=4096, layout="full"):
             "future", "revision\0opaque", "owner", "subject\0id", "future-kind")],
         "context_snapshots": [("s0" + suffix, b'{ "observation_refs": ["not-a-ref"] }', "not-a-digest"),
                               ("s1" + suffix, b"\xff\0not JSON", long_key)],
+        "context_snapshot_references": [("reference-set" + suffix, b"opaque\0descriptor")],
+        "context_snapshot_reference_blocks": [("reference-block" + suffix, b"opaque\0block")],
         "manifests": [("m0" + suffix, None, b"null-predecessor\0", "first"),
                       ("m1" + suffix, "m0" + suffix, b"", "second")],
     }
@@ -172,7 +174,7 @@ def test_missing_optional_and_present_empty_tables_are_distinct_complete_identit
         receipt = _copy(con, path, work, slot)
     assert [vars(table) for table in receipt.inventory.tables] == expected[0]
     assert receipt.inventory.logical_digest == expected[3]
-    assert len(receipt.inventory.tables) == (3 if layout == "core-empty" else 7)
+    assert len(receipt.inventory.tables) == (3 if layout == "core-empty" else 9)
     assert receipt.inventory.value_bytes == 0
 
 

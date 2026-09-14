@@ -23,6 +23,7 @@ from context_models.contracts import (
 )
 from context_observations import _SELECT, _decode_receipt
 from context_snapshots import _decode_snapshot
+from context_snapshot_storage import REFERENCE_SQL, BLOCK_SQL
 from context_runtime_transaction import TrackedConnection
 from model_artifacts import (
     ArtifactIntegrityError, _decode_object, _load_artifact,
@@ -66,6 +67,8 @@ _SCHEMA = {
     "context_snapshots": """CREATE TABLE context_snapshots (
         key TEXT PRIMARY KEY NOT NULL, payload BLOB NOT NULL,
         payload_digest TEXT NOT NULL)""",
+    "context_snapshot_references": REFERENCE_SQL,
+    "context_snapshot_reference_blocks": BLOCK_SQL,
     "context_model_rollbacks": ROLLBACK_SQL,
     "context_event_receipts": """CREATE INDEX context_event_receipts
         ON context_observations(event_key,schedule_revision,observed_at)""",
@@ -432,12 +435,14 @@ def _verify_worker_snapshot(payload, key, artifacts, receipts, limitations, live
 
 
 def _verify_snapshots(connection, tables, artifacts, receipts, limitations, live_originals):
+    from context_snapshot_storage import verify_reference_storage
+    verify_reference_storage(connection, tables)
     if "context_snapshots" not in tables:
         return 0
     count = 0
     for key, raw, payload_hash in connection.execute("SELECT key,payload,payload_digest FROM context_snapshots"):
         require_digest(key, "snapshot key")
-        payload = _decode_snapshot(key, raw, payload_hash)
+        payload = _decode_snapshot(key, raw, payload_hash, connection=connection)
         count += 1
         if payload.get("kind") == "context-worker-snapshot-v1":
             _verify_worker_snapshot(payload, key, artifacts, receipts, limitations, live_originals)
