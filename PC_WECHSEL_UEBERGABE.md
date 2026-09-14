@@ -6,13 +6,23 @@ Reparatur im Branch `codex/context-capacity-recovery-20260910`: vollständiges
 Inventar zeilenweise validieren und direkt kompakt indexieren; gemeinsame
 binäre Referenzblöcke statt wiederholter Tourlisten; verlustfreie atomare
 Kompaktierung vorbereitet. 1.923 gezielte lokale Tests und 827 Linux-Tests
-bestanden. KEIN grüner Vollsuiten- oder echter Volumen-/Produktionsnachweis.
+bestanden. Jetzt auch echter Volumennachweis bestanden: WTA 490.336 KiB RSS,
+ATP 367.388 KiB RSS; Test-DB 2.246.602.752 → 938.500.096 Bytes, alle Daten
+unverändert. Operative Root-Seal-Prüfung bestanden. Vollsuite läuft noch;
+noch KEIN echter Produktionsnachweis.
 
-Die neue Kopie der produktiven Kontextdatenbank wurde von der Aktionsprüfung
-abgelehnt (frühere QA-Erlaubnis galt nur für Code). Ergänzende Zustimmung
-angefragt, noch ausstehend. NICHT kopiert, nicht anderweitig umgangen, nicht
-deployed oder produktiv kompaktiert. Main/VPS-Basis bleibt `442b60f`.
-Isoliertes QA `/tmp/betboy-memory.IzioJU/` enthält Code und synthetische Tests.
+Die ergänzende Kopierfreigabe wurde am selben Abend ausdrücklich mit „ja“
+erteilt: ausschließlich `context_models.db` im selben privaten VPS-QA-Ordner,
+keine Konten/Einsätze/Secrets. Integritätsgeprüfte Kopie mit 2.246.602.752 Bytes
+erstellt; echter RAM-Test und verlustfreie QA-Kompaktierung bestanden.
+VPS-Basis bis zum Deployment `442b60f`; Reparaturcode `bf22681`.
+`betboy-wettfinder.timer` ist vorübergehend gestoppt (vorher active/enabled);
+nach Abschluss wieder starten. Übrige App/Timer bisher nicht gestoppt.
+Vor dem regulären Updater wird die produktive Kontextdatenbank gesichert und
+im gestoppten Zustand verlustfrei kompaktiert, damit die unveränderte
+Updater-Platzreserve erfüllt wird. Bis zum neuen Code keinen alten Worker starten.
+Noch KEINE produktive Kompaktierung oder erfolgreiches Deployment behaupten.
+Isoliertes QA: `/tmp/betboy-memory.IzioJU/`, Testdatenbank `data/context.db`.
 Details und nächste Schritte:
 `docs/audits/2026-09-14-context-memory-storage.md`.
 

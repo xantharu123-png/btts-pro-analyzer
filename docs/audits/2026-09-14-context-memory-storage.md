@@ -9,9 +9,13 @@ Einsätze, Modellfreigaben und historische Dateninhalte bleiben unverändert.
 Die automatische Aktionsprüfung hat eine neue Kopie der produktiven
 `context_models.db` in den privaten QA-Ordner ausdrücklich abgelehnt: Die
 frühere Archivfreigabe bezog sich auf Code, nicht auf Laufzeitdatenbanken.
-Die ergänzende Zustimmung wurde angefragt und liegt noch nicht vor. Diese
-Kopie wurde NICHT erstellt; keine alternative Kopierroute verwendet.
-Kein Produktions-Deployment und keine produktive Kompaktierung behaupten.
+Die ergänzende Zustimmung wurde angefragt und anschließend vom Nutzer
+ausdrücklich mit „ja“ erteilt. Erst danach wurde ausschließlich diese DB
+in `/tmp/betboy-memory.IzioJU/data/context.db` kopiert: 2.246.602.752 Bytes,
+29,10 s, SQLite `integrity_check=ok`. Keine Konten/Einsätze/Secrets kopiert.
+Echte RAM-Prüfung, verlustfreie QA-Kompaktierung und operative Prüfung sind
+inzwischen bestanden. Der Produktionsabschluss wird separat nachgewiesen;
+diese QA-Ergebnisse sind noch kein erfolgreiches Deployment.
 
 ## Implementierte Reparatur
 
@@ -76,15 +80,53 @@ Die bisherigen Legacy-Adaptertests verwenden ausdrücklich Inline-Fixtures.
   laufen. Die SSH-umask erzeugte gruppenschreibbare synthetische Dateien;
   diese wurden von der unveränderten Vertrauensprüfung korrekt abgelehnt.
 
-## Noch vor Produktionsfreigabe erforderlich
+## Echter Volumentest nach ergänzender Nutzerfreigabe
 
-1. Zustimmung zur echten Kontext-DB-Kopie im selben privaten VPS-QA-Ordner.
-2. Begrenzte echte Volumen-/RAM-Prüfung mit
-   `scripts/measure_context_memory.py` (1.400 MiB AS, 600 CPU-s), anschließend
-   verlustfreie Kompaktierung an dieser Kopie und Deployment-/Restoreprüfung.
-3. Erst nach diesem Nachweis Main übernehmen, pushen und regulären Updater
-   ausführen. Produktive Umstellung nur mit geprüftem Backup und gestoppten
-   Writern. Keine Backups oder fachlichen Historien löschen.
+Private Quelle: `/tmp/betboy-memory.IzioJU/data/context.db`. SQLite-Backup
+statt Dateikopie einer offenen WAL-Datenbank. 112 Snapshots, 454.405 Inhalte,
+454.405 Beobachtungen, 117 Artefakte und drei Manifeste.
+
+- WTA: 247.105 Referenzen, 346,50 s Wandzeit / 335,64 s CPU,
+  490.336 KiB Peak-RSS, Referenzdigest
+  `2b7db124d3caab9862c229b3f0c7aa8680aa2f2d6024f3510687f3921459fc22`.
+- ATP: 181.572 Referenzen, 311,99 s Wandzeit / 309,81 s CPU,
+  367.388 KiB Peak-RSS, Referenzdigest
+  `946f4935daebd9309a7e03e0701789cae3c79cb114da54abf57db3f369edce59`.
+- Beide vollständigen Readerläufe unter unveränderten 1.400-MiB-AS-/600-CPU-s-
+  Grenzen beendet, keine Provideraufrufe. Das ist kein gemessener Peak des
+  gesamten Tageslaufs; zwei Touren brauchen weiterhin mehrere CPU-Minuten.
+- 112 Snapshots verlustfrei konvertiert. DB 2.246.602.752 → 938.500.096 Bytes.
+  Logische Snapshot-Payloads 1.332.011.883 Bytes, physisch nun 12.085.628 Bytes
+  plus 49.356 Bytes Listenbeschreibungen und 28.380.032 Bytes Referenzblöcke.
+  Sechs Referenzmengen, 1.536 Blöcke. Jeder Snapshot wurde dekodiert, mit seinem
+  bisherigen Key/Digest geprüft, rekonstruiert und logisch bytegleich verglichen.
+- Zusätzlich vollständige vor/nach Inventur: alle anderen Tabellen samt echten
+  SQLite-Wertetypen/Primärschlüsselreihenfolge und alle Snapshot-Keys/Digests
+  unverändert. Keine Belege, Historien oder Ergebnisse entfernt.
+- Die ursprüngliche Anschlussprüfung am app-eigenen QA-Pfad wurde korrekt
+  durch den Root-Seal-Vertrag abgelehnt. Anschließend nur diese QA-Datei
+  unter `/var/lib/betboy-context-verifier/memory-qa-so2swnkh/context.db`
+  root-eigen/0440 bereitgestellt; Größe und SHA256 vollständig gleich.
+  SHA256: `6b627b6d6d4279feae88b2d299d7d3fad90c9766ba87d7f5abbb14c2685f342c`.
+- Operative Prüfung mit dem Produktionsvenv bestanden: 17,43 s,
+  149.768 KiB Peak-RSS. Schema, SQLite, Referenzen, aktive ATP-/WTA-Modelle
+  und Manifestkette intakt. Report: `data/real-deployment-report.json`.
+  Der erste Aufruf mit System-Python hatte kein pandas; kein Paket installiert
+  und kein Prüfer gelockert, sondern den vorhandenen Produktionsvenv verwendet.
+- Zusätzliche Vollsuite `.pytest_tmp/memory-approved-full.xml` läuft noch;
+  nicht vor deren Abschluss als grün ausweisen.
+
+## Noch für den Produktionsabschluss erforderlich
+
+1. Zustimmung zur echten Kontext-DB-Kopie erhalten, Kopie erfolgreich erstellt.
+2. Echte begrenzte Volumen-/RAM- und verlustfreie Kopieprüfungen bestanden.
+3. Main übernehmen und pushen. Die unveränderte Updater-Reserve benötigt vor
+   Kompaktierung 22.551.273.472 Bytes, nach der nachgewiesenen Kompaktierung
+   rechnerisch rund 14.702.608.384 Bytes. Deshalb Produktion zuerst in kontrollierter
+   Wartung bei gestoppten Writern, mit geprüftem root-privaten Backup und exaktem
+   gepushtem Reparaturcode verlustfrei kompaktieren. Alten Code bis zum erfolgreichen
+   regulären Updater NICHT wieder starten; bei Fehlschlag alten DB-Zustand kontrolliert
+   aus dem Backup wiederherstellen. Keine Reserve senken, keine Backups löschen.
 4. Einen echten Tennisabschluss und den überlappenden Wettfinderbetrieb prüfen;
    Softwaretests allein beweisen keinen behobenen Produktions-OOM.
 
