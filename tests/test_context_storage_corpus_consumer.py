@@ -260,12 +260,27 @@ def _setup_workspace(tmp_path):
     slots = []
     for name in ("context.db", "shadow.db", "legacy-oracle.sqlite", "oracle-shadow.sqlite"):
         slots.extend((FileSlot(name, MAIN_CAP), FileSlot(name + "-journal", MAIN_CAP)))
+    # The existing snapshot producer owns these stable, empty coordination
+    # files. Account for their exact paths/allocation; no wildcard admission.
+    for name in ("context.db.compute.lock", "legacy-oracle.sqlite.compute.lock"):
+        slots.append(FileSlot(name, 4096))
     budget = WorkspaceBudget(
         root,
         slots,
         directory_metadata_bytes=DIRECTORY_METADATA,
     )
     return root, budget
+
+
+def test_setup_budget_accounts_only_for_exact_producer_lock_files(tmp_path):
+    from context_storage_v2.contracts import StorageIntegrityError
+    root, budget = _setup_workspace(tmp_path)
+    for name in ("context.db.compute.lock", "legacy-oracle.sqlite.compute.lock"):
+        (root / name).touch()
+    assert budget.check_quiescent().existing_files == 2
+    (root / "unexpected.compute.lock").touch()
+    with pytest.raises(StorageIntegrityError, match="undeclared file"):
+        budget.check_quiescent()
 
 
 def _workspace(tmp_path, source):
