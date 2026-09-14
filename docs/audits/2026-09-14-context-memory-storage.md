@@ -113,8 +113,35 @@ statt Dateikopie einer offenen WAL-Datenbank. 112 Snapshots, 454.405 Inhalte,
   und Manifestkette intakt. Report: `data/real-deployment-report.json`.
   Der erste Aufruf mit System-Python hatte kein pandas; kein Paket installiert
   und kein Prüfer gelockert, sondern den vorhandenen Produktionsvenv verwendet.
-- Zusätzliche Vollsuite `.pytest_tmp/memory-approved-full.xml` läuft noch;
-  nicht vor deren Abschluss als grün ausweisen.
+- Zusätzlicher Vollsuitenlauf: 3.192 bestanden, 21 Skips, 71 Untertests;
+  drei veraltete Testinventur-Annahmen über bestehende leere Producer-Locks.
+  Die exakt zwei erlaubten Pfade wurden vorab deklariert; unbekannte Lockdateien
+  bleiben abgelehnt. Alle sechs betroffenen Tests bestanden danach.
+- Eine spätere Teilrunde zeigte eine weitere alte Testannahme zum ausdrücklich
+  veröffentlichten Helper-Pin aus `442b60f`. Der Test prüft nun sowohl den exakten
+  aktuellen Updater/Helper-Hash als auch die bytegleiche Rekonstruktion seines
+  eingefrorenen Vorgängers durch Rücknahme ausschließlich dieses einen Pins.
+  Produktionscode unverändert; 111 Tests bestanden, ein Linux-spezifischer Skip.
+- Abschließende Vollsuite läuft in drei getrennten Testverzeichnissen mit
+  disjunkten Dateilisten (`.pytest_tmp/memory-final-shard[0-2].xml`).
+  Erst vollständige XML-Ergebnisse aller drei Teile als Abschluss zählen.
+
+## Produktionsumstellung vor dem regulären Updater
+
+23:21 CEST App/Timer gestoppt und vorübergehend deaktiviert; 23:26 Backup
+aller 89 Datenbanken verifiziert, keine Bereinigung vorhandener Archive.
+23:30 produktive Umstellung vollständig und verlustfrei beendet:
+2.246.610.944 → 938.508.288 Bytes, dieselben 112 Snapshots und logischen Bytes
+wie in QA. Backup/Status: `/var/lib/betboy-context-verifier/memory-maintenance-8jmzb2v5/`.
+Der erste anschließende Updater-Vorcheck benötigte zusätzlich seine eigene
+Code-Staging-Reserve und brach vor Codeinstallation ab. Deshalb auch die zweite,
+ausschließlich von dieser Reparatur erzeugte QA-Datei verlustfrei komprimiert:
+230.812.793 Bytes, vollständiger Rücklese-SHA256 gleich dem bereits geprüften
+Root-Seal. 707.687.303 zusätzliche Bytes frei; Produktionsdaten und alle echten
+Backups unverändert. Beide QA-Archive bleiben wiederherstellbar erhalten.
+Keinen alten Worker vor erfolgreichem Update starten. Keine erneute produktive
+Kompaktierung nötig. Standard-Updater, tatsächlicher Tennisabschluss und
+Browser-Nachweis sind im separaten Releasebericht zu prüfen.
 
 ## Noch für den Produktionsabschluss erforderlich
 

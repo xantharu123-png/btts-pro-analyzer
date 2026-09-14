@@ -16,8 +16,20 @@ erteilt: ausschließlich `context_models.db` im selben privaten VPS-QA-Ordner,
 keine Konten/Einsätze/Secrets. Integritätsgeprüfte Kopie mit 2.246.602.752 Bytes
 erstellt; echter RAM-Test und verlustfreie QA-Kompaktierung bestanden.
 VPS-Basis bis zum Deployment `442b60f`; Reparaturcode `bf22681`.
-`betboy-wettfinder.timer` ist vorübergehend gestoppt (vorher active/enabled);
-nach Abschluss wieder starten. Übrige App/Timer bisher nicht gestoppt.
+Wartung am 14.09. um 23:21 CEST gestartet: App und sieben Timer gestoppt und
+bis zum neuen Code deaktiviert. Kein alter Worker darf jetzt gestartet werden.
+Root-Unit `codex-context-memory-repair-20260914.service` hat die freigegebene
+Kompaktierung abgeschlossen: 2.246.610.944 → 938.508.288 Bytes, 112 Snapshots,
+alle logischen Inhalte gleich. Ihr anschließender Updater-Vorcheck endete an
+der Staging-Platzreserve, Code blieb `442b60f`. Danach auch die eigene zweite
+QA-Kopie verlustfrei komprimiert und nochmals 707.687.303 Bytes gewonnen.
+Zustand: `/var/lib/betboy-context-verifier/memory-maintenance-8jmzb2v5/state.json`.
+Backup aller 89 DBs um 23:26 erfolgreich verifiziert:
+`/var/lib/betboy-context-verifier/memory-maintenance-8jmzb2v5/backup/betboy-sqlite-20260914T212142Z.zip`.
+Jetzt den regulären Updater mit dem aktuellen gepushten Main ausführen und
+HEAD/Health/alle Timer prüfen. Keine erneute Kompaktierung erforderlich.
+Aktuellen tatsächlichen Releaseabschluss in
+`output/playwright/context-memory-release-20260914.md` lesen.
 Vor dem regulären Updater wird die produktive Kontextdatenbank gesichert und
 im gestoppten Zustand verlustfrei kompaktiert, damit die unveränderte
 Updater-Platzreserve erfüllt wird. Bis zum neuen Code keinen alten Worker starten.

@@ -802,19 +802,24 @@ def test_frozen_reviewed_preflight_algorithms_are_copied_without_drift():
     updater = ROOT / "deploy/update_server.sh"
     raw = updater.read_bytes().replace(b"\r\n", b"\n")
     assert hashlib.sha256(raw).hexdigest() == \
-        "23c6359aaf6280c4633a3e8e84941434dd28861a18ce774a75b4c7c1c10b4b39"
+        "426145e2352e5ec2f3198b6ea2d0e743989f5b2acfeab60da75c50a6cf480524"
     # The approved operational check replaces historical replay at deployment.
     # Backup/actual restore and its independently reviewed helper stay pinned.
-    # The expected installed production-updater pin is unchanged.
-    old_helper = b"b37d11a1eec4ebb129797a942ad68ea13861dd3a2b41bfe14644e9f06add5604"
-    new_helper = b"65f28869e773fcaa5bcc186648f440e1f764ffafa656b92211180eb857f09646"
+    # 442b60f approved exactly one helper-pin replacement for streaming large
+    # archive members. Reconstruct the frozen predecessor to prove that no
+    # other preflight algorithm or supply-chain boundary drifted.
+    old_helper = b"65f28869e773fcaa5bcc186648f440e1f764ffafa656b92211180eb857f09646"
+    new_helper = b"6a58f24766d84624c13c4a0fa1b4a01de0318aaa9899f9361550029e49cbe0dd"
     helper = (ROOT / "scripts/backup_runtime_databases.py").read_bytes().replace(b"\r\n", b"\n")
     assert hashlib.sha256(helper).hexdigest().encode("ascii") == new_helper
     assert raw.count(new_helper) == 1 and old_helper not in raw
+    assert hashlib.sha256(raw.replace(new_helper, old_helper)).hexdigest() == \
+        "23c6359aaf6280c4633a3e8e84941434dd28861a18ce774a75b4c7c1c10b4b39"
     assert b'"--sealed-file", "--deployment-check", "--database"' in raw
     assert b'value["historical_analysis_verified"] is False' in raw
     for name in SHARED_FUNCTIONS:
-        assert source_function(name) == source_function(name, updater), name
+        assert source_function(name) == source_function(name, updater).replace(
+            new_helper.decode("ascii"), old_helper.decode("ascii")), name
 
 
 def test_all_embedded_python_programs_compile_without_running_root_code():
