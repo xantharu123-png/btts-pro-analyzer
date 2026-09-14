@@ -104,7 +104,7 @@ def test_missing_counts_leave_only_count_markets_open(tmp_path, monkeypatch):
     assert results(db)[0]["market_key"] == "BTTS_YES"
 
 
-@pytest.mark.parametrize("mutation", ["event", "team", "start", "bool_score", "selection"])
+@pytest.mark.parametrize("mutation", ["event", "team", "invalid_start", "bool_score", "selection"])
 def test_mismatched_native_football_identity_or_invalid_score_fails_closed(tmp_path, monkeypatch, mutation):
     db = tmp_path / "evidence.db"
     row = football_row()
@@ -117,13 +117,86 @@ def test_mismatched_native_football_identity_or_invalid_score_fails_closed(tmp_p
         data = original(ids)
         if mutation == "event": data[1]["fixture"]["id"] = 2
         if mutation == "team": data[1]["teams"]["home"]["id"] = 99
-        if mutation == "start": data[1]["fixture"]["date"] = (START + timedelta(days=1)).isoformat()
+        if mutation == "invalid_start": data[1]["fixture"]["date"] = "not a timestamp"
         if mutation == "bool_score": data[1]["goals"]["home"] = True
         return data
     provider.details_by_fixture = details
     summary = run(db, football_provider=provider)
     assert summary["terminal_results"] == 0
     assert summary["operational_error_count"] == 1
+
+
+@pytest.mark.parametrize("status,new_start", [
+    ("NS", NOW + timedelta(days=1)),
+    ("NS", NOW + timedelta(days=19)),
+    ("PST", NOW + timedelta(days=1)),
+    ("TBD", NOW + timedelta(days=1)),
+    ("1H", START + timedelta(hours=1)),
+    ("FT", START + timedelta(hours=1)),
+])
+def test_rescheduled_fixture_stays_unresolved_without_failing_unrelated_checks(
+    tmp_path, monkeypatch, status, new_start,
+):
+    db = tmp_path / "evidence.db"
+    record(db, monkeypatch, [football_row(), football_row(market="CORNERS_OVER_7_5")])
+    before = db.read_bytes()
+    provider = FootballProvider(status=status)
+    original = provider.details_by_fixture
+    def changed(ids):
+        data = original(ids)
+        data[1]["fixture"]["date"] = new_start.isoformat()
+        return data
+    provider.details_by_fixture = changed
+    for _ in range(2):
+        summary = run(db, football_provider=provider)
+        assert summary["errors"] == ["football:schedule_revision_unresolved"]
+        assert summary["operational_error_count"] == 0
+        assert summary["terminal_results"] == 0
+        assert summary["unresolved_forecasts"] == 2
+        assert results(db) == []
+        assert db.read_bytes() == before
+    assert provider.calls == [("details", (1,)), ("details", (1,))]
+
+
+@pytest.mark.parametrize("mutation", ["fixture_id", "home", "away", "status", "future_result"])
+def test_rescheduling_never_hides_mismatched_teams_ids_or_malformed_status(tmp_path, monkeypatch, mutation):
+    db = tmp_path / "evidence.db"
+    record(db, monkeypatch, [football_row()])
+    provider = FootballProvider(status="NS")
+    original = provider.details_by_fixture
+    def changed(ids):
+        data = original(ids)
+        data[1]["fixture"]["date"] = (NOW + timedelta(days=1)).isoformat()
+        if mutation == "fixture_id": data[1]["fixture"]["id"] = 2
+        if mutation == "home": data[1]["teams"]["home"]["id"] = 99
+        if mutation == "away": data[1]["teams"]["away"]["id"] = 99
+        if mutation == "status": data[1]["fixture"]["status"] = None
+        if mutation == "future_result": data[1]["fixture"]["status"] = {"short": "FT"}
+        return data
+    provider.details_by_fixture = changed
+    summary = run(db, football_provider=provider)
+    assert summary["operational_error_count"] == 1
+    assert "football:schedule_revision_unresolved" not in summary["errors"]
+    assert summary["terminal_results"] == 0
+    assert results(db) == []
+
+
+def test_rescheduled_event_does_not_prevent_exact_unrelated_football_result(tmp_path, monkeypatch):
+    db = tmp_path / "evidence.db"
+    record(db, monkeypatch, [football_row(1), football_row(2)])
+    provider = FootballProvider()
+    original = provider.details_by_fixture
+    def changed(ids):
+        data = original(ids)
+        data[1]["fixture"].update(date=(NOW + timedelta(days=1)).isoformat(), status={"short": "NS"})
+        return data
+    provider.details_by_fixture = changed
+    summary = run(db, football_provider=provider)
+    assert summary["errors"] == ["football:schedule_revision_unresolved"]
+    assert summary["operational_error_count"] == 0
+    assert summary["terminal_results"] == summary["unresolved_forecasts"] == 1
+    assert results(db)[0]["provenance"]["provider_event_id"] == "2"
+    assert provider.calls == [("details", (1, 2))]
 
 
 def test_finite_budget_rotates_and_missing_causal_clocks_never_trigger_provider(tmp_path, monkeypatch):

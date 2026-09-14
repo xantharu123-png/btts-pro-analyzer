@@ -80,5 +80,40 @@ Keine bestehenden Backups, alten QA-Verzeichnisse oder Runtime-Daten werden gel�
   Server-Platzgrenzen und vier Aufräum-Negativ-/Positivfälle.
   XML: `.pytest_tmp/deployment-capacity-20260914-02.xml`.
 
-Serverergebnisse folgen nach tatsächlicher Ausführung. Lokale Tests behaupten
-keinen erfolgreichen Serverlauf und keine historische/empirische Modellabnahme.
+### Tatsächlicher Release und Restfehler
+
+Updater-Reparatur und reguläres Deployment von `66b113b` auf dem VPS haben beide
+Exit 0 erreicht. 88 Datenbanken wurden gesichert und tatsächlich wiederhergestellt;
+HMAC-Kontoprüfung erfolgreich. Die operative Kontextprüfung brauchte 10,44 Sekunden
+und 154.247.168 Byte RSS, ohne historische/empirische Modellabnahme zu behaupten.
+App/Caddy und sieben Timer sind aktiv; beide Healthchecks liefern `ok`.
+Daily3 wurde öffentlich bei 1440×1000 und 390×844 geprüft, ohne Budgetbestätigung
+oder Wettplatzierung. Generierte Belege liegen unter `output/playwright/`.
+
+Der erste Wettfinderlauf erzeugte 69 Modellprognosen, endete aber wegen
+`football:result_identity_mismatch` in der nachgelagerten Evidenzprüfung mit Exit 1.
+Der begrenzte Abgleich am 14.09.2026 zeigte zwei tatsächlich verschobene Spiele:
+
+- Spiel 1505529, Teams 2324/2328: ursprünglich 13.09.2026 15:30 UTC,
+  jetzt 02.10.2026 23:00 UTC, Anbieterstatus NS.
+- Spiel 1549774, Teams 1138/1126: ursprünglich 13.09.2026 01:15 UTC,
+  jetzt 15.09.2026 01:00 UTC, Anbieterstatus NS.
+
+Korrektur: Eine gültige Terminänderung bei identischer Anbieter-Spiel-ID und
+identischen Teams wird als `schedule_revision_unresolved` sichtbar gehalten,
+nicht als technischer Fehler gewertet. Sie erzeugt weiterhin KEIN Ergebnis,
+auch nicht nach späterem FT. Die alte Prognoseidentität wird nicht umgeschrieben.
+Abweichende IDs/Teams, unlesbare Termine, ungültige Statusdaten und angebliche
+Endergebnisse vor einem zukünftigen neuen Anstoß bleiben technische Fehler.
+Eine spätere kausale Zuordnung der alten Prognose zu einem verschobenen Spiel
+wird damit ausdrücklich nicht behauptet.
+
+Die neuen Fälle wurden zuerst rot reproduziert; anschließend 198 Tests für
+Evidenz, native Ergebnisse, RisikoBet-Abrechnung und Wettfinder bestanden
+(8,71 Sekunden). Wiederholung, unveränderte Datenbankbytes bei offenem Spiel,
+Zählmärkte ohne Statistikabruf und unabhängige Abrechnung anderer Spiele belegt.
+XML: `.pytest_tmp/schedule-20260914-green.xml`.
+
+Keine Erfindung fehlender Daily3-Auswahlen oder Verletzungs-/Müdigkeitswirkung.
+Die Timer berechnen weiter nur; Code wird durch das autorisierte Deployment
+veröffentlicht, nicht automatisch durch diese Timer gepullt.

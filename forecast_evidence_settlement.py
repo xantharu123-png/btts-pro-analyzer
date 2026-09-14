@@ -257,7 +257,7 @@ def run_forecast_evidence_settlements(
             home = teams.get("home") if isinstance(teams, Mapping) else None
             away = teams.get("away") if isinstance(teams, Mapping) else None
             if (not isinstance(fixture, Mapping) or _positive_int(fixture.get("id")) != int(provider_id)
-                    or _parse_time(fixture.get("date")) != start or not isinstance(teams, Mapping)
+                    or _parse_time(fixture.get("date")) is None or not isinstance(teams, Mapping)
                     or not isinstance(home, Mapping) or not isinstance(away, Mapping)
                     or _positive_int(home.get("id")) != home_id
                     or _positive_int(away.get("id")) != away_id):
@@ -266,6 +266,17 @@ def run_forecast_evidence_settlements(
             status = fixture.get("status")
             if not isinstance(status, Mapping) or not isinstance(status.get("short"), str) or not status["short"]:
                 errors.append("football:result_payload_invalid")
+                continue
+            provider_start = _parse_time(fixture["date"])
+            if provider_start != start:
+                if provider_start > details_observed and status["short"] not in {"NS", "PST", "TBD"}:
+                    errors.append("football:result_payload_invalid")
+                    continue
+                # A changed kickoff for the same native fixture and teams is
+                # normal scheduling coverage, not a broken result adapter.
+                # Still do NOT settle it against the frozen original start,
+                # even after FT, or rewrite the old causal forecast identity.
+                errors.append("football:schedule_revision_unresolved")
                 continue
             if status.get("short") != "FT":
                 continue
