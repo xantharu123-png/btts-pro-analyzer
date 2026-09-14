@@ -1,5 +1,17 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Auftrag 14. September 2026 — Tennis-Abschluss und Parallelität
+
+Ausgangspunkt `a1d15b6` auf allen Checkouts/GitHub/VPS bestätigt. Gezielte
+Reparatur der redundanten Referenz- und Modellprüfungen, der langen SQLite-
+Transaktionen und des Pending-Historienzugriffs; zusätzliche begrenzte
+Rundungskorrektur für einen auf Linux reproduzierten Altfehler.
+Nachweise: `docs/audits/2026-09-14-tennis-completion.md` und der tatsächlich
+folgende Live-Abschluss `output/playwright/tennis-completion-release-20260914.md`.
+WTA-Quelldownload liefert derzeit HTML bzw. TLS-Fehler. Verletzungs-/Müdigkeits-
+training und weitere Sportadapter bleiben offen. Keine neue Freigabeschleife,
+keine Behauptung, dass diese Reparatur das gesamte Kontextprojekt abschließt.
+
 ## Aktueller Auftrag 14. September 2026 – Tagesauswahl wirklich aktualisieren
 
 Die aktuelle Ausgabe enthielt 69 für Daily3 zu alte Modelle trotz frischem

@@ -124,6 +124,7 @@ class LiveWorker:
         self.path = Path(path)
         self.capture = None
         self.bindings, self.pending = {}, []
+        self._pending_histories = {}
         self.finished = False
         self.reasons = []
 
@@ -176,22 +177,26 @@ class LiveWorker:
             raise ContextIntegrityError("pending native identity differs from its immutable context")
         with _reader(self.path) as connection:
             publication = _load_artifact(connection, sidecar["original_artifact_hash"])
-            if publication["kind"] != ORIGINAL_ARTIFACT_KIND:
-                raise ContextIntegrityError("pending context has no owning original publication")
-            validate_original_publication(publication["payload"],
-                created_at=_artifact_created_at(connection, sidecar["original_artifact_hash"]))
+            created_at = _artifact_created_at(connection, sidecar["original_artifact_hash"])
             saved = connection.execute("SELECT payload,payload_digest FROM context_snapshots WHERE key=?", (ref["key"],)).fetchone()
-            if saved is None:
-                raise ContextIntegrityError("pending context snapshot is absent")
-            payload = _decode_snapshot(ref["key"], *saved)
-            origin = publication["payload"]["origin"]
-            if (not _equal(context_consumer_reference(ref["key"], payload), ref)
-                    or not _equal(payload["base"], original_base(origin))
-                    or not _equal(payload["event"], event) or payload["base"]["cutoff"] != sidecar["cutoff"]
-                    or any(origin["inputs"][name] != row[name] for name in ("player_a", "player_b", "tour"))
-                    or round(origin["values"]["p_a_cal"], 4) != row["p_cal"]):
-                raise ContextIntegrityError("pending original/forecast/context bytes differ")
-        observations = tennis_observations_as_of(self.path, cutoff=decision_at, tour=row["tour"])
+        if publication["kind"] != ORIGINAL_ARTIFACT_KIND:
+            raise ContextIntegrityError("pending context has no owning original publication")
+        validate_original_publication(publication["payload"], created_at=created_at)
+        if saved is None:
+            raise ContextIntegrityError("pending context snapshot is absent")
+        payload = _decode_snapshot(ref["key"], *saved)
+        origin = publication["payload"]["origin"]
+        if (not _equal(context_consumer_reference(ref["key"], payload), ref)
+                or not _equal(payload["base"], original_base(origin))
+                or not _equal(payload["event"], event) or payload["base"]["cutoff"] != sidecar["cutoff"]
+                or any(origin["inputs"][name] != row[name] for name in ("player_a", "player_b", "tour"))
+                or round(origin["values"]["p_a_cal"], 4) != row["p_cal"]):
+            raise ContextIntegrityError("pending original/forecast/context bytes differ")
+        history_key = (row["tour"], canonical_timestamp(decision_at))
+        if history_key not in self._pending_histories:
+            self._pending_histories[history_key] = PreparedTennisHistory(
+                tennis_observations_as_of(self.path, cutoff=decision_at, tour=row["tour"]))
+        observations = self._pending_histories[history_key].for_event(event)
         history = [record for record in observations if record["event_key"] == event["event_key"]]
         newest = max((record["observed_at"] for record in history), default=None)
         latest = [record for record in history if record["observed_at"] == newest]
@@ -216,17 +221,34 @@ class LiveWorker:
             "decision": decision_at, "kwargs": dict(kwargs), "result": result, "success_counter": success_counter})
         result["prepared"] = result.get("prepared", 0)+1
 
-    def _original(self, item, connection, observations, code_hashes):
+    def _verify_states(self, qualified):
+        """Validate each actual in-memory tour model once in this batch.
+
+        Group by object identity AND tour, never by a caller-supplied hash
+        alone. The earliest decision checks every item's causal constraint.
+        No cache survives a finish call or authorizes a later changed state.
+        """
         from tennis.state_codec import encode_state
         from tennis.tour_state import _decode_wrapper
-        state, binding = item["state"], item["binding"]
+        groups, refs = {}, {}
+        for item in qualified:
+            groups.setdefault((id(item["state"]), item["fixture"]["tour"]), []).append(item)
+        for (_, tour), items in groups.items():
+            state = items[0]["state"]
+            decision = min(item["decision"] for item in items)
+            ref = require_digest(state.artifact_hash, "actually loaded tour model")
+            with _reader(self.path) as connection:
+                envelope = _artifact(connection, ref, "tennis-tour-state", latest=canonical_timestamp(decision))
+            _decode_wrapper(envelope["payload"], tour, decision_cutoff=decision.timestamp())
+            if (not _equal(envelope["payload"]["state"], encode_state(state, tour=tour))
+                    or state.training_cutoff != envelope["payload"]["training_cutoff"]):
+                raise ContextIntegrityError("actually used model differs from its immutable A1 tour state")
+            refs.update((id(item), ref) for item in items)
+        return refs
+
+    def _original(self, item, ref, observations, code_hashes):
+        binding = item["binding"]
         cutoff = canonical_timestamp(item["decision"])
-        ref = require_digest(state.artifact_hash, "actually loaded tour model")
-        envelope = _artifact(connection, ref, "tennis-tour-state", latest=cutoff)
-        _decode_wrapper(envelope["payload"], item["fixture"]["tour"], decision_cutoff=item["decision"].timestamp())
-        if (not _equal(envelope["payload"]["state"], encode_state(state, tour=item["fixture"]["tour"]))
-                or state.training_cutoff != envelope["payload"]["training_cutoff"]):
-            raise ContextIntegrityError("actually used model differs from its immutable A1 tour state")
         event = _event(binding["row"])
         if binding["observed_at"] > cutoff:
             raise ContextIntegrityError("native receipt follows original prediction cutoff")
@@ -256,6 +278,9 @@ class LiveWorker:
         if self.finished:
             raise ContextContractError("live batch cannot be appended twice")
         qualified = [item for item in self.pending if item["binding"] is not None]
+        # Pending prechecks share a tour image, but final publication still
+        # resolves a fresh complete inventory and detects intervening revisions.
+        self._pending_histories.clear()
         prepared = {}
         if qualified:
             root = Path(__file__).resolve().parents[1]
@@ -268,19 +293,20 @@ class LiveWorker:
                         tennis_observations_as_of(self.path, cutoff=item["decision"], tour=key[0]))
             with _reader(self.path) as connection:
                 inventory = _Inventory(connection)
-                for item in qualified:
-                    history = histories[item["fixture"]["tour"], canonical_timestamp(item["decision"])]
-                    observations = history.for_event(_event(item["binding"]["row"]))
-                    origin, event, base, features = self._original(item, connection, observations, code_hashes)
-                    effect, effect_hash, approval, reason = inventory.select(event, base, features)
-                    inputs = {"event": event, "base": base, "features": features,
-                        "observation_refs": history.observation_refs, "preprocessing_refs": [],
-                        "effect_artifact": effect, "effect_hash": effect_hash, "approval": approval}
-                    descriptor = {"schema": 1, "kind": KIND, **inputs,
-                        "approval_hash": approval["digest"] if approval is not None else None}
-                    key = context_payload_key(descriptor)
-                    prepared[id(item)] = (origin, inputs, key)
-                    self.reasons.append(reason)
+            state_refs = self._verify_states(qualified)
+            for item in qualified:
+                history = histories[item["fixture"]["tour"], canonical_timestamp(item["decision"])]
+                observations = history.for_event(_event(item["binding"]["row"]))
+                origin, event, base, features = self._original(item, state_refs[id(item)], observations, code_hashes)
+                effect, effect_hash, approval, reason = inventory.select(event, base, features)
+                inputs = {"event": event, "base": base, "features": features,
+                    "observation_refs": history.observation_refs, "preprocessing_refs": [],
+                    "effect_artifact": effect, "effect_hash": effect_hash, "approval": approval}
+                descriptor = {"schema": 1, "kind": KIND, **inputs,
+                    "approval_hash": approval["digest"] if approval is not None else None}
+                key = context_payload_key(descriptor)
+                prepared[id(item)] = (origin, inputs, key)
+                self.reasons.append(reason)
         # B1/A1/D2 resolution is complete before any CPU-only compute callback.
         # Cross-database publication is intentionally not claimed atomic: an
         # orphan immutable original/snapshot is safe; a dangling Shadow ref is not.

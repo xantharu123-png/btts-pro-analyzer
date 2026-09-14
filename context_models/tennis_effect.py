@@ -14,7 +14,7 @@ well-formed coefficient/artifact hash alone proves none of those obligations.
 from __future__ import annotations
 
 from copy import deepcopy
-from math import fsum, isfinite
+from math import fsum, isfinite, ulp
 
 import numpy as np
 
@@ -63,6 +63,15 @@ _COVERAGE_CASES = {
 }
 
 
+def _probability_sum(values):
+    total = fsum(values)
+    # The strict joint simulator already validates every mass and its total.
+    # Summing a nearly certain tail can nevertheless exceed one by a handful
+    # of floating-point ULPs. Correct ONLY that representational boundary;
+    # larger excesses, negatives and nonfinite values remain errors below.
+    return 1. if 1. < total <= 1. + 8 * ulp(1.) else total
+
+
 def tennis_serve_markets(params: dict) -> dict[str, float]:
     """Versioned probability-only catalog from one strict simulator result.
 
@@ -79,25 +88,25 @@ def tennis_serve_markets(params: dict) -> dict[str, float]:
         for total in range(needed, params["best_of"] + 1):
             markets[f"exact_{total}_sets"] = m.sets_played[total]
         for lower in range(needed, params["best_of"]):
-            markets[f"over_{lower}_5_sets"] = fsum(p for n, p in m.sets_played.items() if n > lower + .5)
-            markets[f"under_{lower}_5_sets"] = fsum(p for n, p in m.sets_played.items() if n < lower + .5)
+            markets[f"over_{lower}_5_sets"] = _probability_sum(p for n, p in m.sets_played.items() if n > lower + .5)
+            markets[f"under_{lower}_5_sets"] = _probability_sum(p for n, p in m.sets_played.items() if n < lower + .5)
         for (sa, sb), probability in m.correct_scores.items():
             markets[f"correct_score_{sa}_{sb}"] = probability
         for side in ("a", "b"):
-            markets[f"set_handicap_{side}_minus_1_5"] = fsum(
+            markets[f"set_handicap_{side}_minus_1_5"] = _probability_sum(
                 p for (sa, sb), p in m.correct_scores.items()
                 if (sa - sb if side == "a" else sb - sa) > 1.5
             )
         # All nontrivial physical half-game total lines, plus the declared
         # ordinary +/- half-game handicap grid. Other catalogs need a version.
         for lower in range(6 * needed, 13 * params["best_of"]):
-            markets[f"over_{lower}.5_games"] = fsum(p for n, p in m.games_total.items() if n > lower + .5)
-            markets[f"under_{lower}.5_games"] = fsum(p for n, p in m.games_total.items() if n < lower + .5)
+            markets[f"over_{lower}.5_games"] = _probability_sum(p for n, p in m.games_total.items() if n > lower + .5)
+            markets[f"under_{lower}.5_games"] = _probability_sum(p for n, p in m.games_total.items() if n < lower + .5)
         for half_line in range(-13, 14, 2):
             line = half_line / 2
             suffix = f"{'minus' if line < 0 else 'plus'}_{abs(half_line)//2}_5"
             for side in ("a", "b"):
-                markets[f"game_handicap_{side}_{suffix}"] = fsum(
+                markets[f"game_handicap_{side}_{suffix}"] = _probability_sum(
                     p for diff, p in m.games_diff.items() if (diff if side == "a" else -diff) + line > 0
                 )
         return validate_markets(markets, family="tennis:serve")

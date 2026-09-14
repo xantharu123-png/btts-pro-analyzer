@@ -8,9 +8,12 @@ content hash verifies transport identity, not the truth of a model approval.
 
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime
+import errno
+import os
 from pathlib import Path
+from time import monotonic, sleep
 from typing import Callable
 
 from context_models.contracts import (
@@ -21,6 +24,7 @@ from context_models.contracts import (
     validate_effect_artifact, validate_event, validate_feature_vector,
 )
 from model_artifacts import _connect as _artifact_connect, _decode_object, canonical_bytes
+from runtime_paths import RuntimeArtifactTrustError, prepare_trusted_runtime_database_path
 
 
 def snapshot_key(
@@ -114,8 +118,55 @@ def _decode_snapshot(key: str, payload: object, payload_digest: object) -> dict:
     return decoded
 
 
+@contextmanager
+def _compute_lock(path):
+    """Serialize snapshot producers without locking unrelated SQLite writers.
+
+    The stable, empty sidecar is never unlinked: removing an advisory lock
+    would let different processes lock different inodes. OS close/crash releases
+    ownership, so an interrupted calculation leaves no stale lock to clean up.
+    """
+    path = prepare_trusted_runtime_database_path(Path(path))
+    lock = prepare_trusted_runtime_database_path(path.with_name(path.name + ".compute.lock"))
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(lock, flags, 0o600)
+    try:
+        def check():
+            prepare_trusted_runtime_database_path(path)
+            prepare_trusted_runtime_database_path(lock)
+            opened, current = os.fstat(descriptor), os.lstat(lock)
+            if (opened.st_nlink != 1 or current.st_nlink != 1
+                    or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)):
+                raise RuntimeArtifactTrustError("snapshot coordination file changed")
+        check()
+        if os.name == "nt":
+            import msvcrt
+            def acquire():
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            def acquire():
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        deadline = monotonic() + 60
+        while True:
+            try:
+                acquire()
+                break
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                    raise
+                if monotonic() >= deadline:
+                    raise TimeoutError("snapshot calculation is still owned by another worker") from exc
+                sleep(.025)
+        check()
+        yield path, check
+    finally:
+        os.close(descriptor)
+
+
 def compute_once(path: Path, key: str, compute: Callable[[], dict]) -> dict:
-    """Materialize once under A1's trusted-path/transaction rules.
+    """Materialize once with short SQL transactions and process coordination.
 
     The callback must be deterministic CPU-only: no network, training, provider
     or database calls. Failure rolls back; a crashed process may recalculate but
@@ -125,12 +176,13 @@ def compute_once(path: Path, key: str, compute: Callable[[], dict]) -> dict:
     require_digest(key, "snapshot key")
     if not callable(compute):
         raise ContextContractError("snapshot compute must be callable")
-    with closing(_connect(Path(path))) as connection:
+    with _compute_lock(path) as (path, check_lock), closing(_connect(path)) as connection:
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("BEGIN")
             existing = connection.execute(
                 "SELECT payload, payload_digest FROM context_snapshots WHERE key=?", (key,),
             ).fetchone()
+            connection.commit()
             if existing is not None:
                 result = _decode_snapshot(key, *existing)
             else:
@@ -146,8 +198,17 @@ def compute_once(path: Path, key: str, compute: Callable[[], dict]) -> dict:
                 # Return exactly the persisted representation even on first
                 # creation: later mutation of the callback object is harmless.
                 result = _decode_snapshot(key, payload, payload_hash)
+                check_lock()
+                connection.execute("BEGIN IMMEDIATE")
+                # Recheck at publication, including an unexpected older writer
+                # which does not participate in the new advisory coordination.
+                current = connection.execute(
+                    "SELECT payload,payload_digest FROM context_snapshots WHERE key=?", (key,),
+                ).fetchone()
+                if current is not None and current != (payload, payload_hash):
+                    raise ContextIntegrityError("snapshot changed during its first calculation")
                 connection.execute(
-                    "INSERT INTO context_snapshots(key,payload,payload_digest) VALUES (?,?,?)",
+                    "INSERT OR IGNORE INTO context_snapshots(key,payload,payload_digest) VALUES (?,?,?)",
                     (key, payload, payload_hash),
                 )
             connection.commit()

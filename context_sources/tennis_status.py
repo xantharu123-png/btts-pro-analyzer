@@ -304,10 +304,16 @@ def tennis_observations_as_of(path: Path, *, cutoff: datetime, tour: str) -> tup
         return ()
     with closing(_connect(path)) as connection:
         connection.execute("BEGIN")
+        stored_rows = list(connection.execute(_SELECT))
+        connection.commit()
+    # SQLite owns only the consistent byte read, not the much longer CPU
+    # validation. Release each raw row as it is decoded to limit peak memory.
+    rows = []
+    for index, stored in enumerate(stored_rows):
         # Decode before scope pruning: an altered outer index cannot hide a
         # correction which remains in the actual B1 inventory.
-        rows = [_decode_receipt(stored) for stored in connection.execute(_SELECT)]
-        connection.commit()
+        rows.append(_decode_receipt(stored))
+        stored_rows[index] = None
     return select_tennis_observations(tuple(rows), cutoff=cutoff, tour=tour)
 
 

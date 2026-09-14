@@ -124,7 +124,8 @@ def _inputs(payload, *, replay_base=True):
         raise ContextIntegrityError("worker event/base/features do not share a revision")
     for key in ("observation_refs", "preprocessing_refs"):
         _refs(payload[key], key)
-    if any(not set(refs) <= set(payload["observation_refs"]) for refs in feats["refs"].values()):
+    observed_refs = set(payload["observation_refs"])
+    if any(not set(refs) <= observed_refs for refs in feats["refs"].values()):
         raise ContextIntegrityError("worker omitted an actual feature observation reference")
     _feature_binding(ev, original, feats, payload["preprocessing_refs"])
     artifact = None
