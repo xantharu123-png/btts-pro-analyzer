@@ -394,7 +394,7 @@ def test_real_sqlite_wal_snapshot_is_covered_by_actual_capacity_reservation(tmp_
         else:
             exec(compile(body, "capacity", "exec"), data)
             maximum = int(capsys.readouterr().out)
-            assert maximum == kib * 2048 + 67108864
+            assert maximum == kib * 1024 + 67108864
             assert maximum > (tmp_path / "snapshot").stat().st_size
     finally:
         connection.close()
@@ -434,7 +434,7 @@ def test_complete_guard_capacity_program_resolves_its_own_imports(tmp_path, caps
     namespace = {"__builtins__": {**vars(builtins), "__import__": isolated_import}}
     if inventory == "123":
         exec(compile(program, "complete-repair-guard", "exec"), namespace)
-        assert capsys.readouterr().out.strip() == str(123 * 2048 + 67108864)
+        assert capsys.readouterr().out.strip() == str(123 * 1024 + 67108864)
     else:
         with pytest.raises(SystemExit, match="no database capacity inventory"):
             exec(compile(program, "complete-repair-guard", "exec"), namespace)
@@ -802,7 +802,7 @@ def test_frozen_reviewed_preflight_algorithms_are_copied_without_drift():
     updater = ROOT / "deploy/update_server.sh"
     raw = updater.read_bytes().replace(b"\r\n", b"\n")
     assert hashlib.sha256(raw).hexdigest() == \
-        "98e7a0ce88d55577b3eafa7fdf8a3970e8fde0dd499823e537b0432822056c78"
+        "23c6359aaf6280c4633a3e8e84941434dd28861a18ce774a75b4c7c1c10b4b39"
     # The approved operational check replaces historical replay at deployment.
     # Backup/actual restore and its independently reviewed helper stay pinned.
     # The expected installed production-updater pin is unchanged.

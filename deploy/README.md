@@ -393,6 +393,12 @@ are bound into the continuity evidence. This is not an exception for any
 root-private staging, authentication or executable path. Capacity admission
 uses the exact reviewed updater inventory, including database WAL/SHM/journal
 companions and Unicode casefold matching; traversal errors abort admission.
+The capture byte budget is that inventory plus 64 MiB of growth headroom,
+enforced both on total snapshots and the archive file. Free space is reserved
+per physical device for actual overlapping snapshots, restores, seals and
+archives. The newly generated duplicate work ZIP is discarded only after its
+independent root backup is fully restored/authenticated, fsynced, published
+and rechecked byte-for-byte. The recovery archive and old QA files remain.
 
 Before exchanging bytes it produces a fresh full online archive, makes an
 independent bounded root-private copy, actually restores/verifies every database

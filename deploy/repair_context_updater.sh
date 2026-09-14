@@ -859,6 +859,29 @@ def copy_completed_archive(source, destination, receipt, maximum, app_uid, app_g
         os.close(input_fd)
 
 
+def discard_verified_work_copy(source, destination, receipt, app_uid, app_gid):
+    source, destination, receipt = map(Path, (source, destination, receipt))
+    need(source.name == "capture.zip" and source.parent.name in
+         {"backup-online-work", "backup-quiesced-work"}
+         and source.parent.parent == receipt.parent
+         and receipt.name == source.parent.name.removesuffix("-work") + "-production.log",
+         "not this update's temporary work archive")
+    directory(source.parent, owners={0})  # Producer access already revoked.
+    before = file_info(source, owners={0, app_uid}, mode=0o600, gid=app_gid)
+    need(before.st_uid == app_uid, "work copy has a foreign owner")
+    expected = decode(read_file(receipt, mode=0o600))
+    need(expected["path"] == str(source) and expected["signature"] == signature(before),
+         "work copy no longer matches its capture receipt")
+    saved = file_info(destination, owners={0}, mode=0o600, gid=0)
+    need(saved.st_size == before.st_size == expected["size"]
+         and file_hash(destination) == digest(expected["sha256"])
+         and file_hash(source, owners={0, app_uid}) == expected["sha256"],
+         "verified recovery archive does not preserve the work copy")
+    need(signature(file_info(source, owners={0, app_uid}, mode=0o600, gid=app_gid)) == signature(before),
+         "work copy changed before cleanup")
+    source.unlink()  # ONLY the newly produced duplicate; fsynced backup remains.
+
+
 def file_info(path, *, owners, mode=None, gid=None):
     path = Path(path)
     directory(path.parent, owners=owners)
@@ -1164,6 +1187,10 @@ def main(args):
     elif command == "copy-archive":
         need(len(args) == 6 and all(value.isdigit() and int(value) > 0 for value in args[3:]), "invalid private archive copy arguments")
         copy_completed_archive(args[0], args[1], args[2], int(args[3]), int(args[4]), int(args[5]))
+    elif command == "discard-work-copy":
+        need(len(args) == 5 and all(value.isdigit() and int(value) > 0 for value in args[3:]),
+             "invalid work-copy cleanup arguments")
+        discard_verified_work_copy(*args[:3], int(args[3]), int(args[4]))
     elif command == "configure":
         app, env, target, previous, target_manifest, previous_manifest, old, new, backup_head, hook, uid, gid = args
         need(uid.isdigit() and gid.isdigit() and int(uid) > 0 and int(gid) > 0, "invalid app principal")
@@ -1864,6 +1891,9 @@ finally:
     os.close(directory)
 PY
     log "Fresh root-protected ${phase} backup verified: ${destination_archive}"
+    context_hook_data discard-work-copy "${work_archive}" "${destination_archive}" \
+        "${STAGE_DIR}/backup-${phase}-production.log" "$(id -u betboy)" "$(id -g betboy)"
+    log "Removed only the verified duplicate work archive; recovery backup retained."
 }
 
 enumerate_backup_sources() {
@@ -2083,7 +2113,10 @@ elif action == "capacity" and len(args) == 3:
     # KiB rounded upward by the exact reviewed Task2 enumerator, whose failed
     # walk aborts the caller before this reservation can be evaluated.
     need(re.fullmatch(r"[1-9][0-9]*", args[2]) is not None, "no database capacity inventory")
-    maximum = int(args[2]) * 1024 * 2 + 67108864
+    # Admit the inventoried main/WAL/journal bytes plus fixed growth headroom.
+    # Capture enforces this on TOTAL snapshots and the archive (RLIMIT_FSIZE).
+    # Do not reserve seven copies of a hypothetical doubled database history.
+    maximum = int(args[2]) * 1024 + 67108864
     # Add reservations on the actual mounts: retained producer+sealed context,
     # root archive copy, independent helper restore. Never reuse shared free space.
     reservations = ((stage, maximum * 4 + 1073741824),

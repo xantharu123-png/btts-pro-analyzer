@@ -42,6 +42,26 @@ noch fehlgeschlagene letzte Läufe. Diese Befunde sind getrennt vom Updatefehler
 
 ## Ausführungsnachweise
 
+### Zusätzlicher tatsächlich reproduzierter Platzfehler
+
+Der erste echte Reparaturaufruf stoppte VOR Backup/Updater-/Appänderung:
+`insufficient combined repair backup/restore capacity`.
+Lesender Befund: 88 Datenbanken inklusive Journalen mit 1.043.849.216 Byte;
+Platzreservierung 16.291.610.624 Byte, verfügbar 11.570.561.024 Byte.
+
+Korrektur: maximal inventarisierte DB-/WAL-/Journalbytes plus 64 MiB Wachstum
+statt pauschaler Verdopplung. Der bereits vorhandene Producer erzwingt diese
+ENGERE Grenze für die gesamte SQLite-Snapshotmenge und die Archivdatei.
+Onlinewachstum jenseits dieser Grenze bricht den Vorgang weiter ab.
+Die normale Update-Platzrechnung entspricht nun diesen tatsächlich erzwungenen
+Grenzen und zählt Belegungen je physischem Dateisystem weiterhin gemeinsam.
+
+Nur die neu erzeugte doppelte `capture.zip`-Arbeitskopie wird nach vollständiger
+Wiederherstellungs-/HMAC-Prüfung, fsync und Veröffentlichung des unabhängigen
+Root-Backups entfernt. Vorher werden Herkunft, Pfad, Eigentümer, Dateisignatur,
+Länge und beide Dateihashes geprüft. Das verifizierte Backup bleibt vollständig.
+Keine bestehenden Backups, alten QA-Verzeichnisse oder Runtime-Daten werden gelöscht.
+
 - Neuer Update-/Root-Hook-/Reparaturpfad: 467 bestanden, 1 Windows-Skip;
   anschließend drei zusätzliche Aktivierungsabgrenzungsfälle ergänzt und alle
   13 Tests des neuen Moduls erneut bestanden. Zusammen 470 verschiedene Tests.
@@ -55,6 +75,10 @@ noch fehlgeschlagene letzte Läufe. Diese Befunde sind getrennt vom Updatefehler
   Abschluss beendet und ausdrücklich NICHT als bestanden gezählt. Unveränderte
   vollständige historische Fit-Replays sind nicht der neue Release-Nachweis.
 - main-Dokumentationsmerge enthält keine weiteren Programmänderungen.
+- Nach der Platz-/Duplikatkorrektur gesamter betroffener Update-Testlauf erneut:
+  477 bestanden, 1 Windows-Skip, 55,32 Sekunden; einschließlich beider
+  Server-Platzgrenzen und vier Aufräum-Negativ-/Positivfälle.
+  XML: `.pytest_tmp/deployment-capacity-20260914-02.xml`.
 
 Serverergebnisse folgen nach tatsächlicher Ausführung. Lokale Tests behaupten
 keinen erfolgreichen Serverlauf und keine historische/empirische Modellabnahme.

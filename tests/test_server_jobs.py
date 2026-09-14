@@ -3275,10 +3275,10 @@ def test_updater_publishes_backup_snapshot_only_after_helper_success(monkeypatch
     assert "du -skx --apparent-size /var/backups/betboy" in preflight
     assert preflight.index("enumerate_backup_sources bytes") < preflight.index('check_capacity_space "${backup_apparent_kib}" "${database_apparent_kib}"')
     assert preflight.index("check_capacity_space") < preflight.index("preflight_context_runtime")
-    # One MiB each of existing backups/databases needs 519/517/388 MiB
+    # One MiB each of existing backups/databases needs 643/643/386 MiB
     # respectively. Exact per-mount admission protects each snapshot/restore.
     mib = 1024**2
-    mounts = {"/var/tmp": (1, 519*mib), "/var/backups/betboy-update": (2, 517*mib), "/var/lib": (3, 388*mib)}
+    mounts = {"/var/tmp": (1, 643*mib), "/var/backups/betboy-update": (2, 643*mib), "/var/lib": (3, 386*mib)}
     assert _capacity_admission(update, monkeypatch, mounts) == set(mounts)
     for path in mounts:
         tight = dict(mounts)
@@ -3357,9 +3357,9 @@ def test_backup_user_migration_is_updater_and_rollback_compatible(monkeypatch):
     # recovery mount must never inherit its roomier parent's free space.
     paths = ("/var/tmp", "/var/backups/betboy-update", "/var/lib")
     mib = 1024**2
-    assert _capacity_admission(update, monkeypatch, {path: (1, 1424*mib) for path in paths}) == set(paths)
+    assert _capacity_admission(update, monkeypatch, {path: (1, 1672*mib) for path in paths}) == set(paths)
     with pytest.raises(SystemExit, match="insufficient combined"):
-        _capacity_admission(update, monkeypatch, {path: (1, 1424*mib - 1) for path in paths})
+        _capacity_admission(update, monkeypatch, {path: (1, 1672*mib - 1) for path in paths})
     mounts = {path: (index, 2048*mib) for index, path in enumerate(paths)}
     mounts["/var/backups"] = (9, 8192*mib)
     mounts["/var/backups/betboy-update"] = (2, 0)

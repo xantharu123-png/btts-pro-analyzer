@@ -1378,14 +1378,14 @@ def launcher_decision(monkeypatch, arguments, *, uid):
     return command, environment, limits
 
 
-def capacity_disk_decision(monkeypatch, mounts):
+def capacity_disk_decision(monkeypatch, mounts, *, backup_kib="1024", database_kib="1024"):
     fake_os = SimpleNamespace(
         path=SimpleNamespace(lexists=lambda path: path in mounts),
         stat=lambda path, **_: SimpleNamespace(st_dev=mounts[path][0], st_mode=stat.S_IFDIR | 0o755, st_uid=0),
         statvfs=lambda path: SimpleNamespace(f_bavail=mounts[path][1], f_frsize=1))
     with monkeypatch.context() as scoped:
         scoped.setitem(sys.modules, "os", fake_os)
-        scoped.setattr(sys, "argv", ["capacity", "1024", "1024"])
+        scoped.setattr(sys, "argv", ["capacity", backup_kib, database_kib])
         exec(compile(inline_program("check_capacity_space"), "updater-capacity", "exec"), {})
 
 
@@ -1396,6 +1396,24 @@ def test_capacity_same_device_reservations_are_added_not_reused(monkeypatch):
             for path in ("/var/tmp", "/var/backups", "/var/lib")})
     capacity_disk_decision(monkeypatch, {path: (index, 800 * 1024**2)
         for index, path in enumerate(("/var/tmp", "/var/backups", "/var/lib"))})
+
+
+def test_release_disk_reservation_matches_enforced_capture_and_real_peak(monkeypatch):
+    # One GiB of source DB/WAL bytes has a HARD 1088-MiB snapshot/archive cap.
+    # Keep verified recovery archives and both seals, not redundant work ZIPs.
+    mib = 1024**2
+    paths = ("/var/tmp", "/var/backups", "/var/lib")
+    need = 2 * 1 + 6 * 1088 + 1280  # two backup copies + six caps + margins
+    capacity_disk_decision(monkeypatch, {p: (1, need * mib) for p in paths},
+                           database_kib=str(1024**2))
+    with pytest.raises(SystemExit, match="insufficient combined"):
+        capacity_disk_decision(monkeypatch, {p: (1, need * mib - 1) for p in paths},
+                               database_kib=str(1024**2))
+    source = UPDATER.read_text(encoding="utf-8")
+    assert "ARCHIVE_MAX_BYTES=$((database_apparent_kib * 1024 + 67108864))" in source
+    producer = shell_function("produce_update_backup")
+    assert "snapshot_total + total * page_size > maximum_archive" in producer
+    assert "resource.setrlimit(resource.RLIMIT_FSIZE, (maximum_archive, maximum_archive))" in producer
 
 
 @pytest.mark.parametrize("kind,uid", [("d4", 1000), ("backup", 0)])
@@ -1592,6 +1610,45 @@ def test_followup_archive_copy_rejects_unaccepted_bytes(content_data, tmp_path, 
         content_data["copy_completed_archive"](source, target, receipt, maximum, source.stat().st_uid, source.stat().st_gid)
     if target.exists():
         assert mutation in {"digest", "deadline"}  # private failed candidate, never published
+
+
+@pytest.mark.parametrize("defect", [None, "changed-backup", "changed-work", "foreign-path"])
+def test_only_new_verified_duplicate_work_archive_is_discarded(content_data, tmp_path, defect):
+    stage = tmp_path / "stage"
+    work = stage / ("foreign-work" if defect == "foreign-path" else "backup-online-work")
+    work.mkdir(parents=True)
+    source = work / "capture.zip"
+    source.write_bytes(b"preserved exact archive bytes")
+    backup = tmp_path / "verified.zip"
+    backup.write_bytes(source.read_bytes())
+    original_info = content_data["file_info"]
+    def simulated_principal(path, **kwargs):
+        info = original_info(path, **kwargs)
+        values = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+        values["st_uid"] = 1000 if Path(path) == source else 0
+        return SimpleNamespace(**values)
+    content_data["file_info"] = simulated_principal
+    receipt = stage / "backup-online-production.log"
+    before = simulated_principal(source)
+    receipt.write_text(json.dumps({"path": str(source), "size": before.st_size,
+        "signature": content_data["signature"](before), "sha256": hashlib.sha256(source.read_bytes()).hexdigest()}))
+    # Hash implementation already has native descriptor-identity regressions;
+    # here isolate changed bytes and narrow cleanup ownership/path decisions.
+    content_data["file_hash"] = lambda path, **kwargs: hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    if defect == "changed-backup": backup.write_bytes(b"foreign backup")
+    if defect == "changed-work": source.write_bytes(b"foreign work")
+    saved = backup.read_bytes()
+    if defect is not None:
+        with pytest.raises(ValueError):
+            content_data["discard_verified_work_copy"](source, backup, receipt, 1000, 1000)
+        assert source.exists()
+    else:
+        content_data["discard_verified_work_copy"](source, backup, receipt, 1000, 1000)
+        assert not source.exists()
+    assert backup.read_bytes() == saved and receipt.exists()
+    producer = shell_function("produce_update_backup")
+    assert producer.index("Full backup restore/authentication verification failed") < producer.index("discard-work-copy")
+    assert producer.index("os.rename(partial, target)") < producer.index("discard-work-copy")
 
 
 def test_followup_backup_service_launcher_has_exact_principal_and_command(monkeypatch):

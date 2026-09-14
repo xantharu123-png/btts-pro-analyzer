@@ -1309,6 +1309,29 @@ def copy_completed_archive(source, destination, receipt, maximum, app_uid, app_g
         os.close(input_fd)
 
 
+def discard_verified_work_copy(source, destination, receipt, app_uid, app_gid):
+    source, destination, receipt = map(Path, (source, destination, receipt))
+    need(source.name == "capture.zip" and source.parent.name in
+         {"backup-online-work", "backup-quiesced-work"}
+         and source.parent.parent == receipt.parent
+         and receipt.name == source.parent.name.removesuffix("-work") + "-production.log",
+         "not this update's temporary work archive")
+    directory(source.parent, owners={0})  # Producer access already revoked.
+    before = file_info(source, owners={0, app_uid}, mode=0o600, gid=app_gid)
+    need(before.st_uid == app_uid, "work copy has a foreign owner")
+    expected = decode(read_file(receipt, mode=0o600))
+    need(expected["path"] == str(source) and expected["signature"] == signature(before),
+         "work copy no longer matches its capture receipt")
+    saved = file_info(destination, owners={0}, mode=0o600, gid=0)
+    need(saved.st_size == before.st_size == expected["size"]
+         and file_hash(destination) == digest(expected["sha256"])
+         and file_hash(source, owners={0, app_uid}) == expected["sha256"],
+         "verified recovery archive does not preserve the work copy")
+    need(signature(file_info(source, owners={0, app_uid}, mode=0o600, gid=app_gid)) == signature(before),
+         "work copy changed before cleanup")
+    source.unlink()  # ONLY the newly produced duplicate; fsynced backup remains.
+
+
 def file_info(path, *, owners, mode=None, gid=None):
     path = Path(path)
     directory(path.parent, owners=owners)
@@ -1614,6 +1637,10 @@ def main(args):
     elif command == "copy-archive":
         need(len(args) == 6 and all(value.isdigit() and int(value) > 0 for value in args[3:]), "invalid private archive copy arguments")
         copy_completed_archive(args[0], args[1], args[2], int(args[3]), int(args[4]), int(args[5]))
+    elif command == "discard-work-copy":
+        need(len(args) == 5 and all(value.isdigit() and int(value) > 0 for value in args[3:]),
+             "invalid work-copy cleanup arguments")
+        discard_verified_work_copy(*args[:3], int(args[3]), int(args[4]))
     elif command == "configure":
         app, env, target, previous, target_manifest, previous_manifest, old, new, backup_head, hook, uid, gid = args
         need(uid.isdigit() and gid.isdigit() and int(uid) > 0 and int(gid) > 0, "invalid app principal")
@@ -2368,6 +2395,9 @@ finally:
     os.close(directory)
 PY
     log "Fresh root-protected ${phase} backup verified: ${destination_archive}"
+    context_hook_data discard-work-copy "${work_archive}" "${destination_archive}" \
+        "${STAGE_DIR}/backup-${phase}-production.log" "$(id -u betboy)" "$(id -g betboy)"
+    log "Removed only the verified duplicate work archive; recovery backup retained."
 }
 
 verify_clean_worktree() {
@@ -3585,18 +3615,21 @@ import sys
 backup, databases = (int(value) * 1024 for value in sys.argv[1:])
 if min(backup, databases) < 0:
     raise SystemExit("invalid capacity inventory")
-# Conservative simultaneous high-water reservation: rollback archive copy,
-# both retained work archives, active snapshot/restore, two published archives
-# and two seals. These are extra bytes, never the same free bytes counted twice.
+# Capture enforces this same bound on total snapshots and archive file size.
+# Peak temporary use: one producer archive + its snapshot; after verification
+# the duplicate producer archive is removed before the next capture begins.
+# Recovery keeps two published archives; context keeps two sealed snapshots.
+# Existing backup metadata/rollback copies and fixed margins are additional.
+maximum = databases + 64 * 1024 * 1024
 recovery = "/var/backups/betboy-update"
 if not os.path.lexists(recovery):
     recovery = "/var/backups"
 recovery_info = os.stat(recovery, follow_symlinks=False)
 if not stat.S_ISDIR(recovery_info.st_mode) or recovery_info.st_uid != 0 or recovery_info.st_mode & 0o022:
     raise SystemExit("unsafe recovery capacity path")
-requests = (("/var/tmp", backup + databases * 6 + 512 * 1024 * 1024),
-            (recovery, backup + databases * 4 + 512 * 1024 * 1024),
-            ("/var/lib", min(databases * 2 + 64 * 1024 * 1024, 1024 * 1024 * 1024) * 2 + 256 * 1024 * 1024))
+requests = (("/var/tmp", backup + maximum * 2 + 512 * 1024 * 1024),
+            (recovery, backup + maximum * 2 + 512 * 1024 * 1024),
+            ("/var/lib", min(maximum, 4 * 1024 * 1024 * 1024) * 2 + 256 * 1024 * 1024))
 devices = {}
 for path, required in requests:
     device = os.stat(path, follow_symlinks=False).st_dev
@@ -3645,7 +3678,7 @@ preflight() {
         && "${database_apparent_kib}" =~ ^[0-9]+$ ]] \
         || die "Cannot determine rollback snapshot capacity."
     check_capacity_space "${backup_apparent_kib}" "${database_apparent_kib}"
-    ARCHIVE_MAX_BYTES=$((database_apparent_kib * 2048 + 67108864))
+    ARCHIVE_MAX_BYTES=$((database_apparent_kib * 1024 + 67108864))
     for worker in "${BETBOY_WORKERS[@]}"; do
         if systemctl is-active --quiet "${worker}"; then
             die "Worker ${worker} is active; retry after it finishes."
