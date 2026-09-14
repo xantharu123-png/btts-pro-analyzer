@@ -26,7 +26,8 @@ from context_sources.tennis_status import (STATUS_SCHEMA, normalize_tennis_statu
 from context_snapshots import _decode_snapshot, compute_once
 from context_transport import (KIND, calculate_context_payload, context_consumer_reference,
     context_payload_key)
-from model_artifacts import _load_active, _load_artifact, canonical_bytes, put_artifact
+from model_artifacts import _load_active, _load_artifact, put_artifact
+from context_json import canonical_context_bytes as canonical_bytes
 from tennis.history_projection import PreparedTennisHistory
 
 

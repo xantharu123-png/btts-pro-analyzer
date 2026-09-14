@@ -7,9 +7,10 @@ Consumer projection does no source lookup, fitting or model recalculation.
 """
 from copy import deepcopy
 from datetime import datetime
+from heapq import merge
 
 from context_models.contracts import (
-    ContextContractError, ContextIntegrityError, digest, event_in_population,
+    ContextContractError, ContextIntegrityError, event_in_population,
     canonical_timestamp, require_digest, require_list, require_object, require_text,
     validate_base_distribution, validate_context_result, validate_event,
     validate_feature_vector, validate_history_refs, validate_markets, validate_parameters,
@@ -18,7 +19,7 @@ from context_models.offset import ContextModelError
 from context_snapshots import (
     _finite_json, _payload_digest, _verified_payload, select_context_result, snapshot_key,
 )
-from model_artifacts import canonical_bytes
+from context_json import canonical_context_bytes as canonical_bytes, context_digest as digest
 
 
 KIND = "context-worker-snapshot-v1"
@@ -33,7 +34,7 @@ def _refs(value, label):
     require_list(value, label)
     for ref in value:
         require_digest(ref, label)
-    if value != sorted(set(value)):
+    if any(left >= right for left, right in zip(value, value[1:])):
         raise ContextContractError(f"{label} must be sorted and unique")
 
 
@@ -155,10 +156,20 @@ def _input_key(payload, ev, original, feats):
     descriptor = digest({"kind": KIND, "observation_refs": payload["observation_refs"],
         "preprocessing_refs": payload["preprocessing_refs"]})
     return snapshot_key(ev, base_hash=digest(original),
-        context_refs=tuple(sorted(set(payload["observation_refs"] + payload["preprocessing_refs"] + [descriptor]))),
+        context_refs=_merged_refs(payload["observation_refs"], payload["preprocessing_refs"], descriptor),
         feature_version=feats["version"], feature_hash=digest(feats),
         effect_hash=payload["effect_hash"], approval_hash=payload["approval_hash"],
         decision_at=datetime.fromisoformat(original["cutoff"]))
+
+
+def _merged_refs(observations, preprocessing, descriptor):
+    # _inputs already requires sorted unique lists. Linear merge preserves the
+    # exact historical union without destroying the order in a large set.
+    result = []
+    for ref in merge(observations, preprocessing, (descriptor,)):
+        if not result or ref != result[-1]:
+            result.append(ref)
+    return tuple(result)
 
 
 def _eligible(ev, original, feats, artifact):
@@ -227,7 +238,9 @@ def calculate_context_payload(*, event: dict, base: dict, features: dict,
         effect_artifact=payload["effect_artifact"], effect_hash=effect_hash, approval=payload["approval"],
         factor_roles={name: "applied" if artifact is not None and name in artifact["feature_names"] else "not_applied"
             for name in feats["values"]}, factor_states=feats["states"], limitations=limitations)
-    return validate_context_payload(payload, key=context_payload_key(payload),
+    # The inputs above have just been fully checked; the final validator below
+    # independently checks the completed result and all inputs again.
+    return validate_context_payload(payload, key=_input_key(payload, ev, original, feats),
         effect_artifact=effect_artifact, approval=approval)
 
 

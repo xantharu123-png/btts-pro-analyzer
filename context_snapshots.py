@@ -18,12 +18,13 @@ from typing import Callable
 
 from context_models.contracts import (
     ContextContractError, ContextIntegrityError, DATA_STATES, MODEL_ROLES,
-    canonical_timestamp, digest, event_in_population, require_digest,
+    canonical_timestamp, event_in_population, require_digest,
     require_list, require_number, require_object, require_text,
     validate_base_distribution, validate_context_approval, validate_context_result,
     validate_effect_artifact, validate_event, validate_feature_vector,
 )
-from model_artifacts import _connect as _artifact_connect, _decode_object, canonical_bytes
+from model_artifacts import _connect as _artifact_connect, _decode_object
+from context_json import canonical_context_bytes as canonical_bytes, context_digest as digest
 from runtime_paths import RuntimeArtifactTrustError, prepare_trusted_runtime_database_path
 
 

@@ -78,3 +78,57 @@ Frischezeitpunkte oder Modellfreigaben ergänzt; Cricket unverändert.
 
 Der tatsächliche nachfolgende Git-/Deployment-/Echtlaufstatus wird separat in
 `output/playwright/tennis-completion-release-20260914.md` dokumentiert.
+
+## Echter Abschlussversuch und notwendiger Nachfolgepatch
+
+`151fe06` wurde regulär deployed. Tennis lief von 17:51:59 bis 18:07:30 CEST,
+der eigentliche Tages-Scan wurde um 18:07:13 nach 900 Sekunden abgebrochen.
+124 gefundene Spiele, 64 vorbereitete Prognosen; 33 neue Kontext-Snapshots
+wurden gespeichert, bevor das Zeitlimit den vollständigen Abschluss verhinderte.
+Der separate, zeitlich überlappende Wettfinderlauf 17:57:19–18:00:55 war
+erfolgreich: 55 Modellkandidaten, keine SQLite-Locks. Die behobene Parallelität
+ist somit belegt, ein vollständig reparierter Tennis-Tageslauf noch nicht.
+
+149 Funktionsstichproben ohne lokale Variablen zeigten vor allem wiederholte
+JSON-Serialisierung, Digestprüfungen und Sortierung der riesigen Referenzlisten.
+Der Nachfolgepatch ändert weder das gespeicherte Format noch Prüfsummen:
+
+- `context_json` speichert ausschließlich JSON-Bytes nach dem vollständigen
+  unveränderlichen String-Tupel zwischen. Höchstens zwei Einträge, begrenzte
+  Referenzzahl und Stringlänge; keine Quelle, Freigabe oder Schema-Prüfung wird
+  gecacht. Jede geänderte Liste oder anderer Inhalt wird unabhängig geprüft.
+- Streng sortierte Referenzlisten werden linear auf Dubletten/Reihenfolge
+  geprüft und linear vereinigt, statt ihre Sortierung über große Sets zu
+  zerstören und wiederherzustellen.
+- Die bereits geprüften Eingaben liefern den ersten Schlüssel direkt; die
+  abschließende unabhängige vollständige Eingangs-/Ergebnisprüfung bleibt.
+
+CPU-Gegencheck auf einem echten Beleg mit 219.742 Referenzen / 14.824.862
+Bytes: vorher 7,666/7,675 s, nachher 4,824/4,824 s. Der Vergleich umfasst
+Schlüssel, Berechnung, Serialisierung, Payload-Hash, gespeicherte Dekodierung,
+Identitätsvergleich und Consumer-Referenz. Cold-Cache je Wiederholung,
+SQLite vor CPU-Arbeit geschlossen. Gesamte Veröffentlichung bytegleich.
+Dies ist keine Aussage über einen fertiggestellten 64-Spiele-Lauf.
+
+Nachfolgepatch: 1.313 lokale Tests bestanden, vier erwartete Skips, eine
+pytest-XML-Warnung; 314 gezielte Linux-Tests bestanden. Unter anderem sind
+Unicode/Escaping, Minusnull, sehr kleine Zahlen, veränderte Listen,
+Cache-Begrenzung, ungültige Referenzen und unveränderte Identitäten geprüft.
+Ergebnis: `.pytest_tmp/completion-json-20260914-broad.xml`, Linux
+`/tmp/betboy-tennis-completion.Jjafxs/json-release.xml`.
+
+Die sichere erneute Deployment-Reserve ist derzeit nicht vorhanden:
+1.888.415.744 Datenbankbytes, 1.770.926.080 Backup-Inventarbytes, kombinierte
+Reserve 16.617.177.088 Bytes, frei ca. 11.692.916.736 Bytes. Rund 4,93 GB fehlen
+bereits vor zusätzlichem Code-Staging. Die bisherige Bereinigung umfasste nur
+aus Git rekonstruierbare Codekopien (1.884.037.426 Bytes). Andere Testdatenbanken
+oder Sicherungen wurden nicht gelöscht. Die alten inaktiven QA-Quellkopien und
+Codearchive allein decken die Differenz nach der verbleibenden Inventur nicht.
+Für den nächsten Deploy braucht es zusätzliche Kapazität oder eine ausdrücklich
+freigegebene, verifiziert gesicherte Auslagerung alter QA-Testdaten. Das
+Reserve-Gate wurde nicht verändert oder umgangen.
+
+Zusätzlich bleibt langfristig die vollständige Referenzliste pro gespeichertem
+Snapshot ein Wachstumsproblem. Der vorhandene opt-in `context_storage_v2`-
+Adapter ist nicht automatisch im produktiven LiveWorker aktiv. Ein bloßer
+Importwechsel ist keine freigegebene verlustlose Datenmigration.

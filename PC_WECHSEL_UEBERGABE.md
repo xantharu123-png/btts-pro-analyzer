@@ -2,6 +2,18 @@
 
 ## Aktueller Auftrag 14. September 2026 — Tennis-Abschluss und Parallelität
 
+Abendstand: `151fe06` wurde regulär deployed, 89 DBs jeweils in Online- und
+Stillstandsbackup verifiziert. Echter Wettfinder-Parallellauf 17:57–18:00 CEST
+erfolgreich, Tennis-Abschluss jedoch erneut bei 900 s abgebrochen (64
+vorbereitete Prognosen, 33 neue Kontext-Snapshots veröffentlicht). NICHT als
+vollständig behoben übernehmen. Der Nachfolgepatch serialisiert vollständige
+Referenzlisten bytegleich mit begrenztem Inhaltscache; echte CPU-Kette
+7,67 → 4,82 s pro großem Beleg, 1.313 lokale und 314 Linux-Tests bestanden.
+Noch kein vollständiger Echtlauf dieses Nachfolgepatches. Sichere Deploy-
+Reserve: ca. 16,62 GB benötigt, 11,69 GB frei. Keine weitere QA-Datenbank/
+Sicherung löschen und kein Reserve-Gate umgehen. Weitere Freigabe zur
+Auslagerung inaktiver Testdaten oder zusätzlicher Serverplatz erforderlich.
+
 Ausgangspunkt `a1d15b6` auf allen Checkouts/GitHub/VPS bestätigt. Gezielte
 Reparatur der redundanten Referenz- und Modellprüfungen, der langen SQLite-
 Transaktionen und des Pending-Historienzugriffs; zusätzliche begrenzte
