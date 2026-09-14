@@ -62,11 +62,12 @@ def data():
 
 
 def report(*, incomplete=False):
-    return {"status": "incomplete" if incomplete else "verified", "schema": 1,
-        "verification_level": "transport_only" if incomplete else "structural",
+    from context_runtime_deployment import DEPLOYMENT_CHECKS
+    return {"status": "incomplete" if incomplete else "verified", "schema": 2,
+        "verification_level": "deployment",
         "empirical_approval_verified": False,
-        "limitations": ["d3-owning-source-feature-replay-unavailable"] if incomplete else [],
-        "d2_verified": {name: [] for name in ("experiments", "datasets", "fits", "cases", "evaluations", "approvals")},
+        "historical_analysis_verified": False,
+        "checks": DEPLOYMENT_CHECKS[:-1] if incomplete else list(DEPLOYMENT_CHECKS),
         "counts": {name: 0 for name in ("artifacts", "manifests", "contents", "observations", "snapshots", "rollbacks")},
         "active_manifest": None, "active_slots_hash": hashlib.sha256(b"{}").hexdigest(),
         "active_slot_count": 0, "tour_states": {}}
@@ -75,25 +76,33 @@ def report(*, incomplete=False):
 @pytest.mark.parametrize("incomplete", [False, True])
 def test_closed_continuity_result(data, incomplete):
     value = report(incomplete=incomplete)
-    assert data["validate_report"](value, 2 if incomplete else 0) == value
-    assert data["ALLOWED_LIMITS"] == LIMITS
+    if incomplete:
+        with pytest.raises(ValueError):
+            data["validate_report"](value, 2)
+    else:
+        assert data["validate_report"](value, 0) == value
 
 
-@pytest.mark.parametrize("defect", ["schema-bool", "count-bool", "empty-limits", "duplicate-limits",
-    "unknown-limit", "status", "empirical", "extra", "missing", "unsorted", "exit", "nan"])
+@pytest.mark.parametrize("defect", ["schema-bool", "count-bool", "empty-checks", "duplicate-checks",
+    "unknown-check", "status", "empirical", "historical", "old-structural", "old-transport",
+    "extra", "missing", "unsorted", "exit", "incomplete-exit", "nan"])
 def test_continuity_result_never_trusts_flags_or_unknown_capabilities(data, defect):
-    value, code = report(incomplete=True), 2
+    value, code = report(), 0
     if defect == "schema-bool": value["schema"] = True
     elif defect == "count-bool": value["counts"]["artifacts"] = True
-    elif defect == "empty-limits": value["limitations"] = []
-    elif defect == "duplicate-limits": value["limitations"] *= 2
-    elif defect == "unknown-limit": value["limitations"] = ["d2-unrecognized-artifact-schema"]
-    elif defect == "status": value["status"] = "verified"
+    elif defect == "empty-checks": value["checks"] = []
+    elif defect == "duplicate-checks": value["checks"] *= 2
+    elif defect == "unknown-check": value["checks"] = ["unknown"]
+    elif defect == "status": value["status"] = "incomplete"
     elif defect == "empirical": value["empirical_approval_verified"] = 0
+    elif defect == "historical": value["historical_analysis_verified"] = True
+    elif defect == "old-structural": value["verification_level"] = "structural"
+    elif defect == "old-transport": value["verification_level"] = "transport_only"
     elif defect == "extra": value["trusted"] = True
     elif defect == "missing": value.pop("active_manifest")
-    elif defect == "unsorted": value["limitations"] = sorted(LIMITS, reverse=True)
+    elif defect == "unsorted": value["checks"].reverse()
     elif defect == "exit": code = 124
+    elif defect == "incomplete-exit": code = 2
     else: value["active_slot_count"] = float("nan")
     with pytest.raises(ValueError):
         data["validate_report"](value, code)
@@ -317,10 +326,11 @@ context_hook_command() { cat >/dev/null; CONTEXT_COMMAND_STATUS=0; }
 
 
 @pytest.mark.parametrize("limitation", sorted(LIMITS))
-def test_each_explicit_reviewed_limitation_is_continuity_only(data, limitation):
+def test_historical_limitations_are_not_deployment_reports(data, limitation):
     value = report(incomplete=True)
     value["limitations"] = [limitation]
-    assert data["validate_report"](value, 2)["empirical_approval_verified"] is False
+    with pytest.raises(ValueError):
+        data["validate_report"](value, 2)
 
 
 @pytest.mark.parametrize("limitation", ["unrecognized-artifact-schema", "d2-unrecognized-schema",
@@ -484,7 +494,7 @@ def test_wal_online_backup_then_real_delete_seal_and_actual_cli_preserves_tours(
         target.chmod(0o600)
         target_before = target.read_bytes()
         result = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/verify_context_runtime.py"),
-            "--database", str(target)], capture_output=True, text=True, cwd=ROOT, timeout=90)
+            "--deployment-check", "--database", str(target)], capture_output=True, text=True, cwd=ROOT, timeout=90)
         value = content_data["validate_report"](json.loads(result.stdout), result.returncode)
         assert value["active_manifest"] == first
         assert value["tour_states"] == {"ATP": atp, "WTA": wta}
@@ -544,7 +554,7 @@ def test_actual_a1_slot_aliases_are_not_misclassified_as_report_corruption(data,
     ref = put_tour(database, "ATP")
     publish_slots(database, {"tennis:ATP": ref, "retained-atp-alias": ref}, expected_manifest=None, published_at=NOW)
     result = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/verify_context_runtime.py"),
-        "--database", str(database)], capture_output=True, text=True, cwd=ROOT, timeout=90)
+        "--deployment-check", "--database", str(database)], capture_output=True, text=True, cwd=ROOT, timeout=90)
     assert result.returncode == 0, result.stdout
     value = json.loads(result.stdout)
     assert value["active_slot_count"] == 2 and value["counts"]["artifacts"] == 1
@@ -605,6 +615,28 @@ def configuration_fixture(data, tmp_path, *, legacy=True, present=False, extra_p
         target_manifest=manifests[0], previous_manifest=manifests[1], previous_head="a" * 40,
         target_head="b" * 40, backup_head="c" * 40)
     return arguments
+
+
+@pytest.mark.parametrize("changed_resolver", [False, True])
+def test_previous_path_pin_accepts_only_reviewed_atomic_name_change(content_data, tmp_path, changed_resolver):
+    current = (ROOT / "runtime_paths.py").read_text(encoding="utf-8")
+    # Exact previously installed bytes: only temporary basename changed.
+    comment = ('        # Keep staging shorter than hash-named reports: repeating the entire\n'
+               '        # target basename made valid Windows paths exceed MAX_PATH. mkstemp\n'
+               '        # still creates a unique exclusive file in the same atomic-write directory.\n'
+               '        prefix=".betboy-",')
+    assert current.count(comment) == 1
+    previous = current.replace(comment, '        prefix=f".{target.name}.",').encode()
+    assert hashlib.sha256(previous).hexdigest() == content_data["PREVIOUS_PATH_CONTRACT"]
+    if changed_resolver:
+        previous = previous.replace(b'"BETBOY_RUNTIME_STATE_DIR"', b'"UNREVIEWED_OVERRIDE"')
+    args = configuration_fixture(content_data, tmp_path, legacy=False, present=True,
+                                 extra_previous={"runtime_paths.py": previous})
+    if changed_resolver:
+        with pytest.raises(ValueError, match="previous runtime path contract"):
+            content_data["configuration"](**args)
+    else:
+        assert content_data["configuration"](**args)["present"] is True
 
 
 @pytest.mark.parametrize("legacy,present,valid", [(True, False, True), (True, True, True),
@@ -825,8 +857,13 @@ def test_actual_stage_and_finish_recheck_every_source_then_allow_only_continuity
     assert capsys.readouterr().out == "present\n"
     before = {path: path.read_bytes() for path in (archive, hook / "context_models.db", args["app"] / "runtime_state/context_models.db")}
     (hook / "report.json").write_text(json.dumps(report(incomplete=incomplete)))
-    content_data["main"](["finish", str(hook), "2" if incomplete else "0"])
-    assert capsys.readouterr().out == "Context continuity: " + ("transport_only" if incomplete else "structural") + "; no model/effect certification.\n"
+    if incomplete:
+        with pytest.raises(ValueError):
+            content_data["main"](["finish", str(hook), "2"])
+        assert capsys.readouterr().out == ""
+    else:
+        content_data["main"](["finish", str(hook), "0"])
+        assert capsys.readouterr().out == "Context deployment: verified; historical analysis separate; no model/effect certification.\n"
     assert {path: path.read_bytes() for path in before} == before
 
 
@@ -976,7 +1013,7 @@ def test_actual_cli_unknown_schema_and_broken_references_cannot_become_allowed_c
 
 
 @pytest.mark.parametrize("opaque_report", [False, True])
-def test_real_legacy_b3_preserved_but_opaque_experiment_report_stops_update(content_data, tmp_path, opaque_report):
+def test_historical_b3_limitations_remain_visible_but_release_uses_operational_check(content_data, tmp_path, opaque_report):
     from tests.test_context_runtime_backup import seeded, put_effect_pair, effect_payload, add_context_snapshot, stored_rows, NOW
     from context_snapshots import compute_once
     from model_artifacts import put_artifact
@@ -985,7 +1022,7 @@ def test_real_legacy_b3_preserved_but_opaque_experiment_report_stops_update(cont
     original = root / "original.db"
     seeded(original)
     if opaque_report:
-        # Keep the real old opaque fixture intact: it must NOT become allowed.
+        # Keep the old opaque evidence intact; it must never become certified.
         effect, _, payload, _ = put_effect_pair(original)
     else:
         # Independently valid orphan effect before an experiment/report exists.
@@ -1003,12 +1040,14 @@ def test_real_legacy_b3_preserved_but_opaque_experiment_report_stops_update(cont
     value = json.loads(result.stdout)
     if opaque_report:
         assert "d2-report-experiment-schema-unavailable" in value["limitations"]
-        with pytest.raises(ValueError, match="unreviewed context continuity limitation"):
-            content_data["validate_report"](value, result.returncode)
-    else:
-        assert content_data["validate_report"](value, result.returncode) == value
+    with pytest.raises(ValueError, match="unknown context report shape"):
+        content_data["validate_report"](value, result.returncode)
     assert result.returncode == 2 and value["empirical_approval_verified"] is False
     assert "d3-snapshot-input-binding-unavailable" in value["limitations"]
+    operational = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "scripts/verify_context_runtime.py"),
+        "--deployment-check", "--database", str(sealed)], capture_output=True, text=True, cwd=ROOT, timeout=90)
+    release = content_data["validate_report"](json.loads(operational.stdout), operational.returncode)
+    assert release["historical_analysis_verified"] is release["empirical_approval_verified"] is False
     assert sealed.read_bytes() == before
     assert stored_rows(sealed, "context_snapshots") == stored_rows(original, "context_snapshots")
     # B3 read invocation opens owning mutable connection, so do it on a separate
@@ -1046,7 +1085,7 @@ def test_failed_or_noisy_dependency_probe_never_advances_to_downtime(data, outpu
 
 
 def test_one_gib_sealed_cap_applies_before_sealing_or_sqlite_parse(content_data, tmp_path):
-    assert content_data["MAX_IMAGE"] == 1024 * 1024 * 1024
+    assert content_data["MAX_IMAGE"] == 4 * 1024 * 1024 * 1024
     archive, _ = backup_fixture(tmp_path)
     content_data["MAX_IMAGE"] = 100  # Exercise the same branch without a 64 MiB fixture.
     content_data["sqlite3"] = SimpleNamespace(connect=lambda *_a, **_k: pytest.fail("oversized input reached SQLite"))
@@ -1139,7 +1178,7 @@ def test_capacity_phase_distinguishes_real_live_sqlite_commit(content_data, tmp_
         content_data["authentication_state"] = lambda *_: {"key": "fixture-bound-key", "marker": None}
         (hook / "authentication.json").write_text(json.dumps({"key": "fixture-bound-key", "marker": None}))
         content_data["main"](["finish", str(hook), "0", phase])
-        assert capsys.readouterr().out == "Context continuity: structural; no model/effect certification.\n"
+        assert capsys.readouterr().out == "Context deployment: verified; historical analysis separate; no model/effect certification.\n"
     else:
         with pytest.raises(ValueError, match="live source changed"):
             content_data["main"](["finish", str(hook), "0", phase])
@@ -1371,7 +1410,7 @@ def test_capacity_launcher_executes_only_fixed_bounded_target(monkeypatch, kind,
         "NUMEXPR_NUM_THREADS": "1", "VECLIB_MAXIMUM_THREADS": "1"}
     if kind == "d4":
         assert command == ["/opt/betboy/venv/bin/python", "-I", "-B",
-            str(ROOT / "scripts/verify_context_runtime.py"), "--sealed-file", "--database", str(Path(arguments[2]))]
+            str(ROOT / "scripts/verify_context_runtime.py"), "--sealed-file", "--deployment-check", "--database", str(Path(arguments[2]))]
     else:
         assert command == ["/usr/bin/python3", "-I", "-B", arguments[1], "--verify-only", str(Path("/private/fresh.zip")), "--recovery-mode"]
 
@@ -1871,7 +1910,7 @@ def test_followup_real_zip_integrity_damage_never_seals(content_data, tmp_path, 
 
 def test_followup_exact_sealed_bound_is_inclusive_and_one_byte_over_rejects(content_data, tmp_path):
     archive, raw = backup_fixture(tmp_path)
-    assert content_data["MAX_IMAGE"] == 1024**3
+    assert content_data["MAX_IMAGE"] == 4 * 1024**3
     content_data["MAX_IMAGE"] = len(raw)  # exercise exact inequality with real SQLite bytes, not a 1-GiB unit allocation
     content_data["extract_and_seal"](archive, "runtime_state/context_models.db", tmp_path / "at-limit.db",
         source_head="a" * 40, app_gid=1000)

@@ -368,7 +368,7 @@ and production application commit
 deployment, permission-repair or migration command. Its sole permanent
 executable destination is `/usr/local/sbin/betboy-update`.
 
-After independent review and the controller's native/real-backup gates, place
+After focused release regression checks, place
 the exact LF installer bytes in an explicitly approved root-owned private
 directory with root-owned, non-writable ancestors. Verify the installer digest
 against the release evidence before running it with exactly two arguments:
@@ -398,14 +398,21 @@ Before exchanging bytes it produces a fresh full online archive, makes an
 independent bounded root-private copy, actually restores/verifies every database
 and authenticates applicable Challenge HMAC ledgers with the unchanged pinned
 stdlib helper. Online backups are consistent per-database snapshots, not a
-global common transaction. The exact sealed context copy is then replayed by
-the target D4 code as `betboy`, never by root. A fixed stdlib supervisor binds
+global common transaction. The exact sealed context copy is checked by
+`verify_context_runtime.py --sealed-file --deployment-check` as `betboy`,
+never by root. This checks the exact SQLite schema, integrity/references,
+manifest chain and active model decoding/predictions. It does not reconstruct
+historical features, fits or evaluations. The streamed disk envelope is 4 GiB;
+it does not load that image into memory. A fixed stdlib supervisor binds
 the fresh input SHA, target commit, complete report SHA and measured resources:
 peak RSS must be below 1 GiB and measured CPU/wall time below 300 seconds. The
 existing 2 GiB AS, 300-second CPU, 600-second hard wall plus termination grace,
-and 1 MiB aggregate output boundaries remain in force. Existing D4 continuity
-limitations are not empirical/model approval; resource errors are never an
-allowed limitation.
+and 1 MiB aggregate output boundaries remain in force. Only a complete
+schema-2 `deployment` report with exit zero is accepted. It explicitly reports
+`historical_analysis_verified=false` and `empirical_approval_verified=false`.
+The old full historical CLI remains available without `--deployment-check`;
+its structural/transport reports cannot substitute for the operational check.
+Runtime effect activation and financial ledger verification remain unchanged.
 
 The root-private `/var/lib/betboy-updater-repair` tree retains the fresh archive,
 accepted evidence, independently fsynced old executable and durable transaction
@@ -422,9 +429,10 @@ so inode reuse alone cannot impersonate it. Recovery also fsyncs the installed
 parent before recording rollback completion when the rollback rename happened
 in an earlier interrupted process.
 
-This repository contains local implementation/test evidence only, not proof
-that the repair was executed on production. Native Task-3 transaction/resource
-and fresh real-backup acceptance remain explicit release gates. In particular,
+The owner explicitly approved separating historical full analysis from releases
+on 2026-09-14. Old QA budgets/journals and incomplete historical analyses are
+preserved; they are neither reset nor presented as passed. Fresh real-backup,
+actual restore, operational model-load and resource checks remain mandatory. In particular,
 the installer does not relax source-directory principal checks or repair
 pre-existing writable directories. After a verified updater-only replacement,
 application rollout is a separate explicit ordinary

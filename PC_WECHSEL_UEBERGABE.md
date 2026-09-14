@@ -1,5 +1,20 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Auftrag 14. September 2026 — vereinfachter Updateweg ausdrücklich freigegeben
+
+Nutzerfreigabe: „behebe doch einfach das verdammte problem ja du darfst“,
+bezogen auf die Trennung historischer Vollanalysen vom Deployment.
+Umgesetzt: explizite operative DB-Prüfung mit Schema-/SQLite-/Referenzprüfung,
+Manifestkette und ladbaren aktiven Modellen; keine historische Nachberechnung
+beim Update. Backup, echte Wiederherstellung, Konto-HMAC und Modellaktivierung
+bleiben unverändert. Alte QA-Journale und Budgets bleiben erhalten.
+Der bisher fehlende Pfad-Modul-Pin für den Windows-Temporärnamenfix ist korrigiert;
+der tatsächlich installierte Vorgänger bleibt exakt gehasht akzeptiert.
+Release-/VPS-Nachweise werden in
+`docs/audits/2026-09-14-operational-deployment.md` geführt.
+Die folgenden älteren Statusblöcke sind historische Nachweise, keine erneute
+Freigabeaufforderung.
+
 ## Neuester Stand 14. September 2026 — Tennis-Laufzeitfix, noch kein VPS-Release
 
 Neue gezielte Reparatur: vollständige Tennis-Historie pro Tour/Entscheidung

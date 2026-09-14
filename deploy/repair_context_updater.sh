@@ -624,22 +624,17 @@ import tempfile
 import time
 import zipfile
 
-MAX_IMAGE = 1024 * 1024 * 1024
+MAX_IMAGE = 4 * 1024 * 1024 * 1024
 MAX_REPORT = 1024 * 1024
-PATH_CONTRACT = "710b8f8b1bfacf35397aad47d8df2fc9c28f6af60a4888540acfac4030331a8c"
+PATH_CONTRACT = "4b60f595c58548f1992686fcd7d7e737b3b1abbb697348bce729666a5cfcbb58"
+PREVIOUS_PATH_CONTRACT = "710b8f8b1bfacf35397aad47d8df2fc9c28f6af60a4888540acfac4030331a8c"
 EXCLUDED = {".codex_test_venv", ".git", ".pytest_cache", ".pytest_tmp", ".venv", "__pycache__", "backups_runtime"}
-ALLOWED_LIMITS = {
-    "d2-final-source-replay-not-opened", "d1-participation-training-receipts-unresolved",
-    "d1-final-source-replay-unavailable", "d1-fit-owning-replay-unavailable",
-    "d2-dataset-owning-experiment-unavailable", "d1-case-owning-replay-unavailable",
-    "d1-original-replay-context-unavailable", "d2-evaluation-opening-unavailable",
-    "d2-approval-evidence-resolution-unavailable", "d3-owning-family-replay-unavailable",
-    "d3-owning-source-feature-replay-unavailable", "d3-snapshot-input-binding-unavailable",
-}
+DEPLOYMENT_CHECKS = ["active_models", "manifest_chain", "sqlite_integrity",
+                     "sqlite_references", "sqlite_schema"]
 PERSISTENCE_FILES = {"model_artifacts.py", "context_observations.py", "context_snapshots.py",
                      "context_runtime.py", "context_runtime_semantics.py"}
 RESULT_KEYS = {"status", "schema", "verification_level", "empirical_approval_verified",
-    "limitations", "d2_verified", "counts", "active_manifest", "active_slots_hash",
+    "historical_analysis_verified", "checks", "counts", "active_manifest", "active_slots_hash",
     "active_slot_count", "tour_states"}
 
 
@@ -686,27 +681,17 @@ def hash_list(values):
 
 def validate_report(value, code):
     need(type(value) is dict and set(value) == RESULT_KEYS, "unknown context report shape")
-    need(type(value["schema"]) is int and value["schema"] == 1, "unknown report schema")
+    need(type(value["schema"]) is int and value["schema"] == 2, "unknown deployment report schema")
     need(value["empirical_approval_verified"] is False, "continuity is not effect certification")
-    limits = value["limitations"]
-    need(type(limits) is list and all(type(v) is str for v in limits)
-         and limits == sorted(set(limits)), "noncanonical limitation list")
-    if code == 0:
-        need(value["status"] == "verified" and value["verification_level"] == "structural"
-             and not limits, "success code contradicts the actual report")
-    elif code == 2:
-        need(value["status"] == "incomplete" and value["verification_level"] == "transport_only"
-             and limits and set(limits) <= ALLOWED_LIMITS, "unreviewed context continuity limitation")
-    else:
-        raise ValueError("context verifier failed or exceeded its execution boundary")
+    need(value["historical_analysis_verified"] is False, "deployment is not historical analysis")
+    need(type(code) is int and code == 0 and value["status"] == "verified"
+         and value["verification_level"] == "deployment",
+         "deployment verifier failed or returned a different verification level")
+    need(value["checks"] == DEPLOYMENT_CHECKS, "incomplete operational deployment checks")
     need(type(value["counts"]) is dict and set(value["counts"]) ==
          {"artifacts", "manifests", "contents", "observations", "snapshots", "rollbacks"}, "unknown counts")
     for count in value["counts"].values():
         integer(count)
-    need(type(value["d2_verified"]) is dict and set(value["d2_verified"]) ==
-         {"experiments", "datasets", "fits", "cases", "evaluations", "approvals"}, "unknown D2 report lists")
-    for refs in value["d2_verified"].values():
-        hash_list(refs)
     if value["active_manifest"] is not None:
         digest(value["active_manifest"])
     digest(value["active_slots_hash"])
@@ -984,7 +969,7 @@ def configuration(app, env_path, target, previous, app_uid, app_gid, target_mani
             for name in predecessors)
         need(not partial_context, "partial legacy context persistence is ambiguous")
     else:
-        need("model_artifacts.py" in predecessors and sha(old_paths.replace(b"\r\n", b"\n")) == PATH_CONTRACT,
+        need("model_artifacts.py" in predecessors and sha(old_paths.replace(b"\r\n", b"\n")) in {PATH_CONTRACT, PREVIOUS_PATH_CONTRACT},
              "previous runtime path contract is unsupported")
     # Existing unit hashes are checked by the installed updater. Additionally
     # bind their actual shared path records, never parse shell or source env.
@@ -1254,7 +1239,7 @@ def main(args):
             need(signature(file_info(destination, owners={0}, mode=0o440, gid=config["app_gid"])) == proof["sealed_signature"]
                  and file_hash(destination) == proof["sealed_hash"], "sealed source changed during verifier")
             value = validate_report(decode(read_file(hook / "report.json", maximum=MAX_REPORT, mode=0o600)), code)
-            print("Context continuity: " + value["verification_level"] + "; no model/effect certification.")
+            print("Context deployment: verified; historical analysis separate; no model/effect certification.")
     elif command == "dependencies":
         need(len(args) == 2 and args[1] == "0" and read_file(args[0], maximum=1024, mode=0o600) == b"context-dependencies-v2:ok\n", "context dependency preflight failed")
     else:
@@ -1348,12 +1333,12 @@ elif kind == "d4" and len(args) == 2 and os.geteuid() != 0:
     target, database = map(Path, args)
     executable = "/opt/betboy/venv/bin/python"
     command = [executable, "-I", "-B", str(target / "scripts/verify_context_runtime.py"),
-        "--sealed-file", "--database", str(database)]
+        "--sealed-file", "--deployment-check", "--database", str(database)]
 elif kind == "dependencies" and len(args) == 1 and os.geteuid() != 0:
     executable = "/opt/betboy/venv/bin/python"
     program = '''import importlib, sqlite3, sys
 sys.path.insert(0, sys.argv[1])
-for name in ("numpy", "scipy", "pandas", "sklearn", "context_runtime", "context_runtime_input",
+for name in ("numpy", "scipy", "pandas", "sklearn", "context_runtime", "context_runtime_input", "context_runtime_deployment",
              "context_runtime_semantics", "context_models.evaluator", "context_models.activation",
              "tennis.tour_state", "context_transport"):
     importlib.import_module(name)
@@ -2287,7 +2272,7 @@ def accept_measurement(value, commit, updater_hash, database_hash, report_hash):
     need(type(value["exit_code"]) is int, "invalid measured child status")
     if value["exit_code"] in {-9, 124, 137, 152, 153}:
         raise ValueError("VerificationResourceError: D4 child terminated at a hard resource boundary")
-    need(value["exit_code"] in {0, 2}, "D4 child did not complete")
+    need(value["exit_code"] == 0, "operational deployment check did not complete")
     need(type(value["peak_rss_bytes"]) is int and 0 < value["peak_rss_bytes"] < 1073741824,
          "VerificationResourceError: fresh D4 peak RSS not below 1 GiB")
     for name in ("wall_seconds", "cpu_seconds"):
@@ -2356,7 +2341,7 @@ def measure(stage, commit, updater_hash):
     report = stage / "online/report.json"
     output = stage / "online/measurement.json"
     need(not any(os.path.lexists(path) for path in (report, output)), "measurement outputs already exist")
-    before = fingerprint(database, 1073741824)
+    before = fingerprint(database, 4 * 1024 * 1024 * 1024)
     need(stat.S_IMODE(before[1][2]) == 0o440, "D4 input is not sealed")
     launcher = stage / "launcher.py"
     launcher_before = fingerprint(launcher, 16384)
@@ -2417,7 +2402,7 @@ def measure(stage, commit, updater_hash):
     need(violation is None, violation)
     need(not any(line.startswith((b"MemoryError", b"ContextResourceError")) for line in raw.splitlines()),
          "VerificationResourceError: D4 child memory or capacity failure")
-    need(fingerprint(database, 1073741824) == before
+    need(fingerprint(database, 4 * 1024 * 1024 * 1024) == before
          and fingerprint(launcher, 16384) == launcher_before
          and fingerprint(manifest_path, 1048576) == manifest_before, "measured source/input changed")
     accept_measurement(result, commit, updater_hash, before[0], hashlib.sha256(raw).hexdigest())
@@ -2433,8 +2418,8 @@ PY
 verify_repair_context() {
     [[ "$(context_hook_data stage "${CONTEXT_STAGE_DIR}/online" "${PREFLIGHT_BACKUP}" online)" == present ]] \
         || die "Repair requires the present context database."
-    REPAIR_D4_STATUS=$(measure_repair_d4) || die "Fresh measured D4 was not accepted."
-    [[ "${REPAIR_D4_STATUS}" == 0 || "${REPAIR_D4_STATUS}" == 2 ]] || die "Invalid measured child status."
+    REPAIR_D4_STATUS=$(measure_repair_d4) || die "Fresh operational deployment check was not accepted."
+    [[ "${REPAIR_D4_STATUS}" == 0 ]] || die "Invalid measured child status."
     context_hook_data finish "${CONTEXT_STAGE_DIR}/online" "${REPAIR_D4_STATUS}" online
     verify_repair_production
 }

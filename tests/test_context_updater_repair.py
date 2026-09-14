@@ -802,18 +802,17 @@ def test_frozen_reviewed_preflight_algorithms_are_copied_without_drift():
     updater = ROOT / "deploy/update_server.sh"
     raw = updater.read_bytes().replace(b"\r\n", b"\n")
     assert hashlib.sha256(raw).hexdigest() == \
-        "bb34a71932ce58cb875d64af5e3738b02f82d96bf2a8f64ea5159f0e88a02762"
-    # Daily3 changed ONLY the reviewed backup verifier's source pin in this
-    # frozen updater. Bind the new helper bytes and prove that reversing exactly
-    # that one substitution recovers the earlier reviewed whole-file digest.
-    # The expected installed production-updater pin is deliberately unchanged.
+        "98e7a0ce88d55577b3eafa7fdf8a3970e8fde0dd499823e537b0432822056c78"
+    # The approved operational check replaces historical replay at deployment.
+    # Backup/actual restore and its independently reviewed helper stay pinned.
+    # The expected installed production-updater pin is unchanged.
     old_helper = b"b37d11a1eec4ebb129797a942ad68ea13861dd3a2b41bfe14644e9f06add5604"
     new_helper = b"65f28869e773fcaa5bcc186648f440e1f764ffafa656b92211180eb857f09646"
     helper = (ROOT / "scripts/backup_runtime_databases.py").read_bytes().replace(b"\r\n", b"\n")
     assert hashlib.sha256(helper).hexdigest().encode("ascii") == new_helper
     assert raw.count(new_helper) == 1 and old_helper not in raw
-    assert hashlib.sha256(raw.replace(new_helper, old_helper)).hexdigest() == \
-        "4b814c500f5eb03fb7a28f576210f02759300aa5560ef273834c6eb3195e8c19"
+    assert b'"--sealed-file", "--deployment-check", "--database"' in raw
+    assert b'value["historical_analysis_verified"] is False' in raw
     for name in SHARED_FUNCTIONS:
         assert source_function(name) == source_function(name, updater), name
 
@@ -885,7 +884,7 @@ def measurement_namespace():
 
 def valid_measurement():
     return {"schema": 1, "target_commit": TARGET, "updater_sha256": NEW_SHA,
-        "database_sha256": "b" * 64, "report_sha256": "c" * 64, "exit_code": 2,
+        "database_sha256": "b" * 64, "report_sha256": "c" * 64, "exit_code": 0,
         "wall_seconds": 120.5, "cpu_seconds": 119.0, "peak_rss_bytes": 350 * 1024**2}
 
 
@@ -895,7 +894,7 @@ def test_measured_exact_input_within_profile_is_accepted():
 
 
 @pytest.mark.parametrize("field,value", [("peak_rss_bytes", 1024**3), ("wall_seconds", 300.0),
-    ("cpu_seconds", 300.0), ("exit_code", -9), ("peak_rss_bytes", True),
+    ("cpu_seconds", 300.0), ("exit_code", -9), ("exit_code", 2), ("peak_rss_bytes", True),
     ("wall_seconds", float("nan")), ("wall_seconds", -1), ("target_commit", "f" * 40),
     ("updater_sha256", "f" * 64), ("database_sha256", "f" * 64),
     ("report_sha256", "f" * 64), ("schema", True)])
@@ -957,7 +956,7 @@ def test_measured_d4_and_closed_report_both_precede_final_production_recheck(tmp
     harness += (f'[[ "$1" != {failure} ]] || return 41; ' if failure in {"stage", "finish"} else '')
     harness += 'if [[ "$1" == stage ]]; then printf "present\\n"; fi; }\n'
     harness += 'measure_repair_d4() { printf "measure\\n" >>"$EVENTS"; '
-    harness += ('return 42; ' if failure == "measure" else 'printf "2\\n"; ') + '}\n'
+    harness += ('return 42; ' if failure == "measure" else 'printf "0\\n"; ') + '}\n'
     harness += 'verify_repair_production() { printf "production\\n" >>"$EVENTS"; }\n'
     harness += source_function("verify_repair_context") + "\nverify_repair_context\n"
     result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=15)

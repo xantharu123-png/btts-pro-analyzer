@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only context storage check; never a deployment or empirical approval."""
+"""Read-only context check; historical audit or explicit operational release check."""
 
 from __future__ import annotations
 
@@ -20,12 +20,18 @@ def main(argv=None):
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--sealed-file", action="store_true",
                         help="Explicit Linux root-sealed file input (never a live database)")
+    parser.add_argument("--deployment-check", action="store_true",
+                        help="Storage and active model startup only; no historical replay or model approval")
     parser.add_argument("--backup-root", type=Path, help="Optional explicit application root for configured-path discovery verification")
     arguments = parser.parse_args(argv)
     try:
         relative = None if arguments.backup_root is None else verify_context_backup_location(
             arguments.database, application_root=arguments.backup_root)
-        report = verify_context_database(arguments.database,
+        verifier = verify_context_database
+        if arguments.deployment_check:
+            from context_runtime_deployment import verify_context_deployment
+            verifier = verify_context_deployment
+        report = verifier(arguments.database,
             input_mode="sealed_file" if arguments.sealed_file else "memory")
         if relative is not None:
             report["backup_location_verified"] = True
@@ -39,8 +45,9 @@ def main(argv=None):
     slots = report.pop("active_slots")
     report["active_slots_hash"] = digest(slots)
     report["active_slot_count"] = len(slots)
-    print(json.dumps({"status": "verified" if report["verification_level"] == "structural" else "incomplete", **report}, sort_keys=True))
-    return 0 if report["verification_level"] == "structural" else 2
+    success = report["verification_level"] in {"structural", "deployment"}
+    print(json.dumps({"status": "verified" if success else "incomplete", **report}, sort_keys=True))
+    return 0 if success else 2
 
 
 if __name__ == "__main__":
