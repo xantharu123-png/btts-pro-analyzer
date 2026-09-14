@@ -42,6 +42,19 @@ noch fehlgeschlagene letzte Läufe. Diese Befunde sind getrennt vom Updatefehler
 
 ## Ausführungsnachweise
 
-Werden nach tatsächlichem Test-/Releaseabschluss ergänzt; dieser Zwischenstand
-behauptet weder einen erfolgreichen Serverlauf noch eine vollständige historische
-oder empirische Modellabnahme.
+- Neuer Update-/Root-Hook-/Reparaturpfad: 467 bestanden, 1 Windows-Skip;
+  anschließend drei zusätzliche Aktivierungsabgrenzungsfälle ergänzt und alle
+  13 Tests des neuen Moduls erneut bestanden. Zusammen 470 verschiedene Tests.
+  XML: `.pytest_tmp/deployment-separation-20260914-05.xml`.
+- Angrenzende Pfad-/Daily3-/Konten-/Backup-/Tennis-Tests: 336 bestanden,
+  1 Windows-Skip, 71 Untertests. 23,34 Sekunden.
+  XML: `.pytest_tmp/deployment-money-20260914-01.xml`.
+- Beide Shellprogramme mit echtem Bash syntaktisch geprüft; gemeinsame
+  Root-Funktionen bytegleich und unveränderten Backup-Helferpin geprüft.
+- Zwei zusätzlich gestartete historische Regressionsteilmengen wurden vor
+  Abschluss beendet und ausdrücklich NICHT als bestanden gezählt. Unveränderte
+  vollständige historische Fit-Replays sind nicht der neue Release-Nachweis.
+- main-Dokumentationsmerge enthält keine weiteren Programmänderungen.
+
+Serverergebnisse folgen nach tatsächlicher Ausführung. Lokale Tests behaupten
+keinen erfolgreichen Serverlauf und keine historische/empirische Modellabnahme.
