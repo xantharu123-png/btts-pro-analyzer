@@ -73,6 +73,51 @@ def test_unchanged_recheck_has_new_receipt_not_rewritten_first_observation(tmp_p
         assert connection.execute("SELECT count(*) FROM context_observations").fetchone() == (2,)
 
 
+def test_bounded_receipt_batch_is_byte_identical_to_single_row_ingestion(tmp_path, monkeypatch):
+    records = tuple((normalized_record(source_revision=f"r{i % 3}"), NOW + timedelta(seconds=i))
+                    for i in range(25))
+    single, batched = tmp_path / "single.db", tmp_path / "batch.db"
+    expected = tuple(append_observation(single, row, observed_at=clock) for row, clock in records)
+    real_connect, connects = observations._connect, []
+
+    def connect(path):
+        connects.append(path)
+        return real_connect(path)
+
+    monkeypatch.setattr(observations, "_connect", connect)
+    actual = observations.append_observation_batch(batched, records)
+    assert actual == expected
+    assert len(connects) == 1
+    assert observations.append_observation_batch(batched, records) == expected
+    with sqlite3.connect(single) as a, sqlite3.connect(batched) as b:
+        for table in ("context_contents", "context_observations"):
+            assert a.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() == b.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+
+
+def test_receipt_batch_rejects_invalid_input_before_writing_and_rolls_back_collision(tmp_path):
+    path = tmp_path / "batch.db"
+    good = normalized_record()
+    with pytest.raises(ContextContractError):
+        observations.append_observation_batch(path, ((good, NOW), ({**good, "complete": "yes"}, NOW)))
+    assert not path.exists()
+    prior = append_observation(path, good, observed_at=NOW)
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE context_observations SET kind='weather' WHERE digest=?", (prior,))
+    with pytest.raises(ContextIntegrityError):
+        observations.append_observation_batch(path, ((normalized_record(source_revision="new"), NOW), (good, NOW)))
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT count(*) FROM context_contents").fetchone() == (1,)
+        assert connection.execute("SELECT digest,kind FROM context_observations").fetchall() == [(prior, "weather")]
+
+
+def test_receipt_batch_has_an_explicit_lock_and_memory_bound(tmp_path):
+    path = tmp_path / "batch.db"
+    assert observations.append_observation_batch(path, ()) == ()
+    with pytest.raises(ValueError):
+        observations.append_observation_batch(path, ((normalized_record(), NOW),) * 513)
+    assert not path.exists()
+
+
 def test_timezone_equivalent_content_and_receipts_share_canonical_identity(tmp_path):
     path = tmp_path / "models.db"
     local = datetime(2026, 9, 7, 14, tzinfo=timezone(timedelta(hours=2)))

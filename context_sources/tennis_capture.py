@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from context_models.contracts import ContextContractError
-from context_observations import append_observation
+from context_observations import append_observation_batch
 from context_sources.tennis_status import normalize_tennis_status
 
 
@@ -58,12 +58,17 @@ class _Capture:
                             self.issues.add(issue)
 
     def persist(self, path):
+        chunk = []
         for observed, rows in self.pending:
-            # Publish status first: an interruption can leave an explicitly
-            # incomplete new pair, never apparently valid orphan workload.
-            # B1 is append-only/idempotent; this is NOT a multi-row transaction.
-            for row in rows:
-                self.refs.add(append_observation(path, row, observed_at=observed))
+            # Keep one competition's status/workload together. The whole feed
+            # may remain partial on interruption, but a committed chunk is
+            # atomic and retains every original reception clock.
+            if len(chunk) + len(rows) > 512:
+                self.refs.update(append_observation_batch(path, tuple(chunk)))
+                chunk = []
+            chunk.extend((row, observed) for row in rows)
+        if chunk:
+            self.refs.update(append_observation_batch(path, tuple(chunk)))
 
 
 def observe_espn_response(tour, payload):

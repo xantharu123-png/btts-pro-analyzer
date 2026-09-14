@@ -78,6 +78,40 @@ def test_result_only_does_not_create_a_context_database_or_watchlist(tmp_path, m
     assert report["receipt_refs"] == [] and not path.exists()
 
 
+def test_production_evidence_receiver_keeps_player_minutes_from_its_existing_fetch(tmp_path, monkeypatch):
+    import wettfinder_automation as automation
+    import runtime_paths
+    from config_loader import AppConfig
+    from test_football_context_provider import sample
+
+    native = sample()["calls"][0]["samples"][0]
+    fixture_id = native["fixture"]["id"]
+    owner, calls = provider(monkeypatch, details=payload([native]))
+    monkeypatch.setattr(owner, "_context_received_at", lambda: NOW)
+    context_path, state_path = tmp_path / "context.db", tmp_path / "latest.json"
+    monkeypatch.setattr(runtime_paths, "CONTEXT_MODEL_DB_PATH", context_path)
+    monkeypatch.setattr(automation, "STATE_PATH", state_path)
+    monkeypatch.setattr(automation, "ChallengeDataProvider", lambda *_: owner)
+
+    def settle(**kwargs):
+        assert kwargs["football_provider"] is owner
+        assert owner.details_by_fixture([fixture_id]) == {fixture_id: native}
+        return {"operational_error_count": 0}
+
+    result = automation.run_wettfinder(now=NOW, state_path=state_path,
+        config=AppConfig(api_football_key="test"), riskobet_enabled=False,
+        football_scanner=lambda _: {"scanned_at": NOW.isoformat(), "fixtures_found": 0,
+                                   "context_fixture_statuses": {}, "shortlist": [], "errors": []},
+        tennis_loader=lambda **_: [], esports_loader=lambda **_: [],
+        evidence_db_path=tmp_path / "evidence.db", evidence_settlement_runner=settle)
+    appearances = [row for row in stored(context_path) if row["kind"] == "appearance"]
+    assert len(calls) == 1
+    assert len(appearances) == 46
+    assert all(row["observed_at"] == canonical_timestamp(NOW) for row in appearances)
+    assert any(row["payload"]["minutes"] == 90 for row in appearances)
+    assert result["forecast_evidence"]["settlement"]["context_capture"]["status"] == "captured"
+
+
 @pytest.mark.parametrize("status", ["NS", "TBD", "PST"])
 @pytest.mark.parametrize("early", [False, True])
 def test_only_actually_prematch_observation_enrols_later_result(tmp_path, monkeypatch, status, early):

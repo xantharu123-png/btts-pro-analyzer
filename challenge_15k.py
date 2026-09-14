@@ -2194,11 +2194,14 @@ def scan_daily_challenge(
     market_kinds: Optional[set[str]] = None,
     allow_above_challenge_probability: bool = False,
     candidate_profile: str = CANDIDATE_PROFILE_CHALLENGE,
+    max_new_xg_calls: int = XG_MAX_NEW_CALLS_PER_SCAN,
     progress_cb=None,
 ) -> dict[str, Any]:
     """Run one explicit, quota-aware scan over at most fourteen days."""
     if not isinstance(allow_above_challenge_probability, bool):
         raise ValueError("allow_above_challenge_probability must be boolean")
+    if type(max_new_xg_calls) is not int or not 0 <= max_new_xg_calls <= XG_MAX_NEW_CALLS_PER_SCAN:
+        raise ValueError("xG call limit must stay within the scan budget")
     if candidate_profile not in (
         CANDIDATE_PROFILE_CHALLENGE, CANDIDATE_PROFILE_WETTFINDER,
     ):
@@ -2286,7 +2289,7 @@ def scan_daily_challenge(
                             league_id,
                             season,
                             provider._background_football_get,
-                            max_new_calls=XG_MAX_NEW_CALLS_PER_SCAN,
+                            max_new_calls=max_new_xg_calls,
                         )
                         if xg_stats.get("coverage", 0.0) < 0.5:
                             provider.errors.append(
@@ -2826,6 +2829,7 @@ def scan_daily_challenge(
         ],
         "fixtures_found": len(fixtures),
         "fixtures_modeled": len({candidate.fixture_id for candidate in all_candidates}),
+        "modeled_fixture_ids": sorted({candidate.fixture_id for candidate in all_candidates}),
         "continental_fixtures_found": len(continental_fixture_ids),
         "continental_fallback_modeled": len(fixture_team_histories),
         "continental_fallback_failed": len(fallback_failed),

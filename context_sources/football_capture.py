@@ -13,7 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from context_models.contracts import ContextContractError, ContextIntegrityError, canonical_timestamp, require_object
-from context_observations import append_observation
+from context_observations import append_observation_batch
 from context_sources.football import _detail_event, normalize_football_context
 from context_sources.football_provider import _native_id, _response
 from context_sources.outcomes import normalize_football_base_input, normalize_football_outcome, validate_football_base_input
@@ -214,8 +214,9 @@ class _Capture:
                 reason = "native-event-binding-unavailable" if str(exc) == "native-event-binding-unavailable" else "native-projection-unavailable"
                 self.errors.append("Kontext-Capture: " + reason)
                 continue
-            for record in additions:
-                self.refs.add(append_observation(path, record, observed_at=observed))
+            for start in range(0, len(additions), 512):
+                self.refs.update(append_observation_batch(path,
+                    tuple((record, observed) for record in additions[start:start+512])))
 
 
 @contextmanager

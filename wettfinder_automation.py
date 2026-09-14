@@ -15,6 +15,7 @@ the forecast catalog.
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 from dataclasses import dataclass, fields
 from datetime import date, datetime, timedelta, timezone
 import json
@@ -49,8 +50,9 @@ from challenge_engine import (
     select_wettfinder_catalog,
 )
 from config_loader import AppConfig, load_app_config
-from context_sources.football_capture import capture_report_fields
+from context_sources.football_capture import capture_report_fields, capture_football_worker
 from forecast_analysis import project_football_analysis
+from football_model_refresh import MODEL_REFRESH_VERSION, refresh_fixture_models
 from ev_signal_sources import (
     AUTOMATED_FOOTBALL_RELEASE_CONTRACT,
     AUTOMATED_SELECTION_POLICY_VERSION,
@@ -228,6 +230,11 @@ def football_due(
 
     status = str(previous.get("status") or "")
     if status != "completed":
+        if (_parse_iso(previous.get("last_discovery_at")) is not None
+                and previous.get("discovery_operational_error_count") == 0):
+            # A failed fixture refresh must retry that bounded pool, not turn
+            # a successfully discovered day into another 51-league discovery.
+            return FootballDueDecision(False, "daily_discovery_current")
         return FootballDueDecision(
             age >= ERROR_RETRY,
             "retry_degraded_scan" if age >= ERROR_RETRY else "degraded_backoff",
@@ -1301,6 +1308,17 @@ def _discovered_candidates_for_fixtures(
     return candidates
 
 
+def football_models_due(state: dict[str, Any], fixture_ids: list[int], *, now: datetime) -> bool:
+    """Refresh with margin before consumers' 150-minute freshness limit."""
+    checks = state.get("model_checks")
+    checks = checks if isinstance(checks, dict) else {}
+    for fixture_id in fixture_ids:
+        last = _parse_iso(checks.get(str(fixture_id)) or state.get("last_discovery_at"))
+        if last is None or not timedelta(0) <= now - last < timedelta(minutes=90):
+            return True
+    return False
+
+
 def _merge_context_refresh(
     state: dict[str, Any],
     result: dict[str, Any],
@@ -1310,6 +1328,22 @@ def _merge_context_refresh(
 ) -> dict[str, Any]:
     refreshed = dict(state)
     allowed = set(fixture_ids)
+    model_refresh = result.get("model_refresh")
+    recomputed: set[int] = set()
+    if model_refresh is not None:
+        if not isinstance(model_refresh, dict) or model_refresh.get("version") != MODEL_REFRESH_VERSION:
+            raise ValueError("invalid fixture model refresh version")
+        ids = model_refresh.get("fixture_ids")
+        modeled = _parse_iso(model_refresh.get("modeled_at"))
+        cutoff = _parse_iso(model_refresh.get("input_cutoff_at"))
+        if (not isinstance(ids, list) or any(type(value) is not int for value in ids)
+                or len(ids) != len(set(ids)) or not set(ids) <= allowed
+                or modeled is None or cutoff is None or not cutoff <= modeled <= checked_at):
+            raise ValueError("invalid fixture model refresh identity or clocks")
+        recomputed = set(ids)
+        checks = dict(state.get("model_checks") or {})
+        checks.update({str(key): modeled.isoformat() for key in recomputed})
+        refreshed["model_checks"] = checks
     invalidated = {
         value for value in result.get("invalidated_fixture_ids", ())
         if isinstance(value, int) and not isinstance(value, bool)
@@ -1332,6 +1366,14 @@ def _merge_context_refresh(
     refreshed["discovery_candidates"] = [
         payload for payload in refreshed["discovery_candidates"] if payload is not None
     ]
+    if recomputed:
+        refreshed["discovery_candidates"] = [payload for payload in refreshed["discovery_candidates"]
+            if payload.get("fixture_id") not in recomputed]
+        refreshed["discovery_candidates"].extend(
+            payload for candidate in updated_candidates.values()
+            if candidate.fixture_id in recomputed and candidate.fixture_id not in invalidated
+            and (payload := _challenge_candidate_payload(candidate, keep_context=True)) is not None
+        )
     refreshed["discovery_candidate_count"] = len(refreshed["discovery_candidates"])
     existing_risk_payloads = [
         payload
@@ -1430,8 +1472,8 @@ def _merge_context_refresh(
         )
         if record is not None and record.get("is_basic_forecast") is True
     ]
-    # A context refresh is not a new statistical fit. Preserve original clocks
-    # for both catalogs and bind the new optional explanation to those clocks.
+    # Context alone is NOT a new prediction. Advance clocks only for the
+    # explicitly recomputed fixture batch and re-bind its mathematical basis.
     for new_rows, previous_rows in (
         (new_records, existing_records),
         (new_basis_records, existing_basis_records),
@@ -1440,7 +1482,8 @@ def _merge_context_refresh(
         for record in new_rows:
             previous_record = previous_records.get(record.get("candidate_id"), {})
             for field in ("modeled_at", "input_cutoff_at"):
-                record[field] = previous_record.get(field) or state.get("last_discovery_at")
+                record[field] = (model_refresh[field] if record.get("fixture_id") in recomputed
+                                 else previous_record.get(field) or state.get("last_discovery_at"))
             evidence = record.get("analysis_evidence")
             if evidence is not None:
                 record["analysis_evidence"] = project_football_analysis(
@@ -2132,6 +2175,8 @@ def _default_football_context_refresh(
     search_date: date,
     current: datetime,
     config: AppConfig,
+    *,
+    recompute_models: bool = False,
 ) -> dict[str, Any]:
     if not config.api_football_key:
         raise RuntimeError("API_FOOTBALL_KEY is not configured")
@@ -2141,13 +2186,12 @@ def _default_football_context_refresh(
     )
     from context_sources.football_capture import capture_football_worker
     with capture_football_worker(provider) as capture:
-        snapshot = refresh_discovered_candidates(
-            provider,
-            candidates,
-            search_date,
-            now=current,
-            max_candidates=15,
-        )
+        if recompute_models:
+            snapshot = refresh_fixture_models(provider, candidates, search_date, now=current)
+        else:
+            snapshot = refresh_discovered_candidates(
+                provider, candidates, search_date, now=current, max_candidates=15,
+            )
     if capture is not None:
         snapshot["context_capture"] = capture.report()
     return snapshot
@@ -3087,6 +3131,9 @@ def run_wettfinder(
                             scan_date,
                             checked_at,
                             app_config,
+                            recompute_models=football_models_due(
+                                football_state, batch_fixture_ids, now=checked_at,
+                            ),
                         )
                     )
                 )
@@ -3097,6 +3144,8 @@ def run_wettfinder(
                 )
                 if not isinstance(refresh_result, dict):
                     raise RuntimeError("football context refresher returned no document")
+                if not fixed_now:
+                    current = _utc(runtime_clock())
                 football_state = _merge_context_refresh(
                     football_state,
                     refresh_result,
@@ -3842,11 +3891,19 @@ def run_wettfinder(
                 if production_state:
                     app_config = config or load_app_config()
                     provider = ChallengeDataProvider(app_config.api_football_key or "", app_config.weather_key)
-                document["forecast_evidence"]["settlement"] = settle_evidence(
-                    db_path=evidence_path, football_provider=provider,
-                    now=current if fixed_now else None,
-                    tennis_db_path=TENNIS_DB, esports_db_path=ESPORTS_DB,
-                )
+                # The already budgeted native final-detail response also owns
+                # the actual player-minute/lineup history. Previously this
+                # receiver was outside capture, so those facts were discarded.
+                # No additional requests, inferred minutes or backdated data.
+                with (capture_football_worker(provider) if provider is not None else nullcontext()) as result_capture:
+                    document["forecast_evidence"]["settlement"] = settle_evidence(
+                        db_path=evidence_path, football_provider=provider,
+                        now=current if fixed_now else None,
+                        tennis_db_path=TENNIS_DB, esports_db_path=ESPORTS_DB,
+                    )
+                if result_capture is not None:
+                    document["forecast_evidence"]["settlement"].update(
+                        capture_report_fields({"context_capture": result_capture.report()}))
         except Exception as exc:
             document["forecast_evidence"] = {"status": "failed", "failure_type": type(exc).__name__}
             document["run_status"] = "degraded"

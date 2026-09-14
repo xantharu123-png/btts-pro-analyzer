@@ -1,4 +1,5 @@
 from contextlib import closing
+from copy import deepcopy
 from collections import Counter
 import json
 import sqlite3
@@ -298,6 +299,77 @@ def fixture(
         "goals": {"home": home_goals, "away": away_goals},
         "challenge_stats": stats or {},
     }
+
+
+def test_targeted_model_refresh_recomputes_joint_markets_without_league_rediscovery():
+    from football_model_refresh import refresh_fixture_models
+
+    now = datetime(2030, 1, 1, 10, tzinfo=timezone.utc)
+    old = candidate("1:BTTS_YES", 1, .60, kickoff=now + timedelta(hours=5))
+    upcoming = fixture(1, now + timedelta(hours=5), 10, 11)
+    history = [fixture(1000 + index, now - timedelta(days=index + 1),
+                       10 if index % 2 else 11, 11 if index % 2 else 10,
+                       1 + index % 3, index % 2) for index in range(60)]
+    provider = Mock()
+    provider.errors = []
+    provider.details_by_fixture.return_value = {1: upcoming}
+    provider.completed_history.return_value = history
+    provider.coverage.return_value = {"injuries": True, "lineups": False}
+    provider.injuries_by_fixture.return_value = {1: []}
+    provider.h2h.return_value = []
+    provider.weather.return_value = {"temperature_c": 20., "wind_kmh": 5., "precipitation_mm": 0.}
+    with patch("challenge_15k._cached_market_validation", return_value={
+            spec.key: credible_validation() for spec in MARKET_SPECS}), \
+            patch("challenge_15k._cached_market_calibration", return_value={}), \
+            patch("challenge_15k.annotate_history_xg", return_value={"coverage": 1.}) as xg:
+        first = refresh_fixture_models(provider, [old], now.date(), now=now)
+        provider.completed_history.return_value = [
+            {**row, "goals": {"home": 4, "away": 3}} for row in history]
+        second = refresh_fixture_models(provider, [old], now.date(), now=now)
+    provider.upcoming_fixtures.assert_not_called()
+    provider.upcoming_fixtures_range.assert_not_called()
+    assert provider.details_by_fixture.call_count == 2  # One native fetch per real run.
+    assert all(call.kwargs["max_new_calls"] == 0 for call in xg.call_args_list)
+    assert first["model_refresh"]["fixture_ids"] == second["model_refresh"]["fixture_ids"] == [1]
+    assert len(first["candidates"]) > 1  # All markets rebuilt, not old BTTS blindly copied.
+    before = {row.market_key: row for row in first["candidates"]}
+    after = {row.market_key: row for row in second["candidates"]}
+    assert before["BTTS_YES"].probability != after["BTTS_YES"].probability
+    assert before["BTTS_YES"].expected_home_goals != after["BTTS_YES"].expected_home_goals
+    assert old.probability == .63  # Caller-owned earlier model is not mutated.
+
+
+def test_targeted_model_refresh_retains_old_evidence_on_missing_or_wrong_native_details():
+    import pytest
+    from football_model_refresh import refresh_fixture_models
+
+    now = datetime(2030, 1, 1, 10, tzinfo=timezone.utc)
+    old = candidate("1:BTTS_YES", 1, .60, kickoff=now + timedelta(hours=5))
+    original = deepcopy(old.__dict__)
+    for details in ({1: None}, {1: fixture(1, now + timedelta(hours=5), 99, 11)},
+                    {1: fixture(2, now + timedelta(hours=5), 10, 11)}):
+        provider = Mock()
+        provider.details_by_fixture.return_value = details
+        with pytest.raises(RuntimeError, match="identity/details"):
+            refresh_fixture_models(provider, [old], now.date(), now=now)
+        provider.completed_history.assert_not_called()
+        assert old.__dict__ == original
+
+
+def test_targeted_model_refresh_removes_confirmed_cancellation_without_new_prediction():
+    from football_model_refresh import refresh_fixture_models
+
+    now = datetime(2030, 1, 1, 10, tzinfo=timezone.utc)
+    old = candidate("1:BTTS_YES", 1, .60, kickoff=now + timedelta(hours=5))
+    cancelled = fixture(1, now + timedelta(hours=5), 10, 11)
+    cancelled["fixture"]["status"]["short"] = "CANC"
+    provider = Mock()
+    provider.details_by_fixture.return_value = {1: cancelled}
+    result = refresh_fixture_models(provider, [old], now.date(), now=now)
+    assert result["invalidated_fixture_ids"] == [1]
+    assert result["model_refresh"]["fixture_ids"] == []
+    assert result["candidates"] == []
+    provider.completed_history.assert_not_called()
 
 
 def candidate(candidate_id, fixture_id, probability, *, kickoff=None, eligible=True):

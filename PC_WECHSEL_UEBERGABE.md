@@ -1,5 +1,17 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Auftrag 14. September 2026 – Tagesauswahl wirklich aktualisieren
+
+Die aktuelle Ausgabe enthielt 69 für Daily3 zu alte Modelle trotz frischem
+Ausgabezeitpunkt. Gezielte echte Fußball-Neuberechnung, begrenzte atomare
+Kontextspeicherung und Übernahme ohnehin gelieferter Spieler-Einsatzdaten sind
+implementiert; 945 gezielte Tests plus 32 Untertests bestanden. Keine Quote-
+oder empirische Modellfreigabe gelockert, Cricket bleibt ausgenommen.
+Vor-Deploy-Befunde: `docs/audits/2026-09-14-selection-refresh.md`.
+Den tatsächlich folgenden Live-Abschluss immer separat in
+`output/playwright/selection-refresh-release-20260914.md` prüfen; noch offene
+Kontexteffekt-/Trainings-/Sportadapterarbeit nicht als erledigt übernehmen.
+
 ## Aktueller Auftrag 14. September 2026 — vereinfachter Updateweg ausdrücklich freigegeben
 
 Nutzerfreigabe: „behebe doch einfach das verdammte problem ja du darfst“,

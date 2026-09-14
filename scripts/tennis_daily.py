@@ -1014,6 +1014,8 @@ def main() -> int:
         with capture_tennis_worker(path=batch.path) as capture:
             batch.attach_capture(capture)
             result = _run_daily(args)
+            print(f"Kontext-Empfang beendet: {len(capture.pending)} Spielbeobachtungen; Speicherung beginnt")
+        print("Kontext-Empfang gespeichert; gemeinsame Prognosen werden abgeschlossen")
         batch.finish()
     report = capture.report()
     print(f"Kontext-Capture: {report['status']}")

@@ -171,7 +171,7 @@ def test_main_owns_capture_but_pending_refresh_never_fetches(monkeypatch, tmp_pa
     @contextmanager
     def owner(**kwargs):
         calls.append("enter")
-        yield type("Report", (), {"report": lambda self: {"status": "no_receipts", "issues": []}})()
+        yield type("Report", (), {"pending": [], "report": lambda self: {"status": "no_receipts", "issues": []}})()
         calls.append("exit")
     monkeypatch.setattr(capture, "capture_tennis_worker", owner)
     monkeypatch.setattr(daily, "_run_daily", lambda args: calls.append("run") or 0)
@@ -237,27 +237,30 @@ def test_partial_capture_persists_native_retractions_and_continues_valid_events(
     assert observer.report()["issues"] == ["invalid-participants", "native-competition-unavailable"]
 
 
-def test_storage_interruption_keeps_status_first_and_does_not_swallow_integrity(monkeypatch, tmp_path):
+def test_storage_interruption_keeps_complete_bounded_chunks_and_does_not_swallow_failure(monkeypatch, tmp_path):
     import context_sources.tennis_capture as capture
     from context_sources.tennis_status import tennis_observations_as_of
-    from context_models.tennis_v3 import tennis_features_v3
-    from test_tennis_context_features import base, event
     calls, db = [], tmp_path / "interrupted.db"
-    fake_get(monkeypatch, response())
+    raw = response()
+    raw["events"][0]["groupings"][0]["competitions"] = [competition(id=str(101+i)) for i in range(171)]
+    fake_get(monkeypatch, raw)
     monkeypatch.setattr(capture, "_receipt_now", lambda: NOW)
-    original = capture.append_observation
+    original = capture.append_observation_batch
     def interrupted(*args, **kwargs):
-        calls.append(1)
+        calls.append(len(args[1]))
         if len(calls) == 2:
             raise RuntimeError("persistent store failure")
         return original(*args, **kwargs)
-    monkeypatch.setattr(capture, "append_observation", interrupted)
+    monkeypatch.setattr(capture, "append_observation_batch", interrupted)
     with pytest.raises(RuntimeError, match="persistent store failure"):
         with capture.capture_tennis_worker(path=db):
             daily._fetch_espn_events("atp", "2026-09-09")
     rows = tennis_observations_as_of(db, cutoff=NOW, tour="ATP")
-    assert len(rows) == 1 and rows[0]["kind"] == "event_status"
-    assert tennis_features_v3(event(), rows, base(), cutoff=NOW)["values"]["observed_recovery_minimum_hours_a"] is None
+    assert calls == [510, 3]
+    assert len(rows) == 510
+    refs = {row["digest"] for row in rows}
+    assert all(set(row["payload"]["workload_receipts"]) <= refs for row in rows if row["kind"] == "event_status")
+    assert not any(row["event_key"].endswith(":271") for row in rows)
     with capture.capture_tennis_worker(path=tmp_path/"empty.db"):
         pass
 

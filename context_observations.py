@@ -101,35 +101,53 @@ def _decode_receipt(stored: tuple) -> dict:
 
 def append_observation(path: Path, record: dict, *, observed_at: datetime) -> str:
     """Append a genuine fetch receipt; duplicate receipt ingestion is idempotent."""
-    content = normalize_observation(record, observed_at=observed_at)
-    observed = canonical_timestamp(observed_at)
-    content_hash = digest(content)
-    receipt_hash = digest({"content_digest": content_hash, "observed_at": observed})
-    payload = canonical_bytes(content)
+    return append_observation_batch(path, ((record, observed_at),))[0]
+
+
+def append_observation_batch(path: Path, records: tuple[tuple[dict, datetime], ...]) -> tuple[str, ...]:
+    """Atomically append at most 512 actual receipts with unchanged B1 bytes.
+
+    Each observation keeps its own source clock and the same normalization,
+    identity and collision checks as single-row ingestion. One bounded commit
+    avoids reopening/fsyncing this database for every received status/player.
+    No pruning, schema migration or historical freshness promotion occurs.
+    """
+    if type(records) is not tuple or len(records) > 512:
+        raise ValueError("receipt batch must be an explicit tuple of at most 512 observations")
+    prepared = []
+    for record, observed_at in records:
+        content = normalize_observation(record, observed_at=observed_at)
+        observed = canonical_timestamp(observed_at)
+        content_hash = digest(content)
+        receipt_hash = digest({"content_digest": content_hash, "observed_at": observed})
+        prepared.append((content, observed, content_hash, receipt_hash, canonical_bytes(content)))
+    if not prepared:
+        return ()
     with closing(_connect(Path(path))) as connection:
         try:
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute("INSERT OR IGNORE INTO context_contents VALUES (?, ?)", (content_hash, payload))
-            existing = connection.execute("SELECT payload FROM context_contents WHERE content_digest=?", (content_hash,)).fetchone()
-            if existing != (payload,):
-                raise ContextIntegrityError("context content identity collision")
-            connection.execute("""
-                INSERT OR IGNORE INTO context_observations (
-                    digest, content_digest, event_key, observed_at, schedule_revision,
-                    source, subject_id, kind
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (receipt_hash, content_hash, content["event_key"], observed,
-                  content["schedule_revision"], content["source"], content["subject_id"], content["kind"]))
-            stored = connection.execute(_SELECT + " WHERE r.digest=?", (receipt_hash,)).fetchone()
-            if stored is None or _decode_receipt(stored) != {
-                **content, "digest": receipt_hash, "content_digest": content_hash, "observed_at": observed,
-            }:
-                raise ContextIntegrityError("context receipt identity collision")
+            for content, observed, content_hash, receipt_hash, payload in prepared:
+                connection.execute("INSERT OR IGNORE INTO context_contents VALUES (?, ?)", (content_hash, payload))
+                existing = connection.execute("SELECT payload FROM context_contents WHERE content_digest=?", (content_hash,)).fetchone()
+                if existing != (payload,):
+                    raise ContextIntegrityError("context content identity collision")
+                connection.execute("""
+                    INSERT OR IGNORE INTO context_observations (
+                        digest, content_digest, event_key, observed_at, schedule_revision,
+                        source, subject_id, kind
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (receipt_hash, content_hash, content["event_key"], observed,
+                      content["schedule_revision"], content["source"], content["subject_id"], content["kind"]))
+                stored = connection.execute(_SELECT + " WHERE r.digest=?", (receipt_hash,)).fetchone()
+                if stored is None or _decode_receipt(stored) != {
+                    **content, "digest": receipt_hash, "content_digest": content_hash, "observed_at": observed,
+                }:
+                    raise ContextIntegrityError("context receipt identity collision")
             connection.commit()
         except BaseException:
             connection.rollback()
             raise
-    return receipt_hash
+    return tuple(row[3] for row in prepared)
 
 
 def _archive_resolution(row: dict, resolver_id: str | None, cutoff: str) -> dict | None:

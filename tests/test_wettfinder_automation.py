@@ -713,6 +713,86 @@ def test_context_refresh_preserves_original_basis_catalog_clocks_for_analysis():
     assert read_football_analysis(updated)["basis"]["expected_home_goals"] == 1.5
 
 
+def test_real_fixture_model_refresh_replaces_old_catalog_and_bound_clocks():
+    from forecast_analysis import read_football_analysis
+
+    now = datetime(2030, 1, 1, 12, tzinfo=UTC)
+    old = _challenge_candidate(now + timedelta(hours=5))
+    old.context = {"forecast_passed": True, "passed": True}
+    record = _football_candidate_record(old, context_checked_at=now - timedelta(hours=12))
+    new = replace(old, probability=.68, expected_home_goals=1.3,
+                  candidate_id="1:TOTAL_OVER_2_5", market_key="TOTAL_OVER_2_5")
+    state = {"status": "completed", "candidates": [record], "errors": [],
+             "last_discovery_at": record["modeled_at"], "context_checks": {},
+             "discovery_candidates": [wettfinder_automation._challenge_candidate_payload(old)],
+             "context_accounting_available": True, "context_fixture_statuses": {"1": "verified"}}
+    refreshed = _merge_context_refresh(state, {
+        "candidates": [new], "wettfinder_candidates": [new],
+        "context_fixture_statuses": {"1": "verified"}, "errors": [],
+        "model_refresh": {"version": "football-fixture-model-refresh-v1", "fixture_ids": [1],
+                          "modeled_at": now.isoformat(), "input_cutoff_at": now.isoformat()},
+    }, fixture_ids=[1], checked_at=now)
+    updated = refreshed["candidates"][0]
+    assert updated["candidate_id"] == new.candidate_id
+    assert updated["modeled_at"] == now.isoformat()
+    assert updated["input_cutoff_at"] == now.isoformat()
+    assert read_football_analysis(updated)["basis"]["expected_home_goals"] == 1.3
+    assert [row["candidate_id"] for row in refreshed["discovery_candidates"]] == [new.candidate_id]
+    assert state["candidates"][0] == record  # Frozen earlier evidence is not rewritten.
+
+
+def test_model_refresh_due_is_per_fixture_and_ignores_recent_context_only_checks():
+    now = datetime(2030, 1, 1, 12, tzinfo=UTC)
+    state = {"last_discovery_at": (now - timedelta(hours=12)).isoformat(),
+             "model_checks": {"2": (now - timedelta(minutes=20)).isoformat()},
+             "context_checks": {"1": now.isoformat(), "2": now.isoformat()}}
+    assert wettfinder_automation.football_models_due(state, [1], now=now)
+    assert not wettfinder_automation.football_models_due(state, [2], now=now)
+    assert wettfinder_automation.football_models_due(state, [1, 2], now=now)
+
+
+def test_shared_latest_artifact_gives_daily3_fresh_models_after_overnight_discovery(tmp_path):
+    from daily3_selection import daily3_choices
+
+    midnight = datetime(2030, 1, 1, 0, tzinfo=UTC)
+    midday = midnight + timedelta(hours=12)
+    path = tmp_path / "wettfinder.json"
+    candidate = _challenge_candidate(midday + timedelta(hours=3))
+    candidate.context = {"passed": True, "forecast_passed": True}
+    snapshot = _football_snapshot(midnight)
+    snapshot.update(shortlist=[candidate], discovery_candidates=[candidate])
+    scans = []
+
+    def scan(day):
+        scans.append(day)
+        return snapshot
+
+    def refresh(pool, day, checked):
+        for item in pool:
+            item.context = {"passed": True, "forecast_passed": True}
+        return {"candidates": pool, "wettfinder_candidates": pool,
+                "context_fixture_statuses": {"1": "verified"}, "operational_errors": [], "errors": [],
+                "model_refresh": {"version": "football-fixture-model-refresh-v1", "fixture_ids": [1],
+                                  "modeled_at": checked.isoformat(), "input_cutoff_at": checked.isoformat()}}
+
+    common = dict(state_path=path, config=AppConfig(api_football_key="test"),
+                  football_scanner=scan, football_context_refresher=refresh,
+                  tennis_loader=lambda **_: [], esports_loader=lambda **_: [])
+    run_wettfinder(now=midnight, **common)
+    # The saved model really is too old; a recent context label cannot fix it.
+    old = load_state(path)
+    assert len(old["model_candidates"]) == 1
+    old["generated_at"] = midday.isoformat()
+    wettfinder_automation.write_state(old, path)
+    assert daily3_choices(automated_wettfinder_forecasts(path, now=midday), now=midday) == ()
+    run_wettfinder(now=midday, **common)
+    actual = automated_wettfinder_forecasts(path, now=midday)
+    assert len(actual) == 1
+    assert datetime.fromisoformat(actual[0].modeled_at) == midday
+    assert len(daily3_choices(actual, now=midday)) == 1  # No quote needed for the model choice.
+    assert len(scans) == 1
+
+
 def test_scheduled_artifact_rebuilds_15k_forecast_and_exact_quote(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     snapshot = _football_snapshot(now)
@@ -2581,6 +2661,7 @@ def test_runner_refreshes_only_daily_pool_fixture_without_rescanning(tmp_path):
     assert degraded["football"]["status"] == "degraded"
     assert degraded["sources"]["football"]["status"] == "degraded"
     assert degraded["sources"]["football"]["context_status"] == "degraded"
+    assert not football_due(degraded["football"], now=now + timedelta(minutes=65), search_date=now.date()).due
 
 
 def test_runner_fails_closed_without_api_key_but_still_writes_state(tmp_path):
