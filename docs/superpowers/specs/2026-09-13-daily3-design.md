@@ -352,7 +352,6 @@ Für die Abgrenzung vom Einkommensversprechen siehe
 [Gambling Commission: Think about why you are gambling](https://www.gamblingcommission.gov.uk/public-and-players/guide/page/think-about-why-you-are-gambling).
 Am 13.09.2026 gelesen; dies sind allgemeine Verbraucherhinweise, keine Schweizer
 Rechtsberatung und keine empirische Bestätigung der BetBoy-Prognosen.
-
 ## 12. Implementierungsnachtrag — tatsächlicher Vertrag und Grenzen
 
 Die späteren ausdrücklichen Umsetzungsaufträge wurden ausgeführt, ohne erneut

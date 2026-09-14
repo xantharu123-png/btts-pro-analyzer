@@ -965,6 +965,32 @@ kann Absage aufheben); Fußball-A0 ist separat angenommen. Beide unintegriert.
 Empirisch qualifizierte Verletzungs-/Belastungseffekte bleiben offen; Cricket
 unverändert. Geschützten Stagehelper und übernommene Outputs weiter bewahren.
 
+## Historischer main-Nachtrag 13. September 2026 — Daily3-Dokumentation
+
+`3 a day keeps the job away`: CHF 50 eigenes Tagesbudget, höchstens drei
+Einzelwetten auf unterschiedliche Events, abgerechnete Gewinne wiederverwendbar,
+kein Nachschuss, maximal CHF 50 Nettoverlust gegenüber Tagesstart. Der Nutzer
+hat jetzt auch die Übernachtregel angenommen: kein neues Tagesbudget, solange
+der vorherige Lauf noch offene Wetten, Reservierungen oder Korrekturen enthält.
+Diese Regeln nicht erneut abfragen. Kein garantierter Tagesgewinn und keine
+automatische Wettplatzierung; Daily3 ist noch nicht implementiert.
+
+Spezifikation: `docs/superpowers/specs/2026-09-13-daily3-design.md`.
+Rechenprüfung: `docs/audits/2026-09-13-daily3-spec-check.md`.
+Frische VPS-Vorprüfung: `docs/audits/2026-09-13-daily3-vps-preflight.md`.
+Diese Übernahme nach main enthält ausschließlich die drei Daily3-Dokumente
+und diesen Übergabenachtrag. Kein Code-Merge aus dem Reparaturbranch
+`codex/context-capacity-recovery-20260910` (Dokumentationscheckpoint `0296b09`).
+Ältere dortige C/B-Arbeit, QA-Verzeichnisse und Freigabegrenzen bleiben erhalten.
+
+VPS am 13.09.2026 ab 18:04:48 UTC frisch geprüft: main `2dd1116`, App/Caddy
+aktiv und beide Healthchecks `ok`, sieben Timer geplant. Tennis-/Wettfinder-
+Dienste bleiben `failed`. Der installierte Updater hat eine 64-MiB-Grenze;
+die Kontextdatenbank ist bereits 499855360 Byte (rund 477 MiB) groß. Er stoppt
+die App vor dieser Prüfung. Deshalb kein Updateversuch, kein direkter Git-Pull
+als Umgehung und keine Serveränderung. Der beauftragte VPS-Pull bleibt offen,
+bis die separat laufende Updater-Reparatur fertig geprüft ist. Der aktuelle
+Dokumentationscommit auf main ist kein funktionales Daily3-Deployment.
 ## Releaseprüfung am 10. September 2026 — 11:49 CEST
 
 Vollsuite im frischen LF-Checkout286601b abgeschlossen:6552bestanden,
