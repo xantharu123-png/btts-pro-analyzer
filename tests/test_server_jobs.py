@@ -185,11 +185,13 @@ def test_update_preflights_before_downtime_and_has_recovery_path(monkeypatch):
     for inline_status, helper_status in ((0, 0), (0, 1), (0, 137), (1, 0)):
         completion_harness = "set -euo pipefail\nPATH=/usr/bin:/bin\n"
         completion_harness += f"INLINE_STATUS={inline_status}; HELPER_STATUS={helper_status}\n"
-        completion_harness += "partial_archive=fixture.partial; destination_archive=fixture.zip; CONTEXT_STAGE_DIR=fixture; phase=online\n"
+        completion_harness += "partial_archive=fixture.partial; destination_archive=fixture.zip; work_archive=fixture.work.zip; STAGE_DIR=fixture; CONTEXT_STAGE_DIR=fixture; phase=online\n"
         completion_harness += "die() { printf 'rejected:%s\\n' \"$*\"; exit 1; }\n"
         completion_harness += "log() { printf 'verified\\n'; }\ntrusted_file() { printf 'fixture-helper'; }\n"
         completion_harness += "verify_backup_archive() { printf 'inline-boundary\\n'; return \"$INLINE_STATUS\"; }\n"
         completion_harness += "capture_root_verifier() { printf 'helper-boundary\\n'; CONTEXT_COMMAND_STATUS=$HELPER_STATUS; }\n"
+        completion_harness += "id() { printf '997\\n'; }\n"
+        completion_harness += "context_hook_data() { [[ \"$*\" == 'discard-work-copy fixture.work.zip fixture.zip fixture/backup-online-production.log 997 997' ]]; printf 'discard-boundary\\n'; }\n"
         completion_harness += "/usr/bin/python3() { while IFS= read -r line; do :; done; printf 'publication-boundary\\n'; }\n"
         completion_harness += "complete_producer() {\n" + completion
         completion_harness += "\ncomplete_producer\nprintf 'continued\\n'\n"
@@ -204,7 +206,7 @@ def test_update_preflights_before_downtime_and_has_recovery_path(monkeypatch):
         assert lines[:2] == ["inline-boundary", "helper-boundary"]
         if helper_status == 0:
             assert result.returncode == 0
-            assert lines[2:] == ["publication-boundary", "verified", "continued"]
+            assert lines[2:] == ["publication-boundary", "verified", "discard-boundary", "verified", "continued"]
         else:
             assert result.returncode != 0
             assert lines[2:] == ["rejected:Full backup restore/authentication verification failed."]

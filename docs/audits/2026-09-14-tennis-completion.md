@@ -132,3 +132,34 @@ Zusätzlich bleibt langfristig die vollständige Referenzliste pro gespeichertem
 Snapshot ein Wachstumsproblem. Der vorhandene opt-in `context_storage_v2`-
 Adapter ist nicht automatisch im produktiven LiveWorker aktiv. Ein bloßer
 Importwechsel ist keine freigegebene verlustlose Datenmigration.
+
+## Freigegebene QA-Auslagerung und Backup-Speicherfehler
+
+Der Nutzer hat die Auslagerung der alten inaktiven QA-Testdaten ausdrücklich
+bestätigt. Die vollständig lokal geprüfte Wiederherstellungskopie umfasst
+76.236 Einträge aus `/tmp/betboy-context-qa.9xr68INa`; nur dieses alte QA-Ziel
+und sein zusätzliches Transferarchiv wurden vom Server entfernt. Produktive
+Datenbanken und echte Backups bleiben unverändert. 18,9 GB freie Kapazität.
+
+Der normale Deployversuch für `b43c063` brach danach sicher vor Downtime ab:
+Die Manifest-Prüfung las jeden Datenbankeintrag mit `archive.read(info)`
+vollständig ein. Für die inzwischen ca. 1,4 GB große Kontextdatenbank schlug
+die Dekompressionsallokation unter dem 2-GiB-Limit fehl. Der Fix liest
+höchstens 1 MiB pro Block und prüft weiterhin vollständige Länge, SHA256,
+ZIP-CRC, SQLite, Abrechnung und HMAC. Keine Prüfung entfällt.
+
+Regression zuerst rot am unbeschränkten `.read()`, danach grün; ein echter
+Restore des unveränderten 527.483.057-Byte-Archivs besteht mit 89 Datenbanken,
+44,85 Sekunden und 32.904 KiB Peak-RSS. AS 2 GiB, CPU 300 s und Wall 600 s
+bleiben unverändert. Tests umfassen falsche Hashes, falsche Manifest-/ZIP-
+Größen und CRC-Fehler. Der bisherige Shell-Abschlusstest wird zusätzlich an
+die bereits vorhandene, geprüfte Work-Copy-Entfernung angepasst; seine alten
+Stubs fehlten für diesen später hinzugefügten Abschlussaufruf.
+
+Der installierte Updater pinnt den alten Prüfer. Sein kontrollierter Übergang
+darf nur die eine exakte Prüfsumme ändern, muss Vorgängerbytes root-privat
+erhalten und unter dem Deploy-Lock erfolgen. Keine allgemeinen Freigaben,
+höheren Ressourcenlimits, geänderten Services oder Datenmigrationen durch
+diesen Pin-Wechsel. Der normale Updater muss danach selbst neue vollständige
+Backups, Kontextprüfung, Migration und Healthchecks bestehen. Ein erfolgreicher
+QA-Restore allein ist ausdrücklich kein erfolgreicher Release-/Tennis-Lauf.

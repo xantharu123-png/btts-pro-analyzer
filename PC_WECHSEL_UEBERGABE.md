@@ -9,10 +9,22 @@ vorbereitete Prognosen, 33 neue Kontext-Snapshots veröffentlicht). NICHT als
 vollständig behoben übernehmen. Der Nachfolgepatch serialisiert vollständige
 Referenzlisten bytegleich mit begrenztem Inhaltscache; echte CPU-Kette
 7,67 → 4,82 s pro großem Beleg, 1.313 lokale und 314 Linux-Tests bestanden.
-Noch kein vollständiger Echtlauf dieses Nachfolgepatches. Sichere Deploy-
-Reserve: ca. 16,62 GB benötigt, 11,69 GB frei. Keine weitere QA-Datenbank/
-Sicherung löschen und kein Reserve-Gate umgehen. Weitere Freigabe zur
-Auslagerung inaktiver Testdaten oder zusätzlicher Serverplatz erforderlich.
+Noch kein vollständiger Echtlauf dieses Nachfolgepatches. Der Nutzer hat die
+zusätzliche QA-Auslagerung ausdrücklich freigegeben. Ausschließlich
+`/tmp/betboy-context-qa.9xr68INa` wurde nach voller lokaler Archivprüfung
+entfernt (76.236 Einträge); Recovery liegt dauerhaft in
+`.pytest_tmp/qa-recovery-20260914T1703/` der Reparatur-Arbeitskopie. Keine
+Produktivdatenbank und kein echtes Backup gelöscht. Rund 18,9 GB frei.
+Der anschließende Updater brach vor jeder App-Abschaltung an einer zweiten
+konkreten Ursache ab: `archive.read(info)` lud die 1,4-GB-Datenbank komplett
+in RAM. Streaming-Fix und exakte neue Helper-Prüfsumme sind vorbereitet.
+Das echte 89-DB-Archiv besteht mit dem Fix alle Restore-/Authentisierungs-
+prüfungen in 44,85 s / 32.904 KiB RSS unter unveränderten 2-GiB/300-s-Limits.
+Für den Übergang muss ausschließlich der exakte Helper-Pin des installierten
+Updaters atomar aktualisiert werden; Altdatei bleibt root-privat gesichert.
+Keine anderen Updaterregeln ändern. Danach normaler Updater und echter
+Tennis-Abschluss erforderlich; nicht vorzeitig als live übernehmen.
+Aktueller Ergebnisbericht: `output/playwright/qa-offload-deploy-20260914.md`.
 
 Ausgangspunkt `a1d15b6` auf allen Checkouts/GitHub/VPS bestätigt. Gezielte
 Reparatur der redundanten Referenz- und Modellprüfungen, der langen SQLite-

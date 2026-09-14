@@ -2114,13 +2114,20 @@ def _validate_embedded_manifest(
             raise RuntimeError("Backup manifest database entry is invalid")
         seen.add(record["path"])
         info = member_by_name[record["path"]]
-        payload = archive.read(info)
+        # Database members can exceed a GiB; verification must not allocate
+        # their full decompressed payload under the deployment memory limit.
+        checksum = hashlib.sha256()
+        bytes_read = 0
+        with archive.open(info) as source:
+            while chunk := source.read(1024 * 1024):
+                bytes_read += len(chunk)
+                checksum.update(chunk)
         if (
             record["backup_size"] != info.file_size
-            or len(payload) != info.file_size
+            or bytes_read != info.file_size
             or not hmac.compare_digest(
                 record["sha256"],
-                hashlib.sha256(payload).hexdigest(),
+                checksum.hexdigest(),
             )
         ):
             raise RuntimeError("Backup manifest database digest is invalid")
