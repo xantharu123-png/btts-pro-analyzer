@@ -205,7 +205,15 @@ def run_forecast_evidence_settlements(
     for (sport, event_key), group in sorted(grouped.items()):
         identities = {identity for identity, _ in group}
         if len(identities) != 1:
-            errors.append(f"{sport}:event_identity_ambiguous")
+            # Different recorded kickoff revisions do not imply changed teams
+            # or a reused provider ID. Neither revision can own a result here:
+            # keep all forecasts open without treating ordinary rescheduling
+            # as a technical failure. Any other identity change remains one.
+            schedule_only = sport == "football" and len({
+                identity[:3] + identity[4:] for identity in identities
+            }) == 1
+            code = "schedule_revision_unresolved" if schedule_only else "event_identity_ambiguous"
+            errors.append(f"{sport}:{code}")
             continue
         identity = next(iter(identities))
         events[sport].setdefault(identity, []).extend(row for _, row in group)

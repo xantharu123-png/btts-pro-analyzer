@@ -78,3 +78,25 @@ Gemeinsamer echter ATP-/WTA-Reader: 596.934 Zeilen, 220.488 ATP- und 302.279
 WTA-Referenzen in 258,05 s; 1.136.808 KiB Peak-RSS im isolierten Messprozess.
 Die WTA-Referenz- und Projektionsprüfsummen stimmen exakt mit dem separaten
 Reader überein. Dies ist kein MemoryPeak des gesamten produktiven Tageslaufs.
+
+## Echter Lauf und abschließender Terminfehler
+
+`fcc451f` wurde auf main gepusht und regulär deployed. Der explizite Tageslauf
+für den 15. September verarbeitete anschließend 58/58 Einträge in 778 s unter
+der unveränderten 900-s-Grenze. 56 frische Revisionen wurden gespeichert; zwei
+geänderte Gegnerzuordnungen blieben als Datenkonflikt mit Exit 1 sichtbar.
+Original 1419 und seine einzige Revision sind bytegleich zum Vorlauf. Kein
+vollständig gültiger Datenlauf, aber kein Timeout mehr. 733 gezielte Linux-
+Tests bestanden vor diesem Release; Zahlen nicht zu einer Vollsuite addieren.
+
+Die danach ausgeführte normale Wettfinder-Runde zeigte einen weiteren engen
+Fehlalarm: `football:1549774`, API-Football, Teams 1138/1126, hatte gespeicherte
+Anstoßzeiten 13.09. 01:15 UTC und 15.09. 01:00 UTC. Die Gruppierung behandelte
+diese reine Terminänderung als uneindeutige Spielidentität. Sie meldet jetzt
+auch hier `schedule_revision_unresolved`, wie beim schon vorhandenen Vergleich
+mit einer neuen Provider-Antwort. Voraussetzung: Alle übrigen Identitätsfelder
+stimmen exakt überein. Kein Ergebnis wird geraten/geschrieben; andere Spiele
+bleiben unabhängig abrechenbar. Veränderte Teams, Ausrichtung oder Provider-ID
+bleiben operative Fehler. Zwei neue Tests vor Änderung rot, anschließend 207
+gezielte Abrechnungs-/Wettfinder-Tests bestanden. Tatsächlichen Folge-Deploy im
+Releasebericht prüfen, nicht allein aus diesem lokalen Nachweis ableiten.

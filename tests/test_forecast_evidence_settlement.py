@@ -199,6 +199,59 @@ def test_rescheduled_event_does_not_prevent_exact_unrelated_football_result(tmp_
     assert provider.calls == [("details", (1, 2))]
 
 
+def test_multiple_recorded_start_times_are_unresolved_schedule_not_identity_failure(tmp_path, monkeypatch):
+    db = tmp_path / "evidence.db"
+    second = football_row(market="CORNERS_OVER_7_5")
+    second["scheduled_start"] = (START + timedelta(hours=1)).isoformat()
+    record(db, monkeypatch, [football_row(), second])
+    before = db.read_bytes()
+    provider = FootballProvider()
+    for _ in range(2):
+        summary = run(db, football_provider=provider)
+        assert summary["errors"] == ["football:schedule_revision_unresolved"]
+        assert summary["operational_error_count"] == 0
+        assert summary["terminal_results"] == 0
+        assert summary["unresolved_forecasts"] == 2
+        assert db.read_bytes() == before
+    assert provider.calls == []
+
+
+def test_multiple_recorded_start_times_do_not_block_an_unrelated_exact_result(tmp_path, monkeypatch):
+    db = tmp_path / "evidence.db"
+    second = football_row(market="CORNERS_OVER_7_5")
+    second["scheduled_start"] = (START + timedelta(hours=1)).isoformat()
+    record(db, monkeypatch, [football_row(), second, football_row(2)])
+    provider = FootballProvider()
+    summary = run(db, football_provider=provider)
+    assert summary["errors"] == ["football:schedule_revision_unresolved"]
+    assert summary["operational_error_count"] == 0
+    assert summary["terminal_results"] == 1
+    assert summary["unresolved_forecasts"] == 2
+    assert results(db)[0]["provenance"]["provider_event_id"] == "2"
+    assert provider.calls == [("details", (2,))]
+
+
+@pytest.mark.parametrize("mutation", ["home", "away", "provider_id", "orientation"])
+def test_recorded_schedule_changes_do_not_hide_different_native_identities(tmp_path, monkeypatch, mutation):
+    db = tmp_path / "evidence.db"
+    second = football_row(market="CORNERS_OVER_7_5")
+    second["scheduled_start"] = (START + timedelta(hours=1)).isoformat()
+    if mutation == "home": second["home_id"] = 99
+    if mutation == "away": second["away_id"] = 99
+    if mutation == "provider_id": second["provider_event_id"] = "2"
+    if mutation == "orientation": second.update(home_id=20, away_id=10)
+    record(db, monkeypatch, [football_row(), second])
+    before = db.read_bytes()
+    provider = FootballProvider()
+    summary = run(db, football_provider=provider)
+    assert summary["errors"] == ["football:event_identity_ambiguous"]
+    assert summary["operational_error_count"] == 1
+    assert summary["terminal_results"] == 0
+    assert summary["unresolved_forecasts"] == 2
+    assert provider.calls == []
+    assert db.read_bytes() == before
+
+
 def test_finite_budget_rotates_and_missing_causal_clocks_never_trigger_provider(tmp_path, monkeypatch):
     from forecast_evidence_settlement import run_forecast_evidence_settlements
     db = tmp_path / "evidence.db"
