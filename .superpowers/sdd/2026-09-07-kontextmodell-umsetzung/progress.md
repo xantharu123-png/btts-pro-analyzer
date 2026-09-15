@@ -1,5 +1,23 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Account continuation — 16 September 2026, 01:10 CEST
+
+Current ordered backlog: [TODO_AKTUELL.md](../../../TODO_AKTUELL.md).
+The entries below are historical evidence, not current deployment instructions.
+App commit `9659c49b2738d6a4c7b0fcc7442a9e8ecef3b665` is on local/main/VPS;
+storage cleanup is complete. Live-original Tennis training/evaluation support
+is implemented, with final affected 144-test suites passing on Windows/Linux.
+This does NOT finish empirical B/D acceptance or other sport adapters.
+
+Real Tennis job ended 16 September 00:50:22 CEST, exit 1: WTA download HTTPError
+and WTA event 183854 identity conflict. Scan finished in 850 seconds, 23 new
+predictions; context store has 450 originals but zero native Tennis outcomes.
+Separate Shadow settlement is not this data proof. Next reproduce the missing
+outcome path, fix WTA/identity, then qualify actual injury/load effects. No gate
+waiver, invented coefficients, Cricket work or repeated cleanup. Source/data/
+empirical/activation status must remain separate. See the current backlog and
+PC handoff for evidence and preserved inherited work.
+
 ## Actual A/B installation and post-data blocker — 10 September2026,12:25CEST
 
 Installed A655e7a6 then B2dd1116 through the existing trusted updater, both

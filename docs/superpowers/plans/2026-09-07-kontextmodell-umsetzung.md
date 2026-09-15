@@ -1,5 +1,10 @@
 # BetBoy Kontextmodell Implementation Plan
 
+**Fortsetzungsstatus 16.09.2026:** Aktuelle priorisierte Restarbeiten und reale
+Release-/Datenbefunde stehen in [TODO_AKTUELL.md](../../../TODO_AKTUELL.md).
+Dieser genehmigte Plan bleibt der Umfangs-/Abnahmevertrag; sein Ausgangsstand
+und alte Checkboxen sind keine aktuelle Behauptung, alles sei noch unbegonnen.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Verletzungen, Besetzung und Belastung in fünf Sportarten mit messbarer, zeitkorrekter Modellwirkung berücksichtigen und ATP/WTA unabhängig aktualisieren.

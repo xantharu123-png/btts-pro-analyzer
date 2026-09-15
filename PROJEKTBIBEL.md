@@ -2,6 +2,11 @@
 
 ## Status und Zweck
 
+**Account-Übergabe 16. September 2026:** Aktueller Arbeitsstand und offene
+Prioritäten: [TODO_AKTUELL.md](TODO_AKTUELL.md) und
+[PC_WECHSEL_UEBERGABE.md](PC_WECHSEL_UEBERGABE.md). Datierte Versions- und
+Abnahmeangaben weiter unten sind historisch, keine aktuelle Gesamterledigung.
+
 **Übernahmehinweis 7. September 2026:** Der folgende September-2-Stand ist historisch. Aktuelle Korrekturen und ausdrücklich offene Qualitätsnachweise stehen in `docs/audits/2026-09-05-umsetzung.md`; Release-Nachweise in `docs/audits/2026-09-07-release.md`. Der normale Wettfinder besitzt jetzt einen vollständigen, paginierten Modellpool ohne 15K-Eintrittskorridor. Preise verändern ihn nicht. Reale Kontextinformationen sind nicht automatisch validierte numerische Kontexteffekte; ein profitabler Wettvorteil ist nicht nachgewiesen.
 
 Stand: 2. September 2026

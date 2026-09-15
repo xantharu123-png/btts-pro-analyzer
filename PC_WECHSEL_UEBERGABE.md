@@ -1,14 +1,37 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Fortsetzung 15./16. September 2026 – wieder am App-Modell
+## Account-Wechsel 16. September 2026 – verbindlicher Einstieg
 
-Die Speicherbereinigung ist abgeschlossen (`5069e75`); nicht erneut beginnen.
-Aktueller Arbeitsschritt: echte gespeicherte Tennis-Siegprognosen, native
-Belastungsbelege und spätere Ergebnisse bis D1/D2 und Live-Effektauswahl
-verbinden. Details: `docs/audits/2026-09-15-tennis-live-training.md`.
-Dies ist ausdrücklich noch keine empirisch freigegebene Müdigkeitswirkung.
-Cricket bleibt ausgenommen; keine Quoten-/Einsatz-/Kontoregeln geändert.
-Release- und Tageslauf-Nachweise werden im zugehörigen Releasebericht erfasst.
+**Zuerst [TODO_AKTUELL.md](TODO_AKTUELL.md) lesen.** Dort stehen die aktuelle
+Reihenfolge, erledigte Arbeiten, Abnahmekriterien und vollständige Restliste.
+Die folgenden älteren Statusblöcke sind historische Nachweise; sie dürfen
+nicht erneut als aktuelle Blocker oder unerledigte Deployments übernommen werden.
+
+App-Code lokal/GitHub-main/VPS: `9659c49b2738d6a4c7b0fcc7442a9e8ecef3b665`;
+VPS und GitHub am 16.09. um 01:09 CEST erneut geprüft. Spätere reine
+Dokumentationscommits ändern diesen produktiven Funktionsstand nicht.
+Speicherbereinigung ist abgeschlossen (`5069e75`), Tennis-Live-Trainingsanbindung
+ist implementiert und live (`9d271c1`, `9659c49`). Keine empirisch freigegebene
+Verletzungs-/Müdigkeitswirkung daraus ableiten.
+
+Echter Tennisjob 00:35:59–00:50:22: **Exit 1**, Scan 850 s, 23 neue Predictions,
+40 zusätzliche Originalartefakte. WTA-Abruf weiterhin `HTTPError`, Datenstand
+26.07.; WTA-Event `183854` mit `FixtureIdentityConflict`. Im Kontextspeicher
+450 Tennis-Originale, aber 0 native Tennis-Endergebnisbelege. Die 39 separat
+abgerechneten Shadow-Finals sind kein Beleg für diesen neuen Trainingspfad.
+App/Caddy laufen; Healthchecks und acht geplante Timer nach Release geprüft.
+Timer deployen keinen Code. Kein neuer manueller Lauf gestartet.
+
+Nächstes: fehlenden Ergebnisübergang reproduzieren, WTA-Abruf/Spielzuordnung
+reparieren, dann echte Kontextwirkung und Auswahlqualität nachweisen.
+Cricket ausgenommen. Keine erneute Spezifikations-/Worktree-Freigabe nötig.
+Quoten, Geldkonten und Einsatzregeln nicht verändern.
+
+Tests: 545 breiterer Zwischenstand; final 144 betroffene Tests jeweils auf
+Windows und Linux. Kein finaler Gesamtsuiten- oder Modellqualitätsnachweis.
+Details: `docs/audits/2026-09-15-tennis-live-training.md`; tatsächlicher
+Releaseabschluss: `output/playwright/tennis-live-training-release-20260916.md`
+(bewusst ungetrackt im Reparatur-Worktree; Kernergebnisse in der To-do-Liste).
 
 ## Fortsetzung 15. September 2026 – echten Tennis-Timeout reparieren
 
