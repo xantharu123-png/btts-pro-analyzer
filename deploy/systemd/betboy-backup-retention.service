@@ -1,0 +1,26 @@
+[Unit]
+Description=Retain verified BetBoy daily backups and deployment recovery pairs
+Before=betboy-backup.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+RuntimeDirectory=betboy-deploy
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+ExecStart=/usr/bin/python3 -I -B /usr/local/libexec/betboy-retain-backups.py --apply
+UMask=0077
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/backups/betboy /var/backups/betboy-update /run/betboy-deploy
+InaccessiblePaths=/opt/betboy /etc/betboy
+NoNewPrivileges=true
+RestrictAddressFamilies=AF_UNIX
+TimeoutStartSec=30min
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

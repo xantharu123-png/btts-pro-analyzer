@@ -1,0 +1,10 @@
+[Unit]
+Description=Limit duplicate BetBoy backup storage daily
+
+[Timer]
+OnCalendar=*-*-* 04:20:00 Europe/Zurich
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
