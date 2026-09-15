@@ -1628,6 +1628,19 @@ def test_only_new_verified_duplicate_work_archive_is_discarded(content_data, tmp
         values["st_uid"] = 1000 if Path(path) == source else 0
         return SimpleNamespace(**values)
     content_data["file_info"] = simulated_principal
+    # Simulate the same principal at BOTH ends of the actual descriptor check.
+    # On an unprivileged Linux test account, fstat otherwise retains that real
+    # uid while file_info above claims uid 0. Keep every other stat field real.
+    native_os = content_data["os"]
+    source_identity = (source.stat().st_dev, source.stat().st_ino)
+    def descriptor_principal(fd):
+        info = native_os.fstat(fd)
+        values = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+        values["st_uid"] = 1000 if (info.st_dev, info.st_ino) == source_identity else 0
+        return SimpleNamespace(**values)
+    content_data["os"] = SimpleNamespace(**{
+        name: descriptor_principal if name == "fstat" else getattr(native_os, name)
+        for name in dir(native_os)})
     receipt = stage / "backup-online-production.log"
     before = simulated_principal(source)
     receipt.write_text(json.dumps({"path": str(source), "size": before.st_size,

@@ -63,3 +63,18 @@ Breiter lokaler Kontext-/Tennislauf vor diesem letzten gemeinsamen Reader:
 CLI-Unterprozess an fehlenden gebündelten SciPy-Abhängigkeiten (sein `-I`
 ignoriert den lokalen PYTHONPATH). Ein weiterer Workspace-Prüffall ist
 gesondert zu untersuchen. Nicht als grüne Vollsuite ausweisen.
+
+Nachprüfung: der Workspace-Test setzte bei zwei schnellen gleich großen NTFS-
+Schreibvorgängen unzulässig verschiedene Zeitstempel voraus. Sein ausdrücklich
+nur Metadaten prüfender, extern versiegelte Dateien voraussetzender Owner bleibt
+unverändert; die Fixture setzt jetzt deterministisch den geänderten Zeitstempel.
+Die Linux-DAC-Simulation des engen Aufräumtests wird auch beim tatsächlichen
+`fstat` konsistent simuliert, nicht nur beim Pfadstat. Kein Produktivschutz
+geändert. QA-Archive werden mit `git -c core.autocrlf=false archive` erzeugt:
+sonst konvertiert der Windows-Export Pythondateien und verletzt die unveränderten
+Pins der Linux-Helfer. Die tatsächlichen installierten Pins waren korrekt.
+
+Gemeinsamer echter ATP-/WTA-Reader: 596.934 Zeilen, 220.488 ATP- und 302.279
+WTA-Referenzen in 258,05 s; 1.136.808 KiB Peak-RSS im isolierten Messprozess.
+Die WTA-Referenz- und Projektionsprüfsummen stimmen exakt mit dem separaten
+Reader überein. Dies ist kein MemoryPeak des gesamten produktiven Tageslaufs.

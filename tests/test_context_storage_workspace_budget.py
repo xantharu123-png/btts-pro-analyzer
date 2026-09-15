@@ -93,12 +93,18 @@ def test_external_input_must_remain_bound(workspace, tmp_path, kind):
     directory, _space = workspace
     original = tmp_path / "input"
     original.write_bytes(b"original")
+    initial = original.stat()
     budget = plan(directory, external_inputs=[owner.ExternalInput(original)])
     if kind == "replacement":
         original.rename(tmp_path / "preserved-original")
         original.write_bytes(b"original")
     else:
         original.write_bytes(b"changed!" if kind == "different-bytes" else b"original!")
+        if kind == "different-bytes":
+            # This owner checks sealed-input metadata, not content hashes.
+            # Consecutive NTFS writes can share the same timestamp; make this
+            # metadata-change fixture deterministic without sleeping.
+            os.utime(original, ns=(initial.st_atime_ns, initial.st_mtime_ns + 2_000_000_000))
     with pytest.raises(StorageIntegrityError, match="external"):
         budget.check_quiescent()
 
