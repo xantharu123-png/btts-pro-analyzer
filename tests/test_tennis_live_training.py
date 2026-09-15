@@ -335,3 +335,22 @@ def test_mixed_football_and_live_tennis_inventory_keeps_replay_owners_separate(t
             target.executemany(f"INSERT INTO {table} VALUES ({slots})", rows)
     result = verify_context_database(db)
     assert result["empirical_approval_verified"] is False
+
+
+def test_unavailable_context_is_preserved_as_an_explicit_training_exclusion(tmp_path):
+    from context_models.tennis_training import build_live_training_case
+    db, originals, outcomes, identity, built = packet(tmp_path)
+    raw = competition(id="1000", date=canonical_timestamp(NOW-timedelta(hours=52)))
+    raw["competitors"][0]["id"], raw["competitors"][1]["id"] = "100", "5000"
+    raw["status"]["type"].update(state="in", name="STATUS_IN_PROGRESS", completed=False)
+    received = NOW-timedelta(hours=1)
+    for record in normalize_tennis_status("ATP", "189-2026", raw,
+            grouping_slug="mens-singles", observed_at=received):
+        append_observation(db, record, observed_at=received)
+    config = live_config()
+    case = build_live_training_case(db, original_ref=originals[0], outcome_ref=outcomes[0],
+        identity_ref=identity, config=config, as_of=built)
+    assembly = assemble_training_cases((case,), config)
+    assert assembly["canonical_events"] == 0 and len(assembly["excluded"]) == 1
+    assert assembly["excluded"][0]["case_hash"] == case["case"]["digest"]
+    assert assembly["excluded"][0]["reason"] == "feature_coverage_outside_frozen_cohort"

@@ -33,15 +33,15 @@ def relevant_receipts(connection, event, cutoff):
     """
     clock = canonical_timestamp(cutoff)
     keys = {event["event_key"]}
-    params = (clock, event["tour"], event["home_id"], event["away_id"])
+    params = {"cutoff": clock, "tour": event["tour"], "home": event["home_id"], "away": event["away_id"]}
     query = """SELECT DISTINCT r.event_key FROM context_observations r
         JOIN context_contents c ON c.content_digest=r.content_digest
-        WHERE r.source='espn' AND r.kind IN ('event_status','workload') AND r.observed_at<=?1
-        AND json_extract(CAST(c.payload AS TEXT),'$.payload.tour')=?2
-        AND (json_extract(CAST(c.payload AS TEXT),'$.payload.player_id') IN (?3,?4)
-          OR json_extract(CAST(c.payload AS TEXT),'$.payload.opponent_id') IN (?3,?4)
+        WHERE r.source='espn' AND r.kind IN ('event_status','workload') AND r.observed_at<=:cutoff
+        AND json_extract(CAST(c.payload AS TEXT),'$.payload.tour')=:tour
+        AND (json_extract(CAST(c.payload AS TEXT),'$.payload.player_id') IN (:home,:away)
+          OR json_extract(CAST(c.payload AS TEXT),'$.payload.opponent_id') IN (:home,:away)
           OR EXISTS (SELECT 1 FROM json_each(CAST(c.payload AS TEXT),'$.payload.participant_ids')
-                     WHERE value IN (?3,?4)))"""
+                     WHERE value IN (:home,:away)))"""
     keys.update(row[0] for row in connection.execute(query, params))
     selected = []
     for key in sorted(keys):
@@ -183,4 +183,11 @@ def build_live_training_case(path, *, original_ref, outcome_ref, identity_ref, c
         outcome.update(effective_at=outcome["observed_at"], evidence_class="prospective", publication_resolution=None)
         case = {"kind": "context-training-case-v1", "payload": payload}
         resolved = {"case": {"digest": digest(case), **case}, "artifacts": artifacts, "observations": history+(outcome,)}
-        return validate_resolved_case(resolved, config=config)
+        try:
+            return validate_resolved_case(resolved, config=config)
+        except ReplayUnavailable:
+            # Keep a structurally verified original with insufficient context
+            # in the requested inventory. D1 records the explicit exclusion;
+            # D2 treats an unavailable ready case as a failure, not a favorable
+            # silently smaller holdout. Integrity errors are never swallowed.
+            return deepcopy(resolved)
