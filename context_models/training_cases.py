@@ -61,6 +61,10 @@ def _validate_case(resolved: dict, *, config: dict) -> dict:
     decision = base["cutoff"]
     # No freely supplied source/state mapping may open this real replay path.
     if event["sport"] == "tennis":
+        from context_models.tennis_live import BASE_VERSION
+        if base["version"] == BASE_VERSION:
+            from context_models.tennis_training import validate_live_training_case
+            return validate_live_training_case(resolved, config=config, payload=payload)
         raise ReplayUnavailable("native_to_state_key_source_resolver_unavailable")
     artifacts = resolved["artifacts"]
     if type(artifacts) is not dict:

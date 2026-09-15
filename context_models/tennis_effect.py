@@ -172,11 +172,17 @@ def _mirror_heads(artifact: dict) -> None:
 
 
 def _prepare(base: dict, features: dict, artifact: dict, event: dict):
+    from context_models.tennis_live import BASE_VERSION as LIVE_BASE, TRAINING_VARIANT, validate_live_winner_origin
     original = validate_base_distribution(base)
     event = validate_event(event)
     features = validate_feature_vector(features)
     artifact = validate_effect_artifact(artifact)
     family = original["family"]
+    live = original["version"] == LIVE_BASE
+    if live:
+        validate_live_winner_origin(base, event)
+        if features["version"] != STATUS_FEATURE_VERSION:
+            raise ContextModelError("live original requires its explicit status-aware training law")
     if family not in {"tennis:winner", "tennis:serve"} or artifact["family"] != family:
         raise ContextModelError("tennis effect and original family differ")
     if original["version"].startswith(COMPARISON_VERSION):
@@ -190,7 +196,7 @@ def _prepare(base: dict, features: dict, artifact: dict, event: dict):
         coverage_version, coverage_cases = "tennis-performed-load-coverage-v1", _COVERAGE_CASES
     elif features["version"] == STATUS_FEATURE_VERSION:
         reference_hash = tennis_reference_hash_v3(original, event)
-        expected_variant = STATUS_WINNER_VARIANT if family == "tennis:winner" else STATUS_SERVE_VARIANT
+        expected_variant = TRAINING_VARIANT if live else STATUS_WINNER_VARIANT if family == "tennis:winner" else STATUS_SERVE_VARIANT
         coverage_version = STATUS_COVERAGE_VERSION
         coverage_cases = {mode + "." + case for mode in
             ("status-paired", "legacy-only", "mixed-status-legacy") for case in _COVERAGE_CASES}
@@ -208,7 +214,7 @@ def _prepare(base: dict, features: dict, artifact: dict, event: dict):
             or not event_in_population(event, artifact["population"])):
         raise ContextModelError("tennis effect population or singles format mismatch")
     if (event.get("tour") not in {"ATP", "WTA"} or artifact["population"]["tours"] != [event["tour"]]
-            or event.get("surface") not in {"Hard", "Clay", "Grass", "Carpet"}
+            or event.get("surface") not in ({None} if live else {"Hard", "Clay", "Grass", "Carpet"})
             or artifact["population"]["surfaces"] != [event["surface"]]
             or artifact["population"]["indoor"] != [event.get("indoor")]):
         raise ContextModelError("tennis effect requires separately scoped tour/surface/environment")

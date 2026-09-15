@@ -16,6 +16,7 @@ BASE_VERSION = "tennis-live-calibrated-winner-v1"
 ORIGIN_KIND = "tennis-live-winner-origin-v1"
 ORIGINAL_ARTIFACT_KIND = "tennis-live-winner-original-v1"
 SIDECAR_KIND = "tennis-live-winner-context-v1"
+TRAINING_VARIANT = "tennis-live-winner-status-load-antisymmetric-v1"
 CODE_PATHS = ("tennis/predict.py", "tennis/model_state.py", "tennis/elo.py",
               "tennis/serve_model.py", "tennis/simulator.py", "tennis/data_loader.py")
 MARKETS = {"A": "winner_a", "B": "winner_b"}

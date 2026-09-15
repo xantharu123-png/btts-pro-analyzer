@@ -272,6 +272,9 @@ def _headers(connection, plan):
             if (key in finals or expected is None or item["decision_at"] != expected["decision_at"]
                     or config["sport"] != "tennis" or not event_in_population(expected["event"], config["population"])):
                 raise ContextIntegrityError("unavailable native state-key capability is not derivable from this frozen scope")
+            from context_models.tennis_live import BASE_VERSION as LIVE_BASE
+            if config["base_versions"] == [LIVE_BASE]:
+                raise ContextIntegrityError("live-original training cannot claim the unrelated historical-state replay gap")
             from context_models.replay import ReplayUnavailable, replay_code_hashes
             try:
                 replay_code_hashes(config["sport"])
@@ -356,18 +359,27 @@ def resolve_case(connection, item, *, config, plan, latest):
     case = _artifact(connection, item["case_ref"], CASE_KIND, latest=plan["created_at"])
     payload = case_header({"case": case, "artifacts": {}, "observations": ()}, config=config)
     decision = payload["base"]["cutoff"]
-    replay = _artifact(connection, payload["replay_ref"], "context-base-replay-v1", latest=_artifact_created_at(connection, case["digest"]))
-    recipe_ref = require_digest(replay["payload"].get("recipe_hash"), "original replay recipe")
-    refs = {payload["event_identity_hash"]: "context-native-identity-map-v1", recipe_ref: "context-base-replay-recipe-v1"}
-    refs.update({ref: "football-participation-v1" for ref in payload["preprocessing_refs"]})
-    artifacts = {ref: _artifact(connection, ref, kind, latest=_artifact_created_at(connection, case["digest"]))
-                 for ref, kind in refs.items()}
-    artifacts[replay["digest"]] = replay
-    if replay["payload"].get("reconstructed_at", latest) > _artifact_created_at(connection, replay["digest"]):
-        raise ContextIntegrityError("replay was stored before its claimed actual reconstruction")
-    recipe = artifacts[recipe_ref]["payload"]
-    if recipe.get("code_revision") != plan["code_revision"]:
-        raise ContextIntegrityError("original source replay revision differs from frozen experiment code")
+    from context_models.tennis_live import BASE_VERSION as LIVE_BASE
+    live = payload["base"]["version"] == LIVE_BASE
+    if live:
+        from context_models.tennis_training import live_case_artifacts, relevant_receipts
+        artifacts = live_case_artifacts(connection, payload, latest=_artifact_created_at(connection, case["digest"]))
+        expected = {row["digest"] for row in relevant_receipts(connection, payload["event"], decision)}
+        if set(item["observation_refs"]) != expected | {payload["outcome_ref"]}:
+            raise ContextIntegrityError("live case omits or adds a causal participant/source revision")
+    else:
+        replay = _artifact(connection, payload["replay_ref"], "context-base-replay-v1", latest=_artifact_created_at(connection, case["digest"]))
+        recipe_ref = require_digest(replay["payload"].get("recipe_hash"), "original replay recipe")
+        refs = {payload["event_identity_hash"]: "context-native-identity-map-v1", recipe_ref: "context-base-replay-recipe-v1"}
+        refs.update({ref: "football-participation-v1" for ref in payload["preprocessing_refs"]})
+        artifacts = {ref: _artifact(connection, ref, kind, latest=_artifact_created_at(connection, case["digest"]))
+                     for ref, kind in refs.items()}
+        artifacts[replay["digest"]] = replay
+        if replay["payload"].get("reconstructed_at", latest) > _artifact_created_at(connection, replay["digest"]):
+            raise ContextIntegrityError("replay was stored before its claimed actual reconstruction")
+        recipe = artifacts[recipe_ref]["payload"]
+        if recipe.get("code_revision") != plan["code_revision"]:
+            raise ContextIntegrityError("original source replay revision differs from frozen experiment code")
     observations = []
     for ref in item["observation_refs"]:
         row = _receipt(connection, ref)

@@ -1,5 +1,15 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Fortsetzung 15./16. September 2026 – wieder am App-Modell
+
+Die Speicherbereinigung ist abgeschlossen (`5069e75`); nicht erneut beginnen.
+Aktueller Arbeitsschritt: echte gespeicherte Tennis-Siegprognosen, native
+Belastungsbelege und spätere Ergebnisse bis D1/D2 und Live-Effektauswahl
+verbinden. Details: `docs/audits/2026-09-15-tennis-live-training.md`.
+Dies ist ausdrücklich noch keine empirisch freigegebene Müdigkeitswirkung.
+Cricket bleibt ausgenommen; keine Quoten-/Einsatz-/Kontoregeln geändert.
+Release- und Tageslauf-Nachweise werden im zugehörigen Releasebericht erfasst.
+
 ## Fortsetzung 15. September 2026 – echten Tennis-Timeout reparieren
 
 Der echte Lauf auf `ab27535` endete nach 900 Sekunden unvollständig.

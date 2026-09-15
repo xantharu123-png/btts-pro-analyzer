@@ -155,7 +155,7 @@ def test_persisted_foreign_tour_revision_blocks_even_when_parent_tour_matches(mo
 
 def fitted_catalog(db, monkeypatch, *, count=1, extra_slots=None, wrong_surface=False):
     from context_models.tennis_v3 import FEATURE_VERSION
-    from context_models.tennis_effect import STATUS_WINNER_VARIANT
+    from context_models.tennis_live import TRAINING_VARIANT
     from model_artifacts import load_manifest, publish_slots, put_artifact
     from test_tennis_context_model import artifact, features
     from tennis.live_context import _event
@@ -168,7 +168,7 @@ def fitted_catalog(db, monkeypatch, *, count=1, extra_slots=None, wrong_surface=
     fake_features["coverage"] = {"version": "tennis-performed-load-coverage-v2", "case":
         "no-history.observed-only.missing-rest.no-history"}
     fitted = artifact(original, fake_features, ev)
-    fitted.update(feature_version=FEATURE_VERSION, model_variant=STATUS_WINNER_VARIANT)
+    fitted.update(feature_version=FEATURE_VERSION, model_variant=TRAINING_VARIANT)
     if wrong_surface: fitted["population"]["surfaces"] = ["Hard"]
     slots, refs = {}, []
     for index in range(count):

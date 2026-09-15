@@ -42,6 +42,10 @@ def implementation_hashes():
         "context_models/training.py", "context_models/training_cases.py", "context_models/experiments.py",
         "context_models/football.py", "context_models/football_effect.py", "context_models/tennis.py",
         "context_models/tennis_effect.py", "context_models/offset.py", "model_loss_statistics.py", "tennis/simulator.py",
+        "context_models/tennis_live.py", "context_models/tennis_training.py", "context_models/tennis_v3.py",
+        "context_runtime_tennis.py", "context_sources/tennis_status.py", "context_sources/tennis.py",
+        "tennis/predict.py", "tennis/model_state.py", "tennis/elo.py", "tennis/serve_model.py",
+        "tennis/data_loader.py", "tennis/tour_state.py", "tennis/state_codec.py",
     }
     return {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in sorted(names)}
 

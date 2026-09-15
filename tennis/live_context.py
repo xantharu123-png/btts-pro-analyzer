@@ -88,7 +88,8 @@ class _Inventory:
                 self.approvals[effect_hash] = envelope
 
     def select(self, event, base, features):
-        from context_models.tennis_effect import STATUS_WINNER_VARIANT, _prepare
+        from context_models.tennis_effect import _prepare
+        from context_models.tennis_live import TRAINING_VARIANT
         cutoff = base["cutoff"]
         if self.publication is None or self.publication > cutoff:
             return None, None, None, "no-predecision-effect-manifest"
@@ -99,7 +100,7 @@ class _Inventory:
                     and effect["family"] == base["family"] and effect["sport"] == "tennis"
                     and effect["feature_version"] == features["version"]
                     and effect["coverage"] == features["coverage"]
-                    and effect["model_variant"] == STATUS_WINNER_VARIANT
+                    and effect["model_variant"] == TRAINING_VARIANT
                     and event_in_population(event, effect["population"])):
                 matches.append((ref, envelope))
         if len(matches) != 1:

@@ -119,21 +119,28 @@ def validate_family_config(config: dict) -> dict:
         from context_models.tennis_effect import (
             SERVE_BASE_VERSION, SERVE_VARIANT, WINNER_VARIANT, _COVERAGE_CASES, _FEATURES,
         )
+        from context_models.tennis_live import BASE_VERSION as LIVE_BASE, TRAINING_VARIANT
+        from context_models.tennis_v3 import FEATURE_VERSION as LIVE_FEATURE, COVERAGE_VERSION as LIVE_COVERAGE
         serve = family == "tennis:serve"
+        live = not serve and row["base_versions"] == [LIVE_BASE]
         population = row["population"]
-        allowed_formats = {"singles_best_of_3", "singles_best_of_5"} | (set() if serve else {"singles"})
-        if (row["feature_version"] != "tennis-performed-load-v2"
-                or row["reference_version"] != "tennis-context-reference-v2"
-                or row["model_variant"] != (SERVE_VARIANT if serve else WINNER_VARIANT)
-                or row["base_versions"] != [SERVE_BASE_VERSION if serve else TENNIS_WINNER_BASE]
+        allowed_formats = {"singles"} if live else {"singles_best_of_3", "singles_best_of_5"} | (set() if serve else {"singles"})
+        coverage_cases = {mode+"."+case for mode in ("status-paired", "legacy-only", "mixed-status-legacy")
+                          for case in _COVERAGE_CASES} if live else _COVERAGE_CASES
+        environment_ok = (population["surfaces"] == [None] and population["indoor"] == [None]) if live else (
+            len(population["surfaces"]) == 1 and population["surfaces"][0] in {"Hard", "Clay", "Grass", "Carpet"}
+            and len(population["indoor"]) == 1 and type(population["indoor"][0]) is bool)
+        if (row["feature_version"] != (LIVE_FEATURE if live else "tennis-performed-load-v2")
+                or row["reference_version"] != ("tennis-context-reference-v3" if live else "tennis-context-reference-v2")
+                or row["model_variant"] != (TRAINING_VARIANT if live else SERVE_VARIANT if serve else WINNER_VARIANT)
+                or row["base_versions"] != [LIVE_BASE if live else SERVE_BASE_VERSION if serve else TENNIS_WINNER_BASE]
                 or row["head_links"] != ({"hold_a": "logit", "hold_b": "logit"} if serve else {"winner": "logit"})
                 or row["outcome_contract"] != ("tennis-completed-serve-v1" if serve else "tennis-completed-winner-v1")
                 or row["preprocessing_artifacts"] or not set(population["formats"]) <= allowed_formats
                 or len(population["tours"]) != 1 or population["tours"][0] not in {"ATP", "WTA"}
-                or len(population["surfaces"]) != 1 or population["surfaces"][0] not in {"Hard", "Clay", "Grass", "Carpet"}
-                or len(population["indoor"]) != 1 or type(population["indoor"][0]) is not bool
-                or row["coverage"]["version"] != "tennis-performed-load-coverage-v1"
-                or row["coverage"]["case"] not in _COVERAGE_CASES):
+                or not environment_ok
+                or row["coverage"]["version"] != (LIVE_COVERAGE if live else "tennis-performed-load-coverage-v1")
+                or row["coverage"]["case"] not in coverage_cases):
             raise ContextContractError("unreviewed or mixed tennis fitting/replay law")
         if any(name not in _FEATURES or (not serve and _FEATURES[name][1] != "delta") for name in row["feature_names"]):
             raise ContextContractError("tennis feature vocabulary violates the owning mirrored law")
@@ -242,6 +249,11 @@ def resolve_identity_map(envelope: dict, *, observations: tuple[dict, ...],
                 payload = validate_workload_record(row)
                 if {payload["player_id"], payload["opponent_id"]} != {binding["home_id"], binding["away_id"]}:
                     raise ContextIntegrityError("native tennis participants differ from dataset identity")
+            elif row["sport"] == "tennis" and row["kind"] == "event_status":
+                from context_sources.tennis_status import validate_selected_tennis_receipt
+                validate_selected_tennis_receipt(row)
+                if row["payload"]["participant_ids"] != [binding["home_id"], binding["away_id"]]:
+                    raise ContextIntegrityError("native tennis orientation differs from dataset identity")
             else:
                 raise ContextContractError("there is no owning native identity resolver for this receipt")
     return result

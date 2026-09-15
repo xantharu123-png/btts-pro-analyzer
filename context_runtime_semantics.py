@@ -145,12 +145,17 @@ def _case_shape(connection, ref, payload, *, configs, actual):
     # not the later case creation; this inspects no source/label body.
     for receipt in sorted({r for refs in features["refs"].values() for r in refs}):
         _physical_ref(connection, receipt, latest=features["cutoff"])
-    replay = _artifact(connection, payload["replay_ref"], "context-base-replay-v1", latest=actual)["payload"]
+    from context_models.tennis_live import BASE_VERSION as LIVE_BASE
+    if base["version"] == LIVE_BASE:
+        from context_models.tennis_training import live_case_artifacts
+        live_case_artifacts(connection, payload, latest=actual)
+    else:
+        replay = _artifact(connection, payload["replay_ref"], "context-base-replay-v1", latest=actual)["payload"]
+        if (replay.get("base") != base or replay.get("event_hash") != digest(event)
+                or replay.get("event_identity_hash") != payload["event_identity_hash"]
+                or replay.get("logical_training_cutoff") != base["cutoff"]):
+            raise ContextIntegrityError("stored case and referenced original replay differ")
     _artifact(connection, payload["event_identity_hash"], "context-native-identity-map-v1", latest=actual)
-    if (replay.get("base") != base or replay.get("event_hash") != digest(event)
-            or replay.get("event_identity_hash") != payload["event_identity_hash"]
-            or replay.get("logical_training_cutoff") != base["cutoff"]):
-        raise ContextIntegrityError("stored case and referenced original replay differ")
     refs = require_list(payload["preprocessing_refs"], "case preprocessing")
     if refs != sorted(set(require_digest(r) for r in refs)):
         raise ContextIntegrityError("case preprocessing references are not canonical")
@@ -322,7 +327,7 @@ def verify_d2_artifacts(connection, artifacts, created_at, limitations):
             mapped = validate_identity_map({"digest": ref, **envelope})
             refs = sorted({r for b in mapped["payload"]["bindings"] for r in b["source_refs"]})
             for receipt in refs:
-                _physical_ref(connection, receipt, latest=actual, kinds={"base_fixture", "performed_match"})
+                _physical_ref(connection, receipt, latest=actual, kinds={"base_fixture", "performed_match", "event_status"})
             resolve_identity_map(mapped, observations=tuple(_selected_receipt(connection, r) for r in refs))
         elif kind == "context-base-replay-recipe-v1":
             _recipe({"digest": ref, **envelope}, sport=payload.get("sport"))
@@ -439,7 +444,8 @@ def verify_d2_artifacts(connection, artifacts, created_at, limitations):
             # This includes unopened finals; headers/refs were checked above.
             limitations.add("d1-case-owning-replay-unavailable")
         elif kind in {"context-base-replay-v1", "context-base-replay-recipe-v1"}:
-            linked = {known[c]["payload"]["replay_ref"] for c in case_owners}
+            linked = {known[c]["payload"]["replay_ref"] for c in case_owners
+                      if artifacts[known[c]["payload"]["replay_ref"]]["kind"] == "context-base-replay-v1"}
             if kind == "context-base-replay-recipe-v1":
                 linked = {artifacts[r]["payload"]["recipe_hash"] for r in linked}
             if ref not in linked:
