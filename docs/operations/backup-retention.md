@@ -20,6 +20,10 @@ It changes no app data, predictions, settlement rules or backup formats.
 
 ## Scheduling and deployment
 
+Maintenance units live in `deploy/maintenance`, deliberately outside the
+updater's exactly-seven application-worker inventory in `deploy/systemd`.
+They receive no application environment or live-database access.
+
 Install the reviewed script as root:root 0755 at
 `/usr/local/libexec/betboy-retain-backups.py`, and the two matching unit files
 as root:root 0644 in `/etc/systemd/system`. Check `systemd-analyze verify`, reload

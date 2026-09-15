@@ -196,7 +196,7 @@ def test_unsafe_recognized_file_is_rejected(tmp_path, kind):
 
 
 def test_service_serializes_backup_start_and_keeps_original_units_unmodified():
-    base = SOURCE.parents[1] / "deploy" / "systemd"
+    base = SOURCE.parents[1] / "deploy" / "maintenance"
     service = (base / "betboy-backup-retention.service").read_text()
     assert "Before=betboy-backup.service" in service
     assert "Type=oneshot" in service
@@ -205,6 +205,16 @@ def test_service_serializes_backup_start_and_keeps_original_units_unmodified():
     assert "InaccessiblePaths=/opt/betboy /etc/betboy" in service
     assert "/usr/local/libexec/betboy-retain-backups.py --apply" in service
     assert "Europe/Zurich" in (base / "betboy-backup-retention.timer").read_text()
+
+
+def test_maintenance_does_not_expand_the_pinned_application_worker_inventory():
+    root = SOURCE.parents[1]
+    # Mirror the installed updater's context configuration classification.
+    runtime_units = [path for path in (root / "deploy" / "systemd").glob("betboy-*.service")
+                     if path.name != "betboy-backup.service"]
+    assert len(runtime_units) == 7
+    assert all("EnvironmentFile=-/etc/betboy/betboy.env" in path.read_text() for path in runtime_units)
+    assert not any("retention" in path.name for path in runtime_units)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="flock is Linux-only")
