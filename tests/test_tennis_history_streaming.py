@@ -65,3 +65,32 @@ def test_other_tour_and_future_corruption_still_fail(tmp_path, tour, clock):
         con.execute("UPDATE context_observations SET event_key='hidden:corruption'")
     with pytest.raises(ContextIntegrityError):
         tennis_status.tennis_observations_as_of(path, cutoff=NOW, tour="ATP", prepared=True)
+
+
+def test_physical_projection_checks_each_source_tail_once(tmp_path, monkeypatch):
+    path = tmp_path/"db"
+    seed(path)
+    calls = []
+    actual = tennis_status._validate_tennis_source_tail
+    def counted(row, raw):
+        calls.append(row["digest"])
+        return actual(row, raw)
+    monkeypatch.setattr(tennis_status, "_validate_tennis_source_tail", counted)
+    with sqlite3.connect(path) as con:
+        count = con.execute("SELECT COUNT(*) FROM context_observations").fetchone()[0]
+    tennis_status.tennis_observations_as_of(path, cutoff=NOW, tour="ATP", prepared=True)
+    assert len(calls) == count and len(set(calls)) == count
+
+
+def test_physically_rehashed_invalid_native_source_is_not_admitted(tmp_path):
+    from context_observations import append_observation_batch
+    from context_models.contracts import ContextContractError
+    from copy import deepcopy
+    path = tmp_path/"db"
+    clock = NOW-timedelta(hours=1)
+    row = deepcopy(records(competition(), clock=clock)[0])
+    row["payload"]["competition_revision"] = "0"*64
+    append_observation_batch(path, ((row, clock),))
+    for prepared in (False, True):
+        with pytest.raises(ContextContractError):
+            tennis_status.tennis_observations_as_of(path, cutoff=NOW, tour="ATP", prepared=prepared)

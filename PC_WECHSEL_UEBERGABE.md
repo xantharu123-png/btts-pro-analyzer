@@ -1,5 +1,15 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Fortsetzung 15. September 2026 – echten Tennis-Timeout reparieren
+
+Der echte Lauf auf `ab27535` endete nach 900 Sekunden unvollständig.
+Nicht erneut als vollständig repariert melden. Die nachfolgende CPU-
+Reparatur und ihre lokalen Nachweise stehen in
+`docs/audits/2026-09-15-tennis-cpu-repair.md`. Linux-Leistung und vollständiger
+Produktionslauf müssen separat bestätigt werden; siehe den jeweils neuesten
+Releasebericht unter `output/playwright/`. Historische Berichte unten sind
+keine aktuellen Deployment- oder Gesamterfolgsnachweise.
+
 ## Aktueller Auftrag 14./15. September 2026 – Speicher und Tennis-Abschluss
 
 Die Speicherreparatur ist auf dem VPS live: regulärer Updater für

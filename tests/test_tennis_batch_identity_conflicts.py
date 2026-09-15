@@ -64,6 +64,13 @@ def test_daily_main_keeps_nonzero_partial_result_after_finishing_other_predictio
 
     assert daily.main() == 1
     output = capsys.readouterr().out
+    import json
+    progress = [json.loads(line.split(": ", 1)[1]) for line in output.splitlines()
+                if line.startswith("Tennis-Abschluss: ")]
+    assert [row["phase"] for row in progress] == [
+        "history", "history_ready", "prepare", "prepared", "published", "published", "complete"]
+    assert progress[0]["total"] == progress[-1]["total"] == 2
+    assert progress[-2]["processed"] == 2
     assert "Nach Datenempfang gespeichert: 1" in output
     assert "fixture_identity_conflict" in output
     assert len(shadow.latest_predictions(predictions, as_of=moment+timedelta(seconds=1))) == 2

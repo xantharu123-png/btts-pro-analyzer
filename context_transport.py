@@ -8,6 +8,7 @@ Consumer projection does no source lookup, fitting or model recalculation.
 from copy import deepcopy
 from datetime import datetime
 from heapq import merge
+from bisect import bisect_left
 
 from context_models.contracts import (
     ContextContractError, ContextIntegrityError, event_in_population,
@@ -20,6 +21,8 @@ from context_snapshots import (
     _finite_json, _payload_digest, _verified_payload, select_context_result, snapshot_key,
 )
 from context_json import canonical_context_bytes as canonical_bytes, context_digest as digest
+from context_json import copy_context_payload
+from context_reference_sets import sorted_reference_set
 
 
 KIND = "context-worker-snapshot-v1"
@@ -32,10 +35,7 @@ _BASE_KEYS = {"version", "model_hash", "event_key", "cutoff", "family", "params"
 
 def _refs(value, label):
     require_list(value, label)
-    for ref in value:
-        require_digest(ref, label)
-    if any(left >= right for left, right in zip(value, value[1:])):
-        raise ContextContractError(f"{label} must be sorted and unique")
+    return sorted_reference_set(value, label)
 
 
 def _original_event(ev, original, kind):
@@ -123,9 +123,8 @@ def _inputs(payload, *, replay_base=True):
     if (ev["event_key"] != original["event_key"] or feats["event_key"] != ev["event_key"]
             or feats["cutoff"] != original["cutoff"] or original["family"].split(":")[0] != ev["sport"]):
         raise ContextIntegrityError("worker event/base/features do not share a revision")
-    for key in ("observation_refs", "preprocessing_refs"):
-        _refs(payload[key], key)
-    observed_refs = set(payload["observation_refs"])
+    observed_refs = _refs(payload["observation_refs"], "observation_refs")
+    _refs(payload["preprocessing_refs"], "preprocessing_refs")
     if any(not set(refs) <= observed_refs for refs in feats["refs"].values()):
         raise ContextIntegrityError("worker omitted an actual feature observation reference")
     _feature_binding(ev, original, feats, payload["preprocessing_refs"])
@@ -165,6 +164,11 @@ def _input_key(payload, ev, original, feats):
 def _merged_refs(observations, preprocessing, descriptor):
     # _inputs already requires sorted unique lists. Linear merge preserves the
     # exact historical union without destroying the order in a large set.
+    if not preprocessing:
+        position = bisect_left(observations, descriptor)
+        if position < len(observations) and observations[position] == descriptor:
+            return tuple(observations)
+        return tuple(observations[:position] + [descriptor] + observations[position:])
     result = []
     for ref in merge(observations, preprocessing, (descriptor,)):
         if not result or ref != result[-1]:
@@ -220,7 +224,7 @@ def calculate_context_payload(*, event: dict, base: dict, features: dict,
     """
     if approval is not None:
         require_object(approval, {"digest", "kind", "payload"}, label="resolved worker approval envelope")
-    payload = deepcopy({"schema": 1, "kind": KIND, "event": validate_event(event),
+    payload = copy_context_payload({"schema": 1, "kind": KIND, "event": validate_event(event),
         "base": validate_base_distribution(base), "features": validate_feature_vector(features),
         "observation_refs": observation_refs, "preprocessing_refs": preprocessing_refs,
         "effect_artifact": effect_artifact, "effect_hash": effect_hash,
@@ -293,7 +297,7 @@ def _validate_payload(payload, *, key, effect_artifact, approval, replay_base=Tr
             raise ContextIntegrityError("worker application does not match its scoped approval")
     elif result.get("approval_hash") is not None or result.get("certified_markets"):
         raise ContextIntegrityError("unapplied worker result cannot inherit certification")
-    return deepcopy(payload)
+    return copy_context_payload(payload)
 
 
 def replay_context_payload(payload: dict, *, key: str, effect_artifact: dict | None,

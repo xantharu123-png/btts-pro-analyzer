@@ -318,6 +318,9 @@ def tennis_observations_as_of(path: Path, *, cutoff: datetime, tour: str, prepar
                     count += 1
                 connection.commit()
         spool.seek(0)
+        if prepared:
+            return PreparedTennisHistory.from_physical_rows(
+                (marshal.load(spool) for _ in range(count)), cutoff=cutoff, tour=tour)
         def selected_rows():
             for _ in range(count):
                 # Decode the ENTIRE inventory before source/tour/time pruning:
@@ -326,8 +329,6 @@ def tennis_observations_as_of(path: Path, *, cutoff: datetime, tour: str, prepar
                 selected = _select_tennis_row(row, decision, tour)
                 if selected is not None:
                     yield selected
-        if prepared:
-            return PreparedTennisHistory.from_selected_rows(selected_rows())
         return tuple(sorted(selected_rows(), key=lambda row: (row["observed_at"], row["digest"])))
 
 

@@ -25,6 +25,7 @@ from context_models.contracts import (
 )
 from model_artifacts import _connect as _artifact_connect
 from context_json import canonical_context_bytes as canonical_bytes, context_digest as digest
+from context_reference_sets import unique_reference_tuple
 from runtime_paths import RuntimeArtifactTrustError, prepare_trusted_runtime_database_path
 
 
@@ -46,10 +47,7 @@ def snapshot_key(
     require_text(feature_version, "feature version", code=True)
     if type(context_refs) is not tuple:
         raise ContextContractError("context refs must be an explicit unique tuple")
-    for ref in context_refs:
-        require_digest(ref, "context reference")
-    if len(set(context_refs)) != len(context_refs):
-        raise ContextContractError("context refs must be an explicit unique tuple")
+    ordered_refs = unique_reference_tuple(context_refs)
     if effect_hash is not None:
         require_digest(effect_hash, "effect hash")
     if approval_hash is not None:
@@ -59,7 +57,7 @@ def snapshot_key(
     if not isinstance(decision_at, datetime):
         raise ContextContractError("decision_at must be the shared aware worker datetime")
     return digest({"schema": 1, "event": event, "base_hash": base_hash,
-                   "context_refs": sorted(context_refs), "feature_version": feature_version,
+                   "context_refs": list(ordered_refs), "feature_version": feature_version,
                    "feature_hash": feature_hash, "effect_hash": effect_hash,
                    "decision_at": canonical_timestamp(decision_at), "approval_hash": approval_hash})
 

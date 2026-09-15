@@ -26,23 +26,63 @@ class PreparedTennisHistory:
         result._build(observations, chronological=True)
         return result
 
+    @classmethod
+    def from_physical_rows(cls, stored_rows, *, cutoff, tour):
+        """Fixed physical/source co-owner; never accepts a validation flag.
+
+        Decode every frozen SQL row with B1, then validate its complete native
+        source tail in the same frame, before any tour projection. The ordinary
+        selected-row constructor remains independently fully validating.
+        """
+        from context_observations import _decode_receipt
+        from context_sources.tennis_status import SOURCE_SCHEMA, _tour, _validate_tennis_source_tail
+        from context_models.contracts import canonical_timestamp
+        _tour(tour)
+        decision = canonical_timestamp(cutoff)
+        def entries():
+            for stored in stored_rows:
+                row = _decode_receipt(stored)
+                if row["observed_at"] > decision or row["source_schema"] not in (STATUS_SCHEMA, SOURCE_SCHEMA):
+                    continue
+                # B1 just checked these exact canonical content bytes, receipt
+                # identity and every outer index. No callback sees this row
+                # between physical validation and the complete source tail.
+                _validate_tennis_source_tail(row, stored[8])
+                if row["payload"]["tour"] != tour:
+                    continue
+                row.update(evidence_class="prospective", effective_at=row["observed_at"],
+                           publication_resolution=None)
+                yield cls._index_entry(row)
+        result = cls.__new__(cls)
+        result._build_entries(entries(), chronological=True)
+        return result
+
+    @staticmethod
+    def _index_entry(row):
+        payload = row["payload"]
+        participants = (payload["participant_ids"] if row["source_schema"] == STATUS_SCHEMA
+                        else (payload["player_id"], payload["opponent_id"]))
+        return canonical_bytes(row), row["event_key"], tuple(participants), row["digest"], row["observed_at"]
+
     def _build(self, observations, *, chronological=False):
+        def entries():
+            for row in observations:
+                validate_selected_tennis_receipt(row)
+                yield self._index_entry(row)
+        self._build_entries(entries(), chronological=chronological)
+
+    def _build_entries(self, entries, *, chronological=False):
         encoded, events, players, refs = [], {}, {}, set()
         order = []
-        for row in observations:
-            validate_selected_tennis_receipt(row)
-            encoded.append(canonical_bytes(row))
+        for raw, key, participants, ref, clock in entries:
+            encoded.append(raw)
             if chronological:
-                order.append((row["observed_at"], row["digest"], len(encoded)-1))
-            key = row["event_key"]
+                order.append((clock, ref, len(encoded)-1))
             events.setdefault(key, []).append(len(encoded)-1)
-            payload = row["payload"]
-            participants = (payload["participant_ids"] if row["source_schema"] == STATUS_SCHEMA
-                            else (payload["player_id"], payload["opponent_id"]))
             for player in participants:
                 if player is not None:
                     players.setdefault(player, set()).add(key)
-            refs.add(row["digest"])
+            refs.add(ref)
         self._rows = tuple(encoded)
         self._events = MappingProxyType({key: tuple(value) for key, value in events.items()})
         self._players = MappingProxyType({key: frozenset(value) for key, value in players.items()})

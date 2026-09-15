@@ -1010,7 +1010,8 @@ def main() -> int:
     args = parser.parse_args()
     from context_sources.tennis_capture import capture_tennis_worker
     from tennis.live_context import live_worker
-    with live_worker() as batch:
+    with live_worker(progress=lambda record: print(
+            "Tennis-Abschluss: " + json.dumps(record, ensure_ascii=True), flush=True)) as batch:
         with capture_tennis_worker(path=batch.path) as capture:
             batch.attach_capture(capture)
             result = _run_daily(args)

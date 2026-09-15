@@ -5,6 +5,7 @@ approval. The cache key contains every actual immutable string, not a claimed
 digest or mutable list identity. Public canonical JSON remains the oracle.
 """
 from functools import lru_cache
+from copy import deepcopy
 import hashlib
 
 from model_artifacts import canonical_bytes as _canonical_bytes
@@ -41,3 +42,16 @@ def canonical_context_bytes(value: object) -> bytes:
 
 def context_digest(value: object) -> str:
     return hashlib.sha256(canonical_context_bytes(value)).hexdigest()
+
+
+def copy_context_payload(value):
+    """Detach a payload without visiting each immutable reference leaf twice."""
+    if type(value) is not dict:
+        return deepcopy(value)
+    refs = value.get("observation_refs")
+    if type(refs) is not list or not all(type(ref) is str for ref in refs):
+        return deepcopy(value)
+    # Only the list is mutable. Every other field still receives a deep copy.
+    copied = deepcopy({key: item for key, item in value.items() if key != "observation_refs"})
+    copied["observation_refs"] = refs.copy()
+    return copied

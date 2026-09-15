@@ -120,13 +120,18 @@ class _Inventory:
 
 
 class LiveWorker:
-    def __init__(self, path):
+    def __init__(self, path, *, progress=None):
         self.path = Path(path)
         self.capture = None
         self.bindings, self.pending = {}, []
         self._pending_histories = {}
         self.finished = False
         self.reasons = []
+        self._progress = progress
+
+    def _report(self, phase, **details):
+        if self._progress is not None:
+            self._progress({"phase": phase, **details})
 
     def attach_capture(self, capture):
         if self.capture is not None or self.finished:
@@ -280,6 +285,7 @@ class LiveWorker:
         if self.finished:
             raise ContextContractError("live batch cannot be appended twice")
         qualified = [item for item in self.pending if item["binding"] is not None]
+        self._report("history", total=len(self.pending), native=len(qualified))
         # Pending prechecks share a tour image, but final publication still
         # resolves a fresh complete inventory and detects intervening revisions.
         self._pending_histories.clear()
@@ -293,9 +299,11 @@ class LiveWorker:
                 if key not in histories:
                     histories[key] = tennis_observations_as_of(
                         self.path, cutoff=item["decision"], tour=key[0], prepared=True)
+                    self._report("history_ready", tour=key[0], references=len(histories[key].observation_refs))
             with _reader(self.path) as connection:
                 inventory = _Inventory(connection)
             state_refs = self._verify_states(qualified)
+            self._report("prepare", total=len(qualified))
             for item in qualified:
                 history = histories[item["fixture"]["tour"], canonical_timestamp(item["decision"])]
                 observations = history.for_event(_event(item["binding"]["row"]))
@@ -309,10 +317,11 @@ class LiveWorker:
                 key = context_payload_key(descriptor)
                 prepared[id(item)] = (origin, inputs, key)
                 self.reasons.append(reason)
+            self._report("prepared", total=len(prepared))
         # B1/A1/D2 resolution is complete before any CPU-only compute callback.
         # Cross-database publication is intentionally not claimed atomic: an
         # orphan immutable original/snapshot is safe; a dangling Shadow ref is not.
-        for item in self.pending:
+        for ordinal, item in enumerate(self.pending, 1):
             kwargs = item["kwargs"]
             if id(item) in prepared:
                 origin, inputs, key = prepared[id(item)]
@@ -358,17 +367,20 @@ class LiveWorker:
                 item["result"]["status"] = "partial"
             except shadow.FixtureNotRefreshable:
                 item["result"]["skipped"] += 1
+            if ordinal == 1 or ordinal % 10 == 0 or ordinal == len(self.pending):
+                self._report("published", processed=ordinal, total=len(self.pending))
         self.finished = True
+        self._report("complete", total=len(self.pending))
 
 
 @contextmanager
-def live_worker(*, path=None):
+def live_worker(*, path=None, progress=None):
     if _CURRENT.get() is not None:
         raise ContextContractError("live tennis worker is already owned")
     if path is None:
         from runtime_paths import CONTEXT_MODEL_DB_PATH
         path = CONTEXT_MODEL_DB_PATH
-    batch = LiveWorker(path)
+    batch = LiveWorker(path, progress=progress)
     token = _CURRENT.set(batch)
     try:
         yield batch
