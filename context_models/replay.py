@@ -44,9 +44,12 @@ def replay_code_hashes(sport: str) -> dict[str, str]:
 def _recipe(envelope: dict, *, sport: str) -> dict:
     envelope = validate_artifact_envelope(envelope, kind="context-base-replay-recipe-v1")
     value = envelope["payload"]
-    require_object(value, {"schema", "sport", "family", "base_version", "code_revision", "code_hashes",
-                           "input_refs", "target_markets", "state_ref", "calibrator_ref"}, label="base replay recipe")
-    if (type(value["schema"]) is not int or value["schema"] != 1 or value["sport"] != sport
+    fields = {"schema", "sport", "family", "base_version", "code_revision", "code_hashes",
+              "input_refs", "target_markets", "state_ref", "calibrator_ref"}
+    if value.get("schema") == 2:
+        fields.add("context_refs")
+    require_object(value, fields, label="base replay recipe")
+    if (type(value["schema"]) is not int or value["schema"] not in {1, 2} or value["sport"] != sport
             or value["family"] != "football:goals:90min" or value["base_version"] != FOOTBALL_RAW_BASE
             or value["state_ref"] is not None or value["calibrator_ref"] is not None):
         raise ContextContractError("unsupported raw-goal replay recipe or borrowed calibration")
@@ -59,6 +62,12 @@ def _recipe(envelope: dict, *, sport: str) -> dict:
         require_digest(ref, "base input receipt")
     if not refs or refs != sorted(set(refs)):
         raise ContextContractError("replay requires sorted unique actual source receipt refs")
+    if value["schema"] == 2:
+        context = require_list(value["context_refs"], "additional player detail receipts")
+        for ref in context:
+            require_digest(ref, "player detail receipt")
+        if context != sorted(set(context)) or set(context) & set(refs):
+            raise ContextContractError("context receipts must be unique and separate from latest math inputs")
     return envelope
 
 
@@ -81,6 +90,52 @@ def _selected_native_rows(history, *, decision):
     if any(len(rows) != 1 for rows in latest.values()):
         raise ReplayUnavailable("ambiguous_simultaneous_native_base_revision")
     return tuple(latest[key][0] for key in sorted(latest))
+
+
+def _context_binding(raw):
+    return (raw['fixture']['id'], canonical_timestamp(raw['fixture']['date']),
+        raw['league']['id'], raw['league']['season'], raw['teams']['home']['id'],
+        raw['teams']['away']['id'], raw['fixture']['status']['short'],
+        raw['goals']['home'], raw['goals']['away'])
+
+
+def _context_rows(history, latest):
+    """Reuse whole earlier receipts, never merge old players into a new clock.
+
+    Only an absent players field is a summary. Explicit empty players, native
+    identity changes and simultaneous conflicting bodies stop reuse. Original
+    v1 recipes do not call this path and retain their exact prior semantics.
+    """
+    by_event = {}
+    for row in history:
+        by_event.setdefault(row['event_key'], {}).setdefault(row['observed_at'], {})[row['content_digest']] = row
+    selected = []
+    for current in latest:
+        raw = current['payload']['detail']
+        chosen = current
+        if raw['fixture']['status']['short'] == 'FT' and 'players' not in raw:
+            binding = _context_binding(raw)
+            for clock, group in sorted(by_event[current['event_key']].items(), reverse=True):
+                if clock >= current['observed_at']:
+                    continue
+                if len(group) != 1:
+                    break
+                candidate = next(iter(group.values()))
+                detail = candidate['payload']['detail']
+                if _context_binding(detail) != binding:
+                    break
+                if 'players' in detail:
+                    chosen = candidate
+                    break
+        selected.append(chosen)
+    return tuple(selected)
+
+
+def football_context_input_refs(history, *, decision_at):
+    """Build explicit schema-2 context refs from the fully validated B1 pool."""
+    latest = _selected_native_rows(history, decision=canonical_timestamp(decision_at))
+    math_refs = {row['digest'] for row in latest}
+    return sorted(row['digest'] for row in _context_rows(history, latest) if row['digest'] not in math_refs)
 
 
 def replay_base_distribution(sport: str, event: dict, history: tuple[dict, ...], *,
@@ -109,6 +164,13 @@ def replay_base_distribution(sport: str, event: dict, history: tuple[dict, ...],
     rows = _selected_native_rows(history, decision=decision)
     if sorted(row["digest"] for row in rows) != recipe["payload"]["input_refs"]:
         raise ContextIntegrityError("recipe must identify exactly the latest resolved native input receipts")
+    context_rows = rows
+    if recipe['payload']['schema'] == 2:
+        context_rows = _context_rows(history, rows)
+        math_refs = {row['digest'] for row in rows}
+        expected_refs = sorted(row['digest'] for row in context_rows if row['digest'] not in math_refs)
+        if expected_refs != recipe['payload']['context_refs']:
+            raise ContextIntegrityError('recipe does not bind the exact compatible native player receipts')
     # Selection above validates every supplied receipt and its causal clock.
     # A frozen native identity proof may name an earlier still-valid receipt;
     # only the mathematical recipe/baseline must use the latest revision.
@@ -138,7 +200,7 @@ def replay_base_distribution(sport: str, event: dict, history: tuple[dict, ...],
     if (not keys or any(type(key) is not str or key not in specs for key in keys)
             or keys != sorted(set(keys))):
         raise ContextContractError("raw goal replay has an unknown or ambiguous market contract")
-    raw_receipts = tuple({"detail": row["payload"]["detail"], "observed_at": row["observed_at"]} for row in rows)
+    raw_receipts = tuple({"detail": row["payload"]["detail"], "observed_at": row["observed_at"]} for row in context_rows)
     provenance = football_native_provenance((target, *past), raw_receipts, decision_at=decision_at)
     model = engine._fixture_model(target, past, include_provenance=True, native_provenance=provenance)
     if model is None:

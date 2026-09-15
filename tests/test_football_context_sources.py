@@ -46,6 +46,38 @@ def test_actual_completed_player_rows_keep_missing_minutes_and_true_receipt():
     assert all(r["payload"]["exposure_kind"] == "regulation_reported" for r in players)
 
 
+def test_constant_false_substitute_defaults_use_complete_explicit_lineup():
+    # Actual 2026-09-15 source shape: all flags false, including players who
+    # entered from the bench. This is not 23 starting players per team.
+    detail = deepcopy(probe()["calls"][0]["samples"][0])
+    expected = normalize(event(detail), appearances=[detail])
+    # Only team 1 has a fully closed lineup in this saved fixture; team 2
+    # includes an unlisted player, so it must keep its original flags.
+    for player in detail["players"][0]["players"]:
+        player["statistics"][0]["games"]["substitute"] = False
+    rows = normalize(event(detail), appearances=[detail])
+    assert rows == expected  # Includes the unknown-minute players unchanged.
+    players = [row for row in rows if row["kind"] == "appearance"]
+    assert sum(row["payload"]["started"] is True for row in players) == 22
+
+
+@pytest.mark.parametrize("conflict", ["mixed_flags", "missing_starter", "unlisted_player"])
+def test_false_substitute_default_exception_requires_whole_bound_team(conflict):
+    detail = deepcopy(probe()["calls"][0]["samples"][0])
+    players = detail["players"][0]["players"]
+    for player in players:
+        player["statistics"][0]["games"]["substitute"] = False
+    if conflict == "mixed_flags":
+        players[-1]["statistics"][0]["games"]["substitute"] = True
+    elif conflict == "missing_starter":
+        starters = {row["player"]["id"] for row in detail["lineups"][0]["startXI"]}
+        players[:] = [row for row in players if row["player"]["id"] != next(iter(starters))]
+    else:
+        players[-1]["player"]["id"] = 99999999
+    with pytest.raises(ContextContractError):
+        normalize(event(detail), appearances=[detail])
+
+
 def test_real_nonmedical_absences_and_red_card_are_not_injury_effects():
     data = probe()
     detail = data["calls"][0]["samples"][0]

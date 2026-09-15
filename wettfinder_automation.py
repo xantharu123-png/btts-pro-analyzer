@@ -3908,6 +3908,24 @@ def run_wettfinder(
             document["forecast_evidence"] = {"status": "failed", "failure_type": type(exc).__name__}
             document["run_status"] = "degraded"
             document["operational_error_count"] += 1
+    # A league FT list carries results, not the player-minute detail needed
+    # for future availability modeling. Fill one bounded BACKGROUND batch of
+    # already observed completed games, independently of priced recommendations.
+    # This records fresh source facts; it never activates an unqualified effect.
+    if production_state:
+        from context_sources.football_appearances import refresh_football_appearances
+        try:
+            app_config = config or load_app_config()
+            if app_config.api_football_key:
+                appearance_provider = ChallengeDataProvider(app_config.api_football_key, app_config.weather_key)
+                document["football_context_history"] = refresh_football_appearances(
+                    appearance_provider, now=current if fixed_now else None)
+            else:
+                document["football_context_history"] = {"status": "missing_api_key", "requested_count": 0}
+        except Exception as exc:
+            document["football_context_history"] = {"status": "failed", "failure_type": type(exc).__name__}
+            document["run_status"] = "degraded"
+            document["operational_error_count"] += 1
     # Report auxiliary job failures without erasing independent forecasts or
     # rewriting their model/price decisions.
     risk_summary = document.get("riskobet") or {}

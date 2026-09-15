@@ -139,6 +139,12 @@ def _appearance_records(detail, *, observed_at):
             raise ContextContractError("player statistics have a conflicting team binding")
         seen_teams.add(team)
         player_rows = require_list(group.get("players"), "team player statistics")
+        # Some native detail responses default *every* statistics substitute
+        # flag to false, including used/unused bench players. Only recognize
+        # that whole-team shape with all eleven explicit starters and a bound
+        # bench present. A lone contradictory flag still fails below. Never
+        # derive minutes from lineup membership, or turn unknown minutes to 0.
+        default_flags = _constant_false_substitute_flags(player_rows, lineup, team)
         team_payloads = []
         for item in player_rows:
             player = _id(item["player"]["id"], "player")
@@ -159,7 +165,7 @@ def _appearance_records(detail, *, observed_at):
             listed = lineup.get(player)
             if listed is not None and listed["team_id"] != team:
                 raise ContextContractError("appearance and lineup disagree on player team")
-            started = None if substitute is None else not substitute
+            started = None if substitute is None or default_flags else not substitute
             if listed is not None:
                 if started is not None and started != listed["started"]:
                     raise ContextContractError("appearance and lineup disagree on actual start")
@@ -182,6 +188,24 @@ def _appearance_records(detail, *, observed_at):
     for team in sorted({event["home_id"], event["away_id"]} - reported_teams):
         records.append(_empty_collection(event, team, "appearance", observed_at=observed_at))
     return records
+
+
+def _constant_false_substitute_flags(players, lineup, team):
+    starters, bench = set(), set()
+    for item in players:
+        try:
+            player = _id(item["player"]["id"], "player")
+            stats = item["statistics"]
+            if (type(stats) is not list or len(stats) != 1
+                    or stats[0]["games"].get("substitute") is not False):
+                return False
+            listed = lineup.get(player)
+            if listed is None or listed["team_id"] != team:
+                return False
+            (starters if listed["started"] else bench).add(player)
+        except (KeyError, TypeError, AttributeError):
+            return False  # The ordinary strict row validator reports the error.
+    return len(starters) == 11 and bool(bench)
 
 
 def normalize_football_context(event: dict, *, injuries: list[dict], lineups: list[dict],

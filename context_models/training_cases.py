@@ -106,7 +106,8 @@ def _validate_case(resolved: dict, *, config: dict) -> dict:
     # Resolve latest native revisions over the complete declared source pool
     # BEFORE matching the recipe. Selecting its older IDs first could hide an
     # already-known result/player correction from an apparently coherent case.
-    if any(ref not in by_ref for ref in recipe["payload"]["input_refs"]):
+    all_input_refs = recipe["payload"]["input_refs"] + recipe["payload"].get("context_refs", [])
+    if any(ref not in by_ref for ref in all_input_refs):
         raise ContextIntegrityError("case is missing a native baseline input receipt")
     history = tuple(row for row in observations if row["kind"] == "base_fixture")
     rebuilt = replay_base_distribution(event["sport"], event, history,
@@ -120,7 +121,7 @@ def _validate_case(resolved: dict, *, config: dict) -> dict:
     # paired with older normalized minutes (including removed participants).
     from context_sources.football import _detail_event, normalize_football_context
     content_hashes = {row["content_digest"] for row in source_rows}
-    for ref in recipe["payload"]["input_refs"]:
+    for ref in all_input_refs:
         native = by_ref[ref]
         raw = native["payload"]["detail"]
         own_event = _detail_event(raw)
@@ -129,7 +130,11 @@ def _validate_case(resolved: dict, *, config: dict) -> dict:
             lineups=[raw] if target and "lineups" in raw else [],
             appearances=[raw] if not target and "players" in raw else [],
             observed_at=datetime.fromisoformat(native["observed_at"]))
-        if any(digest(projection) not in content_hashes for projection in projections):
+        # Fixture details own appearances/lineups, not an injury response.
+        # The source collector intentionally does not publish fabricated
+        # availability receipts from this transport; medical data are separate.
+        if any(digest(projection) not in content_hashes for projection in projections
+               if projection['kind'] in {'appearance', 'confirmed_lineup'}):
             raise ReplayUnavailable("native_context_projection_missing_or_superseded")
     rebuilt_features = football_features(event, source_rows, base, cutoff=datetime.fromisoformat(decision))
     if rebuilt_features != features:

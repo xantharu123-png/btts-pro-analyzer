@@ -19,6 +19,7 @@ def _receipt_now():
 class _Capture:
     def __init__(self):
         self.pending, self.issues, self.refs = [], set(), set()
+        self._outcome_sources = {}
 
     def report(self):
         return {"schema": 1, "scope": "existing-espn-tennis-responses",
@@ -52,14 +53,24 @@ class _Capture:
                         # preserved by the status normalizer as a withdrawal.
                         self.issues.add("native-competition-unavailable")
                         continue
+                    index = len(self.pending)
                     self.pending.append((observed_at, rows))
+                    from context_sources.tennis_outcome_capture import source_for_normal_winner
+                    eligible, source = source_for_normal_winner(rows[0], competition)
+                    if eligible:
+                        self._outcome_sources[index] = source
                     for issue in rows[0]["payload"]["issues"]:
                         if issue not in {"unsupported-format", "unsupported-terminal"}:
                             self.issues.add(issue)
 
     def persist(self, path):
+        from context_sources.tennis_outcome_capture import collect_outcomes
+        outcomes, issues = collect_outcomes(path, self.pending, self._outcome_sources)
+        self.issues.update(issues)
         chunk = []
-        for observed, rows in self.pending:
+        for index, (observed, rows) in enumerate(self.pending):
+            if index in outcomes:
+                rows = (*rows, outcomes[index])
             # Keep one competition's status/workload together. The whole feed
             # may remain partial on interruption, but a committed chunk is
             # atomic and retains every original reception clock.

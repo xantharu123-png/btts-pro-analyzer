@@ -58,7 +58,7 @@ def _versioned(payload, kind):
         return False
     if type(payload["schema"]) is not int or payload["schema"] < 1:
         raise ContextIntegrityError("D2 schema must be an actual positive integer")
-    if payload["schema"] != 1:
+    if payload["schema"] != 1 and not (kind == "context-base-replay-recipe-v1" and payload["schema"] == 2):
         return False
     if kind == "context-evaluation-v1":
         from context_models.evaluator import EVALUATOR_VERSION
@@ -326,7 +326,7 @@ def verify_d2_artifacts(connection, artifacts, created_at, limitations):
             resolve_identity_map(mapped, observations=tuple(_selected_receipt(connection, r) for r in refs))
         elif kind == "context-base-replay-recipe-v1":
             _recipe({"digest": ref, **envelope}, sport=payload.get("sport"))
-            for receipt in payload["input_refs"]:
+            for receipt in payload["input_refs"] + payload.get("context_refs", []):
                 _physical_ref(connection, receipt, latest=actual, kinds={"base_fixture"})
         elif kind == "context-base-replay-v1":
             require_object(payload, _REPLAY_FIELDS, label="stored base replay")
