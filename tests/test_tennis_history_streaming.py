@@ -94,3 +94,38 @@ def test_physically_rehashed_invalid_native_source_is_not_admitted(tmp_path):
     for prepared in (False, True):
         with pytest.raises(ContextContractError):
             tennis_status.tennis_observations_as_of(path, cutoff=NOW, tour="ATP", prepared=prepared)
+
+
+def test_both_tours_share_one_complete_physical_image(tmp_path, monkeypatch):
+    import context_observations
+    path = tmp_path/"db"
+    seed(path)
+    expected = {tour: tennis_status.tennis_observations_as_of(path, cutoff=NOW, tour=tour)
+                for tour in ("ATP", "WTA")}
+    calls = []
+    actual = context_observations._decode_receipt
+    def counted(raw):
+        calls.append(raw[0])
+        with sqlite3.connect(path, timeout=.05) as con:
+            con.execute("BEGIN EXCLUSIVE")
+            con.rollback()
+        return actual(raw)
+    monkeypatch.setattr(context_observations, "_decode_receipt", counted)
+    histories = tennis_status.tennis_histories_as_of(path, cutoff=NOW, tours=("ATP", "WTA"))
+    assert len(calls) == sum(map(len, expected.values()))
+    for tour in expected:
+        assert histories[tour].observation_refs == sorted(row["digest"] for row in expected[tour])
+        for row in expected[tour]:
+            event = {"event_key": row["event_key"], "home_id": "unknown", "away_id": "unknown"}
+            assert histories[tour].for_event(event) == PreparedTennisHistory(expected[tour]).for_event(event)
+
+
+@pytest.mark.parametrize("tour,clock", [("WTA", NOW-timedelta(hours=1)), ("ATP", NOW+timedelta(hours=1))])
+def test_shared_image_never_hides_unrequested_or_future_corruption(tmp_path, tour, clock):
+    path = tmp_path/"db"
+    persist(path, records(competition(), clock=clock, tour=tour,
+                         slug="mens-singles" if tour == "ATP" else "womens-singles"), clock=clock)
+    with sqlite3.connect(path) as con:
+        con.execute("UPDATE context_observations SET event_key='hidden:corruption'")
+    with pytest.raises(ContextIntegrityError):
+        tennis_status.tennis_histories_as_of(path, cutoff=NOW, tours=("ATP",))

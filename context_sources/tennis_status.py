@@ -4,7 +4,7 @@ This source owns only already received scoreboard fields. It does not fetch,
 infer player identities, diagnose availability, or infer real match clocks.
 Workload-v1 remains unchanged; status-v1 binds its two actual receipt hashes.
 """
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime
 import hashlib
 from pathlib import Path
@@ -294,15 +294,45 @@ def tennis_observations_as_of(path: Path, *, cutoff: datetime, tour: str, prepar
     archive promotion. Missing DB stays absent. This is an owning worker read,
     not the sealed read-only D4 verifier or proof of complete player history.
     """
-    from context_observations import _connect, _decode_receipt, _SELECT
+    from context_observations import _decode_receipt
     _tour(tour)
     if not isinstance(cutoff, datetime):
         raise ContextContractError("tennis reader needs an actual cutoff datetime")
     decision = canonical_timestamp(cutoff)
-    path = Path(path)
+    from tennis.history_projection import PreparedTennisHistory
+    with _frozen_history_rows(Path(path)) as rows:
+        if prepared:
+            return PreparedTennisHistory.from_physical_rows(rows, cutoff=cutoff, tour=tour)
+        def selected_rows():
+            for raw in rows:
+                # Decode the ENTIRE inventory before source/tour/time pruning.
+                selected = _select_tennis_row(_decode_receipt(raw), decision, tour)
+                if selected is not None:
+                    yield selected
+        return tuple(sorted(selected_rows(), key=lambda row: (row["observed_at"], row["digest"])))
+
+
+def tennis_histories_as_of(path: Path, *, cutoff: datetime, tours: tuple):
+    """Separate tour indexes from ONE fully checked, frozen physical image."""
+    from tennis.history_projection import PreparedTennisHistory
+    if not isinstance(cutoff, datetime):
+        raise ContextContractError("tennis reader needs an actual cutoff datetime")
+    canonical_timestamp(cutoff)
+    if type(tours) is not tuple or not tours:
+        raise ContextContractError("history tours require a nonempty explicit tuple")
+    for tour in tours:
+        _tour(tour)
+    if len(set(tours)) != len(tours):
+        raise ContextContractError("history tours must be unique")
+    with _frozen_history_rows(Path(path)) as rows:
+        return PreparedTennisHistory.from_physical_tours(rows, cutoff=cutoff, tours=tours)
+
+
+@contextmanager
+def _frozen_history_rows(path):
+    from context_observations import _connect, _SELECT
     from tempfile import TemporaryFile
     import marshal
-    from tennis.history_projection import PreparedTennisHistory
 
     # Freeze one complete SQL image to a private, automatically removed spool.
     # No list of raw rows or tour-wide tree of decoded dictionaries is retained.
@@ -318,18 +348,7 @@ def tennis_observations_as_of(path: Path, *, cutoff: datetime, tour: str, prepar
                     count += 1
                 connection.commit()
         spool.seek(0)
-        if prepared:
-            return PreparedTennisHistory.from_physical_rows(
-                (marshal.load(spool) for _ in range(count)), cutoff=cutoff, tour=tour)
-        def selected_rows():
-            for _ in range(count):
-                # Decode the ENTIRE inventory before source/tour/time pruning:
-                # a changed outer index must not hide any corrupt correction.
-                row = _decode_receipt(marshal.load(spool))
-                selected = _select_tennis_row(row, decision, tour)
-                if selected is not None:
-                    yield selected
-        return tuple(sorted(selected_rows(), key=lambda row: (row["observed_at"], row["digest"])))
+        yield (marshal.load(spool) for _ in range(count))
 
 
 def _select_tennis_row(row, decision, tour):

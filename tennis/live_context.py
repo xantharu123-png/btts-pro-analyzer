@@ -22,7 +22,7 @@ from context_models.tennis_live import (CODE_PATHS, MARKETS, ORIGIN_KIND,
     validate_context_model, validate_original_publication)
 from context_models.tennis_v3 import tennis_features_v3
 from context_sources.tennis_status import (STATUS_SCHEMA, normalize_tennis_status,
-    tennis_observations_as_of)
+    tennis_observations_as_of, tennis_histories_as_of)
 from context_snapshots import _decode_snapshot, compute_once
 from context_transport import (KIND, calculate_context_payload, context_consumer_reference,
     context_payload_key)
@@ -294,12 +294,20 @@ class LiveWorker:
             root = Path(__file__).resolve().parents[1]
             code_hashes = {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in CODE_PATHS}
             histories = {}
+            decisions = {}
             for item in qualified:
-                key = (item["fixture"]["tour"], canonical_timestamp(item["decision"]))
-                if key not in histories:
-                    histories[key] = tennis_observations_as_of(
-                        self.path, cutoff=item["decision"], tour=key[0], prepared=True)
-                    self._report("history_ready", tour=key[0], references=len(histories[key].observation_refs))
+                clock = canonical_timestamp(item["decision"])
+                decisions.setdefault(clock, (item["decision"], set()))[1].add(item["fixture"]["tour"])
+            for clock, (decision, requested) in decisions.items():
+                tours = tuple(sorted(requested))
+                if len(tours) == 1:
+                    resolved = {tours[0]: tennis_observations_as_of(
+                        self.path, cutoff=decision, tour=tours[0], prepared=True)}
+                else:
+                    resolved = tennis_histories_as_of(self.path, cutoff=decision, tours=tours)
+                for tour, history in resolved.items():
+                    histories[tour, clock] = history
+                    self._report("history_ready", tour=tour, references=len(history.observation_refs))
             with _reader(self.path) as connection:
                 inventory = _Inventory(connection)
             state_refs = self._verify_states(qualified)

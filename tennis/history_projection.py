@@ -28,6 +28,10 @@ class PreparedTennisHistory:
 
     @classmethod
     def from_physical_rows(cls, stored_rows, *, cutoff, tour):
+        return cls.from_physical_tours(stored_rows, cutoff=cutoff, tours=(tour,))[tour]
+
+    @classmethod
+    def from_physical_tours(cls, stored_rows, *, cutoff, tours):
         """Fixed physical/source co-owner; never accepts a validation flag.
 
         Decode every frozen SQL row with B1, then validate its complete native
@@ -37,25 +41,33 @@ class PreparedTennisHistory:
         from context_observations import _decode_receipt
         from context_sources.tennis_status import SOURCE_SCHEMA, _tour, _validate_tennis_source_tail
         from context_models.contracts import canonical_timestamp
-        _tour(tour)
+        if type(tours) is not tuple or not tours:
+            raise ContextContractError("history tours require a nonempty explicit tuple")
+        for tour in tours:
+            _tour(tour)
+        if len(set(tours)) != len(tours):
+            raise ContextContractError("history tours must be unique")
         decision = canonical_timestamp(cutoff)
-        def entries():
-            for stored in stored_rows:
-                row = _decode_receipt(stored)
-                if row["observed_at"] > decision or row["source_schema"] not in (STATUS_SCHEMA, SOURCE_SCHEMA):
-                    continue
-                # B1 just checked these exact canonical content bytes, receipt
-                # identity and every outer index. No callback sees this row
-                # between physical validation and the complete source tail.
-                _validate_tennis_source_tail(row, stored[8])
-                if row["payload"]["tour"] != tour:
-                    continue
+        builders = {tour: _IndexBuilder(chronological=True) for tour in tours}
+        for stored in stored_rows:
+            row = _decode_receipt(stored)
+            if row["observed_at"] > decision or row["source_schema"] not in (STATUS_SCHEMA, SOURCE_SCHEMA):
+                continue
+            # B1 just checked these exact canonical content bytes, receipt
+            # identity and every outer index. No callback sees this row
+            # between physical validation and the complete source tail.
+            _validate_tennis_source_tail(row, stored[8])
+            builder = builders.get(row["payload"]["tour"])
+            if builder is not None:
                 row.update(evidence_class="prospective", effective_at=row["observed_at"],
                            publication_resolution=None)
-                yield cls._index_entry(row)
-        result = cls.__new__(cls)
-        result._build_entries(entries(), chronological=True)
-        return result
+                builder.append(cls._index_entry(row))
+        results = {}
+        for tour, builder in builders.items():
+            result = cls.__new__(cls)
+            builder.finish(result)
+            results[tour] = result
+        return results
 
     @staticmethod
     def _index_entry(row):
@@ -72,29 +84,10 @@ class PreparedTennisHistory:
         self._build_entries(entries(), chronological=chronological)
 
     def _build_entries(self, entries, *, chronological=False):
-        encoded, events, players, refs = [], {}, {}, set()
-        order = []
-        for raw, key, participants, ref, clock in entries:
-            encoded.append(raw)
-            if chronological:
-                order.append((clock, ref, len(encoded)-1))
-            events.setdefault(key, []).append(len(encoded)-1)
-            for player in participants:
-                if player is not None:
-                    players.setdefault(player, set()).add(key)
-            refs.add(ref)
-        self._rows = tuple(encoded)
-        self._events = MappingProxyType({key: tuple(value) for key, value in events.items()})
-        self._players = MappingProxyType({key: frozenset(value) for key, value in players.items()})
-        self._refs = tuple(sorted(refs))
-        self._rank = None
-        if chronological:
-            # Sort only small clock/hash/index records, not the full SQL payload
-            # inventory. Event membership and every correction remain intact.
-            rank = [0]*len(order)
-            for position, (_, _, ordinal) in enumerate(sorted(order)):
-                rank[ordinal] = position
-            self._rank = tuple(rank)
+        builder = _IndexBuilder(chronological=chronological)
+        for entry in entries:
+            builder.append(entry)
+        builder.finish(self)
 
     @property
     def observation_refs(self):
@@ -107,3 +100,36 @@ class PreparedTennisHistory:
         ordinals = sorted({ordinal for key in keys for ordinal in self._events.get(key, ())},
                           key=None if self._rank is None else self._rank.__getitem__)
         return tuple(json.loads(self._rows[index]) for index in ordinals)
+
+
+class _IndexBuilder:
+    """Private accumulator; only final immutable indexes escape their reader."""
+    def __init__(self, *, chronological):
+        self.encoded, self.events, self.players, self.refs = [], {}, {}, set()
+        self.order = [] if chronological else None
+
+    def append(self, entry):
+        raw, key, participants, ref, clock = entry
+        ordinal = len(self.encoded)
+        self.encoded.append(raw)
+        if self.order is not None:
+            self.order.append((clock, ref, ordinal))
+        self.events.setdefault(key, []).append(ordinal)
+        for player in participants:
+            if player is not None:
+                self.players.setdefault(player, set()).add(key)
+        self.refs.add(ref)
+
+    def finish(self, result):
+        result._rows = tuple(self.encoded)
+        result._events = MappingProxyType({key: tuple(value) for key, value in self.events.items()})
+        result._players = MappingProxyType({key: frozenset(value) for key, value in self.players.items()})
+        result._refs = tuple(sorted(self.refs))
+        result._rank = None
+        if self.order is not None:
+            # Sort only small clock/hash/index records, not the full SQL payload
+            # inventory. Event membership and every correction remain intact.
+            rank = [0]*len(self.order)
+            for position, (_, _, ordinal) in enumerate(sorted(self.order)):
+                rank[ordinal] = position
+            result._rank = tuple(rank)

@@ -147,6 +147,23 @@ def test_atp_wta_native_namespaces_and_actual_loaded_states_are_separate(monkeyp
     assert len(rows) == 2
 
 
+def test_two_tour_batch_uses_one_shared_physical_history_image(monkeypatch, tmp_path):
+    from tennis import live_context
+    db, predictions, _, _ = configure(monkeypatch, tmp_path, tours=("ATP", "WTA"))
+    calls = []
+    actual = live_context.tennis_histories_as_of
+    def shared(path, *, cutoff, tours):
+        calls.append((path, cutoff, tours))
+        return actual(path, cutoff=cutoff, tours=tours)
+    monkeypatch.setattr(live_context, "tennis_histories_as_of", shared)
+    def separate(*args, **kwargs):
+        pytest.fail("two-tour batch must not reread the same complete physical inventory")
+    monkeypatch.setattr(live_context, "tennis_observations_as_of", separate)
+    result, rows = run_batch(db, predictions)
+    assert result["stored"] == 2 and not result["errors"] and len(rows) == 2
+    assert calls == [(db, NOW, ("ATP", "WTA"))]
+
+
 def test_legacy_shadow_id_cannot_absorb_context_from_a_different_tour(monkeypatch, tmp_path):
     db, predictions, _, _ = configure(monkeypatch, tmp_path, tours=("ATP", "WTA"), same_id=True)
     with pytest.raises(ContextContractError, match="different tour"):
