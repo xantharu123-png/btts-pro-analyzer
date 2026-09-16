@@ -13,7 +13,7 @@ from context_models.dataset import _artifact, _reader
 from context_models.experiments import _artifact_created_at
 from context_models.tennis_live import ORIGINAL_ARTIFACT_KIND, original_base, validate_original_publication
 from context_observations import _SELECT, _decode_receipt
-from context_sources.outcomes import normalize_tennis_outcome
+from context_sources.outcomes import normalize_tennis_revised_outcome
 from context_sources.tennis_status import STATUS_SCHEMA, validate_selected_tennis_receipt
 from model_artifacts import _load_artifact
 
@@ -132,32 +132,44 @@ def collect_outcomes(path, pending, sources):
             groups.setdefault((rows[0]["event_key"], canonical_timestamp(clock)), []).append(index)
     additions, issues = {}, set()
     for (key, received), indices in groups.items():
-        events = {digest(event): event for created, event in originals.get(key, ())
-            if created <= received and created < event["scheduled_start"]}
+        events = {}
+        for created, event in originals.get(key, ()):
+            if created <= received and created < event["scheduled_start"]:
+                ref = digest(event)
+                # Many pre-match recalculations do not multiply an outcome.
+                # Retain the earliest actual publication for each exact scope.
+                if ref not in events or created < events[ref][0]:
+                    events[ref] = (created, event)
         if not events:
             continue
-        if len(events) != 1:
+        identities = {digest({k: v for k, v in event.items()
+            if k not in {"scheduled_start", "schedule_revision"}}) for _, event in events.values()}
+        if len(identities) != 1:
             issues.add("native-outcome-conflicting")
             continue
-        event = next(iter(events.values()))
-        answers, unavailable = {}, False
-        for index in indices:
-            source = sources.get(index)
-            if source is None:
-                unavailable = True
-                continue
-            try:
-                answer = normalize_tennis_outcome(event, source, observed_at=pending[index][0])
-            except (ContextContractError, TypeError, ValueError, KeyError, OverflowError):
-                answer = None
-            if answer is None:
-                unavailable = True
-            else:
-                answers[digest(answer)] = answer
-        if len(answers) > 1 or unavailable and len(indices) > 1:
-            issues.add("native-outcome-conflicting")
-        elif unavailable:
-            issues.add("native-outcome-unavailable")
-        elif answers:
-            additions[indices[0]] = next(iter(answers.values()))
+        bound = []
+        for created, event in events.values():
+            answers, unavailable = {}, False
+            for index in indices:
+                source = sources.get(index)
+                if source is None:
+                    unavailable = True
+                    continue
+                try:
+                    answer = normalize_tennis_revised_outcome(event, source,
+                        observed_at=pending[index][0], original_published_at=created)
+                except (ContextContractError, TypeError, ValueError, KeyError, OverflowError):
+                    answer = None
+                if answer is None:
+                    unavailable = True
+                else:
+                    answers[digest(answer)] = answer
+            if len(answers) > 1 or unavailable and len(indices) > 1:
+                issues.add("native-outcome-conflicting")
+            elif unavailable:
+                issues.add("native-outcome-unavailable")
+            elif answers:
+                bound.append(next(iter(answers.values())))
+        if bound:
+            additions[indices[0]] = tuple(sorted(bound, key=digest))
     return additions, issues

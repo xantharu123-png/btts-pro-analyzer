@@ -57,6 +57,25 @@ def test_known_result_gets_one_budgeted_full_detail_and_real_player_minutes(tmp_
     assert owner._context_capture is None
 
 
+def test_one_invalid_match_does_not_discard_other_matches_player_history(tmp_path, monkeypatch):
+    path = tmp_path / 'context.db'
+    good, bad = completed(101, details=True), completed(102, details=True)
+    bad['players'][0]['players'][0]['statistics'][0]['games']['minutes'] = -1
+    for row in (good, bad):
+        seed(path, completed(row['fixture']['id']), NOW - timedelta(minutes=2))
+    owner, calls = provider(monkeypatch, details=payload([bad, good]))
+    monkeypatch.setattr(owner, '_context_received_at', lambda: NOW)
+    report = implementation().refresh_football_appearances(owner, path=path, now=NOW)
+    assert len(calls) == 1 and report['requested_count'] == 2
+    assert report['status'] == report['capture']['status'] == 'partial'
+    assert report['player_fixture_count'] == 1 and report['player_record_count'] == 46
+    rows = [row for row in stored(path) if row['kind'] == 'appearance']
+    assert len(rows) == 46 and {row['event_key'] for row in rows} == {'api-football:football:101'}
+    assert {row['observed_at'] for row in rows} == {canonical_timestamp(NOW)}
+    # The failed source still receives the existing one-day retry backoff.
+    assert implementation().pending_appearance_ids(path, now=NOW+timedelta(minutes=1)) == ()
+
+
 def test_recent_detail_avoids_redundant_fetch_after_summary_without_certifying_consumer_reuse(tmp_path, monkeypatch):
     path = tmp_path / 'context.db'
     seed(path, completed(details=True), NOW - timedelta(minutes=3))

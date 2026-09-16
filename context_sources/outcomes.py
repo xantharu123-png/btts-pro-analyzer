@@ -24,6 +24,7 @@ OUTCOME_SCHEMAS = {
     TENNIS_WINNER_OUTCOME: ("espn", "espn-tennis-winner-outcome-v1"),
     TENNIS_SERVE_OUTCOME: ("espn", "tennis-observed-serve-outcome-v1"),
 }
+TENNIS_REVISED_SCHEMA = "espn-tennis-winner-outcome-v2"
 
 
 def _count(value, label):
@@ -34,14 +35,22 @@ def _count(value, label):
 
 def validate_outcome_payload(payload: dict, *, event: dict) -> dict:
     event = validate_event(event)
-    require_object(payload, {"schema", "outcome_contract", "home_id", "away_id",
-                             "scheduled_start", "terminal", "result"}, label="outcome payload")
-    if type(payload["schema"]) is not int or payload["schema"] != 1:
+    version = payload.get("schema") if type(payload) is dict else None
+    fields = {"schema", "outcome_contract", "home_id", "away_id", "scheduled_start", "terminal", "result"}
+    if type(version) is not int or version not in {1, 2}:
         raise ContextContractError("unsupported outcome schema")
+    if version == 2:
+        fields.add("reported_scheduled_start")
+    require_object(payload, fields, label="outcome payload")
     for field in ("home_id", "away_id", "scheduled_start"):
         if payload[field] != event[field]:
             raise ContextContractError("outcome and original event binding differ")
     contract, result = require_text(payload["outcome_contract"], "outcome contract", code=True), payload["result"]
+    if version == 2:
+        if contract != TENNIS_WINNER_OUTCOME:
+            raise ContextContractError("revised native schedule is only supported for Tennis winner outcomes")
+        if canonical_timestamp(payload["reported_scheduled_start"]) != payload["reported_scheduled_start"]:
+            raise ContextContractError("reported native start must retain its canonical source clock")
     if contract == FOOTBALL_OUTCOME:
         if event["sport"] != "football" or event["format"] != "90min" or payload["terminal"] != "FT":
             raise ContextContractError("goal target requires native regulation FT")
@@ -115,16 +124,23 @@ def validate_outcome_payload(payload: dict, *, event: dict) -> dict:
     return deepcopy(payload)
 
 
-def _record(event, result, contract, terminal, observed_at):
+def _record(event, result, contract, terminal, observed_at, *, reported_scheduled_start=None):
     if not isinstance(observed_at, datetime):
         raise ContextContractError("outcome ingestion requires an actual aware datetime")
     observed = canonical_timestamp(observed_at)
     if observed <= event["scheduled_start"]:
         raise ContextContractError("result cannot be received before the original start")
-    payload = validate_outcome_payload({"schema": 1, "outcome_contract": contract,
+    payload = {"schema": 1, "outcome_contract": contract,
         "home_id": event["home_id"], "away_id": event["away_id"],
-        "scheduled_start": event["scheduled_start"], "terminal": terminal, "result": result}, event=event)
+        "scheduled_start": event["scheduled_start"], "terminal": terminal, "result": result}
     source, schema = OUTCOME_SCHEMAS[contract]
+    if reported_scheduled_start is not None:
+        reported = canonical_timestamp(reported_scheduled_start)
+        if observed <= reported:
+            raise ContextContractError("result cannot precede its reported native start")
+        payload.update(schema=2, reported_scheduled_start=reported)
+        schema = TENNIS_REVISED_SCHEMA
+    payload = validate_outcome_payload(payload, event=event)
     return normalize_observation({"event_key": event["event_key"], "sport": event["sport"],
         "competition": event["competition"], "format": event["format"],
         "subject_id": event["event_key"], "kind": "match_outcome", "source": source,
@@ -150,7 +166,7 @@ def normalize_football_outcome(event: dict, source: dict, *, observed_at: dateti
                    FOOTBALL_OUTCOME, "FT", observed_at)
 
 
-def normalize_tennis_outcome(event: dict, source: dict, *, observed_at: datetime) -> dict | None:
+def _tennis_winner(event, source):
     from context_sources.tennis import _espn, _id
     event = validate_event(event)
     if type(source) is not dict or source.get("source_schema") != "espn-scoreboard-v1":
@@ -163,7 +179,6 @@ def normalize_tennis_outcome(event: dict, source: dict, *, observed_at: datetime
     if (event["sport"] != "tennis" or tour != event.get("tour")
             or event["event_key"] != f"espn:tennis:{tour}:match:{native['event_id']}"
             or event["competition"] != f"espn:{tour}:tournament:{native['tournament_id']}"
-            or event["scheduled_start"] != canonical_timestamp(native["scheduled_start"])
             or {event["home_id"], event["away_id"]} !=
                {prefix + native["player_a_id"], prefix + native["player_b_id"]}):
         raise ContextContractError("native tennis outcome differs from original event")
@@ -172,8 +187,39 @@ def normalize_tennis_outcome(event: dict, source: dict, *, observed_at: datetime
     if any(type(flag) is not bool for flag in flags) or sum(flags) != 1:
         raise ContextContractError("completed outcome needs exactly one actual winner flag")
     winner = next(c for c in competitors if c["winner"])
-    return _record(event, {"winner_id": prefix + _id(winner["id"])},
-                   TENNIS_WINNER_OUTCOME, "completed", observed_at)
+    return prefix + _id(winner["id"]), canonical_timestamp(native["scheduled_start"])
+
+
+def normalize_tennis_outcome(event: dict, source: dict, *, observed_at: datetime) -> dict | None:
+    """Legacy exact-schedule contract remains strict and byte-compatible."""
+    event = validate_event(event)
+    native = _tennis_winner(event, source)
+    if native is None:
+        return None
+    winner, reported = native
+    if event["scheduled_start"] != reported:
+        raise ContextContractError("native tennis outcome differs from original event")
+    return _record(event, {"winner_id": winner}, TENNIS_WINNER_OUTCOME, "completed", observed_at)
+
+
+def normalize_tennis_revised_outcome(event: dict, source: dict, *, observed_at: datetime,
+                                     original_published_at: str) -> dict | None:
+    """Same native match, players and tournament; preserve BOTH source clocks.
+
+    Caller resolves the immutable original's actual physical publication time.
+    Changing a final schedule never rewrites its pre-match forecast or source
+    receipt. Publication must precede both original and later reported starts.
+    """
+    event = validate_event(event)
+    native = _tennis_winner(event, source)
+    if native is None:
+        return None
+    winner, reported = native
+    published = canonical_timestamp(original_published_at)
+    if published >= min(event["scheduled_start"], reported):
+        raise ContextContractError("original publication does not precede both native start clocks")
+    return _record(event, {"winner_id": winner}, TENNIS_WINNER_OUTCOME, "completed", observed_at,
+        reported_scheduled_start=reported if reported != event["scheduled_start"] else None)
 
 
 def validate_outcome_record(row: dict, *, event: dict) -> dict:
@@ -185,12 +231,14 @@ def validate_outcome_record(row: dict, *, event: dict) -> dict:
         if row[key] != event[key]:
             raise ContextContractError("outcome receipt has a different event scope")
     contract = payload["outcome_contract"]
-    if ((row["source"], row["source_schema"]) != OUTCOME_SCHEMAS[contract]
+    expected_source = (("espn", TENNIS_REVISED_SCHEMA) if payload["schema"] == 2 else OUTCOME_SCHEMAS[contract])
+    if ((row["source"], row["source_schema"]) != expected_source
             or row["kind"] != "match_outcome" or row["subject_id"] != event["event_key"]
             or row["source_revision"] != digest(payload) or row["complete"] is not True
             or row["valid_from"] != row["observed_at"] or row["valid_until"] is not None
             or row["published_at"] is not None or row["publication_proof"] is not None
-            or row["observed_at"] <= event["scheduled_start"]):
+            or row["observed_at"] <= max(event["scheduled_start"],
+                payload.get("reported_scheduled_start", event["scheduled_start"]))):
         raise ContextContractError("outcome source content and actual receipt binding disagree")
     expected = "api-football:football:" if event["sport"] == "football" else f"espn:tennis:{event['tour']}:match:"
     if not event["event_key"].startswith(expected):

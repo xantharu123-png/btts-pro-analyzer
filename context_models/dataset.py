@@ -341,7 +341,11 @@ def outcome_revisions(connection, frozen, *, event, through):
         if received > through:
             continue
         row = _receipt(connection, ref)
-        if row["kind"] != "match_outcome" or (row["source"], row["source_schema"]) != (frozen["source"], frozen["source_schema"]):
+        tennis_winner_schemas = {"espn-tennis-winner-outcome-v1", "espn-tennis-winner-outcome-v2"}
+        same_source = (row["source"], row["source_schema"]) == (frozen["source"], frozen["source_schema"])
+        same_source |= (row["source"] == frozen["source"] == "espn"
+            and row["source_schema"] in tennis_winner_schemas and frozen["source_schema"] in tennis_winner_schemas)
+        if row["kind"] != "match_outcome" or not same_source:
             continue
         if any(row[field] != frozen[field] for field in ("sport", "competition", "format", "schedule_revision")):
             continue

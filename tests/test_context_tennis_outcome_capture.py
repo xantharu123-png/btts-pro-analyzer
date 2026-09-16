@@ -90,14 +90,13 @@ def test_no_original_is_a_noop_for_labels_and_preserves_legacy_capture(tmp_path)
     assert len(stored(db)) == 3 and observer.report()["issues"] == []
 
 
-@pytest.mark.parametrize("change", ["event", "tour", "tournament", "participant", "schedule", "group"])
+@pytest.mark.parametrize("change", ["event", "tour", "tournament", "participant", "group"])
 def test_result_cannot_borrow_an_original_from_another_native_scope(monkeypatch, tmp_path, change):
     db, _, _, _ = original_store(monkeypatch, tmp_path)
     raw, tour = completed(), "ATP"
     if change == "event": raw["id"] = "777"
     elif change == "tour": tour = "WTA"
     elif change == "participant": raw["competitors"][1]["id"] = "3"
-    elif change == "schedule": raw["date"] = "2026-09-09T16:00Z"
     received = response(raw, tour)
     if change == "tournament": received["events"][0]["id"] = "188-2026"
     if change == "group": received["events"][0]["groupings"][0]["grouping"]["slug"] = "mens-doubles"

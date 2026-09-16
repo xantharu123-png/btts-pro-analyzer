@@ -166,8 +166,9 @@ class _Capture:
             self.errors.append("Kontext-Capture: native-response-unavailable")
 
     def persist(self, path):
-        # All normalization for one response completes before publishing any of
-        # its records. B1 append is idempotent, not a fabricated all-source commit.
+        # Each fixture is normalized completely before any of its records are
+        # added. One bad player's row must not discard unrelated valid games
+        # in an already scope-validated response. B1 append is idempotent.
         # Interrupted multi-record append remains partial and is rejected as a
         # complete roster by existing collection validators on subsequent reads.
         details = [item for item in self.receipts if item["endpoint"] == "fixtures"]
@@ -179,22 +180,27 @@ class _Capture:
             try:
                 if receipt["endpoint"] == "fixtures":
                     for raw in receipt["rows"]:
-                        ev = _detail_event(raw)
-                        if receipt["watched_results_only"]:
-                            known_at = watched.get(ev["event_key"])
-                            if known_at is None or known_at > receipt["observed_at"]:
+                        try:
+                            ev = _detail_event(raw)
+                            if receipt["watched_results_only"]:
+                                known_at = watched.get(ev["event_key"])
+                                if known_at is None or known_at > receipt["observed_at"]:
+                                    continue
+                            elif raw["fixture"]["id"] not in self.wanted:
                                 continue
-                        elif raw["fixture"]["id"] not in self.wanted:
+                            fixture_rows = [row for row in normalize_football_context(ev, injuries=[],
+                                lineups=[raw] if "lineups" in raw and ev["status"] == "scheduled" else [],
+                                appearances=[raw] if "players" in raw and ev["status"] == "completed" else [],
+                                observed_at=observed) if row["kind"] != "availability"]
+                            if raw["fixture"]["status"]["short"] in {"NS", "TBD", "PST", "FT"}:
+                                fixture_rows.append(normalize_football_base_input(raw, observed_at=observed))
+                            outcome = normalize_football_outcome(ev, raw, observed_at=observed)
+                            if outcome is not None:
+                                fixture_rows.append(outcome)
+                        except (ContextContractError, KeyError, TypeError, ValueError, OverflowError):
+                            self.errors.append("Kontext-Capture: native-projection-unavailable")
                             continue
-                        additions.extend(row for row in normalize_football_context(ev, injuries=[],
-                            lineups=[raw] if "lineups" in raw and ev["status"] == "scheduled" else [],
-                            appearances=[raw] if "players" in raw and ev["status"] == "completed" else [],
-                            observed_at=observed) if row["kind"] != "availability")
-                        if raw["fixture"]["status"]["short"] in {"NS", "TBD", "PST", "FT"}:
-                            additions.append(normalize_football_base_input(raw, observed_at=observed))
-                        outcome = normalize_football_outcome(ev, raw, observed_at=observed)
-                        if outcome is not None:
-                            additions.append(outcome)
+                        additions.extend(fixture_rows)
                 else:
                     for fid in receipt["requested"]:
                         # Require actual whole-event knowledge at the injury

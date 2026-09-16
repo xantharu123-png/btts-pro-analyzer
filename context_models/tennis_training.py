@@ -59,7 +59,7 @@ def relevant_receipts(connection, event, cutoff):
 
 def live_case_artifacts(connection, payload, *, latest):
     """Resolve physical publication clocks, not just hash-shaped metadata."""
-    from context_models.dataset import _artifact
+    from context_models.dataset import _artifact, _receipt
     from context_models.experiments import _artifact_created_at
     original = _artifact(connection, payload["replay_ref"], ORIGINAL_ARTIFACT_KIND, latest=latest)
     created = _artifact_created_at(connection, original["digest"])
@@ -69,6 +69,13 @@ def live_case_artifacts(connection, payload, *, latest):
     _same(publication["origin"]["event"], payload["event"], "case differs from original event")
     if created >= payload["event"]["scheduled_start"]:
         raise ContextIntegrityError("training original was not stored before scheduled start")
+    from context_sources.outcomes import validate_outcome_record
+    outcome = _receipt(connection, payload["outcome_ref"])
+    outcome.update(effective_at=outcome["observed_at"], evidence_class="prospective", publication_resolution=None)
+    outcome = validate_outcome_record(outcome, event=payload["event"])
+    reported = outcome["payload"].get("reported_scheduled_start", payload["event"]["scheduled_start"])
+    if created >= reported:
+        raise ContextIntegrityError("training original was not stored before reported native start")
     state = _artifact(connection, base["model_hash"], "tennis-tour-state", latest=base["cutoff"])
     identity = _artifact(connection, payload["event_identity_hash"], "context-native-identity-map-v1", latest=latest)
     return {item["digest"]: item for item in (original, state, identity)}
@@ -122,6 +129,8 @@ def validate_live_training_case(resolved, *, config, payload):
     if len(outcomes) != 1 or outcomes[0]["digest"] != payload["outcome_ref"]:
         raise ContextIntegrityError("live case must resolve exactly its own frozen outcome")
     outcome = validate_outcome_record(outcomes[0], event=event)
+    if decision >= outcome["payload"].get("reported_scheduled_start", event["scheduled_start"]):
+        raise ContextIntegrityError("original decision follows the later reported native start")
     if outcome["observed_at"] <= decision or outcome["payload"]["outcome_contract"] != config["outcome_contract"]:
         raise ContextIntegrityError("live outcome is not a later normal winner of this contract")
     identity = resolve_identity_map(artifacts[payload["event_identity_hash"]],

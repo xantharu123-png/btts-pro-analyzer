@@ -180,19 +180,25 @@ def refresh_football_appearances(provider, *, path: Path | None = None,
         response = provider._background_football_get('fixtures',
             {'ids': '-'.join(str(value) for value in ids)}, 'Kontext Einsatzhistorie')
     report['capture'] = capture.report()
-    if report['capture']['status'] == 'captured':
+    if report['capture']['receipt_refs']:
         from context_sources.football import _detail_event, normalize_football_context
         with_minutes = set()
+        persisted = set(report['capture']['receipt_refs'])
         for receipt in capture.receipts:
             for raw in receipt['rows']:
-                rows = normalize_football_context(_detail_event(raw), injuries=[], lineups=[],
-                    appearances=[raw], observed_at=datetime.fromisoformat(receipt['observed_at']))
+                try:
+                    rows = normalize_football_context(_detail_event(raw), injuries=[], lineups=[],
+                        appearances=[raw], observed_at=datetime.fromisoformat(receipt['observed_at']))
+                except (ContextContractError, KeyError, TypeError, ValueError, OverflowError):
+                    continue  # Capture already reported this rejected fixture.
                 players = [row for row in rows if row['kind'] == 'appearance'
-                    and row['subject_id'].startswith('api-football:player:')]
+                    and row['subject_id'].startswith('api-football:player:')
+                    and digest({'content_digest': digest(row), 'observed_at': receipt['observed_at']}) in persisted]
                 report['player_record_count'] += len(players)
                 if any(row['payload']['minutes'] is not None for row in players):
                     with_minutes.add(raw['fixture']['id'])
         report['player_fixture_count'] = len(with_minutes)
     report['status'] = ('unavailable' if response is None else
-        'player_data_captured' if report['player_fixture_count'] == len(ids) else 'partial')
+        'player_data_captured' if report['player_fixture_count'] == len(ids)
+            and report['capture']['status'] == 'captured' else 'partial')
     return report

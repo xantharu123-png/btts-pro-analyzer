@@ -70,7 +70,9 @@ class _Capture:
         chunk = []
         for index, (observed, rows) in enumerate(self.pending):
             if index in outcomes:
-                rows = (*rows, outcomes[index])
+                rows = (*rows, *outcomes[index])
+            if len(rows) > 512:
+                raise ContextContractError("one native competition exceeds the atomic receipt batch limit")
             # Keep one competition's status/workload together. The whole feed
             # may remain partial on interruption, but a committed chunk is
             # atomic and retains every original reception clock.
