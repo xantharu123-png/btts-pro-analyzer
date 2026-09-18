@@ -1,4 +1,5 @@
 import math
+from dataclasses import replace
 from datetime import datetime, timezone
 from unittest.mock import patch
 
@@ -59,6 +60,7 @@ def _candidate(metric: ValidationMetrics) -> ChallengeCandidate:
         venue_samples=(10, 10),
         form_samples=(10, 10),
         validation=metric,
+        prediction_version=challenge_engine.CHALLENGE_PREDICTION_VERSION,
     )
     candidate.context = {
         "passed": True,
@@ -148,6 +150,7 @@ def test_all_echtgeld_release_paths_require_hac_fdr_but_forecast_stays_visible()
         max_error_bin_size=50,
         max_error_bin_mean_probability=0.6,
         raw_brier_score=0.16,
+        prediction_version=challenge_engine.CHALLENGE_PREDICTION_VERSION,
     )
     candidate = _candidate(metric)
 
@@ -173,6 +176,7 @@ def test_shared_echtgeld_gate_accepts_complete_current_hac_fdr_proof():
         max_error_bin_size=50,
         max_error_bin_mean_probability=0.6,
         raw_brier_score=0.16,
+        prediction_version=challenge_engine.CHALLENGE_PREDICTION_VERSION,
         paired_loss_mean=0.05,
         paired_loss_hac_standard_error=0.005,
         paired_loss_lower_confidence_bound=0.0418,
@@ -189,6 +193,20 @@ def test_shared_echtgeld_gate_accepts_complete_current_hac_fdr_proof():
     assert select_wettfinder_catalog([candidate]) == [candidate]
     assert select_wettfinder_catalog([candidate], require_release=True) == [candidate]
 
+    # Complete statistical evidence must belong to the current prediction law.
+    # Missing, old or unknown versions never inherit the current law's proof.
+    for version in (None, "legacy-law", "unknown-future-law"):
+        mismatched_candidates = (
+            replace(candidate, prediction_version=version),
+            replace(candidate, validation=replace(metric, prediction_version=version)),
+        )
+        for mismatched in mismatched_candidates:
+            assert candidate_is_forecast_credible(mismatched) is True
+            assert candidate_is_credible(mismatched) is False
+            assert candidate_is_wettfinder_release_credible(mismatched) is False
+            assert select_wettfinder_catalog([mismatched]) == [mismatched]
+            assert select_wettfinder_catalog([mismatched], require_release=True) == []
+
 
 def test_normal_release_rechecks_evidence_fields_instead_of_trusting_flag():
     metric = ValidationMetrics(
@@ -204,6 +222,7 @@ def test_normal_release_rechecks_evidence_fields_instead_of_trusting_flag():
         max_error_bin_size=50,
         max_error_bin_mean_probability=0.6,
         raw_brier_score=0.16,
+        prediction_version=challenge_engine.CHALLENGE_PREDICTION_VERSION,
         paired_loss_mean=0.05,
         paired_loss_hac_standard_error=0.01,
         paired_loss_lower_confidence_bound=-0.01,

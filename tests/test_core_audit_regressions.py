@@ -28,6 +28,7 @@ NOW = datetime(2026, 8, 20, 12, tzinfo=timezone.utc)
 def _built(probability, *, profile="challenge", market="BTTS_YES", metric=None):
     target = fixture(1, NOW + timedelta(hours=1), 10, 11)
     model = {
+        "projection_success": True,
         "freshness_days": 1.0,
         "active_lambdas": (1.4, 0.6),
         "venue_samples": (12, 12),
