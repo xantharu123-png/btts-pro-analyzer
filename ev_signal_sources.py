@@ -952,6 +952,10 @@ def _load_automated_wettfinder_document(
         for row in collection:
             if not isinstance(row, dict):
                 return None
+            try:
+                _automated_model_version(row)
+            except ValueError:
+                return None
             if "context_ref" in row:
                 try:
                     ContextReference.from_dict(row["context_ref"])
@@ -1366,6 +1370,20 @@ def _football_recommendation_release_eligible(row: dict) -> bool:
     )
 
 
+def _automated_model_version(row: dict) -> Optional[str]:
+    """Retain the actual producer identity; absent legacy metadata stays unknown."""
+    model = row.get('model_version')
+    if row.get('source') != 'football_challenge':
+        return model
+    prediction = row.get('prediction_version')
+    if any(value is not None and (not isinstance(value, str) or not value.strip())
+           for value in (model, prediction)):
+        raise ValueError('Invalid football model identity')
+    if model is not None and prediction is not None and model != prediction:
+        raise ValueError('Conflicting football model identities')
+    return model if model is not None else prediction
+
+
 def _automated_analysis_fields(row: dict, *, now: datetime) -> dict:
     """Optional presentation metadata never changes model/release eligibility."""
     return {
@@ -1375,7 +1393,7 @@ def _automated_analysis_fields(row: dict, *, now: datetime) -> dict:
         "model_scope": row.get("model_scope"),
         "modeled_at": row.get("modeled_at"),
         "input_cutoff_at": row.get("input_cutoff_at"),
-        "model_version": row.get("model_version"),
+        "model_version": _automated_model_version(row),
         "fixture_source": row.get("fixture_source"),
         "provider_event_id": row.get("provider_event_id"),
         "competitor_a_id": row.get("competitor_a_id"),

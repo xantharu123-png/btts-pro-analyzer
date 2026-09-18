@@ -2153,6 +2153,13 @@ def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
     assert [row.key for row in forecasts] == [model_selection["key"]]
     assert [row.key for row in signals] == [tip["key"]]
     assert signals[0].evidence_stage == "RELEASED"
+    from wettfinder_surface import build_wettfinder_card
+    expected_version = _football_snapshot(now)['shortlist'][0].prediction_version
+    assert model_selection.get('model_version') == expected_version
+    assert tip.get('model_version') == expected_version
+    for signal in (*forecasts, *signals):
+        assert signal.model_version == expected_version
+        assert build_wettfinder_card(signal, now=read_at).model_version == expected_version
 
     tampered = json.loads(state_path.read_text(encoding="utf-8"))
     tampered["candidates"][0]["release_contract"] = "unreviewed-release"

@@ -411,6 +411,7 @@ def _football_candidate_record(
         "evidence_stage": "SHADOW",
         "policy_version": BETTING_POLICY_VERSION,
         "prediction_version": candidate.prediction_version,
+        "model_version": candidate.prediction_version,
         "validation_prediction_version": validation.prediction_version,
         "modeled_at": _utc(context_checked_at).isoformat() if context_checked_at is not None else None,
         "input_cutoff_at": _utc(context_checked_at).isoformat() if context_checked_at is not None else None,

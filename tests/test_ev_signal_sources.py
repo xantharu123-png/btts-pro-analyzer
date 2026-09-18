@@ -288,6 +288,62 @@ def test_both_automated_builders_retain_exact_analysis_and_original_model_clocks
         assert signal.model_scope == "same_competition"
 
 
+def test_both_actual_readers_retain_legacy_prediction_version_alias(tmp_path):
+    import json
+    from wettfinder_surface import build_wettfinder_card
+    row = _playable_automatic_candidate()
+    expected = row['prediction_version']
+    assert 'model_version' not in row
+    path = tmp_path/'legacy-version.json'
+    path.write_text(json.dumps(_automatic_document([_model_overlay(row)], candidates=[row])), encoding='utf-8')
+    now = datetime(2030, 1, 1, 10, 1, tzinfo=timezone.utc)
+    for reader in (automated_wettfinder_forecasts, automated_wettfinder_signals):
+        signals = reader(path, now=now)
+        assert len(signals) == 1
+        assert signals[0].model_version == expected
+        assert build_wettfinder_card(signals[0], now=now).model_version == expected
+
+
+def test_absent_version_is_not_invented_and_conflicting_aliases_fail_closed(tmp_path):
+    import json
+    from wettfinder_surface import build_wettfinder_card
+    now = datetime(2030, 1, 1, 10, 1, tzinfo=timezone.utc)
+    row = _model_automatic_candidate()
+    row.pop('prediction_version')
+    path = tmp_path/'version.json'
+    path.write_text(json.dumps(_automatic_document([row])), encoding='utf-8')
+    signals = automated_wettfinder_forecasts(path, now=now)
+    assert len(signals) == 1 and signals[0].model_version is None
+    assert build_wettfinder_card(signals[0], now=now).model_version is None
+    strict = _playable_automatic_candidate()
+    strict['model_version'] = 'different-model-law'
+    path.write_text(json.dumps(_automatic_document([_model_overlay(strict)], candidates=[strict])), encoding='utf-8')
+    assert _load_automated_wettfinder_document(path, now=now) is None
+    assert automated_wettfinder_forecasts(path, now=now) == []
+    assert automated_wettfinder_signals(path, now=now) == []
+
+
+def test_read_equal_clock_different_versions_without_numeric_direction_comparison(tmp_path):
+    import json
+    from forecast_selection import select_consumer_forecasts
+    from wettfinder_surface import build_wettfinder_card
+    now = datetime(2030, 1, 1, 10, 1, tzinfo=timezone.utc)
+    yes = _model_automatic_candidate()
+    yes.update(home_id=10, away_id=11, modeled_at='2030-01-01T10:00:00+00:00',
+               input_cutoff_at='2030-01-01T10:00:00+00:00', prediction_version='law-a')
+    no = {**yes, 'key': 'other-direction', 'candidate_id': '1:BTTS_NO', 'market_key': 'BTTS_NO',
+          'selection': 'Nein', 'prediction_version': 'law-b', 'probability': .9,
+          'conservative_probability': .82, 'minimum_odds': signal_sources._minimum_odds(.9, .08)}
+    path = tmp_path/'mixed-versions.json'
+    path.write_text(json.dumps(_automatic_document([no, yes])), encoding='utf-8')
+    signals = automated_wettfinder_forecasts(path, now=now)
+    assert len(signals) == 2
+    for pool in (signals, [build_wettfinder_card(s, now=now) for s in signals]):
+        selected = select_consumer_forecasts(pool, now=now)
+        assert selected[0].market_key == 'BTTS_YES'
+        assert selected[0].model_version == 'law-a'
+
+
 def test_legacy_artifact_never_borrows_even_matching_or_duplicate_discovery_basis(tmp_path):
     import json
 
