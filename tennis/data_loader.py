@@ -10,8 +10,8 @@ Two data planes, mirroring the football pipeline architecture:
    sure no bookmaker column can cross the boundary (there are none in
    this source, the allowlist also guards future schema changes).
 
-2. ODDS plane (evaluation only) — tennis-data.co.uk season files
-   (ATP ``{year}.xlsx`` / WTA ``{year}w.xlsx`` over plain http):
+2. ODDS plane (evaluation only) — tennis-data.co.uk HTTPS season files
+   (ATP ``{year}/{year}.xlsx`` / WTA ``{year}w/{year}.xlsx``):
    results plus Pinnacle (PSW/PSL) and Bet365 (B365W/B365L) closing
    prices.  Only the walk-forward backtest may read this plane to
    score model probabilities against the market.  Nothing from this
@@ -44,7 +44,7 @@ from runtime_paths import (
 MAN_TENNIS_BASE = (
     "https://raw.githubusercontent.com/msolonskyi/ManTennisData/master"
 )
-TENNIS_DATA_BASE = "http://www.tennis-data.co.uk"
+TENNIS_DATA_BASE = "https://tennis-data.co.uk/hrjk-85HytOjkhth76j_ygh4jf7"
 
 DEFAULT_CACHE_DIR = TENNIS_TRAINING_DATA_DIR
 

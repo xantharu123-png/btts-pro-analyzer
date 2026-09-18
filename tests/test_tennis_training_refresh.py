@@ -219,6 +219,50 @@ def test_invalid_tournament_response_keeps_previous_metadata(tmp_path, monkeypat
     assert (tmp_path / "atp_tournaments.csv").read_bytes() == TOURNAMENTS
 
 
+@pytest.mark.parametrize(
+    ("tour", "old_url", "published_url"),
+    [
+        (
+            "atp",
+            "http://www.tennis-data.co.uk/2026/2026.xlsx",
+            "https://tennis-data.co.uk/hrjk-85HytOjkhth76j_ygh4jf7/2026/2026.xlsx",
+        ),
+        (
+            "wta",
+            "http://www.tennis-data.co.uk/2026w/2026.xlsx",
+            "https://tennis-data.co.uk/hrjk-85HytOjkhth76j_ygh4jf7/2026w/2026.xlsx",
+        ),
+    ],
+)
+def test_market_refresh_uses_published_https_season_locator(
+    tmp_path, monkeypatch, tour, old_url, published_url,
+):
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        if url == old_url:
+            return SimpleNamespace(
+                content=b"",
+                raise_for_status=lambda: (_ for _ in ()).throw(
+                    requests.HTTPError("404 Client Error")
+                ),
+            )
+        if url == published_url:
+            return response(xlsx())
+        pytest.fail(f"unexpected tennis-data URL: {url}")
+
+    monkeypatch.setattr(data_loader.requests, "get", get)
+
+    rows = data_loader.load_market_odds(
+        (2026,), tour, tmp_path,
+        refresh_current=True, current_year=2026,
+    )
+
+    assert rows["Winner"].tolist() == ["New Woman"]
+    assert calls == [published_url]
+
+
 def test_wta_refresh_uses_real_result_columns_and_reuses_historical_years(tmp_path, monkeypatch):
     cached_sources(tmp_path)
     urls = []
