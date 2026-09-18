@@ -14,6 +14,34 @@ SPORT_NAMES = {'basketball': 'Basketball', 'ice_hockey': 'Eishockey'}
 SCOPES = {'basketball': 'including_overtime', 'ice_hockey': 'including_overtime_shootout'}
 
 
+def freeze_research_snapshot(payload):
+    """Own every nested JSON value before validating consumer evidence."""
+    def freeze(value, depth=0):
+        if depth > 16:
+            raise ValueError('research snapshot nesting exceeds schema limits')
+        if isinstance(value, Mapping):
+            if any(not isinstance(key, str) for key in value):
+                raise ValueError('research snapshot keys must be text')
+            return MappingProxyType({key: freeze(item, depth+1) for key, item in value.items()})
+        if isinstance(value, (list, tuple)):
+            return tuple(freeze(item, depth+1) for item in value)
+        if value is None or isinstance(value, (str, bool, int, float)):
+            return value
+        raise ValueError('research snapshot must contain JSON values')
+    if not isinstance(payload, Mapping):
+        raise ValueError('research snapshot must be a mapping')
+    return freeze(payload)
+
+
+def _snapshot_json(value):
+    """Explicit detached serialization of frozen consumer evidence."""
+    if isinstance(value, Mapping):
+        return {key: _snapshot_json(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_snapshot_json(item) for item in value]
+    return value
+
+
 def _clock(value):
     if isinstance(value, str):
         value = datetime.fromisoformat(value)
@@ -196,6 +224,7 @@ def valid_research_row(row, *, now=None):
 def research_signal_row(signal):
     result = dict(vars(signal))
     snapshot = signal.team_sport_snapshot if isinstance(signal.team_sport_snapshot, Mapping) else {}
+    result['team_sport_snapshot'] = _snapshot_json(snapshot)
     result.update(event=signal.event_label, event_identity=snapshot.get('event_key'),
                   conservative_probability=None, reference_price_status='UNAVAILABLE')
     return result

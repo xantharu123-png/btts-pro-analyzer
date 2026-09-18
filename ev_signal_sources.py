@@ -19,13 +19,13 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Mapping, Optional, Union
 from zoneinfo import ZoneInfo
 
 from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
 from context_links import ContextReference
 from forecast_analysis import read_football_analysis
-from team_sport_forecasts import SOURCE as TEAM_RESEARCH_SOURCE, POLICY as TEAM_RESEARCH_POLICY, valid_research_row, research_signal_row
+from team_sport_forecasts import SOURCE as TEAM_RESEARCH_SOURCE, POLICY as TEAM_RESEARCH_POLICY, valid_research_row, research_signal_row, freeze_research_snapshot
 from market_consensus import (
     MarketConsensus,
     quote_matches_candidate,
@@ -112,9 +112,11 @@ class ModelSignal:
     away_team_id: Optional[int] = None
     model_scope: Optional[str] = None
     context_ref: Optional[ContextReference] = None
-    team_sport_snapshot: Optional[dict] = None
+    team_sport_snapshot: Optional[Mapping[str, object]] = None
 
     def __post_init__(self) -> None:
+        if self.team_sport_snapshot is not None:
+            object.__setattr__(self, 'team_sport_snapshot', freeze_research_snapshot(self.team_sport_snapshot))
         if self.context_ref is not None and not isinstance(self.context_ref, ContextReference):
             raise ValueError("Model signal context reference must be immutable")
         if not _valid_probability(self.probability):

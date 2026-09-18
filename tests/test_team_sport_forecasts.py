@@ -45,6 +45,46 @@ def _snapshot(sport='basketball'):
     return adapt_research_matchwinner(sport, event(sport, source_observed_at=NOW.isoformat()), history(sport), modeled_at=NOW).snapshot
 
 
+def _signal_and_input():
+    from ev_signal_sources import ModelSignal
+    from team_sport_forecasts import team_sport_forecast_rows
+    snapshot = _snapshot()
+    row = team_sport_forecast_rows(SimpleNamespace(snapshots=(snapshot,)), now=NOW, target_date=NOW.date())[0]
+    args = {key: value for key, value in row.items() if key in ModelSignal.__dataclass_fields__}
+    return ModelSignal(**args, event_label=row['event']), row
+
+
+def test_consumer_snapshot_detaches_all_nested_caller_evidence():
+    from forecast_analysis import build_forecast_analysis
+    signal, row = _signal_and_input()
+    before = build_forecast_analysis(signal, now=NOW)
+    raw = row['team_sport_snapshot']
+    raw['team_sport_forecast']['evaluation']['count'] = 0
+    raw['team_sport_forecast']['factors'].clear()
+    raw['factors'][0]['sample_size'] = 0
+    assert signal.team_sport_snapshot['team_sport_forecast']['evaluation']['count'] == 24
+    assert signal.team_sport_snapshot['team_sport_forecast']['factors']
+    assert signal.team_sport_snapshot['factors'][0]['sample_size'] == 84
+    assert build_forecast_analysis(signal, now=NOW) == before
+
+
+def test_consumer_snapshot_rejects_nested_mutation_and_exports_detached_json():
+    import json
+    from team_sport_forecasts import research_signal_row, valid_research_row
+    signal, _ = _signal_and_input()
+    with pytest.raises(TypeError):
+        signal.team_sport_snapshot['team_sport_forecast']['evaluation']['count'] = 0
+    with pytest.raises(TypeError):
+        signal.team_sport_snapshot['factors'][0]['sample_size'] = 0
+    with pytest.raises(TypeError):
+        signal.team_sport_snapshot['team_sport_forecast']['factors'][0] = 'changed'
+    exported = json.loads(json.dumps(research_signal_row(signal)))
+    assert valid_research_row(exported, now=NOW)
+    exported['team_sport_snapshot']['team_sport_forecast']['evaluation']['count'] = 0
+    assert signal.team_sport_snapshot['team_sport_forecast']['evaluation']['count'] == 24
+    assert replace(signal).team_sport_snapshot == signal.team_sport_snapshot
+
+
 def test_actual_store_roundtrip_and_content_collision(tmp_path):
     from riskobet_domain import RiskRunSnapshot, RunStatus
     from riskobet_store import RiskBetStore, FrozenRevisionError
