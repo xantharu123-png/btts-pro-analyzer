@@ -783,6 +783,10 @@ def load_wta_ta_stats(cache_dir: Path = DEFAULT_CACHE_DIR) -> pd.DataFrame:
             won = r[_TA["wl"]] == "W"
             winner = r[_TA["player"]] if won else r[_TA["opp"]]
             loser = r[_TA["opp"]] if won else r[_TA["player"]]
+            key = (date, winner, loser)
+            # Duration is an independent native observation.  Reconcile it
+            # even when this particular view cannot provide a viable box score.
+            duration_evidence.setdefault(key, []).append(_ta_duration(r[_TA["time"]]))
             # box-score columns from the winner's perspective
             w_games = _ta_int(r[_TA["games"] if won else _TA["ogames"]])
             l_games = _ta_int(r[_TA["ogames"] if won else _TA["games"]])
@@ -792,8 +796,6 @@ def load_wta_ta_stats(cache_dir: Path = DEFAULT_CACHE_DIR) -> pd.DataFrame:
             l_chances = _ta_int(r[_TA["ochances"] if won else _TA["chances"]])
             if None in (w_games, l_games, w_saved, w_chances, l_saved, l_chances):
                 continue
-            key = (date, winner, loser)
-            duration_evidence.setdefault(key, []).append(_ta_duration(r[_TA["time"]]))
             if won or key not in rows:  # winner view wins the de-dup
                 rows[key] = {
                     "tourney_date": pd.to_datetime(date, format="%Y%m%d", errors="coerce"),
@@ -818,10 +820,10 @@ def load_wta_ta_stats(cache_dir: Path = DEFAULT_CACHE_DIR) -> pd.DataFrame:
         observed = {minutes for minutes, state in evidence if state == "available"}
         if len(observed) > 1:
             duration, state = None, "conflicting"
+        elif any(item_state == "invalid" for _, item_state in evidence):
+            duration, state = None, "invalid"
         elif observed:
             duration, state = next(iter(observed)), "available"
-        elif any(state == "invalid" for _, state in evidence):
-            duration, state = None, "invalid"
         else:
             duration, state = None, "missing"
         coverage = "wta_leaderboard_pool"

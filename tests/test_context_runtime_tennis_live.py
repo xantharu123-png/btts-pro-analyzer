@@ -55,9 +55,33 @@ _REVIEWED_PRE_DURATION_SOURCE_MANIFEST = {
         "CRLF": "063c782b99fe876b2da5f4b5a6dec284fb1ae39b92aac5d9b42889acb392358c",
     },
 }
+_REVIEWED_DURATION_SOURCE_MANIFEST = {
+    **{name: variants for name, variants in _REVIEWED_OLD_SOURCE_MANIFEST.items()
+       if name != "tennis/data_loader.py"},
+    "tennis/data_loader.py": {
+        "LF": "20cd51119065d2503b4f1fed7d12d07e5cabd24c35c55961c1c312266b54ad9b",
+        "CRLF": "6feb45af9d6a9b6398682665f1ec8c6041dc8e4da9c3b2c65caa083f2c9663ab",
+    },
+}
 _REVIEWED_PRIOR_SOURCE_MANIFESTS = (
     _REVIEWED_OLD_SOURCE_MANIFEST,
     _REVIEWED_PRE_DURATION_SOURCE_MANIFEST,
+)
+
+# Canonical ORIGINALs emitted by the unmodified predecessor commits in an
+# offline Windows git-archive checkout.  These are complete old publications,
+# not current publications with their manifests rewritten by the test.
+_FROZEN_HISTORICAL_ORIGINALS = (
+    {
+        "source_commit": "185812e0846c7821a46673c9267abfe838d89f4b",
+        "artifact_digest": "2244830d62fabe328fbac9945dde0c923c84546a2dade0c953a304fed2d9d2e5",
+        "origin": json.loads(r'''{"code_hashes":{"tennis/data_loader.py":"59ac32fcadc1d963ff981bbc0f6533c36579ea78f46ffe807349bc8a840ba937","tennis/elo.py":"cc7e6d4e249087aa5a1490b3e32c59dfced5f7b0ad32564ff2b028c72be48f35","tennis/model_state.py":"654a75872a2114f3125ee77fac4efa06376e8c47791ed5f76a562d9cc8456563","tennis/predict.py":"df806e19414e3a304068be0b5e322b8bdd996ce9252762676711906fe5bdab80","tennis/serve_model.py":"b32a0805b9c810d40ed52be7c8be8905330ecea876ae4aabd3ef7b6bd7635715","tennis/simulator.py":"82a9489bc4fd8d4c581ac7c133eec82f0ccc696f5c012362cc43f79ef4e044d3"},"competition_revision":"1466ec290635c42cba5a1f3d26f6c64c77fe985547e38ca8ebc06dc5d4826f3a","cutoff":"2026-09-09T12:00:00.000000Z","event":{"away_id":"espn:tennis:ATP:player:2","competition":"espn:ATP:tournament:189-2026","event_key":"espn:tennis:ATP:match:201","format":"singles","home_id":"espn:tennis:ATP:player:1","indoor":null,"schedule_revision":"ea4fb2efd79fb49fd2c8cd25ba48c2fc1ab7046b2ba024845e7dd841ad72f381","scheduled_start":"2026-09-09T17:00:00.000000Z","sport":"tennis","status":"scheduled","surface":null,"tour":"ATP"},"inputs":{"best_of":3,"indoor":null,"player_a":"Alpha A","player_b":"Beta B","state_key_a":"alpha a","state_key_b":"beta b","surface":"Hard","tour":"ATP"},"kind":"tennis-live-winner-origin-v1","native_observed_at":"2026-09-09T11:59:50.000000Z","native_receipt":"946ae521d2e599547c55e36a6d1de133f7c30ae4d419e91f519c8b2f436448ad","native_state_identity":"unresolved","schema":1,"state_hash":"0d015d4c789a89f9b53e6705df7d39a04e7b004c670d0c0ead5e53ff22300aba","values":{"p_a_cal":0.875497705719586,"p_a_raw":0.8716369103008822,"p_b_cal":0.12450229428041404}}'''),
+    },
+    {
+        "source_commit": "b342b02ac9c52b559152d7dd91d08c049e131611",
+        "artifact_digest": "96a8edd8f890f6869039ee2b47578b2b8576df638a1d023f3951ca83770cd611",
+        "origin": json.loads(r'''{"code_hashes":{"tennis/data_loader.py":"063c782b99fe876b2da5f4b5a6dec284fb1ae39b92aac5d9b42889acb392358c","tennis/elo.py":"cc7e6d4e249087aa5a1490b3e32c59dfced5f7b0ad32564ff2b028c72be48f35","tennis/model_state.py":"654a75872a2114f3125ee77fac4efa06376e8c47791ed5f76a562d9cc8456563","tennis/predict.py":"df806e19414e3a304068be0b5e322b8bdd996ce9252762676711906fe5bdab80","tennis/serve_model.py":"b32a0805b9c810d40ed52be7c8be8905330ecea876ae4aabd3ef7b6bd7635715","tennis/simulator.py":"82a9489bc4fd8d4c581ac7c133eec82f0ccc696f5c012362cc43f79ef4e044d3"},"competition_revision":"1466ec290635c42cba5a1f3d26f6c64c77fe985547e38ca8ebc06dc5d4826f3a","cutoff":"2026-09-09T12:00:00.000000Z","event":{"away_id":"espn:tennis:ATP:player:2","competition":"espn:ATP:tournament:189-2026","event_key":"espn:tennis:ATP:match:201","format":"singles","home_id":"espn:tennis:ATP:player:1","indoor":null,"schedule_revision":"ea4fb2efd79fb49fd2c8cd25ba48c2fc1ab7046b2ba024845e7dd841ad72f381","scheduled_start":"2026-09-09T17:00:00.000000Z","sport":"tennis","status":"scheduled","surface":null,"tour":"ATP"},"inputs":{"best_of":3,"indoor":null,"player_a":"Alpha A","player_b":"Beta B","state_key_a":"alpha a","state_key_b":"beta b","surface":"Hard","tour":"ATP"},"kind":"tennis-live-winner-origin-v1","native_observed_at":"2026-09-09T11:59:50.000000Z","native_receipt":"946ae521d2e599547c55e36a6d1de133f7c30ae4d419e91f519c8b2f436448ad","native_state_identity":"unresolved","schema":1,"state_hash":"0d015d4c789a89f9b53e6705df7d39a04e7b004c670d0c0ead5e53ff22300aba","values":{"p_a_cal":0.875497705719586,"p_a_raw":0.8716369103008822,"p_b_cal":0.12450229428041404}}'''),
+    },
 )
 
 
@@ -227,6 +251,46 @@ def test_lf_crlf_equivalent_source_bytes_do_not_invent_a_different_recipe(monkey
             lf = raw.replace(b"\r\n", b"\n")
             origin["code_hashes"][name] = hashlib.sha256(lf.replace(b"\n", b"\r\n")).hexdigest()
     _replace_origin(db, equivalent)
+    assert "unrecognized-artifact-schema" not in verify_context_database(db)["limitations"]
+
+
+@pytest.mark.parametrize("fixture", _FROZEN_HISTORICAL_ORIGINALS,
+                         ids=("locator-original", "pre-duration-original"))
+def test_canonical_predecessor_original_replays_through_runtime(monkeypatch, tmp_path, fixture):
+    db, _ = _stored(monkeypatch, tmp_path, tours=("ATP",))
+    frozen = fixture["origin"]
+    assert digest({"kind": ORIGINAL_ARTIFACT_KIND,
+                   "payload": {"schema": 1, "origin": frozen}}) == fixture["artifact_digest"]
+
+    def install(origin):
+        origin.clear()
+        origin.update(deepcopy(frozen))
+
+    _replace_origin(db, install)
+    before = db.read_bytes()
+    monkeypatch.setattr("requests.sessions.Session.request",
+                        lambda *a, **k: pytest.fail("historical replay downloaded"))
+    monkeypatch.setattr("requests.get",
+                        lambda *a, **k: pytest.fail("historical replay downloaded"))
+
+    report = verify_context_database(db)
+
+    assert db.read_bytes() == before
+    assert report["verification_level"] == "transport_only"
+    assert frozen["values"] == {
+        "p_a_cal": 0.875497705719586,
+        "p_a_raw": 0.8716369103008822,
+        "p_b_cal": 0.12450229428041404,
+    }
+
+
+def test_prior_reviewed_duration_manifest_remains_runtime_compatible(monkeypatch, tmp_path):
+    db, _ = _stored(monkeypatch, tmp_path, tours=("ATP",))
+    _replace_origin(db, lambda origin: origin.__setitem__("code_hashes", {
+        name: variants["LF"]
+        for name, variants in _REVIEWED_DURATION_SOURCE_MANIFEST.items()
+    }))
+
     assert "unrecognized-artifact-schema" not in verify_context_database(db)["limitations"]
 
 

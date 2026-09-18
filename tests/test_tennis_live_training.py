@@ -2,6 +2,7 @@
 from copy import deepcopy
 from datetime import timedelta
 import hashlib
+import json
 from pathlib import Path
 import sqlite3
 
@@ -19,7 +20,24 @@ from model_artifacts import load_artifact, put_artifact
 from test_tennis_live_worker import NOW, competition, publish_state
 from test_context_tennis_outcome_capture import completed
 from context_training_helpers import envelope
-from test_context_runtime_tennis_live import _REVIEWED_PRIOR_SOURCE_MANIFESTS
+from test_context_runtime_tennis_live import (
+    _REVIEWED_DURATION_SOURCE_MANIFEST,
+    _REVIEWED_PRIOR_SOURCE_MANIFESTS,
+)
+
+
+_FROZEN_HISTORICAL_TRAINING_ORIGINALS = (
+    {
+        "source_commit": "185812e0846c7821a46673c9267abfe838d89f4b",
+        "artifact_digest": "2504aaff4d5c48c6db53ba50f485d5ab21ab69489fa06e238317fdcbd82fed69",
+        "origin": json.loads(r'''{"code_hashes":{"tennis/data_loader.py":"59ac32fcadc1d963ff981bbc0f6533c36579ea78f46ffe807349bc8a840ba937","tennis/elo.py":"cc7e6d4e249087aa5a1490b3e32c59dfced5f7b0ad32564ff2b028c72be48f35","tennis/model_state.py":"654a75872a2114f3125ee77fac4efa06376e8c47791ed5f76a562d9cc8456563","tennis/predict.py":"df806e19414e3a304068be0b5e322b8bdd996ce9252762676711906fe5bdab80","tennis/serve_model.py":"b32a0805b9c810d40ed52be7c8be8905330ecea876ae4aabd3ef7b6bd7635715","tennis/simulator.py":"82a9489bc4fd8d4c581ac7c133eec82f0ccc696f5c012362cc43f79ef4e044d3"},"competition_revision":"db0e73748c261977ab8d6b3affa5f1041b24effba97c09a9b6465f44500e238c","cutoff":"2026-09-09T12:00:00.000000Z","event":{"away_id":"espn:tennis:ATP:player:101","competition":"espn:ATP:tournament:189-2026","event_key":"espn:tennis:ATP:match:200","format":"singles","home_id":"espn:tennis:ATP:player:100","indoor":null,"schedule_revision":"6142277bc837799d2eeae193c170131f1eea85490ed440849dc1c549cc5025d8","scheduled_start":"2026-09-09T17:00:00.000000Z","sport":"tennis","status":"scheduled","surface":null,"tour":"ATP"},"inputs":{"best_of":3,"indoor":false,"player_a":"Alpha A","player_b":"Beta B","state_key_a":"alpha a","state_key_b":"beta b","surface":"Hard","tour":"ATP"},"kind":"tennis-live-winner-origin-v1","native_observed_at":"2026-09-09T11:59:50.000000Z","native_receipt":"d5e876fafde50ee2b602fab7cde73ae5c1a1afb242d629a566a2703d865c007b","native_state_identity":"unresolved","schema":1,"state_hash":"0d015d4c789a89f9b53e6705df7d39a04e7b004c670d0c0ead5e53ff22300aba","values":{"p_a_cal":0.875497705719586,"p_a_raw":0.8716369103008822,"p_b_cal":0.12450229428041404}}'''),
+    },
+    {
+        "source_commit": "b342b02ac9c52b559152d7dd91d08c049e131611",
+        "artifact_digest": "d8bc7fa2b1eb31e2d16fb4faccf83d774424bb746bcbf484f3a5b07824ac47c1",
+        "origin": json.loads(r'''{"code_hashes":{"tennis/data_loader.py":"063c782b99fe876b2da5f4b5a6dec284fb1ae39b92aac5d9b42889acb392358c","tennis/elo.py":"cc7e6d4e249087aa5a1490b3e32c59dfced5f7b0ad32564ff2b028c72be48f35","tennis/model_state.py":"654a75872a2114f3125ee77fac4efa06376e8c47791ed5f76a562d9cc8456563","tennis/predict.py":"df806e19414e3a304068be0b5e322b8bdd996ce9252762676711906fe5bdab80","tennis/serve_model.py":"b32a0805b9c810d40ed52be7c8be8905330ecea876ae4aabd3ef7b6bd7635715","tennis/simulator.py":"82a9489bc4fd8d4c581ac7c133eec82f0ccc696f5c012362cc43f79ef4e044d3"},"competition_revision":"db0e73748c261977ab8d6b3affa5f1041b24effba97c09a9b6465f44500e238c","cutoff":"2026-09-09T12:00:00.000000Z","event":{"away_id":"espn:tennis:ATP:player:101","competition":"espn:ATP:tournament:189-2026","event_key":"espn:tennis:ATP:match:200","format":"singles","home_id":"espn:tennis:ATP:player:100","indoor":null,"schedule_revision":"6142277bc837799d2eeae193c170131f1eea85490ed440849dc1c549cc5025d8","scheduled_start":"2026-09-09T17:00:00.000000Z","sport":"tennis","status":"scheduled","surface":null,"tour":"ATP"},"inputs":{"best_of":3,"indoor":false,"player_a":"Alpha A","player_b":"Beta B","state_key_a":"alpha a","state_key_b":"beta b","surface":"Hard","tour":"ATP"},"kind":"tennis-live-winner-origin-v1","native_observed_at":"2026-09-09T11:59:50.000000Z","native_receipt":"d5e876fafde50ee2b602fab7cde73ae5c1a1afb242d629a566a2703d865c007b","native_state_identity":"unresolved","schema":1,"state_hash":"0d015d4c789a89f9b53e6705df7d39a04e7b004c670d0c0ead5e53ff22300aba","values":{"p_a_cal":0.875497705719586,"p_a_raw":0.8716369103008822,"p_b_cal":0.12450229428041404}}'''),
+    },
+)
 
 
 def live_config(tour="ATP"):
@@ -125,6 +143,24 @@ def with_source_manifest(case, source_manifest, newline="LF"):
     return changed
 
 
+def with_frozen_original(case, fixture):
+    from context_models.tennis_v3 import tennis_reference_hash_v3
+    changed = deepcopy(case)
+    payload = changed["case"]["payload"]
+    old_ref = payload["replay_ref"]
+    origin = deepcopy(fixture["origin"])
+    payload["base"] = original_base(origin)
+    publication = envelope(ORIGINAL_ARTIFACT_KIND, {"schema": 1, "origin": origin})
+    assert publication["digest"] == fixture["artifact_digest"]
+    payload["replay_ref"] = publication["digest"]
+    del changed["artifacts"][old_ref]
+    changed["artifacts"][publication["digest"]] = publication
+    payload["features"]["reference_hash"] = tennis_reference_hash_v3(
+        payload["base"], payload["event"])
+    changed["case"] = envelope("context-training-case-v1", payload)
+    return changed
+
+
 def test_live_cohort_is_distinct_from_legacy_and_does_not_invent_environment():
     config = live_config()
     assert validate_family_config(config) == config
@@ -184,6 +220,32 @@ def test_exact_historical_original_replays_through_training_verifier(
     from context_models.training_contracts import validate_resolved_case
     _, cases, config, _ = cases_for(tmp_path)
     historical = with_source_manifest(cases[0], source_manifest, newline)
+
+    assert validate_resolved_case(historical, config=config) == historical
+
+
+@pytest.mark.parametrize("fixture", _FROZEN_HISTORICAL_TRAINING_ORIGINALS,
+                         ids=("locator-original", "pre-duration-original"))
+def test_canonical_predecessor_original_replays_through_training_verifier(
+        tmp_path, fixture):
+    from context_models.training_contracts import validate_resolved_case
+    _, cases, config, _ = cases_for(tmp_path)
+    historical = with_frozen_original(cases[0], fixture)
+
+    assert validate_resolved_case(historical, config=config) == historical
+    base = historical["case"]["payload"]["base"]
+    assert base["params"] == {"p_a": 0.875497705719586}
+    assert base["markets"] == {
+        "winner_a": 0.875497705719586,
+        "winner_b": 0.12450229428041404,
+    }
+
+
+def test_prior_reviewed_duration_manifest_remains_training_compatible(tmp_path):
+    from context_models.training_contracts import validate_resolved_case
+    _, cases, config, _ = cases_for(tmp_path)
+    historical = with_source_manifest(
+        cases[0], _REVIEWED_DURATION_SOURCE_MANIFEST, "LF")
 
     assert validate_resolved_case(historical, config=config) == historical
 

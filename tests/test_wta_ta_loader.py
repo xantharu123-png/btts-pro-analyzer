@@ -180,6 +180,49 @@ class TestWtaTaLoader:
         assert frame.iloc[0]["match_duration_coverage"] == "wta_leaderboard_pool_partial"
         assert frame.iloc[0]["win_service_games_played"] == 10
 
+    def test_duration_from_incomplete_boxscore_view_is_still_reconciled(self, tmp_path):
+        winner_view = _row({26: "", 33: ""})
+        loser_view = _row({4: "L", 5: "Test Beta", 12: "Test Alpha", 26: "97",
+                            33: "10", 34: "2", 35: "6", 42: "12", 43: "3", 44: "5"})
+        _write_fake_js(tmp_path, "wta_top50_leadersource.js", [loser_view, winner_view])
+        _write_fake_js(tmp_path, "wta_51_100_leadersource.js", [])
+
+        frame = load_wta_ta_stats(cache_dir=tmp_path)
+
+        assert len(frame) == 1
+        assert frame.iloc[0]["match_duration"] == 97
+        assert frame.iloc[0]["match_duration_state"] == "available"
+        assert frame.iloc[0]["match_duration_coverage"] == "wta_leaderboard_pool_partial"
+        assert frame.iloc[0]["win_service_games_played"] == 12
+
+    def test_conflicting_duration_from_incomplete_boxscore_view_is_not_hidden(self, tmp_path):
+        winner_view = _row({26: "101", 33: ""})
+        loser_view = _row({4: "L", 5: "Test Beta", 12: "Test Alpha", 26: "97",
+                            33: "10", 34: "2", 35: "6", 42: "12", 43: "3", 44: "5"})
+        _write_fake_js(tmp_path, "wta_top50_leadersource.js", [loser_view, winner_view])
+        _write_fake_js(tmp_path, "wta_51_100_leadersource.js", [])
+
+        frame = load_wta_ta_stats(cache_dir=tmp_path)
+
+        assert len(frame) == 1
+        assert pd.isna(frame.iloc[0]["match_duration"])
+        assert frame.iloc[0]["match_duration_state"] == "conflicting"
+        assert frame.iloc[0]["win_service_games_played"] == 12
+
+    def test_invalid_companion_takes_precedence_over_one_valid_duration(self, tmp_path):
+        winner_view = _row({26: "n/a"})
+        loser_view = _row({4: "L", 5: "Test Beta", 12: "Test Alpha", 26: "97",
+                            33: "10", 34: "2", 35: "6", 42: "12", 43: "3", 44: "5"})
+        _write_fake_js(tmp_path, "wta_top50_leadersource.js", [loser_view, winner_view])
+        _write_fake_js(tmp_path, "wta_51_100_leadersource.js", [])
+
+        frame = load_wta_ta_stats(cache_dir=tmp_path)
+
+        assert len(frame) == 1
+        assert pd.isna(frame.iloc[0]["match_duration"])
+        assert frame.iloc[0]["match_duration_state"] == "invalid"
+        assert frame.iloc[0]["match_duration_coverage"] == "wta_leaderboard_pool_partial"
+
     def test_optional_duration_metadata_does_not_change_serve_state_or_prediction(self, tmp_path):
         _write_fake_js(tmp_path, "wta_top50_leadersource.js", [_row({26: "97"})])
         _write_fake_js(tmp_path, "wta_51_100_leadersource.js", [])

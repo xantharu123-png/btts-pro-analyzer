@@ -44,6 +44,13 @@ _REVIEWED_DURATION_MANIFEST = {
        if name != "tennis/data_loader.py"},
     "tennis/data_loader.py": frozenset({"20cd51119065d2503b4f1fed7d12d07e5cabd24c35c55961c1c312266b54ad9b", "6feb45af9d6a9b6398682665f1ec8c6041dc8e4da9c3b2c65caa083f2c9663ab"}),
 }
+_REVIEWED_RECONCILED_DURATION_MANIFEST = {
+    # Exact duration evidence reconciliation fix from the reviewed round-one
+    # implementation.  No other prediction owner changed.
+    **{name: hashes for name, hashes in _REVIEWED_DURATION_MANIFEST.items()
+       if name != "tennis/data_loader.py"},
+    "tennis/data_loader.py": frozenset({"6f7d30e03204b6202e1e0572d71f10268fffaac7106efae87f133566ee6c1433", "2fc405c199b5ce7f0bd8d0e3aae4524234cdc07671e754584ba06eaeb4d6649d"}),
+}
 
 
 def _same(actual, expected, label):
@@ -71,15 +78,17 @@ def _code_manifest_supported(recorded, running):
         return False
     if all(recorded[name] in running[name] for name in CODE_PATHS):
         return True
-    # Closed compatibility for the reviewed locator and additive-duration
-    # transitions. The complete executing manifest must be the duration build,
+    # Closed compatibility for the reviewed locator and duration transitions.
+    # The complete executing manifest must be the reconciled-duration build,
     # and the recorded manifest must be one exact predecessor. Mixed, arbitrary
     # data-loader or future source recipes receive no historical allowance.
     return (
-        all(_REVIEWED_DURATION_MANIFEST[name] <= running[name] for name in CODE_PATHS)
+        all(_REVIEWED_RECONCILED_DURATION_MANIFEST[name] <= running[name]
+            for name in CODE_PATHS)
         and any(all(recorded[name] in manifest[name] for name in CODE_PATHS)
                 for manifest in (_REVIEWED_LOCATOR_OLD_MANIFEST,
-                                 _REVIEWED_PRE_DURATION_MANIFEST))
+                                 _REVIEWED_PRE_DURATION_MANIFEST,
+                                 _REVIEWED_DURATION_MANIFEST))
     )
 
 
