@@ -942,12 +942,12 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
         for value, kwargs, _context in recording_st.markdown_calls
         if kwargs.get("unsafe_allow_html")
     )
-    assert [key for key, _kwargs, _context in price_calls] == [
+    assert {key for key, _kwargs, _context in price_calls} == {
         "football-one",
         "tennis-one",
         "esport-one",
         "football-two",
-    ]
+    }
     assert all(kwargs["presentation"] == "compact" for _key, kwargs, _ in price_calls)
     assert all(kwargs["manual_surface"] == "popover" for _key, kwargs, _ in price_calls)
     assert len(evaluation_calls) == len(forecasts)
@@ -971,8 +971,9 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
         if kind in {"expander", "price_action"}
     ]
     assert action_order == ["price_action"] * len(forecasts)
-    assert html.count('class="wf-top-card"') == 3
-    assert html.count('class="wf-row"') == 1
+    # These legacy fixtures intentionally lack attributable model evidence.
+    assert html.count('class="wf-top-card"') == 0
+    assert html.count('class="wf-row"') == 4
     assert all(html.count(f'data-key="{signal.key}"') == 1 for signal in forecasts)
     assert "Berechnete Auswahl 1" not in html
     assert "Tagestipp 1" not in html
@@ -995,19 +996,14 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
     )
     assert {
         "wettfinder_v2_summary",
-        "wettfinder_v2_section_header",
         "wettfinder_v2_sports",
-        "wettfinder_v2_top_grid",
-        "wettfinder_v2_top_card_1",
-        "wettfinder_v2_top_card_2",
-        "wettfinder_v2_top_card_3",
         "wettfinder_v2_additional",
         "wettfinder_v2_additional_row_1",
     }.issubset(set(recording_st.containers))
     heading_event = next(
         index
         for index, (kind, value) in enumerate(recording_st.event_log)
-        if kind == "markdown" and 'class="wf-section-heading"' in value
+        if kind == "markdown" and 'class="wf-additional-heading"' in value
     )
     sport_control_event = recording_st.event_log.index(
         ("segmented_control", "wettfinder_automatic_sport_v2")

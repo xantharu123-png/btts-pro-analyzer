@@ -8,6 +8,7 @@ from zlib import crc32
 import pytest
 import wettfinder_surface as surface
 from ev_signal_sources import ModelSignal
+from forecast_analysis import project_football_analysis
 from market_consensus import (
     MarketConsensus,
     QuotePoint,
@@ -34,7 +35,7 @@ def _signal(
     detail: str = "Modell mit Form- und Kaderdaten",
     context_summary: str | None = "Kader geprüft",
 ) -> ModelSignal:
-    return ModelSignal(
+    signal = ModelSignal(
         key=key,
         label=f"{event} · {selection}",
         probability=0.68,
@@ -58,7 +59,29 @@ def _signal(
         context_summary=context_summary if context_complete is not None else None,
         context_complete=context_complete,
         statistical_release_passed=statistical_release_passed,
+        modeled_at=NOW.isoformat(), input_cutoff_at=NOW.isoformat(),
+        model_scope='same_competition', home_team_id=10 if sport == 'Fussball' else None,
+        away_team_id=11 if sport == 'Fussball' else None,
     )
+    # Catalog/diversity fixtures explicitly carry current exact-bound evidence.
+    # Legacy unknown-clock/evidence behavior has dedicated neutral-card tests.
+    if sport == 'Fussball':
+        raw = vars(signal)
+        return replace(signal, analysis_evidence=project_football_analysis(raw, model_basis={
+            **raw, 'expected_home_goals': 1.8, 'expected_away_goals': .9,
+            'venue_samples': [12, 12], 'form_samples': [6, 6]}))
+    signal = replace(signal, competitor_a='A', competitor_b='B', selected_competitor='A',
+                     fixture_source='test', provider_event_id=key)
+    if sport == 'Tennis':
+        return replace(signal, context_evidence={'observed_at': NOW.isoformat(),
+            'players': {'a': {'player': 'A'}, 'b': {'player': 'B'}},
+            'model_inputs': {'surface': 'Clay', 'surface_in_model': True,
+                'stats_through': NOW.date().isoformat(), 'stats_through_kind': 'result_date'}})
+    if sport == 'E-Sport':
+        return replace(signal, context_evidence={'schema': 'esports-card-basis-v1',
+            'provider_event_id': key, 'competitor_a': 'A', 'competitor_b': 'B',
+            'modeled_at': NOW.isoformat(), 'elo_a': 1700, 'elo_b': 1500})
+    return signal
 
 
 def _quote(
@@ -475,7 +498,7 @@ def test_top_card_markup_exposes_the_decision_hierarchy_in_reading_order():
     markup = surface.render_top_card_html(card)
 
     expected_fragments = (
-        'class="wf-badge wf-badge-top" aria-label="Top-Auswahl">TOP</span>',
+        'class="wf-badge wf-badge-top" aria-label="Aktuelle Modell-Auswahl">MODELL-AUSWAHL</span>',
         'class="wf-badge wf-badge-evidence wf-evidence-warning"',
         'class="wf-badge wf-badge-price wf-price-warning"',
         'class="wf-meta"',
@@ -674,32 +697,19 @@ def test_catalog_round_robins_sports_uses_no_price_order_and_keeps_fixture_rows_
         repriced, sport_filter="Alle"
     )
 
-    assert [card.key for card in catalog.featured] == [
-        "tennis-h2h",
-        "football-useful",
-        "same-fixture-one",
-    ]
+    assert len(catalog.featured) == 3
+    assert {card.sport for card in catalog.featured} == {'Fussball', 'Tennis'}
+    assert len({card.market_key for card in catalog.featured}) == 3
     assert [card.key for card in catalog.featured] == [
         card.key for card in repriced_catalog.featured
     ]
     assert {card.key for card in catalog.featured + catalog.additional} == {
         card.key for card in cards
     }
-    assert [card.key for card in catalog.additional] == [
-        "football-broad",
-        "unrelated",
-        "same-fixture-two",
-        "same-fixture-three",
-    ]
-    assert [group.label for group in catalog.additional_groups] == [
-        "Alpha vs Beta",
-        "Eta vs Theta",
-        "Epsilon vs Zeta",
-    ]
-    assert [card.key for card in catalog.additional_groups[2].cards] == [
-        "same-fixture-two",
-        "same-fixture-three",
-    ]
+    assert 'football-broad' in {card.key for card in catalog.additional}
+    group = next(group for group in catalog.additional_groups if group.label == 'Epsilon vs Zeta')
+    assert {'same-fixture-two', 'same-fixture-three'} <= {card.key for card in group.cards}
+    assert tuple(card for group in catalog.additional_groups for card in group.cards) == catalog.additional
 
 
 def test_repeated_broad_team_totals_stay_visible_without_monopolizing_featured_cards():
@@ -738,10 +748,7 @@ def test_repeated_broad_team_totals_stay_visible_without_monopolizing_featured_c
 
     catalog = surface.compose_wettfinder_catalog([*broad, *useful])
 
-    assert [card.key for card in catalog.featured] == [
-        "useful-result",
-        "useful-btts",
-    ]
+    assert {card.key for card in catalog.featured} == {"useful-result", "useful-btts"}
     assert {card.key for card in catalog.additional} == {
         "broad-1",
         "broad-2",
@@ -801,7 +808,11 @@ def test_compatible_cross_market_forecasts_stay_visible_but_collective_conflicts
     away_under = outcome("AWAY_UNDER_1_5")
     # Each pair can win, but both teams exactly one goal cannot also total >2.5.
     catalog = surface.compose_wettfinder_catalog([btts, home_under, total_over, away_under])
-    assert [card.key for card in catalog.featured + catalog.additional] == [btts.key, home_under.key, total_over.key]
+    visible = catalog.featured + catalog.additional
+    assert len(visible) == 3
+    # Canonical order replaces source-order anchoring; either coherent scenario
+    # is valid, but the four collectively impossible predicates are not.
+    assert {card.key for card in visible} == {away_under.key, btts.key, home_under.key}
 
 
 def test_event_identity_is_native_and_does_not_merge_same_named_distinct_fixtures():
@@ -851,7 +862,8 @@ def test_sixteenth_different_market_survives_repeated_markets_and_90_event_catal
         for index in range(17, 91)
     )
     catalog = surface.compose_wettfinder_catalog(cards)
-    assert "btts-at-sixteen" in {card.key for card in catalog.featured}
+    assert any(card.market_key == 'BTTS_YES' for card in catalog.featured)
+    assert "btts-at-sixteen" in {card.key for card in catalog.featured + catalog.additional}
     assert len(catalog.featured) + len(catalog.additional) == 90
     assert {card.key for card in catalog.featured + catalog.additional} == {card.key for card in cards}
     repriced = surface.compose_wettfinder_catalog([
@@ -977,7 +989,4 @@ def test_same_market_family_can_feature_once_per_sport():
         [tennis, esports], max_featured=2
     )
 
-    assert [card.key for card in catalog.featured] == [
-        "tennis-winner",
-        "esports-winner",
-    ]
+    assert {card.key for card in catalog.featured} == {"tennis-winner", "esports-winner"}

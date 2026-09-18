@@ -25,7 +25,8 @@ from bet_finder_ui import (
     consumer_fixture_label,
 )
 from ev_signal_sources import ModelSignal
-from forecast_analysis import build_forecast_analysis
+from forecast_analysis import build_forecast_analysis, forecast_highlight_reason, format_model_clock
+from forecast_selection import select_consumer_forecasts
 from market_consensus import (
     MarketConsensus,
     ReferencePriceStatus,
@@ -34,7 +35,7 @@ from market_consensus import (
     wettfinder_reference_price_status,
 )
 from multi_sport_recommendations import RecommendationCandidate
-from selection_coherence import consumer_event_identity, select_coherent_forecasts
+from selection_coherence import consumer_event_identity
 
 
 _ALL_SPORT_FILTERS = {"", "alle", "all"}
@@ -86,6 +87,14 @@ class WettfinderCard:
     selected_competitor: Optional[str] = None
     competitor_a_id: Optional[str] = None
     competitor_b_id: Optional[str] = None
+    modeled_at: Optional[str] = None
+    input_cutoff_at: Optional[str] = None
+    model_version: Optional[str] = None
+    policy_version: Optional[str] = None
+    model_scope: Optional[str] = None
+    highlight_eligible: bool = False
+    highlight_reason: str = "Modellgrundlagen nicht geprüft"
+    analysis_data_age: str = ""
 
 
 @dataclass(frozen=True)
@@ -379,6 +388,7 @@ def build_wettfinder_card(
     remains visible before any release decision exists.
     """
 
+    now = now or (price_evaluation.evaluated_at if price_evaluation else datetime.now(timezone.utc))
     if price_evaluation is None:
         normalized_quote = _normalise_quote(quote)
         status = wettfinder_reference_price_status(
@@ -423,6 +433,7 @@ def build_wettfinder_card(
     model_probability = float(signal.probability)
     cautious_probability = model_probability - float(signal.probability_haircut)
     analysis = build_forecast_analysis(signal, now=now)
+    highlight_reason = forecast_highlight_reason(signal, now=now, analysis=analysis)
     return WettfinderCard(
         key=signal.key,
         sport=_clean_text(signal.sport, "Modell"),
@@ -462,6 +473,14 @@ def build_wettfinder_card(
         selected_competitor=signal.selected_competitor,
         competitor_a_id=signal.competitor_a_id,
         competitor_b_id=signal.competitor_b_id,
+        modeled_at=signal.modeled_at,
+        input_cutoff_at=signal.input_cutoff_at,
+        model_version=signal.model_version,
+        policy_version=signal.policy_version,
+        model_scope=signal.model_scope,
+        highlight_eligible=not highlight_reason,
+        highlight_reason=highlight_reason,
+        analysis_data_age=analysis.data_age,
     )
 
 
@@ -498,6 +517,8 @@ def _select_featured(
     fixtures: set[str] = set()
     markets: set[str] = set()
     for card in cards:
+        if not card.highlight_eligible:
+            continue
         # Keep broad safety lines visible below the fold while useful diverse
         # markets exist; this is the established consumer-market contract.
         if _consumer_market_is_basis(card):
@@ -538,12 +559,9 @@ def compose_wettfinder_catalog(
 ) -> WettfinderCatalog:
     """Compose a coherent, price-neutral visible selection across all pages.
 
-    With ``Alle`` the source order is round-robin by sport. Within each sport
-    it remains the loader's original model order. The first useful row per
-    event anchors its scenario; broad basis rows cannot exclude a useful
-    selection merely by arriving earlier. No odds, price decision or raw
-    probability changes that preference. All additional selections must have
-    a jointly possible outcome with their event's complete selected set.
+    Shared canonical coherence precedes every sport/section/page filter.
+    Highlight qualification is retained from the common card-build clock;
+    neutral descriptive rows stay visible in the additional section.
     """
 
     if (
@@ -552,16 +570,12 @@ def compose_wettfinder_catalog(
         or max_featured < 1
     ):
         raise ValueError("max_featured must be a positive integer")
-    original = tuple(cards)
+    original = select_consumer_forecasts(cards)
     requested = _token(sport_filter)
     if requested in _ALL_SPORT_FILTERS:
         ordered = _round_robin_by_sport(original)
     else:
         ordered = [card for card in original if _token(card.sport) == requested]
-    ordered = select_coherent_forecasts(
-        ordered,
-        preferred=[card for card in ordered if not _consumer_market_is_basis(card)],
-    )
     featured = _select_featured(ordered, max_featured=max_featured)
     featured_keys = {card.key for card in featured}
     remaining = [card for card in ordered if card.key not in featured_keys]
@@ -583,10 +597,10 @@ _PRICE_NOTES = {
 
 def _status_badges(card: WettfinderCard, *, featured: bool) -> str:
     badges = []
-    if featured:
+    if featured and card.highlight_eligible:
         badges.append(
             '<span class="wf-badge wf-badge-top" '
-            'aria-label="Top-Auswahl">TOP</span>'
+            'aria-label="Aktuelle Modell-Auswahl">MODELL-AUSWAHL</span>'
         )
     badges.extend(
         (
@@ -628,12 +642,18 @@ def _analysis_markup(card: WettfinderCard) -> str:
         f'<p class="wf-analysis-samples">{escape(card.analysis_samples)}</p>'
         if card.analysis_samples else ""
     )
+    clocks = f'Berechnet: {format_model_clock(card.modeled_at)}'
+    if card.analysis_data_age:
+        clocks += ' · ' + card.analysis_data_age
+    if card.highlight_reason:
+        clocks += ' · Ohne Hervorhebung: ' + card.highlight_reason
     return (
         '<section class="wf-analysis">'
         '<h4>Warum diese Auswahl?</h4>'
         f'<p class="wf-analysis-basis">{escape(card.analysis_basis)}</p>'
         f'<p class="wf-analysis-caution">{escape(card.analysis_caution)}</p>'
         f"{samples}"
+        f'<p class="wf-analysis-age">{escape(clocks)}</p>'
         '</section>'
     )
 

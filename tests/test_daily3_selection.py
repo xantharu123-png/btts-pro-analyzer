@@ -30,7 +30,7 @@ def football(fixture=1, key='RESULT_HOME', probability=.65, *, now=NOW):
         input_cutoff_at=row['input_cutoff_at'], model_scope=row['model_scope'], analysis_evidence=evidence)
 
 
-def tennis(*, now=NOW):
+def tennis(*, now=NOW, coverage=True):
     return ModelSignal(key='tennis1', label='Spieler A vs Spieler B', probability=.66, probability_haircut=.08,
         evidence_stage='SHADOW', policy_version='test-v1', detail='unused', scheduled_start=(now+timedelta(hours=2)).isoformat(),
         source='tennis_model', sport='Tennis', event_label='Spieler A vs Spieler B', market='Match Winner',
@@ -38,7 +38,9 @@ def tennis(*, now=NOW):
         fixture_source='api-tennis', provider_event_id='t1', competitor_a_id='a1', competitor_b_id='b1',
         modeled_at=now.isoformat(), input_cutoff_at=now.isoformat(), context_evidence={
             'observed_at': now.isoformat(), 'players': {'a': {'player': 'Spieler A'}, 'b': {'player': 'Spieler B'}},
-            'model_inputs': {'surface': 'Clay', 'surface_in_model': True, 'serve_in_model': True}})
+            'model_inputs': {'surface': 'Clay', 'surface_in_model': True, 'serve_in_model': True,
+                **({'stats_through': now.date().isoformat(), 'stats_through_kind': 'result_date',
+                    'model_built_at': now.isoformat(), 'training_cutoff': now.isoformat()} if coverage else {})}})
 
 
 def test_no_opposing_selections_and_full_pool_diversity_before_cut():

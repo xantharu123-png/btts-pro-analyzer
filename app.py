@@ -4816,9 +4816,9 @@ def _render_automated_daily_selection() -> None:
         with st.container(key="wettfinder_v2_section_header"):
             st.markdown(
                 '<div class="wf-section-heading">'
-                "<h2>Top-Auswahlen nach Modell</h2>"
-                "<p>Alle wichtigen Angaben sofort sichtbar. Der Preisstatus "
-                "sortiert die Karten nicht um.</p>"
+                "<h2>Aktuelle Modell-Auswahlen</h2>"
+                "<p>Aktuelle, belegte und vielfältige Prognosen – keine Rangliste "
+                "garantierter Sicherheit. Der Preisstatus sortiert die Karten nicht um.</p>"
                 "</div>",
                 unsafe_allow_html=True,
             )

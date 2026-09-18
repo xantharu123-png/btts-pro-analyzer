@@ -8,7 +8,7 @@ original model clocks. Legacy rows deliberately receive an honest fallback.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import math
 from typing import Mapping
 from zoneinfo import ZoneInfo
@@ -21,6 +21,9 @@ _CONTEXT_MAX_AGE = timedelta(minutes=75)
 _ZURICH = ZoneInfo("Europe/Zurich")
 _GOAL_KINDS = {"result", "double_chance", "btts", "total", "team_total", "team_range", "result_total", "mixed_or"}
 _COUNT_UNITS = {"corner_total": "Ecken", "team_corners": "Ecken", "yellow_total": "Gelbe Karten", "team_yellow": "Gelbe Karten"}
+# Operational presentation review windows, not empirical prediction filters.
+MODEL_HIGHLIGHT_MAX_AGE = timedelta(minutes=150)
+TENNIS_COVERAGE_REVIEW_DAYS = 14
 
 
 @dataclass(frozen=True)
@@ -28,6 +31,9 @@ class ForecastAnalysis:
     basis: str
     caution: str
     samples: str = ""
+    supported: bool = False
+    data_age: str = ""
+    data_current: bool = True
 
 
 def _mapping(value: object) -> Mapping:
@@ -53,6 +59,12 @@ def _clock(value: object) -> datetime | None:
         return parsed.astimezone(timezone.utc) if parsed.tzinfo is not None else None
     except (ValueError, OverflowError):
         return None
+
+
+def format_model_clock(value: object) -> str:
+    """Readable local time, kept separate from underlying coverage dates."""
+    clock = _clock(value)
+    return clock.astimezone(_ZURICH).strftime('%d.%m.%Y %H:%M') if clock else 'unbekannt'
 
 
 def _alias(row: Mapping, first: str, second: str) -> object:
@@ -240,7 +252,8 @@ def _rate_copy(spec, basis: Mapping, home: str, away: str) -> str | None:
         if value == other:
             return f"Die Torprognose ist gleich: {_decimal(value)} Tore für beide Teams"
         direction = "höher" if value > other else "niedriger"
-        return f"Die Torprognose liegt für {team} {direction}: {_decimal(value)} Tore gegenüber {_decimal(other)} für {opponent}"
+        scenario = "Außenseiter-Szenario: " if value < other else ""
+        return f"{scenario}Die Torprognose liegt für {team} {direction}: {_decimal(value)} Tore gegenüber {_decimal(other)} für {opponent}"
     if spec.kind in {"team_total", "team_range", "team_corners", "team_yellow"}:
         value, team = (left, home) if spec.side.startswith("home") else (right, away)
         return f"Das Modell erwartet {_decimal(value)} {unit} für {team}"
@@ -292,13 +305,103 @@ def _context_caution(context: Mapping, now: datetime) -> str:
     return text + "."
 
 
+def _tennis_inputs(signal):
+    context = _mapping(signal.context_evidence)
+    inputs, players = _mapping(context.get('model_inputs')), _mapping(context.get('players'))
+    clock = _clock(signal.modeled_at)
+    if (clock is None or _clock(context.get('observed_at')) != clock
+            or not all(name and _mapping(players.get(side)).get('player') == name
+                       for side, name in (('a', signal.competitor_a), ('b', signal.competitor_b)))
+            or signal.competitor_a == signal.competitor_b
+            or signal.selected_competitor not in (signal.competitor_a, signal.competitor_b)):
+        return {}
+    return inputs
+
+
+def _tennis_data_age(inputs, now):
+    kinds = {'result_date': 'Ergebnisdatum', 'tournament_start_proxy': 'Turnierstart-Proxy (kein letzter Spielzeitpunkt)'}
+    kind = kinds.get(inputs.get('stats_through_kind'))
+    try:
+        through = date.fromisoformat(inputs.get('stats_through'))
+    except (TypeError, ValueError):
+        through = None
+    current = bool(through and kind and 0 <= (now.date()-through).days <= TENNIS_COVERAGE_REVIEW_DAYS)
+    text = f'Datenstand: {through:%d.%m.%Y} · {kind}' if through and kind else 'Datenstand unbekannt'
+    model_clock = _clock(inputs.get('model_built_at'))
+    cutoff = _clock(inputs.get('training_cutoff'))
+    for label, clock in (('Modellaufbau', model_clock), ('Trainingsstichtag', cutoff)):
+        text += f'; {label}: {format_model_clock(clock.isoformat()) if clock else "unbekannt"}'
+        # An explicitly malformed/future provenance clock is not current proof.
+        field = 'model_built_at' if label == 'Modellaufbau' else 'training_cutoff'
+        if inputs.get(field) is not None and (clock is None or clock > now):
+            current = False
+    if cutoff and through and through > cutoff.date():
+        current = False
+    return text, current
+
+
+def _sport_analysis(signal, sport, now):
+    """Exact-bound public facts, shared by normal cards and Daily3."""
+    if sport == 'tennis':
+        inputs = _tennis_inputs(signal)
+        age, current = _tennis_data_age(inputs, now)
+        surfaces = {'hard': 'Hartplatz', 'clay': 'Sand', 'grass': 'Rasen', 'carpet': 'Teppich'}
+        surface = surfaces.get(str(inputs.get('surface', '')).casefold())
+        if inputs.get('surface_in_model') is True and surface:
+            serve = ' und Aufschlagdaten' if inputs.get('serve_in_model') is True else ''
+            return ForecastAnalysis(
+                f'Das Modell berücksichtigt die Spielstärke auf {surface}{serve}. Daraus ergibt sich die Auswahl {signal.selection}.',
+                'Eine Modellschätzung, keine sichere Wette. Verletzungen und Müdigkeit sind in diesem Beleg nicht als numerischer Vorteil nachgewiesen.',
+                supported=True, data_age=age, data_current=current)
+    if sport in {'e-sport', 'esports'}:
+        evidence = _mapping(signal.context_evidence)
+        clock = _clock(signal.modeled_at)
+        if (evidence.get('schema') != 'esports-card-basis-v1' or clock is None
+                or not signal.provider_event_id or evidence.get('provider_event_id') != signal.provider_event_id
+                or _clock(evidence.get('modeled_at')) != clock
+                or not signal.competitor_a or not signal.competitor_b
+                or signal.competitor_a == signal.competitor_b
+                or evidence.get('competitor_a') != signal.competitor_a
+                or evidence.get('competitor_b') != signal.competitor_b):
+            return None
+        left, right = evidence.get('elo_a'), evidence.get('elo_b')
+        if (not all(_number(n) and 0 < n < 10000 for n in (left, right))
+                or signal.selected_competitor not in (signal.competitor_a, signal.competitor_b)):
+            return None
+        own, opponent = (left, right) if signal.selected_competitor == signal.competitor_a else (right, left)
+        return ForecastAnalysis(
+            f'Modellbasis für {signal.selected_competitor}: Elo {own:.0f}, Gegner {opponent:.0f}. Diese gespeicherten Spielstärken fließen in das Siegmodell ein.',
+            'Kaderwechsel, Ersatzspieler und aktuelle Serienbelastung sind damit nicht als zusätzlicher Vorteil belegt.',
+            supported=True)
+    return None
+
+
+def forecast_highlight_reason(signal, *, now, analysis=None):
+    """Empty means eligible for presentation, never a betting release."""
+    clock = _clock(signal.modeled_at)
+    if clock is None:
+        return 'Modellzeit unbekannt'
+    if not timedelta(0) <= now-clock <= MODEL_HIGHLIGHT_MAX_AGE:
+        return 'Modellstand nicht aktuell belegt'
+    analysis = analysis or build_forecast_analysis(signal, now=now)
+    if not analysis.supported:
+        return 'Keine exakt zugeordneten Modellgrundlagen'
+    if not analysis.data_current:
+        return 'Datenstand nicht aktuell belegt'
+    return ''
+
+
 def build_forecast_analysis(signal, *, now: datetime | None = None) -> ForecastAnalysis:
     """Compose at most four factual sentences; HTML escaping belongs to UI."""
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
         raise ValueError("analysis clock must be timezone-aware")
     current = current.astimezone(timezone.utc)
-    football = str(signal.sport or "").strip().casefold().replace("ß", "ss") == "fussball"
+    sport = str(signal.sport or "").strip().casefold().replace("ß", "ss")
+    sport_analysis = _sport_analysis(signal, sport, current)
+    if sport_analysis:
+        return sport_analysis
+    football = sport in {"fussball", "football"}
     spec = MARKET_BY_KEY.get(signal.market_key) if football else None
     home, away = signal.home_team or "Heimteam", signal.away_team or "Auswärtsteam"
     contract, counter = _contract(spec, home, away) if spec else (
@@ -317,4 +420,6 @@ def build_forecast_analysis(signal, *, now: datetime | None = None) -> ForecastA
     caution += "."
     if football:
         caution += " " + _context_caution(_mapping(evidence.get("context")) if evidence else {}, current)
-    return ForecastAnalysis(explanation, caution, _sample_copy(basis) if rates else "")
+    age, data_current = _tennis_data_age(_tennis_inputs(signal), current) if sport == 'tennis' else ('', True)
+    samples = _sample_copy(basis) if rates else ""
+    return ForecastAnalysis(explanation, caution, samples, bool(rates and samples), age, data_current)
