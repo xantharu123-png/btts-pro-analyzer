@@ -156,6 +156,7 @@ def snapshot_from_dict(payload: Mapping[str, object]) -> EventModelSnapshot:
     missing = payload.get("missing_core_data", ())
     if not isinstance(missing, (list, tuple)):
         raise ValueError("snapshot missing_core_data must be a sequence")
+    from team_sport_forecasts import TeamSportForecast
     snapshot = EventModelSnapshot(
         event_key=str(payload["event_key"]),
         sport=str(payload["sport"]),
@@ -170,6 +171,7 @@ def snapshot_from_dict(payload: Mapping[str, object]) -> EventModelSnapshot:
         input_hash=str(payload["input_hash"]),
         factors=tuple(_factor_from_dict(item) for item in factors),
         missing_core_data=tuple(str(item) for item in missing),
+        team_sport_forecast=TeamSportForecast.from_dict(payload['team_sport_forecast']) if 'team_sport_forecast' in payload else None,
     )
     stored_id = payload.get("snapshot_id")
     if stored_id is not None and stored_id != snapshot.snapshot_id:

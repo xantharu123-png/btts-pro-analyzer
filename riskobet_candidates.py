@@ -1801,6 +1801,21 @@ def adapt_research_matchwinner(
     from sports_prematch import predict_prematch
     prediction = predict_prematch(sport, event, history, as_of=model_time,
         **({"original_capture": original_capture} if original_capture is not None else {}))
+    full_forecast = None
+    if sport in {'basketball', 'ice_hockey'}:
+        from team_sport_forecasts import TeamSportForecast, SCHEMA, SCOPES
+        full_forecast = TeamSportForecast(
+            schema=SCHEMA, sport=sport, provider=provider, provider_event_id=provider_event_id,
+            home_id=home_id, away_id=away_id, home=home, away=away,
+            starts_at=starts_at, modeled_at=model_time, source_observed_at=source_observed_at,
+            model_version=prediction.model_version, model_input_hash=prediction.input_hash,
+            p_home=prediction.p_home, p_away=prediction.p_away,
+            market_contract=prediction.market_contract, model_scope=SCOPES[sport],
+            training_games=prediction.training_games, home_games=prediction.home_games,
+            away_games=prediction.away_games, evaluation=prediction.to_dict()['evaluation'],
+            latest_result_observed_at=prediction.latest_result_observed_at,
+            missing=prediction.missing, factors=prediction.factors, limitations=prediction.limitations,
+            p_home_regulation=prediction.p_home_regulation, p_draw_regulation=prediction.p_draw_regulation)
     home_games, away_games = prediction.home_games, prediction.away_games
     missing: list[str] = list(prediction.missing)
     if home_games < minimum_team_games:
@@ -1854,6 +1869,7 @@ def adapt_research_matchwinner(
             "minimum_team_games": minimum_team_games,
             "model_input_hash": prediction.input_hash,
             "model_decision_at": model_time.isoformat(),
+            **({'team_sport_forecast': full_forecast.to_dict()} if full_forecast is not None else {}),
         }
     )
     snapshot = EventModelSnapshot(
@@ -1868,6 +1884,7 @@ def adapt_research_matchwinner(
         input_hash=input_hash,
         factors=factors,
         missing_core_data=tuple(missing),
+        team_sport_forecast=full_forecast,
     )
     market_by_sport = {
         "basketball": ("match_winner_including_ot", "Außenseitersieg inklusive Overtime"),

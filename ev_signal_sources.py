@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
 from context_links import ContextReference
 from forecast_analysis import read_football_analysis
+from team_sport_forecasts import SOURCE as TEAM_RESEARCH_SOURCE, POLICY as TEAM_RESEARCH_POLICY, valid_research_row, research_signal_row
 from market_consensus import (
     MarketConsensus,
     quote_matches_candidate,
@@ -43,7 +44,7 @@ AUTOMATED_WETTFINDER_PATH = (
     / "wettfinder_latest.json"
 )
 ZURICH_TZ = ZoneInfo("Europe/Zurich")
-AUTOMATED_WETTFINDER_VERSION = 18
+AUTOMATED_WETTFINDER_VERSION = 19
 AUTOMATED_SELECTION_POLICY_VERSION = "complete-selection-catalog-v15"
 AUTOMATED_FOOTBALL_RELEASE_CONTRACT = "football-hac-fdr-context-price-v1"
 # Resource envelopes, not presentation quotas: 1,200 football fixtures x 90
@@ -51,7 +52,7 @@ AUTOMATED_FOOTBALL_RELEASE_CONTRACT = "football-hac-fdr-context-price-v1"
 MAX_AUTOMATED_FOOTBALL_CANDIDATES = 108_000
 MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES = 15
 MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT = 1_200
-MAX_AUTOMATED_MODEL_CANDIDATES = 110_400
+MAX_AUTOMATED_MODEL_CANDIDATES = 112_800
 MAX_AUTOMATED_RECOMMENDATIONS = 3
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 AUTOMATED_VALIDATION_MARKET_HYPOTHESES = 90
@@ -72,7 +73,7 @@ class ModelSignal:
     key: str            # stabiler, eindeutiger Schlüssel
     label: str          # Anzeige in der Auswahl
     probability: float  # 0..1
-    probability_haircut: float  # absolute Modellunsicherheit, 0..1
+    probability_haircut: Optional[float]  # None only for snapshot-bound research
     evidence_stage: str
     policy_version: str
     detail: str         # Quelle/Kontext für die Transparenz-Zeile
@@ -111,13 +112,17 @@ class ModelSignal:
     away_team_id: Optional[int] = None
     model_scope: Optional[str] = None
     context_ref: Optional[ContextReference] = None
+    team_sport_snapshot: Optional[dict] = None
 
     def __post_init__(self) -> None:
         if self.context_ref is not None and not isinstance(self.context_ref, ContextReference):
             raise ValueError("Model signal context reference must be immutable")
         if not _valid_probability(self.probability):
             raise ValueError("Model signal probability must be between 0 and 1")
-        if not _valid_haircut(self.probability_haircut, self.probability):
+        if self.source == TEAM_RESEARCH_SOURCE or self.probability_haircut is None:
+            if not valid_research_row(research_signal_row(self)):
+                raise ValueError('Invalid snapshot-bound research signal')
+        elif not _valid_haircut(self.probability_haircut, self.probability):
             raise ValueError("Model signal haircut is invalid")
         if self.evidence_stage not in {"RESEARCH", "SHADOW", "RELEASED"}:
             raise ValueError("Model signal evidence stage is invalid")
@@ -263,7 +268,7 @@ def _minimum_odds(probability: float, haircut: float) -> Optional[float]:
 
 
 def _current_automated_policies() -> set[str]:
-    policies = {BETTING_POLICY_VERSION, TENNIS_POLICY_VERSION}
+    policies = {BETTING_POLICY_VERSION, TENNIS_POLICY_VERSION, TEAM_RESEARCH_POLICY}
     try:
         from esports_shadow import ESPORTS_MODEL_VERSION
 
@@ -960,12 +965,14 @@ def _load_automated_wettfinder_document(
             return None
         normalized = sport.casefold().replace("ß", "ss")
         # Enlarging the catalog is not permission to publish an unimplemented
-        # sport/model contract. Other sports currently belong to RisikoBet's
-        # research pipeline, not this normal-Wettfinder artifact.
+        # sport/model contract. Team sports use only the exact snapshot-bound
+        # research contract; Cricket and other unsupported sports stay excluded.
         expected_source = {
             "fussball": "football_challenge",
             "tennis": "tennis_shadow",
             "e-sport": "esports_shadow",
+            "basketball": TEAM_RESEARCH_SOURCE,
+            "eishockey": TEAM_RESEARCH_SOURCE,
         }.get(normalized)
         if expected_source is None or row.get("source") != expected_source:
             return None
@@ -1119,6 +1126,13 @@ def _load_automated_wettfinder_document(
             )
         ):
             return None
+        if row.get('source') == TEAM_RESEARCH_SOURCE:
+            if not valid_research_row(row, now=generated):
+                return None
+            if _parse_iso(row['scheduled_start']).astimezone(ZURICH_TZ).date() != target:
+                return None
+            scheduled_by_key[row['key']] = _parse_iso(row['scheduled_start'])
+            continue
         probability = row.get("probability")
         haircut = row.get("probability_haircut")
         if not _valid_probability(probability) or not _valid_haircut(
@@ -1412,6 +1426,20 @@ def automated_wettfinder_forecasts(
     forecasts: List[ModelSignal] = []
     for row in rows:
         if not isinstance(row, dict):
+            continue
+        if row.get('source') == TEAM_RESEARCH_SOURCE:
+            if valid_research_row(row, now=current):
+                names = ModelSignal.__dataclass_fields__
+                payload = {key: value for key, value in row.items() if key in names}
+                payload['event_label'] = row['event']
+                # There is no reviewed team-sport quote binding yet. Optional
+                # price annotations cannot hide the sporting model or release it.
+                quote = MarketConsensus.from_dict(row.get('reference_quote'))
+                payload['reference_quote'] = quote.to_dict() if quote_matches_candidate(quote, row) else None
+                try:
+                    forecasts.append(ModelSignal(**payload))
+                except ValueError:
+                    pass
             continue
         normalized_sport = (
             str(row.get("sport") or "").strip().casefold().replace("ß", "ss")

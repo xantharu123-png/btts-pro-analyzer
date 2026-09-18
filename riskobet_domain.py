@@ -18,6 +18,7 @@ import re
 from typing import Any, Iterable, Mapping, Optional
 
 from context_links import ContextReference
+from team_sport_forecasts import TeamSportForecast
 
 
 SUPPORTED_SPORTS = frozenset(
@@ -255,6 +256,7 @@ class EventModelSnapshot:
     factors: tuple[FactorEvidence, ...] = ()
     missing_core_data: tuple[str, ...] = ()
     context_ref: Optional[ContextReference] = None
+    team_sport_forecast: Optional[TeamSportForecast] = None
     snapshot_id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -300,10 +302,14 @@ class EventModelSnapshot:
         object.__setattr__(self, "input_hash", input_hash)
         object.__setattr__(self, "factors", factors)
         object.__setattr__(self, "missing_core_data", missing)
+        if self.team_sport_forecast is not None:
+            if not isinstance(self.team_sport_forecast, TeamSportForecast):
+                raise ValueError('team_sport_forecast must be immutable')
+            self.team_sport_forecast.validate_snapshot(self)
         object.__setattr__(
             self,
             "snapshot_id",
-            event_snapshot_id(event_key, model_version, input_hash, self.context_ref),
+            event_snapshot_id(event_key, model_version, input_hash, self.context_ref, self.team_sport_forecast),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -321,16 +327,19 @@ class EventModelSnapshot:
             "factors": [factor.to_dict() for factor in self.factors],
             "missing_core_data": list(self.missing_core_data),
             **({"context_ref": self.context_ref.to_dict()} if self.context_ref is not None else {}),
+            **({'team_sport_forecast': self.team_sport_forecast.to_dict()} if self.team_sport_forecast is not None else {}),
         }
 
 
-def event_snapshot_id(event_key, model_version, input_hash, context_ref=None):
+def event_snapshot_id(event_key, model_version, input_hash, context_ref=None, team_sport_forecast=None):
     """Legacy identities stay exact; a new reference creates a new revision."""
     parts = (event_key, model_version, input_hash)
     if context_ref is not None:
         if not isinstance(context_ref, ContextReference):
             raise ValueError("snapshot identity requires an immutable context reference")
         parts += (context_ref.key, context_ref.payload_digest)
+    if team_sport_forecast is not None:
+        parts += (canonical_input_hash(team_sport_forecast.to_dict()),)
     return _stable_id("snapshot", *parts)
 
 

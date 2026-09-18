@@ -14,6 +14,7 @@ from typing import Iterable, Mapping, Optional
 
 import runtime_paths
 from context_links import ContextReference
+from team_sport_forecasts import TeamSportForecast
 from riskobet_domain import (
     EvidenceStage,
     EventModelSnapshot,
@@ -871,6 +872,7 @@ class RiskBetStore:
                 str(payload.get("model_version")),
                 str(payload.get("input_hash")),
                 ContextReference.from_dict(payload["context_ref"]) if "context_ref" in payload else None,
+                TeamSportForecast.from_dict(payload['team_sport_forecast']) if 'team_sport_forecast' in payload else None,
             )
             if (
                 payload.get("snapshot_id") != row["snapshot_id"]
@@ -1540,6 +1542,7 @@ class RiskBetStore:
             str(payload.get("model_version")),
             str(payload.get("input_hash")),
             ContextReference.from_dict(payload["context_ref"]) if "context_ref" in payload else None,
+            TeamSportForecast.from_dict(payload['team_sport_forecast']) if 'team_sport_forecast' in payload else None,
         )
         if (
             payload.get("snapshot_id") != row["snapshot_id"]

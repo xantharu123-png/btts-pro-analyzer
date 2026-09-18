@@ -211,6 +211,9 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
     occupied_guards = [b['snapshot']['event_guard'] for b in day['bets'].values() if b['status'] != 'cancelled'] if day else []
     used = day_balance(day).used_slots if day else 0
     choices = daily3_choices(snapshot.forecasts, now=now, occupied_events=occupied, occupied_guards=occupied_guards, used_slots=used)
+    st.caption('Diese Auswahl nutzt denselben Prognosepool wie der Wettfinder – keine zweite unabhängige Bestätigung.')
+    if used < 3:
+        st.caption(f'{len(choices)} von {3-used} noch freien Slots mit einer aktuellen Auswahl; fehlende Plätze bleiben offen.')
     if choices:
         st.subheader('Aktuelle Modell-Auswahlen')
         st.caption('Nach belegten Modellgrundlagen, Aktualität und Marktvielfalt ausgewählt – nicht nach Quote. Keine Rangliste garantierter Sicherheit.')

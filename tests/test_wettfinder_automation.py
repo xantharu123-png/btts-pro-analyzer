@@ -633,7 +633,7 @@ def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
 
 def test_automation_writer_and_reader_share_one_artifact_version():
     assert AUTOMATION_VERSION == AUTOMATED_WETTFINDER_VERSION
-    assert AUTOMATED_WETTFINDER_VERSION == 18
+    assert AUTOMATED_WETTFINDER_VERSION == 19
     assert AUTOMATED_SELECTION_POLICY_VERSION == "complete-selection-catalog-v15"
 
 

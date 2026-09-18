@@ -680,12 +680,17 @@ def _ranked_candidates(
     preserve_order: bool = False,
 ) -> list[dict[str, Any]]:
     """Validate and rank candidates for exactly one Zurich match day."""
+    from team_sport_forecasts import SOURCE as TEAM_SOURCE, valid_research_row
     current = _utc(now)
     target = target_date or target_search_date(current)
     stage_rank = {"RELEASED": 2, "SHADOW": 1, "RESEARCH": 0}
     valid: list[dict[str, Any]] = []
     for row in candidates:
         if not isinstance(row, dict) or row.get("status") != "PRICE_REQUIRED":
+            continue
+        if row.get('source') == TEAM_SOURCE:
+            if valid_research_row(row, now=current) and _parse_iso(row['scheduled_start']).astimezone(ZURICH_TZ).date() == target:
+                valid.append(dict(row))
             continue
         evidence_stage = str(row.get("evidence_stage") or "")
         if evidence_stage not in stage_rank:
@@ -718,8 +723,8 @@ def _ranked_candidates(
         valid.sort(
             key=lambda row: (
                 -stage_rank.get(str(row.get("evidence_stage")), -1),
-                -float(row["conservative_probability"]),
-                float(row["probability_haircut"]),
+                row.get('source') == TEAM_SOURCE,
+                (() if row.get('source') == TEAM_SOURCE else (-float(row['conservative_probability']), float(row['probability_haircut']))),
                 str(row.get("key") or ""),
             )
         )
@@ -3843,6 +3848,21 @@ def run_wettfinder(
                 )
             )
             document["riskobet"] = riskobet_summary
+            from team_sport_forecasts import team_sport_forecast_rows, team_sport_source_coverage
+            if isinstance(risk_run, Mapping):
+                from types import SimpleNamespace
+                from riskobet_automation import snapshot_from_dict
+                bridge_run = SimpleNamespace(snapshots=tuple(snapshot_from_dict(row) for row in risk_run.get('snapshots', ())))
+            else:
+                bridge_run = risk_run
+            team_rows = team_sport_forecast_rows(bridge_run, now=current, target_date=target)
+            retained = [dict(row, status='PRICE_REQUIRED') for row in document['model_candidates']]
+            merged = build_daily_forecast_catalog(
+                [row for row in retained if row.get('source') == 'football_challenge'],
+                [row for row in retained if row.get('source') != 'football_challenge'] + team_rows,
+                now=current, target_date=target)
+            document['model_candidates'] = build_model_selection_ledger((), merged, now=current, target_date=target)
+            document['sources'].update(team_sport_source_coverage(bridge_run, team_rows, now=current, target_date=target))
             if settlement_summary is not None:
                 document["riskobet"]["settlement"] = settlement_summary
         except Exception as exc:

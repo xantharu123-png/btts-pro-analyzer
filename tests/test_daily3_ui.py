@@ -1,4 +1,36 @@
 from streamlit.testing.v1 import AppTest
+import pytest
+
+
+def _render_pool(db_path, count):
+    import streamlit as st
+    from types import SimpleNamespace
+    from test_daily3_selection import NOW, football
+    from daily3_ui import render_daily3
+    from daily3_store import Daily3Store
+    st.session_state['_betboy_account_scope'] = 'a'*32
+    pool = [football(1), football(2, 'BTTS_YES'), football(3, 'HOME_OVER_0_5')][:count]
+    render_daily3(st, now=NOW, snapshot_loader=lambda **kw: SimpleNamespace(forecasts=pool),
+                  store_factory=lambda: Daily3Store(db_path, key=b'q'*32, clock=lambda: NOW))
+
+
+@pytest.mark.parametrize('count', [0, 1, 3])
+def test_shared_pool_actual_count_and_unfilled_slots(tmp_path, count):
+    app = AppTest.from_function(_render_pool, args=(str(tmp_path/'day.db'), count)).run(timeout=30)
+    assert not app.exception
+    captions = ' '.join(c.value for c in app.caption)
+    assert 'Wettfinder' in captions and 'keine zweite unabhängige Bestätigung' in captions
+    assert f'{count} von 3 noch freien Slots' in captions
+    if count == 0:
+        assert any('Aktuell fehlen weitere' in i.value for i in app.info)
+    if count == 3:
+        _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
+        _field(app, 'text_input', 'stake:').set_value('10')
+        _field(app, 'text_input', 'odds:').set_value('1.5')
+        _field(app, 'checkbox', 'exact:').check()
+        _button(app, 'Einsatz vormerken').click().run()
+        assert not app.exception
+        assert '2 von 2 noch freien Slots' in ' '.join(c.value for c in app.caption)
 
 
 def _render(db_path, missing_identity=False, price_state=None):

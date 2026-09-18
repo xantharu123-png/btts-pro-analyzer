@@ -342,6 +342,14 @@ def _tennis_data_age(inputs, now):
 
 def _sport_analysis(signal, sport, now):
     """Exact-bound public facts, shared by normal cards and Daily3."""
+    from team_sport_forecasts import SOURCE, valid_research_row, research_signal_row
+    if signal.source == SOURCE and valid_research_row(research_signal_row(signal), now=now):
+        basis = signal.team_sport_snapshot['team_sport_forecast']
+        return ForecastAnalysis(
+            f'Das sportspezifische Modell bewertet {signal.selection} mit {_percent(signal.probability)}. {signal.market}.',
+            'Modell noch nicht unabhängig bestätigt. Verletzungen und Müdigkeit sind nicht als numerische Effekte angewendet.',
+            f"Basis: {basis['training_games']} abgeschlossene Spiele; Heimteam {basis['home_games']}, Auswärtsteam {basis['away_games']}. Zeitlich getrennte Auswertung: {basis['evaluation']['count']} Spiele.",
+            supported=True)
     if sport == 'tennis':
         inputs = _tennis_inputs(signal)
         age, current = _tennis_data_age(inputs, now)
@@ -378,6 +386,8 @@ def _sport_analysis(signal, sport, now):
 
 def forecast_highlight_reason(signal, *, now, analysis=None):
     """Empty means eligible for presentation, never a betting release."""
+    if getattr(signal, 'source', None) == 'team_sport_research':
+        return 'Modell noch nicht unabhängig bestätigt'
     clock = _clock(signal.modeled_at)
     if clock is None:
         return 'Modellzeit unbekannt'

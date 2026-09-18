@@ -52,7 +52,7 @@ class WettfinderCard:
     market: str
     selection: str
     model_probability: float
-    cautious_probability: float
+    cautious_probability: Optional[float]
     value_threshold: Optional[float]
     observed_odds: Optional[float]
     bookmaker: Optional[str]
@@ -254,7 +254,7 @@ def wettfinder_recommendation_candidate(
     """Build the complete immutable price candidate represented by a signal."""
 
     probability = signal.probability * 100.0
-    haircut = signal.probability_haircut * 100.0
+    haircut = signal.probability_haircut * 100.0 if signal.probability_haircut is not None else None
     normalized_sport = (
         str(signal.sport or "").strip().casefold().replace("ß", "ss")
     )
@@ -266,8 +266,8 @@ def wettfinder_recommendation_candidate(
         selection=signal.selection or signal.label,
         line=None,
         model_probability=round(probability, 2),
-        risk_adjusted_probability=round(probability - haircut, 2),
-        probability_haircut=round(haircut, 2),
+        risk_adjusted_probability=round(probability - haircut, 2) if haircut is not None else None,
+        probability_haircut=round(haircut, 2) if haircut is not None else None,
         fair_odds=round(100.0 / probability, 3),
         minimum_odds=signal.minimum_odds,
         model_name=signal.detail,
@@ -368,7 +368,7 @@ def _evidence_copy(signal: ModelSignal, confirmed_tip: bool) -> tuple[str, str]:
     if evidence_stage == "SHADOW":
         return "Evidenzprüfung", "warning"
     if evidence_stage == "RESEARCH":
-        return "Forschungsmodell", "muted"
+        return ("Modell noch nicht unabhängig bestätigt" if signal.source == 'team_sport_research' else "Forschungsmodell"), "muted"
     return "Modellprüfung", "muted"
 
 
@@ -388,6 +388,8 @@ def build_wettfinder_card(
     """
 
     now = now or (price_evaluation.evaluated_at if price_evaluation else datetime.now(timezone.utc))
+    if signal.probability_haircut is None and release_overlay is not None:
+        raise ValueError('Research forecast cannot receive a release overlay')
     if price_evaluation is None:
         normalized_quote = _normalise_quote(quote)
         status = wettfinder_reference_price_status(
@@ -430,7 +432,7 @@ def build_wettfinder_card(
     )
     evidence_label, evidence_tone = _evidence_copy(signal, confirmed_tip)
     model_probability = float(signal.probability)
-    cautious_probability = model_probability - float(signal.probability_haircut)
+    cautious_probability = model_probability - float(signal.probability_haircut) if signal.probability_haircut is not None else None
     analysis = build_forecast_analysis(signal, now=now)
     highlight_reason = forecast_highlight_reason(signal, now=now, analysis=analysis)
     return WettfinderCard(
