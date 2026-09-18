@@ -2199,6 +2199,7 @@ def scan_daily_challenge(
     candidate_profile: str = CANDIDATE_PROFILE_CHALLENGE,
     max_new_xg_calls: int = XG_MAX_NEW_CALLS_PER_SCAN,
     progress_cb=None,
+    original_publication=None,
 ) -> dict[str, Any]:
     """Run one explicit, quota-aware scan over at most fourteen days."""
     if not isinstance(allow_above_challenge_probability, bool):
@@ -2539,6 +2540,10 @@ def scan_daily_challenge(
             f"{len(fixtures)} Spiele werden mathematisch modelliert",
         )
     all_candidates: list[ChallengeCandidate] = []
+    if original_publication is not None:
+        original_publication.freeze(tuple([*fixtures,
+            *(row for rows in histories.values() for row in rows),
+            *(row for rows in fixture_team_histories.values() for row in rows)]))
     fixture_total = len(fixtures)
     progress_stride = max(1, fixture_total // 20)
     for fixture_index, fixture in enumerate(fixtures):
@@ -2571,6 +2576,8 @@ def scan_daily_challenge(
                 allow_above_challenge_probability
             ),
             candidate_profile=candidate_profile,
+            **(original_publication.model_kwargs(decision_at=datetime.now(timezone.utc))
+               if original_publication is not None else {}),
         )
         if fixture_id in fixture_team_histories:
             for candidate in fixture_candidates:
@@ -2808,6 +2815,7 @@ def scan_daily_challenge(
     return {
         "version": CHALLENGE_SNAPSHOT_VERSION,
         "invalidated_fixture_ids": sorted(invalidated_fixture_ids),
+        **({"football_original_capture": original_publication.report()} if original_publication is not None else {}),
         "scanned_at": datetime.now(timezone.utc).isoformat(),
         "scope": _scope_signature(
             league_ids,

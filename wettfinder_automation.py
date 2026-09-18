@@ -51,6 +51,7 @@ from challenge_engine import (
 )
 from config_loader import AppConfig, load_app_config
 from context_sources.football_capture import capture_report_fields, capture_football_worker
+from context_models.football_original_publication import original_capture_report_fields
 from forecast_analysis import project_football_analysis
 from football_model_refresh import MODEL_REFRESH_VERSION, refresh_fixture_models
 from ev_signal_sources import (
@@ -1169,6 +1170,7 @@ def _football_state_from_snapshot(
         "basis_candidates": basis_records,
         "errors": errors,
         **capture_report_fields(snapshot),
+        **original_capture_report_fields(snapshot),
     }
 
 
@@ -1624,6 +1626,7 @@ def _merge_context_refresh(
         {
             "last_context_at": checked_at.isoformat(),
             **capture_report_fields(result),
+            **original_capture_report_fields(result),
             "context_checks": checks,
             "candidates": merged_records,
             "basis_candidates": merged_basis_records,
@@ -2158,6 +2161,8 @@ def write_state(document: dict[str, Any], path: str | Path = STATE_PATH) -> None
 def _default_football_scan(
     search_date: date,
     config: AppConfig,
+    *,
+    original_capture_limits=None,
 ) -> dict[str, Any]:
     if not config.api_football_key:
         raise RuntimeError("API_FOOTBALL_KEY is not configured")
@@ -2166,7 +2171,11 @@ def _default_football_scan(
         config.weather_key,
     )
     from context_sources.football_capture import capture_football_worker
-    with capture_football_worker(provider) as capture:
+    with capture_football_worker(provider, baseline_enabled=original_capture_limits is not None) as capture:
+        publication = None
+        if original_capture_limits is not None:
+            from context_models.football_original_publication import publication_for_worker
+            publication = publication_for_worker(capture, original_capture_limits)
         snapshot = scan_daily_challenge(
             provider,
             list(ALTERNATIVE_MARKET_LEAGUES),
@@ -2174,6 +2183,7 @@ def _default_football_scan(
             MAX_SCAN_FIXTURES,
             allow_above_challenge_probability=True,
             candidate_profile="wettfinder",
+            **({"original_publication": publication} if publication is not None else {}),
         )
     if capture is not None:
         snapshot["context_capture"] = capture.report()
@@ -2187,6 +2197,7 @@ def _default_football_context_refresh(
     config: AppConfig,
     *,
     recompute_models: bool = False,
+    original_capture_limits=None,
 ) -> dict[str, Any]:
     if not config.api_football_key:
         raise RuntimeError("API_FOOTBALL_KEY is not configured")
@@ -2195,9 +2206,14 @@ def _default_football_context_refresh(
         config.weather_key,
     )
     from context_sources.football_capture import capture_football_worker
-    with capture_football_worker(provider) as capture:
+    with capture_football_worker(provider, baseline_enabled=recompute_models and original_capture_limits is not None) as capture:
         if recompute_models:
-            snapshot = refresh_fixture_models(provider, candidates, search_date, now=current)
+            publication = None
+            if original_capture_limits is not None:
+                from context_models.football_original_publication import publication_for_worker
+                publication = publication_for_worker(capture, original_capture_limits)
+            snapshot = refresh_fixture_models(provider, candidates, search_date, now=current,
+                **({"original_publication": publication} if publication is not None else {}))
         else:
             snapshot = refresh_discovered_candidates(
                 provider, candidates, search_date, now=current, max_candidates=15,

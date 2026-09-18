@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
+import sqlite3
 
 from model_artifacts import _connect as _artifact_connect, _decode_object, canonical_bytes
 from context_models.contracts import (
@@ -112,6 +113,17 @@ def append_observation_batch(path: Path, records: tuple[tuple[dict, datetime], .
     avoids reopening/fsyncing this database for every received status/player.
     No pruning, schema migration or historical freshness promotion occurs.
     """
+    return _append_observation_batch(path, records)[0]
+
+
+def append_bounded_observation_batch(path, records, *, max_new_payload_bytes):
+    """Budget new content BLOBs and canonical receipt metadata, not disk bytes."""
+    if type(max_new_payload_bytes) is not int or max_new_payload_bytes < 0:
+        raise ValueError("source payload budget must be a finite nonnegative integer")
+    return _append_observation_batch(path, records, max_new_payload_bytes)
+
+
+def _append_observation_batch(path, records, max_new_payload_bytes=None):
     if type(records) is not tuple or len(records) > 512:
         raise ValueError("receipt batch must be an explicit tuple of at most 512 observations")
     prepared = []
@@ -122,11 +134,21 @@ def append_observation_batch(path: Path, records: tuple[tuple[dict, datetime], .
         receipt_hash = digest({"content_digest": content_hash, "observed_at": observed})
         prepared.append((content, observed, content_hash, receipt_hash, canonical_bytes(content)))
     if not prepared:
-        return ()
+        return (), 0
     with closing(_connect(Path(path))) as connection:
         try:
             connection.execute("BEGIN IMMEDIATE")
+            inserted_bytes = 0
             for content, observed, content_hash, receipt_hash, payload in prepared:
+                if connection.execute("SELECT 1 FROM context_contents WHERE content_digest=?", (content_hash,)).fetchone() is None:
+                    inserted_bytes += len(payload)
+                if connection.execute("SELECT 1 FROM context_observations WHERE digest=?", (receipt_hash,)).fetchone() is None:
+                    inserted_bytes += len(canonical_bytes({"digest": receipt_hash, "content_digest": content_hash,
+                        "observed_at": observed, **{name: content[name] for name in
+                            ("event_key", "schedule_revision", "source", "subject_id", "kind")}}))
+                if max_new_payload_bytes is not None and inserted_bytes > max_new_payload_bytes:
+                    from context_models.football_original_storage import StorageBudgetExceeded
+                    raise StorageBudgetExceeded("source retention payload budget exhausted")
                 connection.execute("INSERT OR IGNORE INTO context_contents VALUES (?, ?)", (content_hash, payload))
                 existing = connection.execute("SELECT payload FROM context_contents WHERE content_digest=?", (content_hash,)).fetchone()
                 if existing != (payload,):
@@ -147,7 +169,29 @@ def append_observation_batch(path: Path, records: tuple[tuple[dict, datetime], .
         except BaseException:
             connection.rollback()
             raise
-    return tuple(row[3] for row in prepared)
+    return tuple(row[3] for row in prepared), inserted_bytes
+
+
+def freeze_named_receipts(path, receipt_refs: tuple[str, ...]) -> tuple[dict, ...]:
+    """Freeze exactly the named set, not an inventory; decode after release."""
+    if type(receipt_refs) is not tuple or len(set(receipt_refs)) != len(receipt_refs):
+        raise ContextContractError("named receipt references must be a unique tuple")
+    for ref in receipt_refs:
+        require_digest(ref)
+    if not receipt_refs:
+        return ()
+    from context_models.dataset import _reader
+    frozen = []
+    try:
+        with _reader(Path(path)) as connection:
+            for ref in receipt_refs:
+                rows = connection.execute(_SELECT + " WHERE r.digest=?", (ref,)).fetchall()
+                if len(rows) != 1:
+                    raise ContextIntegrityError("missing or duplicated named receipt")
+                frozen.append(rows[0])
+    except (sqlite3.DatabaseError, FileNotFoundError) as exc:
+        raise ContextIntegrityError("named receipt database unavailable") from exc
+    return tuple(_decode_receipt(row) for row in frozen)
 
 
 def _archive_resolution(row: dict, resolver_id: str | None, cutoff: str) -> dict | None:

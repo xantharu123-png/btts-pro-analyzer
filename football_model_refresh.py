@@ -42,7 +42,7 @@ class _FixtureBatchProvider:
         return {key: self._details[key] for key in fixture_ids}
 
 
-def refresh_fixture_models(provider, candidates, search_date, *, now):
+def refresh_fixture_models(provider, candidates, search_date, *, now, original_publication=None):
     """Rebuild all supported markets, not just the formerly selected market.
 
     Shared immutable prediction/evidence logs remain untouched. The caller
@@ -83,6 +83,7 @@ def refresh_fixture_models(provider, candidates, search_date, *, now):
             # Reuse stored xG observations; background refresh cannot multiply
             # the discovery worker's optional xG acquisition budget.
             max_new_xg_calls=0,
+            **({"original_publication": original_publication} if original_publication is not None else {}),
         )
         if result.get("operational_errors"):
             raise RuntimeError("model refresh inputs incomplete; prior model retained")

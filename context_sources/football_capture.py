@@ -100,8 +100,73 @@ def _previous_prematch_observations(path):
 
 
 class _Capture:
-    def __init__(self):
+    def __init__(self, path=None, *, baseline_enabled=False):
         self.errors, self.receipts, self.wanted, self.refs = [], [], set(), set()
+        self.path = path
+        self.baseline_processed = set()
+        self.baseline_refs = {}
+        self.baseline_scope_records = {}
+        self.source_inserted_bytes = 0
+        self.baseline_enabled = baseline_enabled
+
+    def flush_baseline_receipts(self, selected_input_scope, *, max_new_payload_bytes):
+        """Retain received revisions in the explicit pool, never match scores."""
+        from challenge_engine import football_base_history_record
+        from context_models.contracts import digest
+        from context_observations import append_bounded_observation_batch
+        if type(selected_input_scope) is not tuple:
+            raise ContextContractError("baseline input scope must be an explicit tuple")
+        if type(max_new_payload_bytes) is not int or max_new_payload_bytes < 0:
+            raise ValueError("source payload budget must be a finite nonnegative integer")
+        records = {}
+        for row in selected_input_scope:
+            try:
+                record = football_base_history_record(row)
+                records[digest(record)] = record
+            except ContextIntegrityError:
+                raise
+            except (ContextContractError, KeyError, TypeError, ValueError, OverflowError):
+                self.errors.append("Kontext-Capture: native-projection-unavailable")
+        self.baseline_scope_records = records
+        wanted = {row["fixture_id"] for row in records.values()
+                  if row["source_marker"] in {"unresolved", "api-football", "api-football-ft-tail"}}
+        remaining = max_new_payload_bytes
+        for index, receipt in enumerate(self.receipts):
+            if receipt["endpoint"] != "fixtures":
+                continue
+            for row_index, raw in enumerate(receipt["rows"]):
+                key = (index, row_index)
+                if raw["fixture"]["id"] not in wanted or key in self.baseline_processed:
+                    continue
+                observed = datetime.fromisoformat(receipt["observed_at"])
+                try:
+                    event = _detail_event(raw)
+                    additions = [row for row in normalize_football_context(event, injuries=[],
+                        lineups=[raw] if "lineups" in raw and event["status"] == "scheduled" else [],
+                        appearances=[raw] if "players" in raw and event["status"] == "completed" else [],
+                        observed_at=observed) if row["kind"] != "availability"]
+                    additions.append(normalize_football_base_input(raw, observed_at=observed))
+                    base_index = len(additions) - 1
+                    outcome = normalize_football_outcome(event, raw, observed_at=observed)
+                    if outcome is not None:
+                        additions.append(outcome)
+                    if len(additions) > 512:
+                        raise ContextContractError("native fixture projection exceeds bounded batch")
+                except ContextIntegrityError:
+                    raise
+                except (ContextContractError, KeyError, TypeError, ValueError, OverflowError):
+                    self.errors.append("Kontext-Capture: native-projection-unavailable")
+                    continue
+                refs, inserted = append_bounded_observation_batch(self.path,
+                    tuple((record, observed) for record in additions), max_new_payload_bytes=remaining)
+                remaining -= inserted
+                self.source_inserted_bytes += inserted
+                self.refs.update(refs)
+                self.baseline_refs.setdefault(raw["fixture"]["id"], set()).add(refs[base_index])
+                self.baseline_processed.add(key)
+        return {ref: tuple(sorted(self.baseline_refs.get(row["fixture_id"], ())))
+                if row["source_marker"] in {"unresolved", "api-football", "api-football-ft-tail"} else ()
+                for ref, row in records.items()}
 
     def report(self):
         """Administrative capture status, never forecast/effect eligibility."""
@@ -120,7 +185,14 @@ class _Capture:
             results = endpoint == "fixtures" and params.get("status") == "FT" and (
                 set(params) in ({"league", "season", "status"},
                                 {"league", "season", "from", "to", "timezone", "status"}))
-            if requested is None and not discovery and not results:
+            domestic = self.baseline_enabled and endpoint == "fixtures" and set(params) == {"team", "last", "status", "timezone"}
+            if domestic:
+                _native_id(params["team"])
+                if (type(params["last"]) is not int or not 1 <= params["last"] <= 100
+                        or params["status"] != "FT" or type(params["timezone"]) is not str):
+                    raise ContextContractError("invalid domestic request scope")
+                ZoneInfo(params["timezone"])
+            if requested is None and not discovery and not results and not domestic:
                 return
             if requested is not None:
                 self.wanted.update(requested)
@@ -129,12 +201,17 @@ class _Capture:
             rows, clock = _response({"payload": payload, "observed_at": canonical_timestamp(observed_at)})
             if endpoint == "fixtures":
                 seen = set()
+                if domestic and len(rows) > params["last"]:
+                    raise ContextContractError("domestic response exceeds requested count")
                 for raw in rows:
                     ev = _detail_event(raw)
                     fid = _native_id(raw["fixture"]["id"])
                     if fid in seen or requested is not None and fid not in requested:
                         raise ContextContractError("context fixture response identity differs")
                     seen.add(fid)
+                    if domestic and (params["team"] not in {raw["teams"][side]["id"] for side in ("home", "away")}
+                            or raw["fixture"]["status"]["short"] != "FT"):
+                        raise ContextContractError("domestic response is outside its request scope")
                     if discovery:
                         actual_date = datetime.fromisoformat(ev["scheduled_start"]).astimezone(ZoneInfo(params["timezone"])).date().isoformat()
                         first, last = params.get("date", params.get("from")), params.get("date", params.get("to"))
@@ -161,7 +238,8 @@ class _Capture:
             elif any(_native_id(row["fixture"]["id"]) not in requested for row in rows):
                 raise ContextContractError("context injury response identity differs")
             self.receipts.append({"endpoint": endpoint, "requested": requested,
-                                  "rows": deepcopy(rows), "observed_at": clock, "watched_results_only": results})
+                                  "rows": deepcopy(rows), "observed_at": clock, "watched_results_only": results,
+                                  "baseline_only": domestic})
         except (ContextContractError, KeyError, TypeError, ValueError, OverflowError):
             self.errors.append("Kontext-Capture: native-response-unavailable")
 
@@ -173,14 +251,19 @@ class _Capture:
         # complete roster by existing collection validators on subsequent reads.
         details = [item for item in self.receipts if item["endpoint"] == "fixtures"]
         watched = (_previous_prematch_observations(path)
-                   if any(item["watched_results_only"] for item in details) else {})
-        for receipt in self.receipts:
+                   if any(item["watched_results_only"] and any((index, ri) not in self.baseline_processed
+                       for ri in range(len(item["rows"]))) for index, item in enumerate(self.receipts)) else {})
+        for receipt_index, receipt in enumerate(self.receipts):
+            if receipt.get("baseline_only"):
+                continue  # Opt-in additions only pass through their bounded flush.
             observed = datetime.fromisoformat(receipt["observed_at"])
             additions = []
             try:
                 if receipt["endpoint"] == "fixtures":
-                    for raw in receipt["rows"]:
+                    for row_index, raw in enumerate(receipt["rows"]):
                         try:
+                            if (receipt_index, row_index) in self.baseline_processed:
+                                continue
                             ev = _detail_event(raw)
                             if receipt["watched_results_only"]:
                                 known_at = watched.get(ev["event_key"])
@@ -226,7 +309,7 @@ class _Capture:
 
 
 @contextmanager
-def capture_football_worker(provider, *, path=None):
+def capture_football_worker(provider, *, path=None, baseline_enabled=False):
     """Enable the actual provider observer only for an explicit worker scope.
 
     Legacy injected providers without this interface remain unchanged. Actual
@@ -242,7 +325,9 @@ def capture_football_worker(provider, *, path=None):
     if path is None:
         from runtime_paths import CONTEXT_MODEL_DB_PATH
         path = CONTEXT_MODEL_DB_PATH
-    capture = _Capture()
+    if type(baseline_enabled) is not bool:
+        raise ContextContractError("baseline capture opt-in must be boolean")
+    capture = _Capture(Path(path), baseline_enabled=baseline_enabled)
     provider._context_capture = capture
     try:
         yield capture

@@ -1026,6 +1026,7 @@ def _fixture_model(
     *,
     include_provenance: bool = False,
     native_provenance: Optional[dict[str, Any]] = None,
+    native_resolver=None,
 ) -> Optional[dict[str, Any]]:
     """Calculate the unchanged legacy basis; optionally expose its real inputs.
 
@@ -1033,6 +1034,10 @@ def _fixture_model(
     described by ``_football_native_bindings``, never untrusted provider flags.
     Invalid or unknown linkage affects provenance only, not a computable basis.
     """
+    if native_provenance is not None and native_resolver is not None:
+        raise ValueError("direct native provenance and resolver are mutually exclusive")
+    if native_resolver is not None and not callable(native_resolver):
+        raise ValueError("native_resolver must be callable")
     kickoff = _fixture_datetime(fixture)
     teams = fixture.get("teams", {})
     home_id = teams.get("home", {}).get("id")
@@ -1126,13 +1131,15 @@ def _fixture_model(
         "xg_coverage": xg_coverage,
     }
     if include_provenance:
-        from context_models.contracts import ContextContractError
+        from context_models.contracts import ContextContractError, ContextIntegrityError
         try:
             model.update(_football_reference_provenance(
                 fixture, history, selected,
                 {"home_venue": home_venue, "away_venue": away_venue, "home_form": home_form, "away_form": away_form},
-                league_means, native_provenance,
+                league_means, native_provenance, native_resolver,
             ))
+        except ContextIntegrityError:
+            raise
         except ContextContractError:
             # Unknown/broken source linkage never discards a computable legacy
             # basis. Its roster provenance remains explicitly unavailable.
@@ -1292,13 +1299,14 @@ def _football_native_bindings(
         raise ContextContractError("invalid native football source provenance") from exc
 
 
-def _football_reference_provenance(fixture, history, selected, series, league_means, native_provenance):
+def _football_reference_provenance(fixture, history, selected, series, league_means, native_provenance, native_resolver=None):
     """Expose the existing formula's actual selected inputs, without refitting."""
     from collections import Counter
     from context_models.contracts import ContextContractError, digest, validate_history_refs, validate_reference_weights
     kickoff = _fixture_datetime(fixture)
     prior_fixtures = [row for row in history if _is_completed_before(row, kickoff) and _fixture_score(row) is not None]
     records = {}
+    selected_fixtures = {}
 
     def reference(row):
         record = football_base_history_record(row)
@@ -1307,12 +1315,15 @@ def _football_reference_provenance(fixture, history, selected, series, league_me
         except (ValueError, TypeError, OverflowError, RecursionError) as exc:
             raise ContextContractError("football source record is not canonical JSON") from exc
         records[ref] = record
+        selected_fixtures[ref] = row
         return ref
 
     prior_refs = [reference(row) for row in prior_fixtures]
     series_refs = {name: [reference(row) for row in rows] for name, rows in selected.items()}
     historical_refs = set(records)
     target_ref = reference(fixture)
+    if native_resolver is not None:
+        native_provenance = native_resolver(tuple(selected_fixtures.values()))
     bindings = _football_native_bindings(native_provenance, records, target_ref)
 
     def weights(refs, denominator):
@@ -1655,6 +1666,8 @@ def fixture_market_probabilities(
     team_history: Optional[Iterable[dict[str, Any]]] = None,
     original_capture=None,
     _validation_only: bool = False,
+    native_provenance=None,
+    native_resolver=None,
 ) -> Optional[dict[str, Any]]:
     # Internal walk-forward mode consumes only active predictions. The same
     # projection path returns explicitly labeled singleton values, never fake
@@ -1669,8 +1682,11 @@ def fixture_market_probabilities(
         from football_original import calibration_recipe, capture_football_original, football_original_inputs
         original_inputs = football_original_inputs(fixture, history, observations,
                                                   logical_history_cutoff=_fixture_datetime(fixture))
+    if native_provenance is not None and native_resolver is not None:
+        raise ValueError("direct native provenance and resolver are mutually exclusive")
     model = (_fixture_model(fixture, history, observations) if original_capture is None
-             else _fixture_model(fixture, history, observations, include_provenance=True))
+             else _fixture_model(fixture, history, observations, include_provenance=True,
+                 native_provenance=native_provenance, native_resolver=native_resolver))
     if model is None:
         return None
     if original_capture is not None:
@@ -2349,6 +2365,8 @@ def build_fixture_candidates(
     allow_above_challenge_probability: bool = False,
     candidate_profile: str = CANDIDATE_PROFILE_CHALLENGE,
     original_capture=None,
+    native_provenance=None,
+    native_resolver=None,
 ) -> list[ChallengeCandidate]:
     """Build price-independent candidates for one fixture."""
     if not isinstance(allow_above_challenge_probability, bool):
@@ -2363,6 +2381,8 @@ def build_fixture_candidates(
         MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     }:
         raise ValueError("model_scope is invalid")
+    if native_provenance is not None and native_resolver is not None:
+        raise ValueError("direct native provenance and resolver are mutually exclusive")
     identity = _fixture_identity(fixture)
     if original_capture is None:
         model = fixture_market_probabilities(
@@ -2375,6 +2395,7 @@ def build_fixture_candidates(
         model = fixture_market_probabilities(
             fixture, league_history, calibration, team_history=team_history,
             original_capture=original_capture,
+            native_provenance=native_provenance, native_resolver=native_resolver,
         )
     if identity is None or model is None:
         return []
