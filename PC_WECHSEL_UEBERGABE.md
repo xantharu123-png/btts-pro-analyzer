@@ -1,5 +1,16 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktuelle Übernahme 18. September 2026
+
+Zuerst [TODO_AKTUELL.md](TODO_AKTUELL.md) und
+[Übernahmebericht](docs/audits/2026-09-18-kontext-fortsetzung.md) lesen.
+Funktionscode `afc8a10` lokal/GitHub, **VPS weiterhin `9659c49`**. App nach
+unterbrochenem Update wieder gestartet/aktiviert; Healthchecks `ok`, sieben
+Timer aktiv/aktiviert. Update blockiert vor App-Stopp an rund 4.61 GiB Reserve.
+Drei eigene Prüfkopien noch nicht bereinigt, Freigabe angefragt. 162 Tests frisch
+grün; vollständige Kontextwirkung und empirische Abnahme bleiben offen.
+Ältere Statusblöcke sind historische Nachweise, keine aktuelle Vollabnahme.
+
 ## Account-Wechsel 16. September 2026 – verbindlicher Einstieg
 
 **Zuerst [TODO_AKTUELL.md](TODO_AKTUELL.md) lesen.** Dort stehen die aktuelle

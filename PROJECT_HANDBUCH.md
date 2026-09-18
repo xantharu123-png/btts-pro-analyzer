@@ -2,6 +2,12 @@
 
 ## Dokumentstatus
 
+**Übernahme 18. September 2026:** Aktuell [TODO_AKTUELL.md](TODO_AKTUELL.md) und
+[Übernahmebericht](docs/audits/2026-09-18-kontext-fortsetzung.md) lesen.
+`afc8a10` gepusht, noch nicht deployed; VPS `9659c49`, App nach unterbrochenem
+Update wieder gestartet, Healthchecks `ok`. Kapazitätsprüfung blockiert.
+162 fokussierte Tests frisch grün; vollständige Kontextwirkung bleibt offen.
+
 **Account-Übergabe 16. September 2026:** Aktueller Arbeitsstand und offene
 Prioritäten: [TODO_AKTUELL.md](TODO_AKTUELL.md) und
 [PC_WECHSEL_UEBERGABE.md](PC_WECHSEL_UEBERGABE.md). App-Release `9659c49` ist

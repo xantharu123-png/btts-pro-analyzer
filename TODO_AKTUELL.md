@@ -1,5 +1,59 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Übernahme 18.09.2026, 16:00 CEST – hat Vorrang vor alten Angaben
+
+- **Nicht alles erledigt.** Funktionscommit `afc8a10` lokal und GitHub-main,
+  **VPS weiterhin `9659c49`**. Spätere Dokumentationscommits sind kein Deployment.
+- Das Update vom 16.09. wurde unterbrochen; App war gestoppt/deaktiviert.
+  Nach Prüfung des unveränderten Git-Arbeitsbaums und vollständigen
+  Migrationsmarkers wurde der alte Stand wieder gestartet/aktiviert.
+  Beide Healthchecks `ok`, sieben reguläre App-Timer gestartet/aktiviert.
+  Tennisfehler nicht zurückgesetzt, kein erfolgreicher Gesamtjob behauptet.
+- Erneutes entkoppeltes Update brach vor App-Stopp an der unveränderten
+  Kapazitätsprüfung ab: 21.264 GB Reserve nötig, 16.313 GB frei;
+  rund **4.61 GiB fehlen**. Drei eigene verwaiste Prüfkopien inventarisiert,
+  noch nicht gelöscht; genaue Freigabe angefragt. Keine produktive DB oder
+  reguläre Sicherung löschen, keine Schutzgrenze lockern.
+- `afc8a10`: Tennis-Ergebnisse auch bei belegten Terminrevisionen; ungültige
+  Fußball-Spielerprojektion verwirft nicht mehr andere gültige Spiele im Batch.
+  **Frisch 162 Tests bestanden**, Exit 0, 34.88 s, DeprecationWarnings als Fehler.
+  Ältere 519/193-Läufe nicht addieren; keine neue Vollsuite behaupten.
+- Inventur 18.09., 13:50:35 UTC: 986 Tennis-Originalartefakte, fünf Ergebnisbelege
+  für nur ein eindeutiges Spiel. Fußball: 272 Spieler-Einsatzbelege / zehn Spiele;
+  4.633 Ergebnisbelege / 235 Spiele. Belegzeilen sind keine unabhängigen Testfälle.
+
+### Nächste konkrete Schritte
+
+1. Reserve sicher herstellen, dann nur den installierten vertrauenswürdigen
+   Updater nutzen, keinen produktiven Git-Pull. Funktionsziel `afc8a10`;
+   bei weiterem Docs-Commit origin/main-Anforderung des Updaters prüfen.
+2. Erst danach echte Tennis-Ergebnisprobe speichern und Original-/Event-/
+   Terminbindung nachweisen. Entwurf `output/playwright/capture-context-outcomes-20260916.py`
+   ist noch nicht ausführungsbereit: `inventory()` fragt fälschlich
+   `context_observations.source_schema` ab; Schema liegt im Inhalts-Payload.
+   Vor Ausführung korrigieren. Diese Übernahme schrieb keine Kontextdaten.
+   Fußball-Probe muss API-Budget und 24h-Backoff respektieren.
+3. Fußball-Live-Lücke schließen: `fixture_market_probabilities()` reicht
+   `native_provenance` nicht weiter; Originale haben noch
+   `unresolved-receipts-not-in-this-capture`. Replay ist bereits verbunden.
+   Dieselbe Live-Berechnung mit echten B1-Belegen zum Stichtag verbinden,
+   Referenzraten/Kalibrierung/Originale erhalten; danach kompatibler Snapshot-
+   Anschluss. Separat kalibrierte Legacy-Marginalen nicht als kohärentes neues
+   Torverteilungsmodell umetikettieren. Teilnahme-/Aufstellungsmischung offen.
+4. Tennis-Zeitdaten: ESPN-Proben ohne tatsächliche Matchdauer/Endzeit. ATP-CSV
+   enthält 8.980 Dauerwerte in 9.736 Zeilen, aber kein Matchdatum. Turnierbeginn
+   oder Zeilenfolge sind kein Ersatz. Einzelne offizielle ATP-Seitenprobe war
+   mit dem Browserwerkzeug nicht zugänglich; kein Beleg für fehlende Felder
+   oder HTTP 403. Quellen-/Zeitsemantik vor versionierter Erweiterung prüfen.
+5. Unverändert mindestens 200 eindeutige unangetastete Testevents in drei
+   Zeitblöcken zusätzlich zu Training/Tuning. **Keine freigegebene neue Wirkung
+   und keine belegte bessere Wettqualität.** WTA, weitere Sportarten und
+   Produktabnahme bleiben offen. Cricket bleibt ausgenommen.
+
+Details: [Übernahmebericht](docs/audits/2026-09-18-kontext-fortsetzung.md).
+
+## Historischer Stand 16.09.2026
+
 Stand: **16.09.2026, 01:10 CEST**. Für die Fortsetzung zuerst dieses Dokument
 lesen. Es aktualisiert den Arbeitsstatus, ersetzt aber weder die freigegebene
 Spezifikation noch ältere Prüfbelege. Bei späterer Übernahme Git/VPS und letzten
