@@ -1303,6 +1303,10 @@ def _model_row_context_complete(row: dict) -> Optional[bool]:
 
 
 def _football_recommendation_release_eligible(row: dict) -> bool:
+    from challenge_engine import CHALLENGE_PREDICTION_VERSION
+    if (row.get("prediction_version") != CHALLENGE_PREDICTION_VERSION
+            or row.get("validation_prediction_version") != CHALLENGE_PREDICTION_VERSION):
+        return False
     context = row.get("context")
     evidence_values = tuple(
         row.get(field)

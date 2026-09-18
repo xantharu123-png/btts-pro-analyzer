@@ -84,7 +84,7 @@ EVAL_FINAL_RETRY_MINUTES = 30  # Kontext-gesperrte Fixtures werden bis -30 min e
 SETTLE_GRACE = timedelta(hours=2)
 FT_STATUSES = {"FT"}
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
-SHADOW_MODEL_VERSION = "challenge-engine-2026-08-05"
+SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v13"
 SHADOW_POLICY_VERSION = "shadow-risk-ev-v4"
 SHADOW_REVIEW_MIN_CLV_BETS = 300
 

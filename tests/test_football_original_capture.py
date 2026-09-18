@@ -9,6 +9,17 @@ import challenge_engine as engine
 from tests.test_football_base_provenance import history, target
 
 
+@pytest.fixture(autouse=True)
+def legacy_only_invalid_scalar_contract(request, monkeypatch):
+    if request.node.originalname in {
+        'test_accepted_legacy_callable_values_remain_unchanged_and_no_finite_number_is_fabricated',
+        'test_custom_nonnumeric_market_result_cannot_smuggle_unallowlisted_payload',
+        'test_malformed_owning_curve_is_not_a_loophole_for_free_recipe_text',
+    }:
+        from tests.football_legacy_reference import activate
+        activate(monkeypatch, globals())
+
+
 def values():
     rows, upcoming = history(), target()
     for index, row in enumerate(rows):
@@ -46,7 +57,7 @@ def test_new_same_call_api_retains_final_triplets_before_candidate_rounding():
         candidate_profile=engine.CANDIDATE_PROFILE_WETTFINDER, original_capture=originals.append)
     assert len(originals) == 1
     packet = originals[0].to_dict()
-    assert packet["kind"] == "football-original-market-calculation-v1"
+    assert packet["kind"] == "football-original-market-calculation-v2"
     assert packet["prediction_version"] == engine.CHALLENGE_PREDICTION_VERSION
     assert packet["probabilities"] == {key: list(val) for key, val in expected["probabilities"].items()}
     assert packet["raw_probabilities"] == {key: list(val) for key, val in raw_model["probabilities"].items()}

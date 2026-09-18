@@ -583,6 +583,7 @@ def _football_snapshot(now: datetime) -> dict:
 
 
 def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
+    from challenge_engine import CHALLENGE_PREDICTION_VERSION
     validation = ValidationMetrics(
         300,
         0.15,
@@ -600,9 +601,11 @@ def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
         fdr_q_value=0.02,
         tested_hypotheses=90,
         statistical_release_passed=True,
+        prediction_version=CHALLENGE_PREDICTION_VERSION,
     )
     return ChallengeCandidate(
         candidate_id="fixture-1-btts",
+        prediction_version=CHALLENGE_PREDICTION_VERSION,
         fixture_id=1,
         league_id=39,
         league_name="Test League",

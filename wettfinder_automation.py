@@ -409,6 +409,8 @@ def _football_candidate_record(
         "minimum_odds": minimum_odds,
         "evidence_stage": "SHADOW",
         "policy_version": BETTING_POLICY_VERSION,
+        "prediction_version": candidate.prediction_version,
+        "validation_prediction_version": validation.prediction_version,
         "modeled_at": _utc(context_checked_at).isoformat() if context_checked_at is not None else None,
         "input_cutoff_at": _utc(context_checked_at).isoformat() if context_checked_at is not None else None,
         "scheduled_start": kickoff.isoformat(),
@@ -1787,6 +1789,9 @@ def _persisted_football_records(
 
 def _football_record_release_eligible(row: object) -> bool:
     if not isinstance(row, dict):
+        return False
+    if (row.get("prediction_version") != CHALLENGE_PREDICTION_VERSION
+            or row.get("validation_prediction_version") != CHALLENGE_PREDICTION_VERSION):
         return False
     context = row.get("context")
     evidence_values = tuple(

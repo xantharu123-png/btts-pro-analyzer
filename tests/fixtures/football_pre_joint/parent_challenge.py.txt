@@ -466,9 +466,6 @@ def _conservative_validation_map(
             if metric.raw_brier_score is not None
         ]
         combined[spec.key] = ValidationMetrics(
-            prediction_version=(valid_metrics[0].prediction_version
-                if all(metric.prediction_version == valid_metrics[0].prediction_version
-                       for metric in valid_metrics) else None),
             observations=min(metric.observations for metric in valid_metrics),
             brier_score=weakest.brier_score,
             baseline_brier_score=weakest.baseline_brier_score,
@@ -514,8 +511,16 @@ def _conservative_calibration_map(
         if any(curve is None or not callable(curve) for curve in curves):
             continue
 
-        from challenge_engine import ConservativeMarketCalibration
-        combined[spec.key] = ConservativeMarketCalibration(tuple(curves))
+        def conservative_curve(
+            probability: float,
+            source_curves: tuple[Any, ...] = tuple(curves),
+        ) -> float:
+            return min(
+                [float(probability)]
+                + [float(curve(probability)) for curve in source_curves]
+            )
+
+        combined[spec.key] = conservative_curve
     return combined
 
 
@@ -2197,14 +2202,11 @@ def scan_daily_challenge(
     market_kinds: Optional[set[str]] = None,
     allow_above_challenge_probability: bool = False,
     candidate_profile: str = CANDIDATE_PROFILE_CHALLENGE,
-    max_new_xg_calls: int = XG_MAX_NEW_CALLS_PER_SCAN,
     progress_cb=None,
 ) -> dict[str, Any]:
     """Run one explicit, quota-aware scan over at most fourteen days."""
     if not isinstance(allow_above_challenge_probability, bool):
         raise ValueError("allow_above_challenge_probability must be boolean")
-    if type(max_new_xg_calls) is not int or not 0 <= max_new_xg_calls <= XG_MAX_NEW_CALLS_PER_SCAN:
-        raise ValueError("xG call limit must stay within the scan budget")
     if candidate_profile not in (
         CANDIDATE_PROFILE_CHALLENGE, CANDIDATE_PROFILE_WETTFINDER,
     ):
@@ -2292,7 +2294,7 @@ def scan_daily_challenge(
                             league_id,
                             season,
                             provider._background_football_get,
-                            max_new_calls=max_new_xg_calls,
+                            max_new_calls=XG_MAX_NEW_CALLS_PER_SCAN,
                         )
                         if xg_stats.get("coverage", 0.0) < 0.5:
                             provider.errors.append(
@@ -2832,7 +2834,6 @@ def scan_daily_challenge(
         ],
         "fixtures_found": len(fixtures),
         "fixtures_modeled": len({candidate.fixture_id for candidate in all_candidates}),
-        "modeled_fixture_ids": sorted({candidate.fixture_id for candidate in all_candidates}),
         "continental_fixtures_found": len(continental_fixture_ids),
         "continental_fallback_modeled": len(fixture_team_histories),
         "continental_fallback_failed": len(fallback_failed),

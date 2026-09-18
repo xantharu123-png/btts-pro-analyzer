@@ -1,8 +1,8 @@
 """Detached same-call football calculation, not a context/source approval.
 
 The legacy model slices history at kickoff, not at the later capture clock.
-Version 2 contains the actual unrounded joint distributions and calibration
-recipes. Historical version 1 remains a separate scalar-marginal contract.
+These are its actual unrounded inputs/outputs and calibration recipes; the
+per-market calibrated marginals are NOT a new coherent joint distribution.
 No provider, file, database, training or replay operation lives here.
 """
 from dataclasses import dataclass
@@ -160,7 +160,7 @@ def capture_football_original(*, inputs, model, raw_probabilities,
     if provenance["reference_weights"].get("kind") == "unavailable":
         issues.add("goal-reference-provenance-unavailable")
     payload = {
-        "schema": 2, "kind": "football-original-market-calculation-v2",
+        "schema": 1, "kind": "football-original-market-calculation-v1",
         "prediction_version": prediction_version, "model_contract_signature": model_contract_signature,
         "captured_at": captured_at, "logical_history_cutoff": inputs["logical_history_cutoff"],
         "source_evidence": "unresolved-receipts-not-in-this-capture",
@@ -172,7 +172,6 @@ def capture_football_original(*, inputs, model, raw_probabilities,
         "raw_probabilities": _probabilities(raw_probabilities, issues),
         "probabilities": _probabilities(model["probabilities"], issues),
         "calibration_recipes": calibration_recipes,
-        "distribution_capture": _json_value(model["distribution_capture"], issues),
         "market_specs": [{key: getattr(spec, key) for key in
                           ("key", "market", "selection", "kind", "side", "threshold", "low", "high")}
                          for spec in market_specs if spec.key in model["probabilities"]],

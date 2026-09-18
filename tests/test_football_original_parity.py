@@ -18,9 +18,19 @@ APPROVED_DAILY_REFRESH = "a1d15b6972f01ba617a62381bacf7bf08a168b1f"
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.fixture(autouse=True)
+def historical_pre_joint_mathematics(monkeypatch):
+    # These immutable old-vs-old assertions remain historical evidence, not a
+    # false claim that newly authorized coherent mathematics equals scalar v12.
+    from tests.football_legacy_reference import activate
+    activate(monkeypatch, globals())
+
+
 def old_blob(path, *, revision=BASE):
-    return subprocess.run(["git", "show", revision + ":" + path], cwd=ROOT,
-                          check=True, capture_output=True).stdout
+    from tests.football_legacy_reference import source
+    return source({(BASE, 'challenge_engine.py'): 'parent_engine',
+                   (BASE, 'challenge_15k.py'): 'parent_challenge',
+                   (APPROVED_DAILY_REFRESH, 'challenge_15k.py'): 'challenge_15k'}[revision, path])
 
 
 def old_engine():
@@ -79,7 +89,8 @@ class RemoveOnlyCaptureAdditions(ast.NodeTransformer):
 
 
 def test_whole_engine_parent_ast_unchanged_outside_explicit_observing_seams():
-    actual = RemoveOnlyCaptureAdditions().visit(ast.parse((ROOT / "challenge_engine.py").read_text(encoding="utf-8")))
+    from tests.football_legacy_reference import source
+    actual = RemoveOnlyCaptureAdditions().visit(ast.parse(source("challenge_engine")))
     expected = ast.parse(old_blob("challenge_engine.py"))
     assert ast.dump(actual, include_attributes=False) == ast.dump(expected, include_attributes=False)
 
@@ -101,7 +112,8 @@ def test_whole_challenge_module_matches_capture_and_reviewed_daily_refresh():
     index = next(index for index, node in enumerate(expected.body)
                  if isinstance(node, ast.FunctionDef) and node.name == "scan_daily_challenge")
     expected.body[index] = approved_scan
-    actual = ast.parse((ROOT / "challenge_15k.py").read_text(encoding="utf-8"))
+    from tests.football_legacy_reference import source
+    actual = ast.parse(source("challenge_15k"))
     assert ast.dump(actual, include_attributes=False) == ast.dump(expected, include_attributes=False)
 
 

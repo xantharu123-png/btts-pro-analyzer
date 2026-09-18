@@ -10,6 +10,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
+import math
 import sqlite3
 
 from football_original import FootballOriginal
@@ -144,11 +145,60 @@ def _no_storage_references(value):
             stack.extend((child, depth + 1) for child in item)
 
 
-def _packet(packet):
-    _object(packet, _FIELDS, "ORIGINAL packet")
-    _version(packet["schema"])
-    if packet["kind"] != ORIGINAL_KIND:
+def _original_fields(packet):
+    if type(packet) is not dict or type(packet.get("schema")) is not int or packet["schema"] not in (1, 2):
+        raise a1.ArtifactIntegrityError("unsupported ORIGINAL schema")
+    if packet.get("kind") != "football-original-market-calculation-v" + str(packet["schema"]):
         raise a1.ArtifactIntegrityError("wrong ORIGINAL kind")
+    return _FIELDS if packet["schema"] == 1 else _FIELDS | {"distribution_capture"}
+
+
+def _packet(packet):
+    _object(packet, _original_fields(packet), "ORIGINAL packet")
+    if packet["schema"] == 2:
+        distribution = _object(packet["distribution_capture"], {"law_version", "recipe", "families"}, "distribution capture")
+        from football_joint_calibration import LAW_VERSION, RECIPE
+        if (distribution["law_version"] != LAW_VERSION
+                or a1.canonical_bytes(distribution["recipe"]) != a1.canonical_bytes(RECIPE)):
+            raise a1.ArtifactIntegrityError("unsupported joint distribution law/recipe")
+        families = distribution["families"]
+        if (type(packet["count_models"]) is not dict or type(families) is not dict or "goals" not in families
+                or set(families) - {"goals", "corners", "yellow"}
+                or set(families) != {"goals", *packet["count_models"]}):
+            raise a1.ArtifactIntegrityError("invalid joint distribution families")
+        for variants in families.values():
+            _object(variants, {"active", "season", "form"}, "distribution variants")
+            for record in variants.values():
+                _object(record, {"raw_means", "raw_cells", "effective_cells", "diagnostics"}, "distribution record")
+                diagnostics = _object(record["diagnostics"], {"law_version", "success", "status", "iterations", "atoms", "cells", "targets", "message"}, "projection diagnostics")
+                if (diagnostics["law_version"] != LAW_VERSION or type(diagnostics["success"]) is not bool
+                        or type(diagnostics["status"]) is not str
+                        or diagnostics["status"] not in {"identity", "projected", "raw-fallback"}
+                        or diagnostics["success"] != (diagnostics["status"] != "raw-fallback")
+                        or type(diagnostics["message"]) is not str
+                        or any(type(diagnostics[k]) is not int or diagnostics[k] < 0 for k in ("iterations", "atoms", "cells"))):
+                    raise a1.ArtifactIntegrityError("invalid projection diagnostics")
+                targets = diagnostics["targets"]
+                if (type(targets) is not dict or any(type(k) is not str or type(v) not in (int, float)
+                        or not math.isfinite(v) or not 0 <= v <= 1 for k, v in targets.items())):
+                    raise a1.ArtifactIntegrityError("invalid projection targets")
+                if (type(record["raw_means"]) is not list or len(record["raw_means"]) != 2
+                        or any(type(v) not in (int, float) or not math.isfinite(v) or v < 0 for v in record["raw_means"])):
+                    raise a1.ArtifactIntegrityError("invalid raw distribution means")
+                for field in ("raw_cells", "effective_cells"):
+                    cells = record[field]
+                    if type(cells) is not list or not cells:
+                        raise a1.ArtifactIntegrityError("invalid distribution cells")
+                    seen = set()
+                    for cell in cells:
+                        if (type(cell) is not list or len(cell) != 3
+                                or any(type(v) is not int or v < 0 for v in cell[:2])
+                                or type(cell[2]) not in (int, float) or not math.isfinite(cell[2]) or cell[2] < 0
+                                or tuple(cell[:2]) in seen):
+                            raise a1.ArtifactIntegrityError("invalid distribution cell")
+                        seen.add(tuple(cell[:2]))
+                    if not math.isclose(math.fsum(cell[2] for cell in cells), 1.0, rel_tol=0, abs_tol=1e-10):
+                        raise a1.ArtifactIntegrityError("distribution mass must sum to one")
     _clock(packet["captured_at"])
     if packet["logical_history_cutoff"] is not None:
         _clock(packet["logical_history_cutoff"])
@@ -223,7 +273,7 @@ def _expand(rows, manifest_ref):
         raise a1.ArtifactIntegrityError("manifest creation precedes capture")
     body_ref = _reference(manifest["body"], BODY_KIND)
     packet = _decode(rows, body_ref, BODY_KIND)
-    _object(packet, _FIELDS - {"captured_at"}, "stable ORIGINAL body")
+    _object(packet, _original_fields(packet) - {"captured_at"}, "stable ORIGINAL body")
     required = {manifest_ref, body_ref}
     # Account for every occurrence before installing reconstructed arrays.
     # Small arrays can shrink typed references, so only the final total is a

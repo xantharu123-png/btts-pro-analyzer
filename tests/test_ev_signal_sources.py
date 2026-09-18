@@ -60,7 +60,10 @@ def _playable_automatic_candidate(
     scheduled_start: str = "2030-01-01T15:00:00+00:00",
     odds: tuple[str, ...] = ("2.00", "2.02", "2.04", "2.06"),
 ) -> dict:
+    from challenge_engine import CHALLENGE_PREDICTION_VERSION
     candidate = {
+        "prediction_version": CHALLENGE_PREDICTION_VERSION,
+        "validation_prediction_version": CHALLENGE_PREDICTION_VERSION,
         "candidate_id": "1:BTTS_YES",
         "fixture_id": 1,
         "market_key": "BTTS_YES",
@@ -361,9 +364,15 @@ def test_both_real_automatic_readers_reject_only_future_analysis_using_one_share
         assert ("Modellgrundlagen fehlen" not in cards[0].analysis_basis) is accepted
         assert ("1,53" in cards[0].analysis_basis) is accepted
         for actual_card, baseline_card in zip(cards, baseline_cards):
-            assert replace(actual_card, analysis_basis="", analysis_caution="", analysis_samples="") == replace(
+            assert replace(actual_card, analysis_basis="", analysis_caution="", analysis_samples="",
+                           analysis_data_age="", highlight_eligible=False, highlight_reason="") == replace(
                 baseline_card, analysis_basis="", analysis_caution="", analysis_samples="",
+                analysis_data_age="", highlight_eligible=False, highlight_reason="",
             )
+        # Current complete analysis may support presentation emphasis; missing
+        # or future analysis stays neutral without changing model/release data.
+        assert cards[0].highlight_eligible is accepted
+        assert baseline_cards[0].highlight_eligible is False
         assert cards[0].price_code == baseline_cards[0].price_code == "PLAYABLE"
         actual_catalog = compose_wettfinder_catalog(cards)
         baseline_catalog = compose_wettfinder_catalog(baseline_cards)

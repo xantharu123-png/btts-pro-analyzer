@@ -466,9 +466,6 @@ def _conservative_validation_map(
             if metric.raw_brier_score is not None
         ]
         combined[spec.key] = ValidationMetrics(
-            prediction_version=(valid_metrics[0].prediction_version
-                if all(metric.prediction_version == valid_metrics[0].prediction_version
-                       for metric in valid_metrics) else None),
             observations=min(metric.observations for metric in valid_metrics),
             brier_score=weakest.brier_score,
             baseline_brier_score=weakest.baseline_brier_score,

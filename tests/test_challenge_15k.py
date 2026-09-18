@@ -41,6 +41,7 @@ from challenge_15k import (
 )
 from challenge_engine import (
     ChallengeCandidate,
+    CHALLENGE_PREDICTION_VERSION,
     MARKET_BY_KEY,
     MARKET_SPECS,
     MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
@@ -387,9 +388,11 @@ def candidate(candidate_id, fixture_id, probability, *, kickoff=None, eligible=T
         fdr_q_value=0.0009,
         tested_hypotheses=len(MARKET_SPECS),
         statistical_release_passed=True,
+        prediction_version=CHALLENGE_PREDICTION_VERSION,
     )
     item = ChallengeCandidate(
         candidate_id=candidate_id,
+        prediction_version=CHALLENGE_PREDICTION_VERSION,
         fixture_id=fixture_id,
         league_id=39,
         league_name="Test League",
@@ -452,6 +455,7 @@ def credible_validation():
         fdr_q_value=0.0009,
         tested_hypotheses=len(MARKET_SPECS),
         statistical_release_passed=True,
+        prediction_version=CHALLENGE_PREDICTION_VERSION,
     )
 
 
@@ -1516,9 +1520,11 @@ class ChallengeProbabilityTests(unittest.TestCase):
         ]
         prior_sizes = []
 
-        def fake_probabilities(_fixture, prior):
+        def fake_probabilities(_fixture, prior, calibration=None, **kwargs):
             prior_sizes.append(len(prior))
             return {
+                "raw_probabilities": {spec.key: (0.5, 0.5, 0.5) for spec in MARKET_SPECS},
+                "projection_success": True,
                 "probabilities": {
                     spec.key: (0.5, 0.5, 0.5)
                     for spec in MARKET_SPECS

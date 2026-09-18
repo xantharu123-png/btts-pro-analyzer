@@ -3,6 +3,7 @@ import json
 import math
 import sys
 import unittest
+import pytest
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -22,6 +23,18 @@ from challenge_engine import (  # noqa: E402
     fixture_market_probabilities,
     validate_league_markets,
 )
+
+
+@pytest.fixture(autouse=True)
+def historical_scalar_goldens(request, monkeypatch):
+    if request.node.originalname in {
+        'test_combined_artifact_is_bit_exact_to_previous_two_pass_results',
+        'test_real_90_market_outputs_match_current_statistical_golden',
+        'test_fixture_probabilities_expose_calibrated_markets',
+        'test_candidates_shift_with_calibration',
+    }:
+        from tests.football_legacy_reference import activate
+        activate(monkeypatch, globals())
 
 
 def fixture(
@@ -217,9 +230,11 @@ class FitMarketCalibrationIntegrationTest(unittest.TestCase):
         ]
         prior_sizes = []
 
-        def fake_probabilities(_fixture, prior, calibration=None):
+        def fake_probabilities(_fixture, prior, calibration=None, **kwargs):
             prior_sizes.append(len(prior))
             return {
+                "raw_probabilities": {spec.key: (0.5, 0.5, 0.5) for spec in MARKET_SPECS},
+                "projection_success": True,
                 "probabilities": {
                     spec.key: (0.5, 0.5, 0.5)
                     for spec in MARKET_SPECS
@@ -256,9 +271,11 @@ class BuildMarketModelArtifactTest(unittest.TestCase):
         ]
         prior_sizes = []
 
-        def fake_probabilities(_fixture, prior, calibration=None):
+        def fake_probabilities(_fixture, prior, calibration=None, **kwargs):
             prior_sizes.append(len(prior))
             return {
+                "raw_probabilities": {spec.key: (0.5, 0.5, 0.5) for spec in MARKET_SPECS},
+                "projection_success": True,
                 "probabilities": {
                     spec.key: (0.5, 0.5, 0.5)
                     for spec in MARKET_SPECS

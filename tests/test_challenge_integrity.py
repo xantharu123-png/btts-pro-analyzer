@@ -16,6 +16,7 @@ import zipfile
 
 from challenge_engine import (
     CHALLENGE_MODEL_CONTRACT_SIGNATURE,
+    CHALLENGE_PREDICTION_VERSION,
     MARKET_BY_KEY,
     MARKET_SPECS,
     ChallengeCandidate,
@@ -71,9 +72,11 @@ def _candidate(now: datetime, *, probability: float = 0.60) -> ChallengeCandidat
         fdr_q_value=0.0009,
         tested_hypotheses=len(MARKET_SPECS),
         statistical_release_passed=True,
+        prediction_version=CHALLENGE_PREDICTION_VERSION,
     )
     item = ChallengeCandidate(
         candidate_id="1:BTTS",
+        prediction_version=CHALLENGE_PREDICTION_VERSION,
         fixture_id=1,
         league_id=39,
         league_name="Integrity League",

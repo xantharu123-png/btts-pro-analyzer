@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from challenge_engine import (
+    CHALLENGE_PREDICTION_VERSION,
     ValidationMetrics,
     build_fixture_candidates,
     market_is_basic_forecast,
@@ -30,6 +31,7 @@ def _credible_metric() -> ValidationMetrics:
         fdr_q_value=0.0009,
         tested_hypotheses=90,
         statistical_release_passed=True,
+        prediction_version=CHALLENGE_PREDICTION_VERSION,
     )
 
 
@@ -44,6 +46,7 @@ def test_high_probability_market_isolated_from_15k_challenge_corridor():
         },
     }
     model = {
+        "projection_success": True,
         "freshness_days": 1.0,
         "active_lambdas": (1.4, 0.6),
         "venue_samples": (12, 12),
