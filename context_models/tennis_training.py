@@ -85,7 +85,7 @@ def validate_live_training_case(resolved, *, config, payload):
     from context_models.tennis_effect import _feature_input
     from context_models.offset import ContextModelError
     from context_sources.outcomes import validate_outcome_record
-    from context_runtime_tennis import _code_variants, _native_event
+    from context_runtime_tennis import _code_manifest_supported, _code_variants, _native_event
     from tennis.predict import predict_match
     from tennis.tour_state import _decode_wrapper
     event, base, features = (payload[name] for name in ("event", "base", "features"))
@@ -107,7 +107,7 @@ def validate_live_training_case(resolved, *, config, payload):
     if state.built_at > datetime.fromisoformat(decision).timestamp():
         raise ContextIntegrityError("original tour state was built after the decision")
     variants = _code_variants()
-    if any(value not in variants[name] for name, value in origin["code_hashes"].items()):
+    if not _code_manifest_supported(origin["code_hashes"], variants):
         raise ContextIntegrityError("original calculation has no supported exact source replay")
     if type(resolved["observations"]) is not tuple:
         raise ContextContractError("live training requires immutable source receipts")

@@ -31,11 +31,18 @@ _REVIEWED_LOCATOR_OLD_MANIFEST = {
     "tennis/simulator.py": frozenset({"6f326fc84de6b705b762b9d9efaa2932daf0f4546c419d56f30e8c3f4644e29f", "82a9489bc4fd8d4c581ac7c133eec82f0ccc696f5c012362cc43f79ef4e044d3"}),
     "tennis/data_loader.py": frozenset({"521bb2525a8a874b64f4afe55c49e18c075bdc04348e38b1632c95af6aec4620", "59ac32fcadc1d963ff981bbc0f6533c36579ea78f46ffe807349bc8a840ba937"}),
 }
-_REVIEWED_LOCATOR_NEW_MANIFEST = {
+_REVIEWED_PRE_DURATION_MANIFEST = {
     # Exact LF/CRLF identities from b342b02ac9c52b559152d7dd91d08c049e131611.
     **{name: hashes for name, hashes in _REVIEWED_LOCATOR_OLD_MANIFEST.items()
        if name != "tennis/data_loader.py"},
     "tennis/data_loader.py": frozenset({"30cd9c3e69369129151ce22ed3bd4c24f33e210d0be93f4841e797c80f8e7f85", "063c782b99fe876b2da5f4b5a6dec284fb1ae39b92aac5d9b42889acb392358c"}),
+}
+_REVIEWED_DURATION_MANIFEST = {
+    # Exact additive Tennis Abstract duration transition; the other five
+    # prediction owners are byte-identical to both reviewed predecessors.
+    **{name: hashes for name, hashes in _REVIEWED_PRE_DURATION_MANIFEST.items()
+       if name != "tennis/data_loader.py"},
+    "tennis/data_loader.py": frozenset({"20cd51119065d2503b4f1fed7d12d07e5cabd24c35c55961c1c312266b54ad9b", "6feb45af9d6a9b6398682665f1ec8c6041dc8e4da9c3b2c65caa083f2c9663ab"}),
 }
 
 
@@ -64,12 +71,15 @@ def _code_manifest_supported(recorded, running):
         return False
     if all(recorded[name] in running[name] for name in CODE_PATHS):
         return True
-    # Closed compatibility for the reviewed locator-only transition. Both the
-    # complete executing and recorded six-file manifests must be the pinned pair;
-    # mixed or future source recipes receive no historical allowance.
+    # Closed compatibility for the reviewed locator and additive-duration
+    # transitions. The complete executing manifest must be the duration build,
+    # and the recorded manifest must be one exact predecessor. Mixed, arbitrary
+    # data-loader or future source recipes receive no historical allowance.
     return (
-        all(_REVIEWED_LOCATOR_NEW_MANIFEST[name] <= running[name] for name in CODE_PATHS)
-        and all(recorded[name] in _REVIEWED_LOCATOR_OLD_MANIFEST[name] for name in CODE_PATHS)
+        all(_REVIEWED_DURATION_MANIFEST[name] <= running[name] for name in CODE_PATHS)
+        and any(all(recorded[name] in manifest[name] for name in CODE_PATHS)
+                for manifest in (_REVIEWED_LOCATOR_OLD_MANIFEST,
+                                 _REVIEWED_PRE_DURATION_MANIFEST))
     )
 
 

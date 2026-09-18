@@ -24,6 +24,7 @@ Date: July 2026
 from __future__ import annotations
 
 import ast
+import math
 import re
 import unicodedata
 from datetime import datetime, timezone
@@ -710,6 +711,7 @@ TA_LEADERSOURCE_URLS = (
 _TA = {
     "date": 0, "tourn": 1, "surf": 2, "level": 3, "wl": 4, "player": 5,
     "round": 9, "opp": 12,
+    "time": 26,
     "aces": 27, "dfs": 28, "pts": 29, "firsts": 30, "fwon": 31, "swon": 32,
     "games": 33, "saved": 34, "chances": 35,
     "ogames": 42, "osaved": 43, "ochances": 44,
@@ -728,6 +730,25 @@ def _ta_int(value) -> Optional[int]:
         return None
 
 
+def _ta_duration(value) -> tuple[Optional[int], str]:
+    """Parse one native whole-minute observation without inventing zeroes."""
+    if value is None or isinstance(value, str) and not value.strip():
+        return None, "missing"
+    if isinstance(value, bool):
+        return None, "invalid"
+    if isinstance(value, int):
+        minutes = value
+    elif isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            return None, "invalid"
+        minutes = int(value)
+    elif isinstance(value, str) and re.fullmatch(r"[0-9]+", value.strip()):
+        minutes = int(value.strip())
+    else:
+        return None, "invalid"
+    return (minutes, "available") if minutes > 0 else (None, "invalid")
+
+
 def load_wta_ta_stats(cache_dir: Path = DEFAULT_CACHE_DIR) -> pd.DataFrame:
     """Load Tennis Abstract WTA box scores, one row per match (winner view).
 
@@ -742,6 +763,7 @@ def load_wta_ta_stats(cache_dir: Path = DEFAULT_CACHE_DIR) -> pd.DataFrame:
     preferring the winner view.
     """
     rows = {}
+    duration_evidence = {}
     for tag, url in TA_LEADERSOURCE_URLS:
         try:
             path = _download(url, cache_dir / f"{tag}_leadersource.js")
@@ -771,6 +793,7 @@ def load_wta_ta_stats(cache_dir: Path = DEFAULT_CACHE_DIR) -> pd.DataFrame:
             if None in (w_games, l_games, w_saved, w_chances, l_saved, l_chances):
                 continue
             key = (date, winner, loser)
+            duration_evidence.setdefault(key, []).append(_ta_duration(r[_TA["time"]]))
             if won or key not in rows:  # winner view wins the de-dup
                 rows[key] = {
                     "tourney_date": pd.to_datetime(date, format="%Y%m%d", errors="coerce"),
@@ -790,6 +813,26 @@ def load_wta_ta_stats(cache_dir: Path = DEFAULT_CACHE_DIR) -> pd.DataFrame:
                     "series_category_id": "wta_tour",
                     "tour": "WTA",
                 }
+    for key, row in rows.items():
+        evidence = duration_evidence[key]
+        observed = {minutes for minutes, state in evidence if state == "available"}
+        if len(observed) > 1:
+            duration, state = None, "conflicting"
+        elif observed:
+            duration, state = next(iter(observed)), "available"
+        elif any(state == "invalid" for _, state in evidence):
+            duration, state = None, "invalid"
+        else:
+            duration, state = None, "missing"
+        coverage = "wta_leaderboard_pool"
+        if observed and any(item_state != "available" for _, item_state in evidence):
+            coverage += "_partial"
+        row.update({
+            "match_duration": duration,
+            "match_duration_state": state,
+            "match_duration_source": "tennis_abstract_matchmx",
+            "match_duration_coverage": coverage,
+        })
     frame = pd.DataFrame(rows.values())
     if len(frame):
         frame = frame.dropna(subset=["tourney_date"]).sort_values(

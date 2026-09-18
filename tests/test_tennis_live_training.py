@@ -19,6 +19,7 @@ from model_artifacts import load_artifact, put_artifact
 from test_tennis_live_worker import NOW, competition, publish_state
 from test_context_tennis_outcome_capture import completed
 from context_training_helpers import envelope
+from test_context_runtime_tennis_live import _REVIEWED_PRIOR_SOURCE_MANIFESTS
 
 
 def live_config(tour="ATP"):
@@ -104,6 +105,26 @@ def cases_for(tmp_path, tour="ATP"):
     return db, cases, config, built
 
 
+def with_source_manifest(case, source_manifest, newline="LF"):
+    from context_models.tennis_v3 import tennis_reference_hash_v3
+    changed = deepcopy(case)
+    payload = changed["case"]["payload"]
+    old_ref = payload["replay_ref"]
+    origin = payload["base"]["reference_weights"]
+    origin["code_hashes"] = {
+        name: variants[newline] for name, variants in source_manifest.items()
+    }
+    payload["base"] = original_base(origin)
+    publication = envelope(ORIGINAL_ARTIFACT_KIND, {"schema": 1, "origin": origin})
+    payload["replay_ref"] = publication["digest"]
+    del changed["artifacts"][old_ref]
+    changed["artifacts"][publication["digest"]] = publication
+    payload["features"]["reference_hash"] = tennis_reference_hash_v3(
+        payload["base"], payload["event"])
+    changed["case"] = envelope("context-training-case-v1", payload)
+    return changed
+
+
 def test_live_cohort_is_distinct_from_legacy_and_does_not_invent_environment():
     config = live_config()
     assert validate_family_config(config) == config
@@ -153,6 +174,31 @@ def test_builder_is_read_only_and_uses_complete_relevant_revisions(tmp_path):
     full = select_tennis_observations(all_rows, cutoff=datetime.fromisoformat(payload["base"]["cutoff"]), tour="ATP")
     assert tennis_features_v3(payload["event"], full, payload["base"],
         cutoff=datetime.fromisoformat(payload["base"]["cutoff"])) == payload["features"]
+
+
+@pytest.mark.parametrize("source_manifest", _REVIEWED_PRIOR_SOURCE_MANIFESTS,
+                         ids=("locator", "pre-duration"))
+@pytest.mark.parametrize("newline", ["LF", "CRLF"])
+def test_exact_historical_original_replays_through_training_verifier(
+        tmp_path, source_manifest, newline):
+    from context_models.training_contracts import validate_resolved_case
+    _, cases, config, _ = cases_for(tmp_path)
+    historical = with_source_manifest(cases[0], source_manifest, newline)
+
+    assert validate_resolved_case(historical, config=config) == historical
+
+
+@pytest.mark.parametrize("source_manifest", _REVIEWED_PRIOR_SOURCE_MANIFESTS,
+                         ids=("locator", "pre-duration"))
+def test_historical_training_replay_rejects_another_owner_change(tmp_path, source_manifest):
+    from context_models.training_contracts import validate_resolved_case
+    _, cases, config, _ = cases_for(tmp_path)
+    changed = deepcopy(source_manifest)
+    changed["tennis/predict.py"] = {"LF": "f" * 64, "CRLF": "f" * 64}
+    historical = with_source_manifest(cases[0], changed)
+
+    with pytest.raises(ContextContractError):
+        validate_resolved_case(historical, config=config)
 
 
 @pytest.mark.parametrize("change", ["probability", "state", "code", "feature", "outcome", "missing_source"])
