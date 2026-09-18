@@ -14,16 +14,16 @@ from context_consumers import _read_context_snapshot
 from context_copy import public_context_summary
 from context_links import ContextReference
 from context_models.contracts import (
-    ContextContractError, ContextIntegrityError, canonical_timestamp, require_object,
+    ContextContractError, ContextIntegrityError, canonical_timestamp, require_digest,
+    require_object,
 )
-from context_models.dataset import _artifact
-from context_models.experiments import _artifact_created_at
 from context_models.tennis_live import (
     MARKETS, ORIGINAL_ARTIFACT_KIND, validate_context_model,
     validate_live_winner_origin, validate_original_publication,
 )
+from context_models.training_contracts import validate_artifact_envelope
 from context_transport import project_context_market
-from model_artifacts import canonical_bytes
+from model_artifacts import _decode_artifact_row, canonical_bytes
 from tennis.state_codec import _STATE_KEYS
 
 
@@ -79,12 +79,17 @@ def _state_header(payload, *, tour):
         raise ContextIntegrityError("referenced tennis state header differs from the original tour")
 
 
-def _artifact_schema(connection):
-    actual = connection.execute("SELECT type FROM sqlite_master WHERE name='artifacts'").fetchall()
-    expected = [(0, "digest", "TEXT", 0, None, 1, 0), (1, "kind", "TEXT", 1, None, 0, 0),
-                (2, "payload", "BLOB", 1, None, 0, 0), (3, "created_at", "TEXT", 1, None, 0, 0)]
-    if actual != [("table",)] or connection.execute("PRAGMA table_xinfo(artifacts)").fetchall() != expected:
-        raise ContextIntegrityError("referenced original artifact schema is invalid")
+def _detached_artifact(digest, row, kind, *, latest):
+    artifact = validate_artifact_envelope(
+        {"digest": digest, **_decode_artifact_row(digest, row)},
+        kind=kind,
+    )
+    created_at = canonical_timestamp(row[2])
+    if created_at > latest:
+        raise ContextIntegrityError(
+            "referenced artifact was actually inserted after its owning cutoff"
+        )
+    return artifact, created_at
 
 
 def _groups(features):
@@ -110,6 +115,13 @@ def load_tennis_winner_context(row: dict, *, path: Path | None = None) -> dict |
         return None
     sidecar = validate_context_model(context["context_model"])
     event, cutoff, reference = sidecar["event"], sidecar["cutoff"], sidecar["reference"]
+    model_inputs = context.get("model_inputs")
+    if type(model_inputs) is not dict:
+        raise ContextIntegrityError("Shadow model differs from its saved original")
+    state_hash = require_digest(
+        model_inputs.get("model_artifact_hash"),
+        "Shadow model artifact",
+    )
     if path is None:
         from runtime_paths import CONTEXT_MODEL_DB_PATH
         path = CONTEXT_MODEL_DB_PATH
@@ -120,44 +132,56 @@ def load_tennis_winner_context(row: dict, *, path: Path | None = None) -> dict |
                 or canonical_timestamp(row["scheduled_start_utc"]) != event["scheduled_start"]
                 or _decision(row["created_utc"]) != cutoff or appended < cutoff):
             raise ContextIntegrityError("shared winner belongs to a different Shadow event/decision")
-        with _read_context_snapshot(Path(path), reference, expected_event=event,
-                expected_cutoff=cutoff) as (connection, payload):
-            base = validate_live_winner_origin(payload["base"], event)
-            origin = base["reference_weights"]
-            _artifact_schema(connection)
-            original = _artifact(connection, sidecar["original_artifact_hash"], ORIGINAL_ARTIFACT_KIND, latest=appended)
-            published = _artifact_created_at(connection, sidecar["original_artifact_hash"])
-            validate_original_publication(original["payload"], created_at=published)
-            if not _same(original["payload"], {"schema": 1, "origin": origin}):
-                raise ContextIntegrityError("consumer sidecar refers to another original publication")
-            # Only read/check immutable A1 bytes and actual publication time;
-            # native historical identity/model replay remain producer/D4 work.
-            state = _artifact(connection, base["model_hash"], "tennis-tour-state", latest=cutoff)
-            _state_header(state["payload"], tour=event["tour"])
-            model_inputs = context.get("model_inputs")
-            if type(model_inputs) is not dict or model_inputs.get("model_artifact_hash") != base["model_hash"]:
-                raise ContextIntegrityError("Shadow model differs from its saved original")
-            expected_inputs = {"player_a": row["player_a"], "player_b": row["player_b"],
-                "surface": row["surface"] if row["surface"] in ("Hard", "Clay", "Grass", "Carpet") else None,
-                "best_of": row["best_of"], "tour": row["tour"], "indoor": model_inputs.get("indoor")}
-            if (any(not _same(origin["inputs"][key], value) for key, value in expected_inputs.items())
-                    or any(not _same(round(origin["values"][key], 4), row[column])
-                           for key, column in (("p_a_raw", "p_raw"), ("p_a_cal", "p_cal")))):
-                raise ContextIntegrityError("Shadow row differs from its exact original inputs/probabilities")
-            projections, summaries = {}, {}
-            for side, market in MARKETS.items():
-                projections[side] = project_context_market(payload, reference, market)
-                summary = public_context_summary({**payload["result"], "selected_market": market,
-                    "factor_groups": _groups(payload["features"]["values"])})
-                basis = ("Spielstärke und Belag im Grundmodell berücksichtigt. "
-                         if origin["inputs"]["surface"] is not None else
-                         "Spielstärke im Grundmodell; Belag nicht eindeutig zugeordnet. ")
-                summaries[side] = basis + summary["summary"]
-            result = {"context_ref": ContextReference.from_dict(reference),
-                "probabilities": {side: projection["used_probability"] for side, projection in projections.items()},
-                "base_probabilities": {side: projection["base_probability"] for side, projection in projections.items()},
-                "delta_pp": {side: projection["delta_pp"] for side, projection in projections.items()},
-                "summaries": summaries, "event": deepcopy(event), "cutoff": cutoff}
+        payload, artifact_rows = _read_context_snapshot(
+            Path(path),
+            reference,
+            expected_event=event,
+            expected_cutoff=cutoff,
+            artifact_digests=(sidecar["original_artifact_hash"], state_hash),
+        )
+        base = validate_live_winner_origin(payload["base"], event)
+        if base["model_hash"] != state_hash:
+            raise ContextIntegrityError("Shadow model differs from its saved original")
+        origin = base["reference_weights"]
+        original, published = _detached_artifact(
+            sidecar["original_artifact_hash"],
+            artifact_rows[sidecar["original_artifact_hash"]],
+            ORIGINAL_ARTIFACT_KIND,
+            latest=appended,
+        )
+        validate_original_publication(original["payload"], created_at=published)
+        if not _same(original["payload"], {"schema": 1, "origin": origin}):
+            raise ContextIntegrityError("consumer sidecar refers to another original publication")
+        # Only read/check immutable A1 bytes and actual publication time;
+        # native historical identity/model replay remain producer/D4 work.
+        state, _ = _detached_artifact(
+            state_hash,
+            artifact_rows[state_hash],
+            "tennis-tour-state",
+            latest=cutoff,
+        )
+        _state_header(state["payload"], tour=event["tour"])
+        expected_inputs = {"player_a": row["player_a"], "player_b": row["player_b"],
+            "surface": row["surface"] if row["surface"] in ("Hard", "Clay", "Grass", "Carpet") else None,
+            "best_of": row["best_of"], "tour": row["tour"], "indoor": model_inputs.get("indoor")}
+        if (any(not _same(origin["inputs"][key], value) for key, value in expected_inputs.items())
+                or any(not _same(round(origin["values"][key], 4), row[column])
+                       for key, column in (("p_a_raw", "p_raw"), ("p_a_cal", "p_cal")))):
+            raise ContextIntegrityError("Shadow row differs from its exact original inputs/probabilities")
+        projections, summaries = {}, {}
+        for side, market in MARKETS.items():
+            projections[side] = project_context_market(payload, reference, market)
+            summary = public_context_summary({**payload["result"], "selected_market": market,
+                "factor_groups": _groups(payload["features"]["values"])})
+            basis = ("Spielstärke und Belag im Grundmodell berücksichtigt. "
+                     if origin["inputs"]["surface"] is not None else
+                     "Spielstärke im Grundmodell; Belag nicht eindeutig zugeordnet. ")
+            summaries[side] = basis + summary["summary"]
+        result = {"context_ref": ContextReference.from_dict(reference),
+            "probabilities": {side: projection["used_probability"] for side, projection in projections.items()},
+            "base_probabilities": {side: projection["base_probability"] for side, projection in projections.items()},
+            "delta_pp": {side: projection["delta_pp"] for side, projection in projections.items()},
+            "summaries": summaries, "event": deepcopy(event), "cutoff": cutoff}
         return result
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         if isinstance(exc, ContextContractError):

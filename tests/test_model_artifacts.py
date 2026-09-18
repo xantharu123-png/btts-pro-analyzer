@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+import hashlib
 import os
 from pathlib import Path
 import sqlite3
@@ -7,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import model_artifacts
 import runtime_paths
 from model_artifacts import (
     ManifestConflict,
@@ -75,6 +77,21 @@ def test_canonical_bytes_is_stable_utf8_and_rejects_non_json_values():
         canonical_bytes({"value": float("nan")})
     with pytest.raises(TypeError):
         canonical_bytes({"value": Path("not-json")})
+
+
+def test_detached_artifact_row_uses_the_regular_integrity_decoder():
+    decoder = getattr(model_artifacts, "_decode_artifact_row")
+    payload = {"tour": "ATP"}
+    digest = hashlib.sha256(
+        b'{"kind":"test","payload":{"tour":"ATP"}}'
+    ).hexdigest()
+
+    assert decoder(
+        digest,
+        ("test", canonical_bytes(payload), "2026-09-07T12:00:00+00:00"),
+    ) == {"kind": "test", "payload": payload}
+    with pytest.raises(KeyError, match=digest):
+        decoder(digest, None)
 
 
 def test_artifact_identity_depends_only_on_kind_and_payload(tmp_path):

@@ -216,15 +216,10 @@ def put_artifact(
     return digest
 
 
-def _load_artifact(
-    connection: sqlite3.Connection,
-    digest: str,
-) -> dict:
+def _decode_artifact_row(digest: str, row: tuple | None) -> dict:
+    """Validate one detached immutable artifact row."""
+
     _validate_digest(digest, label="artifact digest")
-    row = connection.execute(
-        "SELECT kind, payload, created_at FROM artifacts WHERE digest=?",
-        (digest,),
-    ).fetchone()
     if row is None:
         raise KeyError(digest)
     kind, payload_bytes, created_at = row
@@ -235,6 +230,17 @@ def _load_artifact(
     if _digest({"kind": kind, "payload": payload}) != digest:
         raise ArtifactIntegrityError("artifact hash mismatch")
     return {"kind": kind, "payload": payload}
+
+
+def _load_artifact(
+    connection: sqlite3.Connection,
+    digest: str,
+) -> dict:
+    row = connection.execute(
+        "SELECT kind, payload, created_at FROM artifacts WHERE digest=?",
+        (digest,),
+    ).fetchone()
+    return _decode_artifact_row(digest, row)
 
 
 def load_artifact(path: Path, digest: str) -> dict:
