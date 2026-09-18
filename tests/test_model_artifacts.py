@@ -126,6 +126,23 @@ def test_artifact_identity_depends_only_on_kind_and_payload(tmp_path):
         ).fetchone() == (first_time.isoformat(),)
 
 
+def test_prepared_artifact_shared_insertion_is_detached_and_does_not_commit(tmp_path):
+    from contextlib import closing
+    payload = {"values": [1, 2]}
+    prepared = model_artifacts.prepare_artifact(kind="test", payload=payload)
+    payload["values"].append(3)
+    assert prepared.payload_bytes == b'{"values":[1,2]}'
+    path = tmp_path / "prepared.db"
+    with closing(model_artifacts._connect(path)) as connection:
+        with pytest.raises(ValueError, match="transaction"):
+            model_artifacts._insert_artifact(connection, prepared, "2026-09-18T12:00:00+00:00")
+        connection.execute("BEGIN IMMEDIATE")
+        assert model_artifacts._insert_artifact(connection, prepared, "2026-09-18T12:00:00+00:00") == ("2026-09-18T12:00:00+00:00", True)
+        assert model_artifacts._insert_artifact(connection, prepared, "2026-09-19T12:00:00+00:00") == ("2026-09-18T12:00:00+00:00", False)
+        connection.rollback()
+        assert connection.execute("SELECT count(*) FROM artifacts").fetchone() == (0,)
+
+
 def test_artifact_and_manifest_hash_the_documented_envelopes(tmp_path):
     path = tmp_path / "models.db"
     now = datetime(2026, 9, 7, tzinfo=timezone.utc)

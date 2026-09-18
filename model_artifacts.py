@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -176,6 +177,44 @@ def _connect(path: Path) -> sqlite3.Connection:
     return connection
 
 
+@dataclass(frozen=True)
+class PreparedArtifact:
+    """Detached canonical bytes suitable for an owning atomic publication."""
+
+    digest: str
+    kind: str
+    payload_bytes: bytes
+
+
+def prepare_artifact(*, kind: str, payload: dict) -> PreparedArtifact:
+    """Encode one A1 object without opening or mutating a database."""
+    if not isinstance(kind, str):
+        raise TypeError("kind must be a string")
+    if not isinstance(payload, dict):
+        raise TypeError("payload must be a dictionary")
+    _validate_json_object_keys(payload)
+    payload_bytes = canonical_bytes(payload)
+    digest = _digest({"kind": kind, "payload": payload})
+    return PreparedArtifact(digest, kind, payload_bytes)
+
+
+def _insert_artifact(connection, artifact: PreparedArtifact, created_at_text: str):
+    """Insert-if-absent plus actual readback; never commit the owner's transaction."""
+    if not connection.in_transaction:
+        raise ValueError("artifact insertion requires an owning transaction")
+    cursor = connection.execute(
+        "INSERT OR IGNORE INTO artifacts(digest, kind, payload, created_at) VALUES (?, ?, ?, ?)",
+        (artifact.digest, artifact.kind, artifact.payload_bytes, created_at_text),
+    )
+    row = connection.execute(
+        "SELECT kind, payload, created_at FROM artifacts WHERE digest=?", (artifact.digest,),
+    ).fetchone()
+    if row is None or row[:2] != (artifact.kind, artifact.payload_bytes):
+        raise ValueError("artifact identity collision")
+    _validate_stored_timestamp(row[2], label="artifact created_at")
+    return row[2], cursor.rowcount == 1
+
+
 def put_artifact(
     path: Path,
     *,
@@ -185,35 +224,17 @@ def put_artifact(
 ) -> str:
     """Store an immutable typed payload and return its content identity."""
 
-    if not isinstance(kind, str):
-        raise TypeError("kind must be a string")
-    if not isinstance(payload, dict):
-        raise TypeError("payload must be a dictionary")
-    _validate_json_object_keys(payload)
+    artifact = prepare_artifact(kind=kind, payload=payload)
     created_at_text = _timestamp(created_at)
-    payload_bytes = canonical_bytes(payload)
-    digest = _digest({"kind": kind, "payload": payload})
     with closing(_connect(path)) as connection:
         try:
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                """
-                INSERT OR IGNORE INTO artifacts(digest, kind, payload, created_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (digest, kind, payload_bytes, created_at_text),
-            )
-            row = connection.execute(
-                "SELECT kind, payload FROM artifacts WHERE digest=?",
-                (digest,),
-            ).fetchone()
-            if row != (kind, payload_bytes):
-                raise ValueError("artifact identity collision")
+            _insert_artifact(connection, artifact, created_at_text)
             connection.commit()
         except BaseException:
             connection.rollback()
             raise
-    return digest
+    return artifact.digest
 
 
 def _decode_artifact_row(digest: str, row: tuple | None) -> dict:
