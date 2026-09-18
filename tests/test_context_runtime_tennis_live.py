@@ -21,6 +21,34 @@ from model_artifacts import ArtifactIntegrityError, canonical_bytes
 from test_tennis_live_worker import NOW, competition, configure, context_rows, run_batch
 
 
+_REVIEWED_OLD_SOURCE_MANIFEST = {
+    "tennis/predict.py": {
+        "LF": "bd1c2c8f7666e3de5f32d754eac09967edde566c1d7b48c298635f2b3d989ecc",
+        "CRLF": "df806e19414e3a304068be0b5e322b8bdd996ce9252762676711906fe5bdab80",
+    },
+    "tennis/model_state.py": {
+        "LF": "3512c7aa047d11f809402fe434fcaae6ebf0542e961174348d2e6972198d7134",
+        "CRLF": "654a75872a2114f3125ee77fac4efa06376e8c47791ed5f76a562d9cc8456563",
+    },
+    "tennis/elo.py": {
+        "LF": "689c50cdd9cbb5489ff66fbcc10814683c18ebcc79c97b648ceea4db738083c6",
+        "CRLF": "cc7e6d4e249087aa5a1490b3e32c59dfced5f7b0ad32564ff2b028c72be48f35",
+    },
+    "tennis/serve_model.py": {
+        "LF": "dd76339957cc806e5bea14584c47c9467b242966bd531a6c03adf3b067e803aa",
+        "CRLF": "b32a0805b9c810d40ed52be7c8be8905330ecea876ae4aabd3ef7b6bd7635715",
+    },
+    "tennis/simulator.py": {
+        "LF": "6f326fc84de6b705b762b9d9efaa2932daf0f4546c419d56f30e8c3f4644e29f",
+        "CRLF": "82a9489bc4fd8d4c581ac7c133eec82f0ccc696f5c012362cc43f79ef4e044d3",
+    },
+    "tennis/data_loader.py": {
+        "LF": "521bb2525a8a874b64f4afe55c49e18c075bdc04348e38b1632c95af6aec4620",
+        "CRLF": "59ac32fcadc1d963ff981bbc0f6533c36579ea78f46ffe807349bc8a840ba937",
+    },
+}
+
+
 def _stored(monkeypatch, tmp_path, *, tours=("ATP",)):
     db, predictions, _, _ = configure(monkeypatch, tmp_path, tours=tours)
     _, rows = run_batch(db, predictions)
@@ -188,6 +216,85 @@ def test_lf_crlf_equivalent_source_bytes_do_not_invent_a_different_recipe(monkey
             origin["code_hashes"][name] = hashlib.sha256(lf.replace(b"\n", b"\r\n")).hexdigest()
     _replace_origin(db, equivalent)
     assert "unrecognized-artifact-schema" not in verify_context_database(db)["limitations"]
+
+
+@pytest.mark.parametrize("tour", ["ATP", "WTA"])
+@pytest.mark.parametrize("newline", ["LF", "CRLF"])
+@pytest.mark.parametrize("keep_snapshot", [False, True])
+def test_reviewed_locator_transition_preserves_exact_historical_original(
+        monkeypatch, tmp_path, tour, newline, keep_snapshot):
+    db, _ = _stored(monkeypatch, tmp_path, tours=(tour,))
+    _replace_origin(db, lambda origin: origin.__setitem__("code_hashes", {
+        name: variants[newline] for name, variants in _REVIEWED_OLD_SOURCE_MANIFEST.items()
+    }), keep_snapshot=keep_snapshot)
+    before = db.read_bytes()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("historical replay downloaded or trained")
+
+    monkeypatch.setattr("requests.sessions.Session.request", forbidden)
+    monkeypatch.setattr("requests.get", forbidden)
+    monkeypatch.setattr("tennis.data_loader.load_atp_stats", forbidden)
+    monkeypatch.setattr("tennis.data_loader.load_market_odds", forbidden)
+    monkeypatch.setattr("tennis.data_loader.load_wta_ta_stats", forbidden)
+    monkeypatch.setattr("tennis.model_state.build_state", forbidden)
+    monkeypatch.setattr("tennis.tour_state.build_tour_state", forbidden)
+
+    report = verify_context_database(db)
+
+    assert db.read_bytes() == before
+    assert report["verification_level"] == "transport_only"
+    assert report["empirical_approval_verified"] is False
+    assert "d1-original-replay-context-unavailable" in report["limitations"]
+    assert report["counts"]["snapshots"] == int(keep_snapshot)
+
+
+@pytest.mark.parametrize("source_name", sorted(_REVIEWED_OLD_SOURCE_MANIFEST))
+def test_reviewed_historical_manifest_rejects_unknown_source_digest_read_only(
+        monkeypatch, tmp_path, source_name):
+    db, _ = _stored(monkeypatch, tmp_path)
+    def corrupt(origin):
+        origin["code_hashes"] = {
+            name: variants["LF"] for name, variants in _REVIEWED_OLD_SOURCE_MANIFEST.items()
+        }
+        origin["code_hashes"][source_name] = "0" * 64
+    _replace_origin(db, corrupt)
+    before = db.read_bytes()
+    with pytest.raises(ArtifactIntegrityError) as caught:
+        verify_context_database(db)
+    assert str(caught.value.__cause__) == "original Tennis code has no supported exact replay"
+    assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize("drift_name", sorted(_REVIEWED_OLD_SOURCE_MANIFEST))
+def test_unreviewed_running_source_cannot_borrow_historical_transition(
+        monkeypatch, tmp_path, drift_name):
+    db, _ = _stored(monkeypatch, tmp_path)
+    old_read_bytes = Path.read_bytes
+    root = Path(__file__).resolve().parents[1]
+    drifted = old_read_bytes(root / drift_name) + b"\n# unreviewed source drift\n"
+    drifted_lf_hash = hashlib.sha256(drifted.replace(b"\r\n", b"\n")).hexdigest()
+
+    def mixed_manifest(origin):
+        origin["code_hashes"] = {
+            name: variants["LF"] for name, variants in _REVIEWED_OLD_SOURCE_MANIFEST.items()
+        }
+        if drift_name != "tennis/data_loader.py":
+            origin["code_hashes"][drift_name] = drifted_lf_hash
+
+    _replace_origin(db, mixed_manifest)
+    before = db.read_bytes()
+
+    def read_with_drift(path):
+        if path == root / drift_name:
+            return drifted
+        return old_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", read_with_drift)
+    with pytest.raises(ArtifactIntegrityError) as caught:
+        verify_context_database(db)
+    assert str(caught.value.__cause__) == "original Tennis code has no supported exact replay"
+    assert db.read_bytes() == before
 
 
 @pytest.mark.parametrize("corrupt_feature", [False, True])

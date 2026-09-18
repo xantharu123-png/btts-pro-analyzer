@@ -22,6 +22,23 @@ from model_artifacts import ArtifactIntegrityError, canonical_bytes
 from runtime_paths import RuntimeArtifactTrustError
 
 
+_REVIEWED_LOCATOR_OLD_MANIFEST = {
+    # Exact LF/CRLF identities from 185812e0846c7821a46673c9267abfe838d89f4b.
+    "tennis/predict.py": frozenset({"bd1c2c8f7666e3de5f32d754eac09967edde566c1d7b48c298635f2b3d989ecc", "df806e19414e3a304068be0b5e322b8bdd996ce9252762676711906fe5bdab80"}),
+    "tennis/model_state.py": frozenset({"3512c7aa047d11f809402fe434fcaae6ebf0542e961174348d2e6972198d7134", "654a75872a2114f3125ee77fac4efa06376e8c47791ed5f76a562d9cc8456563"}),
+    "tennis/elo.py": frozenset({"689c50cdd9cbb5489ff66fbcc10814683c18ebcc79c97b648ceea4db738083c6", "cc7e6d4e249087aa5a1490b3e32c59dfced5f7b0ad32564ff2b028c72be48f35"}),
+    "tennis/serve_model.py": frozenset({"dd76339957cc806e5bea14584c47c9467b242966bd531a6c03adf3b067e803aa", "b32a0805b9c810d40ed52be7c8be8905330ecea876ae4aabd3ef7b6bd7635715"}),
+    "tennis/simulator.py": frozenset({"6f326fc84de6b705b762b9d9efaa2932daf0f4546c419d56f30e8c3f4644e29f", "82a9489bc4fd8d4c581ac7c133eec82f0ccc696f5c012362cc43f79ef4e044d3"}),
+    "tennis/data_loader.py": frozenset({"521bb2525a8a874b64f4afe55c49e18c075bdc04348e38b1632c95af6aec4620", "59ac32fcadc1d963ff981bbc0f6533c36579ea78f46ffe807349bc8a840ba937"}),
+}
+_REVIEWED_LOCATOR_NEW_MANIFEST = {
+    # Exact LF/CRLF identities from b342b02ac9c52b559152d7dd91d08c049e131611.
+    **{name: hashes for name, hashes in _REVIEWED_LOCATOR_OLD_MANIFEST.items()
+       if name != "tennis/data_loader.py"},
+    "tennis/data_loader.py": frozenset({"30cd9c3e69369129151ce22ed3bd4c24f33e210d0be93f4841e797c80f8e7f85", "063c782b99fe876b2da5f4b5a6dec284fb1ae39b92aac5d9b42889acb392358c"}),
+}
+
+
 def _same(actual, expected, label):
     if canonical_bytes(actual) != canonical_bytes(expected):
         raise ArtifactIntegrityError(label)
@@ -39,6 +56,21 @@ def _code_variants():
         result[name] = {hashlib.sha256(body).hexdigest()
                        for body in (raw, lf, lf.replace(b"\n", b"\r\n"))}
     return result
+
+
+def _code_manifest_supported(recorded, running):
+    names = set(CODE_PATHS)
+    if set(recorded) != names:
+        return False
+    if all(recorded[name] in running[name] for name in CODE_PATHS):
+        return True
+    # Closed compatibility for the reviewed locator-only transition. Both the
+    # complete executing and recorded six-file manifests must be the pinned pair;
+    # mixed or future source recipes receive no historical allowance.
+    return (
+        all(_REVIEWED_LOCATOR_NEW_MANIFEST[name] <= running[name] for name in CODE_PATHS)
+        and all(recorded[name] in _REVIEWED_LOCATOR_OLD_MANIFEST[name] for name in CODE_PATHS)
+    )
 
 
 def _native_event(row):
@@ -137,9 +169,8 @@ def _verify_live_original(ref, publication, artifacts, created_at, receipts, var
     original_base(origin)  # Preserve the original's owning distribution check.
     cutoff, event = origin["cutoff"], origin["event"]
     decision = datetime.fromisoformat(cutoff)
-    for name, code_hash in origin["code_hashes"].items():
-        if code_hash not in variants[name]:
-            raise ArtifactIntegrityError("original Tennis code has no supported exact replay")
+    if not _code_manifest_supported(origin["code_hashes"], variants):
+        raise ArtifactIntegrityError("original Tennis code has no supported exact replay")
     state_ref = origin["state_hash"]
     envelope = artifacts.get(state_ref)
     if (envelope is None or envelope["kind"] != "tennis-tour-state"
