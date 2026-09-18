@@ -198,7 +198,12 @@ def _decimal(value: float) -> str:
 
 
 def _percent(value: float) -> str:
-    return f"{value * 100:.1f} %".replace(".", ",")
+    rounded = f"{value * 100:.1f}"
+    if rounded == "100.0" and value < 1:
+        return ">99,9 %"
+    if rounded == "0.0" and value > 0:
+        return "<0,1 %"
+    return f"{rounded} %".replace(".", ",")
 
 
 def _limit(number: int, unit: str, side: str, suffix: str) -> str:

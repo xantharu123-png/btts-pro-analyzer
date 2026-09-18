@@ -14,6 +14,14 @@ from forecast_analysis import (
 NOW = datetime(2030, 1, 1, 12, tzinfo=timezone.utc)
 
 
+@pytest.mark.parametrize('value, expected', [
+    (0.999999, '>99,9 %'), (0.000001, '<0,1 %'),
+])
+def test_rationale_preserves_nonzero_probability_and_uncertainty(value, expected):
+    from forecast_analysis import _percent
+    assert _percent(value) == expected
+
+
 def _row(market_key="RESULT_HOME", probability=0.46361):
     return {
         "candidate_id": f"81:{market_key}", "fixture_id": 81,

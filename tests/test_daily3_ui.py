@@ -2,7 +2,7 @@ from streamlit.testing.v1 import AppTest
 import pytest
 
 
-def _render_pool(db_path, count):
+def _render_pool(db_path, count, extreme_probability=False):
     import streamlit as st
     from types import SimpleNamespace
     from test_daily3_selection import NOW, football
@@ -10,8 +10,18 @@ def _render_pool(db_path, count):
     from daily3_store import Daily3Store
     st.session_state['_betboy_account_scope'] = 'a'*32
     pool = [football(1), football(2, 'BTTS_YES'), football(3, 'HOME_OVER_0_5')][:count]
+    if extreme_probability:
+        pool = [football(1, probability=0.999999)]
     render_daily3(st, now=NOW, snapshot_loader=lambda **kw: SimpleNamespace(forecasts=pool),
                   store_factory=lambda: Daily3Store(db_path, key=b'q'*32, clock=lambda: NOW))
+
+
+def test_daily3_does_not_round_a_non_certain_model_to_one_hundred_percent(tmp_path):
+    app = AppTest.from_function(_render_pool, args=(str(tmp_path/'day.db'), 1, True)).run(timeout=30)
+    assert not app.exception
+    text = ' '.join(item.value for item in app.markdown)
+    assert 'Modellschätzung: >99.9 %' in text
+    assert 'Modellschätzung: 100.0%' not in text
 
 
 @pytest.mark.parametrize('count', [0, 1, 3])

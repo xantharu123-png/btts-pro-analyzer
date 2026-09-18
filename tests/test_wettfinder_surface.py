@@ -21,6 +21,15 @@ from market_consensus import (
 NOW = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
 
 
+@pytest.mark.parametrize('value, expected', [
+    (0.999999, '>99.9 %'), (0.000001, '<0.1 %'),
+    (0.999, '99.9 %'), (0.001, '0.1 %'),
+    (1.0, '100.0 %'), (0.0, '0.0 %'),
+])
+def test_probability_display_does_not_round_uncertainty_to_certainty(value, expected):
+    assert surface.format_probability(value) == expected
+
+
 def _signal(
     key: str = "football-main",
     *,

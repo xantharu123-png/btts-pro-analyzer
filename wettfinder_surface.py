@@ -206,7 +206,12 @@ def format_probability(value: object) -> str:
     number = float(value)
     if not math.isfinite(number) or not 0.0 <= number <= 1.0:
         return "–"
-    return f"{number * 100:.1f} %"
+    rounded = f"{number * 100:.1f}"
+    if rounded == "100.0" and number < 1:
+        return ">99.9 %"
+    if rounded == "0.0" and number > 0:
+        return "<0.1 %"
+    return f"{rounded} %"
 
 
 def format_decimal_odds(value: object) -> str:
