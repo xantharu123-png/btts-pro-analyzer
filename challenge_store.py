@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
@@ -16,7 +16,7 @@ import sqlite3
 import stat
 from statistics import median
 import time
-from typing import Any
+from typing import Any, Iterator
 from zoneinfo import ZoneInfo
 
 from challenge_engine import (
@@ -788,6 +788,18 @@ class ChallengeLedger:
             deterministic=True,
         )
         return connection
+
+    @contextmanager
+    def _read_snapshot(self) -> Iterator[sqlite3.Connection]:
+        """Own one read image for authentication and its returned financial view.
+
+        Python's SQLite connection context does not begin a transaction for
+        SELECTs. Begin explicitly before any related reads; closing releases the
+        snapshot even on failure. Writers retain their own BEGIN IMMEDIATE.
+        """
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
+            yield connection
 
     def _integrity_checkpoint_state(
         self,
@@ -1711,7 +1723,7 @@ class ChallengeLedger:
             )
 
     def verify_financial_ledger(self) -> tuple[bool, int | None]:
-        with closing(self._connect()) as connection:
+        with self._read_snapshot() as connection:
             return self._verify_financial_rows(connection)
 
     @classmethod
@@ -2992,7 +3004,7 @@ class ChallengeLedger:
             connection.commit()
 
     def settings(self) -> dict[str, Any]:
-        with closing(self._connect()) as connection:
+        with self._read_snapshot() as connection:
             self._require_ticket_definitions(connection)
             self._require_financial_ledger(connection)
             row = connection.execute(
@@ -3739,7 +3751,7 @@ class ChallengeLedger:
         # Authenticate the pre-call state before preparing evidence. Any new
         # price row is appended later on the same BEGIN IMMEDIATE connection as
         # ticket, stake movement and refreshed HMAC checkpoint.
-        with closing(self._connect()) as precheck_connection:
+        with self._read_snapshot() as precheck_connection:
             self._require_ticket_definitions(precheck_connection)
             self._require_financial_ledger(precheck_connection)
             precheck_settings = precheck_connection.execute(
@@ -4896,7 +4908,7 @@ class ChallengeLedger:
 
     def get_ticket(self, ticket_id: int) -> dict[str, Any]:
         ticket_id = _positive_integer(ticket_id, "ticket_id")
-        with closing(self._connect()) as connection:
+        with self._read_snapshot() as connection:
             self._require_ticket_definitions(connection)
             self._require_financial_ledger(connection)
             row = connection.execute(
@@ -4918,7 +4930,7 @@ class ChallengeLedger:
             raise ValueError("limit must be a positive integer or None")
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
             raise ValueError("offset must be a non-negative integer")
-        with closing(self._connect()) as connection:
+        with self._read_snapshot() as connection:
             self._require_ticket_definitions(connection)
             self._require_financial_ledger(connection)
             if limit is None:
@@ -4936,7 +4948,7 @@ class ChallengeLedger:
         return [self._row_to_ticket(row) for row in rows]
 
     def ticket_count(self) -> int:
-        with closing(self._connect()) as connection:
+        with self._read_snapshot() as connection:
             self._require_ticket_definitions(connection)
             self._require_financial_ledger(connection)
             return int(
@@ -4958,7 +4970,7 @@ class ChallengeLedger:
             raise ValueError("limit must be a positive integer or None")
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
             raise ValueError("offset must be a non-negative integer")
-        with closing(self._connect()) as connection:
+        with self._read_snapshot() as connection:
             self._require_ticket_definitions(connection)
             self._require_financial_ledger(connection)
             if limit is None:
@@ -4990,7 +5002,7 @@ class ChallengeLedger:
         ]
 
     def transaction_count(self) -> int:
-        with closing(self._connect()) as connection:
+        with self._read_snapshot() as connection:
             self._require_ticket_definitions(connection)
             self._require_financial_ledger(connection)
             return int(
@@ -5020,7 +5032,7 @@ class ChallengeLedger:
         if limit is not None:
             suffix = " LIMIT ? OFFSET ?"
             parameters.extend((limit, offset))
-        with closing(self._connect()) as connection:
+        with self._read_snapshot() as connection:
             self._require_ticket_definitions(connection)
             self._require_financial_ledger(connection)
             rows = connection.execute(

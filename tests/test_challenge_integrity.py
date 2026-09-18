@@ -9,7 +9,7 @@ from pathlib import Path
 import shutil
 import sqlite3
 import tempfile
-from threading import Barrier
+from threading import Barrier, Event
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -1557,6 +1557,149 @@ class FinancialLedgerIntegrityTests(unittest.TestCase):
 
 
 class WholeDatabaseCheckpointTests(unittest.TestCase):
+    def _read_during_valid_ticket_commit(self, operation, *, after_authentication=False):
+        """Coordinate real signed placement and reading without sleeps or retries.
+
+        Default DELETE journaling lets an autocommit reader see the new commit,
+        whereas an explicit read snapshot holds the writer at COMMIT until close.
+        Verification and all writer checks run normally on real connections.
+        """
+        now = datetime.now(timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "challenge.db"
+            reader = ChallengeLedger(db_path)
+            old_ticket_id, _ = _place_model_ticket(reader, now)
+            reader.settle_ticket(old_ticket_id, "VOID")
+            writer = ChallengeLedger(db_path)
+            ticket = _model_ticket(now)[1]
+            start_writer = Event()
+            commit_entered = Event()
+            paused = False
+            connect_reader = reader._connect
+            connect_writer = writer._connect
+            require_financial = reader._require_financial_ledger
+
+            def writer_connection():
+                connection = connect_writer()
+                connection.set_trace_callback(
+                    lambda sql: commit_entered.set() if sql == "COMMIT" else None
+                )
+                return connection
+
+            def place():
+                self.assertTrue(start_writer.wait(timeout=10))
+                return writer.place_ticket(
+                    now.date().isoformat(), ticket,
+                    ticket_stake(ticket, 100.0), now.isoformat(),
+                )
+
+            def pause(connection):
+                nonlocal paused
+                if paused:
+                    return
+                paused = True
+                start_writer.set()
+                self.assertTrue(commit_entered.wait(timeout=10))
+                if not connection.in_transaction:
+                    # Wait for the valid new revision only without a read lock.
+                    # With a snapshot, close must precede waiting for COMMIT.
+                    placement.result(timeout=10)
+
+            class ReadConnection:
+                def __init__(self):
+                    self.connection = connect_reader()
+
+                def __getattr__(self, name):
+                    return getattr(self.connection, name)
+
+                def execute(self, sql, *args):
+                    if not after_authentication and sql == (
+                        "SELECT * FROM challenge_transactions ORDER BY id ASC"
+                    ):
+                        pause(self.connection)
+                    return self.connection.execute(sql, *args)
+
+            def authenticate_then_pause(connection):
+                require_financial(connection)
+                pause(connection)
+
+            with patch.object(writer, "_connect", new=writer_connection):
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    placement = executor.submit(place)
+                    try:
+                        with patch.object(reader, "_connect", new=ReadConnection):
+                            with patch.object(
+                                reader, "_require_financial_ledger",
+                                new=authenticate_then_pause if after_authentication
+                                else require_financial,
+                            ):
+                                result = operation(reader, old_ticket_id, now)
+                    finally:
+                        start_writer.set()
+                        new_ticket_id = placement.result(timeout=10)
+            self.assertTrue(paused, "The intended overlap boundary was not reached")
+            self.assertEqual(new_ticket_id, 2)
+            self.assertEqual(writer.verify_financial_ledger(), (True, None))
+            self.assertEqual(writer.ticket_count(), 2)
+            self.assertEqual(writer.transaction_count(), 4)
+            self.assertEqual(len(writer.pending_tickets()), 1)
+            return result
+
+    def test_authenticated_public_reads_hold_one_revision_across_subreads(self):
+        operations = {
+            "verification": lambda ledger, *_: ledger.verify_financial_ledger(),
+            "settings": lambda ledger, *_: ledger.settings(),
+            "ticket": lambda ledger, ticket_id, _: ledger.get_ticket(ticket_id),
+            "tickets": lambda ledger, *_: ledger.tickets(),
+            "pending": lambda ledger, *_: ledger.pending_tickets(),
+            "ticket_count": lambda ledger, *_: ledger.ticket_count(),
+            "transactions": lambda ledger, *_: ledger.transactions(),
+            "transaction_count": lambda ledger, *_: ledger.transaction_count(),
+            "settlements": lambda ledger, *_: ledger.settlement_events(),
+        }
+        for name, operation in operations.items():
+            with self.subTest(owner=name):
+                result = self._read_during_valid_ticket_commit(operation)
+                if name == "verification":
+                    self.assertEqual(result, (True, None))
+                elif name == "settings":
+                    self.assertEqual(result["current_balance"], 100.0)
+                    self.assertEqual(result["net_external_funding"], 100.0)
+                elif name == "ticket":
+                    self.assertEqual(result["status"], "VOID")
+                elif name == "pending":
+                    self.assertEqual(result, [])
+                elif name in {"ticket_count", "transaction_count"}:
+                    self.assertEqual(result, 1 if name == "ticket_count" else 3)
+                else:
+                    self.assertEqual(len(result), 3 if name == "transactions" else 1)
+
+    def test_authenticated_read_keeps_snapshot_until_returned_rows_are_loaded(self):
+        operations = {
+            "settings": (lambda ledger, *_: ledger.settings()["current_balance"], 100.0),
+            "tickets": (lambda ledger, *_: len(ledger.tickets()), 1),
+            "ticket_count": (lambda ledger, *_: ledger.ticket_count(), 1),
+            "transactions": (lambda ledger, *_: len(ledger.transactions()), 3),
+            "transaction_count": (lambda ledger, *_: ledger.transaction_count(), 3),
+        }
+        for name, (operation, expected) in operations.items():
+            with self.subTest(owner=name):
+                result = self._read_during_valid_ticket_commit(
+                    operation, after_authentication=True,
+                )
+                self.assertEqual(result, expected)
+
+    def test_placement_precheck_snapshot_releases_before_writer_rechecks_winner(self):
+        def place_losing_ticket(ledger, _ticket_id, now):
+            ticket = _model_ticket(now)[1]
+            with self.assertRaisesRegex(ValueError, "open ticket must be settled"):
+                ledger.place_ticket(
+                    now.date().isoformat(), ticket,
+                    ticket_stake(ticket, 100.0), now.isoformat(),
+                )
+
+        self._read_during_valid_ticket_commit(place_losing_ticket)
+
     def test_application_and_backup_bind_the_same_complete_user_schema(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "challenge.db"
