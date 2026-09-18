@@ -36,6 +36,7 @@ def test_frozen_opposing_choices_share_one_scenario_without_price_ranking():
             assert choices[0].signal.market_key in {'RESULT_HOME', 'DC_1X'}
             assert choices[0].signal.market_key in keys
             assert 'DC_X2' not in keys
+            assert 'RESULT_HOME' in keys
     assert [s.probability for s in inputs] == original_probabilities
 
 
@@ -225,3 +226,44 @@ def test_model_dates_are_readable_local_dates_not_raw_internal_diagnostics():
     assert 'Modellaufbau: 01.01.2030 13:00' in markup
     assert 'Trainingsstichtag: 01.01.2030 13:00' in markup
     assert '2030-01-01T' not in markup
+
+
+@pytest.mark.parametrize('key', ['HOME_OVER_0_5', 'AWAY_OVER_0_5', 'HOME_UNDER_2_5',
+    'AWAY_UNDER_2_5', 'DC_1X', 'DC_X2', 'TOTAL_OVER_0_5', 'MIXED_BTTS_OR_OVER_2_5',
+    'HOME_CORNERS_OVER_2_5', 'YELLOW_UNDER_4_5'])
+def test_fresh_exactly_evidenced_former_basis_market_can_highlight_without_forcing_three(key):
+    signal = football(key=key)
+    if 'CORNERS' in key or 'YELLOW' in key:
+        evidence = signal.analysis_evidence
+        signal = replace(signal, analysis_evidence={**evidence, 'basis': {**evidence['basis'],
+            'expected_market_home': 3.2, 'expected_market_away': 2.1,
+            'expected_unit': 'Ecken' if 'CORNERS' in key else 'Gelbe Karten'}})
+    for candidate in (signal, replace(signal, minimum_odds=999, evidence_stage='RELEASED')):
+        catalog = compose_wettfinder_catalog(cards([candidate]))
+        assert [card.market_key for card in catalog.featured] == [key]
+        assert not catalog.additional
+        choices = daily3_choices([candidate], now=NOW)
+        assert len(choices) == 1 and choices[0].signal is candidate
+    unsupported = replace(signal, analysis_evidence=None)
+    assert not compose_wettfinder_catalog(cards([unsupported])).featured
+    assert not daily3_choices([unsupported], now=NOW)
+
+
+def test_market_categories_do_not_override_shared_canonical_preference():
+    # Independent events share model time. A category demotion must not move
+    # the ordinary event-1 forecast behind the unrelated event-2 forecast.
+    dc, home = football(1, key='DC_X2', probability=.4), football(2, probability=.6)
+    for pool in ((dc, home), (home, dc)):
+        shared = select_consumer_forecasts(pool, now=NOW)
+        assert shared == [dc, home]
+        catalog = compose_wettfinder_catalog(cards(pool), max_featured=1)
+        assert [card.market_key for card in catalog.featured] == ['DC_X2']
+        assert daily3_choices(pool, now=NOW)[0].signal is dc
+
+
+def test_result_direction_anchor_does_not_override_a_newer_or_supported_revision():
+    dc = football(key='DC_X2', probability=.4)
+    old_home = football(probability=.6, now=NOW-timedelta(minutes=1))
+    unsupported_home = replace(football(probability=.6), analysis_evidence=None)
+    for home in (old_home, unsupported_home):
+        assert select_consumer_forecasts([home, dc], now=NOW) == [dc]

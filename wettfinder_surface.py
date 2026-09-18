@@ -21,7 +21,6 @@ from zoneinfo import ZoneInfo
 from bet_finder_ui import (
     ReferencePriceEvaluation,
     _consumer_market_identity,
-    _consumer_market_is_basis,
     consumer_fixture_label,
 )
 from ev_signal_sources import ModelSignal
@@ -518,10 +517,6 @@ def _select_featured(
     markets: set[str] = set()
     for card in cards:
         if not card.highlight_eligible:
-            continue
-        # Keep broad safety lines visible below the fold while useful diverse
-        # markets exist; this is the established consumer-market contract.
-        if _consumer_market_is_basis(card):
             continue
         fixture = _fixture_identity(card)
         market = f"{_token(card.sport)}:{_consumer_market_identity(card)}"

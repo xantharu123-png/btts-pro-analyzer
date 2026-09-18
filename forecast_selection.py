@@ -7,7 +7,6 @@ consumer's section, slot, occupancy or price filter.
 """
 from datetime import datetime, timezone
 
-from bet_finder_ui import _consumer_market_is_basis
 from challenge_engine import MARKET_BY_KEY
 from forecast_analysis import _clock, forecast_highlight_reason
 from selection_coherence import _role_binding, consumer_event_identity, select_coherent_forecasts
@@ -46,7 +45,7 @@ def select_consumer_forecasts(rows, *, now=None):
     def preference(row):
         clock = clocks[id(row)]
         return (not qualifications[id(row)], -clock.timestamp() if clock else float('inf'),
-                _consumer_market_is_basis(row), consumer_event_identity(row), _stable_key(row))
+                consumer_event_identity(row), _stable_key(row))
     ordered = sorted(pool, key=preference)
     directions = {}
     grouped = {}
@@ -69,4 +68,21 @@ def select_consumer_forecasts(rows, *, now=None):
         if previous is None or score < previous[0]:
             directions[group] = (score, row)
     preferred = [row for row in ordered if id(row) not in grouped or directions[grouped[id(row)]][1] is row]
-    return select_coherent_forecasts(preferred, preferred=preferred)
+    # Presentation order is category-neutral. Separately preserve the model's
+    # modal result direction as the event/revision scenario when available.
+    # Otherwise two overlapping double-chance covers could erase that result
+    # direction and misleadingly imply a draw-only recommendation. No result
+    # probability is compared with a different market's probability here.
+    anchors, seen_events = [], set()
+    for row in preferred:
+        event = consumer_event_identity(row)
+        if event in seen_events:
+            continue
+        seen_events.add(event)
+        identity = (getattr(row, 'model_version', None), getattr(row, 'policy_version', None), getattr(row, 'model_scope', None))
+        group = (event, _role_binding(row), 'result', clocks[id(row)],
+                 _clock(getattr(row, 'input_cutoff_at', None)), identity)
+        modal = directions.get(group)
+        anchor = modal[1] if modal and qualifications[id(modal[1])] == qualifications[id(row)] else row
+        anchors.append(anchor)
+    return select_coherent_forecasts(preferred, preferred=anchors)

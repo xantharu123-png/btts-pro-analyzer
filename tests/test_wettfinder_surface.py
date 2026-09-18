@@ -706,7 +706,7 @@ def test_catalog_round_robins_sports_uses_no_price_order_and_keeps_fixture_rows_
     assert {card.key for card in catalog.featured + catalog.additional} == {
         card.key for card in cards
     }
-    assert 'football-broad' in {card.key for card in catalog.additional}
+    assert 'football-broad' in {card.key for card in catalog.featured + catalog.additional}
     group = next(group for group in catalog.additional_groups if group.label == 'Epsilon vs Zeta')
     assert {'same-fixture-two', 'same-fixture-three'} <= {card.key for card in group.cards}
     assert tuple(card for group in catalog.additional_groups for card in group.cards) == catalog.additional
@@ -748,12 +748,12 @@ def test_repeated_broad_team_totals_stay_visible_without_monopolizing_featured_c
 
     catalog = surface.compose_wettfinder_catalog([*broad, *useful])
 
-    assert {card.key for card in catalog.featured} == {"useful-result", "useful-btts"}
-    assert {card.key for card in catalog.additional} == {
-        "broad-1",
-        "broad-2",
-        "broad-3",
-    }
+    assert {"useful-result", "useful-btts"} <= {card.key for card in catalog.featured}
+    assert sum(card.market_key == 'HOME_OVER_0_5' for card in catalog.featured) == 1
+    assert len(catalog.featured) == 3
+    assert len(catalog.additional) == 2
+    assert {card.key for card in catalog.featured + catalog.additional} == {
+        'broad-1', 'broad-2', 'broad-3', 'useful-result', 'useful-btts'}
 
 
 @pytest.mark.parametrize("opposite", ["RESULT_AWAY", "DC_X2"])
