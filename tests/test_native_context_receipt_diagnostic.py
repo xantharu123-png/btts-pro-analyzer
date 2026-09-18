@@ -9,6 +9,8 @@ import sys
 
 import pytest
 
+from native_context_chain_fixtures import historical_source
+
 ROOT = Path(__file__).absolute().parents[1]
 
 
@@ -322,11 +324,14 @@ def test_nonterminal_native_result_never_enters_success_parser(tmp_path):
             d.accept_result({}, result, {}, b'', tmp_path)
 
 
-def manifest_fixture(c):
+def manifest_fixture(c, *, inventory_bytes=None):
+    """Synthetic old native contract, not admission of the current inventory."""
     import copy
     code = []
     for name in sorted(set(c.PINS | c.HELPERS) | {c.PARENT_NAME, c.CATALOGUE_NAME, c.WORKER_NAME}):
-        raw = (ROOT/name).read_bytes()
+        raw = historical_source(name)
+        if name == 'context_storage_v2/inventory.py' and inventory_bytes is not None:
+            raw = inventory_bytes
         code.append(dict(path=name, size=len(raw), sha256=c.digest(raw)))
     dependencies = [dict(path=name + ('/fixture.py' if '.' not in name else ''), size=1, sha256='f'*64)
                     for name in c.old()['PACKAGES']]
@@ -366,6 +371,18 @@ def test_closed_manifest_recomputes_complete_acyclic_identity_and_slot_plan():
         changed['admission']['plan_digest'] = c.digest(c.canonical({k:v for k,v in changed.items() if k != 'admission'}))
         with pytest.raises(Exception):
             c.validate_manifest(changed, 'd'*40, retained_raw=retained, runtime=runtime, installation=installation)
+
+
+@pytest.mark.parametrize('variant', ['current', 'tampered', 'crlf'])
+def test_closed_manifest_rejects_nonhistorical_inventory_even_when_rehashed(variant):
+    c = load('native_context_receipt_diagnostic_catalogue')
+    name = 'context_storage_v2/inventory.py'
+    historical = historical_source(name)
+    raw = {'current': (ROOT/name).read_bytes(), 'tampered': historical + b'\n',
+           'crlf': historical.replace(b'\n', b'\r\n')}[variant]
+    value, retained, runtime, installation = manifest_fixture(c, inventory_bytes=raw)
+    with pytest.raises(c.DiagnosticError, match='unchanged owner pin differs'):
+        c.validate_manifest(value, 'd'*40, retained_raw=retained, runtime=runtime, installation=installation)
 
 
 def test_space_counts_occupied_history_once_and_all_future_reserve():

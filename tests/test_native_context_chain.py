@@ -8,6 +8,8 @@ import tarfile
 
 import pytest
 
+from native_context_chain_fixtures import historical_source
+
 
 HERE = Path(__file__).parent
 
@@ -783,37 +785,85 @@ def test_actual_fixed_driver_runs_task54_and_retains_real_rollback(tmp_path):
         result = w.invoke_cases(tour, root, lambda label: observed.append(label))
         assert len(json.dumps(result, allow_nan=False)) < 1048576
         assert result["properties"]["tour"] == tour
-        assert result["properties"]["union_reserved_bytes"] == 78643200
+        # Current portable Task54 owns two additional exact lock slots. Derive
+        # both ceilings independently; this is NOT the frozen native plan.
+        setup = 8 * 4194304 + 1048576 + 2 * 4096
+        whole = 10 * 4194304 + 1048576 + 1048576
+        assert result["properties"]["setup_budget_reserved"] == setup
+        assert result["properties"]["budget_reserved"] == whole
+        assert result["properties"]["union_reserved_bytes"] == setup + whole
         assert len(result["properties"]["snapshot_key"]) == 64
         assert "positive-reopened" in observed
         assert result["late_cleanup"] == ({"accepted": False, "directory": "late-cleanup",
                  "cold_reopen": "no-consumer-tables"} if tour == "ATP" else None)
         assert (root / "positive/whole-job/new-consumers/consumers.sqlite").is_file()
-        # Parser-only fixture wraps REAL callable output; the native counters
-        # below are synthetic, explicitly not a guard/kernel observation.
+        # Current REAL callable output must not masquerade as the historically
+        # pinned native callable. Counters below are synthetic, not kernel QA.
         p = module("native_context_chain")
         from types import SimpleNamespace
         payload = {"format": "betboy-native-context-chain-worker-v1", "tour": tour, "phase": "complete",
             "state": {"pid": 321, "uid": 65534, "gid": 65534, "assertions": True}, **result,
             "samples": [{"boundary": label, "files": [], "directories": [], "logical": 0,
                          "allocated": 0, "free": 4294967296, "unspent_conservative": 0} for label in observed],
-            "acceptance_callable": "5a59f75d0a3093238031159a813ce81b6c633c63105cab0338ed376a7bac7649",
+            "acceptance_callable": hashlib.sha256(
+                (HERE / "test_context_storage_corpus_consumer.py").read_bytes()).hexdigest(),
             "task54_m1": "new-original-created-at-direct-assertion-deferred",
             "native_libraries_observation": "SYNTHETIC parser fixture", "python_file_observations": {"fixture": 1}}
         raw = json.dumps(payload, allow_nan=False).encode() + b"\n"
         native = dict(exit_code=0, stop_reason=None, child_cpu_ns=1, elapsed_ns=1, peak_rss_bytes=1,
             observed_output_bytes=len(raw), stdout_prefix=raw, stderr_prefix=b"", minimum_free_bytes=4294967296,
             kernel_readback=SimpleNamespace(pid=321, uid=65534, gid=65534, cpu_seconds=90, file_size_bytes=4194304))
-        assert p.accept_result(SimpleNamespace(**native), tour)["properties"]["snapshot_key"] == result["properties"]["snapshot_key"]
-        for change in ({"stop_reason": "unknown"}, {"child_cpu_ns": 90000000001},
-                       {"peak_rss_bytes": 1073741824}, {"observed_output_bytes": 1048577},
-                       {"kernel_readback": None}, {"exit_code": 125}):
-            with pytest.raises(p.ChainError):
-                p.accept_result(SimpleNamespace(**(native | change)), tour)
+        with pytest.raises(p.ChainError, match="acceptance owner differs"):
+            p.accept_result(SimpleNamespace(**native), tour)
+        # Even a falsely claimed historical owner cannot admit the new plan.
+        payload["acceptance_callable"] = "5a59f75d0a3093238031159a813ce81b6c633c63105cab0338ed376a7bac7649"
+        raw = json.dumps(payload, allow_nan=False).encode() + b"\n"
+        native.update(stdout_prefix=raw, observed_output_bytes=len(raw))
+        with pytest.raises(p.ChainError, match="Task54 evidence/reservation incomplete"):
+            p.accept_result(SimpleNamespace(**native), tour)
         if tour == "ATP":
             import sqlite3
             with sqlite3.connect(root / "late-cleanup/whole-job/new-consumers/consumers.sqlite") as db:
                 assert db.execute("SELECT name FROM sqlite_schema WHERE type='table'").fetchall() == []
+
+
+@pytest.mark.parametrize("tour", ["ATP", "WTA"])
+def test_frozen_native_parser_uses_separate_synthetic_historical_evidence(tour):
+    """Protocol-only numbers: no current execution is relabelled as admitted."""
+    from types import SimpleNamespace
+    p = module("native_context_chain")
+    properties = dict.fromkeys(
+        "source_sha256 corpus_sha256 ledger_sha256 parts_sha256 history_sha256 "
+        "features_sha256 consumer_sha256 receipt_inventory_digest old_coverage_digest "
+        "feature_canonical_sha256 snapshot_key snapshot_raw_sha256 snapshot_payload_digest "
+        "original_hash budget_plan setup_budget_plan".split(), "a" * 64)
+    properties.update(tour=tour, protected_receipt_count=1, semantic_limitations="[]",
+        budget_reserved=44040192, setup_budget_reserved=34603008,
+        union_reserved_bytes=78643200, setup_workspace_bytes=1, union_observed_bytes=2,
+        after_corpus_bytes=1, after_parts_bytes=1, after_history_bytes=1,
+        after_feature_bytes=1, final_workspace_bytes=1, final_free_bytes=4294967296)
+    payload = {"format": "betboy-native-context-chain-worker-v1", "tour": tour, "phase": "complete",
+        "state": {"pid": 321, "uid": 65534, "gid": 65534, "assertions": True},
+        "properties": properties, "published": {"original_hash": "a" * 64},
+        "late_cleanup": ({"accepted": False, "directory": "late-cleanup",
+                          "cold_reopen": "no-consumer-tables"} if tour == "ATP" else None),
+        "samples": [{"boundary": label, "files": [], "directories": [], "logical": 0,
+                     "allocated": 0, "free": 4294967296, "unspent_conservative": 0}
+                    for label in ["synthetic"] * 7 + ["terminal-quiescent"]],
+        "acceptance_callable": "5a59f75d0a3093238031159a813ce81b6c633c63105cab0338ed376a7bac7649",
+        "task54_m1": "new-original-created-at-direct-assertion-deferred",
+        "native_libraries_observation": "SYNTHETIC historical parser fixture",
+        "python_file_observations": {"synthetic": 1}}
+    raw = json.dumps(payload, allow_nan=False).encode() + b"\n"
+    native = dict(exit_code=0, stop_reason=None, child_cpu_ns=1, elapsed_ns=1, peak_rss_bytes=1,
+        observed_output_bytes=len(raw), stdout_prefix=raw, stderr_prefix=b"", minimum_free_bytes=4294967296,
+        kernel_readback=SimpleNamespace(pid=321, uid=65534, gid=65534, cpu_seconds=90, file_size_bytes=4194304))
+    assert p.accept_result(SimpleNamespace(**native), tour)["properties"] == properties
+    for change in ({"stop_reason": "unknown"}, {"child_cpu_ns": 90000000001},
+                   {"peak_rss_bytes": 1073741824}, {"observed_output_bytes": 1048577},
+                   {"kernel_readback": None}, {"exit_code": 125}):
+        with pytest.raises(p.ChainError):
+            p.accept_result(SimpleNamespace(**(native | change)), tour)
 
 
 def test_kernel_start_parser_uses_start_tick_not_import_stopwatch():
@@ -836,7 +886,8 @@ def test_manifest_requires_exact_owner_pins_roots_and_plan(source_flavour, monke
     if source_flavour != "native":
         path_type = PureWindowsPath if source_flavour == "windows" else PurePosixPath
         monkeypatch.setattr(c, "DEPENDENCY_SOURCE", path_type(installation))
-    code = sorted([entry(n, (HERE.parent / n).read_bytes()) for n in c.REQUIRED], key=lambda x: x["path"])
+    # Historical protocol fixture: current Task54 is deliberately not admitted.
+    code = sorted([entry(n, historical_source(n)) for n in c.REQUIRED], key=lambda x: x["path"])
     deps = sorted([entry(n if n.endswith(".py") else n + "/member", b"") for n in c.PACKAGES], key=lambda x: x["path"])
     manifest = {"format": c.FORMAT, "commit": "a" * 40, "archive": {"size": 0, "sha256": "b" * 64},
         "code": code, "dependencies": deps, "dependency_source": installation,
@@ -847,6 +898,18 @@ def test_manifest_requires_exact_owner_pins_roots_and_plan(source_flavour, monke
         "plan": c.resource_plan(0, sum(x["size"] for x in code), 0, [])}
     assert c.validate_manifest(manifest, "a" * 40) is manifest
     import copy
+    # No real/native admission normalizes bytes or inherits a newer owner.
+    for name in (*c.HELPERS, c.TASK54):
+        original = historical_source(name)
+        rejected = [original + b"\n", original.replace(b"\n", b"\r\n")]
+        if name == c.TASK54:
+            rejected.append((HERE.parent / name).read_bytes())
+        for raw in rejected:
+            changed = copy.deepcopy(manifest)
+            next(x for x in changed["code"] if x["path"] == name).update(entry(name, raw))
+            changed["plan"] = c.resource_plan(0, sum(x["size"] for x in changed["code"]), 0, [])
+            with pytest.raises(c.ChainError, match="independently reviewed owner pin differs"):
+                c.validate_manifest(changed, "a" * 40)
     for alias in (installation + "/", installation.replace("/", "\\"),
                   installation.replace("/tmp/", "//tmp/"),
                   installation.replace("/venv/", "/venv/./"),
@@ -1011,10 +1074,17 @@ def test_missing_reservation_prevents_first_copy_and_file_writer(tmp_path):
     assert not (tmp_path / "runtime-data").exists()
 
 
-def test_timezone_launcher_reconstructs_actual_pinned_catalogue_and_rejects_alias(tmp_path):
+@pytest.mark.parametrize("task54_state", ["historical", "current", "tampered", "crlf"])
+def test_timezone_launcher_reconstructs_actual_pinned_catalogue_and_rejects_alias(tmp_path, task54_state):
     c = module("native_context_chain_catalogue")
     names = sorted(c.REQUIRED)
-    contents = {name: (HERE.parent / name).read_bytes() for name in names}
+    contents = {name: historical_source(name) for name in names}
+    if task54_state == "current":
+        contents[c.TASK54] = (HERE.parent / c.TASK54).read_bytes()
+    elif task54_state == "tampered":
+        contents[c.TASK54] += b"\n"
+    elif task54_state == "crlf":
+        contents[c.TASK54] = contents[c.TASK54].replace(b"\n", b"\r\n")
     raw = archive([(name, body, tarfile.REGTYPE) for name, body in contents.items()])
     archive_path = tmp_path / "archive.tar"
     archive_path.write_bytes(raw)
@@ -1032,6 +1102,13 @@ def test_timezone_launcher_reconstructs_actual_pinned_catalogue_and_rejects_alia
     manifest_path = tmp_path / "manifest.json"
     encoded = json.dumps(manifest).encode("ascii")
     manifest_path.write_bytes(encoded)
+    if task54_state != "historical":
+        # The archive/member/manifest hashes all agree with these actual bytes;
+        # only the unchanged historical owner gate must reject this package.
+        with pytest.raises(c.ChainError, match="independently reviewed owner pin differs"):
+            c.launcher(archive_path, manifest["archive"]["sha256"], manifest_path,
+                       hashlib.sha256(encoded).hexdigest())
+        return
     launcher = c.launcher(archive_path, manifest["archive"]["sha256"], manifest_path,
                           hashlib.sha256(encoded).hexdigest())
     namespace = {"__name__": "_actual_stdin_test"}

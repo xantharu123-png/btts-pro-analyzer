@@ -2,3 +2,5 @@
 *.service text eol=lf
 *.timer text eol=lf
 Caddyfile* text eol=lf
+tests/fixtures/native_context_chain_task54_cac8db7.py text eol=lf
+tests/fixtures/native_context_inventory_c5912a7.py text eol=lf

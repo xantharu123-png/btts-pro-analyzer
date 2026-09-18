@@ -52,11 +52,11 @@ def test_selector_drift_stops_before_any_scan(monkeypatch):
         m._scanner_action('A3', {}, dict(roots=[]), b'{}')
 
 
-def v2_manifest():
+def v2_manifest(*, inventory_bytes=None):
     from test_native_context_receipt_diagnostic import manifest_fixture
     from test_native_context_qa_retained_v2 import declared
     c = load('native_context_receipt_diagnostic_catalogue')
-    value, raw, runtime, installation = manifest_fixture(c)
+    value, raw, runtime, installation = manifest_fixture(c, inventory_bytes=inventory_bytes)
     value['format'] = c.FORMAT_V2
     for name in ('tests/native_context_qa_coordinator.py', 'tests/native_context_qa_budget.py'):
         value['code'].append(dict(path=name, size=1, sha256='1'*64))
@@ -89,6 +89,18 @@ def test_v2_manifest_accounts_external_controls_and_v1_refuses_it():
     assert any(x['path'].endswith('/request.json') for x in value['allocation']['inputs'])
     with pytest.raises(Exception):
         c.validate_manifest(value, 'd'*40, retained_raw=raw, runtime=runtime, installation=installation)
+
+
+@pytest.mark.parametrize('variant', ['current', 'tampered', 'crlf'])
+def test_v2_manifest_rejects_nonhistorical_inventory_even_when_rehashed(variant):
+    from native_context_chain_fixtures import ROOT, historical_source
+    name = 'context_storage_v2/inventory.py'
+    historical = historical_source(name)
+    candidate = {'current': (ROOT/name).read_bytes(), 'tampered': historical + b'\n',
+                 'crlf': historical.replace(b'\n', b'\r\n')}[variant]
+    c, value, raw, runtime, installation = v2_manifest(inventory_bytes=candidate)
+    with pytest.raises(c.DiagnosticError, match='unchanged owner pin differs'):
+        c.validate_manifest_v2(value, 'd'*40, retained_raw=raw, runtime=runtime, installation=installation)
 
 
 @pytest.mark.parametrize('missing', ['tests/native_context_qa_coordinator.py', 'tests/native_context_qa_budget.py'])
