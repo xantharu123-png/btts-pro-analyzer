@@ -1,6 +1,32 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Aktuelle Übernahme 18. September 2026
+## Aktueller Einstieg 18. September 2026 — geprüftes Releasepaket
+
+Zuerst den obersten Abschnitt von [TODO_AKTUELL.md](TODO_AKTUELL.md) und den [Reparaturbericht](docs/audits/2026-09-18-context-repair-release.md) lesen. Funktionscode `c44684d` ist lokal auf `main` und auf GitHub-main. Finale Gesamtsuite: 10.065 bestanden, 96 Skips, 97 Untertests; Hauptcheckout zusätzlich 346 bestanden, 12 Skips. Alle genannten Code-/QA-Reviews ohne offene Befunde. Die Testläufe sind beendet, nicht erneut starten.
+
+Die acht zusätzlich genehmigten QA-Kopien sind geschützt exportiert, vollständig wiederhergestellt/geprüft und entfernt. Lokale Recovery `C:/Projekt/BetBoy/.private-vps-backups/20260918-qa-retirement`; Details und Hashes im To-do-Dokument. Frühere Drei-Kopien-Bereinigung ebenfalls abgeschlossen. Nicht wieder beginnen und keine weiteren Datenbestände aus dieser Freigabe ableiten.
+
+Der nächste tatsächliche Deploymentabschluss wird in `output/playwright/context-repair-deployment-20260918.md` festgehalten und muss mit VPS/Git/Health frisch abgeglichen werden. Vor diesem Abschluss VPS zuletzt `f3c2b60`; 22.581 GB frei gegen 22.400 GB Grundreserve, zusätzliche Codebereitstellung noch zu berücksichtigen. Kein direkter produktiver Pull und keine Reserveabsenkung. Vollständige Verletzungs-/Müdigkeitswirkung, Fußball-Live-Anschluss, native Neuqualifikation und empirische Qualität bleiben ausdrücklich offen; Cricket bleibt ausgenommen. Keine neue Design-/Pushfreigabeschleife.
+
+## Historischer Einstieg 18. September 2026, 19:43 CEST
+
+Zuerst den obersten Abschnitt in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den [Reparaturbericht](docs/audits/2026-09-18-context-repair-release.md) lesen. Lokal `c44684d`, GitHub-main/VPS zuletzt `f3c2b60`; neue Reparaturen noch nicht gepusht/deployed. Finaler Gesamttest seit 19:40 CEST in Sitzung `65907`; dessen Log und unabhängigen QA-Review prüfen, nicht neu starten oder währenddessen Code ändern. Historische native QA-Fälle sind repariert, **aktuelle native Neuqualifikation und fachliche Effektabnahme bleiben offen**.
+
+Der frühere geschützte Drei-Kopien-Export ist abgeschlossen. Für acht zusätzliche genaue alte QA-/Recovery-Ziele fehlt weiterhin die gesonderte Freigabe; deren Umfang genügt nach neuestem Reservecheck möglicherweise nicht mehr für den gesamten Release. Keine Datenbank/Sicherung löschen und keinen Updater umgehen. Vollständige Verletzungs-/Müdigkeitswirkung nicht behaupten: Fußball-Live-Anschluss und weitere Daten-/Qualifikationsaufgaben sind noch offen. Cricket und Geldkonten unverändert. Alle erledigten Taskreviews/Commits erhalten, keine erneute Design-/Pushfreigabeschleife.
+
+## Historischer Einstieg 18. September 2026, 18:41 CEST
+
+Zuerst den obersten Abschnitt in [TODO_AKTUELL.md](TODO_AKTUELL.md) lesen. VPS/GitHub-main weiterhin `f3c2b60`, gesonderte Reparaturkopie inzwischen weiter; neue lokale Reparaturen nicht mit einem Deployment verwechseln. Karten-Leser-Fix, Quellenpfad-Fix und deduplizierter Fußballspeicher sind implementiert/geprüft; eng begrenzte historische Tennis-Replay-Kompatibilität gerade in Arbeit. Nur dieser Follow-up und die Gesamtprüfung laufen, erledigte Tasks nicht erneut beginnen. Fußball-Liveanschluss und fachliche Effektqualifikation bleiben offen.
+
+Voriger Drei-Kopien-Export abgeschlossen. Weitere acht genaue QA-/Recovery-Bestände sind nur zur Freigabe angefragt; noch kein Export/Entfernen. Zusätzlicher Reserveverlust ist als temporäre offene Prüfdatei des laufenden Wettfinders geklärt; natürlichem Abschluss folgen und Reserve neu lesen, nichts dafür löschen/beenden. Keinen produktiven Pull/Updater umgehen. Alle verlässlichen Testergebnisse, echten 101 unterschiedlichen Tennis-Outcomes und Daten-/Wirkungslücken stehen im obersten To-do-Block. Cricket, Preise und Geldkonten unverändert.
+
+## Aktuelle Fortsetzung 18. September 2026, 17:50 CEST
+
+Zuerst [TODO_AKTUELL.md](TODO_AKTUELL.md) lesen. Release `f3c2b60` ist inzwischen lokal/GitHub/VPS identisch; App und Healthchecks funktionieren. Genehmigte Bereinigung und geschützte Archivübertragung sind abgeschlossen, nicht erneut ausführen. 151 Tennis-Ergebnisbelege für 101 unterschiedliche Spiele sind an echte frühere Originale gebunden; keine empirische Effektfreigabe daraus ableiten.
+
+Aktuell im vorhandenen Reparatur-Worktree: Datenbank-Lesetransaktionen von CPU-Prüfung trennen (reproduzierbarer echter Consumer-Konflikt), danach geänderten WTA-Downloadpfad reparieren und Fußball-Live-Originalanbindung fortsetzen. Pläne vom 18.09. und jeweilige `.superpowers/sdd/`-Ledger prüfen; erledigte Tasks nicht erneut dispatchen. Cricket bleibt ausgenommen. Keine erneute Design-/Worktree-Freigabe erforderlich. Weitere fachliche Restarbeiten stehen vollständig in der To-do-Liste; nicht alles erledigt.
+
+## Historische Übernahme 18. September 2026, 16:00 CEST
 
 Zuerst [TODO_AKTUELL.md](TODO_AKTUELL.md) und
 [Übernahmebericht](docs/audits/2026-09-18-kontext-fortsetzung.md) lesen.
