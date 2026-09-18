@@ -1,8 +1,9 @@
 """Causal, observed tennis workload evidence; no invented fitness coefficients.
 
-An observed terminal timestamp is not an actual end time. We therefore expose
-only the minimum elapsed recovery since that observation. Missing match or
-duration coverage is explicit, and is never interpreted as zero workload.
+An observed result timestamp is not an actual match end. We therefore expose
+only the explicitly named age of the latest observed result, never a recovery
+duration. Missing match or duration coverage is explicit and is never
+interpreted as zero workload.
 """
 
 from __future__ import annotations
@@ -110,7 +111,15 @@ def observed_workload_context(
         observed.sort(key=lambda item: (item["started_at"], item["result_observed_at"], item["source"], item["event_id"]), reverse=True)
         recent = [item for item in observed if _instant(item["started_at"]) >= cutoff - timedelta(days=7)]
         previous = observed[0] if observed else None
-        recovery = (cutoff - _instant(previous["result_observed_at"])).total_seconds() / 3600 if previous else None
+        most_recent_result = max(
+            observed,
+            key=lambda item: (item["result_observed_at"], item["started_at"], item["source"], item["event_id"]),
+            default=None,
+        )
+        result_age = (
+            (cutoff - _instant(most_recent_result["result_observed_at"])).total_seconds() / 3600
+            if most_recent_result else None
+        )
         evidence = {
             "player": player,
             "observed_matches_7d": len(recent),
@@ -119,7 +128,13 @@ def observed_workload_context(
             "observed_minutes_7d": sum(item["duration_minutes"] for item in recent if item["duration_minutes"] is not None) if any(item["duration_minutes"] is not None for item in recent) else None,
             "duration_coverage_7d": sum(item["duration_minutes"] is not None for item in recent),
             "previous_match": previous,
-            "minimum_recovery_hours": round(recovery, 2) if recovery is not None else None,
+            "minimum_recovery_hours": None,
+            "most_recent_result_observed_at": (
+                most_recent_result["result_observed_at"] if most_recent_result else None
+            ),
+            "most_recent_observed_result_age_hours": (
+                round(result_age, 2) if result_age is not None else None
+            ),
             "previous_five_sets": previous["sets"] == 5 if previous and previous["sets"] is not None else None,
             "facts": [],
         }
@@ -128,7 +143,10 @@ def observed_workload_context(
                 evidence["facts"].append(f"{player}: zuletzt {previous['sets']} beobachtete Sätze.")
             if previous["duration_minutes"] is not None:
                 evidence["facts"].append(f"{player}: letztes Match {previous['duration_minutes']} Minuten laut Ergebnisquelle.")
-            evidence["facts"].append(f"{player}: Ergebnis seit {recovery:.1f} Stunden bestätigt; tatsächliche Erholung mindestens so lang.")
+            evidence["facts"].append(
+                f"{player}: jüngstes beobachtetes Ergebnis seit {result_age:.1f} Stunden bestätigt; "
+                "unvollständige Historie belegt keine tatsächliche Erholungsdauer."
+            )
             if previous["termination"] == "retirement":
                 evidence["facts"].append(f"{player}: vorheriges Match endete mit Aufgabe; verletzter Spieler und Ursache nicht belegt.")
         else:

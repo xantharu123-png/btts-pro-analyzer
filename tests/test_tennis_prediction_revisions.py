@@ -435,7 +435,8 @@ def test_workload_records_five_sets_and_only_a_bound_for_recovery():
     context = observed_workload_context("Alpha", "Beta", [workload_row()], as_of=NOW)
     alpha = context["players"]["a"]
     assert alpha["previous_five_sets"] is True
-    assert alpha["minimum_recovery_hours"] == 18
+    assert alpha["minimum_recovery_hours"] is None
+    assert alpha["most_recent_observed_result_age_hours"] == 18
     assert alpha["observed_minutes_7d"] == 230
     assert alpha["observed_sets_7d"] == 5
     assert context["probability_adjustment_applied"] is False

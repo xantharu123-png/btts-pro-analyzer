@@ -236,6 +236,14 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
                 st.write('Vergleichsquote derzeit nicht verfügbar. Die Modell-Auswahl bleibt unverändert.')
             else:
                 st.write(f'Beobachtete Vergleichsquote: {card.observed_odds:.2f}. Die eigene Buchmacherquote separat prüfen.')
+            if card.price_code == 'TOO_LOW':
+                st.warning('Die beobachtete Quote liegt unter der berechneten Preisschwelle. Die Modell-Auswahl bleibt unverändert.')
+            elif card.price_code in {'BORDERLINE', 'THIN', 'INVALID_MINIMUM'}:
+                st.warning(f'Preisstatus: {card.price_label}. Das ist keine Preisfreigabe; die Modell-Auswahl bleibt unverändert.')
+            elif card.price_code in {'STALE', 'UNAVAILABLE'}:
+                st.info(f'Preisstatus: {card.price_label}. Es liegt keine aktuelle Preisfreigabe vor; die Modell-Auswahl bleibt unverändert.')
+            elif card.price_code == 'PLAYABLE':
+                st.caption(f'Preisstatus: {card.price_label}. Die Modell-Auswahl bleibt unverändert.')
             if can_reserve:
                 with st.form('d3-reserve:'+key):
                     _money_input(st, 'Eigener Einsatz in CHF', 'stake:'+key)
