@@ -10,6 +10,32 @@ from test_football_context_provider import NOW, payload, provider
 from copy import deepcopy
 
 
+@pytest.mark.parametrize('status, source_state, inserted, valid', [
+    ('captured', 'partial', 0, False), ('partial', 'captured', 0, False),
+    ('unavailable', 'captured', 0, False), ('unavailable', 'partial', 1, False),
+    ('budget-exhausted', 'partial', 1, False),
+    ('captured', 'captured', 0, True), ('partial', 'partial', 1, True),
+    ('unavailable', 'partial', 0, True), ('budget-exhausted', 'captured', 0, True),
+    ('budget-exhausted', 'partial', 0, True),
+])
+def test_report_status_source_and_accounting_agree(status, source_state, inserted, valid):
+    from context_models.contracts import ContextContractError
+    from context_models.football_original_publication import original_capture_report_fields
+    published = status in {'captured', 'partial'}
+    event = dict(target_record=None if status == 'unavailable' else 'a'*64,
+        binding_ref='b'*64 if published else None, status=status,
+        inserted_payload_bytes=inserted, source_state=source_state,
+        code_state='execution-fingerprint-only', empirical_state='not-evaluated',
+        unavailable_reason='selected-native-provenance-unavailable' if status == 'unavailable' else None)
+    report = dict(schema=1, scope='football-final-same-call-originals', published_count=int(published),
+        inserted_payload_bytes=inserted, source_inserted_payload_bytes=0, events=[event])
+    if valid:
+        assert original_capture_report_fields({'football_original_capture': report}) == {'football_original_capture': report}
+    else:
+        with pytest.raises(ContextContractError):
+            original_capture_report_fields({'football_original_capture': report})
+
+
 def test_baseline_flush_is_readable_before_worker_exit(tmp_path, monkeypatch):
     from context_sources.football_capture import capture_football_worker
     owner, calls = provider(monkeypatch, details=payload([detail()]))

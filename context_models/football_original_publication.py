@@ -309,6 +309,11 @@ def original_capture_report_fields(snapshot):
         if event["status"] not in {"captured", "partial", "budget-exhausted", "unavailable"} or (event["binding_ref"] is None) != (event["status"] in {"budget-exhausted", "unavailable"}):
             raise ContextContractError("inconsistent original event status")
         _budget(event["inserted_payload_bytes"])
+        expected_source_state = {"captured": "captured", "partial": "partial", "unavailable": "partial"}.get(event["status"])
+        if expected_source_state is not None and event["source_state"] != expected_source_state:
+            raise ContextContractError("inconsistent original source state")
+        if event["status"] in {"budget-exhausted", "unavailable"} and event["inserted_payload_bytes"] != 0:
+            raise ContextContractError("unpublished original cannot claim inserted bytes")
     if report["published_count"] != sum(event["binding_ref"] is not None for event in report["events"]) or report["inserted_payload_bytes"] != sum(event["inserted_payload_bytes"] for event in report["events"]):
         raise ContextContractError("inconsistent publication accounting")
     return {"football_original_capture": deepcopy(report)}
