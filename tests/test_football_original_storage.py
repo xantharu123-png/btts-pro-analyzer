@@ -402,3 +402,26 @@ def test_storage_rejects_plain_json_noncanonical_bytes_and_wrong_prepared_type(s
         conn.execute("BEGIN IMMEDIATE")
         with pytest.raises(TypeError): storage.publish_prepared(conn, {}, created_at=NOW, max_new_payload_bytes=0)
         conn.rollback()
+
+
+def test_exact_expanded_limit_accepts_later_shrinking_arrays_and_rejects_one_byte_over(storage, monkeypatch, tmp_path):
+    raw, current = history(), target()
+    current["fixture"]["referee"] = ""
+    baseline = capture(monkeypatch, rows=[raw[0]] * 128, teams=raw, current=current)
+    # Genuine duplicate league inputs produce short prior arrays: their typed
+    # references are larger than their eventual arrays, unlike league history.
+    current["fixture"]["referee"] = "x" * (4 * 1024 * 1024 - len(baseline._bytes))
+    original = capture(monkeypatch, rows=[raw[0]] * 128, teams=raw, current=current)
+    assert len(original._bytes) == 4_194_304
+    path = tmp_path / "boundary.db"
+    plan = storage.prepare_original(original)
+    result = storage.store_original(path, original, created_at=NOW, max_new_payload_bytes=plan.payload_bytes)
+    assert storage.load_original(path, result.manifest_digest)._bytes == original._bytes
+    assert result.logical_digest == hashlib.sha256(original._bytes).hexdigest()
+    before = rows_in(path)
+    current["fixture"]["referee"] += "x"
+    oversized = capture(monkeypatch, rows=[raw[0]] * 128, teams=raw, current=current)
+    assert len(oversized._bytes) == 4_194_305
+    with pytest.raises(ValueError, match="4 MiB"):
+        storage.store_original(path, oversized, created_at=NOW, max_new_payload_bytes=8_000_000)
+    assert rows_in(path) == before

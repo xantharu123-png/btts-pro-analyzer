@@ -225,7 +225,9 @@ def _expand(rows, manifest_ref):
     packet = _decode(rows, body_ref, BODY_KIND)
     _object(packet, _FIELDS - {"captured_at"}, "stable ORIGINAL body")
     required = {manifest_ref, body_ref}
-    # Account for each occurrence before allocating repeated large arrays.
+    # Account for every occurrence before installing reconstructed arrays.
+    # Small arrays can shrink typed references, so only the final total is a
+    # bound on the expanded packet, not an intermediate replacement estimate.
     expanded_size = len(rows[body_ref][1]) + len(a1.canonical_bytes({"captured_at": captured})) - 1
     locations = []
     for path in _paths(packet):
@@ -238,10 +240,10 @@ def _expand(rows, manifest_ref):
             raise a1.ArtifactIntegrityError("chunk values must be an array")
         _no_storage_references(chunk["values"])
         expanded_size += len(a1.canonical_bytes(chunk["values"])) - len(a1.canonical_bytes(parent[key]))
-        if expanded_size > MAX_ORIGINAL_BYTES:
-            raise a1.ArtifactIntegrityError("expanded ORIGINAL exceeds 4 MiB")
         locations.append((parent, key, chunk["values"]))
         required.add(ref)
+    if expanded_size > MAX_ORIGINAL_BYTES:
+        raise a1.ArtifactIntegrityError("expanded ORIGINAL exceeds 4 MiB")
     if required != set(rows):
         raise a1.ArtifactIntegrityError("raw addressing hints differ from validated references")
     if any(rows[ref][2] > rows[manifest_ref][2] for ref in required):
