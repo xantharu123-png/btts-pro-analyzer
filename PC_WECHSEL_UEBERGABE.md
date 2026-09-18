@@ -1,5 +1,11 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg — Produktreparatur nach c64218b läuft
+
+Zuerst den **obersten** Abschnitt von [TODO_AKTUELL.md](TODO_AKTUELL.md) und [Produktreparatur](docs/audits/2026-09-18-produktreparatur.md) lesen. Alte grüne Volltests/Deployments unten gelten nicht für neue Änderungen. Aktueller Arbeitsort ist der bestehende Worktree `.worktrees/context-capacity-recovery-20260910`; neue lokale Commits ab `f844f05`, noch kein Push/Deployment dieser Runde.
+
+Auswahl-/Preis-/Erklärungsreparaturen, kohärente Fußballverteilung, Tennis-Dauererhaltung samt allen drei Reviewkorrekturen, konsistente Finanz-Lesevorprüfung und Basketball-/Eishockey-Brücke sind unabhängig geprüft. Zusätzliche Browser-Rundungskorrektur `a322430` mit160 Tests geprüft. Kausale Fußball-Originalanbindung im letzten lokalen Tasktest; standardmäßig ausgeschaltet bis Betriebsprüfung, Ausführungsfingerabdruck ausdrücklich kein qualifiziertes C1-Replaypaket. Vollständige Verletzungs-/Müdigkeitswirkung und empirische Verbesserung nicht erledigt. Alle Taskstände in den jeweiligen SDD-Ledgern prüfen; keine erledigten Aufgaben oder frühere Speicherbereinigungen wiederholen. Nutzer hat Commit/Push bereits verlangt; Timer deployen keinen Code.
+
 ## Aktueller Einstieg 18. September 2026 — geprüftes Releasepaket
 
 Zuerst den obersten Abschnitt von [TODO_AKTUELL.md](TODO_AKTUELL.md) und den [Reparaturbericht](docs/audits/2026-09-18-context-repair-release.md) lesen. Funktionscode `c44684d` ist lokal auf `main` und auf GitHub-main. Finale Gesamtsuite: 10.065 bestanden, 96 Skips, 97 Untertests; Hauptcheckout zusätzlich 346 bestanden, 12 Skips. Alle genannten Code-/QA-Reviews ohne offene Befunde. Die Testläufe sind beendet, nicht erneut starten.
