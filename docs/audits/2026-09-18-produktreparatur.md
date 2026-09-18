@@ -25,7 +25,7 @@ Die neue gemeinsame Verteilung benötigt im begrenzten synthetischen 1.200-Spiel
 
 Ein sporadischer Fehler beim parallelen Anlegen zweier15K-Tickets wurde deterministisch reproduziert: mehrere Leseabfragen konnten gültige unterschiedliche Datenbankstände vermischen. Reparatur5ff08a9 hält die zusammengehörenden Leseprüfungen in einem Snapshot; 217 betroffene Tests plus85 Untertests bestanden, unabhängiges SPEC/QUALITY-Review ohne blockierenden Befund. Geld-, HMAC-, Einsatz- und Writer-Regeln bleiben unverändert.
 
-Die Browserprüfung deckte zusätzlich eine Rundungskante auf: ein tatsächlicher synthetischer Modellwert 0.9999999876421013 wurde als 100.0 % dargestellt. a322430 zeigt stattdessen >99.9 % (und sehr kleine positive Werte <0.1 %) in Karte, Erklärung und Daily3; tatsächliche Modellwerte, Sortierung und Preise bleiben unverändert. Vier Formatter-RED-Fehler und ein echter Daily3-Renderer-RED-Fall reproduziert, anschließend 160 betroffene Tests bestanden. Exakte mathematische Werte 0/1 bleiben als solche darstellbar. Unabhängige Abschlussprüfung steht noch aus.
+Die Browserprüfung deckte zusätzlich eine Rundungskante auf: ein tatsächlicher synthetischer Modellwert 0.9999999876421013 wurde als 100.0 % dargestellt. a322430 zeigt stattdessen >99.9 % (und sehr kleine positive Werte <0.1 %) in Karte, Erklärung und Daily3; tatsächliche Modellwerte, Sortierung und Preise bleiben unverändert. Vier Formatter-RED-Fehler und ein echter Daily3-Renderer-RED-Fall reproduziert, anschließend 160 betroffene Tests bestanden. Exakte mathematische Werte 0/1 bleiben als solche darstellbar. Im unabhängigen Gesamt-Diffreview ohne Befund geprüft.
 
 ## Dokumentierte technische Entscheidungen
 
@@ -37,12 +37,17 @@ Die Browserprüfung deckte zusätzlich eine Rundungskante auf: ein tatsächliche
 
 ## Abschlussschritte
 
-Finale Quellbasis `f6f62a5f0bc3282a9290ee9585398ff3f2e7aa3d` ist eingefroren. Seit19.09., ca.00:40CEST läuft die vollständige Regression in Sitzung67284: `pytest tests -q --tb=short --durations=15 -W error::DeprecationWarning -p no:cacheprovider`, isolierterPfad `C:/Projekt/BetBoy/.qa-product-final-20260919-f6f62a5`; Log/JUnit `output/playwright/product-full-suite-20260919-f6f62a5.{log,xml}`. Noch kein Ergebnis behaupten und währenddessen keine Quellen/Tests ändern.
+**Review abgeschlossen:** Die unabhängige Nachprüfung `bc9e89f..202a965` hat den Modellidentitätsbefund und den administrativen Minor geschlossen; keine neuen Befunde im Fix.
 
-`f6f62a5` implementiert den ausgeschalteten Fußball-Live-/Originalanschluss. Betroffener Tasklauf590bestanden/4Skips/32Untertests; unabhängiger Taskreview läuft. Konkrete Wiederholung im380-Zeilen-SQLite-Test68108Nutzbytes einschließlichBindung; kein Betriebsstandard daraus abgeleitet.
+- `a927370` bewahrt die tatsächliche Modellidentität in Erzeuger, beiden Lesern und Karte. Fehlende historische Identität bleibt unbekannt, widersprüchliche Aliase werden abgelehnt. Vier RED-Fälle, 337 Tests plus26 Untertests bestanden. Kein dadurch falscher aktueller Tipp war reproduziert; behoben ist eine fehlende Schnittstelleninvariante.
+- `202a965` schließt die administrative Statusinkonsistenz: fünf RED-Kombinationen, 190 betroffene Tests bestanden. Vollständig deduplizierte Publikationen dürfen weiterhin0Bytes kosten; ausgeschöpftes Publikationsbudget darf mit vollständig belegten Quellen zusammenfallen.
+- `f6f62a5` implementiert den standardmäßig ausgeschalteten Fußball-Live-/Originalanschluss. Tasklauf590bestanden/4Skips/32Untertests, unabhängig SPEC/QUALITY approved. Konkrete Wiederholung im380-Zeilen-SQLite-Test68108Nutzbytes einschließlichBindung; kein täglicher Betriebsstandard daraus abgeleitet. Aktivierung und Empirie bleiben offen.
+- Desktop-/Mobilansicht mit echten Renderern und klar synthetischen Daten geprüft; siehe `2026-09-18-product-ui-check.md`. Keine gesamte Produktions-/Echtgeldabnahme daraus ableiten.
 
-- Aufgaben jeweils mit RED/GREEN, unabhängigem Review und fokussiertem Commit abschließen.
-- Eine breite Suite auf eingefrorenem finalem Quellstand; unabhängiges Gesamt-Diffreview.
-- Tatsächliche Desktop-/Mobilansicht mit klar bezeichneten lokalen Prüfdaten prüfen.
-- Nur eigene Quellen, Tests, Pläne und Übergabedokumente integrieren; fremde/ungetrackte Ausgabe- und QA-Dateien erhalten.
-- GitHub-main frisch prüfen, lokales main nur fast-forwarden und regulär pushen. Commit, Push und VPS-Deployment getrennt berichten.
+**Gesamtregression:** Erster Lauf auf `f6f62a5` bei26% zugunsten der Modellidentitäts-Fixrunde kontrolliert beendet, kein Ergebnis daraus ableiten. Zweiter Lauf auf `202a965` vollständig beendet: 10280 bestanden, 7 fehlgeschlagene Tests, 16 Setupfehler, 96 Skips, 111 Untertests; 1527.92s. Quellen während beider laufender Tests unverändert.
+
+Die sieben fehlgeschlagenen Tests kamen aus zwei nicht an den neuen zwingenden Modellvertrag angepassten Test-Fixtures: `projection_success` fehlte im erfolgreichen Mock, aktuelle `prediction_version` fehlte in einem als aktuell bezeichneten statistischen Prüffall. `d0759b1` ergänzt nur diese Testdaten und fügt explizite negative Versionstests hinzu. Produktionscode, Schwellen, historische Pins und Freigabeprüfungen bleiben unverändert. Unabhängiger Review PASS; alle betroffenen Testdateien plus Kalibrierungsregression:122bestanden.
+
+Die16 E-Sport-Setupfehler waren ausschließlich Git-Ownership-Prüfungen beim Lesen des echten historischen Parent-Commits. Derselbe historische Test läuft mit nur prozesslokaler `safe.directory` für genau diesen Worktree vollständig durch (56bestanden); keine globale Git-Konfiguration, keine Ersatz-Originale.
+
+Finaler Gesamtlauf auf unverändertem Quell-/Teststand `d0759b14aabb5ed3530b83507e251e68bbdd091e` abgeschlossen: **10303 bestanden, 96 Skips, 111 Untertests bestanden, Exit0, 1545.58s**. Neun `record_property`-Hinweise betreffen nur das JUnit-xunit2-Berichtsformat, keine fehlgeschlagenen Tests oder DeprecationWarnings. Belege `output/playwright/product-full-suite-20260919-d0759b1.{log,xml}`, isolierterPfad `C:/Projekt/BetBoy/.qa-product-final-20260919-d0759b1`. Keine Quell-/Teständerung während des Laufs. Integration: GitHub-main frisch prüfen, lokales main nur fast-forwarden, betroffene Kernpfade im Hauptcheckout testen und regulär pushen. Fremde/ungetrackte Dateien und vorhandenen Worktree erhalten. VPS-Deployment separat.

@@ -1,5 +1,7 @@
 # Football live ORIGINAL integration — storage and causal publication
 
+**Status (19.09.): Task1 storage COMPLETE (`49ad632`, `0df6707`); Task2 publication COMPLETE and independently reviewed (`f6f62a5`, administrative follow-up `202a965`).** Task2 affected suite:590passed/4skips/32subtests; follow-up190passed. Original checklists below preserve the execution contract and must not trigger reimplementation. **Task3 remains OPEN:** real operating/storage/restore measurements, finite operational activation budget, production activation and matching replay/training/empirical qualification are not completed. Capture stays disabled by default. Final integration evidence: [repair report](../../audits/2026-09-18-produktreparatur.md).
+
 Spec: `docs/superpowers/specs/2026-09-07-kontextmodell-design.md`.
 Execution: approved isolated worktree, subagent-driven development. Correctness and storage work for an existing approved model contract, not activation of a new numerical effect.
 

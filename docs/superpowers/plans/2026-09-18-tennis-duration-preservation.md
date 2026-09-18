@@ -1,5 +1,7 @@
 # Preserve real WTA match duration — Implementation Plan
 
+**Implementation status (19.09.): COMPLETE and independently reviewed.** Commits `534d27d`, `2d92eb9`; 360 affected tests passed, 3 skips, plus92 numerical/tour tests. All three review findings closed with genuine historical replay fixtures. Checklist below is the executed contract. Actual match-end clocks, native binding and empirical fatigue-effect qualification remain OPEN. Final integration evidence: [repair report](../../audits/2026-09-18-produktreparatur.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox syntax for tracking.
 
 **Goal:** Close the confirmed F8 input-loss defect without inventing match end times or activating an unqualified fatigue effect.

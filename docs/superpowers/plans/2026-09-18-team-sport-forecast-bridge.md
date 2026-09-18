@@ -1,5 +1,7 @@
 # Shared basketball and hockey forecasts — Implementation Plan
 
+**Implementation status (19.09.): COMPLETE and independently reviewed.** Commits `fdd04bf`, `423e888`; 468 affected tests plus26 subtests, then275 plus26 for immutable evidence. Checklist below is the original executed contract. Research forecasts remain explicitly unqualified; no new injury/fatigue effects or empirical approval. Final integration evidence: [repair report](../../audits/2026-09-18-produktreparatur.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox syntax for tracking.
 
 **Goal:** Repair F6 by exposing the existing same-call basketball/hockey model outputs in normal Wettfinder, with their real evidence limitations.

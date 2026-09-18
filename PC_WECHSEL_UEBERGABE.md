@@ -2,11 +2,13 @@
 
 ## Aktueller Einstieg — Produktreparatur nach c64218b läuft
 
+**Finaler Gesamtlauf beendet:** Quell-/Teststand `d0759b1`, 10303 bestanden, 96 Skips, 111 Untertests bestanden, Exit0, 1545.58s; neun reine JUnit-Berichtshinweise. `output/playwright/product-full-suite-20260919-d0759b1.{log,xml}`. Vorige sieben Fixturefehler und16 Git-Ownership-Setupfehler sind behoben, ohne Produktivregeln/Pins zu lockern. Keinen weiteren Gesamtlauf starten. Aktueller Abschluss: Integration nach frisch geprüftem main, Hauptcheckout-Prüfung und regulärer Push; VPS separat.
+
 Zuerst den **obersten** Abschnitt von [TODO_AKTUELL.md](TODO_AKTUELL.md) und [Produktreparatur](docs/audits/2026-09-18-produktreparatur.md) lesen. Alte grüne Volltests/Deployments unten gelten nicht für neue Änderungen. Aktueller Arbeitsort ist der bestehende Worktree `.worktrees/context-capacity-recovery-20260910`; neue lokale Commits ab `f844f05`, noch kein Push/Deployment dieser Runde.
 
-Auswahl-/Preis-/Erklärungsreparaturen, kohärente Fußballverteilung, Tennis-Dauererhaltung samt allen drei Reviewkorrekturen, konsistente Finanz-Lesevorprüfung und Basketball-/Eishockey-Brücke sind unabhängig geprüft. Zusätzliche Browser-Rundungskorrektur `a322430` mit160 Tests geprüft. Kausale Fußball-Originalanbindung im letzten lokalen Tasktest; standardmäßig ausgeschaltet bis Betriebsprüfung, Ausführungsfingerabdruck ausdrücklich kein qualifiziertes C1-Replaypaket. Vollständige Verletzungs-/Müdigkeitswirkung und empirische Verbesserung nicht erledigt. Alle Taskstände in den jeweiligen SDD-Ledgern prüfen; keine erledigten Aufgaben oder frühere Speicherbereinigungen wiederholen. Nutzer hat Commit/Push bereits verlangt; Timer deployen keinen Code.
+Auswahl-/Preis-/Erklärungsreparaturen, kohärente Fußballverteilung, Tennis-Dauererhaltung samt allen drei Reviewkorrekturen, konsistente Finanz-Lesevorprüfung und Basketball-/Eishockey-Brücke sind unabhängig geprüft. Browser-Rundungskorrektur `a322430` und tatsächliche Desktop-/Mobilrenderer geprüft. Kausale Fußball-Originalanbindung `f6f62a5` technisch unabhängig geprüft; standardmäßig ausgeschaltet bis Betriebsprüfung, Ausführungsfingerabdruck ausdrücklich kein qualifiziertes C1-Replaypaket. Vollständige Verletzungs-/Müdigkeitswirkung und empirische Verbesserung nicht erledigt. Alle Taskstände in den jeweiligen SDD-Ledgern prüfen; keine erledigten Aufgaben oder frühere Speicherbereinigungen wiederholen. Nutzer hat Commit/Push bereits verlangt; Timer deployen keinen Code.
 
-## Aktueller Einstieg 18. September 2026 — geprüftes Releasepaket
+## Historischer Einstieg 18. September 2026 — früheres Releasepaket
 
 Zuerst den obersten Abschnitt von [TODO_AKTUELL.md](TODO_AKTUELL.md) und den [Reparaturbericht](docs/audits/2026-09-18-context-repair-release.md) lesen. Funktionscode `c44684d` ist lokal auf `main` und auf GitHub-main. Finale Gesamtsuite: 10.065 bestanden, 96 Skips, 97 Untertests; Hauptcheckout zusätzlich 346 bestanden, 12 Skips. Alle genannten Code-/QA-Reviews ohne offene Befunde. Die Testläufe sind beendet, nicht erneut starten.
 

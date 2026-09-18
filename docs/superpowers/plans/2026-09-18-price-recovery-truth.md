@@ -1,5 +1,7 @@
 # Price and recovery truth repair — Implementation Plan
 
+**Implementation status (19.09.): COMPLETE and independently reviewed.** Commit `f844f05`; 4 new regression tests and 75 consumer tests passed. Checklist below is the original execution contract, not a request to repeat the task. Final integration evidence: [repair report](../../audits/2026-09-18-produktreparatur.md). No empirical workload-effect qualification or VPS activation implied.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox syntax for tracking.
 
 **Goal:** Repair F7/F9 of the approved product audit without changing forecasts or money rules.

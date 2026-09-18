@@ -1,5 +1,7 @@
 # Coherent market calibration — Implementation Plan
 
+**Implementation status (19.09.): COMPLETE and independently reviewed.** Commit `f42e264`; 709 affected tests plus97 subtests passed. Existing regression fixtures aligned in `d0759b1`, without weakening production gates. Checklist below preserves the executed contract. **Empirical qualification of the new law and cold VPS performance remain OPEN.** Final integration evidence: [repair report](../../audits/2026-09-18-produktreparatur.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox syntax for tracking.
 
 **Goal:** Repair audit F3 at the probability generator and its identical walk-forward validation, not by altering displayed numbers.

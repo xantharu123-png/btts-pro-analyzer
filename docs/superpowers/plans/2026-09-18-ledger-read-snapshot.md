@@ -1,5 +1,7 @@
 # Consistent challenge-ledger reads — Implementation Plan
 
+**Implementation status (19.09.): COMPLETE and independently reviewed.** Commit `5ff08a9`; 217 affected tests plus85 subtests passed, including real concurrent connections. Original steps below are historical acceptance criteria, not unfinished tasks. Money, HMAC, writer and staking contracts remain unchanged. Final integration evidence: [repair report](../../audits/2026-09-18-produktreparatur.md).
+
 Spec: existing authenticated-ticket, append-only financial ledger and atomic placement contracts in `tests/test_challenge_integrity.py`. This is a concurrency repair, not a new financial product.
 
 ## Global Constraints
