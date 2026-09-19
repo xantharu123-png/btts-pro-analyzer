@@ -479,8 +479,8 @@ def test_automatic_empty_surface_uses_only_short_consumer_copy(monkeypatch):
         for value, kwargs, _context in recording_st.markdown_calls
         if kwargs.get("unsafe_allow_html")
     )
-    assert "0 Modellprognosen sichtbar" in html
-    assert 'class="wf-run-badge wf-run-badge-partial">Teildaten' in html
+    assert "0 berechnete Auswahlen" in html
+    assert 'class="wf-run-badge wf-run-badge-partial">Suche unvollständig' in html
     assert "Spiele gefunden" not in public_text
     assert "Kontextdaten geprüft" not in public_text
     assert "Preisprüfung" not in public_text
@@ -531,9 +531,9 @@ def test_automatic_forecast_surface_shows_one_compact_hint_and_warning(
         for value, kwargs, _context in recording_st.markdown_calls
         if kwargs.get("unsafe_allow_html")
     )
-    assert "1 Modellprognose sichtbar" in html
-    assert "Modell und Wettpreis werden getrennt bewertet." in html
-    assert 'class="wf-run-badge wf-run-badge-partial">Teildaten' in html
+    assert "1 berechnete Auswahl" in html
+    assert "Modell und Wettpreis werden getrennt bewertet." not in html
+    assert 'class="wf-run-badge wf-run-badge-partial">Suche unvollständig' in html
     assert "Spiele gefunden" not in public_text
     assert "Tagesumfang" not in public_text
     assert "Preisprüfungen" not in public_text
@@ -578,7 +578,7 @@ def test_non_football_failure_marks_the_all_sports_run_as_partial(monkeypatch):
         for value, kwargs, _context in recording_st.markdown_calls
         if kwargs.get("unsafe_allow_html")
     )
-    assert 'class="wf-run-badge wf-run-badge-partial">Teildaten' in html
+    assert 'class="wf-run-badge wf-run-badge-partial">Suche unvollständig' in html
 
 
 def test_manual_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
@@ -963,7 +963,7 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
     assert all(context != "expander" for _key, _kwargs, context in price_calls)
     assert recording_st.expanders == []
     assert recording_st.expander_keys == []
-    assert html.count("Warum diese Auswahl?") == len(forecasts)
+    assert html.count('class="wf-analysis-short"') == len(forecasts)
     assert html.count("Modellgrundlagen fehlen") == len(forecasts)
     action_order = [
         kind
@@ -1136,9 +1136,9 @@ def test_automatic_partial_run_copy_stays_consumer_facing(monkeypatch):
         if kind in {"warning", "info"}
     ] == []
     assert html.count('class="wf-run-summary"') == 1
-    assert "1 Modellprognose sichtbar" in html
-    assert "Modell und Wettpreis werden getrennt bewertet." in html
-    assert 'class="wf-run-badge wf-run-badge-partial">Teildaten' in html
+    assert "1 berechnete Auswahl" in html
+    assert "Modell und Wettpreis werden getrennt bewertet." not in html
+    assert 'class="wf-run-badge wf-run-badge-partial">Suche unvollständig' in html
     # Match internal diagnostics by their labels, not bare numbers: a counter
     # such as ``44`` can legitimately be the current minute in the timestamp.
     for internal_copy in ("Spiele gefunden", "modelliert", "Preisprüfung"):

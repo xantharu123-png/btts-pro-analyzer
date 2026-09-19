@@ -1138,6 +1138,42 @@ def _apply_app_styles() -> None:
             margin-top: 0.4rem;
         }
 
+        .wf-analysis-short { font-weight: 650; }
+        .wf-facts {
+            display: flex; flex-wrap: wrap; gap: 0.4rem;
+            margin: 0.55rem 0; min-width: 0;
+        }
+        .wf-fact {
+            border: 1px solid #d5e0d9; border-radius: 8px;
+            background: #f3f7f4; color: #264735;
+            font-size: 0.76rem; min-width: 0; max-width: 100%;
+            box-sizing: border-box; overflow-wrap: anywhere;
+        }
+        span.wf-fact { padding: 0.45rem 0.6rem; }
+        details.wf-fact > summary {
+            cursor: pointer; list-style: none; padding: 0.45rem 0.6rem;
+            min-height: 44px; display: flex; align-items: center;
+            flex-wrap: wrap; gap: 0.3rem; box-sizing: border-box;
+        }
+        details.wf-fact > summary::-webkit-details-marker { display: none; }
+        details.wf-fact > summary::after { content: '⌄'; margin-left: auto; }
+        details.wf-fact[open] > summary::after { content: '⌃'; }
+        details.wf-fact > summary:hover { background: #e5efe8; border-radius: 8px; }
+        details.wf-fact > summary:focus-visible { outline: 3px solid #14794b; outline-offset: 2px; }
+        details.wf-fact[open] { flex-basis: 100%; width: 100%; }
+        .wf-fact-detail { padding: 0.6rem; border-top: 1px solid #d5e0d9; }
+        .wf-fact-detail p { margin: 0 0 0.4rem !important; font-size: 0.8rem; }
+        .wf-fact-detail p:last-child { margin-bottom: 0 !important; }
+        .wf-fact-warning { color: #714300; border-color: #e7ce92; background: #fff6df; }
+        .st-key-wettfinder_v2_page .wf-analysis .wf-analysis-alert {
+            color: #714300; font-size: 0.78rem; margin: 0.45rem 0;
+        }
+        .wf-analysis-footer {
+            display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;
+            color: #58665d; font-size: 0.72rem; margin-top: 0.55rem;
+        }
+        .wf-price-explain { margin: 0.4rem 0; }
+
         [class*="st-key-wettfinder_v2_actions_"] {
             margin-top: auto;
             padding-top: 0.8rem;
@@ -4659,12 +4695,12 @@ def _automatic_run_summary_markup(
     incomplete_run: bool,
 ) -> str:
     count_label = (
-        "1 Modellprognose sichtbar"
+        "1 berechnete Auswahl"
         if visible_count == 1
-        else f"{visible_count} Modellprognosen sichtbar"
+        else f"{visible_count} berechnete Auswahlen"
     )
     partial_badge = (
-        '<span class="wf-run-badge wf-run-badge-partial">Teildaten</span>'
+        '<span class="wf-run-badge wf-run-badge-partial">Suche unvollständig</span>'
         if incomplete_run
         else ""
     )
@@ -4672,7 +4708,6 @@ def _automatic_run_summary_markup(
         '<div class="wf-run-summary">'
         '<div class="wf-run-copy">'
         f"<strong>{count_label}</strong>"
-        "<span>Modell und Wettpreis werden getrennt bewertet.</span>"
         "</div>"
         f"{partial_badge}</div>"
     )

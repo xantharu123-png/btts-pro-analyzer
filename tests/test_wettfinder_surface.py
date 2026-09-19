@@ -549,13 +549,17 @@ def test_featured_and_compact_analysis_is_visible_once_and_escapes_all_copy():
     card = _card(signal)
     for renderer in (surface.render_top_card_html, surface.render_compact_row_html):
         markup = renderer(card)
-        assert markup.count("Warum diese Auswahl?") == 1
-        assert markup.count("1,53") == 1
+        assert markup.count('class="wf-analysis"') == 1
+        assert markup.count('class="wf-analysis-short"') == 1
+        assert 'Torprognose: 1,53 : 1,13' in markup
         assert "&lt;Alpha &amp; &quot;home&quot;&gt;" in markup
         assert '<Alpha' not in markup
         assert "H2H geprüft" not in markup and "kein Veto" not in markup
         assert "Wetter geprüft" not in markup and "Wirkung nicht modelliert" not in markup
-        assert "<details" not in markup
+        # Only individual facts expand; the selection and short analysis stay
+        # visible without opening a whole-card container.
+        assert '<details class="wf-fact' in markup
+        assert markup.index('class="wf-analysis-short"') < markup.index('<details')
     cards = [_card(signal, quote) for quote in (
         None, replace(_quote(signal), bet_name="Match Winner", value_name="Home"),
         replace(_quote(signal, (1.40, 1.45, 1.50)), bet_name="Match Winner", value_name="Home"),

@@ -25,6 +25,7 @@ from bet_finder_ui import (
 )
 from ev_signal_sources import ModelSignal
 from forecast_analysis import build_forecast_analysis, forecast_highlight_reason, format_model_clock
+from forecast_compact import CompactAnalysis, build_compact_analysis, render_compact_analysis_html
 from forecast_selection import select_consumer_forecasts
 from market_consensus import (
     MarketConsensus,
@@ -94,6 +95,7 @@ class WettfinderCard:
     highlight_eligible: bool = False
     highlight_reason: str = "Modellgrundlagen nicht geprüft"
     analysis_data_age: str = ""
+    compact_analysis: Optional[CompactAnalysis] = None
 
 
 @dataclass(frozen=True)
@@ -487,6 +489,7 @@ def build_wettfinder_card(
         highlight_eligible=not highlight_reason,
         highlight_reason=highlight_reason,
         analysis_data_age=analysis.data_age,
+        compact_analysis=build_compact_analysis(signal, analysis, now=now),
     )
 
 
@@ -640,6 +643,8 @@ def _row_value(label: str, value: str, *, note: Optional[str] = None) -> str:
 
 
 def _analysis_markup(card: WettfinderCard) -> str:
+    if card.compact_analysis is not None:
+        return render_compact_analysis_html(card.compact_analysis)
     samples = (
         f'<p class="wf-analysis-samples">{escape(card.analysis_samples)}</p>'
         if card.analysis_samples else ""
@@ -697,9 +702,11 @@ def _top_card_markup(card: WettfinderCard) -> str:
         "</div>"
         f"{_analysis_markup(card)}"
         f'<div class="wf-metric-grid">{metrics}</div>'
-        '<p class="wf-uncertainty-note">Sicherheitswert: Modell mit heuristischem '
+        '<p class="wf-uncertainty-note">Rechenwerte, keine gesicherte Mindestchance.</p>'
+        '<details class="wf-fact wf-price-explain"><summary>Preisberechnung</summary>'
+        '<div class="wf-fact-detail"><p>Sicherheitswert: Modell mit heuristischem '
         'Abschlag, keine statistisch bestätigte Mindestchance. Der Risikopreis '
-        'ist eine Rechenschwelle, keine erwartete Buchmacherquote.</p>'
+        'ist eine Rechenschwelle, keine erwartete Buchmacherquote.</p></div></details>'
         f'<p class="wf-price-note wf-price-note-{escape(card.price_tone, quote=True)}" '
         f'data-price-code="{price_code}">{escape(price_note)}</p>'
         "</article>"

@@ -2741,6 +2741,9 @@ def _injury_summary(
         bucket = "questionable" if "question" in injury_type else "missing"
         summary[team_id][bucket].add(player_id)
         name = str(player.get("name") or player_id)
+        # Presentation metadata only: keep reported absences separate from
+        # doubtful players. Existing counts/model decisions remain unchanged.
+        summary[team_id].setdefault(bucket + "_names", {})[player_id] = name
         reported_players[player_key] = name
         impact = entry.get("material_impact")
         if (
@@ -2792,6 +2795,10 @@ def _injury_summary(
         "away_questionable": len(summary[away_team_id]["questionable"]),
         "home_names": summary[home_team_id]["names"],
         "away_names": summary[away_team_id]["names"],
+        "home_missing_names": list(summary[home_team_id].get("missing_names", {}).values()),
+        "away_missing_names": list(summary[away_team_id].get("missing_names", {}).values()),
+        "home_questionable_names": list(summary[home_team_id].get("questionable_names", {}).values()),
+        "away_questionable_names": list(summary[away_team_id].get("questionable_names", {}).values()),
         "material_impact_model": "explicit_verified_veto_only",
         "reported_players": reported_count,
         "impact_verified_players": len(impact_verified_players),

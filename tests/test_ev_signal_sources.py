@@ -421,10 +421,14 @@ def test_both_real_automatic_readers_reject_only_future_analysis_using_one_share
         assert ("1,53" in cards[0].analysis_basis) is accepted
         for actual_card, baseline_card in zip(cards, baseline_cards):
             assert replace(actual_card, analysis_basis="", analysis_caution="", analysis_samples="",
-                           analysis_data_age="", highlight_eligible=False, highlight_reason="") == replace(
+                           analysis_data_age="", highlight_eligible=False, highlight_reason="", compact_analysis=None) == replace(
                 baseline_card, analysis_basis="", analysis_caution="", analysis_samples="",
-                analysis_data_age="", highlight_eligible=False, highlight_reason="",
+                analysis_data_age="", highlight_eligible=False, highlight_reason="", compact_analysis=None,
             )
+            # New short copy is explanation metadata too, not a pricing/ranking
+            # input; it must follow the same future-evidence rejection.
+            if actual_card is cards[0]:
+                assert ('1,53' in actual_card.compact_analysis.summary) is accepted
         # Current complete analysis may support presentation emphasis; missing
         # or future analysis stays neutral without changing model/release data.
         assert cards[0].highlight_eligible is accepted

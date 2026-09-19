@@ -11,6 +11,7 @@ from daily3_math import Daily3Error, decimal_odds, format_chf, parse_chf
 from daily3_identity import event_guard
 from daily3_selection import MIN_MODEL_PROBABILITY, daily3_choices
 from daily3_store import Daily3Store, day_balance
+from forecast_compact import render_compact_analysis_html
 from runtime_paths import RUNTIME_STATE_DIR
 from wettfinder_surface import build_wettfinder_card, format_probability
 
@@ -232,10 +233,8 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
             st.subheader(snap['event_label'])
             st.write(f'{snap["market"]} · {snap["selection"]}')
             st.write(f'Modellschätzung: {format_probability(choice.signal.probability)} · Beginn {choice.start.astimezone(_TZ):%H:%M}')
-            st.write(choice.basis)
-            st.write(choice.caution)
-            st.caption(f'Modellstand: {choice.sampled_at.astimezone(_TZ):%d.%m. %H:%M}')
             card = build_wettfinder_card(choice.signal, choice.signal.reference_quote, now=now)
+            st.markdown(render_compact_analysis_html(card.compact_analysis), unsafe_allow_html=True)
             if card.observed_odds is not None:
                 st.write(f'Vergleichsquote: {card.observed_odds:.2f}')
             if card.price_code == 'TOO_LOW':

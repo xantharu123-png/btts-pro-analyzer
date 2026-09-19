@@ -120,8 +120,18 @@ def _basis_projection(raw: Mapping) -> dict:
     return result
 
 
-def _context_projection(raw: Mapping) -> dict:
-    """Keep typed observation facts only, never provider prose or player names."""
+def _player_names(value: object) -> list[str] | None:
+    """Optional bounded plain names; no provider prose, IDs or markup trust."""
+    if not isinstance(value, (list, tuple)) or len(value) > 100:
+        return None
+    if any(not isinstance(name, str) or not 0 < len(name.strip()) <= 120
+           or any(ord(char) < 32 for char in name) for name in value):
+        return None
+    return list(dict.fromkeys(name.strip() for name in value if not name.strip().isdigit()))
+
+
+def _context_projection(raw: Mapping, *, include_names: bool = True) -> dict:
+    """Keep typed observation facts and optional names, never provider prose."""
     result = {}
     injuries = _mapping(raw.get("injuries"))
     if (
@@ -136,6 +146,15 @@ def _context_projection(raw: Mapping) -> dict:
         )}
         if isinstance(injuries.get("impact_assessment_complete"), bool):
             result["injuries"]["impact_assessment_complete"] = injuries["impact_assessment_complete"]
+        for side in ("home", "away"):
+            if _integer(injuries.get(side + "_questionable")):
+                result["injuries"][side + "_questionable"] = injuries[side + "_questionable"]
+            for suffix in ("_names", "_missing_names", "_questionable_names"):
+                if not include_names:
+                    continue
+                names = _player_names(injuries.get(side + suffix))
+                if names is not None:
+                    result["injuries"][side + suffix] = names
     lineups = _mapping(raw.get("lineups"))
     if lineups.get("status") in ("passed", "pending", "confirmation_due", "unavailable", "blocked") and _clock(lineups.get("checked_at")):
         result["lineups"] = {name: lineups[name] for name in ("status", "checked_at")}
@@ -156,7 +175,9 @@ def project_football_analysis(row: Mapping, *, model_basis: Mapping) -> dict | N
         "schema": _SCHEMA,
         "identity": identity,
         "basis": _basis_projection(model_basis),
-        "context": _context_projection(_mapping(row.get("context"))),
+        # Names already live in the saved context; do not duplicate those lists
+        # in every persisted market's analysis envelope.
+        "context": _context_projection(_mapping(row.get("context")), include_names=False),
     }
 
 
@@ -185,6 +206,20 @@ def read_football_analysis(row: Mapping, *, now: datetime | None = None) -> dict
             if source_clock is not None and source_clock > current:
                 return None
     context = _context_projection(_mapping(evidence.get("context")))
+    # Old saved analysis envelopes omitted names. Recover only optional display
+    # fields from the SAME artifact row and the SAME typed observation. Never
+    # fetch current data or combine another timestamp/team count with this card.
+    raw_injuries = _mapping(_context_projection(_mapping(row.get("context"))).get("injuries"))
+    recorded_injuries = _mapping(context.get("injuries"))
+    binding = ("status", "availability", "coverage_available", "checked_at", "home_missing", "away_missing")
+    if (recorded_injuries and all(raw_injuries.get(k) == recorded_injuries.get(k) for k in binding)
+            and all(k not in recorded_injuries or raw_injuries.get(k) == recorded_injuries[k]
+                    for k in ('home_questionable', 'away_questionable'))):
+        for side in ("home", "away"):
+            for suffix in ("_names", "_missing_names", "_questionable_names", "_questionable"):
+                field = side + suffix
+                if field not in recorded_injuries and field in raw_injuries:
+                    context["injuries"][field] = raw_injuries[field]
     if "context_stale" in row and row.get("context_stale") is not False:
         context["stale"] = True
     return {
