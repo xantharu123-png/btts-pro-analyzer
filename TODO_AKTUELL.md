@@ -1,5 +1,27 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Speicherreparatur 19.09.2026 — getestet, Auslieferung folgt
+
+- Konkreter Defekt behoben: ab 500.001 Nachweisverweisen wurden rund 34 MB
+  pro Analyse erneut inline gespeichert. Gemeinsame Blockspeicherung und
+  Leser funktionieren nun auch oberhalb dieser Grenze; Inhalte/Hashes und
+  Prognosen bleiben unverändert. Keine Statistiken oder Wetthistorien löschen.
+- 25 gezielte Tests jeweils Windows und VPS-Linux bestanden. Gesamtlauf:
+  10.293 bestanden, 96 Skips, 111 Untertests, 16 Windows-Git-Setupfehler;
+  die vollständige betroffene Testdatei anschließend mit exakt scoped
+  safe.directory: 56 bestanden. Zusammen 10.309 unterschiedliche Tests
+  erfolgreich, keine Quell-/Teständerung danach. Nicht als einzelnen grünen
+  Gesamtlauf ausgeben. Details: [Speicherbericht](docs/audits/2026-09-19-snapshot-speicherfehler.md).
+- Nutzer will keine neuen Tages-/Updatearchive. Tagesbackup auf VPS bereits
+  disabled/inactive. Vorhandene Archive und Aufbewahrungspolitik unverändert.
+  Alten Updater nicht unverändert starten: er erzwingt Archive und aktiviert
+  Tagesbackups erneut. Dieser Release verwendet einen geprüften Code-only-
+  Ablauf ohne Root-/Dependency-/Finanzmigration und danach die bestehende
+  verlustfreie Inline-Snapshot-Kompaktierung bei stillstehenden Schreibern.
+- Zuletzt VPS noch `c64218b`; Auslieferung und Größenreduktion nicht vorzeitig
+  behaupten. Die bereits fertig getesteten Produktreparaturen von unten
+  werden mit ausgeliefert. Fachliche Modelllücken bleiben separat offen.
+
 ## Produktreparatur 19.09.2026 — committed und gepusht, VPS separat
 
 **Veröffentlicht:** Reparaturpaket `2cd0a982a96331996955779a8dfff0466ecfb2fd` ist im Hauptcheckout auf main und auf GitHub-main, nach regulärem Push per `ls-remote` bestätigt. Nachfolgende Änderungen ergänzen nur diese Abschlussdokumentation. Funktions-/Teststand `d0759b1`. Alle unabhängigen Task-/Gesamtreviewbefunde geschlossen. Keine Produktions-/VPS-Änderung oder Speicherbereinigung in dieser Runde.

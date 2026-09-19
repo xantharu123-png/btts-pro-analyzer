@@ -74,7 +74,8 @@ def test_compaction_is_atomic_idempotent_and_preserves_legacy_bytes(tmp_path):
     assert compact_snapshots(path)["converted_snapshots"] == 0
 
 
-def test_late_corruption_rolls_back_every_conversion(tmp_path):
+@pytest.mark.parametrize("inline_only", [False, True])
+def test_late_corruption_rolls_back_every_conversion(tmp_path, inline_only):
     path = tmp_path/"context.db"
     con = _connect(path)
     for key in ("a"*64, "b"*64):
@@ -83,7 +84,7 @@ def test_late_corruption_rolls_back_every_conversion(tmp_path):
     con.commit()
     before = con.execute("SELECT * FROM context_snapshots ORDER BY key").fetchall()
     con.close()
-    with pytest.raises(ContextIntegrityError): compact_snapshots(path)
+    with pytest.raises(ContextIntegrityError): compact_snapshots(path, inline_only=inline_only)
     with sqlite3.connect(path) as con:
         assert con.execute("SELECT * FROM context_snapshots ORDER BY key").fetchall() == before
         assert con.execute("SELECT count(*) FROM context_snapshot_references").fetchone() == (0,)
@@ -147,3 +148,52 @@ def test_deployment_verifier_checks_shared_links_without_model_replay(tmp_path):
     with sqlite3.connect(path) as con:
         con.execute("DELETE FROM context_snapshot_references")
     with pytest.raises(ArtifactIntegrityError): verify_context_deployment(path)
+
+
+@pytest.mark.parametrize("count", [500_000, 500_001, 1_050_001])
+def test_large_histories_never_fall_back_to_a_full_list_per_snapshot(tmp_path, count):
+    """Cross both the former 500k cutoff and the 512-block reader limit."""
+    path = tmp_path / "large.db"
+    first = packet(count)
+    second = {**first, "selection": "away"}
+    assert compute_once(path, "a" * 64, lambda: first) == first
+    with sqlite3.connect(path) as con:
+        initial_blocks = dict(con.execute(
+            "SELECT digest,length(payload) FROM context_snapshot_reference_blocks"))
+    assert compute_once(path, "b" * 64, lambda: second) == second
+    with sqlite3.connect(path) as con:
+        assert dict(con.execute(
+            "SELECT digest,length(payload) FROM context_snapshot_reference_blocks")) == initial_blocks
+        assert sum(initial_blocks.values()) == count * 32
+        assert con.execute("SELECT count(*) FROM context_snapshot_references").fetchone() == (1,)
+        for key, raw, sha in con.execute("SELECT key,payload,payload_digest FROM context_snapshots"):
+            assert len(raw) < 500, "a snapshot must not contain the complete history list"
+            expected = first if key == "a" * 64 else second
+            assert _decode_snapshot(key, raw, sha, connection=con) == expected
+    assert compute_once(path, "b" * 64, lambda: pytest.fail("must reuse stored snapshot")) == second
+
+
+@pytest.mark.parametrize("inline_only", [False, True])
+def test_compaction_recovers_oversized_legacy_snapshots_without_changing_identity(tmp_path, inline_only):
+    path = tmp_path / "legacy-large.db"
+    existing = packet()
+    compute_once(path, "a" * 64, lambda: existing)
+    value = packet(500_001)
+    key = "c" * 64
+    original = canonical_bytes(value)
+    original_hash = _payload_digest(key, value)
+    con = _connect(path)
+    con.execute("INSERT INTO context_snapshots VALUES (?,?,?)", (key, original, original_hash))
+    con.commit()
+    con.close()
+    report = compact_snapshots(path, vacuum=True, inline_only=inline_only)
+    assert report["converted_snapshots"] == 1
+    assert report["logical_snapshot_bytes"] == len(original) + (0 if inline_only else len(canonical_bytes(existing)))
+    assert report["database_bytes_after"] < report["database_bytes_before"] * .60
+    with sqlite3.connect(path) as con:
+        raw, sha = con.execute("SELECT payload,payload_digest FROM context_snapshots WHERE key=?", (key,)).fetchone()
+        assert sha == original_hash
+        assert len(raw) < 500
+        assert canonical_bytes(_decode_snapshot(key, raw, sha, connection=con)) == original
+        existing_raw, existing_hash = con.execute("SELECT payload,payload_digest FROM context_snapshots WHERE key=?", ("a" * 64,)).fetchone()
+        assert _decode_snapshot("a" * 64, existing_raw, existing_hash, connection=con) == existing

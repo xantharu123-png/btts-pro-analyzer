@@ -29,9 +29,12 @@ def create_schema(connection):
 def pack_payload(payload):
     """Return physical bytes plus an optional shared list, without any IO."""
     refs = payload.get("observation_refs")
-    if (type(refs) is not list or not 128 <= len(refs) <= 500_000
+    if (type(refs) is not list or len(refs) < 128
             or any(type(ref) is not str or _HASH.fullmatch(ref) is None for ref in refs)):
         return canonical_bytes(payload), None
+    # A whole-history count limit must never select the larger inline format.
+    # Individual stored blocks remain bounded; later analyses share them even
+    # after the history grows beyond the former 500,000-reference threshold.
     binary = b"".join(bytes.fromhex(ref) for ref in refs)
     ref_hash = hashlib.sha256(binary).hexdigest()
     header = {name: value for name, value in payload.items() if name != "observation_refs"}
@@ -82,8 +85,12 @@ def _reference_bytes(connection, ref_hash):
     if binary.startswith(BLOCK_MAGIC):
         expected = int.from_bytes(binary[len(BLOCK_MAGIC):len(BLOCK_MAGIC)+8], "big")
         refs = binary[len(BLOCK_MAGIC)+8:]
-        if (not 128*32 <= expected <= 500_000*32 or expected % 32
-                or not 0 < len(refs) <= 512*32 or len(refs) % 32):
+        # Bound the declared output by the actual, bounded block descriptor,
+        # not a historical total-list cutoff. Each listed block must contribute
+        # between one SHA256 and 64 KiB, verified again while reading below.
+        block_count = len(refs) // 32
+        if (expected < 128*32 or expected % 32 or not refs or len(refs) % 32
+                or not block_count*32 <= expected <= block_count*64*1024):
             raise ContextIntegrityError("invalid shared reference block descriptor")
         result = bytearray()
         for i in range(0, len(refs), 32):
@@ -97,7 +104,7 @@ def _reference_bytes(connection, ref_hash):
         if len(result) != expected:
             raise ContextIntegrityError("shared reference blocks are truncated")
         binary = bytes(result)
-    if not 128*32 <= len(binary) <= 500_000*32 or len(binary) % 32 or hashlib.sha256(binary).hexdigest() != ref_hash:
+    if len(binary) < 128*32 or len(binary) % 32 or hashlib.sha256(binary).hexdigest() != ref_hash:
         raise ContextIntegrityError("shared snapshot references missing or corrupt")
     return binary
 
@@ -122,7 +129,7 @@ def unpack_payload(payload, connection, reference_data=None):
     if type(header) is not dict or "observation_refs" in header:
         raise ContextIntegrityError("invalid shared snapshot header fields")
     binary = _reference_bytes(connection, ref_hash) if reference_data is None else reference_data
-    if (type(binary) is not bytes or not 128*32 <= len(binary) <= 500_000*32
+    if (type(binary) is not bytes or len(binary) < 128*32
             or len(binary) % 32 or hashlib.sha256(binary).hexdigest() != ref_hash):
         raise ContextIntegrityError("frozen snapshot reference identity differs")
     return {**header, "observation_refs": [binary[index:index+32].hex() for index in range(0, len(binary), 32)]}
@@ -150,11 +157,13 @@ def verify_reference_storage(connection, tables):
                 raise ContextIntegrityError("shared snapshot has an invalid reference link")
 
 
-def compact_snapshots(path, *, vacuum=False):
-    """Atomic lossless repacking; caller stops writers and owns a real backup.
+def compact_snapshots(path, *, vacuum=False, inline_only=False):
+    """Atomic lossless repacking; caller stops writers and owns recovery policy.
 
-    Validate each old and reconstructed logical payload. Any broken row rolls
-    back the complete transaction. VACUUM only reclaims unused SQLite pages.
+    Validate each selected old and reconstructed logical payload. Any broken
+    selected row rolls back the complete transaction. VACUUM only reclaims
+    unused SQLite pages. inline_only leaves existing shared snapshots untouched
+    instead of decoding their histories again; logical bytes cover selected rows.
     """
     from contextlib import closing
     from context_snapshots import _compute_lock, _connect, _decode_snapshot
@@ -166,7 +175,12 @@ def compact_snapshots(path, *, vacuum=False):
     with _compute_lock(path) as (path, check_lock), closing(_connect(path)) as connection:
         try:
             connection.execute("BEGIN IMMEDIATE")
-            for key, raw, payload_hash in connection.execute("SELECT key,payload,payload_digest FROM context_snapshots"):
+            query = "SELECT key,payload,payload_digest FROM context_snapshots"
+            parameters = ()
+            if inline_only:
+                query += " WHERE substr(payload,1,?) != ?"
+                parameters = (len(MAGIC), MAGIC)
+            for key, raw, payload_hash in connection.execute(query, parameters):
                 logical = _decode_snapshot(key, raw, payload_hash, connection=connection)
                 logical_bytes += len(canonical_context_bytes(logical))
                 packed, reference = pack_payload(logical)

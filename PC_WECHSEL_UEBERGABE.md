@@ -1,5 +1,18 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg — Speicherreparatur 19.09.2026
+
+Zuerst den obersten Abschnitt in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
+[Speicherbericht](docs/audits/2026-09-19-snapshot-speicherfehler.md) lesen.
+500.000-Verweise-Speichergrenze im vorhandenen Worktree repariert, gezielte
+Windows-/Linux-Tests und Gesamtprüfung samt Windows-Git-Nachlauf abgeschlossen.
+Keine alten Aufgaben erneut ausführen. VPS-Auslieferung/Kompaktierung steht
+in diesem Zwischenstand noch aus; letzten tatsächlichen Beleg prüfen.
+Nutzerentscheidung: keine neuen Tages-/Updatearchive. Tagesbackup disabled;
+vorhandene Archive und Retentionpolitik nicht ändern. Alten Updater nicht
+unverändert benutzen, da er Backups erneut aktiviert. Quoten/Geldregeln,
+Cricket und empirische Modellfreigaben unverändert.
+
 ## Aktueller Einstieg — Produktreparatur 19.09.2026 committed und gepusht
 
 **Veröffentlicht:** Reparaturpaket `2cd0a982a96331996955779a8dfff0466ecfb2fd` auf lokalem main und GitHub-main bestätigt; nachfolgende Commits dokumentieren nur den Abschluss. Vollsuite auf Funktions-/Teststand `d0759b1`:10303 bestanden,96 Skips,111 Untertests,Exit0. Hauptcheckout auf `2cd0a98`:625 bestanden,79 Untertests,Exit0. Alle Reviews abgeschlossen; keine Quell-/Teständerung danach. Logs im obersten TODO-Abschnitt. Keine neue VPS-/Linux-/Produktionsabnahme oder empirische Verbesserung daraus ableiten.
