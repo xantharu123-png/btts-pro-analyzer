@@ -1,5 +1,16 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – kompakte Prognosekarten 19.09.2026
+
+Funktionscommit `763c741` gepusht und live. Wettfinder und Daily3 zeigen kurze
+Fakten; Ausfallnamen und Herleitung sind einzeln aufklappbar. Altdatenstatus
+nicht erfinden, fehlende Modellwirkung weiterhin sichtbar. 713 Tests plus
+26 Untertests jeweils in Worktree/main grün, reale Website/Health geprüft.
+Zuerst [aktuelles To-do](TODO_AKTUELL.md) und
+[UI-Abschlussbericht](docs/audits/2026-09-19-kompakte-prognosekarten.md) lesen.
+Keine neue Bereinigung, Sicherung oder Modellverbesserung daraus ableiten.
+Reparaturworktree und fremde ungetrackte Dateien unverändert bewahren.
+
 ## Aktueller Einstieg — Daily3 19.09.2026, 12:09 CEST
 
 Zuerst den obersten Block von [TODO_AKTUELL.md](TODO_AKTUELL.md) und den

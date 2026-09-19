@@ -1,5 +1,19 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Prognosekarten 19.09.2026 – kompakte Fakten und Ausfalldetails live
+
+- Funktionscommit `763c741` auf main/VPS. Kurze Torprognose und Faktenfelder
+  statt langer sichtbarer Absätze, Einzelheiten per Klick/Tastatur; Wettfinder
+  und aktuelle Daily3-Karten. Keine Änderung von Wahrscheinlichkeit oder Geld.
+- Spielerstatus ehrlich getrennt: alte gemischte Listen nicht als gesicherte
+  Ausfälle bezeichnen. Neue Läufe speichern getrennte Namen; kein Zusatzabruf.
+  Nicht eingerechnete Ausfallwirkung bleibt direkt sichtbar.
+- 713 Tests und 26 Untertests jeweils im Worktree und main bestanden;
+  Desktop/Mobil, Tastatur und echte Website geprüft. Health/Timer bestätigt.
+- Keine Speicherbereinigung/Migration/Sicherung wiederholen. Tagesbackup aus.
+  Vollständige Modellwirkung und empirische Qualität bleiben offen.
+- [Abschluss und Grenzen](docs/audits/2026-09-19-kompakte-prognosekarten.md).
+
 ## Daily3 19.09.2026 — defensives Modellprofil und kompakte UI live
 
 - Funktionscommit `1985407c176e4cf5ecc4a9d5b2a93636b8634673` auf main/VPS.
