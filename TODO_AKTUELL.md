@@ -1,6 +1,25 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## Speicherreparatur 19.09.2026 — getestet, Auslieferung folgt
+## Speicherreparatur 19.09.2026 — live, ca. 11:29 CEST verifiziert
+
+- **Erledigt:** Funktionscommit `8caf022b562c561c7d23b4b8363791bb0869d9d3`
+  gepusht und auf VPS bereitgestellt; nachfolgende Abschlussdokumentation
+  aendert keinen Produktcode. Vorherige Produktreparaturen damit ebenfalls
+  ausgeliefert. Wartungsauftrag `betboy-storage-repair-20260919-b.service`
+  erfolgreich (Exit 0). Keine bereits erledigte Speicherbereinigung wiederholen.
+- Produktivdatenbank **3.326.431.232 -> 2.092.552.192 Bytes**, rund 1,23 GB
+  weniger. 36 aufgeblähte Snapshots umgepackt; alle 1.041 Analyseidentitäten,
+  926.502 Inhalts-/Empfangsbelege und übrige Tabellen-/Schemaidentitäten
+  erhalten. SQLite/Fremdschlüssel ok, große Inline-Restfälle 0. Frischer
+  normaler Lesetest mit 504.808 Verweisen und unverändertem Hash bestanden.
+- App/Caddy aktiv, lokale und öffentliche Healthchecks ok; sechs Rechentimer
+  wieder aktiv. Tagesbackup disabled/inactive; Aufbewahrungstimer unverändert.
+  Kein neues Tages-/Updatearchiv; alte Archive und Root-Updater nachweislich
+  unverändert. Nur eigene temporäre synthetische QA-Daten (~114 MB) entfernt.
+- **Nicht daraus ableiten:** vorher fehlgeschlagene/degraded Tennis-/Wettfinder-
+  Läufe, vollständige Verletzungs-/Müdigkeitswirkung oder empirische Qualität
+  seien erledigt. Normale Beobachtungshistorien dürfen weiter wachsen; behoben
+  ist die unbeabsichtigte Vollkopie jeder großen Nachweisliste pro Analyse.
 
 - Konkreter Defekt behoben: ab 500.001 Nachweisverweisen wurden rund 34 MB
   pro Analyse erneut inline gespeichert. Gemeinsame Blockspeicherung und
@@ -18,9 +37,8 @@
   Tagesbackups erneut. Dieser Release verwendet einen geprüften Code-only-
   Ablauf ohne Root-/Dependency-/Finanzmigration und danach die bestehende
   verlustfreie Inline-Snapshot-Kompaktierung bei stillstehenden Schreibern.
-- Zuletzt VPS noch `c64218b`; Auslieferung und Größenreduktion nicht vorzeitig
-  behaupten. Die bereits fertig getesteten Produktreparaturen von unten
-  werden mit ausgeliefert. Fachliche Modelllücken bleiben separat offen.
+  Dies ist kein Auftrag, den alten Updater oder die Kompaktierung erneut
+  auszuführen. Fachliche Modelllücken bleiben separat offen.
 
 ## Produktreparatur 19.09.2026 — committed und gepusht, VPS separat
 

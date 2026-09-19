@@ -4,14 +4,19 @@
 
 Zuerst den obersten Abschnitt in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
 [Speicherbericht](docs/audits/2026-09-19-snapshot-speicherfehler.md) lesen.
-500.000-Verweise-Speichergrenze im vorhandenen Worktree repariert, gezielte
+500.000-Verweise-Speichergrenze im vorhandenen Worktree repariert und mit
+Funktionscommit `8caf022b562c561c7d23b4b8363791bb0869d9d3` auf VPS ausgeliefert.
+Produktivdatenbank verlustfrei 3,33 -> 2,09 GB verkleinert; sämtliche logischen
+Identitäten erhalten, großer echter Lesetest und Healthchecks ok. Wartungsunit
+`betboy-storage-repair-20260919-b.service` Exit 0, sechs Rechentimer aktiv.
 Windows-/Linux-Tests und Gesamtprüfung samt Windows-Git-Nachlauf abgeschlossen.
-Keine alten Aufgaben erneut ausführen. VPS-Auslieferung/Kompaktierung steht
-in diesem Zwischenstand noch aus; letzten tatsächlichen Beleg prüfen.
+Keine alten Aufgaben erneut ausführen, keine Kompaktierung wiederholen.
 Nutzerentscheidung: keine neuen Tages-/Updatearchive. Tagesbackup disabled;
 vorhandene Archive und Retentionpolitik nicht ändern. Alten Updater nicht
 unverändert benutzen, da er Backups erneut aktiviert. Quoten/Geldregeln,
 Cricket und empirische Modellfreigaben unverändert.
+Vorherige fehlgeschlagene Datenjobs und fachliche Wirkungslücken bleiben
+separate Aufgaben; kein neuer erfolgreicher Gesamttageslauf behauptet.
 
 ## Aktueller Einstieg — Produktreparatur 19.09.2026 committed und gepusht
 

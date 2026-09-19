@@ -1,5 +1,46 @@
 # Snapshot-Speicherfehler 19.09.2026
 
+## Verifizierter Produktionsabschluss, 19.09.2026 ca. 11:29 CEST
+
+- Funktionscommit `8caf022b562c561c7d23b4b8363791bb0869d9d3` ist auf main
+  gepusht und auf dem VPS bereitgestellt. Nachfolgende Abschlussdokumentation
+  aendert weder Produktcode noch Tests. Kein weiterer Rueckbau/erneutes
+  Umpacken dieser erfolgreich reparierten Daten erforderlich.
+- Wartungsauftrag `betboy-storage-repair-20260919-b.service`: Exit 0.
+  36 grosse Inline-Snapshots verlustfrei umgepackt; Datenbank von
+  3.326.431.232 auf 2.092.552.192 Bytes reduziert, also 1.233.879.040 Bytes
+  weniger (rund 37 Prozent). Snapshot-Nutzdaten nun 96.176.712 Bytes.
+- Alle 1.041 Snapshot-Identitaeten und alle 926.502 Inhalts-/Empfangsbelege
+  unveraendert; auch Artefakte, Manifeste und Schema inklusive Indizes,
+  Trigger und Views identisch. Alte gemeinsame Bloecke bytegleich erhalten.
+  SQLite-Integritaet und Fremdschluesselpruefung bestanden; null grosse
+  Inline-Restfaelle. Keine Statistiken, Wett- oder Geldhistorien geloescht.
+- Frischer read-only Produktionslesetest: 504.808 Verweise erfolgreich aus
+  einem 168.544-Byte-Snapshot gelesen, logischer Hash bestaetigt; keine
+  Neuberechnung und kein Providerabruf.
+- App und Caddy aktiv, sechs Berechnungstimer wieder aktiv; bestehender
+  Aufbewahrungstimer unveraendert aktiv. Tagesbackup disabled/inactive.
+  Interner sowie oeffentlicher Healthcheck von ausserhalb des VPS: `ok`.
+  Freier Plattenplatz anschliessend 22.966.259.712 Bytes.
+- Keine neuen Tages-/Updatearchive erzeugt. Vorhandenes Archivinventar vor
+  und nach Wartung identisch (Pfad/Groesse/mtime-SHA256
+  `99d523224e6c0a7f0f7b5f3892553f99340a2976f8b2c7229e6722e68a4d1c6c`).
+  Alter Root-Updater unveraendert und nicht ausgefuehrt. Nur selbst erzeugte
+  temporaere QA-Daten von rund 114 MB und zwei eigene Transport-Codekopien
+  entfernt; jederzeit aus Code/Tests neu erzeugbar.
+- Hauptcheckout nach Commit zusaetzlich 25 Speichertests bestanden, Exit 0,
+  17,60 Sekunden. Der nachstehend dokumentierte Gesamttest-/Nachlaufstand
+  bleibt unveraendert; keine einzelne fehlerfreie Vollsuite erfinden.
+- Auslaufender alter Wettfinder und morgendlicher Tennisjob waren zuvor
+  degraded/fehlgeschlagen. Diese fachlichen/Quellendatenprobleme sind durch
+  die Speicherreparatur nicht automatisch erledigt; kein neuer vollstaendiger
+  Tageslauf und keine bessere Prognosequalitaet behauptet.
+
+Ausfuehrungsprotokoll und genaue Wartungsskript-Hashes im vorhandenen
+Reparatur-Worktree unter `output/playwright/storage-repair-release-20260919.md`.
+Root-eigene ausgefuehrte Skripte liegen unter
+`/var/lib/betboy-storage-repair-20260919/` (kein Datenbankarchiv).
+
 ## Ursache und Umfang
 
 Der reale VPS-Bestand enthielt Analyse-Snapshots mit 504.808
@@ -61,10 +102,11 @@ wurden. Die tatsaechlichen Empfangszeitpunkte bleiben erhalten.
   Testdatei SHA256:
   `66d9c09920e0a21c83bc1ffa47301be82ea435cf47fa8dcbc3d046cc57abab58`.
   Nach diesen Laeufen blieben beide Dateien unveraendert.
-- Produktionsablauf ist noch vorbereitet, nicht bereits ausgefuehrt.
-  Wartungsreview fordert fest gepinnte root-eigene Skripte, vollstaendige
+- Produktionsablauf anschliessend erfolgreich ausgefuehrt, siehe oben.
+  Wartungsreview forderte fest gepinnte root-eigene Skripte, vollstaendige
   Schemaidentitaet sowie unveraenderten Aufbewahrungstimer; diese Kontrollen
-  sind in der eng begrenzten Wartung enthalten. Keine neuen Archive.
+  waren in der eng begrenzten Wartung enthalten; unabhaengiger Nachreview
+  schloss alle drei Betriebshinweise. Keine neuen Archive.
 
 ## Betriebsentscheidung des Nutzers
 
