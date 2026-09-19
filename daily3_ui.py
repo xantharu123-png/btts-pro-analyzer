@@ -163,8 +163,8 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
         st.error(notice[1])
     st.caption('CHF 50 Tagesbudget · bis zu 3 Einzelwetten · Ziel +CHF 150, nicht garantiert')
     with st.popover('Auswahl & Regeln'):
-        st.write(f'Mindestens {MIN_MODEL_PROBABILITY:.0%} in Spiel-, Saison- und Formmodell. Die Auswahl richtet sich nach dem belegten Modellvergleich zur historischen Markthäufigkeit, nicht nach der höchsten Prozentzahl. Eine Auswahl pro Spiel; keine pauschalen Wettartenverbote.')
-        st.write('Der Ligavergleich ist keine Buchmacherquote und kein nachgewiesener Wettvorteil. Für eine Daily3-Auswahl muss ein passender Vergleich gespeichert sein; fehlende Vergleiche werden nicht erfunden. Die übrigen Prognosen bleiben unter Automatisch sichtbar.')
+        st.write(f'Mindestens {MIN_MODEL_PROBABILITY:.0%} in allen drei Varianten desselben Modells. Die zusätzliche Formgewichtung muss gegenüber der Heim-/Auswärtsbasis derselben Begegnung mindestens 2 Prozentpunkte beitragen. Eine Auswahl pro Spiel; keine pauschalen Wettartenverbote.')
+        st.write('Die 2-Prozentpunkte-Regel dient der Auswahl, sie beweist weder Sicherheit noch einen Wettvorteil. Favoritenstärke allein genügt nicht. Die übrigen Prognosen bleiben unter Automatisch sichtbar.')
         st.write('Dieser Vergleich ist derzeit nur für Fußball angebunden. Für die anderen Sportarten fehlen die passenden Vergleichsdaten; ihre normalen Prognosen bleiben sichtbar.')
         st.write('Diese Auswahl nutzt den Prognosepool des Wettfinders, aber eine eigene Auswahlregel. Sie ist keine unabhängige Zweitbestätigung und keine nachgewiesene Sicherheitsrangliste. Fehlende Kontextdaten bleiben am Spiel sichtbar.')
         st.write('Quote und CHF-150-Ziel ändern weder Prognose noch Reihenfolge. Defensivere Auswahlen können niedrige Quoten haben. Drei passende Auswahlen sind nicht täglich verfügbar.')

@@ -1,5 +1,25 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Kontextanschluss und Daily3-Spielvergleich – 19.09.2026, laufende Reparatur
+
+- Nicht als vollständig fertig melden: numerische Verletzungs-/Müdigkeits-/
+  Wetterwirkung ist weiterhin nicht trainiert und empirisch freigegeben.
+  Die vorhandenen Prognosen sind echte Berechnungen, aber ohne diese Wirkung.
+- Daily3 v4 vergleicht aktive/Form-Variante mit der Saison-/Heim-Auswärtsbasis
+  derselben Begegnung. Favoritenstärke allein reicht nicht. Die zusätzlichen
+  zwei Prozentpunkte sind eine Relevanzregel, kein Sicherheits-/Valuebeweis.
+  Keine Marktverbote oder Quotenfilter; normale Prognosen bleiben erhalten.
+- Kanonischer Fußballworker erhält die vorhandene Originalaufnahme mit
+  dauerhaftem Aufnahmebudget: 4 MiB/Sitzung, 8 MiB/UTC-Tag, 128 MiB insgesamt
+  an zusätzlicher JSON-Nutzlast. Keine neue Sicherung oder Bereinigung.
+- Nicht gesendete Spielerhistorienabfragen wegen API-Budgetreserve lösen
+  keine neue 24-Stunden-Wartefrist mehr aus; echte Fehlantworten weiterhin.
+- Tatsächliche Lücken: keine Fußball-Originale oder trainierten Effekte im
+  geprüften VPS-Bestand; Tennis nur 112 unterschiedliche Ergebnisereignisse.
+  Neue Originalaufnahme ersetzt weder native Zuordnung noch Replayfreigabe.
+- Prüf-/Releaseabschluss folgt im [Reparaturbericht](docs/audits/2026-09-19-kontextanschluss-und-spielvergleich.md).
+  Cricket, Echtgeldregeln, alte Archive und deaktiviertes Tagesbackup erhalten.
+
 ## Daily3 19.09.2026 – Auswahlregel und Teil-Refresh repariert
 
 - `0a54313`: keine Sortierung allein nach höchster Rohwahrscheinlichkeit mehr.

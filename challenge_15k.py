@@ -25,6 +25,7 @@ from bet_finder_ui import (
 )
 from api_budget import (
     APIBudgetError,
+    APIBudgetExceeded,
     APIBudgetPriority,
     api_football_get,
 )
@@ -691,6 +692,7 @@ class ChallengeDataProvider:
         # Only explicit background/manual workers enable immutable B1 capture.
         # Default providers (including 15K display/price paths) remain unchanged.
         self._context_capture = None
+        self.last_request_budget_deferred = False
 
     def _rate_limit(self) -> None:
         elapsed = time.monotonic() - self._last_request
@@ -706,6 +708,7 @@ class ChallengeDataProvider:
         *,
         priority: APIBudgetPriority | str = APIBudgetPriority.RECOMMENDATION,
     ) -> Optional[list[dict[str, Any]]]:
+        self.last_request_budget_deferred = False
         self._rate_limit()
         try:
             response = api_football_get(
@@ -720,6 +723,9 @@ class ChallengeDataProvider:
             response.raise_for_status()
             payload = response.json()
         except (APIBudgetError, requests.RequestException, ValueError) as exc:
+            # Only this exception proves reservation failed before requests.get.
+            # A response/completion failure must keep the normal retry backoff.
+            self.last_request_budget_deferred = isinstance(exc, APIBudgetExceeded)
             self.errors.append(f"{label}: {exc}")
             return None
         if self._context_capture is not None:

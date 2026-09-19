@@ -1,8 +1,8 @@
 """Defensive, price-blind comparison shortlist, not a certified safety ranking.
 
-v3 requires a saved, exact-bound market comparison and at least 70% in every
-existing model variant. Rank the supported difference from the market's
-historical baseline, not the largest raw probability or a market-name list.
+v4 requires exact-bound model variants and at least 70% in all three. Compare
+recent form against the same match's season-strength reference; a minimum
+two-percentage-point change is a presentation rule, not an empirical guarantee.
 Haircut, minimum/observed odds, RELEASED flags, target profit and account money
 are not ranking inputs. The ordinary full catalog is never modified.
 """
@@ -18,7 +18,7 @@ from forecast_analysis import build_forecast_analysis, forecast_highlight_reason
 from forecast_selection import select_consumer_forecasts
 from selection_coherence import consumer_event_identity
 
-POLICY_VERSION = 'daily3-supported-comparison-v3'
+POLICY_VERSION = 'daily3-match-form-comparison-v4'
 # Deliberate shortlist threshold, not a learned/calibrated safety boundary.
 MIN_MODEL_PROBABILITY = 0.70
 _TZ = ZoneInfo('Europe/Zurich')

@@ -1,5 +1,18 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Kontextanschluss und spielbezogener Vergleich 19.09.2026
+
+Zuerst den obersten Block von [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
+[neuen Reparaturbericht](docs/audits/2026-09-19-kontextanschluss-und-spielvergleich.md)
+lesen. Daily3 vergleicht zusätzliche Formwirkung innerhalb derselben Begegnung;
+die frühere bloße Abweichung von einer Ligahäufigkeit genügt nicht mehr.
+Vorhandene Fußball-Originalaufnahme wird im kanonischen Worker endlich mit
+einem endlichen persistenten Aufnahmebudget angeschlossen. Kein erfundener
+numerischer Verletzungs-/Müdigkeits-/Wettereffekt und keine empirische Freigabe.
+Nicht gesendete API-Abfragen nicht mit 24-Stunden-Fehlerbackoff bestrafen.
+Keine neue Bereinigung oder Backupaktivierung, keinen externen Browser nutzen.
+Release- und Testbelege im Bericht prüfen; alte Abschnitte unten sind historisch.
+
 ## Aktueller Einstieg – Daily3-Vergleich und echter Refresh-Befund 19.09.2026
 
 Funktionscommits `0a54313` und `533a98f` auf main/GitHub/VPS: Daily3 nicht mehr

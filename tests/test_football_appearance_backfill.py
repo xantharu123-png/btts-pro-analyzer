@@ -57,6 +57,45 @@ def test_known_result_gets_one_budgeted_full_detail_and_real_player_minutes(tmp_
     assert owner._context_capture is None
 
 
+def test_unsent_budget_rejection_does_not_suppress_history_after_quota_reset(tmp_path, monkeypatch):
+    from api_budget import APIBudgetExceeded
+    import challenge_15k
+    path = tmp_path / 'context.db'
+    seed(path, completed(), NOW - timedelta(minutes=1))
+    owner, calls = provider(monkeypatch)
+    def blocked(*args, **kwargs):
+        raise APIBudgetExceeded('reserved capacity')
+    monkeypatch.setattr(challenge_15k, 'api_football_get', blocked)
+    module = implementation()
+    before = stored(path)
+    report = module.refresh_football_appearances(owner, path=path, now=NOW)
+    assert report['status'] == 'budget_deferred'
+    assert calls == [] and stored(path) == before
+    assert module.pending_appearance_ids(path, now=NOW+timedelta(minutes=1)) == (completed()['fixture']['id'],)
+    restored, calls = provider(monkeypatch, details=payload([completed(details=True)]))
+    monkeypatch.setattr(restored, '_context_received_at', lambda: NOW+timedelta(minutes=1))
+    after = module.refresh_football_appearances(restored, path=path, now=NOW+timedelta(minutes=1))
+    assert after['status'] == 'player_data_captured' and len(calls) == 1
+
+
+def test_only_pre_request_budget_exhaustion_can_release_history_backoff(tmp_path, monkeypatch):
+    from api_budget import APIBudgetUnavailable
+    import challenge_15k
+    path = tmp_path / 'context.db'
+    seed(path, completed(), NOW - timedelta(minutes=1))
+    owner, _ = provider(monkeypatch)
+    # A prior deferred call cannot leak its state into a new failed request.
+    owner.last_request_budget_deferred = True
+    def failed_completion(*args, **kwargs):
+        raise APIBudgetUnavailable('post-request accounting failed')
+    monkeypatch.setattr(challenge_15k, 'api_football_get', failed_completion)
+    module = implementation()
+    report = module.refresh_football_appearances(owner, path=path, now=NOW)
+    assert report['status'] == 'unavailable'
+    assert owner.last_request_budget_deferred is False
+    assert module.pending_appearance_ids(path, now=NOW+timedelta(minutes=1)) == ()
+
+
 def test_one_invalid_match_does_not_discard_other_matches_player_history(tmp_path, monkeypatch):
     path = tmp_path / 'context.db'
     good, bad = completed(101, details=True), completed(102, details=True)

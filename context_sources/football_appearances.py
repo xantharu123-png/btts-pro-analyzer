@@ -180,6 +180,22 @@ def refresh_football_appearances(provider, *, path: Path | None = None,
         response = provider._background_football_get('fixtures',
             {'ids': '-'.join(str(value) for value in ids)}, 'Kontext Einsatzhistorie')
     report['capture'] = capture.report()
+    if response is None and getattr(provider, 'last_request_budget_deferred', False) is True:
+        # No HTTP request was sent. Do not suppress these games for another
+        # 24 hours after quota resets. Remove only this call's reservations;
+        # a later concurrent reservation is never overwritten.
+        with _compute_lock(_attempt_state_path(path)) as (attempt_path, check):
+            attempts = _recent_attempts(attempt_path, now=now)
+            for item in chosen:
+                key = _attempt_key(item)
+                if attempts.get(key) == canonical_timestamp(now):
+                    attempts.pop(key)
+            check()
+            atomic_write_bytes(attempt_path, json.dumps({'schema': 1,
+                'purpose': 'football-appearance-request-reservations',
+                'reservations': attempts}, sort_keys=True).encode('utf-8'))
+        report['status'] = 'budget_deferred'
+        return report
     if report['capture']['receipt_refs']:
         from context_sources.football import _detail_event, normalize_football_context
         with_minutes = set()

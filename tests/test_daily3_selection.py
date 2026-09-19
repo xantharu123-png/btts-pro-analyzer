@@ -25,7 +25,10 @@ def football(fixture=1, key='RESULT_HOME', probability=.75, *, now=NOW,
         scheduled_start=row['scheduled_start'], prediction_version='test-model-v1',
         validation_prediction_version='test-model-v1', model_skill_supported=True,
         samples=400, successes=round(400*baseline), latest_kickoff=(now-timedelta(days=1)).isoformat(),
-        probabilities=list(variants or (probability, probability, probability))) if comparison else None
+        # Synthetic positive same-match form signal, not live evidence. Tests
+        # of absent/reversed signals supply their own explicit triplet.
+        probabilities=list(variants or (probability, round(max(.001, probability-.03), 6),
+                                         round(min(.999999, probability+.09), 6)))) if comparison else None
     evidence = project_football_analysis(row, model_basis={**row,
         'expected_home_goals': 1.8, 'expected_away_goals': .9, 'venue_samples': [12, 12],
         'form_samples': [6, 6], 'market_comparison': reference})
@@ -121,7 +124,8 @@ def test_low_probability_modal_winner_is_not_a_defensive_daily3_choice():
     assert choices == ()
 
 
-@pytest.mark.parametrize('probability,eligible', [(.195, False), (.5, False), (.699999, False), (.7, True), (.9, True)])
+@pytest.mark.parametrize('probability,eligible', [(.195, False), (.5, False), (.699999, False),
+                                                (.7, False), (.729999, False), (.73, True), (.9, True)])
 def test_defensive_threshold_is_price_free_and_does_not_erase_normal_forecasts(probability, eligible):
     from forecast_selection import select_consumer_forecasts
     signal = football(probability=probability)
@@ -131,9 +135,9 @@ def test_defensive_threshold_is_price_free_and_does_not_erase_normal_forecasts(p
 
 
 def test_high_raw_probability_cannot_displace_better_supported_match_comparisons():
-    broad = [football(1, 'AWAY_UNDER_2_5', .953, baseline=.93),
-             football(2, 'AWAY_UNDER_2_5', .91, baseline=.88),
-             football(3, 'HOME_OVER_0_5', .908, baseline=.87)]
+    broad = [football(1, 'AWAY_UNDER_2_5', .953, baseline=.50, variants=(.953,.95,.96)),
+             football(2, 'AWAY_UNDER_2_5', .91, baseline=.50, variants=(.91,.905,.925)),
+             football(3, 'HOME_OVER_0_5', .908, baseline=.50, variants=(.908,.905,.917))]
     alternatives = [football(4, 'BTTS_YES', .74, baseline=.45),
                     football(5, 'TOTAL_OVER_2_5', .73, baseline=.43),
                     football(6, 'HOME_UNDER_1_5', .79, baseline=.54)]

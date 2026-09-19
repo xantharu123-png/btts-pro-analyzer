@@ -1,9 +1,9 @@
 """Quote-free Daily3 comparison evidence, not a claim of betting value.
 
-Compare the exact market's three existing model variants with its observed
-league frequency. A Wilson interval accounts for finite baseline sample size;
-it is NOT a confidence bound for the model, nor evidence that context effects
-have been applied. Ordinary forecasts remain independent of this shortlist.
+Retain exact-bound model variants and league observations. Shortlisting uses
+the recent-form change against the same match's season-strength model, not an
+unconditioned league frequency. Neither comparison is proof of betting value
+or applied injury/weather effects. Ordinary forecasts remain unchanged.
 """
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,6 +12,7 @@ from collections.abc import Mapping
 
 SCHEMA = 'league-market-comparison-v1'
 MIN_BASELINE_SAMPLES = 200
+MIN_FORM_CHANGE = .02  # Presentation relevance, not empirical significance.
 
 
 def _mapping(value):
@@ -147,9 +148,15 @@ class Comparison:
     lowest_model_probability: float
     baseline_probability: float
     samples: int
+    match_reference_probability: float | None = None
+    active_probability: float | None = None
 
     @property
     def summary(self):
+        if self.match_reference_probability is not None:
+            baseline = f'{self.match_reference_probability:.1%}'.replace('.', ',')
+            change = f'{100 * (self.active_probability - self.match_reference_probability):.1f}'.replace('.', ',')
+            return f'Formsignal: +{change} Prozentpunkte zum Grundmodell ({baseline}).'
         model = f'{self.lowest_model_probability:.1%}'.replace('.', ',')
         baseline = f'{self.baseline_probability:.1%}'.replace('.', ',')
         return f'Saison/Form mindestens {model}; Ligavergleich {baseline} aus {self.samples} Spielen.'
@@ -170,8 +177,15 @@ def daily3_comparison(signal, *, now, minimum_probability):
                                identity=evidence['identity'], model_version=signal.model_version)
     if raw is None:
         return None
-    floor = min(raw['probabilities'])
-    margin = floor - baseline_upper(raw['successes'], raw['samples'])
-    if floor < minimum_probability or margin <= 1e-12:
+    active, season, form = raw['probabilities']
+    floor = min(active, season, form)
+    # Same event, opponents, venue and market. The season variant already
+    # incorporates the team's underlying strength: an obvious favourite score
+    # cannot qualify merely by exceeding an unrelated league-wide frequency.
+    # This is an ablation of recent form, NOT proof of betting value/causality.
+    margin = round(min(active, form) - season, 12)
+    # Explicit presentation relevance threshold, not a learned effect size or
+    # a confidence bound. Never fill slots with round-off/tiny positive deltas.
+    if floor < minimum_probability or margin < MIN_FORM_CHANGE - 1e-12:
         return None
-    return Comparison(margin, floor, raw['successes']/raw['samples'], raw['samples'])
+    return Comparison(margin, floor, raw['successes']/raw['samples'], raw['samples'], season, active)

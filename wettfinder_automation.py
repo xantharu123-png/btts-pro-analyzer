@@ -3056,6 +3056,21 @@ def run_wettfinder(
     if any(not callable(loader) for loader in (riskobet_result_loaders or {}).values()):
         raise TypeError("RisikoBet result loaders must be callable")
     production_state = _same_artifact_path(state_path, STATE_PATH)
+    original_collection_attempted = False
+    original_collection_admission = None
+
+    def original_capture_limits(app_config):
+        # One permit per invocation; never start collection for injected/test
+        # scanners or a tab load. Admission survives concurrent workers/crashes.
+        nonlocal original_collection_attempted, original_collection_admission
+        if not production_state or original_collection_attempted or not app_config.api_football_key:
+            return None
+        original_collection_attempted = True
+        from football_context_collection import reserve_original_capture
+        original_collection_admission = reserve_original_capture(
+            Path(state_path).with_name('football-original-admission.json'), now=current)
+        return original_collection_admission['limits']
+
     explicit_riskobet = (
         riskobet_enabled is True
         or riskobet_runner is not None
@@ -3119,7 +3134,8 @@ def run_wettfinder(
         try:
             app_config = config or load_app_config()
             scanner = football_scanner or (
-                lambda scan_date: _default_football_scan(scan_date, app_config)
+                lambda scan_date: _default_football_scan(scan_date, app_config,
+                    **({'original_capture_limits': original_capture_limits(app_config)} if production_state else {}))
             )
             snapshot = scanner(target)
             if not isinstance(snapshot, dict):
@@ -3193,6 +3209,9 @@ def run_wettfinder(
                             recompute_models=football_models_due(
                                 football_state, batch_fixture_ids, now=checked_at,
                             ),
+                            **({'original_capture_limits': original_capture_limits(app_config)}
+                               if production_state and football_models_due(
+                                   football_state, batch_fixture_ids, now=checked_at) else {}),
                         )
                     )
                 )
@@ -4013,6 +4032,8 @@ def run_wettfinder(
     if auxiliary_errors:
         document["operational_error_count"] += auxiliary_errors
         document["run_status"] = "degraded"
+    if original_collection_admission is not None:
+        document['football_original_admission'] = original_collection_admission
     write_state(document, state_path)
     return document
 
