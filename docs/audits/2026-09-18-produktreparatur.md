@@ -4,6 +4,8 @@ Ausgangsstand: c64218bdf6bb81dfa1a107e2da13de2a35178935. Nutzerauftrag: alle bes
 
 ## Status während der Umsetzung
 
+**Veröffentlichung bestätigt am19.09.:** Alle unten genannten Reparaturcommits sind Bestandteil von `2cd0a982a96331996955779a8dfff0466ecfb2fd`, per Fast-forward auf main übernommen und regulär auf GitHub-main gepusht; Remote-Hash danach geprüft. Nachfolgende Commits ergänzen nur Abschlussdokumentation. Keine VPS-Auslieferung dieser Runde. Noch offene fachliche Abnahmen bleiben ausdrücklich offen.
+
 | Audit | Reparatur | Stand |
 | --- | --- | --- |
 | F7/F9 | Daily3-Preiswarnung, keine behauptete tatsächliche Erholung aus Ergebnisempfang | f844f05 lokal committed; 4 erwartete RED-Fehler, anschließend 4 neue und 75 Verbraucher-Tests bestanden; unabhängiges Spec-/Code-Review bestanden. |
@@ -50,4 +52,6 @@ Die sieben fehlgeschlagenen Tests kamen aus zwei nicht an den neuen zwingenden M
 
 Die16 E-Sport-Setupfehler waren ausschließlich Git-Ownership-Prüfungen beim Lesen des echten historischen Parent-Commits. Derselbe historische Test läuft mit nur prozesslokaler `safe.directory` für genau diesen Worktree vollständig durch (56bestanden); keine globale Git-Konfiguration, keine Ersatz-Originale.
 
-Finaler Gesamtlauf auf unverändertem Quell-/Teststand `d0759b14aabb5ed3530b83507e251e68bbdd091e` abgeschlossen: **10303 bestanden, 96 Skips, 111 Untertests bestanden, Exit0, 1545.58s**. Neun `record_property`-Hinweise betreffen nur das JUnit-xunit2-Berichtsformat, keine fehlgeschlagenen Tests oder DeprecationWarnings. Belege `output/playwright/product-full-suite-20260919-d0759b1.{log,xml}`, isolierterPfad `C:/Projekt/BetBoy/.qa-product-final-20260919-d0759b1`. Keine Quell-/Teständerung während des Laufs. Integration: GitHub-main frisch prüfen, lokales main nur fast-forwarden, betroffene Kernpfade im Hauptcheckout testen und regulär pushen. Fremde/ungetrackte Dateien und vorhandenen Worktree erhalten. VPS-Deployment separat.
+Finaler Gesamtlauf auf unverändertem Quell-/Teststand `d0759b14aabb5ed3530b83507e251e68bbdd091e` abgeschlossen: **10303 bestanden, 96 Skips, 111 Untertests bestanden, Exit0, 1545.58s**. Neun `record_property`-Hinweise betreffen nur das JUnit-xunit2-Berichtsformat, keine fehlgeschlagenen Tests oder DeprecationWarnings. Belege im Worktree `output/playwright/product-full-suite-20260919-d0759b1.{log,xml}`, isolierterPfad `C:/Projekt/BetBoy/.qa-product-final-20260919-d0759b1`. Die96 Skips betreffen Windows-/Linux-/Symlink- beziehungsweise separate native QA-Voraussetzungen und ersetzen keinen echten Linux-Nachweis.
+
+Danach Hauptcheckout per Fast-forward auf `2cd0a98` aktualisiert: **625 Tests plus79 Untertests bestanden, Exit0,90.16s**, Log im Hauptcheckout `output/playwright/product-main-checkout-20260919-2cd0a98.log`. Getestet: Auswahl/Analyse/Oberfläche/Daily3, Artefaktleser/Teamsport, Modell-/Signifikanz-/Joint-Law-Verträge, Originalpublikation, Finanzintegrität, Tennis-Dauer/Replays/Training und echte historische E-Sport-Parität. Regulärer Push von main erfolgreich, GitHub-Hash per `ls-remote` gleich `2cd0a982a96331996955779a8dfff0466ecfb2fd`. Keine Quell-/Teständerung seit dem Volltest; nur Abschlussdokumentation. Fremde/ungetrackte Dateien und vorhandener Worktree erhalten. VPS-Deployment separat, keine Serverbereinigung oder Produktionsänderung.
