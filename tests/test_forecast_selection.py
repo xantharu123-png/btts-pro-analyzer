@@ -164,7 +164,7 @@ def test_tennis_coverage_review_boundary_is_presentation_only(days, eligible):
     signal = replace(signal, context_evidence=context)
     catalog = compose_wettfinder_catalog(cards([signal]))
     assert bool(catalog.featured) is eligible
-    assert (catalog.featured + catalog.additional)[0].model_probability == .66
+    assert (catalog.featured + catalog.additional)[0].model_probability == .76
 
 
 def test_public_card_retains_model_identity_not_private_context():
@@ -252,13 +252,15 @@ def test_fresh_exactly_evidenced_former_basis_market_can_highlight_without_forci
 def test_market_categories_do_not_override_shared_canonical_preference():
     # Independent events share model time. A category demotion must not move
     # the ordinary event-1 forecast behind the unrelated event-2 forecast.
-    dc, home = football(1, key='DC_X2', probability=.4), football(2, probability=.6)
+    dc, home = football(1, key='DC_X2', probability=.75), football(2, probability=.8)
     for pool in ((dc, home), (home, dc)):
         shared = select_consumer_forecasts(pool, now=NOW)
         assert shared == [dc, home]
         catalog = compose_wettfinder_catalog(cards(pool), max_featured=1)
         assert [card.market_key for card in catalog.featured] == ['DC_X2']
-        assert daily3_choices(pool, now=NOW)[0].signal is dc
+        # Daily3's approved defensive profile is intentionally different;
+        # it must not change the ordinary catalog's canonical ordering.
+        assert daily3_choices(pool, now=NOW)[0].signal is home
 
 
 def test_result_direction_anchor_does_not_override_a_newer_or_supported_revision():

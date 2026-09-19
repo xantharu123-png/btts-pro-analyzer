@@ -360,7 +360,7 @@ die fünf Hauptseiten und der bisherige automatische Standard bleiben unverände
 
 ### Auswahl, nicht behauptete Sicherheit
 
-Policy `daily3-evidence-diversity-v1`: Nur heutige, noch nicht gestartete Events
+Historische Policy `daily3-evidence-diversity-v1` (bis 19.09.2026): Nur heutige, noch nicht gestartete Events
 mit höchstens 2,5 Stunden altem, individuell zuordenbarem Modellbeleg. Auswahl
 aus dem vollständigen gespeicherten Pool vor dem Schnitt auf die verbliebenen
 Slots: Sport-/Marktvielfalt, neuerer Modellstand, Beginn, stabile Event-/Auswahlschlüssel.
@@ -414,3 +414,37 @@ kein zusätzlicher Provider-/Modelllauf. Gespeicherte Verträge bleiben unverän
 Nachweise/Restarbeiten: [Implementierungs- und VPS-Prüfbericht](../../audits/2026-09-13-daily3-implementation-native-qa.md).
 Lokale Tests und Browserprüfung sind keine Freigabe als sichere Einkommensquelle
 und ersetzen weder die offene Modellvalidierung noch den kontrollierten Release.
+
+## 13. Bestätigte defensive Auswahl und kompakte Ansicht — 19.09.2026
+
+Nutzerfreigabe: „Ja, defensivere Auswahl zuerst; CHF 150 nicht erzwingen“.
+Dieser Nachtrag ersetzt die Auswahlreihenfolge aus Abschnitt 12, nicht den
+Echtgeld-, Identitäts-, Abrechnungs- oder Quotenvertrag.
+
+Policy `daily3-defensive-model-v2`:
+
+- Alle bisherigen Zuordnungs-, Begründungs- und Aktualitätsprüfungen bleiben.
+- Mindestens 70 % Modellschätzung als explizite Produktgrenze; weder eine
+  statistische Mindestchance noch ein empirisch bewiesener Sicherheitswert.
+- Höhere Modellwahrscheinlichkeit zuerst. Sport-/Marktvielfalt entscheidet
+  nur bei Gleichstand, danach Modellzeit, Beginn und stabile Identität.
+- Keine Verwendung von heuristischen Haircuts als Sicherheitsnachweis. Die
+  Reihenfolge vergleicht Modellschätzungen, nicht bewiesene tatsächliche Risiken
+  verschiedener Sportmodelle. Die unabhängige Kalibrierung bleibt separat offen.
+- Höchstens eine Auswahl pro Spiel; keine Gegenrichtung aus einem älteren
+  Modellstand, kein Nachfüllen mit schwächeren oder unbegründeten Kandidaten.
+- Quote, Wunschgewinn und Guthaben sind keine Ranking-Eingaben. Einfache
+  Märkte bleiben erlaubt; defensivere Auswahlen können niedrige Quoten haben.
+- Die zusätzliche Auswahlgrenze gilt nur für Daily3. Der normale vollständige
+  Wettfinder und seine Rangfolge werden nicht geändert.
+
+Oberfläche: eine Budget-/Zielzeile, tatsächliche Anzahl oder ein einzelner
+Leerhinweis. Gemeinsame Regeln im optionalen Popover. Analyse, konkrete
+Unsicherheiten, Preiswarnungen und Echtgeldbestätigungen bleiben direkt am
+Spiel; keine versteckten Hauptkarten. Allgemeine Seitenbeschreibungen kürzer.
+
+Abnahme: 69,9999 % nicht in Daily3, 70 % zulässig bei passenden Grundlagen;
+stärkere Modellchance schlägt eine frischere, aber schwächere Vielfalt-Auswahl;
+Gleichstand nutzt den vollständigen Pool zur Vielfalt. Preise ändern nichts.
+Alle bestehenden Echtgeld-, Rückzahlung-, Vortags- und Slotprüfungen bleiben.
+Grüne Softwaretests beweisen keine höhere reale Trefferquote.

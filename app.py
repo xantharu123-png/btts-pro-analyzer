@@ -94,23 +94,23 @@ from wettfinder_surface import (
 PAGE_INFO = {
     "Wettfinder": (
         "Wettfinder",
-        "Berechnete Auswahlen nach Qualitätsprüfung; Marktpreis und Value-Grenze werden getrennt bewertet.",
+        "Modell-Auswahlen und Quoten im Überblick.",
     ),
     "RisikoBet": (
         "RisikoBet",
-        "Plausible Außenseiter-Szenarien mit Pro, Contra und Datenstand – der Wettpreis bleibt eine getrennte Information.",
+        "Außenseiter-Szenarien mit Chancen und Gegenrisiken.",
     ),
     "Live": (
         "Live Wettfinder",
-        "Aktuelle Spieldaten werden in konkrete Live-Auswahlen und klare Value-Grenzen übersetzt.",
+        "Live-Auswahlen zum aktuellen Spielstand.",
     ),
     "15K": (
         "15K Challenge",
-        "Bis zu drei streng geprüfte Spiele für das nächste Challenge-Ticket.",
+        "Dein nächstes Challenge-Ticket.",
     ),
     "Meine Tipps": (
         "Meine Tipps",
-        "Gemerkte Tipps, 15K-Tickets und der transparente Ergebnisverlauf an einem Ort.",
+        "Deine Wetten und Ergebnisse.",
     ),
 }
 
@@ -4731,7 +4731,6 @@ def _render_automated_daily_selection() -> None:
     snapshot = automated_wettfinder_snapshot(now=evaluation_now)
     status = snapshot.status
     if status is None:
-        st.caption("Automatischer Lauf · noch kein Ergebnisstand")
         st.info("Aktuell ist noch kein automatisches Ergebnis verfügbar.")
         return
 
@@ -4817,8 +4816,6 @@ def _render_automated_daily_selection() -> None:
             st.markdown(
                 '<div class="wf-section-heading">'
                 "<h2>Aktuelle Modell-Auswahlen</h2>"
-                "<p>Aktuelle, belegte und vielfältige Prognosen – keine Rangliste "
-                "garantierter Sicherheit. Der Preisstatus sortiert die Karten nicht um.</p>"
                 "</div>",
                 unsafe_allow_html=True,
             )
@@ -4848,8 +4845,6 @@ def _render_automated_daily_selection() -> None:
             st.markdown(
                 '<div class="wf-additional-heading">'
                 "<h2>Weitere Auswahlen</h2>"
-                "<p>Ergänzungen zum selben Spiel widersprechen sich nicht. "
-                "Das ist keine Kombiwetten-Empfehlung.</p>"
                 "</div>",
                 unsafe_allow_html=True,
             )
@@ -5154,8 +5149,7 @@ def main() -> None:
 
     st.divider()
     st.caption(
-        "Modellwahrscheinlichkeiten können falsch sein. Glücksspiel birgt finanzielles Risiko; "
-        "kein Ergebnis ist garantiert."
+        "Modellwerte sind Schätzungen. Wetten können zum Verlust des Einsatzes führen."
     )
     _render_mobile_nav(st.session_state.get("workspace", "Wettfinder"))
 

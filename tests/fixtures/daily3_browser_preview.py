@@ -23,6 +23,9 @@ st.warning('LOKALE UI-PRÜFUNG · Beispieldaten, keine echten Tipps oder Kontobe
 st.session_state['_betboy_account_scope'] = 'f'*32
 now = datetime(2030, 1, 1, 12, tzinfo=timezone.utc)
 importlib.reload(daily3_ui)
+pool = (football(1, now=now), football(2, 'BTTS_YES', now=now), tennis(now=now))
+if st.query_params.get('state') == 'empty':
+    pool = ()
 daily3_ui.render_daily3(st, now=now,
-    snapshot_loader=lambda **kwargs: SimpleNamespace(forecasts=(football(1, now=now), football(2, 'BTTS_YES', now=now), tennis(now=now))),
+    snapshot_loader=lambda **kwargs: SimpleNamespace(forecasts=pool),
     store_factory=lambda: Daily3Store(database, key=b'q'*32, clock=lambda: now))

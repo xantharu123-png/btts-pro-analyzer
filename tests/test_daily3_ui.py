@@ -29,10 +29,16 @@ def test_shared_pool_actual_count_and_unfilled_slots(tmp_path, count):
     app = AppTest.from_function(_render_pool, args=(str(tmp_path/'day.db'), count)).run(timeout=30)
     assert not app.exception
     captions = ' '.join(c.value for c in app.caption)
-    assert 'Wettfinder' in captions and 'keine zweite unabhängige Bestätigung' in captions
-    assert f'{count} von 3 noch freien Slots' in captions
+    assert 'CHF 50 Tagesbudget' in captions and 'Ziel +CHF 150, nicht garantiert' in captions
+    assert 'Prognosepool' not in captions and 'freien Slots' not in captions
+    assert any(p.proto.popover.label == 'Auswahl & Regeln' for p in app.get('popover'))
+    assert any('keine unabhängige Zweitbestätigung' in m.value for m in app.markdown)
     if count == 0:
-        assert any('Aktuell fehlen weitere' in i.value for i in app.info)
+        assert [i.value for i in app.info] == ['Heute noch keine passende defensive Auswahl.']
+        assert not app.subheader
+        assert len(captions.split()) < 32
+    else:
+        assert any(s.value.startswith(f'{count} defensive Modell-Auswahl') for s in app.subheader)
     if count == 3:
         _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
         _field(app, 'text_input', 'stake:').set_value('10')
@@ -40,7 +46,8 @@ def test_shared_pool_actual_count_and_unfilled_slots(tmp_path, count):
         _field(app, 'checkbox', 'exact:').check()
         _button(app, 'Einsatz vormerken').click().run()
         assert not app.exception
-        assert '2 von 2 noch freien Slots' in ' '.join(c.value for c in app.caption)
+        assert any(s.value == '2 defensive Modell-Auswahlen' for s in app.subheader)
+        assert '1/3 Wetten erfasst' in ' '.join(c.value for c in app.caption)
 
 
 def _render(db_path, missing_identity=False, price_state=None):
@@ -58,7 +65,7 @@ def _render(db_path, missing_identity=False, price_state=None):
         st.session_state['_betboy_account_scope'] = 'a'*32
     def loader(**kwargs):
         st.session_state['snapshot_loads'] = st.session_state.get('snapshot_loads', 0)+1
-        probability = .7 if st.session_state.get('changed_model') else .65
+        probability = .8 if st.session_state.get('changed_model') else .75
         signal = football(probability=probability)
         if price_state in ('too_low', 'stale'):
             observed_at = NOW - timedelta(hours=2) if price_state == 'stale' else NOW
@@ -142,6 +149,8 @@ def test_too_low_current_quote_warns_without_hiding_selection_or_money_flow(tmp_
         for warning in app.warning
     )
     assert any('Heimteam 1' in item.value for item in app.subheader)
+    assert any('Kaderstand nicht belegt' in item.value for item in app.markdown)
+    assert not any('Modell-Auswahl bleibt unverändert' in item.value for item in app.markdown)
     _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
     assert not app.exception
     assert any(button.label == 'Einsatz vormerken' for button in app.button)

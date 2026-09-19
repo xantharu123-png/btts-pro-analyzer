@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from account_identity import AccountScopeUnavailable, storage_scope
 from daily3_math import Daily3Error, decimal_odds, format_chf, parse_chf
 from daily3_identity import event_guard
-from daily3_selection import daily3_choices
+from daily3_selection import MIN_MODEL_PROBABILITY, daily3_choices
 from daily3_store import Daily3Store, day_balance
 from runtime_paths import RUNTIME_STATE_DIR
 from wettfinder_surface import build_wettfinder_card, format_probability
@@ -160,8 +160,13 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
     notice = st.session_state.pop('_daily3_notice', None)
     if notice:
         st.error(notice[1])
-    st.caption('Bis zu drei Einzelwetten. CHF 50 eigenes Tagesbudget; nur abgerechnete Gewinne weiterverwenden. Kein Nachschuss.')
-    st.caption('CHF 150 ist ein Wunschziel, kein erwarteter Tagesgewinn. Wetten sind kein verlässliches Einkommen.')
+    st.caption('CHF 50 Tagesbudget · bis zu 3 Einzelwetten · Ziel +CHF 150, nicht garantiert')
+    with st.popover('Auswahl & Regeln'):
+        st.write(f'Defensives Modellprofil: mindestens {MIN_MODEL_PROBABILITY:.0%} Modellschätzung, aktuelle belegte Grundlagen, höchste Modellchance zuerst. Bei Gleichstand zählt die Vielfalt. Eine Auswahl pro Spiel.')
+        st.write('Diese Auswahl nutzt den Prognosepool des Wettfinders, aber eine eigene Auswahlregel. Sie ist keine unabhängige Zweitbestätigung und keine nachgewiesene Sicherheitsrangliste. Fehlende Kontextdaten bleiben am Spiel sichtbar.')
+        st.write('Quote und CHF-150-Ziel ändern weder Prognose noch Reihenfolge. Defensivere Auswahlen können niedrige Quoten haben. Drei passende Auswahlen sind nicht täglich verfügbar.')
+        st.write('Maximal CHF 50 eigene Mittel pro Tag, kein Nachschuss. Nur endgültig abgerechnete Rückzahlungen werden wieder verfügbar. Verfügbar ist eine Obergrenze, keine Einsatzempfehlung. Auch Gewinne können wieder verloren gehen.')
+        st.write('Echte Wetten werden manuell erfasst; keine Buchmacheranbindung. Das Limit gilt nur für diesen Browserbereich, nicht für externe Wetten oder spätere Buchmacherkorrekturen. Wetten sind kein verlässliches Einkommen.')
     if snapshot_loader is None:
         from ev_signal_sources import automated_wettfinder_snapshot
         snapshot_loader = automated_wettfinder_snapshot
@@ -169,7 +174,7 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
     try:
         scope = storage_scope(st.session_state)
     except AccountScopeUnavailable:
-        st.info('Die dauerhafte Browser-ID wird geladen. Auswahlen ansehen ist bereits möglich; Einsätze erst nach der Zuordnung.')
+        st.info('Kontozuordnung lädt. Auswahlen sind sichtbar; Einsätze danach verfügbar.')
         scope = None
     store, history, storage_ready = None, {}, False
     if scope:
@@ -194,7 +199,7 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
             columns = st.columns(2)
             for column, (label, value) in zip(columns, labels):
                 column.metric(label, value)
-        st.caption(f'{state.used_slots}/3 Slots belegt · Verfügbar ist eine Obergrenze, keine Einsatzempfehlung.')
+        st.caption(f'{state.used_slots}/3 Wetten erfasst · Verfügbar ist keine Einsatzempfehlung.')
         if state.available_cents < 0:
             st.warning('Die tatsächlichen Buchungen überschreiten das Budget. Keine weiteren Vormerkungen; es wird nichts künstlich ausgeglichen.')
         if state.closed:
@@ -203,7 +208,6 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
             st.button('Für heute beenden', key='d3-close:'+scope+today,
                       **_callback(st, store, scope, 'close:'+scope+today, 'close', today, dict))
     else:
-        st.subheader('Eigenes Tagesbudget: CHF 50.00')
         if storage_ready and not prior_pending:
             st.button('CHF 50 Tagesbudget bestätigen', key='d3-start:'+scope+today,
                       **_callback(st, store, scope, 'start:'+scope+today, 'start', today, dict))
@@ -211,14 +215,11 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
     occupied_guards = [b['snapshot']['event_guard'] for b in day['bets'].values() if b['status'] != 'cancelled'] if day else []
     used = day_balance(day).used_slots if day else 0
     choices = daily3_choices(snapshot.forecasts, now=now, occupied_events=occupied, occupied_guards=occupied_guards, used_slots=used)
-    st.caption('Diese Auswahl nutzt denselben Prognosepool wie der Wettfinder – keine zweite unabhängige Bestätigung.')
-    if used < 3:
-        st.caption(f'{len(choices)} von {3-used} noch freien Slots mit einer aktuellen Auswahl; fehlende Plätze bleiben offen.')
     if choices:
-        st.subheader('Aktuelle Modell-Auswahlen')
-        st.caption('Nach belegten Modellgrundlagen, Aktualität und Marktvielfalt ausgewählt – nicht nach Quote. Keine Rangliste garantierter Sicherheit.')
+        noun = 'Auswahl' if len(choices) == 1 else 'Auswahlen'
+        st.subheader(f'{len(choices)} defensive Modell-{noun}')
     elif used < 3:
-        st.info('Aktuell fehlen weitere ausreichend begründete Tagesauswahlen. Alle vorhandenen Modellprognosen bleiben unter „Automatisch“ sichtbar.')
+        st.info('Heute noch keine passende defensive Auswahl.')
     can_reserve = storage_ready and day is not None and not day['closed'] and not prior_pending
     choice_panels = st.columns(len(choices)) if choices else []
     for index, choice in enumerate(choices):
@@ -235,18 +236,16 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
             st.write(choice.caution)
             st.caption(f'Modellstand: {choice.sampled_at.astimezone(_TZ):%d.%m. %H:%M}')
             card = build_wettfinder_card(choice.signal, choice.signal.reference_quote, now=now)
-            if card.observed_odds is None:
-                st.write('Vergleichsquote derzeit nicht verfügbar. Die Modell-Auswahl bleibt unverändert.')
-            else:
-                st.write(f'Beobachtete Vergleichsquote: {card.observed_odds:.2f}. Die eigene Buchmacherquote separat prüfen.')
+            if card.observed_odds is not None:
+                st.write(f'Vergleichsquote: {card.observed_odds:.2f}')
             if card.price_code == 'TOO_LOW':
-                st.warning('Die beobachtete Quote liegt unter der berechneten Preisschwelle. Die Modell-Auswahl bleibt unverändert.')
+                st.warning('Quote unter der berechneten Preisschwelle – Preis prüfen.')
             elif card.price_code in {'BORDERLINE', 'THIN', 'INVALID_MINIMUM'}:
-                st.warning(f'Preisstatus: {card.price_label}. Das ist keine Preisfreigabe; die Modell-Auswahl bleibt unverändert.')
+                st.warning(f'{card.price_label} · Preis noch nicht bestätigt.')
             elif card.price_code in {'STALE', 'UNAVAILABLE'}:
-                st.info(f'Preisstatus: {card.price_label}. Es liegt keine aktuelle Preisfreigabe vor; die Modell-Auswahl bleibt unverändert.')
+                st.info(f'{card.price_label} · Eigene Buchmacherquote prüfen.')
             elif card.price_code == 'PLAYABLE':
-                st.caption(f'Preisstatus: {card.price_label}. Die Modell-Auswahl bleibt unverändert.')
+                st.caption(f'Preis: {card.price_label}')
             if can_reserve:
                 with st.form('d3-reserve:'+key):
                     _money_input(st, 'Eigener Einsatz in CHF', 'stake:'+key)
@@ -291,4 +290,4 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
                 _saved_bet(st, store, scope, selected_day, bet)
     if storage_ready:
         _external_bet(st, store, scope, history, today, now)
-    st.caption('Manuell erfasste Echtgeldwetten, keine Buchmacheranbindung. Das Limit gilt in diesem Browserbereich; externe Wetten und spätere Buchmacherkorrekturen kann die App nicht verhindern.')
+    st.caption('Manuelle Erfassung · Keine Buchmacheranbindung · Verlustrisiko bleibt')

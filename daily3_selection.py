@@ -1,10 +1,11 @@
-"""Price-blind Daily3 presentation policy; not a calibrated safety ranking.
+"""Defensive, price-blind model shortlist, not a certified safety ranking.
 
-v1 prefers individually explainable, current model selections, diversifies
-sport/market families and keeps one selection per unambiguous event. Only
-mutually exclusive directions in the same event/model revision are compared
-by probability. Haircut, minimum/observed odds, RELEASED flags and account
-money are not ranking inputs. The ordinary full catalog is never modified.
+v2 requires at least 70% model probability on top of the existing exact-bound
+evidence and freshness checks. Higher model probability precedes diversity;
+diversity only breaks ties. This is a product preference, NOT an empirical
+lower confidence bound or proof of lower actual loss risk across models.
+Haircut, minimum/observed odds, RELEASED flags, target profit and account money
+are not ranking inputs. The ordinary full catalog is never modified.
 """
 from collections import Counter
 from dataclasses import dataclass
@@ -17,7 +18,9 @@ from forecast_analysis import build_forecast_analysis, forecast_highlight_reason
 from forecast_selection import select_consumer_forecasts
 from selection_coherence import consumer_event_identity
 
-POLICY_VERSION = 'daily3-evidence-diversity-v1'
+POLICY_VERSION = 'daily3-defensive-model-v2'
+# Deliberate shortlist threshold, not a learned/calibrated safety boundary.
+MIN_MODEL_PROBABILITY = 0.70
 _TZ = ZoneInfo('Europe/Zurich')
 _SPORTS = {'fussball': 'football', 'fußball': 'football', 'football': 'football',
            'tennis': 'tennis', 'basketball': 'basketball', 'eishockey': 'hockey',
@@ -83,7 +86,7 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
         if any(events_overlap(event_guard(s), guard) for guard in guards):
             continue
         explanation = _explanation(s, sport, now)
-        if explanation is None:
+        if explanation is None or not MIN_MODEL_PROBABILITY <= s.probability < 1:
             continue
         spec = MARKET_BY_KEY.get(s.market_key) if sport == 'football' else None
         family = spec.kind if spec else s.market_key
@@ -91,9 +94,10 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
     unique = prepared
     selected, sport_count, family_count = [], Counter(), Counter()
     while unique and len(selected) < max(0, 3-used_slots):
-        unique.sort(key=lambda c: (sport_count[c.sport], family_count[(c.sport, c.family)],
+        unique.sort(key=lambda c: (-c.signal.probability,
+                                   sport_count[c.sport], family_count[(c.sport, c.family)],
                                    -c.sampled_at.timestamp(), c.start, c.event_id, c.signal.key))
-        # The shared complete pool is already coherent. Slot diversification
+        # The shared complete pool is already coherent. Defensive shortlisting
         # may only remove rows; it cannot re-anchor an opposing scenario.
         match = unique[0]
         selected.append(match)

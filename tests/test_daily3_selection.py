@@ -5,14 +5,14 @@ import pytest
 
 from challenge_engine import MARKET_BY_KEY
 from daily3_identity import event_guard
-from daily3_selection import daily3_choices
+from daily3_selection import MIN_MODEL_PROBABILITY, POLICY_VERSION, daily3_choices
 from ev_signal_sources import ModelSignal, _automated_analysis_fields
 from forecast_analysis import project_football_analysis
 
 NOW = datetime(2030, 1, 1, 12, tzinfo=timezone.utc)
 
 
-def football(fixture=1, key='RESULT_HOME', probability=.65, *, now=NOW):
+def football(fixture=1, key='RESULT_HOME', probability=.75, *, now=NOW):
     spec = MARKET_BY_KEY[key]
     row = dict(candidate_id=f'{fixture}:{key}', fixture_id=fixture,
         home_id=fixture*2, away_id=fixture*2+1, home_team=f'Heimteam {fixture}', away_team=f'Auswärtsteam {fixture}',
@@ -31,7 +31,7 @@ def football(fixture=1, key='RESULT_HOME', probability=.65, *, now=NOW):
 
 
 def tennis(*, now=NOW, coverage=True):
-    return ModelSignal(key='tennis1', label='Spieler A vs Spieler B', probability=.66, probability_haircut=.08,
+    return ModelSignal(key='tennis1', label='Spieler A vs Spieler B', probability=.76, probability_haircut=.08,
         evidence_stage='SHADOW', policy_version='test-v1', detail='unused', scheduled_start=(now+timedelta(hours=2)).isoformat(),
         source='tennis_model', sport='Tennis', event_label='Spieler A vs Spieler B', market='Match Winner',
         selection='Sieg Spieler A', market_key='H2H', competitor_a='Spieler A', competitor_b='Spieler B', selected_competitor='Spieler A',
@@ -45,7 +45,7 @@ def tennis(*, now=NOW, coverage=True):
 
 def test_no_opposing_selections_and_full_pool_diversity_before_cut():
     pool = [football(i, 'HOME_OVER_0_5', .85) for i in range(1, 41)]
-    pool += [football(41, 'BTTS_YES', .61), football(42, 'TOTAL_OVER_2_5', .6), football(41, 'BTTS_NO', .39)]
+    pool += [football(41, 'BTTS_YES', .85), football(42, 'TOTAL_OVER_2_5', .85), football(41, 'BTTS_NO', .15)]
     choices = daily3_choices(pool, now=NOW)
     assert len(choices) == 3 and len({c.event_id for c in choices}) == 3
     assert len({c.family for c in choices}) == 3
@@ -103,10 +103,48 @@ def test_bare_high_probability_does_not_create_an_explanation_or_force_three():
     assert len(daily3_choices([s], now=NOW)) == 1
 
 
-def test_same_model_result_does_not_pick_weaker_away_direction_by_alphabet():
+def test_low_probability_modal_winner_is_not_a_defensive_daily3_choice():
     choices = daily3_choices([football(1, 'RESULT_AWAY', .21), football(1, 'RESULT_HOME', .46),
                              football(1, 'RESULT_DRAW', .33)], now=NOW)
-    assert len(choices) == 1 and choices[0].signal.market_key == 'RESULT_HOME'
+    assert choices == ()
+
+
+@pytest.mark.parametrize('probability,eligible', [(.195, False), (.5, False), (.699999, False), (.7, True), (.9, True)])
+def test_defensive_threshold_is_price_free_and_does_not_erase_normal_forecasts(probability, eligible):
+    from forecast_selection import select_consumer_forecasts
+    signal = football(probability=probability)
+    assert bool(daily3_choices([signal], now=NOW)) is eligible
+    assert select_consumer_forecasts([signal], now=NOW) == [signal]
+    assert MIN_MODEL_PROBABILITY == .7
+
+
+def test_defensive_probability_precedes_diversity_and_fresher_but_weaker_models():
+    strong = [football(i, 'HOME_OVER_0_5', .85, now=NOW-timedelta(minutes=10)) for i in range(1, 4)]
+    alternatives = [football(4, 'BTTS_YES', .71), tennis(), football(5, 'TOTAL_OVER_2_5', .72)]
+    pool = strong + alternatives
+    before = tuple(pool)
+    for ordering in (pool, list(reversed(pool))):
+        choices = daily3_choices(ordering, now=NOW)
+        assert {c.signal.key for c in choices} == {s.key for s in strong}
+        assert all(c.snapshot()['policy_version'] == POLICY_VERSION for c in choices)
+    assert tuple(pool) == before
+
+
+def test_no_defensive_backfill_or_return_to_an_older_higher_probability():
+    old = football(probability=.95, now=NOW-timedelta(minutes=1))
+    new = football(probability=.60)
+    assert daily3_choices([old, new, football(2, probability=.69)], now=NOW) == ()
+
+
+def test_defensive_profile_never_uses_an_unexplained_high_probability_or_haircut():
+    unqualified = replace(football(1, probability=.99), analysis_evidence=None)
+    qualified = football(2, probability=.75)
+    rows = [unqualified, qualified, football(3, probability=.74)]
+    baseline = daily3_choices(rows, now=NOW)
+    changed = daily3_choices([replace(s, probability_haircut=.01, minimum_odds=999) for s in rows], now=NOW)
+    assert [c.signal.key for c in baseline] == [qualified.key, '3:RESULT_HOME']
+    assert [c.signal.key for c in changed] == [c.signal.key for c in baseline]
+    assert 'Kaderstand nicht belegt' in baseline[0].caution
 
 
 def test_persisted_weak_identity_cannot_reappear_after_native_id_upgrade():
