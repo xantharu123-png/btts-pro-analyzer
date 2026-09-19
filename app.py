@@ -1,6 +1,7 @@
 """Responsive BetBoy analysis workspace."""
 
 import importlib
+import hashlib
 from functools import wraps
 import math
 import sqlite3
@@ -84,6 +85,8 @@ from wettfinder_surface import (
     WettfinderReleaseOverlay,
     build_wettfinder_card,
     compose_wettfinder_catalog,
+    group_wettfinder_games,
+    wettfinder_game_label,
     render_compact_row_html,
     render_top_card_html,
     wettfinder_quote_binding_candidate,
@@ -1262,6 +1265,31 @@ def _apply_app_styles() -> None:
         .st-key-wettfinder_v2_page .wf-row-value strong {
             font-size: 0.83rem;
             margin-top: 0.1rem;
+        }
+
+        .st-key-wettfinder_v2_page .wf-row .wf-group-price-note {
+            grid-column: 1 / -1; margin: 0; color: var(--bb-muted);
+            font-size: 0.74rem; overflow-wrap: anywhere;
+        }
+        [class*="st-key-wettfinder_v2_game_"] [data-testid="stExpander"] {
+            background: var(--bb-surface); border-radius: 13px;
+            min-width: 0; max-width: 100%;
+        }
+        [class*="st-key-wettfinder_v2_game_"] [data-testid="stExpander"] summary {
+            min-height: 48px; overflow-wrap: anywhere;
+        }
+        [class*="st-key-wettfinder_v2_game_market_"] {
+            border-top: 1px solid var(--bb-line);
+            padding: 0.8rem 0; min-width: 0;
+        }
+        .st-key-wettfinder_v2_page [data-testid="stExpanderDetails"][inert] .wf-fact > summary::after {
+            content: none;
+        }
+        @media (min-width: 1081px) {
+            .st-key-wettfinder_v2_page .wf-row[data-grouped="true"] {
+                grid-template-columns: minmax(9rem, 1.4fr)
+                    repeat(4, minmax(0, 0.65fr)) minmax(0, 1fr);
+            }
         }
 
         div[data-baseweb="popover"]:has([class*="st-key-bet_price_wettfinder_v2_"]),
@@ -4761,6 +4789,68 @@ def _render_wettfinder_card_actions(signal, card, candidate, binding, evaluation
             )
 
 
+def _wettfinder_game_key(group) -> str:
+    # Never key state by position, displayed names, odds or market count.
+    identity = hashlib.sha256(group.fixture_identity.encode('utf-8')).hexdigest()
+    return 'wettfinder_v2_game_' + identity
+
+
+def _remember_wettfinder_game_state(widget_key: str) -> None:
+    value = st.session_state.get(widget_key)
+    if isinstance(value, bool):
+        remembered = dict(st.session_state.get('_wettfinder_game_open', {}))
+        remembered[widget_key] = value
+        st.session_state['_wettfinder_game_open'] = remembered
+
+
+def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
+    key = _wettfinder_game_key(group)
+    remembered = st.session_state.get('_wettfinder_game_open', {})
+    # Restore after a page/filter temporarily removed this widget. The private
+    # preference dictionary is not subject to Streamlit widget cleanup.
+    if key not in st.session_state and isinstance(remembered.get(key), bool):
+        st.session_state[key] = remembered[key]
+    initially_open = any(card.key in featured_keys for card in group.cards)
+    with st.expander(
+        wettfinder_game_label(group), expanded=initially_open, key=key,
+        on_change=_remember_wettfinder_game_state, args=(key,),
+    ):
+        for card in group.cards:
+            signal, card, candidate, binding, evaluation = row_by_key[card.key]
+            with st.container(key=f'wettfinder_v2_game_market_{card.manual_quote_key}'):
+                st.markdown(render_compact_row_html(
+                    card, grouped=True, featured=card.key in featured_keys,
+                ), unsafe_allow_html=True)
+                _render_wettfinder_card_actions(signal, card, candidate, binding, evaluation)
+
+
+def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str) -> None:
+    featured_keys = {card.key for card in catalog.featured}
+    groups = group_wettfinder_games(catalog)
+    featured = tuple(group for group in groups if any(card.key in featured_keys for card in group.cards))
+    additional = tuple(group for group in groups if not any(card.key in featured_keys for card in group.cards))
+    if featured:
+        with st.container(key='wettfinder_v2_section_header'):
+            st.markdown('<div class="wf-section-heading"><h2>Aktuelle Modell-Auswahlen</h2></div>',
+                        unsafe_allow_html=True)
+        for group in featured:
+            _render_wettfinder_game(group, row_by_key, featured_keys)
+    if additional:
+        with st.container(key='wettfinder_v2_additional'):
+            st.markdown('<div class="wf-additional-heading"><h2>Weitere Spiele</h2></div>',
+                        unsafe_allow_html=True)
+            # Page complete games, never cut a game's markets across pages.
+            page_size = 20
+            pages = (len(additional) + page_size - 1) // page_size
+            page = st.selectbox('Spiele – Seite', list(range(1, pages + 1)),
+                                key=f'wettfinder_games_page_{sport_filter}_{pages}') if pages > 1 else 1
+            first = (page - 1) * page_size
+            if pages > 1:
+                st.caption(f'{first + 1}–{min(first + page_size, len(additional))} von {len(additional)} weiteren Spielen')
+            for group in additional[first:first + page_size]:
+                _render_wettfinder_game(group, row_by_key, featured_keys)
+
+
 def _render_automated_daily_selection() -> None:
     evaluation_now = datetime.now(timezone.utc)
     snapshot = automated_wettfinder_snapshot(now=evaluation_now)
@@ -4846,67 +4936,7 @@ def _render_automated_daily_selection() -> None:
         card.key: (signal, card, candidate, binding, evaluation)
         for signal, card, candidate, binding, evaluation in rows
     }
-    if catalog.featured:
-        with st.container(key="wettfinder_v2_section_header"):
-            st.markdown(
-                '<div class="wf-section-heading">'
-                "<h2>Aktuelle Modell-Auswahlen</h2>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-        with st.container(key="wettfinder_v2_top_grid"):
-            top_columns = st.columns(len(catalog.featured))
-            for index, (column, card) in enumerate(
-                zip(top_columns, catalog.featured),
-                start=1,
-            ):
-                signal, card, candidate, binding, evaluation = row_by_key[card.key]
-                with column:
-                    with st.container(key=f"wettfinder_v2_top_card_{index}"):
-                        st.markdown(
-                            render_top_card_html(card),
-                            unsafe_allow_html=True,
-                        )
-                        _render_wettfinder_card_actions(
-                            signal,
-                            card,
-                            candidate,
-                            binding,
-                            evaluation,
-                        )
-
-    if catalog.additional:
-        with st.container(key="wettfinder_v2_additional"):
-            st.markdown(
-                '<div class="wf-additional-heading">'
-                "<h2>Weitere Auswahlen</h2>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-            page_size = 20
-            pages = (len(catalog.additional) + page_size - 1) // page_size
-            page = st.selectbox(
-                "Weitere Auswahlen – Seite", list(range(1, pages + 1)),
-                key=f"wettfinder_catalog_page_{sport_filter}_{pages}",
-            ) if pages > 1 else 1
-            first = (page - 1) * page_size
-            st.caption(f"{first + 1}–{min(first + page_size, len(catalog.additional))} von {len(catalog.additional)} weiteren Prognosen · Sicherheitswerte sind heuristische Rechenwerte.")
-            for index, card in enumerate(catalog.additional[first:first + page_size], start=first + 1):
-                signal, card, candidate, binding, evaluation = row_by_key[card.key]
-                with st.container(
-                    key=f"wettfinder_v2_additional_row_{index}"
-                ):
-                    st.markdown(
-                        render_compact_row_html(card),
-                        unsafe_allow_html=True,
-                    )
-                    _render_wettfinder_card_actions(
-                        signal,
-                        card,
-                        candidate,
-                        binding,
-                        evaluation,
-                    )
+    _render_wettfinder_games(catalog, row_by_key, sport_filter=sport_filter)
 
 
 def _render_selected_finder(

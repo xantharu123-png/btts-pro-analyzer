@@ -887,62 +887,31 @@ def test_sixteenth_different_market_survives_repeated_markets_and_90_event_catal
     assert [card.key for card in repriced.additional] == [card.key for card in catalog.additional]
 
 
-def test_production_additional_renderer_pages_20_without_truncating_the_catalog():
-    # Execute the real app branch without importing Streamlit's module-level
-    # application/bootstrap side effects. This checks widget routing, not CSS.
-    import ast
-    from contextlib import nullcontext
-    from pathlib import Path
+def test_production_renderer_pages_20_complete_games_without_splitting_markets(monkeypatch):
+    import app
+    from test_workflow_integrity import _RecordingStreamlit
 
-    source = Path(__file__).resolve().parents[1] / "app.py"
-    tree = ast.parse(source.read_text(encoding="utf-8-sig"))
-    renderer = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_render_automated_daily_selection")
-    branch = next(node for node in renderer.body if isinstance(node, ast.If) and isinstance(node.test, ast.Attribute) and node.test.attr == "additional")
-    module = ast.fix_missing_locations(ast.Module(body=[branch], type_ignores=[]))
-    code = compile(module, str(source), "exec")
+    # More than two full pages, three selections in every game.
     cards = [_card(_signal(
-        f"page-{index}", event=f"Home {index} vs Away {index}",
-        market="Beide Teams treffen", market_key="BTTS_YES", selection="Ja",
-    )) for index in range(90)]
-    catalog = surface.compose_wettfinder_catalog(cards)
+        f'page-{game}-{key}', event=f'Home {game} vs Away {game}', market_key=key,
+    )) for game in range(41) for key in ('DC_1X', 'TOTAL_OVER_2_5', 'HOME_OVER_1_5')]
+    catalog = surface.WettfinderCatalog((), tuple(cards), ())
     row_by_key = {card.key: (None, card, None, None, None) for card in cards}
-
-    class PagingStreamlit:
-        page = 1
-        options = ()
-
-        def container(self, **_kwargs):
-            return nullcontext()
-
-        def markdown(self, *_args, **_kwargs):
-            pass
-
-        def caption(self, *_args, **_kwargs):
-            pass
-
-        def selectbox(self, _label, options, **_kwargs):
-            self.options = tuple(options)
-            return self.page
-
-    streamlit = PagingStreamlit()
-    seen = []
-    namespace = {
-        "st": streamlit, "catalog": catalog, "sport_filter": "Alle",
-        "row_by_key": row_by_key, "render_compact_row_html": surface.render_compact_row_html,
-        "_render_wettfinder_card_actions": lambda _signal, card, *_: seen.append(card.key),
-    }
-    pages = (len(catalog.additional) + 19) // 20
-    sizes = []
-    for page in range(1, pages + 1):
-        streamlit.page = page
+    seen, groups_per_page = [], []
+    monkeypatch.setattr(app, '_render_wettfinder_card_actions',
+                        lambda _signal, card, *_: seen.append(card.key))
+    for page in (1, 2, 3):
+        recording = _RecordingStreamlit(widget_values={'wettfinder_games_page_Alle_3': page})
+        monkeypatch.setattr(app, 'st', recording)
         before = len(seen)
-        exec(code, namespace)
-        sizes.append(len(seen) - before)
-    assert streamlit.options == tuple(range(1, pages + 1))
-    assert sizes[:-1] == [20] * (pages - 1)
-    assert 1 <= sizes[-1] <= 20
-    assert seen == [card.key for card in catalog.additional]
-    assert len(catalog.featured) + len(catalog.additional) == 90
+        app._render_wettfinder_games(catalog, row_by_key, sport_filter='Alle')
+        groups_per_page.append(len(recording.expanders))
+        assert len(seen) - before == 3 * len(recording.expanders)
+        assert recording.selectboxes[0][1] == (1, 2, 3)
+        assert all('3 Auswahlen' in label for label, _expanded in recording.expanders)
+    assert groups_per_page == [20, 20, 1]
+    assert seen == [card.key for card in cards]
+    assert len(set(seen)) == 123
 
 
 def test_market_key_drives_basis_treatment_for_corners_and_yellow_markets():

@@ -100,7 +100,7 @@ class WettfinderCard:
 
 @dataclass(frozen=True)
 class WettfinderFixtureGroup:
-    """Adjacent secondary rows for one sport-specific event identity."""
+    """Selections for one sport-specific event identity."""
 
     fixture_identity: str
     label: str
@@ -589,6 +589,24 @@ def compose_wettfinder_catalog(
     return WettfinderCatalog(featured, additional, groups)
 
 
+def group_wettfinder_games(catalog: WettfinderCatalog) -> tuple[WettfinderFixtureGroup, ...]:
+    """Move all displayed markets of a game into one block, including highlights.
+
+    No new selection, ranking, price check or truncation. Coherence has already
+    run on the complete pool. Highlighted games come first; each card stays the
+    original object and appears once.
+    """
+    return _group_additional((*catalog.featured, *catalog.additional))
+
+
+def wettfinder_game_label(group: WettfinderFixtureGroup) -> str:
+    """Plain event facts, safely escaped for Streamlit's Markdown labels."""
+    first = group.cards[0]
+    noun = 'Auswahl' if len(group.cards) == 1 else 'Auswahlen'
+    label = f'{group.label} · {first.sport} · {first.scheduled_start_label} · {len(group.cards)} {noun}'
+    return re.sub(r'([\\`*_{}\[\]()<>!|~#])', r'\\\1', ' '.join(label.split()))
+
+
 _PRICE_NOTES = {
     "PLAYABLE": "Die aktuelle Quote erreicht den Value-Bereich.",
     "TOO_LOW": "Aktuelle Quote unter Value. Die Prognose bleibt unverändert.",
@@ -713,19 +731,33 @@ def _top_card_markup(card: WettfinderCard) -> str:
     )
 
 
-def _compact_row_markup(card: WettfinderCard) -> str:
+def _compact_row_markup(card: WettfinderCard, *, grouped: bool = False, featured: bool = False) -> str:
     """Render one flat comparison row without duplicating full-card copy."""
 
     price = format_decimal_odds(card.observed_odds)
     bookmaker_note = card.bookmaker if price != "–" else None
+    event = '' if grouped else (
+        '<div class="wf-row-event"><span class="wf-row-meta">'
+        f'{escape(card.sport)} · {escape(card.scheduled_start_label)}</span>'
+        f'<strong>{escape(card.event_label)}</strong></div>'
+    )
+    group_attribute = ' data-grouped="true"' if grouped else ''
+    # The prominent selection keeps its price caveat, even inside a game block.
+    price_note = ''
+    if featured:
+        message = _PRICE_NOTES.get(card.price_code, 'Wettpreis separat prüfen.')
+        if card.price_code == 'PLAYABLE' and not card.confirmed_tip:
+            message = 'Die Quote erreicht den Value-Bereich; noch kein freigegebener Tipp.'
+        price_note = (
+            '<p class="wf-group-price-note">Sicherheitswert: heuristischer Abschlag, '
+            'keine gesicherte Mindestchance. '
+            f'{escape(message)}</p>'
+        )
     return (
-        f'<article class="wf-row" data-key="{escape(card.key, quote=True)}" '
+        f'<article class="wf-row"{group_attribute} data-key="{escape(card.key, quote=True)}" '
         f'data-price-code="{escape(card.price_code, quote=True)}" '
         f'aria-label="Modellprognose für {escape(card.event_label, quote=True)}">'
-        '<div class="wf-row-event">'
-        '<span class="wf-row-meta">'
-        f"{escape(card.sport)} · {escape(card.scheduled_start_label)}</span>"
-        f"<strong>{escape(card.event_label)}</strong></div>"
+        f'{event}'
         '<div class="wf-row-pick">'
         f'<span class="wf-row-label">{escape(card.market)}</span>'
         f"<strong>{escape(card.selection)}</strong></div>"
@@ -733,8 +765,9 @@ def _compact_row_markup(card: WettfinderCard) -> str:
         f'{_row_value("Sicherheitswert", format_probability(card.cautious_probability))}'
         f'{_row_value("Risikopreis ab", format_decimal_odds(card.value_threshold))}'
         f'{_row_value("Aktuell", price, note=bookmaker_note)}'
-        f"{_status_badges(card, featured=False)}"
+        f"{_status_badges(card, featured=featured)}"
         f"{_analysis_markup(card)}"
+        f'{price_note}'
         "</article>"
     )
 
@@ -745,10 +778,10 @@ def render_top_card_html(card: WettfinderCard) -> str:
     return _top_card_markup(card)
 
 
-def render_compact_row_html(card: WettfinderCard) -> str:
+def render_compact_row_html(card: WettfinderCard, *, grouped: bool = False, featured: bool = False) -> str:
     """Return escaped standalone markup for one flat additional row."""
 
-    return _compact_row_markup(card)
+    return _compact_row_markup(card, grouped=grouped, featured=featured)
 
 
 __all__ = [
@@ -758,6 +791,8 @@ __all__ = [
     "WettfinderReleaseOverlay",
     "build_wettfinder_card",
     "compose_wettfinder_catalog",
+    "group_wettfinder_games",
+    "wettfinder_game_label",
     "format_decimal_odds",
     "format_probability",
     "format_scheduled_start",

@@ -858,7 +858,7 @@ def test_wettfinder_manual_mode_keeps_every_sport_horizon_market_and_all_tab(
     assert rendered_sports == list(app.FINDER_SINGLE_SPORT_OPTIONS)
 
 
-def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
+def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
     monkeypatch,
 ):
     now = datetime.now(timezone.utc)
@@ -961,8 +961,9 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
         for key, kwargs, _context in price_calls
     )
     assert all(context != "expander" for _key, _kwargs, context in price_calls)
-    assert recording_st.expanders == []
-    assert recording_st.expander_keys == []
+    assert len(recording_st.expanders) == 4
+    assert all(not expanded for _label, expanded in recording_st.expanders)
+    assert len(set(recording_st.expander_keys)) == 4
     assert html.count('class="wf-analysis-short"') == len(forecasts)
     assert html.count("Modellgrundlagen fehlen") == len(forecasts)
     action_order = [
@@ -970,7 +971,7 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
         for kind, _value in recording_st.event_log
         if kind in {"expander", "price_action"}
     ]
-    assert action_order == ["price_action"] * len(forecasts)
+    assert action_order == ["expander", "price_action"] * len(forecasts)
     # These legacy fixtures intentionally lack attributable model evidence.
     assert html.count('class="wf-top-card"') == 0
     assert html.count('class="wf-row"') == 4
@@ -998,7 +999,7 @@ def test_automatic_all_surface_is_flat_complete_unranked_and_actionable(
         "wettfinder_v2_summary",
         "wettfinder_v2_sports",
         "wettfinder_v2_additional",
-        "wettfinder_v2_additional_row_1",
+        "wettfinder_v2_game_market_football-one",
     }.issubset(set(recording_st.containers))
     heading_event = next(
         index
