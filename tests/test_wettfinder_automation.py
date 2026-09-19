@@ -761,6 +761,16 @@ def test_shared_latest_artifact_gives_daily3_fresh_models_after_overnight_discov
     midday = midnight + timedelta(hours=12)
     path = tmp_path / "wettfinder.json"
     candidate = _challenge_candidate(midday + timedelta(hours=3))
+    candidate.market_comparison = dict(
+        schema='league-market-comparison-v1', fixture_id=candidate.fixture_id,
+        home_id=candidate.home_team_id, away_id=candidate.away_team_id,
+        league_id=candidate.league_id, market_key=candidate.market_key,
+        scheduled_start=candidate.kickoff, prediction_version=candidate.prediction_version,
+        validation_prediction_version=candidate.validation.prediction_version,
+        model_skill_supported=True, samples=400, successes=200,
+        latest_kickoff=(midnight-timedelta(days=1)).isoformat(),
+        probabilities=[candidate.probability]*3,
+    )
     candidate.context = {"passed": True, "forecast_passed": True}
     snapshot = _football_snapshot(midnight)
     snapshot.update(shortlist=[candidate], discovery_candidates=[candidate])

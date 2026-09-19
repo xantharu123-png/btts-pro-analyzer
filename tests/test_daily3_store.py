@@ -224,10 +224,15 @@ def test_scopes_are_separate_and_clock_rollback_cannot_reopen_budget(store):
         reserve(store)
 
 
-def test_native_event_upgrade_cannot_bypass_transactional_slot_guard(store):
+def test_native_event_upgrade_cannot_bypass_transactional_slot_guard(store, monkeypatch):
     from dataclasses import replace
     from test_daily3_selection import tennis
     from daily3_selection import daily3_choices
+    from daily3_comparison import Comparison
+    # Isolate the transactional identity guard from sport-specific model
+    # evidence. This does not fabricate a production tennis comparison.
+    monkeypatch.setattr('daily3_selection.daily3_comparison',
+                        lambda *a, **kw: Comparison(.1, .8, .6, 400))
     command(store, 'start')
     native = tennis(now=NOW)
     weak = replace(native, fixture_source=None, provider_event_id=None, competitor_a_id=None, competitor_b_id=None)

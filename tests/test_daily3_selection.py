@@ -12,22 +12,31 @@ from forecast_analysis import project_football_analysis
 NOW = datetime(2030, 1, 1, 12, tzinfo=timezone.utc)
 
 
-def football(fixture=1, key='RESULT_HOME', probability=.75, *, now=NOW):
+def football(fixture=1, key='RESULT_HOME', probability=.75, *, now=NOW,
+             baseline=.5, variants=None, comparison=True):
     spec = MARKET_BY_KEY[key]
     row = dict(candidate_id=f'{fixture}:{key}', fixture_id=fixture,
         home_id=fixture*2, away_id=fixture*2+1, home_team=f'Heimteam {fixture}', away_team=f'Auswärtsteam {fixture}',
         market_key=key, probability=probability, model_scope='same_competition',
         scheduled_start=(now+timedelta(hours=3)).isoformat(), modeled_at=now.isoformat(),
         input_cutoff_at=(now-timedelta(minutes=1)).isoformat(), context={})
+    reference = dict(schema='league-market-comparison-v1', fixture_id=fixture,
+        home_id=row['home_id'], away_id=row['away_id'], league_id=39, market_key=key,
+        scheduled_start=row['scheduled_start'], prediction_version='test-model-v1',
+        validation_prediction_version='test-model-v1', model_skill_supported=True,
+        samples=400, successes=round(400*baseline), latest_kickoff=(now-timedelta(days=1)).isoformat(),
+        probabilities=list(variants or (probability, probability, probability))) if comparison else None
     evidence = project_football_analysis(row, model_basis={**row,
-        'expected_home_goals': 1.8, 'expected_away_goals': .9, 'venue_samples': [12, 12], 'form_samples': [6, 6]})
+        'expected_home_goals': 1.8, 'expected_away_goals': .9, 'venue_samples': [12, 12],
+        'form_samples': [6, 6], 'market_comparison': reference})
     return ModelSignal(key=row['candidate_id'], label=f'Heimteam {fixture} vs Auswärtsteam {fixture}',
         probability=probability, probability_haircut=.08, evidence_stage='SHADOW', policy_version='test-v1',
         detail='Interne Angaben nicht veröffentlichen', sport='Fußball', event_label=f'Heimteam {fixture} vs Auswärtsteam {fixture}',
         market=spec.market, selection=spec.selection, market_key=key, candidate_id=row['candidate_id'],
         fixture_id=fixture, home_team=row['home_team'], away_team=row['away_team'], home_team_id=row['home_id'],
         away_team_id=row['away_id'], scheduled_start=row['scheduled_start'], modeled_at=row['modeled_at'],
-        input_cutoff_at=row['input_cutoff_at'], model_scope=row['model_scope'], analysis_evidence=evidence)
+        input_cutoff_at=row['input_cutoff_at'], model_scope=row['model_scope'], analysis_evidence=evidence,
+        model_version='test-model-v1')
 
 
 def tennis(*, now=NOW, coverage=True):
@@ -59,7 +68,7 @@ def test_prices_release_flags_and_pool_iteration_cannot_reorder_forecasts():
     after = daily3_choices(changed, now=NOW)
     assert [c.signal.key for c in before] == [c.signal.key for c in after]
     assert [c.signal.probability for c in before] == [c.signal.probability for c in after]
-    assert any(c.sport == 'tennis' for c in before)
+    assert len(before) == 3
 
 
 @pytest.mark.parametrize('key', ['HOME_OVER_0_5', 'AWAY_OVER_0_5', 'HOME_UNDER_1_5', 'AWAY_UNDER_1_5'])
@@ -84,10 +93,13 @@ def test_missing_stale_or_misbound_facts_are_not_relabelled_as_good_tips():
 
 
 def test_tennis_facts_require_both_players_and_same_model_time():
+    from daily3_selection import _explanation
     s = tennis()
-    assert 'Sand' in daily3_choices([s], now=NOW)[0].basis
-    assert daily3_choices([replace(s, competitor_a='Fremder Spieler')], now=NOW) == ()
-    assert daily3_choices([replace(s, modeled_at=(NOW-timedelta(minutes=1)).isoformat())], now=NOW) == ()
+    assert 'Sand' in _explanation(s, 'tennis', NOW)[0]
+    assert _explanation(replace(s, competitor_a='Fremder Spieler'), 'tennis', NOW) is None
+    assert _explanation(replace(s, modeled_at=(NOW-timedelta(minutes=1)).isoformat()), 'tennis', NOW) is None
+    # A descriptive surface fact alone is not a measured comparison advantage.
+    assert daily3_choices([s], now=NOW) == ()
 
 
 def test_optional_persisted_model_fields_survive_shared_loader_projection():
@@ -118,14 +130,18 @@ def test_defensive_threshold_is_price_free_and_does_not_erase_normal_forecasts(p
     assert MIN_MODEL_PROBABILITY == .7
 
 
-def test_defensive_probability_precedes_diversity_and_fresher_but_weaker_models():
-    strong = [football(i, 'HOME_OVER_0_5', .85, now=NOW-timedelta(minutes=10)) for i in range(1, 4)]
-    alternatives = [football(4, 'BTTS_YES', .71), tennis(), football(5, 'TOTAL_OVER_2_5', .72)]
-    pool = strong + alternatives
+def test_high_raw_probability_cannot_displace_better_supported_match_comparisons():
+    broad = [football(1, 'AWAY_UNDER_2_5', .953, baseline=.93),
+             football(2, 'AWAY_UNDER_2_5', .91, baseline=.88),
+             football(3, 'HOME_OVER_0_5', .908, baseline=.87)]
+    alternatives = [football(4, 'BTTS_YES', .74, baseline=.45),
+                    football(5, 'TOTAL_OVER_2_5', .73, baseline=.43),
+                    football(6, 'HOME_UNDER_1_5', .79, baseline=.54)]
+    pool = broad + alternatives
     before = tuple(pool)
     for ordering in (pool, list(reversed(pool))):
         choices = daily3_choices(ordering, now=NOW)
-        assert {c.signal.key for c in choices} == {s.key for s in strong}
+        assert {c.signal.key for c in choices} == {s.key for s in alternatives}
         assert all(c.snapshot()['policy_version'] == POLICY_VERSION for c in choices)
     assert tuple(pool) == before
 
@@ -147,7 +163,9 @@ def test_defensive_profile_never_uses_an_unexplained_high_probability_or_haircut
     assert 'Kaderstand nicht belegt' in baseline[0].caution
 
 
-def test_persisted_weak_identity_cannot_reappear_after_native_id_upgrade():
+def test_persisted_weak_identity_cannot_reappear_after_native_id_upgrade(monkeypatch):
+    from daily3_comparison import Comparison
+    monkeypatch.setattr('daily3_selection.daily3_comparison', lambda *_a, **_kw: Comparison(.1, .75, .5, 400))
     native = tennis()
     weak = replace(native, fixture_source=None, provider_event_id=None, competitor_a_id=None, competitor_b_id=None)
     first = daily3_choices([weak], now=NOW)[0]
@@ -155,7 +173,9 @@ def test_persisted_weak_identity_cannot_reappear_after_native_id_upgrade():
     assert daily3_choices([native], now=NOW, occupied_guards=[first.snapshot()['event_guard']], used_slots=1) == ()
 
 
-def test_distinct_source_ids_with_exact_same_event_alias_use_only_one_slot():
+def test_distinct_source_ids_with_exact_same_event_alias_use_only_one_slot(monkeypatch):
+    from daily3_comparison import Comparison
+    monkeypatch.setattr('daily3_selection.daily3_comparison', lambda *_a, **_kw: Comparison(.1, .75, .5, 400))
     base = tennis()
     second = replace(base, key='tennis-second-source', fixture_source='different-fixture-source', provider_event_id='t2')
     assert len(daily3_choices([base, second], now=NOW)) == 1

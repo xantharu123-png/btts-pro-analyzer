@@ -53,7 +53,11 @@ def test_exact_esports_explanation_is_shared_and_rejects_foreign_evidence():
     signal = esports()
     analysis = build_forecast_analysis(signal, now=NOW)
     assert 'Elo 1700' in analysis.basis
-    assert 'Elo 1700' in daily3_choices([signal], now=NOW)[0].basis
+    from daily3_selection import _explanation
+    assert 'Elo 1700' in _explanation(signal, 'esports', NOW)[0]
+    # The shared explanation is valid, but descriptive Elo facts alone are
+    # not a saved comparison for the more selective Daily3 shortlist.
+    assert not daily3_choices([signal], now=NOW)
     assert len(compose_wettfinder_catalog(cards([signal])).featured) == 1
     for changed in (replace(signal, competitor_a='Foreign'),
                     replace(signal, modeled_at=(NOW-timedelta(minutes=1)).isoformat())):

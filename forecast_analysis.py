@@ -106,7 +106,7 @@ def _identity(row: Mapping, *, clocks: bool = True) -> dict | None:
     return result
 
 
-def _basis_projection(raw: Mapping) -> dict:
+def _basis_projection(raw: Mapping, *, identity=None) -> dict:
     result = {}
     for home, away in (("expected_home_goals", "expected_away_goals"), ("expected_market_home", "expected_market_away")):
         if all(_number(raw.get(field)) for field in (home, away)):
@@ -117,6 +117,11 @@ def _basis_projection(raw: Mapping) -> dict:
         values = raw.get(field)
         if isinstance(values, (tuple, list)) and len(values) == 2 and all(_integer(n, minimum=1) for n in values):
             result[field] = list(values)
+    if identity is not None:
+        from daily3_comparison import validated_comparison
+        comparison = validated_comparison(raw.get('market_comparison'), identity=identity)
+        if comparison is not None:
+            result['market_comparison'] = comparison
     return result
 
 
@@ -174,7 +179,7 @@ def project_football_analysis(row: Mapping, *, model_basis: Mapping) -> dict | N
     return {
         "schema": _SCHEMA,
         "identity": identity,
-        "basis": _basis_projection(model_basis),
+        "basis": _basis_projection(model_basis, identity=identity),
         # Names already live in the saved context; do not duplicate those lists
         # in every persisted market's analysis envelope.
         "context": _context_projection(_mapping(row.get("context")), include_names=False),
@@ -224,7 +229,7 @@ def read_football_analysis(row: Mapping, *, now: datetime | None = None) -> dict
         context["stale"] = True
     return {
         "schema": _SCHEMA, "identity": identity,
-        "basis": _basis_projection(_mapping(evidence.get("basis"))), "context": context,
+        "basis": _basis_projection(_mapping(evidence.get("basis")), identity=identity), "context": context,
     }
 
 

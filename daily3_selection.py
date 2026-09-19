@@ -1,9 +1,8 @@
-"""Defensive, price-blind model shortlist, not a certified safety ranking.
+"""Defensive, price-blind comparison shortlist, not a certified safety ranking.
 
-v2 requires at least 70% model probability on top of the existing exact-bound
-evidence and freshness checks. Higher model probability precedes diversity;
-diversity only breaks ties. This is a product preference, NOT an empirical
-lower confidence bound or proof of lower actual loss risk across models.
+v3 requires a saved, exact-bound market comparison and at least 70% in every
+existing model variant. Rank the supported difference from the market's
+historical baseline, not the largest raw probability or a market-name list.
 Haircut, minimum/observed odds, RELEASED flags, target profit and account money
 are not ranking inputs. The ordinary full catalog is never modified.
 """
@@ -14,11 +13,12 @@ from zoneinfo import ZoneInfo
 
 from challenge_engine import MARKET_BY_KEY
 from daily3_identity import event_guard, events_overlap
+from daily3_comparison import Comparison, daily3_comparison
 from forecast_analysis import build_forecast_analysis, forecast_highlight_reason
 from forecast_selection import select_consumer_forecasts
 from selection_coherence import consumer_event_identity
 
-POLICY_VERSION = 'daily3-defensive-model-v2'
+POLICY_VERSION = 'daily3-supported-comparison-v3'
 # Deliberate shortlist threshold, not a learned/calibrated safety boundary.
 MIN_MODEL_PROBABILITY = 0.70
 _TZ = ZoneInfo('Europe/Zurich')
@@ -37,13 +37,14 @@ class Daily3Choice:
     sampled_at: datetime
     start: datetime
     family: str
+    comparison: Comparison
 
     def snapshot(self):
         s = self.signal
         return dict(event_id=self.event_id, event_guard=event_guard(s), sport=self.sport, event_label=s.event_label or s.label,
             market_key=s.market_key, market=s.market, selection=s.selection, scheduled_start=self.start.isoformat(),
             signal_key=s.key, model_probability=s.probability, modeled_at=self.sampled_at.isoformat(),
-            model_version=s.model_version or f'Policy: {s.policy_version}', analysis_basis=self.basis,
+            model_version=s.model_version or f'Policy: {s.policy_version}', analysis_basis=self.basis + ' ' + self.comparison.summary,
             analysis_caution=self.caution, policy_version=POLICY_VERSION)
 
 
@@ -88,14 +89,18 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
         explanation = _explanation(s, sport, now)
         if explanation is None or not MIN_MODEL_PROBABILITY <= s.probability < 1:
             continue
+        comparison = daily3_comparison(s, now=now, minimum_probability=MIN_MODEL_PROBABILITY)
+        if comparison is None:
+            continue
         spec = MARKET_BY_KEY.get(s.market_key) if sport == 'football' else None
         family = spec.kind if spec else s.market_key
-        prepared.append(Daily3Choice(s, event, sport, *explanation, sampled, start, family))
+        prepared.append(Daily3Choice(s, event, sport, *explanation, sampled, start, family, comparison))
     unique = prepared
     selected, sport_count, family_count = [], Counter(), Counter()
     while unique and len(selected) < max(0, 3-used_slots):
-        unique.sort(key=lambda c: (-c.signal.probability,
+        unique.sort(key=lambda c: (-c.comparison.margin,
                                    sport_count[c.sport], family_count[(c.sport, c.family)],
+                                   -c.comparison.lowest_model_probability,
                                    -c.sampled_at.timestamp(), c.start, c.event_id, c.signal.key))
         # The shared complete pool is already coherent. Defensive shortlisting
         # may only remove rows; it cannot re-anchor an opposing scenario.

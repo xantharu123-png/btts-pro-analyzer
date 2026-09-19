@@ -181,6 +181,8 @@ class ChallengeCandidate:
     blocked_reasons: list[str] = field(default_factory=list)
     context: dict[str, Any] = field(default_factory=dict)
     prediction_version: Optional[str] = None
+    # Optional Daily3 comparison metadata. Never a probability/release input.
+    market_comparison: Optional[dict[str, Any]] = None
 
     @property
     def base_eligible(self) -> bool:
@@ -207,6 +209,8 @@ class ChallengeCandidate:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        if self.market_comparison is None:
+            payload.pop('market_comparison')
         # Preserve authenticated historical payload shape; absence is not a
         # current-version claim and must never become a newly signed null.
         if self.prediction_version is None:
@@ -2384,6 +2388,7 @@ def build_fixture_candidates(
     if native_provenance is not None and native_resolver is not None:
         raise ValueError("direct native provenance and resolver are mutually exclusive")
     identity = _fixture_identity(fixture)
+    league_history = list(league_history)
     if original_capture is None:
         model = fixture_market_probabilities(
             fixture,
@@ -2402,6 +2407,13 @@ def build_fixture_candidates(
 
     freshness_days = float(model["freshness_days"])
     active_home, active_away = model["active_lambdas"]
+    comparisons = {}
+    if candidate_profile == CANDIDATE_PROFILE_WETTFINDER and model_scope == MODEL_SCOPE_SAME_COMPETITION:
+        from daily3_comparison import build_market_comparisons
+        comparisons = build_market_comparisons(
+            fixture, league_history, model['probabilities'], validation,
+            prediction_version=CHALLENGE_PREDICTION_VERSION, as_of=datetime.now(timezone.utc),
+        )
     candidates: list[ChallengeCandidate] = []
     for spec in MARKET_SPECS:
         probability_values = model["probabilities"].get(spec.key)
@@ -2500,6 +2512,7 @@ def build_fixture_candidates(
             ChallengeCandidate(
                 candidate_id=candidate_id,
                 prediction_version=CHALLENGE_PREDICTION_VERSION,
+                market_comparison=comparisons.get(spec.key),
                 **identity,
                 market_key=spec.key,
                 market=spec.market,

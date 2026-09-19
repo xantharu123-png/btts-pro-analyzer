@@ -215,6 +215,7 @@ def test_historical_authenticated_ticket_reads_and_settles_without_redefinition(
     now=datetime.now(timezone.utc)
     payload=asdict(_candidate(now))
     payload.pop('prediction_version');payload['validation'].pop('prediction_version')
+    payload.pop('market_comparison')  # Optional new presentation metadata did not exist in the old ticket schema.
     payload['validation']=old.ValidationMetrics(**payload['validation'])
     candidate=old.ChallengeCandidate(**payload)
     ticket=old.select_quoted_ticket([candidate],{candidate.candidate_id:2.10},now=now)
