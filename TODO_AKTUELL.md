@@ -1,5 +1,19 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Spielblöcke 19.09.2026 – gemeinsames Auf-/Zuklappen live
+
+- Funktionscommit `1e918b9` auf main/VPS: automatischer Wettfinder zeigt jedes
+  Spiel nur einmal, mit sämtlichen bisher sichtbaren Auswahlen im selben Block.
+  Hervorgehobene Spiele zunächst offen, weitere zunächst geschlossen.
+- Zustand bleibt innerhalb der Browsersitzung bei Sportfilter-/Seitenwechseln
+  erhalten. Seiten enthalten ganze Spiele, keine zerschnittenen Marktgruppen.
+- 907 betroffene Tests plus 26 Untertests jeweils in Worktree und main grün.
+  Lokal Desktop/Tablet/Mobil und echter VPS-Browser geprüft; Beispiel
+  Brommapojkarna–Göteborg mit allen zehn Auswahlen gemeinsam geschlossen.
+- Keine Modell-, Quoten-, Geld-, Datenbank- oder Backupänderungen. Bekannte
+  fachliche Restarbeiten bleiben offen. Keine erneute Speicherbereinigung.
+- [Abschluss und Grenzen](docs/audits/2026-09-19-spielbloecke.md).
+
 ## Prognosekarten 19.09.2026 – kompakte Fakten und Ausfalldetails live
 
 - Funktionscommit `763c741` auf main/VPS. Kurze Torprognose und Faktenfelder

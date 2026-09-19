@@ -1,5 +1,16 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – gemeinsame Spielblöcke 19.09.2026
+
+Funktionscommit `1e918b9` gepusht und auf VPS bestätigt. Automatischer
+Wettfinder: ein auf-/zuklappbarer Block pro Spiel, alle Märkte gemeinsam,
+stabile Zustände bei Filter-/Seitenwechseln innerhalb der Sitzung.
+907 Tests plus 26 Untertests jeweils in Worktree/main grün; lokale und echte
+Browserprüfung abgeschlossen. Zuerst [TODO_AKTUELL.md](TODO_AKTUELL.md) und
+[Abschlussbericht](docs/audits/2026-09-19-spielbloecke.md) lesen.
+Keine Änderungen an Modell, Geld oder Datenbanken; Tagesbackup bleibt aus.
+Bestehenden Worktree und fremde ungetrackte Prüfdateien bewahren.
+
 ## Aktueller Einstieg – kompakte Prognosekarten 19.09.2026
 
 Funktionscommit `763c741` gepusht und live. Wettfinder und Daily3 zeigen kurze
