@@ -1,5 +1,16 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg — Daily3 19.09.2026, 12:09 CEST
+
+Zuerst den obersten Block von [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
+[Daily3-Bericht](docs/audits/2026-09-19-daily3-defensiv.md) lesen.
+Funktionscommit `1985407` ist gepusht und live. Defensive Modellpräferenz
+ab70%, kompaktere Oberfläche; tatsächliche Sicherheit damit nicht nachgewiesen.
+344 betroffene Tests zweimal grün, reale Browseransicht/Healthchecks bestätigt.
+Keine neue Datenmigration, Sicherung oder Bereinigung. Speicherreparatur unten
+bleibt abgeschlossen. Alte Datenjobfehler/Kontextwirkung bleiben separate Aufgaben.
+Bestehenden Reparaturworktree und fremde ungetrackte Dateien bewahren.
+
 ## Aktueller Einstieg — Speicherreparatur 19.09.2026
 
 Zuerst den obersten Abschnitt in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den

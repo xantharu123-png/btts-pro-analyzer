@@ -1,5 +1,22 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Daily3 19.09.2026 — defensives Modellprofil und kompakte UI live
+
+- Funktionscommit `1985407c176e4cf5ecc4a9d5b2a93636b8634673` auf main/VPS.
+  Mindestens 70% Modellschätzung, höhere Modellchance vor Vielfalt, ein Spiel
+  pro Slot. Kein Gewinnziel-/Quotenfilter, keine Änderung der normalen Rangfolge.
+- 344 betroffene Tests im Worktree und nochmals in main bestanden. Desktop,
+  Mobil, leer/gefüllt und die echte Website geprüft. Kein zusätzlicher Gesamttest.
+- Hauptansicht gekürzt; allgemeine Regeln optional, konkrete Unsicherheiten
+  weiterhin sichtbar. Echtgeld-/Budget-/Abrechnungslogik unverändert.
+- VPS-Codewechsel und Healthchecks bestätigt. Keine neue Speicherbereinigung,
+  Datenmigration oder Sicherung. Tagesbackup bleibt disabled, Retention unverändert.
+- Offen bleiben empirische Qualität, vollständige Verletzungs-/Müdigkeitseffekte
+  und die vorher bestehenden Teildaten-/Datenjobfehler. Höhere Roh-Modellchancen
+  sind keine nachgewiesene Sicherheit und kein CHF150-Einkommensversprechen.
+- Details und ehrliche Abgrenzung der SSH-Nachlaufkante:
+  [Releasebericht](docs/audits/2026-09-19-daily3-defensiv.md).
+
 ## Speicherreparatur 19.09.2026 — live, ca. 11:29 CEST verifiziert
 
 - **Erledigt:** Funktionscommit `8caf022b562c561c7d23b4b8363791bb0869d9d3`
