@@ -1,5 +1,22 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Daily3-Vergleich und echter Refresh-Befund 19.09.2026
+
+Funktionscommits `0a54313` und `533a98f` auf main/GitHub/VPS: Daily3 nicht mehr
+nach größter Rohwahrscheinlichkeit; echte Spiel-/Saison-/Formwerte werden mit
+derselben historischen Markthäufigkeit verglichen. Keine Wettartenverbote oder
+Quotenfilter. Zusätzlich wird eine Aktualisierungsgruppe nicht mehr komplett
+verworfen, wenn ein einzelnes Spiel kein neues Modell erhält.
+1.090 Tests/111 Untertests jeweils Worktree/main grün. Echter normaler VPS-Lauf
+15:26:36 CEST beendet: 51 Spiele neu modelliert, 9 unmodelliert/Teildaten.
+Ausgabevergleich mit identischem frischen Bestand bestätigt; neue Daily3-
+Auswahl verändert, aber weiterhin zwei erlaubte Team-Über-0,5-Märkte.
+Zuerst [TODO_AKTUELL.md](TODO_AKTUELL.md) und
+[Reparaturbericht](docs/audits/2026-09-19-daily3-auswahlvergleich.md) lesen.
+Keine erneute Speicherbereinigung/Backupaktivierung; keine erfundenen Vorteile
+für fehlende Sportvergleiche und keine behauptete fertige Kontextwirkung.
+Interner Browser blockiert durch ACL-Fehler; keinen externen Browser verwenden.
+
 ## Aktueller Einstieg – gemeinsame Spielblöcke 19.09.2026
 
 Funktionscommit `1e918b9` gepusht und auf VPS bestätigt. Automatischer

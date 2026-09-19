@@ -1,5 +1,33 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Daily3 19.09.2026 – Auswahlregel und Teil-Refresh repariert
+
+- `0a54313`: keine Sortierung allein nach höchster Rohwahrscheinlichkeit mehr.
+  Versions- und spielgebundener Vergleich zur historischen Markthäufigkeit,
+  mindestens 70 Prozent in allen drei vorhandenen Modellvarianten. Keine
+  pauschalen Wettartenverbote und kein Quotenfilter; normale Prognosen erhalten.
+- `533a98f`: echter VPS-Befund behoben – ein nicht modellierbares Spiel verwirft
+  nicht mehr die erfolgreichen Berechnungen seiner ganzen Gruppe. Alte Daten
+  fehlgeschlagener Spiele werden weder gelöscht noch als frisch umetikettiert;
+  ihr Fehler bleibt über weitere Gruppen hinweg sichtbar.
+- Beide Commits auf main/GitHub und VPS; 1.090 Tests/111 Untertests jeweils im
+  Worktree und main bestanden. App/Healthchecks bestätigt. Normaler Datenlauf
+  um 15:26:36 CEST beendet: 51 Spiele neu modelliert, 9 weitere weiterhin
+  unmodelliert (deshalb ehrlich Teildaten/Exit1). Gründe dieser neun offen.
+  Echter Vorher-/Nachher-Vergleich bestätigt: alte Regel liefert exakt die
+  beanstandeten drei Tipps; neue Regel Reykjavík-Gesamtüber2,5, Siriusüber0,5,
+  Santosüber0,5. Zwei einfache Märkte bleiben erlaubt, kein Marktverbot.
+  Kein zusätzlicher vollständiger 10k-Testlauf.
+- Vergleichsproduzent bislang nur Fußball; ohne passenden Vergleich keine
+  Daily3-Auswahl anderer Sportarten, deren normale Prognosen bleiben sichtbar.
+  Kein empirischer Nachweis besserer Treffer-/Gewinnqualität. Verletzungs- und
+  Müdigkeitswirkung bleibt separat offen; Cricket unverändert.
+- Nur Streamlit-AppTests: interner Browser scheitert schon beim Start an
+  Windows-ACLs. Keinen externen Browser übernehmen. Keine neue visuelle
+  Desktop-/Mobile-Abnahme behaupten. Keine weitere Speicherbereinigung oder
+  Sicherung; Tagesbackup bleibt aus.
+- [Reparaturbericht und ehrliche Grenzen](docs/audits/2026-09-19-daily3-auswahlvergleich.md).
+
 ## Spielblöcke 19.09.2026 – gemeinsames Auf-/Zuklappen live
 
 - Funktionscommit `1e918b9` auf main/VPS: automatischer Wettfinder zeigt jedes
