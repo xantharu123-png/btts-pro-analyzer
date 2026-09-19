@@ -159,3 +159,20 @@ Softwaretests und ein erfolgreicher Pull schließen diese Punkte nicht ab.
 - Frühere Voll-Refreshes benötigten auf diesem VPS bis 27 Minuten CPU-Zeit;
   der hier geprüfte Lauf benötigte rund 21 Minuten. Kein neuer Timeout und kein
   durchgängiger erfolgreicher Datenbestand daraus ableiten.
+
+### Nachtrag ausgeliefert – 20.09.2026, 00:04 CEST
+
+`362a4a69ae328243a91d67c4d1fed2b5ac1958fe` mit gemeinsamem Gruppenbudget und
+Größenschutz ist auf main/GitHub und VPS bestätigt. Zusätzlich 210 betroffene
+Tests auf main in 21,59 s bestanden. Linux-Smoke am echten VPS: konkurrierende
+Dateireservierungen, gemeinsam verwendeter Budgetzustand und Verwerfen einer
+über 4 MiB großen Aufnahme ohne Veröffentlichung bestätigt. Nur winzige eigene
+temporäre Testdateien verwendet und entfernt; keine Produktionsdaten kopiert
+oder verändert, keine zusätzlichen API-Abfragen. App/Caddy aktiv, öffentlicher
+Healthcheck `ok`, Tagesbackup weiterhin disabled. Nächster regulärer
+Wettfinderlauf um 00:07 CEST geplant, nicht vorzeitig als abgeschlossen zählen.
+
+**Offen:** Neue Fußballoriginale nach diesem Nachtrag im realen Lauf nachweisen;
+die vollständige Trainings-/Replayanbindung und empirisch freigegebene
+Verletzungs-, Müdigkeits- und Wetterwirkung bleiben unvollständig. Dies ist
+kein erfolgreicher Gesamtdatenlauf und kein Nachweis besserer Wettqualität.

@@ -2,6 +2,9 @@
 
 ## Kontextanschluss und Daily3-Spielvergleich – 19.09.2026, Code live
 
+- Nachtrag `362a4a6` am 20.09. um 00:04 CEST auf VPS bestätigt; 1.526 Tests,
+  nochmals 210 auf main und Linux-Smoke grün. Tatsächliche Originalaufnahme
+  nach diesem Nachtrag bleibt offen; nächster normaler Worker 00:07 CEST.
 - Nicht als vollständig fertig melden: numerische Verletzungs-/Müdigkeits-/
   Wetterwirkung ist weiterhin nicht trainiert und empirisch freigegeben.
   Die vorhandenen Prognosen sind echte Berechnungen, aber ohne diese Wirkung.
@@ -28,8 +31,8 @@
   probleme und noch keine Originale; API-Aufschub live korrekt. Aufnahme nach
   Mehrgruppen-Nachtrag weiterhin tatsächlich nachweisen, nicht als fertig melden.
 - Prüf-/Releasebelege im [Reparaturbericht](docs/audits/2026-09-19-kontextanschluss-und-spielvergleich.md).
-  Nachtrag mit Größen- und gemeinsamem Gruppenbudget: 1.526 Tests grün;
-  tatsächlichen finalen VPS-Abgleich im Bericht beziehungsweise Git prüfen.
+  Nachtrag mit Größen- und gemeinsamem Gruppenbudget ist separat live bestätigt;
+  keine durchgehende Daten- oder Kontextqualifikation daraus ableiten.
   Cricket, Echtgeldregeln, alte Archive und deaktiviertes Tagesbackup erhalten.
 
 ## Daily3 19.09.2026 – Auswahlregel und Teil-Refresh repariert

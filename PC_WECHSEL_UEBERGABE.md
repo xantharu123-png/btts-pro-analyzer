@@ -2,6 +2,9 @@
 
 ## Aktueller Einstieg – Kontextanschluss und spielbezogener Vergleich 19.09.2026
 
+Nachtrag `362a4a6` am 20.09. um 00:04 CEST auf main/GitHub/VPS verifiziert;
+1.526 Tests, 210 main-Anschlusstests und Linux-Smoke grün. Neuer echter
+Aufnahmebeleg und vollständige numerische Kontextwirkung weiterhin offen.
 Zuerst den obersten Block von [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
 [neuen Reparaturbericht](docs/audits/2026-09-19-kontextanschluss-und-spielvergleich.md)
 lesen. Daily3 vergleicht zusätzliche Formwirkung innerhalb derselben Begegnung;
