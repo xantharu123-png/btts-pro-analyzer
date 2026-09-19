@@ -78,7 +78,30 @@ jüngere Spiele; korrekt ist deshalb zusätzliche Formgewichtung, nicht eine
 Berechnung vollständig ohne jüngste Form. Die kurze Kartenzeile benennt den
 Vergleich, behauptet aber keine angewendete Verletzungs-/Wetterwirkung.
 
-## Noch erforderliche fachliche Arbeit
+## Zusatzabsicherung und fachliche Restarbeiten
+
+### Zusatzschutz vor der Freigabe des Aufnahmepfads
+
+Die unveränderte Transportgrenze von 4 MiB pro expandiertem Original ist kein
+Ablehnungsgrund für das bereits berechnete Spielmodell. Übergrößen werden nun
+vor Parsing und Speicherung als `original-size-limit` gemeldet; keine neue
+Originaldatei oder Datenbankzeile entsteht. Die tatsächliche Modellverteilung
+bleibt unverändert. Andere Integritätsfehler werden nicht verschluckt.
+Gegenprobe zuerst fehlgeschlagen, danach zusammen mit den Aufnahme-/Speicher-
+und Automationstests grün: 202 Tests in 20,81 s. Der abschließende eingefrorene
+Stand einschließlich gemeinsamem Gruppenbudget besteht **1.526 Tests in
+328,99 s**. Danach keine Quell- oder Teständerung mehr.
+
+Der erste echte Lauf zeigte außerdem, dass eine leere erste Spielgruppe die
+Aufnahme späterer Gruppen verhinderte. Das reservierte Kontingent gehört nun
+dem gesamten Worker: getrennte Gruppen teilen dasselbe sperrengeschützte
+Bytebudget, ohne die persistente Reservierung zurückzuerstatten oder pro
+Gruppe neu anzulegen. Bereits gespeicherte Quellbytes werden auch bei späterem
+Gruppenfehler belastet. Ein zusätzlicher Laufbericht zeigt die gemeinsamen
+tatsächlich gespeicherten Bytes. Leere Gruppen, parallele Veröffentlichungen,
+Teilfehler und der echte Automationseintritt sind regressionsgeprüft.
+
+### Fachliche Restarbeiten
 
 1. Aufnahme im echten Worker einschließlich Größenmessung und gebundener
    Quellabdeckung prüfen. Partielle Aufzeichnungen nicht als trainierbar zählen.
@@ -109,5 +132,30 @@ Softwaretests und ein erfolgreicher Pull schließen diese Punkte nicht ab.
 - Die Vergleichszeile wurde zusätzlich dagegen geprüft, den kleineren
   Ranglisten-Kontrast fälschlich als tatsächliche Wahrscheinlichkeitsänderung
   zu bezeichnen. Angezeigt wird aktive minus Saisonwahrscheinlichkeit.
-- Release-Hash und echte Workerbelege folgen nach dem Codewechsel. Noch kein
-  numerischer Kontexteffekt aktiviert; keine neue Browser-Sichtprüfung behauptet.
+- Nach Fast-forward auf main nochmals **202 unmittelbar betroffene Tests in
+  13,54 s bestanden**. Keine Quelländerung zwischen Regression und Commit.
+- Keine neue Browser-Sichtprüfung: ausschließlich interner Browser versucht;
+  dessen Start scheitert an Windows-Sandbox-ACLs. Keinen externen Browser geöffnet.
+
+## Veröffentlichung und echte Betriebsprüfung
+
+- Funktionscommit `39bd0ebfb282e89a44a97d818fbeb397c402748b` auf main/GitHub
+  gepusht und auf dem VPS explizit per geprüftem Fast-forward deployed.
+- Nur die 15 geprüften Code-/Test-/Übergabedateien übernommen. Bestehende Jobs
+  vor dem kurzen App-Neustart nicht abgebrochen. Keine neuen Archive,
+  Datenmigration, Bereinigung, Paketinstallation oder Backupaktivierung.
+- Interner und öffentlicher Healthcheck: `ok`; App/Caddy aktiv, sechs
+  Rechentimer wiederhergestellt und aktiviert. Tagesbackup disabled/inactive.
+- Produktionsimport bestätigt `daily3-match-form-comparison-v4`.
+  Im zum Prüfzeitpunkt noch sichtbaren Abendbestand: 20 lesbare Prognosen,
+  null Daily3-Auswahlen. Nicht als Verbesserung der Wettqualität darstellen.
+- Echter Worker von 23:20:58 bis 23:42:16 CEST gelaufen; Exit 1/degraded mit
+  16 operativen Datenproblemen, kein erfolgreicher Gesamtdatenlauf. Der neue
+  Historienpfad meldet für eine vor dem Netzwerk blockierte Abfrage korrekt
+  `budget_deferred` statt einer neuen 24-Stunden-Sperre.
+- Trotz 4-MiB-Reservierung noch keine Fußball-Originale geschrieben. Dieser
+  reale Test deckte den oben reparierten Mehrgruppenfehler auf. Nicht behaupten,
+  dass Originalaufnahme oder numerische Kontextwirkung bereits live belegt sei.
+- Frühere Voll-Refreshes benötigten auf diesem VPS bis 27 Minuten CPU-Zeit;
+  der hier geprüfte Lauf benötigte rund 21 Minuten. Kein neuer Timeout und kein
+  durchgängiger erfolgreicher Datenbestand daraus ableiten.

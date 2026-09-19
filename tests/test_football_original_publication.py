@@ -588,3 +588,97 @@ def test_legacy_naive_history_still_computes_when_native_union_is_unavailable(tm
     assert report["events"][0]["unavailable_reason"] == "selected-native-provenance-unavailable"
     assert report["published_count"] == 0 and not (tmp_path / "legacy.db").exists()
     assert original_capture_report_fields({"football_original_capture": report})["football_original_capture"] == report
+
+
+def test_oversized_optional_original_does_not_discard_the_actual_prediction(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    import challenge_engine as engine
+    import context_models.football_original_publication as publication
+    from test_football_base_provenance import target, history
+    rows = history()
+    normal = engine.fixture_market_probabilities(target(), rows)
+    path = tmp_path / 'too-large.db'
+    session = publication.FootballOriginalPublication(path, None,
+        max_publication_payload_bytes=2_000_000, max_worker_payload_bytes=2_000_000,
+        max_source_payload_bytes=0)
+    session.freeze(tuple([target(), *rows]))
+    monkeypatch.setattr(publication, 'MAX_ORIGINAL_BYTES', 100_000, raising=False)
+    # The owning store must not parse/expand or write the over-limit record.
+    def unexpected_prepare(original):
+        raise AssertionError('oversized optional recording reached storage')
+    monkeypatch.setattr(publication, 'prepare_original', unexpected_prepare)
+    actual = engine.fixture_market_probabilities(target(), rows,
+        **session.model_kwargs(decision_at=datetime.now(timezone.utc)))
+    assert actual == normal
+    report = session.report()
+    assert report['published_count'] == 0 and report['inserted_payload_bytes'] == 0
+    assert report['events'][0]['unavailable_reason'] == 'original-size-limit'
+    assert report['events'][0]['binding_ref'] is None and not path.exists()
+    assert publication.original_capture_report_fields({'football_original_capture': report})['football_original_capture'] == report
+
+
+def test_shared_worker_budget_survives_empty_batches_without_multiplying_bytes(tmp_path, monkeypatch):
+    import context_models.football_original_publication as publication
+    from test_football_original_storage import capture, NOW as CAPTURED, rows_in
+    from test_football_base_provenance import target, history
+    original = capture(monkeypatch)
+    def publish(path, maximum, budget, decision):
+        session = publication.FootballOriginalPublication(path, None,
+            max_publication_payload_bytes=2_000_000, max_worker_payload_bytes=maximum,
+            max_source_payload_bytes=0, shared_budget=budget)
+        session.freeze(tuple([target(), *history()]))
+        kwargs = session.model_kwargs(decision_at=decision)
+        kwargs['native_resolver'](tuple([target(), *history()]))
+        kwargs['original_capture'](original)
+        return session
+    decision = CAPTURED-timedelta(seconds=2)
+    measured = publish(tmp_path/'measure.db', 2_000_000, None, decision).inserted_payload_bytes
+    budget = publication.FootballOriginalBudget(max_worker_payload_bytes=measured, max_source_payload_bytes=0)
+    path = tmp_path/'shared.db'
+    empty = publication.FootballOriginalPublication(path, None,
+        max_publication_payload_bytes=2_000_000, max_worker_payload_bytes=measured,
+        max_source_payload_bytes=0, shared_budget=budget)
+    empty.freeze(())
+    assert empty.report()['published_count'] == 0 and budget.remaining_payload_bytes == measured
+    first = publish(path, measured, budget, decision)
+    assert first.report()['published_count'] == 1 and budget.remaining_payload_bytes == 0
+    saved = rows_in(path)
+    second = publish(path, measured, budget, decision+timedelta(seconds=1))
+    assert second.report()['events'][0]['status'] == 'budget-exhausted'
+    assert rows_in(path) == saved and budget.report()['inserted_payload_bytes'] == measured
+    from concurrent.futures import ThreadPoolExecutor
+    concurrent_budget = publication.FootballOriginalBudget(max_worker_payload_bytes=measured, max_source_payload_bytes=0)
+    concurrent_path = tmp_path/'concurrent-shared.db'
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        sessions = list(workers.map(lambda offset: publish(concurrent_path, measured,
+            concurrent_budget, decision+timedelta(seconds=offset)), (0, 1)))
+    assert sum(s.report()['published_count'] for s in sessions) == 1
+    assert concurrent_budget.report()['inserted_payload_bytes'] == measured
+    assert sum(len(row[1]) for row in rows_in(concurrent_path).values()) == measured
+
+
+def test_shared_source_budget_charges_committed_receipts_even_when_batch_fails(tmp_path):
+    import context_models.football_original_publication as publication
+    class Capture:
+        source_inserted_bytes = 0
+        baseline_scope_records = {}
+        baseline_refs = {}
+        def flush_baseline_receipts(self, scope, *, max_new_payload_bytes):
+            assert max_new_payload_bytes == 100
+            self.source_inserted_bytes += 60
+            raise ContextIntegrityError('later receipt invalid after an earlier commit')
+    budget = publication.FootballOriginalBudget(max_worker_payload_bytes=1000, max_source_payload_bytes=100)
+    failed = publication.FootballOriginalPublication(tmp_path/'source.db', Capture(),
+        max_publication_payload_bytes=1000, max_worker_payload_bytes=1000,
+        max_source_payload_bytes=100, shared_budget=budget)
+    with pytest.raises(ContextIntegrityError):
+        failed.freeze(())
+    later = publication.FootballOriginalPublication(tmp_path/'source.db', None,
+        max_publication_payload_bytes=1000, max_worker_payload_bytes=1000,
+        max_source_payload_bytes=100, shared_budget=budget)
+    assert later.remaining_source_bytes == 40
+    assert budget.report()['source_inserted_payload_bytes'] == 60
+    with pytest.raises(ValueError):
+        publication.FootballOriginalPublication(tmp_path/'source.db', None,
+            max_publication_payload_bytes=1000, max_worker_payload_bytes=2000,
+            max_source_payload_bytes=100, shared_budget=budget)

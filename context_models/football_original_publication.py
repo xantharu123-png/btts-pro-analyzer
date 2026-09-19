@@ -17,21 +17,22 @@ from dataclasses import asdict, is_dataclass
 import inspect
 
 import model_artifacts as a1
+from football_original import FootballOriginal
 from context_models.contracts import ContextContractError, ContextIntegrityError, canonical_timestamp, digest, require_object
-from context_models.football_original_storage import prepare_original, publish_prepared, StorageBudgetExceeded, _budget, _expand
+from context_models.football_original_storage import prepare_original, publish_prepared, StorageBudgetExceeded, MAX_ORIGINAL_BYTES, _budget, _expand
 from context_observations import freeze_named_receipts, _SELECT, _decode_receipt
 
 CODE_KIND = "football-executed-code-v2"
 BINDING_KIND = "football-original-b1-binding-v1"
 
 
-def publication_for_worker(capture, limits):
+def publication_for_worker(capture, limits, *, shared_budget=None):
     """Explicit configured opt-in; no environment switch or production default."""
     require_object(limits, {"max_publication_payload_bytes", "max_worker_payload_bytes",
         "max_source_payload_bytes"}, label="football original capture limits")
     from runtime_paths import CONTEXT_MODEL_DB_PATH
     return FootballOriginalPublication(capture.path if capture is not None else CONTEXT_MODEL_DB_PATH,
-        capture, **limits)
+        capture, shared_budget=shared_budget, **limits)
 
 
 def executed_code_identity():
@@ -86,23 +87,52 @@ def executed_code_identity():
         "model_contract_signature": engine.CHALLENGE_MODEL_CONTRACT_SIGNATURE}
 
 
+class FootballOriginalBudget:
+    """One in-process budget shared by every batch of a reserved worker run."""
+    def __init__(self, *, max_worker_payload_bytes, max_source_payload_bytes):
+        for value in (max_worker_payload_bytes, max_source_payload_bytes):
+            _budget(value)
+        self.max_worker_payload_bytes = self.remaining_payload_bytes = max_worker_payload_bytes
+        self.max_source_payload_bytes = self.remaining_source_bytes = max_source_payload_bytes
+        self.lock = Lock()
+
+    def report(self):
+        with self.lock:
+            return {"inserted_payload_bytes": self.max_worker_payload_bytes - self.remaining_payload_bytes,
+                "source_inserted_payload_bytes": self.max_source_payload_bytes - self.remaining_source_bytes}
+
+
 class FootballOriginalPublication:
     def __init__(self, path, capture, *, max_publication_payload_bytes,
-                 max_worker_payload_bytes, max_source_payload_bytes):
+                 max_worker_payload_bytes, max_source_payload_bytes, shared_budget=None):
         for value in (max_publication_payload_bytes, max_worker_payload_bytes, max_source_payload_bytes):
             _budget(value)
         self.path, self.capture = path, capture
         self.max_publication_payload_bytes = max_publication_payload_bytes
-        self.remaining_payload_bytes = max_worker_payload_bytes
-        self.remaining_source_bytes = max_source_payload_bytes
+        if shared_budget is None:
+            shared_budget = FootballOriginalBudget(max_worker_payload_bytes=max_worker_payload_bytes,
+                max_source_payload_bytes=max_source_payload_bytes)
+        if (type(shared_budget) is not FootballOriginalBudget
+                or shared_budget.max_worker_payload_bytes != max_worker_payload_bytes
+                or shared_budget.max_source_payload_bytes != max_source_payload_bytes):
+            raise ContextContractError("publication differs from the shared worker budget")
+        self._budget = shared_budget
         self.inserted_payload_bytes = 0
         self.source_inserted_bytes = 0
         self.events = []
-        self._lock = Lock()
+        self._lock = shared_budget.lock
         self._rows = None
         self._associations = {}
         self._source_exhausted = False
         self._code = a1.prepare_artifact(kind=CODE_KIND, payload=executed_code_identity())
+
+    @property
+    def remaining_payload_bytes(self):
+        return self._budget.remaining_payload_bytes
+
+    @property
+    def remaining_source_bytes(self):
+        return self._budget.remaining_source_bytes
 
     def freeze(self, selected_input_scope):
         """Flush then freeze the exact independent source refs once per scan."""
@@ -111,21 +141,27 @@ class FootballOriginalPublication:
         if type(selected_input_scope) is not tuple:
             raise ContextContractError("publication input scope must be a tuple")
         if self.capture is not None:
-            before = self.capture.source_inserted_bytes
-            try:
-                self._associations = self.capture.flush_baseline_receipts(selected_input_scope,
-                    max_new_payload_bytes=self.remaining_source_bytes)
-            except StorageBudgetExceeded:
-                self._source_exhausted = True
-                # The flush committed complete single-receipt units only. Keep
-                # those exact refs; never fall back to a database inventory.
-                for ref, record in self.capture.baseline_scope_records.items():
-                    self._associations[ref] = tuple(sorted(
-                        self.capture.baseline_refs.get(record["fixture_id"], ()))) if record["source_marker"] in {
-                            "unresolved", "api-football", "api-football-ft-tail"} else ()
-            inserted = self.capture.source_inserted_bytes - before
-            self.remaining_source_bytes -= inserted
-            self.source_inserted_bytes += inserted
+            with self._lock:
+                before = self.capture.source_inserted_bytes
+                try:
+                    self._associations = self.capture.flush_baseline_receipts(selected_input_scope,
+                        max_new_payload_bytes=self.remaining_source_bytes)
+                except StorageBudgetExceeded:
+                    self._source_exhausted = True
+                    # Keep exact complete receipts only, never inventory fallback.
+                    for ref, record in self.capture.baseline_scope_records.items():
+                        self._associations[ref] = tuple(sorted(
+                            self.capture.baseline_refs.get(record["fixture_id"], ()))) if record["source_marker"] in {
+                                "unresolved", "api-football", "api-football-ft-tail"} else ()
+                finally:
+                    # A later batch must not regain bytes committed before an
+                    # error in this one. A process crash forfeits the whole permit.
+                    inserted = self.capture.source_inserted_bytes - before
+                    if type(inserted) is not int or not 0 <= inserted <= self.remaining_source_bytes:
+                        self._budget.remaining_source_bytes = 0
+                        raise ContextIntegrityError("invalid shared source byte accounting")
+                    self._budget.remaining_source_bytes -= inserted
+                    self.source_inserted_bytes += inserted
         refs = tuple(sorted({ref for values in self._associations.values() for ref in values}))
         self._rows = freeze_named_receipts(self.path, refs)
 
@@ -168,6 +204,18 @@ class FootballOriginalPublication:
             return provenance
 
         def capture(original):
+            # The storage protocol has a hard expanded-size cap. Recording is
+            # optional: decline an over-limit owning record before decoding it,
+            # without dropping the already calculated prediction. All other
+            # integrity failures still propagate; no oversized bytes are saved.
+            if (type(original) is FootballOriginal and type(original._bytes) is bytes
+                    and len(original._bytes) > MAX_ORIGINAL_BYTES):
+                with self._lock:
+                    self.events.append({"target_record": None, "binding_ref": None, "status": "unavailable",
+                        "inserted_payload_bytes": 0, "source_state": "partial",
+                        "code_state": "execution-fingerprint-only", "empirical_state": "not-evaluated",
+                        "unavailable_reason": "original-size-limit"})
+                return
             if not selected_state:
                 with self._lock:
                     self.events.append({"target_record": None, "binding_ref": None, "status": "unavailable",
@@ -259,7 +307,7 @@ class FootballOriginalPublication:
                     except BaseException:
                         connection.rollback()
                         raise
-                self.remaining_payload_bytes -= inserted
+                self._budget.remaining_payload_bytes -= inserted
                 self.inserted_payload_bytes += inserted
                 status = "partial" if selected["unresolved"] else "captured"
                 ref = binding.digest
@@ -298,7 +346,8 @@ def original_capture_report_fields(snapshot):
                 or event["empirical_state"] != "not-evaluated"):
             raise ContextContractError("invalid original qualification state")
         if event["status"] == "unavailable":
-            if event["target_record"] is not None or event["unavailable_reason"] != "selected-native-provenance-unavailable":
+            if event["target_record"] is not None or event["unavailable_reason"] not in {
+                    "selected-native-provenance-unavailable", "original-size-limit"}:
                 raise ContextContractError("unavailable capture cannot claim a selected record")
         else:
             a1._validate_digest(event["target_record"])

@@ -11,7 +11,14 @@ einem endlichen persistenten Aufnahmebudget angeschlossen. Kein erfundener
 numerischer Verletzungs-/Müdigkeits-/Wettereffekt und keine empirische Freigabe.
 Nicht gesendete API-Abfragen nicht mit 24-Stunden-Fehlerbackoff bestrafen.
 Keine neue Bereinigung oder Backupaktivierung, keinen externen Browser nutzen.
-Release- und Testbelege im Bericht prüfen; alte Abschnitte unten sind historisch.
+Funktionscommit `39bd0eb` auf main/GitHub/VPS; 1.522 Tests plus 202 main-
+Anschlusstests grün. Ersten neuen Worker und fachliche Wirkung weiterhin
+gesondert prüfen. Releasebelege im Bericht; alte Abschnitte unten historisch.
+Nachtrag: Übergrößen dürfen Prognosen nicht verwerfen, und mehrere Gruppen
+teilen ein einziges endliches Aufnahmebudget. Abschließend 1.526 Tests grün.
+Erster echter Lauf endete degraded und zeigte noch keine Fußballoriginale;
+die darin gefundene Gruppenlücke wurde repariert. Nicht als fertige
+Verletzungs-/Müdigkeitswirkung oder erfolgreiche Datengesamtprüfung melden.
 
 ## Aktueller Einstieg – Daily3-Vergleich und echter Refresh-Befund 19.09.2026
 

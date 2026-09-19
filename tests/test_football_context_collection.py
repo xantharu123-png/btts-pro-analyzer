@@ -89,3 +89,34 @@ def test_automatic_entry_connects_only_canonical_real_scanner(tmp_path, monkeypa
         assert seen == [None]
         assert 'football_original_admission' not in document
         assert not (tmp_path/'football-original-admission.json').exists()
+
+
+def test_default_refresh_shares_one_permit_after_an_empty_first_batch(tmp_path, monkeypatch):
+    from dataclasses import replace
+    import wettfinder_automation as automation
+    import context_sources.football_appearances as appearances
+    from config_loader import AppConfig
+    from test_wettfinder_automation import _challenge_candidate
+    batches, seen = iter(([1], [2], [])), []
+    monkeypatch.setattr(automation, '_same_artifact_path', lambda *_: True)
+    monkeypatch.setattr(automation, 'football_context_due_fixture_ids', lambda *_a, **_k: next(batches, []))
+    monkeypatch.setattr(automation, 'football_models_due', lambda *_a, **_k: True)
+    monkeypatch.setattr(automation, '_discovered_candidates_for_fixtures', lambda _state, ids:
+        [replace(_challenge_candidate(NOW+timedelta(minutes=80)), fixture_id=ids[0])])
+    monkeypatch.setattr(automation, '_merge_context_refresh', lambda state, *_a, **_k: state)
+    monkeypatch.setattr(appearances, 'refresh_football_appearances', lambda *_a, **_k: {'status':'no_request_due'})
+    def refresh(*args, **kwargs):
+        seen.append(kwargs)
+        return {}  # First group has no calculation; the next must still get the budget.
+    monkeypatch.setattr(automation, '_default_football_context_refresh', refresh)
+    document = automation.run_wettfinder(state_path=tmp_path/'wettfinder.json', now=NOW,
+        config=AppConfig(api_football_key='test-key'), force_football=True,
+        football_scanner=lambda _: {'candidates':[], 'errors':[], 'operational_errors':[],
+            'fixtures_found':0, 'fixtures_modeled':0}, tennis_loader=lambda **_: [],
+        esports_loader=lambda **_: [], riskobet_enabled=False,
+        evidence_db_path=tmp_path/'evidence.db', evidence_settlement_runner=lambda **_: {})
+    assert len(seen) == 2
+    assert all(call['original_capture_limits'] == collection.LIMITS for call in seen)
+    assert seen[0]['original_capture_budget'] is seen[1]['original_capture_budget']
+    assert json.loads((tmp_path/'football-original-admission.json').read_text())['total_reserved'] == collection.SESSION_BYTES
+    assert document['football_original_usage'] == {'inserted_payload_bytes':0, 'source_inserted_payload_bytes':0}

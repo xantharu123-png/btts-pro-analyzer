@@ -1,6 +1,6 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## Kontextanschluss und Daily3-Spielvergleich – 19.09.2026, laufende Reparatur
+## Kontextanschluss und Daily3-Spielvergleich – 19.09.2026, Code live
 
 - Nicht als vollständig fertig melden: numerische Verletzungs-/Müdigkeits-/
   Wetterwirkung ist weiterhin nicht trainiert und empirisch freigegeben.
@@ -14,10 +14,22 @@
   an zusätzlicher JSON-Nutzlast. Keine neue Sicherung oder Bereinigung.
 - Nicht gesendete Spielerhistorienabfragen wegen API-Budgetreserve lösen
   keine neue 24-Stunden-Wartefrist mehr aus; echte Fehlantworten weiterhin.
+- Nachtrag abgesichert: Eine übergroße optionale Originalaufnahme darf die
+  unveränderte normale Prognose nicht verwerfen; strenge Speicherung bleibt.
+- Der erste Live-Lauf deckte den Mehrgruppenfehler auf: leere erste Gruppe,
+  danach keine Aufnahme mehr. Nun teilen sämtliche Gruppen dasselbe endliche
+  Kontingent; keine Vervielfachung, auch nicht bei parallelen Veröffentlichungen.
 - Tatsächliche Lücken: keine Fußball-Originale oder trainierten Effekte im
   geprüften VPS-Bestand; Tennis nur 112 unterschiedliche Ergebnisereignisse.
   Neue Originalaufnahme ersetzt weder native Zuordnung noch Replayfreigabe.
-- Prüf-/Releaseabschluss folgt im [Reparaturbericht](docs/audits/2026-09-19-kontextanschluss-und-spielvergleich.md).
+- Funktionscommit `39bd0eb` gepusht und auf VPS deployed; 1.522 Tests grün,
+  weitere 202 Anschlusstests auf main grün. Healthchecks und Rechentimer
+  bestätigt. Erster Datenlauf 23:42:16 beendet, weiterhin degraded/16 Daten-
+  probleme und noch keine Originale; API-Aufschub live korrekt. Aufnahme nach
+  Mehrgruppen-Nachtrag weiterhin tatsächlich nachweisen, nicht als fertig melden.
+- Prüf-/Releasebelege im [Reparaturbericht](docs/audits/2026-09-19-kontextanschluss-und-spielvergleich.md).
+  Nachtrag mit Größen- und gemeinsamem Gruppenbudget: 1.526 Tests grün;
+  tatsächlichen finalen VPS-Abgleich im Bericht beziehungsweise Git prüfen.
   Cricket, Echtgeldregeln, alte Archive und deaktiviertes Tagesbackup erhalten.
 
 ## Daily3 19.09.2026 – Auswahlregel und Teil-Refresh repariert

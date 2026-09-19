@@ -2196,6 +2196,7 @@ def _default_football_scan(
     config: AppConfig,
     *,
     original_capture_limits=None,
+    original_capture_budget=None,
 ) -> dict[str, Any]:
     if not config.api_football_key:
         raise RuntimeError("API_FOOTBALL_KEY is not configured")
@@ -2208,7 +2209,7 @@ def _default_football_scan(
         publication = None
         if original_capture_limits is not None:
             from context_models.football_original_publication import publication_for_worker
-            publication = publication_for_worker(capture, original_capture_limits)
+            publication = publication_for_worker(capture, original_capture_limits, shared_budget=original_capture_budget)
         snapshot = scan_daily_challenge(
             provider,
             list(ALTERNATIVE_MARKET_LEAGUES),
@@ -2231,6 +2232,7 @@ def _default_football_context_refresh(
     *,
     recompute_models: bool = False,
     original_capture_limits=None,
+    original_capture_budget=None,
 ) -> dict[str, Any]:
     if not config.api_football_key:
         raise RuntimeError("API_FOOTBALL_KEY is not configured")
@@ -2244,7 +2246,7 @@ def _default_football_context_refresh(
             publication = None
             if original_capture_limits is not None:
                 from context_models.football_original_publication import publication_for_worker
-                publication = publication_for_worker(capture, original_capture_limits)
+                publication = publication_for_worker(capture, original_capture_limits, shared_budget=original_capture_budget)
             snapshot = refresh_fixture_models(provider, candidates, search_date, now=current,
                 **({"original_publication": publication} if publication is not None else {}))
         else:
@@ -3058,18 +3060,29 @@ def run_wettfinder(
     production_state = _same_artifact_path(state_path, STATE_PATH)
     original_collection_attempted = False
     original_collection_admission = None
+    original_collection_budget = None
 
-    def original_capture_limits(app_config):
+    def original_capture_options(app_config):
         # One permit per invocation; never start collection for injected/test
         # scanners or a tab load. Admission survives concurrent workers/crashes.
-        nonlocal original_collection_attempted, original_collection_admission
-        if not production_state or original_collection_attempted or not app_config.api_football_key:
-            return None
-        original_collection_attempted = True
-        from football_context_collection import reserve_original_capture
-        original_collection_admission = reserve_original_capture(
-            Path(state_path).with_name('football-original-admission.json'), now=current)
-        return original_collection_admission['limits']
+        nonlocal original_collection_attempted, original_collection_admission, original_collection_budget
+        if not production_state or not app_config.api_football_key:
+            return {}
+        if not original_collection_attempted:
+            original_collection_attempted = True
+            from football_context_collection import reserve_original_capture
+            from context_models.football_original_publication import FootballOriginalBudget
+            original_collection_admission = reserve_original_capture(
+                Path(state_path).with_name('football-original-admission.json'), now=current)
+            limits = original_collection_admission['limits']
+            if limits is not None:
+                original_collection_budget = FootballOriginalBudget(
+                    max_worker_payload_bytes=limits['max_worker_payload_bytes'],
+                    max_source_payload_bytes=limits['max_source_payload_bytes'])
+        if original_collection_budget is None:
+            return {}
+        return {'original_capture_limits': original_collection_admission['limits'],
+                'original_capture_budget': original_collection_budget}
 
     explicit_riskobet = (
         riskobet_enabled is True
@@ -3135,7 +3148,7 @@ def run_wettfinder(
             app_config = config or load_app_config()
             scanner = football_scanner or (
                 lambda scan_date: _default_football_scan(scan_date, app_config,
-                    **({'original_capture_limits': original_capture_limits(app_config)} if production_state else {}))
+                    **original_capture_options(app_config))
             )
             snapshot = scanner(target)
             if not isinstance(snapshot, dict):
@@ -3209,7 +3222,7 @@ def run_wettfinder(
                             recompute_models=football_models_due(
                                 football_state, batch_fixture_ids, now=checked_at,
                             ),
-                            **({'original_capture_limits': original_capture_limits(app_config)}
+                            **(original_capture_options(app_config)
                                if production_state and football_models_due(
                                    football_state, batch_fixture_ids, now=checked_at) else {}),
                         )
@@ -4034,6 +4047,8 @@ def run_wettfinder(
         document["run_status"] = "degraded"
     if original_collection_admission is not None:
         document['football_original_admission'] = original_collection_admission
+    if original_collection_budget is not None:
+        document['football_original_usage'] = original_collection_budget.report()
     write_state(document, state_path)
     return document
 
