@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+from challenge_engine import ChallengeCandidate
 
 from challenge_15k import (
     CHALLENGE_TIMEZONE, _fixture_kickoff, _reconcile_candidate_fixture,
@@ -75,6 +76,7 @@ def refresh_fixture_models(provider, candidates, search_date, *, now, original_p
     result = {"candidates": [], "wettfinder_candidates": [], "basis_forecasts": [],
               "riskobet_source_candidates": [], "riskobet_context_checked_fixture_ids": [],
               "context_fixture_statuses": {}, "errors": [], "modeled_fixture_ids": []}
+    modeled_ids, unmodeled = set(), set()
     if fixtures:
         result = scan_daily_challenge(
             _FixtureBatchProvider(provider, fixtures, details),
@@ -87,19 +89,43 @@ def refresh_fixture_models(provider, candidates, search_date, *, now, original_p
         )
         if result.get("operational_errors"):
             raise RuntimeError("model refresh inputs incomplete; prior model retained")
-        modeled_ids = set(result["modeled_fixture_ids"])
-        if modeled_ids != {row["fixture"]["id"] for row in fixtures}:
-            raise RuntimeError("model refresh could not recompute every requested fixture")
+        expected = {row['fixture']['id'] for row in fixtures}
+        raw_modeled, raw_invalidated = result['modeled_fixture_ids'], result.get('invalidated_fixture_ids', [])
+        for ids in (raw_modeled, raw_invalidated):
+            if (not isinstance(ids, list) or any(type(n) is not int for n in ids)
+                    or len(ids) != len(set(ids)) or not set(ids) <= expected):
+                raise RuntimeError('model refresh returned an invalid fixture scope')
+        # A confirmed cancellation/start invalidates even a model calculated
+        # earlier in this same run. A missing model is NOT an invalid event.
+        modeled_ids = set(raw_modeled) - set(raw_invalidated)
+        unmodeled = expected - modeled_ids - set(raw_invalidated)
+        if unmodeled:
+            failures = [f'Modell für Spiel {i} nicht aktualisiert; vorheriger Modellstand bleibt erhalten'
+                        for i in sorted(unmodeled)]
+            result['operational_errors'] = failures
+            result['errors'] = list(result.get('errors', [])) + failures
+        for field in ('shortlist', 'discovery_candidates', 'wettfinder_candidates',
+                      'basis_forecasts', 'riskobet_source_candidates'):
+            if field not in result:
+                continue
+            rows = result[field]
+            if any(not isinstance(c, ChallengeCandidate) or c.fixture_id not in expected for c in rows):
+                raise RuntimeError('model refresh returned a foreign candidate')
+            rows = [c for c in rows if c.fixture_id not in raw_invalidated]
+            if any(c.fixture_id not in modeled_ids for c in rows):
+                raise RuntimeError('model refresh candidate has no recomputed model')
+            result[field] = rows
         result["candidates"] = list({candidate.candidate_id: candidate
             for field in ("discovery_candidates", "wettfinder_candidates", "basis_forecasts")
             for candidate in result.get(field, ())}.values())
     finished = datetime.now(timezone.utc).isoformat()
     result["fixture_ids"] = sorted(by_fixture)
+    result['unmodeled_fixture_ids'] = sorted(unmodeled)
     result["invalidated_fixture_ids"] = sorted(set(invalidated) | set(result.get("invalidated_fixture_ids", ())))
     result["checked_at"] = finished
     result["model_refresh"] = {
         "version": MODEL_REFRESH_VERSION,
-        "fixture_ids": result["modeled_fixture_ids"],
+        "fixture_ids": sorted(modeled_ids),
         "modeled_at": finished, "input_cutoff_at": finished,
     }
     return result

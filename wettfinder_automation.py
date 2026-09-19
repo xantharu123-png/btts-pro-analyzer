@@ -1358,7 +1358,35 @@ def _merge_context_refresh(
         value for value in result.get("invalidated_fixture_ids", ())
         if isinstance(value, int) and not isinstance(value, bool)
     }
-    allowed |= invalidated
+    unmodeled: set[int] = set()
+    if model_refresh is not None:
+        raw_missing = result.get('unmodeled_fixture_ids', [])
+        raw_invalidated = result.get('invalidated_fixture_ids', [])
+        for ids in (raw_missing, raw_invalidated):
+            if (not isinstance(ids, list) or any(type(n) is not int for n in ids)
+                    or len(ids) != len(set(ids)) or not set(ids) <= allowed):
+                raise ValueError('invalid partial model refresh accounting')
+        unmodeled = set(raw_missing)
+        if (recomputed & invalidated or recomputed & unmodeled or invalidated & unmodeled
+                or recomputed | invalidated | unmodeled != allowed
+                or (unmodeled and not result.get('operational_errors'))):
+            raise ValueError('incomplete or overlapping model refresh accounting')
+        for field in ('candidates', 'discovery_candidates', 'wettfinder_candidates',
+                      'basis_forecasts', 'riskobet_source_candidates'):
+            if any(not isinstance(c, ChallengeCandidate) or c.fixture_id not in recomputed
+                   for c in result.get(field, ())):
+                raise ValueError('candidate without a successful fixture model refresh')
+        # Replacement scope excludes failed games. Their saved evidence and
+        # clocks survive unchanged; only the attempt clock advances below.
+        allowed = recomputed | invalidated
+    else:
+        allowed |= invalidated
+    pending_model_failures = {
+        n for n in state.get('model_refresh_failed_fixture_ids', ())
+        if type(n) is int and n > 0
+    } - recomputed - invalidated
+    pending_model_failures |= unmodeled
+    refreshed['model_refresh_failed_fixture_ids'] = sorted(pending_model_failures)
     updated_candidates = {
         candidate.candidate_id: candidate
         for candidate in result.get("candidates", ())
@@ -1577,6 +1605,7 @@ def _merge_context_refresh(
                 str(fixture_id): status
                 for fixture_id, status in result_statuses.items()
                 if str(fixture_id).isdigit()
+                and (model_refresh is None or int(fixture_id) in allowed)
                 and status
                 in {"verified", "data_incomplete", "unchecked", "deferred"}
             }
@@ -1610,6 +1639,9 @@ def _merge_context_refresh(
         if isinstance(refresh_operational_errors, list)
         else 0
     )
+    # A later successful batch must not erase another game's outstanding
+    # failed recomputation. The current missing games are already in errors.
+    refresh_operational_error_count += len(pending_model_failures - unmodeled)
     previous_total_errors = int(state.get("operational_error_count") or 0)
     discovery_operational_error_count = int(
         state.get("discovery_operational_error_count")
