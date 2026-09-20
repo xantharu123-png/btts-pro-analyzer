@@ -1,5 +1,16 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Fortsetzung 20.09.2026
+
+Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
+[aktuellen Datenlaufbericht](docs/audits/2026-09-20-fortsetzung-datenlauf.md) lesen.
+`2758619` war vor der Reparatur überall synchron. Die über Nacht aufgenommenen
+23 Fußballoriginale zu 19 Events sind alle partiell; keine Effektqualifikation.
+Die neue Korrektur löst den reproduzierten SQLite-Lesekonflikt zwischen Fußball
+und Tennis. 578 Tests/4 Skips, rein lesende VPS-Messung dokumentiert. Deployment
+und erfolgreicher echter Folgelauf sind separat zu bestätigen. Verletzungs-,
+Müdigkeits- und Wetterwirkung weiterhin nicht als erledigt melden.
+
 ## Aktueller Einstieg – Kontextanschluss und spielbezogener Vergleich 19.09.2026
 
 Nachtrag `362a4a6` am 20.09. um 00:04 CEST auf main/GitHub/VPS verifiziert;

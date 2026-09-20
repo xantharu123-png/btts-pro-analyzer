@@ -53,15 +53,18 @@ def capture_report_fields(snapshot):
     return {"context_capture": deepcopy(report)}
 
 
-def _previous_prematch_observations(path):
-    """Live ingestion scope only, not a label-free D2 inventory reader.
+def _previous_prematch_observations(path, event_keys):
+    """Freeze receipts for this received result batch, not a whole-DB audit.
 
     The existing native base receipt authorizes retaining a later fetched
     result for that ID. It does NOT assert that any frozen event/schedule or
     historical model may consume the new result; owning outcome replay still
     checks those identities. No schema initialization or new source query.
+    Validate detached bytes only after releasing the physical read image:
+    historical football validation must not block tennis/model writers.
     """
-    if not os.path.lexists(path):
+    event_keys = tuple(sorted(set(event_keys)))
+    if not event_keys or not os.path.lexists(path):
         return {}
     from context_models.dataset import _reader
     from context_observations import _SELECT, _decode_receipt
@@ -73,29 +76,35 @@ def _previous_prematch_observations(path):
             return watched  # A legitimate A1-only database stays untouched.
         if tables != {"context_observations", "context_contents"}:
             raise ContextIntegrityError("incomplete stored context observation tables")
-        # Source/kind indexes are not trusted until the actual content has been
-        # decoded and bound. Otherwise a changed index can hide a corrupt watch
-        # as missing while another watch publishes new results into that DB.
-        for stored in connection.execute(_SELECT):
-            row = _decode_receipt(stored)
-            if row["source"] != "api-football" or row["kind"] != "base_fixture":
-                continue
-            # Owning validation requires B1's selected-row shape. This is the
-            # actual receipt clock, not an archival publication or live cutoff;
-            # both prematch and later-result bounds are checked separately.
-            row = {**row, "evidence_class": "prospective", "effective_at": row["observed_at"],
-                   "publication_resolution": None}
-            if row["source_schema"] != "native-football-base-detail-v1":
-                continue
-            try:
-                validate_football_base_input(row)
-            except ContextContractError as exc:
-                raise ContextIntegrityError("invalid stored native football base receipt") from exc
-            event = _detail_event(row["payload"]["detail"])
-            if (row["evidence_class"] == "prospective" and event["status"] == "scheduled"
-                    and row["observed_at"] < event["scheduled_start"]):
-                key = row["event_key"]
-                watched[key] = min(watched.get(key, row["observed_at"]), row["observed_at"])
+        # Only these already received native IDs can produce results. Select
+        # every kind/source for them, so altered source/kind indexes still fail
+        # validation instead of hiding a damaged watch. Other sports/events
+        # cannot authorize this batch and need no repeated inventory scan.
+        frozen = []
+        for start in range(0, len(event_keys), 128):
+            keys = event_keys[start:start+128]
+            placeholders = ','.join('?' for _ in keys)
+            frozen.extend(connection.execute(_SELECT +
+                f' WHERE r.event_key IN ({placeholders})', keys).fetchall())
+    for stored in frozen:
+        row = _decode_receipt(stored)
+        if row["source"] != "api-football" or row["kind"] != "base_fixture":
+            continue
+        # The actual receipt clock is not an archival publication or live
+        # cutoff; prematch and later-result bounds are checked separately.
+        row = {**row, "evidence_class": "prospective", "effective_at": row["observed_at"],
+               "publication_resolution": None}
+        if row["source_schema"] != "native-football-base-detail-v1":
+            continue
+        try:
+            validate_football_base_input(row)
+        except ContextContractError as exc:
+            raise ContextIntegrityError("invalid stored native football base receipt") from exc
+        event = _detail_event(row["payload"]["detail"])
+        if (event["status"] == "scheduled"
+                and row["observed_at"] < event["scheduled_start"]):
+            key = row["event_key"]
+            watched[key] = min(watched.get(key, row["observed_at"]), row["observed_at"])
     return watched
 
 
@@ -250,9 +259,10 @@ class _Capture:
         # Interrupted multi-record append remains partial and is rejected as a
         # complete roster by existing collection validators on subsequent reads.
         details = [item for item in self.receipts if item["endpoint"] == "fixtures"]
-        watched = (_previous_prematch_observations(path)
-                   if any(item["watched_results_only"] and any((index, ri) not in self.baseline_processed
-                       for ri in range(len(item["rows"]))) for index, item in enumerate(self.receipts)) else {})
+        result_keys = {_detail_event(raw)['event_key']
+            for index, item in enumerate(self.receipts) if item['watched_results_only']
+            for ri, raw in enumerate(item['rows']) if (index, ri) not in self.baseline_processed}
+        watched = _previous_prematch_observations(path, result_keys)
         for receipt_index, receipt in enumerate(self.receipts):
             if receipt.get("baseline_only"):
                 continue  # Opt-in additions only pass through their bounded flush.

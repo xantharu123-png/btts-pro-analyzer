@@ -277,3 +277,97 @@ def test_scope_index_corruption_fails_before_any_later_result_publication(
         after = tuple(connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
             for table in ("context_observations", "context_contents"))
     assert after == before
+
+
+def test_result_watch_releases_read_lock_before_validation(tmp_path, monkeypatch):
+    import context_observations
+    path = tmp_path / 'context.db'
+    capture_prematch(path, monkeypatch)
+    actual_decode = context_observations._decode_receipt
+    committed = []
+
+    def decode(row):
+        if not committed:
+            # A real second SQLite connection must commit while the first
+            # reader is doing CPU validation, also in DELETE journal mode.
+            with sqlite3.connect(path, timeout=.1) as writer:
+                writer.execute('CREATE TABLE concurrent_tennis_refresh(value TEXT)')
+            committed.append(True)
+        return actual_decode(row)
+
+    monkeypatch.setattr(context_observations, '_decode_receipt', decode)
+    report, _ = capture_results(path, monkeypatch)
+    assert committed == [True] and report['status'] == 'captured'
+
+
+def test_result_watch_only_decodes_events_in_the_received_result_scope(tmp_path, monkeypatch):
+    import context_observations
+    path = tmp_path / 'context.db'
+    capture_prematch(path, monkeypatch)
+    other = detail()
+    other['fixture']['id'] = 99
+    from context_observations import append_observation
+    from context_sources.outcomes import normalize_football_base_input
+    append_observation(path, normalize_football_base_input(other, observed_at=NOW), observed_at=NOW)
+    actual_decode = context_observations._decode_receipt
+    decoded = []
+
+    def decode(row):
+        decoded.append(row[2])
+        return actual_decode(row)
+
+    monkeypatch.setattr(context_observations, '_decode_receipt', decode)
+    report, _ = capture_results(path, monkeypatch)
+    assert decoded and set(decoded) == {'api-football:football:1575469'}
+    assert report['status'] == 'captured'
+
+
+def test_result_watch_uses_one_frozen_image_even_if_new_watch_arrives_during_decode(tmp_path, monkeypatch):
+    import context_observations
+    from context_sources.outcomes import normalize_football_base_input
+    path = tmp_path / 'context.db'
+    capture_prematch(path, monkeypatch)
+    other = detail()
+    other['fixture']['id'] = 99
+    actual_decode = context_observations._decode_receipt
+    inserted = []
+
+    def decode(row):
+        if not inserted:
+            inserted.append(True)
+            context_observations.append_observation(path,
+                normalize_football_base_input(other, observed_at=NOW), observed_at=NOW)
+        return actual_decode(row)
+
+    monkeypatch.setattr(context_observations, '_decode_receipt', decode)
+    result = finished()
+    result['fixture']['id'] = 99
+    capture_results(path, monkeypatch, response=payload([finished(), result]))
+    outcomes = [row for row in stored(path) if row['kind'] == 'match_outcome']
+    assert [row['event_key'] for row in outcomes] == ['api-football:football:1575469']
+
+
+def test_result_watch_multiple_query_batches_retain_the_same_scope(tmp_path, monkeypatch):
+    from context_observations import append_observation_batch
+    from context_sources.outcomes import normalize_football_base_input
+    path = tmp_path / 'context.db'
+    records, keys = [], []
+    for fixture_id in range(1, 261):
+        fixture = detail()
+        fixture['fixture']['id'] = fixture_id
+        record = normalize_football_base_input(fixture, observed_at=NOW)
+        records.append((record, NOW))
+        keys.append(record['event_key'])
+    append_observation_batch(path, tuple(records))
+    actual = implementation()._previous_prematch_observations(path, (*keys, *keys[:3]))
+    assert actual == dict.fromkeys(keys, canonical_timestamp(NOW))
+
+
+def test_empty_result_scope_does_not_open_existing_database(tmp_path, monkeypatch):
+    import context_models.dataset
+    path = tmp_path / 'context.db'
+    capture_prematch(path, monkeypatch)
+    def forbidden(*args, **kwargs):
+        pytest.fail('empty scope must not open the database')
+    monkeypatch.setattr(context_models.dataset, '_reader', forbidden)
+    assert implementation()._previous_prematch_observations(path, ()) == {}

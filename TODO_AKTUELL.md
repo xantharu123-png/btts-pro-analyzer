@@ -1,5 +1,22 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Fortsetzung 20.09.2026 – Datenlauf-Konflikt
+
+- Übergabe gegen echte Daten geprüft: `2758619` war lokal/GitHub/VPS identisch.
+  Über Nacht sind 23 Fußball-Originale zu 19 Spielen gespeichert worden; alle
+  sind partiell, also noch kein vollständig quellgebundener Trainingsfall.
+- Tennis brach um 07:18:15 mit einer Datenbank-Lesesperre des Fußballlaufs ab.
+  Ergebnisprüfung jetzt auf die empfangenen Events begrenzt; Ergebnis-/Spieler-
+  historie gibt das konsistente SQL-Lesebild vor CPU-Validierung frei.
+- 578 betroffene Tests bestanden, 4 Skips. Rein lesende VPS-Probe: selbst für
+  1.096 Fußball-Events nur 2,207 s SQL-Lesephase; Spielerinventur 0,650 s.
+  Veröffentlichung und echter erfolgreicher Tennis-Gesamtlauf noch nachweisen.
+- Vollständige Verletzungs-/Müdigkeits-/Wetterwirkung bleibt unerledigt.
+  Weder Aufnahmebudget noch Qualitätskriterien wurden gelockert. Keine neue
+  Sicherung/Bereinigung, keine Finanz- oder Cricketänderung.
+- [Prüfbericht und konkrete Restarbeiten](docs/audits/2026-09-20-fortsetzung-datenlauf.md).
+  Ältere Abschnitte unten sind datierte Zwischenstände, keine aktuellen Freigaben.
+
 ## Kontextanschluss und Daily3-Spielvergleich – 19.09.2026, Code live
 
 - Nachtrag `362a4a6` am 20.09. um 00:04 CEST auf VPS bestätigt; 1.526 Tests,

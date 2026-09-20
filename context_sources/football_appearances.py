@@ -37,7 +37,7 @@ def _pending_identities(path: Path, *, now: datetime):
 
     Missing/altered lookup indexes cannot certify coverage or a model here.
     Every actual request still needs an owning, hash-validated native receipt.
-    The read transaction closes BEFORE any network request or publication.
+    The read transaction closes BEFORE validation, networking or publication.
     """
     decision = canonical_timestamp(now)
     path = Path(path)
@@ -52,26 +52,27 @@ def _pending_identities(path: Path, *, now: datetime):
             return ()
         if tables != {'context_observations', 'context_contents'}:
             raise ContextIntegrityError('incomplete context observation tables')
-        for stored in connection.execute(_SELECT +
-                " WHERE r.source='api-football' AND r.kind='base_fixture'"):
-            row = _decode_receipt(stored)
-            if row['observed_at'] > decision:
-                continue
-            row.update(evidence_class='prospective', effective_at=row['observed_at'], publication_resolution=None)
-            try:
-                validate_football_base_input(row)
-            except ContextContractError as exc:
-                raise ContextIntegrityError('invalid native appearance source receipt') from exc
-            raw = row['payload']['detail']
-            key, clock = row['event_key'], row['observed_at']
-            identity = _identity(raw)
-            previous = latest.get(key)
-            if previous is None or clock > previous[0]:
-                latest[key] = (clock, {identity})
-            elif clock == previous[0]:
-                previous[1].add(identity)
-            if 'players' in raw:
-                details[identity] = max(details.get(identity, clock), clock)
+        frozen = connection.execute(_SELECT +
+            " WHERE r.source='api-football' AND r.kind='base_fixture'").fetchall()
+    for stored in frozen:
+        row = _decode_receipt(stored)
+        if row['observed_at'] > decision:
+            continue
+        row.update(evidence_class='prospective', effective_at=row['observed_at'], publication_resolution=None)
+        try:
+            validate_football_base_input(row)
+        except ContextContractError as exc:
+            raise ContextIntegrityError('invalid native appearance source receipt') from exc
+        raw = row['payload']['detail']
+        key, clock = row['event_key'], row['observed_at']
+        identity = _identity(raw)
+        previous = latest.get(key)
+        if previous is None or clock > previous[0]:
+            latest[key] = (clock, {identity})
+        elif clock == previous[0]:
+            previous[1].add(identity)
+        if 'players' in raw:
+            details[identity] = max(details.get(identity, clock), clock)
     cutoff = canonical_timestamp(datetime.fromisoformat(decision) - DETAIL_RECHECK)
     pending = []
     for _, identities in latest.values():

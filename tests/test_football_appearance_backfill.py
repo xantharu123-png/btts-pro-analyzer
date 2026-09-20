@@ -146,6 +146,25 @@ def test_missing_database_does_not_initialize_or_fetch(tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_appearance_inventory_releases_sql_before_receipt_validation(tmp_path, monkeypatch):
+    path = tmp_path / 'context.db'
+    seed(path, completed(), NOW - timedelta(minutes=1))
+    module = implementation()
+    actual_decode = module._decode_receipt
+    committed = []
+
+    def decode(row):
+        if not committed:
+            with sqlite3.connect(path, timeout=.1) as writer:
+                writer.execute('CREATE TABLE concurrent_tour_publish(value TEXT)')
+            committed.append(True)
+        return actual_decode(row)
+
+    monkeypatch.setattr(module, '_decode_receipt', decode)
+    assert module.pending_appearance_ids(path, now=NOW) == (completed()['fixture']['id'],)
+    assert committed == [True]
+
+
 def test_selection_is_bounded_rotates_and_ignores_future_or_nonterminal_receipts(tmp_path):
     path = tmp_path / 'context.db'
     for number in range(1, 27):
