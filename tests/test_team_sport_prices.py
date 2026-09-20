@@ -52,6 +52,9 @@ def test_native_full_game_price_roundtrips_without_execution(sport, side):
     assert reference_price_status(quote, 1.3, now=NOW).usable_odds is None
     status = wettfinder_reference_price_status(quote, 1.3, candidate=candidate, now=NOW)
     assert status.code == 'OBSERVED' and status.usable_odds is None
+    at_start = NOW + timedelta(hours=6)
+    assert observed_consensus(quote, candidate=candidate, now=at_start) is None
+    assert wettfinder_reference_price_status(quote, 1.3, candidate=candidate, now=at_start).code == 'UNAVAILABLE'
 
 
 @pytest.mark.parametrize('field,value', [

@@ -44,6 +44,21 @@
 - Keine Modell-, Verletzungs-/Müdigkeits- oder allgemeine Jobreparatur in diesem
   Patch. Vor Deployment waren Wettfinder- und Tennisdienst bereits fehlgeschlagen.
 
+## Live-Nachweis
+
+Funktionscommit `f4677e2799a787de0a7f77ac32ccb9e6014a374c` auf main/GitHub/VPS.
+App und Caddy aktiv, interne und öffentliche Healthchecks `ok`. Vorhandener
+Wettfinder-Timer nach dem kontrollierten Codewechsel wieder aktiv.
+
+Echter Gesamtabruf: vier NHL-Spiele geprüft und exakt zugeordnet, zwei
+Auswahlquoten gespeichert, keine Abruffehler. Boston Bruins–Washington Capitals:
+Boston 1,86, Washington 1,96. Quotencache: 3.023 Bytes. Das aktuelle NHL-Modell
+liefert noch keine Seite/Wahrscheinlichkeit (`selection_key=open`); daher
+keine der beiden Quoten als angeblich zu einer Modellauswahl gehörig angezeigt.
+Die lesende Consumerprüfung renderte 116 RisikoBet-Szenarien, 35 vorhandene
+Preise (Fußball), keine sichtbare Auswahl mit passender Quote unter 1,20.
+Dies ist keine visuelle Browserabnahme und kein erfolgreicher Tennis-Gesamtlauf.
+
 ## Kostenlose Möglichkeiten für Tennis und E-Sport
 
 - Vorhandenes The-Odds-API-Feld weiterhin ohne Schlüssel. Der Anbieter bietet

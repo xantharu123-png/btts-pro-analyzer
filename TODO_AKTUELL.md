@@ -2,6 +2,10 @@
 
 ## Quotenanbindung 20.09.2026 – weitere Sportarten
 
+- Live-Code `f4677e2`: main/GitHub/VPS abgeglichen, 1.122 Tests plus 58 Untertests
+  grün. Nativer Abruf: vier NHL-Spiele zugeordnet, zwei Quoten ohne Fehler;
+  Cache rund 3 KB. Das NHL-Modell liefert derzeit noch keine gewählte Seite.
+
 - Fußballquoten und der übergreifende 1,20-Filter waren bereits mit `66161eb`
   live. Aktuell ergänzt: zentrale API-Sports-Quoten für NBA/Euroleague/NHL,
   Wiederverwendung in Wettfinder/Daily3/RisikoBet, inklusive RisikoBet-Spielen

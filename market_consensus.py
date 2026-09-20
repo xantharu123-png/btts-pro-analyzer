@@ -534,6 +534,10 @@ def observed_consensus(quote: object, *, candidate: object, now: Optional[dateti
         return None
     current = _as_utc(now or datetime.now(timezone.utc))
     fetched = _parse_utc(parsed.fetched_at)
+    if parsed.source in TEAM_PRICE_SOURCES.values():
+        start = _parse_utc(parsed.scheduled_start)
+        if start is None or start <= current:
+            return None
     if fetched is None or not timedelta(minutes=-1) <= current - fetched <= QUOTE_DISPLAY_MAX_AGE:
         return None
     points = tuple(p for p in _wettfinder_identified_points(parsed)
