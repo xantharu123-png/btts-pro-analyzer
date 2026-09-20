@@ -4080,7 +4080,9 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
     rows = [r for r in document.get('model_candidates', [])
             if r.get('source') == 'football_challenge']
     selected = select_price_check_candidates(
-        (r for r in rows if exact_market_target(r.get('market_key')) is not None),
+        ({**r, 'status': 'PRICE_REQUIRED'} for r in rows
+         if r.get('status') in {'MODEL_SELECTION', 'PRICE_REQUIRED'}
+         and exact_market_target(r.get('market_key')) is not None),
         now=current, target_date=target_search_date(current), preserve_order=True,
         previous_checks=document.get('price_check_attempts') or {}, max_markets_per_fixture=100)
     if quote_loader is None:
@@ -4088,6 +4090,9 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
         quotes, errors = fetch_football_consensus(cfg.api_football_key or '', selected, now=current, timeout=10)
     else:
         quotes, errors = quote_loader(selected)
+    selected_by_id = {r['candidate_id']: r for r in selected}
+    quotes = {key: quote for key, quote in quotes.items()
+              if quote_matches_candidate(quote, selected_by_id.get(key))}
     counts, _ = _apply_reference_quotes(rows, selected, quotes, now=current, previous_rows=previous)
     # Existing releases carry execution proof for their previous quote. Do not
     # manufacture a release during this display-only operation.

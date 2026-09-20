@@ -177,10 +177,12 @@ def test_shared_manual_live_surface_keeps_only_correction_controls_below_floor(m
     fake.metric.assert_not_called()
 
 
-def test_price_only_refresh_preserves_model_and_discovery_clocks(tmp_path):
+@pytest.mark.parametrize('status', ['PRICE_REQUIRED', 'MODEL_SELECTION'])
+def test_price_only_refresh_preserves_model_and_discovery_clocks(tmp_path,status):
     from wettfinder_automation import refresh_prices_only, _signal_record
     s = _signal()
     row = {**_signal_record(s), **wettfinder_quote_binding_candidate(s)}
+    row['status'] = status
     path = tmp_path/'prices.json'
     document = dict(generated_at=NOW.isoformat(),model_candidates=[row],candidates=[dict(row)],sources={})
     path.write_text(json.dumps(document),encoding='utf-8')
