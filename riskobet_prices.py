@@ -76,7 +76,11 @@ def shared_price_overlays(candidates, rows, *, now=None):
 
 
 def team_price_overlays(candidates, rows, *, now):
-    from team_sport_prices import _sport
+    from team_sport_prices import _sport as team_sport
+    from market_consensus import esports_discipline
+    def _sport(row):
+        return team_sport(row) or ('esports' if str(row.get('sport') or '').casefold()
+                                  in {'e-sport', 'esports', 'e sport'} else None)
     index = {}
     for row in rows:
         if not isinstance(row, dict) or _sport(row) is None:
@@ -91,7 +95,8 @@ def team_price_overlays(candidates, rows, *, now):
         index[key] = value if key not in index or index[key] == value else None
     overlays = {}
     for candidate in candidates:
-        if candidate.market_key != 'match_winner_including_ot' or candidate.settlement_contract != (
+        expected_market = 'series_winner' if candidate.sport == 'esports' else 'match_winner_including_ot'
+        if candidate.market_key != expected_market or candidate.settlement_contract != (
             f'riskobet-settlement-v1:{candidate.sport}:{candidate.market_key}:{candidate.selection_key}'
         ):
             continue
@@ -99,6 +104,8 @@ def team_price_overlays(candidates, rows, *, now):
         if match is None:
             continue
         row, quote = match
+        if candidate.sport == 'esports' and esports_discipline(candidate.competition) != esports_discipline(row.get('competition')):
+            continue
         if candidate.selection_label != row['selected_competitor']:
             continue
         binding = {**row, 'scheduled_start': candidate.starts_at.isoformat()}
@@ -127,4 +134,9 @@ def load_shared_price_overlays(candidates, snapshots=(), *, now=None, path=None)
     if snapshots:
         rows = [row for row in rows if row.get('source') != 'team_sport_research'] + snapshot_price_rows(snapshots)
     rows = attach_cached_team_prices(rows, now=now, path=source.parent / 'team_sport_quotes.json')
+    from esports_prices import attach_cached_esports_prices, snapshot_price_rows as esports_snapshot_rows
+    if any(s.sport == 'esports' for s in snapshots):
+        rows = [row for row in rows if str(row.get('sport') or '').casefold()
+                not in {'e-sport', 'esports', 'e sport'}] + esports_snapshot_rows(snapshots)
+    rows = attach_cached_esports_prices(rows, now=now, path=source.parent / 'esports_quotes.json')
     return shared_price_overlays(candidates, rows, now=now)

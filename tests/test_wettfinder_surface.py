@@ -219,6 +219,7 @@ def test_public_quote_binding_adapter_preserves_loader_identity():
         "home_team": "Alpha",
         "away_team": "Beta",
         "quote_provider_event_id": "event-77",
+        "competition": None,
         "fixture_source": None,
         "provider_event_id": None,
         "competitor_a": "Alpha",

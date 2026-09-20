@@ -19,6 +19,7 @@ class AppConfig:
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     pandascore_key: Optional[str] = None
+    oddspapi_key: Optional[str] = None
     rapidapi_key: Optional[str] = None
     cricket_api_key: Optional[str] = None
     # Freemode exposes extra research evidence only. Model vetoes remain hard
@@ -78,6 +79,7 @@ def _load_streamlit_config(st_module: Any = None) -> tuple[dict, list[str]]:
         "telegram_bot_token": _secret_get(secrets, "telegram", "bot_token"),
         "telegram_chat_id": _secret_get(secrets, "telegram", "chat_id"),
         "pandascore_key": _secret_get(secrets, "esports", "pandascore_key"),
+        "oddspapi_key": _secret_get(secrets, "esports", "oddspapi_key"),
         "rapidapi_key": _secret_get(secrets, "cricket", "rapidapi_key"),
         "cricket_api_key": _secret_get(secrets, "cricket", "api_key"),
     }
@@ -94,6 +96,7 @@ def _load_env_config() -> tuple[dict, list[str]]:
         "telegram_bot_token": _clean(os.environ.get("TELEGRAM_BOT_TOKEN")),
         "telegram_chat_id": _clean(os.environ.get("TELEGRAM_CHAT_ID")),
         "pandascore_key": _clean(os.environ.get("PANDASCORE_KEY")),
+        "oddspapi_key": _clean(os.environ.get("ODDSPAPI_KEY")),
         "rapidapi_key": _clean(os.environ.get("RAPIDAPI_KEY")),
         "cricket_api_key": _clean(os.environ.get("CRICKET_API_KEY")),
     }
@@ -125,6 +128,7 @@ def _load_ini_config(config_path: str | Path = "config.ini") -> tuple[dict, list
         "telegram_bot_token": get("telegram", "bot_token"),
         "telegram_chat_id": get("telegram", "chat_id"),
         "pandascore_key": get("esports", "pandascore_key"),
+        "oddspapi_key": get("esports", "oddspapi_key"),
         "rapidapi_key": get("cricket", "rapidapi_key"),
         "cricket_api_key": get("cricket", "api_key"),
     }

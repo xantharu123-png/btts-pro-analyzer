@@ -261,6 +261,7 @@ def wettfinder_quote_binding_candidate(
         "selected_competitor": signal.selected_competitor,
         "fixture_source": signal.fixture_source,
         "provider_event_id": signal.provider_event_id,
+        "competition": signal.competition,
     }
 
 

@@ -14,6 +14,8 @@ the forecast catalog.
 
 from __future__ import annotations
 
+from collections import Counter
+
 import argparse
 from contextlib import nullcontext
 from dataclasses import dataclass, fields
@@ -3557,9 +3559,24 @@ def run_wettfinder(
     esports_model_rows = [
         row for row in source_rows if row.get("source") == "esports_shadow"
     ]
+    from esports_prices import attach_cached_esports_prices, refresh_esports_prices
+    esports_price_path = Path(state_path).parent / 'esports_quotes.json'
+    esports_price_summary = {'status': 'missing_key'}
+    esports_price_key = getattr(config or load_app_config(), 'oddspapi_key', None)
+    if production_state and esports_price_key:
+        try:
+            esports_price_summary = refresh_esports_prices(api_key=esports_price_key, path=esports_price_path)
+        except Exception as exc:
+            esports_price_summary = {'status': 'failed', 'error_type': type(exc).__name__}
+        if not fixed_now:
+            current = _utc(runtime_clock())
     for row in esports_model_rows:
         row.pop("reference_quote", None)
         row["reference_price_status"] = "UNAVAILABLE"
+    for row, priced in zip(esports_model_rows, attach_cached_esports_prices(
+            esports_model_rows, now=current, path=esports_price_path)):
+        if priced.get('reference_quote') is not None:
+            row.update(reference_quote=priced['reference_quote'], reference_price_status='OBSERVED')
 
     # Preserve every model result independently of bookmaker price. A missing
     # football, tennis or E-sport quote only prevents strict playability; it
@@ -3759,12 +3776,13 @@ def run_wettfinder(
         ) + tennis_quote_error_count
     if isinstance(source_status.get("esports"), dict):
         source_status["esports"]["price_provider_status"] = (
-            "unsupported_no_verified_odds_provider"
+            "configured" if esports_price_key else "missing_api_key"
         )
-        source_status["esports"]["reference_quote_count"] = 0
-        source_status["esports"]["price_checked_count"] = 0
+        source_status["esports"]["price_refresh"] = esports_price_summary
+        source_status["esports"]["reference_quote_count"] = sum(bool(r.get('reference_quote')) for r in esports_model_rows)
+        source_status["esports"]["price_checked_count"] = len(esports_model_rows)
         source_status["esports"]["price_status_counts"] = (
-            {"UNAVAILABLE": len(esports_model_rows)}
+            dict(Counter(r['reference_price_status'] for r in esports_model_rows))
             if esports_model_rows
             else {}
         )

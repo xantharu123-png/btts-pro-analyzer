@@ -15,6 +15,7 @@ chat_id =
 
 [esports]
 pandascore_key =
+oddspapi_key =
 
 [cricket]
 rapidapi_key =

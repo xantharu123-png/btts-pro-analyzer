@@ -1440,6 +1440,8 @@ def automated_wettfinder_forecasts(
         return []
     from team_sport_prices import attach_cached_team_prices
     rows = attach_cached_team_prices(rows, now=current, path=Path(path).parent / 'team_sport_quotes.json')
+    from esports_prices import attach_cached_esports_prices
+    rows = attach_cached_esports_prices(rows, now=current, path=Path(path).parent / 'esports_quotes.json')
     football = document.get("football")
     football = football if isinstance(football, dict) else {}
     football_statuses = _validated_football_context_statuses(football)
@@ -1638,8 +1640,8 @@ def automated_wettfinder_signals(
             not isinstance(row, dict)
             or row.get("status") != "RECOMMENDED"
             or not _supported_automated_strict_source(row)
-            # The generator deliberately has no verified E-sport price
-            # provider. Keep those model forecasts visible, but fail closed
+            # E-sport prices are retrieval observations, not execution proof.
+            # Keep those model forecasts visible, but fail closed
             # if an inconsistent or manipulated artifact invents a strict row.
             or row_is_esports
             or (

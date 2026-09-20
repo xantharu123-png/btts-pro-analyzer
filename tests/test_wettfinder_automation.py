@@ -2846,7 +2846,7 @@ def test_runner_reprices_each_supported_reused_candidate_on_every_run(tmp_path):
     assert second["sources"]["tennis"]["price_checked_count"] == 1
     assert second["sources"]["tennis"]["reference_quote_count"] == 1
     assert second["sources"]["esports"]["price_provider_status"] == (
-        "unsupported_no_verified_odds_provider"
+            "missing_api_key"
     )
 
 

@@ -36,6 +36,17 @@ TEAM_PRICE_SOURCES = {
     "basketball": "API-Basketball Abrufbeobachtung",
     "ice_hockey": "API-Hockey Abrufbeobachtung",
 }
+ESPORTS_PRICE_SOURCE = "OddsPapi E-Sport Abrufbeobachtung"
+OBSERVATION_SOURCES = frozenset((*TEAM_PRICE_SOURCES.values(), ESPORTS_PRICE_SOURCE))
+
+
+def esports_discipline(value: object) -> Optional[int]:
+    """Verified native sport IDs; no generic esports/name-only cross-game join."""
+    return {"cs2": 17, "csgo": 17, "counter-strike": 17,
+            "lol": 18, "league of legends": 18,
+            "dota2": 16, "dota 2": 16, "valorant": 61}.get(str(value or "").strip().casefold())
+
+
 ODDS_API_BASE_URL = "https://api.the-odds-api.com/v4"
 ODDS_API_EVENT_TOLERANCE = timedelta(hours=2)
 FOOTBALL_QUOTE_START_TOLERANCE = timedelta(minutes=5)
@@ -91,9 +102,13 @@ class MarketConsensus:
     event_away: Optional[str] = None
     origin_provider: Optional[str] = None
     origin_event_id: Optional[str] = None
+    event_discipline: Optional[int] = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        if self.event_discipline is None:
+            # Keep legacy quote serialization unchanged (including financial history).
+            payload.pop('event_discipline')
         payload["points"] = [asdict(point) for point in self.points]
         executable = self.executable_point
         payload["executable_quote"] = (
@@ -159,6 +174,7 @@ class MarketConsensus:
                 ),
                 origin_provider=payload.get("origin_provider"),
                 origin_event_id=payload.get("origin_event_id"),
+                event_discipline=payload.get("event_discipline"),
                 event_away=(
                     _required_text(payload.get("event_away"))
                     if payload.get("event_away") is not None
@@ -171,7 +187,7 @@ class MarketConsensus:
             quote.source not in {
                 REFERENCE_SOURCE,
                 ODDS_API_REFERENCE_SOURCE,
-                *TEAM_PRICE_SOURCES.values(),
+                *OBSERVATION_SOURCES,
             }
             or (
                 quote.source == REFERENCE_SOURCE
@@ -187,11 +203,17 @@ class MarketConsensus:
             or not quote.points
         ):
             return None
-        if quote.source in TEAM_PRICE_SOURCES.values() and (
+        if quote.source in OBSERVATION_SOURCES and (
             quote.fixture_id is not None or not quote.provider_event_id
             or not isinstance(quote.origin_provider, str) or not quote.origin_provider.strip()
             or not isinstance(quote.origin_event_id, str) or not quote.origin_event_id.strip()
             or any(point.observed_at != quote.fetched_at for point in quote.points)
+        ):
+            return None
+        if quote.source == ESPORTS_PRICE_SOURCE and (
+            type(quote.event_discipline) is not int
+            or quote.event_discipline not in {16, 17, 18, 61}
+            or quote.origin_provider != "pandascore"
         ):
             return None
         ordered = sorted(point.odds for point in quote.points)
@@ -240,7 +262,7 @@ class MarketConsensus:
         point timestamps remain readable but are deliberately not actionable.
         """
 
-        if self.source in TEAM_PRICE_SOURCES.values():
+        if self.source in OBSERVATION_SOURCES:
             return False  # These APIs expose retrieval time, not the bookmaker's update time.
         quoted = _parse_utc(self.quoted_at)
         fetched = _parse_utc(self.fetched_at)
@@ -277,7 +299,7 @@ class MarketConsensus:
     def is_wettfinder_fresh(self, now: Optional[datetime] = None) -> bool:
         """Require every contributing offer to satisfy the normal live window."""
 
-        if self.source in TEAM_PRICE_SOURCES.values():
+        if self.source in OBSERVATION_SOURCES:
             return False
         fetched = _parse_utc(self.fetched_at)
         point_times = [
@@ -408,6 +430,8 @@ def _wettfinder_provider_prefix(quote: MarketConsensus) -> Optional[str]:
         return "api-football:"
     if quote.source == ODDS_API_REFERENCE_SOURCE:
         return "odds-api:"
+    if quote.source == ESPORTS_PRICE_SOURCE:
+        return "oddspapi:"
     for sport, source in TEAM_PRICE_SOURCES.items():
         if quote.source == source:
             return f"api-sports-{sport}:"
@@ -457,7 +481,7 @@ def wettfinder_consensus(
     recomputed only from the current provider-native subset.
     """
 
-    if not isinstance(quote, MarketConsensus) or quote.source in TEAM_PRICE_SOURCES.values():
+    if not isinstance(quote, MarketConsensus) or quote.source in OBSERVATION_SOURCES:
         return None
     fetched = _parse_utc(quote.fetched_at)
     if fetched is None:
@@ -535,7 +559,7 @@ def observed_consensus(quote: object, *, candidate: object, now: Optional[dateti
         return None
     current = _as_utc(now or datetime.now(timezone.utc))
     fetched = _parse_utc(parsed.fetched_at)
-    if parsed.source in TEAM_PRICE_SOURCES.values():
+    if parsed.source in OBSERVATION_SOURCES:
         start = _parse_utc(parsed.scheduled_start)
         if start is None or start <= current:
             return None
@@ -618,7 +642,7 @@ def wettfinder_reference_price_status(
             )
     if quote is None:
         return reference_price_status(None, minimum_odds, now=now)
-    if quote.source in TEAM_PRICE_SOURCES.values():
+    if quote.source in OBSERVATION_SOURCES:
         observed = observed_consensus(quote, candidate=candidate, now=now)
         return ReferencePriceStatus(
             "OBSERVED" if observed is not None else "UNAVAILABLE",
@@ -1033,6 +1057,23 @@ def quote_matches_candidate(
     )
     is_tennis = source == "tennis_shadow" or sport == "tennis"
     team_sport = {"basketball": "basketball", "eishockey": "ice_hockey", "ice_hockey": "ice_hockey"}.get(sport)
+    if sport in {"e-sport", "esports", "e sport"} and not fixture_is_valid:
+        a = _identity_name(_candidate_value(candidate, "competitor_a"))
+        b = _identity_name(_candidate_value(candidate, "competitor_b"))
+        selected = _identity_name(_candidate_value(candidate, "selected_competitor"))
+        return (
+            source in {"", "esports_shadow", "automated_wettfinder_forecast"} and market_key == "H2H"
+            and quote.source == ESPORTS_PRICE_SOURCE and quote.fixture_id is None
+            and type(quote.event_discipline) is int
+            and quote.event_discipline == esports_discipline(_candidate_value(candidate, "competition"))
+            and quote.origin_provider == _candidate_value(candidate, "fixture_source") == "pandascore"
+            and bool(quote.origin_event_id) and bool(quote.provider_event_id)
+            and quote.origin_event_id == str(_candidate_value(candidate, "provider_event_id") or "")
+            and quote.bet_name == "Series Winner" and bool(a) and bool(b) and a != b
+            and _identity_name(quote.event_home) == a and _identity_name(quote.event_away) == b
+            and selected in {a, b} and _identity_name(quote.value_name) == selected
+            and _event_start_matches(quote, candidate, timedelta(minutes=5))
+        )
     if team_sport and not fixture_is_valid:
         return (
             market_key == "H2H" and quote.fixture_id is None

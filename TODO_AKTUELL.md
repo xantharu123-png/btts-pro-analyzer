@@ -1,6 +1,26 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## E-Sport-Quoten – Fortsetzung 20.09.2026
+## E-Sport-Quoten – Anbindung 20.09.2026
+
+- OddsPapi-Schlüssel geschützt übergeben; native Kontoprüfung: aktiver kostenloser
+  Tarif, 250 Anfragen, keine automatische Verlängerung. Erste echte CS2-Preise
+  von identifizierten Buchmachern bestätigt, keine Modellquote als Anbieterpreis.
+- Gemeinsamer Serien-Sieg-Cache für CS2, Dota 2, LoL und Valorant implementiert:
+  Wettfinder, Daily3 und RisikoBet benutzen dieselben Preise. Exakte Disziplin,
+  Teams, Spielbeginn, PandaScore-Ursprung und Marktbindung; keine Map-Übernahme.
+- Beste passende Quote unter 1,20 entfernt nur den Vorschlag, nicht das Modell.
+  Fehlende Angebote bleiben unbekannt. Abrufbeobachtung ist keine Einsatzfreigabe.
+- Freies Kontingent: höchstens sieben reservierte Anfragen täglich, 25 Monats-
+  reserve; maximal fünf Turniere pro Anfrage, ein Buchmacher pro Anfrage.
+  Kleinere vollständige Pakete alle zwölf Stunden, größere einmal täglich.
+  Vor jedem Abruf aktive Free-Subscription prüfen; kein kostenpflichtiger Wechsel.
+- Kein neuer Timer, kein Historienwachstum: ein begrenzter ersetzbarer Quotencache,
+  Budget im vorhandenen Zähler. Keine neue Bereinigung oder Backupaktivierung.
+- Release-/VPS-Nachweis folgt in
+  [E-Sport-Anschlussbericht](docs/audits/2026-09-20-esports-quoten.md).
+  Ältere Angaben unterhalb dieses Blocks sind historische Zwischenstände.
+
+## E-Sport-Quoten – frühere Zugangsvoraussetzung 20.09.2026
 
 - FieldFunded erneut im getrennten Browser geprüft: Free-Anmeldung scheitert
   weiterhin am CORS-Preflight auf `/api/stripe/free-key`; kein Schlüssel erhalten.
