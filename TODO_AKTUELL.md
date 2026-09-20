@@ -2,7 +2,15 @@
 
 ## Quotenanbindung 20.09.2026 – weitere Sportarten
 
-- Live-Code `f4677e2`: main/GitHub/VPS abgeglichen, 1.122 Tests plus 58 Untertests
+- Tennis-Zugang inzwischen eingerichtet und auf dem VPS aktiviert.
+  Funktionscommit `8e2581e` auf main/GitHub/VPS; 753 betroffene Tests und
+  32 Untertests bestanden. Monatsbudget 500 Credits mit 25 Reserve,
+  höchstens 16 reservierte Credits/Tag; mehrere Spiele eines Turniers gebündelt.
+  Schlüssel ausschließlich in geschützter Konfiguration, nicht im Repository.
+- Echte VPS-Probe: WTA Singapore Open, sechs kommende Events; Kasatkina gegen
+  Sasnovich mit sieben Buchmachern pro Seite bepreist, keine Abruffehler.
+  Ein Credit verbraucht, 499 verbleiben. Nur Quotenprüfung, kein Modell/Tipp erzeugt.
+- Erster Quotenrelease `f4677e2`: damals main/GitHub/VPS abgeglichen, 1.122 Tests plus 58 Untertests
   grün. Nativer Abruf: vier NHL-Spiele zugeordnet, zwei Quoten ohne Fehler;
   Cache rund 3 KB. Das NHL-Modell liefert derzeit noch keine gewählte Seite.
 
@@ -13,8 +21,8 @@
   keine erfundene Buchmacherzeit und keine neue Einsatzfreigabe.
 - Bestehender Worker/Budgetzähler, begrenzter Cache ohne Historienwachstum.
   Keine neue Bereinigung, Datenbank, Sicherung oder Timer.
-- Tennis/E-Sport bleiben mangels Zugang offen: kostenlose Angebote geprüft,
-  aber kein Account angelegt. Details und Nachweise in
+- E-Sport bleibt offen: FieldFunded-Free-Anmeldung scheiterte im Anbieterformular
+  an CORS/„Network error“; kein bestätigter Schlüssel. Details und Nachweise in
   [Weitere Sportquoten](docs/audits/2026-09-20-weitere-sportquoten.md).
 - Bestehende Tennis-/Kontext-/Workerfehler sind dadurch nicht behoben.
 - Die ältere Regel unten ist zeitlich enger formuliert: seit `d94c5bc`

@@ -61,9 +61,11 @@ Dies ist keine visuelle Browserabnahme und kein erfolgreicher Tennis-Gesamtlauf.
 
 ## Kostenlose Möglichkeiten für Tennis und E-Sport
 
-- Vorhandenes The-Odds-API-Feld weiterhin ohne Schlüssel. Der Anbieter bietet
-  Tennis im kostenlosen Starter-Tarif mit 500 Credits/Monat; Registrierung und
-  eigener Schlüssel erforderlich: https://the-odds-api.com/ und
+- The Odds API wurde inzwischen vom Nutzer kostenlos registriert. Der Schlüssel
+  wurde außerhalb des Repositorys übergeben und am VPS in `/etc/betboy/betboy.env`
+  als `ODDS_API_KEY` installiert (root:betboy, 0640). Die neu gestartete App erhält
+  ihn; native Konfigurations- und API-Prüfung erfolgreich. 500 Credits/Monat:
+  https://the-odds-api.com/ und
   https://the-odds-api.com/sports-odds-data/sports-apis.html
 - PandaScore Statistics enthält keine Buchmacherquoten; separates Odds-Produkt:
   https://developers.pandascore.co/docs/frequently-asked-questions
@@ -72,11 +74,36 @@ Dies ist keine visuelle Browserabnahme und kein erfolgreicher Tennis-Gesamtlauf.
   https://odds-api.io/pricing
 - FieldFunded nennt Tennis/E-Sport und einen kostenlosen Tarif mit 10.000
   Anfragen/Monat ohne Kreditkarte: https://www.fieldfunded.com/
-  Neuer Account/Schlüssel erforderlich. Datenqualität, konkrete Buchmacher-
-  Zuordnung und Echtbetrieb sind ohne Zugang noch nicht überprüft. Kein Abo,
-  kein Account angelegt und keine ungetestete Quelle als live behauptet.
+  Die angeforderte Free-Registrierung wurde im isolierten Browser versucht;
+  Anbieterformular: „Network error“, CORS-Fehler beim Preflight auf `/api/stripe/free-key`.
+  Kein bestätigter Account/Schlüssel. Datenqualität, Buchmacher-Zuordnung und
+  Echtbetrieb bleiben ungeprüft; kein kostenpflichtiges Abo angelegt.
 - Öffentliche ESPN-Probe: die abgefragten Tennis- und NHL-Spielpläne lieferten
   keine Buchmacherquoten. Keine Quote aus Modellchance oder Favoritenlabel erfunden.
 
-Cricket bleibt ausgenommen. Automatische Tennis-/E-Sport-Quoten sind ohne
-zusätzlichen Zugang weiterhin nicht vollständig erledigt.
+## Tennis-Aktivierung und Budgetnachweis
+
+- Funktionscommit `8e2581ea513ba0b4377067656352f1c8d0f02ef6` auf main/GitHub/VPS.
+- Bestehender gemeinsamer Budgetzähler, keine zusätzliche Datenbank/Schemaänderung:
+  500 Credits pro UTC-Kalendermonat, davon 25 Reserve, höchstens 16 reservierte
+  Credits pro Tag. Markt-/Regionskosten werden vor dem Abruf atomar reserviert;
+  parallele Prozesse teilen das Budget. Unklare/fehlgeschlagene Abrufe bleiben
+  vorsichtig mit ihrem maximalen Creditbedarf reserviert. Keine automatische
+  Tarifänderung. Provider-Restkontingent kann die lokale Reserve nur senken.
+- Tennis fasst identifizierte Events desselben Turniers zusammen (ein Markt,
+  eine Region = höchstens ein Credit für die gemeinsame Anfrage). Doppelte oder
+  fremde Event-IDs, geänderte Gegner und unpassende Starts erhalten keine Quote.
+- Auch der ältere SmartBet-Abruf benutzt denselben geschützten Transport.
+  Quotenbudget erschöpft bedeutet fehlende Preisabdeckung, keinen Modellfehler.
+- Regression: 753 Tests und 32 Untertests grün; Monatswechsel, Parallelzugriff,
+  Mehrfachkosten, Header-Abgleich, fehlende Datenbank, Schlüssel in Fehlertexten,
+  Turnier-Batching sowie die bestehenden Verbraucher abgedeckt.
+- Reale VPS-Probe nach Aktivierung: WTA Singapore Open, sechs zukünftige Events.
+  Kasatkina–Sasnovich (21.09.2026 03:00 UTC), beste Angebote 1,68 / 2,40, jeweils
+  sieben Buchmacher; keine Abruffehler. Kontingent anschließend 499/500.
+  Diese reine Anschlussprüfung wurde nicht als Modellprognose/Tipp gespeichert.
+- Native App-Umgebung enthält den neuen Schlüssel, interner Healthcheck `ok`.
+  Der laufende Sportscan wurde nicht beendet. Kein neuer Nachweis eines
+  erfolgreichen vollständigen Tennis-Modelllaufs oder verbesserter Wettqualität.
+
+Cricket bleibt ausgenommen. E-Sport-Quoten sind weiterhin offen.
