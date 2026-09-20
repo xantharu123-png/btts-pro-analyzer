@@ -51,8 +51,8 @@ echten zweiten SQLite-Verbindungen in beiden Pfaden reproduziert.
 
 Dies ist eine auf empfangene Events begrenzte Laufzeitprüfung, keine globale
 Datenbankprüfung. Nicht angefragte Events erteilen keine Ergebnisfreigabe.
-Keine Änderung an Prognosemathematik, Daily3-Auswahl, Quote, Cricket, Echtgeld,
-Journalmodus, Timeouts, Datenbankschema oder bestehenden Daten.
+Die erste Korrektur änderte weder Prognosemathematik, Daily3-Auswahl, Quote,
+Cricket, Echtgeld, Journalmodus, Timeouts, Datenbankschema noch bestehende Daten.
 
 ## Nachweise vor Veröffentlichung
 
@@ -76,3 +76,48 @@ Replay-/Trainingsanbindung, echte Spieler-/Ersatz-/Belastungsmerkmale und die
 vorgegebene unbenutzte Modellabnahme offen. Gespeicherte Originale und bestandene
 Softwaretests sind keine nachgewiesene Verletzungs-/Müdigkeits-/Wetterwirkung
 oder bessere Wettqualität. Cricket bleibt ausgenommen.
+
+## Veröffentlichung
+
+Funktionscommit `bc6fef3d7775a301ae1808c380b42670b3413ffa` auf main/GitHub
+und am 20.09.2026 um 09:31 CEST auf dem VPS bestätigt. Vor dem Push im
+Hauptcheckout nochmals **125 direkte Tests in 9,77 s** bestanden.
+Linux-Gegentest im automatisch entfernten, isolierten Testordner: beide
+echten konkurrierenden Schreiber können während der Validierung committen.
+Keine Produktionsdatenbank für diesen Gegentest verändert.
+
+Code-only-Fast-forward: bestehende Jobs regulär beendet, App neu gestartet,
+vorher aktive Rechentimer wiederhergestellt; öffentlicher/lokaler Healthcheck
+`ok`. Keine Datenmigration, Installation, Sicherung oder Bereinigung.
+
+Der echte Tennis-Neulauf startete 09:31:57 CEST. Modellaufbau erfolgreich nach
+25 s: ATP behielt seinen gültigen Stand, WTA wurde erfolgreich veröffentlicht.
+WTA-Datenstand bleibt ausdrücklich **12.09.2026**, nicht das neue Baudatum.
+Der Tages-Scan scheiterte dennoch um 09:45:42 mit Exit 1 beim Veröffentlichen
+einer Prognose (`put_artifact`, Commit in `_connect`, `database is locked`).
+42 Prognosen waren vorbereitet, eine veröffentlicht; 26.567 Beobachtungen
+waren zuvor gespeichert worden. Das ist kein erfolgreicher Gesamtlauf.
+Ab 09:37 lief der normale Wettfinder parallel. Dessen 09:11-Lauf vor Deployment
+blieb wegen zwölf fachlicher/operativer Teildatenprobleme degraded.
+
+## Zweite gemessene Konfliktphase und Folgekorrektur
+
+Nach Freigabe der langen CPU-Prüfungen verblieb das physische Kopieren des
+konsistenten Tennis-Bestands: bei 1.008.095 Beobachtungen 1.423.547.529 Bytes
+temporäre Nutzlast in **21,626 s SQL-Lesephase**. Rein lesender Probeprozess;
+seine temporäre Datei wurde automatisch geschlossen/entfernt, keine produktiven
+Zeilen verändert. Bisher gaben konkurrierende Schreiber bereits nach 5 s auf.
+
+Die Folgekorrektur setzt für Kontextleser und Artefaktschreiber eine gemeinsame,
+endliche Wartezeit von **60 s**. Die eigentliche Sperrzeit wird nicht verlängert:
+nur ein blockierter Zugriff darf auf das Ende der gemessenen physischen Phase
+warten. Kein Wiederholungskreislauf und kein Verschlucken von Fehlern; normale
+Worker-Laufzeitgrenzen bleiben bestehen. Journalmodus DELETE, Schema,
+Transaktionsgrenzen, Prüfinhalte, Prognosen und gespeicherte Daten unverändert.
+
+Zwei neue Regressionen zunächst rot: echter Schreiber hinter einer sieben
+Sekunden gehaltenen Lesetransaktion und gemeinsames endliches Wartebudget.
+Mit Korrektur: **980 Tests bestanden, 5 übersprungen, 274,77 s**. Noch keine
+Bestätigung eines erfolgreichen vollständigen Tennislaufs nach diesem Nachtrag.
+Die CPU-Kosten des großen Bestands und die oben dokumentierten fachlichen
+Daten-/Modelllücken werden hiermit nicht als gelöst ausgegeben.

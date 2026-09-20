@@ -14,6 +14,13 @@ import sqlite3
 from runtime_paths import prepare_trusted_runtime_database_path
 
 
+# Physical copies of the current context inventory take about 22 seconds on
+# the VPS even after CPU validation releases its read transaction. A finite
+# one-minute contention allowance covers that phase without changing journal
+# mode, durability, transaction semantics or the owning worker's deadline.
+SQLITE_BUSY_TIMEOUT_SECONDS = 60
+
+
 class ManifestConflict(RuntimeError):
     """The active manifest changed after a publisher read it."""
 
@@ -131,14 +138,14 @@ def _decode_object(payload: object, *, label: str) -> dict:
 
 def _connect(path: Path) -> sqlite3.Connection:
     path = prepare_trusted_runtime_database_path(Path(path))
-    connection = sqlite3.connect(path, timeout=5)
+    connection = sqlite3.connect(path, timeout=SQLITE_BUSY_TIMEOUT_SECONDS)
     try:
         prepare_trusted_runtime_database_path(path)
     except BaseException:
         connection.close()
         raise
     connection.execute("PRAGMA foreign_keys=ON")
-    connection.execute("PRAGMA busy_timeout=5000")
+    connection.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_SECONDS * 1000}")
     try:
         connection.execute("BEGIN IMMEDIATE")
         connection.execute(

@@ -6,10 +6,16 @@ Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
 [aktuellen Datenlaufbericht](docs/audits/2026-09-20-fortsetzung-datenlauf.md) lesen.
 `2758619` war vor der Reparatur überall synchron. Die über Nacht aufgenommenen
 23 Fußballoriginale zu 19 Events sind alle partiell; keine Effektqualifikation.
-Die neue Korrektur löst den reproduzierten SQLite-Lesekonflikt zwischen Fußball
-und Tennis. 578 Tests/4 Skips, rein lesende VPS-Messung dokumentiert. Deployment
-und erfolgreicher echter Folgelauf sind separat zu bestätigen. Verletzungs-,
-Müdigkeits- und Wetterwirkung weiterhin nicht als erledigt melden.
+Die neue Korrektur `bc6fef3` löst einen reproduzierten SQLite-Lesekonflikt zwischen
+Fußball und Tennis und ist auf main/GitHub/VPS live. 578 Tests/4 Skips, weitere
+125 auf main und beide Linux-Schreibkonkurrenzproben bestanden. Echter
+Tennis-Neulauf 09:31:57: Modellaufbau erfolgreich, Tages-Scan 09:45:42 jedoch
+erneut mit Schreibkonflikt gescheitert. Folgeursache gemessen: physische
+Bestandskopie braucht 21,626 s Lesesperre, bisheriges Schreibbudget nur 5 s.
+Gemeinsame endliche Wartezeit auf 60 s angepasst; Journal/Schema unverändert.
+980 Tests/5 Skips grün; Nachtrag-Deployment und vollständigen Lauf gesondert
+bestätigen. Verletzungs-, Müdigkeits- und Wetterwirkung weiterhin nicht als
+erledigt melden. Keine neue Bereinigung oder Backupaktivierung.
 
 ## Aktueller Einstieg – Kontextanschluss und spielbezogener Vergleich 19.09.2026
 

@@ -22,7 +22,7 @@ from context_models.experiments import _artifact_created_at, _load_experiment
 from context_models.training_cases import assemble_training_cases, case_header
 from context_models.training_contracts import validate_artifact_envelope, validate_fit_result, validate_identity_map
 from context_observations import _SELECT, _check_selected_row, _decode_receipt
-from model_artifacts import ArtifactIntegrityError, _load_artifact, canonical_bytes
+from model_artifacts import ArtifactIntegrityError, SQLITE_BUSY_TIMEOUT_SECONDS, _load_artifact, canonical_bytes
 from runtime_paths import (
     RuntimeArtifactTrustError,
     _assert_no_symlink_components, _validate_trusted_runtime_ancestor_chain,
@@ -73,7 +73,8 @@ def _reader(path):
     original = _reader_files(path)
     connection = None
     try:
-        connection = sqlite3.connect(path.as_uri()+"?mode=ro", uri=True, timeout=5)
+        connection = sqlite3.connect(path.as_uri()+"?mode=ro", uri=True,
+                                     timeout=SQLITE_BUSY_TIMEOUT_SECONDS)
         opened = _reader_files(path, expected=original)
         connection.execute("PRAGMA query_only=ON")
         connection.execute("PRAGMA trusted_schema=OFF")

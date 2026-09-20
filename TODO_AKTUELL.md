@@ -10,7 +10,15 @@
   historie gibt das konsistente SQL-Lesebild vor CPU-Validierung frei.
 - 578 betroffene Tests bestanden, 4 Skips. Rein lesende VPS-Probe: selbst für
   1.096 Fußball-Events nur 2,207 s SQL-Lesephase; Spielerinventur 0,650 s.
-  Veröffentlichung und echter erfolgreicher Tennis-Gesamtlauf noch nachweisen.
+  `bc6fef3` auf main/GitHub/VPS live; nochmals 125 Tests auf main und beide
+  Linux-Schreibkonkurrenzproben bestanden. App/Healthchecks/Rechentimer aktiv.
+  Echter Tennis-Neulauf 09:31:57: Modellaufbau erfolgreich, WTA publiziert;
+  WTA-Ergebnisstand 12.09. Tages-Scan aber 09:45:42 erneut mit Schreibkonflikt
+  abgebrochen. Nicht als erfolgreicher Gesamtlauf melden.
+- Zweite Ursache gemessen: physisches Lesen der Tennis-Historie hält die
+  Sperre 21,626 s, bisheriges Schreibbudget nur 5 s. Gemeinsame endliche
+  Wartezeit jetzt 60 s, Journal/Schema/Prüfinhalte unverändert. 980 Tests,
+  5 Skips grün; Deployment und vollständiger neuer Lauf noch zu bestätigen.
 - Vollständige Verletzungs-/Müdigkeits-/Wetterwirkung bleibt unerledigt.
   Weder Aufnahmebudget noch Qualitätskriterien wurden gelockert. Keine neue
   Sicherung/Bereinigung, keine Finanz- oder Cricketänderung.

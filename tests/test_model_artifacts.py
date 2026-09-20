@@ -4,6 +4,8 @@ import hashlib
 import os
 from pathlib import Path
 import sqlite3
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +20,50 @@ from model_artifacts import (
     put_artifact,
     publish_slots,
 )
+
+
+def test_writer_waits_for_physical_history_read_longer_than_five_seconds(tmp_path):
+    from contextlib import closing
+    path = tmp_path / 'contended-models.db'
+    now = datetime(2026, 9, 20, tzinfo=timezone.utc)
+    first = put_artifact(path, kind='test', payload={'v': 1}, created_at=now)
+    ready, begin = threading.Event(), threading.Event()
+
+    def publish():
+        with closing(model_artifacts._connect(path)) as writer:
+            ready.set()
+            assert begin.wait(10)
+            artifact = model_artifacts.prepare_artifact(kind='test', payload={'v': 2})
+            writer.execute('BEGIN IMMEDIATE')
+            model_artifacts._insert_artifact(writer, artifact, now.isoformat())
+            writer.commit()
+            return artifact.digest
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        writer = pool.submit(publish)
+        assert ready.wait(5)
+        with sqlite3.connect(path) as reader:
+            reader.execute('BEGIN')
+            assert reader.execute('SELECT digest FROM artifacts').fetchone() == (first,)
+            begin.set()
+            try:
+                time.sleep(7)
+            finally:
+                reader.rollback()
+        second = writer.result(timeout=10)
+    assert load_artifact(path, first)['payload'] == {'v': 1}
+    assert load_artifact(path, second)['payload'] == {'v': 2}
+
+
+def test_context_reader_and_writer_share_a_finite_wait_budget(tmp_path):
+    from contextlib import closing
+    from context_models.dataset import _reader
+    path = tmp_path / 'budget.db'
+    with closing(model_artifacts._connect(path)) as writer:
+        assert writer.execute('PRAGMA busy_timeout').fetchone() == (60000,)
+        assert writer.execute('PRAGMA journal_mode').fetchone() == ('delete',)
+    with _reader(path) as reader:
+        assert reader.execute('PRAGMA busy_timeout').fetchone() == (60000,)
 
 
 def _stat_with(file_stat, **changes):
