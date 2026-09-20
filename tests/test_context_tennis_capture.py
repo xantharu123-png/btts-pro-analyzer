@@ -237,6 +237,109 @@ def test_partial_capture_persists_native_retractions_and_continues_valid_events(
     assert observer.report()["issues"] == ["invalid-participants", "native-competition-unavailable"]
 
 
+def draw_slot(*, cancelled=False):
+    return competition(date="2026-09-10T18:00Z",
+        status={"type": {"state": "post" if cancelled else "pre", "completed": False,
+                         "name": "STATUS_CANCELED" if cancelled else "STATUS_SCHEDULED"}},
+        competitors=[{"id": "-4", "athlete": {"displayName": "TBD"}},
+                     {"id": "-3", "athlete": {"displayName": "TBD"}}])
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_explicit_unresolved_draw_is_retained_but_not_a_failed_capture(tmp_path, cancelled):
+    from context_sources.tennis_capture import capture_tennis_worker
+    from context_sources.tennis_status import tennis_observations_as_of
+    db = tmp_path / "draw.db"
+    with capture_tennis_worker(path=db) as observer:
+        observer.record("atp", response(draw_slot(cancelled=cancelled)), observed_at=NOW)
+    report = observer.report()
+    assert report["status"] == "captured" and report["issues"] == []
+    assert report["excluded_competitions"] == {"unresolved-draw-slot": 1}
+    rows = tennis_observations_as_of(db, cutoff=NOW, tour="ATP")
+    assert len(rows) == 1 and rows[0]["payload"]["issues"] == ["invalid-participants"]
+    assert rows[0]["payload"]["participant_ids"] == [None, None]
+    assert rows[0]["payload"]["workload_receipts"] == []
+
+
+@pytest.mark.parametrize("slug", ["mens-doubles", "womens-doubles", "mixed-doubles", "womens-singles"])
+def test_known_foreign_format_does_not_fail_singles_capture(tmp_path, slug):
+    from context_sources.tennis_capture import capture_tennis_worker
+    from context_sources.tennis_status import tennis_observations_as_of
+    raw = competition(competitors=[{"team": {"id": "1"}}, {"team": {"id": "2"}}])
+    db = tmp_path / "doubles.db"
+    with capture_tennis_worker(path=db) as observer:
+        observer.record("atp", response(raw, slug=slug), observed_at=NOW)
+    assert observer.report()["issues"] == []
+    assert observer.report()["excluded_competitions"] == {"outside-singles-scope": 1}
+    rows = tennis_observations_as_of(db, cutoff=NOW, tour="ATP")
+    assert len(rows) == 1 and rows[0]["format"] == "unsupported"
+    assert "invalid-participants" in rows[0]["payload"]["issues"]
+
+
+@pytest.mark.parametrize("change", ["named", "bad_id", "terminal", "schedule", "status"])
+def test_bad_supported_singles_cannot_be_excused_as_an_unresolved_draw(change):
+    from context_sources.tennis_capture import _Capture
+    raw = draw_slot()
+    if change == "named":
+        raw["competitors"][0]["athlete"]["displayName"] = "Actual Player"
+    elif change == "bad_id":
+        raw["competitors"][0]["id"] = "corrupt"
+    elif change == "terminal":
+        raw["status"]["type"] = {"state": "post", "name": "STATUS_FINAL", "completed": True}
+    elif change == "schedule":
+        raw["date"] = None
+    else:
+        raw["status"]["type"]["completed"] = "false"
+    observer = _Capture()
+    observer.record("atp", response(raw), observed_at=NOW)
+    assert observer.report()["issues"] and observer.report()["excluded_competitions"] == {}
+
+
+def test_cli_does_not_call_a_tbd_only_draw_a_technical_failure(monkeypatch, tmp_path, capsys):
+    import sys
+    import runtime_paths
+    from context_sources.tennis_capture import observe_espn_response
+    monkeypatch.setattr(runtime_paths, "CONTEXT_MODEL_DB_PATH", tmp_path / "cli.db")
+    monkeypatch.setattr(sys, "argv", ["tennis_daily", "2026-09-10"])
+    def receive(args):
+        observe_espn_response("atp", response(draw_slot()))
+        return 0
+    monkeypatch.setattr(daily, "_run_daily", receive)
+    assert daily.main() == 0
+    assert '"unresolved-draw-slot": 1' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("change", ["schedule", "status", "tournament", "unknown_group"])
+def test_outside_singles_scope_does_not_hide_other_feed_errors(change):
+    from context_sources.tennis_capture import _Capture
+    raw = competition(competitors=[{"team": {"id": "1"}}, {"team": {"id": "2"}}])
+    payload = response(raw, slug="mens-doubles")
+    if change == "schedule":
+        raw["date"] = None
+    elif change == "status":
+        raw["status"]["type"]["completed"] = "true"
+    elif change == "tournament":
+        payload["events"][0]["id"] = None
+    else:
+        payload["events"][0]["groupings"][0]["grouping"]["slug"] = "unknown-format"
+    observer = _Capture()
+    observer.record("atp", payload, observed_at=NOW)
+    assert observer.report()["issues"] and observer.report()["excluded_competitions"] == {}
+
+
+def test_one_known_player_and_one_tbd_remain_unmodelable():
+    from context_sources.tennis_capture import _Capture
+    raw = draw_slot()
+    raw["competitors"][0] = {"id": "1", "athlete": {"displayName": "Known Player"}}
+    observer = _Capture()
+    observer.record("atp", response(raw), observed_at=NOW)
+    assert observer.report()["issues"] == []
+    assert observer.report()["excluded_competitions"] == {"unresolved-draw-slot": 1}
+    status = observer.pending[0][1][0]
+    assert not status["complete"] and not status["payload"]["workload_receipts"]
+    assert status["payload"]["participant_ids"] == ["espn:tennis:ATP:player:1", None]
+
+
 def test_storage_interruption_keeps_complete_bounded_chunks_and_does_not_swallow_failure(monkeypatch, tmp_path):
     import context_sources.tennis_capture as capture
     from context_sources.tennis_status import tennis_observations_as_of

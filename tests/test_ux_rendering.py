@@ -540,9 +540,8 @@ def test_missing_quote_keeps_selection_visible_and_neutral():
     assert len(at.error) == 0
     assert len(at.warning) == 0
     text = " ".join(info.value for info in at.info)
-    assert "PREIS NOCH OFFEN" in text
-    assert text.count("PREIS NOCH OFFEN") == 1
-    assert "richtig oder falsch" in text
+    assert text.count("Keine exakt passende Marktquote") == 1
+    assert "richtig oder falsch" not in text
     assert "verfügbar" in text
     assert "verfuegbar" not in text
 
@@ -554,13 +553,15 @@ def test_low_quote_changes_only_price_not_model_selection():
     assert len(at.error) == 0
     assert len(at.warning) == 0
     text = " ".join(info.value for info in at.info)
-    assert "QUOTE ZU NIEDRIG" in text
-    assert "Prognose bleibt unverändert" in text
-    assert "angebotene Preis ist zu niedrig" in text
+    assert text == "Quote 1.70 · unter Value-Grenze 1.80."
+    assert {metric.label: metric.value for metric in at.metric} == {
+        "Modellwahrscheinlichkeit": "65.0 %",
+        "Vorsichtige Prognose": "60.0 %",
+        "Value-Grenze": "1.80",
+    }
     metric_labels = [metric.label for metric in at.metric]
     assert "Value-Grenze" in metric_labels
     assert "Mindestquote" not in metric_labels
-    assert "keine erwartete Buchmacherquote" in text
     assert all(button.label != "Tipp merken" for button in at.button)
 
 

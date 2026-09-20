@@ -81,3 +81,22 @@ def test_payload_bytes_key_and_reference_equal_uncached_oracle(monkeypatch):
     assert canonical_bytes(fast) == canonical_bytes(cold)
     assert transport.context_payload_key(cold) == key
     assert transport.context_consumer_reference(key, cold) == reference
+
+
+def test_above_old_ceiling_keeps_complete_payload_key_and_reference_identical(monkeypatch):
+    import context_json
+    import context_reference_sets as module
+    import context_transport as transport
+    from test_context_transport import inputs
+    args = inputs()
+    args["observation_refs"] = sorted(set(args["observation_refs"] + refs(500_001)))
+    fast = transport.calculate_context_payload(**args)
+    key = transport.context_payload_key(fast)
+    reference = transport.context_consumer_reference(key, fast)
+    monkeypatch.setattr(module, "_large_reference_values", lambda value: False)
+    monkeypatch.setattr(module, "_cacheable", lambda value: False)
+    monkeypatch.setattr(context_json, "canonical_context_bytes", canonical_bytes)
+    cold = transport.calculate_context_payload(**args)
+    assert canonical_bytes(fast) == canonical_bytes(cold)
+    assert transport.context_payload_key(cold) == key
+    assert transport.context_consumer_reference(key, cold) == reference

@@ -1024,6 +1024,10 @@ def main() -> int:
         batch.finish()
     report = capture.report()
     print(f"Kontext-Capture: {report['status']}")
+    print("Kontext-Aufnahme: " + json.dumps({
+        "issues": report["issues"],
+        "excluded_competitions": report.get("excluded_competitions", {}),
+    }, ensure_ascii=True, sort_keys=True))
     final_errors = []
     if batch.pending:
         results = list({id(item["result"]): item["result"] for item in batch.pending}.values())

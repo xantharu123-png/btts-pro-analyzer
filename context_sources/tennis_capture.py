@@ -1,8 +1,10 @@
 """Opt-in daily-worker observer of existing ESPN JSON replies; never a fetch."""
 from contextlib import contextmanager
 from contextvars import ContextVar
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 
 from context_models.contracts import ContextContractError
 from context_observations import append_observation_batch
@@ -16,15 +18,50 @@ def _receipt_now():
     return datetime.now(timezone.utc)
 
 
+def _expected_exclusion(status, competition):
+    """Classify known out-of-scope draws, never make their rows modelable.
+
+    ESPN returns doubles and explicit TBD bracket slots alongside singles.
+    Their unchanged native unknown/retraction rows must still be persisted.
+    Missing identities in a played match or a named singles pair remain errors.
+    """
+    payload = status["payload"]
+    issues = set(payload["issues"])
+    if (status["format"] == "unsupported"
+            and payload["grouping_slug"] in {"mens-singles", "womens-singles",
+                "mens-doubles", "womens-doubles", "mixed-doubles"}
+            and issues <= {"unsupported-format", "unsupported-terminal", "invalid-participants"}):
+        return "outside-singles-scope"
+    if (status["format"] != "singles" or payload["status"] not in {"scheduled", "cancelled"}
+            or issues != {"invalid-participants"}):
+        return None
+    players = competition.get("competitors")
+    if type(players) is not list or len(players) != 2:
+        return None
+    missing = False
+    for native_id, player in zip(payload["participant_ids"], players):
+        if native_id is not None:
+            continue
+        missing = True
+        athlete = player.get("athlete") if type(player) is dict else None
+        raw_id = player.get("id") if type(player) is dict else None
+        if (type(athlete) is not dict or athlete.get("displayName") != "TBD"
+                or not (raw_id is None or type(raw_id) is str and re.fullmatch(r"-[1-9][0-9]*", raw_id))):
+            return None
+    return "unresolved-draw-slot" if missing else None
+
+
 class _Capture:
     def __init__(self):
         self.pending, self.issues, self.refs = [], set(), set()
+        self.exclusions = Counter()
         self._outcome_sources = {}
 
     def report(self):
         return {"schema": 1, "scope": "existing-espn-tennis-responses",
             "status": "partial" if self.issues else "captured" if self.refs else "no_receipts",
-            "receipt_refs": sorted(self.refs), "issues": sorted(self.issues)}
+            "receipt_refs": sorted(self.refs), "issues": sorted(self.issues),
+            "excluded_competitions": dict(sorted(self.exclusions.items()))}
 
     def record(self, tour, payload, *, observed_at):
         if type(tour) is not str or tour not in {"atp", "wta"}:
@@ -59,9 +96,13 @@ class _Capture:
                     eligible, source = source_for_normal_winner(rows[0], competition)
                     if eligible:
                         self._outcome_sources[index] = source
-                    for issue in rows[0]["payload"]["issues"]:
-                        if issue not in {"unsupported-format", "unsupported-terminal"}:
-                            self.issues.add(issue)
+                    exclusion = _expected_exclusion(rows[0], competition)
+                    if exclusion is not None:
+                        self.exclusions[exclusion] += 1
+                    else:
+                        for issue in rows[0]["payload"]["issues"]:
+                            if issue not in {"unsupported-format", "unsupported-terminal"}:
+                                self.issues.add(issue)
 
     def persist(self, path):
         from context_sources.tennis_outcome_capture import collect_outcomes
