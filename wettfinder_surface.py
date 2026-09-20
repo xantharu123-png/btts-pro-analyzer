@@ -33,6 +33,7 @@ from market_consensus import (
     ReferencePriceStatus,
     quote_matches_candidate,
     quote_below_publication_floor,
+    observed_consensus,
     wettfinder_consensus,
     wettfinder_reference_price_status,
 )
@@ -359,7 +360,7 @@ def _price_copy(
         )
         return label, tone, status.usable_odds, status.bookmaker
     label, tone = labels.get(status.code, ("Quote offen", "warning"))
-    if status.code in {"TOO_LOW", "BORDERLINE"} and quote is not None:
+    if status.code in {"TOO_LOW", "BORDERLINE", "THIN", "STALE"} and quote is not None:
         best = max(quote.points, key=lambda point: point.odds, default=None)
         return (
             label,
@@ -411,7 +412,10 @@ def build_wettfinder_card(
             candidate=wettfinder_quote_binding_candidate(signal),
             now=now,
         )
-        current_quote = wettfinder_consensus(normalized_quote, now=now)
+        current_quote = wettfinder_consensus(normalized_quote, now=now) or observed_consensus(
+            normalized_quote, candidate=wettfinder_quote_binding_candidate(signal), now=now)
+        if status.code == 'UNAVAILABLE':
+            current_quote = None
     else:
         expected_candidate = wettfinder_recommendation_candidate(signal)
         if price_evaluation.candidate != expected_candidate:
@@ -637,12 +641,12 @@ def wettfinder_game_label(group: WettfinderFixtureGroup) -> str:
 
 
 _PRICE_NOTES = {
-    "PLAYABLE": "Die aktuelle Quote erreicht den Value-Bereich.",
-    "TOO_LOW": "Aktuelle Quote unter Value. Die Prognose bleibt unverändert.",
-    "BORDERLINE": "Preis nur bei einzelnen Anbietern im Value-Bereich.",
-    "THIN": "Zu wenige Vergleichsanbieter für einen belastbaren Preis.",
-    "STALE": "Vergleichsquote veraltet. Bitte den Preis neu prüfen.",
-    "UNAVAILABLE": "Keine exakt passende Quote. Die Prognose bleibt unverändert.",
+    "PLAYABLE": "Quote im Value-Bereich.",
+    "TOO_LOW": "Quote unter Value.",
+    "BORDERLINE": "Value nur bei einzelnen Anbietern.",
+    "THIN": "Wenige Vergleichsanbieter.",
+    "STALE": "Letzter Quotenstand · beim Buchmacher prüfen.",
+    "UNAVAILABLE": "Quote fehlt · eigene Quote prüfen.",
     "INVALID_MINIMUM": "Die Value-Grenze ist aktuell nicht belastbar.",
 }
 
@@ -716,14 +720,27 @@ def _analysis_markup(card: WettfinderCard, *, featured: bool = False) -> str:
     )
 
 
+def quote_display_note(card: WettfinderCard) -> Optional[str]:
+    if card.observed_odds is None:
+        return None
+    parts = [card.bookmaker] if card.bookmaker else []
+    if card.reference_quote is not None:
+        point = next((p for p in card.reference_quote.points
+                      if p.bookmaker == card.bookmaker and abs(p.odds-card.observed_odds) < 0.000001), None)
+        stamp = point.observed_at if point else card.reference_quote.quoted_at
+        if stamp:
+            parts.append('Stand: ' + format_model_clock(stamp))
+    return ' · '.join(parts) or None
+
+
 def _top_card_markup(card: WettfinderCard) -> str:
     price = format_decimal_odds(card.observed_odds)
-    bookmaker_note = card.bookmaker if price != "–" else None
+    bookmaker_note = quote_display_note(card)
     metrics = "".join(
         (
             _metric("Sicherheitswert", format_probability(card.cautious_probability)),
             _metric("Risikopreis ab", format_decimal_odds(card.value_threshold)),
-            _metric("Aktuell", price, note=bookmaker_note),
+            _metric("Letzte Quote" if card.price_code == 'STALE' else "Aktuell", price, note=bookmaker_note),
         )
     )
     price_code = escape(card.price_code, quote=True)
@@ -768,7 +785,7 @@ def _compact_row_markup(card: WettfinderCard, *, grouped: bool = False, featured
     """Render one flat comparison row without duplicating full-card copy."""
 
     price = format_decimal_odds(card.observed_odds)
-    bookmaker_note = card.bookmaker if price != "–" else None
+    bookmaker_note = quote_display_note(card)
     event = '' if grouped else (
         '<div class="wf-row-event"><span class="wf-row-meta">'
         f'{escape(card.sport)} · {escape(card.scheduled_start_label)}</span>'
@@ -797,7 +814,7 @@ def _compact_row_markup(card: WettfinderCard, *, grouped: bool = False, featured
         f'{_row_value("Modell", format_probability(card.model_probability))}'
         f'{_row_value("Sicherheitswert", format_probability(card.cautious_probability))}'
         f'{_row_value("Risikopreis ab", format_decimal_odds(card.value_threshold))}'
-        f'{_row_value("Aktuell", price, note=bookmaker_note)}'
+        f'{_row_value("Letzte Quote" if card.price_code == "STALE" else "Aktuell", price, note=bookmaker_note)}'
         f"{_status_badges(card, featured=featured)}"
         f"{_analysis_markup(card, featured=featured)}"
         f'{price_note}'

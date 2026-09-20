@@ -308,9 +308,8 @@ def test_partial_summary_is_safe_and_never_exposes_internal_errors(monkeypatch):
     ui.render_riskobet()
 
     text = _all_text(fake)
-    assert "nicht vollständig aktualisiert" in text
-    assert "bereits verarbeitete Daten" in text
-    assert "Evidenzstand beachten" in text
+    assert "Aktualisierung offen" in text
+    assert 'Einzelne Sportarten' in text
     assert "erfolgreich geprüft" not in text
     assert "provider" not in text.casefold()
     assert "token=secret" not in text
@@ -330,7 +329,7 @@ def test_empty_view_has_filter_and_message_but_no_empty_section_heading(monkeypa
         ("Sport", SPORT_FILTERS, "Alle", "riskobet-sport-filter")
     ]
     assert not [item for item in fake.messages if item[0] == "subheader"]
-    assert "keine Szenarien verfügbar" in _all_text(fake)
+    assert "kein passendes Risiko-Szenario" in _all_text(fake)
 
 
 def test_summary_uses_singular_for_one_scenario_and_one_event(monkeypatch):
@@ -432,7 +431,7 @@ def test_featured_grid_flat_rows_and_exact_stable_keys(monkeypatch):
         for kind, value, context in first.messages
         if kind == "caption" and "eigene Quote" in str(value)
     ]
-    assert len(quote_captions) == len(bundles)
+    assert not quote_captions  # The explanatory paragraph was deliberately removed.
     assert all(
         any(kind == "popover" for kind, _key in context)
         and not any(kind == "expander" for kind, _key in context)
@@ -535,7 +534,7 @@ def test_production_like_payload_hides_internal_stage_and_factor_status(
         assert internal not in text
 
 
-def test_manual_quotes_do_not_change_visibility_or_model_order(monkeypatch):
+def test_manual_quotes_above_floor_do_not_change_visibility_or_model_order(monkeypatch):
     bundles = (
         _bundle("football-one", sport="football"),
         _bundle("football-two", sport="football"),
@@ -553,7 +552,7 @@ def test_manual_quotes_do_not_change_visibility_or_model_order(monkeypatch):
     for index, candidate in enumerate(view.candidates):
         quote_state[
             f"riskobet-quote-{ui._widget_suffix(candidate)}"
-        ] = (1.10, 25.0, 2.0, 8.0)[index]
+        ] = (1.20, 25.0, 2.0, 8.0)[index]
     repriced = RecordingStreamlit(session_state=quote_state)
     monkeypatch.setattr(ui, "st", repriced)
     ui.render_riskobet()
@@ -567,7 +566,7 @@ def test_manual_quotes_do_not_change_visibility_or_model_order(monkeypatch):
     ("probability", "stage", "expected"),
     (
         (0.36, EvidenceStage.SHADOW, "Implizite Quotechance: 25.0 %"),
-        (None, EvidenceStage.RESEARCH, "ehrlich nicht möglich"),
+        (None, EvidenceStage.RESEARCH, "Modellchance noch offen"),
     ),
 )
 def test_manual_quote_is_only_probability_comparison(

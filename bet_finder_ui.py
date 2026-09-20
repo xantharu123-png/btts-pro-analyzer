@@ -14,12 +14,14 @@ from typing import Callable, Iterable, Optional, TypeVar
 import streamlit as st
 
 from account_identity import storage_scope
-from betting_math import EXTREME_SHORT_ODDS_CUTOFF
+from betting_math import EXTREME_SHORT_ODDS_CUTOFF, odds_below_publication_floor
 from market_consensus import (
     MarketConsensus,
     ODDS_API_REFERENCE_SOURCE,
     REFERENCE_SOURCE,
     ReferencePriceStatus,
+    observed_consensus,
+    quote_below_publication_floor,
     wettfinder_consensus,
     wettfinder_reference_price_status,
 )
@@ -513,6 +515,8 @@ def evaluate_reference_price(
         now=evaluation_now,
     )
     effective_quote = wettfinder_consensus(reference_quote, now=evaluation_now)
+    display_quote = effective_quote or observed_consensus(
+        reference_quote, candidate=reference_binding_candidate, now=evaluation_now)
     decision = None
     if effective_quote is not None and status.usable_odds is not None:
         decision = _enforce_pending_release(
@@ -527,7 +531,7 @@ def evaluate_reference_price(
     return ReferencePriceEvaluation(
         decision=decision,
         status=status,
-        quote=effective_quote,
+        quote=display_quote if status.code != 'UNAVAILABLE' else None,
         candidate=candidate,
         evaluated_at=evaluation_now,
     )
@@ -604,17 +608,11 @@ def _render_reference_price(
             )
     elif status.code == "BORDERLINE" and quote is not None:
         st.info(
-            f"PREIS NOCH OFFEN: {candidate.selection}. Nur einzelne Anbieter "
-            f"erreichen die Value-Grenze {candidate.minimum_odds:.2f}; der Preis ist deshalb "
-            "noch nicht zuverlässig bestätigt. Die Prognose bleibt unverändert."
+            f'Value ab {candidate.minimum_odds:.2f} · nur bei einzelnen Anbietern.'
         )
     elif status.code == "TOO_LOW" and quote is not None:
         st.info(
-            f"QUOTE ZU NIEDRIG: {candidate.selection}. Die aktuell beobachtete "
-            f"Bestquote {quote.best_odds:.2f} liegt unter der benötigten "
-            f"Value-Grenze {candidate.minimum_odds:.2f}. Die Prognose bleibt "
-            "unverändert; nur der angebotene Preis ist zu niedrig. Die "
-            "Value-Grenze ist keine erwartete Buchmacherquote."
+            f'Quote {quote.best_odds:.2f} · unter Value-Grenze {candidate.minimum_odds:.2f}.'
         )
     else:
         reason = {
@@ -623,11 +621,9 @@ def _render_reference_price(
             "UNAVAILABLE": "Keine exakt passende Marktquote verfügbar.",
             "INVALID_MINIMUM": "Die Value-Grenze konnte nicht sicher berechnet werden.",
         }.get(status.code, "Der Wettpreis kann noch nicht sicher bewertet werden.")
-        st.info(
-            f"PREIS NOCH OFFEN: {candidate.selection}. {reason} Das ist keine "
-            "Aussage darüber, ob der mögliche "
-            "Spielausgang richtig oder falsch ist."
-        )
+        st.info(reason)
+        if status.code == 'STALE' and quote is not None:
+            st.caption(f'Letzte Quote: {quote.best_odds:.2f} · Stand: {quote.quoted_at}')
 
     if decision is not None and decision.status == "BET":
         _render_stake_recommendation(decision)
@@ -838,12 +834,9 @@ def _render_manual_check(
                     "geprüft; deshalb gibt es keinen Einsatzvorschlag."
                 )
         else:
-            st.info(
-                f"MODELL-AUSWAHL BLEIBT: {candidate.selection}. Die angebotene "
-                f"Quote erreicht die Value-Grenze {candidate.minimum_odds:.2f} "
-                "noch nicht und reicht daher nicht für eine "
-                "spielbare Preisbewertung."
-            )
+            st.info('Unter 1,20 · kein Vorschlag zu diesem Preis.'
+                    if odds_below_publication_floor(decision.quoted_odds)
+                    else f'Preisprüfung nicht bestanden · Value ab {candidate.minimum_odds:.2f}.')
         if decision.status == "BET":
             _render_stake_recommendation(decision)
         return decision
@@ -873,6 +866,18 @@ def render_price_decision(
     if manual_surface not in {"expander", "popover"}:
         raise ValueError("manual_surface must be 'expander' or 'popover'")
     selection = candidate.selection or "keine Auswahl"
+    # Apply the same presentation floor in all callers (Live, sport pages,
+    # manual search). Keep the correction input reachable, but no proposal card.
+    known_low = quote_below_publication_floor(
+        reference_quote, candidate=reference_binding_candidate)
+    manual_low = (st.session_state.get(f'bet_confirmed_{key}') is True
+                  and odds_below_publication_floor(_decimal_input(st.session_state.get(f'bet_odds_{key}'))))
+    if known_low or manual_low:
+        st.caption(f'{candidate.market}: {selection} · Quote unter 1,20.')
+        if allow_manual_check:
+            return _render_manual_check(candidate, key=key, bankroll_key=bankroll_key,
+                price_source=price_source, save_source=save_source, manual_surface=manual_surface)
+        return None
     if presentation == "full":
         st.subheader(f"{candidate.market}: {selection}")
         st.caption(candidate.event_label)

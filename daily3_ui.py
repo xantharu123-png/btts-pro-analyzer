@@ -239,7 +239,11 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
             card = build_wettfinder_card(choice.signal, choice.signal.reference_quote, now=now)
             st.markdown(render_compact_analysis_html(card.compact_analysis), unsafe_allow_html=True)
             if card.observed_odds is not None:
-                st.write(f'Vergleichsquote: {card.observed_odds:.2f}')
+                from wettfinder_surface import quote_display_note
+                label = 'Letzte Quote' if card.price_code == 'STALE' else 'Vergleichsquote'
+                st.write(f'{label}: {card.observed_odds:.2f}')
+                if quote_display_note(card):
+                    st.caption(quote_display_note(card))
             if card.price_code == 'TOO_LOW':
                 st.warning('Quote unter der berechneten Preisschwelle – Preis prüfen.')
             elif card.price_code in {'BORDERLINE', 'THIN', 'INVALID_MINIMUM'}:

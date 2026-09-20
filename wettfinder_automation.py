@@ -3436,6 +3436,9 @@ def run_wettfinder(
         target_date=target,
         preserve_order=True,
         previous_checks=prior_price_checks,
+        # /odds already returns all markets for each requested fixture.
+        # Retain every mapped market from that response at no extra API cost.
+        max_markets_per_fixture=100,
     )
     quote_errors: list[str] = []
     reference_quotes: dict[str, MarketConsensus] = {}
@@ -4053,11 +4056,73 @@ def run_wettfinder(
     return document
 
 
+def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_loader=None):
+    """Bounded price refresh; never rerun a model or advance its freshness.
+
+    The canonical scheduler must be idle. A concurrent snapshot publication
+    aborts the replacement, so a price refresh cannot overwrite newer models.
+    """
+    from copy import deepcopy
+    import subprocess
+    path = Path(state_path)
+    def require_idle():
+        state = subprocess.run(['systemctl', 'show', 'betboy-wettfinder.service',
+                                '--property=ActiveState', '--value'], capture_output=True, text=True, check=True).stdout.strip()
+        if state not in {'inactive', 'failed'}:
+            raise RuntimeError('wettfinder worker must be idle for a price-only refresh')
+    canonical = _same_artifact_path(path, STATE_PATH)
+    if canonical:
+        require_idle()
+    original = path.read_bytes()
+    document = json.loads(original)
+    previous = deepcopy(document.get('model_candidates') or [])
+    current = _utc(now or datetime.now(timezone.utc))
+    rows = [r for r in document.get('model_candidates', [])
+            if r.get('source') == 'football_challenge']
+    selected = select_price_check_candidates(
+        (r for r in rows if exact_market_target(r.get('market_key')) is not None),
+        now=current, target_date=target_search_date(current), preserve_order=True,
+        previous_checks=document.get('price_check_attempts') or {}, max_markets_per_fixture=100)
+    if quote_loader is None:
+        cfg = config or load_app_config()
+        quotes, errors = fetch_football_consensus(cfg.api_football_key or '', selected, now=current, timeout=10)
+    else:
+        quotes, errors = quote_loader(selected)
+    counts, _ = _apply_reference_quotes(rows, selected, quotes, now=current, previous_rows=previous)
+    # Existing releases carry execution proof for their previous quote. Do not
+    # manufacture a release during this display-only operation.
+    document['candidates'] = [r for r in document.get('candidates', []) if r.get('source') != 'football_challenge']
+    for row in selected:
+        document.setdefault('price_check_attempts', {})[row['key']] = current.isoformat()
+    summary = dict(updated_at=current.isoformat(), fixtures=len({r['fixture_id'] for r in selected}),
+                   checked=len(selected), quotes=len(quotes), errors=len(errors), status_counts=counts)
+    document['price_only_refresh'] = summary
+    source = document.setdefault('sources', {}).setdefault('football', {})
+    source.update(price_checked_count=len(selected), price_fixture_count=summary['fixtures'],
+                  reference_quote_count=len(quotes), price_status_counts=counts,
+                  published_recommendation_count=0, quote_operational_error_count=len(errors))
+    if canonical:
+        require_idle()
+    if path.read_bytes() != original:
+        raise RuntimeError('snapshot changed during price refresh; nothing published')
+    write_state(document, path)
+    return summary
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--force-football", action="store_true")
+    parser.add_argument('--quotes-only', action='store_true')
     parser.add_argument("--state-path", default=str(STATE_PATH))
     args = parser.parse_args(argv)
+    if args.quotes_only:
+        try:
+            summary = refresh_prices_only(state_path=args.state_path)
+        except Exception as exc:
+            print(json.dumps({'status':'error', 'error_type':type(exc).__name__}))
+            return 1
+        print(json.dumps(summary))
+        return 0 if not summary['errors'] else 1
     try:
         document = run_wettfinder(
             state_path=args.state_path,

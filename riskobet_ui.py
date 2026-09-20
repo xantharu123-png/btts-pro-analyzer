@@ -10,6 +10,8 @@ from typing import Mapping, Optional
 
 import streamlit as st
 from context_links import ContextReference
+from betting_math import odds_below_publication_floor
+from riskobet_prices import load_shared_price_overlays
 
 from riskobet_domain import (
     ContextState,
@@ -386,10 +388,6 @@ def _render_factor_details(snapshot: EventModelSnapshot) -> None:
 def _render_quote_comparison(candidate: RiskCandidate) -> None:
     suffix = _widget_suffix(candidate)
     quote_key = f"riskobet-quote-{suffix}"
-    st.caption(
-        "Optional: Die eigene Quote wird nur mit der Modellwahrscheinlichkeit "
-        "verglichen. Sie verändert weder Auswahl noch Reihenfolge."
-    )
     value = st.text_input(
         "Eigene Dezimalquote",
         placeholder="z. B. 3,20",
@@ -401,11 +399,11 @@ def _render_quote_comparison(candidate: RiskCandidate) -> None:
         return
     if quote is None:
         return
+    if odds_below_publication_floor(quote):
+        st.info('Unter 1,20 · nicht als Vorschlag anzeigen.')
+        return
     if candidate.model_probability is None:
-        st.info(
-            "Der Vergleich ist ohne berechenbare Modellwahrscheinlichkeit "
-            "ehrlich nicht möglich."
-        )
+        st.info('Modellchance noch offen.')
         return
     implied = 1.0 / quote
     difference = candidate.model_probability - implied
@@ -450,7 +448,6 @@ def _render_featured(
     if not cards:
         return
     st.markdown("## Szenarien nach Datenqualität")
-    st.caption("Evidenz, Kontext und Modellunsicherheit bestimmen die Reihenfolge; nicht die Quote oder allein der Spielbeginn.")
     with st.container(key="riskobet_featured_grid"):
         # Build rows, not two persistent columns.  When CSS stacks the row at
         # tablet/mobile widths, DOM and visual order therefore remain the
@@ -460,9 +457,7 @@ def _render_featured(
             for offset, base_card in enumerate(cards[row_start : row_start + 2]):
                 index = row_start + offset
                 candidate = candidate_by_id[base_card.candidate_id]
-                display_card = _display_card(
-                    candidate, _stored_manual_quote(candidate)
-                )
+                display_card = base_card
                 with columns[offset]:
                     with st.container(key=f"riskobet_featured_card_{index}"):
                         st.markdown(
@@ -492,9 +487,7 @@ def _render_additional(
     with st.container(key="riskobet_additional"):
         for index, base_card in enumerate(visible_cards, start=offset):
             candidate = candidate_by_id[base_card.candidate_id]
-            display_card = _display_card(
-                candidate, _stored_manual_quote(candidate)
-            )
+            display_card = base_card
             with st.container(key=f"riskobet_additional_row_{index}"):
                 st.markdown(
                     render_riskobet_compact_row_html(display_card),
@@ -533,8 +526,15 @@ def render_riskobet(path: str | Path | None = None) -> None:
             )
         if sport_filter not in SPORT_FILTERS:
             sport_filter = "Alle"
+        overlays = load_shared_price_overlays(view.candidates)
+        cards = tuple(
+            _display_card(candidate, _stored_manual_quote(candidate))
+            if _stored_manual_quote(candidate) is not None
+            else build_riskobet_card(candidate, overlays.get(candidate.candidate_id))
+            for candidate in view.candidates
+        )
         catalog = compose_riskobet_catalog(
-            view.cards,
+            cards,
             sport_filter=sport_filter,
             max_featured=3,
         )
@@ -546,11 +546,7 @@ def render_riskobet(path: str | Path | None = None) -> None:
         )
         with st.container(key="riskobet_summary"):
             if view.status == "PARTIAL":
-                st.warning(
-                    "Einige Sportarten wurden nicht vollständig aktualisiert. "
-                    "Sichtbar sind nur bereits verarbeitete Daten; bitte den "
-                    "jeweiligen Evidenzstand beachten."
-                )
+                st.caption('Einzelne Sportarten: Aktualisierung offen.')
             if catalog.cards:
                 scenario_label = (
                     "Szenario" if len(catalog.cards) == 1 else "Szenarien"
@@ -560,14 +556,22 @@ def render_riskobet(path: str | Path | None = None) -> None:
                     f"{len(catalog.cards)} {scenario_label} aus {event_count} "
                     f"{event_label} · Stand: {completed}"
                 )
-        if not catalog.cards:
-            st.info("Für diesen Sport sind aktuell keine Szenarien verfügbar.")
-            return
         candidate_by_id = {
             candidate.candidate_id: candidate for candidate in view.candidates
         }
         _render_featured(catalog.featured, candidate_by_id, view.snapshots)
         _render_additional(catalog.additional, candidate_by_id, view.snapshots)
+        # Keep the price field reachable after a low manual entry hid its card.
+        # This is a correction control, not another recommendation list.
+        blocked = [card for card in cards if card.quote_floor_excluded
+                   and sport_filter in ('Alle', card.sport)]
+        if blocked:
+            with st.expander('Quoten unter 1,20 prüfen', expanded=False):
+                for card in blocked:
+                    st.caption(f'{card.event_label} · {card.selection}')
+                    _render_quote_comparison(candidate_by_id[card.candidate_id])
+        if not catalog.cards:
+            st.info('Aktuell kein passendes Risiko-Szenario.')
 
 
 __all__ = [

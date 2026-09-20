@@ -69,9 +69,10 @@ def _render(db_path, missing_identity=False, price_state=None):
         signal = football(probability=probability)
         if price_state in ('too_low', 'stale'):
             observed_at = NOW - timedelta(hours=2) if price_state == 'stale' else NOW
+            offer = 1.50 if price_state == 'stale' else 1.12
             points = tuple(
                 QuotePoint(
-                    bookmaker=f'Book {index}', odds=1.12,
+                    bookmaker=f'Book {index}', odds=offer,
                     bookmaker_id=f'api-football:{index}',
                     observed_at=observed_at.isoformat(),
                 )
@@ -82,8 +83,8 @@ def _render(db_path, missing_identity=False, price_state=None):
                 candidate_id=signal.candidate_id,
                 market_key=signal.market_key,
                 bet_name='Match Winner', value_name='Home',
-                consensus_odds=1.12, conservative_odds=1.12,
-                lowest_odds=1.12, best_odds=1.12,
+                consensus_odds=offer, conservative_odds=offer,
+                lowest_odds=offer, best_odds=offer,
                 bookmaker_count=3, quoted_at=observed_at.isoformat(),
                 fetched_at=observed_at.isoformat(), source=REFERENCE_SOURCE,
                 points=points, scheduled_start=signal.scheduled_start,

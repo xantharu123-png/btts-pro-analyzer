@@ -310,16 +310,16 @@ def test_precomputed_price_rejects_same_key_with_different_candidate_content():
             )
 
 
-def test_price_states_are_concise_and_only_current_prices_are_displayed():
+def test_price_states_keep_last_observation_distinct_from_current_prices():
     signal = _signal()
     cases = {
         "TOO_LOW": (_quote(signal, (1.30, 1.40, 1.50)), "Unter Value", 1.50),
         "BORDERLINE": (_quote(signal, (1.50, 1.60, 1.80)), "Quote offen", 1.80),
-        "THIN": (_quote(signal, (1.80, 1.82)), "Quote zu dünn", None),
+        "THIN": (_quote(signal, (1.80, 1.82)), "Quote zu dünn", 1.82),
         "STALE": (
-            _quote(signal, fetched_at=NOW - timedelta(hours=2)),
+            replace(_quote(signal, fetched_at=NOW - timedelta(hours=2)), conservative_odds=1.78),
             "Veraltet",
-            None,
+            1.84,
         ),
         "UNAVAILABLE": (None, "Quote fehlt", None),
         "PLAYABLE": (_quote(signal), "Quote passend", 1.80),
@@ -582,12 +582,12 @@ def test_featured_and_compact_analysis_is_visible_once_and_escapes_all_copy():
         (
             (1.40, 1.45, 1.50),
             "TOO_LOW",
-            "Aktuelle Quote unter Value. Die Prognose bleibt unverändert.",
+            "Quote unter Value.",
         ),
         (
             None,
             "UNAVAILABLE",
-            "Keine exakt passende Quote. Die Prognose bleibt unverändert.",
+            "Quote fehlt · eigene Quote prüfen.",
         ),
     ),
 )

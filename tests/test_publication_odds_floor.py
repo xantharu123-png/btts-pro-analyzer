@@ -84,9 +84,9 @@ def test_unknown_stale_or_foreign_quote_is_not_misrepresented_as_below_floor(cha
     if change == 'missing':
         raw = None
     elif change == 'stale_fetch':
-        raw['fetched_at'] = (NOW-timedelta(hours=2)).isoformat()
+        raw['fetched_at'] = (NOW-timedelta(days=2)).isoformat()
     elif change == 'stale_offers':
-        raw['quoted_at'] = (NOW-timedelta(hours=2)).isoformat()
+        raw['quoted_at'] = (NOW-timedelta(days=2)).isoformat()
         for point in raw['points']:
             point['observed_at'] = raw['quoted_at']
     elif change == 'foreign_event':

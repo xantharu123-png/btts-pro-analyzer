@@ -2,8 +2,8 @@
 
 The module deliberately owns no Streamlit state and performs no provider work.
 It maps an immutable :class:`riskobet_domain.RiskCandidate` to escaped consumer
-markup.  Price observations are a separate overlay and are never consulted by
-filtering, scenario limits or featured-card composition.
+markup. Price observations never change model probabilities or ranking.
+The user floor removes known offers below 1.20 after the event cap.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import math
 import re
 from typing import TYPE_CHECKING, Iterable, Mapping, Optional
 import unicodedata
+from betting_math import odds_below_publication_floor
 from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:  # pragma: no cover - the runtime accepts the frozen contract.
@@ -161,6 +162,7 @@ class RiskBetPriceOverlay:
     observed_odds: Optional[float] = None
     bookmaker: Optional[str] = None
     observed_at: Optional[str] = None
+    below_floor: bool = False
 
     def __post_init__(self) -> None:
         candidate_id = str(self.candidate_id or "").strip()
@@ -169,6 +171,8 @@ class RiskBetPriceOverlay:
             raise ValueError("price candidate identity is required")
         if status not in _PRICE_COPY:
             raise ValueError("unsupported RisikoBet price status")
+        if not isinstance(self.below_floor, bool):
+            raise ValueError('below_floor must be boolean')
         if self.observed_odds is not None:
             if (
                 isinstance(self.observed_odds, bool)
@@ -213,6 +217,7 @@ class RiskBetCard:
     bookmaker: Optional[str]
     price_observed_at: Optional[str]
     simple_market: bool
+    quote_floor_excluded: bool = False
 
 
 @dataclass(frozen=True)
@@ -334,6 +339,7 @@ def _normalise_price(
             observed_odds=price.get("observed_odds"),
             bookmaker=price.get("bookmaker"),
             observed_at=price.get("observed_at"),
+            below_floor=price.get('below_floor') is True,
         )
     else:
         raise TypeError("price must be a RiskBetPriceOverlay or mapping")
@@ -459,6 +465,9 @@ def build_riskobet_card(
             else None
         ),
         simple_market=_is_simple_market(market_key, selection),
+        quote_floor_excluded=(overlay.below_floor or (
+            overlay.status in {'AVAILABLE', 'PLAYABLE', 'TOO_LOW', 'BORDERLINE', 'THIN'}
+            and odds_below_publication_floor(overlay.observed_odds))),
     )
 
 
@@ -610,7 +619,8 @@ def compose_riskobet_catalog(
     ):
         raise ValueError("max_featured must be between one and three")
 
-    capped = _cap_scenarios_per_event(tuple(cards))
+    capped = [card for card in _cap_scenarios_per_event(tuple(cards))
+              if not card.quote_floor_excluded]
     if sport_filter == "Alle":
         ordered = _evidence_then_sport_order(capped)
     else:
@@ -651,13 +661,16 @@ def _price_markup(card: RiskBetCard, *, compact: bool) -> str:
         else ""
     )
     css_class = "rb-row-price" if compact else "rb-price"
+    stamp = ('<span class="rb-price-bookmaker">Stand: '
+             + escape(format_riskobet_start(card.price_observed_at)) + '</span>') if card.price_observed_at else ''
+    label = 'Letzte Quote' if card.price_code == 'STALE' else 'Quote'
     return (
         f'<div class="{css_class}" data-price-code="'
         f'{escape(card.price_code, quote=True)}">'
-        '<span class="rb-field-label">Preis</span>'
+        f'<span class="rb-field-label">{label}</span>'
         f"{_badge('price', card.price_tone, card.price_label)}"
         f'<strong class="rb-price-odds">{escape(odds)}</strong>'
-        f"{bookmaker}</div>"
+        f"{bookmaker}{stamp}</div>"
     )
 
 

@@ -994,7 +994,7 @@ def evaluate_candidate_price(
         candidate.minimum_odds or math.inf,
         MINIMUM_RECOMMENDED_DECIMAL_ODDS,
     )
-    if metrics.market_odds + 1e-9 < effective_minimum:
+    if metrics.market_odds < MINIMUM_RECOMMENDED_DECIMAL_ODDS or metrics.market_odds + 1e-9 < effective_minimum:
         reasons.append(
             f"Quote {metrics.market_odds:.2f} liegt unter der Value-Grenze "
             f"{effective_minimum:.2f}."

@@ -83,6 +83,7 @@ from football_data_history import fetch_history as fetch_stat_history
 from football_data_history import merge_api_tail
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, LEAGUE_BY_ID
 from market_consensus import (
+    quote_below_publication_floor,
     MarketConsensus,
     challenge_quote_matches_candidate,
     deserialize_consensus_map,
@@ -4535,6 +4536,14 @@ def _render_price_check(
         )
         return
 
+    price_decision_now = datetime.now(timezone.utc)
+    raw_quotes = deserialize_consensus_map(snapshot.get('reference_quotes'))
+    displayed_candidates = [candidate for candidate in displayed_candidates
+                            if not quote_below_publication_floor(
+                                raw_quotes.get(candidate.candidate_id), candidate=candidate, now=price_decision_now)]
+    if not displayed_candidates:
+        st.info('Aktuell keine passende 15K-Auswahl.')
+        return
     all_price_candidates: list[ChallengeCandidate] = (
         snapshot.get("price_candidates") or shortlist
     )
@@ -4574,7 +4583,6 @@ def _render_price_check(
             max_featured=MAX_FEATURED_FORECASTS,
         )
     )
-    price_decision_now = datetime.now(timezone.utc)
     ticket, statuses, approved_reference_quotes = _automatic_challenge_ticket(
         price_candidates,
         reference_quotes,

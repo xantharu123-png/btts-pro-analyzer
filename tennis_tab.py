@@ -36,6 +36,7 @@ from betting_math import (
     BettingMathError,
     evaluate_market_price,
     minimum_recommendation_odds,
+    odds_below_publication_floor,
 )
 from ui_components import scan_progress_fragment
 from tennis import shadow
@@ -232,12 +233,14 @@ def _update_price_check(
         options = []
         if (
             minimum_a is not None
+            and not odds_below_publication_floor(odds_a)
             and odds_a + 1e-9 >= minimum_a
             and risk_ev_a >= MIN_EXPECTED_ROI
         ):
             options.append((risk_ev_a, "A", edge_a))
         if (
             minimum_b is not None
+            and not odds_below_publication_floor(odds_b)
             and odds_b + 1e-9 >= minimum_b
             and risk_ev_b >= MIN_EXPECTED_ROI
         ):
@@ -659,19 +662,18 @@ def _render_match_card(row: dict) -> None:
             if likely_minimum is not None
             else "nicht belastbar"
         )
-        st.info(
-            f"TENNIS-AUSWAHL: {likely_player} ist wahrscheinlicher. "
-            "Diese Auswahl wird noch geprüft und ist kein Tipp."
-        )
+        likely_price = st.session_state.get(
+            f'odds_a_{row["id"]}' if row['p_cal'] >= 0.5 else f'odds_b_{row["id"]}',
+            row.get('odds_a') if row['p_cal'] >= 0.5 else row.get('odds_b'))
+        if odds_below_publication_floor(likely_price):
+            st.info('Quote unter 1,20 · keine Auswahl zu diesem Preis.')
+        else:
+            st.info(f'Modellfavorit: {likely_player} · noch nicht bestätigt.')
         metrics = st.columns(3)
         metrics[0].metric("Modell", f"{likely_probability:.1%}")
         metrics[1].metric("Vorsichtige Prognose", f"{conservative_probability:.1%}")
         metrics[2].metric("Value-Grenze", minimum_text)
-        st.caption(
-            "Aktuell liegt kein automatischer Quotenvergleich vor. Die "
-            "Value-Grenze dient nur zur Prüfung der eigenen Buchmacherquote; "
-            "sie ist keine erwartete Marktquote."
-        )
+        st.caption('Eigene Quote prüfen · automatischer Vergleich fehlt.')
 
         odds_a_key = f"odds_a_{row['id']}"
         odds_b_key = f"odds_b_{row['id']}"
@@ -751,7 +753,8 @@ def _render_match_card(row: dict) -> None:
                 }
             )
         if result:
-            if result["verdict"] == "WETTE" and model_gates_ok:
+            selected_price = odds_a if result.get('side') == 'A' else odds_b
+            if result["verdict"] == "WETTE" and model_gates_ok and selected_price is not None and not odds_below_publication_floor(selected_price):
                 name = row["player_a"] if result["side"] == "A" else row["player_b"]
                 selected_odds = odds_a if result["side"] == "A" else odds_b
                 st.info(
@@ -767,9 +770,7 @@ def _render_match_card(row: dict) -> None:
                     )
                 else:
                     st.info(
-                        f"QUOTE ZU NIEDRIG: Die Tennis-Auswahl bleibt "
-                        f"{likely_player} ({likely_probability:.1%}). Nur der "
-                        "angebotene Wettpreis reicht nicht aus."
+                        'Quote reicht nicht · eigenen Preis prüfen.'
                     )
 
 

@@ -178,7 +178,7 @@ def test_price_check_edge_paths():
     # Eine zu niedrige Quote ändert nur den Preisstatus.
     at.number_input(key="odds_a_1").set_value(1.40)
     at.button(key="check_1").click().run(timeout=60)
-    assert any("QUOTE ZU NIEDRIG" in info.value for info in at.info)
+    assert any("Quote reicht nicht" in info.value for info in at.info)
     assert len(at.error) == 0
 
 

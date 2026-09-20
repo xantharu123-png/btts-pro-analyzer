@@ -45,6 +45,9 @@ REFERENCE_FETCH_MAX_AGE = timedelta(minutes=35)
 REFERENCE_QUOTE_MAX_AGE = timedelta(minutes=45)
 WETTFINDER_FETCH_MAX_AGE = timedelta(minutes=35)
 WETTFINDER_QUOTE_MAX_AGE = timedelta(minutes=45)
+# Presentation only. API-Football updates pre-match odds about every 3 hours;
+# retaining the last observation must never extend the execution window above.
+QUOTE_DISPLAY_MAX_AGE = timedelta(hours=24)
 MIN_REFERENCE_BOOKMAKERS = 3
 
 # Keep obvious placeholder entries and accidental feed labels out of the
@@ -480,22 +483,47 @@ def wettfinder_consensus(
 
 
 def quote_below_publication_floor(quote: object, *, candidate: object, now: Optional[datetime] = None) -> bool:
-    """Exclude only an exact, fresh observed best offer below the user floor.
+    """Exclude an exact observed best offer below the user floor.
 
     This is a downstream display rule, not a probability/value calculation.
-    Missing, stale, foreign or malformed evidence never implies short odds.
-    One identified current offer suffices to observe a price, even when it
-    cannot supply the three-book confirmation required for an executable tip.
+    This preference uses the last known price (up to the display TTL), not
+    the stricter executable-price clock. Missing/foreign/malformed evidence
+    never implies short odds. Old prices remain labelled old in the UI.
     """
     try:
         quote = MarketConsensus.from_dict(quote.to_dict() if isinstance(quote, MarketConsensus) else quote)
     except (TypeError, ValueError, AttributeError):
         return False
-    if quote is None or not quote_matches_candidate(quote, candidate) or not _wettfinder_fetch_is_fresh(quote, now):
+    if quote is None or not quote_matches_candidate(quote, candidate):
         return False
-    current = wettfinder_consensus(quote, now=now)
+    current = wettfinder_consensus(quote, now=now) or observed_consensus(quote, candidate=candidate, now=now)
     # Compare unrounded native offers, not the six-decimal display aggregate.
     return current is not None and max(p.odds for p in current.points) < MINIMUM_RECOMMENDED_DECIMAL_ODDS
+
+
+def observed_consensus(quote: object, *, candidate: object, now: Optional[datetime] = None) -> Optional[MarketConsensus]:
+    """Last exact provider observation for display, never execution approval."""
+    try:
+        parsed = MarketConsensus.from_dict(quote.to_dict() if isinstance(quote, MarketConsensus) else quote)
+    except (TypeError, ValueError, AttributeError):
+        return None
+    if parsed is None or not quote_matches_candidate(parsed, candidate):
+        return None
+    current = _as_utc(now or datetime.now(timezone.utc))
+    fetched = _parse_utc(parsed.fetched_at)
+    if fetched is None or not timedelta(minutes=-1) <= current - fetched <= QUOTE_DISPLAY_MAX_AGE:
+        return None
+    points = tuple(p for p in _wettfinder_identified_points(parsed)
+                   if timedelta(minutes=-1) <= current - _parse_utc(p.observed_at) <= QUOTE_DISPLAY_MAX_AGE
+                   and _parse_utc(p.observed_at) <= fetched + timedelta(minutes=1))
+    if not points:
+        return None
+    from dataclasses import replace
+    lowest, conservative, consensus, best = _summary_prices(sorted(point.odds for point in points))
+    return replace(parsed, points=points, bookmaker_count=len(points),
+                   consensus_odds=consensus, conservative_odds=conservative,
+                   lowest_odds=lowest, best_odds=best,
+                   quoted_at=max(_parse_utc(p.observed_at) for p in points).isoformat())
 
 
 def _wettfinder_quote_has_execution_proof(
@@ -1089,6 +1117,7 @@ def parse_fixture_consensus(
     candidates: Iterable[object],
     *,
     fetched_at: Optional[datetime] = None,
+    retain_observations: bool = False,
 ) -> dict[str, MarketConsensus]:
     """Parse exact candidate prices from one API-Football odds response."""
     if not isinstance(payload, Mapping) or payload.get("errors"):
@@ -1168,7 +1197,10 @@ def parse_fixture_consensus(
                         odds = validate_decimal_odds(value.get("odd"))
                     except BettingMathError:
                         continue
-                    if not _observation_is_current(update, fetched):
+                    if not (_observation_is_current(update, fetched) or (
+                        retain_observations and update is not None
+                        and timedelta(minutes=-1) <= fetched - update <= QUOTE_DISPLAY_MAX_AGE
+                    )):
                         continue
                     market_quotes = quotes.setdefault(
                         (fixture_id, bet_name, value_name),
@@ -1731,7 +1763,7 @@ def fetch_football_consensus(
             response.raise_for_status()
             payload = response.json()
         except (APIBudgetError, requests.RequestException, ValueError) as exc:
-            errors.append(f"Marktquoten Spiel {fixture_id}: {exc}")
+            errors.append(f"Marktquoten Spiel {fixture_id}: {type(exc).__name__}")
             continue
         if not isinstance(payload, Mapping):
             errors.append(f"Marktquoten Spiel {fixture_id}: ungueltige Antwort")
@@ -1745,6 +1777,7 @@ def fetch_football_consensus(
                 payload,
                 fixture_candidates,
                 fetched_at=current,
+                retain_observations=True,
             )
         )
     return quotes, errors

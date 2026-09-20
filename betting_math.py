@@ -89,6 +89,14 @@ def _validate_nonnegative_percent(value: float, field: str) -> float:
     return number
 
 
+def odds_below_publication_floor(value: object) -> bool:
+    """Known decimal offer below the user floor; unknown is not a low price."""
+    try:
+        return validate_decimal_odds(value) < MINIMUM_RECOMMENDED_DECIMAL_ODDS
+    except BettingMathError:
+        return False
+
+
 def minimum_acceptable_odds(
     probability: float,
     *,
