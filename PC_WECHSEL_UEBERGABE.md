@@ -1,5 +1,35 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – 21.09.2026
+
+Zuerst [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
+[Refresh-Bericht](docs/audits/2026-09-20-football-tennis-refresh.md) lesen.
+Funktionscommit `7c805ae` enthält sämtliche vorherigen Reparaturen und ist auf
+main/GitHub/VPS live. Vollsuite: **10.773 bestanden, 96 Skips, 111 Untertests**.
+Die ursprünglichen Fußball-/Tennis-Terminfehler, WTA-Import und falschen
+Doppel-/TBD-Aufnahmefehler sind behoben und nativ geprüft.
+
+**Nicht alles erledigt:** Tennis-Neulauf endete 00:50:26 CEST mit Exit 1,
+trotz 74/74 abgeschlossener Berechnungen und erfolgreicher Montagsprüfung.
+Es bleiben vier historische Ergebniszuordnungen mit geänderten Teilnehmern
+(WTA 183710, 183831, 183844, 183854). Native Gegenprobe bestätigt diese Fälle.
+Nutzer wurde gefragt, ob diese unverändert separat als nicht auswertbar geführt
+werden sollen; entsprechende neue Statusregel noch nicht implementiert.
+Keine alten Prognosen, Gewinner oder Kontobuchungen umschreiben.
+
+Zusätzlich endete der parallele reguläre Wettfinderlauf 00:56:30 mit einem
+neuen Tennis-Refresh-`ContextIntegrityError`. Die genaue Stelle wurde bisher
+verschluckt. `e8f0faf` ergänzt sichere Serverdiagnostik und ist auf main/GitHub/VPS,
+147 betroffene Tests grün. Read-only: vollständige physische Historie und eine
+Prognose bis vor Veröffentlichung erfolgreich geprüft (651.445 WTA-Verweise,
+487 s). Kein reproduzierter Fehler, aber keine Abnahme des fehlgeschlagenen
+parallelen Batches. Folgelauf 01:16 ohne Tennisfehler hatte **0 fällige Refreshes**.
+
+Separat blockierte beim Fußball die geschützte API-Reserve den Tagesabruf;
+Reset 02:00 CEST, regulärer Nachholtermin 02:07. Erfolg noch prüfen, Reserve
+nicht einfach absenken. Keine Bereinigung/Backupaktivierung erfolgt, fachliche
+Verletzungs-/Müdigkeitsqualifikation bleibt offen. Ältere Statusblöcke sind Historie.
+
 ## Aktueller Einstieg – E-Sport-Quoten 20.09.2026
 
 Zuerst [TODO_AKTUELL.md](TODO_AKTUELL.md) und den

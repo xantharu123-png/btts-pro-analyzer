@@ -2,6 +2,19 @@
 
 ## Dokumentstatus
 
+**Übernahme 21. September 2026:** Verifizierter Funktionsstand `7c805ae` auf
+main/GitHub/VPS; vollständige Suite 10.773 bestanden, 96 Plattform-Skips und
+111 Untertests. Maßgeblich sind [TODO_AKTUELL.md](TODO_AKTUELL.md) und der
+[Refresh-Bericht](docs/audits/2026-09-20-football-tennis-refresh.md). Die alten
+Aktualisierungsfehler sind repariert; der vollständige Tennis-Lauf bleibt wegen
+vier historischen Teilnehmerwechseln partiell. Fußball wartet auf erneutes
+API-Kontingent. Keine pauschale Betriebs- oder fachliche Gesamtabnahme.
+Nachprüfung: auch der parallele reguläre Tennis-Refresh meldete 00:56:30 erneut
+`ContextIntegrityError`; genaue Ursache noch offen. `e8f0faf` ergänzt sichere
+Server-Codepositionen zur Diagnose, 147 Regressionstests bestanden, ebenfalls
+auf main/GitHub/VPS. Lesender Abschluss für eine Prognose ohne Fehler; genaue
+Ursache des parallelen Fehlversuchs weiterhin offen, kein pauschaler Grünstatus.
+
 **Übernahme 18. September 2026:** Aktuell [TODO_AKTUELL.md](TODO_AKTUELL.md) und
 [Übernahmebericht](docs/audits/2026-09-18-kontext-fortsetzung.md) lesen.
 `afc8a10` gepusht, noch nicht deployed; VPS `9659c49`, App nach unterbrochenem

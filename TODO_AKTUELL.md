@@ -1,5 +1,60 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Aktueller Stand – Fußball/Tennis, 21.09.2026
+
+- Funktionsstand **`7c805aeae0df6b85e68178adc7f40756cf99a06f`** auf Worktree,
+  lokalem main, GitHub main und seit 00:17 CEST auf VPS. Vorige Reparaturen
+  `e292b10`, `eea0703`, `f6b7c66` und der E-Sport-Anschluss sind enthalten.
+  [Bericht und Reproduktionen](docs/audits/2026-09-20-football-tennis-refresh.md).
+- Behoben: ursprüngliche 16 Fußball-Historienfehler, acht native Tennis-
+  Terminänderungen, WTA-Import einer leeren Ergebnis-Platzhalterzeile,
+  wiederholte Historienprüfungen und Wiederverwendung oberhalb 500.000 Verweisen.
+  WTA-Ergebnisse reichen wieder bis 20.09. statt 12.09.
+- Neue Korrektur: bekannte fremde Spielarten und explizite TBD-Turnierplätze
+  verursachen keinen falschen Aufnahmefehler. Sie werden weiter unverändert
+  als nicht modellierbar gespeichert. Native Gegenprobe mit 500 Wettbewerben:
+  identische Beobachtungen/Abrechnungsquellen, alte Falschmeldung beseitigt.
+- **Vollständige Testsuite: 10.773 bestanden, 96 plattformbedingte Skips,
+  111 Untertests bestanden**, Exit 0, 33:33 min. Neun reine JUnit-Formatwarnungen.
+  XML: `output/playwright/tennis-refresh-20260921-final-junit.xml`.
+- Echter Tennis-Gesamtlauf 00:17:10–00:50:26: Modellaufbau, alle **74/74**
+  Berechnungen, Montags-Kalibrierungsprüfung und Wochenreport abgeschlossen.
+  Kein Timeout. 74 neue Prognose-Originale, **0 neue Shadow-Prediction-Zeilen**
+  (die Spiele waren bereits vorhanden), nicht 74 neue Tipps.
+- **Noch nicht grün:** Ergebnisaufnahme meldet zwei Konflikte und zwei nicht
+  zuordenbare Altfälle wegen geänderter Teilnehmer: WTA 183831, 183854,
+  183710, 183844. Der Gesamtlauf bleibt daher Exit 1. Read-only Gegenprobe
+  mit 540 nativen Wettbewerben bestätigt exakt diese vier Fälle; 118 Events
+  bekommen passende Ergebnisbeobachtungen. Keine alten Originale umschreiben,
+  fremde Gewinner zuordnen oder einen Fehlerstatus nur zurücksetzen.
+- Nutzerentscheidung angefragt: diese vier alten Prognosen unverändert als
+  „nicht auswertbar – Teilnehmer geändert“ separat führen statt jeden neuen
+  Tageslauf daran scheitern zu lassen. Noch keine entsprechende Vertrags- oder
+  Statusänderung implementiert; keine Gewinne/Verluste automatisch ändern.
+- Zusätzliche Nachprüfung: der parallele Wettfinderlauf 00:37–00:56:30 meldete
+  beim Tennis-Refresh erneut `ContextIntegrityError`. Der bestehende Catch
+  speicherte nur den Typ, keinen Fehlerort; damit noch keine genaue Ursache
+  bewiesen. Diagnosecommit `e8f0faf` ergänzt begrenzte Codepositionen/Fehlerketten
+  nur im Serverlog (keine Meldungstexte/Secrets in Log oder Nutzerartefakt),
+  auf main/GitHub/VPS. 147 betroffene Regressionstests grün; Vollsuite oben
+  gehört zu `7c805ae`. Read-only Gegenprobe mit vollständiger physischer
+  Historie und 651.445 WTA-Verweisen: eine aktuelle Prognose in 487 s bis vor
+  Veröffentlichung vollständig vorbereitet. Kein reproduzierter Integritäts-
+  fehler; Ursache des parallelen Fehlversuchs noch offen. Diesen neuen Befund
+  nicht mit den vier historischen Ergebnisfällen gleichsetzen.
+- Folgelauf 01:07:04–01:16:07: Tennis ohne Fehler, aber **0 fällige Refreshes**,
+  somit keine erneute Abschluss-/Race-Abnahme. Zwölf Fußball-API-Reservefehler.
+- Separater Fußball-Engpass: 00:07–00:16 CEST 13 Abrufe an der API-Reserve
+  gestoppt (Restschätzung 2.443, Background-Reserve 2.500). Keine Rückkehr der
+  alten Identitätsfehler. Direktes Tageskontingent erneuert 02:00 CEST;
+  Wiederholpfad/Timer vorhanden, regulär 02:07. Erfolgreichen Nachhollauf noch
+  prüfen. Reserve und Tarif unverändert lassen.
+- App/Healthchecks funktionieren, sieben Timer aktiv, tägliche Sicherung
+  weiterhin deaktiviert. Keine Bereinigung, neuen Backups, Quoten-/Geldregel-
+  oder UI-Änderungen. Verletzungs-/Müdigkeitswirkung und bessere Wettqualität
+  sind dadurch weiterhin nicht empirisch nachgewiesen.
+- Die älteren Statusblöcke darunter sind Historie, keine aktuelle Gesamtabnahme.
+
 ## E-Sport-Quoten – Anbindung 20.09.2026
 
 - OddsPapi-Schlüssel geschützt übergeben; native Kontoprüfung: aktiver kostenloser
