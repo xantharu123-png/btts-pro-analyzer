@@ -69,6 +69,7 @@ _CONTEXT_COPY = {
 }
 _PRICE_COPY = {
     "AVAILABLE": ("Quote beobachtet", "neutral"),
+    "OBSERVED": ("Quote abgerufen", "neutral"),
     "PLAYABLE": ("Preis passend", "positive"),
     "TOO_LOW": ("Quote niedrig", "muted"),
     "BORDERLINE": ("Preis grenzwertig", "warning"),
@@ -661,7 +662,7 @@ def _price_markup(card: RiskBetCard, *, compact: bool) -> str:
         else ""
     )
     css_class = "rb-row-price" if compact else "rb-price"
-    stamp = ('<span class="rb-price-bookmaker">Stand: '
+    stamp = ('<span class="rb-price-bookmaker">' + ('Abgerufen: ' if card.price_code == 'OBSERVED' else 'Stand: ')
              + escape(format_riskobet_start(card.price_observed_at)) + '</span>') if card.price_observed_at else ''
     label = 'Letzte Quote' if card.price_code == 'STALE' else 'Quote'
     return (

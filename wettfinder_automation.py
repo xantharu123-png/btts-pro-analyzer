@@ -3947,6 +3947,15 @@ def run_wettfinder(
                 now=current, target_date=target)
             document['model_candidates'] = build_model_selection_ledger((), merged, now=current, target_date=target)
             document['sources'].update(team_sport_source_coverage(bridge_run, team_rows, now=current, target_date=target))
+            if production_state:
+                from team_sport_prices import refresh_team_sport_prices, snapshot_price_rows
+                try:
+                    app_config = config or load_app_config()
+                    document['team_sport_prices'] = refresh_team_sport_prices(
+                        snapshot_price_rows(bridge_run.snapshots), api_key=app_config.api_football_key or '',
+                    )
+                except Exception as exc:
+                    document['team_sport_prices'] = {'status': 'failed', 'error_type': type(exc).__name__}
             if settlement_summary is not None:
                 document["riskobet"]["settlement"] = settlement_summary
         except Exception as exc:

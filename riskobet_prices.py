@@ -51,7 +51,7 @@ def shared_price_overlays(candidates, rows, *, now=None):
             index[key] = None
         else:
             index[key] = (row, quote)
-    overlays = {}
+    overlays = team_price_overlays(candidates, rows, now=now)
     for candidate in candidates:
         match = index.get((candidate.event_key, football_market(candidate)))
         if match is None:
@@ -75,13 +75,56 @@ def shared_price_overlays(candidates, rows, *, now=None):
     return overlays
 
 
-def load_shared_price_overlays(candidates, *, now=None, path=None):
+def team_price_overlays(candidates, rows, *, now):
+    from team_sport_prices import _sport
+    index = {}
+    for row in rows:
+        if not isinstance(row, dict) or _sport(row) is None:
+            continue
+        quote = MarketConsensus.from_dict(row.get('reference_quote'))
+        if quote is None or not quote_matches_candidate(quote, row):
+            continue
+        event = stable_event_key(_sport(row), row['fixture_source'], row['provider_event_id'])
+        side = 'home' if row['selected_competitor'] == row['competitor_a'] else 'away'
+        key = event, side
+        value = row, quote
+        index[key] = value if key not in index or index[key] == value else None
+    overlays = {}
+    for candidate in candidates:
+        if candidate.market_key != 'match_winner_including_ot' or candidate.settlement_contract != (
+            f'riskobet-settlement-v1:{candidate.sport}:{candidate.market_key}:{candidate.selection_key}'
+        ):
+            continue
+        match = index.get((candidate.event_key, candidate.selection_key))
+        if match is None:
+            continue
+        row, quote = match
+        if candidate.selection_label != row['selected_competitor']:
+            continue
+        binding = {**row, 'scheduled_start': candidate.starts_at.isoformat()}
+        observed = observed_consensus(quote, candidate=binding, now=now)
+        if observed is None or candidate.starts_at <= now:
+            continue
+        point = max(observed.points, key=lambda p: p.odds)
+        overlays[candidate.candidate_id] = RiskBetPriceOverlay(
+            candidate.candidate_id, 'OBSERVED', point.odds, point.bookmaker,
+            point.observed_at, quote_below_publication_floor(quote, candidate=binding, now=now),
+        )
+    return overlays
+
+
+def load_shared_price_overlays(candidates, snapshots=(), *, now=None, path=None):
     source = Path(path) if path is not None else Path(__file__).resolve().parent / 'runtime_state' / 'wettfinder_latest.json'
     try:
         data = json.loads(source.read_text(encoding='utf-8'))
         rows = data.get('model_candidates', ())
-        if not isinstance(rows, list):
-            return {}
-        return shared_price_overlays(candidates, rows, now=now)
     except (OSError, TypeError, ValueError, AttributeError):
-        return {}
+        rows = []
+    rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    from team_sport_prices import attach_cached_team_prices, snapshot_price_rows
+    # Full identity rows also cover research events absent from the normal pool.
+    snapshots = tuple(snapshots)
+    if snapshots:
+        rows = [row for row in rows if row.get('source') != 'team_sport_research'] + snapshot_price_rows(snapshots)
+    rows = attach_cached_team_prices(rows, now=now, path=source.parent / 'team_sport_quotes.json')
+    return shared_price_overlays(candidates, rows, now=now)

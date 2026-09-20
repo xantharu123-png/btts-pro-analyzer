@@ -259,6 +259,8 @@ def wettfinder_quote_binding_candidate(
         "competitor_a": signal.competitor_a,
         "competitor_b": signal.competitor_b,
         "selected_competitor": signal.selected_competitor,
+        "fixture_source": signal.fixture_source,
+        "provider_event_id": signal.provider_event_id,
     }
 
 
@@ -348,6 +350,7 @@ def _price_copy(
         "STALE": ("Veraltet", "muted"),
         "UNAVAILABLE": ("Quote fehlt", "muted"),
         "INVALID_MINIMUM": ("Quote offen", "warning"),
+        "OBSERVED": ("Quote abgerufen", "neutral"),
     }
     if status.code == "PLAYABLE":
         # A matching price is not a released tip. Reserve the green
@@ -360,7 +363,7 @@ def _price_copy(
         )
         return label, tone, status.usable_odds, status.bookmaker
     label, tone = labels.get(status.code, ("Quote offen", "warning"))
-    if status.code in {"TOO_LOW", "BORDERLINE", "THIN", "STALE"} and quote is not None:
+    if status.code in {"TOO_LOW", "BORDERLINE", "THIN", "STALE", "OBSERVED"} and quote is not None:
         best = max(quote.points, key=lambda point: point.odds, default=None)
         return (
             label,
@@ -729,7 +732,7 @@ def quote_display_note(card: WettfinderCard) -> Optional[str]:
                       if p.bookmaker == card.bookmaker and abs(p.odds-card.observed_odds) < 0.000001), None)
         stamp = point.observed_at if point else card.reference_quote.quoted_at
         if stamp:
-            parts.append('Stand: ' + format_model_clock(stamp))
+            parts.append(('Abgerufen: ' if card.price_code == 'OBSERVED' else 'Stand: ') + format_model_clock(stamp))
     return ' · '.join(parts) or None
 
 
@@ -740,7 +743,7 @@ def _top_card_markup(card: WettfinderCard) -> str:
         (
             _metric("Sicherheitswert", format_probability(card.cautious_probability)),
             _metric("Risikopreis ab", format_decimal_odds(card.value_threshold)),
-            _metric("Letzte Quote" if card.price_code == 'STALE' else "Aktuell", price, note=bookmaker_note),
+            _metric("Letzte Quote" if card.price_code == 'STALE' else "Quote" if card.price_code == 'OBSERVED' else "Aktuell", price, note=bookmaker_note),
         )
     )
     price_code = escape(card.price_code, quote=True)
@@ -814,7 +817,7 @@ def _compact_row_markup(card: WettfinderCard, *, grouped: bool = False, featured
         f'{_row_value("Modell", format_probability(card.model_probability))}'
         f'{_row_value("Sicherheitswert", format_probability(card.cautious_probability))}'
         f'{_row_value("Risikopreis ab", format_decimal_odds(card.value_threshold))}'
-        f'{_row_value("Letzte Quote" if card.price_code == "STALE" else "Aktuell", price, note=bookmaker_note)}'
+        f'{_row_value("Letzte Quote" if card.price_code == "STALE" else "Quote" if card.price_code == "OBSERVED" else "Aktuell", price, note=bookmaker_note)}'
         f"{_status_badges(card, featured=featured)}"
         f"{_analysis_markup(card, featured=featured)}"
         f'{price_note}'

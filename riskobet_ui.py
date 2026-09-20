@@ -532,7 +532,7 @@ def render_riskobet(path: str | Path | None = None) -> None:
             )
         if sport_filter not in SPORT_FILTERS:
             sport_filter = "Alle"
-        overlays = load_shared_price_overlays(view.candidates)
+        overlays = load_shared_price_overlays(view.candidates, view.snapshots.values())
         cards = tuple(
             _display_card(candidate, _stored_manual_quote(candidate))
             if _stored_manual_quote(candidate) is not None

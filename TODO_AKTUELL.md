@@ -1,5 +1,22 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Quotenanbindung 20.09.2026 – weitere Sportarten
+
+- Fußballquoten und der übergreifende 1,20-Filter waren bereits mit `66161eb`
+  live. Aktuell ergänzt: zentrale API-Sports-Quoten für NBA/Euroleague/NHL,
+  Wiederverwendung in Wettfinder/Daily3/RisikoBet, inklusive RisikoBet-Spielen
+  ohne vollständige Modellprognose. Zeitangabe ist ausdrücklich Abrufzeit,
+  keine erfundene Buchmacherzeit und keine neue Einsatzfreigabe.
+- Bestehender Worker/Budgetzähler, begrenzter Cache ohne Historienwachstum.
+  Keine neue Bereinigung, Datenbank, Sicherung oder Timer.
+- Tennis/E-Sport bleiben mangels Zugang offen: kostenlose Angebote geprüft,
+  aber kein Account angelegt. Details und Nachweise in
+  [Weitere Sportquoten](docs/audits/2026-09-20-weitere-sportquoten.md).
+- Bestehende Tennis-/Kontext-/Workerfehler sind dadurch nicht behoben.
+- Die ältere Regel unten ist zeitlich enger formuliert: seit `d94c5bc`
+  gilt der Filter auch für eindeutig als älter markierte letzte Angebote
+  bis 24 Stunden. Fehlende oder fremde Quoten bleiben unbekannt.
+
 ## Neue Nutzerregel 20.09.2026 – bekannte Quoten unter 1,20 aussortieren
 
 - Diese ausdrückliche Nutzerentscheidung ersetzt die bisherige ausnahmslos

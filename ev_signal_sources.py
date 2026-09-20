@@ -1438,6 +1438,8 @@ def automated_wettfinder_forecasts(
     rows = document.get("model_candidates")
     if not isinstance(rows, list):
         return []
+    from team_sport_prices import attach_cached_team_prices
+    rows = attach_cached_team_prices(rows, now=current, path=Path(path).parent / 'team_sport_quotes.json')
     football = document.get("football")
     football = football if isinstance(football, dict) else {}
     football_statuses = _validated_football_context_statuses(football)
@@ -1452,8 +1454,7 @@ def automated_wettfinder_forecasts(
                 names = ModelSignal.__dataclass_fields__
                 payload = {key: value for key, value in row.items() if key in names}
                 payload['event_label'] = row['event']
-                # There is no reviewed team-sport quote binding yet. Optional
-                # price annotations cannot hide the sporting model or release it.
+                # Origin/start/side-bound observations never release this model.
                 quote = MarketConsensus.from_dict(row.get('reference_quote'))
                 payload['reference_quote'] = quote.to_dict() if quote_matches_candidate(quote, row) else None
                 try:

@@ -606,6 +606,10 @@ def _render_reference_price(
                 f"Value-Grenze von {candidate.minimum_odds:.2f}. Das Modell "
                 "sammelt noch Praxisergebnisse; daher kein Einsatzvorschlag."
             )
+    elif status.code == "OBSERVED" and quote is not None:
+        point = max(quote.points, key=lambda p: p.odds)
+        st.info(f'Quote {point.odds:.2f} · {point.bookmaker}')
+        st.caption(f'Abgerufen: {quote.fetched_at} · Anbieterzeit unbekannt')
     elif status.code == "BORDERLINE" and quote is not None:
         st.info(
             f'Value ab {candidate.minimum_odds:.2f} · nur bei einzelnen Anbietern.'
