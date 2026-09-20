@@ -21,9 +21,11 @@ from contextlib import nullcontext
 from dataclasses import dataclass, fields
 from datetime import date, datetime, timedelta, timezone
 import json
+import logging
 import math
 import os
 from pathlib import Path
+import traceback
 from typing import Any, Callable, Iterable, Mapping, Optional
 import unicodedata
 from zoneinfo import ZoneInfo
@@ -3366,6 +3368,22 @@ def run_wettfinder(
             tennis_refresh = refresher(db_path=TENNIS_DB, as_of=current if fixed_now else None)
         except Exception as exc:
             tennis_refresh = {"status": "failed", "failure_type": type(exc).__name__}
+            # Keep diagnostic locations in the server log, not the public
+            # document. Exception messages/locals can contain provider secrets.
+            failure = exc
+            locations = []
+            for _ in range(3):
+                frames = traceback.extract_tb(failure.__traceback__)[-8:]
+                locations.append(type(failure).__name__ + ": " + " > ".join(
+                    f"{Path(frame.filename).name}:{frame.lineno}:{frame.name}"
+                    for frame in frames
+                ))
+                failure = failure.__cause__
+                if failure is None:
+                    break
+            logging.getLogger(__name__).error(
+                "Tennis model refresh failed; locations=%s", " <- ".join(locations)
+            )
         if not fixed_now:
             current = _utc(runtime_clock())
     for source_name, loader, kwargs in (

@@ -31,9 +31,12 @@ def test_shared_tennis_refresh_runs_before_both_consumer_reads(tmp_path):
     assert document["sources"]["tennis"]["model_refresh"]["provider_checked"] is False
 
 
-def test_refresh_failure_is_reported_without_erasing_persisted_forecasts(tmp_path):
+def test_refresh_failure_is_reported_without_erasing_persisted_forecasts(tmp_path, caplog):
     def refresh(**kwargs):
-        raise OSError("private provider detail")
+        try:
+            raise ValueError("private cause detail")
+        except ValueError as exc:
+            raise OSError("private provider detail") from exc
     document = worker.run_wettfinder(
         now=NOW, state_path=tmp_path / "latest.json",
         football_scanner=lambda _: {"candidates": []},
@@ -45,6 +48,13 @@ def test_refresh_failure_is_reported_without_erasing_persisted_forecasts(tmp_pat
     }
     assert document["sources"]["tennis"]["operational_error_count"] == 1
     assert document["run_status"] == "degraded"
+    assert "Tennis model refresh failed" in caplog.text
+    assert "OSError" in caplog.text and "ValueError" in caplog.text
+    assert "test_quality_worker_integration.py:" in caplog.text
+    assert ":refresh" in caplog.text
+    assert "private provider detail" not in caplog.text
+    assert "private cause detail" not in caplog.text
+    assert "private" not in json.dumps(document)
 
 
 def test_isolated_local_worker_never_starts_default_tennis_writer(tmp_path, monkeypatch):
