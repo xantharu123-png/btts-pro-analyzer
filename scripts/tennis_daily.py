@@ -831,6 +831,7 @@ def refresh_pending_predictions(
             result["skipped"] += 1
             continue
         try:
+            previous_fixture = row
             context = json.loads(row.get("context_json") or "{}")
             model_inputs = context.get("model_inputs") or {}
             indoor = model_inputs.get("indoor")
@@ -840,7 +841,10 @@ def refresh_pending_predictions(
             originals = []
             capture_options = {}
             if live_batch is not None and has_stored_context(row):
-                live_batch.bind_pending(row, decision_at=modeled_at)
+                row = live_batch.bind_pending(row, decision_at=modeled_at)
+                if utc_epoch(row["scheduled_start_utc"]) <= modeled_at.timestamp():
+                    result["skipped"] += 1
+                    continue
                 if not live_batch.wants_original(row, state):
                     raise ValueError("native context refresh requires the actual separate tour model")
                 capture_options = {"original_capture": originals.append}
@@ -861,9 +865,9 @@ def refresh_pending_predictions(
                 scheduled_start_utc=row["scheduled_start_utc"],
                 fixture_source=row["fixture_source"], modeled_at=modeled_at,
                 append_observed_at=append_observed_at,
-                expected_model_revision_id=row.get("model_revision_id"),
-                expected_match_date=row["match_date"],
-                expected_scheduled_start_utc=row["scheduled_start_utc"],
+                expected_model_revision_id=previous_fixture.get("model_revision_id"),
+                expected_match_date=previous_fixture["match_date"],
+                expected_scheduled_start_utc=previous_fixture["scheduled_start_utc"],
                 db_path=db_path,
             )
             if originals:

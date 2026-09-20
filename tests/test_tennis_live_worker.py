@@ -245,7 +245,55 @@ def test_pending_refresh_uses_real_stored_native_origin_and_new_ref_without_netw
     assert len(calls) == 2
 
 
-@pytest.mark.parametrize("correction", ["started", "different_players", "rescheduled", "broken_players", "unsupported"])
+def test_pending_refresh_reads_whole_history_once_at_publication(monkeypatch, tmp_path):
+    from tennis import live_context
+    db, predictions, _, _ = configure(monkeypatch, tmp_path)
+    run_batch(db, predictions)
+    original = live_context.tennis_observations_as_of
+    calls = []
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(live_context, "tennis_observations_as_of", counted)
+    later = NOW+timedelta(hours=2)
+    monkeypatch.setattr(live_context, "_now", lambda: later+timedelta(seconds=1))
+    result = daily.refresh_pending_predictions(db_path=predictions, as_of=later,
+        append_observed_at=later+timedelta(seconds=2))
+    assert result["refreshed"] == 1 and not result["errors"]
+    assert calls == [1]
+
+
+@pytest.mark.parametrize("change", ["foreign_corruption", "schedule_after_bind", "players_after_bind"])
+def test_event_preflight_never_replaces_full_final_history_check(monkeypatch, tmp_path, change):
+    from context_observations import append_observation
+    from context_sources.tennis_status import normalize_tennis_status
+    from tennis import live_context
+    db, predictions, _, _ = configure(monkeypatch, tmp_path)
+    _, old = run_batch(db, predictions)
+    later = NOW+timedelta(hours=2)
+    predict = daily.predict_match
+    def changed(*args, **kwargs):
+        native = competition(id="999") if change == "foreign_corruption" else competition()
+        if change == "schedule_after_bind": native["date"] = "2026-09-09T18:00Z"
+        if change == "players_after_bind": native["competitors"][0]["id"] = "9"
+        received = later-timedelta(seconds=1)
+        for obs in normalize_tennis_status("ATP", "189-2026", native, grouping_slug="mens-singles", observed_at=received):
+            append_observation(db, obs, observed_at=received)
+        if change == "foreign_corruption":
+            with sqlite3.connect(db) as conn:
+                conn.execute("UPDATE context_observations SET subject_id='forged' WHERE event_key=?", ("espn:tennis:ATP:match:999",))
+        return predict(*args, **kwargs)
+    monkeypatch.setattr(daily, "predict_match", changed)
+    monkeypatch.setattr(live_context, "_now", lambda: later+timedelta(seconds=1))
+    with pytest.raises(ContextContractError):
+        daily.refresh_pending_predictions(db_path=predictions, as_of=later,
+            append_observed_at=later+timedelta(seconds=2))
+    current = shadow.latest_predictions(predictions, as_of=later+timedelta(seconds=3))[0]
+    assert current["model_revision_id"] == old[0]["model_revision_id"]
+    assert len(context_rows(db)) == 1
+
+
+@pytest.mark.parametrize("correction", ["started", "different_players", "broken_players", "unsupported"])
 def test_pending_refresh_cannot_reuse_retracted_native_fixture(monkeypatch, tmp_path, correction):
     from context_observations import append_observation
     from context_sources.tennis_status import normalize_tennis_status
@@ -256,7 +304,6 @@ def test_pending_refresh_cannot_reuse_retracted_native_fixture(monkeypatch, tmp_
     if correction == "started":
         native["status"]["type"].update(state="in", name="STATUS_IN_PROGRESS")
     elif correction == "different_players": native["competitors"][0]["id"] = "9"
-    elif correction == "rescheduled": native["date"] = "2026-09-09T18:00Z"
     elif correction == "broken_players": native["competitors"][0]["id"] = None
     else: native["status"]["type"].update(state="post", name="STATUS_ABANDONED", completed=True)
     received = NOW+timedelta(minutes=10)
@@ -270,3 +317,43 @@ def test_pending_refresh_cannot_reuse_retracted_native_fixture(monkeypatch, tmp_
     after = shadow.latest_predictions(predictions, as_of=NOW+timedelta(hours=2, seconds=3))[0]
     assert after["model_revision_id"] == old[0]["model_revision_id"]
     assert len(context_rows(db)) == 1
+
+
+@pytest.mark.parametrize("new_start", ["2026-09-09T18:00Z", "2026-09-10T23:30Z", "2026-09-09T16:00Z", "2026-09-09T13:00Z"])
+def test_pending_refresh_appends_confirmed_schedule_revision_without_rewriting_origin(monkeypatch, tmp_path, new_start):
+    from context_observations import append_observation
+    from context_sources.tennis_status import normalize_tennis_status
+    from tennis import live_context
+    db, predictions, _, _ = configure(monkeypatch, tmp_path)
+    _, old = run_batch(db, predictions)
+    with sqlite3.connect(predictions) as conn:
+        old_revisions = conn.execute("SELECT * FROM prediction_revisions ORDER BY revision_id").fetchall()
+    received = NOW+timedelta(minutes=10)
+    native = competition(date=new_start)
+    for row in normalize_tennis_status("ATP", "189-2026", native, grouping_slug="mens-singles", observed_at=received):
+        append_observation(db, row, observed_at=received)
+    later = NOW+timedelta(hours=2)
+    monkeypatch.setattr(daily.requests, "get", lambda *a, **k: pytest.fail("refresh fetched"))
+    monkeypatch.setattr(live_context, "_now", lambda: later+timedelta(seconds=1))
+    result = daily.refresh_pending_predictions(db_path=predictions, as_of=later,
+        append_observed_at=later+timedelta(seconds=2))
+    if canonical_timestamp(new_start) <= canonical_timestamp(later):
+        assert result["refreshed"] == 0 and result["skipped"] == 1 and not result["errors"]
+        latest = shadow.latest_predictions(predictions, as_of=later+timedelta(seconds=3))[0]
+        assert latest["model_revision_id"] == old[0]["model_revision_id"]
+        return
+    assert result["refreshed"] == 1 and not result["errors"]
+    latest = shadow.latest_predictions(predictions, as_of=later+timedelta(seconds=3))[0]
+    assert canonical_timestamp(latest["scheduled_start_utc"]) == canonical_timestamp(new_start)
+    assert latest["match_date"] == datetime.fromisoformat(new_start.replace("Z", "+00:00")).astimezone(daily.ZURICH_TZ).date().isoformat()
+    old_link = json.loads(old[0]["context_json"])["context_model"]
+    new_link = json.loads(latest["context_json"])["context_model"]
+    assert new_link["event"]["scheduled_start"] == canonical_timestamp(new_start)
+    assert new_link["event"]["schedule_revision"] != old_link["event"]["schedule_revision"]
+    assert new_link["reference"] != old_link["reference"]
+    with sqlite3.connect(predictions) as conn:
+        after = conn.execute("SELECT * FROM prediction_revisions ORDER BY revision_id").fetchall()
+    assert all(row in after for row in old_revisions) and len(after) == len(old_revisions)+1
+    historical = shadow.latest_predictions(predictions, as_of=NOW+timedelta(seconds=3))[0]
+    assert historical["model_revision_id"] == old[0]["model_revision_id"]
+    assert json.loads(historical["context_json"])["context_model"] == old_link

@@ -178,27 +178,30 @@ def test_later_receipt_is_not_mixed_into_an_in_progress_history_read(monkeypatch
     assert len(read(db)) > len(expected)
 
 
-def test_pending_prechecks_share_history_and_decode_outside_sqlite(monkeypatch, tmp_path):
+def test_pending_prechecks_only_read_event_and_decode_outside_sqlite(monkeypatch, tmp_path):
     from datetime import timedelta
     from tennis import live_context
     from test_tennis_live_worker import NOW
     db, predictions, _, _ = configure(monkeypatch, tmp_path)
     _, rows = run_batch(db, predictions)
-    read = live_context.tennis_observations_as_of
     decode = live_context._decode_snapshot
-    calls = []
-    def checked_read(*args, **kwargs):
-        calls.append(1)
-        return read(*args, **kwargs)
+    import context_observations
+    decode_receipt = context_observations._decode_receipt
+    receipts = []
+    def checked_receipt(stored):
+        writer_probe(db)
+        receipts.append(stored[2])
+        return decode_receipt(stored)
     def checked_decode(*args, **kwargs):
         writer_probe(db)
         return decode(*args, **kwargs)
-    monkeypatch.setattr(live_context, "tennis_observations_as_of", checked_read)
+    monkeypatch.setattr(live_context, "tennis_observations_as_of", lambda *a, **k: pytest.fail("whole history in event preflight"))
+    monkeypatch.setattr(context_observations, "_decode_receipt", checked_receipt)
     monkeypatch.setattr(live_context, "_decode_snapshot", checked_decode)
     batch = live_context.LiveWorker(db)
     for _ in range(10):
         batch.bind_pending(rows[0], decision_at=NOW+timedelta(hours=1))
-    assert calls == [1]
+    assert len(receipts) == 10 and set(receipts) == {"espn:tennis:ATP:match:201"}
 
 
 @pytest.mark.parametrize("separate_state", [False, True])

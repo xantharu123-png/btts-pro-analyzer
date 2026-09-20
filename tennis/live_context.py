@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from context_models.activation import verify_approval
 from context_models.contracts import (ContextContractError, ContextIntegrityError,
@@ -63,6 +64,21 @@ def _event(row):
         "format": "singles", "home_id": data["participant_ids"][0], "away_id": data["participant_ids"][1],
         "scheduled_start": data["scheduled_start"], "schedule_revision": row["schedule_revision"],
         "status": "scheduled", "tour": data["tour"], "surface": None, "indoor": None})
+
+
+def _pending_event_observations(path, event, decision_at):
+    """Read only the event for preflight; finish still verifies ALL history.
+
+    This cannot publish or qualify context. Even a bad foreign/future physical
+    row is still checked by the complete fresh inventory before publication.
+    """
+    from context_observations import _SELECT, _decode_receipt
+    from context_sources.tennis_status import _select_tennis_row
+    with _reader(path) as connection:
+        stored = connection.execute(_SELECT+" WHERE r.event_key=?", (event["event_key"],)).fetchall()
+    cutoff = canonical_timestamp(decision_at)
+    return tuple(selected for raw in stored
+                 if (selected := _select_tennis_row(_decode_receipt(raw), cutoff, event["tour"])) is not None)
 
 
 class _Inventory:
@@ -125,7 +141,6 @@ class LiveWorker:
         self.path = Path(path)
         self.capture = None
         self.bindings, self.pending = {}, []
-        self._pending_histories = {}
         self.finished = False
         self.reasons = []
         self._progress = progress
@@ -172,8 +187,9 @@ class LiveWorker:
     def bind_pending(self, row, *, decision_at):
         """Reuse ONLY a verified stored native origin, without fetching.
 
-        A new current status may refresh the receipt but may not substitute
-        participants, tour, schedule, or a guessed link from display names.
+        A confirmed schedule change produces a NEW current fixture binding.
+        Participants, tour and competition cannot be substituted. The previous
+        original and the caller's row remain unchanged and are checked first.
         """
         sidecar = validate_context_model(json.loads(row["context_json"])["context_model"])
         event, ref = sidecar["event"], sidecar["reference"]
@@ -200,21 +216,26 @@ class LiveWorker:
                 or any(origin["inputs"][name] != row[name] for name in ("player_a", "player_b", "tour"))
                 or round(origin["values"]["p_a_cal"], 4) != row["p_cal"]):
             raise ContextIntegrityError("pending original/forecast/context bytes differ")
-        history_key = (row["tour"], canonical_timestamp(decision_at))
-        if history_key not in self._pending_histories:
-            self._pending_histories[history_key] = tennis_observations_as_of(
-                self.path, cutoff=decision_at, tour=row["tour"], prepared=True)
-        observations = self._pending_histories[history_key].for_event(event)
-        history = [record for record in observations if record["event_key"] == event["event_key"]]
+        history = _pending_event_observations(self.path, event, decision_at)
         newest = max((record["observed_at"] for record in history), default=None)
         latest = [record for record in history if record["observed_at"] == newest]
         if (len(latest) != 1 or latest[0]["source_schema"] != STATUS_SCHEMA
-                or latest[0]["payload"]["issues"] or latest[0]["payload"]["status"] != "scheduled"
-                or not _equal(_event(latest[0]), event)):
+                or latest[0]["payload"]["issues"] or latest[0]["payload"]["status"] != "scheduled"):
             raise ContextIntegrityError("pending native fixture has been withdrawn, changed or is unverified")
         actual = latest[0]
-        self.bindings[id(row)] = {"fixture": deepcopy(row), "row": deepcopy(actual),
+        current_event = _event(actual)
+        schedule_fields = {"scheduled_start", "schedule_revision"}
+        if not _equal({k: v for k, v in event.items() if k not in schedule_fields},
+                      {k: v for k, v in current_event.items() if k not in schedule_fields}):
+            raise ContextIntegrityError("pending native participants or competition changed")
+        current = deepcopy(row)
+        if not _equal(current_event, event):
+            start = datetime.fromisoformat(current_event["scheduled_start"].replace("Z", "+00:00"))
+            current["scheduled_start_utc"] = current_event["scheduled_start"]
+            current["match_date"] = start.astimezone(ZoneInfo("Europe/Zurich")).date().isoformat()
+        self.bindings[id(current)] = {"fixture": deepcopy(current), "row": deepcopy(actual),
             "receipt": actual["digest"], "observed_at": actual["observed_at"]}
+        return current
 
     def enqueue(self, fixture, state, prediction, originals, *, decision_at, kwargs, result, success_counter="stored"):
         if self.finished:
@@ -287,9 +308,8 @@ class LiveWorker:
             raise ContextContractError("live batch cannot be appended twice")
         qualified = [item for item in self.pending if item["binding"] is not None]
         self._report("history", total=len(self.pending), native=len(qualified))
-        # Pending prechecks share a tour image, but final publication still
-        # resolves a fresh complete inventory and detects intervening revisions.
-        self._pending_histories.clear()
+        # Event-only pending preflight is not release evidence. Always resolve
+        # a fresh COMPLETE inventory here, including intervening revisions.
         prepared = {}
         if qualified:
             root = Path(__file__).resolve().parents[1]

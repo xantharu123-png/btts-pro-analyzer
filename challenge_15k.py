@@ -80,6 +80,7 @@ from ui_components import (
     scan_progress_fragment,
 )
 from football_data_history import fetch_history as fetch_stat_history
+from football_data_history import _normalized_team_name, _pseudo_team_id
 from football_data_history import merge_api_tail
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, LEAGUE_BY_ID
 from market_consensus import (
@@ -238,7 +239,7 @@ def _bounded_completed_history(
             )
             or any(
                 not isinstance(teams.get(side), dict)
-                or _positive_integer(teams[side].get("id")) is None
+                or not _history_team_identity(teams[side], row.get("challenge_source"))
                 for side in ("home", "away")
             )
         ):
@@ -257,6 +258,18 @@ def _bounded_completed_history(
         by_event.values(),
         key=lambda row: (_fixture_kickoff(row), row["fixture"]["id"]),
     )[-MAX_HISTORY_GAMES:]
+
+
+def _history_team_identity(team: dict, source: object) -> bool:
+    """CSV-only opponents use deterministic model IDs, never native IDs."""
+    value = team.get("id")
+    if _positive_integer(value) is not None:
+        return True
+    if (type(value) is not int or value >= 0
+            or source not in ("football-data-results-only", "api-football-ft-tail")):
+        return False
+    name = _normalized_team_name(team.get("name"))
+    return bool(name) and value == _pseudo_team_id(name)
 
 
 def _valid_upcoming_fixture(value: Any, expected_league_id: int) -> bool:
