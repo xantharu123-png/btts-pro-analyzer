@@ -315,6 +315,9 @@ def test_oversized_response_is_rejected(tmp_path,no_delay,monkeypatch):
 def test_parallel_clients_share_atomic_budget(tmp_path,no_delay):
     from concurrent.futures import ThreadPoolExecutor
     calls=[]
+    # Production shares an existing WAL ledger. Keep first-file creation out
+    # of this reservation race (SQLite WAL activation can fail closed there).
+    OddsPapiClient(KEY,db_path=tmp_path/'api.db',now=NOW)
     def run(_):
         def get(url,**kw):
             if not url.endswith('account'): calls.append(url)
@@ -326,6 +329,13 @@ def test_parallel_clients_share_atomic_budget(tmp_path,no_delay):
     with ThreadPoolExecutor(max_workers=6) as pool:
         assert sum(pool.map(run,range(12)))==7
     assert len(calls)==7
+
+
+def test_unavailable_shared_ledger_never_sends_provider_request(tmp_path,no_delay):
+    calls=[]
+    with pytest.raises(APIBudgetUnavailable):
+        OddsPapiClient(KEY,db_path=tmp_path,get=lambda *a,**k:calls.append(a),now=NOW)
+    assert not calls
 
 
 def test_legacy_quote_serialization_has_no_new_null_field():
@@ -354,3 +364,44 @@ def test_daily3_and_wettfinder_do_not_change_probability_for_quote(tmp_path,sour
     assert allowed_catalog.featured + allowed_catalog.additional
     # Only exclusion is asserted here; an observation does not release a SHADOW model.
     assert not daily3_choices([low],now=NOW)
+
+
+@pytest.mark.parametrize('competition,accepted',[('CS2',True),('LoL',False),(None,False)])
+def test_forecast_evidence_keeps_esports_discipline_without_execution_release(tmp_path,monkeypatch,competition,accepted):
+    import sqlite3
+    import forecast_evidence as evidence
+    monkeypatch.setattr(evidence,'_now',lambda:NOW)
+    r=row(competition=competition,event_identity='esports:pandascore:123',
+        modeled_at=(NOW-timedelta(minutes=5)).isoformat(),
+        input_cutoff_at=(NOW-timedelta(minutes=10)).isoformat(),
+        policy_version='selection-v1',reference_quote=quote().to_dict())
+    doc=dict(generated_at=NOW.isoformat(),selection_policy_version='catalog-v1',model_candidates=[r])
+    db=tmp_path/'evidence.db'
+    result=evidence.record_forecast_run(doc,db,'esports-model-v1')
+    assert result['recorded']==1 and not result['rejected']
+    assert bool(result['quotes_rejected']) is not accepted
+    assert evidence.record_forecast_run(doc,db,'esports-model-v1')['run_id']==result['run_id']
+    with sqlite3.connect(db) as conn:
+        rows=conn.execute('SELECT executable FROM forecast_quotes').fetchall()
+        assert rows==([(0,),(0,)] if accepted else [])
+        if accepted:
+            stored=json.loads(conn.execute('SELECT payload_json FROM forecast_rows').fetchone()[0])
+            assert stored['quote_identity']['competition']=='CS2'
+
+
+def test_non_esports_evidence_identity_is_unchanged():
+    from forecast_evidence import _normalize_row,_IDENTITY_FIELDS
+    from test_forecast_evidence import candidate,NOW as evidence_now
+    r=candidate()
+    normalized=_normalize_row(r,evidence_now,'model-v1','policy-v1')
+    assert normalized['quote_identity']=={field:r.get(field) for field in _IDENTITY_FIELDS}
+    assert 'competition' not in normalized['quote_identity']
+
+
+def test_legacy_esports_evidence_identity_is_unchanged():
+    from forecast_evidence import _normalize_row,_IDENTITY_FIELDS
+    r=row(event_identity='esports:pandascore:123')
+    r.pop('competition',None)
+    normalized=_normalize_row(r,NOW,'model-v1','policy-v1')
+    assert normalized['quote_identity']=={field:r.get(field) for field in _IDENTITY_FIELDS}
+    assert 'competition' not in normalized['quote_identity']

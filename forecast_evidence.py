@@ -147,6 +147,11 @@ def _normalize_row(row: Mapping, decision: datetime, default_model: str, policy:
         raise ValueError("input cutoff follows model calculation")
     if row.get("context_checked_at") and _utc(row["context_checked_at"]) > decision:
         raise ValueError("context was checked after forecast decision")
+    quote_identity = {field: row.get(field) for field in _IDENTITY_FIELDS}
+    if sport == "esports" and "competition" in row:
+        # The same team name can occur in several games. Keep this binding
+        # for new E-sport prices without changing legacy/non-esport identities.
+        quote_identity["competition"] = row.get("competition")
     return {
         "event_key": _text(row.get("event_identity") or row.get("event_key"), "event identity"),
         "sport": sport,
@@ -164,7 +169,7 @@ def _normalize_row(row: Mapping, decision: datetime, default_model: str, policy:
         "market_definition": _sanitize(row.get("market_definition") or {}),
         "context_checked_at": _iso(row["context_checked_at"]) if row.get("context_checked_at") else None,
         "evidence_stage": str(row.get("evidence_stage") or "unknown"),
-        "quote_identity": {field: row.get(field) for field in _IDENTITY_FIELDS},
+        "quote_identity": quote_identity,
     }
 
 
