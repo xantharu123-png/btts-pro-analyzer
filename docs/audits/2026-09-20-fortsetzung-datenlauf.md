@@ -121,3 +121,55 @@ Mit Korrektur: **980 Tests bestanden, 5 übersprungen, 274,77 s**. Noch keine
 Bestätigung eines erfolgreichen vollständigen Tennislaufs nach diesem Nachtrag.
 Die CPU-Kosten des großen Bestands und die oben dokumentierten fachlichen
 Daten-/Modelllücken werden hiermit nicht als gelöst ausgegeben.
+
+Folgekorrektur `9c579fe517ae3fb6331a6f975c69c38ea387d213` auf main/GitHub
+und VPS am 20.09.2026 um 10:04 CEST bestätigt. Hauptcheckout zusätzlich
+**67 Tests bestanden, 5 Skips, 11,06 s**. Echte Linux-Probe: Leser hält
+22 Sekunden, konkurrierendes vollständiges `put_artifact` einschließlich
+Verbindungs-/Schemaöffnung wartet 22,066 s und committed danach erfolgreich.
+Beide Artefakte verlustfrei zurückgelesen, Produktionsdatenbanken unberührt.
+Temporärer Testordner automatisch entfernt.
+
+App/Caddy und öffentlicher/lokaler Healthcheck gesund. Sechs Rechentimer plus
+Retention-Timer aktiv geplant; Tagesbackup weiterhin deaktiviert. Bestehender
+Wettfinderlauf endete vor Codewechsel um 10:04:03 erneut degraded, Exit 1;
+dieser fachliche/operative Zustand wird nicht durch den Healthcheck aufgehoben.
+Neuer vollständiger Tennis-Neulauf seit 10:04:13; Modellaufbau nach 19 s
+erfolgreich, WTA-Ergebnisstand weiterhin 12.09.2026.
+
+## Verifiziertes Ende des neuen Live-Laufs
+
+**20.09.2026, 10:19:32 CEST: Exit 1, Tages-Scan TIMEOUT nach 900 s.**
+Es gab in diesem Lauf keinen gemeldeten `database is locked`-Abbruch:
+26.567 Beobachtungen wurden gespeichert und der Modellaufbau abgeschlossen.
+Der Scan für 21.09. hatte 183 Fixtures und 48 vorbereitete Prognosen.
+Letzte abgeschlossene Phase: `history_ready`, WTA mit 563.386 Referenzen;
+letzte begonnene Phase: `prepare`, 48 native Einträge. Weder `prepared` noch
+`complete` wurde erreicht. Diese 48 Prognosen sind deshalb **nicht** als
+erfolgreich veröffentlichte Tagesauswahl auszugeben. CPU 14 min 47,364 s,
+Spitzenspeicher 2,6 GiB laut systemd; keine Laufzeitgrenze erhöht.
+
+Zusätzlicher lokaler CPU-Gegentest, ohne Produktionsdaten: jeweils drei
+`context_payload_key`-Aufrufe mit synthetischen gültigen Gewinner-Eingaben.
+Unterhalb der Referenzcache-Grenze (499.999 Bezüge): 3,281 s unter cProfile;
+mit 563.387 Bezügen: 3,313 s. Die noch vorhandene 500k-Cachegrenze allein
+ist dadurch **nicht** als Ursache des 900-s-Abbruchs belegt. Sie wurde nicht
+blind erhöht. Es fehlen genaue Zeitanteile der vollständigen History- und
+spielerspezifischen Feature-Vorbereitung im echten Abschlusslauf.
+
+### Nächster konkreter Einstieg
+
+1. Die CPU-Anteile von History-Aufbau, `for_event`, `_original`/
+   `tennis_features_v3`, Zustandsprüfung und Schlüsselbildung an demselben
+   eingefrorenen Bestand getrennt messen. Keine neue Sammlung, keine
+   vergrößerte Warte-/Speichergrenze und keine verkürzte Herkunftsprüfung.
+2. Den nachgewiesenen wiederholten Arbeitsschritt mit unveränderten Bytes,
+   Zeitgrenzen und Gegenproben beheben; anschließend kompletter normaler
+   Tennis-Lauf. Der Lock-Gegentest allein schließt dieses Ziel nicht ab.
+3. Native Fußballbezüge und versionsgleichen Trainingspfad vervollständigen;
+   erst danach die ausdrücklich noch offene empirische Kontextqualifikation.
+
+Frühere Änderungen aus der Account-Übergabe (`1592afa`, `5be83cf`, `84292f6`
+und `2758619`) sind nach frischem Git-Ancestry-Abgleich vollständig enthalten.
+UI-Vereinfachung, Spielgruppierung und Daily3-Regel wurden hier nicht erneut
+umgebaut; keine neue Browser-/Gewinnqualitätsfreigabe behauptet.

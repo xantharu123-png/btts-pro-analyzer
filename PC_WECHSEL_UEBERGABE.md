@@ -13,9 +13,14 @@ Tennis-Neulauf 09:31:57: Modellaufbau erfolgreich, Tages-Scan 09:45:42 jedoch
 erneut mit Schreibkonflikt gescheitert. Folgeursache gemessen: physische
 Bestandskopie braucht 21,626 s Lesesperre, bisheriges Schreibbudget nur 5 s.
 Gemeinsame endliche Wartezeit auf 60 s angepasst; Journal/Schema unverändert.
-980 Tests/5 Skips grün; Nachtrag-Deployment und vollständigen Lauf gesondert
-bestätigen. Verletzungs-, Müdigkeits- und Wetterwirkung weiterhin nicht als
-erledigt melden. Keine neue Bereinigung oder Backupaktivierung.
+980 Tests/5 Skips grün; Nachtrag `9c579fe` auf main/GitHub/VPS live, 67 main-
+Tests/5 Skips und Linux-Probe hinter 22-s-Lesesperre bestanden. Vollständiger
+Tennis-Neulauf endete 10:19:32 mit 900-s-Timeout: Empfang gespeichert, History
+bereit, Vorbereitung von 48 Prognosen nicht abgeschlossen. Als Nächstes die
+CPU-Anteile des echten Abschlusslaufs messen, nicht Limits blind erhöhen.
+Letzter Wettfinder vor Codewechsel erneut degraded. Verletzungs-, Müdigkeits-
+und Wetterwirkung weiterhin nicht als erledigt melden. Keine neue Bereinigung
+oder Backupaktivierung. Die genannten älteren Account-Commits sind alle enthalten.
 
 ## Aktueller Einstieg – Kontextanschluss und spielbezogener Vergleich 19.09.2026
 

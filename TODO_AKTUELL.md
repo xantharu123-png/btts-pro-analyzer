@@ -18,7 +18,16 @@
 - Zweite Ursache gemessen: physisches Lesen der Tennis-Historie hält die
   Sperre 21,626 s, bisheriges Schreibbudget nur 5 s. Gemeinsame endliche
   Wartezeit jetzt 60 s, Journal/Schema/Prüfinhalte unverändert. 980 Tests,
-  5 Skips grün; Deployment und vollständiger neuer Lauf noch zu bestätigen.
+  5 Skips grün. `9c579fe` auf main/GitHub/VPS live; 67 main-Tests/5 Skips
+  und Linux-Probe mit echter 22-s-Lesesperre bestanden. Neuer Tennis-Lauf
+  endete aber 10:19:32 mit 900-s-Timeout: Empfang gespeichert, History bereit,
+  dann Vorbereitung von 48 Prognosen nicht abgeschlossen. Kein erfolgreicher
+  Gesamtlauf und keine 48 veröffentlichten Tipps behaupten. Letzter Wettfinder
+  vor Codewechsel ebenfalls degraded, nicht mit vollständiger Datenabdeckung.
+- Nächste technische Aufgabe: CPU-Anteile von History, Spielerprojektion,
+  Feature-Vorbereitung und Schlüsselbildung am selben Bestand messen und den
+  tatsächlichen Engpass beheben. Synthetischer 500k-Grenzvergleich allein
+  erklärt den Timeout nicht; keine blind erhöhten Laufzeit-/Speichergrenzen.
 - Vollständige Verletzungs-/Müdigkeits-/Wetterwirkung bleibt unerledigt.
   Weder Aufnahmebudget noch Qualitätskriterien wurden gelockert. Keine neue
   Sicherung/Bereinigung, keine Finanz- oder Cricketänderung.
