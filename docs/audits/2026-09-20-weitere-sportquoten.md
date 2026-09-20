@@ -107,3 +107,46 @@ Dies ist keine visuelle Browserabnahme und kein erfolgreicher Tennis-Gesamtlauf.
   erfolgreichen vollständigen Tennis-Modelllaufs oder verbesserter Wettqualität.
 
 Cricket bleibt ausgenommen. E-Sport-Quoten sind weiterhin offen.
+
+## E-Sport-Fortsetzung: Zugangsvoraussetzung geprüft
+
+- FieldFunded-Free-Formular erneut mit der freigegebenen Nutzeradresse versucht.
+  Wieder CORS-Preflightfehler auf `https://api.fieldfunded.com/api/stripe/free-key`,
+  also weiterhin kein bestätigter Schlüssel. Getrennte Playwright-Sitzung;
+  kein persönliches Browserprofil und keine Umgehung der Anmeldesperre.
+- Bestehender The-Odds-API-Zugang: `GET /v4/sports?all=true` lieferte HTTP 200
+  und 179 Einträge, keinen Eintrag für E-Sport/CS/Dota/LoL/Valorant. Diese
+  kostenlose Katalogprüfung ließ das Kontingent auf 499.
+- OddsPapi wurde als Alternative anhand offizieller Dokumentation und des
+  tatsächlichen Anmeldeformulars geprüft. Formular: Free, alle Sportarten und
+  Buchmacher, 250 Anfragen/Monat; Passwort und hCaptcha sind erforderlich.
+  Der Nutzer erhielt die Anmeldeseite für den internen Browser und eine
+  zugriffsbeschränkte Schlüsseldatei außerhalb des Repositorys. Kein Schlüssel,
+  Passwort oder anderweitiges Kontogeheimnis in diesem Bericht.
+- Aktueller Blocker: Nutzerregistrierung/CAPTCHA und Schlüsselübergabe. Keine
+  abgeschlossene Registrierung, keine kostenpflichtige Bestellung, keine neue
+  Produktionsanbindung und kein realer OddsPapi-Quotenabruf nachgewiesen.
+
+Anschlussvertrag nach Schlüsselübergabe:
+
+1. Mit dem kostenlosen `GET /v4/account` die aktive Free-Subscription und das
+   tatsächliche Restkontingent prüfen; dessen Antwort enthält den Schlüssel und
+   darf weder protokolliert noch als Testfixture übernommen werden.
+2. Disziplin, Event, Teilnehmerseiten, Beginn und vollständigen Match-/Serien-
+   Sieg exakt binden. Kein Ersatz durch einzelne Maps, ein gleichnamiges Team
+   einer anderen Disziplin, Prediction-Market-Preise oder Modellquoten.
+3. Identifizierte Buchmacher, aktive Angebote, Dezimalquoten und Anbieterzeiten
+   prüfen. Datenbeispiele aus einer Anleitung sind kein aktuelles Live-Angebot.
+4. Gemeinsam für alle Verbraucher abrufen, vorhandenen Budgetzähler nutzen,
+   keine neue Historien-Datenbank. OddsPapi zählt auch Sport-/Spiel-/Marktkataloge
+   und Fehlerantworten; höchstens der freigegebene Free-Tarif, keine Tarifänderung.
+5. Gegen falsche Seite/Disziplin/Map, doppelte Events, unklare Zuordnung, alte
+   Preise, Quote unter 1,20, Quotenbudget und Schlüssel in Fehlern testen.
+   Erst nach tatsächlichem Anschlussnachweis Produktionsfreigabe behaupten.
+
+Primärquellen:
+
+- Registrierung: https://oddspapi.io/us/sign-up
+- E-Sport-Angebot: https://oddspapi.io/blog/esports-odds-api-guide-how-to-get-pinnacle-cs2-lol-data-for-free/
+- Anfragekosten: https://oddspapi.io/us/docs/requests-and-quota
+- Kontoprüfung: https://oddspapi.io/us/docs/get-account

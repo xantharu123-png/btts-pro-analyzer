@@ -1,5 +1,25 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## E-Sport-Quoten – Fortsetzung 20.09.2026
+
+- FieldFunded erneut im getrennten Browser geprüft: Free-Anmeldung scheitert
+  weiterhin am CORS-Preflight auf `/api/stripe/free-key`; kein Schlüssel erhalten.
+- Bestehende The Odds API: echte kostenlose Katalogabfrage erfolgreich,
+  179 Sport-/Turniereinträge einschließlich inaktiver, kein E-Sport-Eintrag;
+  Kontingent unverändert 499. Kein Ersatz durch eine errechnete Modellquote.
+- Alternative OddsPapi: tatsächliches Registrierungsformular bestätigt Free,
+  alle Sportarten/Buchmacher und 250 Anfragen/Monat. Anmeldung erfordert eigenes
+  Passwort und hCaptcha; dem Nutzer im internen Browser bereitgestellt.
+  Schlüsselübergabe außerhalb von Git im geschützten Verzeichnis vorbereitet.
+- Nächster Schritt nach Schlüsselübergabe: tatsächlichen Free-Tarif und
+  E-Sport-Katalog prüfen, exakte Spiel-/Disziplin-/Serienmarktbindung testen,
+  gemeinsame Preisversorgung für Wettfinder, Daily3 und RisikoBet anbinden.
+  Auch Katalogabfragen zählen bei OddsPapi zum Kontingent; Abrufe bündeln,
+  Monat-/Tagesbudget begrenzen, keine automatisch kostenpflichtige Erweiterung.
+- Noch keine OddsPapi-Registrierung abgeschlossen, keine Produktivcode- oder
+  VPS-Änderung und kein erfolgreicher E-Sport-Quotenabruf behaupten.
+  Details: [Weitere Sportquoten](docs/audits/2026-09-20-weitere-sportquoten.md).
+
 ## Quotenanbindung 20.09.2026 – weitere Sportarten
 
 - Tennis-Zugang inzwischen eingerichtet und auf dem VPS aktiviert.
