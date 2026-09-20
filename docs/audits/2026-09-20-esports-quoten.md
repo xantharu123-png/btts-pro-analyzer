@@ -90,6 +90,75 @@ Bestehende Tennis-/Kontext-/Workerprobleme sind nicht Gegenstand dieses Anschlus
   Modelländerungen ausschließlich durch den regulären E-Sport-Dienst.
   Keine Bereinigung, zusätzliche Produktionsdatenbank oder Backupaktivierung.
 
+## Nachprüfung von Veröffentlichung und Nachweisspeicherung
+
+Stand 20:45 CEST: `runtime_state/wettfinder_latest.json`, erzeugt um
+20:16:46 CEST, enthält 68 Modellkandidaten und eine heute kommende E-Sport-
+Auswahl. E-Sport-Quelle: acht Modelle geprüft, zwei exakt passende Preise,
+sechs ohne Angebot; kein E-Sport-Abruffehler. Die ausstehende Veröffentlichung
+des vorherigen Abschnitts ist damit überholt, nicht jedoch die übrigen Fehler.
+
+Die tatsächliche öffentliche Website wurde in einer isolierten Playwright-
+Sitzung geprüft; der interne Browserdienst ließ sich nicht starten. Kein
+Zugriff auf den persönlichen Browser. DOM-Nachweis und Screenshots unter
+`output/playwright/esports-{wettfinder,riskobet}-live-20260920.png`; null
+Console-Fehler, neun Warnungen. Keine Wette erfasst oder Geldbewegung erzeugt.
+
+- Wettfinder: LoL, Team Liquid gegen FlyQuest, Sieg Team Liquid, beste
+  beobachtete Quote 1,267 (Anzeige 1,27), Buchmacher 1xbet. Modell bleibt 60,9 %.
+- RisikoBet: dieselbe Serie, Außenseiter FlyQuest, Serien-Sieg mit Quote 3,80.
+  Keine zweite unabhängige Bestätigung und keine historisch bestätigte Empfehlung.
+- RisikoBet-Map-Szenario: weiterhin ohne passende Quote. Serien-Sieg-Preis wird
+  weder auf einzelne Maps noch auf „mindestens eine Map“ übertragen.
+- Daily3: keine passende Auswahl. Keine Auffüllung mit zusätzlichen Scheintipps.
+
+Ein konkreter Restfehler war trotz sichtbarer Preise reproduzierbar: Bei der
+prospektiven Quotenaufzeichnung fehlte `competition` in `quote_identity`.
+Der korrekte Disziplinvergleich lehnte deshalb die echte E-Sport-Quote ab
+(`quote_rejected_count=1`). Der zuerst fehlschlagende Regressionstest zeigt
+dieselbe Ablehnung. `94fa36f` erhält die Disziplin ausschließlich für neue
+E-Sport-Datensätze, wenn sie vorhanden ist. Andere Sportarten und bestehende
+E-Sport-Identitäten ohne dieses Feld bleiben unverändert. Keine Schemaänderung,
+keine Neuschreibung alter Prognosen und keine Preis-Einsatzfreigabe.
+
+421 betroffene Tests bestanden, einschließlich falscher/fehlender Disziplin,
+unveränderter Altidentitäten, wiederholter Aufnahme und `executable=0` für reine
+Abrufbeobachtungen. Der Parallel-Budgettest startet auf einem initialisierten
+WAL-Zähler wie die Produktion; ein nicht verfügbarer Zähler wird separat als
+Abbruch ohne Anbieteranfrage geprüft. Keine behauptete Reparatur gleichzeitiger
+Erstanlage einer leeren SQLite-Datei und kein behaupteter Vollsuite-Lauf.
+
+Die abgeschlossene gemeinsame Runde 20:07–20:24 CEST endet weiterhin degraded
+mit 17 operationalen Fehlermeldungen: 16 im Fußball und ein Tennis-Sammelfehler.
+Der Tennis-Refresh versuchte acht Prognosen (1523–1530), keine davon erfolgreich;
+alle melden `ContextIntegrityError`. Fußball enthält sechs nicht aktualisierte
+Spielmodelle und weitere Kontext-/Abdeckungsmeldungen. Diese Fehler sowie die
+vollständige Verletzungs-/Müdigkeitswirkung sind **nicht** durch den E-Sport-
+Quotenanschluss behoben. Vor Deployment den laufenden Worker auch im Zustand
+`activating` als beschäftigt behandeln, nicht nur `active` prüfen.
+
+Funktionskorrektur `94fa36fd194b839350af4b6ad1d56476231b1e79` auf lokalem main,
+GitHub main und VPS verifiziert. Weitere 142 direkte Anschlusstests auf main
+bestanden. Deployment am 20.09. um 20:55 CEST erst nach Ende des laufenden
+Workers (20:37:20–20:53:20, weiterhin Exit 1/degraded), unter Deployment-Lock,
+sauberem Produktionscheckout und kurz angehaltenem, anschließend wieder
+aktiviertem Wettfinder-Timer. Kein Worker abgebrochen. Nur Code-Fast-forward
+und App-Neustart; keine Datenmigration, Sicherung oder Bereinigung.
+
+Native read-only Gegenprobe aus der aktuellen Veröffentlichung 20:46:26 CEST:
+Disziplin LOL, Sieg Team Liquid, ein Anbieterpreis 1,267 wird akzeptiert,
+`executable=0`; dieselbe Quote mit falscher Disziplin CS2 wird abgewiesen.
+Modell unverändert, null Datenbank-Schreibvorgänge und null Anbieteranfragen.
+Bestehende Nachweiszeilen werden nicht rückwirkend umgeschrieben. Der nächste
+reguläre gemeinsame Lauf nutzt den korrigierten Aufnahmeweg.
+
+App und Caddy aktiv, interner und öffentlicher Healthcheck `ok`. Wettfinder-
+Timer aktiv, nächster Termin 21:07 CEST. Während des geplanten Neustarts erhielt
+die bestehende Browserverbindung vorübergehende WebSocket-/502-Meldungen; nach
+frischem Start der isolierten Sitzung null Console-Fehler (neun unveränderte
+Browserwarnungen). Team Liquid weiterhin sichtbar mit Quote 1,27. Daily3 auch
+in der echten Ansicht ohne passende Auswahl; Tagesbudget wurde nicht bestätigt.
+
 ## Primärquellen
 
 - https://oddspapi.io/us/docs/get-account

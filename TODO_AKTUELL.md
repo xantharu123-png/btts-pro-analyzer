@@ -22,8 +22,20 @@
 - Vollständiger VPS-Quotenabruf: sieben kommende Spiele, fünf Anfragen,
   keine Fehler, Cache 8.987 Bytes. E-Sport-Worker um 18:46 CEST erfolgreich:
   30 Spiele geprüft, acht neue Modelle. Zwei exakte Modell-/Preiszuordnungen
-  bestätigt; der schon laufende gemeinsame Wettfinder ist noch nicht fertig.
-  Den langsamen Gesamtlauf nicht durch diesen Anschluss als repariert melden.
+  bestätigt. Veröffentlichung 20:16 CEST inzwischen tatsächlich sichtbar:
+  Wettfinder Team Liquid 1,267; RisikoBet FlyQuest 3,80. Der Map-Markt bekommt
+  keine Serienquote. Daily3 hat derzeit keine passende Auswahl.
+- Nachprüfung: Disziplin ging beim Speichern der Quoten-Nachweise verloren.
+  Korrektur `94fa36f` bewahrt sie für neue E-Sport-Daten; bestehende andere
+  Sportarten und E-Sport-Altdaten ohne Disziplin bleiben unverändert.
+  421 gezielte Tests bestanden; Quotenbeobachtung bleibt ohne Einsatzfreigabe.
+  Code auf GitHub main und VPS (20:55 CEST); native read-only Gegenprobe mit
+  echter LoL-Quote 1,267 bestanden, falsche Disziplin abgewiesen. Weitere
+  142 Tests auf lokalem main grün. App und beide Healthchecks `ok`.
+- Der gemeinsame Lauf ist weiterhin fachlich/technisch nur teilweise gelungen:
+  16 Fußball-Fehlermeldungen und ein Tennis-Sammelfehler mit acht nicht
+  aktualisierten Prognosen (`ContextIntegrityError`). Nicht durch den
+  E-Sport-Anschluss als repariert melden; Verletzungs-/Müdigkeitswirkung offen.
 - Release-/VPS-Nachweis in
   [E-Sport-Anschlussbericht](docs/audits/2026-09-20-esports-quoten.md).
   Ältere Angaben unterhalb dieses Blocks sind historische Zwischenstände.

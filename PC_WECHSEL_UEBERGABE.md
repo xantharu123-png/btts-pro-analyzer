@@ -9,8 +9,15 @@ Gemeinsame echte Serien-Sieg-Preise für Wettfinder/Daily3/RisikoBet, 1,20-Filte
 keine Modelländerung durch Quoten. 1.358 Tests plus 111 Untertests bestanden.
 Nativer Abruf: sieben Spiele, circa 9 KB Cache. Erneuter regulärer E-Sport-Lauf
 erfolgreich, acht neue Modelle; zwei exakt bepreiste Modelle nativ gerendert.
-Der um 18:37 gestartete gemeinsame Wettfinderlauf ist noch nicht fertig; dessen
-Veröffentlichung/Modelldatenprobleme nicht als durch den Schlüssel gelöst melden.
+Nachprüfung 20:43–20:45 CEST: echte Veröffentlichung von 20:16 in der Website
+sichtbar, Team Liquid 1,267 im Wettfinder und FlyQuest 3,80 in RisikoBet.
+Map-Markt bleibt korrekt ohne Serienquote; Daily3 derzeit ohne Auswahl.
+Quoten-Nachweisfehler (verlorene Disziplin) in `94fa36f` korrigiert und auf main
+gepusht und 20:55 CEST auf VPS deployed; 421 Tests plus 142 main-Anschlusstests.
+Native Gegenprobe mit echter LoL-Quote erfolgreich, kein DB-/Anbieteraufruf.
+App/Caddy und Wettfinder-Timer aktiv; beide Healthchecks `ok`.
+Gemeinsamer Lauf bleibt degraded: 16 Fußball-Fehlermeldungen sowie Tennis-
+Sammelfehler mit acht `ContextIntegrityError`. Nicht als Modellreparatur melden.
 Keine neuen Backups, Bereinigungen, Timer oder persönlichen Browserzugriffe.
 
 ## Aktueller Einstieg – Fortsetzung 20.09.2026
