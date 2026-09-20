@@ -2388,6 +2388,10 @@ def _operational_quote_errors(errors: Iterable[object]) -> list[str]:
         if not message:
             continue
         normalized = message.casefold()
+        if normalized.rsplit(": ", 1)[-1] == "apibudgetexceeded":
+            # Planned quota protection is missing price coverage, not a failed
+            # sporting analysis or a reason to retry an otherwise healthy job.
+            continue
         if any(marker in normalized for marker in unavailable_markers):
             continue
         operational.append(message)

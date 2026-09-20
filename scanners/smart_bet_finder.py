@@ -19,6 +19,7 @@ from api_budget import (
     APIBudgetPriority,
     api_football_get,
 )
+from odds_api_client import odds_api_get
 from betting_math import (
     MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
     BettingMathError,
@@ -180,7 +181,7 @@ class OddsAPIClient:
                 if odds:
                     self._merge_odds(result, odds)
             except Exception as e:
-                print(f"The Odds API error: {e}")
+                print(f"The Odds API error: {type(e).__name__}")
         
         self.odds_cache[cache_key] = {
             'stored_at': time.monotonic(),
@@ -191,15 +192,16 @@ class OddsAPIClient:
     def _get_from_odds_api(self, home_team: str, away_team: str,
                            sport_key: str, fixture_date: str) -> Dict:
         """Get odds from The Odds API"""
-        url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds"
         params = {
-            'apiKey': self.odds_api_key,
             'regions': 'eu',
             'markets': 'h2h,totals,btts',
             'oddsFormat': 'decimal'
         }
         
-        response = requests.get(url, params=params, timeout=10)
+        response = odds_api_get(
+            f'sports/{sport_key}/odds', api_key=self.odds_api_key,
+            params=params, timeout=10,
+        )
         
         if response.status_code == 200:
             data = response.json()

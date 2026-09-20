@@ -22,6 +22,7 @@ import unicodedata
 import requests
 
 from api_budget import APIBudgetError, APIBudgetPriority, api_football_get
+from odds_api_client import odds_api_get
 from betting_math import (
     MINIMUM_RECOMMENDED_DECIMAL_ODDS,
     BettingMathError,
@@ -1531,15 +1532,19 @@ def _odds_api_json(
     params: Optional[Mapping[str, object]] = None,
     timeout: int = 20,
 ) -> tuple[object, Optional[str]]:
-    query = {"apiKey": api_key, **dict(params or {})}
     try:
-        response = requests.get(
-            f"{ODDS_API_BASE_URL}/{path.lstrip('/')}",
-            params=query,
+        response = odds_api_get(
+            path,
+            api_key=api_key,
+            params=params,
             timeout=timeout,
         )
+        if 300 <= response.status_code < 400:
+            return None, "unerwartete Weiterleitung"
         response.raise_for_status()
         return response.json(), None
+    except APIBudgetError as exc:
+        return None, type(exc).__name__
     except requests.RequestException as exc:
         # Do not include the exception text: requests may embed the request URL
         # and therefore the API key in it.
@@ -1750,28 +1755,45 @@ def fetch_tennis_h2h_consensus(
         grouped_events.setdefault(event_key, []).append(candidate)
 
     result: dict[str, MarketConsensus] = {}
+    by_sport: dict[str, dict[str, list[object]]] = {}
     for (sport_key, event_id), event_candidates in grouped_events.items():
+        by_sport.setdefault(sport_key, {})[event_id] = event_candidates
+    for sport_key, requested_events in by_sport.items():
         odds_payload, odds_error = _odds_api_json(
-            f"sports/{sport_key}/events/{event_id}/odds",
+            f"sports/{sport_key}/odds",
             key,
             params={
                 "regions": "eu",
                 "markets": "h2h",
+                "eventIds": ",".join(sorted(requested_events)),
                 "dateFormat": "iso",
                 "oddsFormat": "decimal",
             },
             timeout=timeout,
         )
         if odds_error is not None:
-            errors.append(f"Tennisquote {event_id}: {odds_error}")
+            errors.append(f"Tennisquote {sport_key}: {odds_error}")
             continue
-        result.update(
-            parse_h2h_event_consensus(
-                odds_payload,
-                event_candidates,
-                fetched_at=current,
+        if not isinstance(odds_payload, list):
+            errors.append(f"Tennisquote {sport_key}: ungueltige Antwort")
+            continue
+        returned = {}
+        duplicate_ids = set()
+        for event in odds_payload:
+            if not isinstance(event, Mapping):
+                continue
+            event_id = str(event.get("id") or "")
+            if event_id in returned:
+                duplicate_ids.add(event_id)
+            returned[event_id] = event
+        for event_id, event_candidates in requested_events.items():
+            if event_id not in returned or event_id in duplicate_ids:
+                continue
+            result.update(
+                parse_h2h_event_consensus(
+                    returned[event_id], event_candidates, fetched_at=current,
+                )
             )
-        )
     return result, errors
 
 

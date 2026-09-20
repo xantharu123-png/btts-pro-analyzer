@@ -159,8 +159,12 @@ class APIBudgetGovernor:
         critical_floor: Optional[int] = None,
         recommendation_reserve: Optional[int] = None,
         background_reserve: Optional[int] = None,
+        quota_period: str = "day",
     ):
         self.db_path = Path(db_path)
+        if quota_period not in {"day", "month"}:
+            raise APIBudgetUnavailable("Unknown quota period")
+        self.quota_period = quota_period
         self.daily_limit = daily_limit or _positive_env_int(
             "BETBOY_API_DAILY_LIMIT",
             DEFAULT_DAILY_LIMIT,
@@ -223,6 +227,11 @@ class APIBudgetGovernor:
             APIBudgetPriority.BACKGROUND: self.background_reserve,
         }[priority]
 
+    def _quota_day(self, current: datetime) -> str:
+        """Existing ledger key: the first UTC day of the configured period."""
+        day = current.astimezone(timezone.utc).date()
+        return (day.replace(day=1) if self.quota_period == "month" else day).isoformat()
+
     def reserve(
         self,
         *,
@@ -231,11 +240,14 @@ class APIBudgetGovernor:
         priority: APIBudgetPriority | str,
         provider: str = "api-football",
         now: Optional[datetime] = None,
+        cost: int = 1,
     ) -> APIBudgetReservation:
+        if isinstance(cost, bool) or not isinstance(cost, int) or cost <= 0:
+            raise APIBudgetUnavailable("Request cost must be a positive integer")
         selected_priority = _priority(priority)
         account = _account_hash(api_key)
         current = (now or _utc_now()).astimezone(timezone.utc)
-        day = current.date().isoformat()
+        day = self._quota_day(current)
         started_at = current.isoformat()
         floor = self._floor(selected_priority)
 
@@ -274,7 +286,7 @@ class APIBudgetGovernor:
                         int(row["daily_limit"]),
                     )
 
-                if remaining <= floor:
+                if remaining - cost < floor:
                     cursor = connection.execute(
                         """
                         INSERT INTO api_budget_events (
@@ -303,7 +315,7 @@ class APIBudgetGovernor:
                         f"{remaining} Rest-Calls vor dem Reservebereich {floor} blockiert."
                     )
 
-                after = remaining - 1
+                after = remaining - cost
                 connection.execute(
                     """
                     UPDATE api_budget_state
@@ -333,7 +345,7 @@ class APIBudgetGovernor:
                 )
                 cutoff = (current - timedelta(days=21)).date().isoformat()
                 connection.execute(
-                    "DELETE FROM api_budget_events WHERE quota_day < ?",
+                    "DELETE FROM api_budget_events WHERE started_at < ?",
                     (cutoff,),
                 )
                 connection.commit()
@@ -447,7 +459,7 @@ class APIBudgetGovernor:
         now: Optional[datetime] = None,
     ) -> APIBudgetSnapshot:
         account = _account_hash(api_key)
-        day = (now or _utc_now()).astimezone(timezone.utc).date().isoformat()
+        day = self._quota_day(now or _utc_now())
         try:
             with closing(self._connect()) as connection:
                 row = connection.execute(
@@ -498,7 +510,7 @@ class APIBudgetGovernor:
         ):
             raise ValueError("Provider usage must be valid daily integer counts")
         current = (now or _utc_now()).astimezone(timezone.utc)
-        day = current.date().isoformat()
+        day = self._quota_day(current)
         account = _account_hash(api_key)
         provider_remaining = daily_limit - used
         try:
