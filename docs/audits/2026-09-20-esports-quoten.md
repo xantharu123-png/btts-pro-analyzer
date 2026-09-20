@@ -52,8 +52,43 @@ Gezielte Tests zur Spiel-/Disziplin-/Marktbindung, nativen Stapelgrenze und
 Oberfläche: 199 bestanden. Abschließende breite Regression: 1.358 Tests und
 111 Untertests bestanden (inklusive finanzieller Altverträge und direktem
 Vergleich mit dem historischen E-Sport-Code). Kein Claim eines Vollsuite-Laufs.
-VPS-Nachweis wird vor Abschluss unten ergänzt. Bestehende Tennis-/Kontext-/
-Workerprobleme sind nicht Gegenstand dieses Quotenanschlusses.
+Zusätzlich 218 Anschlusstests auf dem synchronisierten lokalen main bestanden.
+Bestehende Tennis-/Kontext-/Workerprobleme sind nicht Gegenstand dieses Anschlusses.
+
+## Tatsächlicher VPS-Anschluss
+
+- Funktionscommit `696635d7144d22b034f3d0863dabbfbc25bbd104` auf main/GitHub/VPS.
+  Vorheriger VPS-Stand `c80d5cc`; Fast-forward ohne Überschreiben fremder Änderungen.
+- Schlüssel atomar in `/etc/betboy/betboy.env` ergänzt, root:betboy 0640.
+  Gegenprobe als Appnutzer: Konfiguration stimmt, Free-Tarif aktiv, App erhält
+  den Schlüssel nach Neustart. Keine Ausgabe des Schlüssels oder Account-Rohdaten.
+- Echter vollständiger Abruf: `complete`, null Fehler, sieben E-Sport-Spiele
+  in einem Cache von 8.987 Bytes; fünf Anfragen. Vorher 238/250 Anfragen frei.
+- Spiele: Sparta eSports–Inox Division, Bestia–Bounty Hunters, Team Liquid–Flyquest,
+  Fennel–Cupid eSports, Galions–Saigon Warriors, Solary–Zsk und Sashi eSport–Fokus.
+  CS2 und LoL lieferten in dieser Probe Preise; keine behauptete reale Dota-/
+  Valorant-Abdeckung ohne Angebot. Parser beider Disziplinen separat getestet.
+- Zunächst keine passenden aktuellen Modelle: der erfolgreiche morgendliche
+  E-Sport-Scan ließ nur vier noch kommende Valorant-Modelle am 24./25.09. übrig,
+  also außerhalb des bepreisten Fensters. Bestehenden E-Sport-Dienst einmal
+  erneut ausgeführt: Ende 18:46:36 CEST, Exit 0, 30 Spiele, acht neue Modelle.
+- Danach zwölf kommende Datenbankmodelle, davon zwei exakt bepreist:
+  Team Liquid–FlyQuest (Team Liquid 1,267) und Galions–Saigon Warriors (Galions
+  1,41). Native Karten mit diesen echten Modellen/Quoten erfolgreich gerendert;
+  Wahrscheinlichkeit unverändert, weder freigegebener Tipp noch Einsatz erzeugt.
+- Keine erzwungene unscharfe Zuordnung von `SPARTA` zu `Sparta eSports`.
+  Fehlende Angebote bleiben unbekannt, auch wenn eine andere Quelle ähnlich heißt.
+- Gemeinsamer Wettfinderlauf startete bereits 18:37:11 vor dem Codewechsel und
+  läuft zum Zeitpunkt dieser Prüfung noch. Seine Veröffentlichung vom 18:18
+  enthält noch keine heute kommende E-Sport-Auswahl. Daher noch kein behaupteter
+  aktueller sichtbarer Tipp oder erfolgreicher Gesamtlauf. Ein neuer nativer
+  Scan allein ersetzt nicht dieses abschließende Veröffentlichungsartefakt.
+- App/Caddy und Wettfinder-Timer aktiv; interne/öffentliche Healthchecks `ok`.
+  Auf dem VPS kein pytest installiert: keine Linux-Pytest-Suite behauptet und
+  keine Pakete nachinstalliert. Stattdessen echte Abruf-/Modell-/Renderprüfungen.
+- Produktionsmodelle durch den reinen Quotenabruf bytegleich geblieben.
+  Modelländerungen ausschließlich durch den regulären E-Sport-Dienst.
+  Keine Bereinigung, zusätzliche Produktionsdatenbank oder Backupaktivierung.
 
 ## Primärquellen
 

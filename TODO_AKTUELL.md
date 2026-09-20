@@ -16,7 +16,15 @@
   Vor jedem Abruf aktive Free-Subscription prüfen; kein kostenpflichtiger Wechsel.
 - Kein neuer Timer, kein Historienwachstum: ein begrenzter ersetzbarer Quotencache,
   Budget im vorhandenen Zähler. Keine neue Bereinigung oder Backupaktivierung.
-- Release-/VPS-Nachweis folgt in
+- Funktionscommit `696635d` auf main/GitHub/VPS; Schlüssel root:betboy 0640,
+  App neu gestartet, interner/öffentlicher Healthcheck `ok`. 1.358 Tests plus
+  111 Untertests und 218 zusätzliche main-Anschlusstests bestanden.
+- Vollständiger VPS-Quotenabruf: sieben kommende Spiele, fünf Anfragen,
+  keine Fehler, Cache 8.987 Bytes. E-Sport-Worker um 18:46 CEST erfolgreich:
+  30 Spiele geprüft, acht neue Modelle. Zwei exakte Modell-/Preiszuordnungen
+  bestätigt; der schon laufende gemeinsame Wettfinder ist noch nicht fertig.
+  Den langsamen Gesamtlauf nicht durch diesen Anschluss als repariert melden.
+- Release-/VPS-Nachweis in
   [E-Sport-Anschlussbericht](docs/audits/2026-09-20-esports-quoten.md).
   Ältere Angaben unterhalb dieses Blocks sind historische Zwischenstände.
 

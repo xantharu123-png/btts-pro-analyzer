@@ -1,5 +1,18 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – E-Sport-Quoten 20.09.2026
+
+Zuerst [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
+[E-Sport-Anschlussbericht](docs/audits/2026-09-20-esports-quoten.md) lesen.
+OddsPapi-Free-Zugang installiert; Funktionscommit `696635d` auf main/GitHub/VPS.
+Gemeinsame echte Serien-Sieg-Preise für Wettfinder/Daily3/RisikoBet, 1,20-Filter,
+keine Modelländerung durch Quoten. 1.358 Tests plus 111 Untertests bestanden.
+Nativer Abruf: sieben Spiele, circa 9 KB Cache. Erneuter regulärer E-Sport-Lauf
+erfolgreich, acht neue Modelle; zwei exakt bepreiste Modelle nativ gerendert.
+Der um 18:37 gestartete gemeinsame Wettfinderlauf ist noch nicht fertig; dessen
+Veröffentlichung/Modelldatenprobleme nicht als durch den Schlüssel gelöst melden.
+Keine neuen Backups, Bereinigungen, Timer oder persönlichen Browserzugriffe.
+
 ## Aktueller Einstieg – Fortsetzung 20.09.2026
 
 Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
