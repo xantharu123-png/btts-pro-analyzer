@@ -10,6 +10,7 @@ from typing import Mapping, Optional
 
 import streamlit as st
 from context_links import ContextReference
+from team_sport_forecasts import TeamSportForecast
 from betting_math import odds_below_publication_floor
 from riskobet_prices import load_shared_price_overlays
 
@@ -177,7 +178,8 @@ def _factor(payload: object) -> FactorEvidence:
 
 def _snapshot(payload: object) -> EventModelSnapshot:
     data = _mapping(payload, "snapshot")
-    _exact_keys(data, _SNAPSHOT_KEYS | ({"context_ref"} if "context_ref" in data else set()), "snapshot")
+    optional = {"context_ref", "team_sport_forecast"} & data.keys()
+    _exact_keys(data, _SNAPSHOT_KEYS | optional, "snapshot")
     try:
         snapshot = EventModelSnapshot(
             event_key=data["event_key"],
@@ -196,6 +198,10 @@ def _snapshot(payload: object) -> EventModelSnapshot:
                 _sequence(data["missing_core_data"], "missing_core_data")
             ),
             context_ref=ContextReference.from_dict(data["context_ref"]) if "context_ref" in data else None,
+            team_sport_forecast=(
+                TeamSportForecast.from_dict(data["team_sport_forecast"])
+                if "team_sport_forecast" in data else None
+            ),
         )
     except (KeyError, TypeError, ValueError) as exc:
         if isinstance(exc, RiskBetViewError):

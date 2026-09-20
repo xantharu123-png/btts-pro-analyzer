@@ -249,6 +249,39 @@ def test_load_uses_read_latest_without_initialising_db_or_provider(monkeypatch, 
     assert "requests" not in ui.__dict__
 
 
+@pytest.mark.parametrize('sport', ['basketball', 'ice_hockey'])
+def test_team_sport_snapshot_does_not_break_entire_consumer_page(monkeypatch,sport):
+    from test_team_sport_forecasts import _snapshot
+    team_snapshot = _snapshot(sport)
+    payload = _payload(_bundle('football-existing'))
+    payload['snapshots'].append(team_snapshot.to_dict())
+    monkeypatch.setattr(ui,'_read_latest',lambda *_: payload)
+    view = ui.load_riskobet_view()
+    assert len(view.snapshots) == 2
+    assert view.snapshots[team_snapshot.snapshot_id] == team_snapshot
+    assert len(view.candidates) == 1
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui,'st',fake)
+    monkeypatch.setattr(ui,'load_shared_price_overlays',lambda *_: {})
+    ui.render_riskobet()
+    assert not any(kind == 'error' for kind,_,_ in fake.messages)
+    assert _rendered_candidate_ids(fake) == [view.candidates[0].candidate_id]
+
+
+@pytest.mark.parametrize('problem', ['identity', 'nested_field', 'unbound_event'])
+def test_team_sport_snapshot_reader_keeps_strict_validation(problem):
+    from test_team_sport_forecasts import _snapshot
+    payload = _snapshot().to_dict()
+    if problem == 'identity':
+        payload['snapshot_id'] = 'forged'
+    elif problem == 'nested_field':
+        payload['team_sport_forecast']['unrecognised'] = 'not allowed'
+    else:
+        payload['team_sport_forecast']['provider_event_id'] = 'another-event'
+    with pytest.raises(ui.RiskBetViewError):
+        ui._snapshot(payload)
+
+
 def test_default_load_recovers_from_backed_up_database_without_initialising_store(
     monkeypatch,
 ):

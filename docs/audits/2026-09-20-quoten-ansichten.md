@@ -19,7 +19,11 @@
 
 ## Grenzen
 
-Lokale Regression: 1.079 Tests und 58 Untertests bestanden, einschließlich Streamlit-AppTest für Wettfinder, Daily3 und Tennis sowie Grenz-/Zuordnungsprüfungen aller fünf in Umfang befindlichen Sportarten. Dies ist keine Aussage über eine vollständige Gesamtsuite oder empirische Wettqualität.
+Der Produktionscheck fand außerdem vier Eishockey-Snapshots mit dem bereits gültigen Feld `team_sport_forecast`, das der RisikoBet-Seitenleser noch ablehnte. Der Leser übernimmt jetzt den bestehenden geschlossenen Domain-Vertrag einschließlich Ereignisbindung und Snapshot-ID-Prüfung. Ungültige Zusatzfelder oder umgebundene Events bleiben abgewiesen.
+
+Lokale Regression: 1.085 Tests und 58 Untertests bestanden, einschließlich Streamlit-AppTest für Wettfinder, Daily3 und Tennis sowie Grenz-/Zuordnungsprüfungen aller fünf in Umfang befindlichen Sportarten. Dies ist keine Aussage über eine vollständige Gesamtsuite oder empirische Wettqualität.
+
+VPS-Preisaktualisierung um 12:40 CEST: 99 exakt passende Quoten aus zehn Spielen, keine Abruffehler. Der anschließend geladene Wettfinder zeigte 42 Quoten mit ihrem tatsächlichen älteren Stand; keine sichtbare Auswahl hatte eine passende beobachtete Quote unter 1,20. Modell- und Kontextzeiten wurden nicht vorverlegt.
 
 Kein Nachweis besserer Prognosequalität durch diese Änderung. Verletzungs-/Müdigkeitseffekte, Tennis-Kontextfehler und vollständige Quotenquellen anderer Sportarten sind dadurch nicht erledigt. Cricket bleibt ausgenommen.
 
