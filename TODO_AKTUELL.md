@@ -1,5 +1,17 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Nutzeransicht 20.09.2026 – Diagnosebanner entfernt
+
+- Automatischer Wettfinder: kein globaler Auswahlzähler und kein Banner
+  „Suche unvollständig“ mehr, auch kein Ersatzabsatz oder leerer Rahmen.
+- Datenstand, Sportfilter, Spielblöcke, sämtliche Auswahlen und wichtige
+  Hinweise an einzelnen Karten bleiben erhalten. Interne Fehler-/Abdeckungs-
+  daten werden nicht verändert oder als erfolgreich umgeschrieben.
+- 243 betroffene Tests bestanden; zusätzlich echter Streamlit-Testlauf mit
+  23 Spielblöcken, erhaltenem Datenstand und ohne Exception. Interner Browser
+  wegen Sandbox-Startfehler nicht verfügbar; kein externer Browser verwendet.
+- Reine UI-Korrektur. Die folgenden Tennis-/Kontext-Restarbeiten bleiben offen.
+
 ## Fortsetzung 20.09.2026 – Datenlauf-Konflikt
 
 - Übergabe gegen echte Daten geprüft: `2758619` war lokal/GitHub/VPS identisch.

@@ -804,58 +804,6 @@ def _apply_app_styles() -> None:
             min-height: 44px;
         }
 
-        .st-key-wettfinder_v2_summary {
-            background: var(--bb-surface);
-            border: 1px solid var(--bb-line);
-            border-radius: 12px;
-            margin: 0 0 1.35rem;
-            padding: 0.85rem 1rem;
-        }
-
-        .st-key-wettfinder_v2_summary [data-testid="stMarkdownContainer"] p {
-            margin: 0;
-        }
-
-        .st-key-wettfinder_v2_page .wf-run-summary {
-            align-items: center;
-            display: flex;
-            gap: 0.8rem;
-            justify-content: space-between;
-            min-width: 0;
-        }
-
-        .st-key-wettfinder_v2_page .wf-run-copy {
-            align-items: baseline;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.35rem 0.9rem;
-            min-width: 0;
-        }
-
-        .st-key-wettfinder_v2_page .wf-run-copy strong {
-            color: var(--bb-ink);
-            font-size: 0.95rem;
-        }
-
-        .st-key-wettfinder_v2_page .wf-run-copy span {
-            color: var(--bb-muted);
-            font-size: 0.84rem;
-        }
-
-        .st-key-wettfinder_v2_page .wf-run-badge {
-            border-radius: 999px;
-            flex: 0 0 auto;
-            font-size: 0.74rem;
-            font-weight: 750;
-            line-height: 1;
-            padding: 0.45rem 0.7rem;
-        }
-
-        .st-key-wettfinder_v2_page .wf-run-badge-partial {
-            background: #fff0cc;
-            color: #7a4800;
-        }
-
         .st-key-wettfinder_v2_section_header {
             margin-top: 0.2rem;
         }
@@ -1362,19 +1310,6 @@ def _apply_app_styles() -> None:
         }
 
         @media (max-width: 430px) {
-            .st-key-wettfinder_v2_page .wf-run-summary {
-                align-items: flex-start;
-            }
-
-            .st-key-wettfinder_v2_page .wf-run-copy {
-                display: block;
-            }
-
-            .st-key-wettfinder_v2_page .wf-run-copy span {
-                display: block;
-                margin-top: 0.2rem;
-            }
-
             [class*="st-key-wettfinder_v2_top_card_"] {
                 border-radius: 14px;
                 padding: 0.85rem;
@@ -4685,62 +4620,6 @@ def _automatic_partial_scope_notice(
     )
 
 
-def _automatic_consumer_run_incomplete(
-    status: AutomatedWettfinderStatus,
-) -> bool:
-    """Reduce internal coverage state to one consumer-safe warning flag."""
-
-    pending = sum(
-        int(getattr(status, field, 0) or 0)
-        for field in (
-            "context_data_incomplete_fixtures",
-            "context_unchecked_fixtures",
-            "deferred_context_fixtures",
-        )
-    )
-    unmodeled = max(
-        int(getattr(status, "fixtures_found", 0) or 0)
-        - int(getattr(status, "fixtures_modeled", 0) or 0),
-        0,
-    )
-    return (
-        status.football_status != "completed"
-        or int(getattr(status, "operational_error_count", 0) or 0) > 0
-        or int(
-            getattr(status, "football_operational_error_count", 0) or 0
-        )
-        > 0
-        or pending > 0
-        or unmodeled > 0
-        or not bool(getattr(status, "context_accounting_available", False))
-        or not bool(getattr(status, "context_scope_complete", False))
-    )
-
-
-def _automatic_run_summary_markup(
-    visible_count: int,
-    *,
-    incomplete_run: bool,
-) -> str:
-    count_label = (
-        "1 berechnete Auswahl"
-        if visible_count == 1
-        else f"{visible_count} berechnete Auswahlen"
-    )
-    partial_badge = (
-        '<span class="wf-run-badge wf-run-badge-partial">Suche unvollständig</span>'
-        if incomplete_run
-        else ""
-    )
-    return (
-        '<div class="wf-run-summary">'
-        '<div class="wf-run-copy">'
-        f"<strong>{count_label}</strong>"
-        "</div>"
-        f"{partial_badge}</div>"
-    )
-
-
 def _automatic_release_overlay(evaluation) -> Optional[WettfinderReleaseOverlay]:
     """Build an overlay only from one validated executable BET snapshot."""
 
@@ -4901,8 +4780,8 @@ def _render_automated_daily_selection() -> None:
         time_parts.append(f"Geprüft: {_format_stand(status.last_discovery_at)}")
     st.caption(" · ".join(time_parts))
 
-    incomplete_run = _automatic_consumer_run_incomplete(status)
-    summary_slot = st.empty()
+    # Run counters/coverage belong to the stored operational status, not a
+    # second public banner. Keep data freshness and each card's limitations.
     with st.container(key="wettfinder_v2_sports"):
         sport_filter = _segmented(
             "Sportart",
@@ -4914,16 +4793,6 @@ def _render_automated_daily_selection() -> None:
         (card for _signal, card, _candidate, _binding, _evaluation in rows),
         sport_filter=sport_filter,
     )
-    visible_count = len(catalog.featured) + len(catalog.additional)
-    with summary_slot.container():
-        with st.container(key="wettfinder_v2_summary"):
-            st.markdown(
-                _automatic_run_summary_markup(
-                    visible_count,
-                    incomplete_run=incomplete_run,
-                ),
-                unsafe_allow_html=True,
-            )
     if not catalog.featured and not catalog.additional:
         if sport_filter == "Alle":
             message = "Für diesen Spieltag liegt aktuell keine Modellprognose vor."

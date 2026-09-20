@@ -479,15 +479,15 @@ def test_automatic_empty_surface_uses_only_short_consumer_copy(monkeypatch):
         for value, kwargs, _context in recording_st.markdown_calls
         if kwargs.get("unsafe_allow_html")
     )
-    assert "0 berechnete Auswahlen" in html
-    assert 'class="wf-run-badge wf-run-badge-partial">Suche unvollständig' in html
+    assert "berechnete Auswahlen" not in html
+    assert "Suche unvollständig" not in html
     assert "Spiele gefunden" not in public_text
     assert "Kontextdaten geprüft" not in public_text
     assert "Preisprüfung" not in public_text
     assert "Value-Grenze" not in public_text
 
 
-def test_automatic_forecast_surface_shows_one_compact_hint_and_warning(
+def test_automatic_forecast_surface_omits_global_diagnostic_banner(
     monkeypatch,
 ):
     now = datetime.now(timezone.utc)
@@ -531,15 +531,15 @@ def test_automatic_forecast_surface_shows_one_compact_hint_and_warning(
         for value, kwargs, _context in recording_st.markdown_calls
         if kwargs.get("unsafe_allow_html")
     )
-    assert "1 berechnete Auswahl" in html
+    assert "1 berechnete Auswahl" not in html
     assert "Modell und Wettpreis werden getrennt bewertet." not in html
-    assert 'class="wf-run-badge wf-run-badge-partial">Suche unvollständig' in html
+    assert "Suche unvollständig" not in html
     assert "Spiele gefunden" not in public_text
     assert "Tagesumfang" not in public_text
     assert "Preisprüfungen" not in public_text
 
 
-def test_non_football_failure_marks_the_all_sports_run_as_partial(monkeypatch):
+def test_non_football_failure_does_not_add_a_global_diagnostic_banner(monkeypatch):
     now = datetime.now(timezone.utc)
     status = SimpleNamespace(
         target_search_date=now.date().isoformat(),
@@ -578,7 +578,39 @@ def test_non_football_failure_marks_the_all_sports_run_as_partial(monkeypatch):
         for value, kwargs, _context in recording_st.markdown_calls
         if kwargs.get("unsafe_allow_html")
     )
-    assert 'class="wf-run-badge wf-run-badge-partial">Suche unvollständig' in html
+    assert "Suche unvollständig" not in html
+    assert status.operational_error_count == 1
+
+
+@pytest.mark.parametrize("incomplete", [False, True])
+def test_large_automatic_inventory_keeps_all_cards_without_diagnostic_banner(monkeypatch, incomplete):
+    now = datetime.now(timezone.utc)
+    status = _automatic_status(
+        now, fixtures_found=400 if incomplete else 345, fixtures_modeled=345,
+        football_status="degraded" if incomplete else "completed",
+        operational_error_count=int(incomplete),
+        context_scope_complete=not incomplete,
+    )
+    before = vars(status).copy()
+    forecasts = [_automatic_forecast(f"forecast-{index}") for index in range(345)]
+    recording_st = _RecordingStreamlit()
+    monkeypatch.setattr(app, "st", recording_st)
+    _patch_automatic_snapshot(monkeypatch, status=status, forecasts=forecasts)
+    rendered = []
+    monkeypatch.setattr(app, "_render_wettfinder_games",
+                        lambda catalog, rows, **kwargs: rendered.append((catalog, rows)))
+
+    app._render_automated_daily_selection()
+
+    catalog, rows = rendered[0]
+    assert len(catalog.featured) + len(catalog.additional) == len(rows) == 345
+    assert set(rows) == {signal.key for signal in forecasts}
+    public_text = " ".join(str(value) for _, value in recording_st.messages)
+    for text in ("berechnete Auswahl", "Suche unvollständig", "wf-run-summary"):
+        assert text not in public_text
+    assert "wettfinder_v2_summary" not in recording_st.containers
+    assert "Ergebnisstand:" in public_text
+    assert vars(status) == before  # Operational reporting keeps its real state.
 
 
 def test_manual_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
@@ -996,7 +1028,6 @@ def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
         )
     )
     assert {
-        "wettfinder_v2_summary",
         "wettfinder_v2_sports",
         "wettfinder_v2_additional",
         "wettfinder_v2_game_market_football-one",
@@ -1104,7 +1135,7 @@ def test_automatic_surface_offers_all_configured_sports_and_short_empty_state(
     assert recording_st.expanders == []
 
 
-def test_automatic_partial_run_copy_stays_consumer_facing(monkeypatch):
+def test_automatic_partial_run_keeps_diagnostics_out_of_consumer_copy(monkeypatch):
     now = datetime.now(timezone.utc)
     recording_st = _RecordingStreamlit()
     monkeypatch.setattr(app, "st", recording_st)
@@ -1136,10 +1167,10 @@ def test_automatic_partial_run_copy_stays_consumer_facing(monkeypatch):
         for kind, value in recording_st.messages
         if kind in {"warning", "info"}
     ] == []
-    assert html.count('class="wf-run-summary"') == 1
-    assert "1 berechnete Auswahl" in html
+    assert 'class="wf-run-summary"' not in html
+    assert "1 berechnete Auswahl" not in html
     assert "Modell und Wettpreis werden getrennt bewertet." not in html
-    assert 'class="wf-run-badge wf-run-badge-partial">Suche unvollständig' in html
+    assert "Suche unvollständig" not in html
     # Match internal diagnostics by their labels, not bare numbers: a counter
     # such as ``44`` can legitimately be the current minute in the timestamp.
     for internal_copy in ("Spiele gefunden", "modelliert", "Preisprüfung"):
