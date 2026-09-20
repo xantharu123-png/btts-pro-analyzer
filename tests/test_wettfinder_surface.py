@@ -71,14 +71,21 @@ def _signal(
         modeled_at=NOW.isoformat(), input_cutoff_at=NOW.isoformat(),
         model_scope='same_competition', home_team_id=10 if sport == 'Fussball' else None,
         away_team_id=11 if sport == 'Fussball' else None,
+        model_version='surface-model-v1',
     )
     # Catalog/diversity fixtures explicitly carry current exact-bound evidence.
     # Legacy unknown-clock/evidence behavior has dedicated neutral-card tests.
     if sport == 'Fussball':
         raw = vars(signal)
+        comparison = dict(schema='league-market-comparison-v1', fixture_id=signal.fixture_id,
+            home_id=10, away_id=11, league_id=39, market_key=market_key,
+            scheduled_start=signal.scheduled_start, prediction_version=signal.model_version,
+            validation_prediction_version=signal.model_version, model_skill_supported=True,
+            samples=400, successes=200, latest_kickoff=(NOW-timedelta(days=1)).isoformat(),
+            probabilities=[.68, .63, .78])
         return replace(signal, analysis_evidence=project_football_analysis(raw, model_basis={
             **raw, 'expected_home_goals': 1.8, 'expected_away_goals': .9,
-            'venue_samples': [12, 12], 'form_samples': [6, 6]}))
+            'venue_samples': [12, 12], 'form_samples': [6, 6], 'market_comparison': comparison}))
     signal = replace(signal, competitor_a='A', competitor_b='B', selected_competitor='A',
                      fixture_source='test', provider_event_id=key)
     if sport == 'Tennis':

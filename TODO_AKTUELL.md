@@ -1,5 +1,27 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Hervorhebungen 20.09.2026 – spielbezogener Vergleich auch im Wettfinder
+
+- Fehler am echten Bestand reproduziert: Corinthians–Fluminense, Auswärtsteam
+  unter 2,5, wurde mit 89,8628 % hervorgehoben, obwohl die Saisonbasis schon
+  91,655 % und die Formvariante nur 81,8378 % ergaben. Bisher prüfte nur Daily3
+  den zusätzlichen spielbezogenen Formvergleich; im Wettfinder fehlte er.
+- Fußball-Hervorhebungen nutzen jetzt denselben exakt gebundenen Vergleich
+  und werden nach seinem Formkontrast geordnet. Die vorhandene Zwei-Prozent-
+  punkte-Relevanzregel ist kein Sicherheits-/Valuebeweis. Keine Wettarten-
+  verbote, keine Quotenfilter, keine Daily3-Wahrscheinlichkeitsschwelle im
+  normalen Wettfinder. Eine kurze Formangabe erklärt die Hervorhebung.
+- Richtungs-/Widerspruchsprüfung bleibt davor: Ein positiver Formkontrast
+  eines Außenseiters darf die wahrscheinlichere Ergebnisrichtung nicht verdrängen.
+- 706 Tests plus 26 Untertests bestanden; 19 neue Regressionen sichern den
+  gemeldeten Fall, weiterhin erlaubte breite Märkte, Quotenunabhängigkeit,
+  Belegbindung und Ergebnisrichtung. Streamlit: 23 Spielblöcke, keine Exception.
+- Rein lesender Vorher-/Nachher-Lauf am VPS um 10:47 CEST: 621 Eingangssignale,
+  dieselben 338 kohärenten Prognosen samt Wahrscheinlichkeiten; Fluminense
+  unter 2,5 nicht mehr hervorgehoben. Keine Produktionsdatei dafür verändert.
+- Nur Auswahlpräsentation korrigiert, keine neue Modellqualität nachgewiesen.
+  Tennis-Laufzeit und vollständige Verletzungs-/Müdigkeits-/Wetterwirkung bleiben offen.
+
 ## Nutzeransicht 20.09.2026 – Diagnosebanner entfernt
 
 - Automatischer Wettfinder: kein globaler Auswahlzähler und kein Banner

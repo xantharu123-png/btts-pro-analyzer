@@ -152,13 +152,15 @@ def _fact_html(fact):
             f'<div class="wf-fact-detail">{body}</div></details>')
 
 
-def render_compact_analysis_html(compact):
+def render_compact_analysis_html(compact, *, supporting_fact=''):
     facts = ''.join(_fact_html(fact) for fact in compact.facts)
     warnings = ' · '.join(escape(text) for text in compact.warnings)
     warning_html = f'<p class="wf-analysis-alert">{warnings}</p>' if warnings else ''
     explanation = _fact_html(Fact('Berechnung & Daten', '', compact.explanation))
+    support = f'<p class="wf-analysis-support">{escape(supporting_fact)}</p>' if supporting_fact else ''
     return ('<section class="wf-analysis" aria-label="Kurzcheck">'
             f'<p class="wf-analysis-short">{escape(compact.summary)}</p>'
+            f'{support}'
             f'<div class="wf-facts">{facts}</div>{warning_html}'
             f'<div class="wf-analysis-footer"><span>Berechnet: {escape(compact.model_clock)}</span>{explanation}</div>'
             '</section>')

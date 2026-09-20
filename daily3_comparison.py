@@ -1,4 +1,4 @@
-"""Quote-free Daily3 comparison evidence, not a claim of betting value.
+"""Quote-free football comparison evidence, not a claim of betting value.
 
 Retain exact-bound model variants and league observations. Shortlisting uses
 the recent-form change against the same match's season-strength model, not an
@@ -162,7 +162,8 @@ class Comparison:
         return f'Saison/Form mindestens {model}; Ligavergleich {baseline} aus {self.samples} Spielen.'
 
 
-def daily3_comparison(signal, *, now, minimum_probability):
+def football_form_comparison(signal, *, now, minimum_probability=0.0):
+    """Shared prominence evidence; Daily3 alone adds its probability floor."""
     # This adapter only consumes an actual saved comparison. Missing sport-
     # specific baselines must not be replaced with an invented 50% prior.
     from forecast_analysis import read_football_analysis
@@ -189,3 +190,7 @@ def daily3_comparison(signal, *, now, minimum_probability):
     if floor < minimum_probability or margin < MIN_FORM_CHANGE - 1e-12:
         return None
     return Comparison(margin, floor, raw['successes']/raw['samples'], raw['samples'], season, active)
+
+
+def daily3_comparison(signal, *, now, minimum_probability):
+    return football_form_comparison(signal, now=now, minimum_probability=minimum_probability)

@@ -24,6 +24,7 @@ from bet_finder_ui import (
     consumer_fixture_label,
 )
 from ev_signal_sources import ModelSignal
+from daily3_comparison import Comparison, football_form_comparison
 from forecast_analysis import build_forecast_analysis, forecast_highlight_reason, format_model_clock
 from forecast_compact import CompactAnalysis, build_compact_analysis, render_compact_analysis_html
 from forecast_selection import select_consumer_forecasts
@@ -96,6 +97,9 @@ class WettfinderCard:
     highlight_reason: str = "Modellgrundlagen nicht geprüft"
     analysis_data_age: str = ""
     compact_analysis: Optional[CompactAnalysis] = None
+    # Separate from evidence qualification: coherence must still choose the
+    # model's modal direction before any presentation-interest comparison.
+    highlight_comparison: Optional[Comparison] = None
 
 
 @dataclass(frozen=True)
@@ -490,6 +494,8 @@ def build_wettfinder_card(
         highlight_reason=highlight_reason,
         analysis_data_age=analysis.data_age,
         compact_analysis=build_compact_analysis(signal, analysis, now=now),
+        highlight_comparison=(football_form_comparison(signal, now=now)
+                              if not highlight_reason else None),
     )
 
 
@@ -515,6 +521,14 @@ def _round_robin_by_sport(cards: Iterable[WettfinderCard]) -> list[WettfinderCar
             return result
 
 
+def _can_feature(card: WettfinderCard) -> bool:
+    if not card.highlight_eligible:
+        return False
+    if _token(card.sport) in {"fussball", "football"}:
+        return card.highlight_comparison is not None
+    return True
+
+
 def _select_featured(
     cards: Iterable[WettfinderCard],
     *,
@@ -522,12 +536,21 @@ def _select_featured(
 ) -> tuple[WettfinderCard, ...]:
     """Choose useful, sport-diverse cards without considering price data."""
 
+    # Rank football only after whole-pool directional coherence. Keep the
+    # other sports' evidence rules and cross-sport rotation; no quote or
+    # raw-probability ranking, and no quota filled with unsupported forecasts.
+    queues: OrderedDict[str, list[WettfinderCard]] = OrderedDict()
+    for card in cards:
+        if _can_feature(card):
+            queues.setdefault(_token(card.sport), []).append(card)
+    for sport, queue in queues.items():
+        if sport in {"fussball", "football"}:
+            queue.sort(key=lambda card: (-card.highlight_comparison.margin, card.key))
+    ranked = _round_robin_by_sport(card for queue in queues.values() for card in queue)
     selected: list[WettfinderCard] = []
     fixtures: set[str] = set()
     markets: set[str] = set()
-    for card in cards:
-        if not card.highlight_eligible:
-            continue
+    for card in ranked:
         fixture = _fixture_identity(card)
         market = f"{_token(card.sport)}:{_consumer_market_identity(card)}"
         if fixture in fixtures or market in markets:
@@ -620,7 +643,7 @@ _PRICE_NOTES = {
 
 def _status_badges(card: WettfinderCard, *, featured: bool) -> str:
     badges = []
-    if featured and card.highlight_eligible:
+    if featured and _can_feature(card):
         badges.append(
             '<span class="wf-badge wf-badge-top" '
             'aria-label="Aktuelle Modell-Auswahl">MODELL-AUSWAHL</span>'
@@ -660,9 +683,12 @@ def _row_value(label: str, value: str, *, note: Optional[str] = None) -> str:
     )
 
 
-def _analysis_markup(card: WettfinderCard) -> str:
+def _analysis_markup(card: WettfinderCard, *, featured: bool = False) -> str:
+    supporting_fact = (card.highlight_comparison.summary
+                       if featured and _can_feature(card) and card.highlight_comparison else "")
     if card.compact_analysis is not None:
-        return render_compact_analysis_html(card.compact_analysis)
+        return render_compact_analysis_html(card.compact_analysis, supporting_fact=supporting_fact)
+    support = f'<p class="wf-analysis-support">{escape(supporting_fact)}</p>' if supporting_fact else ''
     samples = (
         f'<p class="wf-analysis-samples">{escape(card.analysis_samples)}</p>'
         if card.analysis_samples else ""
@@ -676,6 +702,7 @@ def _analysis_markup(card: WettfinderCard) -> str:
         '<section class="wf-analysis">'
         '<h4>Warum diese Auswahl?</h4>'
         f'<p class="wf-analysis-basis">{escape(card.analysis_basis)}</p>'
+        f'{support}'
         f'<p class="wf-analysis-caution">{escape(card.analysis_caution)}</p>'
         f"{samples}"
         f'<p class="wf-analysis-age">{escape(clocks)}</p>'
@@ -718,7 +745,7 @@ def _top_card_markup(card: WettfinderCard) -> str:
         '<span>Modellwahrscheinlichkeit</span>'
         f'<strong>{escape(format_probability(card.model_probability))}</strong>'
         "</div>"
-        f"{_analysis_markup(card)}"
+        f"{_analysis_markup(card, featured=True)}"
         f'<div class="wf-metric-grid">{metrics}</div>'
         '<p class="wf-uncertainty-note">Rechenwerte, keine gesicherte Mindestchance.</p>'
         '<details class="wf-fact wf-price-explain"><summary>Preisberechnung</summary>'
@@ -766,7 +793,7 @@ def _compact_row_markup(card: WettfinderCard, *, grouped: bool = False, featured
         f'{_row_value("Risikopreis ab", format_decimal_odds(card.value_threshold))}'
         f'{_row_value("Aktuell", price, note=bookmaker_note)}'
         f"{_status_badges(card, featured=featured)}"
-        f"{_analysis_markup(card)}"
+        f"{_analysis_markup(card, featured=featured)}"
         f'{price_note}'
         "</article>"
     )
